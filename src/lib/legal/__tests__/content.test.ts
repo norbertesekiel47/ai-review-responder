@@ -93,3 +93,32 @@ describe('legal content — launch P0 #11 removals', () => {
     );
   });
 });
+
+describe('legal content — owner offboarding launch gate (PR7 Task 7.3)', () => {
+  it('discloses the non-refundable forfeiture for mid-cycle delete_data', () => {
+    const billing = legalDocs.terms.sections.find(
+      (section) => section.heading === 'Subscription and Billing',
+    );
+    expect(billing).toBeDefined();
+
+    const billingText = billing?.body.join(' ') ?? '';
+    expect(billingText).toContain('immediate account deletion');
+    expect(billingText).toContain('forfeit the remaining paid time');
+    expect(billingText).toContain('non-refundable');
+    expect(billingText).toContain('does not provide a self-serve data export');
+  });
+
+  it('makes the delete-or-anonymize promise without claiming absolute deletion', () => {
+    const termination = legalDocs.terms.sections.find(
+      (section) => section.heading === 'Termination',
+    );
+    expect(termination).toBeDefined();
+
+    const terminationText = termination?.body.join(' ') ?? '';
+    expect(terminationText).toContain('deletes or anonymizes');
+    expect(terminationText).toContain(
+      'retaining limited billing, security, and compliance records',
+    );
+    expect(terminationText).toContain('does not promise absolute deletion');
+  });
+});

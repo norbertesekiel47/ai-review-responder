@@ -47,6 +47,8 @@ export async function downgradeAutoApprovedResponseForManualReview(input: {
       return 'no-op';
     }
 
+    // FP: ordered writes inside one sql.begin tx (downgrade UPDATE → audit log → enqueue notification); parallelizing would break tx ordering.
+    // react-doctor-disable-next-line react-doctor/async-parallel
     await insertAuditLogAutoPolicy(tx, {
       responseId,
       businessId,

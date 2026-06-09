@@ -37,6 +37,11 @@ const PUBLIC: string[] = [
   // gates only the SSR pages.
   '/api/onboarding/business',
   '/api/onboarding/select-plan',
+  // Owner offboarding keep-my-data is token-authenticated and clicked from an
+  // email by a (logged-out) owner: GET renders a public confirmation page, POST
+  // validates the raw token. It must NOT require a session — the route does its
+  // own token validation. (Regression for staging dry-run defect D2.)
+  '/api/account/offboarding/keep-my-data',
 ];
 
 const PROTECTED: string[] = [
@@ -60,6 +65,10 @@ const PROTECTED: string[] = [
   '/api/dashboard',
   '/api/settings',
   '/api/account/settings',
+  '/api/account/offboarding/confirm',
+  '/api/account/offboarding/reactivate',
+  '/api/account/offboarding/status',
+  '/account/offboarding/status',
   '/api/zernio/connect/start',
   '/api/zernio/connect/cancel',
   '/api/zernio/connect/select-location',
@@ -123,5 +132,15 @@ describe('protected API route roles', () => {
   it('keeps Zernio disconnect mixed-role for owner and admin callers', () => {
     expect(isProtectedOwnerApiRoute('/api/zernio/disconnect')).toBe(false);
     expect(isProtectedMixedRoleApiRoute('/api/zernio/disconnect')).toBe(true);
+  });
+
+  it('exempts owner offboarding keep-my-data (token-authenticated, email-clicked)', () => {
+    // Regression for staging dry-run defect D2: the blanket /api/account/* owner
+    // gate trapped this public token-auth route, 401'ing logged-out owners who
+    // clicked the keep-my-data link in their email. The sibling confirm/
+    // reactivate/status routes stay owner-protected.
+    expect(isProtectedOwnerApiRoute('/api/account/offboarding/keep-my-data')).toBe(false);
+    expect(isProtectedRoute('/api/account/offboarding/keep-my-data')).toBe(false);
+    expect(isProtectedOwnerApiRoute('/api/account/offboarding/confirm')).toBe(true);
   });
 });

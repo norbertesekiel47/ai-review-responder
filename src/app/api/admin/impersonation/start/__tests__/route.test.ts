@@ -32,6 +32,18 @@ const {
   };
 });
 
+const { mockGetOffboardingState } = vi.hoisted(() => ({
+  mockGetOffboardingState: vi.fn(),
+}));
+
+vi.mock('@/lib/account-offboarding/gate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/account-offboarding/gate')>();
+  return {
+    ...actual,
+    getOffboardingState: (...args: unknown[]) => mockGetOffboardingState(...args),
+  };
+});
+
 vi.mock('@supabase/ssr', () => ({
   createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),
 }));
@@ -120,6 +132,7 @@ describe('POST /api/admin/impersonation/start', () => {
     });
     mockSignImpersonationSession.mockReturnValue('signed-session-cookie');
     mockAssertImpersonationCookieConfigured.mockReturnValue(undefined);
+    mockGetOffboardingState.mockResolvedValue(null);
   });
 
   it('requires same-origin admin AAL2 before starting a session', async () => {
@@ -175,6 +188,30 @@ describe('POST /api/admin/impersonation/start', () => {
     expect(missingOwnerRes.status).toBe(404);
     expect(await missingOwnerRes.json()).toEqual({ error: 'impersonated_user_not_found' });
     expect(mockStartImpersonationSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses to start impersonation against a full-block offboarding account (M4)', async () => {
+    const { POST } = await import('../route');
+    mockGetOffboardingState.mockResolvedValueOnce({
+      id: '55555555-5555-4555-8555-555555555555',
+      accountId: ACCOUNT_ID,
+      mode: 'delete_data',
+      status: 'tearing_down',
+      failedStep: null,
+      terminalAt: null,
+      accessEndsAt: null,
+      teardownStartedAt: new Date('2026-05-20T00:00:00.000Z'),
+      purgeAfter: null,
+      purgeStartedAt: null,
+      purgeCancelledAt: null,
+    });
+
+    const res = await POST(req(validBody()));
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(mockStartImpersonationSession).not.toHaveBeenCalled();
+    expect(mockSignImpersonationSession).not.toHaveBeenCalled();
   });
 
   it('does not create a DB session when the signing secret is unconfigured', async () => {

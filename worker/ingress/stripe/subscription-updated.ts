@@ -6,6 +6,12 @@ import { tierForBasePriceId, overagePriceIdSet } from '../../../src/lib/payments
 import { LOG_PREFIX, extractCustomerId } from './shared';
 
 export async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<void> {
+  const subscriptionId = sub.id;
+  if (!subscriptionId) {
+    console.warn(`${LOG_PREFIX} customer.subscription.updated missing subscription id — skipping tier update`);
+    return;
+  }
+
   const customerId = extractCustomerId(sub.customer);
   if (!customerId) {
     console.warn(`${LOG_PREFIX} customer.subscription.updated missing customer — skipping`);
@@ -46,15 +52,47 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
       subscription_tier: string;
       subscription_status: string;
       locations_paid: number;
+      stripe_subscription_id: string | null;
+      active_offboarding_subscription_id: string | null;
     }[]>`
-      SELECT id, subscription_tier, subscription_status, locations_paid
-      FROM accounts
-      WHERE stripe_customer_id = ${customerId}
+      SELECT
+        a.id,
+        a.subscription_tier,
+        a.subscription_status,
+        a.locations_paid,
+        a.stripe_subscription_id,
+        CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM account_offboardings ao
+            WHERE ao.account_id = a.id
+              AND ao.stripe_subscription_id = ${subscriptionId}
+              AND ao.terminal_at IS NULL
+          )
+          THEN ${subscriptionId}
+          ELSE NULL
+        END AS active_offboarding_subscription_id
+      FROM accounts a
+      WHERE a.stripe_customer_id = ${customerId}
       FOR UPDATE
     `;
 
     if (!acctRow) {
       console.warn(`${LOG_PREFIX} customer.subscription.updated no account found for customer=${customerId} — skipping tier update`);
+      return;
+    }
+
+    if (subscriptionId !== acctRow.stripe_subscription_id) {
+      if (subscriptionId === acctRow.active_offboarding_subscription_id) {
+        console.log(
+          `${LOG_PREFIX} customer.subscription.updated subscription=${subscriptionId} matches active offboarding snapshot for account ${acctRow.id} but not current subscription — skipping live tier update`,
+        );
+        return;
+      }
+
+      console.warn(
+        `${LOG_PREFIX} customer.subscription.updated subscription=${subscriptionId} does not match account ${acctRow.id} current/active-offboarding subscription — skipping tier update`,
+      );
       return;
     }
 

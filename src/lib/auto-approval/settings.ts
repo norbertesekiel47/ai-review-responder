@@ -1,5 +1,9 @@
 import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
+import {
+  getOffboardingState,
+  isBillingMutationBlocked,
+} from '@/lib/account-offboarding/gate';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { sql } from '@/lib/db/server';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
@@ -107,6 +111,8 @@ export async function getAutoApprovalSettings(
 ): Promise<AutoApprovalSettingsResponse> {
   const accountDefault = await loadAccountDefault(db, input.accountId);
   const locations = await loadActiveLocationSettings(db, input.accountId, accountDefault);
+  // FP: all three reads share one db SqlExecutor (single pooled connection) and the prior read consumes accountDefault; sequential by design, not safely parallelizable.
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
   const readiness = await buildReadiness(db, input.accountId, input.impersonated);
 
   return {
@@ -522,12 +528,15 @@ async function buildReadiness(
   const moderationValidated = providerModerationValidated();
   const preview = isPreviewEnvironment();
   const writable = await assertWritableSubscriptionForAccount(accountId, db);
+  // FP: both reads share one db SqlExecutor (single pooled connection); kept sequential rather than parallelized on the shared executor.
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
+  const offboardingState = await getOffboardingState(accountId, db);
 
   return buildAutoApprovalReadiness({
     runtimeEnabled,
     providerModerationEnabled: moderationEnabled,
     providerModerationValidated: moderationValidated,
-    accountWritable: writable.ok,
+    accountWritable: writable.ok && !isBillingMutationBlocked(offboardingState),
     previewEnvironment: preview,
     impersonated,
   });

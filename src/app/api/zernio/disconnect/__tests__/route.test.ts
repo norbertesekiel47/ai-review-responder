@@ -21,6 +21,16 @@ const {
       subscription_status: string;
       past_due_at: string | null;
       flags: Record<string, unknown>;
+      offboarding_id?: string | null;
+      offboarding_account_id?: string | null;
+      offboarding_mode?: string | null;
+      offboarding_status?: string | null;
+      offboarding_failed_step?: string | null;
+      offboarding_access_ends_at?: Date | null;
+      offboarding_teardown_started_at?: Date | null;
+      offboarding_purge_after?: Date | null;
+      offboarding_purge_started_at?: Date | null;
+      offboarding_purge_cancelled_at?: Date | null;
     }>;
   } = {
     value: [
@@ -101,9 +111,11 @@ process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
 
 import { POST } from '../route';
 
-function makeRequest(): NextRequest {
+function makeRequest(body?: Record<string, unknown>): NextRequest {
   return new NextRequest('http://localhost:3000/api/zernio/disconnect', {
     method: 'POST',
+    headers: body ? { 'content-type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
   });
 }
 
@@ -140,6 +152,41 @@ describe('POST /api/zernio/disconnect', () => {
 
     expect(res.status).toBe(402);
     expect(await res.json()).toEqual({ error: 'past_due_read_only' });
+    expect(sqlCalls.some((call) => /FROM zernio_connections/.test(call.raw))).toBe(false);
+    expect(mockBegin).not.toHaveBeenCalled();
+    expect(mockTx).not.toHaveBeenCalled();
+    expect(mockDeleteAccount).not.toHaveBeenCalled();
+  });
+
+  it('blocks admin disconnect when the account is offboarding before mutating connection state', async () => {
+    mockRequireRole.mockResolvedValue({
+      id: 'admin-1',
+      role: 'admin',
+      accountId: null,
+      locationId: null,
+    });
+    mockAccountRows.value = [
+      {
+        subscription_status: 'active',
+        past_due_at: null,
+        flags: {},
+        offboarding_id: 'offboarding-1',
+        offboarding_account_id: ACCOUNT_ID,
+        offboarding_mode: 'delete_data',
+        offboarding_status: 'pending',
+        offboarding_failed_step: null,
+        offboarding_access_ends_at: null,
+        offboarding_teardown_started_at: null,
+        offboarding_purge_after: null,
+        offboarding_purge_started_at: null,
+        offboarding_purge_cancelled_at: null,
+      },
+    ];
+
+    const res = await POST(makeRequest({ businessId: BUSINESS_ID }));
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
     expect(sqlCalls.some((call) => /FROM zernio_connections/.test(call.raw))).toBe(false);
     expect(mockBegin).not.toHaveBeenCalled();
     expect(mockTx).not.toHaveBeenCalled();

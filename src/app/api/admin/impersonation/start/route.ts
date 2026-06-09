@@ -8,6 +8,7 @@ import {
 import { ImpersonationStartError, startImpersonationSession } from '@/lib/admin/impersonation/session';
 import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { getOffboardingState, isOperationalUIBlocked } from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
 
 export const dynamic = 'force-dynamic';
@@ -64,6 +65,20 @@ async function startImpersonation(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         { error: 'impersonated_user_not_found' },
         { status: 404, headers: NO_STORE },
+      );
+    }
+
+    // Do not start impersonation against an account in a full-block offboarding
+    // state (delete_data, tearing_down, purge_scheduled, or a post-teardown
+    // failure). cancel_only-scheduled / failed-billing accounts stay
+    // impersonatable so support can still assist a paid-through account.
+    // Admin-scoped → standalone state read; operational-UI maps to the
+    // full-block predicate (the status-page intent is never blocked by design).
+    const offboardingState = await getOffboardingState(accountId);
+    if (isOperationalUIBlocked(offboardingState)) {
+      return NextResponse.json(
+        { error: 'account_offboarding_blocked' },
+        { status: 409, headers: NO_STORE },
       );
     }
 

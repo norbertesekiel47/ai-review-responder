@@ -13,6 +13,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { createOffboardingGate, isBillingMutationBlocked } from '@/lib/account-offboarding/gate';
 import { assertCanAddLocation } from '@/lib/accounts/quota';
 import { reactivateLocationTransaction } from '@/lib/locations/archive-location-tx';
 import { getAccountOwnerUserId } from '@/lib/accounts/repo';
@@ -49,7 +50,8 @@ const ReactivateSchema = z.object({
  * VAL-LOC-071: Enqueues zernio_initial_backfill + sync_reviews jobs.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const owner = await readOwnerForMultiLocationRoute(req);
+  const offboardingGate = createOffboardingGate();
+  const owner = await readOwnerForMultiLocationRoute(req, offboardingGate);
   if (!owner.ok) return owner.response;
   const { user } = owner;
 
@@ -60,6 +62,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // ── Ownership: body.accountId must match authenticated user ──────────────
   if (accountId !== user.accountId) {
     return ownerAccountMismatchResponse();
+  }
+
+  // Reactivating a location re-adds billable capacity (Stripe overage increment),
+  // so it is a billing-expanding mutation — frozen while offboarding forbids it
+  // (cancel_only scheduled/failed-billing, and all full-block states). Mirrors
+  // locations/add.
+  const offboardingState = await offboardingGate.getOffboardingState(accountId);
+  if (isBillingMutationBlocked(offboardingState)) {
+    return NextResponse.json(
+      { error: 'account_offboarding_blocked' },
+      { status: 403, headers: NO_STORE },
+    );
   }
 
   // Verify the location exists, is owned by this account, and is archived

@@ -35,6 +35,21 @@ describe('requireAal2FromSupabase', () => {
     });
   });
 
+  it('allows aal1 sessions when Supabase reports no enrolled second factor', async () => {
+    const supabase = {
+      auth: {
+        mfa: {
+          getAuthenticatorAssuranceLevel: vi.fn(async () => ({
+            data: { currentLevel: 'aal1', nextLevel: 'aal1' },
+            error: null,
+          })),
+        },
+      },
+    } as never;
+
+    await expect(requireAal2FromSupabase(supabase)).resolves.toEqual({ ok: true });
+  });
+
   it('fails closed when the AAL check errors', async () => {
     const supabase = {
       auth: {

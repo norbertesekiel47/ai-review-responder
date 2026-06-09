@@ -14,11 +14,13 @@ const {
   txMock,
   beginMock,
   sqlProxy,
+  mockOffboardingRows,
 } = vi.hoisted(() => {
   const mockRequireRole = vi.fn();
   const mockGetRequestScope = vi.fn();
   const mockAssertCanEdit = vi.fn();
   const mockValidateOptimistic = vi.fn();
+  const mockOffboardingRows: { value: unknown[] } = { value: [] };
 
   // Top-level sql`...` calls (outside sql.begin) consume from this queue.
   const topLevelQueue: unknown[][] = [];
@@ -26,6 +28,9 @@ const {
     const text = Array.isArray(strings) ? strings.join('') : String(strings ?? '');
     if (text.includes('subscription_status')) {
       return [{ subscription_status: 'active' }];
+    }
+    if (text.includes('FROM account_offboardings')) {
+      return mockOffboardingRows.value;
     }
     return topLevelQueue.shift() ?? [];
   });
@@ -56,6 +61,7 @@ const {
     txMock,
     beginMock,
     sqlProxy,
+    mockOffboardingRows,
   };
 });
 
@@ -159,6 +165,22 @@ function seedTxRows(...rowsets: unknown[][]) {
   txQueue.push(...rowsets);
 }
 
+function directOffboardingRow() {
+  return {
+    id: 'offboarding-1',
+    account_id: ACCOUNT_ID,
+    mode: 'delete_data',
+    status: 'pending',
+    failed_step: null,
+    terminal_at: null,
+    access_ends_at: null,
+    teardown_started_at: null,
+    purge_after: null,
+    purge_started_at: null,
+    purge_cancelled_at: null,
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   topLevelQueue.length = 0;
@@ -170,6 +192,7 @@ beforeEach(() => {
   mockGetRequestScope.mockResolvedValue({ accountId: ACCOUNT_ID, currentLocationId: LOCATION_ID });
   mockAssertCanEdit.mockResolvedValue(undefined);
   mockValidateOptimistic.mockResolvedValue(undefined);
+  mockOffboardingRows.value = [];
 });
 
 afterEach(() => {
@@ -239,6 +262,19 @@ describe('PATCH /api/dashboard/past-replies/draft/:responseId', () => {
     const res = await PATCH(makeRequest({ body: validPatchBody() }), ctx());
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'response_not_found' });
+  });
+
+  it('returns 403 account_offboarding_blocked after authorization and before PATCH mutation', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    seedTopLevel([{ review_id: REVIEW_ID }]);
+    mockOffboardingRows.value = [directOffboardingRow()];
+    const { PATCH } = await importHandlers();
+    const res = await PATCH(makeRequest({ body: validPatchBody() }), ctx());
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(beginMock).not.toHaveBeenCalled();
+    expect(txMock).not.toHaveBeenCalled();
   });
 
   it('returns 409 review_changed when hash mismatches; body includes current_review_text and current_review_hash', async () => {
@@ -407,8 +443,8 @@ describe('DELETE /api/dashboard/past-replies/draft/:responseId', () => {
 
   it('happy path: pending_approval → superseded; returns 204', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    // tx queue: lock-response (pending_approval), UPDATE
-    seedTxRows([{ status: 'pending_approval' }], []);
+    // tx queue: lock-response (pending_approval), offboarding lookup, UPDATE
+    seedTxRows([{ status: 'pending_approval' }], [], []);
     const { DELETE } = await importHandlers();
     const res = await DELETE(makeRequest({ method: 'DELETE' }), ctx());
     expect(res.status).toBe(204);
@@ -419,6 +455,20 @@ describe('DELETE /api/dashboard/past-replies/draft/:responseId', () => {
     const sqlText = templateStrings.join('|');
     expect(sqlText).toContain('UPDATE responses');
     expect(sqlText).toContain("'superseded'");
+  });
+
+  it('returns 403 account_offboarding_blocked before superseding a pending draft', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    seedTxRows([{ status: 'pending_approval' }], [directOffboardingRow()]);
+    const { DELETE } = await importHandlers();
+    const res = await DELETE(makeRequest({ method: 'DELETE' }), ctx());
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(txMock.mock.calls.length).toBe(2);
+    const lastCall = txMock.mock.calls.at(-1) as unknown as unknown[];
+    const sqlText = (lastCall[0] as TemplateStringsArray).join('|');
+    expect(sqlText).toContain('FROM account_offboardings');
   });
 
   it('idempotent on already-superseded row: no UPDATE issued, returns 204', async () => {
@@ -456,8 +506,8 @@ describe('DELETE /api/dashboard/past-replies/draft/:responseId', () => {
       accountId: ACCOUNT_ID,
       currentLocationId: ALT_LOCATION_ID,
     });
-    // tx queue: lock-response scoped to ALT_LOCATION_ID → pending_approval, UPDATE
-    seedTxRows([{ status: 'pending_approval' }], []);
+    // tx queue: lock-response scoped to ALT_LOCATION_ID → pending_approval, offboarding lookup, UPDATE
+    seedTxRows([{ status: 'pending_approval' }], [], []);
     const { DELETE } = await importHandlers();
     const res = await DELETE(
       makeRequest({ method: 'DELETE', locationScopeCookie: ALT_LOCATION_ID }),

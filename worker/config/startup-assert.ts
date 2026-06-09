@@ -17,7 +17,8 @@ const STRIPE_WORKER_REQUIRED_ENV = [
   'STRIPE_PRICE_FOUNDERS_OVERAGE',
 ];
 
-const AUTO_APPROVAL_OPTIONAL_BOOLEAN_ENV = [
+const SERVER_ONLY_FEATURE_OPTIONAL_BOOLEAN_ENV = [
+  'ACCOUNT_OFFBOARDING_ENABLED',
   'AUTO_APPROVAL_ENABLED',
   'AUTO_APPROVAL_PROVIDER_MODERATION_READY',
 ] as const;
@@ -39,11 +40,11 @@ export function assertProductionMockModeEnv(): void {
   }
 }
 
-export function assertAutoApprovalOptionalBooleansEnv(): void {
-  const invalid = invalidOptionalBooleanEnv(AUTO_APPROVAL_OPTIONAL_BOOLEAN_ENV);
+export function assertServerOnlyFeatureOptionalBooleansEnv(): void {
+  const invalid = invalidOptionalBooleanEnv(SERVER_ONLY_FEATURE_OPTIONAL_BOOLEAN_ENV);
   if (invalid.length > 0) {
     throw new Error(
-      `[startup] Optional auto-approval boolean env vars must be exactly 'true' or 'false': ${invalid.join(', ')}`,
+      `[startup] Optional server-only feature boolean env vars must be exactly 'true' or 'false': ${invalid.join(', ')}`,
     );
   }
 }
@@ -116,7 +117,7 @@ export function assertWorkerStartupEnv(): void {
   assertProductionMockModeEnv();
   assertStripeWorkerEnv();
   assertAdminNotificationEmail();
-  assertAutoApprovalOptionalBooleansEnv();
+  assertServerOnlyFeatureOptionalBooleansEnv();
 }
 
 /**
@@ -248,5 +249,24 @@ export function assertZernioPublishingEnv(): void {
   const missing = required.filter((k) => !process.env[k] || process.env[k]!.trim().length === 0);
   if (missing.length > 0) {
     throw new Error(`ZERNIO_PUBLISHING_ENABLED=true but missing required env vars: ${missing.join(', ')}`);
+  }
+}
+
+/**
+ * Boot-time assertion. When ACCOUNT_OFFBOARDING_ENABLED=true, verifies the env
+ * vars the delete_data flow depends on: SESSION_COOKIE_SECRET (keep-my-data token
+ * HMAC + fresh-auth stamp) and NEXT_PUBLIC_APP_URL (keep-my-data email link). The
+ * AccountOffboardingEmailWorker already fails the outbox visibly when these are
+ * missing; this fails fast at boot so the misconfig surfaces before any owner
+ * triggers offboarding rather than stranding it at the confirmation email. No-op
+ * when the flag is off or in MOCK_EXTERNAL_APIS=true.
+ */
+export function assertAccountOffboardingEnv(): void {
+  if (process.env.ACCOUNT_OFFBOARDING_ENABLED !== 'true') return;
+  if (process.env.MOCK_EXTERNAL_APIS === 'true') return;
+  const required = ['SESSION_COOKIE_SECRET', 'NEXT_PUBLIC_APP_URL'];
+  const missing = required.filter((k) => !process.env[k] || process.env[k]!.trim().length === 0);
+  if (missing.length > 0) {
+    throw new Error(`ACCOUNT_OFFBOARDING_ENABLED=true but missing required env vars: ${missing.join(', ')}`);
   }
 }

@@ -30,8 +30,16 @@ export default defineConfig({
         reuseExistingServer: true,
         // When E2E tests use a dedicated test DB, the app under test must
         // read from the same database so it can find seeded approval tokens.
-        ...(process.env.TEST_DATABASE_POOL_URL
-          ? { env: { DATABASE_POOL_URL: process.env.TEST_DATABASE_POOL_URL } }
-          : {}),
+        env: {
+          ...(process.env.TEST_DATABASE_POOL_URL
+            ? { DATABASE_POOL_URL: process.env.TEST_DATABASE_POOL_URL }
+            : {}),
+          ...(process.env.ACCOUNT_OFFBOARDING_ENABLED
+            ? { ACCOUNT_OFFBOARDING_ENABLED: process.env.ACCOUNT_OFFBOARDING_ENABLED }
+            : {}),
+          ...(process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS
+            ? { ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS: process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS }
+            : {}),
+        },
       },
 });

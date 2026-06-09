@@ -18,6 +18,11 @@ import { handleIngestFailed } from './jobs/zernio/ingest-failed-hook';
 import { handleZernioBackfill } from './jobs/zernio/ZernioBackfillWorker';
 import type {
   IngestZernioReviewPayload,
+  AccountOffboardingBillingSchedulePayload,
+  AccountOffboardingEmailPayload,
+  AccountOffboardingPurgePayload,
+  AccountOffboardingReactivationPayload,
+  AccountOffboardingTeardownPayload,
   StripeCheckoutReconcilePayload,
   ZernioInitialBackfillPayload,
 } from '../src/lib/shared/worker-types';
@@ -30,7 +35,7 @@ import { handleTwilioStatusCallback, handleTwilioInbound } from './ingress/twili
 import { handleTwilioWhatsAppInbound, handleTwilioWhatsAppStatus } from './ingress/twilio/twilio-whatsapp';
 import { handleTelegramWebhook } from './ingress/telegram/telegram';
 import { handleZernioWebhook } from './ingress/zernio/zernio';
-import { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
+import { assertAccountOffboardingEnv, assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './background/pollers/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './background/schedulers/WeeklySummaryScheduler';
 import { startArchivalPoller, stopArchivalPoller } from './background/pollers/ArchivalPoller';
@@ -47,12 +52,22 @@ import { handleDrainOwnerConnect } from './jobs/DrainOwnerConnectWorker';
 import { handleOnboardingDemo } from './jobs/OnboardingDemoWorker';
 import { handleUpdateStripeOverage } from './jobs/billing/UpdateStripeOverageWorker';
 import { handleStripeCheckoutReconcile } from './jobs/billing/StripeCheckoutReconcileWorker';
+import { handleAccountOffboardingBillingSchedule } from './jobs/account-offboarding/BillingScheduleWorker';
+import { handleAccountOffboardingEmail } from './jobs/account-offboarding/AccountOffboardingEmailWorker';
+import { handleAccountOffboardingReactivation } from './jobs/account-offboarding/ReactivationWorker';
+import { handleAccountOffboardingTeardown } from './jobs/account-offboarding/TeardownWorker';
+import { handleAccountOffboardingPurge } from './jobs/account-offboarding/PurgeWorker';
 import { startCleanupAbandonedSignupsPoller, stopCleanupAbandonedSignupsPoller } from './background/pollers/CleanupAbandonedSignupsPoller';
 import { startEmailChannelReconcilePoller, stopEmailChannelReconcilePoller } from './background/pollers/EmailChannelReconcilePoller';
 import { startCancellationGracePoller, stopCancellationGracePoller } from './background/pollers/CancellationGracePoller';
 import { startStripeLocationsReconcilePoller, stopStripeLocationsReconcilePoller } from './background/pollers/StripeLocationsReconcilePoller';
 import { startZernioRecentReviewPoller, stopZernioRecentReviewPoller } from './background/pollers/ZernioRecentReviewPoller';
 import { startAnalyticsDispatchPoller, stopAnalyticsDispatchPoller } from './background/pollers/AnalyticsDispatchPoller';
+import { startAccountOffboardingAccessEndPoller, stopAccountOffboardingAccessEndPoller } from './background/pollers/AccountOffboardingAccessEndPoller';
+import { startAccountOffboardingPurgePoller, stopAccountOffboardingPurgePoller } from './background/pollers/AccountOffboardingPurgePoller';
+import { startAccountOffboardingPurgeReminderPoller, stopAccountOffboardingPurgeReminderPoller } from './background/pollers/AccountOffboardingPurgeReminderPoller';
+import { startAccountOffboardingReactivationResetPoller, stopAccountOffboardingReactivationResetPoller } from './background/pollers/AccountOffboardingReactivationResetPoller';
+import { startAccountOffboardingTeardownRetryPoller, stopAccountOffboardingTeardownRetryPoller } from './background/pollers/AccountOffboardingTeardownRetryPoller';
 import { isMockMode } from '../src/lib/shared/mock-mode';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -155,6 +170,36 @@ const stripeCheckoutReconcileWorker = new Worker<StripeCheckoutReconcilePayload>
   workerOpts,
 );
 
+const accountOffboardingBillingScheduleWorker = new Worker<AccountOffboardingBillingSchedulePayload>(
+  QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE,
+  withJobLogContext(handleAccountOffboardingBillingSchedule),
+  workerOpts,
+);
+
+const accountOffboardingEmailWorker = new Worker<AccountOffboardingEmailPayload>(
+  QUEUE_NAMES.ACCOUNT_OFFBOARDING_EMAIL,
+  withJobLogContext(handleAccountOffboardingEmail),
+  workerOpts,
+);
+
+const accountOffboardingReactivationWorker = new Worker<AccountOffboardingReactivationPayload>(
+  QUEUE_NAMES.ACCOUNT_OFFBOARDING_REACTIVATION,
+  withJobLogContext(handleAccountOffboardingReactivation),
+  workerOpts,
+);
+
+const accountOffboardingTeardownWorker = new Worker<AccountOffboardingTeardownPayload>(
+  QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN,
+  withJobLogContext(handleAccountOffboardingTeardown),
+  workerOpts,
+);
+
+const accountOffboardingPurgeWorker = new Worker<AccountOffboardingPurgePayload>(
+  QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE,
+  withJobLogContext(handleAccountOffboardingPurge),
+  workerOpts,
+);
+
 // Workers map keyed by queue name. Single source of truth for the
 // graceful-shutdown loop, Sentry breadcrumb wiring, and any future
 // observability hook that needs to enumerate workers without keeping a
@@ -178,6 +223,11 @@ const workersByQueue = {
   [QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE]: onboardingDemoWorker,
   [QUEUE_NAMES.UPDATE_STRIPE_OVERAGE]: updateStripeOverageWorker,
   [QUEUE_NAMES.STRIPE_CHECKOUT_RECONCILE]: stripeCheckoutReconcileWorker,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE]: accountOffboardingBillingScheduleWorker,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_EMAIL]: accountOffboardingEmailWorker,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_REACTIVATION]: accountOffboardingReactivationWorker,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN]: accountOffboardingTeardownWorker,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE]: accountOffboardingPurgeWorker,
 } as const;
 
 const workers = Object.values(workersByQueue);
@@ -220,6 +270,7 @@ async function main(): Promise<void> {
     assertChannelsWhatsAppEnv();
     assertSelfServeSignupEnv();
     assertZernioPublishingEnv();
+    assertAccountOffboardingEnv();
     warnMissingProductionEnv();
     console.log(
       `[worker] Feature flags: ` +
@@ -289,6 +340,11 @@ async function main(): Promise<void> {
   startStripeLocationsReconcilePoller();
   startZernioRecentReviewPoller();
   startAnalyticsDispatchPoller();
+  startAccountOffboardingAccessEndPoller();
+  startAccountOffboardingPurgePoller();
+  startAccountOffboardingPurgeReminderPoller();
+  startAccountOffboardingReactivationResetPoller();
+  startAccountOffboardingTeardownRetryPoller();
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -310,6 +366,11 @@ async function shutdown(): Promise<void> {
   stopCancellationGracePoller();
   stopStripeLocationsReconcilePoller();
   stopZernioRecentReviewPoller();
+  stopAccountOffboardingAccessEndPoller();
+  stopAccountOffboardingPurgePoller();
+  stopAccountOffboardingPurgeReminderPoller();
+  stopAccountOffboardingReactivationResetPoller();
+  stopAccountOffboardingTeardownRetryPoller();
   // Await the analytics drain so we never mark rows completed (or call PostHog)
   // after the client is shut down and the DB pool is closed below.
   await stopAnalyticsDispatchPoller();

@@ -11,6 +11,31 @@ const { mockAssertWritableSubscriptionForAccount } = vi.hoisted(() => ({
   mockAssertWritableSubscriptionForAccount: vi.fn(),
 }));
 
+const { mockGetOffboardingState } = vi.hoisted(() => ({
+  mockGetOffboardingState: vi.fn(),
+}));
+
+vi.mock('@/lib/account-offboarding/gate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/account-offboarding/gate')>();
+  return {
+    ...actual,
+    getOffboardingState: (...args: unknown[]) => mockGetOffboardingState(...args),
+    createOffboardingGate: () => {
+      const cache = new Map<string, Promise<unknown>>();
+      return {
+        getOffboardingState: (accountId: string) => {
+          const cached = cache.get(accountId);
+          if (cached) return cached;
+          const loaded = Promise.resolve(mockGetOffboardingState(accountId));
+          cache.set(accountId, loaded);
+          return loaded;
+        },
+        isBlocked: actual.isOffboardingIntentBlocked,
+      };
+    },
+  };
+});
+
 vi.mock('@/lib/db/auth', () => {
   class AuthError extends Error {
     constructor(
@@ -109,6 +134,7 @@ beforeEach(() => {
   mockSql.mockReset();
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
+  mockGetOffboardingState.mockReturnValue(null);
 
   // Default happy-path mocks (individual tests override as needed)
   mockRequireRole.mockResolvedValue(ownerUser());
@@ -241,6 +267,32 @@ describe('POST /api/locations/reactivate', () => {
     const req = mkRequest({ locationId: LOCATION_ID, accountId: ACCOUNT_ID });
     const res = await POST(req);
     expect(res.status).toBe(409);
+  });
+
+  // H2: reactivation re-adds billable capacity, so it must be frozen as a
+  // billing-expanding mutation while offboarding forbids it.
+  it('returns 403 before reactivation when offboarding blocks billing expansion', async () => {
+    mockGetOffboardingState.mockReturnValue({
+      id: '018ff6f0-97b2-7b80-9e1d-58d50c717e63',
+      accountId: ACCOUNT_ID,
+      mode: 'cancel_only',
+      status: 'scheduled',
+      failedStep: null,
+      terminalAt: null,
+      accessEndsAt: new Date('2026-07-01'),
+      teardownStartedAt: null,
+      purgeAfter: null,
+      purgeStartedAt: null,
+      purgeCancelledAt: null,
+    });
+
+    const req = mkRequest({ locationId: LOCATION_ID, accountId: ACCOUNT_ID });
+    const res = await POST(req);
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(mockAssertCanAddLocation).not.toHaveBeenCalled();
+    expect(mockReactivateLocationTransaction).not.toHaveBeenCalled();
   });
 
   it('returns 403 when quota check rejects reactivation', async () => {

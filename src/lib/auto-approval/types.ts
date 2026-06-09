@@ -80,35 +80,35 @@ export type AutoApprovalConfirmationLevel = z.infer<typeof AutoApprovalConfirmat
 // The route validates against this schema; AutoApprovalPatchRequest is inferred
 // from it, so adding an operation can't drift the runtime check from the type.
 export const AutoApprovalPatchSchema = z.discriminatedUnion('operation', [
-  z.object({
+  z.strictObject({
     operation: z.literal('set_account_default'),
     threshold: AutoApprovalThresholdSchema,
     confirmationLevel: AutoApprovalConfirmationLevelSchema.optional(),
-  }).strict(),
-  z.object({
+  }),
+  z.strictObject({
     operation: z.literal('set_account_manual'),
     confirmationLevel: AutoApprovalConfirmationLevelSchema.optional(),
-  }).strict(),
-  z.object({
+  }),
+  z.strictObject({
     operation: z.literal('clear_account_default'),
     confirmationLevel: AutoApprovalConfirmationLevelSchema.optional(),
-  }).strict(),
-  z.object({
+  }),
+  z.strictObject({
     operation: z.literal('set_location_override'),
     locationId: z.uuid(),
     threshold: AutoApprovalThresholdSchema,
     confirmationLevel: AutoApprovalConfirmationLevelSchema.optional(),
-  }).strict(),
-  z.object({
+  }),
+  z.strictObject({
     operation: z.literal('set_location_manual'),
     locationId: z.uuid(),
     confirmationLevel: AutoApprovalConfirmationLevelSchema.optional(),
-  }).strict(),
-  z.object({
+  }),
+  z.strictObject({
     operation: z.literal('delete_location_override'),
     locationId: z.uuid(),
     confirmationLevel: AutoApprovalConfirmationLevelSchema.optional(),
-  }).strict(),
+  }),
 ]);
 
 export type AutoApprovalPatchRequest = z.infer<typeof AutoApprovalPatchSchema>;

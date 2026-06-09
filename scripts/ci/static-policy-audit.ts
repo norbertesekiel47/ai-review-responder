@@ -11,8 +11,8 @@ import { pathToFileURL } from 'node:url';
  *   #13 — Feature flags are server-authoritative. The browser must not learn
  *         flag state from a `NEXT_PUBLIC_*` env var, so every `NEXT_PUBLIC_`
  *         read in code must be on an explicit allowlist of browser-safe values.
- *   Auto-approval policy rows are server-owned. Client components must not
- *         read or write `auto_approval_policies` directly through Supabase.
+ *   Server-owned policy/lifecycle rows must not be read or written directly
+ *         by client components through Supabase.
  *
  * Whole-repo (src + worker + scripts), unlike `pnpm lint` which only covers
  * `src`. Adding a genuinely browser-safe public var is a deliberate one-line
@@ -32,14 +32,14 @@ const SCAN_DIRS = ['src', 'worker', 'scripts'] as const;
 const SCAN_EXT = /\.(?:ts|tsx|mjs|cjs|js)$/;
 const SKIP_DIRS = new Set(['node_modules', '__tests__', 'dist', '.next', 'coverage']);
 const SKIP_FILE = /\.(?:test|spec)\.[cm]?tsx?$/;
-// This audit names both forbidden patterns in its own source/messages; skip it
+// This audit names its own forbidden patterns in source/messages; skip it
 // so it never flags itself.
 const SELF = join('scripts', 'ci', 'static-policy-audit.ts');
 
 export type PolicyRule =
   | 'crypto-js'
   | 'next-public-allowlist'
-  | 'auto-approval-policy-browser-access';
+  | 'server-owned-table-browser-access';
 
 export interface PolicyFinding {
   file: string;
@@ -55,8 +55,17 @@ const CRYPTO_JS_SPECIFIER = /(?:from|require|import)\s*\(?\s*['"]crypto-js(?:\/[
 const NEXT_PUBLIC_ACCESS = /process\.env\.(NEXT_PUBLIC_[A-Z0-9_]+)/g;
 // File-local guard only: this catches direct client-component table references.
 // It does not follow imports through helper modules, so code review must still
-// reject browser Supabase helper indirection for auto_approval_policies.
-const AUTO_APPROVAL_POLICY_TABLE = /\bauto_approval_policies\b/;
+// reject browser Supabase helper indirection for these server-owned tables.
+const SERVER_OWNED_BROWSER_FORBIDDEN_TABLES = [
+  'account_offboardings',
+  'account_offboarding_tokens',
+  'auto_approval_policies',
+] as const;
+const SERVER_OWNED_BROWSER_FORBIDDEN_TABLE_PATTERNS =
+  SERVER_OWNED_BROWSER_FORBIDDEN_TABLES.map((table) => ({
+    table,
+    pattern: new RegExp(`\\b${table}\\b`),
+  }));
 
 /**
  * True only when `'use client'` is a genuine file-prologue directive — the
@@ -66,12 +75,27 @@ const AUTO_APPROVAL_POLICY_TABLE = /\bauto_approval_policies\b/;
  * server module as a client component and producing spurious CI failures.
  */
 function isClientComponentFile(text: string): boolean {
-  for (const raw of text.split('\n')) {
-    const line = raw.trim();
-    if (line === '' || line.startsWith('//')) continue;
-    return /^['"]use client['"];?$/.test(line);
+  return /^['"]use client['"];?/.test(stripLeadingWhitespaceAndComments(text));
+}
+
+function stripLeadingWhitespaceAndComments(text: string): string {
+  let remaining = text;
+  while (remaining.length > 0) {
+    const trimmed = remaining.replace(/^\s+/, '');
+    if (trimmed.startsWith('//')) {
+      const nextLine = trimmed.indexOf('\n');
+      remaining = nextLine === -1 ? '' : trimmed.slice(nextLine + 1);
+      continue;
+    }
+    if (trimmed.startsWith('/*')) {
+      const commentEnd = trimmed.indexOf('*/');
+      if (commentEnd === -1) return trimmed;
+      remaining = trimmed.slice(commentEnd + 2);
+      continue;
+    }
+    return trimmed;
   }
-  return false;
+  return remaining;
 }
 
 /** Scan one file's text for both forbidden patterns. Pure — unit-tested. */
@@ -106,15 +130,18 @@ export function scanFile(file: string, text: string): PolicyFinding[] {
       }
     }
 
-    if (isClientComponent && AUTO_APPROVAL_POLICY_TABLE.test(lineText)) {
-      findings.push({
-        file,
-        line: i + 1,
-        rule: 'auto-approval-policy-browser-access',
-        detail:
-          'client components must not access auto_approval_policies directly; ' +
-          'owner policy reads/writes must flow through server routes',
-      });
+    if (isClientComponent) {
+      for (const { table, pattern } of SERVER_OWNED_BROWSER_FORBIDDEN_TABLE_PATTERNS) {
+        if (!pattern.test(lineText)) continue;
+        findings.push({
+          file,
+          line: i + 1,
+          rule: 'server-owned-table-browser-access',
+          detail:
+            `client components must not access ${table} directly; ` +
+            'server-owned table reads/writes must flow through server routes',
+        });
+      }
     }
   }
   return findings;

@@ -30,6 +30,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v7 as uuidv7 } from 'uuid';
 import { z } from 'zod';
+import { getOffboardingState, isPublishingBlocked } from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import {
@@ -88,6 +89,11 @@ async function handler(request: NextRequest): Promise<Response> {
   const authorized = await authorizeEditReplyResponse(parsed.data.response_id, { accountId, locationId });
   if (!authorized.ok) return authorized.response;
   const { reviewId } = authorized.value;
+
+  const offboardingState = await getOffboardingState(accountId);
+  if (isPublishingBlocked(offboardingState)) {
+    return NextResponse.json({ error: 'account_offboarding_blocked' }, { status: 403 });
+  }
 
   const ip = request.headers.get('x-forwarded-for') ?? null;
   const audit: SessionAuditContext = { actorUserId: userId, ipAddress: ip };

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { OffboardingGate } from '@/lib/account-offboarding/gate';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import type { AppUser } from '@/lib/db/auth';
 import type { AccountId } from '@/lib/shared/ids';
@@ -21,6 +22,7 @@ export type LocationRouteBodyResult<T> =
 
 export async function readOwnerForMultiLocationRoute(
   req: NextRequest,
+  offboardingGate?: Pick<OffboardingGate, 'getOffboardingState'>,
 ): Promise<LocationOwnerRouteResult> {
   if (process.env.MULTI_LOCATION_ENABLED !== 'true') {
     return {
@@ -79,7 +81,9 @@ export async function readOwnerForMultiLocationRoute(
     };
   }
 
-  const writable = await assertWritableSubscriptionForAccount(user.accountId);
+  const writable = offboardingGate
+    ? await assertWritableSubscriptionForAccount(user.accountId, undefined, offboardingGate)
+    : await assertWritableSubscriptionForAccount(user.accountId);
   if (!writable.ok) {
     return {
       ok: false,

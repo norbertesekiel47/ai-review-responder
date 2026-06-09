@@ -45,6 +45,16 @@ describe('scanFile — NEXT_PUBLIC allowlist (invariant #13)', () => {
     expect(findings[0]!.detail).toContain('NEXT_PUBLIC_AUTO_APPROVAL_ENABLED');
   });
 
+  it('explicitly rejects public account offboarding flag companions', () => {
+    const findings = scanFile(
+      'src/x.ts',
+      'const on = process.env.NEXT_PUBLIC_ACCOUNT_OFFBOARDING_ENABLED === "true";',
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe('next-public-allowlist');
+    expect(findings[0]!.detail).toContain('NEXT_PUBLIC_ACCOUNT_OFFBOARDING_ENABLED');
+  });
+
   it('allows every allowlisted var', () => {
     for (const name of ALLOWED_NEXT_PUBLIC) {
       expect(scanFile('src/x.ts', `const v = process.env.${name};`)).toHaveLength(0);
@@ -62,25 +72,45 @@ describe('scanFile — NEXT_PUBLIC allowlist (invariant #13)', () => {
   });
 });
 
-describe('scanFile — auto_approval_policies browser access', () => {
-  it('flags client components that reference auto_approval_policies directly', () => {
+describe('scanFile — server-owned table browser access', () => {
+  it.each([
+    'account_offboardings',
+    'account_offboarding_tokens',
+    'auto_approval_policies',
+  ])('flags client components that reference %s directly', (table) => {
     const findings = scanFile(
-      'src/app/dashboard/settings/auto-approval-panel.tsx',
+      'src/app/dashboard/settings/account-panel.tsx',
       [
         "'use client';",
-        "await supabase.from('auto_approval_policies').select('*');",
+        `await supabase.from('${table}').select('*');`,
       ].join('\n'),
     );
 
     expect(findings).toHaveLength(1);
-    expect(findings[0]!.rule).toBe('auto-approval-policy-browser-access');
+    expect(findings[0]!.rule).toBe('server-owned-table-browser-access');
+    expect(findings[0]!.detail).toContain(table);
   });
 
-  it('allows server routes and workers to reference auto_approval_policies', () => {
+  it('recognizes client directives after leading block comments', () => {
     const findings = scanFile(
-      'src/app/api/settings/auto-approval/route.ts',
-      "await sql`SELECT * FROM auto_approval_policies`;",
+      'src/app/dashboard/settings/account-panel.tsx',
+      [
+        '/* eslint-disable react-hooks/rules-of-hooks */',
+        "'use client';",
+        "await supabase.from('account_offboardings').select('*');",
+      ].join('\n'),
     );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe('server-owned-table-browser-access');
+  });
+
+  it.each([
+    'account_offboardings',
+    'account_offboarding_tokens',
+    'auto_approval_policies',
+  ])('allows server routes and workers to reference %s', (table) => {
+    const findings = scanFile('src/app/api/account/route.ts', `await sql\`SELECT * FROM ${table}\`;`);
 
     expect(findings).toHaveLength(0);
   });
@@ -92,7 +122,7 @@ describe('scanFile — auto_approval_policies browser access', () => {
         'const DIRECTIVES = [',
         "  'use client',",
         '];',
-        'await sql`SELECT * FROM auto_approval_policies`;',
+        'await sql`SELECT * FROM account_offboardings`;',
       ].join('\n'),
     );
 

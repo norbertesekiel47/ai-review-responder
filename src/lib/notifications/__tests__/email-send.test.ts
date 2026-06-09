@@ -109,4 +109,22 @@ describe('sendInternalEmail', () => {
     expect(arg.headers).toBeUndefined();
     expect(arg.tags).toEqual([{ name: 'category', value: 'internal' }]);
   });
+
+  it('passes provider idempotency key separately from the email payload', async () => {
+    await sendInternalEmail({
+      to: 'owner@example.com',
+      subject: 'Retryable',
+      bodyHtml: '<p>retryable</p>',
+      category: 'transactional',
+      idempotencyKey: 'account-offboarding-email:delivery-1',
+    });
+
+    expect(mockSend).toHaveBeenCalledOnce();
+    const [payload, options] = mockSend.mock.calls[0] as [
+      Record<string, unknown>,
+      Record<string, unknown>,
+    ];
+    expect(payload).not.toHaveProperty('idempotencyKey');
+    expect(options).toEqual({ idempotencyKey: 'account-offboarding-email:delivery-1' });
+  });
 });

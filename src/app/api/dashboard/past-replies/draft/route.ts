@@ -25,6 +25,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v7 as uuidv7 } from 'uuid';
 import { z } from 'zod';
+import {
+  getOffboardingState,
+  isOperationalUIBlocked,
+  isProcessingBlocked,
+} from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { resolveEditReplyScope } from '../_shared/edit-reply-request';
@@ -76,6 +81,14 @@ async function handler(request: NextRequest): Promise<Response> {
     const mapped = mapEditReplyError(err);
     if (mapped) return mapped;
     throw err;
+  }
+
+  const offboardingState = await getOffboardingState(accountId);
+  const blocked = parsed.data.mode === 'regenerate'
+    ? isProcessingBlocked(offboardingState)
+    : isOperationalUIBlocked(offboardingState);
+  if (blocked) {
+    return NextResponse.json({ error: 'account_offboarding_blocked' }, { status: 403 });
   }
 
   try {

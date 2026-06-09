@@ -18,3 +18,4 @@ export * from './email/templates/owner-reconnect-required';
 export * from './email/templates/owner-connection-lost';
 export * from './email/templates/partner-alerts';
 export * from './email/templates/onboarding';
+export * from './email/templates/account-offboarding';

@@ -372,6 +372,32 @@ function tenantTableTransitivelyScoped(
   return false;
 }
 
+function offboardingTokenTableScoped(
+  sqlText: string,
+  clauses: PredicateClauses,
+  aliases: string[],
+): boolean {
+  for (const tokenAlias of aliases) {
+    for (const offboardingAlias of tableAliases(sqlText, 'account_offboardings')) {
+      const relatedToOffboarding = hasIdentifierRelationship(
+        clauses,
+        qualifiedIdentifier(tokenAlias, 'account_offboarding_id'),
+        qualifiedIdentifier(offboardingAlias, 'id'),
+      );
+      if (!relatedToOffboarding) continue;
+
+      if (tenantAliasDirectlyScoped(clauses, offboardingAlias, false)) {
+        return true;
+      }
+
+      if (tenantTableTransitivelyScoped(sqlText, clauses, [offboardingAlias])) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 function hasTenantScopeForTable(
   sqlText: string,
   table: TenantTable,
@@ -390,6 +416,10 @@ function hasTenantScopeForTable(
   }
 
   if (aliases.some((alias) => tenantAliasDirectlyScoped(clauses, alias, allowUnqualified))) {
+    return true;
+  }
+
+  if (table === 'account_offboarding_tokens' && offboardingTokenTableScoped(sqlText, clauses, aliases)) {
     return true;
   }
 

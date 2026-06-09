@@ -408,6 +408,9 @@ describe('VAL-CROSS-005: Archive mid-flow', () => {
         if (/SELECT COUNT\(\*\) AS count[\s\S]*FROM businesses/.test(raw)) {
           return Promise.resolve([{ count: 2 }]);
         }
+        if (/SELECT archived_at[\s\S]*FROM businesses[\s\S]*FOR UPDATE/.test(raw)) {
+          return Promise.resolve([{ archived_at: null }]);
+        }
         if (/UPDATE businesses/.test(raw)) {
           return Promise.resolve([{ id: locB.id }]);
         }

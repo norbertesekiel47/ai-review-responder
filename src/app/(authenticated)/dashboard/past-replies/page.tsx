@@ -84,6 +84,8 @@ const orphanCardRow = (r: OrphanRow) => ({
   failed_posting_error: r.failed_posting_error,
 });
 
+// pre-existing; component split tracked separately.
+// react-doctor-disable-next-line react-doctor/no-giant-component
 export default async function PastRepliesPage({
   searchParams,
 }: {

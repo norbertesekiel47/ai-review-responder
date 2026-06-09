@@ -465,6 +465,8 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
             <section
               className="pr-matrix"
               aria-label="Plan comparison, scroll horizontally to compare all plans"
+              // Intentional: makes the horizontally-scrollable matrix keyboard-focusable so keyboard-only users can scroll it (WCAG 2.1.1).
+              // react-doctor-disable-next-line react-doctor/no-noninteractive-tabindex
               tabIndex={0}
             >
               <div className="pr-matrix-grid">

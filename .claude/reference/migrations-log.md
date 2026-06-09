@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **055** — next migration is **056**
+Current head: **060** — next migration is **061**
 All tables use UUIDv7 (time-ordered primary keys).
 
 ## Migration Log
@@ -380,6 +380,63 @@ All tables use UUIDv7 (time-ordered primary keys).
   rows NULL unless approval audit evidence exists. Extends
   `approval_audit_log.auth_method` to include `auto_policy`.
 
+- **056** — Owner offboarding lifecycle schema (PR1 Task 1.1 only; no routes,
+  workers, feature flag, or purge logic). Creates service-only deny-all RLS
+  tables `account_offboardings` and `account_offboarding_tokens`.
+  `account_offboardings` uses app-generated UUIDv7 IDs, an account FK, v1
+  `mode` (`cancel_only` / `delete_data`), `system_origin='owner'`, the approved
+  8-status machine, failed-step/terminal consistency checks, lifecycle stamps,
+  snapshot fields (`stripe_*`, Zernio ids, location ids, auth user id), per-step
+  outcomes, retry/error fields, transient recipient field, and
+  `provider_dispositions JSONB NOT NULL DEFAULT '[]'::jsonb` for later admin
+  provider-disposition overrides. Reason-code storage is deferred until the
+  confirm route defines the canonical predefined code set. Adds the active-row
+  partial unique index `(account_id) WHERE terminal_at IS NULL`, claim indexes for
+  `purge_after WHERE status = 'purge_scheduled'` and
+  `access_ends_at WHERE status = 'scheduled'`, plus lookup indexes on
+  `account_id` and non-null `stripe_subscription_id`. `account_offboarding_tokens`
+  stores only SHA-256 hex `token_hash` values for `token_type='keep_my_data'`,
+  expiry/consume/revoke stamps, and audit metadata; no raw token column exists.
+
+- **057** — Owner offboarding tombstone nullability (PR6 Task 6.2). Drops
+  `NOT NULL` from `account_offboardings.zernio_account_ids` and
+  `account_offboardings.zernio_profile_ids` so the purge terminal scrub can
+  null raw provider snapshot identifiers while retaining the lifecycle receipt.
+  Drops `NOT NULL` from `approval_audit_log.response_id` so scrubbed audit rows
+  can be detached before hard-deleting response content. Drops `NOT NULL` from
+  `impersonation_sessions.account_id` and
+  `impersonation_sessions.impersonated_user_id` so retained admin-control rows
+  can scrub purged account/user references. No new tables, policies, statuses,
+  indexes, or browser-visible flags.
+
+- **058** — Owner offboarding analytics event allowlist (PR7 Task 7.1).
+  Replaces `analytics_events_event_name_check` so the durable, server-side
+  owner offboarding lifecycle events can be enqueued:
+  `offboarding_started`, `offboarding_reactivated`,
+  `offboarding_teardown_completed`, and `offboarding_purged`. Fresh databases
+  get the same event list from migration 046; existing staging/prod databases
+  must receive 058 staging-first, then production. No new tables, policies,
+  indexes, browser-visible flags, or client-postable analytics events.
+
+- **059** — Owner offboarding purge-reminder marker (H1b). Adds
+  `account_offboardings.purge_reminder_sent_at TIMESTAMPTZ` (nullable, additive)
+  so the `AccountOffboardingPurgeReminderPoller` sends the T-3d "your data will
+  be deleted soon" last-chance email at most once per `delete_data` offboarding.
+  No backfill. Apply staging-first, then production, both Supabase projects in
+  lockstep. No new tables, policies, indexes, or browser-visible flags.
+
+- **060** — Owner offboarding reactivation claim columns (M1/M2). Adds
+  `account_offboardings.reactivation_claimed_at TIMESTAMPTZ` and
+  `reactivation_claim_token TEXT` (both nullable, additive) so the cancel_only
+  reactivation flow stops overloading `last_error`/`reactivated_at` as the claim
+  mutex. `reactivated_at` now stamps only at terminal success. Adds partial index
+  `idx_account_offboardings_reactivation_claim ON (reactivation_claimed_at) WHERE
+  reactivation_claimed_at IS NOT NULL AND terminal_at IS NULL` backing
+  `AccountOffboardingReactivationResetPoller`, which clears stale claims (a dead
+  reactivation process) after compensating Stripe back to
+  `cancel_at_period_end=true`. No backfill (NULL = no active claim). Apply
+  staging-first, then production, both Supabase projects in lockstep.
+
 ## Key Tables Reference
 
 | Table | Purpose |
@@ -408,6 +465,8 @@ All tables use UUIDv7 (time-ordered primary keys).
 | `zernio_backfill_runs` | First-connect backfill state per business |
 | `accounts` | Billing parent / org. Owns subscription state, Stripe IDs, location quota. One per owner. |
 | `account_audit_log` | Append-only account events: location create / archive / promote / tier-change / CSV import / `subscription_status_changed`. Generic metadata cols (`entity_type`, `entity_id`, `ip`, `user_agent`, `request_id`) added in 043. Write via `src/lib/audit/log.ts` (`writeAccountAuditLog`), never raw INSERT. |
+| `account_offboardings` | Service-only owner offboarding lifecycle rows. One active non-terminal row per account; terminal outcomes are `purged`, `churned`, or `reactivated`. |
+| `account_offboarding_tokens` | Service-only keep-my-data token metadata for delete-data offboarding. Stores SHA-256 token hashes only; raw tokens are never persisted. |
 | `owner_leads` | Marketing capture from contact + demo-request endpoints (independent of authenticated paths). |
 
 ## Response Status Values

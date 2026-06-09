@@ -45,6 +45,11 @@ export const queues = {
   onboardingDemoResponse: new Queue(QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE, { connection: opts, defaultJobOptions }),
   updateStripeOverage: new Queue(QUEUE_NAMES.UPDATE_STRIPE_OVERAGE, { connection: opts, defaultJobOptions }),
   stripeCheckoutReconcile: new Queue(QUEUE_NAMES.STRIPE_CHECKOUT_RECONCILE, { connection: opts, defaultJobOptions }),
+  accountOffboardingBillingSchedule: new Queue(QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE, { connection: opts, defaultJobOptions }),
+  accountOffboardingEmail: new Queue(QUEUE_NAMES.ACCOUNT_OFFBOARDING_EMAIL, { connection: opts, defaultJobOptions }),
+  accountOffboardingReactivation: new Queue(QUEUE_NAMES.ACCOUNT_OFFBOARDING_REACTIVATION, { connection: opts, defaultJobOptions }),
+  accountOffboardingTeardown: new Queue(QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN, { connection: opts, defaultJobOptions }),
+  accountOffboardingPurge: new Queue(QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE, { connection: opts, defaultJobOptions }),
 } as const;
 
 // Lookup table: outbox topic string → Queue instance
@@ -73,4 +78,9 @@ export const topicToQueue: Record<string, Queue> = {
   [QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE]: queues.onboardingDemoResponse,
   [QUEUE_NAMES.UPDATE_STRIPE_OVERAGE]: queues.updateStripeOverage,
   [QUEUE_NAMES.STRIPE_CHECKOUT_RECONCILE]: queues.stripeCheckoutReconcile,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE]: queues.accountOffboardingBillingSchedule,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_EMAIL]: queues.accountOffboardingEmail,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_REACTIVATION]: queues.accountOffboardingReactivation,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN]: queues.accountOffboardingTeardown,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE]: queues.accountOffboardingPurge,
 };

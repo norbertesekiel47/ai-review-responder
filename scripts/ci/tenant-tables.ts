@@ -7,6 +7,8 @@ export const TENANT_TABLES = [
   'approval_links',
   'approval_audit_log',
   'account_audit_log',
+  'account_offboardings',
+  'account_offboarding_tokens',
   'auto_approval_policies',
   'notification_deliveries',
   'api_costs',

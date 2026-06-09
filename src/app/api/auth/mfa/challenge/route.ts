@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { writeAccountAuditLog } from '@/lib/audit/log';
+import { setFreshAuthCookie } from '@/lib/account-offboarding/destructive-auth';
 import { requireCurrentAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
@@ -67,6 +68,24 @@ async function auditMfaEvent(
     }
   } catch (err) {
     console.error('[mfa-challenge] audit write failed:', err);
+  }
+}
+
+async function accountOwnerForAuthUser(
+  authUserId: string,
+): Promise<{ userId: string; accountId: string } | null> {
+  try {
+    const [actor] = await sql<{ id: string; account_id: string | null; role: string }[]>`
+      SELECT id, account_id, role
+      FROM users
+      WHERE auth_id = ${authUserId}
+      LIMIT 1
+    `;
+    if (actor?.role !== 'owner' || !actor.account_id) return null;
+    return { userId: actor.id, accountId: actor.account_id };
+  } catch (err) {
+    console.error('[mfa-challenge] fresh-auth owner lookup failed:', err);
+    return null;
   }
 }
 
@@ -224,9 +243,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   await auditMfaEvent(user.id, 'mfa_challenge_succeeded', { factor_id: body.factorId });
-  return jsonWithCookies(
+  const response = jsonWithCookies(
     cookieJar,
     { ok: true },
     { status: 200, headers: NO_STORE },
   );
+  const owner = await accountOwnerForAuthUser(user.id);
+  if (owner) {
+    setFreshAuthCookie(response, owner);
+  }
+  return response;
 }

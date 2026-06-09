@@ -18,6 +18,7 @@ import { getRequestIp } from '@/lib/shared/request-ip';
 import {
   assertWritableSubscriptionForAccount,
   assertWritableSubscriptionForBusiness,
+  SubscriptionReadOnlyError,
   throwIfReadOnly,
 } from '@/lib/shared/writable-subscription';
 
@@ -156,14 +157,6 @@ export async function runDashboardReviewAction(
   successMessage: string,
   action: (ctx: DashboardReviewActionContext) => Promise<void>,
 ): Promise<NextResponse> {
-  const writable = await assertWritableSubscriptionForAccount(owner.accountId);
-  if (!writable.ok) {
-    return NextResponse.json(
-      { error: writable.error },
-      { status: writable.status, headers: NO_STORE_HEADERS },
-    );
-  }
-
   const rows = await sql`
     SELECT r.id, r.business_id, r.status
     FROM responses r
@@ -181,6 +174,14 @@ export async function runDashboardReviewAction(
     return NextResponse.json({ error: 'No actionable response found for this review' }, { status: 404, headers: NO_STORE_HEADERS });
   }
 
+  const writable = await assertWritableSubscriptionForAccount(owner.accountId);
+  if (!writable.ok) {
+    return NextResponse.json(
+      { error: writable.error },
+      { status: writable.status, headers: NO_STORE_HEADERS },
+    );
+  }
+
   const ip = getRequestIp(request);
   const audit: SessionAuditContext = { actorUserId: owner.id, ipAddress: ip };
 
@@ -193,6 +194,11 @@ export async function runDashboardReviewAction(
       if (await hasOpenFlag(tx, response.id as string)) {
         throw new HeldForReviewError();
       }
+
+      // Re-assert the writable/offboarding gate INSIDE the locked tx (TOCTOU): the
+      // pre-tx check above can go stale if an offboarding is confirmed between it
+      // and this commit. Token + callback approval paths re-check the same way.
+      throwIfReadOnly(await assertWritableSubscriptionForBusiness(response.business_id as string, tx));
 
       const correlationId = await recoverCorrelationId(tx, {
         reviewId,
@@ -220,6 +226,9 @@ export async function runDashboardReviewAction(
     }
     if (err instanceof HeldForReviewError) {
       return NextResponse.json({ error: err.message }, { status: 409, headers: NO_STORE_HEADERS });
+    }
+    if (err instanceof SubscriptionReadOnlyError) {
+      return NextResponse.json({ error: err.error }, { status: err.status, headers: NO_STORE_HEADERS });
     }
     console.error(`[api/dashboard/reviews/${actionName}] Unexpected error:`, err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: NO_STORE_HEADERS });

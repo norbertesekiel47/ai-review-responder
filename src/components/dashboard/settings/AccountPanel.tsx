@@ -6,6 +6,7 @@ import { useAccountData, type AccountSettingsData } from '@/hooks/useAccountData
 import type { DashboardDataActive } from '@/lib/dashboard/types';
 import { SubscriptionTier, type SubscriptionTierValue, TIER_CONFIG } from '@/lib/accounts/tier-config';
 import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
+import { AccountOffboardingPanel } from '@/components/dashboard/settings/AccountOffboardingPanel';
 
 const TIER_OPTIONS: SubscriptionTierValue[] = ['basic', 'standard', 'premium', 'founders'];
 
@@ -538,6 +539,11 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
           </>
         )}
       </div>
+
+      <AccountOffboardingPanel
+        accountTimeZone={accountData?.timeZone ?? 'UTC'}
+        onAccountRefetch={onAccountRefetch}
+      />
 
       {/* Tier change confirmation modal */}
       {selectedTier && accountData && (

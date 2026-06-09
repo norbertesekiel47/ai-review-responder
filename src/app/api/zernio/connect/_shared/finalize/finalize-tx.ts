@@ -1,4 +1,9 @@
 import { v7 as uuidv7 } from 'uuid';
+import {
+  activeOffboardingStateFromProjection,
+  isConnectBlocked,
+  type ActiveOffboardingProjection,
+} from '@/lib/account-offboarding/gate';
 import { sql, jsonb } from '@/lib/db/server';
 import { ZernioRouteError } from '@/lib/zernio/errors';
 import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
@@ -37,25 +42,43 @@ export async function finalizeConnectionTx({
 
   await sql.begin(async (tx) => {
     const [accountLocation] = await tx<
-      {
+      Array<{
+        account_id: string;
         subscription_status: string;
         past_due_at: Date | string | null;
         flags: AccountFlagsInput;
         subscription_tier: string;
         subscription_activated_at: Date | null;
-      }[]
+      } & ActiveOffboardingProjection>
     >`
       SELECT
+        a.id AS account_id,
         a.subscription_status,
         a.past_due_at,
         a.flags,
         a.subscription_tier,
-        a.subscription_activated_at
+        a.subscription_activated_at,
+        ao.id AS offboarding_id,
+        ao.account_id AS offboarding_account_id,
+        ao.mode AS offboarding_mode,
+        ao.status AS offboarding_status,
+        ao.failed_step AS offboarding_failed_step,
+        ao.access_ends_at AS offboarding_access_ends_at,
+        ao.teardown_started_at AS offboarding_teardown_started_at,
+        ao.purge_after AS offboarding_purge_after,
+        ao.purge_started_at AS offboarding_purge_started_at,
+        ao.purge_cancelled_at AS offboarding_purge_cancelled_at
       FROM businesses b
       JOIN accounts a ON a.id = b.account_id
+      LEFT JOIN account_offboardings ao
+        ON ao.account_id = a.id
+       AND ao.account_id = ${ownerAccountId}
+       AND ao.terminal_at IS NULL
       WHERE b.id = ${stored.businessId}
         AND b.account_id = ${ownerAccountId}
         AND b.archived_at IS NULL
+      ORDER BY ao.created_at DESC NULLS LAST
+      LIMIT 1
       FOR UPDATE OF b, a
     `;
 
@@ -69,6 +92,10 @@ export async function finalizeConnectionTx({
     });
     if (!writable.ok) {
       throw new ZernioRouteError(writable.status, writable.error);
+    }
+    const offboardingState = activeOffboardingStateFromProjection(accountLocation);
+    if (isConnectBlocked(offboardingState)) {
+      throw new ZernioRouteError(403, 'account_offboarding_blocked');
     }
 
     const [existingConnection] = await tx<{ id: string }[]>`

@@ -28,6 +28,23 @@
     {
       "file": "worker/background/pollers/ZernioRecentReviewPoller.ts",
       "exports": ["runOnce"]
+    },
+    // Owner-offboarding feature: deliberately-retained API surface with no current
+    // cross-file consumer. clearFreshAuthCookie is the symmetric clear for the
+    // destructive-auth fresh-auth cookie (kept beside its setter); the analytics
+    // allowlist + terminal-status union are referenced via type/runtime gates the
+    // analyzer cannot trace. Acknowledged rather than deleted.
+    {
+      "file": "src/lib/account-offboarding/destructive-auth.ts",
+      "exports": ["clearFreshAuthCookie"]
+    },
+    {
+      "file": "src/lib/analytics/events.ts",
+      "exports": ["CLIENT_ENQUEUEABLE_EVENT_NAMES"]
+    },
+    {
+      "file": "src/lib/account-offboarding/types.ts",
+      "exports": ["AccountOffboardingTerminalStatus"]
     }
   ],
   "health": {
@@ -52,7 +69,63 @@
       "src/app/api/dashboard/past-replies/*/restore-original/route.ts",
       "src/lib/reviews/process-review.ts",
       "worker/jobs/publisher/ResponsePublisherWorker.ts",
-      "worker/jobs/zernio/ZernioBackfillWorker.ts"
+      "worker/jobs/zernio/ZernioBackfillWorker.ts",
+
+      // ── Owner-offboarding feature (acknowledged orchestration) ──
+      // New offboarding orchestration handlers/components + workers, plus existing
+      // route/component handlers the gate-wiring touched mechanically (the single
+      // shared guard `gate.ts` is threaded into every owner write / connect / billing
+      // surface). These are entry-point orchestration (validate → call one module →
+      // return) or staged provider workflows; splitting them further would add
+      // pass-through indirection the design rules reject. The deep logic lives in
+      // extracted modules (snapshot, confirm, teardown-*, purge-stages, gate, the
+      // writable/destructive-auth gates). Acknowledged as separate refactor work; the
+      // critical correctness paths (purge, reactivation, teardown) are test-covered.
+      "src/app/api/account/offboarding/confirm/route.ts",
+      "src/app/api/account/offboarding/retry-billing/route.ts",
+      "src/app/admin/offboardings/OffboardingsClient.tsx",
+      "src/app/api/admin/offboardings/*/provider-disposition/route.ts",
+      "src/components/dashboard/settings/AccountOffboardingPanel.tsx",
+      "src/components/dashboard/settings/DeleteDataOffboardingModal.tsx",
+      "src/components/dashboard/DashboardContent.tsx",
+      "src/app/(authenticated)/account/offboarding/status/OffboardingStatusClient.tsx",
+      "src/lib/account-offboarding/provider-disposition.ts",
+      "src/lib/account-offboarding/purge-verification.ts",
+      "src/lib/account-offboarding/reactivate.ts",
+      "src/lib/account-offboarding/keep-my-data.ts",
+      "src/lib/account-offboarding/destructive-auth.ts",
+      "src/lib/account-offboarding/stripe-invoices.ts",
+      "worker/jobs/account-offboarding/AccountOffboardingEmailWorker.ts",
+      "worker/jobs/account-offboarding/purge-stages.ts",
+      "worker/jobs/account-offboarding/teardown-stripe.ts",
+      "worker/index.ts",
+      "worker/ingress/zernio/zernio.ts",
+      // Existing handlers touched mechanically by gate-wiring (already complex on
+      // main; the offboarding PR only threaded the guard call through them).
+      "src/proxy.ts",
+      "src/app/api/billing/checkout/route.ts",
+      "src/app/api/billing/portal/route.ts",
+      "src/app/api/billing/tier-change/route.ts",
+      "src/app/api/zernio/connect/start/route.ts",
+      "src/app/api/zernio/connect/cancel/route.ts",
+      "src/app/api/zernio/connect/callback/route.ts",
+      "src/app/api/zernio/connect/_shared/finalize/authorize.ts",
+      "src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts",
+      "src/app/api/zernio/disconnect/route.ts",
+      "src/app/api/auth/mfa/challenge/route.ts",
+      "src/app/api/admin/impersonation/start/route.ts",
+      "src/app/api/admin/businesses/*/zernio-queue/route.ts",
+      "src/components/admin/AdminNav.tsx",
+      "src/components/dashboard/settings/AccountPanel.tsx",
+      "src/hooks/useAccountData.ts",
+      "src/lib/admin/business-detail/mappers.ts",
+      "worker/ingress/telegram/telegram-shared.ts",
+      "scripts/ci/tenant-scope-audit.ts",
+      "scripts/ci/static-policy-audit.ts",
+      // Authenticated layout + past-replies page: the offboarding status banner /
+      // gate-aware screens were threaded in mechanically.
+      "src/app/(authenticated)/layout.tsx",
+      "src/app/(authenticated)/dashboard/past-replies/page.tsx"
     ]
   },
   "duplicates": {
@@ -207,7 +280,69 @@
       "src/app/api/dashboard/past-replies/*/retry/route.ts",
       "src/app/api/dashboard/past-replies/*/restore-original/route.ts",
       "worker/jobs/zernio/ZernioBackfillWorker.ts",
-      "worker/jobs/zernio/ZernioReviewIngestWorker.ts"
+      "worker/jobs/zernio/ZernioReviewIngestWorker.ts",
+
+      // ── Owner-offboarding feature (acknowledged duplication) ──
+      // Offboarding's own routes share the standardized force-dynamic + read-level
+      // owner-gate preamble (requireOwnerWithAccount / requireDeleteDataDestructiveAuth)
+      // — framework scaffolding, not extractable without a per-handler HOF. The two
+      // confirm-flow tx bodies (cancel_only vs delete_data) are deliberately parallel
+      // (resolveActiveOrLock + snapshot + audit), the offboarding background pollers
+      // share the SKIP-LOCKED-claim-then-revalidate poll-loop scaffold wrapping
+      // divergent jobs (same reasoning as the schedulers above — reliability-sensitive,
+      // production.md), the two Stripe webhook handlers share subscription-scoping
+      // preamble, and startup-assert groups repeated env assertions. Acknowledged.
+      "src/app/api/account/offboarding/confirm/route.ts",
+      "src/app/api/account/offboarding/keep-my-data/route.ts",
+      "src/app/api/account/offboarding/reactivate/route.ts",
+      "src/app/api/account/offboarding/retry-billing/route.ts",
+      "src/app/api/locations/add/route.ts",
+      "src/app/api/locations/reactivate/route.ts",
+      "src/components/dashboard/DashboardContent.tsx",
+      "src/components/dashboard/settings/AccountPanel.tsx",
+      "src/components/dashboard/settings/GeneralPanel.tsx",
+      "src/lib/account-offboarding/confirm.ts",
+      "src/lib/account-offboarding/email-dedup.ts",
+      "src/lib/auth/require-owner-access.ts",
+      "src/lib/shared/job-outbox-helpers.ts",
+      "src/lib/shared/writable-subscription.ts",
+      "worker/background/pollers/AccountOffboardingAccessEndPoller.ts",
+      "worker/background/pollers/AccountOffboardingPurgePoller.ts",
+      "worker/background/pollers/AccountOffboardingPurgeReminderPoller.ts",
+      "worker/background/pollers/AccountOffboardingReactivationResetPoller.ts",
+      "worker/background/pollers/AccountOffboardingTeardownRetryPoller.ts",
+      "worker/config/startup-assert.ts",
+      "worker/ingress/stripe/subscription-deleted.ts",
+      "worker/ingress/stripe/subscription-updated.ts",
+      // Shared teardown/purge worker family: snapshot-driven staged provider
+      // workflows that share a small getStripe()/error-classifier + step-stamp
+      // scaffold across each provider step (Stripe/Zernio/locations/outbox). The
+      // bounded Stripe retry-classifier is intentionally co-located per worker
+      // (reliability-sensitive; production.md) rather than hoisted into a shared
+      // module across the worker/lib boundary. The fresh-auth cookie helper mirrors
+      // the existing signed-cookie helpers (approval cookies, zernio connect
+      // session) — same HMAC-cookie shape, distinct secrets/payloads.
+      "worker/jobs/account-offboarding/BillingScheduleWorker.ts",
+      "worker/jobs/account-offboarding/TeardownWorker.ts",
+      "worker/jobs/account-offboarding/PurgeWorker.ts",
+      "worker/jobs/account-offboarding/purge-stages.ts",
+      "worker/jobs/account-offboarding/teardown-stripe.ts",
+      "worker/jobs/account-offboarding/teardown-locations.ts",
+      "worker/jobs/account-offboarding/teardown-zernio.ts",
+      "worker/jobs/account-offboarding/teardown-outbox.ts",
+      "src/lib/account-offboarding/reactivate.ts",
+      "src/lib/account-offboarding/destructive-auth.ts",
+      "src/lib/approval/cookies.ts",
+      "src/lib/zernio/connect-session-cookie.ts",
+      "src/app/api/billing/checkout/route.ts",
+      "src/app/api/billing/tier-change/route.ts",
+      "src/components/dashboard/settings/AccountOffboardingPanel.tsx",
+      "src/components/dashboard/settings/DeleteDataOffboardingModal.tsx",
+      "src/app/(authenticated)/layout.tsx",
+      "src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx",
+      "src/app/(public)/pricing/PricingContent.tsx",
+      "worker/jobs/response-generation/load-context.ts",
+      "worker/jobs/response-generation/persist.ts"
     ]
   }
 }

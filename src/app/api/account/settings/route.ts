@@ -94,5 +94,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       overageUnits: billingSnapshot.overageUnits,
       totalCents: billingSnapshot.totalCents,
     },
+    // The current account schema has no persisted IANA timezone. Keep the
+    // display timezone server-owned and explicit until a future schema adds it.
+    timeZone: 'UTC',
   });
 }

@@ -80,6 +80,8 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
         heading: 'Subscription and Billing',
         body: [
           'Subscriptions are charged through Stripe. Prices are displayed at checkout and may change with advance notice. You may cancel according to the account-management workflow available in the product.',
+          'RepWorth offers two ways to end a subscription. Standard cancellation keeps your access and posting paths active through the end of the current paid billing period and then ends the subscription; no further charges are made, and the unused portion of the current period is not refunded. Immediate account deletion stops all review processing and draft generation right away, tears down billing and Google connections, and begins permanent deletion of your data.',
+          'If you request immediate account deletion in the middle of a paid billing period, you forfeit the remaining paid time, and any prepaid or unused fees for that period are non-refundable except where a refund is required by applicable law. RepWorth does not provide a self-serve data export before deletion, so export any data you wish to keep before you confirm deletion.',
           'Stripe handles payment card data. RepWorth stores billing identifiers and subscription state, not raw card numbers.',
         ],
       },
@@ -126,6 +128,7 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
         heading: 'Termination',
         body: [
           'Either party may terminate the agreement. We may suspend or terminate your account for cause immediately, or without cause with notice. Upon termination, access ends and data is handled according to the Privacy Policy and product retention workflows.',
+          'When you delete your account, RepWorth deletes or anonymizes your customer data after a short waiting period, while retaining limited billing, security, and compliance records where retention is required by law or a legitimate business need. RepWorth does not promise absolute deletion of every record.',
         ],
       },
       {

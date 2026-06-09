@@ -9,12 +9,20 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────
 
-const { mockRequireRole, mockSql, mockPortalCreate, mockConfigList, mockConfigCreate } = vi.hoisted(() => ({
+const {
+  mockRequireRole,
+  mockSql,
+  mockPortalCreate,
+  mockConfigList,
+  mockConfigCreate,
+  mockGetOffboardingState,
+} = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockSql: vi.fn(),
   mockPortalCreate: vi.fn(),
   mockConfigList: vi.fn(),
   mockConfigCreate: vi.fn(),
+  mockGetOffboardingState: vi.fn(),
 }));
 
 vi.mock('@/lib/db/auth', () => {
@@ -37,6 +45,14 @@ vi.mock('@/lib/db/server', () => ({
   sql: mockSql,
   jsonb: (v: unknown) => v,
 }));
+
+vi.mock('@/lib/account-offboarding/gate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/account-offboarding/gate')>();
+  return {
+    ...actual,
+    getOffboardingState: (...args: unknown[]) => mockGetOffboardingState(...args),
+  };
+});
 
 // Mock Stripe SDK
 vi.mock('stripe', () => {
@@ -96,18 +112,44 @@ function mockAccountRow(status: string, stripeCustomerId: string | null) {
   };
 }
 
+function safePortalConfiguration(id: string) {
+  return {
+    id,
+    active: true,
+    features: {
+      payment_method_update: { enabled: true },
+      invoice_history: { enabled: true },
+      subscription_cancel: { enabled: false },
+    },
+  };
+}
+
+function unsafeCancellationPortalConfiguration(id: string) {
+  return {
+    id,
+    active: true,
+    features: {
+      payment_method_update: { enabled: true },
+      invoice_history: { enabled: true },
+      subscription_cancel: { enabled: true },
+    },
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockRequireRole.mockReset();
   mockSql.mockReset();
   mockSql.mockResolvedValue([]);
+  mockGetOffboardingState.mockReset();
+  mockGetOffboardingState.mockResolvedValue(null);
   mockPortalCreate.mockReset();
   mockConfigList.mockReset();
   mockConfigCreate.mockReset();
 
   // Default: existing active portal configuration
   mockConfigList.mockResolvedValue({
-    data: [{ id: 'bpc_test_existing', active: true }],
+    data: [safePortalConfiguration('bpc_test_existing')],
   });
 
   // Default: successful portal session creation
@@ -198,7 +240,78 @@ describe('POST /api/billing/portal', () => {
     );
   });
 
-  it('creates default portal configuration when none exists', async () => {
+  it('allows portal management during cancel-only scheduled offboarding', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockSql.mockResolvedValueOnce([mockAccountRow('active', 'cus_test_123')]);
+    mockGetOffboardingState.mockResolvedValueOnce({
+      id: 'offboarding-1',
+      accountId: ACCOUNT_ID,
+      mode: 'cancel_only',
+      status: 'scheduled',
+      failedStep: null,
+      terminalAt: null,
+      accessEndsAt: new Date('2026-07-01T00:00:00.000Z'),
+      teardownStartedAt: null,
+      purgeAfter: null,
+      purgeStartedAt: null,
+      purgeCancelledAt: null,
+    });
+
+    const req = mkRequest();
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(mockPortalCreate).toHaveBeenCalled();
+  });
+
+  it('blocks portal management during delete-data offboarding', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockSql.mockResolvedValueOnce([mockAccountRow('active', 'cus_test_123')]);
+    mockGetOffboardingState.mockResolvedValueOnce({
+      id: 'offboarding-1',
+      accountId: ACCOUNT_ID,
+      mode: 'delete_data',
+      status: 'pending',
+      failedStep: null,
+      terminalAt: null,
+      accessEndsAt: null,
+      teardownStartedAt: null,
+      purgeAfter: null,
+      purgeStartedAt: null,
+      purgeCancelledAt: null,
+    });
+
+    const req = mkRequest();
+    const res = await POST(req);
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(mockPortalCreate).not.toHaveBeenCalled();
+  });
+
+  it('does not use an existing portal configuration that enables subscription cancellation', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockSql.mockResolvedValueOnce([mockAccountRow('active', 'cus_test_123')]);
+    mockConfigList.mockResolvedValueOnce({
+      data: [
+        unsafeCancellationPortalConfiguration('bpc_cancel_enabled'),
+        safePortalConfiguration('bpc_cancel_disabled'),
+      ],
+    });
+
+    const req = mkRequest();
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(mockConfigCreate).not.toHaveBeenCalled();
+    expect(mockPortalCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        configuration: 'bpc_cancel_disabled',
+      }),
+    );
+  });
+
+  it('creates default portal configuration without self-serve subscription cancellation when none exists', async () => {
     mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockSql.mockResolvedValueOnce([mockAccountRow('active', 'cus_test_123')]);
     mockConfigList.mockResolvedValueOnce({ data: [] });
@@ -214,9 +327,15 @@ describe('POST /api/billing/portal', () => {
           payment_method_update: { enabled: true },
           invoice_history: { enabled: true },
           subscription_cancel: expect.objectContaining({
-            enabled: true,
-            mode: 'at_period_end',
+            enabled: false,
           }),
+        }),
+      }),
+    );
+    expect(mockConfigCreate).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        features: expect.objectContaining({
+          subscription_cancel: expect.objectContaining({ enabled: true }),
         }),
       }),
     );

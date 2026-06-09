@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
+import {
+  activeOffboardingStateFromProjection,
+  isConnectBlocked,
+  type ActiveOffboardingProjection,
+} from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { zernioRouteErrorResponse } from '../_shared/error-response';
-import { assertWritableSubscriptionForBusiness } from '@/lib/shared/writable-subscription';
+import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import { zernioClient } from '@/lib/zernio/client';
+import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 
 export const dynamic = 'force-dynamic';
 
@@ -111,11 +117,95 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   if (user.role === 'owner') {
     try {
-      const writable = await assertWritableSubscriptionForBusiness(businessId);
+      const [accountRow] = await sql<Array<{
+        account_id: string;
+        subscription_status: string;
+        past_due_at: Date | string | null;
+        flags: AccountFlagsInput;
+      } & ActiveOffboardingProjection>>`
+        SELECT a.id AS account_id, a.subscription_status, a.past_due_at, a.flags,
+             ao.id AS offboarding_id,
+             ao.account_id AS offboarding_account_id,
+             ao.mode AS offboarding_mode,
+             ao.status AS offboarding_status,
+             ao.failed_step AS offboarding_failed_step,
+             ao.access_ends_at AS offboarding_access_ends_at,
+             ao.teardown_started_at AS offboarding_teardown_started_at,
+             ao.purge_after AS offboarding_purge_after,
+             ao.purge_started_at AS offboarding_purge_started_at,
+             ao.purge_cancelled_at AS offboarding_purge_cancelled_at
+        FROM businesses b
+        JOIN accounts a ON a.id = b.account_id
+        LEFT JOIN account_offboardings ao
+          ON ao.account_id = a.id
+         AND ao.account_id = ${user.accountId}
+         AND ao.terminal_at IS NULL
+        WHERE b.id = ${businessId}
+          AND b.account_id = ${user.accountId}
+          AND b.archived_at IS NULL
+        ORDER BY ao.created_at DESC NULLS LAST
+        LIMIT 1
+      `;
+      if (!accountRow) {
+        return NextResponse.json(
+          { error: 'invalid_location_scope' },
+          { status: 403, headers: NO_STORE },
+        );
+      }
+      const writable = assertWritableSubscriptionStatus({
+        subscriptionStatus: accountRow.subscription_status,
+        pastDueAt: accountRow.past_due_at,
+        accountFlags: accountRow.flags,
+      });
       if (!writable.ok) {
         return NextResponse.json(
           { error: writable.error },
           { status: writable.status, headers: NO_STORE },
+        );
+      }
+      const offboardingState = activeOffboardingStateFromProjection(accountRow);
+      if (isConnectBlocked(offboardingState)) {
+        return NextResponse.json(
+          { error: 'account_offboarding_blocked' },
+          { status: 403, headers: NO_STORE },
+        );
+      }
+    } catch (err) {
+      return errorToResponse(err);
+    }
+  } else {
+    try {
+      const [accountRow] = await sql<Array<{
+        account_id: string;
+      } & ActiveOffboardingProjection>>`
+        SELECT a.id AS account_id,
+             ao.id AS offboarding_id,
+             ao.account_id AS offboarding_account_id,
+             ao.mode AS offboarding_mode,
+             ao.status AS offboarding_status,
+             ao.failed_step AS offboarding_failed_step,
+             ao.access_ends_at AS offboarding_access_ends_at,
+             ao.teardown_started_at AS offboarding_teardown_started_at,
+             ao.purge_after AS offboarding_purge_after,
+             ao.purge_started_at AS offboarding_purge_started_at,
+             ao.purge_cancelled_at AS offboarding_purge_cancelled_at
+        FROM businesses b
+        JOIN accounts a ON a.id = b.account_id
+        LEFT JOIN account_offboardings ao
+          ON ao.account_id = a.id
+         AND ao.terminal_at IS NULL
+        WHERE b.id = ${businessId}
+          AND b.archived_at IS NULL
+        ORDER BY ao.created_at DESC NULLS LAST
+        LIMIT 1
+      `;
+      const offboardingState = accountRow
+        ? activeOffboardingStateFromProjection(accountRow)
+        : null;
+      if (isConnectBlocked(offboardingState)) {
+        return NextResponse.json(
+          { error: 'account_offboarding_blocked' },
+          { status: 403, headers: NO_STORE },
         );
       }
     } catch (err) {

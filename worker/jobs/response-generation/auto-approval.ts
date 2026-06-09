@@ -153,6 +153,8 @@ export async function loadAutoApprovalRuntimeState(
   // strips subqueries before crediting business_id/account_id scope, so folding
   // this into an EXISTS on the state SELECT reads as unscoped. The spec (§8)
   // accepts this extra indexed read as the cost of a current-state re-read.
+  // FP: two reads on the shared tx, deliberately kept as separate top-level statements (see comment above) so the tenant-scope auditor credits business_id/account_id scope; not independently parallelizable.
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
   const [activeConnection] = await tx<{ id: string }[]>`
     SELECT id
     FROM zernio_connections

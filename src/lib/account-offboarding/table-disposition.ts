@@ -1,0 +1,323 @@
+export const ACCOUNT_OFFBOARDING_DISPOSITIONS = [
+  'hard_delete',
+  'scrub_in_place',
+  'retain_deidentified',
+  'retain_compliance_limited_pii',
+  'not_applicable',
+] as const;
+
+export type AccountOffboardingDisposition =
+  (typeof ACCOUNT_OFFBOARDING_DISPOSITIONS)[number];
+
+export const ACCOUNT_OFFBOARDING_SCOPE_EVIDENCE = [
+  'direct_account_id',
+  'direct_business_id',
+  'user_created_row',
+  'offboarding_account_id',
+  'payload_reference',
+  'compliance_handle_hash',
+  'admin_control_account_id',
+  'not_applicable',
+] as const;
+
+export type AccountOffboardingScopeEvidence =
+  (typeof ACCOUNT_OFFBOARDING_SCOPE_EVIDENCE)[number];
+
+export const PURGE_VERIFICATION_MODES = [
+  'must_be_absent',
+  'must_be_scrubbed',
+  'allowed_limited_retention',
+  'not_checked',
+] as const;
+
+export type PurgeVerificationMode = (typeof PURGE_VERIFICATION_MODES)[number];
+
+export const ALLOWED_PURGE_VERIFICATION_BY_DISPOSITION = {
+  hard_delete: ['must_be_absent'],
+  scrub_in_place: ['must_be_scrubbed'],
+  retain_deidentified: ['must_be_scrubbed', 'allowed_limited_retention'],
+  retain_compliance_limited_pii: ['allowed_limited_retention'],
+  not_applicable: ['not_checked'],
+} as const satisfies Record<
+  AccountOffboardingDisposition,
+  readonly PurgeVerificationMode[]
+>;
+
+export interface TableDisposition {
+  table: string;
+  disposition: AccountOffboardingDisposition;
+  /**
+   * Human-readable evidence only. PR6 purge/scrub SQL must use dedicated,
+   * tested query modules instead of treating this inventory as executable SQL.
+   */
+  scopeEvidence: AccountOffboardingScopeEvidence;
+  purgeVerification: PurgeVerificationMode;
+  reason: string;
+}
+
+export const EXPLICIT_ACCOUNT_OFFBOARDING_TABLES = [
+  'inbound_events',
+  'job_outbox',
+  'analytics_events',
+  'flagged_responses',
+  'impersonation_sessions',
+] as const;
+
+export const SPEC_ONLY_ACCOUNT_OFFBOARDING_TABLES = [
+  'users',
+  'google_connections',
+  'prospect_demos',
+] as const;
+
+export const TABLE_DISPOSITIONS = [
+  {
+    table: 'accounts',
+    disposition: 'retain_deidentified',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_scrubbed',
+    reason: 'Billing parent is tombstoned so retained operational rows cannot identify the owner.',
+  },
+  {
+    table: 'businesses',
+    disposition: 'retain_deidentified',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_scrubbed',
+    reason: 'Location parent rows are tombstoned while preserving relational integrity.',
+  },
+  {
+    table: 'users',
+    disposition: 'retain_deidentified',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_scrubbed',
+    reason: 'App user row is detached from Supabase Auth and tombstoned after auth deletion succeeds.',
+  },
+  {
+    table: 'reviews',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Review content and reviewer metadata are customer data removed during purge.',
+  },
+  {
+    table: 'responses',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Draft, edited, approved, and posted response content is removed during purge.',
+  },
+  {
+    table: 'approval_links',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Approval-token metadata is invalid after offboarding and removed with response data.',
+  },
+  {
+    table: 'approval_audit_log',
+    disposition: 'scrub_in_place',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_scrubbed',
+    reason: 'Approval forensics may be retained only after response text, token hashes, and identifiers are scrubbed.',
+  },
+  {
+    table: 'account_audit_log',
+    disposition: 'scrub_in_place',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_scrubbed',
+    reason: 'Lifecycle audit history is retained in a deletion-safe allowlisted shape.',
+  },
+  {
+    table: 'notification_deliveries',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Delivery evidence is removed during destructive purge because legacy rows retain business/account linkage.',
+  },
+  {
+    table: 'channel_enrollments',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Owner notification channel handles are contact data and are removed.',
+  },
+  {
+    table: 'zernio_connections',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Provider connection identifiers and tokens are removed after provider teardown.',
+  },
+  {
+    table: 'zernio_finalize_incidents',
+    disposition: 'scrub_in_place',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_scrubbed',
+    reason: 'Finalize incident diagnostics may remain only after provider identifiers and payloads are scrubbed.',
+  },
+  {
+    table: 'zernio_backfill_runs',
+    disposition: 'scrub_in_place',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_scrubbed',
+    reason: 'Backfill counters may remain only without provider ids, business labels, or review payloads.',
+  },
+  {
+    table: 'weekly_summaries',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Owner-facing summary content is customer data and is removed.',
+  },
+  {
+    table: 'monthly_impact_emails',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Owner-facing impact email content is customer data and is removed.',
+  },
+  {
+    table: 'review_exceptions',
+    disposition: 'scrub_in_place',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_scrubbed',
+    reason: 'Exception diagnostics may remain only after review/provider payloads are scrubbed.',
+  },
+  {
+    table: 'ranking_snapshots',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Location ranking history is account data and is removed.',
+  },
+  {
+    table: 'onboarding_drip_log',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Lifecycle email state tied to the owner/location is removed.',
+  },
+  {
+    table: 'onboarding_demos',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Pre-pay demo snapshots contain reviews and generated responses and are removed.',
+  },
+  {
+    table: 'satisfaction_responses',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Owner feedback response rows are removed to avoid retaining freeform customer signals.',
+  },
+  {
+    table: 'auto_approval_policies',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Owner-configured policy rows are product settings and are removed.',
+  },
+  {
+    table: 'api_costs',
+    disposition: 'scrub_in_place',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_scrubbed',
+    reason: 'Cost records may be retained for financial controls only after prompts, excerpts, and ids are scrubbed.',
+  },
+  {
+    table: 'api_costs_daily_rollups',
+    disposition: 'retain_deidentified',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'allowed_limited_retention',
+    reason: 'Aggregate cost rollups may remain when no account, business, review, or response identifier remains.',
+  },
+  {
+    table: 'analytics_events',
+    disposition: 'scrub_in_place',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_scrubbed',
+    reason: 'Analytics rows may remain only after identifiers, properties, and error details are scrubbed.',
+  },
+  {
+    table: 'inbound_events',
+    disposition: 'scrub_in_place',
+    scopeEvidence: 'payload_reference',
+    purgeVerification: 'must_be_scrubbed',
+    reason: 'Webhook replay rows may remain only after raw provider payloads and account identifiers are scrubbed.',
+  },
+  {
+    table: 'job_outbox',
+    disposition: 'scrub_in_place',
+    scopeEvidence: 'payload_reference',
+    purgeVerification: 'must_be_scrubbed',
+    reason: 'Outbox rows are terminalized and payloads are scrubbed so stale jobs cannot expose customer data.',
+  },
+  {
+    table: 'sms_sender_opt_outs',
+    disposition: 'retain_compliance_limited_pii',
+    scopeEvidence: 'compliance_handle_hash',
+    purgeVerification: 'allowed_limited_retention',
+    reason: 'SMS suppression records may retain only compliance-limited keyed-hash data needed to honor opt-outs.',
+  },
+  {
+    table: 'sms_sender_opt_out_events',
+    disposition: 'retain_compliance_limited_pii',
+    scopeEvidence: 'compliance_handle_hash',
+    purgeVerification: 'allowed_limited_retention',
+    reason: 'SMS opt-out audit events may retain only compliance-limited keyed-hash data.',
+  },
+  {
+    table: 'flagged_responses',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Moderation-held response content and linked review metadata are removed.',
+  },
+  {
+    table: 'impersonation_sessions',
+    disposition: 'scrub_in_place',
+    scopeEvidence: 'admin_control_account_id',
+    purgeVerification: 'must_be_scrubbed',
+    reason: 'Admin control-plane records may remain only after impersonated account/user references are scrubbed.',
+  },
+  {
+    table: 'google_connections',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Google provider identifiers and tokens are removed during provider teardown.',
+  },
+  {
+    table: 'prospect_demos',
+    disposition: 'hard_delete',
+    scopeEvidence: 'user_created_row',
+    purgeVerification: 'must_be_absent',
+    reason: 'Prospect demo snapshots may contain review and generated response content and are removed when linked to the account.',
+  },
+  {
+    table: 'account_offboardings',
+    disposition: 'scrub_in_place',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_scrubbed',
+    reason: 'The lifecycle receipt row remains only after recipient, auth, and provider snapshot fields are scrubbed.',
+  },
+  {
+    table: 'account_offboarding_tokens',
+    disposition: 'hard_delete',
+    scopeEvidence: 'offboarding_account_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Keep-my-data token metadata is invalid after purge starts and is removed.',
+  },
+] as const satisfies readonly TableDisposition[];
+
+export const ACCOUNT_OFFBOARDING_TABLES = Object.freeze(
+  TABLE_DISPOSITIONS.map((entry) => entry.table),
+);
+
+function needsPurgeVerification(entry: TableDisposition): boolean {
+  return entry.purgeVerification !== 'not_checked';
+}
+
+export const PURGE_VERIFICATION_TABLES = Object.freeze(
+  TABLE_DISPOSITIONS.filter(needsPurgeVerification),
+);

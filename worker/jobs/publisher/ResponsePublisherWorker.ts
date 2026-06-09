@@ -1,5 +1,9 @@
 import type { Job } from 'bullmq';
 import { sql } from '../../../src/lib/db/server';
+import {
+  activeOffboardingStateFromProjection,
+  isPublishingBlocked,
+} from '../../../src/lib/account-offboarding/gate';
 import { checkSubscription } from '../../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../../src/lib/shared/outbox';
 import type { PublishResponsePayload } from '../../../src/lib/shared/worker-types';
@@ -37,6 +41,15 @@ export async function handlePublishResponse(
   if (context === 'terminal') return;
 
   const { response, business } = context;
+
+  const offboardingState = activeOffboardingStateFromProjection(business);
+  if (isPublishingBlocked(offboardingState)) {
+    logger.warn(
+      `Business ${businessId} account is offboarding; skipping public publish for response ${response_id}`,
+    );
+    await markOutboxCompleted(outboxId, outboxAttempt);
+    return;
+  }
 
   // ── Publishable-state gate ──────────────────────────────────
   //

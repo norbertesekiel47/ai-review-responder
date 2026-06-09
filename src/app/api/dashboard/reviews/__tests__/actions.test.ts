@@ -90,6 +90,7 @@ vi.mock('@/lib/approval/errors', () => ({
 
 const BUSINESS_ID = '01234567-0000-0000-0000-000000000001';
 const OTHER_BUSINESS_ID = '01234567-0000-0000-0000-000000000099';
+const ACCOUNT_ID = 'a0000000-0000-0000-0000-000000000001';
 const REVIEW_ID = 'rev-001';
 const RESPONSE_ID = 'resp-001';
 const APP_URL = 'http://localhost:3000';
@@ -100,7 +101,7 @@ function ownerUser(overrides?: { accountId?: string | null; locationId?: string 
     name: 'Test Owner',
     email: 'owner@test.com',
     role: 'owner',
-    accountId: overrides && 'accountId' in overrides ? overrides.accountId : 'a0000000-0000-0000-0000-000000000001',
+    accountId: overrides && 'accountId' in overrides ? overrides.accountId : ACCOUNT_ID,
     locationId: overrides && 'locationId' in overrides ? overrides.locationId : BUSINESS_ID,
   };
 }
@@ -138,13 +139,35 @@ function setResponseLookup(
 ) {
   mockSqlResults.length = 0;
   sqlCallCounter.value = 0;
-  mockSqlResults.push([accountRow]);
   mockSqlResults.push(rows);
+  mockSqlResults.push([accountRow]);
   // runDashboardReviewAction locks the response (SELECT ... FOR UPDATE) and
   // checks for an open moderation flag (hasOpenFlag) before recovering the
   // correlation id. Empty results = not held, so the action proceeds.
   mockSqlResults.push([]); // SELECT id ... FOR UPDATE
   mockSqlResults.push([]); // hasOpenFlag → no open flag
+  // In-tx TOCTOU re-assertion: assertWritableSubscriptionForBusiness re-reads the
+  // account/offboarding projection by business id. Active + no active offboarding
+  // = writable, so the action proceeds to recover the correlation id and run.
+  mockSqlResults.push([{ id: ACCOUNT_ID, subscription_status: 'active', past_due_at: null, flags: {} }]);
+}
+
+function offboardingBlockedAccountRow() {
+  return {
+    subscription_status: 'active',
+    past_due_at: null,
+    flags: {},
+    offboarding_id: 'offboarding-1',
+    offboarding_account_id: ACCOUNT_ID,
+    offboarding_mode: 'delete_data',
+    offboarding_status: 'pending',
+    offboarding_failed_step: null,
+    offboarding_access_ends_at: null,
+    offboarding_teardown_started_at: null,
+    offboarding_purge_after: null,
+    offboarding_purge_started_at: null,
+    offboarding_purge_cancelled_at: null,
+  };
 }
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -228,7 +251,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
     expect(res.status).toBe(402);
     expect(await res.json()).toEqual({ error: 'past_due_read_only' });
     expect(mockApproveBySession).not.toHaveBeenCalled();
-    expect(sqlCallCounter.value).toBe(1);
+    expect(sqlCallCounter.value).toBe(2);
   });
 
   it('returns 404 when no response found for review', async () => {
@@ -244,6 +267,43 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toContain('No actionable response');
+  });
+
+  it('preserves the ownership-scoped 404 before checking an offboarding block', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setResponseLookup([], offboardingBlockedAccountRow());
+
+    const { POST } = await import('../[reviewId]/approve/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/approve`),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toContain('No actionable response');
+    expect(sqlCallCounter.value).toBe(1);
+    expect(mockApproveBySession).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 account_offboarding_blocked after the owner-scoped response lookup succeeds', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setResponseLookup(
+      [{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }],
+      offboardingBlockedAccountRow(),
+    );
+
+    const { POST } = await import('../[reviewId]/approve/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/approve`),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(sqlCallCounter.value).toBe(2);
+    expect(mockBeginCallback.fn).toBeNull();
+    expect(mockApproveBySession).not.toHaveBeenCalled();
   });
 
   it('returns 404 when response belongs to a different business (query scoped by business_id)', async () => {

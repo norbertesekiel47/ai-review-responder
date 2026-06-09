@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { IMPERSONATION_COOKIE_NAME } from '@/lib/admin/impersonation/cookie';
+import { getOffboardingState, isOperationalUIBlocked } from '@/lib/account-offboarding/gate';
 import { jsonResponse, requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
 import {
   AutoApprovalConfirmationRequiredError,
@@ -74,7 +75,15 @@ async function requireSettingsOwner(request: NextRequest): Promise<SettingsOwner
   if (request.nextUrl.searchParams.has('accountId')) {
     return { ok: false, response: jsonResponse({ error: 'account_id_not_allowed' }, 400) };
   }
-  return requireOwnerWithAccount(request);
+  const owner = await requireOwnerWithAccount(request);
+  if (!owner.ok) return owner;
+
+  const offboardingState = await getOffboardingState(owner.accountId);
+  if (isOperationalUIBlocked(offboardingState)) {
+    return { ok: false, response: jsonResponse({ error: 'account_offboarding_blocked' }, 403) };
+  }
+
+  return owner;
 }
 
 async function parsePatchBody(request: NextRequest): Promise<ParsedPatchBody> {

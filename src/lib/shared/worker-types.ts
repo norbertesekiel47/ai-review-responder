@@ -11,6 +11,8 @@
  */
 export interface BasePayload {
   correlation_id?: string;
+  outbox_id?: string;
+  outbox_attempt?: number;
 }
 
 export const GENERATE_RESPONSE_ORIGIN_LANE = {
@@ -166,4 +168,49 @@ export interface ZernioInitialBackfillPayload extends BasePayload {
 export interface StripeCheckoutReconcilePayload extends BasePayload {
   account_id: string;
   checkout_session_id: string;
+}
+
+export interface AccountOffboardingBillingSchedulePayload extends BasePayload {
+  account_offboarding_id: string;
+  account_id: string;
+  idempotency_key_hash: string;
+}
+
+export interface AccountOffboardingEmailPayload extends BasePayload {
+  account_offboarding_id: string;
+  account_id: string;
+  email_type:
+    | 'cancel_only_confirmation'
+    | 'cancel_only_access_end'
+    | 'cancel_only_reactivation_confirmation'
+    | 'delete_data_confirmation'
+    | 'delete_data_purge_reminder'
+    | 'keep_my_data_confirmation'
+    | 'purge_receipt';
+  idempotency_key_hash?: string;
+  // Set only for purge_receipt, which is sent AFTER the account row is scrubbed:
+  // the recipient + purge date are carried in the outbox payload because they no
+  // longer exist on the offboarding row. Scrubbed from the payload after send.
+  recipient_email?: string;
+  purged_at?: string;
+}
+
+export interface AccountOffboardingReactivationPayload extends BasePayload {
+  account_offboarding_id: string;
+  account_id: string;
+  actor_user_id: string;
+  idempotency_key_hash: string;
+  request_id?: string | null;
+  ip?: string | null;
+  user_agent?: string | null;
+}
+
+export interface AccountOffboardingTeardownPayload extends BasePayload {
+  account_offboarding_id: string;
+  account_id: string;
+}
+
+export interface AccountOffboardingPurgePayload extends BasePayload {
+  account_offboarding_id: string;
+  account_id: string;
 }

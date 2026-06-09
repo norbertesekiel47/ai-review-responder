@@ -1,3 +1,4 @@
+import type { Job } from 'bullmq';
 import type postgres from 'postgres';
 import { sql } from '@/lib/db/server';
 
@@ -104,4 +105,23 @@ export async function markOutboxFailed(
     WHERE id = ${outboxId}
       AND status = 'dispatched'
   `;
+}
+
+/**
+ * True when the BullMQ job is on (or has exhausted) its final attempt — i.e. a
+ * failure here is terminal and will not be retried. Reads only `opts.attempts`
+ * (defaulting to 1 when unset/invalid) and `attemptsMade`. Worker `'failed'`
+ * handlers use this to decide whether to alert + mark the outbox failed vs. let
+ * BullMQ retry.
+ */
+export function isTerminalAttempt(job: Job<unknown>): boolean {
+  const maxAttempts = typeof job.opts.attempts === 'number' && job.opts.attempts > 0
+    ? job.opts.attempts
+    : 1;
+  return job.attemptsMade >= maxAttempts || job.attemptsMade + 1 >= maxAttempts;
+}
+
+/** Coerce an unknown thrown value to a string message without leaking a stack. */
+export function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

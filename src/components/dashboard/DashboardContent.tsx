@@ -2,9 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
+import { redirect } from 'next/navigation';
 import type { DashboardDataActive, DashboardDataPastDue, AggregateDashboardData } from '@/lib/dashboard/types';
 import type { DashboardOrAggregate } from '@/hooks/useDashboardData';
-import { ActivePendingBusinessScreen } from '@/components/dashboard/account-state/AccountStateScreens';
+import {
+  ActivePendingBusinessScreen,
+} from '@/components/dashboard/account-state/AccountStateScreens';
+import type { OffboardingStatusView } from '@/components/dashboard/account-state/OffboardingStatusBanner';
+import { ACCOUNT_OFFBOARDING_STATUS_PATH } from '@/lib/shared/request-path-header';
 import { PendingAdminHandoffScreen } from '@/components/dashboard/account-state/PendingAdminHandoffScreen';
 import { PendingPaymentScreen } from '@/components/dashboard/account-state/PendingPaymentScreen';
 import { CancelledBanner, PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
@@ -24,6 +30,98 @@ import { useLocationScope } from '@/contexts/LocationContext';
 import { useNeedsActionHashScroll } from '@/hooks/useNeedsActionHashScroll';
 
 export function DashboardContent() {
+  const setPendingCount = useSetPendingCount();
+  const {
+    data: offboardingStatus,
+    error: offboardingError,
+    isLoading: offboardingLoading,
+  } = useQuery({
+    queryKey: ['account-offboarding-status', 'dashboard-gate'],
+    queryFn: fetchAccountOffboardingStatus,
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+  });
+
+  const blockedOffboarding = offboardingStatus?.enabled
+    && offboardingStatus.activeOffboarding?.operationalUIBlocked
+    ? offboardingStatus.activeOffboarding
+    : null;
+
+  useEffect(() => {
+    if (blockedOffboarding) {
+      setPendingCount(0);
+    }
+  }, [blockedOffboarding, setPendingCount]);
+
+  if (offboardingLoading) {
+    return (
+      <>
+        <TopBar title="Dashboard" />
+        <div className="content">
+          <LiveRegion message="Loading your dashboard…" />
+          <div className="dashboard-skeleton">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+              <div className="skeleton-card" />
+              <div className="skeleton-card" />
+              <div className="skeleton-card" />
+            </div>
+            <div className="skeleton-card-lg" />
+            <div className="skeleton-card-lg" />
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (offboardingError) {
+    const message = offboardingError instanceof Error
+      ? offboardingError.message
+      : 'Unable to load account status';
+    return (
+      <>
+        <TopBar title="Dashboard" />
+        <div className="content">
+          <LiveRegion message={message} level="assertive" />
+          <div className="card" style={{ borderColor: '#FCA5A5', background: '#FEF2F2' }}>
+            <h2 className="card-h2" style={{ color: '#991B1B' }}>Unable to verify account status</h2>
+            <p style={{ fontSize: 14, color: '#B91C1C', marginTop: 4 }}>{message}</p>
+            <Link
+              href="/help/contact"
+              style={{ display: 'inline-block', fontSize: 14, marginTop: 10, color: '#1D4ED8' }}
+            >
+              Contact support
+            </Link>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (blockedOffboarding) {
+    redirect(ACCOUNT_OFFBOARDING_STATUS_PATH);
+    return (
+      <div className="content">
+        <LiveRegion message="Opening account status..." />
+        <div className="dashboard-skeleton">
+          <div className="skeleton-card-lg" />
+          <div className="skeleton-card" />
+        </div>
+      </div>
+    );
+  }
+
+  return <DashboardOperationalContent />;
+}
+
+type OffboardingStatusResponse = {
+  enabled: boolean;
+  accountTimeZone?: string | null;
+  activeOffboarding: OffboardingStatusView | null;
+};
+
+function DashboardOperationalContent() {
   const { currentScope, setLocationScope } = useLocationScope();
   const { data, error, loading, refresh, scopeFallback } = useDashboardData(
     currentScope,
@@ -233,6 +331,17 @@ export function DashboardContent() {
       </div>
     </>
   );
+}
+
+async function fetchAccountOffboardingStatus(): Promise<OffboardingStatusResponse> {
+  const res = await fetch('/api/account/offboarding/status', {
+    headers: { Accept: 'application/json' },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.detail ?? body.error ?? 'Unable to load account status');
+  }
+  return body as OffboardingStatusResponse;
 }
 
 /** Type guard to distinguish AggregateDashboardData from per-location DashboardData. */

@@ -4,6 +4,21 @@ const PROTECTED_OWNER_ZERNIO_API_PATHS = new Set([
   '/api/zernio/connect/select-location',
 ]);
 
+const PROTECTED_OWNER_ACCOUNT_API_PATHS = new Set([
+  '/api/account/offboarding/confirm',
+  '/api/account/offboarding/reactivate',
+  '/api/account/offboarding/status',
+]);
+
+// Routes under /api/account/* that are intentionally PUBLIC despite the blanket
+// owner-API gate below. Owner offboarding keep-my-data is clicked from an email
+// by a (logged-out) owner — GET renders a public confirmation page, POST
+// validates the raw keep-my-data token itself — so it must not require a
+// session. Checked before the `/api/account/` prefix so it is never gated.
+const PUBLIC_OWNER_ACCOUNT_API_PATHS = new Set([
+  '/api/account/offboarding/keep-my-data',
+]);
+
 const PROTECTED_MIXED_ROLE_API_PATHS = new Set([
   '/api/zernio/disconnect',
 ]);
@@ -27,9 +42,11 @@ function normalizePath(pathname: string): string {
 
 export function isProtectedOwnerApiRoute(pathname: string): boolean {
   const normalized = normalizePath(pathname);
+  if (PUBLIC_OWNER_ACCOUNT_API_PATHS.has(normalized)) return false;
   return (
     normalized === '/api/dashboard' || normalized.startsWith('/api/dashboard/') ||
     normalized === '/api/settings' || normalized.startsWith('/api/settings/') ||
+    PROTECTED_OWNER_ACCOUNT_API_PATHS.has(normalized) ||
     normalized === '/api/account' || normalized.startsWith('/api/account/') ||
     normalized === '/api/billing' || normalized.startsWith('/api/billing/') ||
     normalized === '/api/locations' || normalized.startsWith('/api/locations/') ||
@@ -64,6 +81,7 @@ export function isProtectedRoute(pathname: string): boolean {
     normalized === '/api/admin' || normalized.startsWith('/api/admin/') ||
     isProtectedAppApiRoute(normalized) ||
     normalized === '/dashboard' || normalized.startsWith('/dashboard/') ||
+    normalized === '/account' || normalized.startsWith('/account/') ||
     normalized === '/settings' || normalized.startsWith('/settings/') ||
     normalized === '/mfa' || normalized.startsWith('/mfa/') ||
     normalized === '/onboarding' || normalized.startsWith('/onboarding/')

@@ -1,12 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  activeOffboardingStateFromProjection,
+  isConnectBlocked,
+  type ActiveOffboardingProjection,
+} from '@/lib/account-offboarding/gate';
+import { sql } from '@/lib/db/server';
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { zernioClient } from '@/lib/zernio/client';
-import { profileStateKey } from '@/lib/zernio/connect-state';
+import {
+  pendingKey,
+  profileStateKey,
+  luaDeletePendingByFlowIdAnyStatus,
+} from '@/lib/zernio/connect-state';
 import { setConnectSessionCookie } from '@/lib/zernio/connect-session-cookie';
 import { cleanupAfterOauthDenial } from '../_shared/callback/oauth-denial';
 import { cleanupMissingTokenState } from '../_shared/callback/missing-token';
 import { claimAndVerifyConnectState } from '../_shared/callback/claim-and-verify';
 import { listLocationsAndStash } from '../_shared/callback/list-and-stash';
+import type { ConnectPendingMarker, ConnectStateBlob } from '@/lib/zernio/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -137,6 +148,24 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
   const { stored, pending } = claim;
 
+  let business: ({ account_id: string } & ActiveOffboardingProjection) | undefined;
+  try {
+    business = await loadCallbackBusiness(stored.businessId);
+  } catch (err) {
+    console.error('[api/zernio/connect/callback] offboarding lookup failed:', err);
+    await cleanupBlockedConnectFlow(stored, pending);
+    return redirectError(origin, 'internal_error');
+  }
+  if (!business) {
+    await cleanupBlockedConnectFlow(stored, pending);
+    return redirectError(origin, 'business_mismatch');
+  }
+  const offboardingState = activeOffboardingStateFromProjection(business);
+  if (isConnectBlocked(offboardingState)) {
+    await cleanupBlockedConnectFlow(stored, pending);
+    return redirectError(origin, 'account_offboarding_blocked');
+  }
+
   // 6. Zernio listLocations + round-11 second pending re-check + stash.
   // Two distinct failure surfaces: controlled re-verify returns (caller
   // cleans up) vs the thrown catch (cleanup happens in-module).
@@ -167,4 +196,53 @@ function redirectError(origin: string, code: string): NextResponse {
   const target = new URL('/dashboard/connect', origin);
   target.searchParams.set('error', code);
   return NextResponse.redirect(target, { status: 302, headers: NO_STORE });
+}
+
+async function loadCallbackBusiness(
+  businessId: string,
+): Promise<({ account_id: string } & ActiveOffboardingProjection) | undefined> {
+  const [business] = await sql<Array<{
+    account_id: string;
+  } & ActiveOffboardingProjection>>`
+    SELECT
+      b.account_id,
+      ao.id AS offboarding_id,
+      ao.account_id AS offboarding_account_id,
+      ao.mode AS offboarding_mode,
+      ao.status AS offboarding_status,
+      ao.failed_step AS offboarding_failed_step,
+      ao.access_ends_at AS offboarding_access_ends_at,
+      ao.teardown_started_at AS offboarding_teardown_started_at,
+      ao.purge_after AS offboarding_purge_after,
+      ao.purge_started_at AS offboarding_purge_started_at,
+      ao.purge_cancelled_at AS offboarding_purge_cancelled_at
+    FROM businesses b
+    LEFT JOIN account_offboardings ao
+      ON ao.account_id = b.account_id
+     AND ao.terminal_at IS NULL
+    WHERE b.id = ${businessId}
+    ORDER BY ao.created_at DESC NULLS LAST
+    LIMIT 1
+  `;
+  return business;
+}
+
+async function cleanupBlockedConnectFlow(
+  stored: ConnectStateBlob,
+  pending: ConnectPendingMarker,
+): Promise<void> {
+  const redis = getCacheRedis();
+  await redis
+    .eval(
+      luaDeletePendingByFlowIdAnyStatus,
+      1,
+      pendingKey(stored.businessId),
+      pending.flowId,
+    )
+    .catch(() => {
+      // Best-effort: pending marker auto-expires.
+    });
+  await zernioClient.deleteProfile(stored.profileId).catch((err) => {
+    console.error('[api/zernio/connect/callback] blocked-flow profile cleanup failed:', err);
+  });
 }

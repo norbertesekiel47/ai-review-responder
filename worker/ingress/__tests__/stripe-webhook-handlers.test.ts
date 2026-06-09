@@ -160,13 +160,22 @@ function queueSubscriptionUpdated(opts: {
   status?: string;
   locationsPaid?: number;
   updateBiz?: boolean;
+  stripeSubscriptionId?: string;
+  activeOffboardingSubscriptionId?: string | null;
 } = {}) {
   const tier = opts.tier ?? 'standard';
   const status = opts.status ?? 'active';
   const locationsPaid = opts.locationsPaid ?? 0;
   // Inside sql.begin -> tx calls in order:
   // 1. SELECT id, subscription_tier, subscription_status, locations_paid ... FOR UPDATE
-  sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_tier: tier, subscription_status: status, locations_paid: locationsPaid }]);
+  sqlReturnQueue.push([{
+    id: TEST_ACCOUNT_ID,
+    subscription_tier: tier,
+    subscription_status: status,
+    locations_paid: locationsPaid,
+    stripe_subscription_id: opts.stripeSubscriptionId ?? TEST_SUBSCRIPTION_ID,
+    active_offboarding_subscription_id: opts.activeOffboardingSubscriptionId ?? null,
+  }]);
   // 2. pg_advisory_xact_lock
   sqlReturnQueue.push([]);
   // 3. UPDATE accounts SET subscription_tier, locations_paid, updated_at WHERE id
@@ -213,9 +222,16 @@ function queueInvoicePaid(opts: {
 // Queue helper: customer.subscription.deleted tx flow
 function queueSubscriptionDeleted(opts: {
   status?: string;
+  stripeSubscriptionId?: string;
+  activeOffboardingSubscriptionId?: string | null;
 } = {}) {
   const status = opts.status ?? 'active';
-  sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: status }]);
+  sqlReturnQueue.push([{
+    id: TEST_ACCOUNT_ID,
+    subscription_status: status,
+    stripe_subscription_id: opts.stripeSubscriptionId ?? TEST_SUBSCRIPTION_ID,
+    active_offboarding_subscription_id: opts.activeOffboardingSubscriptionId ?? null,
+  }]);
   sqlReturnQueue.push([]);
   if (status !== 'cancelled') {
     const r1: any = []; r1.count = 1;
@@ -698,6 +714,80 @@ describe('customer.subscription.updated — two-item subscription', () => {
       payload: { fromTier: 'standard', toTier: 'premium', locationsPaid: 4 },
     });
   });
+
+  it('ignores stale old-subscription updates after reactivation/new checkout', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_sub_updated_stale_old_sub',
+      type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: 'sub_old_cancelled',
+          customer: TEST_CUSTOMER_ID,
+          items: {
+            data: [
+              { price: { id: 'price_standard_test' }, quantity: 1 },
+              { price: { id: 'price_standard_overage_test' }, quantity: 9 },
+            ],
+          },
+        },
+      },
+    });
+
+    queueSubscriptionUpdated({
+      tier: 'standard',
+      stripeSubscriptionId: 'sub_new_reactivated',
+      activeOffboardingSubscriptionId: null,
+    });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(200);
+    expect(
+      sqlCalls.some((c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes('subscription_tier')),
+    ).toBe(false);
+    expect(
+      sqlCalls.some((c) => /\bUPDATE\s+businesses\b/.test(c.text) && c.text.includes('subscription_tier')),
+    ).toBe(false);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+  });
+
+  it('no-ops active offboarding subscription snapshot updates when account has a newer subscription', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_sub_updated_active_offboarding_sub',
+      type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: 'sub_old_tearing_down',
+          customer: TEST_CUSTOMER_ID,
+          items: {
+            data: [
+              { price: { id: 'price_standard_test' }, quantity: 1 },
+              { price: { id: 'price_standard_overage_test' }, quantity: 4 },
+            ],
+          },
+        },
+      },
+    });
+
+    queueSubscriptionUpdated({
+      tier: 'standard',
+      stripeSubscriptionId: 'sub_new_reactivated',
+      activeOffboardingSubscriptionId: 'sub_old_tearing_down',
+    });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(200);
+    expect(
+      sqlCalls.some((c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes('subscription_tier')),
+    ).toBe(false);
+    expect(
+      sqlCalls.some((c) => /\bUPDATE\s+businesses\b/.test(c.text) && c.text.includes('subscription_tier')),
+    ).toBe(false);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────
@@ -1008,6 +1098,58 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
 
     expect(lockIdx).toBeGreaterThanOrEqual(0);
     expect(updateIdx).toBeGreaterThan(lockIdx);
+  });
+
+  it('ignores stale old-subscription deletes after reactivation/new checkout', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_sub_deleted_stale_old_sub',
+      type: 'customer.subscription.deleted',
+      data: { object: { id: 'sub_old_cancelled', customer: TEST_CUSTOMER_ID } },
+    });
+
+    queueSubscriptionDeleted({
+      status: 'active',
+      stripeSubscriptionId: 'sub_new_reactivated',
+      activeOffboardingSubscriptionId: null,
+    });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(200);
+    expect(
+      sqlCalls.some((c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'cancelled'")),
+    ).toBe(false);
+    expect(
+      sqlCalls.some((c) => /\bUPDATE\s+businesses\b/.test(c.text) && c.text.includes("'cancelled'")),
+    ).toBe(false);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+  });
+
+  it('no-ops active offboarding subscription snapshot deletes when account has a newer subscription', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_sub_deleted_active_offboarding_sub',
+      type: 'customer.subscription.deleted',
+      data: { object: { id: 'sub_old_tearing_down', customer: TEST_CUSTOMER_ID } },
+    });
+
+    queueSubscriptionDeleted({
+      status: 'active',
+      stripeSubscriptionId: 'sub_new_reactivated',
+      activeOffboardingSubscriptionId: 'sub_old_tearing_down',
+    });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(200);
+    expect(
+      sqlCalls.some((c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'cancelled'")),
+    ).toBe(false);
+    expect(
+      sqlCalls.some((c) => /\bUPDATE\s+businesses\b/.test(c.text) && c.text.includes("'cancelled'")),
+    ).toBe(false);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });
 });
 

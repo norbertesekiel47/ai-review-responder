@@ -107,6 +107,21 @@ const INACTIVE_ACCOUNT_ROW = {
   past_due_at: null,
   flags: {},
 };
+const OFFBOARDING_ACCOUNT_ROW = {
+  subscription_status: 'active',
+  past_due_at: null,
+  flags: {},
+  offboarding_id: 'offboarding-1',
+  offboarding_account_id: 'a0000000-0000-0000-0000-000000000001',
+  offboarding_mode: 'delete_data',
+  offboarding_status: 'pending',
+  offboarding_failed_step: null,
+  offboarding_access_ends_at: null,
+  offboarding_teardown_started_at: null,
+  offboarding_purge_after: null,
+  offboarding_purge_started_at: null,
+  offboarding_purge_cancelled_at: null,
+};
 const LINK = {
   id: 'link-1',
   response_id: 'resp-1',
@@ -329,6 +344,45 @@ describe('runTokenApprovalAction', () => {
     expect(mockRecoverCorrelationId).not.toHaveBeenCalled();
     expect(action).not.toHaveBeenCalled();
   });
+
+  it('returns 403 before token approval work when owner offboarding blocks callbacks', async () => {
+    sqlResults.push([OFFBOARDING_ACCOUNT_ROW]);
+    const action = vi.fn();
+
+    const res = await runTokenApprovalAction(
+      request(),
+      RAW_TOKEN,
+      'approve',
+      { success: true },
+      action,
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(mockLockValidLink).toHaveBeenCalledWith(mockSql, RAW_TOKEN);
+    expect(mockRecoverCorrelationId).not.toHaveBeenCalled();
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 before token session work when the link business/account was deleted', async () => {
+    sqlResults.push([]);
+    const action = vi.fn();
+
+    const res = await runTokenApprovalAction(
+      request(),
+      RAW_TOKEN,
+      'session',
+      { success: true },
+      action,
+      { requireVerifiedDeviceCookie: false, recoverResponseCorrelation: false },
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'no_business' });
+    expect(mockVerifyDeviceCookie).not.toHaveBeenCalled();
+    expect(mockRecoverCorrelationId).not.toHaveBeenCalled();
+    expect(action).not.toHaveBeenCalled();
+  });
 });
 
 describe('requireDashboardReviewOwner', () => {
@@ -353,8 +407,11 @@ describe('requireDashboardReviewOwner', () => {
 
 describe('runDashboardReviewAction', () => {
   it('scopes the response lookup by owner account and passes the review location to the action', async () => {
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([{ id: 'resp-1', business_id: 'biz-secondary', status: 'pending_approval' }]);
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
+    sqlResults.push([]); // SELECT id ... FOR UPDATE
+    sqlResults.push([]); // hasOpenFlag → no open flag
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
     const action = vi.fn();
 
     const res = await runDashboardReviewAction(
@@ -382,9 +439,31 @@ describe('runDashboardReviewAction', () => {
     }));
   });
 
-  it('returns 409 and skips the action when an open moderation flag holds the draft', async () => {
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // assertWritableSubscriptionForAccount
+  it('re-asserts the writable/offboarding gate inside the tx and blocks an offboarding confirmed after the pre-tx check', async () => {
     sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // outer pre-tx account gate still sees a writable account
+    sqlResults.push([]); // SELECT ... FOR UPDATE
+    sqlResults.push([]); // hasOpenFlag → no open flag
+    sqlResults.push([OFFBOARDING_ACCOUNT_ROW]); // in-tx business gate now sees an active offboarding
+    const action = vi.fn();
+
+    const res = await runDashboardReviewAction(
+      request(),
+      'rev-1',
+      { id: 'owner-1', accountId: 'acct-1' },
+      'approve',
+      'Response approved.',
+      action,
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 and skips the action when an open moderation flag holds the draft', async () => {
+    sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // assertWritableSubscriptionForAccount
     sqlResults.push([]); // SELECT ... FOR UPDATE
     sqlResults.push([{ one: 1 }]); // hasOpenFlag → open flag present
     const action = vi.fn();
@@ -404,7 +483,6 @@ describe('runDashboardReviewAction', () => {
   });
 
   it('returns no-store 404 when no actionable response is visible to the owner', async () => {
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([]);
     const action = vi.fn();
 
@@ -424,8 +502,11 @@ describe('runDashboardReviewAction', () => {
   });
 
   it('maps stale response and unexpected action errors without leaking internals', async () => {
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]);
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
+    sqlResults.push([]); // SELECT id ... FOR UPDATE
+    sqlResults.push([]); // hasOpenFlag → no open flag
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
     const staleRes = await runDashboardReviewAction(
       request(),
       'rev-1',
@@ -438,8 +519,11 @@ describe('runDashboardReviewAction', () => {
     );
     expect(staleRes.status).toBe(409);
 
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]);
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
+    sqlResults.push([]); // SELECT id ... FOR UPDATE
+    sqlResults.push([]); // hasOpenFlag → no open flag
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const unexpectedRes = await runDashboardReviewAction(
       request(),

@@ -9,8 +9,9 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────
 
-const { mockRequireRole } = vi.hoisted(() => ({
+const { mockRequireRole, mockGetOffboardingState } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
+  mockGetOffboardingState: vi.fn(),
 }));
 
 const { mockAssertWritableSubscriptionForAccount } = vi.hoisted(() => ({
@@ -36,6 +37,27 @@ vi.mock('@/lib/db/auth', () => {
 vi.mock('@/lib/shared/writable-subscription', () => ({
   assertWritableSubscriptionForAccount: (...args: unknown[]) => mockAssertWritableSubscriptionForAccount(...args),
 }));
+
+vi.mock('@/lib/account-offboarding/gate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/account-offboarding/gate')>();
+  return {
+    ...actual,
+    getOffboardingState: (...args: unknown[]) => mockGetOffboardingState(...args),
+    createOffboardingGate: () => {
+      const cache = new Map<string, Promise<unknown>>();
+      return {
+        getOffboardingState: (accountId: string) => {
+          const cached = cache.get(accountId);
+          if (cached) return cached;
+          const loaded = Promise.resolve(mockGetOffboardingState(accountId));
+          cache.set(accountId, loaded);
+          return loaded;
+        },
+        isBlocked: actual.isOffboardingIntentBlocked,
+      };
+    },
+  };
+});
 
 const { mockSql } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
@@ -157,13 +179,22 @@ beforeEach(() => {
   // Reset mock internal state (including Once queues) to prevent
   // cross-test leakage from unconsumed mockResolvedValueOnce entries.
   mockRequireRole.mockReset();
+  mockGetOffboardingState.mockReset();
+  mockGetOffboardingState.mockResolvedValue(null);
   mockAssertWritableSubscriptionForAccount.mockReset();
   mockAssertCanAddLocation.mockReset();
   mockGetAccountById.mockReset();
   mockGetAccountOwnerUserId.mockReset();
   mockGetActiveLocationCount.mockReset();
   mockAddLocationTransaction.mockReset();
-  mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
+  mockAssertWritableSubscriptionForAccount.mockImplementation(
+    async (accountId: string, _db?: unknown, offboardingGate?: { getOffboardingState(accountId: string): Promise<unknown> }) => {
+      if (offboardingGate) {
+        await offboardingGate.getOffboardingState(accountId);
+      }
+      return { ok: true };
+    },
+  );
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
 });
 
@@ -249,6 +280,35 @@ describe('POST /api/locations/add', () => {
     });
     await POST(req);
     expect(mockAssertCanAddLocation).not.toHaveBeenCalled();
+  });
+
+  it('blocks add-location before quota checks when account offboarding forbids billing expansion', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockGetOffboardingState.mockResolvedValueOnce({
+      id: 'offboarding-1',
+      accountId: ACCOUNT_ID,
+      mode: 'cancel_only',
+      status: 'scheduled',
+      failedStep: null,
+      terminalAt: null,
+      accessEndsAt: new Date('2026-07-01T00:00:00.000Z'),
+      teardownStartedAt: null,
+      purgeAfter: null,
+      purgeStartedAt: null,
+      purgeCancelledAt: null,
+    });
+
+    const req = mkRequest({
+      accountId: ACCOUNT_ID,
+      displayLabel: 'Downtown Cafe',
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(mockGetOffboardingState).toHaveBeenCalledTimes(1);
+    expect(mockAssertCanAddLocation).not.toHaveBeenCalled();
+    expect(mockAddLocationTransaction).not.toHaveBeenCalled();
   });
 
   // ── MULTI_LOCATION_ENABLED gate ─────────────────────────────────────────

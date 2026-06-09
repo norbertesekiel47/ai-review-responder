@@ -5,6 +5,7 @@ import {
   isProtectedOwnerApiRoute,
   isProtectedRoute,
 } from '@/lib/shared/protected-routes';
+import { REQUEST_PATHNAME_HEADER } from '@/lib/shared/request-path-header';
 
 // Role lookups use the cookie-bound anon client below, relying on the
 // users_self_select RLS policy (migration 006) that lets any authenticated
@@ -19,12 +20,26 @@ import {
 export async function proxy(request: NextRequest) {
   // ── Public paths: skip Supabase work ──────────────────────────────
   const { pathname } = request.nextUrl;
+
+  function createDownstreamRequest(): { headers: Headers } {
+    const downstreamHeaders = new Headers(request.headers);
+    const cookieHeader = request.cookies
+      .getAll()
+      .map(({ name, value }) => `${name}=${value}`)
+      .join('; ');
+    if (cookieHeader) {
+      downstreamHeaders.set('cookie', cookieHeader);
+    }
+    downstreamHeaders.set(REQUEST_PATHNAME_HEADER, pathname);
+    return { headers: downstreamHeaders };
+  }
+
   if (!isProtectedRoute(pathname)) {
-    return NextResponse.next({ request });
+    return NextResponse.next({ request: createDownstreamRequest() });
   }
 
   // ── Protected paths: existing Supabase auth logic ─────────────────
-  let response = NextResponse.next({ request });
+  let response = NextResponse.next({ request: createDownstreamRequest() });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -38,7 +53,7 @@ export async function proxy(request: NextRequest) {
           for (const { name, value } of cookiesToSet) {
             request.cookies.set(name, value);
           }
-          response = NextResponse.next({ request });
+          response = NextResponse.next({ request: createDownstreamRequest() });
           for (const { name, value, options } of cookiesToSet) {
             response.cookies.set(name, value, options);
           }
@@ -170,7 +185,11 @@ export async function proxy(request: NextRequest) {
   }
 
   // 7. Owner pages
-  if (pathname.startsWith('/dashboard') || pathname.startsWith('/settings')) {
+  if (
+    pathname.startsWith('/dashboard') ||
+    pathname.startsWith('/settings') ||
+    pathname.startsWith('/account')
+  ) {
     if (!authUser) {
       return redirectToLogin(request, 'owner');
     }

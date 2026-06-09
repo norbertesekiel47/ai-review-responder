@@ -45,6 +45,8 @@ interface ClaimedCallbackResponse {
  */
 export async function approveViaCallback(input: CallbackApprovalInput): Promise<void> {
   await sql.begin(async (tx) => {
+    // FP: ordered writes inside one sql.begin tx (claim → UPDATE → revoke siblings → enqueue publish → audit); parallelizing would break tx ordering.
+    // react-doctor-disable-next-line react-doctor/async-parallel
     const { link, response } = await claimCallbackResponse(tx, input);
     await tx`
       UPDATE responses
@@ -82,6 +84,8 @@ export async function approveViaCallback(input: CallbackApprovalInput): Promise<
  */
 export async function regenerateViaCallback(input: CallbackApprovalInput): Promise<void> {
   await sql.begin(async (tx) => {
+    // FP: ordered writes inside one sql.begin tx (claim → revoke siblings → supersede → enqueue regenerate → audit); parallelizing would break tx ordering.
+    // react-doctor-disable-next-line react-doctor/async-parallel
     const { link, response } = await claimCallbackResponse(tx, input);
     await revokeSiblings(tx, link.response_id, link.id);
     await tx`

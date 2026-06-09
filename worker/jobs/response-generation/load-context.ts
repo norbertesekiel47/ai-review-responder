@@ -14,6 +14,11 @@
 // ordering across all outcome paths.
 
 import { sql } from '../../../src/lib/db/server';
+import {
+  activeOffboardingStateFromProjection,
+  isProcessingBlocked,
+  type ActiveOffboardingProjection,
+} from '../../../src/lib/account-offboarding/gate';
 import { checkSubscription, type AccountFlagsInput } from '../../../src/lib/shared/subscription-guard';
 import { sanitizeText } from '../../../src/lib/shared/sanitize';
 import { parseDbArray } from '../../../src/lib/shared/db-array';
@@ -62,7 +67,7 @@ export async function loadGenerationContext(input: {
     return { kind: 'review_not_found' };
   }
 
-  const [business] = await sql<{
+  const [business] = await sql<Array<{
     id: string;
     account_id: string;
     name: string;
@@ -77,14 +82,29 @@ export async function loadGenerationContext(input: {
     subscription_tier: string;
     account_past_due_at: Date | null;
     account_flags: AccountFlagsInput;
-  }[]>`
+  } & ActiveOffboardingProjection>>`
     SELECT b.id, b.account_id, b.name, b.category, b.tone, b.products_services, b.staff_names,
            b.highlight_facts, b.avoid_facts, b.sample_responses,
            a.subscription_status, a.subscription_tier,
-           a.past_due_at AS account_past_due_at, a.flags AS account_flags
+           a.past_due_at AS account_past_due_at, a.flags AS account_flags,
+           ao.id AS offboarding_id,
+           ao.account_id AS offboarding_account_id,
+           ao.mode AS offboarding_mode,
+           ao.status AS offboarding_status,
+           ao.failed_step AS offboarding_failed_step,
+           ao.access_ends_at AS offboarding_access_ends_at,
+           ao.teardown_started_at AS offboarding_teardown_started_at,
+           ao.purge_after AS offboarding_purge_after,
+           ao.purge_started_at AS offboarding_purge_started_at,
+           ao.purge_cancelled_at AS offboarding_purge_cancelled_at
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
+    LEFT JOIN account_offboardings ao
+      ON ao.account_id = a.id
+     AND ao.terminal_at IS NULL
     WHERE b.id = ${businessId}
+    ORDER BY ao.created_at DESC NULLS LAST
+    LIMIT 1
   `;
 
   if (!business) {
@@ -104,6 +124,11 @@ export async function loadGenerationContext(input: {
 
   if (!subCheck.allowed) {
     return { kind: 'subscription_blocked', reason: subCheck.reason };
+  }
+
+  const offboardingState = activeOffboardingStateFromProjection(business);
+  if (isProcessingBlocked(offboardingState)) {
+    return { kind: 'subscription_blocked', reason: 'account_offboarding_blocked' };
   }
 
   // ── Idempotency check — previous attempt may have committed ──────────

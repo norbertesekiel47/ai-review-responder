@@ -38,9 +38,9 @@ vi.mock('uuid', () => ({
 import {
   assertCanArchiveLocation,
   archiveLocationTransaction,
+  archiveLocationForAccountOffboardingTeardownTransaction,
   reactivateLocationTransaction,
   type ArchiveLocationTxInput,
-  type ArchiveGuardResult,
 } from '../archive-location-tx';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -85,6 +85,9 @@ beforeEach(() => {
     }
     if (template.includes('SELECT COUNT(*) AS count') && template.includes('FROM businesses')) {
       return [{ count: 2 }];
+    }
+    if (template.includes('SELECT archived_at') && template.includes('FROM businesses') && template.includes('FOR UPDATE')) {
+      return [{ archived_at: null }];
     }
     if (template.includes('UPDATE businesses')) {
       return [{ id: SECONDARY_LOCATION_ID }];
@@ -310,6 +313,9 @@ describe('archiveLocationTransaction', () => {
       if (template.includes('SELECT COUNT(*) AS count') && template.includes('FROM businesses')) {
         return [{ count: 1 }];
       }
+      if (template.includes('SELECT archived_at') && template.includes('FOR UPDATE')) {
+        return [{ archived_at: null }];
+      }
       if (template.includes('UPDATE businesses')) {
         return [{ id: SECONDARY_LOCATION_ID }];
       }
@@ -478,6 +484,68 @@ describe('archiveLocationTransaction', () => {
   });
 });
 
+describe('archiveLocationForAccountOffboardingTeardownTransaction', () => {
+  it('reuses the shared archive transaction body and still enqueues Stripe overage updates', async () => {
+    const result = await archiveLocationForAccountOffboardingTeardownTransaction({
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      accountOffboardingId: 'offboarding-123',
+    });
+
+    expect(mockSql.begin).toHaveBeenCalled();
+    expect(result).toEqual({
+      locationId: SECONDARY_LOCATION_ID,
+      archived: true,
+      alreadyArchived: false,
+    });
+
+    const updateCall = mockSql.mock.calls.find(
+      (call: unknown[]) => (call[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),
+    );
+    expect(updateCall).toBeTruthy();
+
+    const outboxCall = mockSql.mock.calls.find(
+      (call: unknown[]) => (call[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'),
+    );
+    expect(outboxCall).toBeTruthy();
+    expect((outboxCall?.[0] as TemplateStringsArray).join('?')).toContain('INSERT INTO job_outbox');
+  });
+
+  it('treats already-archived snapshot locations as idempotent success without rewriting audit/outbox', async () => {
+    mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
+      const template = strings.join('?');
+      if (template.includes('SELECT id') && template.includes('FROM accounts')) {
+        return [{ id: ACCOUNT_ID }];
+      }
+      if (template.includes('SELECT COUNT(*) AS count') && template.includes('FROM businesses')) {
+        return [{ count: 1 }];
+      }
+      if (template.includes('SELECT archived_at') && template.includes('FOR UPDATE')) {
+        return [{ archived_at: new Date('2026-05-01T00:00:00.000Z') }];
+      }
+      return [];
+    });
+
+    const result = await archiveLocationForAccountOffboardingTeardownTransaction({
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      accountOffboardingId: 'offboarding-123',
+    });
+
+    expect(result).toEqual({
+      locationId: SECONDARY_LOCATION_ID,
+      archived: true,
+      alreadyArchived: true,
+    });
+    const combinedSql = mockSql.mock.calls.map(
+      (call: unknown[]) => (call[0] as TemplateStringsArray).join('?'),
+    ).join('\n');
+    expect(combinedSql).not.toContain('UPDATE businesses');
+    expect(combinedSql).not.toContain('INSERT INTO account_audit_log');
+    expect(combinedSql).not.toContain('INSERT INTO job_outbox');
+  });
+});
+
 // ══════════════════════════════════════════════════════════════════════════
 // reactivateLocationTransaction
 // ══════════════════════════════════════════════════════════════════════════
@@ -632,24 +700,24 @@ describe('reactivateLocationTransaction', () => {
 // reconciliation from the committed active-location count.
 
 describe('concurrent safety (VAL-LOC-047)', () => {
-  it('archiveLocationTransaction does not use SELECT FOR UPDATE on accounts (outbox handles consistency)', async () => {
-    // The archive tx uses the outbox pattern — the UpdateStripeOverageWorker
-    // reads the actual location count and computes the correct quantity.
-    // The archive tx itself doesn't need SELECT FOR UPDATE on accounts
-    // because the Stripe quantity update is idempotent.
+  it('archiveLocationTransaction locks the account and target location before archive update', async () => {
     await archiveLocationTransaction(mkInput());
 
-    // Verify no SELECT FOR UPDATE in the archive tx
     const txCalls = mockSql.mock.calls;
-    const lockCall = txCalls.find(
+    const accountLockCall = txCalls.find(
       (c: any[]) => {
         const template = (c[0] as TemplateStringsArray).join('?');
-        return template.includes('FOR UPDATE');
+        return template.includes('FROM accounts') && template.includes('FOR UPDATE');
       },
     );
-    // Archive tx doesn't need FOR UPDATE — the outbox pattern handles consistency
-    // (the UpdateStripeOverageWorker reads the actual count and sets quantity accordingly)
-    // This is acceptable because archiving is always allowed if guards pass,
-    // and the outbox worker is idempotent.
+    const locationLockCall = txCalls.find(
+      (c: any[]) => {
+        const template = (c[0] as TemplateStringsArray).join('?');
+        return template.includes('SELECT archived_at') && template.includes('FOR UPDATE');
+      },
+    );
+
+    expect(accountLockCall).toBeTruthy();
+    expect(locationLockCall).toBeTruthy();
   });
 });
