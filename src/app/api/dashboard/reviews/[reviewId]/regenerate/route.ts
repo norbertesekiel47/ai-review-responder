@@ -5,6 +5,7 @@ import {
 } from '@/lib/approval/http-routes';
 import { regenerateBySession } from '@/lib/approval/service';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { enforceDashboardRegenRateLimit } from '@/lib/shared/dashboard-regen-rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +15,9 @@ async function regenerateReview(
 ): Promise<NextResponse> {
   const owner = await requireDashboardReviewOwner(request);
   if (owner instanceof NextResponse) return owner;
+
+  const limited = await enforceDashboardRegenRateLimit(owner.accountId);
+  if (limited) return limited;
 
   const { reviewId } = await params;
   return runDashboardReviewAction(
