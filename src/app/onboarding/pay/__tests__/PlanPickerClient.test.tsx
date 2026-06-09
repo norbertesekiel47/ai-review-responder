@@ -28,6 +28,16 @@ describe('PlanPickerClient', () => {
     expect(screen.getByText('$199')).toBeInTheDocument();
   });
 
+  it('discloses auto-renewal terms near the CTAs, mentions tax, and links to Terms', () => {
+    render(<PlanPickerClient cancelled={false} />);
+    // Per-card renewal line (one per plan card).
+    expect(screen.getAllByText(/auto-renews monthly until you cancel/i).length).toBeGreaterThan(0);
+    // Global fine print: tax mention + Terms link.
+    expect(screen.getByText(/plus applicable taxes/i)).toBeInTheDocument();
+    const termsLink = screen.getByRole('link', { name: /terms/i });
+    expect(termsLink).toHaveAttribute('href', '/legal/terms');
+  });
+
   it('posts tier basic when Basic is selected', async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn().mockResolvedValue({
