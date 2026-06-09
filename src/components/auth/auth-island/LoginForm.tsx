@@ -33,6 +33,9 @@ function LoginFormInner() {
     if (typeof sessionStorage !== 'undefined') {
       const stored = sessionStorage.getItem(PREFILL_EMAIL_KEY);
       if (stored) {
+        // sessionStorage is browser-only (undefined during SSR), so this prefill
+        // read can't be a lazy initializer — it must happen in an effect.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setEmail(stored);
         sessionStorage.removeItem(PREFILL_EMAIL_KEY);
       }

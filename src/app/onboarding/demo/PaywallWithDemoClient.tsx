@@ -71,6 +71,11 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
   }, [demo.generation_status, poll]);
 
   useEffect(() => {
+    // Capture the observation time the moment completion is first detected.
+    // completed_at can flip null→set via router.refresh() while client state
+    // persists, so a lazy initializer would miss the transition; and Date.now()
+    // must run in an effect (not render) to keep render pure.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (demo.completed_at) setNowMs(Date.now());
   }, [demo.completed_at]);
 

@@ -23,13 +23,18 @@ const config = [
     // which calls the `context.getFilename()` API that ESLint 10 removed.
     settings: { react: { version: '19.2.6' } },
     rules: {
-      // eslint-config-next 16 newly enables the React-Compiler-era hook rules.
-      // They flag existing, working patterns that predate this config bump.
-      // Kept off here to keep the upgrade non-breaking; adopting them is
-      // tracked as a separate follow-up (see PR description).
-      'react-hooks/set-state-in-effect': 'off',
-      'react-hooks/immutability': 'off',
-      'react-hooks/purity': 'off',
+      // eslint-config-next 16 newly enables the React-Compiler-era hook rules,
+      // which flagged existing, working patterns that predated the config bump.
+      // Three are now adopted (set-state-in-effect, immutability, purity): genuine
+      // framework-level cases (cross-origin/hard navigation, SSR-only sessionStorage
+      // reads, server-component Date.now(), fetch-on-mount) carry scoped per-line
+      // disables with rationale; the rest were fixed idiomatically.
+      // `refs` stays off here — its 16 violations (10 of them in ListEditor's
+      // stable-key generation) are a larger, riskier change tracked as its own
+      // follow-up PR rather than bundled in.
+      'react-hooks/set-state-in-effect': 'error',
+      'react-hooks/immutability': 'error',
+      'react-hooks/purity': 'error',
       'react-hooks/refs': 'off',
     },
   },

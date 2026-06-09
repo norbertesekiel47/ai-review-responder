@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import Link from 'next/link';
 import { LazyMotion, domAnimation, m } from 'motion/react';
 import { AI_DRAFT_DISCLOSURE } from '@/lib/ui/disclosures';
@@ -399,6 +399,11 @@ export default function ApprovalClient({ token }: { token: string }) {
   const { loading, data, error, editedText, isEditing, actionLoading, successMessage, successAction } =
     state;
 
+  // Snapshot "now" once at mount so the hoursLeft display below is a pure render
+  // (Date.now() during render is impure). The approval page is short-lived, so a
+  // mount snapshot is the correct semantic: "hours left when you opened the link".
+  const [nowMs] = useState(() => Date.now());
+
   // Guard against same-tick double-click: dispatching actionStarted queues a
   // re-render, so between the first click and the button becoming disabled a
   // second click can fire. The ref reads synchronously and closes that gap.
@@ -515,7 +520,7 @@ export default function ApprovalClient({ token }: { token: string }) {
   if (!data) return null;
 
   const { review, response } = data;
-  const timeLeft = new Date(data.expiresAt).getTime() - Date.now();
+  const timeLeft = new Date(data.expiresAt).getTime() - nowMs;
   const hoursLeft = Math.max(0, Math.round(timeLeft / 3_600_000));
 
   return (

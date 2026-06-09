@@ -81,6 +81,10 @@ export default function NewBusinessPage() {
         // Original clipboard copy commented out:
         // try { await navigator.clipboard.writeText(paymentUrl); } catch { /* ignore */ }
         // alert(`Business created! Payment link copied to clipboard:\n\n${paymentUrl}`);
+        // Intentional full-page navigation to the cross-origin Stripe Payment Link
+        // from an event handler — not a render-time mutation, and router.push can't
+        // cross origins.
+        // eslint-disable-next-line react-hooks/immutability
         window.location.href = paymentUrl;
         return; // Don't push to router — we're leaving the app
       }

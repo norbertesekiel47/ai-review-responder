@@ -108,6 +108,10 @@ export function useDashboardData(
   // makes them read as null immediately without an extra setState.
   useEffect(() => {
     unmountedRef.current = false;
+    // Fetch on mount / scope change. refresh() synchronously sets loading=true
+    // before its first await — the intended network subscription, not a
+    // derivable value.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh();
     return () => {
       unmountedRef.current = true;
