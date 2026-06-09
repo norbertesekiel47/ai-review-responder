@@ -4,7 +4,7 @@ import { sql } from '@/lib/db/server';
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
-import { zernioRouteErrorResponse } from '../../_shared/error-response';
+import { zernioRouteErrorResponse } from '@/app/api/zernio/_shared/error-response';
 import { isValidUuid } from '@/lib/shared/ids';
 import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import { zernioClient } from '@/lib/zernio/client';

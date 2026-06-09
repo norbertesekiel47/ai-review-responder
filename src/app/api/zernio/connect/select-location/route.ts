@@ -4,7 +4,7 @@ import {
   ZernioAuthError,
   ZernioValidationError,
 } from '@/lib/zernio/errors';
-import { zernioRouteErrorResponse } from '../../_shared/error-response';
+import { zernioRouteErrorResponse } from '@/app/api/zernio/_shared/error-response';
 import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,

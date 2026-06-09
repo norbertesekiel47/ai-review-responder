@@ -11,7 +11,7 @@ import { getCacheRedis } from '@/lib/db/redis-cache';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { ZernioRouteError } from '@/lib/zernio/errors';
-import { zernioRouteErrorResponse } from '../../_shared/error-response';
+import { zernioRouteErrorResponse } from '@/app/api/zernio/_shared/error-response';
 import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import { zernioClient } from '@/lib/zernio/client';
 import { isFreshPendingMarker, parseConnectPendingMarker } from '../_shared/pending-flow';

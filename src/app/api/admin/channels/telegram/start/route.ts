@@ -13,7 +13,7 @@ import { NextRequest } from 'next/server';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
 import { startTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
-import { runAdminChannelStart } from '../../_shared/start';
+import { runAdminChannelStart } from '@/app/api/admin/channels/_shared/start';
 
 function buildTelegramDeepLink(rawToken: string): string {
   const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? 'RepWorthBot';
