@@ -103,6 +103,10 @@ export default async function OnboardingDemoPage() {
   }
 
   const isStale = demo.completed_at
+    // Server Component: renders once per request, so Date.now() is deterministic
+    // here (no client re-render / hydration mismatch). The purity rule can't tell
+    // this is server-only.
+    // eslint-disable-next-line react-hooks/purity
     ? Date.now() - new Date(demo.completed_at).getTime() > 24 * 60 * 60 * 1000
     : false;
 

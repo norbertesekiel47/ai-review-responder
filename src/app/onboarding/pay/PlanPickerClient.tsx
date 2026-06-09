@@ -28,11 +28,15 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
       });
       if (!res.ok) {
         if (res.status === 401) {
+          // Hard navigation (full reload) to clear stale client/auth state.
+          // eslint-disable-next-line react-hooks/immutability
           window.location.href = '/login';
           return;
         }
         const body = await res.json().catch(() => ({}));
         if (res.status === 409 && body.subscriptionStatus === 'active') {
+          // Hard navigation so the dashboard loads with fresh server state.
+          // eslint-disable-next-line react-hooks/immutability
           window.location.href = '/dashboard';
           return;
         }
@@ -49,6 +53,7 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
       const { paymentUrl } = (await res.json()) as { paymentUrl: string };
       // Hand off to Stripe — full navigation, not a router.push, because
       // Stripe Payment Links live on a different origin.
+      // eslint-disable-next-line react-hooks/immutability
       window.location.href = paymentUrl;
     } catch {
       setError('Connection failed. Please try again.');

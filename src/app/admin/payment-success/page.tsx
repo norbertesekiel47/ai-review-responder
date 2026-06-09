@@ -7,18 +7,19 @@ import Link from 'next/link';
 function PaymentSuccessContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
-  const [businessId, setBusinessId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
   const sessionId = searchParams.get('session_id');
+  // A missing session_id is a terminal state knowable at first render, so it's a
+  // lazy initial value rather than a setState in the effect below.
+  const [status, setStatus] = useState<'loading' | 'success' | 'error'>(
+    sessionId ? 'loading' : 'error',
+  );
+  const [businessId, setBusinessId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    sessionId ? null : 'No session ID found in URL',
+  );
 
   useEffect(() => {
-    if (!sessionId) {
-      setStatus('error');
-      setError('No session ID found in URL');
-      return;
-    }
+    if (!sessionId) return;
 
     // Poll the business table — the Stripe webhook may take a few seconds to
     // process and transition the status to 'active'. Timers are tracked so the

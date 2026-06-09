@@ -53,6 +53,7 @@ function ConnectPageInner() {
   const { currentScope, setLocationScope } = useLocationScope();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const urlError = searchParams.get('error');
   const requestedLocationId = searchParams.get('locationId');
   const requestedScope =
     requestedLocationId && requestedLocationId !== 'all'
@@ -67,10 +68,15 @@ function ConnectPageInner() {
     },
   });
   const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  // Derive the initial action error from the redirect's ?error= param (load-once:
+  // the OAuth callback full-navigates here, so it never changes without a remount).
+  // Lazy-initialized here rather than synced via an effect to avoid the extra
+  // null→error render the effect would queue.
+  const [actionError, setActionError] = useState<string | null>(() =>
+    urlError ? friendlyErrorMessage(urlError) : null,
+  );
   const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
   const redirectTimerRef = useRef<number | null>(null);
-  const urlError = searchParams.get('error');
 
   // The redirect-timeout fallback timer must not outlive the page. If the
   // browser navigates to Zernio (or restores this page from bfcache), clear it
@@ -103,12 +109,6 @@ function ConnectPageInner() {
       router.replace('/dashboard');
     }
   }, [data, router]);
-
-  useEffect(() => {
-    if (urlError) {
-      setActionError(friendlyErrorMessage(urlError));
-    }
-  }, [urlError]);
 
   if (error) {
     return (
