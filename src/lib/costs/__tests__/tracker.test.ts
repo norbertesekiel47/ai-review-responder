@@ -132,6 +132,19 @@ describe('reserveCost', () => {
       GlobalCostLimitExceededError,
     );
   });
+
+  it('throws CostInfraUnavailableError (cause preserved) when the Redis eval round-trip fails', async () => {
+    const transport = new Error('ECONNRESET');
+    mockRedis.eval.mockRejectedValueOnce(transport);
+
+    const { reserveCost } = await import('../tracker');
+    const { CostInfraUnavailableError } = await import('../errors');
+
+    const err = await reserveCost('biz-001', 'standard').catch((e) => e);
+    expect(err).toBeInstanceOf(CostInfraUnavailableError);
+    expect(err.touchpoint).toBe('reserveCost');
+    expect(err.cause).toBe(transport); // original transport error kept for diagnostics
+  });
 });
 
 describe('finalizeCost', () => {
@@ -243,5 +256,16 @@ describe('checkIdempotentCache', () => {
     const { checkIdempotentCache } = await import('../tracker');
     const result = await checkIdempotentCache('rev-001', 1);
     expect(result).toBeNull();
+  });
+
+  it('throws CostInfraUnavailableError when the Redis get round-trip fails (NOT treated as a cache miss)', async () => {
+    mockRedis.get.mockRejectedValueOnce(new Error('ECONNRESET'));
+
+    const { checkIdempotentCache } = await import('../tracker');
+    const { CostInfraUnavailableError } = await import('../errors');
+
+    const err = await checkIdempotentCache('rev-001', 1).catch((e) => e);
+    expect(err).toBeInstanceOf(CostInfraUnavailableError);
+    expect(err.touchpoint).toBe('checkIdempotentCache');
   });
 });

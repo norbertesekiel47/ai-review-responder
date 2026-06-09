@@ -74,6 +74,9 @@ import {
   RegenBudgetExceededError,
 } from '../../../../src/lib/costs/tracker';
 import { ConcurrencyLimitExceededError } from '../../../../src/lib/costs/concurrency-guard';
+// Real (unmocked) error module so `instanceof` resolves against the same class
+// generate-draft imports — the dedicated errors.ts is intentionally not mocked.
+import { CostInfraUnavailableError } from '../../../../src/lib/costs/errors';
 
 const BIZ_CONTEXT: BusinessContext = {
   id: 'biz-1', name: 'Test Biz', category: 'restaurant', tone: 'warm',
@@ -144,6 +147,14 @@ describe('generateDraft', () => {
   it('re-throws TransientLLMError for BullMQ retry', async () => {
     mockGenerateResponse.mockRejectedValueOnce(new TransientLLMError('rate limited'));
     await expect(generateDraft(ctx(), IDS, makeLogger())).rejects.toBeInstanceOf(TransientLLMError);
+  });
+
+  it('re-throws CostInfraUnavailableError for BullMQ retry (pre-LLM Redis infra blip, NOT terminal)', async () => {
+    // A reserveCost/checkIdempotentCache/acquireConcurrencySlot transport failure
+    // surfaces out of generateResponse as CostInfraUnavailableError — it must be
+    // re-thrown (retry), not classified { kind: 'failed' } like a budget decision.
+    mockGenerateResponse.mockRejectedValueOnce(new CostInfraUnavailableError('reserveCost'));
+    await expect(generateDraft(ctx(), IDS, makeLogger())).rejects.toBeInstanceOf(CostInfraUnavailableError);
   });
 
   it('classifies a permanent generation error as failed with generation_failed reason', async () => {
