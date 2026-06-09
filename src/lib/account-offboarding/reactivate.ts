@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import Stripe from 'stripe';
+import type Stripe from 'stripe';
 import type postgres from 'postgres';
 import { sql } from '@/lib/db/server';
+import { getStripe } from '@/lib/payments/stripe-client';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { enqueueAccountOffboardingEmail } from '@/lib/shared/job-outbox-helpers';
 import { enqueueOffboardingReactivated } from './analytics';
@@ -62,19 +63,6 @@ export type ReactivateCancelOnlyOffboardingResult =
       reconnectPath: '/api/zernio/connect/start';
     };
   };
-
-let stripeInstance: Stripe | null = null;
-
-function getStripe(): Stripe {
-  if (!stripeInstance) {
-    const key = process.env.STRIPE_SECRET_KEY;
-    if (!key) throw new Error('STRIPE_SECRET_KEY is not set');
-    // Explicit timeout + bounded network retries (repworth.md reliability rule);
-    // caps the 80s SDK default on the offboarding reactivation path.
-    stripeInstance = new Stripe(key, { timeout: 20_000, maxNetworkRetries: 2 });
-  }
-  return stripeInstance;
-}
 
 export async function reactivateCancelOnlyOffboarding(
   input: ReactivateCancelOnlyOffboardingInput,

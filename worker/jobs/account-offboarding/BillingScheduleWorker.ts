@@ -1,6 +1,7 @@
 import type { Job } from 'bullmq';
-import Stripe from 'stripe';
+import type Stripe from 'stripe';
 import * as Sentry from '@sentry/node';
+import { getStripe } from '../../../src/lib/payments/stripe-client';
 import { sql } from '../../../src/lib/db/server';
 import {
   errorMessage,
@@ -22,19 +23,6 @@ interface AccountOffboardingBillingRow {
   terminal_at: Date | string | null;
   access_ends_at: Date | string | null;
   stripe_subscription_id: string | null;
-}
-
-let stripeInstance: Stripe | null = null;
-
-function getStripe(): Stripe {
-  if (!stripeInstance) {
-    const key = process.env.STRIPE_SECRET_KEY;
-    if (!key) throw new Error('STRIPE_SECRET_KEY is not set');
-    // Explicit timeout + bounded network retries (repworth.md reliability rule);
-    // caps the 80s SDK default on the offboarding billing path.
-    stripeInstance = new Stripe(key, { timeout: 20_000, maxNetworkRetries: 2 });
-  }
-  return stripeInstance;
 }
 
 function accountOffboardingBillingIdempotencyKey(

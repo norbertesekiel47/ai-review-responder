@@ -12,7 +12,7 @@
 // Validation contract: VAL-BILLING-071, VAL-LOC-010, VAL-LOC-011, VAL-LOC-012.
 
 import type { Job } from 'bullmq';
-import Stripe from 'stripe';
+import { getStripe } from '../../../src/lib/payments/stripe-client';
 import { sql } from '../../../src/lib/db/server';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../../src/lib/shared/outbox';
 import { TIER_CONFIG, type SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
@@ -25,17 +25,6 @@ export interface UpdateStripeOveragePayload {
   correlation_id?: string;
   outbox_id?: string;
   outbox_attempt?: number;
-}
-
-// Lazy singleton — avoids crashing on import when STRIPE_SECRET_KEY is absent
-let stripeInstance: Stripe | null = null;
-function getStripe(): Stripe {
-  if (!stripeInstance) {
-    const key = process.env.STRIPE_SECRET_KEY;
-    if (!key) throw new Error('STRIPE_SECRET_KEY is not set');
-    stripeInstance = new Stripe(key);
-  }
-  return stripeInstance;
 }
 
 function overageUpdateIdempotencyKey(

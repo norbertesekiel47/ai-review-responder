@@ -10,23 +10,17 @@
 // Validation contract: VAL-BILLING-001 through VAL-BILLING-006,
 //   VAL-BILLING-030 through VAL-BILLING-032.
 
-import Stripe from 'stripe';
 import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { basePriceIdForTier, overagePriceIdForTier } from '@/lib/payments/price-tier-map';
 import { computeOverageQuantity } from '@/lib/accounts/quota';
 import { sql } from '@/lib/db/server';
+import { getStripe } from '@/lib/payments/stripe-client';
 
-// ── Stripe singleton ────────────────────────────────────────────────────────
-
-let stripeInstance: Stripe | null = null;
-export function getStripe(): Stripe {
-  if (!stripeInstance) {
-    const key = process.env.STRIPE_SECRET_KEY;
-    if (!key) throw new Error('STRIPE_SECRET_KEY is not set');
-    stripeInstance = new Stripe(key);
-  }
-  return stripeInstance;
-}
+// Re-export the single shared Stripe client (one owner — see stripe-client.ts)
+// so existing importers (portal route, tier-change route, the reconcile worker)
+// keep resolving getStripe from this module. createCheckoutSession below also
+// uses the imported binding directly.
+export { getStripe };
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
