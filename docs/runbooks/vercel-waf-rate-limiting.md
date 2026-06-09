@@ -210,13 +210,19 @@ Deep-Analysis routes (`/api/auth/signup`, `/api/onboarding/start`) ask for
 
 - Vercel dashboard → project `rep-worth` → **Firewall → Rules → enable "Vercel
   BotID Deep Analysis"** (Pro/Enterprise; **$1 / 1000** `checkBotId()` Deep
-  Analysis calls — billed only on the two deep routes, which sit behind cheap
-  feature-flag/same-origin guards so disabled/cross-origin requests aren't
-  charged).
+  Analysis calls — billed only on the two deep routes. `signup` sits behind a
+  feature-flag 404 and `onboarding/start` runs the Deep check only AFTER its auth
+  `401`, so disabled / cross-origin / session-less requests aren't charged).
 
 If Deep Analysis is **not** enabled, those routes silently fall back to Basic
-validation — they keep working, just without ML scoring. Basic routes
-(login-attempt, lead-intake, demo-request, contact) are unaffected and free.
+validation — they keep working, just without ML scoring. The Basic routes
+(`login-attempt`, `lead-intake`) are unaffected and free.
+
+> BotID protects four routes total: `signup` + `onboarding/start` (Deep),
+> `login-attempt` + `lead-intake` (Basic). `/api/contact` and `/api/demo-request`
+> are intentionally NOT BotID-protected — they are dead public-lead remnants with
+> no in-app (token-bearing) caller, so they rely on the per-IP WAF net above
+> instead. See ADR 0002 and `src/lib/security/botid-routes.ts`.
 
 ---
 
