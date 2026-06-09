@@ -15,7 +15,7 @@ import { NextRequest } from 'next/server';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
 import { startWhatsAppEnrollment } from '@/lib/channels/whatsapp-enrollment';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
-import { runAdminChannelStart } from '../../_shared/start';
+import { runAdminChannelStart } from '@/app/api/admin/channels/_shared/start';
 
 function buildWhatsAppDeepLink(rawToken: string): string {
   // wa.me requires digits only (no +, no whatsapp:) per WhatsApp click-to-chat.

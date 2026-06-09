@@ -33,6 +33,92 @@ const config = [
       'react-hooks/refs': 'off',
     },
   },
+  // ---------------------------------------------------------------------------
+  // Structural boundaries — enforce docs/src-structure-preferences.md.
+  // `no-restricted-imports` does NOT merge across flat-config objects: for a
+  // given file the LAST matching object wins, so each more-specific zone below
+  // RESTATES the bans it inherits. Order: least- to most-specific.
+  // ---------------------------------------------------------------------------
+  {
+    // Base — all src: ban src-internal ../.. parent traversal. Cross-tree
+    // imports into worker//scripts/ are exempt (they have no @/ alias).
+    files: ['src/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          {
+            regex: '^\\.\\./\\.\\.(?!.*/(worker|scripts)/)',
+            message:
+              'No ../.. parent-traversal for src-internal imports — use @/ path aliases.',
+          },
+        ],
+      }],
+    },
+  },
+  {
+    // Non-route code may not import @/app/** — STATIC or dynamic import().
+    // Route leaves are terminal. app/** is exempt (co-located siblings import each
+    // other); test files are exempt because they legitimately import route
+    // handlers under test (e.g. `await import('@/app/api/.../route')` to exercise
+    // a GET handler). The base zone above still applies the ../.. ban to tests.
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/app/**', '**/__tests__/**', '**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          {
+            regex: '^\\.\\./\\.\\.(?!.*/(worker|scripts)/)',
+            message:
+              'No ../.. parent-traversal for src-internal imports — use @/ path aliases.',
+          },
+          {
+            group: ['@/app/*', '@/app/**'],
+            message:
+              'Route leaves (app/**) are terminal — non-route code must not import from app/. ' +
+              'Move shared code into components/<domain> or lib/<domain>.',
+          },
+        ],
+      }],
+      // no-restricted-imports does NOT see import() — cover dynamic imports here.
+      'no-restricted-syntax': ['error', {
+        selector: "ImportExpression[source.value=/^@\\/app\\//]",
+        message:
+          'Route leaves (app/**) are terminal — non-route code must not dynamically import from app/. ' +
+          'Move shared code into components/<domain> or lib/<domain>.',
+      }],
+    },
+  },
+  {
+    // components/ui/** are domain-agnostic primitives: no lib/<domain> (lib/ui +
+    // lib/shared allowed), no app/**, no domain components. Restates the above.
+    files: ['src/components/ui/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          {
+            regex: '^\\.\\./\\.\\.(?!.*/(worker|scripts)/)',
+            message:
+              'No ../.. parent-traversal for src-internal imports — use @/ path aliases.',
+          },
+          {
+            regex: '^@/lib/(?!ui/|shared/)',
+            message:
+              'components/ui must stay domain-agnostic — no imports from lib/<domain>. ' +
+              '(lib/ui and lib/shared utilities like cn() are allowed.)',
+          },
+          {
+            regex: '^@/app/',
+            message: 'components/ui must not import from app/** (route leaves are terminal).',
+          },
+          {
+            regex: '^@/components/(?!ui/)',
+            message:
+              'components/ui must not import domain components — only other components/ui primitives.',
+          },
+        ],
+      }],
+    },
+  },
 ];
 
 export default config;

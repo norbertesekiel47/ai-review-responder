@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
-import { resolveAdminChannelAccount } from '../../_shared/account';
+import { resolveAdminChannelAccount } from '@/app/api/admin/channels/_shared/account';
 import { disableTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
