@@ -1,7 +1,5 @@
 'use client';
 
-import { useRef } from 'react';
-
 interface Props {
   items: string[];
   onChange: (next: string[]) => void;
@@ -16,20 +14,12 @@ interface Props {
 }
 
 export function ListEditor({ items, onChange, placeholder, addLabel, maxItems, maxLength, itemLabel = 'item' }: Props) {
-  // Strings carry no stable identity (they can repeat and are edited in place),
-  // so a content key is unsafe. Maintain a parallel list of render-stable row
-  // ids, synced positionally to `items`: surviving rows keep their id by index,
-  // grown rows get a fresh id. This matches the by-position reconciliation the
-  // old index keys produced, so render/behavior is identical.
-  const rowIdsRef = useRef<string[]>([]);
-  const nextIdRef = useRef(0);
-  const rowIds = rowIdsRef.current;
-  if (rowIds.length < items.length) {
-    while (rowIds.length < items.length) rowIds.push(`row-${nextIdRef.current++}`);
-  } else if (rowIds.length > items.length) {
-    rowIds.length = items.length;
-  }
-
+  // Strings carry no stable identity (they repeat and are edited in place), so
+  // rows are keyed by position. These inputs are controlled and React reconciles
+  // them by index; removal truncates from the end, so the index IS the stable
+  // per-row identity here. (The previous parallel-id-array bookkeeping produced
+  // byte-for-byte the same reconciliation — see git history — at the cost of a
+  // ref mutated during render, which react-hooks/refs rightly flags.)
   const update = (i: number, v: string) => {
     const next = items.slice();
     // Defensive trim so a paste that exceeds the cap still saves cleanly;
@@ -46,7 +36,7 @@ export function ListEditor({ items, onChange, placeholder, addLabel, maxItems, m
   return (
     <div className="list-editor">
       {items.map((it, i) => (
-        <div className="list-row" key={rowIds[i]}>
+        <div className="list-row" key={i}>
           <input
             aria-label={`Edit ${itemLabel} ${i + 1}`}
             className="input"
