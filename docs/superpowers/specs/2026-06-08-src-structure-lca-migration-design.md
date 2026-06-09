@@ -1,7 +1,14 @@
 # `src/` Structure — LCA Placement + Migration (Design)
 
 - **Date:** 2026-06-08
-- **Status:** Approved design — pending implementation plan
+- **Status:** **Partially shipped, then parked.** The *enforcement* half landed in
+  PR #247 (the three `no-restricted-imports` boundary zones + alias cleanup + doc
+  reconciliation). The *component-move* half (§2–§3) was **not** run: a `dashboard`
+  pilot exposed ~990 relative imports across ~498 files that the alias-only mover
+  can't handle, making the moves a whole-codebase restyle for a co-location purity
+  gain — not worth it against an already-sub-foldered `components/` tree with
+  now-enforced boundaries. Tools kept at `scripts/component-placement/` (see its
+  README). This spec is retained as the design + decision record.
 - **Supersedes (in part):** the "What we'd actually do (the plan)" and
   "placement by shared-ness (≥2 routes)" wording in
   [`docs/src-structure-preferences.md`](../../src-structure-preferences.md).
