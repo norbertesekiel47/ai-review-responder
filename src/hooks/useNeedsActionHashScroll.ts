@@ -8,7 +8,11 @@ export function useNeedsActionHashScroll(
   onMatch: () => void,
 ) {
   const onMatchRef = useRef(onMatch);
-  onMatchRef.current = onMatch;
+  // Keep the ref current without re-subscribing the mount effect below. Assigned
+  // in an effect, not during render, per react-hooks/refs.
+  useEffect(() => {
+    onMatchRef.current = onMatch;
+  });
 
   useEffect(() => {
     if (typeof window === 'undefined') return;

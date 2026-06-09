@@ -31,9 +31,13 @@ export function TopBar({
   const [refreshing, setRefreshing] = useState(false);
   const secondsToRefreshRef = useRef(60);
   const refreshRef = useRef(refresh);
-  refreshRef.current = refresh;
   const inflightRef = useRef(false);
   const spinTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Keep refreshRef current so the stable doRefresh (deps []) calls the latest
+  // refresh prop. Assigned in an effect, not during render, per react-hooks/refs.
+  useEffect(() => {
+    refreshRef.current = refresh;
+  });
 
   // Read from LocationContext — on mobile, TopBar shows the LocationPicker
   const { isMultiLocation } = useLocationScope();

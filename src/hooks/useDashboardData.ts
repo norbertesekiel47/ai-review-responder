@@ -61,10 +61,16 @@ export function useDashboardData(
   const unmountedRef = useRef(false);
   // Track the scope for the current fetch to avoid stale responses
   const scopeRef = useRef(scope);
-  scopeRef.current = scope;
   // Stable ref to options.onScopeFallback to avoid re-triggering effects
   const onFallbackRef = useRef(options.onScopeFallback);
-  onFallbackRef.current = options.onScopeFallback;
+  // Keep both refs current so the stable refresh() (deps []) reads the latest
+  // values. Assigned in an effect (not during render) per react-hooks/refs, and
+  // declared before the fetch effect below so the refs are fresh when a scope
+  // change triggers refresh().
+  useEffect(() => {
+    scopeRef.current = scope;
+    onFallbackRef.current = options.onScopeFallback;
+  });
 
   const refresh = useCallback(async () => {
     const myReqId = ++reqIdRef.current;
