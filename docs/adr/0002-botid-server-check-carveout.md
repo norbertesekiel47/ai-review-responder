@@ -12,13 +12,20 @@ never in Next.js routes. ADR 0001 already carved out one exception: short,
 user-blocking OAuth-handshake calls that must set/clear cookies or return a
 redirect synchronously.
 
-Slice 2 of the rate-limiting hardening adds Vercel BotID to six hot,
-abuse-prone POST routes (`/api/auth/signup`, `/api/onboarding/start`,
-`/api/auth/login-attempt`, `/api/lead-intake`, `/api/demo-request`,
-`/api/contact`). BotID's server-side classification, `checkBotId()` from
-`botid/server`, makes a short request-blocking call to Vercel's bot-protection
-platform API and returns `{ isBot, isHuman, ... }`. The route then accepts the
-request or rejects it with a 403 in the same response.
+Slice 2 of the rate-limiting hardening adds Vercel BotID to four hot,
+abuse-prone POST routes that have a verified in-app caller (`/api/auth/signup`,
+`/api/onboarding/start`, `/api/auth/login-attempt`, `/api/lead-intake`). BotID's
+server-side classification, `checkBotId()` from `botid/server`, makes a short
+request-blocking call to Vercel's bot-protection platform API and returns
+`{ isBot, isHuman, ... }`. The route then accepts the request or rejects it with
+a 403 in the same response.
+
+`/api/contact` and `/api/demo-request` were considered but **excluded**: they are
+dead public-lead remnants superseded by `/api/lead-intake`, with no in-app caller.
+BotID only works when the instrumented client attaches a challenge token, so
+enforcing it on a route called only by an external client would 403 every
+legitimate submission — undetectable in preview or unit tests. The WAF per-IP net
+covers them instead.
 
 This is technically an outbound call from a Next.js route, so it needs a
 deliberate decision against invariant #1.
@@ -61,14 +68,17 @@ Scope and guardrails:
   gotchas"). A misconfigured (unregistered) path is a programmer error and
   throws loudly instead — it is not swallowed as a fail-open.
 - **Cost placement.** Deep Analysis is billed per call ($1 / 1000). The check is
-  placed AFTER each route's cheap deterministic guards (feature-flag 404s,
-  same-origin/CSRF checks) so disabled or cross-origin requests don't incur a
-  billed Deep Analysis call, and BEFORE rate limits / DB work so a detected bot
-  is rejected before doing real work.
+  placed AFTER each route's cheap rejection guards so requests those guards would
+  drop don't incur a billed call, and BEFORE rate limits / DB work so a detected
+  bot is rejected before doing real work. For `/api/auth/signup` (unauthenticated)
+  that means after the feature-flag 404. For `/api/onboarding/start` (auth-gated)
+  it means after the **auth `401`** — same-origin is a forgeable header, so a
+  session-less scripted caller is rejected by the 401 for free instead of
+  triggering a billed Deep call; authenticated bots are still checked.
 
 ## Consequences
 
-- The six listed routes run `checkBotId()` inline on Vercel. No worker change.
+- The four listed routes run `checkBotId()` inline on Vercel. No worker change.
 - App-layer per-route rate limits (Slice 1) and the Vercel WAF per-IP/per-path
   rules (Slice 2 components 1 & 3) remain in place underneath — BotID is an
   additional layer, not a replacement.

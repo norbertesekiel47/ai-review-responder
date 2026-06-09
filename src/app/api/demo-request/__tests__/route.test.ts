@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const { mockNotify, mockCheckRateLimit, mockCheckBotId } = vi.hoisted(() => ({
+const { mockNotify, mockCheckRateLimit } = vi.hoisted(() => ({
   mockNotify: vi.fn(),
   mockCheckRateLimit: vi.fn(),
-  mockCheckBotId: vi.fn(),
 }));
 
 vi.mock('@/lib/notifications/contact-notify', () => ({
@@ -13,10 +12,6 @@ vi.mock('@/lib/notifications/contact-notify', () => ({
 
 vi.mock('@/lib/shared/rate-limit', () => ({
   checkRateLimit: mockCheckRateLimit,
-}));
-
-vi.mock('botid/server', () => ({
-  checkBotId: mockCheckBotId,
 }));
 
 function makeRequest(body: unknown): NextRequest {
@@ -32,17 +27,6 @@ describe('POST /api/demo-request', () => {
     vi.clearAllMocks();
     mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 4 });
     mockNotify.mockResolvedValue({ sent: true });
-    mockCheckBotId.mockResolvedValue({ isBot: false, isHuman: true, isVerifiedBot: false, bypassed: false });
-  });
-
-  it('returns 403 and skips notify when BotID flags a bot', async () => {
-    mockCheckBotId.mockResolvedValueOnce({ isBot: true, isHuman: false, isVerifiedBot: false, bypassed: false });
-    const { POST } = await import('../route');
-    const res = await POST(makeRequest({ name: 'Alice', email: 'a@b.com', businessName: 'Acme', googleMapsUrl: '' }));
-    expect(res.status).toBe(403);
-    expect((await res.json()).error).toBe('forbidden');
-    expect(mockNotify).not.toHaveBeenCalled();
-    expect(mockCheckRateLimit).not.toHaveBeenCalled();
   });
 
   it('returns 400 when name is missing', async () => {

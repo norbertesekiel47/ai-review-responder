@@ -183,12 +183,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     throw err;
   }
 
-  // Vercel BotID (Deep Analysis) — gate the pre-pay LLM demo behind bot
-  // detection. Runs after the cheap same-origin guard and before the Supabase
-  // auth round-trip / DB work. Fails open on a BotID infra error.
-  const botBlock = await botIdBlockResponse('/api/onboarding/start');
-  if (botBlock) return botBlock;
-
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -204,6 +198,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!user) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: NO_STORE });
   }
+
+  // Vercel BotID (Deep Analysis) — gate the pre-pay LLM demo behind bot
+  // detection. Placed AFTER the auth check on purpose: this route is auth-gated,
+  // and Deep Analysis is billed per call, so running it only for an authenticated
+  // session (not session-less scripted noise that 401s anyway, and not behind the
+  // forgeable same-origin header) avoids paying for Deep on traffic the cheap 401
+  // already rejects. Authenticated bots are still checked. Fails open on a BotID
+  // infra error.
+  const botBlock = await botIdBlockResponse('/api/onboarding/start');
+  if (botBlock) return botBlock;
 
   const [bizRow] = await sql<BizRow[]>`
     SELECT b.id, a.id AS account_id, u.id AS user_id, a.subscription_status, b.place_id_verified, b.google_maps_url

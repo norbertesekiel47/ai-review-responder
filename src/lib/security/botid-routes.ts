@@ -28,16 +28,26 @@ export interface BotIdProtectedRoute {
   checkLevel: BotIdCheckLevel;
 }
 
-// Hot, abuse-prone entry points. Deep Analysis on the two that gate account
-// creation + the pre-pay LLM demo (highest fraud/cost value); Basic on the rest
-// (low-cost forms — challenge-integrity validation is enough).
+// Hot, abuse-prone entry points WITH a verified in-app caller. BotID only works
+// when the instrumented client (`initBotId`) attaches the challenge token to the
+// fetch, so a route with no in-app caller cannot be protected here. Deep Analysis
+// on the two that gate account creation + the pre-pay LLM demo (highest
+// fraud/cost value); Basic on the rest (low-cost forms — challenge-integrity
+// validation is enough).
+//
+// Deliberately NOT included: /api/contact and /api/demo-request. They are dead
+// public-lead remnants superseded by /api/lead-intake (see
+// docs/superpowers/plans/2026-05-06-owner-lead-intake.md — "unused public-lead
+// remnants after callers move; removing them is separate cleanup"). Nothing in
+// this app fetches them, so they carry no BotID token. Enforcing BotID there
+// would 403 any surviving EXTERNAL caller (email CTA, legacy/embedded form) with
+// no way to catch it in preview or unit tests. The WAF per-IP net (which needs no
+// instrumented client) is the correct layer for them.
 export const BOTID_PROTECTED_ROUTES: readonly BotIdProtectedRoute[] = [
   { path: '/api/auth/signup', method: 'POST', checkLevel: 'deepAnalysis' },
   { path: '/api/onboarding/start', method: 'POST', checkLevel: 'deepAnalysis' },
   { path: '/api/auth/login-attempt', method: 'POST', checkLevel: 'basic' },
   { path: '/api/lead-intake', method: 'POST', checkLevel: 'basic' },
-  { path: '/api/demo-request', method: 'POST', checkLevel: 'basic' },
-  { path: '/api/contact', method: 'POST', checkLevel: 'basic' },
 ];
 
 /**

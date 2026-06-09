@@ -2,16 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { notifyContactSubmission } from '@/lib/notifications/contact-notify';
 import { parseContactCoreFields } from '@/lib/notifications/contact-form';
-import { botIdBlockResponse } from '@/lib/security/botid';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  // Vercel BotID (Basic) — reject bots before the per-IP rate limit.
-  // Fails open on a BotID infra error.
-  const botBlock = await botIdBlockResponse('/api/contact');
-  if (botBlock) return botBlock;
-
+  // No BotID here: this is a dead public-lead remnant (superseded by
+  // /api/lead-intake) with no in-app caller, so any surviving caller is external
+  // and carries no BotID token. The WAF per-IP net is the right layer. See
+  // src/lib/security/botid-routes.ts.
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
   const rateCheck = await checkRateLimit(`contact:hour:${ip}`, 10, 3600);
   if (!rateCheck.allowed) {

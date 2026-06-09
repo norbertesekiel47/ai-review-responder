@@ -78,13 +78,22 @@ describe('POST /api/onboarding/start', () => {
     expect(res.status).toBe(404);
   });
 
-  it('returns 403 and skips auth + rate limit when BotID flags a bot', async () => {
+  it('runs BotID AFTER auth: authenticated bot gets 403 before any DB/rate-limit work', async () => {
+    // BotID Deep is billed, so it runs only once a real session is confirmed.
     mockCheckBotId.mockResolvedValueOnce({ isBot: true, isHuman: false, isVerifiedBot: false, bypassed: false });
     const res = await POST(mkReq(validBody));
     expect(res.status).toBe(403);
     expect((await res.json()).error).toBe('forbidden');
-    expect(mockGetUser).not.toHaveBeenCalled();
+    expect(mockGetUser).toHaveBeenCalled();        // auth ran first
+    expect(mockSql).not.toHaveBeenCalled();         // 403 before the bizRow SELECT
     expect(mockCheckRateLimit).not.toHaveBeenCalled();
+  });
+
+  it('does NOT run BotID for a session-less request (401 first, no billed Deep call)', async () => {
+    mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: null });
+    const res = await POST(mkReq(validBody));
+    expect(res.status).toBe(401);
+    expect(mockCheckBotId).not.toHaveBeenCalled();
   });
 
   it('returns 200 + demoQueued=true on happy path', async () => {

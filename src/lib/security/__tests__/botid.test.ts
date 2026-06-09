@@ -19,9 +19,14 @@ describe('botid-routes — single source of truth', () => {
     '/api/onboarding/start': 'deepAnalysis',
     '/api/auth/login-attempt': 'basic',
     '/api/lead-intake': 'basic',
-    '/api/demo-request': 'basic',
-    '/api/contact': 'basic',
   };
+
+  it('does NOT register the dead /api/contact + /api/demo-request remnants', () => {
+    const paths = BOTID_PROTECTED_ROUTES.map((r) => r.path);
+    expect(paths).not.toContain('/api/contact');
+    expect(paths).not.toContain('/api/demo-request');
+    expect(() => botIdOptionsForPath('/api/contact')).toThrow(/No BotID protection/);
+  });
 
   it('registers exactly the expected routes, methods, and levels', () => {
     const actual = Object.fromEntries(
@@ -52,7 +57,7 @@ describe('botIdBlockResponse', () => {
 
   it('returns null (allows) for a human', async () => {
     mockCheckBotId.mockResolvedValue(HUMAN);
-    expect(await botIdBlockResponse('/api/contact')).toBeNull();
+    expect(await botIdBlockResponse('/api/lead-intake')).toBeNull();
   });
 
   it('returns a 403 { error: "forbidden" } for a bot', async () => {
@@ -68,7 +73,7 @@ describe('botIdBlockResponse', () => {
     await botIdBlockResponse('/api/auth/signup');
     expect(mockCheckBotId).toHaveBeenLastCalledWith({ advancedOptions: { checkLevel: 'deepAnalysis' } });
 
-    await botIdBlockResponse('/api/contact');
+    await botIdBlockResponse('/api/lead-intake');
     expect(mockCheckBotId).toHaveBeenLastCalledWith({ advancedOptions: { checkLevel: 'basic' } });
   });
 
