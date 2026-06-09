@@ -8,11 +8,14 @@ import { aliasFromPath } from './lca.mjs';
 function git(args) {
   return execFileSync('git', args, { encoding: 'utf8' });
 }
-function rg(args) {
+// Files importing this exact specifier (either quote style). Uses git grep — git
+// is spawnable from Node here; ripgrep is a shell function not on the PATH.
+function importerFiles(alias) {
   try {
-    return execFileSync('rg', args, { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+    return execFileSync('git', ['grep', '-l', '-F', '-e', `'${alias}'`, '-e', `"${alias}"`, '--', 'src', 'worker'], { encoding: 'utf8' })
+      .split('\n').map((s) => s.trim()).filter(Boolean);
   } catch (e) {
-    if (e.status === 1) return [];
+    if (e.status === 1) return []; // no matches
     throw e;
   }
 }
@@ -41,7 +44,7 @@ for (const entry of map) {
   git(['mv', oldPath, newPath]);
 
   // Rewrite the alias everywhere it appears (quoted = exact, prefix-safe).
-  for (const f of rg(['-l', '-F', oldAlias, 'src', 'worker'])) {
+  for (const f of importerFiles(oldAlias)) {
     replaceInFile(f, `'${oldAlias}'`, `'${newAlias}'`);
     replaceInFile(f, `"${oldAlias}"`, `"${newAlias}"`);
   }

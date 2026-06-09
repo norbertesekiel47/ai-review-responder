@@ -3,28 +3,32 @@
 import { execFileSync } from 'node:child_process';
 import { aliasFromPath, computeDestination } from './lca.mjs';
 
-function rg(args) {
+// Uses git (always present in a repo; spawnable from Node) rather than ripgrep,
+// which is a shell function here and not on Node's execFileSync PATH.
+function git(args) {
   try {
-    return execFileSync('rg', args, { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+    return execFileSync('git', args, { encoding: 'utf8' }).split('\n').map((s) => s.trim()).filter(Boolean);
   } catch (e) {
-    if (e.status === 1) return []; // ripgrep: no matches
+    if (e.status === 1) return []; // git grep: no matches (exit 1)
     throw e;
   }
 }
 
 function pageDirs() {
-  const pages = rg(['--files', '-g', 'page.tsx', 'src/app']);
+  const tracked = git(['ls-files', '--', 'src/app']);
+  const pages = tracked.filter((p) => p.endsWith('/page.tsx'));
   return new Set(pages.map((p) => p.replace(/\/page\.tsx$/, '')));
 }
 
 function componentFiles(domain) {
-  return rg(['--files', '-g', '*.tsx', '-g', '!**/__tests__/**', `src/components/${domain}`]);
+  const tracked = git(['ls-files', '--', `src/components/${domain}`]);
+  return tracked.filter((p) => p.endsWith('.tsx') && !p.includes('/__tests__/'));
 }
 
 function importersOf(alias) {
-  const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = `(from|import)\\s*\\(?['"]${escaped}['"]`;
-  return rg(['-l', '-e', pattern, 'src', 'worker']);
+  // Files importing this exact module specifier (either quote style). Fixed-string
+  // match bounded by quotes is prefix-safe (won't match a longer alias).
+  return git(['grep', '-l', '-F', '-e', `'${alias}'`, '-e', `"${alias}"`, '--', 'src', 'worker']);
 }
 
 const domain = process.argv[2];
