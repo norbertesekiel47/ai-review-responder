@@ -16,12 +16,6 @@ import { computeOverageQuantity } from '@/lib/accounts/quota';
 import { sql } from '@/lib/db/server';
 import { getStripe } from '@/lib/payments/stripe-client';
 
-// Re-export the single shared Stripe client (one owner — see stripe-client.ts)
-// so existing importers (portal route, tier-change route, the reconcile worker)
-// keep resolving getStripe from this module. createCheckoutSession below also
-// uses the imported binding directly.
-export { getStripe };
-
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface CheckoutSessionResult {

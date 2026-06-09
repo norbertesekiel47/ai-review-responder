@@ -12,7 +12,7 @@ const {
   mockMarkOutboxFailed: vi.fn(),
 }));
 
-vi.mock('../../../../src/lib/payments/create-checkout-session', () => ({
+vi.mock('../../../../src/lib/payments/stripe-client', () => ({
   getStripe: () => ({
     checkout: {
       sessions: {
