@@ -5,7 +5,7 @@
  * Synthetic rows are tagged with response_text='__TEST__' so cleanup is safe.
  * DB state changes (tier, subscription_status) are restored in afterAll/afterEach.
  *
- * Account: norbertliverpool@gmail.com / Password123
+ * Account: configured via E2E_OWNER_EMAIL / E2E_OWNER_PASSWORD (see .env.example).
  * Business: tanicia (019e4e19-1c5a-72b8-b2a1-3301152e78c7)
  * Account:  019e4e19-1c5b-713b-8f44-d2eec81c6b8c
  * activated_at: 2026-05-22 05:14:23 UTC  ← gap/historical cut-off
@@ -16,15 +16,16 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { execSync } from 'child_process';
+import { OWNER_EMAIL, OWNER_PASSWORD, E2E_DATABASE_URL, isOwnerE2eConfigured } from './helpers/test-owner';
 
 // ─── constants ───────────────────────────────────────────────────────────────
-const EMAIL    = 'norbertliverpool@gmail.com';
-const PASSWORD = 'Password123';
+const EMAIL    = OWNER_EMAIL;
+const PASSWORD = OWNER_PASSWORD;
 const BIZ_ID   = '019e4e19-1c5a-72b8-b2a1-3301152e78c7';
 const ACC_ID   = '019e4e19-1c5b-713b-8f44-d2eec81c6b8c';
 const REVIEW_GAP  = '019e4e32-46a9-7708-9116-8e0932b1021a'; // 2026-05-22 gap review
 const REVIEW_HIST = '701f8903-b65f-40bd-926b-d004d0bcc16e'; // 2023-08-27 historical
-const DB_URL = 'postgresql://postgres:JgQaxoLIMYs5FicW@db.udeyaqnvpojbwgoaxwdg.supabase.co:5432/postgres';
+const DB_URL = E2E_DATABASE_URL;
 
 // ─── psql helper ─────────────────────────────────────────────────────────────
 function psql(sql: string): string {
@@ -52,6 +53,7 @@ async function gotoPastReplies(page: Page) {
 
 // Warm up dev server + global safety cleanup of any __TEST__ rows left by a previous run
 test.beforeAll(async ({ browser }) => {
+  if (!isOwnerE2eConfigured) return;
   const p = await browser.newPage();
   try { await p.goto('/login', { waitUntil: 'networkidle', timeout: 60_000 }); } catch {}
   await p.close();
@@ -67,6 +69,7 @@ test.beforeAll(async ({ browser }) => {
 // ─── §2: Tier gating ─────────────────────────────────────────────────────────
 
 test.describe('§2 — Tier gating (C-2 rule)', () => {
+  test.skip(!isOwnerE2eConfigured, 'E2E owner creds / test DB not configured — set E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD, TEST_DATABASE_POOL_URL');
   test.afterEach(async () => {
     // Always restore to standard in case test fails mid-way
     psqlRaw(`UPDATE accounts SET subscription_tier='standard' WHERE id='${ACC_ID}';`);
@@ -150,9 +153,11 @@ test.describe('§2 — Tier gating (C-2 rule)', () => {
 // ─── §7a: delete-failed sidecar ──────────────────────────────────────────────
 
 test.describe('§7a — delete-failed sidecar badge', () => {
+  test.skip(!isOwnerE2eConfigured, 'E2E owner creds / test DB not configured — set E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD, TEST_DATABASE_POOL_URL');
   let syntheticId = '';
 
   test.beforeAll(async () => {
+    if (!isOwnerE2eConfigured) return;
     // INSERT a synthetic failed row alongside the gap review's existing posted reply
     // delete_failed means the old reply is still live on Google — coexists with posted row
     const res = psqlRaw(`
@@ -178,6 +183,7 @@ test.describe('§7a — delete-failed sidecar badge', () => {
   });
 
   test.afterAll(async () => {
+    if (!isOwnerE2eConfigured) return;
     if (syntheticId) {
       psqlRaw(`DELETE FROM responses WHERE id='${syntheticId}';`);
       // Also clean up any outbox entries created by Retry
@@ -258,11 +264,13 @@ test.describe('§7a — delete-failed sidecar badge', () => {
 // ─── §7b: orphan recovery card ───────────────────────────────────────────────
 
 test.describe('§7b — orphan (DELETE ok + POST failed)', () => {
+  test.skip(!isOwnerE2eConfigured, 'E2E owner creds / test DB not configured — set E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD, TEST_DATABASE_POOL_URL');
   let orphanReviewId = '';
   let supersededId   = '';
   let orphanFailedId = '';
 
   test.beforeAll(async () => {
+    if (!isOwnerE2eConfigured) return;
     // INSERT fully synthetic review (fake provider_review_id, nothing on Google)
     const revRes = psqlRaw(`
       INSERT INTO reviews (
@@ -342,6 +350,7 @@ test.describe('§7b — orphan (DELETE ok + POST failed)', () => {
   });
 
   test.afterAll(async () => {
+    if (!isOwnerE2eConfigured) return;
     // Clean up in reverse order (FK constraints)
     if (orphanFailedId) psqlRaw(`DELETE FROM responses WHERE id='${orphanFailedId}';`);
     if (supersededId)   psqlRaw(`DELETE FROM responses WHERE id='${supersededId}';`);
@@ -438,9 +447,11 @@ test.describe('§7b — orphan (DELETE ok + POST failed)', () => {
 // ─── §7c: stale-after-review-change ──────────────────────────────────────────
 
 test.describe('§7c — stale_after_review_changed blocks Retry', () => {
+  test.skip(!isOwnerE2eConfigured, 'E2E owner creds / test DB not configured — set E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD, TEST_DATABASE_POOL_URL');
   let staleId = '';
 
   test.beforeAll(async () => {
+    if (!isOwnerE2eConfigured) return;
     const res = psqlRaw(`
       INSERT INTO responses (
         id, review_id, business_id, status, response_text, approved_text,
@@ -464,6 +475,7 @@ test.describe('§7c — stale_after_review_changed blocks Retry', () => {
   });
 
   test.afterAll(async () => {
+    if (!isOwnerE2eConfigured) return;
     if (staleId) {
       psqlRaw(`DELETE FROM responses WHERE id='${staleId}';`);
       console.log('[§7c] Cleaned up stale row:', staleId);
@@ -494,9 +506,11 @@ test.describe('§7c — stale_after_review_changed blocks Retry', () => {
 // ─── §8a: draft resume / discard ─────────────────────────────────────────────
 
 test.describe('§8a — Draft resume / discard', () => {
+  test.skip(!isOwnerE2eConfigured, 'E2E owner creds / test DB not configured — set E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD, TEST_DATABASE_POOL_URL');
   let draftId = '';
 
   test.beforeAll(async () => {
+    if (!isOwnerE2eConfigured) return;
     // Safety: remove any leftover __TEST__ non-terminal rows from previous run
     psqlRaw(`DELETE FROM responses WHERE review_id='${REVIEW_GAP}' AND response_text LIKE '__TEST__%' AND status IN ('pending_approval','approved','edited','awaiting_owner_connect');`);
 
@@ -524,6 +538,7 @@ test.describe('§8a — Draft resume / discard', () => {
   });
 
   test.afterAll(async () => {
+    if (!isOwnerE2eConfigured) return;
     // In case Discard didn't fire, clean up residual draft
     if (draftId) {
       psqlRaw(`DELETE FROM responses WHERE id='${draftId}' AND status='pending_approval';`);
@@ -598,9 +613,11 @@ test.describe('§8a — Draft resume / discard', () => {
 // ─── §8b: queued / reconnect states ──────────────────────────────────────────
 
 test.describe('§8b — Queued / reconnect states (no Resume/Discard)', () => {
+  test.skip(!isOwnerE2eConfigured, 'E2E owner creds / test DB not configured — set E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD, TEST_DATABASE_POOL_URL');
   let queuedId = '';
 
   test.beforeAll(async () => {
+    if (!isOwnerE2eConfigured) return;
     // Safety: remove any leftover __TEST__ non-terminal rows from previous run
     psqlRaw(`DELETE FROM responses WHERE review_id='${REVIEW_GAP}' AND response_text LIKE '__TEST__%' AND status IN ('pending_approval','approved','edited','awaiting_owner_connect');`);
 
@@ -626,6 +643,7 @@ test.describe('§8b — Queued / reconnect states (no Resume/Discard)', () => {
   });
 
   test.afterAll(async () => {
+    if (!isOwnerE2eConfigured) return;
     if (queuedId) {
       psqlRaw(`DELETE FROM responses WHERE id='${queuedId}';`);
       console.log('[§8b] Cleaned up queued row:', queuedId);
@@ -693,6 +711,7 @@ test.describe('§8b — Queued / reconnect states (no Resume/Discard)', () => {
 // ─── §9: Multi-location scoping (read-only) ───────────────────────────────────
 
 test.describe('§9 — Multi-location scoping', () => {
+  test.skip(!isOwnerE2eConfigured, 'E2E owner creds / test DB not configured — set E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD, TEST_DATABASE_POOL_URL');
   test('§9: Single-location account — past-replies scoped to tanicia only', async ({ page }) => {
     await login(page);
     await gotoPastReplies(page);
@@ -720,6 +739,7 @@ test.describe('§9 — Multi-location scoping', () => {
 // ─── §10: Subscription gating ─────────────────────────────────────────────────
 
 test.describe('§10 — Subscription status gating', () => {
+  test.skip(!isOwnerE2eConfigured, 'E2E owner creds / test DB not configured — set E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD, TEST_DATABASE_POOL_URL');
   test.afterEach(async () => {
     // Always restore active in case test fails
     psqlRaw(`UPDATE accounts SET subscription_status='active' WHERE id='${ACC_ID}';`);
