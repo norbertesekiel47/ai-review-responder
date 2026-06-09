@@ -203,7 +203,15 @@ of the flag — flipping the flag only exposes the user surface. The
 | premium | $199 | 5 | $20 | Yes |
 | founders | $19 | 1 | $25 | Yes |
 
-Source of truth: `src/lib/accounts/tier-config.ts` (`TIER_CONFIG`). Values above verified against the live file (2026-05-27). Note: billing snapshot reads `accounts.locations_included` and `accounts.locations_overage_price_cents` (stored, grandfathered) — not live `TIER_CONFIG` — except for base price, which has no stored column yet.
+Source of truth: `src/lib/accounts/tier-config.ts` (`TIER_CONFIG`). Values above verified against the live file (2026-05-27). Note: billing snapshot reads `accounts.locations_included`, `accounts.locations_overage_price_cents`, and `accounts.base_price_cents` (stored, grandfathered via migration 054) — not live `TIER_CONFIG` (invariant #9a).
+
+**Price-change procedure** (new customers pay new prices; existing customers keep theirs — grandfathered):
+
+1. Create a **new** Stripe Price (Prices are immutable — you never edit `unit_amount`) with the new amount (+ `tax_behavior='exclusive'` if Tax is on).
+2. Point the `STRIPE_PRICE_*` env var → the new ID in **dev + staging + prod lockstep** (`startup-assert.ts` enforces presence of all 7).
+3. Update `TIER_CONFIG` cents to match the new Price.
+4. Run `pnpm verify:stripe-prices` against staging, then prod — must pass.
+5. Existing customers are unaffected (grandfathered via the stored `accounts` snapshot); only new signups + tier-changers get the new price. Repricing *existing* customers is a separate cohort migration + ARL §17602(g) fee-change notice (out of scope).
 
 **Stripe model:** one subscription per account, two subscription
 items — base price (qty 1) + overage price (qty = active locations
