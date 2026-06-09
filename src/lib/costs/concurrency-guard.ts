@@ -1,4 +1,5 @@
 import { getCacheRedis } from '@/lib/db/redis-cache';
+import { CostInfraUnavailableError } from './errors';
 
 /**
  * Per-business generation concurrency semaphore, backed by a Redis counter
@@ -40,13 +41,21 @@ export async function acquireConcurrencySlot(
   const redis = getCacheRedis();
   const key = concurrencyKey(businessId);
 
-  const raw = (await redis.eval(
-    ACQUIRE_CONCURRENCY_LUA,
-    1,
-    key,
-    String(MAX_CONCURRENCY_PER_BUSINESS),
-    String(CONCURRENCY_TTL_SECONDS),
-  )) as [string, number];
+  // Only the Redis round-trip is wrapped — a transport failure becomes a
+  // retryable infra error. A 'exceeded' result is a slot-full business case
+  // (already retryable downstream) and stays a ConcurrencyLimitExceededError.
+  let raw: [string, number];
+  try {
+    raw = (await redis.eval(
+      ACQUIRE_CONCURRENCY_LUA,
+      1,
+      key,
+      String(MAX_CONCURRENCY_PER_BUSINESS),
+      String(CONCURRENCY_TTL_SECONDS),
+    )) as [string, number];
+  } catch (err) {
+    throw new CostInfraUnavailableError('acquireConcurrencySlot', { cause: err });
+  }
 
   if (raw[0] === 'exceeded') {
     throw new ConcurrencyLimitExceededError(businessId);

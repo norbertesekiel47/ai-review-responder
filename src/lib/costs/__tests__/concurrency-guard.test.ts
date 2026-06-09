@@ -54,6 +54,17 @@ describe('acquireConcurrencySlot', () => {
     );
     expect(mockRedis.eval).toHaveBeenCalledTimes(1);
   });
+
+  it('throws CostInfraUnavailableError when the Redis eval round-trip fails (transport error)', async () => {
+    mockRedis.eval.mockRejectedValueOnce(new Error('ECONNRESET'));
+
+    const { acquireConcurrencySlot } = await import('../concurrency-guard');
+    const { CostInfraUnavailableError } = await import('../errors');
+
+    const err = await acquireConcurrencySlot('biz-001').catch((e) => e);
+    expect(err).toBeInstanceOf(CostInfraUnavailableError);
+    expect(err.touchpoint).toBe('acquireConcurrencySlot');
+  });
 });
 
 describe('releaseConcurrencySlot', () => {

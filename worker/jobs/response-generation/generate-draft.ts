@@ -20,6 +20,7 @@ import {
   setCachedGeneration,
 } from '../../../src/lib/costs/tracker';
 import { ConcurrencyLimitExceededError } from '../../../src/lib/costs/concurrency-guard';
+import { CostInfraUnavailableError } from '../../../src/lib/costs/errors';
 import type { BusinessContext, GenerationResult, VoiceExample } from '../../../src/lib/responses/types';
 import type { NormalizedReview } from '../../../src/lib/reviews/types';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
@@ -82,6 +83,15 @@ export async function generateDraft(
     }
     if (err instanceof ConcurrencyLimitExceededError) {
       // Transient — other jobs will finish, then this one can proceed
+      throw err;
+    }
+    if (err instanceof CostInfraUnavailableError) {
+      // Pre-LLM cost-guard Redis (Upstash) transport failure — re-throw so
+      // BullMQ retries (3 attempts + backoff) and, if those exhaust, the outbox
+      // watchdog re-dispatches after the 1h stale window. Matches the already-
+      // retryable checkRegenBudget path; the cost RESERVATION precedes the LLM
+      // call, so no spend has occurred. Budget-exceeded errors stay terminal above.
+      logger.warn(`Cost-guard infra unavailable for review ${reviewId} (will retry): ${err.message}`);
       throw err;
     }
     if (err instanceof TransientLLMError) {

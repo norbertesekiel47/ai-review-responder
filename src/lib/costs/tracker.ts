@@ -1,4 +1,5 @@
 import { getCacheRedis } from '@/lib/db/redis-cache';
+import { CostInfraUnavailableError } from './errors';
 
 // ── Error classes ────────────────────────────────────────────────────
 
@@ -128,7 +129,14 @@ export async function checkIdempotentCache(
   version: number,
 ): Promise<string | null> {
   const redis = getCacheRedis();
-  return redis.get(idempotentCacheKey(reviewId, version));
+  // A failed Redis round-trip here is infra, not a cache miss. Surfacing it as
+  // a retryable CostInfraUnavailableError (rather than swallowing it as "no
+  // cache, proceed") avoids a duplicate LLM call on the retry.
+  try {
+    return await redis.get(idempotentCacheKey(reviewId, version));
+  } catch (err) {
+    throw new CostInfraUnavailableError('checkIdempotentCache', { cause: err });
+  }
 }
 
 // INCR + limit check + TTL + rollback collapsed into one atomic Lua script.
@@ -177,16 +185,24 @@ export async function reserveCost(
   const bizLimit = getTierLimitCents(subscriptionTier);
   const globalLimit = getGlobalLimitCents();
 
-  const raw = (await redis.eval(
-    RESERVE_COST_LUA,
-    2,
-    bizKey,
-    globalKey,
-    String(PESSIMISTIC_ESTIMATE_CENTS),
-    String(bizLimit),
-    String(globalLimit),
-    String(CACHE_TTL_SECONDS),
-  )) as [string, number, number];
+  // Only the Redis round-trip is wrapped — a transport failure becomes a
+  // retryable infra error. The biz/global budget checks below run AFTER a
+  // successful eval and stay terminal (they are budget decisions, not infra).
+  let raw: [string, number, number];
+  try {
+    raw = (await redis.eval(
+      RESERVE_COST_LUA,
+      2,
+      bizKey,
+      globalKey,
+      String(PESSIMISTIC_ESTIMATE_CENTS),
+      String(bizLimit),
+      String(globalLimit),
+      String(CACHE_TTL_SECONDS),
+    )) as [string, number, number];
+  } catch (err) {
+    throw new CostInfraUnavailableError('reserveCost', { cause: err });
+  }
 
   const status = raw[0];
   if (status === 'biz_exceeded') throw new CostLimitExceededError(businessId);
