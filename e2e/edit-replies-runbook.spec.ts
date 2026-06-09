@@ -7,20 +7,22 @@
  *
  * Run: npx playwright test e2e/edit-replies-runbook.spec.ts --headed
  *
- * Account: norbertliverpool@gmail.com / Password123
+ * Account: configured via E2E_OWNER_EMAIL / E2E_OWNER_PASSWORD (see .env.example).
  * Location: Tanicia (business_id: 019e4e19-1c5a-72b8-b2a1-3301152e78c7)
  */
 
 import { test, expect, type Page } from '@playwright/test';
+import { OWNER_EMAIL, OWNER_PASSWORD, isOwnerE2eConfigured } from './helpers/test-owner';
 
-const TEST_EMAIL = 'norbertliverpool@gmail.com';
-const TEST_PASSWORD = 'Password123';
+const TEST_EMAIL = OWNER_EMAIL;
+const TEST_PASSWORD = OWNER_PASSWORD;
 const BUSINESS_ID = '019e4e19-1c5a-72b8-b2a1-3301152e78c7';
 
 // Warm up the dev server before the first test so the login page is compiled.
 // In Next.js dev mode the first request to any page triggers on-demand compilation
 // which can take 20-40s. Without warmup, the first test times out.
 test.beforeAll(async ({ browser }) => {
+  if (!isOwnerE2eConfigured) return;
   const page = await browser.newPage();
   try {
     await page.goto('/login', { waitUntil: 'networkidle', timeout: 60_000 });
@@ -67,6 +69,7 @@ async function goToPastReplies(page: Page) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 test.describe('Scenario 0 — Prerequisites', () => {
+  test.skip(!isOwnerE2eConfigured, 'E2E owner creds not configured — set E2E_OWNER_EMAIL / E2E_OWNER_PASSWORD');
   test('0-A: login succeeds and redirects to dashboard', async ({ page }) => {
     await login(page);
 
@@ -161,6 +164,7 @@ test.describe('Scenario 0 — Prerequisites', () => {
 // ──────────────────────────────────────────────────────────────────────────────
 
 test.describe('Scenario 1 — Edit CTAs visible with EDIT_REPLIES_ENABLED=true', () => {
+  test.skip(!isOwnerE2eConfigured, 'E2E owner creds not configured — set E2E_OWNER_EMAIL / E2E_OWNER_PASSWORD');
   test('1-A: /dashboard/past-replies shows Edit button(s) when flag is ON', async ({ page }) => {
     await login(page);
     await goToPastReplies(page);
