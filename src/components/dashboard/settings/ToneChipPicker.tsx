@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { inferActiveTone } from '@/components/dashboard/settings/ToneChipPicker.helpers';
 
@@ -24,16 +24,15 @@ export function ToneChipPicker({ tone, onChange }: Props) {
   // even when the current tone string would otherwise infer to a preset.
   const [override, setOverride] = useState<string | null>(null);
 
-  // Track the last value we wrote so we can tell when `tone` changed
-  // externally (e.g. parent called Discard, or initial fetch resolved).
-  // External changes drop the override so the chip strip reflects truth.
-  // Reconciled during render (not an effect) so the reset lands in the same
-  // commit as the prop change — no stale-UI flash between renders. The
-  // last-written value never feeds the rendered output, so a ref avoids the
-  // extra render a state setter would queue.
-  const lastWrittenRef = useRef(tone);
-  if (tone !== lastWrittenRef.current) {
-    lastWrittenRef.current = tone;
+  // Track the last value we wrote so we can tell when `tone` changed externally
+  // (e.g. parent called Discard, or initial fetch resolved) vs. by our own
+  // handlers. An external change drops the override so the chip strip reflects
+  // truth. This is React's "adjust state during render when a prop changes"
+  // pattern — the reset lands in the same commit as the prop change (no effect,
+  // no stale-UI flash); React bails out before committing the discarded render.
+  const [lastWritten, setLastWritten] = useState(tone);
+  if (tone !== lastWritten) {
+    setLastWritten(tone);
     setOverride(null);
   }
 
@@ -42,7 +41,7 @@ export function ToneChipPicker({ tone, onChange }: Props) {
 
   const pickPreset = (id: string, canonical: string) => {
     setOverride(id);
-    lastWrittenRef.current = canonical;
+    setLastWritten(canonical);
     onChange(canonical);
   };
 
@@ -53,7 +52,7 @@ export function ToneChipPicker({ tone, onChange }: Props) {
   };
 
   const handleCustomTyping = (next: string) => {
-    lastWrittenRef.current = next;
+    setLastWritten(next);
     onChange(next);
   };
 
