@@ -56,10 +56,13 @@ const config = [
     },
   },
   {
-    // Non-route code may not import @/app/** (route leaves are terminal).
-    // app/** is exempt so co-located siblings can import each other.
+    // Non-route code may not import @/app/** — STATIC or dynamic import().
+    // Route leaves are terminal. app/** is exempt (co-located siblings import each
+    // other); test files are exempt because they legitimately import route
+    // handlers under test (e.g. `await import('@/app/api/.../route')` to exercise
+    // a GET handler). The base zone above still applies the ../.. ban to tests.
     files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/app/**'],
+    ignores: ['src/app/**', '**/__tests__/**', '**/*.test.{ts,tsx}'],
     rules: {
       'no-restricted-imports': ['error', {
         patterns: [
@@ -75,6 +78,13 @@ const config = [
               'Move shared code into components/<domain> or lib/<domain>.',
           },
         ],
+      }],
+      // no-restricted-imports does NOT see import() — cover dynamic imports here.
+      'no-restricted-syntax': ['error', {
+        selector: "ImportExpression[source.value=/^@\\/app\\//]",
+        message:
+          'Route leaves (app/**) are terminal — non-route code must not dynamically import from app/. ' +
+          'Move shared code into components/<domain> or lib/<domain>.',
       }],
     },
   },

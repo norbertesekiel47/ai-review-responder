@@ -160,14 +160,22 @@ per-area `_components/` first.
 ### 2. The boundary is **lint-enforced**, not trusted to discipline
 
 A documented convention drifts once dozens of pages and multiple editors (humans
-+ agents) touch it. The placement rule above is enforced by
-`import/no-restricted-paths` in the ESLint flat config (`eslint.config.mjs`), so
-violations fail `pnpm lint` / CI instead of waiting for a reviewer to notice:
++ agents) touch it. Three `no-restricted-imports` zones in the ESLint flat config
+(`eslint.config.mjs`) enforce the rules below, so violations fail `pnpm lint` / CI:
 
-- `components/ui/**` may not import `lib/**` or `app/**` — primitives stay dumb.
-- Nothing may import from `app/**` — route leaves are terminal, never a library.
-- One area's `app/<area>/_components` is private to that area — no cross-route
-  reach into another route's private folder.
+- **Non-route code may not import `@/app/**`** — static *or* dynamic `import()`.
+  Route leaves are terminal. Exempt: `app/**` itself (co-located siblings import
+  each other) and **test files** (they legitimately import route handlers under
+  test).
+- **`components/ui/**` stays domain-agnostic** — no `@/app/**`, no domain
+  components, and no `@/lib/<domain>`; the domain-agnostic `@/lib/ui` and
+  `@/lib/shared` utilities (e.g. `cn()`) *are* allowed.
+- **No src-internal `../..` parent-traversal** — use `@/` aliases. Cross-tree
+  imports into `worker/`/`scripts/` (no alias exists) are exempt.
+
+Not yet lint-enforced (would need `eslint-plugin-import`/`boundaries`, deferred) —
+these stay doc + code-review conventions: "`_components` is private to its area"
+(no cross-area reach) and "page-specific UI lives under `_components/`".
 
 > When you add a layer or rename an area, update **both** this doc and the lint
 > rule in the same change — the doc explains *why*, the rule is the *gate*.
