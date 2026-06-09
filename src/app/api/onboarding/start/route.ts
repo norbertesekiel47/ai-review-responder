@@ -10,6 +10,7 @@ import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 import { reserveOnboardingDemoBudget, CostCeilingExceeded } from '@/lib/costs/onboarding-demo-cost-guard';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { PLACEHOLDER_BUSINESS_NAME } from '@/lib/onboarding/create-business';
+import { botIdBlockResponse } from '@/lib/security/botid';
 import type postgres from 'postgres';
 
 export const dynamic = 'force-dynamic';
@@ -197,6 +198,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!user) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: NO_STORE });
   }
+
+  // Vercel BotID (Deep Analysis) — gate the pre-pay LLM demo behind bot
+  // detection. Placed AFTER the auth check on purpose: this route is auth-gated,
+  // and Deep Analysis is billed per call, so running it only for an authenticated
+  // session (not session-less scripted noise that 401s anyway, and not behind the
+  // forgeable same-origin header) avoids paying for Deep on traffic the cheap 401
+  // already rejects. Authenticated bots are still checked. Fails open on a BotID
+  // infra error.
+  const botBlock = await botIdBlockResponse('/api/onboarding/start');
+  if (botBlock) return botBlock;
 
   const [bizRow] = await sql<BizRow[]>`
     SELECT b.id, a.id AS account_id, u.id AS user_id, a.subscription_status, b.place_id_verified, b.google_maps_url

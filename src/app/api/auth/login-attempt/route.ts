@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { getIpKey } from '@/lib/shared/request-ip';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
+import { botIdBlockResponse } from '@/lib/security/botid';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +17,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
     throw err;
   }
+
+  // Vercel BotID (Basic) — reject bots before the per-email/IP rate limit.
+  // Fails open on a BotID infra error.
+  const botBlock = await botIdBlockResponse('/api/auth/login-attempt');
+  if (botBlock) return botBlock;
 
   let body: unknown;
   try {

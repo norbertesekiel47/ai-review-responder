@@ -4,6 +4,7 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { SignupSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
 import { accountExistsResponse } from '@/lib/shared/auth-responses';
+import { botIdBlockResponse } from '@/lib/security/botid';
 import {
   createBusinessTx,
   DuplicateEmailError,
@@ -17,6 +18,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
+
+  // 1b. Vercel BotID (Deep Analysis) — reject bots before we touch Redis,
+  //     Supabase Auth, or the DB. Fails open on a BotID infra error.
+  const botBlock = await botIdBlockResponse('/api/auth/signup');
+  if (botBlock) return botBlock;
 
   // 2. Rate limit (strict — Redis down fails closed; we return 503 rather
   //    than silently allowing every request through, which would let an

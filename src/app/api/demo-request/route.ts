@@ -10,6 +10,10 @@ const MAX_BUSINESS_NAME_LEN = 300;
 const MAX_URL_LEN = 2048;
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  // No BotID here: this is a dead public-lead remnant (superseded by
+  // /api/lead-intake) with no in-app caller, so any surviving caller is external
+  // and carries no BotID token. The WAF per-IP net is the right layer. See
+  // src/lib/security/botid-routes.ts.
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
   const rateCheck = await checkRateLimit(`demo-request:hour:${ip}`, 5, 3600);
   if (!rateCheck.allowed) {

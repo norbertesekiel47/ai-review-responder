@@ -42,8 +42,12 @@ vi.mock('@/lib/db/server', () => ({
   sql: mockSql,
 }));
 
-const { mockNotify } = vi.hoisted(() => ({ mockNotify: vi.fn() }));
+const { mockNotify, mockCheckBotId } = vi.hoisted(() => ({
+  mockNotify: vi.fn(),
+  mockCheckBotId: vi.fn(),
+}));
 vi.mock('@/lib/notifications/contact-notify', () => ({ notifyContactSubmission: mockNotify }));
+vi.mock('botid/server', () => ({ checkBotId: mockCheckBotId }));
 
 function makeRequest(body: unknown, headers: Record<string, string> = {}): NextRequest {
   return new NextRequest('http://localhost:3000/api/lead-intake', {
@@ -128,6 +132,22 @@ describe('POST /api/lead-intake', () => {
     delete process.env.GOOGLE_SHEETS_PRIVATE_KEY;
     mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 4 });
     mockNotify.mockResolvedValue({ sent: true });
+    mockCheckBotId.mockResolvedValue({ isBot: false, isHuman: true, isVerifiedBot: false, bypassed: false });
+  });
+
+  it('returns 403 and skips rate limit + DB when BotID flags a bot', async () => {
+    mockCheckBotId.mockResolvedValueOnce({ isBot: true, isHuman: false, isVerifiedBot: false, bypassed: false });
+    const { POST } = await import('../route');
+    const res = await POST(makeRequest({
+      name: 'Alice Owner',
+      email: 'owner@example.com',
+      businessName: 'Alice Bakery',
+    }));
+
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe('forbidden');
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+    expect(dbState.calls).toHaveLength(0);
   });
 
   it('returns 400 for invalid JSON and does not write to the database', async () => {
