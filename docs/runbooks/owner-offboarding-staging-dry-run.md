@@ -29,12 +29,12 @@ touched.
 
 | Scenario | Result |
 | --- | --- |
-| 4.1 cancel_only confirmation | ❌ **FAIL (D1)** |
+| 4.1 cancel_only confirmation | ❌ first run → ✅ fixed (D1, PR #245) |
 | 4.2 reactivation before access end | ✅ PASS¹ |
 | 4.3 delete_data confirmation → teardown | ✅ PASS |
 | 4.4 keep-my-data (authenticated) | ✅ PASS |
-| 4.4 keep-my-data (email/token path) | ❌ **FAIL (D2)** |
-| 4.5 delete_data through purge | ❌ **FAIL (D3)** |
+| 4.4 keep-my-data (email/token path) | ❌ first run → ✅ fixed (D2, PR #245) |
+| 4.5 delete_data through purge | ❌ first run → ✅ fixed (D3, PR #245) |
 | 4.6 edge accounts | ✅ PASS |
 | 4.7 T-3d purge reminder | ✅ PASS |
 | 4.8 reactivation stale-claim recovery | ✅ PASS |
@@ -243,10 +243,14 @@ up to `ACCOUNT_OFFBOARDING_TEARDOWN_MAX_RETRIES`, after which it remains `failed
 for an operator. A stale `reactivation_claimed_at` (>5 min) on a `scheduled`
 `cancel_only` row is released by `ReactivationResetPoller` (Stripe re-stamped to
 `cancel_at_period_end=true`) so the row is never stranded mid-reversal.
-**Observed live:** `pending → scheduled` is broken by D1; `pending → tearing_down
-→ purge_scheduled` works; `purge_scheduled → purged` is broken by D3; the
-`failed(teardown) → tearing_down` re-drive, the cap, and the stale-claim reset
-all work as documented.
+**Observed live (first run):** `pending → scheduled` is broken by D1; `pending →
+tearing_down → purge_scheduled` works; `purge_scheduled → purged` is broken by D3;
+the `failed(teardown) → tearing_down` re-drive, the cap, and the stale-claim reset
+all work as documented. **→ Re-validated 2026-06-08 (PR #245):** the D1 break
+(`pending → scheduled`) and the D3 break (`purge_scheduled → purged`) are both fixed
+and re-validated against the real Stripe API / staging schema (see §0
+"Re-validation"); an end-to-end re-drive of each on fix-deployed staging is the one
+remaining smoke.
 
 ## 4. Dry-run scenarios
 
@@ -256,14 +260,23 @@ Use a fresh disposable test account per destructive scenario. Record the
 ### 4.1 `cancel_only` confirmation
 - [x] Owner confirms `cancel_only` (driven via `POST /api/account/offboarding/confirm`,
       authenticated). Route returned **202 created**.
-- [ ] ❌ Billing-schedule worker did **not** reach `scheduled`. It set
-      `cancel_at_period_end=true` on the Stripe sub but then threw reading
-      `current_period_end` (defect **D1**); the row went `pending → failed`,
-      `failed_step='billing'`, `stripe_step='failed'`, `access_ends_at` NULL.
-- [ ] ❌ No confirmation email (cancel_only emails only on a successful schedule).
-- **Observed:** account `c1` (`019ea735-dcec-7007-a99a-a221aab91005`), offboarding
-  `019ea73d-0b61-74de-a4b8-23d40819e1ee`, status path `pending → failed (billing)`,
-  `access_ends_at` never set. **Cause: D1.** →
+- [~] ❌ first run → ✅ fixed (D1, PR #245). Billing-schedule worker did **not**
+      reach `scheduled`. It set `cancel_at_period_end=true` on the Stripe sub but
+      then threw reading `current_period_end` (defect **D1**); the row went
+      `pending → failed`, `failed_step='billing'`, `stripe_step='failed'`,
+      `access_ends_at` NULL. **→ Re-validated 2026-06-08:** a live Stripe test sub
+      under the pinned `2026-05-27.dahlia` returns `current_period_end` only on
+      `items.data[0]` (top-level `null`); the fix reads it and the new unit test
+      asserts the row reaches `scheduled`. End-to-end re-run pending (see §0).
+- [~] ❌ first run → ✅ fixed (D1). No confirmation email (cancel_only emails only
+      on a successful schedule) — unblocked once the schedule completes; the
+      cancel_only confirmation email is exercised live only on the pending
+      fix-deployed staging re-run.
+- **Observed (first run):** account `c1` (`019ea735-dcec-7007-a99a-a221aab91005`),
+  offboarding `019ea73d-0b61-74de-a4b8-23d40819e1ee`, status path
+  `pending → failed (billing)`, `access_ends_at` never set. **Cause: D1.**
+  **→ Re-validated 2026-06-08:** D1 fixed (PR #245), confirmed against the live
+  Stripe API; see §0 "Re-validation". →
 
 ### 4.2 Same-subscription reactivation before access end
 - [x] Owner reactivated while `status='scheduled'` and `teardown_started_at IS NULL`
@@ -301,12 +314,18 @@ Use a fresh disposable test account per destructive scenario. Record the
 - [x] **Authenticated path** on a `delete_data` account in `purge_scheduled`
       (teardown complete): `POST /keep-my-data` (session) → **200**, row landed
       `churned`, `purge_cancelled_at` set, `terminal_at` set. ✅
-- [ ] ❌ **Email/token path** is broken (defect **D2**): the GET keep-my-data page
-      and the POST token submission both return `401 {"error":"Unauthorized"}` from
-      the auth proxy, because `/api/account/offboarding/keep-my-data` is trapped by
-      the blanket `/api/account/*` owner-API gate. A logged-out customer clicking
-      the email link cannot rescue their data. (Tokens themselves are correct —
-      see below.)
+- [~] ❌ first run → ✅ fixed (D2, PR #245). **Email/token path** was broken: the
+      GET keep-my-data page and the POST token submission both returned
+      `401 {"error":"Unauthorized"}` from the auth proxy, because
+      `/api/account/offboarding/keep-my-data` was trapped by the blanket
+      `/api/account/*` owner-API gate. A logged-out customer clicking the email link
+      could not rescue their data. (Tokens themselves are correct — see below.)
+      **→ Re-validated 2026-06-08:** the fix exempts the route via
+      `PUBLIC_OWNER_ACCOUNT_API_PATHS` and a unit test pins
+      `isProtectedOwnerApiRoute('/api/account/offboarding/keep-my-data') === false`
+      while `confirm`/`reactivate`/`status` stay owner-gated; the 401 was reproduced
+      on deployed (pre-fix) staging. End-to-end click-through pending the fix deploy
+      to staging Vercel (see §0).
 - [x] Raw keep-my-data token **never** in `job_outbox`/logs/analytics — verified:
       `account_offboarding_tokens` stores only `token_hash` (no raw-token column);
       email outbox payload keys are `idempotency_key_hash/account_id/
@@ -315,9 +334,10 @@ Use a fresh disposable test account per destructive scenario. Record the
 - [x] Revoked/invalid tokens: could not exercise the *happy* token path (D2 blocks
       it), but the token validation itself is sound by inspection + the hash-only
       storage above.
-- **Observed:** authenticated rescue — account `d1`, offboarding
+- **Observed (first run):** authenticated rescue — account `d1`, offboarding
   `019ea743-4a20-719c-9440-c132562cf807` → `churned`. Token path — **FAIL (D2)**,
-  401 on GET form + POST token. →
+  401 on GET form + POST token. **→ Re-validated 2026-06-08:** D2 fixed (PR #245),
+  401 reproduced pre-fix + exemption unit-pinned; see §0 "Re-validation". →
 
 ### 4.5 `delete_data` confirmation again (separate account), through purge
 - [x] Second disposable account confirmed `delete_data`, not rescued, teardown
@@ -327,13 +347,23 @@ Use a fresh disposable test account per destructive scenario. Record the
       `purge_after = NOW()` while a token is live — see §2), then
       `UPDATE … SET purge_after = NOW()`. The PurgePoller **claimed** it
       (`claimed=1`), stamped `purge_started_at`, and enqueued purge.
-- [ ] ❌ Purge worker **failed** (defect **D3**): `column "approval_link_id" of
-      relation "approval_audit_log" does not exist`. Retried to `retry_count=3`,
-      row landed `status='failed', failed_step='purge'`, `purged_at` never set.
-      **Data was not deleted.**
-- [ ] ❌ Row never reached `status='purged'`.
-- **Observed:** account `d3`, offboarding `019ea745-aff9-7434-96fb-43bdfba424e2`,
-  `purge_scheduled → purge_started → failed (purge)`. **Cause: D3.** →
+- [~] ❌ first run → ✅ fixed (D3, PR #245). Purge worker **failed**: `column
+      "approval_link_id" of relation "approval_audit_log" does not exist`. Retried
+      to `retry_count=3`, row landed `status='failed', failed_step='purge'`,
+      `purged_at` never set. **Data was not deleted.** **→ Re-validated 2026-06-08:**
+      non-mutating `EXPLAIN` against the real staging schema — the old scrub errors
+      on `approval_link_id`, the corrected scrub + verification plan clean; a
+      real-DB integration test now runs the scrub against the real schema. End-to-end
+      purge→`purged` re-run pending (see §0).
+- [~] ❌ first run → ✅ root cause fixed (D3). Row never reached `status='purged'`
+      (purge threw at the phantom column). The scrub SQL now plans clean against the
+      real schema; an end-to-end drive to `purged` on fix-deployed staging is the
+      remaining smoke.
+- **Observed (first run):** account `d3`, offboarding
+  `019ea745-aff9-7434-96fb-43bdfba424e2`,
+  `purge_scheduled → purge_started → failed (purge)`. **Cause: D3.**
+  **→ Re-validated 2026-06-08:** D3 fixed (PR #245), confirmed against the real
+  staging schema; see §0 "Re-validation". →
 
 ### 4.6 Edge accounts
 Ran `delete_data` against `pending_payment`, never-activated (no active location /
@@ -404,7 +434,10 @@ archived), trial, and `past_due` accounts.
       ×9, `offboarding_reactivated` ×1. `offboarding_purged` ×0 — **blocked by D3**
       (nothing purged), so the purge-time identifier/property scrub could **not** be
       observed. Events are inserted server-side (durable); `dispatched_at` NULL on
-      staging (PostHog shipping is a no-op without a key). **Observed:** as above. →
+      staging (PostHog shipping is a no-op without a key). **Observed:** as above.
+      **→ Re-validated 2026-06-08:** D3 is fixed (purge no longer throws), but
+      `offboarding_purged` and the purge-time scrub are observed live only on the
+      pending end-to-end re-run; see §0 "Re-validation". →
 - [x] **Provider disposition override** — **not exercised / N/A this run.** No
       provider step was stuck (the synthetic Zernio delete succeeds as 404). The
       admin override path (`/api/admin/offboardings/[id]/provider-disposition`) was
@@ -471,6 +504,6 @@ contract for unposted rows is unchanged.
 
 | Role | Name | Date | Notes |
 | --- | --- | --- | --- |
-| Dry-run operator | Claude (autonomous) | 2026-06-08 | Executed on disposable staging accounts; 6/9 pass, 3 launch-blocking defects (D1/D2/D3). Real GBP owner account untouched. |
+| Dry-run operator | Claude (autonomous) | 2026-06-08 | Executed on disposable staging accounts; 6/9 pass, 3 launch-blocking defects (D1/D2/D3) — all since fixed in PR #245 and re-validated against the real Stripe API + staging schema (see §0 "Re-validation"); end-to-end re-run on fix-deployed staging pending. Real GBP owner account untouched. |
 | Eng reviewer | | | Pending — review D1/D2/D3 fixes |
 | Legal launch gate | | | Pending |
