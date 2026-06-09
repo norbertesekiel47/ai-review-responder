@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 
@@ -8,6 +8,7 @@ const {
   mockGetRequestScope,
   mockAssertCanEdit,
   mockValidateOptimistic,
+  mockEnforceRegenLimit,
   txQueue,
   txMock,
   beginMock,
@@ -17,6 +18,7 @@ const {
   const mockGetRequestScope = vi.fn();
   const mockAssertCanEdit = vi.fn();
   const mockValidateOptimistic = vi.fn();
+  const mockEnforceRegenLimit = vi.fn();
 
   // Each call to tx`...` returns the next array from the queue.
   const txQueue: unknown[][] = [];
@@ -46,12 +48,19 @@ const {
     mockGetRequestScope,
     mockAssertCanEdit,
     mockValidateOptimistic,
+    mockEnforceRegenLimit,
     txQueue,
     txMock,
     beginMock,
     sqlProxy,
   };
 });
+
+// Shared per-owner regenerate limiter. Default: allow (null); a test overrides
+// with a 429 NextResponse to exercise the blocked regenerate path.
+vi.mock('@/lib/shared/dashboard-regen-rate-limit', () => ({
+  enforceDashboardRegenRateLimit: (...args: unknown[]) => mockEnforceRegenLimit(...args),
+}));
 
 // ── Mocks ───────────────────────────────────────────────────────────
 
@@ -159,6 +168,8 @@ beforeEach(() => {
   // Default: assertCanEditReply succeeds, validateOptimisticConcurrency succeeds.
   mockAssertCanEdit.mockResolvedValue(undefined);
   mockValidateOptimistic.mockResolvedValue(undefined);
+  // Default: regenerate limiter allows the request.
+  mockEnforceRegenLimit.mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -453,5 +464,36 @@ describe('POST /api/dashboard/past-replies/draft', () => {
     const args = insertCall.slice(1);
     expect(args[2]).toBe(ALT_LOCATION_ID); // business_id in INSERT
     expect(args[2]).not.toBe(LOCATION_ID); // explicitly not the primary location
+  });
+
+  it('regenerate mode: returns 429 and never opens the tx when the per-owner limit is exceeded', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockEnforceRegenLimit.mockResolvedValueOnce(
+      NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Cache-Control': 'no-store, private' } }),
+    );
+    const POST = await importPOST();
+    const res = await POST(makeRequest({ body: validBody({ mode: 'regenerate' }) }));
+    expect(res.status).toBe(429);
+    expect(mockEnforceRegenLimit).toHaveBeenCalledWith(ACCOUNT_ID);
+    // Limiter short-circuits before the outbox enqueue tx.
+    expect(beginMock).not.toHaveBeenCalled();
+  });
+
+  it('manual mode is NOT rate-limited (plain INSERT, not an LLM call)', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    // tx queue (manual flow): lock-row, existing (empty), pendingGen (empty),
+    // version MAX, SELECT posted, INSERT response.
+    seedTxRows(
+      [{ id: REVIEW_ID }],
+      [],
+      [],
+      [{ next_version: 4 }],
+      [{ approved_text: 'Old', response_text: 'Old', response_language: 'en' }],
+      [],
+    );
+    const POST = await importPOST();
+    const res = await POST(makeRequest({ body: validBody({ mode: 'manual', new_text: 'New reply' }) }));
+    expect(res.status).toBe(200);
+    expect(mockEnforceRegenLimit).not.toHaveBeenCalled();
   });
 });

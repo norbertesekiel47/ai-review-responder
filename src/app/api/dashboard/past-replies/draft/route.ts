@@ -43,6 +43,7 @@ import { mapEditReplyError } from '../_shared/edit-reply-errors';
 import { snapshotSchema } from '../_shared/schemas';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
 import { enqueueGenerateResponse } from '@/lib/shared/job-outbox-helpers';
+import { enforceDashboardRegenRateLimit } from '@/lib/shared/dashboard-regen-rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,6 +90,13 @@ async function handler(request: NextRequest): Promise<Response> {
     : isOperationalUIBlocked(offboardingState);
   if (blocked) {
     return NextResponse.json({ error: 'account_offboarding_blocked' }, { status: 403 });
+  }
+
+  // Per-owner LLM-cost rate limit — regenerate only (manual mode is a plain
+  // INSERT, not an LLM call). Runs before the tx / outbox enqueue.
+  if (parsed.data.mode === 'regenerate') {
+    const limited = await enforceDashboardRegenRateLimit(accountId);
+    if (limited) return limited;
   }
 
   try {

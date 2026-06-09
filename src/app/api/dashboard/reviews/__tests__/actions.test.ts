@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 
@@ -11,6 +11,7 @@ const {
   mockEditBySession,
   mockRegenerateBySession,
   mockBeginCallback,
+  mockEnforceRegenLimit,
 } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockSqlResults: [] as unknown[][],
@@ -19,6 +20,13 @@ const {
   mockEditBySession: vi.fn(),
   mockRegenerateBySession: vi.fn(),
   mockBeginCallback: { fn: null as ((tx: unknown) => Promise<void>) | null },
+  mockEnforceRegenLimit: vi.fn(),
+}));
+
+// The shared per-owner regenerate limiter. Default: allow (null). Individual
+// tests override with a 429 NextResponse to exercise the blocked path.
+vi.mock('@/lib/shared/dashboard-regen-rate-limit', () => ({
+  enforceDashboardRegenRateLimit: (...args: unknown[]) => mockEnforceRegenLimit(...args),
 }));
 
 // ── Mock Auth ───────────────────────────────────────────────────────
@@ -567,7 +575,27 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
     mockBeginCallback.fn = null;
+    mockEnforceRegenLimit.mockResolvedValue(null); // default: allow
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+  });
+
+  it('returns 429 and skips the action when the per-owner regenerate limit is exceeded', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockEnforceRegenLimit.mockResolvedValueOnce(
+      NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Cache-Control': 'no-store, private' } }),
+    );
+
+    const { POST } = await import('../[reviewId]/regenerate/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/regenerate`),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(429);
+    expect(mockEnforceRegenLimit).toHaveBeenCalledWith(ACCOUNT_ID);
+    expect(mockRegenerateBySession).not.toHaveBeenCalled();
+    // Limiter fires before the ownership lookup — no DB work for a blocked owner.
+    expect(sqlCallCounter.value).toBe(0);
   });
 
   it('returns 403 when Origin header is absent', async () => {
