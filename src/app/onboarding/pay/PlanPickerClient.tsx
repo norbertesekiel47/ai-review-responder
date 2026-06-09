@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { LazyMotion, m, domAnimation } from 'motion/react';
 import { buttonMotion } from '../_shared/field-styles';
 
@@ -157,9 +158,9 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
         Subscriptions auto-renew monthly at the listed price plus applicable taxes
         until cancelled. Cancel anytime from your account. By subscribing you agree
         to our{' '}
-        <a href="/legal/terms" className="underline hover:text-[#2a2a2a]">
+        <Link href="/legal/terms" className="underline hover:text-[#2a2a2a]">
           Terms
-        </a>
+        </Link>
         .
       </p>
 
