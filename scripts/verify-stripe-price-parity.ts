@@ -24,31 +24,43 @@ interface Mismatch { label: string; field: string; expected: unknown; actual: un
 
 async function checkPrice(label: string, priceId: string, expectedCents: number): Promise<Mismatch[]> {
   const price = await getStripe().prices.retrieve(priceId);
-  const out: Mismatch[] = [];
-  if (price.unit_amount !== expectedCents) out.push({ label, field: 'unit_amount', expected: expectedCents, actual: price.unit_amount });
-  if (price.currency !== 'usd') out.push({ label, field: 'currency', expected: 'usd', actual: price.currency });
-  if (price.recurring?.interval !== 'month') out.push({ label, field: 'recurring.interval', expected: 'month', actual: price.recurring?.interval });
-  if (TAX_REQUIRED && price.tax_behavior !== 'exclusive') out.push({ label, field: 'tax_behavior', expected: 'exclusive', actual: price.tax_behavior });
+  // One row per reconciled field; `active` gates the tax_behavior row behind the
+  // flag. Data-driven so adding a field never grows the branch count.
+  const checks: ReadonlyArray<{ field: string; expected: unknown; actual: unknown; active: boolean }> = [
+    { field: 'unit_amount', expected: expectedCents, actual: price.unit_amount, active: true },
+    { field: 'currency', expected: 'usd', actual: price.currency, active: true },
+    { field: 'recurring.interval', expected: 'month', actual: price.recurring?.interval, active: true },
+    { field: 'tax_behavior', expected: 'exclusive', actual: price.tax_behavior, active: TAX_REQUIRED },
+  ];
+  return checks
+    .filter((c) => c.active && c.expected !== c.actual)
+    .map((c) => ({ label, field: c.field, expected: c.expected, actual: c.actual }));
+}
+
+async function tierMismatches(tier: SubscriptionTierValue): Promise<Mismatch[]> {
+  const baseId = basePriceIdForTier(tier);
+  if (!baseId) return [{ label: `${tier} base`, field: 'env', expected: 'price id', actual: 'unset' }];
+
+  const out = await checkPrice(`${tier} base`, baseId, TIER_CONFIG[tier].baseCents);
+  const overageId = overagePriceIdForTier(tier);
+  if (overageId) out.push(...await checkPrice(`${tier} overage`, overageId, TIER_CONFIG[tier].overageCents));
   return out;
+}
+
+function failWith(mismatches: Mismatch[]): never {
+  console.error('Stripe price parity FAILED:');
+  for (const m of mismatches) console.error(`  ${m.label}: ${m.field} expected=${m.expected} actual=${m.actual}`);
+  process.exit(1);
 }
 
 async function main(): Promise<void> {
   const mismatches: Mismatch[] = [];
-  for (const tier of TIERS) {
-    const baseId = basePriceIdForTier(tier);
-    if (!baseId) { mismatches.push({ label: `${tier} base`, field: 'env', expected: 'price id', actual: 'unset' }); continue; }
-    mismatches.push(...await checkPrice(`${tier} base`, baseId, TIER_CONFIG[tier].baseCents));
+  for (const tier of TIERS) mismatches.push(...await tierMismatches(tier));
 
-    const overageId = overagePriceIdForTier(tier);
-    if (overageId) mismatches.push(...await checkPrice(`${tier} overage`, overageId, TIER_CONFIG[tier].overageCents));
-  }
+  if (mismatches.length > 0) failWith(mismatches);
 
-  if (mismatches.length > 0) {
-    console.error('Stripe price parity FAILED:');
-    for (const m of mismatches) console.error(`  ${m.label}: ${m.field} expected=${m.expected} actual=${m.actual}`);
-    process.exit(1);
-  }
-  console.log(`Stripe price parity OK for ${TIERS.length} tiers${TAX_REQUIRED ? ' (incl. tax_behavior)' : ''}.`);
+  const taxNote = TAX_REQUIRED ? ' (incl. tax_behavior)' : '';
+  console.log(`Stripe price parity OK for ${TIERS.length} tiers${taxNote}.`);
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });
