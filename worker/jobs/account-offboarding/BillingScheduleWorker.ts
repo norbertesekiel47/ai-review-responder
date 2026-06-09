@@ -206,6 +206,14 @@ function parseStripeCurrentPeriodEnd(value: unknown): Date {
 }
 
 function readCurrentPeriodEnd(subscription: Stripe.Response<Stripe.Subscription>): unknown {
-  return (subscription as unknown as { current_period_end?: unknown }).current_period_end;
+  // Stripe's Basil/Dahlia API (the pinned SDK apiVersion, e.g. 2026-05-27.dahlia)
+  // moved current_period_end from the Subscription onto the Subscription Item;
+  // the top-level field is undefined there. Read the item first, then fall back
+  // to the legacy top-level field for older API versions.
+  const sub = subscription as unknown as {
+    current_period_end?: unknown;
+    items?: { data?: Array<{ current_period_end?: unknown }> };
+  };
+  return sub.items?.data?.[0]?.current_period_end ?? sub.current_period_end;
 }
 

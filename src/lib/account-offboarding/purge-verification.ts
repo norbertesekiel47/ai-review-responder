@@ -201,10 +201,8 @@ export function verificationQuery(
           AND (
             response_id IS NOT NULL
             OR token_hash IS NOT NULL
-            OR approval_link_id IS NOT NULL
             OR device_cookie_hash IS NOT NULL
             OR ip_address IS NOT NULL
-            OR user_agent IS NOT NULL
             OR metadata <> '{}'::jsonb
             OR actor_user_id IS NOT NULL
             OR response_text_at_approval IS NOT NULL

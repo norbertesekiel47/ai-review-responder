@@ -10,6 +10,15 @@ const PROTECTED_OWNER_ACCOUNT_API_PATHS = new Set([
   '/api/account/offboarding/status',
 ]);
 
+// Routes under /api/account/* that are intentionally PUBLIC despite the blanket
+// owner-API gate below. Owner offboarding keep-my-data is clicked from an email
+// by a (logged-out) owner — GET renders a public confirmation page, POST
+// validates the raw keep-my-data token itself — so it must not require a
+// session. Checked before the `/api/account/` prefix so it is never gated.
+const PUBLIC_OWNER_ACCOUNT_API_PATHS = new Set([
+  '/api/account/offboarding/keep-my-data',
+]);
+
 const PROTECTED_MIXED_ROLE_API_PATHS = new Set([
   '/api/zernio/disconnect',
 ]);
@@ -33,6 +42,7 @@ function normalizePath(pathname: string): string {
 
 export function isProtectedOwnerApiRoute(pathname: string): boolean {
   const normalized = normalizePath(pathname);
+  if (PUBLIC_OWNER_ACCOUNT_API_PATHS.has(normalized)) return false;
   return (
     normalized === '/api/dashboard' || normalized.startsWith('/api/dashboard/') ||
     normalized === '/api/settings' || normalized.startsWith('/api/settings/') ||

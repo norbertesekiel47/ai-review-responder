@@ -135,6 +135,26 @@ describe('AccountOffboarding BillingScheduleWorker', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-billing-1', 2, mockSql);
   });
 
+  it('reads current_period_end from the subscription item (Stripe Basil/Dahlia API shape)', async () => {
+    // The pinned Stripe SDK apiVersion (2026-05-27.dahlia) returns
+    // current_period_end ONLY on the subscription item — top-level is undefined.
+    // Regression for staging dry-run defect D1: the worker read the absent
+    // top-level field and threw, stranding cancel_only at failed/billing.
+    sqlReturnQueue.push([offboardingRow()]);
+    sqlReturnQueue.push([{ id: OFFBOARDING_ID }]);
+    mockStripeSubscriptionsUpdate.mockResolvedValueOnce({
+      items: { data: [{ current_period_end: 1_798_761_600 }] },
+    });
+
+    await handleAccountOffboardingBillingSchedule(makeJob());
+
+    const updateCall = sqlCalls.find((call) => call.text.includes('billing_cancel_confirmed_at'));
+    expect(updateCall?.text).toContain("status = 'scheduled'");
+    expect(updateCall?.values).toContainEqual(new Date('2027-01-01T00:00:00.000Z'));
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-billing-1', 2, mockSql);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
   it('retries without guessing when Stripe omits current_period_end', async () => {
     sqlReturnQueue.push([offboardingRow()]);
     mockStripeSubscriptionsUpdate.mockResolvedValueOnce({});

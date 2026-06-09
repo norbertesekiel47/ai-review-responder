@@ -179,11 +179,9 @@ export async function runDependentReferencePurgeStage(row: AccountOffboardingPur
     await tx`
       UPDATE approval_audit_log
       SET response_id = NULL,
-          approval_link_id = NULL,
           token_hash = NULL,
           device_cookie_hash = NULL,
           ip_address = NULL,
-          user_agent = NULL,
           metadata = '{}'::jsonb,
           actor_user_id = NULL,
           response_text_at_approval = NULL

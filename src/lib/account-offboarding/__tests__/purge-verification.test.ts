@@ -137,8 +137,14 @@ describe('purge verification', () => {
     expect(sqlText).toContain('FROM sms_sender_opt_outs');
     expect(sqlText).toContain('FROM sms_sender_opt_out_events');
     expect(sqlText).toContain('google_maps_url IS NOT NULL');
-    expect(sqlText).toContain('approval_link_id IS NOT NULL');
-    expect(sqlText).toContain('user_agent IS NOT NULL');
+    // D3 regression: verify the REAL approval_audit_log PII columns; never the
+    // phantom columns approval_link_id / user_agent. Scoped to the
+    // approval_audit_log query so a real user_agent column elsewhere can't mask it.
+    const approvalVerify = calls.find((call) => call.text.includes('FROM approval_audit_log'));
+    expect(approvalVerify?.text).toContain('response_text_at_approval IS NOT NULL');
+    expect(approvalVerify?.text).toContain('token_hash IS NOT NULL');
+    expect(approvalVerify?.text).not.toContain('approval_link_id');
+    expect(approvalVerify?.text).not.toContain('user_agent');
     expect(sqlText).toContain("scope.value->>'type' = 'job_outbox_scrub_scope'");
     expect(sqlText).toContain("scope.value->>'type' = 'impersonation_session_scrub_scope'");
     expect(sqlText).toContain("scope.value->>'type' = 'sms_opt_out_scrub_scope'");
