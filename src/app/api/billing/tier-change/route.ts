@@ -17,7 +17,7 @@ import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { validateTierChange } from '@/lib/accounts/tier-change';
 import { isSubscriptionTier, type SubscriptionTierValue, TIER_CONFIG } from '@/lib/accounts/tier-config';
 import { getAccountOwnerUserId } from '@/lib/accounts/repo';
-import { getStripe } from '@/lib/payments/create-checkout-session';
+import { getStripe } from '@/lib/payments/stripe-client';
 import { basePriceIdForTier, overagePriceIdForTier, overagePriceIdSet } from '@/lib/payments/price-tier-map';
 import { requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
 

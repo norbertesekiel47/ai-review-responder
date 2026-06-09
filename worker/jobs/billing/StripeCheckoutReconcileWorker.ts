@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
 import type Stripe from 'stripe';
-import { getStripe } from '../../../src/lib/payments/create-checkout-session';
+import { getStripe } from '../../../src/lib/payments/stripe-client';
 import {
   extractOutboxHandle,
   markOutboxCompleted,

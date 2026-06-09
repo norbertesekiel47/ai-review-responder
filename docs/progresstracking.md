@@ -4696,3 +4696,30 @@ The audit found three visual languages; only the marketing island was on-brand. 
 **Lessons captured** (`.claude/reference/lab-notes.md`, 2026-06-08): tests asserting on **mocked** provider responses / SQL **text** let API/schema drift sail through CI (D1 + D3) — integration-test the billing + purge paths against the real Stripe API / staging schema; `railway up` from a nested worktree ships stale worker code (deploy from a clean clone); Stripe Basil/Dahlia moved `current_period_end` onto the subscription item; the `enforce_account_offboarding_purge_after_token_expiry` trigger blocks shortening `purge_after` while a keep-my-data token is live (revoke it first).
 
 ---
+
+## Billing Compliance Hardening (2026-06-08 → 2026-06-09, branch `billing/compliance-hardening` → PR pending)
+
+**Status:** Code-COMPLETE on the branch; **pre-merge**. Full local gate green (lint, typecheck, `ci:static-policy`, **5881 tests pass / 0 fail**). No DB migration. Plan (grilled + hardened through **3 Codex adversarial review rounds → APPROVED**): `docs/superpowers/plans/2026-06-08-billing-compliance-hardening.md`; decision/debate artifacts: `~/.claude/grill-codex/20260608-210253/`.
+
+**Why:** a billing audit surfaced pre-revenue compliance + Stripe-best-practice gaps. Close them now, all behind **reversible config** so code lands before the live checkout is configured. Everything operational (Stripe Dashboard, Product/Price tax config, dunning, flags, legal sign-off) stays in the plan's **Launch-Gate Checklist**, not code.
+
+**What shipped (one commit per task; all behind flags / inert until ops configures Stripe):**
+
+| Task | What shipped |
+|---|---|
+| 1 | **Single Stripe client factory** `src/lib/payments/stripe-client.ts` (`getStripe()`, pinned `apiVersion 2026-05-27.dahlia` + `timeout 20_000` + `maxNetworkRetries 2`). All 8 `new Stripe()` sites migrated; 2 extra consumers redirected so `stripe-client` is the **sole** import source. `rg "new Stripe("` → only the factory. (Accepted: the 4 previously-bare clients drop from Stripe's ~80s default timeout to 20s.) |
+| 2 | **Flag-gated Stripe Tax** on `createCheckoutSession` — `automatic_tax` + `billing_address_collection:'required'` + `tax_id_collection` when `STRIPE_TAX_ENABLED==='true'` (server-only, default off; added to `startup-assert` optional-boolean set). `tax_behavior='exclusive'` model. |
+| 3 | **Reconciliation tax-safety regression test** — locks that `recurringSubscriptionLineTotalCents` sums **pre-tax** line amounts (Dahlia `pricing.unit_amount_decimal`), ignoring tax-inflated `subtotal`/`amount`, so enabling Tax can't cause false drift. |
+| 4 | **Auto-renewal disclosure on the onboarding plan picker** — per-card line + global fine-print ("auto-renews monthly … plus applicable taxes", "Cancel anytime from your account", `next/link` → `/legal/terms`). Copy points to the **real** cancel path (`/account/offboarding`), not "Settings". |
+| 4b | **Same disclosure on the second recurring-charge surface** — a static "before any applicable taxes / continues monthly until cancelled" qualifier on the in-app tier-change estimate (`AccountPanel.tsx`). Static (not flag-gated) because the flag is server-only (invariant #13). |
+| 5 | **Price-change safety** — (5a) a grandfathering regression test proving `currentBillingSnapshot` returns the **stored** `accounts` price, not live `TIER_CONFIG`; (5b) `pnpm verify:stripe-prices` (`scripts/verify-stripe-price-parity.ts`) reconciling each Stripe Price's `unit_amount`/`currency`/`interval`(+`tax_behavior`) against `TIER_CONFIG`; + the documented price-change procedure in `env-vars.md`. |
+
+**Key decisions (grill + Codex):** Stripe Tax **exclusive** + "plus applicable taxes" disclosed; **grandfathering** is the chosen pricing semantic (new customers pay new prices, existing keep theirs — already built via migration 054, no behavior code); `apiVersion` pin is **outbound-only** (webhook shapes follow the Dashboard endpoint version — a hard launch-gate item); dispute/SCA/customer-reuse code **deferred** to Fast-Follow (pre-revenue, zero charge volume). Codex caught and we fixed: `tax_code` on the **Product** not the Price; `tax_behavior` immutable-once-set; the drift test must model the Dahlia field; the **second** consent surface (Task 4b); `STRIPE_TAX_ENABLED` missing from `startup-assert`.
+
+**Review (this session):** verified every task against the plan + ran the gate (all green; 6 new test files pass in isolation, 14 tests). Three low-severity nits noted (test-only `TierChangeModal` export; `verify:stripe-prices` silently skips an unset overage env for non-basic tiers + doesn't assert `interval_count`/`active`) — none blocking. Branch was 1 commit behind `origin/main` → rebase before PR; Tasks 1/4b/5 touch worker/shared code → ride **staging first**.
+
+**Deferred (NOT code — before charging a real customer):** the plan's **Launch-Gate Checklist** (enable Stripe Tax + Product/Price tax config + recreate-or-update Prices, set webhook endpoint version, dunning = cancel-after-retries, customer emails + retained-acknowledgment content, tier-change ARL §17602(g) fee-change timing, `ACCOUNT_OFFBOARDING_ENABLED=true` + cancellation smoke, `pnpm verify:stripe-prices`, binding legal sign-off) and the **Fast-Follow backlog** (`charge.dispute.created`, SCA, Stripe-customer reuse + `customer_update` for tax, grace/retry-window alignment, repricing existing customers).
+
+**Doc-change-map applied:** Stripe single-factory + tax flag + price-change rule in `.claude/CLAUDE.md` (Tech-stack bullet); `STRIPE_TAX_ENABLED` row + the price-change procedure in `env-vars.md`; `STRIPE_TAX_ENABLED` in `.env.example`; this entry + the `currents.md` quick summary; billing/Stripe gotchas in `lab-notes.md` (2026-06-09). No migration → `migrations-log.md` unchanged; review ingestion untouched → `review-ingestion.md` unchanged.
+
+---

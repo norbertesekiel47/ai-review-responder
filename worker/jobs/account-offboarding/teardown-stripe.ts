@@ -1,4 +1,5 @@
-import Stripe from 'stripe';
+import type Stripe from 'stripe';
+import { getStripe } from '../../../src/lib/payments/stripe-client';
 import { sql } from '../../../src/lib/db/server';
 import { cleanupSubscriptionInvoices } from '../../../src/lib/account-offboarding/stripe-invoices';
 import type { AccountOffboardingMode, AccountOffboardingStepOutcome } from '../../../src/lib/account-offboarding/types';
@@ -10,19 +11,6 @@ interface StripeTeardownRow {
   access_ends_at: Date | string | null;
   stripe_subscription_id: string | null;
   stripe_step: AccountOffboardingStepOutcome | null;
-}
-
-let stripeInstance: Stripe | null = null;
-
-function getStripe(): Stripe {
-  if (!stripeInstance) {
-    const key = process.env.STRIPE_SECRET_KEY;
-    if (!key) throw new Error('STRIPE_SECRET_KEY is not set');
-    // Explicit bounds on the destructive teardown path: cap the 80s SDK default
-    // timeout and keep network retries bounded (repworth.md reliability rule).
-    stripeInstance = new Stripe(key, { timeout: 20_000, maxNetworkRetries: 2 });
-  }
-  return stripeInstance;
 }
 
 function accountOffboardingTeardownStripeIdempotencyKey(

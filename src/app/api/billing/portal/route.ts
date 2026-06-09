@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { getOffboardingState, isBillingManagementBlocked } from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
-import { getStripe } from '@/lib/payments/create-checkout-session';
+import { getStripe } from '@/lib/payments/stripe-client';
 import { requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';

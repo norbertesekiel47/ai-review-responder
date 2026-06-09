@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { LazyMotion, m, domAnimation } from 'motion/react';
 import { buttonMotion } from '../_shared/field-styles';
 
@@ -121,6 +122,10 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
                 {isLoading ? 'Redirecting to checkout…' : plan.cta}
               </m.button>
 
+              <p className="text-xs text-[#6a6a6a] -mt-4 mb-6 text-center">
+                Auto-renews monthly until you cancel. Cancel anytime from your account.
+              </p>
+
               <ul className="space-y-3 flex-1">
                 {plan.features.map((feature) => (
                   <li
@@ -148,6 +153,16 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
           );
         })}
       </div>
+
+      <p className="text-xs text-[#6a6a6a] text-center mt-8 max-w-xl mx-auto">
+        Subscriptions auto-renew monthly at the listed price plus applicable taxes
+        until cancelled. Cancel anytime from your account. By subscribing you agree
+        to our{' '}
+        <Link href="/legal/terms" className="underline hover:text-[#2a2a2a]">
+          Terms
+        </Link>
+        .
+      </p>
 
       {error && (
         <p role="alert" className="text-sm text-red-600 text-center mt-6">

@@ -3409,3 +3409,37 @@ docs/runbooks/owner-offboarding-staging-dry-run.md  ← the staging dry-run + li
 ### One thing to remember
 
 This was **specced, built across 7 PRs, dry-run-tested on staging, and fixed before merge.** The staging dry-run caught three real bugs that unit tests had hidden — cancel-only never scheduling, the keep-my-data link 401'ing logged-out owners, and the delete purge failing on phantom columns — all fixed (PR #245) and then **re-run live on staging end-to-end** (2026-06-09) before merging to `main`. The whole feature stays **off in production** behind `ACCOUNT_OFFBOARDING_ENABLED` until the legal terms (a non-refundable mid-cycle clause) are in place. One ops note: deploy the worker from a **clean checkout**, not `railway up` from a worktree — that ships stale code.
+
+## Quick summary — Billing Compliance Hardening (2026-06, branch `billing/compliance-hardening`)
+
+In simple words: we **tidied up and legally tightened the money side** of RepWorth — before the first real customer is ever charged. Nothing here changes how the product works, and nothing is switched on yet: it all sits behind off-by-default settings so it's safe to ship now and turn on later once the Stripe account and the lawyer's sign-off are ready. Think of it as putting the plumbing and the warning labels in place before opening the tap.
+
+### What we changed (plain English)
+
+1. **One place that talks to Stripe.** Before, eight different files each created their own connection to Stripe, with slightly different settings (some had no timeout at all). Now there's a single shared "Stripe connection" file, with one pinned version and sensible timeouts/retries — so the rules live in exactly one spot and can't drift apart.
+
+2. **We can collect sales tax (when we choose to).** Checkout can now add automatic sales tax, ask for a billing address, and collect a business tax ID — but only when a switch (`STRIPE_TAX_ENABLED`) is flipped on. It's **off** today, because turning it on before Stripe is configured would break checkout. Prices stay as the listed number **plus tax on top**.
+
+3. **Honest auto-renewal wording, in two places.** The pricing page and the in-app "change my plan" box now clearly say the subscription **auto-renews every month, plus applicable taxes, until you cancel**, and link to the Terms. The "cancel anytime" wording now points to where you actually cancel (your account), not a screen that doesn't have that button.
+
+4. **A safety net so future price changes can't go wrong.** Existing customers are **grandfathered** — if we change a tier's price later, people who already signed up keep the price they signed up at; only new customers pay the new price. (That was already how it worked; we added a test that locks it in.) We also added a one-command check (`pnpm verify:stripe-prices`) that catches the classic mistake of the displayed price and the actually-charged price drifting apart, plus a written step-by-step for how to change a price safely.
+
+5. **A guard so turning on tax can't cause false billing alarms.** A background job double-checks each customer's expected bill against Stripe. We added a test proving it always compares the **pre-tax** amount, so switching tax on later won't make it cry wolf.
+
+### The new shape — what got added
+
+```text
+src/lib/payments/stripe-client.ts          ← NEW: the ONE shared Stripe connection (pinned version + timeouts). Every other file now imports from here; nothing else creates a Stripe client.
+scripts/verify-stripe-price-parity.ts      ← NEW: `pnpm verify:stripe-prices` — checks the listed prices match what Stripe will actually charge (run before charging anyone / after any price change).
+
+# Disclosures (no new files — copy added in place):
+src/app/onboarding/pay/PlanPickerClient.tsx        ← auto-renewal + tax wording on the pricing page
+src/components/dashboard/settings/AccountPanel.tsx ← same wording on the in-app "change plan" box
+
+# Reversible switch (server-only, default OFF):
+STRIPE_TAX_ENABLED  ← in .env.example + env-vars.md; validated at worker startup
+```
+
+### One thing to remember
+
+This was **planned, grilled, and stress-tested by a second AI model (Codex) across 3 review rounds before any code**, then reviewed again after implementation — full test suite green (5881 tests). **It is all dark by default.** The real-world steps that actually start collecting tax and charging customers — configuring Stripe Tax, recreating Prices with a tax behavior, setting the webhook version, the lawyer's sign-off on auto-renewal terms — are a separate **Launch-Gate Checklist** in the plan, deliberately kept out of the code. Two billing things were intentionally left for later (handling card disputes and reusing a returning customer's Stripe record); they're listed as Fast-Follow.

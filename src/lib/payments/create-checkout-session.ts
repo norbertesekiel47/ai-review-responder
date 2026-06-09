@@ -10,23 +10,11 @@
 // Validation contract: VAL-BILLING-001 through VAL-BILLING-006,
 //   VAL-BILLING-030 through VAL-BILLING-032.
 
-import Stripe from 'stripe';
 import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { basePriceIdForTier, overagePriceIdForTier } from '@/lib/payments/price-tier-map';
 import { computeOverageQuantity } from '@/lib/accounts/quota';
 import { sql } from '@/lib/db/server';
-
-// ── Stripe singleton ────────────────────────────────────────────────────────
-
-let stripeInstance: Stripe | null = null;
-export function getStripe(): Stripe {
-  if (!stripeInstance) {
-    const key = process.env.STRIPE_SECRET_KEY;
-    if (!key) throw new Error('STRIPE_SECRET_KEY is not set');
-    stripeInstance = new Stripe(key);
-  }
-  return stripeInstance;
-}
+import { getStripe } from '@/lib/payments/stripe-client';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -106,6 +94,19 @@ export async function createCheckoutSession(
   const successUrl = `${baseUrl}/onboarding/payment-success?session_id={CHECKOUT_SESSION_ID}`;
   const cancelUrl = `${baseUrl}/onboarding/pay?cancelled=true`;
 
+  // Stripe Tax is gated by a server-only flag: enabling automatic_tax against a
+  // Stripe account that has not turned on Tax (or whose Prices lack tax_behavior)
+  // makes sessions.create throw. Flip STRIPE_TAX_ENABLED only after the dashboard
+  // is configured (see the Launch-Gate Checklist). tax_id_collection is a
+  // deliberate B2B choice — RepWorth's customers are businesses.
+  const taxParams = process.env.STRIPE_TAX_ENABLED === 'true'
+    ? {
+        automatic_tax: { enabled: true },
+        billing_address_collection: 'required' as const,
+        tax_id_collection: { enabled: true },
+      }
+    : {};
+
   // Create the Checkout Session
   const session = await getStripe().checkout.sessions.create({
     mode: 'subscription',
@@ -115,6 +116,7 @@ export async function createCheckoutSession(
     success_url: successUrl,
     cancel_url: cancelUrl,
     allow_promotion_codes: true,
+    ...taxParams,
   });
 
   return { url: session.url!, sessionId: session.id };

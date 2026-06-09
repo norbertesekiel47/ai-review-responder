@@ -1,4 +1,4 @@
-import Stripe from 'stripe';
+import { getStripe } from '../../../src/lib/payments/stripe-client';
 import { accountOffboardingEnabled } from '../../../src/lib/account-offboarding/flags';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { sql } from '../../../src/lib/db/server';
@@ -19,23 +19,12 @@ const STALE_REACTIVATION_CLAIM_MS = 5 * 60 * 1000;
 
 let pollerInterval: ReturnType<typeof setInterval> | null = null;
 let inProgress = false;
-let stripeInstance: Stripe | null = null;
 
 interface StaleReactivationClaimRow {
   id: string;
   account_id: string;
   stripe_subscription_id: string | null;
   reactivation_claim_token: string | null;
-}
-
-function getStripe(): Stripe {
-  if (!stripeInstance) {
-    const key = process.env.STRIPE_SECRET_KEY;
-    if (!key) throw new Error('STRIPE_SECRET_KEY is not set');
-    // Explicit timeout + bounded network retries (repworth.md reliability rule).
-    stripeInstance = new Stripe(key, { timeout: 20_000, maxNetworkRetries: 2 });
-  }
-  return stripeInstance;
 }
 
 function getIntervalMs(): number {

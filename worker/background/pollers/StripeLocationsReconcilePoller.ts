@@ -21,7 +21,7 @@
 // this file owns orchestration (query, single-flight, alert emission, tally) and
 // the poller lifecycle.
 
-import Stripe from 'stripe';
+import { getStripe } from '../../../src/lib/payments/stripe-client';
 import { sql } from '../../../src/lib/db/server';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { overagePriceIdSet } from '../../../src/lib/payments/price-tier-map';
@@ -38,17 +38,6 @@ let timer: ReturnType<typeof setInterval> | null = null;
 // Single-flight guard. Same pattern as EmailChannelReconcilePoller —
 // prevents two scheduled ticks from running concurrently.
 let inProgress = false;
-
-// Lazy singleton — avoids crashing on import when STRIPE_SECRET_KEY is absent
-let stripeInstance: Stripe | null = null;
-function getStripe(): Stripe {
-  if (!stripeInstance) {
-    const key = process.env.STRIPE_SECRET_KEY;
-    if (!key) throw new Error('STRIPE_SECRET_KEY is not set');
-    stripeInstance = new Stripe(key);
-  }
-  return stripeInstance;
-}
 
 interface ReconcileResult {
   accountsChecked: number;

@@ -27,6 +27,7 @@
     "worker": "tsx worker/index.ts",
     "redis": "tsx scripts/redis.ts",
     "eval:llm": "tsx tests/llm-eval/run.ts",
+    "verify:stripe-prices": "tsx scripts/verify-stripe-price-parity.ts",
     "doctor": "npx react-doctor@latest",
     "prepare": "lefthook install || true"
   },

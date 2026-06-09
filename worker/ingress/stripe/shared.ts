@@ -1,19 +1,10 @@
-import Stripe from 'stripe';
+import type Stripe from 'stripe';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
 
 export const LOG_PREFIX = '[ingress/stripe]';
 
-// Lazy singleton — avoids crashing on import when STRIPE_SECRET_KEY is absent
-let stripeInstance: Stripe | null = null;
-export function getStripe(): Stripe {
-  if (!stripeInstance) {
-    const key = process.env.STRIPE_SECRET_KEY;
-    if (!key) throw new Error('STRIPE_SECRET_KEY is not set');
-    stripeInstance = new Stripe(key);
-  }
-  return stripeInstance;
-}
+export { getStripe } from '../../../src/lib/payments/stripe-client';
 
 export function extractCustomerId(customer: string | Stripe.Customer | Stripe.DeletedCustomer | null): string | null {
   if (!customer) return null;
