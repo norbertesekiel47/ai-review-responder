@@ -23,7 +23,6 @@ describe('createCheckoutSession tax handling', () => {
   it('omits tax fields when STRIPE_TAX_ENABLED is off', async () => {
     vi.stubEnv('STRIPE_TAX_ENABLED', 'false');
     await createCheckoutSession('acct_1', 'basic', 'owner@example.com');
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const params = createMock.mock.calls[0]![0];
     expect(params.automatic_tax).toBeUndefined();
     expect(params.billing_address_collection).toBeUndefined();
@@ -33,7 +32,6 @@ describe('createCheckoutSession tax handling', () => {
   it('adds tax + address + tax-id collection when STRIPE_TAX_ENABLED=true', async () => {
     vi.stubEnv('STRIPE_TAX_ENABLED', 'true');
     await createCheckoutSession('acct_1', 'basic', 'owner@example.com');
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const params = createMock.mock.calls[0]![0];
     expect(params.automatic_tax).toEqual({ enabled: true });
     expect(params.billing_address_collection).toBe('required');
