@@ -23,8 +23,15 @@ pages; currently 59 route leaves: 12 under `(authenticated)`, 18 under `admin`,
 
 1. **Enforcement isn't committed.** A verified ESLint boundary rule + a "Scaling"
    doc section sit uncommitted on `main`.
-2. **18 files still use `../../`** parent-traversal imports the doc bans, and no
-   lint rule enforces that ban.
+2. **`../../` parent-traversal imports the doc bans, with no lint rule.** 19
+   statements across 18 files — but only **9 are aliasable within `src/`**
+   (`app/api/**/_shared/*`); the other **10 cross out of `src/` into `worker/`
+   (9) and `scripts/` (1)**, which have **no `@/` alias**, so they cannot be
+   converted. The largest cross-tree case, `worker/jobs/publisher/orphan-markers`
+   (6 src importers), is genuinely shared logic that *should* relocate to
+   `src/lib` — but that is **worker-touching (staging-first) and a separate
+   spec** (see §7). The `worker/ingress/*` test imports are irreducible
+   (Invariant #6: ingress is worker-only).
 3. **The doc contradicts itself** (a stale "plan" section vs the "decided"
    sections), so a reader can't tell what's true.
 
@@ -59,7 +66,7 @@ The convention collapses to **one deterministic principle**, removing the
 | Consumers of the component | Home |
 |---|---|
 | One route leaf (e.g. only the settings page) | `app/<area>/<leaf>/_components/` |
-| Several leaves under one area (e.g. dashboard home + settings) | `app/<area>/_components/` (area-level) |
+| Several leaves under one area (e.g. dashboard home + settings) | their LCA route dir + `/_components/` (the common subtree, often area-level) |
 | Consumers span 2+ top-level areas | `components/<domain>/` (mirrors `lib/<domain>`) |
 | Domain-agnostic primitive | `components/ui/` |
 
@@ -80,12 +87,19 @@ page that uses it.
 
 ## 3. Migration mechanics
 
-### Step 0 — prerequisite: alias-first
+### Step 0 — prerequisite: alias-first (src-internal only)
 
-Convert the **18 `../../` imports to `@/` aliases before any move.** Rationale:
-once every import is alias-based, moving a file is a pure **string replace** of
-its alias path; relative imports would break unpredictably as depth changes.
-The `../../` lint ban (§4) lands in the same step.
+Convert the **9 aliasable `../../` imports** (`app/api/**/_shared/*`) to `@/`
+aliases before any move. Rationale: once src-internal imports are alias-based,
+moving a file is a pure **string replace** of its alias path; relative imports
+break unpredictably as depth changes.
+
+The **10 cross-tree `../../` imports** (`src → worker/`, `src → scripts/`) have
+no `@/` alias and are **left in place** — the `../../` ban (§4) exempts paths
+into `worker/`/`scripts/` via negative lookahead. Eliminating the genuinely
+shared one (`orphan-markers`) is deferred to a separate relocation spec (§7); it
+does not block this migration (those imports live in `app/api`, `lib`, and tests,
+not in `components/<domain>`).
 
 ### The move algorithm (deterministic, per component)
 
@@ -145,9 +159,11 @@ the existing `eslint src` CI `lint` job (no new CI wiring):
    `@/app/**` (routes are terminal); `components/ui/**` stays domain-agnostic
    (no `lib/<domain>`, no `app/**`, no domain components; `lib/ui` + `lib/shared`
    allowed via negative-lookahead regex).
-2. **New — ban `../../`**: a `no-restricted-imports` regex `^\.\./\.\.` bans
-   two-or-more-level parent traversal globally, leaving one-level `../` and `./`
-   alone (matches the doc's "only `../../` banned").
+2. **New — ban `../../` (src-internal only)**: a `no-restricted-imports` regex
+   `^\.\./\.\.(?!.*/(worker|scripts)/)` bans two-or-more-level parent traversal
+   **except** cross-tree imports into `worker/`/`scripts/` (which have no alias).
+   One-level `../` and `./` are left alone (matches the doc's "only `../../`
+   banned").
 
 ### Flat-config override semantics (must get this right)
 
@@ -205,6 +221,12 @@ from §2. One authoritative placement rule, no contradictions.
 - No `eslint-plugin-import`/`boundaries` dependency unless separately approved
   (the cross-area-privacy rule above).
 - No behavior/logic changes anywhere — moves + import-path rewrites only.
+- **Cross-boundary shared-module relocation** (move `worker/jobs/publisher/orphan-markers`
+  → `src/lib` so its 6 src importers + the worker share a `@/lib/...` alias) is a
+  **separate spec** — it is worker-touching (rides `staging` first), was never
+  designed here, can only reduce cross-tree imports from ~10 to ~3 (the
+  `worker/ingress/*` test imports are irreducible per Invariant #6), and is
+  **independent of** this migration. To be brainstormed on its own.
 
 ---
 
