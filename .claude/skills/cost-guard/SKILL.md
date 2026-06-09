@@ -31,6 +31,28 @@ All LLM calls MUST follow this two-phase cost accounting pattern. Use `import { 
 1. DECRBY to release the reservation.
 2. DECR concurrency slot in finally block.
 
+## Redis transport failures are RETRYABLE, not terminal (item 4, #255)
+
+A pre-LLM Redis **transport/connection** failure is infra, NOT a budget decision —
+it must retry, not lose the draft:
+
+- `reserveCost` (`tracker.ts`), `checkIdempotentCache` (`tracker.ts`), and
+  `acquireConcurrencySlot` (`concurrency-guard.ts`) wrap ONLY their Redis
+  round-trip; a thrown round-trip becomes `CostInfraUnavailableError`
+  (`src/lib/costs/errors.ts`). `generateDraft` re-throws it like
+  `TransientLLMError` → BullMQ retry (3× + backoff) + the 1h outbox watchdog.
+  `checkRegenBudget` was already retryable.
+- A cache-read transport error is NOT a cache miss — never swallow it and proceed
+  (a retry would then double-generate). Throw `CostInfraUnavailableError` and let
+  the job retry.
+- Wrap ONLY the Redis call. Budget-exceeded throws that run AFTER a successful
+  round-trip (`CostLimitExceeded`/`GlobalCostLimitExceeded`/`RegenBudgetExceeded`,
+  slot-full `ConcurrencyLimitExceeded`) stay as-is and remain TERMINAL — never
+  reclassify a budget decision as infra.
+- `finalizeCost` runs AFTER the LLM call — leave its `withCostGuard`
+  `onFinalizeError` policy untouched; a finalize failure is NOT a job-level retry
+  (re-running the LLM would re-spend and consume another regen-budget slot).
+
 ## Tier-aware limits
 Per-tier daily ceilings derive from the canonical tier config — never hard-code
 prices here. Source of truth: `src/lib/accounts/tier-config.ts` (tiers
@@ -51,3 +73,4 @@ prices here. Source of truth: `src/lib/accounts/tier-config.ts` (tiers
 - Cost accumulates across retries (guardrail retry counts toward total).
 - Once finalized, NEVER refund — even if later steps fail. Those are retryable.
 - The `api_costs` DB table is the audit trail, reconciled hourly.
+- A pre-LLM Redis transport failure is RETRYABLE (`CostInfraUnavailableError`), not terminal; budget-exceeded decisions stay terminal. Never reclassify a budget decision as infra.
