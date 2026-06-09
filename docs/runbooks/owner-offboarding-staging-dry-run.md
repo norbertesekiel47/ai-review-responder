@@ -20,7 +20,10 @@ gated on this record plus the legal launch gate being complete.
 
 **VERDICT (first run): NOT launch-ready — 3 launch-blocking defects (D1/D2/D3).**
 **UPDATE 2026-06-08: all three remediated in PR #245 and re-validated against the
-real Stripe API + real staging schema — see the "Re-validation" subsection below.**
+real Stripe API + real staging schema — see the "Re-validation" subsection below.
+UPDATE 2026-06-09: also verified LIVE end-to-end on fix-deployed staging via Chrome
+DevTools (D1 cancel_only→scheduled, D2 keep-my-data 200, D3 delete_data→purged) —
+see "Live UI E2E" below.**
 6 of 9 scenarios passed on the first run; the 3 failures were independent code
 defects (not infra), each of which alone blocks a core path. All work ran on
 **disposable** accounts provisioned for the dry-run; the real GBP-connected owner
@@ -141,10 +144,49 @@ https://github.com/RepWorth/ai-review-responder/actions/runs/27173067120.
 
 **Re-validation verdict:** all three root causes are confirmed fixed against the
 real API/schema — D1 and D3 are environment-proven, D2 is logic-proven + reproduced
-pre-fix. Remaining before prod enablement: merge PR #245 → `owner-offboarding-plan`
-(PR #244) → `main`, deploy to the staging stack and run a one-pass end-to-end smoke
-of §4.1 / §4.4-token / §4.5 on fix-deployed staging, plus the legal launch gate
-(§7).
+pre-fix. The one-pass end-to-end smoke on fix-deployed staging is now **done** — see
+the next subsection.
+
+### Live UI E2E on fix-deployed staging — 2026-06-09 (operator: Claude, Chrome DevTools)
+
+The fix branch was deployed to the **full** staging stack (Vercel staging custom env
+`staging.repworth.net`, fix build; Railway staging worker, fix build) and all three
+fixes were exercised **end-to-end** against it. A disposable account
+(`norbertesekiel+offb-e2e1@gmail.com`, account `019ea9ce-…71e2`) was created via the
+real signup UI (Gmail OTP) + a Stripe **test-mode** checkout ($29 Basic, card 4242…)
+→ active subscription. The real GBP-connected owner account was never touched, and no
+reviews were posted/edited.
+
+- **D2 — keep-my-data rescue page (FIXED, live).** `GET /api/account/offboarding/
+  keep-my-data` through the Vercel bypass, logged-out, returns **200** (renders the
+  public page) where the pre-fix build returned **401**; the sibling `confirm` route
+  still returns **401** (owner-gated). Proxy exemption works on the deployed frontend.
+- **D1 — cancel_only → scheduled (FIXED, live).** Owner-session
+  `POST /confirm {mode:cancel_only}` → 202; BillingScheduleWorker read
+  `current_period_end` from the subscription **item** (the live test sub had it only
+  there) and the row went `pending → scheduled`, `stripe_step=success`,
+  `access_ends_at=2026-07-09`. Pre-fix this threw at billing. Offboarding
+  `019ea9d5-859a-…`. Then reactivated → `reactivated` (terminal), sub back to active
+  — reactivation path also verified live.
+- **D3 — delete_data → purged (FIXED, live).** Fresh re-auth + type-to-confirm
+  `DELETE DATA` → teardown (`stripe`/`location_archival`/`job_terminalization` all
+  `success`) → `purge_scheduled`; keep-my-data token revoked + `purge_after`
+  shortened → PurgePoller claimed → PurgeWorker ran the corrected scrub → **`purged`**
+  (no failure, `retry_count=0`, `purged_at` set). Account/user PII tombstoned
+  (`display_name='Deleted account'`, `email='deleted-…@repworth.invalid'`, account
+  analytics scrubbed). Pre-fix the scrub threw `column "approval_link_id" … does not
+  exist` and stranded the row at `failed/purge`. Offboarding `019ea9e1-5127-…`.
+
+> ⚠️ **Deploy gotcha (operational, NOT a code defect):** the first worker deploy via
+> `railway up` from the nested git worktree shipped **stale** code missing the
+> offboarding queue wiring — `OutboxPoller: Unknown topic
+> "account_offboarding_billing_schedule"` — which stalled every offboarding job. The
+> fix-branch source is correct (`worker/queues.ts` registers all five offboarding
+> topics in `topicToQueue` unconditionally). Redeploying the worker from a **clean
+> clone** (outside `.claude/worktrees/*`) resolved it and all jobs processed. Deploy
+> the staging worker from a clean checkout — never `railway up` from a worktree (the
+> same footgun that aborted the Vercel CLI upload; see CLAUDE.md "Worktrees are
+> footguns here").
 
 ### Disposable accounts provisioned (cleanup pending — all test-mode, no real GBP)
 
@@ -249,8 +291,9 @@ the `failed(teardown) → tearing_down` re-drive, the cap, and the stale-claim r
 all work as documented. **→ Re-validated 2026-06-08 (PR #245):** the D1 break
 (`pending → scheduled`) and the D3 break (`purge_scheduled → purged`) are both fixed
 and re-validated against the real Stripe API / staging schema (see §0
-"Re-validation"); an end-to-end re-drive of each on fix-deployed staging is the one
-remaining smoke.
+"Re-validation"); both transitions were then driven **LIVE end-to-end** on
+fix-deployed staging 2026-06-09 (`019ea9d5` cancel_only→scheduled, `019ea9e1`
+delete_data→purged — see §0 "Live UI E2E").
 
 ## 4. Dry-run scenarios
 
@@ -267,11 +310,13 @@ Use a fresh disposable test account per destructive scenario. Record the
       `access_ends_at` NULL. **→ Re-validated 2026-06-08:** a live Stripe test sub
       under the pinned `2026-05-27.dahlia` returns `current_period_end` only on
       `items.data[0]` (top-level `null`); the fix reads it and the new unit test
-      asserts the row reaches `scheduled`. End-to-end re-run pending (see §0).
-- [~] ❌ first run → ✅ fixed (D1). No confirmation email (cancel_only emails only
+      asserts the row reaches `scheduled`. **Verified LIVE end-to-end 2026-06-09**
+      on fix-deployed staging: offboarding `019ea9d5-859a-…` went
+      `pending → scheduled`, `stripe_step=success`, `access_ends_at=2026-07-09`
+      (see §0 "Live UI E2E").
+- [x] ✅ fixed (D1). No confirmation email on the first run (cancel_only emails only
       on a successful schedule) — unblocked once the schedule completes; the
-      cancel_only confirmation email is exercised live only on the pending
-      fix-deployed staging re-run.
+      cancel_only schedule now completes live (verified 2026-06-09).
 - **Observed (first run):** account `c1` (`019ea735-dcec-7007-a99a-a221aab91005`),
   offboarding `019ea73d-0b61-74de-a4b8-23d40819e1ee`, status path
   `pending → failed (billing)`, `access_ends_at` never set. **Cause: D1.**
@@ -353,12 +398,13 @@ Use a fresh disposable test account per destructive scenario. Record the
       `purged_at` never set. **Data was not deleted.** **→ Re-validated 2026-06-08:**
       non-mutating `EXPLAIN` against the real staging schema — the old scrub errors
       on `approval_link_id`, the corrected scrub + verification plan clean; a
-      real-DB integration test now runs the scrub against the real schema. End-to-end
-      purge→`purged` re-run pending (see §0).
-- [~] ❌ first run → ✅ root cause fixed (D3). Row never reached `status='purged'`
-      (purge threw at the phantom column). The scrub SQL now plans clean against the
-      real schema; an end-to-end drive to `purged` on fix-deployed staging is the
-      remaining smoke.
+      real-DB integration test now runs the scrub against the real schema.
+      **Verified LIVE end-to-end 2026-06-09**: offboarding `019ea9e1-5127-…` went
+      `purge_scheduled → purged` (no failure, retry_count=0), PII tombstoned (see §0
+      "Live UI E2E").
+- [x] ✅ fixed (D3). Row now reaches `status='purged'` on the deployed worker
+      (verified live 2026-06-09); pre-fix it threw at the phantom column. The
+      PurgeWorker completed the corrected scrub and the row purged cleanly.
 - **Observed (first run):** account `d3`, offboarding
   `019ea745-aff9-7434-96fb-43bdfba424e2`,
   `purge_scheduled → purge_started → failed (purge)`. **Cause: D3.**
@@ -486,10 +532,12 @@ https://github.com/RepWorth/ai-review-responder/actions/runs/27136392049
       operationally required" (delete-or-anonymize language present).
 - [x] 056 / optional 057 / 058 / 059 / 060 applied to **staging** (head `060`).
       Prod application is a promotion-time step (currently behind — feature off).
-- [~] Staging dry-run evidence (sections 4–6) recorded; the 3 launch-blocking
-      defects (D1, D2, D3) are **fixed in PR #245 and re-validated against the real
-      Stripe API + staging schema** (see §0 "Re-validation"). Final clearance still
-      needs PR #245 merged and a one-pass end-to-end smoke on fix-deployed staging.
+- [x] Staging dry-run evidence (sections 4–6) recorded; the 3 launch-blocking
+      defects (D1, D2, D3) are **fixed in PR #245, re-validated against the real
+      Stripe API + staging schema, and verified LIVE end-to-end on fix-deployed
+      staging** (§0 "Re-validation" + "Live UI E2E"). Final clearance now only needs
+      PR #245 merged (+ the legal gate below). Operational note: deploy the staging
+      worker from a clean checkout, never `railway up` from a worktree (§0 gotcha).
 - [ ] **DO NOT** set `ACCOUNT_OFFBOARDING_ENABLED=true` on production until the
       above is green. `ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS` stays unset in prod.
 - [ ] Post-enable smoke test — pending defect fixes.
@@ -504,6 +552,6 @@ contract for unposted rows is unchanged.
 
 | Role | Name | Date | Notes |
 | --- | --- | --- | --- |
-| Dry-run operator | Claude (autonomous) | 2026-06-08 | Executed on disposable staging accounts; 6/9 pass, 3 launch-blocking defects (D1/D2/D3) — all since fixed in PR #245 and re-validated against the real Stripe API + staging schema (see §0 "Re-validation"); end-to-end re-run on fix-deployed staging pending. Real GBP owner account untouched. |
+| Dry-run operator | Claude (autonomous) | 2026-06-08 | Executed on disposable staging accounts; 6/9 pass, 3 launch-blocking defects (D1/D2/D3) — all since fixed in PR #245 and re-validated against the real Stripe API + staging schema, then verified LIVE end-to-end on fix-deployed staging 2026-06-09 via Chrome DevTools (D1/D2/D3 all pass; §0 "Live UI E2E"). Real GBP owner account untouched; no reviews posted/edited. |
 | Eng reviewer | | | Pending — review D1/D2/D3 fixes |
 | Legal launch gate | | | Pending |
