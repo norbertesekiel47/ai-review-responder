@@ -42,7 +42,7 @@ import {
   POST_AFTER_DELETE_FAILED_PREFIX,
   PENDING_AFTER_DELETE,
   isRecoverableFailedPostingError,
-} from '../../../../../../../worker/jobs/publisher/orphan-markers';
+} from '@/lib/publishing/orphan-markers';
 
 export const dynamic = 'force-dynamic';
 

@@ -17,7 +17,7 @@ import { parkResponseForOwnerReconnect } from './no-connection';
 import { postReplyAndHandleTerminalOutcomes } from './post-reply';
 import { resolvePublishableZernioReviewId } from './review-lookup';
 import { runEditPublishIfApplicable } from './edit-publish';
-import { isOrphanMarker } from './orphan-markers';
+import { isOrphanMarker } from '../../../src/lib/publishing/orphan-markers';
 import { maybeCaptureActivationCompleted } from './activation';
 import { downgradeAutoApprovedResponseForManualReview } from './auto-policy-downgrade';
 import type { ZernioConnectionRow } from './types';

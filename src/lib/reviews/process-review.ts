@@ -15,7 +15,7 @@ import {
   STALE_AFTER_REVIEW_CHANGED,
   DELETE_FAILED_PREFIX,
   POST_AFTER_DELETE_FAILED_PREFIX,
-} from '../../../worker/jobs/publisher/orphan-markers';
+} from '@/lib/publishing/orphan-markers';
 
 // ── Types ────────────────────────────────────────────────────────────
 

@@ -31,7 +31,7 @@ import {
 import { verify409InTx as defaultVerify409InTx } from './publisher-error-handlers';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import type { PostedResponseActivationInput } from './activation';
-import { isOrphanMarker } from './orphan-markers';
+import { isOrphanMarker } from '../../../src/lib/publishing/orphan-markers';
 import {
   handleDeleteError,
   handlePostError,

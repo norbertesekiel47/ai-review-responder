@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import {
   PENDING_AFTER_DELETE,
   STALE_AFTER_REVIEW_CHANGED,
-} from '../../../../../../worker/jobs/publisher/orphan-markers';
+} from '@/lib/publishing/orphan-markers';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 
