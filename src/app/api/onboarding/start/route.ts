@@ -10,6 +10,7 @@ import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 import { reserveOnboardingDemoBudget, CostCeilingExceeded } from '@/lib/costs/onboarding-demo-cost-guard';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { PLACEHOLDER_BUSINESS_NAME } from '@/lib/onboarding/create-business';
+import { botIdBlockResponse } from '@/lib/security/botid';
 import type postgres from 'postgres';
 
 export const dynamic = 'force-dynamic';
@@ -181,6 +182,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
     throw err;
   }
+
+  // Vercel BotID (Deep Analysis) — gate the pre-pay LLM demo behind bot
+  // detection. Runs after the cheap same-origin guard and before the Supabase
+  // auth round-trip / DB work. Fails open on a BotID infra error.
+  const botBlock = await botIdBlockResponse('/api/onboarding/start');
+  if (botBlock) return botBlock;
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

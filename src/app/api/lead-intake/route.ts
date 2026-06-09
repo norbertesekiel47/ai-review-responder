@@ -3,6 +3,7 @@ import { sql, jsonb } from '@/lib/db/server';
 import { appendOwnerLeadToSheet } from '@/lib/google/owner-leads-sheet';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { notifyContactSubmission } from '@/lib/notifications/contact-notify';
+import { botIdBlockResponse } from '@/lib/security/botid';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -161,6 +162,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!contentType.toLowerCase().includes('application/json')) {
     return jsonError('Content-Type must be application/json', 415);
   }
+
+  // Vercel BotID (Basic) — reject bots before the per-IP rate limit + DB insert.
+  // Fails open on a BotID infra error.
+  const botBlock = await botIdBlockResponse('/api/lead-intake');
+  if (botBlock) return botBlock;
 
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
   const rateCheck = await checkRateLimit(`lead-intake:hour:${ip}`, 5, 3600);

@@ -7,15 +7,18 @@ const {
   mockGetUser,
   mockCreateServerClient,
   mockReserveBudget,
+  mockCheckBotId,
 } = vi.hoisted(() => ({
   mockCheckRateLimit: vi.fn(),
   mockSql: Object.assign(vi.fn(), { begin: vi.fn(async (cb: any) => cb(mockSql)) }),
   mockGetUser: vi.fn(),
   mockCreateServerClient: vi.fn(() => ({ auth: { getUser: mockGetUser } })),
   mockReserveBudget: vi.fn(),
+  mockCheckBotId: vi.fn(),
 }));
 
 vi.mock('@/lib/shared/rate-limit', () => ({ checkRateLimit: mockCheckRateLimit }));
+vi.mock('botid/server', () => ({ checkBotId: mockCheckBotId }));
 vi.mock('@/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('@supabase/ssr', () => ({ createServerClient: mockCreateServerClient }));
 vi.mock('@/lib/costs/onboarding-demo-cost-guard', () => ({
@@ -64,6 +67,7 @@ beforeEach(() => {
   mockGetUser.mockResolvedValue({ data: { user: mockUser }, error: null });
   mockCreateServerClient.mockImplementation(() => ({ auth: { getUser: mockGetUser } }));
   mockReserveBudget.mockResolvedValue({ release: vi.fn(), date: '2026-05-03' });
+  mockCheckBotId.mockResolvedValue({ isBot: false, isHuman: true, isVerifiedBot: false, bypassed: false });
   process.env.ONBOARDING_DEMO_ENABLED = 'true';
 });
 
@@ -72,6 +76,15 @@ describe('POST /api/onboarding/start', () => {
     process.env.ONBOARDING_DEMO_ENABLED = 'false';
     const res = await POST(mkReq(validBody));
     expect(res.status).toBe(404);
+  });
+
+  it('returns 403 and skips auth + rate limit when BotID flags a bot', async () => {
+    mockCheckBotId.mockResolvedValueOnce({ isBot: true, isHuman: false, isVerifiedBot: false, bypassed: false });
+    const res = await POST(mkReq(validBody));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe('forbidden');
+    expect(mockGetUser).not.toHaveBeenCalled();
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
   });
 
   it('returns 200 + demoQueued=true on happy path', async () => {

@@ -8,6 +8,7 @@ const {
   mockSupabaseServer,
   mockCreateBusinessTx,
   mockSql,
+  mockCheckBotId,
 } = vi.hoisted(() => {
   const sqlFn = vi.fn();
   // sql is both a tagged-template function and has a .begin() method.
@@ -24,11 +25,16 @@ const {
     },
     mockCreateBusinessTx: vi.fn(),
     mockSql: sqlFn,
+    mockCheckBotId: vi.fn(),
   };
 });
 
 vi.mock('@/lib/shared/rate-limit', () => ({
   checkRateLimit: mockCheckRateLimit,
+}));
+
+vi.mock('botid/server', () => ({
+  checkBotId: mockCheckBotId,
 }));
 
 vi.mock('@/lib/db/server', () => ({
@@ -95,6 +101,9 @@ beforeEach(() => {
 
   mockCreateBusinessTx.mockReset();
 
+  mockCheckBotId.mockReset();
+  mockCheckBotId.mockResolvedValue({ isBot: false, isHuman: true, isVerifiedBot: false, bypassed: false });
+
   process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
 });
 
@@ -106,6 +115,17 @@ describe('POST /api/auth/signup', () => {
     const res = await POST(mkReq(validBody));
     expect(res.status).toBe(404);
     expect(mockCheckRateLimit).not.toHaveBeenCalled();
+    // Feature-flag 404 short-circuits before the (billed) BotID check.
+    expect(mockCheckBotId).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 and skips rate limit + auth when BotID flags a bot', async () => {
+    mockCheckBotId.mockResolvedValueOnce({ isBot: true, isHuman: false, isVerifiedBot: false, bypassed: false });
+    const res = await POST(mkReq(validBody));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'forbidden' });
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+    expect(mockSupabaseServer.auth.signUp).not.toHaveBeenCalled();
   });
 
   it('returns 400 on invalid body (schema violation)', async () => {

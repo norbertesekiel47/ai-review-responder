@@ -1,12 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const { mockCheckRateLimit } = vi.hoisted(() => ({
+const { mockCheckRateLimit, mockCheckBotId } = vi.hoisted(() => ({
   mockCheckRateLimit: vi.fn(),
+  mockCheckBotId: vi.fn(),
 }));
 
 vi.mock('@/lib/shared/rate-limit', () => ({
   checkRateLimit: mockCheckRateLimit,
+}));
+
+vi.mock('botid/server', () => ({
+  checkBotId: mockCheckBotId,
 }));
 
 process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
@@ -29,6 +34,17 @@ describe('POST /api/auth/login-attempt', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 4 });
+    mockCheckBotId.mockResolvedValue({ isBot: false, isHuman: true, isVerifiedBot: false, bypassed: false });
+  });
+
+  it('returns 403 and skips the rate limit when BotID flags a bot', async () => {
+    mockCheckBotId.mockResolvedValueOnce({ isBot: true, isHuman: false, isVerifiedBot: false, bypassed: false });
+
+    const res = await POST(req({ email: 'admin@example.com' }));
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'forbidden' });
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
   });
 
   it('rate-limits by normalized email and IP before browser sign-in', async () => {
