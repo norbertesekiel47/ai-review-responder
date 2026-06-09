@@ -83,51 +83,37 @@ reasonable. The "all over the place" feeling comes from `src/components/`:
 
 ---
 
-## What we'd actually do (the plan)
+## What we did (status: completed)
 
-Keep `app/`, `lib/` (already domain-sliced), `hooks/`, `contexts/`, `types/`.
-Do **not** add `features/`, `services/`, or `store/`. Targeted cleanup only:
-
-1. **Flatten the loose root files** into their domain folder
-   (`AdminNav → components/admin/`; `DashboardContent` / `PlaceAutocomplete` into
-   the dashboard/onboarding folder where they belong).
-
-2. **Break up the ~29-file `components/dashboard/`** by sub-feature — continue
-   the pattern already started (`aggregate/`, `edit-reply/`, `settings/`) until
-   no folder is a 20+ flat dump.
-
-3. **Mop up the remaining `../../` imports** to `@/` aliases — cheap, mechanical.
-
-4. **Pick one component co-location convention and write it down here.** Either:
-   - **(A)** Keep shared `components/<domain>/` mirroring `lib/<domain>/` (fine —
-     just enforce it consistently), **or**
-   - **(B)** Co-locate route-only UI under its `app/(...)/_components/` and
-     reserve `components/` for genuinely shared UI.
-
-   Pick one. The inconsistency is the smell, not the layout. **Decide (A) vs (B)
-   before moving files** so we don't re-scatter in a month.
-
-> Sequencing note: write the convention (step 4 decision) **first**, then do the
-> mechanical moves (steps 1–3). Otherwise the structure has no single owner and
-> will drift again.
+The targeted cleanup is **done**: loose root files moved into domain folders,
+`components/dashboard/` split into sub-feature folders, and the
+`app/<area>/_components` co-location idiom adopted (PR #219). Remaining
+placement work — moving single-route UI out of `components/<domain>` to its
+route's `_components/` per the LCA rule below — is tracked by the migration
+spec: `docs/superpowers/specs/2026-06-08-src-structure-lca-migration-design.md`.
+We do **not** add `features/`, `services/`, or `store/`; `app/`, `lib/`
+(domain-sliced), `hooks/`, `contexts/`, `types/` stay.
 
 ---
 
-## Component placement rule (decided 2026-06-02)
+## Component placement rule (LCA)
 
-Placement is decided by **shared-ness**. Unit = a route leaf (a dir owning a `page.tsx`).
+A component lives at the **lowest route folder that contains all of its
+consumers** — their lowest common ancestor (LCA) in the route tree. Find every
+file that imports it; place it at:
 
-- **Page-specific glue for exactly one route leaf** (forms, per-entity panels,
-  page-only layouts) → co-locate: `app/<area>/_components/` (+ route-only hooks in
-  `app/<area>/_hooks/`).
-- **Reusable domain UI** — feature cards, widgets, charts, shell chrome, or
-  anything rendered by a shared `layout.tsx` / composed via a shared container →
-  `components/<domain>/`, mirroring `lib/<domain>/`.
+- **One route leaf** → `app/<area>/<leaf>/_components/` (+ route-only hooks in
+  `app/<area>/<leaf>/_hooks/`).
+- **Several leaves under one area** → their LCA route dir + `/_components/` (the
+  common subtree, often area-level).
+- **Consumers span 2+ top-level areas** → `components/<domain>/` (mirrors
+  `lib/<domain>/`).
 - **Domain-agnostic primitive** → `components/ui/`.
 
-Co-located folders use the Next.js `_`-prefixed private-folder idiom
-(`_components/`, `_hooks/`). A file graduates from `_components/` to
-`components/<domain>/` only when a second route leaf consumes it.
+`lib/<domain>` never moves (worker-owned — 141 import sites). Co-located folders
+use the Next.js `_`-prefixed private-folder idiom (`_components/`, `_hooks/`).
+The boundaries are enforced by `eslint.config.mjs` (`no-restricted-imports`
+zones), not left to discipline.
 
 **Imports:** use `@/` path aliases throughout, **including same-folder siblings**
 (`@/components/dashboard/kpi/Sparkline`, not `./Sparkline`). The only banned form is
@@ -138,3 +124,50 @@ Co-located folders use the Next.js `_`-prefixed private-folder idiom
 **react-query:** scoped to `app/admin/**` + the few polling/approve spots. Customer
 -facing prefers server-first; existing plain client fetches (e.g. `useDashboardData`)
 are fine. react-query is NOT the default data layer.
+
+---
+
+## Scaling to many more pages (added 2026-06-08)
+
+We will keep adding features → more route leaves (already **59 `page.tsx`** and
+growing). Two things make that scale; both are cheap to adopt now and expensive
+to retrofit later.
+
+### Why NOT a `features/` vertical slice (the decisive constraint)
+
+The generic answer to "many pages" is `features/<domain>/{components,hooks,logic}`.
+**We can't use it.** `src/lib/<domain>/` is co-owned by the Next.js UI **and the
+Railway worker** — the worker imports from `src/lib/` at **141 sites**. A
+`features/reviews/` that swallowed the logic would force a backend job to
+`import from "@/features/reviews/logic"`: wrong owner, wrong direction. So the
+three-layer split below is **required by our topology**, not a stylistic pick:
+
+| Layer | Owner | Scales by |
+|---|---|---|
+| `app/<area>/_components`, `_hooks` | one route leaf | per-route co-location — each page brings its own folder |
+| `components/<domain>` | shared UI (≥2 routes) | promotion-on-second-use keeps it lean |
+| `lib/<domain>` | UI **+ worker** | domain slicing (already ~30 folders) |
+
+### 1. Route groups are the page-organization tool
+
+`(authenticated)` and `(public)` already exist. As features multiply, group **by
+concern** with route groups rather than nesting deeper — groups reorganize the
+tree without changing URLs. Candidates as the app grows: fold `mfa/` into the
+authenticated group; give `admin/` its own `(admin)` group; keep marketing pages
+under `(public)`. Slice `app/admin/**` (the densest area, ~13 sub-routes) into
+per-area `_components/` first.
+
+### 2. The boundary is **lint-enforced**, not trusted to discipline
+
+A documented convention drifts once dozens of pages and multiple editors (humans
++ agents) touch it. The placement rule above is enforced by
+`import/no-restricted-paths` in the ESLint flat config (`eslint.config.mjs`), so
+violations fail `pnpm lint` / CI instead of waiting for a reviewer to notice:
+
+- `components/ui/**` may not import `lib/**` or `app/**` — primitives stay dumb.
+- Nothing may import from `app/**` — route leaves are terminal, never a library.
+- One area's `app/<area>/_components` is private to that area — no cross-route
+  reach into another route's private folder.
+
+> When you add a layer or rename an area, update **both** this doc and the lint
+> rule in the same change — the doc explains *why*, the rule is the *gate*.
