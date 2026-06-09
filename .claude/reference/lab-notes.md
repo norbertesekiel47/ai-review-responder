@@ -1334,3 +1334,48 @@ checked **before** the `/api/account/` prefix (the route validates its own raw t
 `account_offboardings.purge_after` earlier than an **active** keep-my-data token's `expires_at` (a
 good safety invariant). To exercise purge end-to-end on staging, **revoke/expire the token first**
 (`UPDATE account_offboarding_tokens SET revoked_at=NOW() …`), then `UPDATE … SET purge_after=NOW()`.
+
+## 2026-06-09 — Billing compliance hardening
+
+### A pinned Stripe `apiVersion` does NOT pin webhook payload shapes
+`new Stripe(key, { apiVersion })` only fixes the version for **outbound** API calls this client makes.
+Inbound **webhook** event payloads are shaped by the version set on the Stripe Dashboard **endpoint**,
+which is independent. **Correct approach:** keep `STRIPE_CLIENT_CONFIG.apiVersion`
+(`src/lib/payments/stripe-client.ts`) and the Dashboard endpoint version in lockstep, and treat the
+endpoint version as a launch-gate item with staging evidence — not something the code pin guarantees.
+
+### Stripe `tax_behavior` is immutable once set; `tax_code` lives on the Product, not the Price
+You cannot "update tax_behavior" on a Price that already has it set to inclusive/exclusive — only a
+Price whose `tax_behavior` is still `'unspecified'` is updatable; otherwise you must **create a new
+Price**. And the SaaS tax code (`txcd_10103001`) is a **Product** field, not a Price field. **Correct
+approach (launch gate):** set `Product.tax_code`, then per Price update-if-unspecified-else-recreate;
+pre-revenue, recreate-from-scratch is the zero-ambiguity option.
+
+### Changing a tier price = new Stripe Price ID + env lockstep; existing customers are grandfathered
+A Stripe Price `unit_amount` is immutable, so a price change means a **new Price object**. RepWorth
+grandfathers via the stored snapshot on `accounts` (`base_price_cents` / `locations_included` /
+`locations_overage_price_cents`, migration 054, invariant #9a) — billing reads those, not live
+`TIER_CONFIG`. **Correct approach:** the documented procedure in `env-vars.md` — new Price → point
+`STRIPE_PRICE_*` at it in dev+staging+prod lockstep → match `TIER_CONFIG` → `pnpm verify:stripe-prices`.
+New signups/tier-changers get the new price; existing subs keep theirs. Repricing *existing* customers
+is a separate cohort migration + ARL §17602(g) notice (out of scope). `TIER_CONFIG` and the Stripe
+`unit_amount` are two copies of one fact with no runtime assertion — `verify:stripe-prices` is the guard.
+
+### Dahlia preview-invoice lines expose `pricing.unit_amount_decimal`, not `price.unit_amount`
+The reconciliation drift sum (`undiscountedLineAmountCents` in `billing-reconciliation/drift.ts`) reads,
+in order, `price.unit_amount` → `pricing.unit_amount_decimal` → `subtotal` → `line.amount`. On the pinned
+`2026-05-27.dahlia` version, real lines populate `pricing.unit_amount_decimal` (the legacy `price` shape
+is absent), and tax surfaces on `subtotal`/`amount`. **Correct approach:** the tax-safety regression test
+must model the Dahlia shape AND carry tax-inflated `subtotal`+`amount` the function must ignore (returns
+pre-tax 7900, not 8612) — testing only the legacy `price.unit_amount` path wouldn't guard the real path.
+
+### `pnpm lint` only covers `src/` — `worker/` TS is not ESLint-linted
+The `lint` script is `eslint src`, so unused imports / lint issues in `worker/**` are caught only by
+`pnpm typecheck` (tsc), not by lint. **Correct approach:** after migrating worker code, rely on typecheck
+for worker files (and eyeball them); don't assume a green `pnpm lint` vetted the worker tree.
+
+### Mocking Postgres.js `sql` in a Vitest unit: `vi.mocked(sql)` keeps the typed tagged-template signature
+`vi.mocked(sql).mockResolvedValueOnce([{…}])` is rejected by TS because the typed tagged-template return
+(`RowList`/result-meta) doesn't accept a plain row array. **Correct approach:** `const sqlMock = sql as
+unknown as Mock` (runtime is the `vi.fn()` from `vi.mock('@/lib/db/server', () => ({ sql: vi.fn() }))`),
+then `mockResolvedValueOnce`/`mockReset` per case. Used in `quota.grandfathering.test.ts`.
