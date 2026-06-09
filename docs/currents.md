@@ -3374,3 +3374,38 @@ docs/runbooks/completed_runbooks/auto-approval-staging-test.md  ← the staging 
 ### One thing to remember
 
 Auto-approval **skips only the owner's click** — it never skips a safety check. Moderation stays an absolute veto (high-severity drafts are held and never auto-post), and the master switch (`AUTO_APPROVAL_ENABLED`) is read fresh at worker boot, so turning it **off** stops new auto-approvals *and* un-does any that haven't posted yet. It ships **off** in production; staging was fully exercised end-to-end on 2026-06-06.
+
+## Quick summary — Owner Offboarding v1 (2026-06, PRs #244, #245)
+
+In simple words: we built a **safe "I want to leave" button** for account owners. Until now there was no clean, self-serve way to stop using RepWorth — owners had to cancel through Stripe, which left the rest of the system half-connected. Now an owner gets two clear choices, and RepWorth tears everything down (or keeps it) in the right order, on its own. It ships **switched off** in production — nothing changes for customers until an operator turns it on (and the legal terms are in place).
+
+### The two choices
+
+1. **"Cancel my service, keep my data."** We schedule the cancellation for the end of the paid period (through RepWorth, not Stripe's portal). The owner keeps using everything until that date, can **change their mind and reactivate** on the same subscription, and only then do we archive their locations and disconnect Google.
+
+2. **"Close my account and delete my data."** We stop everything immediately, cancel billing, disconnect Google, archive locations, then **delete or anonymize** the data after a **30-day grace window**. During that window the owner can click **"keep my data"** to cancel the deletion (but billing/Google stay torn down). We never promise "absolute deletion" — some billing/compliance records are kept, stripped of personal content.
+
+### How it stays safe
+
+- **One state machine, one source of truth.** A new `account_offboardings` row tracks the whole lifecycle (`pending → scheduled → tearing_down → purge_scheduled → purged`, plus `churned` / `reactivated` / `failed`). Background pollers move it forward on a clock that lives in the database, not in fragile delayed jobs.
+- **Deleting really deletes.** A code-owned "table-disposition inventory" lists every table that holds account data and how to clean it; the purge won't mark itself done until every one is empty, scrubbed, or explicitly retained — and a test fails if any table is left unclassified.
+- **Destructive actions need proof.** "Delete my data" requires a fresh password re-entry (and MFA if enrolled) and typing "DELETE DATA"; the keep-my-data email link is a single-use token (its own table, never reused approval links).
+- **It can't run twice or fight the old cancellation path.** One active offboarding per account, and the old `CancellationGracePoller` skips any account that already has one.
+
+### What we changed (new directories/files)
+
+```text
+src/lib/account-offboarding/              ← NEW: the offboarding "brain" — guard gate, confirm logic, table-disposition inventory, flags, purge verification
+src/app/api/account/offboarding/          ← NEW: owner routes — confirm, reactivate, keep-my-data, fresh-auth, status
+src/app/(authenticated)/account/offboarding/status/  ← NEW: the owner-facing offboarding status page
+src/components/dashboard/settings/        ← NEW: AccountOffboardingPanel + DeleteDataOffboardingModal (the settings UI)
+worker/jobs/account-offboarding/          ← NEW: the workers — billing-schedule, teardown, purge (+ purge-stages / purge-verification), reactivation, lifecycle email
+worker/background/pollers/AccountOffboarding*Poller.ts  ← NEW: the 5 recovery pollers (access-end, purge, purge-reminder, reactivation-reset, teardown-retry)
+src/app/admin/offboardings/               ← NEW: minimal admin visibility + provider-disposition override
+supabase/migrations/056..060_*.sql        ← NEW: the offboarding tables + analytics allowlist + purge-reminder + reactivation-claim columns
+docs/runbooks/owner-offboarding-staging-dry-run.md  ← the staging dry-run + live-E2E evidence record
+```
+
+### One thing to remember
+
+This was **specced, built across 7 PRs, dry-run-tested on staging, and fixed before merge.** The staging dry-run caught three real bugs that unit tests had hidden — cancel-only never scheduling, the keep-my-data link 401'ing logged-out owners, and the delete purge failing on phantom columns — all fixed (PR #245) and then **re-run live on staging end-to-end** (2026-06-09) before merging to `main`. The whole feature stays **off in production** behind `ACCOUNT_OFFBOARDING_ENABLED` until the legal terms (a non-refundable mid-cycle clause) are in place. One ops note: deploy the worker from a **clean checkout**, not `railway up` from a worktree — that ships stale code.

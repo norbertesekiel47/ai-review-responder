@@ -81,6 +81,7 @@ Detailed inventories load on demand — read the matching file before the work:
 | write or debug a migration / touch schema | `.claude/reference/migrations-log.md` |
 | add an env var or flip a feature flag | `.claude/reference/env-vars.md` |
 | touch review ingestion / add a ReviewSource | `.claude/reference/review-ingestion.md` |
+| build or debug owner offboarding (cancel_only / delete_data / purge) | spec `docs/superpowers/specs/2026-06-05-owner-offboarding-design.md` + runbook `docs/runbooks/owner-offboarding-staging-dry-run.md` |
 | touch a named library/subsystem (Postgres.js, Zernio, Stripe, Supabase auth, …) | `.claude/reference/lab-notes.md` |
 | deploy, promote, or reason about the preview/staging/prod split | `docs/runbooks/deployment-guide.md` |
 
@@ -109,7 +110,8 @@ decide *where new worker code goes*:
 
 - **Job handlers** in `worker/jobs/`: one top-level `*.ts` per worker, plus a
   per-domain subfolder when a worker has helpers (`response-generation/`,
-  `notification/`, `publisher/`, `zernio/`, `billing/`, `onboarding-demo/`).
+  `notification/`, `publisher/`, `zernio/`, `billing/`, `onboarding-demo/`,
+  `account-offboarding/`).
 - **`'failed'` exhaustion hooks** colocate with their worker
   (`worker/jobs/{publisher/failed-hook,zernio/ingest-failed-hook}.ts`).
 - **Background loops** split by trigger: `background/pollers/` (Postgres-state-driven)

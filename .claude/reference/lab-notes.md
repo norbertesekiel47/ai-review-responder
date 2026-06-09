@@ -18,6 +18,7 @@ Jump to the dated entries by subsystem (search the anchors below):
 - **CI / tooling** — nested-worktree poisoning, MOCK_EXTERNAL_APIS=false in CI, tenant-scope allowlist drift, comment-backtick extractor false-positive, allowlist file-move orphaning, worktree test-failure vs real regression (verify on the same ref), nested-worktree Edit/Write path leak + concurrent branch/stash churn (explicit `git add`, /tmp patch, re-verify HEAD before commit), Railway RAILPACK build has no `.git` so git-touching `prepare`/`postinstall` scripts must be `|| true`
 - **Testing** — vi.hoisted for shared mocks, NextRequest vs Request, relative imports under tsx, compat re-export must shield all consumers (mock-contract)
 - **Frontend / CSS / brand** — iOS Safari rounded-island clip is `overflow:hidden`+`border-radius`+retained `transform` (not a sibling clip), reproduce an audit's CSS cause before trusting it; flag-driven copy swaps on dead-end features mislead; an admin "act on stuck items" panel needs a real outbox-backed route (2026-05-29 launch readiness)
+- **Owner offboarding** — `railway up` from a worktree ships stale worker code (`OutboxPoller: Unknown topic`); Stripe Basil/Dahlia moved `current_period_end` onto the subscription item; `approval_audit_log` has no `approval_link_id`/`user_agent` (mock-asserted SQL *text* hid the drift); keep-my-data must be exempt from the blanket `/api/account/*` owner-API proxy gate; the `purge_after` token-expiry trigger blocks shrinking the purge window while a keep-my-data token is live
 
 ---
 
@@ -1286,3 +1287,50 @@ not be secure"). **Correct approach:** use a **Protection Bypass for Automation*
 navigate once to `…?x-vercel-protection-bypass=<secret>&x-vercel-set-bypass-cookie=true` to
 set the bypass cookie, then the app's own **email/password** login works in the automated
 browser. Don't try to complete Vercel/Google SSO inside the controlled browser.
+
+---
+
+## 2026-06-08 — Owner offboarding (staging dry-run + live E2E)
+
+### `railway up` from a nested git worktree ships STALE worker code → `OutboxPoller: Unknown topic`
+Deploying the staging worker with `railway up` from `.claude/worktrees/<name>/` produced a running
+worker **missing the offboarding queue wiring** — the boot banner had none of the five offboarding
+pollers, and the billing job failed in the outbox with
+`Unknown topic: account_offboarding_billing_schedule`, stalling every offboarding job. The
+fix-branch source was correct (`worker/queues.ts` registers all five offboarding topics in
+`topicToQueue` unconditionally), so this is a deploy artifact, not a code bug. **Correct approach:**
+deploy the worker from a **clean clone** outside the worktree —
+`git clone -b <branch> file://<repo> /tmp/deploy && cd /tmp/deploy && railway up -p <proj> -s repworth-worker -e staging --ci -y`. Same worktree footgun that aborts the Vercel CLI upload
+(CLAUDE.md "Worktrees are footguns here"). Also: `railway logs` non-interactively returns a
+stale/truncated snapshot — don't trust it to prove pollers booted; verify by driving a real job.
+
+### Stripe Basil/Dahlia: `current_period_end` is on the subscription ITEM, not the top level
+With the pinned `apiVersion: '2026-05-27.dahlia'` (Basil-era), `subscription.current_period_end`
+(top-level) is **undefined**; the value lives at `subscription.items.data[0].current_period_end`.
+Reading the top-level field threw and stranded `cancel_only` at `failed/billing` (dry-run D1).
+**Correct approach:** `items.data[0].current_period_end ?? subscription.current_period_end` (item
+first, legacy top-level fallback). A unit mock that returned the field top-level hid this; the
+regression test feeds the real item shape.
+
+### `approval_audit_log` has NO `approval_link_id` / `user_agent` columns
+The purge scrub + verification referenced two phantom columns; Postgres rejects them at **plan
+time** (`column "approval_link_id" … does not exist`) regardless of row count, so every
+`delete_data` purge failed and data was never deleted (dry-run D3). The real PII columns are
+`response_id, token_hash, device_cookie_hash, ip_address, metadata, actor_user_id,
+response_text_at_approval`. NB: `account_audit_log` (a different table) legitimately HAS
+`ip`/`user_agent`/`request_id` — scrub those there. **Lesson:** the unit tests asserted the scrub
+**SQL text** (and even asserted the phantom columns present), so the drift sailed through CI — add a
+real-DB integration test that runs the production scrub/verification against the live schema.
+
+### keep-my-data must be EXEMPT from the blanket `/api/account/*` owner-API proxy gate
+`isProtectedOwnerApiRoute` matched `/api/account/*` and trapped the public, token-authenticated
+`/api/account/offboarding/keep-my-data`, so a logged-out owner clicking the rescue link in their
+email got `401` (dry-run D2). **Correct approach:** a `PUBLIC_OWNER_ACCOUNT_API_PATHS` exemption
+checked **before** the `/api/account/` prefix (the route validates its own raw token), mirroring the
+`/admin/login` exemption. Sibling `confirm`/`reactivate`/`status` stay owner-gated.
+
+### Shrinking `purge_after` for a test is blocked while a keep-my-data token is live
+`enforce_account_offboarding_purge_after_token_expiry` rejects setting
+`account_offboardings.purge_after` earlier than an **active** keep-my-data token's `expires_at` (a
+good safety invariant). To exercise purge end-to-end on staging, **revoke/expire the token first**
+(`UPDATE account_offboarding_tokens SET revoked_at=NOW() …`), then `UPDATE … SET purge_after=NOW()`.

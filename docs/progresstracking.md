@@ -4653,3 +4653,46 @@ The audit found three visual languages; only the marketing island was on-brand. 
 **Lessons captured** (`.claude/reference/lab-notes.md`, 2026-06-06): the kill-switch flag is read at worker **boot**, so a "flip mid-flight" race just posts — test the §6 downgrade post-safe (flag off + seed an approved auto row); `psql` rejects the staging `DATABASE_POOL_URL`'s `?pgbouncer=true` param (strip it / use `DATABASE_URL`); Vercel staging Deployment-Protection blocks automation-controlled browsers (use a Protection-Bypass token, then the app's own email/password login).
 
 ---
+
+## Owner Offboarding v1 — schema → 7 PRs → staging dry-run → D1/D2/D3 fixes → live E2E → merge (2026-06-05 → 2026-06-09, PRs #244, #245)
+
+**Status:** Feature COMPLETE and shipped to `main` **flag-OFF** (`ACCOUNT_OFFBOARDING_ENABLED` unset in prod — zero customer-facing change until ops enables it after the legal launch gate). End-to-end **verified live on staging** 2026-06-09. Plan: `~/.claude/grill-codex/20260605-214141/PLAN.md`; converged spec: `docs/superpowers/specs/2026-06-05-owner-offboarding-design.md`; evidence record: `docs/runbooks/owner-offboarding-staging-dry-run.md`.
+
+**Why:** owners needed a single, safe, durable way to stop using RepWorth without leaving the system in a half-state, and to keep the data-deletion promise precise (delete-or-anonymize, not "absolute deletion"). Two owner-initiated modes:
+- **`cancel_only`** — schedule cancellation at period end (via RepWorth, not the Stripe portal), keep access + Google/Zernio live until `access_ends_at`, allow same-subscription reactivation before teardown, then archive + teardown.
+- **`delete_data`** — stop processing immediately, cancel billing + revoke Zernio + archive locations at teardown-start, then a **30-day staged, resumable purge**; "keep my data" can cancel the purge (→ retained-data churn) but never undoes billing/provider teardown.
+
+**What shipped (7-PR staged sequence; PR #244 = the feature branch → `main`):**
+
+| PR/Task | What shipped |
+|---|---|
+| PR1 | `account_offboardings` + `account_offboarding_tokens` (migration **056**, deny-all RLS, `UNIQUE (account_id) WHERE terminal_at IS NULL`), the test-enforced **table-disposition inventory** (`src/lib/account-offboarding/table-disposition.ts` — CI fails on any unclassified account-linked table), and no-op shared guard helpers. |
+| PR2 | cancel_only route/UI + Stripe schedule-at-period-end / reverse; Stripe Customer Portal self-serve cancellation removed. |
+| PR3 | The single **offboarding guard gate** (`src/lib/account-offboarding/gate.ts`) wired across owner-write / worker / connect / billing surfaces; paid-through + read-only churn behavior. |
+| PR4 | delete_data flow + **fresh re-auth** (`rw_delete_data_fresh_auth` HMAC stamp, +AAL2 when MFA enrolled) + type-to-confirm + keep-my-data `account_offboarding_tokens` (SHA-256 hashes only). |
+| PR5 | Stripe invoice-cleanup spike/test + **snapshot-driven shared teardown** worker + Zernio/Stripe webhook reconciliation. |
+| PR6 | **Staged resumable purge** worker (auth-delete revalidation under lock) + minimal admin stuck-offboarding visibility + provider-disposition override (migration **057** tombstone nullability). |
+| PR7 | End-to-end hardening: migrations **058** (analytics-event allowlist), **059** (`purge_reminder_sent_at`), **060** (reactivation-claim columns); the **five recovery pollers** (AccessEnd, Purge, PurgeReminder, ReactivationReset, TeardownRetry); dedicated lifecycle emails; server-side analytics; the staging dry-run runbook; the server-only flag. |
+
+**8-status machine:** `pending → scheduled → tearing_down → purge_scheduled → purged` with terminal branches `churned` / `reactivated` / `failed (+failed_step)`; every terminal stamps `terminal_at`. A `failed`/`failed_step='teardown'` row is re-driven by `TeardownRetryPoller` up to `…_TEARDOWN_MAX_RETRIES`, then held for an operator; a stale `reactivation_claimed_at` (>5 min) is released by `ReactivationResetPoller`.
+
+**Staging dry-run (2026-06-08) — found 3 launch-blockers, all on disposable test accounts (real GBP `norbertliverpool@gmail.com` untouched, no reviews posted/edited):**
+- **D1 — cancel_only never schedules.** `BillingScheduleWorker` read `subscription.current_period_end` (top-level), but the pinned Stripe API (`2026-05-27.dahlia`, Basil-era) returns it **only on the subscription item** → it threw, row stuck `failed/billing`. *Masked by:* a unit mock returning the field top-level.
+- **D2 — keep-my-data email link 401s logged-out owners.** The proxy's `isProtectedOwnerApiRoute` blanket-matched `/api/account/*` and trapped the public, token-authenticated `/api/account/offboarding/keep-my-data` — the primary rescue path returned 401.
+- **D3 — delete_data purge always failed; data never deleted.** The scrub + verification referenced `approval_audit_log` columns `approval_link_id` / `user_agent` that don't exist → purge threw at plan time, row stuck `failed/purge`. *Masked by:* unit tests asserting the scrub **SQL text** (incl. the phantom columns), never the real schema. A functional **and** compliance failure (deletion promised, not delivered).
+
+**Fixes (PR #245 → `owner-offboarding-plan`):** D1 → read `items.data[0].current_period_end ?? top-level`; D2 → a `PUBLIC_OWNER_ACCOUNT_API_PATHS` exemption (the route does its own token validation); D3 → drop the two phantom columns from the scrub + verification (the real PII columns incl. `response_text_at_approval` are still nulled; the sibling `user_agent`/`ip` scrub on `account_audit_log` is correct — that table really has those columns). Each got a regression test at the seam the mock drift hid: D1 feeds the real Basil item shape, D3 adds a **real-DB integration test** running the production scrub/verification against the real schema, D2 pins the route public.
+
+**Live UI E2E on fix-deployed staging (2026-06-09, Chrome DevTools):** deployed the fix branch to the full staging stack (Vercel staging custom env + Railway worker) and drove all three on a disposable account (real signup UI + Gmail OTP + Stripe **test-mode** checkout → active sub): **D1** cancel_only → `scheduled` (+ reactivation → `reactivated`), **D2** keep-my-data GET → 200 (was 401), **D3** delete_data → teardown → `purge_scheduled` → `purged` (account/user PII tombstoned). Recorded in the runbook (§0 "Live UI E2E").
+
+> **Deploy gotcha (operational, NOT a code defect):** the first worker deploy via `railway up` *from the nested git worktree* shipped **stale** worker code missing the offboarding queue wiring (`OutboxPoller: Unknown topic "account_offboarding_billing_schedule"`), stalling every offboarding job. Redeploying the worker from a **clean clone** fixed it. Deploy the staging/prod worker from a clean checkout, never `railway up` from `.claude/worktrees/*`.
+
+**Merge:** PR #245 squash-merged into `owner-offboarding-plan`, then PR #244 squash-merged into `main` (2026-06-09; CI green on both; `main` commit `22ba46c2`). Feature stays **dark in prod** (flag unset — merging code does not flip env vars).
+
+**Remaining before prod enablement (Task 7.3 launch gate, non-code):** apply migrations 056–060 to the **prod** Supabase (staging-first already satisfied); complete the **legal launch gate** (ToS non-refundable mid-cycle `delete_data` clause + forfeiture disclosure copy); deploy the prod worker from a clean checkout; then set `ACCOUNT_OFFBOARDING_ENABLED=true` + run the post-enable smoke.
+
+**Doc-change-map applied:** migrations 056–060 in `migrations-log.md`; `ACCOUNT_OFFBOARDING_*` in `env-vars.md` (incl. the recovery-poller tunables); the offboarding tables in the RLS / tenant-scope inventories; the `account-offboarding/` worker subfolder + a where-things-live pointer in `.claude/CLAUDE.md`; this entry + the `currents.md` quick summary; offboarding gotchas in `lab-notes.md`.
+
+**Lessons captured** (`.claude/reference/lab-notes.md`, 2026-06-08): tests asserting on **mocked** provider responses / SQL **text** let API/schema drift sail through CI (D1 + D3) — integration-test the billing + purge paths against the real Stripe API / staging schema; `railway up` from a nested worktree ships stale worker code (deploy from a clean clone); Stripe Basil/Dahlia moved `current_period_end` onto the subscription item; the `enforce_account_offboarding_purge_after_token_expiry` trigger blocks shortening `purge_after` while a keep-my-data token is live (revoke it first).
+
+---
