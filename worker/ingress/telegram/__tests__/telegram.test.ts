@@ -239,7 +239,7 @@ describe('telegram ingress — permanent link-state failures after ack', () => {
     ['consumed', new ConsumedLinkError()],
     ['revoked', new RevokedLinkError()],
     ['expired', new ExpiredLinkError()],
-    ['channel-mismatch', new ChannelMismatchError('telegram', 'sms')],
+    ['channel-mismatch', new ChannelMismatchError('telegram', 'whatsapp')],
     ['read-only', new SubscriptionReadOnlyError()],
     ['offboarding-blocked', new SubscriptionReadOnlyError('account_offboarding_blocked', 403)],
     ['deleted-account', new SubscriptionReadOnlyError('no_business', 403)],

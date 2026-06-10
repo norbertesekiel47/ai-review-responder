@@ -317,7 +317,6 @@ describe('worker startup guard import order', () => {
   });
 });
 
-
 import { assertChannelsTelegramEnv } from '../startup-assert';
 
 describe('assertChannelsTelegramEnv', () => {
