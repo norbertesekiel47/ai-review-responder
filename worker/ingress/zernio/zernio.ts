@@ -26,6 +26,7 @@ import {
   ZernioReviewWebhookParseError,
 } from '../../../src/lib/zernio/parse-review-webhook';
 import { SKIP_REASON_ARCHIVED_LOCATION } from '../../../src/lib/shared/worker-types';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 
 const LOG_PREFIX = '[ingress/zernio]';
 
@@ -225,25 +226,51 @@ async function processReviewEvent(
   try {
     // Archived locations intentionally keep status='active' connections
     // (for reactivation backfill), so a 0-row fan-out means "nobody has
-    // connected this account/location", "the connected location is
-    // archived", or an ON CONFLICT dedup against an in-flight outbox row
-    // (possibly alongside an archived sibling). The EXISTS probe only
-    // proves an archived connection is PRESENT — it cannot rule out the
-    // dedup case — so the log claims exactly that, no more.
-    const [archivedCheck] = await sql<{ archived_match: boolean }[]>`
-      SELECT EXISTS (
-        SELECT 1
-        FROM zernio_connections zc
-        JOIN businesses b ON b.id = zc.business_id
-        WHERE zc.zernio_account_id = ${parsed.accountId}
-          AND zc.status = 'active'
-          ${locationFilter}
-          AND b.archived_at IS NOT NULL
-      ) AS archived_match
+    // connected this account/location", "every connected location is
+    // archived", or an ON CONFLICT dedup against an in-flight outbox row.
+    // Two EXISTS probes disambiguate exactly: a matching NON-archived
+    // connection with 0 inserts can only mean the dedup fired for it, so
+    // that case is never mislabeled as an archived skip.
+    //
+    // These lines emit through createWorkerLogger (one JSON object per line)
+    // — unlike the rest of this console-based ingress — because
+    // SKIP_REASON_ARCHIVED_LOCATION's contract (worker-types.ts) is a
+    // STRUCTURED queryable token across every archived-location gate, and
+    // this is the highest-volume gate in the spend-leak chain.
+    const probeLogger = createWorkerLogger(LOG_PREFIX, eventId);
+    const [probe] = await sql<{ archived_match: boolean; active_match: boolean }[]>`
+      SELECT
+        EXISTS (
+          SELECT 1
+          FROM zernio_connections zc
+          JOIN businesses b ON b.id = zc.business_id
+          WHERE zc.zernio_account_id = ${parsed.accountId}
+            AND zc.status = 'active'
+            ${locationFilter}
+            AND b.archived_at IS NOT NULL
+        ) AS archived_match,
+        EXISTS (
+          SELECT 1
+          FROM zernio_connections zc
+          JOIN businesses b ON b.id = zc.business_id
+          WHERE zc.zernio_account_id = ${parsed.accountId}
+            AND zc.status = 'active'
+            ${locationFilter}
+            AND b.archived_at IS NULL
+        ) AS active_match
     `;
-    if (archivedCheck?.archived_match) {
-      console.log(
-        `${LOG_PREFIX} ${eventType} fan-out inserted 0 rows; archived connection(s) present for account=${parsed.accountId}` +
+    if (probe?.active_match) {
+      // An active connection matched but inserted nothing → ON CONFLICT
+      // dedup against an in-flight outbox row for that business. NOT an
+      // archived skip even when an archived sibling also matched.
+      probeLogger.log(
+        `${eventType} fan-out inserted 0 rows; in-flight dedup for active connection(s) account=${parsed.accountId}` +
+          (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : ''),
+        { reason: 'inflight_dedup', archived_sibling: probe.archived_match },
+      );
+    } else if (probe?.archived_match) {
+      probeLogger.log(
+        `${eventType} fan-out inserted 0 rows; all matching connection(s) archived for account=${parsed.accountId}` +
           (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : '') +
           ` — skipped`,
         { reason: SKIP_REASON_ARCHIVED_LOCATION },

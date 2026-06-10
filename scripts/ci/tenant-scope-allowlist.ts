@@ -1047,14 +1047,14 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/zernio/zernio.ts",
     table: "zernio_connections",
-    sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ${locationFilter} AND b.archived_at IS NOT NULL ) AS archived_match",
-    reason: "Provider ingress disambiguates a 0-row fan-out (archived location vs genuinely unconnected) from signed provider identifiers before tenant ids are available.",
+    sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ${locationFilter} AND b.archived_at IS NOT NULL ) AS archived_match, EXISTS ( SELECT 1 FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ${locationFilter} AND b.archived_at IS NULL ) AS active_match",
+    reason: "Provider ingress disambiguates a 0-row fan-out (in-flight dedup vs archived-only vs genuinely unconnected) from signed provider identifiers before tenant ids are available; dual EXISTS so a dedup for an active business is never mislabeled as an archived skip.",
   },
   {
     file: "worker/ingress/zernio/zernio.ts",
     table: "businesses",
-    sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ${locationFilter} AND b.archived_at IS NOT NULL ) AS archived_match",
-    reason: "Provider ingress disambiguates a 0-row fan-out (archived location vs genuinely unconnected) from signed provider identifiers before tenant ids are available.",
+    sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ${locationFilter} AND b.archived_at IS NOT NULL ) AS archived_match, EXISTS ( SELECT 1 FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ${locationFilter} AND b.archived_at IS NULL ) AS active_match",
+    reason: "Provider ingress disambiguates a 0-row fan-out (in-flight dedup vs archived-only vs genuinely unconnected) from signed provider identifiers before tenant ids are available; dual EXISTS so a dedup for an active business is never mislabeled as an archived skip.",
   },
   {
     file: "worker/jobs/AdminExceptionWorker.ts",

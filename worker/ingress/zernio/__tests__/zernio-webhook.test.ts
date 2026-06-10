@@ -270,9 +270,30 @@ describe('Zernio review fan-out zero-row disambiguation', () => {
     return Object.assign([], { count: 0 });
   }
 
-  it('logs a structured archived_location line (no unconnected warn) when an archived connection matches', async () => {
+  // The probe lines emit through createWorkerLogger: one JSON object per
+  // console.log call, with object args merged into `data`. Parse those so the
+  // assertions pin the STRUCTURED contract (worker-types.ts), not the text.
+  interface StructuredRecord {
+    message?: string;
+    data?: Record<string, unknown>;
+  }
+
+  function structuredLines(spy: ReturnType<typeof vi.spyOn>): StructuredRecord[] {
+    return (spy.mock.calls as unknown[][])
+      .map((call: unknown[]) => call[0])
+      .filter((arg: unknown): arg is string => typeof arg === 'string' && arg.startsWith('{'))
+      .flatMap((line: string) => {
+        try {
+          return [JSON.parse(line) as StructuredRecord];
+        } catch {
+          return [];
+        }
+      });
+  }
+
+  it('emits a structured archived_location record (no unconnected warn) when ONLY archived connections match', async () => {
     sqlReturnQueue.push(zeroRowFanout()); // fan-out INSERT…SELECT → 0 rows
-    sqlReturnQueue.push([{ archived_match: true }]); // EXISTS probe
+    sqlReturnQueue.push([{ archived_match: true, active_match: false }]); // dual EXISTS probe
     sqlReturnQueue.push([]); // inbound_events processed
 
     const { status, send } = mkReply();
@@ -291,18 +312,53 @@ describe('Zernio review fan-out zero-row disambiguation', () => {
 
     expect(status).toHaveBeenCalledWith(200);
 
-    const existsProbe = sqlCalls.find((call) => call.text.includes('SELECT EXISTS'));
+    // The probe is ONE round-trip carrying BOTH disambiguation predicates.
+    const existsProbe = sqlCalls.find((call) => call.text.includes('AS archived_match'));
     expect(existsProbe).toBeDefined();
     expect(existsProbe!.text).toContain('b.archived_at IS NOT NULL');
+    expect(existsProbe!.text).toContain('AS active_match');
     expect(existsProbe!.values).toContain('loc-arch');
 
-    // The log claims only what the probe proves: an archived connection is
-    // PRESENT — not that the archived match is the ONLY explanation (an
-    // ON CONFLICT dedup with a sibling archived connection also yields 0 rows).
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      expect.stringContaining('archived connection(s) present'),
-      expect.objectContaining({ reason: SKIP_REASON_ARCHIVED_LOCATION }),
+    // Structured queryable token — the spend-leak chain's ingress gate must
+    // be filterable on data.reason like every worker-side gate.
+    const archivedRecords = structuredLines(consoleLogSpy).filter(
+      (rec) => rec.data?.reason === SKIP_REASON_ARCHIVED_LOCATION,
     );
+    expect(archivedRecords).toHaveLength(1);
+    expect(archivedRecords[0]!.message).toContain('all matching connection(s) archived');
+    expect(consoleWarnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('no business has connected this account/location'),
+    );
+  });
+
+  it('labels 0 rows as inflight_dedup — never archived_location — when an ACTIVE connection also matches', async () => {
+    sqlReturnQueue.push(zeroRowFanout()); // fan-out INSERT…SELECT → 0 rows (ON CONFLICT dedup for the active business)
+    sqlReturnQueue.push([{ archived_match: true, active_match: true }]); // mixed account: archived sibling present
+    sqlReturnQueue.push([]); // inbound_events processed
+
+    const { status, send } = mkReply();
+    await handleZernioWebhook(
+      mkRequest(
+        {
+          event: 'review.updated',
+          id: 'evt_zernio_review_mixed_dedup',
+          account: { id: 'zernio-account-mixed' },
+          review: { id: 'rev-accountwide-1' },
+        },
+        'evt_zernio_review_mixed_dedup',
+      ),
+      { status, send } as any,
+    );
+
+    expect(status).toHaveBeenCalledWith(200);
+
+    // An active match with 0 inserts can ONLY be the in-flight dedup — a real
+    // ingestion signal that must not be masked as an expected archived skip.
+    const records = structuredLines(consoleLogSpy);
+    const dedupRecords = records.filter((rec) => rec.data?.reason === 'inflight_dedup');
+    expect(dedupRecords).toHaveLength(1);
+    expect(dedupRecords[0]!.data?.archived_sibling).toBe(true);
+    expect(records.filter((rec) => rec.data?.reason === SKIP_REASON_ARCHIVED_LOCATION)).toHaveLength(0);
     expect(consoleWarnSpy).not.toHaveBeenCalledWith(
       expect.stringContaining('no business has connected this account/location'),
     );
@@ -340,11 +396,10 @@ describe('Zernio review fan-out zero-row disambiguation', () => {
     expect(consoleWarnSpy).toHaveBeenCalledWith(
       expect.stringContaining('probe failed'),
     );
-    // Neither disambiguation line may fire — the probe never resolved.
-    expect(consoleLogSpy).not.toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ reason: SKIP_REASON_ARCHIVED_LOCATION }),
-    );
+    // Neither disambiguation record may fire — the probe never resolved.
+    expect(
+      structuredLines(consoleLogSpy).filter((rec) => rec.data?.reason !== undefined),
+    ).toHaveLength(0);
     expect(consoleWarnSpy).not.toHaveBeenCalledWith(
       expect.stringContaining('no business has connected this account/location'),
     );
@@ -352,7 +407,7 @@ describe('Zernio review fan-out zero-row disambiguation', () => {
 
   it('keeps the unconnected warn when no archived connection matches either', async () => {
     sqlReturnQueue.push(zeroRowFanout()); // fan-out INSERT…SELECT → 0 rows
-    sqlReturnQueue.push([{ archived_match: false }]); // EXISTS probe
+    sqlReturnQueue.push([{ archived_match: false, active_match: false }]); // dual EXISTS probe
     sqlReturnQueue.push([]); // inbound_events processed
 
     const { status, send } = mkReply();
@@ -374,9 +429,8 @@ describe('Zernio review fan-out zero-row disambiguation', () => {
     expect(consoleWarnSpy).toHaveBeenCalledWith(
       expect.stringContaining('no business has connected this account/location'),
     );
-    expect(consoleLogSpy).not.toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ reason: SKIP_REASON_ARCHIVED_LOCATION }),
-    );
+    expect(
+      structuredLines(consoleLogSpy).filter((rec) => rec.data?.reason !== undefined),
+    ).toHaveLength(0);
   });
 });

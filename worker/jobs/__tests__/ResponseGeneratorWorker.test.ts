@@ -153,9 +153,10 @@ function makeJob(overrides = {}): Job<GenerateResponsePayload> {
 // appear as object args in the tx template calls.
 // The skip reason must be an OBJECT arg so it lands in the queryable `data`
 // field of the structured record (string args are verbatim only). Parses the
-// console.log spy's JSON lines and returns the 'skipping generation' record.
-function findSkipLogRecord(
+// console.log spy's JSON lines and returns the record with the given message.
+function findLogRecord(
   logSpy: { mock: { calls: unknown[][] } },
+  message: string,
 ): { message?: string; data?: Record<string, unknown> } | undefined {
   return logSpy.mock.calls
     .map((call) => {
@@ -166,7 +167,13 @@ function findSkipLogRecord(
       }
     })
     .filter((record): record is { message?: string; data?: Record<string, unknown> } => record !== null)
-    .find((record) => record.message === 'skipping generation');
+    .find((record) => record.message === message);
+}
+
+function findSkipLogRecord(
+  logSpy: { mock: { calls: unknown[][] } },
+): { message?: string; data?: Record<string, unknown> } | undefined {
+  return findLogRecord(logSpy, 'skipping generation');
 }
 
 function findSendNotificationPayloads(): Record<string, unknown>[] {
@@ -363,6 +370,40 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     expect(analyticsCallOrder).toBeDefined();
     expect(completedCallOrder).toBeDefined();
     expect(analyticsCallOrder!).toBeLessThan(completedCallOrder!);
+  });
+
+  // already_exists + processingBlocked: the outbox-completion recovery still
+  // applies (the work WAS done), but the durable analytics enqueue must be
+  // suppressed — the dispatch poller has no offboarding gate and would export
+  // a fresh event for an account mid-purge.
+  it('suppresses first_response_drafted on existing-response retry when active offboarding blocks processing', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow({
+      offboarding_id: 'offboarding-1',
+      offboarding_account_id: 'acct-1',
+      offboarding_mode: 'delete_data',
+      offboarding_status: 'pending',
+      offboarding_failed_step: null,
+      offboarding_access_ends_at: null,
+      offboarding_teardown_started_at: null,
+      offboarding_purge_after: null,
+      offboarding_purge_started_at: null,
+      offboarding_purge_cancelled_at: null,
+    })]);
+    sqlReturnQueue.push([mockExistingResponseRow()]);
+
+    await handleResponseGeneration(makeJob());
+
+    expect(mockGenerateResponse).not.toHaveBeenCalled();
+    expect(mockEnqueueAnalyticsEvent).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+
+    const record = findLogRecord(logSpy, 'suppressing first_response_drafted enqueue');
+    expect(record).toBeDefined();
+    expect(record!.data).toMatchObject({ reason: 'account_offboarding_blocked', business_id: 'biz-1' });
+    logSpy.mockRestore();
   });
 
   it('does not enqueue first_response_drafted when an earlier account response exists', async () => {

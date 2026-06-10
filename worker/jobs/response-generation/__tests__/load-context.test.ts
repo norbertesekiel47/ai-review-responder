@@ -1,13 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// ── Hoisted sql mock (mirrors ResponseGeneratorWorker.test.ts convention) ──
-const { sqlReturnQueue, mockSql } = vi.hoisted(() => {
-  const sqlReturnQueue: unknown[] = [];
-  const mockSql: any = vi.fn((_strings: TemplateStringsArray, ..._values: unknown[]) => {
-    const result = sqlReturnQueue.shift() ?? [];
-    return Promise.resolve(result);
-  });
-  return { sqlReturnQueue, mockSql };
+// ── Hoisted shared sql mock (worker/__tests__/helpers/mock-sql) ──────────
+const { sqlReturnQueue, mockSql, resetMockSql } = await vi.hoisted(async () => {
+  const { createMockSql } = await import('../../../__tests__/helpers/mock-sql');
+  return { ...createMockSql() };
 });
 
 vi.mock('../../../../src/lib/db/server', () => ({
@@ -28,7 +24,7 @@ import {
 describe('loadGenerationContext', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    sqlReturnQueue.length = 0;
+    resetMockSql();
   });
 
   it('returns skipped with the archived_location reason when the business is archived', async () => {
@@ -85,6 +81,7 @@ describe('loadGenerationContext', () => {
         businessId: FIXTURE_BUSINESS_ID,
         accountId: FIXTURE_ACCOUNT_ID,
       },
+      processingBlocked: false,
     });
   });
 
@@ -114,6 +111,49 @@ describe('loadGenerationContext', () => {
         businessId: FIXTURE_BUSINESS_ID,
         accountId: FIXTURE_ACCOUNT_ID,
       },
+      processingBlocked: false,
+    });
+  });
+
+  // An already-committed response on an account in active processing-blocking
+  // offboarding (delete_data) still resolves already_exists — the work WAS
+  // done — but processingBlocked must be true so the caller suppresses the
+  // durable first_response_drafted enqueue (the analytics dispatch poller has
+  // no offboarding gate and would export the event for an account mid-purge).
+  it('returns already_exists with processingBlocked true when the account is in active delete_data offboarding', async () => {
+    sqlReturnQueue.push([makeLoadContextReviewRow()]);
+    sqlReturnQueue.push([makeLoadContextBusinessRow({
+      offboarding_id: 'offboarding-1',
+      offboarding_account_id: FIXTURE_ACCOUNT_ID,
+      offboarding_mode: 'delete_data',
+      offboarding_status: 'pending',
+      offboarding_failed_step: null,
+      offboarding_access_ends_at: null,
+      offboarding_teardown_started_at: null,
+      offboarding_purge_after: null,
+      offboarding_purge_started_at: null,
+      offboarding_purge_cancelled_at: null,
+    })]);
+    sqlReturnQueue.push([{
+      id: 'resp-existing-1',
+      business_id: FIXTURE_BUSINESS_ID,
+      account_id: FIXTURE_ACCOUNT_ID,
+    }]);
+
+    const out = await loadGenerationContext({
+      reviewId: FIXTURE_REVIEW_ID,
+      businessId: FIXTURE_BUSINESS_ID,
+      version: 1,
+    });
+
+    expect(out.kind).toBe('already_exists');
+    expect(out).toMatchObject({
+      existing: {
+        id: 'resp-existing-1',
+        businessId: FIXTURE_BUSINESS_ID,
+        accountId: FIXTURE_ACCOUNT_ID,
+      },
+      processingBlocked: true,
     });
   });
 

@@ -74,7 +74,16 @@ export type LoadOutcome =
   // reason is SKIP_REASON_ARCHIVED_LOCATION, a subscription-guard reason
   // ('cancelled', 'past_due_expired', …), or 'account_offboarding_blocked'.
   | { kind: 'skipped'; reason: string }
-  | { kind: 'already_exists'; existing: { id: string; businessId: string; accountId: string } };
+  // processingBlocked: account is in active offboarding (delete_data/purge
+  // lanes). The outbox-completion recovery still applies — the work WAS done
+  // — but the caller must suppress the durable analytics enqueue: a fresh
+  // analytics_events row for an account mid-purge is exported to PostHog by
+  // a poller with no offboarding gate and can land after purge verification.
+  | {
+      kind: 'already_exists';
+      existing: { id: string; businessId: string; accountId: string };
+      processingBlocked: boolean;
+    };
 
 export async function loadGenerationContext(input: {
   reviewId: string;
@@ -157,6 +166,7 @@ export async function loadGenerationContext(input: {
         businessId: existingResponse.business_id,
         accountId: existingResponse.account_id,
       },
+      processingBlocked: isProcessingBlocked(activeOffboardingStateFromProjection(business)),
     };
   }
 

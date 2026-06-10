@@ -4,22 +4,22 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // (WeeklySummaryScheduler / MonthlyImpactScheduler) — they share the same
 // candidate-selection shape and previously lived in byte-near-identical files.
 
-// ── Hoisted mock state ───────────────────────────────────────────────
-const { sqlReturnQueue, mockSql } = vi.hoisted(() => {
-  const sqlReturnQueue: unknown[] = [];
-
-  const mockSql = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) =>
-    Promise.resolve(sqlReturnQueue.shift() ?? []),
-  );
-
-  return { sqlReturnQueue, mockSql };
+// ── Hoisted shared sql mock (worker/__tests__/helpers/mock-sql) ──────
+const { sqlReturnQueue, mockSql, sqlCalls, resetMockSql } = await vi.hoisted(async () => {
+  const { createMockSql } = await import('../../../__tests__/helpers/mock-sql');
+  return { ...createMockSql() };
 });
 
 vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 
-/** Drains the candidate query then any follow-up microtasks. */
+/**
+ * Drains the candidate query then any follow-up microtasks. The shared mock's
+ * lazy thenable resolves one microtask later than a bare Promise.resolve,
+ * hence the third await.
+ */
 async function flush(): Promise<void> {
+  await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
 }
@@ -63,7 +63,7 @@ describe.each(schedulerCases)('$name', ({ envVar, systemTime, candidateMarker, l
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
-    sqlReturnQueue.length = 0;
+    resetMockSql();
     vi.resetModules();
     delete process.env[envVar];
   });
@@ -80,12 +80,11 @@ describe.each(schedulerCases)('$name', ({ envVar, systemTime, candidateMarker, l
     scheduler.start();
     await flush();
 
-    const candidateCall = mockSql.mock.calls.find((call) => {
-      const text = Array.from(call[0]).join('');
-      return text.includes('FROM businesses b') && text.includes(candidateMarker);
-    });
+    const candidateCall = sqlCalls.find(
+      (call) => call.text.includes('FROM businesses b') && call.text.includes(candidateMarker),
+    );
     expect(candidateCall).toBeDefined();
-    const queryText = Array.from(candidateCall![0]).join('');
+    const queryText = candidateCall!.text;
 
     // Best-effort textual pin — currently the ONLY coverage of the
     // scheduler's archived exclusion (the sole live-DB test exercises the

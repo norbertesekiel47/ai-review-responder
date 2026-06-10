@@ -6,6 +6,8 @@ import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
 import { enqueueGenerateResponse, enqueueSendNotification } from '@/lib/shared/job-outbox-helpers';
+import { assertLocationNotArchived } from '@/lib/approval/locks';
+import { ArchivedLocationError } from '@/lib/approval/errors';
 
 export const dynamic = 'force-dynamic';
 
@@ -169,6 +171,19 @@ async function dispositionFlaggedResponse(request: NextRequest): Promise<NextRes
       // owner-facing regenerate path (regenerateBySession). Without this the
       // closed flag would re-open the owner-release gate on the SAME bad text.
       if (action === 'requires_regeneration') {
+        // Archived-location gate (mirrors the owner-facing regenerate lanes):
+        // without it the supersede commits, the flag closes, and the enqueued
+        // generate job skips-as-success — review left with no draft, silently.
+        // Throwing rolls back the whole tx so the flag stays open and the
+        // admin sees why.
+        try {
+          await assertLocationNotArchived(tx, flag.business_id);
+        } catch (err) {
+          if (err instanceof ArchivedLocationError) {
+            throw new DispositionError(409, 'archived_location');
+          }
+          throw err;
+        }
         const respRows = await tx<{ review_id: string; version: number; status: string }[]>`
           SELECT review_id, version, status
           FROM responses

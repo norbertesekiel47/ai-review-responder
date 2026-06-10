@@ -7,6 +7,7 @@ const {
   mockRequireRole,
   mockSqlResults,
   sqlCallCounter,
+  sqlQueryTexts,
   mockApproveBySession,
   mockEditBySession,
   mockRegenerateBySession,
@@ -16,6 +17,7 @@ const {
   mockRequireRole: vi.fn(),
   mockSqlResults: [] as unknown[][],
   sqlCallCounter: { value: 0 },
+  sqlQueryTexts: [] as string[],
   mockApproveBySession: vi.fn(),
   mockEditBySession: vi.fn(),
   mockRegenerateBySession: vi.fn(),
@@ -51,7 +53,9 @@ vi.mock('@/lib/db/auth', () => {
 
 vi.mock('@/lib/db/server', () => {
   const sqlProxy = new Proxy(() => {}, {
-    apply: () => {
+    apply: (_target, _thisArg, args: unknown[]) => {
+      const strings = args[0];
+      sqlQueryTexts.push(Array.isArray(strings) ? strings.join(' ') : String(strings));
       const result = mockSqlResults[sqlCallCounter.value] ?? [];
       sqlCallCounter.value++;
       return Promise.resolve(result);
@@ -77,22 +81,35 @@ vi.mock('@/lib/approval/service', () => ({
   regenerateBySession: (...args: unknown[]) => mockRegenerateBySession(...args),
 }));
 
-vi.mock('@/lib/approval/errors', () => ({
-  EmptyEditedResponseError: class EmptyEditedResponseError extends Error {
-    constructor() {
-      super('editedText is required');
-      this.name = 'EmptyEditedResponseError';
-    }
-  },
-  ResponseNotPendingError: class ResponseNotPendingError extends Error {
+vi.mock('@/lib/approval/errors', () => {
+  class ResponseNotPendingError extends Error {
     currentStatus: string;
     constructor(status: string) {
       super(`Response is no longer pending approval (current status: ${status})`);
       this.name = 'ResponseNotPendingError';
       this.currentStatus = status;
     }
-  },
-}));
+  }
+  // Mirrors the real subclassing: the dashboard route maps it through the
+  // existing ResponseNotPendingError 409 branch (no dedicated mapping).
+  class ArchivedLocationError extends ResponseNotPendingError {
+    constructor() {
+      super('archived_location');
+      this.name = 'ArchivedLocationError';
+      this.message = 'This location has been archived — this draft can no longer be regenerated.';
+    }
+  }
+  return {
+    EmptyEditedResponseError: class EmptyEditedResponseError extends Error {
+      constructor() {
+        super('editedText is required');
+        this.name = 'EmptyEditedResponseError';
+      }
+    },
+    ResponseNotPendingError,
+    ArchivedLocationError,
+  };
+});
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -147,6 +164,7 @@ function setResponseLookup(
 ) {
   mockSqlResults.length = 0;
   sqlCallCounter.value = 0;
+  sqlQueryTexts.length = 0;
   mockSqlResults.push(rows);
   mockSqlResults.push([accountRow]);
   // runDashboardReviewAction locks the response (SELECT ... FOR UPDATE) and
@@ -157,6 +175,9 @@ function setResponseLookup(
   // In-tx TOCTOU re-assertion: assertWritableSubscriptionForBusiness re-reads the
   // account/offboarding projection by business id. Active + no active offboarding
   // = writable, so the action proceeds to recover the correlation id and run.
+  // NOTE: regenerate tests must additionally push the in-tx archived-gate row
+  // ([{ archived_at: null }] for the happy path) BEFORE the correlation row —
+  // assertLocationNotArchived runs only for actionName === 'regenerate'.
   mockSqlResults.push([{ id: ACCOUNT_ID, subscription_status: 'active', past_due_at: null, flags: {} }]);
 }
 
@@ -185,6 +206,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
     vi.clearAllMocks();
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
+    sqlQueryTexts.length = 0;
     mockBeginCallback.fn = null;
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
@@ -237,6 +259,9 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
     // Signature: approveBySession(tx, responseId, businessId, audit, correlationId)
     const callArgs = mockApproveBySession.mock.calls[0];
     expect(callArgs?.[4]).toBe('upstream-corr-abc');
+    // The in-tx archived gate (FOR SHARE read on businesses) is scoped to
+    // regenerate only until PR B — approve must NOT issue it.
+    expect(sqlQueryTexts.some((text) => text.includes('FOR SHARE'))).toBe(false);
   });
 
   it('returns 402 when the account is past-due read-only', async () => {
@@ -377,6 +402,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
     vi.clearAllMocks();
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
+    sqlQueryTexts.length = 0;
     mockBeginCallback.fn = null;
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
@@ -428,6 +454,9 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
     // Signature: editBySession(tx, responseId, businessId, editedText, audit, correlationId)
     const callArgs = mockEditBySession.mock.calls[0];
     expect(callArgs?.[5]).toBe('upstream-corr-abc');
+    // The in-tx archived gate (FOR SHARE read on businesses) is scoped to
+    // regenerate only until PR B — edit must NOT issue it.
+    expect(sqlQueryTexts.some((text) => text.includes('FOR SHARE'))).toBe(false);
   });
 
   it('passes sanitized edited text to the session edit service', async () => {
@@ -574,6 +603,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
     vi.clearAllMocks();
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
+    sqlQueryTexts.length = 0;
     mockBeginCallback.fn = null;
     mockEnforceRegenLimit.mockResolvedValue(null); // default: allow
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
@@ -629,6 +659,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
   it('returns 200 on successful regeneration request', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
+    mockSqlResults.push([{ archived_at: null }]); // in-tx archived gate → not archived
     mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
     mockRegenerateBySession.mockResolvedValue(undefined);
 
@@ -646,6 +677,34 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
     // Signature: regenerateBySession(tx, responseId, businessId, audit, correlationId)
     const callArgs = mockRegenerateBySession.mock.calls[0];
     expect(callArgs?.[4]).toBe('upstream-corr-abc');
+    // The in-tx archived gate (locking FOR SHARE read on businesses) ran.
+    expect(sqlQueryTexts.some((text) => text.includes('FOR SHARE'))).toBe(true);
+  });
+
+  it('returns 409 and issues no supersede when the location is archived inside the transaction (TOCTOU)', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
+    // The pre-tx `b.archived_at IS NULL` lookup passed, but the location was
+    // archived before the in-tx gate re-read it (ArchivedLocationError extends
+    // ResponseNotPendingError → mapped at the existing 409 branch).
+    mockSqlResults.push([{ archived_at: new Date('2026-06-01T00:00:00Z') }]);
+
+    const { POST } = await import('../[reviewId]/regenerate/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/regenerate`),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toContain('archived');
+    // The supersede/regenerate service never ran — no responses UPDATE issued.
+    expect(mockRegenerateBySession).not.toHaveBeenCalled();
+    expect(sqlQueryTexts.some((text) => /UPDATE\s+responses/i.test(text))).toBe(false);
+    // The gate SELECT (FOR SHARE) was the final statement in the transaction:
+    // lookup, account, response FOR UPDATE, hasOpenFlag, writable-business, gate.
+    expect(sqlQueryTexts.some((text) => text.includes('FOR SHARE'))).toBe(true);
+    expect(sqlCallCounter.value).toBe(6);
   });
 
   it('returns 404 when no response found', async () => {
@@ -677,6 +736,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
   it('returns 409 when response is no longer pending', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
+    mockSqlResults.push([{ archived_at: null }]); // in-tx archived gate → not archived
     mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
 
     const { ResponseNotPendingError } = await import('@/lib/approval/errors');
