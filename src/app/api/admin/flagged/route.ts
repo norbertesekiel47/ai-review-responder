@@ -106,6 +106,21 @@ class DispositionError extends Error {
   }
 }
 
+/** Archived gate, translated to this route's disposition error vocabulary. */
+async function assertFlagLocationActive(
+  tx: Parameters<typeof assertLocationNotArchived>[0],
+  businessId: string,
+): Promise<void> {
+  try {
+    await assertLocationNotArchived(tx, businessId);
+  } catch (err) {
+    if (err instanceof ArchivedLocationError) {
+      throw new DispositionError(409, 'archived_location');
+    }
+    throw err;
+  }
+}
+
 interface OpenFlagRow {
   id: string;
   response_id: string;
@@ -160,6 +175,14 @@ async function dispositionFlaggedResponse(request: NextRequest): Promise<NextRes
       // Only an explicit approval releases the held draft to the owner — via the
       // transactional outbox, atomic with the status change.
       if (action === 'approved_for_owner_review') {
+        // Archived-location gate: releasing to an archived location would
+        // close the flag and enqueue a notification that dispatch silently
+        // skips — the admin believes the draft was released while the owner
+        // never hears of it. Throwing rolls back the whole tx so the flag
+        // stays open and the admin sees why. dismissed_false_positive stays
+        // UNGATED on purpose: admins must be able to close flags for
+        // archived locations or they stay open forever.
+        await assertFlagLocationActive(tx, flag.business_id);
         await enqueueSendNotification(tx, {
           responseId: flag.response_id,
           businessId: flag.business_id,
@@ -171,25 +194,18 @@ async function dispositionFlaggedResponse(request: NextRequest): Promise<NextRes
       // owner-facing regenerate path (regenerateBySession). Without this the
       // closed flag would re-open the owner-release gate on the SAME bad text.
       if (action === 'requires_regeneration') {
-        // Archived-location gate (mirrors the owner-facing regenerate lanes):
-        // without it the supersede commits, the flag closes, and the enqueued
-        // generate job skips-as-success — review left with no draft, silently.
-        // Throwing rolls back the whole tx so the flag stays open and the
-        // admin sees why.
-        try {
-          await assertLocationNotArchived(tx, flag.business_id);
-        } catch (err) {
-          if (err instanceof ArchivedLocationError) {
-            throw new DispositionError(409, 'archived_location');
-          }
-          throw err;
-        }
         const respRows = await tx<{ review_id: string; version: number; status: string }[]>`
           SELECT review_id, version, status
           FROM responses
           WHERE id = ${flag.response_id}::uuid AND business_id = ${flag.business_id}::uuid
           FOR UPDATE
         `;
+        // Archived-location gate AFTER the responses lock — uniform
+        // responses → businesses lock order with the owner-facing approval
+        // lanes. Without it the supersede commits, the flag closes, and the
+        // enqueued generate job skips-as-success — review left with no
+        // draft, silently.
+        await assertFlagLocationActive(tx, flag.business_id);
         const resp = respRows[0];
         if (resp && resp.status === 'pending_approval') {
           await tx`

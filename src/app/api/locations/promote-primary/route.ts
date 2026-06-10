@@ -4,8 +4,10 @@
 // Gated by MULTI_LOCATION_ENABLED flag.
 //
 // Atomically changes is_primary from the current primary to the new one.
-// The partial unique index `businesses_account_primary_uniq` ensures
-// exactly one primary per active account at all times.
+// Also the REPAIR path for zero-primary accounts: demoting 0 rows is legal
+// (see the one-primary invariant docblock in
+// src/lib/locations/promote-primary-tx.ts — the index enforces AT MOST one;
+// the app repairs AT LEAST one).
 //
 // Feature spec: Primary promotion changes is_primary atomically from old to new.
 
@@ -15,9 +17,8 @@ import { promotePrimaryTransaction } from '@/lib/locations/promote-primary-tx';
 import { getLocationById } from '@/lib/locations/repo';
 import {
   LOCATION_ROUTE_NO_STORE as NO_STORE,
-  ownerAccountMismatchResponse,
-  readLocationRouteJson,
-  readOwnerForMultiLocationRoute,
+  locationDenialResponse,
+  readLocationActionRequest,
   UUID_RE,
 } from '@/lib/locations/owner-route';
 
@@ -42,18 +43,10 @@ const PromotePrimarySchema = z.object({
  *   3. Inserts account_audit_log with event_type 'primary_promoted'
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const owner = await readOwnerForMultiLocationRoute(req);
-  if (!owner.ok) return owner.response;
-  const { user } = owner;
-
-  const body = await readLocationRouteJson(req, PromotePrimarySchema);
-  if (!body.ok) return body.response;
-  const { newPrimaryId, accountId } = body.data;
-
-  // ── Ownership: body.accountId must match authenticated user ──────────────
-  if (accountId !== user.accountId) {
-    return ownerAccountMismatchResponse();
-  }
+  const reqCtx = await readLocationActionRequest(req, PromotePrimarySchema);
+  if (!reqCtx.ok) return reqCtx.response;
+  const { user } = reqCtx;
+  const { newPrimaryId, accountId } = reqCtx.data;
 
   // ── Ownership: verify the target location belongs to this account ───────
   const targetLocation = await getLocationById(newPrimaryId);
@@ -85,39 +78,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-
-    // Map known error patterns to HTTP status codes
-    if (message.includes('already the primary')) {
-      return NextResponse.json(
-        { error: 'already_primary' },
-        { status: 400, headers: NO_STORE },
-      );
-    }
-
-    if (message.includes('not found') || message.includes('not accessible')) {
-      return NextResponse.json(
-        { error: 'location_not_found' },
-        { status: 404, headers: NO_STORE },
-      );
-    }
-
-    if (message.includes('archived')) {
-      return NextResponse.json(
-        { error: 'location_archived' },
-        { status: 400, headers: NO_STORE },
-      );
-    }
-
-    if (message.includes('no current primary')) {
-      return NextResponse.json(
-        { error: 'no_current_primary' },
-        { status: 409, headers: NO_STORE },
-      );
-    }
+    const denial = locationDenialResponse(message);
+    if (denial) return denial;
 
     console.error(`[locations/promote-primary] Transaction failed for account=${accountId}: ${message}`);
     return NextResponse.json(
-      { error: 'promote_primary_failed', detail: message },
+      { error: 'promote_primary_failed' },
       { status: 500, headers: NO_STORE },
     );
   }

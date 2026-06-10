@@ -53,7 +53,7 @@ function liveLinkRow(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 function pendingResponseRow() {
-  return [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Callback approved draft', version: 1, review_id: 'rev-1' }];
+  return [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Callback approved draft', version: 1, review_id: 'rev-1', business_id: 'biz-1' }];
 }
 
 function activeAccountRow() {
@@ -105,6 +105,7 @@ describe('approveViaCallback', () => {
     txQueue.push(liveLinkRow());             // SELECT approval_links FOR UPDATE
     txQueue.push(activeAccountRow());        // assertWritableSubscriptionForBusiness
     txQueue.push(pendingResponseRow());      // lockPendingResponse
+    txQueue.push(notArchivedBusinessRow());  // archived gate inside lockPendingResponse
     txQueue.push([]);                        // consumeLink UPDATE
     txQueue.push([]);                        // UPDATE responses status=approved
     txQueue.push([]);                        // revokeSiblings UPDATE
@@ -217,6 +218,28 @@ describe('approveViaCallback', () => {
       audit: { providerEventId: '1', ipAddress: null, telegramUpdateId: 1 },
     })).rejects.toBeInstanceOf(ChannelMismatchError);
   });
+
+  // Archived-location gate: the guard runs INSIDE lockPendingResponse,
+  // right after the response lock and BEFORE the consume, inside the same
+  // sql.begin. The throw aborts the claim — the link is never consumed, the
+  // response is never approved, nothing is enqueued. We assert the throw
+  // plus the absence of every mutation (consume, approve UPDATE, outbox,
+  // audit).
+  it('rejects approve for an archived location and issues no post-guard mutations', async () => {
+    txQueue.push(liveLinkRow());          // SELECT approval_links FOR UPDATE
+    txQueue.push(activeAccountRow());     // assertWritableSubscriptionForBusiness
+    txQueue.push(pendingResponseRow());   // lockPendingResponse (claim)
+    txQueue.push(archivedBusinessRow());  // archived gate inside the claim → throws
+
+    await expect(approveViaCallback({
+      approvalLinkId: 'link-1',
+      chatHandle: '123456789',
+      viaChannel: 'telegram',
+      audit: { providerEventId: '999', ipAddress: '1.2.3.4', telegramUpdateId: 999 },
+    })).rejects.toBeInstanceOf(ArchivedLocationError);
+
+    expectNoCallbackMutation();
+  });
 });
 
 describe('regenerateViaCallback', () => {
@@ -226,8 +249,8 @@ describe('regenerateViaCallback', () => {
     txQueue.push(liveLinkRow());
     txQueue.push(activeAccountRow());
     txQueue.push(pendingResponseRow());
+    txQueue.push(notArchivedBusinessRow()); // archived gate inside lockPendingResponse
     txQueue.push([]); // consumeLink
-    txQueue.push(notArchivedBusinessRow()); // assertLocationNotArchived (after claim)
     txQueue.push([]); // revokeSiblings
     txQueue.push([]); // UPDATE responses superseded
     txQueue.push([]); // INSERT outbox
@@ -304,19 +327,15 @@ describe('regenerateViaCallback', () => {
     expectNoCallbackMutation();
   });
 
-  // Archived-location gate (regenerate only — PR B extends to all approval
-  // actions): the guard runs AFTER the claim, inside the same sql.begin, so
-  // the throw rolls the whole transaction back — the consume is never
-  // committed, the draft is never superseded, nothing is enqueued. The
-  // mocked tx cannot model the rollback of the consume statement itself, so
-  // we assert the throw plus the absence of every statement issued after
-  // the guard (supersede, outbox, audit).
+  // Archived-location gate: the guard runs INSIDE lockPendingResponse,
+  // right after the response lock and BEFORE the consume, inside the same
+  // sql.begin. The throw aborts the claim — the link is never consumed, the
+  // draft is never superseded, nothing is enqueued.
   it('rejects regenerate for an archived location and issues no post-guard mutations', async () => {
     txQueue.push(liveLinkRow());
     txQueue.push(activeAccountRow());
     txQueue.push(pendingResponseRow()); // lockPendingResponse (claim)
-    txQueue.push([]);                   // consumeLink (claim — rolled back with the tx)
-    txQueue.push(archivedBusinessRow()); // assertLocationNotArchived → throws
+    txQueue.push(archivedBusinessRow()); // archived gate inside the claim → throws
 
     await expect(regenerateViaCallback({
       approvalLinkId: 'link-1',
@@ -326,8 +345,7 @@ describe('regenerateViaCallback', () => {
     })).rejects.toBeInstanceOf(ArchivedLocationError);
 
     expect(txCalls.some((call) => call.sql.includes("'superseded'"))).toBe(false);
-    expect(txCalls.some((call) => call.sql.includes('job_outbox'))).toBe(false);
-    expect(txCalls.some((call) => call.sql.includes('approval_audit_log'))).toBe(false);
+    expectNoCallbackMutation();
   });
 
   // The callback ingress classifies permanent errors via instanceof

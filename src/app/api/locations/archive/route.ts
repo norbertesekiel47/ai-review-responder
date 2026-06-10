@@ -18,12 +18,11 @@ import {
   archiveLocationTransaction,
 } from '@/lib/locations/archive-location-tx';
 import { getAccountOwnerUserId } from '@/lib/accounts/repo';
-import { getActiveLocationCount } from '@/lib/locations/repo';
 import {
+  LOCATION_DENIAL_STATUS,
   LOCATION_ROUTE_NO_STORE as NO_STORE,
-  ownerAccountMismatchResponse,
-  readLocationRouteJson,
-  readOwnerForMultiLocationRoute,
+  locationDenialResponse,
+  readLocationActionRequest,
   UUID_RE,
 } from '@/lib/locations/owner-route';
 
@@ -36,15 +35,10 @@ const ArchiveLocationSchema = z.object({
   accountId: z.string().regex(UUID_RE, 'Invalid account ID format'),
 });
 
-// ── HTTP status mapping for guard rejection reasons ────────────────────────
-
-const GUARD_STATUS_MAP: Record<string, number> = {
-  location_not_found: 404,
-  location_not_owned: 403,
-  location_already_archived: 409,
-  last_active_location: 409,
-  promote_first: 409,
-};
+// Denial→status mapping is shared across all locations routes
+// (LOCATION_DENIAL_STATUS in owner-route.ts): both the pre-tx guard result
+// and the in-tx re-assert throws resolve through it, so the same denial can
+// never return different statuses depending on which layer caught it.
 
 // ── Handler ─────────────────────────────────────────────────────────────────
 
@@ -60,43 +54,30 @@ const GUARD_STATUS_MAP: Record<string, number> = {
  * The notification context will skip dispatch for archived locations.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const owner = await readOwnerForMultiLocationRoute(req);
-  if (!owner.ok) return owner.response;
-  const { user } = owner;
-
-  const body = await readLocationRouteJson(req, ArchiveLocationSchema);
-  if (!body.ok) return body.response;
-  const { locationId, accountId } = body.data;
-
-  // ── Ownership: body.accountId must match authenticated user ──────────────
-  if (accountId !== user.accountId) {
-    return ownerAccountMismatchResponse();
-  }
+  const reqCtx = await readLocationActionRequest(req, ArchiveLocationSchema);
+  if (!reqCtx.ok) return reqCtx.response;
+  const { locationId, accountId } = reqCtx.data;
 
   // Run guard checks
   const guardResult = await assertCanArchiveLocation(locationId, accountId);
 
   if (!guardResult.allowed) {
-    const httpStatus = GUARD_STATUS_MAP[guardResult.reason] ?? 403;
+    const httpStatus = LOCATION_DENIAL_STATUS[guardResult.reason] ?? 403;
     return NextResponse.json(
       { error: guardResult.reason },
       { status: httpStatus, headers: NO_STORE },
     );
   }
 
-  // Gather pre-transaction data
-  const [actorUserId, activeLocationsBefore] = await Promise.all([
-    getAccountOwnerUserId(accountId),
-    getActiveLocationCount(accountId),
-  ]);
+  const actorUserId = await getAccountOwnerUserId(accountId);
 
-  // Execute the archive transaction
+  // Execute the archive transaction. The audit payload's location counts come
+  // from the tx's locked snapshot, not a pre-tx read.
   try {
     const result = await archiveLocationTransaction({
       locationId,
       accountId,
       actorUserId,
-      activeLocationsBefore,
     });
 
     return NextResponse.json(
@@ -110,12 +91,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[locations/archive] Transaction failed for location=${locationId}: ${message}`);
-    if (message === 'last_active_location' || message === 'location_archive_conflict') {
-      return NextResponse.json(
-        { error: message },
-        { status: 409, headers: NO_STORE },
-      );
-    }
+    const denial = locationDenialResponse(message);
+    if (denial) return denial;
     return NextResponse.json(
       { error: 'archive_location_failed' },
       { status: 500, headers: NO_STORE },

@@ -62,22 +62,30 @@ export async function consumeLink(tx: TxClient, linkId: string): Promise<void> {
 }
 
 /**
- * Lock the response row and verify it is still pending_approval.
- * Must be called BEFORE consumeLink so the transaction rolls back
- * cleanly if the response is no longer actionable.
+ * Lock the response row, verify it is still pending_approval, and verify its
+ * location is not archived. Must be called BEFORE consumeLink so the
+ * transaction rolls back cleanly if the response is no longer actionable.
+ *
+ * The archived check lives HERE, inside the claim primitive, so that
+ * "a pending response can only be acted on for a live location" holds for
+ * every current and future lane by construction — and so the
+ * responses FOR UPDATE always precedes the businesses FOR SHARE
+ * (uniform lock order; a concurrent archive can never form a cycle).
+ * The business_id comes from the response row itself, not the caller.
  */
 export async function lockPendingResponse(
   tx: TxClient,
   responseId: string,
-): Promise<{ status: string; original_draft_text: string; response_text: string; version: number; review_id: string }> {
-  const rows = await tx<{ status: string; original_draft_text: string; response_text: string; version: number; review_id: string }[]>`
-    SELECT status, original_draft_text, response_text, version, review_id
+): Promise<{ status: string; original_draft_text: string; response_text: string; version: number; review_id: string; business_id: string }> {
+  const rows = await tx<{ status: string; original_draft_text: string; response_text: string; version: number; review_id: string; business_id: string }[]>`
+    SELECT status, original_draft_text, response_text, version, review_id, business_id
     FROM responses WHERE id = ${responseId}
     FOR UPDATE
   `;
   const row = rows[0];
   if (!row) throw new ResponseNotPendingError('not_found');
   if (row.status !== 'pending_approval') throw new ResponseNotPendingError(row.status);
+  await assertLocationNotArchived(tx, row.business_id);
   return row;
 }
 
@@ -108,28 +116,25 @@ export async function revokeOpenLinksForResponse(tx: TxClient, responseId: strin
 }
 
 /**
- * Reject approval actions that target an archived location.
+ * Reject mutating approval actions that target an archived location.
  *
- * Scoped to REGENERATE for now because regenerate is destructive without a
- * replacement: it supersedes the pending draft, consumes the link, and
- * enqueues a generate_response job the generator skips for archived
- * locations — leaving the owner with nothing. PR B of the multi-location
- * hardening spec extends this gate to ALL approval actions (approve/edit).
- * Shared by ALL FOUR regenerate lanes: token-mode, callback-mode,
- * dashboard session (http-routes), and admin flagged disposition.
+ * Two consumers: lockPendingResponse (which gives every approval lane the
+ * gate by construction — token, callback, and dashboard-session approve/
+ * edit/regenerate all claim through it) and the admin flagged-disposition
+ * lane's release-style actions (api/admin/flagged — it tolerates
+ * non-pending responses so it cannot use the claim primitive, and
+ * dismissed_false_positive is deliberately ungated so flags on archived
+ * locations can still be closed). An archived location has no live Google
+ * connection to post to and the generator skips its regenerate jobs, so any
+ * approve/edit/regenerate would either fail downstream or destructively
+ * supersede the pending draft.
  *
  * FOR SHARE makes this a locking read: the archive tx takes the same
  * businesses row FOR UPDATE, so an in-flight archive blocks this gate and
- * the re-evaluated read sees the committed archived_at — closing the TOCTOU
- * window where a concurrent archive let the supersede through. Callers MUST
- * run inside the same sql.begin() as the mutation (all four do); outside a
- * transaction PgBouncer drops the lock immediately.
- *
- * This stays a standalone query rather than folding archived_at into the
- * shared assertWritableSubscriptionForBusiness projection: that helper is a
- * plain read used by approve/edit lanes where this gate must not yet fire,
- * and the lock is the point. PR B unifies them when the gate covers all
- * actions.
+ * the re-evaluated read sees the committed archived_at — no TOCTOU window.
+ * Callers MUST run inside the same sql.begin() as the mutation (all do);
+ * outside a transaction PgBouncer drops the lock immediately. Call it only
+ * AFTER any responses FOR UPDATE in the same tx (uniform lock order).
  *
  * Fails closed: a missing business row also rejects.
  */

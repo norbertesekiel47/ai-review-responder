@@ -423,7 +423,6 @@ describe('VAL-CROSS-005: Archive mid-flow', () => {
       locationId: locB.id,
       accountId: account.id,
       actorUserId: 'user-001',
-      activeLocationsBefore: 2,
     });
     expect(archiveResult.archived).toBe(true);
 

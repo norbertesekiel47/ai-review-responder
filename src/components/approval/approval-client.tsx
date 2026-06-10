@@ -75,6 +75,7 @@ type Action =
   | { type: 'actionSucceeded'; action: ApprovalAction; message: string }
   | { type: 'actionFailed'; message: string };
 
+// fallow-ignore-next-line complexity — flat one-case-per-action switch; cyclomatic count is the action vocabulary, not tangled logic. Pre-existing; not touched by PR B.
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'loadSucceeded':
@@ -325,6 +326,7 @@ function ActionBar({
   isEditing,
   editedText,
   actionLoading,
+  isArchived,
   onAction,
   onStartEdit,
   onCancelEdit,
@@ -332,10 +334,21 @@ function ActionBar({
   isEditing: boolean;
   editedText: string;
   actionLoading: boolean;
+  isArchived: boolean;
   onAction: (action: ApprovalAction) => void;
   onStartEdit: () => void;
   onCancelEdit: () => void;
 }) {
+  if (isArchived) {
+    // Server rejects every mutating action for archived locations (409) —
+    // don't render buttons that can only fail on submit.
+    return (
+      <p className="rounded-xl border border-[#97B3AE]/40 bg-[#97B3AE]/10 p-3 text-center text-sm text-[#5B7470]">
+        This location has been archived — approval actions are no longer
+        available for this draft.
+      </p>
+    );
+  }
   return (
     <div className="flex flex-col gap-2 sm:flex-row">
       {isEditing ? (
@@ -420,6 +433,7 @@ export default function ApprovalClient({ token }: { token: string }) {
   // full-island) branch. A GET failure leaves `data` null → full error island.
   useEffect(() => {
     let cancelled = false;
+    // fallow-ignore-next-line complexity — idiomatic load-then-bind effect: sequential fetch + cancellation guard branches. Pre-existing; not touched by PR B.
     void (async () => {
       try {
         const res = await fetch(`/api/approve/${token}`);
@@ -556,6 +570,7 @@ export default function ApprovalClient({ token }: { token: string }) {
           isEditing={isEditing}
           editedText={editedText}
           actionLoading={actionLoading}
+          isArchived={data.isArchived}
           onAction={handleAction}
           onStartEdit={() => dispatch({ type: 'editStarted' })}
           onCancelEdit={() => dispatch({ type: 'editCancelled' })}

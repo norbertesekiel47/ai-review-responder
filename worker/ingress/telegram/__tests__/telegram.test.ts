@@ -298,7 +298,7 @@ describe('telegram ingress — permanent link-state failures after ack', () => {
       text: expect.stringMatching(/archived/i),
     }));
     expect(mockEditText).toHaveBeenCalledWith(expect.objectContaining({
-      text: expect.stringMatching(/can no longer be regenerated/i),
+      text: expect.stringMatching(/approval actions are no longer available/i),
     }));
     // ArchivedLocationError extends ResponseNotPendingError — it must NOT
     // fall through to the parent's "already been handled" copy (false here).

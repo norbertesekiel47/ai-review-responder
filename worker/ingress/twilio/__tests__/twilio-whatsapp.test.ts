@@ -359,7 +359,7 @@ describe('handleTwilioWhatsAppInbound — button tap path', () => {
       body: expect.stringMatching(/archived/i),
     }));
     expect(mockSendFreeform).toHaveBeenCalledWith(expect.objectContaining({
-      body: expect.stringMatching(/can no longer be regenerated/i),
+      body: expect.stringMatching(/approval actions are no longer available/i),
     }));
     // ArchivedLocationError extends ResponseNotPendingError — it must NOT
     // fall through to the parent's "handled on another channel" copy.

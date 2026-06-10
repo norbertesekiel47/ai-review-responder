@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
-import { ResponseNotPendingError } from '../errors';
+import { ArchivedLocationError, ResponseNotPendingError } from '../errors';
 
 const {
   sqlCalls,
@@ -437,6 +437,63 @@ describe('runDashboardReviewAction', () => {
       audit: { actorUserId: 'owner-1', ipAddress: '203.0.113.10' },
       correlationId: 'corr-1',
     }));
+
+    // The wrapper itself no longer issues the archived-location gate — the
+    // gate is owned by the action's claim primitive (lockPendingResponse in
+    // locks.ts). The only archived_at the wrapper touches is the pre-tx
+    // `b.archived_at IS NULL` lookup filter above.
+    expect(sqlCalls.some((call) => call.raw.includes('SELECT archived_at'))).toBe(false);
+    expect(sqlCalls.some((call) => call.raw.includes('FOR SHARE'))).toBe(false);
+  });
+
+  // The archived gate itself runs inside the action's lockPendingResponse
+  // claim (covered by locks/service tests). What the wrapper still OWNS is
+  // the error mapping: ArchivedLocationError (a ResponseNotPendingError
+  // subclass) thrown by the action's claim must surface as a 409 conflict.
+  it('maps ArchivedLocationError thrown by the approve action to a 409 conflict', async () => {
+    sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // outer pre-tx account gate
+    sqlResults.push([]); // SELECT ... FOR UPDATE
+    sqlResults.push([]); // hasOpenFlag → no open flag
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
+    const action = vi.fn().mockRejectedValue(new ArchivedLocationError());
+
+    const res = await runDashboardReviewAction(
+      request(),
+      'rev-1',
+      { id: 'owner-1', accountId: 'acct-1' },
+      'approve',
+      'Response approved.',
+      action,
+    );
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: 'This location has been archived — approval actions are no longer available for this draft.',
+    });
+  });
+
+  it('maps ArchivedLocationError thrown by the edit action to a 409 conflict', async () => {
+    sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // outer pre-tx account gate
+    sqlResults.push([]); // SELECT ... FOR UPDATE
+    sqlResults.push([]); // hasOpenFlag → no open flag
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
+    const action = vi.fn().mockRejectedValue(new ArchivedLocationError());
+
+    const res = await runDashboardReviewAction(
+      request(),
+      'rev-1',
+      { id: 'owner-1', accountId: 'acct-1' },
+      'edit',
+      'Response updated.',
+      action,
+    );
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: 'This location has been archived — approval actions are no longer available for this draft.',
+    });
   });
 
   it('re-asserts the writable/offboarding gate inside the tx and blocks an offboarding confirmed after the pre-tx check', async () => {

@@ -3,9 +3,23 @@
 // Primary promotion transaction. Atomically changes is_primary from the
 // current primary location to a new primary location within the same account.
 //
-// Feature spec:
-//   - Primary promotion changes is_primary atomically from old to new
-//   - Exactly one primary per active account maintained by partial unique index
+// ── CANONICAL OWNER of the one-primary invariant ────────────────────────────
+// The invariant has two halves with two different enforcers:
+//   AT MOST one  — the partial unique index businesses_account_primary_uniq
+//                  (is_primary = TRUE AND archived_at IS NULL).
+//   AT LEAST one — app-level repair, NOT the index. Zero-primary is a legal
+//                  but transient state, reachable via offboarding-teardown
+//                  (archives every location, primary included) followed by a
+//                  cancelled offboarding + reactivation. It is repaired by:
+//                  (a) this transaction, which tolerates demoting 0 rows
+//                  precisely so promote can fix a zero-primary account;
+//                  (b) reactivation's self-heal (archive-location-tx.ts),
+//                  which auto-promotes when no active primary exists. The
+//                  owner archive path blocks archiving a primary
+//                  (promote_first), so steady state never drops to zero
+//                  outside offboarding.
+// New lifecycle writers (CSV import, merges, admin reassignment) must keep
+// BOTH halves: never assume a primary exists, never create a second one.
 //
 // The partial unique index `businesses_account_primary_uniq` enforces that
 // at most one row per account has is_primary = TRUE AND archived_at IS NULL.
@@ -37,8 +51,13 @@ export interface PromotePrimaryTxInput {
 }
 
 export interface PromotePrimaryTxResult {
-  /** ID of the location that was demoted from primary. */
-  oldPrimaryId: string;
+  /**
+   * ID of the location that was demoted from primary, or `null` when the
+   * account had no current primary — a zero-primary repair. Promoting any
+   * active location heals such an account, so demoting 0 rows is expected,
+   * not an error.
+   */
+  oldPrimaryId: string | null;
   /** ID of the location that was promoted to primary. */
   newPrimaryId: string;
 }
@@ -48,56 +67,21 @@ export interface PromotePrimaryTxResult {
 /**
  * Atomically promotes a location to primary, demoting the current primary.
  *
- * Steps:
- *   0. Validate the new primary exists, is active, belongs to the account,
- *      and is not already primary.
- *   1. (Inside tx) Set is_primary = FALSE on the current primary for this account
- *   2. (Inside tx) Set is_primary = TRUE on the new primary
- *   3. (Inside tx) Insert account_audit_log with event_type 'primary_promoted'
+ * Steps (all inside one tx; validation happens under the locks — the route
+ * does its own pre-checks for the 404/403 UX split via getLocationById):
+ *   1. Set is_primary = FALSE on the current primary for this account
+ *   2. Set is_primary = TRUE on the new primary
+ *   3. Insert account_audit_log with event_type 'primary_promoted'
  *
- * The partial unique index `businesses_account_primary_uniq` ensures that
- * at commit time, exactly one row per active account has is_primary = TRUE.
+ * Throws LOCATION_DENIAL_STATUS code strings ('location_not_found',
+ * 'already_primary') — see src/lib/locations/owner-route.ts.
  */
 export async function promotePrimaryTransaction(
   input: PromotePrimaryTxInput,
 ): Promise<PromotePrimaryTxResult> {
   const { accountId, newPrimaryId, actorUserId } = input;
 
-  // ── Step 0: Validate the new primary ─────────────────────────────────
-  const [newPrimary] = await sql<{
-    id: string;
-    account_id: string;
-    is_primary: boolean;
-    archived_at: Date | null;
-  }[]>`
-    SELECT id, account_id, is_primary, archived_at
-    FROM businesses
-    WHERE id = ${newPrimaryId}::uuid
-      AND account_id = ${accountId}::uuid
-      AND archived_at IS NULL
-  `;
-
-  if (!newPrimary) {
-    throw new Error(
-      `new primary location not found or not accessible: ${newPrimaryId}`,
-    );
-  }
-
-  if (newPrimary.is_primary) {
-    throw new Error(
-      `location ${newPrimaryId} is already the primary location`,
-    );
-  }
-
-  if (newPrimary.archived_at !== null) {
-    throw new Error(
-      `location ${newPrimaryId} is archived and cannot be promoted to primary`,
-    );
-  }
-
-  // ── Step 1-3: Atomic transaction ─────────────────────────────────────
-
-  let oldPrimaryId: string = '';
+  let oldPrimaryId: string | null = null;
 
   await sql.begin(async (tx) => {
     await tx`
@@ -116,14 +100,10 @@ export async function promotePrimaryTransaction(
       FOR UPDATE
     `;
     if (!lockedTarget) {
-      throw new Error(
-        `new primary location not found or not accessible: ${newPrimaryId}`,
-      );
+      throw new Error('location_not_found');
     }
     if (lockedTarget.is_primary) {
-      throw new Error(
-        `location ${newPrimaryId} is already the primary location`,
-      );
+      throw new Error('already_primary');
     }
 
     // 1. Demote the current primary
@@ -137,13 +117,10 @@ export async function promotePrimaryTransaction(
       RETURNING id
     `;
 
-    oldPrimaryId = demoted?.id ?? '';
-
-    if (!oldPrimaryId) {
-      throw new Error(
-        `no current primary location found for account ${accountId} — cannot promote`,
-      );
-    }
+    // A zero-primary account (no active is_primary row) is a reachable state.
+    // Demoting 0 rows is expected there — promoting the new primary heals it,
+    // so this is NOT an error.
+    oldPrimaryId = demoted?.id ?? null;
 
     // 2. Promote the new primary
     const [promoted] = await tx<{ id: string }[]>`
@@ -156,9 +133,7 @@ export async function promotePrimaryTransaction(
       RETURNING id
     `;
     if (!promoted) {
-      throw new Error(
-        `new primary location not found or not accessible: ${newPrimaryId}`,
-      );
+      throw new Error('location_not_found');
     }
 
     // 3. Insert audit log entry

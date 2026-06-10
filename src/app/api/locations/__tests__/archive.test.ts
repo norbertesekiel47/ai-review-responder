@@ -367,7 +367,55 @@ describe('POST /api/locations/archive', () => {
     expect(txInput.locationId).toBe(SECONDARY_LOCATION_ID);
     expect(txInput.accountId).toBe(ACCOUNT_ID);
     expect(txInput.actorUserId).toBe(ACTOR_USER_ID);
-    expect(txInput.activeLocationsBefore).toBe(2);
+    // Counts are derived inside the tx from the locked snapshot — the route
+    // no longer passes a pre-tx (stale-able) activeLocationsBefore.
+    expect(txInput.activeLocationsBefore).toBeUndefined();
+  });
+
+  // ── In-tx guard throws map through GUARD_STATUS_MAP (not 500) ──────────
+
+  it('maps an in-tx promote_first throw (TOCTOU race) to 409, not 500', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockAssertCanArchiveLocation.mockResolvedValueOnce({
+      allowed: true,
+      activeLocationsAfterArchive: 1,
+    });
+    mockGetAccountOwnerUserId.mockResolvedValueOnce(ACTOR_USER_ID);
+    (archiveLocationTransaction as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('promote_first'),
+    );
+
+    const req = mkRequest({
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe('promote_first');
+  });
+
+  it('maps an in-tx location_archive_conflict throw to 409', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockAssertCanArchiveLocation.mockResolvedValueOnce({
+      allowed: true,
+      activeLocationsAfterArchive: 1,
+    });
+    mockGetAccountOwnerUserId.mockResolvedValueOnce(ACTOR_USER_ID);
+    (archiveLocationTransaction as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('location_archive_conflict'),
+    );
+
+    const req = mkRequest({
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe('location_archive_conflict');
   });
 
   // ── Input validation ───────────────────────────────────────────────────

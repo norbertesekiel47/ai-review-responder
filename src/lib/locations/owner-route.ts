@@ -97,6 +97,61 @@ export async function readOwnerForMultiLocationRoute(
   return { ok: true, user: user as LocationOwnerRouteUser };
 }
 
+/**
+ * Shared preamble for the owner location-action routes (archive /
+ * promote-primary / reactivate): owner+flag gate → JSON body parse →
+ * body.accountId must match the authenticated owner. Schemas must include
+ * an `accountId` field.
+ */
+export async function readLocationActionRequest<TSchema extends z.ZodTypeAny>(
+  req: NextRequest,
+  schema: TSchema,
+  offboardingGate?: Pick<OffboardingGate, 'getOffboardingState'>,
+): Promise<
+  | { ok: true; user: LocationOwnerRouteUser; data: z.output<TSchema> }
+  | { ok: false; response: NextResponse }
+> {
+  const owner = await readOwnerForMultiLocationRoute(req, offboardingGate);
+  if (!owner.ok) return owner;
+
+  const body = await readLocationRouteJson(req, schema);
+  if (!body.ok) return body;
+
+  const { accountId } = body.data as { accountId: string };
+  if (accountId !== owner.user.accountId) {
+    return { ok: false, response: ownerAccountMismatchResponse() };
+  }
+
+  return { ok: true, user: owner.user, data: body.data };
+}
+
+/**
+ * Single owner of the location-denial → HTTP-status vocabulary, shared by
+ * the archive / promote-primary / reactivate routes for BOTH pre-tx guard
+ * results and in-tx code-string throws. Exact-match only — substring
+ * matching on error prose is how dialects and dead branches creep in.
+ */
+export const LOCATION_DENIAL_STATUS: Record<string, number> = {
+  location_not_found: 404,
+  location_not_owned: 403,
+  location_already_archived: 409,
+  location_archive_conflict: 409,
+  location_reactivate_conflict: 409,
+  last_active_location: 409,
+  promote_first: 409,
+  already_primary: 400,
+};
+
+/** Map an in-tx denial code to its response, or null for unexpected errors. */
+export function locationDenialResponse(message: string): NextResponse | null {
+  const status = LOCATION_DENIAL_STATUS[message];
+  if (status === undefined) return null;
+  return NextResponse.json(
+    { error: message },
+    { status, headers: LOCATION_ROUTE_NO_STORE },
+  );
+}
+
 export function ownerAccountMismatchResponse(): NextResponse {
   return NextResponse.json(
     { error: 'Account ID mismatch' },

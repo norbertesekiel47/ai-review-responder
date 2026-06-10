@@ -69,39 +69,74 @@ function mkInput(overrides: Partial<ArchiveLocationTxInput> = {}): ArchiveLocati
     locationId: SECONDARY_LOCATION_ID,
     accountId: ACCOUNT_ID,
     actorUserId: ACTOR_USER_ID,
-    activeLocationsBefore: 2,
     ...overrides,
   };
 }
 
 // ── Test setup ───────────────────────────────────────────────────────────────
 
-beforeEach(() => {
-  mockSql.mockReset();
+const defaultZernioRow = {
+  zernio_account_id: 'zernio-account-1',
+  zernio_location_id: 'zernio-location-1',
+  subscription_tier: 'standard',
+  subscription_activated_at: new Date('2026-05-01T00:00:00.000Z'),
+};
+
+/**
+ * Single parametrized mock-DB driver for every archive/teardown/reactivate
+ * scenario in this file. Routes the queries these transactions issue by
+ * template fingerprint:
+ *   - accounts SELECT ... FOR UPDATE lock
+ *   - active-location COUNT(*) (archive guard)
+ *   - the locked is_primary + archived_at snapshot SELECT ... FOR UPDATE
+ *   - the B3 active-primary COUNT (is_primary = TRUE, reactivate self-heal)
+ *   - UPDATE businesses (archive / un-archive / self-promote)
+ *   - zernio_connections JOIN accounts (reactivation backfill context)
+ * Tests call it with overrides instead of redefining a router.
+ */
+function driveArchiveDb({
+  activeCount = 2,
+  isPrimary = false,
+  archivedAt = null as Date | null,
+  activePrimaryCount = 1,
+  updateRows = [{ id: SECONDARY_LOCATION_ID }] as Array<{ id: string }>,
+  selfPromoteRows = undefined as Array<{ id: string }> | undefined,
+  zernio = defaultZernioRow as typeof defaultZernioRow | null,
+} = {}) {
   mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
     const template = strings.join('?');
     if (template.includes('SELECT id') && template.includes('FROM accounts')) {
       return [{ id: ACCOUNT_ID }];
     }
     if (template.includes('SELECT COUNT(*) AS count') && template.includes('FROM businesses')) {
-      return [{ count: 2 }];
+      return [{ count: activeCount }];
+    }
+    if (
+      template.includes('COUNT(*)') &&
+      template.includes('is_primary = TRUE') &&
+      template.includes('archived_at IS NULL')
+    ) {
+      return [{ count: activePrimaryCount }];
     }
     if (template.includes('SELECT archived_at') && template.includes('FROM businesses') && template.includes('FOR UPDATE')) {
-      return [{ archived_at: null }];
+      return [{ archived_at: archivedAt, is_primary: isPrimary }];
+    }
+    if (template.includes('UPDATE businesses') && template.includes('SET is_primary = TRUE')) {
+      return selfPromoteRows ?? updateRows;
     }
     if (template.includes('UPDATE businesses')) {
-      return [{ id: SECONDARY_LOCATION_ID }];
+      return updateRows;
     }
     if (template.includes('FROM zernio_connections') && template.includes('JOIN accounts')) {
-      return [{
-        zernio_account_id: 'zernio-account-1',
-        zernio_location_id: 'zernio-location-1',
-        subscription_tier: 'standard',
-        subscription_activated_at: new Date('2026-05-01T00:00:00.000Z'),
-      }];
+      return zernio ? [zernio] : [];
     }
     return [];
   });
+}
+
+beforeEach(() => {
+  mockSql.mockReset();
+  driveArchiveDb();
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
 });
 
@@ -305,22 +340,7 @@ describe('archiveLocationTransaction', () => {
   });
 
   it('throws last_active_location inside the transaction before update/audit/outbox', async () => {
-    mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
-      const template = strings.join('?');
-      if (template.includes('SELECT id') && template.includes('FROM accounts')) {
-        return [{ id: ACCOUNT_ID }];
-      }
-      if (template.includes('SELECT COUNT(*) AS count') && template.includes('FROM businesses')) {
-        return [{ count: 1 }];
-      }
-      if (template.includes('SELECT archived_at') && template.includes('FOR UPDATE')) {
-        return [{ archived_at: null }];
-      }
-      if (template.includes('UPDATE businesses')) {
-        return [{ id: SECONDARY_LOCATION_ID }];
-      }
-      return [];
-    });
+    driveArchiveDb({ activeCount: 1 });
 
     await expect(archiveLocationTransaction(mkInput())).rejects.toThrow(
       'last_active_location',
@@ -341,19 +361,7 @@ describe('archiveLocationTransaction', () => {
   });
 
   it('throws and skips audit/outbox when archive UPDATE affects no rows', async () => {
-    mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
-      const template = strings.join('?');
-      if (template.includes('SELECT id') && template.includes('FROM accounts')) {
-        return [{ id: ACCOUNT_ID }];
-      }
-      if (template.includes('SELECT COUNT(*) AS count') && template.includes('FROM businesses')) {
-        return [{ count: 2 }];
-      }
-      if (template.includes('UPDATE businesses')) {
-        return [];
-      }
-      return [];
-    });
+    driveArchiveDb({ updateRows: [] });
 
     await expect(archiveLocationTransaction(mkInput())).rejects.toThrow(
       'location_archive_conflict',
@@ -451,9 +459,10 @@ describe('archiveLocationTransaction', () => {
     expect(deleteCall).toBeUndefined();
   });
 
-  // Audit payload includes relevant archive info
+  // Audit payload includes relevant archive info (counts come from the
+  // tx's locked snapshot, not a caller-supplied pre-tx read)
   it('audit log payload includes location_id and active_locations_before', async () => {
-    await archiveLocationTransaction(mkInput({ activeLocationsBefore: 3 }));
+    await archiveLocationTransaction(mkInput());
 
     // The audit INSERT's payload should contain location_id and active_locations_before.
     // jsonb is mocked to pass through.
@@ -481,6 +490,92 @@ describe('archiveLocationTransaction', () => {
       },
     );
     expect(ops.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// B1: race-proof primary archive via the locked snapshot
+// ══════════════════════════════════════════════════════════════════════════
+// Invariant: businesses_account_primary_uniq enforces at most one primary per
+// active account. The owner archive path must NOT archive the primary while
+// other active locations exist — it decides "is this the primary?" from the
+// LOCKED snapshot (held FOR UPDATE through the archive UPDATE), not the
+// UPDATE rowcount. The teardown path (offboarding) IS allowed to archive the
+// primary intentionally.
+
+describe('archiveLocationTransaction — B1 race-proof primary guard', () => {
+  it('throws promote_first from the locked snapshot when the primary has other active locations', async () => {
+    driveArchiveDb({ activeCount: 2, isPrimary: true });
+
+    await expect(
+      archiveLocationTransaction(mkInput({ locationId: PRIMARY_LOCATION_ID })),
+    ).rejects.toThrow('promote_first');
+
+    // The archive UPDATE must NOT have been reached.
+    const updateCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),
+    );
+    expect(updateCall).toBeUndefined();
+
+    const auditCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO account_audit_log'),
+    );
+    const outboxCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'),
+    );
+    expect(auditCall).toBeUndefined();
+    expect(outboxCall).toBeUndefined();
+  });
+
+  it('checks last_active_location before promote_first (only the primary, count 1)', async () => {
+    driveArchiveDb({ activeCount: 1, isPrimary: true });
+
+    await expect(
+      archiveLocationTransaction(mkInput({ locationId: PRIMARY_LOCATION_ID })),
+    ).rejects.toThrow('last_active_location');
+  });
+
+  it('surfaces location_archive_conflict for an already-archived target, even when the remaining count is 1 (double-submit on a 2-location account)', async () => {
+    // Snapshot: the target is already archived, so the active count has
+    // dropped to 1. The archived check must win over last_active_location —
+    // the owner is double-submitting, not archiving their last location.
+    driveArchiveDb({ activeCount: 1, archivedAt: new Date('2026-06-01T00:00:00Z') });
+
+    await expect(
+      archiveLocationTransaction(mkInput({ locationId: SECONDARY_LOCATION_ID })),
+    ).rejects.toThrow('location_archive_conflict');
+
+    const updateCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),
+    );
+    expect(updateCall).toBeUndefined();
+  });
+
+  it('surfaces location_archive_conflict (not promote_first) when a non-primary snapshot loses the archive race', async () => {
+    // 0 rows affected by the archive UPDATE — lost the race.
+    driveArchiveDb({ activeCount: 2, updateRows: [] });
+
+    await expect(
+      archiveLocationTransaction(mkInput({ locationId: SECONDARY_LOCATION_ID })),
+    ).rejects.toThrow('location_archive_conflict');
+  });
+});
+
+describe('archiveLocationForAccountOffboardingTeardownTransaction — B1 teardown may archive primary', () => {
+  it('archives the primary location during teardown without throwing promote_first', async () => {
+    driveArchiveDb({ activeCount: 1, isPrimary: true });
+
+    const result = await archiveLocationForAccountOffboardingTeardownTransaction({
+      locationId: PRIMARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      accountOffboardingId: 'offboarding-123',
+    });
+
+    expect(result).toEqual({
+      locationId: PRIMARY_LOCATION_ID,
+      archived: true,
+      alreadyArchived: false,
+    });
   });
 });
 
@@ -512,19 +607,7 @@ describe('archiveLocationForAccountOffboardingTeardownTransaction', () => {
   });
 
   it('treats already-archived snapshot locations as idempotent success without rewriting audit/outbox', async () => {
-    mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
-      const template = strings.join('?');
-      if (template.includes('SELECT id') && template.includes('FROM accounts')) {
-        return [{ id: ACCOUNT_ID }];
-      }
-      if (template.includes('SELECT COUNT(*) AS count') && template.includes('FROM businesses')) {
-        return [{ count: 1 }];
-      }
-      if (template.includes('SELECT archived_at') && template.includes('FOR UPDATE')) {
-        return [{ archived_at: new Date('2026-05-01T00:00:00.000Z') }];
-      }
-      return [];
-    });
+    driveArchiveDb({ activeCount: 1, archivedAt: new Date('2026-05-01T00:00:00.000Z') });
 
     const result = await archiveLocationForAccountOffboardingTeardownTransaction({
       locationId: SECONDARY_LOCATION_ID,
@@ -575,13 +658,7 @@ describe('reactivateLocationTransaction', () => {
   });
 
   it('throws and skips audit/outbox when reactivate UPDATE affects no rows', async () => {
-    mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
-      const template = strings.join('?');
-      if (template.includes('UPDATE businesses')) {
-        return [];
-      }
-      return [];
-    });
+    driveArchiveDb({ updateRows: [] });
 
     await expect(reactivateLocationTransaction({
       locationId: SECONDARY_LOCATION_ID,
@@ -689,6 +766,106 @@ describe('reactivateLocationTransaction', () => {
     });
 
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// B3: reactivation self-heals a zero-primary account (under an account lock)
+// ══════════════════════════════════════════════════════════════════════════
+// Invariant: businesses_account_primary_uniq enforces AT MOST one primary per
+// active account; a healthy account also wants AT LEAST one. When the
+// offboarding-cancel → reactivate path leaves an account with zero active
+// primaries, reactivating a location must silently self-promote it under the
+// SAME accounts→businesses lock used by archive/promote, so two concurrent
+// reactivations can't both win the primary.
+
+describe('reactivateLocationTransaction — B3 zero-primary self-heal', () => {
+  function selfPromoteUpdateCalls() {
+    return mockSql.mock.calls.filter((c: any[]) => {
+      const template = (c[0] as TemplateStringsArray).join('?');
+      return template.includes('UPDATE businesses') && /is_primary\s*=\s*TRUE/i.test(template);
+    });
+  }
+
+  function primaryPromotedAuditCalls() {
+    return mockSql.mock.calls.filter((c: any[]) => {
+      const template = (c[0] as TemplateStringsArray).join('?');
+      return template.includes('INSERT INTO account_audit_log') && template.includes('primary_promoted');
+    });
+  }
+
+  it('self-promotes the reactivated location when the account has no active primary', async () => {
+    driveArchiveDb({ activePrimaryCount: 0, zernio: null });
+
+    const result = await reactivateLocationTransaction({
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+    });
+
+    expect(result.reactivated).toBe(true);
+    expect(result.selfPromoted).toBe(true);
+
+    // An is_primary = TRUE UPDATE must have been issued for the reactivated row.
+    expect(selfPromoteUpdateCalls().length).toBeGreaterThanOrEqual(1);
+
+    // A primary_promoted audit row must have been written.
+    expect(primaryPromotedAuditCalls().length).toBe(1);
+  });
+
+  it('throws (and skips the audit row) when the self-promote UPDATE affects 0 rows', async () => {
+    // RETURNING-verified write: the audit row must never claim a promotion
+    // the database did not apply.
+    driveArchiveDb({ activePrimaryCount: 0, selfPromoteRows: [], zernio: null });
+
+    await expect(
+      reactivateLocationTransaction({
+        locationId: SECONDARY_LOCATION_ID,
+        accountId: ACCOUNT_ID,
+        actorUserId: ACTOR_USER_ID,
+      }),
+    ).rejects.toThrow('location_reactivate_conflict');
+
+    expect(primaryPromotedAuditCalls().length).toBe(0);
+  });
+
+  it('does NOT self-promote when the account already has an active primary', async () => {
+    driveArchiveDb({ activePrimaryCount: 1, zernio: null });
+
+    const result = await reactivateLocationTransaction({
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+    });
+
+    expect(result.reactivated).toBe(true);
+    expect(result.selfPromoted).toBe(false);
+
+    // No is_primary = TRUE UPDATE, no primary_promoted audit.
+    expect(selfPromoteUpdateCalls().length).toBe(0);
+    expect(primaryPromotedAuditCalls().length).toBe(0);
+  });
+
+  it('takes the account FOR UPDATE lock FIRST, before the un-archive UPDATE', async () => {
+    driveArchiveDb({ activePrimaryCount: 0, zernio: null });
+
+    await reactivateLocationTransaction({
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+    });
+
+    const accountLockIndex = mockSql.mock.calls.findIndex((c: any[]) => {
+      const template = (c[0] as TemplateStringsArray).join('?');
+      return template.includes('FROM accounts') && template.includes('FOR UPDATE');
+    });
+    const unarchiveIndex = mockSql.mock.calls.findIndex((c: any[]) => {
+      const template = (c[0] as TemplateStringsArray).join('?');
+      return template.includes('UPDATE businesses') && template.includes('archived_at') && template.includes('NULL');
+    });
+
+    expect(accountLockIndex).toBe(0);
+    expect(unarchiveIndex).toBeGreaterThan(accountLockIndex);
   });
 });
 

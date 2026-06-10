@@ -108,8 +108,6 @@ export interface ArchiveLocationTxInput {
   accountId: string;
   /** User ID of the actor performing the archive (for audit log). */
   actorUserId?: string | null;
-  /** Count of active locations before the archive (for audit payload). */
-  activeLocationsBefore: number;
 }
 
 export interface ArchiveLocationTxResult {
@@ -149,18 +147,31 @@ export interface ArchiveLocationForOffboardingTeardownTxResult extends ArchiveLo
 export async function archiveLocationTransaction(
   input: ArchiveLocationTxInput,
 ): Promise<ArchiveLocationTxResult> {
-  const { locationId, accountId, actorUserId, activeLocationsBefore } = input;
+  const { locationId, accountId, actorUserId } = input;
 
   await sql.begin(async (tx) => {
     const context = await lockArchiveContext(tx, locationId, accountId);
+    // Already archived (double-submit / concurrent archive): surface the
+    // conflict BEFORE the count guard — the archived target no longer counts
+    // as active, so on a 2-active-location account the count guard would
+    // misreport last_active_location for a row that is simply already gone.
+    if (context.archivedAt !== null) {
+      throw new Error('location_archive_conflict');
+    }
     if (context.activeLocationsBefore <= 1) {
       throw new Error('last_active_location');
+    }
+    // Race-proof primary guard: decide from the locked snapshot, not the UPDATE
+    // rowcount. last_active_location is checked first (above) so the only-location
+    // case never surfaces as promote_first.
+    if (context.isPrimary) {
+      throw new Error('promote_first');
     }
     await applyArchiveLocationUpdate(tx, {
       locationId,
       accountId,
       actorUserId,
-      activeLocationsBefore,
+      activeLocationsBefore: context.activeLocationsBefore,
     });
   });
 
@@ -204,6 +215,7 @@ export async function archiveLocationForAccountOffboardingTeardownTransaction(
 interface ArchiveContext {
   archivedAt: Date | string | null;
   activeLocationsBefore: number;
+  isPrimary: boolean;
 }
 
 async function lockArchiveContext(
@@ -227,8 +239,8 @@ async function lockArchiveContext(
 
   // FP: lock-ordering inside the tx — account FOR UPDATE lock, then active-count read, then this per-location FOR UPDATE row lock; reordering/parallelizing would break the lock acquisition order.
   // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
-  const [location] = await tx<{ archived_at: Date | string | null }[]>`
-    SELECT archived_at
+  const [location] = await tx<{ archived_at: Date | string | null; is_primary: boolean }[]>`
+    SELECT archived_at, is_primary
     FROM businesses
     WHERE id = ${locationId}::uuid
       AND account_id = ${accountId}::uuid
@@ -241,9 +253,17 @@ async function lockArchiveContext(
   return {
     archivedAt: location.archived_at,
     activeLocationsBefore: Number(activeRow?.count ?? 0),
+    isPrimary: Boolean(location.is_primary),
   };
 }
 
+// One UPDATE serves both the owner and teardown paths. The owner path's
+// "never archive a primary" rule is enforced by the promote_first guard on
+// the LOCKED snapshot in archiveLocationTransaction — the row is held
+// FOR UPDATE from snapshot to this UPDATE, and every is_primary writer
+// mutates rows via UPDATE (blocking on that lock), so the snapshot cannot
+// go stale. The teardown path archives primaries intentionally. The SET
+// always flips is_primary off so an archived row never lingers as primary.
 async function applyArchiveLocationUpdate(
   tx: postgres.TransactionSql,
   input: {
@@ -317,6 +337,11 @@ export interface ReactivateLocationTxResult {
   locationId: string;
   /** Confirmation that the location was reactivated. */
   reactivated: boolean;
+  /**
+   * True when the account had no active primary and this location was
+   * auto-promoted to primary in the same tx (zero-primary self-heal).
+   */
+  selfPromoted: boolean;
 }
 
 // ── reactivateLocationTransaction ────────────────────────────────────────────
@@ -330,8 +355,16 @@ export interface ReactivateLocationTxResult {
  * for the restored location to catch up on reviews that arrived during
  * the archived period.
  *
- * Note: The reactivated location will NOT be primary (is_primary stays FALSE).
- * If the user wants it as primary, they must use promotePrimaryTransaction.
+ * Primary self-heal: normally the reactivated location stays non-primary
+ * (is_primary FALSE) — to make it primary the user uses
+ * promotePrimaryTransaction. The exception is a zero-primary account
+ * (reachable via the offboarding-cancel → reactivate flow, which can leave an
+ * account with no active primary): when no active primary exists, this tx
+ * silently auto-promotes the reactivated location to primary in the SAME
+ * transaction. The self-heal is silent — no notification, only a
+ * 'primary_promoted' audit row and the `selfPromoted` response flag. An
+ * accounts FOR UPDATE lock is taken FIRST (same accounts→businesses ordering
+ * as archive/promote) so concurrent reactivations can't both self-promote.
  *
  * The outbox job enqueues a Stripe overage update so the worker
  * recalculates the overage quantity (increment).
@@ -341,7 +374,12 @@ export async function reactivateLocationTransaction(
 ): Promise<ReactivateLocationTxResult> {
   const { locationId, accountId, actorUserId } = input;
 
-  await sql.begin(async (tx) => {
+  const selfPromoted = await sql.begin(async (tx) => {
+    // 0. Lock the account FIRST — establishes the same accounts→businesses lock
+    // ordering as archive/promote and serializes concurrent reactivations so two
+    // can't both self-promote into a zero-primary account.
+    await tx`SELECT id FROM accounts WHERE id = ${accountId}::uuid FOR UPDATE`;
+
     // 1. Set archived_at = NULL (reactivate)
     const [updatedLocation] = await tx<{ id: string }[]>`
       UPDATE businesses
@@ -355,6 +393,9 @@ export async function reactivateLocationTransaction(
     if (!updatedLocation) {
       throw new Error('location_reactivate_conflict');
     }
+
+    // 1b. Zero-primary self-heal (see helper below).
+    const promoted = await selfHealPrimaryIfMissing(tx, { accountId, locationId, actorUserId });
 
     // 2. Insert audit log entry
     await tx`
@@ -433,10 +474,56 @@ export async function reactivateLocationTransaction(
         )
       `;
     }
+
+    return promoted;
   });
 
   return {
     locationId,
     reactivated: true,
+    selfPromoted,
   };
+}
+
+/**
+ * Zero-primary self-heal for reactivation. The just-reactivated location is
+ * active but non-primary; if the account has NO active primary (reachable via
+ * the offboarding-cancel → reactivate flow), silently promote it so the
+ * at-least-one-primary half of the invariant is restored (canonical invariant
+ * docblock: promote-primary-tx.ts). Silent: audit row + response flag only.
+ *
+ * Caller MUST hold the accounts FOR UPDATE lock in the same tx — that is what
+ * serializes concurrent reactivations so two can't both self-promote.
+ * The promote UPDATE is RETURNING-verified: the audit row must never claim a
+ * promotion the database didn't apply.
+ */
+async function selfHealPrimaryIfMissing(
+  tx: postgres.TransactionSql,
+  input: { accountId: string; locationId: string; actorUserId?: string | null },
+): Promise<boolean> {
+  const { accountId, locationId, actorUserId } = input;
+
+  const [primaryRow] = await tx<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count FROM businesses
+    WHERE account_id = ${accountId}::uuid AND is_primary = TRUE AND archived_at IS NULL
+  `;
+  if (Number(primaryRow?.count ?? 0) !== 0) {
+    return false;
+  }
+
+  const [promotedRow] = await tx<{ id: string }[]>`
+    UPDATE businesses SET is_primary = TRUE, updated_at = NOW()
+    WHERE id = ${locationId}::uuid AND account_id = ${accountId}::uuid
+    RETURNING id
+  `;
+  if (!promotedRow) {
+    throw new Error('location_reactivate_conflict');
+  }
+
+  await tx`
+    INSERT INTO account_audit_log (id, account_id, location_id, event_type, actor_user_id, payload)
+    VALUES (${uuidv7()}::uuid, ${accountId}::uuid, ${locationId}::uuid, 'primary_promoted', ${actorUserId ?? null}::uuid,
+            ${jsonb({ old_primary_id: null, new_primary_id: locationId, reason: 'reactivation_self_heal' })})
+  `;
+  return true;
 }
