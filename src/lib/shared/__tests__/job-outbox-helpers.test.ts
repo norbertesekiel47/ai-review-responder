@@ -11,6 +11,7 @@ import {
   enqueueAccountOffboardingReactivation,
   enqueueGenerateResponse,
   enqueuePublishResponse,
+  enqueueValidatePlaceId,
   normalizeGenerateResponsePayload,
 } from '../job-outbox-helpers';
 import { QUEUE_NAMES } from '../queue-names';
@@ -155,6 +156,50 @@ describe('job outbox helpers', () => {
       business_id: 'business-1',
       correlation_id: 'corr-1',
     });
+  });
+
+  it('enqueues validate_place_id with the in-flight WHERE NOT EXISTS dedup guard', async () => {
+    // Single owner of the validate_place_id dedup rule — used by the
+    // onboarding routes and addLocationTransaction (URL-mode adds).
+    const tx = createMockTx();
+    tx.mockResolvedValueOnce([{ id: 'outbox-uuid' }]);
+
+    const inserted = await enqueueValidatePlaceId(tx, {
+      businessId: 'business-1',
+      googleMapsUrl: 'https://maps.google.com/?q=Cafe+Test',
+      correlationId: 'corr-1',
+    });
+
+    expect(inserted).toBe(true);
+    expect(tx).toHaveBeenCalledOnce();
+    const text = sqlText(tx.mock.calls[0]!);
+    expect(text).toContain('INSERT INTO job_outbox');
+    expect(text).toContain("'validate_place_id'");
+    expect(text).toContain('WHERE NOT EXISTS');
+    expect(text).toContain("jo.topic = 'validate_place_id'");
+    expect(text).toContain("jo.status IN ('pending', 'dispatching', 'dispatched')");
+    expect(text).toContain('RETURNING id');
+
+    const payload = objectArgs(tx).find((arg) => arg.business_id === 'business-1');
+    expect(payload).toEqual({
+      business_id: 'business-1',
+      google_maps_url: 'https://maps.google.com/?q=Cafe+Test',
+      correlation_id: 'corr-1',
+    });
+  });
+
+  it('returns false when an in-flight validate_place_id row already exists (deduped)', async () => {
+    const tx = createMockTx(); // resolves [] → WHERE NOT EXISTS suppressed the insert
+
+    const inserted = await enqueueValidatePlaceId(tx, {
+      businessId: 'business-1',
+      googleMapsUrl: 'https://maps.google.com/?q=Cafe+Test',
+    });
+
+    expect(inserted).toBe(false);
+    // correlation_id defaults to a fresh uuid when not supplied.
+    const payload = objectArgs(tx).find((arg) => arg.business_id === 'business-1');
+    expect(payload?.correlation_id).toBe('outbox-uuid');
   });
 
   it('dedupes account offboarding email outbox rows by offboarding id and email type', async () => {

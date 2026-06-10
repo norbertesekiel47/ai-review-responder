@@ -14,7 +14,6 @@ import {
   parseCsv,
   validateRow,
   processRow,
-  findInFileDuplicatePlaceIds,
   enqueueCsvImportStripeOverageUpdate,
   writeCsvImportAuditLog,
   DUPLICATE_LOCATION_IN_FILE_REASON,
@@ -132,11 +131,13 @@ async function importLocationsCsv(req: NextRequest): Promise<NextResponse> {
   const successes: Array<{ row: number; businessId: string; displayLabel: string }> = [];
   const failures: CsvRowFailure[] = [];
 
-  // Reject later occurrences of a place id repeated within this upload BEFORE
-  // processing any row — adding both would double-ingest or race the
-  // businesses_account_place_uniq constraint (migration 062). The first
-  // occurrence proceeds normally.
-  const inFileDuplicateRows = findInFileDuplicatePlaceIds(rows);
+  // In-file dedup: a later row repeating an EARLIER SUCCESSFULLY IMPORTED
+  // place id is rejected without touching the DB — adding both would
+  // double-ingest or race businesses_account_place_uniq (migration 062).
+  // Only successful imports claim a place id: a first occurrence that fails
+  // validation, quota, or the tx must not poison a corrected row later in
+  // the same file (the admin's fix-and-keep-both-rows pattern).
+  const importedPlaceIds = new Set<string>();
 
   for (const row of rows) {
     // 7a. Validate required fields (VAL-ADMIN-012)
@@ -146,8 +147,8 @@ async function importLocationsCsv(req: NextRequest): Promise<NextResponse> {
       continue;
     }
 
-    // 7b. Reject in-file duplicate place ids without touching the DB.
-    if (inFileDuplicateRows.has(row.rowIndex)) {
+    // 7b. Reject in-file duplicates of an already-imported place id.
+    if (row.placeId && importedPlaceIds.has(row.placeId)) {
       failures.push({ row: row.rowIndex, reason: DUPLICATE_LOCATION_IN_FILE_REASON });
       continue;
     }
@@ -159,6 +160,7 @@ async function importLocationsCsv(req: NextRequest): Promise<NextResponse> {
     if ('reason' in result) {
       failures.push({ row: row.rowIndex, reason: result.reason });
     } else {
+      if (row.placeId) importedPlaceIds.add(row.placeId);
       successes.push({
         row: row.rowIndex,
         businessId: result.businessId,

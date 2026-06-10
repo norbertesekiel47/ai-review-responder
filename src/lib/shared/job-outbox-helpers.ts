@@ -279,6 +279,37 @@ export async function enqueueSendNotification(
   return outboxId;
 }
 
+/**
+ * Enqueue a validate_place_id job with in-flight dedup: if a pending /
+ * dispatching / dispatched validate_place_id row already exists for this
+ * business, the INSERT is a no-op. Single owner of that dedup rule — used by
+ * the onboarding routes and addLocationTransaction (URL-mode adds).
+ * Returns true when a row was inserted.
+ */
+export async function enqueueValidatePlaceId(
+  tx: TxClient,
+  input: { businessId: string; googleMapsUrl: string; correlationId?: string },
+): Promise<boolean> {
+  const payload: Record<string, unknown> = {
+    business_id: input.businessId,
+    google_maps_url: input.googleMapsUrl,
+    correlation_id: input.correlationId ?? uuidv7(),
+  };
+  const rows = await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    SELECT ${uuidv7()}::uuid, 'validate_place_id', 'business', ${input.businessId}::uuid,
+           ${jsonb(payload)}, 'pending'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM job_outbox jo
+      WHERE jo.aggregate_id = ${input.businessId}::uuid
+        AND jo.topic = 'validate_place_id'
+        AND jo.status IN ('pending', 'dispatching', 'dispatched')
+    )
+    RETURNING id
+  `;
+  return rows.length > 0;
+}
+
 export async function enqueueAccountOffboardingBillingSchedule(
   tx: TxClient,
   input: EnqueueAccountOffboardingInput,

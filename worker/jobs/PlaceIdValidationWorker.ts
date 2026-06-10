@@ -40,6 +40,54 @@ async function applyResolvedPlaceId(
   }
 }
 
+/**
+ * Durable record for the duplicate-skip path. The skip itself is
+ * skip-as-success (outbox completes, no retry — the location stays active
+ * and unverified by design), but WITHOUT a row here the dead state is
+ * undiagnosable once the log line rotates: the owner's location silently
+ * never ingests reviews. Mirrors the permanent-failure path's
+ * review_exceptions insert so support/admin tooling surfaces it.
+ */
+async function recordDuplicateLocationException(
+  businessId: string,
+  googleMapsUrl: string,
+  duplicatePlaceId: string,
+): Promise<void> {
+  await sql`
+    INSERT INTO review_exceptions (id, business_id, review_id, type, status, payload)
+    VALUES (
+      ${uuidv7()}, ${businessId}, NULL, ${ExceptionType.PLACE_ID_RESOLUTION_FAILED}, 'open',
+      ${jsonb({ reason: 'duplicate_location', google_maps_url: googleMapsUrl, duplicate_place_id: duplicatePlaceId })}
+    )
+  `;
+}
+
+/**
+ * Apply the resolved place id, record a durable exception if it duplicates an
+ * active location, complete the outbox (skip-as-success either way), and log.
+ */
+async function applyPlaceIdAndFinalize(input: {
+  businessId: LocationId;
+  googleMapsUrl: string;
+  placeId: string;
+  outboxId: string;
+  outboxAttempt: number | undefined;
+  logger: ReturnType<typeof createWorkerLogger>;
+  successMessage: string;
+  duplicateMessage: string;
+}): Promise<void> {
+  const applied = await applyResolvedPlaceId(input.businessId, input.placeId);
+  if (!applied) {
+    await recordDuplicateLocationException(input.businessId, input.googleMapsUrl, input.placeId);
+  }
+  await markOutboxCompleted(input.outboxId, input.outboxAttempt);
+  if (applied) {
+    input.logger.log(input.successMessage);
+  } else {
+    input.logger.log(input.duplicateMessage, { reason: 'duplicate_location' });
+  }
+}
+
 export async function handlePlaceIdValidation(
   job: Job<ValidatePlaceIdPayload>,
 ): Promise<void> {
@@ -66,17 +114,16 @@ export async function handlePlaceIdValidation(
   // If URL contained a canonical Place ID, verify format and store.
   // Review ingestion is now webhook-driven via Zernio — no sync_reviews enqueue.
   if (urlData.placeId && isPlaceId(urlData.placeId)) {
-    const applied = await applyResolvedPlaceId(businessId, urlData.placeId);
-
-    await markOutboxCompleted(outboxId, outboxAttempt);
-    if (applied) {
-      logger.log(`Business ${businessId} verified (canonical ID in URL)`);
-    } else {
-      logger.log(
-        `Business ${businessId} canonical place_id duplicates an active location — leaving unverified`,
-        { reason: 'duplicate_location' },
-      );
-    }
+    await applyPlaceIdAndFinalize({
+      businessId,
+      googleMapsUrl: google_maps_url,
+      placeId: urlData.placeId,
+      outboxId,
+      outboxAttempt,
+      logger,
+      successMessage: `Business ${businessId} verified (canonical ID in URL)`,
+      duplicateMessage: `Business ${businessId} canonical place_id duplicates an active location — leaving unverified`,
+    });
     return;
   }
 
@@ -84,17 +131,16 @@ export async function handlePlaceIdValidation(
   try {
     const resolvedPlaceId = await resolvePlaceId(urlData);
 
-    const applied = await applyResolvedPlaceId(businessId, resolvedPlaceId);
-
-    await markOutboxCompleted(outboxId, outboxAttempt);
-    if (applied) {
-      logger.log(`Business ${businessId} resolved to ${resolvedPlaceId}`);
-    } else {
-      logger.log(
-        `Business ${businessId} resolved place_id duplicates an active location — leaving unverified`,
-        { reason: 'duplicate_location' },
-      );
-    }
+    await applyPlaceIdAndFinalize({
+      businessId,
+      googleMapsUrl: google_maps_url,
+      placeId: resolvedPlaceId,
+      outboxId,
+      outboxAttempt,
+      logger,
+      successMessage: `Business ${businessId} resolved to ${resolvedPlaceId}`,
+      duplicateMessage: `Business ${businessId} resolved place_id duplicates an active location — leaving unverified`,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 

@@ -303,6 +303,21 @@ describe('addLocationTransaction', () => {
     await expect(addLocationTransaction(mkInput())).rejects.not.toThrow('duplicate_location');
   });
 
+  // isDuplicateLocationViolation must narrow safely: a non-object thrown from
+  // the tx (string, null-ish rejection) propagates unchanged instead of
+  // crashing the predicate with a property access on a primitive.
+  it('propagates a non-object transaction rejection unchanged', async () => {
+    mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
+
+    mockSql.begin = vi.fn(async () => {
+      throw 'connection terminated unexpectedly';
+    });
+
+    await expect(addLocationTransaction(mkInput())).rejects.toBe(
+      'connection terminated unexpectedly',
+    );
+  });
+
   // Audit payload includes relevant fields
   it('audit log payload includes display_label, active_locations_before, voice_cloned_from_primary', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
@@ -412,11 +427,33 @@ describe('addLocationTransaction', () => {
     expect(validateCall).toBeDefined();
 
     const template = (validateCall![0] as TemplateStringsArray).join('?');
-    // Mirrors the onboarding dedup guard: INSERT … SELECT … WHERE NOT EXISTS
+    // Shared helper (enqueueValidatePlaceId in job-outbox-helpers): same SQL
+    // shape as the onboarding dedup guard — INSERT … SELECT … WHERE NOT EXISTS.
     expect(template).toContain('INSERT INTO job_outbox');
     expect(template).toContain('WHERE NOT EXISTS');
     expect(template).toContain("topic = 'validate_place_id'");
     expect(template).toContain("status IN ('pending', 'dispatching', 'dispatched')");
+  });
+
+  // C2 hardening: the enqueue gate is `googleMapsUrl && !(googlePlaceId &&
+  // placeIdVerified)` — the DATA decides, not the client flag. A crafted or
+  // buggy request claiming placeIdVerified:true WITHOUT a place id must still
+  // enqueue resolution, or the row permanently bypasses migration 062
+  // (NULL google_place_id never collides under the partial unique index).
+  it('still enqueues validate_place_id when placeIdVerified is true but no place id is supplied', async () => {
+    mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
+
+    await addLocationTransaction(mkInput({
+      googleMapsUrl: 'https://maps.google.com/?q=Cafe+Test',
+      placeIdVerified: true,
+      googlePlaceId: null,
+    }));
+
+    const txCalls = mockSql.mock.calls.slice(1);
+    const validateCall = txCalls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('validate_place_id'),
+    );
+    expect(validateCall).toBeDefined();
   });
 
   // C2: a verified place id (autocomplete path) must NOT enqueue validate_place_id —

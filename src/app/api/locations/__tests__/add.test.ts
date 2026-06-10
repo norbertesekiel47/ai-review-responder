@@ -480,6 +480,58 @@ describe('POST /api/locations/add', () => {
     expect(res.status).toBe(400);
   });
 
+  // Schema refine: placeIdVerified:true without a googlePlaceId is an invalid
+  // body — a client cannot claim "verified" while withholding the place id
+  // (that shape would permanently bypass businesses_account_place_uniq,
+  // since NULL never collides under the partial unique index).
+  it('returns 400 when placeIdVerified is true without a googlePlaceId', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+
+    const req = mkRequest({
+      accountId: ACCOUNT_ID,
+      displayLabel: 'Downtown Cafe',
+      placeIdVerified: true,
+      googleMapsUrl: 'https://maps.google.com/?q=Cafe+Test',
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    expect(mockAddLocationTransaction).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for an empty googlePlaceId', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+
+    const req = mkRequest({
+      accountId: ACCOUNT_ID,
+      displayLabel: 'Downtown Cafe',
+      googlePlaceId: '',
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    expect(mockAddLocationTransaction).not.toHaveBeenCalled();
+  });
+
+  // Normalization owner is the server: an untrimmed place id must reach the
+  // transaction TRIMMED, or ' ChIJx' would slip past the unique index while
+  // '' would collide with ''.
+  it('trims googlePlaceId before it reaches the transaction', async () => {
+    setupHappyPathMocks();
+
+    const req = mkRequest({
+      accountId: ACCOUNT_ID,
+      displayLabel: 'Downtown Cafe',
+      googlePlaceId: '  ChIJx  ',
+      placeIdVerified: true,
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(201);
+    expect(mockAddLocationTransaction).toHaveBeenCalledTimes(1);
+    expect(mockAddLocationTransaction.mock.calls[0]![0].googlePlaceId).toBe('ChIJx');
+  });
+
   // Transaction failure
   it('returns 500 when addLocationTransaction throws', async () => {
     mockRequireRole.mockResolvedValueOnce(ownerUser());

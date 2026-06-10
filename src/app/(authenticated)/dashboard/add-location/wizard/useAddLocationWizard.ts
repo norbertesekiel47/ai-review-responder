@@ -14,6 +14,14 @@ import type { LocationId } from '@/lib/shared/ids';
 import { computeNextLocationBillingPreview, computeProration } from './billing';
 import { buildAddLocationPayload, hasStep1LocationDetails } from './payload';
 import { initialState, reducer } from './reducer';
+import { DUPLICATE_LOCATION_MESSAGE } from '@/lib/locations/duplicate-location';
+
+/** Owner-facing message for an add-location submit failure. */
+function submitErrorMessage(body: { error?: string; detail?: string }, status: number): string {
+  if (body.error === 'duplicate_location') return DUPLICATE_LOCATION_MESSAGE;
+  return body.error ?? body.detail ?? `Failed to add location (${status})`;
+}
+
 import {
   STEP_INFO,
   type ExistingLocationVoice,
@@ -141,10 +149,7 @@ export function useAddLocationWizard({
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         // VAL-LOC-064: show inline error, stay on step 4.
-        dispatch({
-          type: 'SUBMIT_FAILED',
-          message: body.error ?? body.detail ?? `Failed to add location (${res.status})`,
-        });
+        dispatch({ type: 'SUBMIT_FAILED', message: submitErrorMessage(body, res.status) });
         return;
       }
 

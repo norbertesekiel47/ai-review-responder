@@ -22,7 +22,7 @@ import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { getLocationById, getActiveLocationCount } from './repo';
-import { isDuplicateLocationViolation } from './duplicate-location';
+import { rethrowAsDuplicateLocation } from './duplicate-location';
 
 // ── Guard result types ─────────────────────────────────────────────────────
 
@@ -484,8 +484,7 @@ export async function reactivateLocationTransaction(
       return promoted;
     });
   } catch (err) {
-    if (isDuplicateLocationViolation(err)) throw new Error('duplicate_location');
-    throw err;
+    rethrowAsDuplicateLocation(err);
   }
 
   return {

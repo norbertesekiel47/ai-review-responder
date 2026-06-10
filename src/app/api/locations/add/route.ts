@@ -30,7 +30,10 @@ export const dynamic = 'force-dynamic';
 const AddLocationSchema = z.object({
   accountId: z.string().regex(UUID_RE, 'Invalid account ID format'),
   displayLabel: z.string().min(1).max(255),
-  googlePlaceId: z.string().optional(),
+  // Trimmed + non-empty: '' is NOT nullish, so an untrimmed/empty value would
+  // participate in businesses_account_place_uniq ('' collides with '') while
+  // ' ChIJx' would slip past it. Normalization owner is the server.
+  googlePlaceId: z.string().trim().min(1).optional(),
   placeIdVerified: z.boolean().optional().default(false),
   googleMapsUrl: z.string().optional(),
   // Optional voice config overrides. When provided, these values are used
@@ -42,6 +45,9 @@ const AddLocationSchema = z.object({
     avoidFacts: z.array(z.string()).optional(),
     sampleResponses: z.array(z.string()).optional(),
   }).optional(),
+}).refine((d) => !d.placeIdVerified || !!d.googlePlaceId, {
+  message: 'placeIdVerified requires googlePlaceId',
+  path: ['placeIdVerified'],
 });
 
 // Maps quota-denial reasons to HTTP status codes.

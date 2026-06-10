@@ -48,7 +48,6 @@ import {
   parseCsv,
   validateRow,
   processRow,
-  findInFileDuplicatePlaceIds,
   MAX_FILE_SIZE,
   MAX_ROWS,
   type ParsedCsvRow,
@@ -239,48 +238,10 @@ describe('MAX_FILE_SIZE and MAX_ROWS constants', () => {
   });
 });
 
-// ── In-file duplicate place-id detection (Task C3, Change B) ─────────────────
-
-describe('findInFileDuplicatePlaceIds', () => {
-  function row(rowIndex: number, placeId: string): ParsedCsvRow {
-    return { rowIndex, name: `Loc ${rowIndex}`, placeId };
-  }
-
-  it('returns the rowIndex of each later duplicate, keeping the first', () => {
-    const rows = [row(1, 'ChIJsame'), row(2, 'ChIJother'), row(3, 'ChIJsame')];
-    const dupes = findInFileDuplicatePlaceIds(rows);
-    expect(dupes.has(3)).toBe(true);
-    expect(dupes.has(1)).toBe(false);
-    expect(dupes.has(2)).toBe(false);
-    expect(dupes.size).toBe(1);
-  });
-
-  it('flags every later occurrence when a place id appears three times', () => {
-    const rows = [row(1, 'ChIJdup'), row(2, 'ChIJdup'), row(3, 'ChIJdup')];
-    const dupes = findInFileDuplicatePlaceIds(rows);
-    expect(dupes.has(1)).toBe(false);
-    expect(dupes.has(2)).toBe(true);
-    expect(dupes.has(3)).toBe(true);
-  });
-
-  it('compares place ids case-sensitively as stored', () => {
-    const rows = [row(1, 'ChIJabc'), row(2, 'CHIJABC')];
-    const dupes = findInFileDuplicatePlaceIds(rows);
-    expect(dupes.size).toBe(0);
-  });
-
-  it('ignores rows with an empty place id (URL-mode / missing)', () => {
-    const rows = [row(1, ''), row(2, ''), row(3, 'ChIJreal')];
-    const dupes = findInFileDuplicatePlaceIds(rows);
-    expect(dupes.size).toBe(0);
-  });
-
-  it('returns an empty set when there are no duplicates', () => {
-    const rows = [row(1, 'ChIJ1'), row(2, 'ChIJ2'), row(3, 'ChIJ3')];
-    const dupes = findInFileDuplicatePlaceIds(rows);
-    expect(dupes.size).toBe(0);
-  });
-});
+// In-file duplicate detection moved out of csv-import.ts: the route keeps an
+// inline imported-place-ids set (only SUCCESSFUL imports claim a place id), so
+// findInFileDuplicatePlaceIds was deleted. Route behavior is covered in
+// src/app/api/admin/locations/csv-import/__tests__/route.test.ts.
 
 // ── processRow duplicate handling (Task C3, Change A) ────────────────────────
 
@@ -329,6 +290,28 @@ describe('processRow duplicate handling', () => {
     if ('reason' in result) {
       expect(result.reason).toContain('Transaction error');
       expect(result.reason).toContain('connection reset');
+      expect(result.reason).not.toBe('duplicate_location');
+    }
+  });
+
+  it('surfaces a RAW 23505 (un-remapped) as a generic Transaction error', async () => {
+    // Contract: the tx module (rethrowAsDuplicateLocation) remaps the 23505 to
+    // Error('duplicate_location') before processRow ever sees it. processRow
+    // matches on the typed message ONLY — a raw Postgres 23505 reaching it
+    // means the remap was bypassed, and it must NOT be classified as a
+    // duplicate here (single owner of the remap is the tx module).
+    const raw: Error & { code?: string; constraint_name?: string } = new Error(
+      'duplicate key value violates unique constraint "businesses_account_place_uniq"',
+    );
+    raw.code = '23505';
+    raw.constraint_name = 'businesses_account_place_uniq';
+    mockAddLocationTransaction.mockRejectedValueOnce(raw);
+
+    const result = await processRow(happyRow(), accountId);
+
+    expect('reason' in result).toBe(true);
+    if ('reason' in result) {
+      expect(result.reason).toContain('Transaction error');
       expect(result.reason).not.toBe('duplicate_location');
     }
   });

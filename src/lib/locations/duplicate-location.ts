@@ -16,6 +16,26 @@ const DUPLICATE_LOCATION_CONSTRAINT = 'businesses_account_place_uniq';
  * (e.g. a primary-key or primary-uniqueness violation) from being swallowed.
  */
 export function isDuplicateLocationViolation(err: unknown): boolean {
-  const e = err as { code?: string; constraint_name?: string };
-  return e?.code === '23505' && e?.constraint_name === DUPLICATE_LOCATION_CONSTRAINT;
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as Record<string, unknown>;
+  return (
+    e.code === '23505' &&
+    typeof e.constraint_name === 'string' &&
+    e.constraint_name === DUPLICATE_LOCATION_CONSTRAINT
+  );
 }
+
+/**
+ * Single owner of the 23505 -> typed-error remap. Transaction modules call
+ * this from their catch so the 'duplicate_location' literal exists in exactly
+ * one place; everything else (routes via LOCATION_DENIAL_STATUS, CSV report)
+ * matches on the typed message.
+ */
+export function rethrowAsDuplicateLocation(err: unknown): never {
+  if (isDuplicateLocationViolation(err)) throw new Error('duplicate_location');
+  throw err;
+}
+
+/** Owner-facing copy for the duplicate_location denial (wizard + panel). */
+export const DUPLICATE_LOCATION_MESSAGE =
+  'This Google location is already on your account.';

@@ -181,8 +181,10 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
   // When the resolved place id collides with an existing ACTIVE location in the
   // same account, the UPDATE trips businesses_account_place_uniq (Postgres
   // 23505, migration 062). The worker treats it as a duplicate_location skip:
-  // markOutboxCompleted (skip-as-success), NO markOutboxFailed, NO throw, NO
-  // review_exceptions insert. The UPDATE rolled back, so the location stays
+  // it INSERTs a durable review_exceptions row (reason 'duplicate_location' —
+  // without it the silently-never-ingesting location is undiagnosable once the
+  // log line rotates), then markOutboxCompleted (skip-as-success), NO
+  // markOutboxFailed, NO throw. The UPDATE rolled back, so the location stays
   // unverified — which is correct.
 
   function dupPlaceIdError(): Error & { code?: string; constraint_name?: string } {
@@ -194,16 +196,31 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
     return err;
   }
 
-  function hasReviewExceptionInsert(): boolean {
+  function reviewExceptionInsertCalls(): unknown[][] {
     const allCalls = [...mockSql.mock.calls, ...mockTx.mock.calls];
-    return allCalls.some(
+    return allCalls.filter(
       (c) =>
         Array.isArray(c) &&
         (c[0] as TemplateStringsArray | undefined)?.join?.('?')?.includes('review_exceptions'),
     );
   }
 
-  it('treats a 23505 on the canonical-ID UPDATE as duplicate_location (skip-as-success)', async () => {
+  function hasReviewExceptionInsert(): boolean {
+    return reviewExceptionInsertCalls().length > 0;
+  }
+
+  /** The interpolated payload of the single review_exceptions INSERT. */
+  function reviewExceptionPayload(): Record<string, unknown> {
+    const inserts = reviewExceptionInsertCalls();
+    expect(inserts).toHaveLength(1);
+    const payload = inserts[0]!.find(
+      (arg) => typeof arg === 'object' && arg !== null && 'reason' in (arg as object),
+    );
+    expect(payload).toBeDefined();
+    return payload as Record<string, unknown>;
+  }
+
+  it('records a duplicate_location review_exception and completes on a canonical-ID 23505', async () => {
     // 1st call: business SELECT. 2nd call: the resolved-place-id UPDATE → 23505.
     mockSql
       .mockImplementationOnce(() =>
@@ -219,12 +236,19 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
       }),
     );
 
+    // Durable record BEFORE skip-as-success completion.
+    const payload = reviewExceptionPayload();
+    expect(payload.reason).toBe('duplicate_location');
+    expect(payload.google_maps_url).toBe(
+      'https://maps.google.com/?q=place_id:ChIJgUbEo8cfqokR5lP9_Wh_DaM',
+    );
+    expect(payload.duplicate_place_id).toBe('ChIJgUbEo8cfqokR5lP9_Wh_DaM');
+
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
-    expect(hasReviewExceptionInsert()).toBe(false);
   });
 
-  it('treats a 23505 on the SerpAPI-resolved UPDATE as duplicate_location (skip-as-success)', async () => {
+  it('records a duplicate_location review_exception and completes on a SerpAPI-resolved 23505', async () => {
     // 1st call: business SELECT. 2nd call (after resolver): UPDATE → 23505.
     mockSql
       .mockImplementationOnce(() =>
@@ -242,9 +266,13 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
     );
 
     expect(mockResolvePlaceId).toHaveBeenCalledTimes(1);
+
+    const payload = reviewExceptionPayload();
+    expect(payload.reason).toBe('duplicate_location');
+    expect(payload.duplicate_place_id).toBe('ChIJResolvedDuplicate12345');
+
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
-    expect(hasReviewExceptionInsert()).toBe(false);
   });
 
   it('does NOT treat a 23505 on a different constraint as duplicate_location (regression)', async () => {

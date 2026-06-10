@@ -25,9 +25,15 @@
 -- archive the newer; reviews are preserved. The migration never auto-mutates data.
 -- A pre-existing duplicate would abort the CONCURRENTLY build mid-way and leave an
 -- INVALID index (recover via the POST-MIGRATION step below).
+--
+-- Deliberately NO "IF NOT EXISTS": an aborted CONCURRENTLY build leaves an
+-- INVALID index under this name, and IF NOT EXISTS would make a re-run
+-- silently no-op over it ("applied" but non-enforcing). Without it, a re-run
+-- fails loudly ("relation already exists") and points the operator at the
+-- DROP-then-re-run recovery below.
 -- ==============================================================================
 
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS businesses_account_place_uniq
+CREATE UNIQUE INDEX CONCURRENTLY businesses_account_place_uniq
   ON businesses (account_id, google_place_id)
   WHERE archived_at IS NULL AND google_place_id IS NOT NULL;
 

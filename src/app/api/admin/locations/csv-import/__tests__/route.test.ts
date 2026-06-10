@@ -631,6 +631,71 @@ Duplicate Cafe,ChIJsame`;
     }
   });
 
+  // Poisoning regression: only SUCCESSFULLY IMPORTED rows claim a place id.
+  // A first occurrence that fails validation must not block a corrected later
+  // row with the same place id (the admin's fix-and-keep-both-rows pattern).
+  it('imports a later row whose placeId matched an earlier VALIDATION-FAILED row', async () => {
+    mockGetAccountById.mockResolvedValue(mockAccountRow());
+    setupHappyPathRow();
+    mockAssertCanAddLocation.mockResolvedValue({ allowed: true, overageUnits: 1 });
+    mockGetActiveLocationCount.mockResolvedValue(1);
+
+    // Row 1: same placeId but missing name → validation failure (never imported).
+    // Row 2: corrected row with the same placeId → must import.
+    const csv = `name,placeId
+,ChIJpoisoned
+Fixed Cafe,ChIJpoisoned`;
+
+    const req = mkCsvRequest(csv);
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.created).toBe(1);
+    expect(body.failed.length).toBe(1);
+    expect(body.failed[0].row).toBe(1);
+    expect(body.failed[0].reason).toContain('name');
+    // The corrected row reached the transaction — it was NOT rejected as an
+    // in-file duplicate of the failed first occurrence.
+    expect(mockAddLocationTransaction).toHaveBeenCalledTimes(1);
+    expect(mockAddLocationTransaction.mock.calls[0]![0].googlePlaceId).toBe('ChIJpoisoned');
+  });
+
+  it('attempts a later identical row when the first occurrence failed inside processRow', async () => {
+    mockGetAccountById.mockResolvedValue(mockAccountRow());
+    setupHappyPathRow();
+    mockAssertCanAddLocation.mockResolvedValue({ allowed: true, overageUnits: 1 });
+    mockGetActiveLocationCount.mockResolvedValue(1);
+
+    // Row 1's transaction fails (transient DB error) → the place id is NOT
+    // claimed; row 2 with the identical place id must be ATTEMPTED, not
+    // rejected as duplicate_location_in_file.
+    mockAddLocationTransaction
+      .mockRejectedValueOnce(new Error('connection reset'))
+      .mockResolvedValueOnce({
+        businessId: 'new-biz-retry',
+        displayLabel: 'Retry Cafe',
+        voiceClonedFromPrimary: true,
+      });
+
+    const csv = `name,placeId
+Retry Cafe,ChIJretry
+Retry Cafe,ChIJretry`;
+
+    const req = mkCsvRequest(csv);
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.created).toBe(1);
+    expect(body.failed.length).toBe(1);
+    expect(body.failed[0].row).toBe(1);
+    expect(body.failed[0].reason).toContain('Transaction error');
+    expect(body.failed[0].reason).not.toBe('duplicate_location_in_file');
+    // Both rows reached the transaction.
+    expect(mockAddLocationTransaction).toHaveBeenCalledTimes(2);
+  });
+
   it('reports a DB-level duplicate row as duplicate_location', async () => {
     mockGetAccountById.mockResolvedValue(mockAccountRow());
     setupHappyPathRow();

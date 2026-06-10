@@ -16,7 +16,8 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import type { AccountId, LocationId } from '@/lib/shared/ids';
-import { isDuplicateLocationViolation } from './duplicate-location';
+import { rethrowAsDuplicateLocation } from './duplicate-location';
+import { enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
 
 // ── Input / Output types ───────────────────────────────────────────────────
 
@@ -244,22 +245,12 @@ export async function addLocationTransaction(
       // onboarding paths use) makes the worker resolve + check the place id, where
       // a duplicate trips the unique index. WHERE NOT EXISTS dedups against an
       // already-in-flight validate_place_id row for this business.
-      if (googleMapsUrl && !placeIdVerified) {
-        await tx`
-          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          SELECT ${uuidv7()}::uuid, 'validate_place_id', 'business', ${businessId}::uuid,
-                 ${jsonb({
-                   business_id: businessId,
-                   google_maps_url: googleMapsUrl,
-                   correlation_id: uuidv7(),
-                 })}, 'pending'
-          WHERE NOT EXISTS (
-            SELECT 1 FROM job_outbox jo
-            WHERE jo.aggregate_id = ${businessId}::uuid
-              AND jo.topic = 'validate_place_id'
-              AND jo.status IN ('pending', 'dispatching', 'dispatched')
-          )
-        `;
+      // Gate on the DATA, not the client-supplied placeIdVerified flag: a
+      // crafted/buggy request claiming verified-with-no-place-id must still
+      // resolve, or the row permanently bypasses migration 062 (NULL never
+      // collides). The route schema also rejects that shape outright.
+      if (googleMapsUrl && !(googlePlaceId && placeIdVerified)) {
+        await enqueueValidatePlaceId(tx, { businessId, googleMapsUrl });
       }
 
       if (enqueueStripeOverageUpdate) {
@@ -287,8 +278,7 @@ export async function addLocationTransaction(
       // worker payload.
     });
   } catch (err) {
-    if (isDuplicateLocationViolation(err)) throw new Error('duplicate_location');
-    throw err;
+    rethrowAsDuplicateLocation(err);
   }
 
   return {
