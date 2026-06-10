@@ -440,6 +440,11 @@ describe('NotificationWorker — stale channel guard (dispatch layer)', () => {
     );
     expect(smsCalls).toHaveLength(0);
 
+    // The skip is observable — a warning names the stale channel
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Skipping unsupported channel "sms"'),
+    );
+
     // createApprovalLink WAS called for 'email'
     const emailCalls = approvalLinkCalls.filter(
       (call) => (call[0] as { channel: string }).channel === 'email',
