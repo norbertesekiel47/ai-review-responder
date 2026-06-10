@@ -126,6 +126,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       {
         locationId: result.locationId,
         reactivated: result.reactivated,
+        selfPromoted: result.selfPromoted,
         overageUnits: quotaCheck.overageUnits,
       },
       { status: 200, headers: NO_STORE },

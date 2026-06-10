@@ -86,6 +86,15 @@ beforeEach(() => {
     if (template.includes('SELECT COUNT(*) AS count') && template.includes('FROM businesses')) {
       return [{ count: 2 }];
     }
+    // B3 self-heal: active-primary count read inside reactivateLocationTransaction.
+    // Default to 1 so the existing reactivate tests do NOT self-promote.
+    if (
+      template.includes('COUNT(*)') &&
+      template.includes('is_primary = TRUE') &&
+      template.includes('archived_at IS NULL')
+    ) {
+      return [{ count: 1 }];
+    }
     if (template.includes('SELECT archived_at') && template.includes('FROM businesses') && template.includes('FOR UPDATE')) {
       return [{ archived_at: null }];
     }
@@ -848,6 +857,114 @@ describe('reactivateLocationTransaction', () => {
     });
 
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// B3: reactivation self-heals a zero-primary account (under an account lock)
+// ══════════════════════════════════════════════════════════════════════════
+// Invariant: businesses_account_primary_uniq enforces AT MOST one primary per
+// active account; a healthy account also wants AT LEAST one. When the
+// offboarding-cancel → reactivate path leaves an account with zero active
+// primaries, reactivating a location must silently self-promote it under the
+// SAME accounts→businesses lock used by archive/promote, so two concurrent
+// reactivations can't both win the primary.
+
+describe('reactivateLocationTransaction — B3 zero-primary self-heal', () => {
+  // Drive the active-primary COUNT(*) that the self-heal branch reads.
+  function driveActivePrimaryCount(primaryCount: number) {
+    mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
+      const template = strings.join('?');
+      if (template.includes('SELECT id') && template.includes('FROM accounts') && template.includes('FOR UPDATE')) {
+        return [{ id: ACCOUNT_ID }];
+      }
+      if (
+        template.includes('COUNT(*)') &&
+        template.includes('is_primary = TRUE') &&
+        template.includes('archived_at IS NULL')
+      ) {
+        return [{ count: primaryCount }];
+      }
+      if (template.includes('UPDATE businesses')) {
+        return [{ id: SECONDARY_LOCATION_ID }];
+      }
+      if (template.includes('FROM zernio_connections') && template.includes('JOIN accounts')) {
+        return [];
+      }
+      return [];
+    });
+  }
+
+  function selfPromoteUpdateCalls() {
+    return mockSql.mock.calls.filter((c: any[]) => {
+      const template = (c[0] as TemplateStringsArray).join('?');
+      return template.includes('UPDATE businesses') && /is_primary\s*=\s*TRUE/i.test(template);
+    });
+  }
+
+  function primaryPromotedAuditCalls() {
+    return mockSql.mock.calls.filter((c: any[]) => {
+      const template = (c[0] as TemplateStringsArray).join('?');
+      return template.includes('INSERT INTO account_audit_log') && template.includes('primary_promoted');
+    });
+  }
+
+  it('self-promotes the reactivated location when the account has no active primary', async () => {
+    driveActivePrimaryCount(0);
+
+    const result = await reactivateLocationTransaction({
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+    });
+
+    expect(result.reactivated).toBe(true);
+    expect(result.selfPromoted).toBe(true);
+
+    // An is_primary = TRUE UPDATE must have been issued for the reactivated row.
+    expect(selfPromoteUpdateCalls().length).toBeGreaterThanOrEqual(1);
+
+    // A primary_promoted audit row must have been written.
+    expect(primaryPromotedAuditCalls().length).toBe(1);
+  });
+
+  it('does NOT self-promote when the account already has an active primary', async () => {
+    driveActivePrimaryCount(1);
+
+    const result = await reactivateLocationTransaction({
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+    });
+
+    expect(result.reactivated).toBe(true);
+    expect(result.selfPromoted).toBe(false);
+
+    // No is_primary = TRUE UPDATE, no primary_promoted audit.
+    expect(selfPromoteUpdateCalls().length).toBe(0);
+    expect(primaryPromotedAuditCalls().length).toBe(0);
+  });
+
+  it('takes the account FOR UPDATE lock FIRST, before the un-archive UPDATE', async () => {
+    driveActivePrimaryCount(0);
+
+    await reactivateLocationTransaction({
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+    });
+
+    const accountLockIndex = mockSql.mock.calls.findIndex((c: any[]) => {
+      const template = (c[0] as TemplateStringsArray).join('?');
+      return template.includes('FROM accounts') && template.includes('FOR UPDATE');
+    });
+    const unarchiveIndex = mockSql.mock.calls.findIndex((c: any[]) => {
+      const template = (c[0] as TemplateStringsArray).join('?');
+      return template.includes('UPDATE businesses') && template.includes('archived_at') && template.includes('NULL');
+    });
+
+    expect(accountLockIndex).toBe(0);
+    expect(unarchiveIndex).toBeGreaterThan(accountLockIndex);
   });
 });
 

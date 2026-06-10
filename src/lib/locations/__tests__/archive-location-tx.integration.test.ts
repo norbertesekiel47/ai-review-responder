@@ -66,7 +66,10 @@ d('archiveLocationTransaction primary-archive invariant integration', () => {
       await tx`DELETE FROM accounts WHERE id = ${ids.accountId}::uuid`;
       await tx`DELETE FROM users WHERE id = ${ids.ownerUserId}::uuid`;
     });
+    // Release the shared pool; the B3 describe re-creates it in its beforeAll
+    // (guarded by `if (!db)`), so it must observe a fresh/undefined handle.
     await db.end({ timeout: 5 });
+    db = undefined;
   });
 
   it('rejects archiving the primary with promote_first while a non-primary stays primary-free', async () => {
@@ -116,5 +119,154 @@ d('archiveLocationTransaction primary-archive invariant integration', () => {
     expect(primary).toBeDefined();
     expect(primary?.is_primary).toBe(true);
     expect(primary?.archived_at).toBeNull();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// B3: reactivation self-heals a zero-primary account
+// ══════════════════════════════════════════════════════════════════════════
+// Deterministic (no real concurrency). Two independent accounts:
+//   - zeroPrimary: primary archived → zero active primaries; reactivating the
+//     secondary must make it the SOLE active primary (selfPromoted=true).
+//   - hasPrimary: an active primary already exists; reactivating the archived
+//     secondary must leave the existing primary untouched (selfPromoted=false).
+
+const b3 = {
+  ownerUserId: randomUUID(),
+  zeroPrimaryAccountId: randomUUID(),
+  zeroPrimaryArchivedPrimaryId: randomUUID(),
+  zeroPrimarySecondaryId: randomUUID(),
+  hasPrimaryAccountId: randomUUID(),
+  hasPrimaryPrimaryId: randomUUID(),
+  hasPrimaryArchivedSecondaryId: randomUUID(),
+};
+
+d('reactivateLocationTransaction zero-primary self-heal integration', () => {
+  beforeAll(async () => {
+    if (!db) {
+      db = postgres(testDatabaseUrl!, { max: 1, prepare: false, connection: { statement_timeout: 30_000 } });
+    }
+
+    const ownerEmail = `reactivate-b3-${randomUUID()}@test.local`;
+    await sql().begin(async (tx) => {
+      await tx`SET CONSTRAINTS ALL DEFERRED`;
+      await tx`
+        INSERT INTO users (id, name, email, role, account_id)
+        VALUES (${b3.ownerUserId}::uuid, 'Reactivate B3 Owner', ${ownerEmail}, 'owner', ${b3.zeroPrimaryAccountId}::uuid)
+      `;
+
+      // Account 1: zero active primaries (primary archived).
+      await tx`
+        INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status, subscription_activated_at)
+        VALUES (${b3.zeroPrimaryAccountId}::uuid, ${b3.ownerUserId}::uuid, 'B3 ZeroPrimary Account', 'standard', 'active', NOW())
+      `;
+      await tx`
+        INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status, is_primary, archived_at)
+        VALUES (${b3.zeroPrimaryArchivedPrimaryId}::uuid, 'Zero Primary (archived)', 'Reactivate B3 Owner', ${ownerEmail}, ${b3.zeroPrimaryAccountId}::uuid, 'active', FALSE, NOW())
+      `;
+      await tx`
+        INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status, is_primary, archived_at)
+        VALUES (${b3.zeroPrimarySecondaryId}::uuid, 'Zero Secondary (archived)', 'Reactivate B3 Owner', ${ownerEmail}, ${b3.zeroPrimaryAccountId}::uuid, 'active', FALSE, NOW())
+      `;
+
+      // Account 2: an active primary already exists.
+      await tx`
+        INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status, subscription_activated_at)
+        VALUES (${b3.hasPrimaryAccountId}::uuid, ${b3.ownerUserId}::uuid, 'B3 HasPrimary Account', 'standard', 'active', NOW())
+      `;
+      await tx`
+        INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status, is_primary, archived_at)
+        VALUES (${b3.hasPrimaryPrimaryId}::uuid, 'Has Primary (active)', 'Reactivate B3 Owner', ${ownerEmail}, ${b3.hasPrimaryAccountId}::uuid, 'active', TRUE, NULL)
+      `;
+      await tx`
+        INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status, is_primary, archived_at)
+        VALUES (${b3.hasPrimaryArchivedSecondaryId}::uuid, 'Has Secondary (archived)', 'Reactivate B3 Owner', ${ownerEmail}, ${b3.hasPrimaryAccountId}::uuid, 'active', FALSE, NOW())
+      `;
+    });
+  });
+
+  afterAll(async () => {
+    if (!db) return;
+    await sql().begin(async (tx) => {
+      await tx`SET CONSTRAINTS ALL DEFERRED`;
+      await tx`DELETE FROM account_audit_log WHERE account_id IN (${b3.zeroPrimaryAccountId}::uuid, ${b3.hasPrimaryAccountId}::uuid)`;
+      await tx`DELETE FROM job_outbox WHERE aggregate_id IN (${b3.zeroPrimaryAccountId}::uuid, ${b3.hasPrimaryAccountId}::uuid, ${b3.zeroPrimarySecondaryId}::uuid, ${b3.hasPrimaryArchivedSecondaryId}::uuid)`;
+      await tx`DELETE FROM businesses WHERE account_id IN (${b3.zeroPrimaryAccountId}::uuid, ${b3.hasPrimaryAccountId}::uuid)`;
+      await tx`DELETE FROM accounts WHERE id IN (${b3.zeroPrimaryAccountId}::uuid, ${b3.hasPrimaryAccountId}::uuid)`;
+      await tx`DELETE FROM users WHERE id = ${b3.ownerUserId}::uuid`;
+    });
+    await db.end({ timeout: 5 });
+    db = undefined;
+  });
+
+  it('self-promotes the reactivated location to sole primary when the account has zero active primaries', async () => {
+    const { reactivateLocationTransaction } = await import('../archive-location-tx');
+
+    const result = await reactivateLocationTransaction({
+      locationId: b3.zeroPrimarySecondaryId,
+      accountId: b3.zeroPrimaryAccountId,
+      actorUserId: b3.ownerUserId,
+    });
+
+    expect(result.reactivated).toBe(true);
+    expect(result.selfPromoted).toBe(true);
+
+    // The reactivated location is now active AND primary.
+    const [reactivated] = await sql()<{ archived_at: Date | null; is_primary: boolean }[]>`
+      SELECT archived_at, is_primary FROM businesses WHERE id = ${b3.zeroPrimarySecondaryId}::uuid
+    `;
+    expect(reactivated?.archived_at).toBeNull();
+    expect(reactivated?.is_primary).toBe(true);
+
+    // It is the SOLE active primary for the account.
+    const [primaryCountRow] = await sql()<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count FROM businesses
+      WHERE account_id = ${b3.zeroPrimaryAccountId}::uuid AND is_primary = TRUE AND archived_at IS NULL
+    `;
+    expect(Number(primaryCountRow?.count)).toBe(1);
+
+    // A primary_promoted audit row was written for the self-heal.
+    const [auditCountRow] = await sql()<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count FROM account_audit_log
+      WHERE account_id = ${b3.zeroPrimaryAccountId}::uuid
+        AND location_id = ${b3.zeroPrimarySecondaryId}::uuid
+        AND event_type = 'primary_promoted'
+    `;
+    expect(Number(auditCountRow?.count)).toBe(1);
+  });
+
+  it('leaves the existing primary untouched when the account already has an active primary', async () => {
+    const { reactivateLocationTransaction } = await import('../archive-location-tx');
+
+    const result = await reactivateLocationTransaction({
+      locationId: b3.hasPrimaryArchivedSecondaryId,
+      accountId: b3.hasPrimaryAccountId,
+      actorUserId: b3.ownerUserId,
+    });
+
+    expect(result.reactivated).toBe(true);
+    expect(result.selfPromoted).toBe(false);
+
+    // Reactivated secondary is active but NOT primary.
+    const [secondary] = await sql()<{ archived_at: Date | null; is_primary: boolean }[]>`
+      SELECT archived_at, is_primary FROM businesses WHERE id = ${b3.hasPrimaryArchivedSecondaryId}::uuid
+    `;
+    expect(secondary?.archived_at).toBeNull();
+    expect(secondary?.is_primary).toBe(false);
+
+    // The pre-existing primary is still THE primary.
+    const [primary] = await sql()<{ is_primary: boolean; archived_at: Date | null }[]>`
+      SELECT is_primary, archived_at FROM businesses WHERE id = ${b3.hasPrimaryPrimaryId}::uuid
+    `;
+    expect(primary?.is_primary).toBe(true);
+    expect(primary?.archived_at).toBeNull();
+
+    // No primary_promoted audit row for the no-op case.
+    const [noopAuditRow] = await sql()<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count FROM account_audit_log
+      WHERE account_id = ${b3.hasPrimaryAccountId}::uuid
+        AND event_type = 'primary_promoted'
+    `;
+    expect(Number(noopAuditRow?.count)).toBe(0);
   });
 });

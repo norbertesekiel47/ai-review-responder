@@ -148,6 +148,7 @@ beforeEach(() => {
   mockReactivateLocationTransaction.mockResolvedValue({
     locationId: LOCATION_ID,
     reactivated: true,
+    selfPromoted: false,
   });
 });
 
@@ -230,6 +231,30 @@ describe('POST /api/locations/reactivate', () => {
         actorUserId: USER_ID,
       }),
     );
+  });
+
+  // B3: the self-heal flag from the transaction must surface in the response.
+  it('surfaces selfPromoted in the response body', async () => {
+    mockReactivateLocationTransaction.mockResolvedValue({
+      locationId: LOCATION_ID,
+      reactivated: true,
+      selfPromoted: true,
+    });
+    const req = mkRequest({ locationId: LOCATION_ID, accountId: ACCOUNT_ID });
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.selfPromoted).toBe(true);
+  });
+
+  it('surfaces selfPromoted=false when no self-heal occurred', async () => {
+    const req = mkRequest({ locationId: LOCATION_ID, accountId: ACCOUNT_ID });
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.selfPromoted).toBe(false);
   });
 
   it('returns 404 when MULTI_LOCATION_ENABLED is false', async () => {

@@ -376,6 +376,11 @@ export interface ReactivateLocationTxResult {
   locationId: string;
   /** Confirmation that the location was reactivated. */
   reactivated: boolean;
+  /**
+   * True when the account had no active primary and this location was
+   * auto-promoted to primary in the same tx (zero-primary self-heal).
+   */
+  selfPromoted: boolean;
 }
 
 // ── reactivateLocationTransaction ────────────────────────────────────────────
@@ -389,8 +394,16 @@ export interface ReactivateLocationTxResult {
  * for the restored location to catch up on reviews that arrived during
  * the archived period.
  *
- * Note: The reactivated location will NOT be primary (is_primary stays FALSE).
- * If the user wants it as primary, they must use promotePrimaryTransaction.
+ * Primary self-heal: normally the reactivated location stays non-primary
+ * (is_primary FALSE) — to make it primary the user uses
+ * promotePrimaryTransaction. The exception is a zero-primary account
+ * (reachable via the offboarding-cancel → reactivate flow, which can leave an
+ * account with no active primary): when no active primary exists, this tx
+ * silently auto-promotes the reactivated location to primary in the SAME
+ * transaction. The self-heal is silent — no notification, only a
+ * 'primary_promoted' audit row and the `selfPromoted` response flag. An
+ * accounts FOR UPDATE lock is taken FIRST (same accounts→businesses ordering
+ * as archive/promote) so concurrent reactivations can't both self-promote.
  *
  * The outbox job enqueues a Stripe overage update so the worker
  * recalculates the overage quantity (increment).
@@ -400,7 +413,12 @@ export async function reactivateLocationTransaction(
 ): Promise<ReactivateLocationTxResult> {
   const { locationId, accountId, actorUserId } = input;
 
-  await sql.begin(async (tx) => {
+  const selfPromoted = await sql.begin(async (tx) => {
+    // 0. Lock the account FIRST — establishes the same accounts→businesses lock
+    // ordering as archive/promote and serializes concurrent reactivations so two
+    // can't both self-promote into a zero-primary account.
+    await tx`SELECT id FROM accounts WHERE id = ${accountId}::uuid FOR UPDATE`;
+
     // 1. Set archived_at = NULL (reactivate)
     const [updatedLocation] = await tx<{ id: string }[]>`
       UPDATE businesses
@@ -413,6 +431,25 @@ export async function reactivateLocationTransaction(
     `;
     if (!updatedLocation) {
       throw new Error('location_reactivate_conflict');
+    }
+
+    // 1b. Zero-primary self-heal. The location is now active but still
+    // non-primary; if the account has NO active primary (reachable via the
+    // offboarding-cancel → reactivate flow), silently promote this location so
+    // the at-least-one-primary expectation is restored. Silent: audit row +
+    // response flag only, no notification.
+    const [primaryRow] = await tx<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count FROM businesses
+      WHERE account_id = ${accountId}::uuid AND is_primary = TRUE AND archived_at IS NULL
+    `;
+    const promoted = Number(primaryRow?.count ?? 0) === 0;
+    if (promoted) {
+      await tx`UPDATE businesses SET is_primary = TRUE, updated_at = NOW() WHERE id = ${locationId}::uuid AND account_id = ${accountId}::uuid`;
+      await tx`
+        INSERT INTO account_audit_log (id, account_id, location_id, event_type, actor_user_id, payload)
+        VALUES (${uuidv7()}::uuid, ${accountId}::uuid, ${locationId}::uuid, 'primary_promoted', ${actorUserId ?? null}::uuid,
+                ${jsonb({ location_id: locationId, reason: 'reactivation_self_heal' })})
+      `;
     }
 
     // 2. Insert audit log entry
@@ -492,10 +529,13 @@ export async function reactivateLocationTransaction(
         )
       `;
     }
+
+    return promoted;
   });
 
   return {
     locationId,
     reactivated: true,
+    selfPromoted,
   };
 }
