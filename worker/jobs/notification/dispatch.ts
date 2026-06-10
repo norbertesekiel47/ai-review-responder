@@ -4,7 +4,6 @@
 // does not abort the rest — that's the failover poller's job. Behavior
 // is preserved verbatim from the original NotificationWorker dispatcher.
 
-import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../../src/lib/db/server';
 import {
   recordNotificationDelivery,
@@ -17,11 +16,6 @@ import { safeInvalidateChannelCache, type ResolvedChannel } from '../../../src/l
 import type { AccountId } from '../../../src/lib/shared/ids';
 import { asAccountId } from '../../../src/lib/shared/ids';
 import { classifyChannelError } from './errors';
-import {
-  reserveSmsCost,
-  refundSmsCost,
-  DailySmsLimitExceededError,
-} from './sms-budget';
 import { getDisplayLabel } from '../../../src/lib/locations/display-label';
 import type { DispatchOutcome } from './outcomes';
 import { orderNotificationDispatchEnrollments } from './plan';
@@ -68,8 +62,8 @@ type StatusFlipKind =
  * `account_id` + the enrollment's location, NOT by `business_id`. On a
  * multi-location account the org-default row (`location_id IS NULL`) carries a
  * legacy `business_id` from its original INSERT, so a `business_id`-keyed UPDATE
- * could miss it. `handle` is kept in the predicate (mirroring the SMS 21610
- * pattern) so a stale failure cannot stomp a freshly re-enrolled handle.
+ * could miss it. `handle` is kept in the predicate so a stale failure cannot
+ * stomp a freshly re-enrolled handle.
  *
  * Channel names and the unsubscribed_reason are written as SQL literals (not
  * bound params) to keep the unit-test SQL-text assertions stable. Each branch
@@ -255,39 +249,9 @@ export async function dispatchAll(
       continue;
     }
 
-    // SMS cost reservation. The cap-rejection branch auto-refunds inside
-    // reserveSmsCost, so we only need to refund on downstream failure paths.
-    let smsReservationDate: string | null = null;
-    if (channelId === 'sms') {
-      try {
-        smsReservationDate = await reserveSmsCost(ctx.businessId);
-      } catch (err) {
-        if (err instanceof DailySmsLimitExceededError) {
-          logger.warn(`SMS cap reached for business ${ctx.businessId} (${err.scope})`);
-          attempted++;
-          await insertFailedDelivery(
-            ctx.accountId,
-            ctx.businessId,
-            ctx.responseId,
-            'sms',
-            enrollment.handle,
-            `daily_sms_limit_exceeded:${err.scope}`,
-          );
-          continue;
-        }
-        throw err;
-      }
-    }
-
-    // sendAccepted flips to true ONLY after the provider returns a SID.
-    // The finally block refunds iff we reserved and did NOT get that ack.
-    // A crash AFTER the provider ack but before recordNotificationDelivery
-    // intentionally commits the cost — the message was sent.
-    let sendAccepted = false;
-    try {
-      // Approval-link creation is per-channel — a failure here must NOT
-      // abort the whole dispatch loop (other channels may still succeed).
-      // The outer finally still runs on `continue`, refunding SMS cost.
+    // Approval-link creation is per-channel — a failure here must NOT
+    // abort the whole dispatch loop (other channels may still succeed).
+    {
       let rawToken: string;
       let approvalLinkId: string;
       try {
@@ -335,14 +299,11 @@ export async function dispatchAll(
           approvalLinkId,
         });
         externalMessageId = result.externalMessageId;
-        sendAccepted = true;
       } catch (err) {
         const directive = classifyChannelError(channelId, err, {
           businessId: ctx.businessId,
           responseId: ctx.responseId,
         });
-        let accountIdsToInvalidate: string[] | null = null;
-
         // Apply the enrollment mutation. The four status-flip branches delegate
         // to flipEnrollmentStatus, which scopes the UPDATE by account_id + the
         // enrollment's location (org-default vs per-location override) — never by
@@ -350,48 +311,8 @@ export async function dispatchAll(
         // multi-location accounts). Channel names stay SQL literals (not bound)
         // to keep the unit-test SQL-text assertions
         // (worker/jobs/notification/__tests__/NotificationWorker.whatsapp.test.ts)
-        // green. The SMS branch below is deliberately handle-global for TCPA and
-        // is NOT account-scoped.
-        if (directive.kind === 'sms_unsubscribed') {
-          // Belt-and-suspenders: worker startup-assert already enforces
-          // TWILIO_MESSAGING_SERVICE_SID when CHANNELS_SMS_ENABLED=true, but
-          // a missing value here would write the literal string "undefined"
-          // into the TCPA audit trail (sms_sender_opt_outs.messaging_service_sid)
-          // because Postgres.js would coerce. Hard-fail loudly instead.
-          const msid = process.env.TWILIO_MESSAGING_SERVICE_SID;
-          if (!msid) {
-            throw new Error(
-              'TWILIO_MESSAGING_SERVICE_SID missing — cannot record SMS opt-out for TCPA audit',
-            );
-          }
-          const affectedAccounts = await sql.begin(async (tx) => {
-            await tx`
-              INSERT INTO sms_sender_opt_outs (messaging_service_sid, handle, opted_out_at, opted_in_at, last_event_at)
-              VALUES (${msid}, ${enrollment.handle}, NOW(), NULL, NOW())
-              ON CONFLICT (messaging_service_sid, handle) DO UPDATE
-                SET opted_out_at = EXCLUDED.opted_out_at,
-                    opted_in_at = NULL,
-                    last_event_at = EXCLUDED.last_event_at
-            `;
-            await tx`
-              INSERT INTO sms_sender_opt_out_events (id, messaging_service_sid, handle, event_type, source, inbound_event_id)
-              VALUES (${uuidv7()}, ${msid}, ${enrollment.handle}, '21610_at_send', 'twilio_21610', NULL)
-            `;
-            const updated = await tx<{ account_id: string }[]>`
-              UPDATE channel_enrollments
-              SET status = 'unsubscribed',
-                  unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
-                  unsubscribed_reason = COALESCE(unsubscribed_reason, 'twilio_21610_at_send'),
-                  updated_at = NOW()
-              WHERE handle = ${enrollment.handle} AND channel = 'sms' AND archived_at IS NULL
-              RETURNING account_id
-            `;
-            return updated;
-          });
-          accountIdsToInvalidate = [
-            ...new Set(affectedAccounts.flatMap((row) => (row.account_id ? [row.account_id] : []))),
-          ];
-        } else if (
+        // green.
+        if (
           directive.kind === 'telegram_blocked' ||
           directive.kind === 'telegram_chat_not_found' ||
           directive.kind === 'whatsapp_blocked' ||
@@ -404,12 +325,7 @@ export async function dispatchAll(
         // intentionally leave channel_enrollments unchanged.
 
         // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes.
-        // SMS 21610 can update every account sharing a handle, so invalidate
-        // each account returned by the update rather than only ctx.accountId.
-        const cacheAccountIds =
-          accountIdsToInvalidate && accountIdsToInvalidate.length > 0
-            ? accountIdsToInvalidate
-            : [ctx.accountId];
+        const cacheAccountIds = [ctx.accountId];
         try {
           await Promise.all(
             cacheAccountIds.map((accountId) =>
@@ -439,7 +355,7 @@ export async function dispatchAll(
           enrollment.handle,
           directive.failureReason,
         );
-        continue; // `finally` runs before continue, so any refund still triggers when sendAccepted=false.
+        continue;
       }
 
       await recordNotificationDelivery({
@@ -453,10 +369,6 @@ export async function dispatchAll(
       });
       succeeded++;
       logger.log(`${channelId} approval notification sent for response ${ctx.responseId} (business ${ctx.businessId})`);
-    } finally {
-      if (channelId === 'sms' && smsReservationDate && !sendAccepted) {
-        await refundSmsCost(ctx.businessId, smsReservationDate);
-      }
     }
   }
 

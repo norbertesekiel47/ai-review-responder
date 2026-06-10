@@ -11,9 +11,6 @@
 // business_id from its original INSERT, so a WHERE business_id = ctx.businessId
 // can MISS it. The fix keys org-default rows by account_id + location_id IS NULL
 // and per-location overrides by account_id + location_id = <id>.
-//
-// The SMS branch (sms_unsubscribed) is intentionally handle-global for TCPA and
-// is NOT covered here — it must remain unscoped by business/account.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
@@ -111,11 +108,6 @@ vi.mock('@/lib/approval/create-link', () => ({
   createApprovalLink: mockCreateApprovalLink,
 }));
 
-vi.mock('@/lib/costs/sms-tracker', () => ({
-  reserveSmsCost: vi.fn(() => Promise.resolve('2026-04-23')),
-  refundSmsCost: vi.fn(() => Promise.resolve()),
-  DailySmsLimitExceededError: class extends Error {},
-}));
 
 import { handleSendNotification } from '../NotificationWorker';
 import {

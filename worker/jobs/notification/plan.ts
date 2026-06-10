@@ -4,7 +4,6 @@ export type NotificationChannelName = ChannelId;
 
 const NOTIFICATION_DISPATCH_CHANNEL_ORDER = [
   'email',
-  'sms',
   'telegram',
   'whatsapp',
 ] as const satisfies readonly ChannelId[];
@@ -27,7 +26,6 @@ export function orderNotificationDispatchEnrollments<
 >(enrollments: readonly T[]): T[] {
   const eligibility: NotificationChannelEligibility = {
     email: { enabled: false },
-    sms: { enabled: false },
     telegram: { enabled: false },
     whatsapp: { enabled: false },
   };

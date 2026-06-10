@@ -7,7 +7,6 @@
 // the dispatcher applies the directive.
 
 import {
-  SmsRecipientUnsubscribedError,
   TelegramRecipientBlockedError,
   TelegramChatNotFoundError,
   WhatsAppRecipientBlockedError,
@@ -28,12 +27,8 @@ export type LogLevel = 'log' | 'warn' | 'error';
  * are emitted verbatim from the original worker branches.
  *
  * Mutation rules per kind (applied by the dispatcher):
- *  - sms_unsubscribed       — sms_sender_opt_outs INSERT/UPDATE +
- *                             sms_sender_opt_out_events INSERT +
- *                             channel_enrollments handle-scoped UPDATE
- *                             (sender-wide; no business_id filter)
  *  - telegram_blocked       — channel_enrollments → unsubscribed
- *                             (business_id + handle scoped)
+ *                             (account_id + handle + location scoped)
  *  - telegram_chat_not_found — channel_enrollments → disabled
  *  - whatsapp_blocked        — channel_enrollments → unsubscribed
  *  - whatsapp_invalid_recipient — channel_enrollments → disabled
@@ -44,7 +39,6 @@ export type LogLevel = 'log' | 'warn' | 'error';
  */
 export interface ChannelErrorDirective {
   kind:
-    | 'sms_unsubscribed'
     | 'telegram_blocked'
     | 'telegram_chat_not_found'
     | 'whatsapp_blocked'
@@ -58,9 +52,7 @@ export interface ChannelErrorDirective {
   logLevel: LogLevel;
   logMessage: string;
   /**
-   * Optional second log line. Used by the SMS 21610 branch in the original
-   * worker to log the inner error message at error level after the primary
-   * "flipped" log line at info level.
+   * Optional second log line for additional context after the primary log line.
    */
   extraLog?: { level: LogLevel; message: string };
 }
@@ -75,17 +67,6 @@ export function classifyChannelError(
   err: unknown,
   ctx: { businessId: string; responseId: string },
 ): ChannelErrorDirective {
-  if (err instanceof SmsRecipientUnsubscribedError) {
-    const reason = err instanceof Error ? err.message : String(err);
-    return {
-      kind: 'sms_unsubscribed',
-      failureReason: 'twilio_21610_at_send',
-      logLevel: 'log',
-      logMessage: `SMS enrollment flipped to unsubscribed (twilio_21610_at_send) for business ${ctx.businessId}`,
-      extraLog: { level: 'error', message: `[NotificationWorker] SMS 21610: ${reason}` },
-    };
-  }
-
   if (err instanceof TelegramRecipientBlockedError) {
     return {
       kind: 'telegram_blocked',
