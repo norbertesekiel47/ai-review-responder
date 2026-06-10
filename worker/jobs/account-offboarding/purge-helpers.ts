@@ -10,18 +10,6 @@ import { scrubOffboardingErrorForStorage } from '../../../src/lib/account-offboa
  * stage orchestration, not utilities.
  */
 
-export interface SmsHandleRow {
-  messaging_service_sid: string;
-  handle: string;
-}
-
-export interface SmsOptOutScrubScopeRecord {
-  type: 'sms_opt_out_scrub_scope';
-  messaging_service_sid_hash: string;
-  handle_hash: string;
-  scrubbed_handle: string;
-}
-
 export interface JobOutboxScrubScopeRecord {
   type: 'job_outbox_scrub_scope';
   job_outbox_id: string;
@@ -36,23 +24,6 @@ export interface ImpersonationSessionScrubScopeRecord {
 
 function sha256Hex(value: string): string {
   return createHash('sha256').update(value).digest('hex');
-}
-
-function hashSmsHandleValue(messagingServiceSid: string, handle: string): string {
-  return sha256Hex(`${messagingServiceSid}:${handle}`);
-}
-
-export function hashSmsHandle(messagingServiceSid: string, handle: string): string {
-  return `sha256:${hashSmsHandleValue(messagingServiceSid, handle)}`;
-}
-
-export function smsOptOutScrubScopeRecord(entry: SmsHandleRow): SmsOptOutScrubScopeRecord {
-  return {
-    type: 'sms_opt_out_scrub_scope',
-    messaging_service_sid_hash: sha256Hex(entry.messaging_service_sid),
-    handle_hash: hashSmsHandleValue(entry.messaging_service_sid, entry.handle),
-    scrubbed_handle: hashSmsHandle(entry.messaging_service_sid, entry.handle),
-  };
 }
 
 export function jobOutboxScrubScopeRecord(entry: { id: string }): JobOutboxScrubScopeRecord {

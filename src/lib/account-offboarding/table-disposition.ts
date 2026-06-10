@@ -253,20 +253,6 @@ export const TABLE_DISPOSITIONS = [
     reason: 'Outbox rows are terminalized and payloads are scrubbed so stale jobs cannot expose customer data.',
   },
   {
-    table: 'sms_sender_opt_outs',
-    disposition: 'retain_compliance_limited_pii',
-    scopeEvidence: 'compliance_handle_hash',
-    purgeVerification: 'allowed_limited_retention',
-    reason: 'SMS suppression records may retain only compliance-limited keyed-hash data needed to honor opt-outs.',
-  },
-  {
-    table: 'sms_sender_opt_out_events',
-    disposition: 'retain_compliance_limited_pii',
-    scopeEvidence: 'compliance_handle_hash',
-    purgeVerification: 'allowed_limited_retention',
-    reason: 'SMS opt-out audit events may retain only compliance-limited keyed-hash data.',
-  },
-  {
     table: 'flagged_responses',
     disposition: 'hard_delete',
     scopeEvidence: 'direct_account_id',

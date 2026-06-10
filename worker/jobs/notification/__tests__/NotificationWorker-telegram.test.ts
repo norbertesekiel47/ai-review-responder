@@ -25,8 +25,6 @@ const {
   mockCreateApprovalLink,
   mockRecordDelivery,
   mockInsertFailedDelivery,
-  mockReserveSmsCost,
-  mockRefundSmsCost,
   TelegramRecipientBlockedError,
   TelegramChatNotFoundError,
 } = vi.hoisted(() => {
@@ -64,8 +62,6 @@ const {
     mockCreateApprovalLink: vi.fn(),
     mockRecordDelivery: vi.fn(),
     mockInsertFailedDelivery: vi.fn(),
-    mockReserveSmsCost: vi.fn(),
-    mockRefundSmsCost: vi.fn(),
     TelegramRecipientBlockedError,
     TelegramChatNotFoundError,
   };
@@ -99,9 +95,6 @@ vi.mock('../../../../src/lib/db/redis-cache', () => ({
 
 vi.mock('../../../../src/lib/notifications/channels', () => ({
   getChannel: mockGetChannel,
-  SmsRecipientUnsubscribedError: class SmsRecipientUnsubscribedError extends Error {
-    constructor() { super('sms_recipient_unsubscribed'); this.name = 'SmsRecipientUnsubscribedError'; }
-  },
   TelegramRecipientBlockedError,
   TelegramChatNotFoundError,
 }));
@@ -115,16 +108,6 @@ vi.mock('../../../../src/lib/approval/create-link', () => ({
   createApprovalLink: mockCreateApprovalLink,
 }));
 
-vi.mock('../../../../src/lib/costs/sms-tracker', () => ({
-  reserveSmsCost: mockReserveSmsCost,
-  refundSmsCost: mockRefundSmsCost,
-  DailySmsLimitExceededError: class DailySmsLimitExceededError extends Error {
-    constructor(public readonly scope: 'per_business' | 'global') {
-      super(`sms_cap:${scope}`);
-      this.name = 'DailySmsLimitExceededError';
-    }
-  },
-}));
 
 vi.mock('uuid', () => ({
   v7: vi.fn(() => 'test-uuid'),
@@ -201,8 +184,6 @@ function resetAll() {
   });
   mockRecordDelivery.mockReset().mockResolvedValue(undefined);
   mockInsertFailedDelivery.mockReset().mockResolvedValue(undefined);
-  mockReserveSmsCost.mockReset();
-  mockRefundSmsCost.mockReset().mockResolvedValue(undefined);
   process.env.NEXT_PUBLIC_APP_URL = 'https://repworth.example.com';
   delete process.env.CHANNELS_TELEGRAM_ENABLED;
 }

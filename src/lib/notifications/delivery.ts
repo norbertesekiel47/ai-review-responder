@@ -14,7 +14,7 @@ export async function recordNotificationDelivery(params: {
   accountId: string;
   businessId: string;
   responseId?: string | null;
-  channel: ChannelId;                       // widened from 'email' | 'sms'
+  channel: ChannelId;
   recipient: string;
   template: string;
   externalMessageId: string;

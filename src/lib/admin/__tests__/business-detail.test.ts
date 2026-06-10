@@ -267,7 +267,6 @@ describe('getBusinessDetail — full DTO characterization', () => {
     expect(res.business.ownerEmailBounced).toBe(false);
 
     // Env-flag channels — undefined env → boolean false
-    expect(typeof res.business.smsEnabled).toBe('boolean');
     expect(typeof res.business.telegramEnabled).toBe('boolean');
     expect(typeof res.business.whatsappEnabled).toBe('boolean');
 

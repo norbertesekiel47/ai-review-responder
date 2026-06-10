@@ -229,7 +229,7 @@ export default function BusinessDetailPage() {
         {/* Ranking */}
         <ManualRankingSection businessId={businessId} snapshots={rankingSnapshots ?? []} />
 
-        {/* Channels (table + flag-gated SMS / Telegram / WhatsApp enrollment) */}
+        {/* Channels (table + flag-gated Telegram / WhatsApp enrollment) */}
         <ChannelsPanel business={business} businessId={businessId} enrollments={enrollments} />
 
         {/* Zernio connection panel — auto-publishing state, queued reconnects, ops incidents */}

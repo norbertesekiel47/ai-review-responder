@@ -1593,7 +1593,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/admin/businesses/[id]/channels/route.ts",
     table: "notification_deliveries",
-    sqlSnippet: "SELECT e.channel, e.handle, e.status, e.verified_at, e.disabled_at, e.unsubscribed_at, e.unsubscribed_reason, e.verification_token_expires_at AS expires_at, e.location_id, (SELECT MAX(COALESCE(nd.delivered_at, nd.sent_at)) FROM notification_deliveries nd WHERE nd.business_id = ${businessId} AND nd.channel = e.channel) AS last_activity_at FROM channel_enrollments e WHERE e.account_id = ${accountId} AND (e.location_id = ${businessId} OR e.location_id IS NULL) AND e.archived_at IS NULL ORDER BY CASE WHEN e.location_id IS NOT NULL THEN 0 ELSE 1 END, e.created_at ASC",
+    sqlSnippet: "SELECT e.channel, e.handle, e.status, e.verified_at, e.disabled_at, e.unsubscribed_at, e.unsubscribed_reason, e.verification_token_expires_at AS expires_at, e.location_id, (SELECT MAX(COALESCE(nd.delivered_at, nd.sent_at)) FROM notification_deliveries nd WHERE nd.business_id = ${businessId} AND nd.channel = e.channel) AS last_activity_at FROM channel_enrollments e WHERE e.account_id = ${accountId} AND (e.location_id = ${businessId} OR e.location_id IS NULL) AND e.archived_at IS NULL AND e.channel = ANY(${[...CHANNEL_IDS] as string[]}::text[]) ORDER BY CASE WHEN e.location_id IS NOT NULL THEN 0 ELSE 1 END, e.created_at ASC",
     reason: "Admin-only route (after requireRole(admin)). The notification_deliveries last-activity subquery is scoped to the viewed location (route businessId); the outer channel_enrollments read is account-scoped via e.account_id.",
   },
   {
@@ -1625,24 +1625,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "responses",
     sqlSnippet: "SELECT a.id AS account_id, a.created_at AS account_created_at, r.id AS response_id, r.business_id, r.review_id, r.posted_at, first_post.id AS first_response_id FROM responses r JOIN businesses b ON b.id = r.business_id JOIN accounts a ON a.id = b.account_id JOIN LATERAL ( SELECT r2.id FROM responses r2 JOIN businesses b2 ON b2.id = r2.business_id WHERE b2.account_id = a.id AND r2.status = 'posted' AND r2.posted_at IS NOT NULL ORDER BY r2.posted_at ASC, r2.id ASC LIMIT 1 ) first_post ON TRUE WHERE r.id = ${input.responseId}::uuid AND r.business_id = ${input.businessId}::uuid AND r.status = 'posted' AND r.posted_at IS NOT NULL AND a.created_at >= NOW() - INTERVAL '8 days' LIMIT 1",
     reason: "Publisher activation check starts from the publish job responseId/businessId pair and joins back to the owning account and location.",
-  },
-  {
-    file: "src/app/api/admin/channels/sms/confirm/route.ts",
-    table: "sms_sender_opt_outs",
-    sqlSnippet: "SELECT opted_out_at, opted_in_at FROM sms_sender_opt_outs WHERE messaging_service_sid = ${process.env.TWILIO_MESSAGING_SERVICE_SID!} AND handle = ${row.handle}",
-    reason: "Admin SMS confirm has already loaded the channel enrollment for this business; sender opt-out state is keyed by Twilio messaging service and handle for TCPA compliance.",
-  },
-  {
-    file: "src/app/api/admin/channels/sms/status/route.ts",
-    table: "sms_sender_opt_outs",
-    sqlSnippet: "SELECT ce.status, ce.handle, ce.verified_at, ce.disabled_at, ce.unsubscribed_at, ce.unsubscribed_reason, ce.archived_at, CASE WHEN so.handle IS NULL THEN TRUE WHEN so.opted_in_at IS NOT NULL AND so.opted_in_at > so.opted_out_at THEN TRUE ELSE FALSE END AS sender_opt_in_cleared FROM channel_enrollments ce LEFT JOIN sms_sender_opt_outs so ON so.handle = ce.handle AND so.messaging_service_sid = ${messagingServiceSid} WHERE ce.business_id = ${businessId} AND ce.channel = 'sms' AND ce.archived_at IS NULL LIMIT 1",
-    reason: "Admin SMS status is business-scoped through channel_enrollments; the opt-out join only decorates that scoped enrollment by sender handle.",
-  },
-  {
-    file: "src/app/api/admin/channels/sms/verify/route.ts",
-    table: "sms_sender_opt_outs",
-    sqlSnippet: "SELECT opted_out_at, opted_in_at FROM sms_sender_opt_outs WHERE messaging_service_sid = ${process.env.TWILIO_MESSAGING_SERVICE_SID!} AND handle = ${twilioPhone}",
-    reason: "Admin SMS verification checks sender-level TCPA opt-out state for the phone being verified before mutating the business-scoped enrollment.",
   },
   {
     file: "src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts",
@@ -1723,12 +1705,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Stripe activation flow checks Zernio backfill completion for the already scoped business id before enqueueing backfill work.",
   },
   {
-    file: "worker/ingress/twilio/twilio.ts",
-    table: "sms_sender_opt_outs",
-    sqlSnippet: "UPDATE sms_sender_opt_outs SET opted_in_at = NOW(), last_event_at = NOW() WHERE messaging_service_sid = ${msid} AND handle = ${From} AND opted_out_at IS NOT NULL",
-    reason: "Signed Twilio START handling updates sender-level TCPA opt-out state by messaging service and handle; channel re-verification remains a separate scoped flow.",
-  },
-  {
     file: "worker/jobs/OnboardingDripWorker.ts",
     table: "onboarding_drip_log",
     sqlSnippet: "UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimId}",
@@ -1799,18 +1775,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "channel_enrollments",
     sqlSnippet: "UPDATE channel_enrollments SET handle = ${senderHandle}, status = 'verified', verified_at = NOW(), verification_token_hash = NULL, verification_token_expires_at = NULL, updated_at = NOW() WHERE id = ${row.id} AND archived_at IS NULL",
     reason: "WhatsApp enrollment ingress updates the row id locked by verification token in the same transaction.",
-  },
-  {
-    file: "worker/ingress/twilio/twilio.ts",
-    table: "channel_enrollments",
-    sqlSnippet: "UPDATE channel_enrollments SET status = 'unsubscribed', unsubscribed_at = COALESCE(unsubscribed_at, NOW()), unsubscribed_reason = COALESCE(unsubscribed_reason, 'sms_stop'), updated_at = NOW() WHERE handle = ${From} AND channel = 'sms' AND archived_at IS NULL RETURNING account_id",
-    reason: "SMS STOP handling is intentionally handle-wide for TCPA compliance and returns affected account ids for immediate cache invalidation.",
-  },
-  {
-    file: "worker/jobs/notification/dispatch.ts",
-    table: "channel_enrollments",
-    sqlSnippet: "UPDATE channel_enrollments SET status = 'unsubscribed', unsubscribed_at = COALESCE(unsubscribed_at, NOW()), unsubscribed_reason = COALESCE(unsubscribed_reason, 'twilio_21610_at_send'), updated_at = NOW() WHERE handle = ${enrollment.handle} AND channel = 'sms' AND archived_at IS NULL RETURNING account_id",
-    reason: "Twilio 21610 send failure is treated as a sender opt-out and intentionally updates all active SMS enrollments for that handle.",
   },
   // --- KPI service (src/lib/kpi/service.ts) ---
   // Per-location queries: scoped by `r.business_id = ${businessId}` on the reviews scan.
@@ -2104,48 +2068,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "onboarding_demos",
     sqlSnippet: "WITH account_businesses AS ( SELECT b.id::text AS id FROM businesses b WHERE b.account_id = ${row.account_id}::uuid ), onboarding_demo_scope AS ( SELECT od.id::text AS identifier FROM onboarding_demos od JOIN businesses b ON b.id = od.business_id WHERE b.account_id = ${row.account_id}::uuid ), offboarding_scope AS ( SELECT id::text AS identifier FROM account_businesses UNION ALL SELECT identifier FROM onboarding_demo_scope UNION ALL SELECT ${row.account_id}::text UNION ALL SELECT ${row.id}::text UNION ALL SELECT ${row.auth_user_id ?? null}::text UNION ALL SELECT ${row.stripe_customer_id ?? null}::text UNION ALL SELECT ${row.stripe_subscription_id ?? null}::text UNION ALL SELECT UNNEST(${row.zernio_account_ids ?? []}::text[]) UNION ALL SELECT UNNEST(${row.zernio_profile_ids ?? []}::text[]) ) SELECT id FROM job_outbox WHERE EXISTS ( SELECT 1 FROM offboarding_scope s WHERE s.identifier IS NOT NULL AND length(btrim(s.identifier)) > 0 AND ( job_outbox.payload::text LIKE ('%' || s.identifier || '%') OR job_outbox.aggregate_id::text = s.identifier OR job_outbox.last_error LIKE ('%' || s.identifier || '%') ) ) AND job_outbox.id <> ${currentOutboxId}::uuid",
     reason: "Owner offboarding purge includes account-scoped onboarding demo ids before hard-deleting child demo rows so retained outbox rows can be scrubbed.",
-  },
-  {
-    file: "worker/jobs/account-offboarding/purge-stages.ts",
-    table: "channel_enrollments",
-    sqlSnippet: "WITH account_handles AS ( SELECT DISTINCT handle FROM channel_enrollments WHERE account_id = ${row.account_id}::uuid AND channel IN ('sms', 'whatsapp') AND handle IS NOT NULL ) SELECT DISTINCT so.messaging_service_sid, account_handles.handle FROM account_handles JOIN sms_sender_opt_outs so ON so.handle = account_handles.handle",
-    reason: "Owner offboarding purge resolves compliance opt-out rows from account-scoped channel handles before hashing those handles.",
-  },
-  {
-    file: "worker/jobs/account-offboarding/purge-stages.ts",
-    table: "sms_sender_opt_outs",
-    sqlSnippet: "WITH account_handles AS ( SELECT DISTINCT handle FROM channel_enrollments WHERE account_id = ${row.account_id}::uuid AND channel IN ('sms', 'whatsapp') AND handle IS NOT NULL ) SELECT DISTINCT so.messaging_service_sid, account_handles.handle FROM account_handles JOIN sms_sender_opt_outs so ON so.handle = account_handles.handle",
-    reason: "Owner offboarding purge resolves opt-out rows by account-scoped channel handle, then stores only keyed-hash retention scope before deleting the channel rows.",
-  },
-  {
-    file: "worker/jobs/account-offboarding/purge-stages.ts",
-    table: "sms_sender_opt_out_events",
-    sqlSnippet: "SELECT DISTINCT soe.messaging_service_sid, account_handles.handle FROM account_handles JOIN sms_sender_opt_out_events soe ON soe.handle = account_handles.handle",
-    reason: "Owner offboarding purge resolves opt-out event rows by account-scoped channel handle, then stores only keyed-hash retention scope before deleting the channel rows.",
-  },
-  {
-    file: "worker/jobs/account-offboarding/purge-stages.ts",
-    table: "sms_sender_opt_out_events",
-    sqlSnippet: "UPDATE sms_sender_opt_out_events SET handle = ${hashedHandle} WHERE messaging_service_sid = ${entry.messaging_service_sid} AND handle = ${entry.handle}",
-    reason: "Owner offboarding purge hashes the specific opt-out event handles selected from account-scoped channel enrollment scope.",
-  },
-  {
-    file: "worker/jobs/account-offboarding/purge-stages.ts",
-    table: "sms_sender_opt_outs",
-    sqlSnippet: "UPDATE sms_sender_opt_outs SET handle = ${hashedHandle} WHERE messaging_service_sid = ${entry.messaging_service_sid} AND handle = ${entry.handle}",
-    reason: "Owner offboarding purge hashes the specific opt-out handles selected from account-scoped channel enrollment scope.",
-  },
-  {
-    file: "worker/jobs/account-offboarding/purge-stages.ts",
-    table: "sms_sender_opt_outs",
-    sqlSnippet: "SELECT ( SELECT COUNT(*) FROM sms_sender_opt_outs so WHERE EXISTS ( SELECT 1 FROM ( SELECT * FROM UNNEST( ${handles.map((entry) => entry.messaging_service_sid)}::text[], ${handles.map((entry) => entry.handle)}::text[] ) AS scoped(messaging_service_sid, handle) ) scoped WHERE scoped.messaging_service_sid = so.messaging_service_sid AND scoped.handle = so.handle ) ) + ( SELECT COUNT(*) FROM sms_sender_opt_out_events soe WHERE EXISTS ( SELECT 1 FROM ( SELECT * FROM UNNEST( ${handles.map((entry) => entry.messaging_service_sid)}::text[], ${handles.map((entry) => entry.handle)}::text[] ) AS scoped(messaging_service_sid, handle) ) scoped WHERE scoped.messaging_service_sid = soe.messaging_service_sid AND scoped.handle = soe.handle ) ) AS count",
-    reason: "Owner offboarding purge verifies no raw opt-out handles remain for the exact account-scoped handles selected earlier in the transaction.",
-  },
-  {
-    file: "worker/jobs/account-offboarding/purge-stages.ts",
-    table: "sms_sender_opt_out_events",
-    sqlSnippet: "SELECT ( SELECT COUNT(*) FROM sms_sender_opt_outs so WHERE EXISTS ( SELECT 1 FROM ( SELECT * FROM UNNEST( ${handles.map((entry) => entry.messaging_service_sid)}::text[], ${handles.map((entry) => entry.handle)}::text[] ) AS scoped(messaging_service_sid, handle) ) scoped WHERE scoped.messaging_service_sid = so.messaging_service_sid AND scoped.handle = so.handle ) ) + ( SELECT COUNT(*) FROM sms_sender_opt_out_events soe WHERE EXISTS ( SELECT 1 FROM ( SELECT * FROM UNNEST( ${handles.map((entry) => entry.messaging_service_sid)}::text[], ${handles.map((entry) => entry.handle)}::text[] ) AS scoped(messaging_service_sid, handle) ) scoped WHERE scoped.messaging_service_sid = soe.messaging_service_sid AND scoped.handle = soe.handle ) ) AS count",
-    reason: "Owner offboarding purge verifies no raw opt-out event handles remain for the exact account-scoped handles selected earlier in the transaction.",
   },
   {
     file: "worker/jobs/notification/context.ts",

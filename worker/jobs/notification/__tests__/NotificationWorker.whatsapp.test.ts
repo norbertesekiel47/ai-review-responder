@@ -134,13 +134,6 @@ vi.mock('@/lib/approval/create-link', () => ({
   createApprovalLink: mockCreateApprovalLink,
 }));
 
-// SMS cost helpers — not exercised by WhatsApp tests but imported by the worker.
-vi.mock('@/lib/costs/sms-tracker', () => ({
-  reserveSmsCost: vi.fn(() => Promise.resolve('2026-04-23')),
-  refundSmsCost: vi.fn(() => Promise.resolve()),
-  DailySmsLimitExceededError: class extends Error {},
-}));
-
 // ---------------------------------------------------------------------------
 // 3. Import the module under test AFTER all vi.mock calls.
 // ---------------------------------------------------------------------------

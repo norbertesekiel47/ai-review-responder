@@ -23,7 +23,6 @@ import {
   runParentTombstonePurgeStage,
   runProviderIdentifierPurgeStage,
   runRawPayloadPurgeStage,
-  runSmsOptOutPurgeStage,
   validatePurgeableOffboarding,
 } from './purge-stages';
 import { scrubOffboardingErrorForStorage } from '../../../src/lib/account-offboarding/scrub-error';
@@ -75,7 +74,6 @@ export async function handleAccountOffboardingPurge(
     await runRawPayloadPurgeStage(offboarding, outboxId);
     await runContentPurgeStage(offboarding);
     await runAnalyticsPurgeStage(offboarding);
-    await runSmsOptOutPurgeStage(offboarding);
     await runProviderIdentifierPurgeStage(offboarding);
     await runAuditAndCostPayloadPurgeStage(offboarding);
     await runParentTombstonePurgeStage(offboarding);

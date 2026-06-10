@@ -154,27 +154,6 @@ export function assertSelfServeSignupEnv(): void {
 }
 
 /**
- * Boot-time assertion. When CHANNELS_SMS_ENABLED=true, verifies all required
- * Twilio env vars are set. Fail fast at startup rather than at first enrollment
- * or send. No-op when the flag is off or in MOCK_EXTERNAL_APIS mode.
- */
-export function assertChannelsSmsEnv(): void {
-  if (process.env.CHANNELS_SMS_ENABLED !== 'true') return;
-  if (process.env.MOCK_EXTERNAL_APIS === 'true') return;
-  const required = [
-    'WORKER_PUBLIC_URL',
-    'TWILIO_ACCOUNT_SID',
-    'TWILIO_AUTH_TOKEN',
-    'TWILIO_MESSAGING_SERVICE_SID',
-    'TWILIO_VERIFY_SERVICE_SID',
-  ];
-  const missing = required.filter((k) => !process.env[k] || process.env[k]!.trim().length === 0);
-  if (missing.length > 0) {
-    throw new Error(`CHANNELS_SMS_ENABLED=true but missing required env vars: ${missing.join(', ')}`);
-  }
-}
-
-/**
  * Boot-time assertion. When CHANNELS_TELEGRAM_ENABLED=true, verifies all required
  * Telegram env vars are set. Fail fast at startup rather than on first webhook.
  * No-op when the flag is off or MOCK_EXTERNAL_APIS=true.
@@ -190,9 +169,8 @@ export function assertChannelsTelegramEnv(): void {
 }
 
 /**
- * Boot-time assertion for WhatsApp. Self-contained — does NOT depend on
- * assertChannelsSmsEnv (which early-returns when SMS flag is off). A
- * WA-on / SMS-off deployment otherwise boots with unverified Twilio config.
+ * Boot-time assertion for WhatsApp. Self-contained — verifies all required
+ * Twilio/WhatsApp env vars are set when CHANNELS_WHATSAPP_ENABLED=true.
  *
  * When CHANNELS_WHATSAPP_ENABLED=true:
  *   - verify all 7 required env vars non-empty

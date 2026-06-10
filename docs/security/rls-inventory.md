@@ -30,7 +30,6 @@ Run `pnpm ci:rls-audit` to verify the required tables below still have `relrowse
 | `zernio_connections` | `business_id` | Zernio mappings are per location; owner reads join through the owning business account. |
 | `zernio_finalize_incidents` | `business_id` | Finalize-unknown incident rows inherit tenant scope through the affected location. |
 | `zernio_backfill_runs` | `business_id` | Backfill summary rows inherit tenant scope through the connected location. |
-| `sms_sender_opt_outs` | `handle` via `channel_enrollments` | Sender-level TCPA opt-out state is owner-readable only when its handle belongs to an SMS/WhatsApp channel enrollment for the owner account. |
-| `sms_sender_opt_out_events` | `handle` via `channel_enrollments` | Opt-out event history follows the same handle bridge as `sms_sender_opt_outs`. |
+<!-- `sms_sender_opt_outs` and `sms_sender_opt_out_events` dropped by migration 061 (SMS channel removal). -->
 
 The audit is intentionally small: it verifies that required tenant tables appear in `pg_class` for the public schema and that RLS is enabled. It does not prove every policy predicate. Policy behavior remains covered by focused integration tests and route/module tests.

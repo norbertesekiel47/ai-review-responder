@@ -1,7 +1,6 @@
 // src/app/api/admin/channels/telegram/_shared.ts
 //
-// Shared helpers for admin Telegram routes. Mirrors the SMS pattern at
-// src/app/api/admin/channels/sms/_shared.ts.
+// Shared helpers for admin Telegram routes.
 
 import { NextResponse } from 'next/server';
 

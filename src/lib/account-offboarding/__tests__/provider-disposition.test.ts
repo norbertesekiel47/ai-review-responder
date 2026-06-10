@@ -105,7 +105,7 @@ describe('buildAdminProviderDispositionRecord', () => {
     expect(hasConcreteAdminProviderDisposition([
       { provider: 'zernio', disposition: 'recorded' },
       { type: 'provider_disposition', provider: 'zernio', disposition: 'recorded' },
-      { type: 'sms_opt_out_scrub_scope', scrubbed_handle: 'sha256:abc' },
+      { type: 'job_outbox_scrub_scope', job_outbox_id: 'some-id' },
       {
         type: 'admin_provider_disposition',
         provider: 'zernio',

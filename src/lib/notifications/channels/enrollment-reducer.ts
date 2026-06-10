@@ -21,7 +21,7 @@ export type EnrollmentState =
   | 'error';
 
 export interface ChannelEnrollmentRow {
-  channel: 'email' | 'sms' | 'telegram' | 'whatsapp';
+  channel: 'email' | 'telegram' | 'whatsapp';
   handle: string | null;
   status: 'verified' | 'pending_verification' | 'disabled' | 'unsubscribed';
   verified_at: string | null;

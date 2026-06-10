@@ -1,6 +1,6 @@
 // worker/ingress/twilio/twilio-delivery-status.ts
 //
-// Shared Twilio delivery-status state machine. SMS and WhatsApp provide the
+// Shared Twilio delivery-status state machine. WhatsApp provides the
 // channel-specific adapter values; this module owns signature verification,
 // dedup, first-terminal-wins delivery updates, and inbound_event finalization.
 
@@ -13,7 +13,7 @@ import {
 } from '../shared';
 import { parseTwilioBody, verifyTwilioSignature } from './twilio-verify';
 
-type DeliveryChannel = 'sms' | 'whatsapp';
+type DeliveryChannel = 'whatsapp';
 
 interface DeliveryStatusOptions {
   channel: DeliveryChannel;

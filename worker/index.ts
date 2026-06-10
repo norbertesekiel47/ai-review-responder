@@ -31,11 +31,10 @@ import { handleWeeklySummary } from './jobs/WeeklySummaryWorker';
 import { handlePlaceIdValidation } from './jobs/PlaceIdValidationWorker';
 import { handleResendWebhook } from './ingress/resend';
 import { handleStripeWebhook } from './ingress/stripe';
-import { handleTwilioStatusCallback, handleTwilioInbound } from './ingress/twilio/twilio';
 import { handleTwilioWhatsAppInbound, handleTwilioWhatsAppStatus } from './ingress/twilio/twilio-whatsapp';
 import { handleTelegramWebhook } from './ingress/telegram/telegram';
 import { handleZernioWebhook } from './ingress/zernio/zernio';
-import { assertAccountOffboardingEnv, assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
+import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './background/pollers/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './background/schedulers/WeeklySummaryScheduler';
 import { startArchivalPoller, stopArchivalPoller } from './background/pollers/ArchivalPoller';
@@ -248,7 +247,7 @@ for (const worker of workers) {
 // Re-export for use by other modules (ingress handlers, tests)
 export { queues, QUEUE_NAMES } from './queues';
 export { sql } from '../src/lib/db/server';
-export { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertWorkerStartupEnv, assertZernioPublishingEnv } from './config/startup-assert';
+export { assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertWorkerStartupEnv, assertZernioPublishingEnv } from './config/startup-assert';
 
 // ---------------------------------------------------------------------------
 // Startup — register plugins, routes, then listen
@@ -265,7 +264,6 @@ async function main(): Promise<void> {
   // Fail fast on missing env vars when feature flags are enabled.
   // Log per-flag status so operators can see at a glance what's enabled.
   try {
-    assertChannelsSmsEnv();
     assertChannelsTelegramEnv();
     assertChannelsWhatsAppEnv();
     assertSelfServeSignupEnv();
@@ -274,7 +272,6 @@ async function main(): Promise<void> {
     warnMissingProductionEnv();
     console.log(
       `[worker] Feature flags: ` +
-        `SMS=${process.env.CHANNELS_SMS_ENABLED === 'true' ? 'on' : 'off'}, ` +
         `Telegram=${process.env.CHANNELS_TELEGRAM_ENABLED === 'true' ? 'on' : 'off'}, ` +
         `WhatsApp=${process.env.CHANNELS_WHATSAPP_ENABLED === 'true' ? 'on' : 'off'}, ` +
         `SelfServeSignup=${process.env.SELF_SERVE_SIGNUP_ENABLED === 'true' ? 'on' : 'off'}, ` +
@@ -305,10 +302,6 @@ async function main(): Promise<void> {
 
   // Resend delivery webhook — real handler
   app.post('/ingress/resend', { config: { rawBody: true } }, handleResendWebhook);
-
-  // Twilio webhooks — status callbacks + inbound SMS (STOP/START)
-  app.post('/ingress/twilio/status', { config: { rawBody: true } }, handleTwilioStatusCallback);
-  app.post('/ingress/twilio/inbound', { config: { rawBody: true } }, handleTwilioInbound);
 
   // Telegram webhook ingress
   app.post('/ingress/telegram', { config: { rawBody: true } }, handleTelegramWebhook);

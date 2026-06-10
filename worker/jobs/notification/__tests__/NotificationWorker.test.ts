@@ -58,10 +58,6 @@ const {
   mockGetVerifiedEnrollments,
   mockGetChannel,
   mockChannelSend,
-  mockReserveSmsCost,
-  mockRefundSmsCost,
-  DailySmsLimitExceededError,
-  SmsRecipientUnsubscribedError,
   TelegramRecipientBlockedError,
   TelegramChatNotFoundError,
   WhatsAppRecipientBlockedError,
@@ -71,18 +67,6 @@ const {
   WhatsAppRateLimitError,
   WhatsAppTimeoutError,
 } = vi.hoisted(() => {
-  class DailySmsLimitExceededError extends Error {
-    constructor(public readonly scope: 'per_business' | 'global') {
-      super(`sms_cap:${scope}`);
-      this.name = 'DailySmsLimitExceededError';
-    }
-  }
-  class SmsRecipientUnsubscribedError extends Error {
-    constructor() {
-      super('sms_recipient_unsubscribed');
-      this.name = 'SmsRecipientUnsubscribedError';
-    }
-  }
   class TelegramRecipientBlockedError extends Error {
     constructor() {
       super('telegram_recipient_blocked');
@@ -123,10 +107,6 @@ const {
     mockGetVerifiedEnrollments: vi.fn(),
     mockGetChannel: vi.fn(),
     mockChannelSend: vi.fn(),
-    mockReserveSmsCost: vi.fn().mockResolvedValue('2026-04-21'),
-    mockRefundSmsCost: vi.fn().mockResolvedValue(undefined),
-    DailySmsLimitExceededError,
-    SmsRecipientUnsubscribedError,
     TelegramRecipientBlockedError,
     TelegramChatNotFoundError,
     WhatsAppRecipientBlockedError,
@@ -155,7 +135,6 @@ vi.mock('../../../../src/lib/db/redis-cache', () => ({
 
 vi.mock('../../../../src/lib/notifications/channels', () => ({
   getChannel: mockGetChannel,
-  SmsRecipientUnsubscribedError,
   TelegramRecipientBlockedError,
   TelegramChatNotFoundError,
   WhatsAppRecipientBlockedError,
@@ -164,12 +143,6 @@ vi.mock('../../../../src/lib/notifications/channels', () => ({
   WhatsAppSessionWindowError,
   WhatsAppRateLimitError,
   WhatsAppTimeoutError,
-}));
-
-vi.mock('../../../../src/lib/costs/sms-tracker', () => ({
-  reserveSmsCost: mockReserveSmsCost,
-  refundSmsCost: mockRefundSmsCost,
-  DailySmsLimitExceededError,
 }));
 
 const { mockCreateApprovalLink } = vi.hoisted(() => ({
@@ -184,6 +157,8 @@ vi.mock('../../../../src/lib/approval/create-link', () => ({
 
 // Import after mocks are wired
 import { handleSendNotification } from '../NotificationWorker';
+import { dispatchAll } from '../dispatch';
+import type { DispatchContext } from '../dispatch';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -246,8 +221,6 @@ function beforeEachSetup() {
   mockGetVerifiedEnrollments.mockReset();
   mockGetChannel.mockReset();
   mockChannelSend.mockReset();
-  mockReserveSmsCost.mockReset().mockResolvedValue('2026-04-21');
-  mockRefundSmsCost.mockReset().mockResolvedValue(undefined);
   mockCreateApprovalLink.mockReset().mockResolvedValue({
     rawToken: 'raw-tok-fixture',
     tokenHash: 'hash-fixture',
@@ -255,8 +228,7 @@ function beforeEachSetup() {
   });
   process.env.RESEND_FROM_EMAIL = 'RepWorth <notifications@example.com>';
   process.env.NEXT_PUBLIC_APP_URL = 'https://repworth.example.com';
-  process.env.CHANNELS_SMS_ENABLED = 'true';
-  process.env.TWILIO_MESSAGING_SERVICE_SID = 'MG-test-sid';
+  process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -416,19 +388,87 @@ describe('NotificationWorker – handleSendNotification', () => {
   });
 });
 
+describe('NotificationWorker — stale channel guard (dispatch layer)', () => {
+  beforeEach(beforeEachSetup);
+
+  // Defense-in-depth: channel_enrollments.channel is a TEXT column.
+  // A stale 'sms' row that survived the migration must NOT create an approval
+  // link or reach getChannel() — only supported channels proceed.
+  //
+  // This test calls dispatchAll directly (bypassing eligibility.ts) so it
+  // exercises the dispatch-layer guard specifically, not the eligibility filter.
+  it('skips a stale unsupported channel row before approval-link creation', async () => {
+    stubEmailChannel();
+
+    const ctx: DispatchContext = {
+      responseId: 'resp-1',
+      businessId: 'biz-1',
+      accountId: 'acct-1',
+      isFailover: false,
+      appUrl: 'https://repworth.example.com',
+      business: { name: 'Test Biz', displayLabel: null, owner_email_bounced: false },
+      review: {
+        reviewerName: 'Jane',
+        starRating: 5,
+        reviewText: 'Great place!',
+        reviewDate: '2026-04-01',
+        responsePreview: 'Thank you, Jane!',
+      },
+    };
+
+    const enrollments = [
+      // Stale 'sms' row injected via cast — simulates a TEXT column value
+      // that predates the SMS removal migration.
+      { channel: 'sms' as never, handle: '+15551234567', location_id: null },
+      { channel: 'email' as const, handle: 'owner@example.com', location_id: null },
+    ];
+
+    sqlReturnQueue.push(
+      [],  // email idempotency check
+      [],  // email delivery INSERT
+    );
+
+    const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+    // Must not throw even though 'sms' is not a valid channel
+    await expect(dispatchAll(ctx, enrollments, logger)).resolves.toMatchObject({
+      attempted: 1,
+      succeeded: 1,
+    });
+
+    // createApprovalLink must NOT have been called with 'sms'
+    const approvalLinkCalls = mockCreateApprovalLink.mock.calls;
+    const smsCalls = approvalLinkCalls.filter(
+      (call) => (call[0] as { channel: string }).channel === 'sms',
+    );
+    expect(smsCalls).toHaveLength(0);
+
+    // The skip is observable — a warning names the stale channel
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Skipping unsupported channel "sms"'),
+    );
+
+    // createApprovalLink WAS called for 'email'
+    const emailCalls = approvalLinkCalls.filter(
+      (call) => (call[0] as { channel: string }).channel === 'email',
+    );
+    expect(emailCalls).toHaveLength(1);
+  });
+});
+
 describe('NotificationWorker — dispatcher (multi-channel)', () => {
   beforeEach(beforeEachSetup);
 
   it('sends on every verified enrollment sequentially', async () => {
     mockGetVerifiedEnrollments.mockResolvedValue([
       { channel: 'email', handle: 'owner@example.com', location_id: null },
-      { channel: 'sms', handle: '+15551234567', location_id: null },
+      { channel: 'telegram', handle: '123456789', location_id: null },
     ]);
-    const smsSend = vi.fn().mockResolvedValue({ externalMessageId: 'twi-msg-1' });
+    const telegramSend = vi.fn().mockResolvedValue({ externalMessageId: 'tg-chat:42' });
     mockChannelSend.mockResolvedValue({ externalMessageId: 'resend-msg-1' });
     mockGetChannel.mockImplementation((id: string) => {
       if (id === 'email') return { id: 'email', supportsInlineActions: false, requiresOptInHandshake: false, sendApprovalRequest: mockChannelSend };
-      if (id === 'sms') return { id: 'sms', supportsInlineActions: false, requiresOptInHandshake: false, sendApprovalRequest: smsSend };
+      if (id === 'telegram') return { id: 'telegram', supportsInlineActions: true, requiresOptInHandshake: true, sendApprovalRequest: telegramSend };
       throw new Error(`unexpected channel ${id}`);
     });
 
@@ -437,35 +477,35 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
       [mockBusinessRow()],
       [],  // email idempotency check
       [],  // email delivery insert
-      [],  // sms idempotency check
-      [],  // sms delivery insert
+      [],  // telegram idempotency check
+      [],  // telegram delivery insert
     );
 
     await handleSendNotification(makeJob());
 
     expect(mockChannelSend).toHaveBeenCalledTimes(1);
-    expect(smsSend).toHaveBeenCalledTimes(1);
+    expect(telegramSend).toHaveBeenCalledTimes(1);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledTimes(1);
   });
 
   it('dispatches unordered enrollments in canonical channel order without dropping duplicates', async () => {
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'sms', handle: '+15550000002', location_id: null },
+      { channel: 'telegram', handle: 'tg-222', location_id: null },
       { channel: 'email', handle: 'owner@example.com', location_id: null },
-      { channel: 'sms', handle: '+15550000001', location_id: null },
+      { channel: 'telegram', handle: 'tg-111', location_id: null },
     ]);
     const sendOrder: string[] = [];
     mockChannelSend.mockImplementation(async ({ handle }: { handle: string }) => {
       sendOrder.push(`email:${handle}`);
       return { externalMessageId: 'resend-msg-1' };
     });
-    const smsSend = vi.fn().mockImplementation(async ({ handle }: { handle: string }) => {
-      sendOrder.push(`sms:${handle}`);
-      return { externalMessageId: `twi-${handle}` };
+    const telegramSend = vi.fn().mockImplementation(async ({ handle }: { handle: string }) => {
+      sendOrder.push(`telegram:${handle}`);
+      return { externalMessageId: `tg-${handle}` };
     });
     mockGetChannel.mockImplementation((id: string) => {
       if (id === 'email') return { id: 'email', supportsInlineActions: false, requiresOptInHandshake: false, sendApprovalRequest: mockChannelSend };
-      if (id === 'sms') return { id: 'sms', supportsInlineActions: false, requiresOptInHandshake: false, sendApprovalRequest: smsSend };
+      if (id === 'telegram') return { id: 'telegram', supportsInlineActions: true, requiresOptInHandshake: true, sendApprovalRequest: telegramSend };
       throw new Error(`unexpected channel ${id}`);
     });
 
@@ -474,21 +514,21 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
       [mockBusinessRow()],
       [],  // email idempotency
       [],  // email delivery insert
-      [],  // first sms idempotency
-      [],  // first sms delivery insert
-      [],  // second sms idempotency
-      [],  // second sms delivery insert
+      [],  // first telegram idempotency
+      [],  // first telegram delivery insert
+      [],  // second telegram idempotency
+      [],  // second telegram delivery insert
     );
 
     await handleSendNotification(makeJob());
 
     expect(sendOrder).toEqual([
       'email:owner@example.com',
-      'sms:+15550000002',
-      'sms:+15550000001',
+      'telegram:tg-222',
+      'telegram:tg-111',
     ]);
     expect(mockChannelSend).toHaveBeenCalledTimes(1);
-    expect(smsSend).toHaveBeenCalledTimes(2);
+    expect(telegramSend).toHaveBeenCalledTimes(2);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledTimes(1);
   });
 
@@ -514,13 +554,13 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
   it('continues to other channels when one channel send throws', async () => {
     mockGetVerifiedEnrollments.mockResolvedValue([
       { channel: 'email', handle: 'owner@example.com', location_id: null },
-      { channel: 'sms', handle: '+15551234567', location_id: null },
+      { channel: 'telegram', handle: '123456789', location_id: null },
     ]);
-    const smsSend = vi.fn().mockRejectedValue(new Error('Twilio 500'));
+    const telegramSend = vi.fn().mockRejectedValue(new Error('Telegram 500'));
     mockChannelSend.mockResolvedValue({ externalMessageId: 'resend-msg-1' });
     mockGetChannel.mockImplementation((id: string) => {
       if (id === 'email') return { id: 'email', supportsInlineActions: false, requiresOptInHandshake: false, sendApprovalRequest: mockChannelSend };
-      if (id === 'sms') return { id: 'sms', supportsInlineActions: false, requiresOptInHandshake: false, sendApprovalRequest: smsSend };
+      if (id === 'telegram') return { id: 'telegram', supportsInlineActions: true, requiresOptInHandshake: true, sendApprovalRequest: telegramSend };
       throw new Error(`unexpected channel ${id}`);
     });
 
@@ -529,14 +569,14 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
       [mockBusinessRow()],
       [],  // email idempotency
       [],  // email delivery insert (succeeds)
-      [],  // sms idempotency
-      [],  // sms failed_at insert (catch branch)
+      [],  // telegram idempotency
+      [],  // telegram failed_at insert (catch branch)
     );
 
     await handleSendNotification(makeJob());
 
     expect(mockChannelSend).toHaveBeenCalledTimes(1);
-    expect(smsSend).toHaveBeenCalledTimes(1);
+    expect(telegramSend).toHaveBeenCalledTimes(1);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledTimes(1);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
@@ -560,13 +600,13 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
   it('skips email channel when owner_email_bounced is true, but still sends on other channels', async () => {
     mockGetVerifiedEnrollments.mockResolvedValue([
       { channel: 'email', handle: 'owner@example.com', location_id: null },
-      { channel: 'sms', handle: '+15551234567', location_id: null },
+      { channel: 'telegram', handle: '123456789', location_id: null },
     ]);
-    const smsSend = vi.fn().mockResolvedValue({ externalMessageId: 'twi-msg-1' });
+    const telegramSend = vi.fn().mockResolvedValue({ externalMessageId: 'tg-chat:42' });
     mockChannelSend.mockResolvedValue({ externalMessageId: 'resend-msg-1' });
     mockGetChannel.mockImplementation((id: string) => {
       if (id === 'email') return { id: 'email', supportsInlineActions: false, requiresOptInHandshake: false, sendApprovalRequest: mockChannelSend };
-      if (id === 'sms') return { id: 'sms', supportsInlineActions: false, requiresOptInHandshake: false, sendApprovalRequest: smsSend };
+      if (id === 'telegram') return { id: 'telegram', supportsInlineActions: true, requiresOptInHandshake: true, sendApprovalRequest: telegramSend };
       throw new Error(`unexpected channel ${id}`);
     });
 
@@ -574,14 +614,14 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
       [mockResponseRow()],
       [mockBusinessRow({ owner_email_bounced: true })],
       // email is skipped entirely — no idempotency check, no delivery insert
-      [],  // sms idempotency
-      [],  // sms delivery insert
+      [],  // telegram idempotency
+      [],  // telegram delivery insert
     );
 
     await handleSendNotification(makeJob());
 
     expect(mockChannelSend).not.toHaveBeenCalled();
-    expect(smsSend).toHaveBeenCalledTimes(1);
+    expect(telegramSend).toHaveBeenCalledTimes(1);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledTimes(1);
   });
 });

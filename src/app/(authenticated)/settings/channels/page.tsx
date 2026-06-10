@@ -28,9 +28,7 @@ import {
   shouldUseMultiLocationSettings,
 } from '@/lib/locations/multi-location-mode';
 
-// 'sms' stays known: backend/admin can create SMS enrollments even though the
-// owner UI has no SMS self-service yet (owner SMS is post-launch — see ChannelsClient).
-const KNOWN_CHANNELS = new Set<string>(['email', 'sms', 'telegram', 'whatsapp']);
+const KNOWN_CHANNELS = new Set<string>(['email', 'telegram', 'whatsapp']);
 
 function whatsappAvailable(): boolean {
   if (process.env.CHANNELS_WHATSAPP_ENABLED !== 'true') return false;
@@ -48,7 +46,7 @@ interface PerLocationOverride {
   enrollmentId: string;
   locationId: string;
   locationName: string; // display_label ?? name
-  channel: 'email' | 'sms' | 'telegram' | 'whatsapp';
+  channel: 'email' | 'telegram' | 'whatsapp';
   handle: string | null;
   status: string;
   verified_at: string | null;

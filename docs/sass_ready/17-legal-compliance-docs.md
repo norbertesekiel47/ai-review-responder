@@ -78,7 +78,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 | Railway | Worker hosting | Request logs, metadata |
 | Upstash | Redis (cache + queue) | Cache keys, job payloads |
 | Resend | Transactional + lifecycle email (Step-0 ESP decision: no separate ESP) | Email addresses, message bodies |
-| Twilio | SMS | Phone numbers, message bodies |
+| Twilio | WhatsApp | Phone numbers, message bodies |
 | Telegram | Bot platform | Telegram IDs, message bodies |
 | OpenAI | LLM (primary) | Review text, generated responses |
 | Anthropic | LLM (fallback) | Review text, generated responses |

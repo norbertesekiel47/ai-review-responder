@@ -68,7 +68,7 @@ describe('POST /api/dashboard/channels/whatsapp/start', () => {
     // Clear required WhatsApp env vars so assertWhatsAppEnvReady() fails.
     const vars = [
       'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_NUMBER',
-      'TWILIO_VERIFY_SERVICE_SID',
+      'WHATSAPP_APPROVAL_TEMPLATE_SID', 'WHATSAPP_APPROVAL_URL_BASE',
     ];
     const saved: Record<string, string | undefined> = {};
     for (const v of vars) {

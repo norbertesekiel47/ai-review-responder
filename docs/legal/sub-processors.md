@@ -1,7 +1,7 @@
 # Sub-processors
 
-Version: 2026-05-25
-Effective date: 2026-05-25
+Version: 2026-06-09
+Effective date: 2026-06-09
 Review status: founder verified; pending lawyer review for broader legal package
 
 | Vendor | Purpose | Data classes |
@@ -14,7 +14,7 @@ Review status: founder verified; pending lawyer review for broader legal package
 | Railway | Worker hosting | Request metadata, job processing metadata |
 | Upstash | Redis cache and queues | Cache keys, job payload metadata |
 | Resend | Email | Email addresses, message content, delivery metadata |
-| Twilio | SMS and WhatsApp | Phone numbers, message content, delivery metadata |
+| Twilio | WhatsApp | Phone numbers, message content, delivery metadata |
 | Telegram | Bot delivery when enabled | Telegram identifiers, message content |
 | Zernio | Google review ingestion and posting | GBP OAuth tokens, review data, posting metadata |
 | Sentry | Error tracking | Scrubbed error metadata |

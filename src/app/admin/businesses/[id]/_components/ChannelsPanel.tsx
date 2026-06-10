@@ -1,6 +1,5 @@
 'use client';
 
-import { SmsEnrollmentWidget } from '@/components/admin/SmsEnrollmentWidget';
 import { TelegramEnrollmentWidget } from '@/components/admin/TelegramEnrollmentWidget';
 import { WhatsAppEnrollmentWidget } from '@/components/admin/WhatsAppEnrollmentWidget';
 import type { BusinessDetail, ChannelEnrollmentRow } from '../types';
@@ -67,20 +66,6 @@ export function ChannelsPanel({ business, businessId, enrollments }: ChannelsPan
           </div>
         )}
       </section>
-
-      {/* SMS enrollment (flag-gated) */}
-      {business.smsEnabled && (
-        <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
-          <h2 className="text-lg font-semibold text-gray-800 mb-3">SMS enrollment</h2>
-          {business.subscriptionStatus !== 'active' ? (
-            <p className="text-sm text-gray-500">
-              Complete payment first. SMS enrollment unlocks once the business&apos;s subscription transitions to active.
-            </p>
-          ) : (
-            <SmsEnrollmentWidget businessId={businessId} />
-          )}
-        </section>
-      )}
 
       {/* Telegram enrollment (flag-gated) */}
       {business.telegramEnabled && (

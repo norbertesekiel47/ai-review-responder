@@ -14,6 +14,7 @@
 
 import { sql } from '../db/server';
 import { getCacheRedis } from '../db/redis-cache';
+import { CHANNEL_IDS } from './channels/types';
 import type { ChannelId } from './channels/types';
 import type { AccountId, LocationId } from '../shared/ids';
 
@@ -28,7 +29,8 @@ export interface ResolvedChannel {
 
 // ── Cache constants ─────────────────────────────────────────────────────────
 
-const CACHE_PREFIX = 'rch:channels:';
+// v2: SMS removal; old namespace may contain stale 'sms' resolutions
+const CACHE_PREFIX = 'rch:channels:v2:';
 const CACHE_TTL_SECONDS = 300; // 5 minutes
 
 function cacheKey(accountId: string, locationId: string): string {
@@ -95,6 +97,7 @@ export async function resolveChannels(
       AND status = 'verified'
       AND archived_at IS NULL
       AND unsubscribed_at IS NULL
+      AND channel = ANY(${[...CHANNEL_IDS] as string[]}::text[])
     ORDER BY
       -- Per-location overrides first so the dedup loop prefers them
       CASE WHEN location_id IS NOT NULL THEN 0 ELSE 1 END,

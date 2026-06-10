@@ -36,13 +36,12 @@ export type EligibilityResult =
 
 /**
  * Per-channel feature-flag check. Email is always allowed if enrolled;
- * SMS / Telegram / WhatsApp each require their respective env flag to
- * equal the literal string `"true"`. Names + defaults match the original
+ * Telegram / WhatsApp each require their respective env flag to equal the
+ * literal string `"true"`. Names + defaults match the original
  * NotificationWorker (default off — must be explicitly enabled).
  */
 function isChannelFlagEnabled(channelId: ChannelId): boolean {
   if (channelId === 'email') return true;
-  if (channelId === 'sms') return process.env.CHANNELS_SMS_ENABLED === 'true';
   if (channelId === 'telegram') return process.env.CHANNELS_TELEGRAM_ENABLED === 'true';
   if (channelId === 'whatsapp') return process.env.CHANNELS_WHATSAPP_ENABLED === 'true';
   return false;
@@ -82,13 +81,11 @@ export async function getEligibleChannels(
   for (const enrollment of enrollments) {
     if (!isChannelFlagEnabled(enrollment.channel)) {
       const channelLabel =
-        enrollment.channel === 'sms'
-          ? 'SMS'
-          : enrollment.channel === 'telegram'
-            ? 'Telegram'
-            : enrollment.channel === 'whatsapp'
-              ? 'WhatsApp'
-              : enrollment.channel;
+        enrollment.channel === 'telegram'
+          ? 'Telegram'
+          : enrollment.channel === 'whatsapp'
+            ? 'WhatsApp'
+            : enrollment.channel;
       logger.log(
         `${channelLabel} channel disabled by flag — skipping enrollment for location ${input.locationId}`,
       );

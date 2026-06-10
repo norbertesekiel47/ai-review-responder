@@ -9,6 +9,8 @@ import { sql } from '@/lib/db/server';
 import { requireRoleOr401 } from '@/lib/auth/route-helpers';
 import { asLocationId } from '@/lib/shared/ids';
 import type { LocationId } from '@/lib/shared/ids';
+import { CHANNEL_IDS } from '@/lib/notifications/channels/types';
+import { maskChannelHandle } from '@/lib/notifications/mask-handle';
 
 // Shape of one enrollment row, before per-channel dedup and handle masking.
 interface ChannelEnrollmentRow {
@@ -75,6 +77,7 @@ export async function GET(
     WHERE e.account_id = ${accountId}
       AND (e.location_id = ${businessId} OR e.location_id IS NULL)
       AND e.archived_at IS NULL
+      AND e.channel = ANY(${[...CHANNEL_IDS] as string[]}::text[])
     ORDER BY
       -- Per-location overrides first so the dedup keeps them over org-defaults
       -- for the same channel (mirrors resolveChannels VAL-NOTIF-003).
@@ -88,7 +91,7 @@ export async function GET(
   // org-default precedence; it is intentionally not part of the response.
   const masked = effective.map((r) => ({
     channel: r.channel,
-    handle: maskHandle(r.channel, r.handle),
+    handle: r.handle !== null ? maskChannelHandle(r.channel, r.handle) : '(pending verification)',
     status: r.status,
     verified_at: r.verified_at,
     disabled_at: r.disabled_at,
@@ -117,22 +120,3 @@ function resolveEffectiveEnrollments(rows: ChannelEnrollmentRow[]): ChannelEnrol
   return Array.from(byChannel.values());
 }
 
-function maskHandle(channel: string, handle: string | null): string {
-  if (handle === null) return '(pending verification)';
-  if (channel === 'email') return handle;
-  if (channel === 'sms' || channel === 'whatsapp') {
-    // Show first 3 + last 4, mask the rest. For short handles (<= 7 chars),
-    // the hidden section becomes zero-width — must clamp to avoid
-    // `'•'.repeat(-1)` which throws RangeError.
-    if (handle.length <= 4) return handle;
-    const hidden = Math.max(0, handle.length - 7);
-    return handle.slice(0, 3) + '•'.repeat(hidden) + handle.slice(-4);
-  }
-  if (channel === 'telegram') {
-    // Telegram chat_id is a numeric identifier. Show last 4 digits for admin
-    // recognition — not PII-sensitive (the owner voluntarily enrolled via QR).
-    if (handle.length <= 4) return handle;
-    return '••• ' + handle.slice(-4);
-  }
-  return handle;
-}

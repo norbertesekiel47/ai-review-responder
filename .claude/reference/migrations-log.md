@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **060** — next migration is **061**
+Current head: **061** — next migration is **062**
 All tables use UUIDv7 (time-ordered primary keys).
 
 ## Migration Log
@@ -437,6 +437,20 @@ All tables use UUIDv7 (time-ordered primary keys).
   `cancel_at_period_end=true`. No backfill (NULL = no active claim). Apply
   staging-first, then production, both Supabase projects in lockstep.
 
+- **061** — SMS channel schema removal. Archives any stray `channel_enrollments`
+  rows with `channel = 'sms'` (sets `archived_at = NOW()` where `archived_at IS NULL`
+  so they are no longer active). Drops `idx_channel_enrollments_sms_handle` and
+  replaces it with `idx_channel_enrollments_whatsapp_handle` (same
+  `(handle) WHERE channel = 'whatsapp' AND status = 'verified'` shape). Rebuilds
+  `channel_enrollments_one_mobile_per_scope` unique index to cover only
+  `('telegram','whatsapp')` — SMS is removed from the predicate. Drops
+  `sms_sender_opt_out_events` then `sms_sender_opt_outs` (RLS policies drop
+  implicitly). Apply staging-first, then production, both Supabase projects in
+  lockstep. **Pre-flight gate (documented in migration header):** confirm
+  `channel_enrollments WHERE channel = 'sms' AND archived_at IS NULL` returns
+  0 rows before running against production — the archive step is defensive but
+  verify clean state first.
+
 ## Key Tables Reference
 
 | Table | Purpose |
@@ -452,8 +466,7 @@ All tables use UUIDv7 (time-ordered primary keys).
 | `job_outbox` | Transactional outbox — all async work dispatched through here |
 | `inbound_events` | Webhook dedup — always write here first before business logic |
 | `notification_deliveries` | Per-channel delivery records |
-| `channel_enrollments` | Multi-channel owner enrollments (email/sms/telegram/whatsapp) |
-| `sms_sender_opt_outs` + `sms_sender_opt_out_events` | TCPA audit trail |
+| `channel_enrollments` | Multi-channel owner enrollments (email/telegram/whatsapp) |
 | `prospect_demos` | Sales demo generation state |
 | `api_costs` + `api_costs_daily_rollups` | LLM cost audit trail |
 | `weekly_summaries` + `monthly_impact_emails` | Owner retention emails |
@@ -590,9 +603,7 @@ org-default rows by `(account_id, channel, location_id IS NULL)`; the
 stays the legacy FK on INSERT only.
 
 **STILL OPEN (deferred, tracked in `docs/known-issues.md`):**
-- Admin **SMS** still locks per business (`withMobileEnrollmentLock`) and prechecks
-  cross-channel by `business_id` — can waste a Twilio Verify SMS + late-409 and
-  does not serialize vs TG/WA start. (`one_mobile_per_scope` still prevents dupes.)
+- ~~Admin **SMS** still locks per business (`withMobileEnrollmentLock`) and prechecks cross-channel by `business_id`~~ — **MOOT: SMS removed (migration 061, 2026-06-09).**
 - **Dispatcher** failure-handling writes (`worker/jobs/notification/dispatch.ts`)
   flip enrollment status by `business_id = ctx.businessId` — can miss the org-default
   row on multi-location.

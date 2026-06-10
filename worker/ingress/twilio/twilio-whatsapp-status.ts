@@ -1,11 +1,10 @@
 // worker/ingress/twilio/twilio-whatsapp-status.ts
 //
 // Twilio WhatsApp delivery status callback handler. Mounted by worker/index.ts
-// at POST /ingress/twilio/whatsapp-status. Mirrors the SMS status pattern in
-// worker/ingress/twilio/twilio.ts (handleTwilioStatusCallback) — signature verify,
-// dedup on `${MessageSid}:${MessageStatus}`, first-wins race guard on terminal
-// state, reclaim if delivery row hasn't been inserted yet. Only delta from
-// the SMS handler: the notification_deliveries channel predicate is 'whatsapp'.
+// at POST /ingress/twilio/whatsapp-status. Signature verify, dedup on
+// `${MessageSid}:${MessageStatus}`, first-wins race guard on terminal state,
+// reclaim if delivery row hasn't been inserted yet.
+// notification_deliveries channel predicate is 'whatsapp'.
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { handleTwilioDeliveryStatus } from './twilio-delivery-status';

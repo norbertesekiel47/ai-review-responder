@@ -5,7 +5,7 @@ import { OwnerWhatsAppWidget } from '@/components/dashboard/channels/OwnerWhatsA
 import { ComingSoonChannelRow } from '@/components/dashboard/channels/ComingSoonChannelRow';
 
 export interface InitialEnrollment {
-  channel: 'email' | 'sms' | 'telegram' | 'whatsapp';
+  channel: 'email' | 'telegram' | 'whatsapp';
   handle: string | null;
   status: string;
   verified_at: string | null;
@@ -68,15 +68,6 @@ export function ChannelsClient({ initialEnrollments, initialAvailability, ownerE
             reason="Available once Telegram channel is enabled"
           />
         )}
-
-        {/* SMS — owner self-service is post-launch. The CHANNELS_SMS_ENABLED flag
-            gates backend dispatch + admin enrollment, NOT this owner row, so the
-            row is intentionally flag-independent. */}
-        <ComingSoonChannelRow
-          icon="📱"
-          name="SMS"
-          reason="SMS notifications are coming soon"
-        />
 
         {/* WhatsApp — interactive if available, coming-soon otherwise */}
         {initialAvailability.whatsapp ? (

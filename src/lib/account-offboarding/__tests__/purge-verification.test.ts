@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   PURGE_VERIFICATION_TABLES,
@@ -66,18 +65,6 @@ describe('purge verification', () => {
       if (!Array.isArray(strings)) return [];
       const text = strings.join('?');
       calls.push({ text, values });
-      if (text.includes("scope.value->>'type' = 'sms_opt_out_scrub_scope'")) {
-        return [{
-          messaging_service_sid_hash: sha256Hex('MG123'),
-          handle_hash: sha256Hex('MG123:+15555550123'),
-        }];
-      }
-      if (
-        text.includes('FROM sms_sender_opt_outs') ||
-        text.includes('FROM sms_sender_opt_out_events')
-      ) {
-        return [];
-      }
       return [{ violation_count: 0 }];
     });
   });
@@ -134,8 +121,6 @@ describe('purge verification', () => {
     expect(sqlText).toContain('UNION ALL SELECT ?::text');
     expect(sqlText).toContain('UNION ALL SELECT UNNEST(?::text[])');
     expect(sqlText).toContain('FROM account_offboarding_tokens');
-    expect(sqlText).toContain('FROM sms_sender_opt_outs');
-    expect(sqlText).toContain('FROM sms_sender_opt_out_events');
     expect(sqlText).toContain('google_maps_url IS NOT NULL');
     // D3 regression: verify the REAL approval_audit_log PII columns; never the
     // phantom columns approval_link_id / user_agent. Scoped to the
@@ -147,9 +132,7 @@ describe('purge verification', () => {
     expect(approvalVerify?.text).not.toContain('user_agent');
     expect(sqlText).toContain("scope.value->>'type' = 'job_outbox_scrub_scope'");
     expect(sqlText).toContain("scope.value->>'type' = 'impersonation_session_scrub_scope'");
-    expect(sqlText).toContain("scope.value->>'type' = 'sms_opt_out_scrub_scope'");
     expect(sqlText).toContain('jsonb_array_elements(ao.provider_dispositions)');
-    expect(sqlText).toContain("handle NOT LIKE 'sha256:%'");
     // M1: analytics verification mirrors the FK-independent scrub, so a residual
     // raw-UUID distinct_id with no FK stays in scope and fails verification closed.
     expect(sqlText).toContain('distinct_id IN (?, ?)');
@@ -188,25 +171,6 @@ describe('purge verification', () => {
     expect(payloadQueries).toContain("status NOT IN ('completed', 'failed')");
   });
 
-  it('does not scope final SMS verification through deleted channel enrollments', async () => {
-    await verifyAccountOffboardingPurge({
-      accountId: '00000000-0000-7000-8000-000000000001',
-      offboardingId: '00000000-0000-7000-8000-000000000002',
-    });
-
-    const smsQueries = calls
-      .filter((call) =>
-        call.text.includes('FROM sms_sender_opt_outs') ||
-        call.text.includes('FROM sms_sender_opt_out_events') ||
-        call.text.includes("scope.value->>'type' = 'sms_opt_out_scrub_scope'")
-      )
-      .map((call) => call.text)
-      .join('\n');
-
-    expect(smsQueries).toContain('provider_dispositions');
-    expect(smsQueries).not.toContain('FROM channel_enrollments');
-  });
-
   it('fails purge verification for any retained notification delivery linked to the account or its businesses', async () => {
     await verifyAccountOffboardingPurge({
       accountId: '00000000-0000-7000-8000-000000000001',
@@ -220,50 +184,9 @@ describe('purge verification', () => {
     expect(notificationQuery?.text).not.toContain('external_message_id IS NOT NULL');
   });
 
-  it('checks final SMS scrub scope with Node SHA-256 instead of database digest', async () => {
-    mockSql.mockImplementation(async (strings: any, ...values: unknown[]) => {
-      if (!Array.isArray(strings)) return [];
-      const text = strings.join('?');
-      calls.push({ text, values });
-      if (text.includes("scope.value->>'type' = 'sms_opt_out_scrub_scope'")) {
-        return [{
-          messaging_service_sid_hash: sha256Hex('MG123'),
-          handle_hash: sha256Hex('MG123:+15555550123'),
-        }];
-      }
-      if (text.includes('FROM sms_sender_opt_outs')) {
-        return [
-          { messaging_service_sid: 'MG123', handle: '+15555550123' },
-          { messaging_service_sid: 'MG123', handle: '+15555559999' },
-        ];
-      }
-      if (text.includes('FROM sms_sender_opt_out_events')) {
-        return [];
-      }
-      return [{ violation_count: 0 }];
-    });
-
-    const result = await verifyAccountOffboardingPurge({
-      accountId: '00000000-0000-7000-8000-000000000001',
-      offboardingId: '00000000-0000-7000-8000-000000000002',
-    });
-
-    expect(result.issues).toEqual([
-      expect.objectContaining({
-        table: 'sms_sender_opt_outs',
-        violationCount: 1,
-      }),
-    ]);
-    expect(calls.map((call) => call.text).join('\n')).not.toContain('digest(');
-  });
-
   it('does not silently add disposition tables without verification coverage', () => {
     const uniqueTables = new Set(TABLE_DISPOSITIONS.map((entry) => entry.table));
     expect(uniqueTables.size).toBe(TABLE_DISPOSITIONS.length);
     expect(PURGE_VERIFICATION_TABLES.length).toBeGreaterThan(20);
   });
 });
-
-function sha256Hex(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
-}

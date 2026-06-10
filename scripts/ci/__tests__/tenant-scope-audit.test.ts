@@ -342,8 +342,8 @@ describe('tenant-scope-audit', () => {
     expect(auditSqlText('src/example.ts', 'SELECT * FROM zernio_backfill_runs')).toEqual(
       finding('src/example.ts', 'zernio_backfill_runs'),
     );
-    expect(auditSqlText('src/example.ts', 'SELECT * FROM sms_sender_opt_outs')).toEqual(
-      finding('src/example.ts', 'sms_sender_opt_outs'),
+    expect(auditSqlText('src/example.ts', 'SELECT * FROM zernio_connections')).toEqual(
+      finding('src/example.ts', 'zernio_connections'),
     );
   });
 
@@ -391,7 +391,7 @@ describe('tenant-scope-audit', () => {
       const txQuery = \`UPDATE responses SET status = 'posted' WHERE review_id = \${reviewId}\`;
       await tx.unsafe(txQuery, values);
 
-      const staticStringQuery = 'SELECT * FROM sms_sender_opt_outs';
+      const staticStringQuery = 'SELECT * FROM zernio_connections';
       await sql.unsafe(staticStringQuery, values);
     `)).toEqual([
       { tag: 'sql.unsafe', sqlText: 'UPDATE businesses SET tone = $2 WHERE id = $1' },
@@ -408,18 +408,18 @@ describe('tenant-scope-audit', () => {
         tag: 'tx.unsafe',
         sqlText: "UPDATE responses SET status = 'posted' WHERE review_id = ${reviewId}",
       },
-      { tag: 'sql.unsafe', sqlText: 'SELECT * FROM sms_sender_opt_outs' },
+      { tag: 'sql.unsafe', sqlText: 'SELECT * FROM zernio_connections' },
     ]);
   });
 
   it('audits sql.unsafe templates resolved from local query variables', () => {
     const templates = extractSqlTemplates(`
-      const unsafeQuery = \`SELECT * FROM sms_sender_opt_outs\`;
+      const unsafeQuery = \`SELECT * FROM zernio_connections\`;
       await sql.unsafe(unsafeQuery, []);
     `);
 
     expect(templates.flatMap((template) => auditSqlText('src/example.ts', template.sqlText))).toEqual(
-      finding('src/example.ts', 'sms_sender_opt_outs'),
+      finding('src/example.ts', 'zernio_connections'),
     );
   });
 

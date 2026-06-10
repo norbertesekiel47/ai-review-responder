@@ -12,6 +12,7 @@ import { sql } from '@/lib/db/server';
 import { jsonResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
 import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
+import { CHANNEL_IDS } from '@/lib/notifications/channels/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +36,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       WHERE e.account_id = ${user.accountId}::uuid
         AND e.location_id IS NOT NULL
         AND e.archived_at IS NULL
+        AND e.channel = ANY(${[...CHANNEL_IDS] as string[]}::text[])
       ORDER BY e.location_id, e.channel
     `,
     // Fetch location names for display

@@ -296,7 +296,6 @@ export function mapBusinessDetailResponse({
       rankingSearchLocation: business.ranking_search_location,
       googlePlaceAddress: business.google_place_address,
       ownerEmailBounced: business.owner_email_bounced ?? false,
-      smsEnabled: process.env.CHANNELS_SMS_ENABLED === 'true',
       telegramEnabled: process.env.CHANNELS_TELEGRAM_ENABLED === 'true',
       whatsappEnabled: process.env.CHANNELS_WHATSAPP_ENABLED === 'true',
       churnScore,

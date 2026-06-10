@@ -82,7 +82,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       conditions.push(`nd.business_id = $${queryParams.length}`);
     }
 
-    if (channel === 'email' || channel === 'sms') {
+    if (channel === 'email') {
       queryParams.push(channel);
       conditions.push(`nd.channel = $${queryParams.length}`);
     }

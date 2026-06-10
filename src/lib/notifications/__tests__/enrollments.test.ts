@@ -25,14 +25,14 @@ describe('getVerifiedEnrollments', () => {
   it('returns verified, non-unsubscribed enrollments for the business', async () => {
     sqlReturnQueue.push([
       { channel: 'email', handle: 'owner@example.com' },
-      { channel: 'sms', handle: '+15551234567' },
+      { channel: 'telegram', handle: '@ownerbot' },
     ]);
 
     const result = await getVerifiedEnrollments('biz-1');
 
     expect(result).toEqual([
       { channel: 'email', handle: 'owner@example.com' },
-      { channel: 'sms', handle: '+15551234567' },
+      { channel: 'telegram', handle: '@ownerbot' },
     ]);
     expect(mockSql).toHaveBeenCalledTimes(1);
 

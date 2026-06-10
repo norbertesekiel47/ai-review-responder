@@ -129,7 +129,6 @@ and no webhook endpoints, which is exactly what staging must exercise.
 
 | Feature | Flag | Status |
 |---|---|---|
-| SMS channel | `CHANNELS_SMS_ENABLED=false` | code complete; 10DLC registration is the remaining external gate |
 | Telegram channel | `CHANNELS_TELEGRAM_ENABLED=false` | code complete; ⚠️ dev `.env.local` may have this `true` — keep it **OFF** in Railway |
 | WhatsApp channel | `CHANNELS_WHATSAPP_ENABLED=false` | code complete; **Meta verification + template already approved** — flip on when ready |
 | Ranking tracking | `RANKING_TRACKING_ENABLED=false` | feature not ready; SerpAPI cost |
@@ -963,7 +962,7 @@ openssl rand -hex 32     # IMPERSONATION_COOKIE_SECRET
 ### §II.2.7 Wire staging webhooks → the staging worker
 Point each *test/sandbox* provider at the staging worker (Part I §6 = the exact
 dashboard steps + verification queries): `<stagingWorker>/ingress/stripe`,
-`/ingress/resend`, `/ingress/zernio`. SMS / Telegram / WhatsApp flags are OFF —
+`/ingress/resend`, `/ingress/zernio`. Telegram / WhatsApp flags are OFF —
 skip their ingress.
 
 ### §II.2.8 Prove the whole pipeline on staging

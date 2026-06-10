@@ -7,7 +7,11 @@
 //
 // See docs/adding-communication-channels.md §1 for rationale.
 
-export type ChannelId = 'email' | 'sms' | 'telegram' | 'whatsapp';
+/** The set of notification channels. Single owner — every enumeration of
+ *  channels (dispatch order, SQL filters, eligibility records) derives from
+ *  this. Declaration order IS the notification dispatch order. */
+export const CHANNEL_IDS = ['email', 'telegram', 'whatsapp'] as const;
+export type ChannelId = (typeof CHANNEL_IDS)[number];
 
 export interface SendApprovalParams {
   /** Per-enrollment recipient: email address, E.164 phone, or telegram chat_id. */

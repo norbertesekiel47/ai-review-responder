@@ -96,25 +96,6 @@ are NEVER gated.
 
 ---
 
-### `CHANNELS_SMS_ENABLED`
-
-Gates SMS factory, dispatcher, admin API routes, `SmsEnrollmentWidget`.
-
-**Required when on:**
-- `WORKER_PUBLIC_URL` — statusCallback base + Twilio signature verification. Must match Twilio console config exactly (scheme, host, no trailing slash).
-- `TWILIO_ACCOUNT_SID`
-- `TWILIO_AUTH_TOKEN`
-- `TWILIO_MESSAGING_SERVICE_SID`
-- `TWILIO_VERIFY_SERVICE_SID`
-
-**Optional:**
-- `SMS_DAILY_LIMIT_CENTS_PER_BUSINESS` (default: `10`)
-- `SMS_DAILY_LIMIT_CENTS_GLOBAL` (default: `500`)
-
-**Before flipping:** Register 10DLC with Twilio.
-
----
-
 ### `CHANNELS_TELEGRAM_ENABLED`
 
 Gates Telegram factory, dispatcher, admin API routes, `TelegramEnrollmentWidget`.
@@ -146,7 +127,7 @@ backs both the route guard and the UI `whatsappAvailable()` checks, so they can'
 disagree on which env vars count (all 5, incl. `WHATSAPP_APPROVAL_URL_BASE`).
 
 **Required when on:**
-- `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` (shared with SMS if both enabled)
+- `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN`
 - `TWILIO_WHATSAPP_NUMBER` — format: `whatsapp:+<digits>` (assertion enforces format)
 - `WHATSAPP_APPROVAL_TEMPLATE_SID` — Twilio Content SID for `repworth_approval_request_v1`
 - `WHATSAPP_APPROVAL_URL_BASE` — must equal `NEXT_PUBLIC_APP_URL + '/approve/'` (assertion enforces equality)
@@ -320,7 +301,7 @@ sent. Tuning: `ANALYTICS_DISPATCH_*` under Poller Tuning below.
 
 | Var | Notes |
 |---|---|
-| `WORKER_PUBLIC_URL` | Public URL of Railway worker. Required when SMS enabled. Must match Twilio console exactly (scheme, host, no trailing slash). This is the single canonical worker-URL var — the older `WORKER_SERVICE_URL` was **retired** in PR #186 (deduped into `WORKER_PUBLIC_URL`). |
+| `WORKER_PUBLIC_URL` | Public URL of Railway worker. Required for Twilio webhook signature verification. Must match Twilio console exactly (scheme, host, no trailing slash). This is the single canonical worker-URL var — the older `WORKER_SERVICE_URL` was **retired** in PR #186 (deduped into `WORKER_PUBLIC_URL`). |
 | `PORT` | Worker Fastify port (default: `3001`) |
 
 ---
@@ -372,7 +353,6 @@ Confirmed unused by the 2026-05-29 codebase scan (PR #186) and **commented out /
 | `RANKING_TRACKING_ENABLED` | Off | Enable when ranking worker is ready |
 | `SELF_SERVE_SIGNUP_ENABLED` | Off | Custom SMTP + Stripe payment links configured |
 | `MFA_ENFORCEMENT_ENABLED` | Off (Wave 2, PR #87) | Master kill-switch for blocking MFA enforcement. **Off** = enrollment UI is live and AAL2 is still hard-required at the sensitive API routes (grant-extension, impersonation start/end/view), but the proxy does NOT redirect normal page navigation to `/mfa/challenge`. Flip **on** only after owner/admin regression tests pass. NB: MFA *unenroll* always requires a current AAL2 session regardless of this flag (server-enforced via `/api/auth/mfa/challenge` action `unenroll`). |
-| `CHANNELS_SMS_ENABLED` | Off | 10DLC registration |
 | `CHANNELS_TELEGRAM_ENABLED` | Off | Bot registered + setWebhook called |
 | `CHANNELS_WHATSAPP_ENABLED` | Off | Meta verification + WABA + template approval |
 | `ZERNIO_PUBLISHING_ENABLED` | **ON (prod, 2026-04-28)** | Migrations 026+028+029+030 applied |

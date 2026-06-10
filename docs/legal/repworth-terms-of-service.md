@@ -1,7 +1,7 @@
 # Terms of Service
 
-Version: 2026-05-25
-Effective date: 2026-05-25
+Version: 2026-06-09
+Effective date: 2026-06-09
 Legal review status: pending lawyer review
 
 By creating an account or using RepWorth, you agree to these Terms. If you do not agree, do not use the Service.
@@ -10,7 +10,7 @@ By creating an account or using RepWorth, you agree to these Terms. If you do no
 
 ## 1. The Service
 
-RepWorth monitors Google Business Profile reviews, generates AI-drafted response suggestions in your business voice, and delivers those drafts for owner approval by email, SMS, WhatsApp, Telegram, or other enabled product channels.
+RepWorth monitors Google Business Profile reviews, generates AI-drafted response suggestions in your business voice, and delivers those drafts for owner approval by email, WhatsApp, Telegram, or other enabled product channels.
 
 No response is published to Google without explicit owner approval. You remain responsible for all content posted under your business accounts.
 
@@ -42,9 +42,9 @@ Stripe handles payment card data. RepWorth stores billing identifiers and subscr
 
 RepWorth may send service notifications when new reviews arrive, when drafts are ready for approval, when approval links are used, or when account action is required.
 
-If you provide a mobile phone number and opt in to SMS or WhatsApp notifications, you consent to receive recurring automated service messages from RepWorth. Consent is not a condition of purchase. Message frequency varies based on review volume. Message and data rates may apply.
+If you provide a mobile phone number and opt in to WhatsApp notifications, you consent to receive recurring automated service messages from RepWorth. Consent is not a condition of purchase. Message frequency varies based on review volume. Message and data rates may apply.
 
-To opt out of SMS, reply STOP. For help, reply HELP or contact info@repworth.net. RepWorth does not share, sell, or rent mobile opt-in data or mobile numbers to third parties or affiliates for marketing or promotional purposes.
+To opt out of WhatsApp, reply STOP. For help, reply HELP or contact info@repworth.net. RepWorth does not share, sell, or rent mobile opt-in data or mobile numbers to third parties or affiliates for marketing or promotional purposes.
 
 ---
 

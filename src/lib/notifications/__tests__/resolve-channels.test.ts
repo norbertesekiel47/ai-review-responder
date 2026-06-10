@@ -7,6 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ChannelId } from '../channels/types';
+import { CHANNEL_IDS } from '../channels/types';
 
 // ── Hoisted mock state ──────────────────────────────────────────────────
 
@@ -180,7 +181,6 @@ describe('resolveChannels', () => {
 
     const channels = result.map(c => c.channel);
     expect(channels).not.toContain('whatsapp');
-    expect(channels).not.toContain('sms');
   });
 
   // VAL-NOTIF-005: Archived channel_enrollments rows ignored
@@ -279,16 +279,16 @@ describe('resolveChannels', () => {
     expect(telegram.location_id).toBeNull();
   });
 
-  // VAL-NOTIF-018: SMS/WhatsApp channels included in resolver result when configured
-  it('includes SMS channel when enrollment exists', async () => {
+  // VAL-NOTIF-018: WhatsApp/Telegram channels included in resolver result when configured
+  it('includes WhatsApp channel when enrollment exists', async () => {
     seedSqlQueue([
       makeEnrollmentRow({ channel: 'email', handle: 'owner@example.com', location_id: null }),
-      makeEnrollmentRow({ channel: 'sms', handle: '+15551234567', location_id: null }),
+      makeEnrollmentRow({ channel: 'whatsapp', handle: '+15551234567', location_id: null }),
     ]);
 
     const result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
 
-    expect(result.map(c => c.channel)).toContain('sms');
+    expect(result.map(c => c.channel)).toContain('whatsapp');
   });
 
   it('includes WhatsApp channel at per-location scope when enrollment exists', async () => {
@@ -322,7 +322,7 @@ describe('resolveChannels — channel cache', () => {
     expect(mockRedisSet).toHaveBeenCalledTimes(1);
     const setCall = mockRedisSet.mock.calls[0]!;
     // Key should contain both account_id and location_id
-    expect(setCall[0]).toMatch(/rch:channels:/);
+    expect(setCall[0]).toMatch(/rch:channels:v2:/);
     expect(setCall[0]).toContain(ACCOUNT_A);
     expect(setCall[0]).toContain(LOCATION_L1);
     // TTL should be 300 seconds (5 minutes)
@@ -419,6 +419,57 @@ describe('resolveChannels — channel cache', () => {
     const setCall = mockRedisSet.mock.calls[0]!;
     expect(setCall[0]).toContain(ARCHIVED_LOCATION);
     expect(setCall[3]).toBe(300);
+  });
+});
+
+// ── Tests: Stale channel guard (SMS removal) ─────────────────────────────
+
+describe('resolveChannels — stale channel guard', () => {
+  beforeEach(beforeEachSetup);
+
+  // Guard: SQL filters to the supported channel set so stale 'sms' rows in
+  // channel_enrollments.channel (TEXT column) are excluded at the DB layer.
+  it('filters the enrollment query to supported channels only', async () => {
+    seedSqlQueue([
+      makeEnrollmentRow({ channel: 'email', handle: 'owner@example.com', location_id: null }),
+    ]);
+
+    await resolveChannels(ACCOUNT_A, LOCATION_L1);
+
+    // Second SQL call is the channel_enrollments query
+    const enrollmentsCall = mockSql.mock.calls[1];
+    const [template, ...boundValues] = enrollmentsCall as [TemplateStringsArray, ...unknown[]];
+    const queryText = template.join('?');
+
+    // Must use the = ANY(...::text[]) idiom (single owner: CHANNEL_IDS)
+    expect(queryText).toMatch(/channel = ANY\(/);
+    // The channel list is a bound parameter (not inlined), so it must not
+    // appear as SQL literals in the query text.
+    expect(queryText).not.toContain("'email'");
+    expect(queryText).not.toContain("'sms'");
+    // The bound values must include an array equal to [...CHANNEL_IDS]
+    const channelArray = boundValues.find(
+      (v) => Array.isArray(v) && (v as unknown[]).includes('email'),
+    );
+    expect(channelArray).toEqual([...CHANNEL_IDS]);
+  });
+
+  // Guard: cache namespace bumped to v2 so entries cached before SMS removal
+  // (which may contain 'sms' resolutions) are unreadable instead of waiting
+  // out the 300s TTL.
+  it('uses the v2 cache namespace', async () => {
+    seedSqlQueue([
+      makeEnrollmentRow({ channel: 'email', handle: 'owner@example.com', location_id: null }),
+    ]);
+
+    await resolveChannels(ACCOUNT_A, LOCATION_L1);
+
+    // Both get (cache miss) and set (cache store) must use the v2 prefix
+    const getKey = mockRedisGet.mock.calls[0]![0] as string;
+    expect(getKey).toMatch(/^rch:channels:v2:/);
+
+    const setKey = mockRedisSet.mock.calls[0]![0] as string;
+    expect(setKey).toMatch(/^rch:channels:v2:/);
   });
 });
 
