@@ -156,11 +156,18 @@ export async function archiveLocationTransaction(
     if (context.activeLocationsBefore <= 1) {
       throw new Error('last_active_location');
     }
+    // Race-proof primary guard: decide from the locked snapshot, not the UPDATE
+    // rowcount. last_active_location is checked first (above) so the only-location
+    // case never surfaces as promote_first.
+    if (context.isPrimary && context.activeLocationsBefore > 1) {
+      throw new Error('promote_first');
+    }
     await applyArchiveLocationUpdate(tx, {
       locationId,
       accountId,
       actorUserId,
       activeLocationsBefore,
+      blockPrimary: true,
     });
   });
 
@@ -186,6 +193,8 @@ export async function archiveLocationForAccountOffboardingTeardownTransaction(
       accountId,
       actorUserId: null,
       activeLocationsBefore: context.activeLocationsBefore,
+      // Teardown intentionally archives the primary; do not block it.
+      blockPrimary: false,
       auditPayload: {
         location_id: locationId,
         active_locations_before: context.activeLocationsBefore,
@@ -204,6 +213,7 @@ export async function archiveLocationForAccountOffboardingTeardownTransaction(
 interface ArchiveContext {
   archivedAt: Date | string | null;
   activeLocationsBefore: number;
+  isPrimary: boolean;
 }
 
 async function lockArchiveContext(
@@ -227,8 +237,8 @@ async function lockArchiveContext(
 
   // FP: lock-ordering inside the tx — account FOR UPDATE lock, then active-count read, then this per-location FOR UPDATE row lock; reordering/parallelizing would break the lock acquisition order.
   // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
-  const [location] = await tx<{ archived_at: Date | string | null }[]>`
-    SELECT archived_at
+  const [location] = await tx<{ archived_at: Date | string | null; is_primary: boolean }[]>`
+    SELECT archived_at, is_primary
     FROM businesses
     WHERE id = ${locationId}::uuid
       AND account_id = ${accountId}::uuid
@@ -241,7 +251,55 @@ async function lockArchiveContext(
   return {
     archivedAt: location.archived_at,
     activeLocationsBefore: Number(activeRow?.count ?? 0),
+    isPrimary: Boolean(location.is_primary),
   };
+}
+
+/**
+ * Owner archive UPDATE. The WHERE gates on is_primary = FALSE so a primary row
+ * (under a concurrent promote race) matches 0 rows and surfaces
+ * location_archive_conflict instead of breaking businesses_account_primary_uniq.
+ */
+async function archiveLocationRowBlockingPrimary(
+  tx: postgres.TransactionSql,
+  locationId: string,
+  accountId: string,
+): Promise<{ id: string } | undefined> {
+  const [row] = await tx<{ id: string }[]>`
+    UPDATE businesses
+    SET archived_at = NOW(),
+        is_primary = FALSE,
+        updated_at = NOW()
+    WHERE id = ${locationId}::uuid
+      AND account_id = ${accountId}::uuid
+      AND archived_at IS NULL
+      AND is_primary = FALSE
+    RETURNING id
+  `;
+  return row;
+}
+
+/**
+ * Teardown archive UPDATE. Matches the row regardless of is_primary — offboarding
+ * intentionally archives the primary. The SET still flips is_primary off so the
+ * archived row never lingers as primary.
+ */
+async function archiveLocationRow(
+  tx: postgres.TransactionSql,
+  locationId: string,
+  accountId: string,
+): Promise<{ id: string } | undefined> {
+  const [row] = await tx<{ id: string }[]>`
+    UPDATE businesses
+    SET archived_at = NOW(),
+        is_primary = FALSE,
+        updated_at = NOW()
+    WHERE id = ${locationId}::uuid
+      AND account_id = ${accountId}::uuid
+      AND archived_at IS NULL
+    RETURNING id
+  `;
+  return row;
 }
 
 async function applyArchiveLocationUpdate(
@@ -251,19 +309,20 @@ async function applyArchiveLocationUpdate(
     accountId: string;
     actorUserId?: string | null;
     activeLocationsBefore: number;
+    /**
+     * Owner path (true): the archive UPDATE additionally requires the row to be
+     * non-primary, so a primary row matches 0 rows and surfaces
+     * location_archive_conflict instead of breaking the at-most-one-primary
+     * invariant under a race. Teardown path (false): archiving the primary is
+     * intentional, so the row is matched regardless of is_primary.
+     */
+    blockPrimary: boolean;
     auditPayload?: Record<string, unknown>;
   },
 ): Promise<void> {
-  const [updatedLocation] = await tx<{ id: string }[]>`
-    UPDATE businesses
-    SET archived_at = NOW(),
-        is_primary = FALSE,
-        updated_at = NOW()
-    WHERE id = ${input.locationId}::uuid
-      AND account_id = ${input.accountId}::uuid
-      AND archived_at IS NULL
-    RETURNING id
-  `;
+  const updatedLocation = input.blockPrimary
+    ? await archiveLocationRowBlockingPrimary(tx, input.locationId, input.accountId)
+    : await archiveLocationRow(tx, input.locationId, input.accountId);
   if (!updatedLocation) {
     throw new Error('location_archive_conflict');
   }

@@ -484,6 +484,165 @@ describe('archiveLocationTransaction', () => {
   });
 });
 
+// ══════════════════════════════════════════════════════════════════════════
+// B1: race-proof primary archive via locked snapshot + blockPrimary
+// ══════════════════════════════════════════════════════════════════════════
+// Invariant: businesses_account_primary_uniq enforces at most one primary per
+// active account. The owner archive path must NOT archive the primary while
+// other active locations exist — it decides "is this the primary?" from the
+// LOCKED snapshot, not the UPDATE rowcount. The teardown path (offboarding) IS
+// allowed to archive the primary intentionally.
+
+describe('archiveLocationTransaction — B1 race-proof primary guard', () => {
+  // Helper to drive a primary snapshot through lockArchiveContext.
+  function drivePrimarySnapshot(activeCount: number, isPrimary: boolean, archivedAt: Date | null = null) {
+    mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
+      const template = strings.join('?');
+      if (template.includes('SELECT id') && template.includes('FROM accounts')) {
+        return [{ id: ACCOUNT_ID }];
+      }
+      if (template.includes('SELECT COUNT(*) AS count') && template.includes('FROM businesses')) {
+        return [{ count: activeCount }];
+      }
+      if (template.includes('is_primary') && template.includes('FROM businesses') && template.includes('FOR UPDATE')) {
+        return [{ archived_at: archivedAt, is_primary: isPrimary }];
+      }
+      if (template.includes('UPDATE businesses')) {
+        return [{ id: PRIMARY_LOCATION_ID }];
+      }
+      return [];
+    });
+  }
+
+  it('throws promote_first from the locked snapshot when the primary has other active locations', async () => {
+    drivePrimarySnapshot(2, true);
+
+    await expect(
+      archiveLocationTransaction(mkInput({ locationId: PRIMARY_LOCATION_ID })),
+    ).rejects.toThrow('promote_first');
+
+    // The archive UPDATE must NOT have been reached.
+    const updateCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),
+    );
+    expect(updateCall).toBeUndefined();
+
+    const auditCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO account_audit_log'),
+    );
+    const outboxCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'),
+    );
+    expect(auditCall).toBeUndefined();
+    expect(outboxCall).toBeUndefined();
+  });
+
+  it('checks last_active_location before promote_first (only the primary, count 1)', async () => {
+    drivePrimarySnapshot(1, true);
+
+    await expect(
+      archiveLocationTransaction(mkInput({ locationId: PRIMARY_LOCATION_ID })),
+    ).rejects.toThrow('last_active_location');
+  });
+
+  it('adds AND is_primary = FALSE to the owner archive UPDATE WHERE clause (blockPrimary)', async () => {
+    drivePrimarySnapshot(2, false);
+
+    await archiveLocationTransaction(mkInput({ locationId: SECONDARY_LOCATION_ID }));
+
+    const updateCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),
+    );
+    expect(updateCall).toBeDefined();
+    const template = (updateCall![0] as TemplateStringsArray).join('?');
+    const [, whereClause = ''] = template.split(/\bWHERE\b/i);
+    // The SET line still flips is_primary = FALSE, but the WHERE must ALSO gate
+    // on is_primary = FALSE so a primary row matches 0 rows under a race.
+    expect(whereClause).toMatch(/is_primary\s*=\s*FALSE/i);
+  });
+
+  it('surfaces location_archive_conflict (not promote_first) when a non-primary snapshot loses the archive race', async () => {
+    mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
+      const template = strings.join('?');
+      if (template.includes('SELECT id') && template.includes('FROM accounts')) {
+        return [{ id: ACCOUNT_ID }];
+      }
+      if (template.includes('SELECT COUNT(*) AS count') && template.includes('FROM businesses')) {
+        return [{ count: 2 }];
+      }
+      if (template.includes('is_primary') && template.includes('FROM businesses') && template.includes('FOR UPDATE')) {
+        return [{ archived_at: null, is_primary: false }];
+      }
+      if (template.includes('UPDATE businesses')) {
+        return []; // 0 rows affected — lost the race
+      }
+      return [];
+    });
+
+    await expect(
+      archiveLocationTransaction(mkInput({ locationId: SECONDARY_LOCATION_ID })),
+    ).rejects.toThrow('location_archive_conflict');
+  });
+});
+
+describe('archiveLocationForAccountOffboardingTeardownTransaction — B1 teardown may archive primary', () => {
+  function driveTeardownSnapshot(isPrimary: boolean) {
+    mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
+      const template = strings.join('?');
+      if (template.includes('SELECT id') && template.includes('FROM accounts')) {
+        return [{ id: ACCOUNT_ID }];
+      }
+      if (template.includes('SELECT COUNT(*) AS count') && template.includes('FROM businesses')) {
+        return [{ count: 1 }];
+      }
+      if (template.includes('is_primary') && template.includes('FROM businesses') && template.includes('FOR UPDATE')) {
+        return [{ archived_at: null, is_primary: isPrimary }];
+      }
+      if (template.includes('UPDATE businesses')) {
+        return [{ id: PRIMARY_LOCATION_ID }];
+      }
+      return [];
+    });
+  }
+
+  it('does NOT add the AND is_primary = FALSE WHERE guard to the teardown archive UPDATE (blockPrimary false)', async () => {
+    driveTeardownSnapshot(true);
+
+    await archiveLocationForAccountOffboardingTeardownTransaction({
+      locationId: PRIMARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      accountOffboardingId: 'offboarding-123',
+    });
+
+    const updateCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),
+    );
+    expect(updateCall).toBeDefined();
+    const template = (updateCall![0] as TemplateStringsArray).join('?');
+    const [setClause = '', whereClause = ''] = template.split(/\bWHERE\b/i);
+    // SET line still flips the primary off (the archived row must not stay primary)...
+    expect(setClause).toMatch(/is_primary\s*=\s*FALSE/i);
+    // ...but the WHERE must NOT gate on is_primary — teardown intentionally archives the primary.
+    expect(whereClause).not.toMatch(/is_primary\s*=\s*FALSE/i);
+  });
+
+  it('archives the primary location during teardown without throwing promote_first', async () => {
+    driveTeardownSnapshot(true);
+
+    const result = await archiveLocationForAccountOffboardingTeardownTransaction({
+      locationId: PRIMARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      accountOffboardingId: 'offboarding-123',
+    });
+
+    expect(result).toEqual({
+      locationId: PRIMARY_LOCATION_ID,
+      archived: true,
+      alreadyArchived: false,
+    });
+  });
+});
+
 describe('archiveLocationForAccountOffboardingTeardownTransaction', () => {
   it('reuses the shared archive transaction body and still enqueues Stripe overage updates', async () => {
     const result = await archiveLocationForAccountOffboardingTeardownTransaction({
