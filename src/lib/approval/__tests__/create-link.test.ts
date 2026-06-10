@@ -49,7 +49,7 @@ describe('createApprovalLink — channel-aware', () => {
     const { rawToken, tokenHash, approvalLinkId } = await createApprovalLink({
       responseId: 'resp-1',
       businessId: 'biz-1',
-      channel: 'sms',
+      channel: 'telegram',
     });
 
     expect(rawToken).toMatch(/^[0-9a-f-]{36}$/);
@@ -58,7 +58,7 @@ describe('createApprovalLink — channel-aware', () => {
     expect(insertCalls).toHaveLength(1);
     const insertQuery = insertCalls[0]!.queryText as string;
     expect(insertQuery).toMatch(/INSERT INTO approval_links/);
-    expect(insertCalls[0]!.values).toContain('sms');
+    expect(insertCalls[0]!.values).toContain('telegram');
   });
 
   it('orphaned_only revokes ONLY same-channel non-consumed links', async () => {
@@ -67,7 +67,7 @@ describe('createApprovalLink — channel-aware', () => {
     await createApprovalLink({
       responseId: 'resp-1',
       businessId: 'biz-1',
-      channel: 'sms',
+      channel: 'telegram',
       revokeMode: 'orphaned_only',
     });
 

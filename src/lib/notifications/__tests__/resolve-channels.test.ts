@@ -180,7 +180,6 @@ describe('resolveChannels', () => {
 
     const channels = result.map(c => c.channel);
     expect(channels).not.toContain('whatsapp');
-    expect(channels).not.toContain('sms');
   });
 
   // VAL-NOTIF-005: Archived channel_enrollments rows ignored
