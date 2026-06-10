@@ -366,4 +366,15 @@ describe('POST /api/locations/reactivate', () => {
     const res = await POST(req);
     expect(res.status).toBe(500);
   });
+
+  // C1: un-archiving onto an active-duplicate (account_id, google_place_id)
+  // surfaces as the typed 'duplicate_location' error → 409 via
+  // locationDenialResponse (LOCATION_DENIAL_STATUS).
+  it('returns 409 duplicate_location when reactivation hits a duplicate place id', async () => {
+    mockReactivateLocationTransaction.mockRejectedValue(new Error('duplicate_location'));
+    const req = mkRequest({ locationId: LOCATION_ID, accountId: ACCOUNT_ID });
+    const res = await POST(req);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'duplicate_location' });
+  });
 });

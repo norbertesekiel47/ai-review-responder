@@ -265,6 +265,44 @@ describe('addLocationTransaction', () => {
     // no rows were committed (this is guaranteed by postgres.js)
   });
 
+  // C1: Postgres 23505 on the active-duplicate place-id index maps to a typed
+  // duplicate_location error so the route can return 409 (migration 062).
+  it('maps a 23505 unique violation on businesses_account_place_uniq to duplicate_location', async () => {
+    mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
+
+    mockSql.begin = vi.fn(async () => {
+      const err: Error & { code?: string; constraint_name?: string } = new Error(
+        'duplicate key value violates unique constraint "businesses_account_place_uniq"',
+      );
+      err.code = '23505';
+      err.constraint_name = 'businesses_account_place_uniq';
+      throw err;
+    });
+
+    await expect(
+      addLocationTransaction(mkInput({ googlePlaceId: 'PLACE_DUP', placeIdVerified: true })),
+    ).rejects.toThrow('duplicate_location');
+  });
+
+  // C1: a 23505 on a DIFFERENT constraint must NOT be swallowed/remapped —
+  // it propagates unchanged so unrelated unique violations keep their context.
+  it('does not remap a 23505 on a different constraint', async () => {
+    mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
+
+    const original: Error & { code?: string; constraint_name?: string } = new Error(
+      'duplicate key value violates unique constraint "businesses_pkey"',
+    );
+    original.code = '23505';
+    original.constraint_name = 'businesses_pkey';
+
+    mockSql.begin = vi.fn(async () => {
+      throw original;
+    });
+
+    await expect(addLocationTransaction(mkInput())).rejects.toThrow(original);
+    await expect(addLocationTransaction(mkInput())).rejects.not.toThrow('duplicate_location');
+  });
+
   // Audit payload includes relevant fields
   it('audit log payload includes display_label, active_locations_before, voice_cloned_from_primary', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);

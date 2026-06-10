@@ -500,6 +500,28 @@ describe('POST /api/locations/add', () => {
     expect(body.error).toBe('add_location_failed');
   });
 
+  // C1: the duplicate-place-id constraint violation (mapped to the typed
+  // 'duplicate_location' error by addLocationTransaction) returns 409.
+  it('returns 409 duplicate_location when the tx reports a duplicate place id', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockAssertCanAddLocation.mockResolvedValueOnce({ allowed: true, overageUnits: 1 });
+    mockGetActiveLocationCount.mockResolvedValueOnce(1);
+    mockGetAccountById.mockResolvedValueOnce(mockAccountRow());
+    mockGetAccountOwnerUserId.mockResolvedValueOnce(USER_ID);
+    mockAddLocationTransaction.mockRejectedValueOnce(new Error('duplicate_location'));
+
+    const req = mkRequest({
+      accountId: ACCOUNT_ID,
+      displayLabel: 'Downtown Cafe',
+      googlePlaceId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+      placeIdVerified: true,
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'duplicate_location' });
+  });
+
   // VAL-LOC-031: Voice cloning info returned in response
   it('returns voiceClonedFromPrimary from transaction result', async () => {
     mockRequireRole.mockResolvedValueOnce(ownerUser());

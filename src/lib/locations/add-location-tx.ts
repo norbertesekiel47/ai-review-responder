@@ -16,6 +16,7 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import type { AccountId, LocationId } from '@/lib/shared/ids';
+import { isDuplicateLocationViolation } from './duplicate-location';
 
 // ── Input / Output types ───────────────────────────────────────────────────
 
@@ -177,83 +178,92 @@ export async function addLocationTransaction(
   //
   // VAL-LOC-007: All three INSERTs happen inside sql.begin(). If any
   // INSERT fails, the entire transaction rolls back — nothing is committed.
-  await sql.begin(async (tx) => {
-    // 2a. Insert businesses row
-    // VAL-LOC-008: is_primary = FALSE (this is NOT the first location)
-    // VAL-LOC-036: display_label set from user input
-    await tx`
-      INSERT INTO businesses (
-        id, account_id, is_primary, display_label,
-        name, google_place_id, place_id_verified, google_maps_url,
-        tone, products_services, staff_names, highlight_facts,
-        avoid_facts, sample_responses, owner_name, owner_email,
-        subscription_tier, subscription_status
-      ) VALUES (
-        ${businessId}::uuid,
-        ${accountId}::uuid,
-        FALSE,
-        ${displayLabel},
-        ${displayLabel},
-        ${googlePlaceId ?? null},
-        ${placeIdVerified ?? false},
-        ${googleMapsUrl ?? null},
-        ${tone},
-        ${productsServices},
-        ${staffNames ?? []},
-        ${highlightFacts ?? []},
-        ${avoidFacts ?? []},
-        ${sampleResponses ?? []},
-        ${ownerName},
-        ${ownerEmail},
-        ${subscriptionTier},
-        ${subscriptionStatus}
-      )
-    `;
-
-    // 2b. Insert audit log entry
-    // VAL-LOC-024: Records 'location_created' with actor and payload
-    await tx`
-      INSERT INTO account_audit_log (
-        id, account_id, location_id, event_type, actor_user_id, payload
-      ) VALUES (
-        ${uuidv7()}::uuid,
-        ${accountId}::uuid,
-        ${businessId}::uuid,
-        'location_created',
-        ${actorUserId ?? null}::uuid,
-        ${jsonb({
-          display_label: displayLabel,
-          google_place_id: googlePlaceId ?? null,
-          active_locations_before: activeLocationsBefore,
-          voice_cloned_from_primary: voiceClonedFromPrimary,
-        })}
-      )
-    `;
-
-    if (enqueueStripeOverageUpdate) {
-      // 2c. Enqueue Stripe overage update
-      // VAL-BILLING-072: Uses outbox pattern instead of Checkout redirect for active accounts
+  //
+  // A duplicate active google_place_id trips businesses_account_place_uniq
+  // (migration 062, Postgres 23505); map it to the typed 'duplicate_location'
+  // error so the route returns 409 instead of a generic 500.
+  try {
+    await sql.begin(async (tx) => {
+      // 2a. Insert businesses row
+      // VAL-LOC-008: is_primary = FALSE (this is NOT the first location)
+      // VAL-LOC-036: display_label set from user input
       await tx`
-        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-        VALUES (
-          ${uuidv7()},
-          'update_stripe_overage_quantity',
-          'account',
+        INSERT INTO businesses (
+          id, account_id, is_primary, display_label,
+          name, google_place_id, place_id_verified, google_maps_url,
+          tone, products_services, staff_names, highlight_facts,
+          avoid_facts, sample_responses, owner_name, owner_email,
+          subscription_tier, subscription_status
+        ) VALUES (
+          ${businessId}::uuid,
           ${accountId}::uuid,
-          ${jsonb({
-            account_id: accountId,
-            correlation_id: uuidv7(),
-          })},
-          'pending'
+          FALSE,
+          ${displayLabel},
+          ${displayLabel},
+          ${googlePlaceId ?? null},
+          ${placeIdVerified ?? false},
+          ${googleMapsUrl ?? null},
+          ${tone},
+          ${productsServices},
+          ${staffNames ?? []},
+          ${highlightFacts ?? []},
+          ${avoidFacts ?? []},
+          ${sampleResponses ?? []},
+          ${ownerName},
+          ${ownerEmail},
+          ${subscriptionTier},
+          ${subscriptionStatus}
         )
       `;
-    }
 
-    // Zernio backfill is queued by /api/zernio/connect/select-location after
-    // the owner connects this location. At add-location time there is no
-    // zernio_connections row yet, so enqueueing here would create a malformed
-    // worker payload.
-  });
+      // 2b. Insert audit log entry
+      // VAL-LOC-024: Records 'location_created' with actor and payload
+      await tx`
+        INSERT INTO account_audit_log (
+          id, account_id, location_id, event_type, actor_user_id, payload
+        ) VALUES (
+          ${uuidv7()}::uuid,
+          ${accountId}::uuid,
+          ${businessId}::uuid,
+          'location_created',
+          ${actorUserId ?? null}::uuid,
+          ${jsonb({
+            display_label: displayLabel,
+            google_place_id: googlePlaceId ?? null,
+            active_locations_before: activeLocationsBefore,
+            voice_cloned_from_primary: voiceClonedFromPrimary,
+          })}
+        )
+      `;
+
+      if (enqueueStripeOverageUpdate) {
+        // 2c. Enqueue Stripe overage update
+        // VAL-BILLING-072: Uses outbox pattern instead of Checkout redirect for active accounts
+        await tx`
+          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+          VALUES (
+            ${uuidv7()},
+            'update_stripe_overage_quantity',
+            'account',
+            ${accountId}::uuid,
+            ${jsonb({
+              account_id: accountId,
+              correlation_id: uuidv7(),
+            })},
+            'pending'
+          )
+        `;
+      }
+
+      // Zernio backfill is queued by /api/zernio/connect/select-location after
+      // the owner connects this location. At add-location time there is no
+      // zernio_connections row yet, so enqueueing here would create a malformed
+      // worker payload.
+    });
+  } catch (err) {
+    if (isDuplicateLocationViolation(err)) throw new Error('duplicate_location');
+    throw err;
+  }
 
   return {
     businessId,

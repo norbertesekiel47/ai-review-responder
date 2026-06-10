@@ -15,6 +15,7 @@ import { getAccountById, getAccountOwnerUserId } from '@/lib/accounts/repo';
 import { addLocationTransaction } from '@/lib/locations/add-location-tx';
 import { getActiveLocationCount } from '@/lib/locations/repo';
 import {
+  locationDenialResponse,
   LOCATION_ROUTE_NO_STORE as NO_STORE,
   ownerAccountMismatchResponse,
   readLocationRouteJson,
@@ -148,6 +149,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[locations/add] Transaction failed for account=${accountId}: ${message}`);
+    // duplicate_location (active-duplicate google_place_id, migration 062) → 409.
+    const denial = locationDenialResponse(message);
+    if (denial) return denial;
     return NextResponse.json(
       { error: 'add_location_failed' },
       { status: 500, headers: NO_STORE },

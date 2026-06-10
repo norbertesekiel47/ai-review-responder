@@ -140,6 +140,7 @@ export const LOCATION_DENIAL_STATUS: Record<string, number> = {
   last_active_location: 409,
   promote_first: 409,
   already_primary: 400,
+  duplicate_location: 409,
 };
 
 /** Map an in-tx denial code to its response, or null for unexpected errors. */
