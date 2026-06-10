@@ -6,8 +6,9 @@
 // 23505 here and re-throw the typed 'duplicate_location' error, which the
 // location routes map to HTTP 409 via LOCATION_DENIAL_STATUS.
 
-/** Constraint guarded against — see migration 062. */
-export const DUPLICATE_LOCATION_CONSTRAINT = 'businesses_account_place_uniq';
+/** Constraint guarded against — see migration 062. Module-private: the predicate
+ * below is the only consumer, so it stays unexported (no dead public export). */
+const DUPLICATE_LOCATION_CONSTRAINT = 'businesses_account_place_uniq';
 
 /**
  * True only for a Postgres unique violation (23505) on the active-duplicate
