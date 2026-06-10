@@ -209,12 +209,23 @@ d('Zernio webhook fan-out vs archived locations (live DB)', () => {
       `;
       expect(inserted).toHaveLength(0);
 
-      // The EXISTS probe must classify this 0-row fan-out as an expected
-      // archived skip (structured object arg), not the unconnected warn.
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('archived connection(s) present'),
-        expect.objectContaining({ reason: SKIP_REASON_ARCHIVED_LOCATION }),
-      );
+      // The dual-EXISTS probe must classify this 0-row fan-out as an expected
+      // archived skip. The line emits via createWorkerLogger (one JSON object
+      // per console.log call, object args under `data`) so the reason is a
+      // structured queryable field — assert on the parsed record.
+      const archivedRecords = (consoleLogSpy.mock.calls as unknown[][])
+        .map((call: unknown[]) => call[0])
+        .filter((arg: unknown): arg is string => typeof arg === 'string' && arg.startsWith('{'))
+        .flatMap((line: string) => {
+          try {
+            return [JSON.parse(line) as { message?: string; data?: Record<string, unknown> }];
+          } catch {
+            return [];
+          }
+        })
+        .filter((rec) => rec.data?.reason === SKIP_REASON_ARCHIVED_LOCATION);
+      expect(archivedRecords).toHaveLength(1);
+      expect(archivedRecords[0]!.message).toContain('all matching connection(s) archived');
     } finally {
       consoleLogSpy.mockRestore();
     }
