@@ -6,6 +6,25 @@ import { Icon } from '@/components/dashboard/shell/Icon';
 import type { LocationId } from '@/lib/shared/ids';
 import { getDisplayLabel } from '@/lib/locations/display-label';
 import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
+import { ownerFacingLocationError } from '@/lib/locations/duplicate-location';
+
+/** Shared POST for location actions; throws with owner-facing copy on denial. */
+async function postLocationAction(
+  path: string,
+  body: Record<string, unknown>,
+  fallbackMessage: string,
+): Promise<void> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const resBody = await res.json().catch(() => ({}));
+    throw new Error(ownerFacingLocationError(resBody.error, fallbackMessage));
+  }
+}
+
 
 // ── Static styles ───────────────────────────────────────────────────────
 
@@ -322,15 +341,7 @@ function LocationRow({
   async function handleArchive() {
     dispatch({ type: 'archiveStart' });
     try {
-      const res = await fetch('/api/locations/archive', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ locationId: location.id, accountId }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? 'Archive failed');
-      }
+      await postLocationAction('/api/locations/archive', { locationId: location.id, accountId }, 'Archive failed');
       onLocationChange();
     } catch (err) {
       dispatch({ type: 'setError', error: err instanceof Error ? err.message : 'Failed to archive location' });
@@ -568,15 +579,7 @@ function ArchivedLocationRow({
     setReactivating(true);
     setError(null);
     try {
-      const res = await fetch('/api/locations/reactivate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ locationId: location.id, accountId }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? 'Reactivate failed');
-      }
+      await postLocationAction('/api/locations/reactivate', { locationId: location.id, accountId }, 'Reactivate failed');
       onLocationChange();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to reactivate location');

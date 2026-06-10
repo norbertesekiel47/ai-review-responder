@@ -265,6 +265,59 @@ describe('addLocationTransaction', () => {
     // no rows were committed (this is guaranteed by postgres.js)
   });
 
+  // C1: Postgres 23505 on the active-duplicate place-id index maps to a typed
+  // duplicate_location error so the route can return 409 (migration 062).
+  it('maps a 23505 unique violation on businesses_account_place_uniq to duplicate_location', async () => {
+    mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
+
+    mockSql.begin = vi.fn(async () => {
+      const err: Error & { code?: string; constraint_name?: string } = new Error(
+        'duplicate key value violates unique constraint "businesses_account_place_uniq"',
+      );
+      err.code = '23505';
+      err.constraint_name = 'businesses_account_place_uniq';
+      throw err;
+    });
+
+    await expect(
+      addLocationTransaction(mkInput({ googlePlaceId: 'PLACE_DUP', placeIdVerified: true })),
+    ).rejects.toThrow('duplicate_location');
+  });
+
+  // C1: a 23505 on a DIFFERENT constraint must NOT be swallowed/remapped —
+  // it propagates unchanged so unrelated unique violations keep their context.
+  it('does not remap a 23505 on a different constraint', async () => {
+    mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
+
+    const original: Error & { code?: string; constraint_name?: string } = new Error(
+      'duplicate key value violates unique constraint "businesses_pkey"',
+    );
+    original.code = '23505';
+    original.constraint_name = 'businesses_pkey';
+
+    mockSql.begin = vi.fn(async () => {
+      throw original;
+    });
+
+    await expect(addLocationTransaction(mkInput())).rejects.toThrow(original);
+    await expect(addLocationTransaction(mkInput())).rejects.not.toThrow('duplicate_location');
+  });
+
+  // isDuplicateLocationViolation must narrow safely: a non-object thrown from
+  // the tx (string, null-ish rejection) propagates unchanged instead of
+  // crashing the predicate with a property access on a primitive.
+  it('propagates a non-object transaction rejection unchanged', async () => {
+    mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
+
+    mockSql.begin = vi.fn(async () => {
+      throw 'connection terminated unexpectedly';
+    });
+
+    await expect(addLocationTransaction(mkInput())).rejects.toBe(
+      'connection terminated unexpectedly',
+    );
+  });
+
   // Audit payload includes relevant fields
   it('audit log payload includes display_label, active_locations_before, voice_cloned_from_primary', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
@@ -353,6 +406,93 @@ describe('addLocationTransaction', () => {
       (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('update_stripe_overage_quantity'),
     );
     expect(overageCall).toBeDefined();
+  });
+
+  // C2: URL-mode add (Maps URL, no verified place id) must enqueue
+  // validate_place_id so the resolved place id is later checked against
+  // businesses_account_place_uniq (migration 062), closing the NULL-place-id gap.
+  it('enqueues validate_place_id when a Maps URL is supplied without a verified place id', async () => {
+    mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
+
+    await addLocationTransaction(mkInput({
+      googleMapsUrl: 'https://maps.google.com/?q=Cafe+Test',
+      placeIdVerified: false,
+      googlePlaceId: null,
+    }));
+
+    const txCalls = mockSql.mock.calls.slice(1);
+    const validateCall = txCalls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('validate_place_id'),
+    );
+    expect(validateCall).toBeDefined();
+
+    const template = (validateCall![0] as TemplateStringsArray).join('?');
+    // Shared helper (enqueueValidatePlaceId in job-outbox-helpers): same SQL
+    // shape as the onboarding dedup guard — INSERT … SELECT … WHERE NOT EXISTS.
+    expect(template).toContain('INSERT INTO job_outbox');
+    expect(template).toContain('WHERE NOT EXISTS');
+    expect(template).toContain("topic = 'validate_place_id'");
+    expect(template).toContain("status IN ('pending', 'dispatching', 'dispatched')");
+  });
+
+  // C2 hardening: the enqueue gate is `googleMapsUrl && !googlePlaceId` —
+  // the DATA decides, not the client flag. A crafted or buggy request
+  // claiming placeIdVerified:true WITHOUT a place id must still enqueue
+  // resolution, or the row permanently bypasses migration 062
+  // (NULL google_place_id never collides under the partial unique index).
+  it('still enqueues validate_place_id when placeIdVerified is true but no place id is supplied', async () => {
+    mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
+
+    await addLocationTransaction(mkInput({
+      googleMapsUrl: 'https://maps.google.com/?q=Cafe+Test',
+      placeIdVerified: true,
+      googlePlaceId: null,
+    }));
+
+    const txCalls = mockSql.mock.calls.slice(1);
+    const validateCall = txCalls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('validate_place_id'),
+    );
+    expect(validateCall).toBeDefined();
+  });
+
+  // No-silent-overwrite: a STORED place id (even unverified) suppresses the
+  // enqueue — resolution must never overwrite an explicitly supplied id. The
+  // route schema rejects the url+place-id shape outright; this pins the tx
+  // module's own defense for non-route producers.
+  it('does NOT enqueue validate_place_id when an unverified place id accompanies the URL', async () => {
+    mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
+
+    await addLocationTransaction(mkInput({
+      googleMapsUrl: 'https://maps.google.com/?q=Cafe+Test',
+      placeIdVerified: false,
+      googlePlaceId: 'ChIJExplicitButUnverified1',
+    }));
+
+    const txCalls = mockSql.mock.calls.slice(1);
+    const validateCall = txCalls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('validate_place_id'),
+    );
+    expect(validateCall).toBeUndefined();
+  });
+
+  // C2: a verified place id (autocomplete path) must NOT enqueue validate_place_id —
+  // the place id is already known and the businesses INSERT already trips the
+  // unique index directly.
+  it('does NOT enqueue validate_place_id when the place id is already verified', async () => {
+    mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
+
+    await addLocationTransaction(mkInput({
+      googlePlaceId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+      placeIdVerified: true,
+      googleMapsUrl: null,
+    }));
+
+    const txCalls = mockSql.mock.calls.slice(1);
+    const validateCall = txCalls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('validate_place_id'),
+    );
+    expect(validateCall).toBeUndefined();
   });
 });
 

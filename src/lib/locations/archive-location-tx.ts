@@ -22,6 +22,7 @@ import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { getLocationById, getActiveLocationCount } from './repo';
+import { rethrowAsDuplicateLocation } from './duplicate-location';
 
 // ── Guard result types ─────────────────────────────────────────────────────
 
@@ -374,109 +375,117 @@ export async function reactivateLocationTransaction(
 ): Promise<ReactivateLocationTxResult> {
   const { locationId, accountId, actorUserId } = input;
 
-  const selfPromoted = await sql.begin(async (tx) => {
-    // 0. Lock the account FIRST — establishes the same accounts→businesses lock
-    // ordering as archive/promote and serializes concurrent reactivations so two
-    // can't both self-promote into a zero-primary account.
-    await tx`SELECT id FROM accounts WHERE id = ${accountId}::uuid FOR UPDATE`;
+  // Un-archiving onto an active-duplicate (account_id, google_place_id) trips
+  // businesses_account_place_uniq (migration 062, Postgres 23505). Map it to the
+  // typed 'duplicate_location' error so the route returns 409 instead of a 500.
+  let selfPromoted: boolean;
+  try {
+    selfPromoted = await sql.begin(async (tx) => {
+      // 0. Lock the account FIRST — establishes the same accounts→businesses lock
+      // ordering as archive/promote and serializes concurrent reactivations so two
+      // can't both self-promote into a zero-primary account.
+      await tx`SELECT id FROM accounts WHERE id = ${accountId}::uuid FOR UPDATE`;
 
-    // 1. Set archived_at = NULL (reactivate)
-    const [updatedLocation] = await tx<{ id: string }[]>`
-      UPDATE businesses
-      SET archived_at = NULL,
-          updated_at = NOW()
-      WHERE id = ${locationId}::uuid
-        AND account_id = ${accountId}::uuid
-        AND archived_at IS NOT NULL
-      RETURNING id
-    `;
-    if (!updatedLocation) {
-      throw new Error('location_reactivate_conflict');
-    }
+      // 1. Set archived_at = NULL (reactivate)
+      const [updatedLocation] = await tx<{ id: string }[]>`
+        UPDATE businesses
+        SET archived_at = NULL,
+            updated_at = NOW()
+        WHERE id = ${locationId}::uuid
+          AND account_id = ${accountId}::uuid
+          AND archived_at IS NOT NULL
+        RETURNING id
+      `;
+      if (!updatedLocation) {
+        throw new Error('location_reactivate_conflict');
+      }
 
-    // 1b. Zero-primary self-heal (see helper below).
-    const promoted = await selfHealPrimaryIfMissing(tx, { accountId, locationId, actorUserId });
+      // 1b. Zero-primary self-heal (see helper below).
+      const promoted = await selfHealPrimaryIfMissing(tx, { accountId, locationId, actorUserId });
 
-    // 2. Insert audit log entry
-    await tx`
-      INSERT INTO account_audit_log (
-        id, account_id, location_id, event_type, actor_user_id, payload
-      ) VALUES (
-        ${uuidv7()}::uuid,
-        ${accountId}::uuid,
-        ${locationId}::uuid,
-        'location_reactivated',
-        ${actorUserId ?? null}::uuid,
-        ${jsonb({
-          location_id: locationId,
-        })}
-      )
-    `;
+      // 2. Insert audit log entry
+      await tx`
+        INSERT INTO account_audit_log (
+          id, account_id, location_id, event_type, actor_user_id, payload
+        ) VALUES (
+          ${uuidv7()}::uuid,
+          ${accountId}::uuid,
+          ${locationId}::uuid,
+          'location_reactivated',
+          ${actorUserId ?? null}::uuid,
+          ${jsonb({
+            location_id: locationId,
+          })}
+        )
+      `;
 
-    // 3. Enqueue Stripe overage update (increment)
-    await tx`
-      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-      VALUES (
-        ${uuidv7()},
-        'update_stripe_overage_quantity',
-        'account',
-        ${accountId}::uuid,
-        ${jsonb({
-          account_id: accountId,
-          correlation_id: uuidv7(),
-        })},
-        'pending'
-      )
-    `;
-
-    const [backfillContext] = await tx<{
-      zernio_account_id: string;
-      zernio_location_id: string;
-      subscription_tier: string;
-      subscription_activated_at: Date | null;
-    }[]>`
-      SELECT
-        zc.zernio_account_id,
-        zc.zernio_location_id,
-        a.subscription_tier,
-        a.subscription_activated_at
-      FROM zernio_connections zc
-      JOIN businesses b ON b.id = zc.business_id
-      JOIN accounts a ON a.id = b.account_id
-      WHERE zc.business_id = ${locationId}::uuid
-        AND b.account_id = ${accountId}::uuid
-        AND zc.status = 'active'
-      ORDER BY zc.connected_at DESC NULLS LAST
-      LIMIT 1
-    `;
-
-    // 4. Enqueue Zernio backfill for connected reactivated locations
-    // VAL-LOC-071: Review sync jobs enqueued for the restored location
-    // to catch up on any reviews that arrived during the archived period.
-    if (backfillContext?.subscription_activated_at) {
+      // 3. Enqueue Stripe overage update (increment)
       await tx`
         INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
         VALUES (
           ${uuidv7()},
-          'zernio_initial_backfill',
-          'business',
-          ${locationId}::uuid,
+          'update_stripe_overage_quantity',
+          'account',
+          ${accountId}::uuid,
           ${jsonb({
-            business_id: locationId,
-            zernio_account_id: backfillContext.zernio_account_id,
-            zernio_location_id: backfillContext.zernio_location_id,
-            subscription_tier: backfillContext.subscription_tier,
-            subscription_activated_at: backfillContext.subscription_activated_at.toISOString(),
-            backfill_reason: 'reactivation',
+            account_id: accountId,
             correlation_id: uuidv7(),
           })},
           'pending'
         )
       `;
-    }
 
-    return promoted;
-  });
+      const [backfillContext] = await tx<{
+        zernio_account_id: string;
+        zernio_location_id: string;
+        subscription_tier: string;
+        subscription_activated_at: Date | null;
+      }[]>`
+        SELECT
+          zc.zernio_account_id,
+          zc.zernio_location_id,
+          a.subscription_tier,
+          a.subscription_activated_at
+        FROM zernio_connections zc
+        JOIN businesses b ON b.id = zc.business_id
+        JOIN accounts a ON a.id = b.account_id
+        WHERE zc.business_id = ${locationId}::uuid
+          AND b.account_id = ${accountId}::uuid
+          AND zc.status = 'active'
+        ORDER BY zc.connected_at DESC NULLS LAST
+        LIMIT 1
+      `;
+
+      // 4. Enqueue Zernio backfill for connected reactivated locations
+      // VAL-LOC-071: Review sync jobs enqueued for the restored location
+      // to catch up on any reviews that arrived during the archived period.
+      if (backfillContext?.subscription_activated_at) {
+        await tx`
+          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+          VALUES (
+            ${uuidv7()},
+            'zernio_initial_backfill',
+            'business',
+            ${locationId}::uuid,
+            ${jsonb({
+              business_id: locationId,
+              zernio_account_id: backfillContext.zernio_account_id,
+              zernio_location_id: backfillContext.zernio_location_id,
+              subscription_tier: backfillContext.subscription_tier,
+              subscription_activated_at: backfillContext.subscription_activated_at.toISOString(),
+              backfill_reason: 'reactivation',
+              correlation_id: uuidv7(),
+            })},
+            'pending'
+          )
+        `;
+      }
+
+      return promoted;
+    });
+  } catch (err) {
+    rethrowAsDuplicateLocation(err);
+  }
 
   return {
     locationId,

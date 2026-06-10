@@ -3,10 +3,51 @@
 // Unit tests for CSV parsing and validation helpers.
 // Validation contract: VAL-ADMIN-008, VAL-ADMIN-012, VAL-ADMIN-013.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// ── Hoisted mocks (only needed by processRow tests) ─────────────────────────
+
+const { mockAssertCanAddLocation } = vi.hoisted(() => ({
+  mockAssertCanAddLocation: vi.fn(),
+}));
+vi.mock('@/lib/accounts/quota', () => ({
+  assertCanAddLocation: mockAssertCanAddLocation,
+}));
+
+const { mockGetAccountById, mockGetAccountOwnerUser } = vi.hoisted(() => ({
+  mockGetAccountById: vi.fn(),
+  mockGetAccountOwnerUser: vi.fn(),
+}));
+vi.mock('@/lib/accounts/repo', () => ({
+  getAccountById: mockGetAccountById,
+  getAccountOwnerUser: mockGetAccountOwnerUser,
+}));
+
+const { mockGetActiveLocationCount } = vi.hoisted(() => ({
+  mockGetActiveLocationCount: vi.fn(),
+}));
+vi.mock('@/lib/locations/repo', () => ({
+  getActiveLocationCount: mockGetActiveLocationCount,
+}));
+
+const { mockAddLocationTransaction } = vi.hoisted(() => ({
+  mockAddLocationTransaction: vi.fn(),
+}));
+vi.mock('@/lib/locations/add-location-tx', () => ({
+  addLocationTransaction: mockAddLocationTransaction,
+}));
+
+vi.mock('@/lib/db/server', () => ({
+  sql: Object.assign(vi.fn(async () => []), {
+    begin: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(undefined)),
+  }),
+  jsonb: (v: unknown) => v,
+}));
+
 import {
   parseCsv,
   validateRow,
+  processRow,
   MAX_FILE_SIZE,
   MAX_ROWS,
   type ParsedCsvRow,
@@ -194,5 +235,84 @@ describe('MAX_FILE_SIZE and MAX_ROWS constants', () => {
 
   it('MAX_ROWS is 100', () => {
     expect(MAX_ROWS).toBe(100);
+  });
+});
+
+// In-file duplicate detection moved out of csv-import.ts: the route keeps an
+// inline imported-place-ids set (only SUCCESSFUL imports claim a place id), so
+// findInFileDuplicatePlaceIds was deleted. Route behavior is covered in
+// src/app/api/admin/locations/csv-import/__tests__/route.test.ts.
+
+// ── processRow duplicate handling (Task C3, Change A) ────────────────────────
+
+describe('processRow duplicate handling', () => {
+  const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+  function happyRow(): ParsedCsvRow {
+    return { rowIndex: 1, name: 'Downtown Cafe', placeId: 'ChIJ1234' };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAssertCanAddLocation.mockResolvedValue({ allowed: true, overageUnits: 1 });
+    mockGetActiveLocationCount.mockResolvedValue(1);
+    mockGetAccountById.mockResolvedValue({
+      id: accountId,
+      subscription_tier: 'standard',
+      subscription_status: 'active',
+    });
+    mockGetAccountOwnerUser.mockResolvedValue({
+      id: 'uuuuuuuu-0000-0000-0000-000000000001',
+      name: 'Test Owner',
+      email: 'owner@test.com',
+    });
+  });
+
+  it("returns { reason: 'duplicate_location' } when the add throws Error('duplicate_location')", async () => {
+    // Matches C1: addLocationTransaction catches the 23505 internally and
+    // re-throws a plain Error('duplicate_location') (no code/constraint_name).
+    mockAddLocationTransaction.mockRejectedValueOnce(new Error('duplicate_location'));
+
+    const result = await processRow(happyRow(), accountId);
+
+    expect('reason' in result).toBe(true);
+    if ('reason' in result) {
+      expect(result.reason).toBe('duplicate_location');
+    }
+  });
+
+  it('returns a generic Transaction error for an unrelated add failure (regression)', async () => {
+    mockAddLocationTransaction.mockRejectedValueOnce(new Error('connection reset'));
+
+    const result = await processRow(happyRow(), accountId);
+
+    expect('reason' in result).toBe(true);
+    if ('reason' in result) {
+      expect(result.reason).toContain('Transaction error');
+      expect(result.reason).toContain('connection reset');
+      expect(result.reason).not.toBe('duplicate_location');
+    }
+  });
+
+  it('surfaces a RAW 23505 (un-remapped) as a generic Transaction error', async () => {
+    // Contract: the tx module (rethrowAsDuplicateLocation) remaps the 23505 to
+    // Error('duplicate_location') before processRow ever sees it. processRow
+    // matches on the typed message ONLY — a raw Postgres 23505 reaching it
+    // means the remap was bypassed, and it must NOT be classified as a
+    // duplicate here (single owner of the remap is the tx module).
+    const raw: Error & { code?: string; constraint_name?: string } = new Error(
+      'duplicate key value violates unique constraint "businesses_account_place_uniq"',
+    );
+    raw.code = '23505';
+    raw.constraint_name = 'businesses_account_place_uniq';
+    mockAddLocationTransaction.mockRejectedValueOnce(raw);
+
+    const result = await processRow(happyRow(), accountId);
+
+    expect('reason' in result).toBe(true);
+    if ('reason' in result) {
+      expect(result.reason).toContain('Transaction error');
+      expect(result.reason).not.toBe('duplicate_location');
+    }
   });
 });

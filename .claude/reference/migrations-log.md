@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **061** — next migration is **062**
+Current head: **062** — next migration is **063**
 All tables use UUIDv7 (time-ordered primary keys).
 
 ## Migration Log
@@ -450,6 +450,25 @@ All tables use UUIDv7 (time-ordered primary keys).
   `channel_enrollments WHERE channel = 'sms' AND archived_at IS NULL` returns
   0 rows before running against production — the archive step is defensive but
   verify clean state first.
+
+- **062** — Server-side duplicate `google_place_id` enforcement (multi-location
+  hardening Fix 7). Adds partial UNIQUE index `businesses_account_place_uniq` on
+  `businesses (account_id, google_place_id) WHERE archived_at IS NULL AND
+  google_place_id IS NOT NULL` — an account cannot hold two ACTIVE locations with
+  the same Google place (a duplicate double-ingests every review → double LLM
+  spend + double notifications). **`CREATE INDEX CONCURRENTLY`** → apply
+  NON-transactionally (uncheck "single transaction"), staging-first then prod, both
+  Supabase projects in lockstep. **Pre-flight gate (in the migration header):** run
+  the active-duplicate `(account_id, google_place_id)` query against staging AND
+  prod; expect 0 rows. A pre-existing active duplicate aborts the CONCURRENTLY build
+  and leaves an INVALID index (recover: `DROP INDEX businesses_account_place_uniq;`
+  resolve the dup, re-run). No `ON CONFLICT` is added (callers only catch error
+  code 23505), so the byte-for-byte predicate gotcha does not apply. URL-mode adds
+  (NULL place_id) bypass the index, so `addLocationTransaction` enqueues the
+  existing `validate_place_id` topic and the validation worker treats a 23505 on
+  the resolved-place_id UPDATE as `duplicate_location` (leaves the location
+  unverified, no job failure). Verified against a local postgres:16 (all migrations
+  applied): active dup rejected, archived dup + NULL place_ids allowed.
 
 ## Key Tables Reference
 

@@ -12,8 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   parseCsv,
-  validateRow,
-  processRow,
+  importCsvRows,
   enqueueCsvImportStripeOverageUpdate,
   writeCsvImportAuditLog,
   MAX_FILE_SIZE,
@@ -123,35 +122,8 @@ async function importLocationsCsv(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // ── Step 7: Process each row (best-effort, VAL-ADMIN-010) ──────────
-  //
-  // Invalid rows (validation failures) don't block valid rows.
-  // Each valid row is processed through assertCanAddLocation + addLocationTransaction.
-  const successes: Array<{ row: number; businessId: string; displayLabel: string }> = [];
-  const failures: CsvRowFailure[] = [];
-
-  for (const row of rows) {
-    // 7a. Validate required fields (VAL-ADMIN-012)
-    const validation = validateRow(row);
-    if (!validation.valid) {
-      failures.push({ row: row.rowIndex, reason: validation.reason! });
-      continue;
-    }
-
-    // 7b. Process through add-location flow (VAL-ADMIN-009)
-    const result = await processRow(row, accountId, {
-      enqueueStripeOverageUpdate: false,
-    });
-    if ('reason' in result) {
-      failures.push({ row: row.rowIndex, reason: result.reason });
-    } else {
-      successes.push({
-        row: row.rowIndex,
-        businessId: result.businessId,
-        displayLabel: result.displayLabel,
-      });
-    }
-  }
+  // ── Step 7: Import rows (policy owned by csv-import.importCsvRows) ──
+  const { successes, failures } = await importCsvRows(rows, accountId);
 
   const report: CsvImportReport = {
     created: successes.length,

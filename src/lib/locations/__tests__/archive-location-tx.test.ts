@@ -767,6 +767,49 @@ describe('reactivateLocationTransaction', () => {
 
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
   });
+
+  // C1: un-archiving a location whose (account_id, google_place_id) is already
+  // held by another ACTIVE location trips businesses_account_place_uniq (23505).
+  // The tx maps that to duplicate_location so the route can return 409.
+  it('maps a 23505 on businesses_account_place_uniq to duplicate_location', async () => {
+    mockSql.begin = vi.fn(async () => {
+      const err: Error & { code?: string; constraint_name?: string } = new Error(
+        'duplicate key value violates unique constraint "businesses_account_place_uniq"',
+      );
+      err.code = '23505';
+      err.constraint_name = 'businesses_account_place_uniq';
+      throw err;
+    });
+
+    await expect(
+      reactivateLocationTransaction({
+        locationId: SECONDARY_LOCATION_ID,
+        accountId: ACCOUNT_ID,
+        actorUserId: ACTOR_USER_ID,
+      }),
+    ).rejects.toThrow('duplicate_location');
+  });
+
+  // C1: a 23505 on an unrelated constraint must propagate unchanged.
+  it('does not remap a 23505 on a different constraint', async () => {
+    const original: Error & { code?: string; constraint_name?: string } = new Error(
+      'duplicate key value violates unique constraint "businesses_account_primary_uniq"',
+    );
+    original.code = '23505';
+    original.constraint_name = 'businesses_account_primary_uniq';
+
+    mockSql.begin = vi.fn(async () => {
+      throw original;
+    });
+
+    await expect(
+      reactivateLocationTransaction({
+        locationId: SECONDARY_LOCATION_ID,
+        accountId: ACCOUNT_ID,
+        actorUserId: ACTOR_USER_ID,
+      }),
+    ).rejects.toThrow(original);
+  });
 });
 
 // ══════════════════════════════════════════════════════════════════════════

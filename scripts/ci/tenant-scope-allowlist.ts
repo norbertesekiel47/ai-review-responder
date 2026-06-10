@@ -423,14 +423,8 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/jobs/PlaceIdValidationWorker.ts",
     table: "businesses",
-    sqlSnippet: "UPDATE businesses SET google_place_id = ${urlData.placeId}, place_id_verified = TRUE WHERE id = ${businessId}",
-    reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
-  },
-  {
-    file: "worker/jobs/PlaceIdValidationWorker.ts",
-    table: "businesses",
-    sqlSnippet: "UPDATE businesses SET google_place_id = ${resolvedPlaceId}, place_id_verified = TRUE WHERE id = ${businessId}",
-    reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
+    sqlSnippet: "UPDATE businesses SET google_place_id = ${resolvedPlaceId}, place_id_verified = TRUE WHERE id = ${businessId} AND (google_place_id IS NULL OR google_place_id = ${resolvedPlaceId}) RETURNING id",
+    reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement. The extra place-id predicate is the no-silent-overwrite guard, not tenant scoping.",
   },
   {
     file: "worker/jobs/RankingTrackingWorker.ts",

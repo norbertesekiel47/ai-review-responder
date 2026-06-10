@@ -15,6 +15,7 @@ import { getAccountById, getAccountOwnerUserId } from '@/lib/accounts/repo';
 import { addLocationTransaction } from '@/lib/locations/add-location-tx';
 import { getActiveLocationCount } from '@/lib/locations/repo';
 import {
+  locationDenialResponse,
   LOCATION_ROUTE_NO_STORE as NO_STORE,
   ownerAccountMismatchResponse,
   readLocationRouteJson,
@@ -29,7 +30,10 @@ export const dynamic = 'force-dynamic';
 const AddLocationSchema = z.object({
   accountId: z.string().regex(UUID_RE, 'Invalid account ID format'),
   displayLabel: z.string().min(1).max(255),
-  googlePlaceId: z.string().optional(),
+  // Trimmed + non-empty: '' is NOT nullish, so an untrimmed/empty value would
+  // participate in businesses_account_place_uniq ('' collides with '') while
+  // ' ChIJx' would slip past it. Normalization owner is the server.
+  googlePlaceId: z.string().trim().min(1).optional(),
   placeIdVerified: z.boolean().optional().default(false),
   googleMapsUrl: z.string().optional(),
   // Optional voice config overrides. When provided, these values are used
@@ -41,6 +45,15 @@ const AddLocationSchema = z.object({
     avoidFacts: z.array(z.string()).optional(),
     sampleResponses: z.array(z.string()).optional(),
   }).optional(),
+}).refine((d) => !d.placeIdVerified || !!d.googlePlaceId, {
+  message: 'placeIdVerified requires googlePlaceId',
+  path: ['placeIdVerified'],
+}).refine((d) => !(d.googlePlaceId && d.googleMapsUrl), {
+  // Two input modes, never both: an explicit place id with a Maps URL is
+  // ambiguous — the URL would later resolve and could silently overwrite the
+  // supplied place id. The wizard sends exactly one of the two.
+  message: 'googlePlaceId and googleMapsUrl are mutually exclusive',
+  path: ['googleMapsUrl'],
 });
 
 // Maps quota-denial reasons to HTTP status codes.
@@ -148,6 +161,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[locations/add] Transaction failed for account=${accountId}: ${message}`);
+    // duplicate_location (active-duplicate google_place_id, migration 062) → 409.
+    const denial = locationDenialResponse(message);
+    if (denial) return denial;
     return NextResponse.json(
       { error: 'add_location_failed' },
       { status: 500, headers: NO_STORE },
