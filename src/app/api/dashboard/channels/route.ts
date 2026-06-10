@@ -88,6 +88,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     WHERE e.account_id = ${accountId}
       AND e.location_id IS NULL
       AND e.archived_at IS NULL
+      AND e.channel IN ('email', 'telegram', 'whatsapp')
     ORDER BY e.created_at ASC
   `;
 

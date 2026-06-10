@@ -14,9 +14,9 @@
 --    surviving consumer is the WhatsApp STOP handler's handle-wide UPDATE
 --    (worker/ingress/twilio/twilio-whatsapp-inbound.ts).
 -- 3. Rebuild one_mobile_per_scope without 'sms' (telegram/whatsapp only).
--- 4. Drop both opt-out tables — events first (child-before-parent order for
---    clarity). RLS policies (sms_sender_opt_*_owner_select, migration 035)
---    drop implicitly.
+-- 4. Drop both opt-out tables — events first by convention (no FK links the
+--    two tables; events' only FK points at inbound_events). RLS policies
+--    (sms_sender_opt_*_owner_select, migration 035) drop implicitly.
 --
 -- channel_enrollments.channel / notification_deliveries.channel stay TEXT
 -- with app-layer enforcement; historical 'sms' delivery rows are untouched.
@@ -51,7 +51,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS channel_enrollments_one_mobile_per_scope
     AND status IN ('pending_verification','verified')
     AND archived_at IS NULL;
 
--- 4. Drop the SMS opt-out tables (child first; RLS policies drop with them)
+-- 4. Drop the SMS opt-out tables (RLS policies drop with them)
 DROP TABLE IF EXISTS sms_sender_opt_out_events;
 DROP TABLE IF EXISTS sms_sender_opt_outs;
 

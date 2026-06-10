@@ -321,7 +321,7 @@ describe('resolveChannels — channel cache', () => {
     expect(mockRedisSet).toHaveBeenCalledTimes(1);
     const setCall = mockRedisSet.mock.calls[0]!;
     // Key should contain both account_id and location_id
-    expect(setCall[0]).toMatch(/rch:channels:/);
+    expect(setCall[0]).toMatch(/rch:channels:v2:/);
     expect(setCall[0]).toContain(ACCOUNT_A);
     expect(setCall[0]).toContain(LOCATION_L1);
     // TTL should be 300 seconds (5 minutes)

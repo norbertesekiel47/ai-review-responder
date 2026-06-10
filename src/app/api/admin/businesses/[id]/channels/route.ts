@@ -75,6 +75,7 @@ export async function GET(
     WHERE e.account_id = ${accountId}
       AND (e.location_id = ${businessId} OR e.location_id IS NULL)
       AND e.archived_at IS NULL
+      AND e.channel IN ('email', 'telegram', 'whatsapp')
     ORDER BY
       -- Per-location overrides first so the dedup keeps them over org-defaults
       -- for the same channel (mirrors resolveChannels VAL-NOTIF-003).
