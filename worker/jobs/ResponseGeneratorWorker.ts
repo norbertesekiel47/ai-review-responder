@@ -38,19 +38,32 @@ export async function handleResponseGeneration(
       logger.warn(`Business ${businessId} not found`);
       await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
       return;
-    case 'subscription_blocked':
-      logger.log(`Business ${businessId} skipped: ${loaded.reason}`);
+    case 'skipped':
+      // Object arg so `reason` (archived_location, subscription-guard
+      // reasons, account_offboarding_blocked) is queryable in the structured
+      // log record (string args are logged verbatim, not as fields).
+      logger.log('skipping generation', { reason: loaded.reason, business_id: businessId });
       await markOutboxCompleted(outboxId, outboxAttempt);
       return;
     case 'already_exists':
       logger.log(`Response already exists for review ${reviewId} v${version}, completing outbox`);
-      await maybeEnqueueFirstResponseDrafted({
-        accountId: loaded.existing.accountId,
-        businessId: loaded.existing.businessId,
-        responseId: loaded.existing.id,
-        reviewId,
-        logger,
-      });
+      if (loaded.processingBlocked) {
+        // No durable analytics write for an account in active offboarding —
+        // the dispatch poller has no offboarding gate and would export the
+        // event (with live identifiers) for an account mid-purge.
+        logger.log('suppressing first_response_drafted enqueue', {
+          reason: 'account_offboarding_blocked',
+          business_id: businessId,
+        });
+      } else {
+        await maybeEnqueueFirstResponseDrafted({
+          accountId: loaded.existing.accountId,
+          businessId: loaded.existing.businessId,
+          responseId: loaded.existing.id,
+          reviewId,
+          logger,
+        });
+      }
       await markOutboxCompleted(outboxId, outboxAttempt);
       return;
   }

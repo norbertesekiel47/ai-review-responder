@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Job } from 'bullmq';
-import type { IngestZernioReviewPayload } from '../../../../src/lib/shared/worker-types';
+import { SKIP_REASON_ARCHIVED_LOCATION, type IngestZernioReviewPayload } from '../../../../src/lib/shared/worker-types';
 import type { ZernioReview } from '../../../../src/lib/zernio/types';
 import { ZernioAuthError } from '../../../../src/lib/zernio/errors';
 
@@ -8,33 +8,31 @@ import { ZernioAuthError } from '../../../../src/lib/zernio/errors';
 const {
   sqlReturnQueue,
   mockSql,
+  resetMockSql,
   mockMarkOutboxCompleted,
+  mockMarkOutboxFailed,
   mockListReviews,
   mockProcessReview,
   mockReconcileExternallyAnsweredReview,
   mockOpenPhiReviewException,
   mockHandleZernioIngestError,
   mockApplyIngestionAuthErrorFallback,
-} = vi.hoisted(() => {
-  const sqlReturnQueue: unknown[] = [];
-
-  const mockSql: any = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => {
-    const result = sqlReturnQueue.shift() ?? Object.assign([], { count: 0 });
-    return Promise.resolve(result);
-  });
-
-  mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<any>) => cb(mockSql));
+  mockLogger,
+} = await vi.hoisted(async () => {
+  const { createMockSql, mockWorkerLogger } =
+    await import('../../../__tests__/helpers/mock-sql');
 
   return {
-    sqlReturnQueue,
-    mockSql,
+    ...createMockSql(),
     mockMarkOutboxCompleted: vi.fn(),
+    mockMarkOutboxFailed: vi.fn(),
     mockListReviews: vi.fn(),
     mockProcessReview: vi.fn(),
     mockReconcileExternallyAnsweredReview: vi.fn(),
     mockOpenPhiReviewException: vi.fn(),
     mockHandleZernioIngestError: vi.fn(),
     mockApplyIngestionAuthErrorFallback: vi.fn(),
+    mockLogger: mockWorkerLogger(),
   };
 });
 
@@ -42,7 +40,7 @@ const {
 vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
-  markOutboxFailed: vi.fn(),
+  markOutboxFailed: mockMarkOutboxFailed,
   extractOutboxHandle: (d: any, fallback: string) => ({
     outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback,
     attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined,
@@ -61,6 +59,9 @@ vi.mock('../zernio-ingest-shared', () => ({
 }));
 vi.mock('../../../../src/lib/zernio/auth-error-fallback', () => ({
   applyIngestionAuthErrorFallback: mockApplyIngestionAuthErrorFallback,
+}));
+vi.mock('../../../../src/lib/shared/logger', () => ({
+  createWorkerLogger: () => mockLogger,
 }));
 
 import {
@@ -117,7 +118,7 @@ function pushActiveConn() {
 describe('ZernioReviewIngestWorker', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    sqlReturnQueue.length = 0;
+    resetMockSql();
   });
 
   // 1. Page 1 hit → processReview called
@@ -300,6 +301,62 @@ describe('ZernioReviewIngestWorker', () => {
     expect(mockListReviews).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+  });
+
+  // 6b. Location archived → markOutboxCompleted (skip-as-success), NO listReviews call.
+  //     Defense-in-depth for ingest jobs already queued when a location is
+  //     archived: the webhook fan-out (A1) stops enqueuing new jobs, this
+  //     skips any that were already in flight. Mirrors the cancelled-
+  //     subscription skip: complete the job, never fail/retry.
+  it('marks outbox completed and skips when the location is archived', async () => {
+    // Active subscription — only archived_at should trigger the skip.
+    // The archived guard runs before the connection lookup, so no
+    // zernio_connections row is queued. Without the guard, execution would
+    // proceed to the connection query (empty queue → mismatch skip), so
+    // listReviews staying uncalled alone wouldn't prove the archived gate;
+    // the structured archived log below does.
+    sqlReturnQueue.push([{
+      subscription_status: 'active',
+      past_due_at: null,
+      account_flags: {},
+      archived_at: '2026-06-01T00:00:00Z',
+    }]);
+
+    await handleZernioReviewIngest(makeJob());
+
+    expect(mockListReviews).not.toHaveBeenCalled();
+    expect(mockProcessReview).not.toHaveBeenCalled();
+    expect(mockLogger.log).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ reason: SKIP_REASON_ARCHIVED_LOCATION, business_id: 'biz-1' }),
+    );
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  // 6c. Ordering pin (Greptile 4/5 finding): archived is checked BEFORE the
+  //     subscription guard. A location that is BOTH archived AND on a
+  //     cancelled subscription must exit via the queryable archived path
+  //     (structured { reason: SKIP_REASON_ARCHIVED_LOCATION } log), not the
+  //     silent subscription skip.
+  it('archived + cancelled exits via the archived path: structured log fires and outbox completes', async () => {
+    sqlReturnQueue.push([{
+      subscription_status: 'cancelled',
+      past_due_at: null,
+      account_flags: {},
+      archived_at: '2026-06-01T00:00:00Z',
+    }]);
+
+    await handleZernioReviewIngest(makeJob());
+
+    expect(mockLogger.log).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ reason: SKIP_REASON_ARCHIVED_LOCATION, business_id: 'biz-1' }),
+    );
+    expect(mockListReviews).not.toHaveBeenCalled();
+    expect(mockProcessReview).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
   // 7. Connection no longer active → markOutboxCompleted, NO listReviews call

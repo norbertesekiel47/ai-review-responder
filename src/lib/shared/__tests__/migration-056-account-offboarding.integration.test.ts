@@ -3,6 +3,7 @@ import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
+import { cleanupTenantAccount, seedTenantAccount } from './live-db-tenant';
 
 // Behavioral (live-DB) companion to migration-056-account-offboarding.test.ts,
 // which only asserts the migration SQL *text*. This proves the runtime lifecycle
@@ -54,17 +55,12 @@ async function insertOffboarding(fields: {
 d('migration 056 account_offboardings — lifecycle CHECK constraints (behavioral)', () => {
   beforeAll(async () => {
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
-    await sql().begin(async (tx) => {
-      // users.account_id <-> accounts.owner_user_id are mutually referential.
-      await tx`SET CONSTRAINTS ALL DEFERRED`;
-      await tx`
-        INSERT INTO users (id, name, email, role, account_id)
-        VALUES (${tenant.userId}::uuid, 'Offboarding 056 Owner', ${ownerEmail}, 'owner', ${tenant.accountId}::uuid)
-      `;
-      await tx`
-        INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status)
-        VALUES (${tenant.accountId}::uuid, ${tenant.userId}::uuid, 'Offboarding 056 Account', 'standard', 'active')
-      `;
+    await seedTenantAccount(sql(), {
+      userId: tenant.userId,
+      accountId: tenant.accountId,
+      ownerEmail,
+      userName: 'Offboarding 056 Owner',
+      accountDisplayName: 'Offboarding 056 Account',
     });
   });
 
@@ -75,12 +71,8 @@ d('migration 056 account_offboardings — lifecycle CHECK constraints (behaviora
 
   afterAll(async () => {
     if (!db) return;
-    await sql().begin(async (tx) => {
-      await tx`SET CONSTRAINTS ALL DEFERRED`;
-      await tx`DELETE FROM account_offboardings WHERE account_id = ${tenant.accountId}::uuid`;
-      await tx`DELETE FROM accounts WHERE id = ${tenant.accountId}::uuid`;
-      await tx`DELETE FROM users WHERE id = ${tenant.userId}::uuid`;
-    });
+    await sql()`DELETE FROM account_offboardings WHERE account_id = ${tenant.accountId}::uuid`;
+    await cleanupTenantAccount(sql(), tenant);
     await db.end({ timeout: 5 });
   });
 

@@ -119,6 +119,8 @@ import {
   ChannelMismatchError,
   ExpiredLinkError,
   RevokedLinkError,
+  ResponseNotPendingError,
+  ArchivedLocationError,
 } from '../../../../src/lib/approval/errors';
 import { SubscriptionReadOnlyError } from '../../../../src/lib/shared/writable-subscription';
 
@@ -273,6 +275,63 @@ describe('telegram ingress — permanent link-state failures after ack', () => {
     expect(mockEditMarkup).not.toHaveBeenCalled();
     const markProcessed = sqlCalls.find((c) => c.sql.includes('processed_at = NOW()'));
     expect(markProcessed).toBeDefined();
+  });
+
+  it('archived location on regenerate → archived-specific copy, NOT the "already handled" copy', async () => {
+    mockVerify.mockReturnValueOnce(true);
+    mockClaim.mockResolvedValueOnce('claimed');
+    sqlQueue.push([{ id: '00000000-0000-7000-8000-00000000000c', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
+    sqlQueue.push([{ handle: '111' }]);
+    mockRegenerate.mockRejectedValueOnce(new ArchivedLocationError());
+    sqlQueue.push([]);
+
+    const reply = mkReply();
+    await handleTelegramWebhook(mkRequest({
+      update_id: 12,
+      callback_query: { id: 'cb-arch', from: { id: 111 }, data: 'r:00000000-0000-7000-8000-00000000000c', message: { chat: { id: 111 }, message_id: 1 } },
+    }), reply);
+
+    expect(mockEditText).toHaveBeenCalledTimes(1);
+    expect(mockEditText).toHaveBeenCalledWith(expect.objectContaining({
+      chat_id: '111',
+      message_id: 1,
+      text: expect.stringMatching(/archived/i),
+    }));
+    expect(mockEditText).toHaveBeenCalledWith(expect.objectContaining({
+      text: expect.stringMatching(/can no longer be regenerated/i),
+    }));
+    // ArchivedLocationError extends ResponseNotPendingError — it must NOT
+    // fall through to the parent's "already been handled" copy (false here).
+    expect(mockEditText).not.toHaveBeenCalledWith(expect.objectContaining({
+      text: expect.stringMatching(/already been handled/i),
+    }));
+    expect(reply.code).toHaveBeenCalledWith(200);
+    const markProcessed = sqlCalls.find((c) => c.sql.includes('processed_at = NOW()'));
+    expect(markProcessed).toBeDefined();
+  });
+
+  it('plain ResponseNotPendingError → unchanged "already been handled" copy', async () => {
+    mockVerify.mockReturnValueOnce(true);
+    mockClaim.mockResolvedValueOnce('claimed');
+    sqlQueue.push([{ id: '00000000-0000-7000-8000-00000000000d', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
+    sqlQueue.push([{ handle: '111' }]);
+    mockApprove.mockRejectedValueOnce(new ResponseNotPendingError('approved'));
+    sqlQueue.push([]);
+
+    const reply = mkReply();
+    await handleTelegramWebhook(mkRequest({
+      update_id: 13,
+      callback_query: { id: 'cb-rnp', from: { id: 111 }, data: 'a:00000000-0000-7000-8000-00000000000d', message: { chat: { id: 111 }, message_id: 1 } },
+    }), reply);
+
+    expect(mockEditText).toHaveBeenCalledTimes(1);
+    expect(mockEditText).toHaveBeenCalledWith(expect.objectContaining({
+      text: expect.stringMatching(/already been handled/i),
+    }));
+    expect(mockEditText).not.toHaveBeenCalledWith(expect.objectContaining({
+      text: expect.stringMatching(/archived/i),
+    }));
+    expect(reply.code).toHaveBeenCalledWith(200);
   });
 
   it('edit failure falls back to sendMessage', async () => {

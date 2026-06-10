@@ -31,6 +31,8 @@ import {
   RevokedLinkError,
   ExpiredLinkError,
   ChannelMismatchError,
+  ArchivedLocationError,
+  ResponseNotPendingError,
 } from '../errors';
 import { SubscriptionReadOnlyError } from '@/lib/shared/writable-subscription';
 
@@ -56,6 +58,14 @@ function pendingResponseRow() {
 
 function activeAccountRow() {
   return [{ subscription_status: 'active', past_due_at: null, flags: {} }];
+}
+
+function notArchivedBusinessRow() {
+  return [{ archived_at: null }];
+}
+
+function archivedBusinessRow() {
+  return [{ archived_at: new Date('2026-06-01T00:00:00Z') }];
 }
 
 function readOnlyAccountRow() {
@@ -217,6 +227,7 @@ describe('regenerateViaCallback', () => {
     txQueue.push(activeAccountRow());
     txQueue.push(pendingResponseRow());
     txQueue.push([]); // consumeLink
+    txQueue.push(notArchivedBusinessRow()); // assertLocationNotArchived (after claim)
     txQueue.push([]); // revokeSiblings
     txQueue.push([]); // UPDATE responses superseded
     txQueue.push([]); // INSERT outbox
@@ -291,5 +302,38 @@ describe('regenerateViaCallback', () => {
     });
 
     expectNoCallbackMutation();
+  });
+
+  // Archived-location gate (regenerate only — PR B extends to all approval
+  // actions): the guard runs AFTER the claim, inside the same sql.begin, so
+  // the throw rolls the whole transaction back — the consume is never
+  // committed, the draft is never superseded, nothing is enqueued. The
+  // mocked tx cannot model the rollback of the consume statement itself, so
+  // we assert the throw plus the absence of every statement issued after
+  // the guard (supersede, outbox, audit).
+  it('rejects regenerate for an archived location and issues no post-guard mutations', async () => {
+    txQueue.push(liveLinkRow());
+    txQueue.push(activeAccountRow());
+    txQueue.push(pendingResponseRow()); // lockPendingResponse (claim)
+    txQueue.push([]);                   // consumeLink (claim — rolled back with the tx)
+    txQueue.push(archivedBusinessRow()); // assertLocationNotArchived → throws
+
+    await expect(regenerateViaCallback({
+      approvalLinkId: 'link-1',
+      chatHandle: '123',
+      viaChannel: 'telegram',
+      audit: { providerEventId: '7', ipAddress: null, telegramUpdateId: 7 },
+    })).rejects.toBeInstanceOf(ArchivedLocationError);
+
+    expect(txCalls.some((call) => call.sql.includes("'superseded'"))).toBe(false);
+    expect(txCalls.some((call) => call.sql.includes('job_outbox'))).toBe(false);
+    expect(txCalls.some((call) => call.sql.includes('approval_audit_log'))).toBe(false);
+  });
+
+  // The callback ingress classifies permanent errors via instanceof
+  // ResponseNotPendingError — the archived rejection must inherit that so
+  // Telegram/WhatsApp treat it as terminal (no reclaim retry loop).
+  it('archived rejection is classified as a permanent ResponseNotPendingError', () => {
+    expect(new ArchivedLocationError()).toBeInstanceOf(ResponseNotPendingError);
   });
 });

@@ -18,6 +18,7 @@ import {
   RevokedLinkError,
   ExpiredLinkError,
   ChannelMismatchError,
+  ArchivedLocationError,
 } from './errors';
 import type { ApprovalLink } from './types';
 
@@ -104,6 +105,44 @@ export async function revokeOpenLinksForResponse(tx: TxClient, responseId: strin
       AND revoked_at IS NULL
       AND expires_at > NOW()
   `;
+}
+
+/**
+ * Reject approval actions that target an archived location.
+ *
+ * Scoped to REGENERATE for now because regenerate is destructive without a
+ * replacement: it supersedes the pending draft, consumes the link, and
+ * enqueues a generate_response job the generator skips for archived
+ * locations — leaving the owner with nothing. PR B of the multi-location
+ * hardening spec extends this gate to ALL approval actions (approve/edit).
+ * Shared by ALL FOUR regenerate lanes: token-mode, callback-mode,
+ * dashboard session (http-routes), and admin flagged disposition.
+ *
+ * FOR SHARE makes this a locking read: the archive tx takes the same
+ * businesses row FOR UPDATE, so an in-flight archive blocks this gate and
+ * the re-evaluated read sees the committed archived_at — closing the TOCTOU
+ * window where a concurrent archive let the supersede through. Callers MUST
+ * run inside the same sql.begin() as the mutation (all four do); outside a
+ * transaction PgBouncer drops the lock immediately.
+ *
+ * This stays a standalone query rather than folding archived_at into the
+ * shared assertWritableSubscriptionForBusiness projection: that helper is a
+ * plain read used by approve/edit lanes where this gate must not yet fire,
+ * and the lock is the point. PR B unifies them when the gate covers all
+ * actions.
+ *
+ * Fails closed: a missing business row also rejects.
+ */
+export async function assertLocationNotArchived(
+  tx: TxClient,
+  businessId: string,
+): Promise<void> {
+  const [business] = await tx<{ archived_at: Date | null }[]>`
+    SELECT archived_at FROM businesses WHERE id = ${businessId} FOR SHARE
+  `;
+  if (!business || business.archived_at !== null) {
+    throw new ArchivedLocationError();
+  }
 }
 
 export async function lockLinkByIdForCallback(

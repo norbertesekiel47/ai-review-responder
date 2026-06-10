@@ -3,6 +3,7 @@ import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
+import { cleanupTenantAccount, seedTenantAccount } from './live-db-tenant';
 
 // Behavioral (live-DB) companion to migration-055-auto-approval-policy.test.ts,
 // which only asserts the migration SQL *text*. This proves the runtime schema
@@ -57,46 +58,43 @@ async function insertPolicy(
 d('migration 055 auto_approval_policies — behavioral', () => {
   beforeAll(async () => {
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
-    await sql().begin(async (tx) => {
-      // users.account_id <-> accounts.owner_user_id are mutually referential.
-      await tx`SET CONSTRAINTS ALL DEFERRED`;
-      for (const [tenant, email] of [
-        [a, ownerEmailA],
-        [b, ownerEmailB],
-      ] as const) {
-        await tx`
-          INSERT INTO users (id, name, email, role, account_id)
-          VALUES (${tenant.userId}::uuid, 'AAP 055 Owner', ${email}, 'owner', ${tenant.accountId}::uuid)
-        `;
-        await tx`
-          INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status)
-          VALUES (${tenant.accountId}::uuid, ${tenant.userId}::uuid, 'AAP 055 Account', 'standard', 'active')
-        `;
-        await tx`
-          INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status)
-          VALUES (${tenant.businessId}::uuid, 'AAP 055 Biz', 'AAP 055 Owner', ${email}, ${tenant.accountId}::uuid, 'active')
-        `;
-      }
-      await tx`
-        INSERT INTO reviews (
-          id, business_id, provider, provider_review_id, provider_review_name,
-          provider_location_name, reviewer_name, star_rating, review_text, status
-        )
-        VALUES (
-          ${a.reviewId}::uuid, ${a.businessId}::uuid, 'zernio', ${`aap-055-${a.reviewId}`},
-          ${`zernio://aap/reviews/${a.reviewId}`}, 'zernio://aap/locations/1', 'Reviewer', 5,
-          'Great visit', 'responded'
-        )
+    // Domain rows reference the committed user/account pairs — only the
+    // user<->account seed itself needs deferred constraints (helper-owned).
+    for (const [tenant, email] of [
+      [a, ownerEmailA],
+      [b, ownerEmailB],
+    ] as const) {
+      await seedTenantAccount(sql(), {
+        userId: tenant.userId,
+        accountId: tenant.accountId,
+        ownerEmail: email,
+        userName: 'AAP 055 Owner',
+        accountDisplayName: 'AAP 055 Account',
+      });
+      await sql()`
+        INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status)
+        VALUES (${tenant.businessId}::uuid, 'AAP 055 Biz', 'AAP 055 Owner', ${email}, ${tenant.accountId}::uuid, 'active')
       `;
-      await tx`
-        INSERT INTO responses (
-          id, review_id, business_id, response_text, original_draft_text, response_language
-        )
-        VALUES (
-          ${a.responseId}::uuid, ${a.reviewId}::uuid, ${a.businessId}::uuid, 'A reply', 'A reply', 'en'
-        )
-      `;
-    });
+    }
+    await sql()`
+      INSERT INTO reviews (
+        id, business_id, provider, provider_review_id, provider_review_name,
+        provider_location_name, reviewer_name, star_rating, review_text, status
+      )
+      VALUES (
+        ${a.reviewId}::uuid, ${a.businessId}::uuid, 'zernio', ${`aap-055-${a.reviewId}`},
+        ${`zernio://aap/reviews/${a.reviewId}`}, 'zernio://aap/locations/1', 'Reviewer', 5,
+        'Great visit', 'responded'
+      )
+    `;
+    await sql()`
+      INSERT INTO responses (
+        id, review_id, business_id, response_text, original_draft_text, response_language
+      )
+      VALUES (
+        ${a.responseId}::uuid, ${a.reviewId}::uuid, ${a.businessId}::uuid, 'A reply', 'A reply', 'en'
+      )
+    `;
   });
 
   afterEach(async () => {
@@ -110,15 +108,12 @@ d('migration 055 auto_approval_policies — behavioral', () => {
   afterAll(async () => {
     if (!db) return;
     // Policies are cleaned per-test by afterEach; tear down the seed parents.
-    await sql().begin(async (tx) => {
-      await tx`SET CONSTRAINTS ALL DEFERRED`;
-      await tx`DELETE FROM approval_audit_log WHERE response_id = ${a.responseId}::uuid`;
-      await tx`DELETE FROM responses WHERE id = ${a.responseId}::uuid`;
-      await tx`DELETE FROM reviews WHERE id = ${a.reviewId}::uuid`;
-      await tx`DELETE FROM businesses WHERE id IN (${a.businessId}::uuid, ${b.businessId}::uuid)`;
-      await tx`DELETE FROM accounts WHERE id IN (${a.accountId}::uuid, ${b.accountId}::uuid)`;
-      await tx`DELETE FROM users WHERE id IN (${a.userId}::uuid, ${b.userId}::uuid)`;
-    });
+    await sql()`DELETE FROM approval_audit_log WHERE response_id = ${a.responseId}::uuid`;
+    await sql()`DELETE FROM responses WHERE id = ${a.responseId}::uuid`;
+    await sql()`DELETE FROM reviews WHERE id = ${a.reviewId}::uuid`;
+    await sql()`DELETE FROM businesses WHERE id IN (${a.businessId}::uuid, ${b.businessId}::uuid)`;
+    await cleanupTenantAccount(sql(), a);
+    await cleanupTenantAccount(sql(), b);
     await db.end({ timeout: 5 });
   });
 

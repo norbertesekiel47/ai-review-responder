@@ -31,6 +31,10 @@ function getPreviousMonday(now: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Complexity is inherited — PR 262 added a single `archived_at IS NULL` SQL
+// predicate; the surrounding function shape predates it. Decomposition tracked
+// in the multi-location fast-follow spec.
+// fallow-ignore-next-line complexity
 async function checkAndSchedule(): Promise<void> {
   if (isPolling) return;
   isPolling = true;
@@ -52,6 +56,7 @@ async function checkAndSchedule(): Promise<void> {
       SELECT b.id FROM businesses b
       JOIN accounts a ON a.id = b.account_id
       WHERE a.subscription_status IN ('active', 'past_due')
+        AND b.archived_at IS NULL
         AND (b.weekly_summary_enabled IS NULL OR b.weekly_summary_enabled = TRUE)
         AND NOT EXISTS (
           SELECT 1 FROM weekly_summaries ws

@@ -208,6 +208,7 @@ describe('POST /api/admin/flagged (disposition)', () => {
   it('requires_regeneration: supersedes the held draft and enqueues generate_response, no notification', async () => {
     txResults.push([{ id: FLAG_ID, response_id: 'resp-1', business_id: 'biz-1', account_id: 'acct-1' }]); // flag SELECT
     txResults.push(Object.assign([], { count: 1 })); // UPDATE flagged_responses
+    txResults.push([{ archived_at: null }]); // archived-location gate SELECT (active location)
     txResults.push([{ review_id: 'rev-1', version: 1, status: 'pending_approval' }]); // response SELECT FOR UPDATE
 
     const res = await POST(postReq({ flaggedId: FLAG_ID, action: 'requires_regeneration' }));
@@ -243,5 +244,29 @@ describe('POST /api/admin/flagged (disposition)', () => {
     txResults.push([]);
     const res = await POST(postReq({ flaggedId: FLAG_ID, action: 'approved_for_owner_review' }));
     expect(res.status).toBe(409);
+  });
+
+  it('requires_regeneration: rejects an archived location with 409 archived_location and supersedes nothing', async () => {
+    txResults.push([{ id: FLAG_ID, response_id: 'resp-1', business_id: 'biz-1', account_id: 'acct-1' }]); // flag SELECT
+    txResults.push(Object.assign([], { count: 1 })); // UPDATE flagged_responses
+    txResults.push([{ archived_at: new Date('2026-06-01T00:00:00Z') }]); // archived-location gate SELECT
+
+    const res = await POST(postReq({ flaggedId: FLAG_ID, action: 'requires_regeneration' }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'archived_location' });
+
+    // The tx threw before the supersede: no responses UPDATE, no
+    // generate_response enqueue, no audit write (rollback keeps the flag open).
+    expect(txCalls.some((c) => /UPDATE responses/.test(c.text))).toBe(false);
+    const regenPayloads = txCalls
+      .flatMap((c) => c.values)
+      .filter(
+        (v): v is { __jsonb: Record<string, unknown> } =>
+          !!v && typeof v === 'object' && '__jsonb' in (v as Record<string, unknown>),
+      )
+      .map((v) => v.__jsonb)
+      .filter((p) => 'review_id' in p && 'version' in p);
+    expect(regenPayloads).toHaveLength(0);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });
 });

@@ -17,6 +17,7 @@ import {
   lockPendingResponse,
   consumeLink,
   revokeSiblings,
+  assertLocationNotArchived,
 } from './locks';
 import { insertAuditLog, type AuditContext } from './audit';
 import { EmptyEditedResponseError } from './errors';
@@ -118,6 +119,7 @@ export async function regenerate(
   correlationId?: string,
 ): Promise<void> {
   verifyDevice(link, deviceCookieHash);
+  await assertLocationNotArchived(tx, link.business_id);
   const resp = await lockAndConsumeTokenResponse(tx, link);
   await revokeSiblings(tx, link.response_id, link.id);
 

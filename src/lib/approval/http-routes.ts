@@ -9,7 +9,7 @@ import { getDeviceCookieHash, validateCsrf, verifyDeviceCookie } from '@/lib/app
 import { EmptyEditedResponseError, ResponseNotPendingError } from '@/lib/approval/errors';
 import { hasOpenFlag, HeldForReviewError } from '@/lib/moderation/held-draft';
 import { handleApprovalError } from '@/lib/approval/http-errors';
-import { verifyDevice } from '@/lib/approval/locks';
+import { verifyDevice, assertLocationNotArchived } from '@/lib/approval/locks';
 import { lockValidLink } from '@/lib/approval/service';
 import type { ApprovalLink, AuditContext, SessionAuditContext } from '@/lib/approval/types';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
@@ -199,6 +199,15 @@ export async function runDashboardReviewAction(
       // pre-tx check above can go stale if an offboarding is confirmed between it
       // and this commit. Token + callback approval paths re-check the same way.
       throwIfReadOnly(await assertWritableSubscriptionForBusiness(response.business_id as string, tx));
+
+      // Same TOCTOU reasoning for the archived gate: the pre-tx
+      // `b.archived_at IS NULL` filter above can go stale if the location is
+      // archived between it and this commit. Regenerate-only (matches the
+      // token/callback lanes) until PR B extends to approve/edit.
+      // ArchivedLocationError extends ResponseNotPendingError → 409 below.
+      if (actionName === 'regenerate') {
+        await assertLocationNotArchived(tx, response.business_id as string);
+      }
 
       const correlationId = await recoverCorrelationId(tx, {
         reviewId,

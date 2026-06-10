@@ -1,3 +1,5 @@
+import { SKIP_REASON_ARCHIVED_LOCATION } from '@/lib/shared/worker-types';
+
 export class InvalidTokenError extends Error {
   constructor() {
     super('Invalid or unknown approval token');
@@ -37,6 +39,23 @@ export class ResponseNotPendingError extends Error {
   constructor(public readonly currentStatus: string) {
     super(`Response is no longer pending approval (current status: ${currentStatus})`);
     this.name = 'ResponseNotPendingError';
+  }
+}
+
+/**
+ * Thrown when an approval action targets a location that has been archived.
+ *
+ * Extends ResponseNotPendingError deliberately: every existing lane already
+ * classifies that class as a permanent conflict (token/dashboard routes map
+ * it to 409; the Telegram/WhatsApp callback ingress treats it as terminal,
+ * never retried), so archived rejections inherit correct handling everywhere
+ * without each lane adding a new mapping.
+ */
+export class ArchivedLocationError extends ResponseNotPendingError {
+  constructor() {
+    super(SKIP_REASON_ARCHIVED_LOCATION);
+    this.name = 'ArchivedLocationError';
+    this.message = 'This location has been archived — this draft can no longer be regenerated.';
   }
 }
 

@@ -723,13 +723,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/schedulers/MonthlyImpactScheduler.ts",
     table: "accounts",
-    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND (b.monthly_impact_enabled IS NULL OR b.monthly_impact_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM monthly_impact_emails mie WHERE mie.business_id = b.id AND mie.month_start_date = ${monthStartDate}::date AND mie.sent_at IS NOT NULL )",
+    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND b.archived_at IS NULL AND (b.monthly_impact_enabled IS NULL OR b.monthly_impact_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM monthly_impact_emails mie WHERE mie.business_id = b.id AND mie.month_start_date = ${monthStartDate}::date AND mie.sent_at IS NOT NULL )",
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/schedulers/MonthlyImpactScheduler.ts",
     table: "businesses",
-    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND (b.monthly_impact_enabled IS NULL OR b.monthly_impact_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM monthly_impact_emails mie WHERE mie.business_id = b.id AND mie.month_start_date = ${monthStartDate}::date AND mie.sent_at IS NOT NULL )",
+    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND b.archived_at IS NULL AND (b.monthly_impact_enabled IS NULL OR b.monthly_impact_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM monthly_impact_emails mie WHERE mie.business_id = b.id AND mie.month_start_date = ${monthStartDate}::date AND mie.sent_at IS NOT NULL )",
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
@@ -759,13 +759,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/schedulers/WeeklySummaryScheduler.ts",
     table: "accounts",
-    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND (b.weekly_summary_enabled IS NULL OR b.weekly_summary_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM weekly_summaries ws WHERE ws.business_id = b.id AND ws.week_start_date = ${weekStartDate}::date AND ws.sent_at IS NOT NULL )",
+    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND b.archived_at IS NULL AND (b.weekly_summary_enabled IS NULL OR b.weekly_summary_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM weekly_summaries ws WHERE ws.business_id = b.id AND ws.week_start_date = ${weekStartDate}::date AND ws.sent_at IS NOT NULL )",
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/schedulers/WeeklySummaryScheduler.ts",
     table: "businesses",
-    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND (b.weekly_summary_enabled IS NULL OR b.weekly_summary_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM weekly_summaries ws WHERE ws.business_id = b.id AND ws.week_start_date = ${weekStartDate}::date AND ws.sent_at IS NOT NULL )",
+    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND b.archived_at IS NULL AND (b.weekly_summary_enabled IS NULL OR b.weekly_summary_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM weekly_summaries ws WHERE ws.business_id = b.id AND ws.week_start_date = ${weekStartDate}::date AND ws.sent_at IS NOT NULL )",
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
@@ -1035,14 +1035,26 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/zernio/zernio.ts",
     table: "zernio_connections",
-    sqlSnippet: "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT gen_random_uuid(), 'ingest_zernio_review', 'business', zc.business_id, jsonb_build_object( 'business_id', zc.business_id, 'zernio_account_id', ${parsed.accountId}::text, 'zernio_location_id', zc.zernio_location_id, 'zernio_review_id', ${parsed.reviewId}::text, 'correlation_id', ${eventId}::text ), 'pending' FROM zernio_connections zc WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.zernio_location_id = ${parsed.locationIdFromPayload} AND zc.status = 'active' ON CONFLICT (aggregate_id, (payload->>'zernio_review_id')) WHERE topic = 'ingest_zernio_review' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
-    reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available.",
+    sqlSnippet: "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT gen_random_uuid(), 'ingest_zernio_review', 'business', zc.business_id, jsonb_build_object( 'business_id', zc.business_id, 'zernio_account_id', ${parsed.accountId}::text, 'zernio_location_id', zc.zernio_location_id, 'zernio_review_id', ${parsed.reviewId}::text, 'correlation_id', ${eventId}::text ), 'pending' FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id AND b.archived_at IS NULL WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ${locationFilter} ON CONFLICT (aggregate_id, (payload->>'zernio_review_id')) WHERE topic = 'ingest_zernio_review' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
+    reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available. ${locationFilter} is the conditional location-scoping fragment (payload location id when present, empty for account-wide fan-out).",
+  },
+  {
+    file: "worker/ingress/zernio/zernio.ts",
+    table: "businesses",
+    sqlSnippet: "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT gen_random_uuid(), 'ingest_zernio_review', 'business', zc.business_id, jsonb_build_object( 'business_id', zc.business_id, 'zernio_account_id', ${parsed.accountId}::text, 'zernio_location_id', zc.zernio_location_id, 'zernio_review_id', ${parsed.reviewId}::text, 'correlation_id', ${eventId}::text ), 'pending' FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id AND b.archived_at IS NULL WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ${locationFilter} ON CONFLICT (aggregate_id, (payload->>'zernio_review_id')) WHERE topic = 'ingest_zernio_review' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
+    reason: "Provider ingress fan-out excludes archived locations via a businesses join keyed on the connection's business_id; tenant ids are not yet available from the signed webhook.",
   },
   {
     file: "worker/ingress/zernio/zernio.ts",
     table: "zernio_connections",
-    sqlSnippet: "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT gen_random_uuid(), 'ingest_zernio_review', 'business', zc.business_id, jsonb_build_object( 'business_id', zc.business_id, 'zernio_account_id', ${parsed.accountId}::text, 'zernio_location_id', zc.zernio_location_id, 'zernio_review_id', ${parsed.reviewId}::text, 'correlation_id', ${eventId}::text ), 'pending' FROM zernio_connections zc WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ON CONFLICT (aggregate_id, (payload->>'zernio_review_id')) WHERE topic = 'ingest_zernio_review' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
-    reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available.",
+    sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ${locationFilter} AND b.archived_at IS NOT NULL ) AS archived_match, EXISTS ( SELECT 1 FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ${locationFilter} AND b.archived_at IS NULL ) AS active_match",
+    reason: "Provider ingress disambiguates a 0-row fan-out (in-flight dedup vs archived-only vs genuinely unconnected) from signed provider identifiers before tenant ids are available; dual EXISTS so a dedup for an active business is never mislabeled as an archived skip.",
+  },
+  {
+    file: "worker/ingress/zernio/zernio.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ${locationFilter} AND b.archived_at IS NOT NULL ) AS archived_match, EXISTS ( SELECT 1 FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ${locationFilter} AND b.archived_at IS NULL ) AS active_match",
+    reason: "Provider ingress disambiguates a 0-row fan-out (in-flight dedup vs archived-only vs genuinely unconnected) from signed provider identifiers before tenant ids are available; dual EXISTS so a dedup for an active business is never mislabeled as an archived skip.",
   },
   {
     file: "worker/jobs/AdminExceptionWorker.ts",
@@ -1683,7 +1695,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/schedulers/MonthlyImpactScheduler.ts",
     table: "monthly_impact_emails",
-    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND (b.monthly_impact_enabled IS NULL OR b.monthly_impact_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM monthly_impact_emails mie WHERE mie.business_id = b.id AND mie.month_start_date = ${monthStartDate}::date AND mie.sent_at IS NOT NULL )",
+    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND b.archived_at IS NULL AND (b.monthly_impact_enabled IS NULL OR b.monthly_impact_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM monthly_impact_emails mie WHERE mie.business_id = b.id AND mie.month_start_date = ${monthStartDate}::date AND mie.sent_at IS NOT NULL )",
     reason: "Background scheduler globally scans active accounts and uses monthly_impact_emails only as an idempotency marker before enqueueing scoped jobs.",
   },
   {
@@ -1695,7 +1707,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/schedulers/WeeklySummaryScheduler.ts",
     table: "weekly_summaries",
-    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND (b.weekly_summary_enabled IS NULL OR b.weekly_summary_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM weekly_summaries ws WHERE ws.business_id = b.id AND ws.week_start_date = ${weekStartDate}::date AND ws.sent_at IS NOT NULL )",
+    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND b.archived_at IS NULL AND (b.weekly_summary_enabled IS NULL OR b.weekly_summary_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM weekly_summaries ws WHERE ws.business_id = b.id AND ws.week_start_date = ${weekStartDate}::date AND ws.sent_at IS NOT NULL )",
     reason: "Background scheduler globally scans active accounts and uses weekly_summaries only as an idempotency marker before enqueueing scoped jobs.",
   },
   {
@@ -2084,7 +2096,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/jobs/response-generation/load-context.ts",
     table: "account_offboardings",
-    sqlSnippet: "SELECT b.id, b.account_id, b.name, b.category, b.tone, b.products_services, b.staff_names, b.highlight_facts, b.avoid_facts, b.sample_responses, a.subscription_status, a.subscription_tier, a.past_due_at AS account_past_due_at, a.flags AS account_flags, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN account_offboardings ao ON ao.account_id = a.id AND ao.terminal_at IS NULL WHERE b.id = ${businessId} ORDER BY ao.created_at DESC NULLS LAST LIMIT 1",
+    sqlSnippet: "SELECT b.id, b.account_id, b.name, b.category, b.tone, b.products_services, b.staff_names, b.highlight_facts, b.avoid_facts, b.sample_responses, b.archived_at, a.subscription_status, a.subscription_tier, a.past_due_at AS account_past_due_at, a.flags AS account_flags, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN account_offboardings ao ON ao.account_id = a.id AND ao.terminal_at IS NULL WHERE b.id = ${businessId} ORDER BY ao.created_at DESC NULLS LAST LIMIT 1",
     reason: "Response-generation worker follows a durable job business id and joins to the active offboarding gate for that business account before drafting.",
   },
 ];
