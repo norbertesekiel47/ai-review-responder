@@ -46,6 +46,7 @@ export async function approve(
   correlationId?: string,
 ): Promise<void> {
   verifyDevice(link, deviceCookieHash);
+  await assertLocationNotArchived(tx, link.business_id);
   const resp = await lockAndConsumeTokenResponse(tx, link);
 
   await tx`
@@ -79,6 +80,7 @@ export async function edit(
   correlationId?: string,
 ): Promise<void> {
   verifyDevice(link, deviceCookieHash);
+  await assertLocationNotArchived(tx, link.business_id);
   const sanitizedText = sanitizePublicResponseText(editedText);
   if (sanitizedText.length === 0) throw new EmptyEditedResponseError();
 

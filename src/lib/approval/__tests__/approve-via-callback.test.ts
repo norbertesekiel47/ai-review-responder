@@ -106,6 +106,7 @@ describe('approveViaCallback', () => {
     txQueue.push(activeAccountRow());        // assertWritableSubscriptionForBusiness
     txQueue.push(pendingResponseRow());      // lockPendingResponse
     txQueue.push([]);                        // consumeLink UPDATE
+    txQueue.push(notArchivedBusinessRow());  // assertLocationNotArchived (after claim)
     txQueue.push([]);                        // UPDATE responses status=approved
     txQueue.push([]);                        // revokeSiblings UPDATE
     txQueue.push([]);                        // INSERT job_outbox publish_response
@@ -216,6 +217,31 @@ describe('approveViaCallback', () => {
       approvalLinkId: 'link-1', chatHandle: 'h', viaChannel: 'telegram',
       audit: { providerEventId: '1', ipAddress: null, telegramUpdateId: 1 },
     })).rejects.toBeInstanceOf(ChannelMismatchError);
+  });
+
+  // Archived-location gate (PR B): the guard runs AFTER the claim, inside the
+  // same sql.begin, so the throw rolls the whole transaction back — the
+  // consume is never committed, the response is never approved, nothing is
+  // enqueued. The mocked tx cannot model the rollback of the consume
+  // statement itself, so we assert the throw plus the absence of every
+  // statement issued after the guard (approve UPDATE, outbox, audit).
+  it('rejects approve for an archived location and issues no post-guard mutations', async () => {
+    txQueue.push(liveLinkRow());          // SELECT approval_links FOR UPDATE
+    txQueue.push(activeAccountRow());     // assertWritableSubscriptionForBusiness
+    txQueue.push(pendingResponseRow());   // lockPendingResponse (claim)
+    txQueue.push([]);                     // consumeLink (claim — rolled back with the tx)
+    txQueue.push(archivedBusinessRow());  // assertLocationNotArchived → throws
+
+    await expect(approveViaCallback({
+      approvalLinkId: 'link-1',
+      chatHandle: '123456789',
+      viaChannel: 'telegram',
+      audit: { providerEventId: '999', ipAddress: '1.2.3.4', telegramUpdateId: 999 },
+    })).rejects.toBeInstanceOf(ArchivedLocationError);
+
+    expect(txCalls.some((call) => call.sql.includes("SET status = 'approved'"))).toBe(false);
+    expect(txCalls.some((call) => call.sql.includes('job_outbox'))).toBe(false);
+    expect(txCalls.some((call) => call.sql.includes('approval_audit_log'))).toBe(false);
   });
 });
 

@@ -108,28 +108,26 @@ export async function revokeOpenLinksForResponse(tx: TxClient, responseId: strin
 }
 
 /**
- * Reject approval actions that target an archived location.
+ * Reject mutating approval actions that target an archived location.
  *
- * Scoped to REGENERATE for now because regenerate is destructive without a
- * replacement: it supersedes the pending draft, consumes the link, and
- * enqueues a generate_response job the generator skips for archived
- * locations — leaving the owner with nothing. PR B of the multi-location
- * hardening spec extends this gate to ALL approval actions (approve/edit).
- * Shared by ALL FOUR regenerate lanes: token-mode, callback-mode,
- * dashboard session (http-routes), and admin flagged disposition.
+ * Guards ALL mutating approval actions — approve, edit, and regenerate —
+ * across the token-mode and callback-mode lanes (the dashboard session lane
+ * enforces the same rule via its `b.archived_at IS NULL` query filter). An
+ * archived location has no live Google connection to post to and the
+ * generator skips its regenerate jobs, so any approve/edit/regenerate would
+ * either fail downstream or, for regenerate, destructively supersede the
+ * pending draft and leave the owner with nothing.
  *
  * FOR SHARE makes this a locking read: the archive tx takes the same
  * businesses row FOR UPDATE, so an in-flight archive blocks this gate and
  * the re-evaluated read sees the committed archived_at — closing the TOCTOU
- * window where a concurrent archive let the supersede through. Callers MUST
- * run inside the same sql.begin() as the mutation (all four do); outside a
+ * window where a concurrent archive let the mutation through. Callers MUST
+ * run inside the same sql.begin() as the mutation (all do); outside a
  * transaction PgBouncer drops the lock immediately.
  *
  * This stays a standalone query rather than folding archived_at into the
  * shared assertWritableSubscriptionForBusiness projection: that helper is a
- * plain read used by approve/edit lanes where this gate must not yet fire,
- * and the lock is the point. PR B unifies them when the gate covers all
- * actions.
+ * plain read, and the lock is the point.
  *
  * Fails closed: a missing business row also rejects.
  */

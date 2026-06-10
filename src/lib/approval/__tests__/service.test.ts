@@ -168,6 +168,8 @@ describe('approve', () => {
     const link = validLink({ device_cookie_hash: 'device-hash-abc' });
 
     const tx = createMockTx([
+      // assertLocationNotArchived: SELECT archived_at FROM businesses
+      [{ archived_at: null }],
       // lockPendingResponse: SELECT ... FOR UPDATE
       [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Approved draft', version: 1, review_id: 'rev-1' }],
       // consumeLink: UPDATE approval_links SET consumed_at
@@ -186,7 +188,7 @@ describe('approve', () => {
 
     await approve(tx, link, 'device-hash-abc', AUDIT, 'test-correlation-xyz');
 
-    expect(tx).toHaveBeenCalledTimes(7);
+    expect(tx).toHaveBeenCalledTimes(8);
 
     // Verify the outbox INSERT received the correct publish_response payload.
     // The outbox INSERT binds payload via jsonb(payload) — the test mock of
@@ -222,6 +224,8 @@ describe('approve', () => {
     const link = validLink({ device_cookie_hash: 'device-hash-abc' });
     const responseText = 'Thanks for the thoughtful review.';
     const tx = createMockTx([
+      // assertLocationNotArchived: SELECT archived_at FROM businesses
+      [{ archived_at: null }],
       [{ status: 'pending_approval', original_draft_text: 'draft', response_text: responseText, version: 1, review_id: 'rev-1' }],
       [],
       [],
@@ -239,6 +243,32 @@ describe('approve', () => {
     expect(auditCall).toBeDefined();
     expect(auditCall!.flat()).toContain(responseText);
   });
+
+  // Archived-location gate (PR B): the guard runs AFTER verifyDevice and
+  // BEFORE the link is locked/consumed, so an archived location rejects
+  // before the response status is touched and before any publish is enqueued.
+  it('rejects with ArchivedLocationError when the business is archived, without consuming or mutating anything', async () => {
+    const link = validLink({ device_cookie_hash: 'device-hash-abc' });
+
+    const tx = createMockTx([
+      // assertLocationNotArchived: SELECT archived_at FROM businesses
+      [{ archived_at: new Date('2026-06-01T00:00:00Z') }],
+    ]);
+
+    await expect(
+      approve(tx, link, 'device-hash-abc', AUDIT, 'test-correlation-xyz'),
+    ).rejects.toBeInstanceOf(ArchivedLocationError);
+
+    // Only the archived-guard SELECT ran — nothing was locked, consumed,
+    // approved, or enqueued.
+    expect(tx).toHaveBeenCalledTimes(1);
+    const allSql = tx.mock.calls.map((call: unknown[]) =>
+      String((call[0] as TemplateStringsArray).join(' ')),
+    );
+    expect(allSql.some((s: string) => s.includes('consumed_at'))).toBe(false);
+    expect(allSql.some((s: string) => s.includes("'approved'"))).toBe(false);
+    expect(allSql.some((s: string) => s.includes('job_outbox'))).toBe(false);
+  });
 });
 
 // ── edit ──────────────────────────────────────────────────────────────────
@@ -254,6 +284,8 @@ describe('edit', () => {
     const sanitizedText = 'Modified text';
 
     const tx = createMockTx([
+      // assertLocationNotArchived: SELECT archived_at FROM businesses
+      [{ archived_at: null }],
       // lockPendingResponse: SELECT ... FOR UPDATE
       [{ status: 'pending_approval', original_draft_text: 'Original text', response_text: 'Original response', version: 1, review_id: 'rev-1' }],
       // consumeLink
@@ -272,7 +304,7 @@ describe('edit', () => {
 
     await edit(tx, link, editedText, 'device-hash-abc', AUDIT, 'test-correlation-xyz');
 
-    expect(tx).toHaveBeenCalledTimes(7);
+    expect(tx).toHaveBeenCalledTimes(8);
 
     // Verify the edit distance was computed correctly
     const { distance } = await import('fastest-levenshtein');
@@ -322,6 +354,32 @@ describe('edit', () => {
     );
     expect(publishPayload).toBeDefined();
     expect(publishPayload!.correlation_id).toBe('test-correlation-xyz');
+  });
+
+  // Archived-location gate (PR B): the guard runs AFTER verifyDevice and
+  // BEFORE the empty-text check and the link lock/consume, so an archived
+  // location rejects before the response is edited or any publish enqueued.
+  it('rejects with ArchivedLocationError when the business is archived, without consuming or mutating anything', async () => {
+    const link = validLink({ device_cookie_hash: 'device-hash-abc' });
+
+    const tx = createMockTx([
+      // assertLocationNotArchived: SELECT archived_at FROM businesses
+      [{ archived_at: new Date('2026-06-01T00:00:00Z') }],
+    ]);
+
+    await expect(
+      edit(tx, link, 'A perfectly valid edited reply.', 'device-hash-abc', AUDIT, 'test-correlation-xyz'),
+    ).rejects.toBeInstanceOf(ArchivedLocationError);
+
+    // Only the archived-guard SELECT ran — nothing was locked, consumed,
+    // edited, or enqueued.
+    expect(tx).toHaveBeenCalledTimes(1);
+    const allSql = tx.mock.calls.map((call: unknown[]) =>
+      String((call[0] as TemplateStringsArray).join(' ')),
+    );
+    expect(allSql.some((s: string) => s.includes('consumed_at'))).toBe(false);
+    expect(allSql.some((s: string) => s.includes("'edited'"))).toBe(false);
+    expect(allSql.some((s: string) => s.includes('job_outbox'))).toBe(false);
   });
 });
 

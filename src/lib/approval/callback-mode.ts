@@ -49,6 +49,10 @@ export async function approveViaCallback(input: CallbackApprovalInput): Promise<
     // FP: ordered writes inside one sql.begin tx (claim → UPDATE → revoke siblings → enqueue publish → audit); parallelizing would break tx ordering.
     // react-doctor-disable-next-line react-doctor/async-parallel
     const { link, response } = await claimCallbackResponse(tx, input);
+    // Archived-location gate. Runs inside the same sql.begin as the claim, so
+    // the throw rolls back the consume — the link is not burned, the draft
+    // stays pending.
+    await assertLocationNotArchived(tx, link.business_id);
     await tx`
       UPDATE responses
       SET status = 'approved',
@@ -88,10 +92,9 @@ export async function regenerateViaCallback(input: CallbackApprovalInput): Promi
     // FP: ordered writes inside one sql.begin tx (claim → revoke siblings → supersede → enqueue regenerate → audit); parallelizing would break tx ordering.
     // react-doctor-disable-next-line react-doctor/async-parallel
     const { link, response } = await claimCallbackResponse(tx, input);
-    // Archived-location gate (regenerate only — PR B extends it to all
-    // approval actions). Runs inside the same sql.begin as the claim, so the
-    // throw rolls back the consume — the link is not burned, the draft stays
-    // pending.
+    // Archived-location gate (approve via callback is guarded too). Runs
+    // inside the same sql.begin as the claim, so the throw rolls back the
+    // consume — the link is not burned, the draft stays pending.
     await assertLocationNotArchived(tx, link.business_id);
     await revokeSiblings(tx, link.response_id, link.id);
     await tx`
