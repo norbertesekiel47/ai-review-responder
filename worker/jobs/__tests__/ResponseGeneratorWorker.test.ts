@@ -411,6 +411,19 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     expect(mockGenerateMockResponse).not.toHaveBeenCalled();
   });
 
+  // 2b. Archived location → terminal skip-as-success
+  it('skips generation as success when the location is archived', async () => {
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow({ archived_at: '2026-06-01T00:00:00Z' })]);
+
+    await handleResponseGeneration(makeJob());
+
+    expect(mockGenerateResponse).not.toHaveBeenCalled();
+    expect(mockGenerateMockResponse).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
   // 3. Cost limit exceeded
   it('fails the outbox on cost limit exceeded and does not throw', async () => {
     sqlReturnQueue.push([mockReviewRow()]);

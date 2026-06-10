@@ -38,6 +38,7 @@ export type LoadOutcome =
   | { kind: 'ready'; ctx: GenerationContext }
   | { kind: 'review_not_found' }
   | { kind: 'business_not_found' }
+  | { kind: 'archived_location' }
   | { kind: 'subscription_blocked'; reason: string }
   | { kind: 'already_exists'; existing: { id: string; businessId: string; accountId: string } };
 
@@ -82,9 +83,10 @@ export async function loadGenerationContext(input: {
     subscription_tier: string;
     account_past_due_at: Date | null;
     account_flags: AccountFlagsInput;
+    archived_at: Date | null;
   } & ActiveOffboardingProjection>>`
     SELECT b.id, b.account_id, b.name, b.category, b.tone, b.products_services, b.staff_names,
-           b.highlight_facts, b.avoid_facts, b.sample_responses,
+           b.highlight_facts, b.avoid_facts, b.sample_responses, b.archived_at,
            a.subscription_status, a.subscription_tier,
            a.past_due_at AS account_past_due_at, a.flags AS account_flags,
            ao.id AS offboarding_id,
@@ -113,6 +115,15 @@ export async function loadGenerationContext(input: {
 
   // Surface account_id on all subsequent log lines (see header note).
   mergeLogContext({ account_id: business.account_id });
+
+  // ── Archived-location gate ───────────────────────────────────────────
+  // Final defense in the spend-leak chain: a job for an archived location
+  // (backfill/update lanes, directly-enqueued jobs) must skip BEFORE any paid
+  // LLM call. Checked before the subscription guard / idempotency so the
+  // outcome is unambiguously 'archived_location'. The caller skips-as-success.
+  if (business.archived_at) {
+    return { kind: 'archived_location' };
+  }
 
   // ── Subscription guard ───────────────────────────────────────────────
   const subCheck = checkSubscription({

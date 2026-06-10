@@ -38,6 +38,10 @@ export async function handleResponseGeneration(
       logger.warn(`Business ${businessId} not found`);
       await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
       return;
+    case 'archived_location':
+      logger.log(`Business ${businessId} archived — skipping generation (archived_location)`);
+      await markOutboxCompleted(outboxId, outboxAttempt);
+      return;
     case 'subscription_blocked':
       logger.log(`Business ${businessId} skipped: ${loaded.reason}`);
       await markOutboxCompleted(outboxId, outboxAttempt);
