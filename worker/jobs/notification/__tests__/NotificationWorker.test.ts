@@ -431,7 +431,10 @@ describe('NotificationWorker — stale channel guard (dispatch layer)', () => {
     const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
     // Must not throw even though 'sms' is not a valid channel
-    await expect(dispatchAll(ctx, enrollments, logger)).resolves.toBeDefined();
+    await expect(dispatchAll(ctx, enrollments, logger)).resolves.toMatchObject({
+      attempted: 1,
+      succeeded: 1,
+    });
 
     // createApprovalLink must NOT have been called with 'sms'
     const approvalLinkCalls = mockCreateApprovalLink.mock.calls;

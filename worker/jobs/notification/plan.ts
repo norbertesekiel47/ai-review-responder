@@ -2,7 +2,7 @@ import type { ChannelId } from '../../../src/lib/notifications/channels/types';
 
 export type NotificationChannelName = ChannelId;
 
-const NOTIFICATION_DISPATCH_CHANNEL_ORDER = [
+export const NOTIFICATION_DISPATCH_CHANNEL_ORDER = [
   'email',
   'telegram',
   'whatsapp',

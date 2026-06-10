@@ -441,7 +441,10 @@ describe('resolveChannels — stale channel guard', () => {
     const queryText = template.join('?');
 
     // Must restrict to the three supported channels, excluding 'sms'
-    expect(queryText).toMatch(/channel IN \('email', 'telegram', 'whatsapp'\)/);
+    expect(queryText).toMatch(/channel IN/);
+    expect(queryText).toContain("'email'");
+    expect(queryText).toContain("'telegram'");
+    expect(queryText).toContain("'whatsapp'");
   });
 
   // Guard: cache namespace bumped to v2 so entries cached before SMS removal

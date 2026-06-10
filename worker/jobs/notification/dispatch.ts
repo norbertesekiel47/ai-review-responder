@@ -18,7 +18,7 @@ import { asAccountId } from '../../../src/lib/shared/ids';
 import { classifyChannelError } from './errors';
 import { getDisplayLabel } from '../../../src/lib/locations/display-label';
 import type { DispatchOutcome } from './outcomes';
-import { orderNotificationDispatchEnrollments } from './plan';
+import { orderNotificationDispatchEnrollments, NOTIFICATION_DISPATCH_CHANNEL_ORDER } from './plan';
 
 export interface DispatchLogger {
   log: (msg: string) => void;
@@ -50,7 +50,7 @@ export interface DispatchContext {
 // after its removal) must not reach createApprovalLink() or getChannel().
 // This is defense-in-depth; the primary filter is the SQL WHERE clause in
 // resolve-channels.ts and the eligibility flag check in eligibility.ts.
-const DISPATCHABLE_CHANNELS: ReadonlySet<string> = new Set(['email', 'telegram', 'whatsapp']);
+const DISPATCHABLE_CHANNELS: ReadonlySet<string> = new Set(NOTIFICATION_DISPATCH_CHANNEL_ORDER);
 
 type StatusFlipKind =
   | 'telegram_blocked'

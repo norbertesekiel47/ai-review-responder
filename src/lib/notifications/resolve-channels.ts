@@ -96,7 +96,7 @@ export async function resolveChannels(
       AND status = 'verified'
       AND archived_at IS NULL
       AND unsubscribed_at IS NULL
-      AND channel IN ('email', 'telegram', 'whatsapp')
+      AND channel IN ('email', 'telegram', 'whatsapp') -- keep in sync with NOTIFICATION_DISPATCH_CHANNEL_ORDER (worker/jobs/notification/plan.ts); Postgres.js IN lists must stay literal
     ORDER BY
       -- Per-location overrides first so the dedup loop prefers them
       CASE WHEN location_id IS NOT NULL THEN 0 ELSE 1 END,
