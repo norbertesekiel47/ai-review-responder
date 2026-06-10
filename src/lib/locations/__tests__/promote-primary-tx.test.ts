@@ -93,6 +93,36 @@ describe('promotePrimaryTransaction', () => {
     expect(mockSql.begin).toHaveBeenCalled();
   });
 
+  // Zero-primary repair: promoting an active location heals an account with no
+  // current primary. The demotion UPDATE returns 0 rows; this must NOT throw.
+  it('repairs a zero-primary account: demotion returns 0 rows, oldPrimaryId is null', async () => {
+    mockSql.mockResolvedValueOnce([{
+      id: NEW_PRIMARY_ID,
+      account_id: ACCOUNT_ID,
+      is_primary: false,
+      archived_at: null,
+    }]); // validation query
+    mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
+    mockSql.mockResolvedValueOnce([{
+      id: NEW_PRIMARY_ID,
+      is_primary: false,
+    }]); // target row lock
+    mockSql.mockResolvedValueOnce([]); // demotion UPDATE RETURNING — zero-primary account
+    mockSql.mockResolvedValueOnce([{ id: NEW_PRIMARY_ID }]); // promotion UPDATE RETURNING
+    mockSql.mockResolvedValueOnce([]); // audit INSERT
+
+    const result = await promotePrimaryTransaction(mkInput());
+
+    expect(result.oldPrimaryId).toBeNull();
+    expect(result.newPrimaryId).toBe(NEW_PRIMARY_ID);
+
+    // Promotion + audit still run (zero-primary is a valid, healed state)
+    const auditCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO account_audit_log'),
+    );
+    expect(auditCall).toBeDefined();
+  });
+
   // Both UPDATEs happen inside the same transaction
   it('both UPDATEs run in the same sql.begin() call', async () => {
     setupPromoteMocks();

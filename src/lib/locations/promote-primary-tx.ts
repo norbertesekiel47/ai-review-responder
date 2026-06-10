@@ -37,8 +37,13 @@ export interface PromotePrimaryTxInput {
 }
 
 export interface PromotePrimaryTxResult {
-  /** ID of the location that was demoted from primary. */
-  oldPrimaryId: string;
+  /**
+   * ID of the location that was demoted from primary, or `null` when the
+   * account had no current primary — a zero-primary repair. Promoting any
+   * active location heals such an account, so demoting 0 rows is expected,
+   * not an error.
+   */
+  oldPrimaryId: string | null;
   /** ID of the location that was promoted to primary. */
   newPrimaryId: string;
 }
@@ -97,7 +102,7 @@ export async function promotePrimaryTransaction(
 
   // ── Step 1-3: Atomic transaction ─────────────────────────────────────
 
-  let oldPrimaryId: string = '';
+  let oldPrimaryId: string | null = null;
 
   await sql.begin(async (tx) => {
     await tx`
@@ -137,13 +142,10 @@ export async function promotePrimaryTransaction(
       RETURNING id
     `;
 
-    oldPrimaryId = demoted?.id ?? '';
-
-    if (!oldPrimaryId) {
-      throw new Error(
-        `no current primary location found for account ${accountId} — cannot promote`,
-      );
-    }
+    // A zero-primary account (no active is_primary row) is a reachable state.
+    // Demoting 0 rows is expected there — promoting the new primary heals it,
+    // so this is NOT an error.
+    oldPrimaryId = demoted?.id ?? null;
 
     // 2. Promote the new primary
     const [promoted] = await tx<{ id: string }[]>`

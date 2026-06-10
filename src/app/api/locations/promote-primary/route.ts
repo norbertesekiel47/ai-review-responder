@@ -108,13 +108,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    if (message.includes('no current primary')) {
-      return NextResponse.json(
-        { error: 'no_current_primary' },
-        { status: 409, headers: NO_STORE },
-      );
-    }
-
     console.error(`[locations/promote-primary] Transaction failed for account=${accountId}: ${message}`);
     return NextResponse.json(
       { error: 'promote_primary_failed', detail: message },
