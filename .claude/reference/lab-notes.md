@@ -19,6 +19,7 @@ Jump to the dated entries by subsystem (search the anchors below):
 - **Testing** — vi.hoisted for shared mocks, NextRequest vs Request, relative imports under tsx, compat re-export must shield all consumers (mock-contract)
 - **Frontend / CSS / brand** — iOS Safari rounded-island clip is `overflow:hidden`+`border-radius`+retained `transform` (not a sibling clip), reproduce an audit's CSS cause before trusting it; flag-driven copy swaps on dead-end features mislead; an admin "act on stuck items" panel needs a real outbox-backed route (2026-05-29 launch readiness)
 - **Owner offboarding** — `railway up` from a worktree ships stale worker code (`OutboxPoller: Unknown topic`); Stripe Basil/Dahlia moved `current_period_end` onto the subscription item; `approval_audit_log` has no `approval_link_id`/`user_agent` (mock-asserted SQL *text* hid the drift); keep-my-data must be exempt from the blanket `/api/account/*` owner-API proxy gate; the `purge_after` token-expiry trigger blocks shrinking the purge window while a keep-my-data token is live
+- **Vercel BotID / WAF** — client/server `checkLevel` must match or it fail-blocks legit traffic (single source of truth); only protect a route that has an in-app token-bearing caller (dead/external callers get 403'd, invisible to preview/mocked tests); Deep Analysis is billed → gate it behind auth, not just the forgeable same-origin header; WAF custom rules have no committable config (the runbook is source of truth); the staging custom env is preview-TYPE so a production-only WAF condition excludes it
 
 ---
 
@@ -1379,3 +1380,23 @@ for worker files (and eyeball them); don't assume a green `pnpm lint` vetted the
 (`RowList`/result-meta) doesn't accept a plain row array. **Correct approach:** `const sqlMock = sql as
 unknown as Mock` (runtime is the `vi.fn()` from `vi.mock('@/lib/db/server', () => ({ sql: vi.fn() }))`),
 then `mockResolvedValueOnce`/`mockReset` per case. Used in `quota.grandfathering.test.ts`.
+
+## 2026-06-09 — Vercel BotID + WAF (Slice 2 rate-limit hardening, PR #257)
+
+### BotID client/server `checkLevel` must match, or it fail-blocks real users
+Vercel BotID verification fails if the client `initBotId` and the server `checkBotId` advertise a DIFFERENT `checkLevel` for the same path — and a failed verification can block legitimate traffic. FAIL → real users 403'd by config drift. WHY → the client challenge and server check must agree on the level. CORRECT → derive BOTH sides from ONE isomorphic list (`src/lib/security/botid-routes.ts`); never hand-write the level in a route. A test pins the exact path→level contract.
+
+### Only BotID-protect a route that has an in-app, token-bearing caller
+BotID's client SDK only attaches its challenge token to fetches made FROM the instrumented app. A route reached by a native `<form>` POST, a server-to-server call, or an external/separate frontend carries NO token → `checkBotId` returns `isBot:true` → 403. FAIL → we nearly shipped enforce-now BotID on `/api/contact` + `/api/demo-request`, which are dead "public-lead remnants" with no in-app caller (`book-a-demo` posts to `/api/lead-intake`; `help/contact` has no form) — it would have 403'd any surviving external caller, and preview + unit tests (which MOCK `checkBotId`) cannot catch it. CORRECT → before protecting a route, grep for its in-app `fetch` caller; if none, don't protect it, and add a test asserting unprotected paths are NOT registered.
+
+### BotID Deep Analysis is billed → gate it behind cheap guards AND auth
+`checkLevel:'deepAnalysis'` runs ML scoring at ~$1/1000 calls; Basic is free. Calling it before a route's cheap rejections wastes money on traffic that would be rejected anyway. `assertSameOrigin` is NOT sufficient gating — the Origin header is forgeable by a script. FAIL → `onboarding/start` ran the Deep call before its auth 401, so session-less scripted noise burned Deep $. CORRECT → put `botIdBlockResponse` AFTER the feature-flag/same-origin guards AND (on an auth-gated route) after the 401, so Deep fires only for a confirmed session.
+
+### `botIdBlockResponse` fails OPEN on infra error, throws on unregistered path
+Mirrors the app-wide rate-limit posture: if the BotID platform check itself ERRORS (API blip, missing OIDC token) we log + return `null` (allow), so a BotID outage doesn't 500 signup/login for everyone — the route's own rate limits + the WAF still apply. But an UNREGISTERED path THROWS (programmer error surfaced loudly, not swallowed as fail-open). Resolve the per-path options OUTSIDE the `try` so the throw isn't caught.
+
+### Vercel WAF custom rules have NO committable config file
+There is no `vercel.json` field for WAF custom rules — they are Vercel platform state (staged drafts → `vercel firewall publish`). FAIL → expecting to commit them as code. CORRECT → the runbook (`docs/runbooks/vercel-waf-rate-limiting.md`) is the authoritative, version-controlled representation; its `vercel firewall rules add` commands reproduce the rule set, and "if a live rule changes, change it here too."
+
+### Staging custom env is preview-TYPE → don't add a production-only WAF condition
+RepWorth is one Vercel project; the staging Custom Environment is **type `preview`** (branch `staging`). A WAF rule with `{"type":"environment","op":"eq","value":"production"}` therefore EXCLUDES staging. FAIL → a "target production" condition silently leaves staging unprotected. CORRECT → omit the environment condition so the rule covers prod + staging + previews alike (the only place an env condition belongs is the optional "test the flip in preview first" step).

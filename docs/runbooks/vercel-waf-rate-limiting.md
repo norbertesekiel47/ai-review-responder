@@ -11,6 +11,20 @@ RepWorth's Vercel WAF custom rules. WAF rules are Vercel *platform state*
 rule set. **If a live rule is changed, change it here too** (one authoritative
 representation).
 
+> **Execution status — 2026-06-09** · Legend: ✅ done & verified · 🟡 done but
+> not yet verified, or pending
+>
+> - ✅ Project linked (repo-link `.vercel/repo.json` → `rep-worth`)
+> - ✅ All four rules staged, published by owner, CLI-verified live
+>   (`vercel firewall overview` + `rules list --expand`, 2026-06-09)
+> - ✅ Priority order verified — enforce rules at positions 1–2, LOG net below
+> - ✅ Attack Mode confirmed **Off**, System Mitigations **Active** (untouched)
+> - 🟡 BotID Deep Analysis toggle — owner reports enabled; dashboard-only
+>   setting, not verifiable from the CLI
+> - 🟡 Post-publish traffic review — pending real traffic in the dashboard
+> - 🟡 Flip-to-enforce of the broad LOG net — **later, owner-approved**;
+>   baseline window starts 2026-06-09
+
 It covers Slice 2 of the rate-limiting hardening plan:
 
 - **Component 1** — broad per-IP volumetric net on `/api/*`, split by method,
@@ -39,7 +53,7 @@ Request → Vercel automatic DDoS mitigation (always on)
             2. onboarding-start-per-ip-enforce (10/min/IP → 429)  [ENFORCE]
             3. api-mutating-volumetric-log     (100/10s/IP)       [LOG only]
             4. api-get-volumetric-log          (600/10s/IP)       [LOG only]
-        → BotID managed check (code: checkBotId in 6 routes)
+        → BotID managed check (code: checkBotId in 4 routes)
         → Next.js function → app-layer per-owner/email/IP limits (Slice 1)
         → worker cost-guard reserve-before-LLM (spend ceiling)
 ```
@@ -52,15 +66,19 @@ net so an enforced 429 short-circuits before the LOG net (which only counts).
 
 ## Prerequisites (owner)
 
-1. **Link the project** (the repo is not currently linked — `.vercel/project.json`
-   is absent):
+1. ✅ **Link the project** — done: the repo is linked via the repo-link format
+   (`.vercel/repo.json` → project `rep-worth`,
+   `prj_wIMnzHKefoQRdzCeMZesg2mIgNc0`, team `norbert-esekiels-projects`), which
+   the firewall CLI accepts. On a fresh machine:
    ```bash
    vercel link            # select the rep-worth project / correct team
    ```
-2. Confirm Pro plan and that the acting user has Firewall write permission.
-3. All `vercel firewall rules add/edit` commands **stage drafts**. They go live
+2. ✅ Confirm Pro plan and that the acting user has Firewall write permission —
+   verified implicitly: staging and the owner publish both succeeded.
+3. ✅ All `vercel firewall rules add/edit` commands **stage drafts**. They go live
    only after **`vercel firewall publish --yes`**, which the **owner** runs after
    reviewing `vercel firewall diff`. Do not publish on someone else's behalf.
+   (Owner published 2026-06-09.)
 
 ---
 
@@ -84,7 +102,10 @@ we want — one rule set covers prod **and** staging.
 
 ---
 
-## Component 3 — per-path enforcing rules (ENFORCE NOW)
+## Component 3 — per-path enforcing rules (ENFORCE NOW) — ✅ LIVE (published 2026-06-09)
+
+Live rule IDs: `rule_signup_per_ip_enforce_UMAAj8` (3a),
+`rule_onboarding_start_per_ip_enforce_GxpRCA` (3b).
 
 Mirrors the existing app limits at the edge (app: signup 5/hour/IP strict,
 onboarding-start 10/hour/auth-id strict). The per-IP/min WAF limits are
@@ -120,7 +141,10 @@ vercel firewall rules add "onboarding-start-per-ip-enforce" \
 
 ---
 
-## Component 1 — broad volumetric net, split by method (LOG ONLY)
+## Component 1 — broad volumetric net, split by method (LOG ONLY) — ✅ LIVE in LOG mode (published 2026-06-09)
+
+Live rule IDs: `rule_api_mutating_volumetric_log_fQ61fH` (1a),
+`rule_api_get_volumetric_log_oLxHcD` (1b).
 
 A default net so every `/api/*` route — including future ones — has baseline
 per-IP protection at the edge. **Shipped in LOG mode**: `--rate-limit-action log`
@@ -168,7 +192,7 @@ vercel firewall rules add "api-get-volumetric-log" \
 
 ---
 
-## Ordering, review, publish (owner)
+## Ordering, review, publish (owner) — ✅ DONE (published 2026-06-09)
 
 Rules evaluate top→bottom. Put the enforcing per-path rules above the LOG net:
 
@@ -186,15 +210,16 @@ vercel firewall diff                       # exactly what will go live
 vercel firewall publish --yes              # OWNER runs this — production-affecting
 ```
 
-After publishing, grab each rule ID (`vercel firewall rules list --json` → `id`,
-starts with `rule_`) and watch traffic:
+🟡 After publishing, watch traffic (pending — review once real traffic accrues):
 
 ```
-https://vercel.com/<team>/rep-worth/firewall/traffic?filter=<ruleId>
+https://vercel.com/norbert-esekiels-projects/rep-worth/firewall/traffic?filter=rule_signup_per_ip_enforce_UMAAj8
+https://vercel.com/norbert-esekiels-projects/rep-worth/firewall/traffic?filter=rule_onboarding_start_per_ip_enforce_GxpRCA
+https://vercel.com/norbert-esekiels-projects/rep-worth/firewall/traffic?filter=rule_api_mutating_volumetric_log_fQ61fH
+https://vercel.com/norbert-esekiels-projects/rep-worth/firewall/traffic?filter=rule_api_get_volumetric_log_oLxHcD
 ```
 
-(Read `<team>` from `.vercel/project.json` `orgSlug` after linking, or
-`vercel project ls`.) With Observability Plus you can instead use:
+With Observability Plus you can instead use:
 
 ```bash
 vc metrics vercel.firewall_action.count --group-by waf_rule_id --group-by waf_action --since 7d --format json
@@ -202,7 +227,7 @@ vc metrics vercel.firewall_action.count --group-by waf_rule_id --group-by waf_ac
 
 ---
 
-## Enable BotID Deep Analysis (owner, dashboard — for Component 2)
+## Enable BotID Deep Analysis (owner, dashboard — for Component 2) — 🟡 owner reports enabled 2026-06-09; dashboard-only, not yet independently verified
 
 BotID **Basic** works as soon as the code PR deploys (no toggle). The two
 Deep-Analysis routes (`/api/auth/signup`, `/api/onboarding/start`) ask for
@@ -226,7 +251,7 @@ validation — they keep working, just without ML scoring. The Basic routes
 
 ---
 
-## Flip-to-enforce checklist — Component 1 broad net (LATER, owner-approved)
+## Flip-to-enforce checklist — Component 1 broad net (LATER, owner-approved) — 🟡 NOT STARTED (baseline window opened 2026-06-09)
 
 **Do this only after a 3–7 day NAT-safe baseline. It is a separate, owner-approved
 follow-up — NOT part of the Slice 2 delivery.** Evidence source = the Vercel
@@ -290,7 +315,7 @@ this runbook** whenever the live rule changes.
 
 ---
 
-## Component 4 — Attack Mode (break-glass, owner-run)
+## Component 4 — Attack Mode (break-glass, owner-run) — ✅ verified Off 2026-06-09 (as intended; System Mitigations Active)
 
 **What it is:** Attack Mode shows every *unverified* visitor a challenge page;
 verified bots and search crawlers (Googlebot, etc.) are exempt. Use it as
@@ -342,18 +367,20 @@ Per production.md (authorized · auditable · clear stop · bounded blast radius
 
 ## Quick verification
 
-- `vercel firewall rules list --expand` — all four rules present; 3a/3b actions =
-  `rate_limit` (enforce), 1a/1b rate-limit-action = `log`.
-- `vercel firewall overview` — confirms what's live vs. staged, attack-mode state.
-- Dashboard traffic filtered by each `rule_…` id shows hits accruing once
-  published.
+- ✅ `vercel firewall rules list --expand` — all four rules present; 3a/3b actions =
+  `rate_limit` (enforce), 1a/1b rate-limit-action = `log`. (Verified live
+  2026-06-09 post-publish.)
+- ✅ `vercel firewall overview` — confirms what's live vs. staged, attack-mode
+  state. (2026-06-09: Firewall Enabled, 4 active rules, Attack Mode Off.)
+- 🟡 Dashboard traffic filtered by each `rule_…` id shows hits accruing once
+  published. (Pending — needs real traffic; URLs above.)
 
 ## State summary
 
-| Rule | Path / method | Limit | Mode | Live where |
-|---|---|---|---|---|
-| `signup-per-ip-enforce` | `POST /api/auth/signup` | 5 / 60s / IP → 429 | **ENFORCE** | prod + staging + preview |
-| `onboarding-start-per-ip-enforce` | `POST /api/onboarding/start` | 10 / 60s / IP → 429 | **ENFORCE** | prod + staging + preview |
-| `api-mutating-volumetric-log` | `POST/PUT/DELETE /api/*` | 100 / 10s / IP | **LOG** | prod + staging + preview |
-| `api-get-volumetric-log` | `GET /api/*` | 600 / 10s / IP | **LOG** | prod + staging + preview |
-| Attack Mode | all unverified visitors | challenge | **OFF** (break-glass) | — |
+| Rule | Path / method | Limit | Mode | Live where | Status |
+|---|---|---|---|---|---|
+| `signup-per-ip-enforce` | `POST /api/auth/signup` | 5 / 60s / IP → 429 | **ENFORCE** | prod + staging + preview | ✅ live (2026-06-09) |
+| `onboarding-start-per-ip-enforce` | `POST /api/onboarding/start` | 10 / 60s / IP → 429 | **ENFORCE** | prod + staging + preview | ✅ live (2026-06-09) |
+| `api-mutating-volumetric-log` | `POST/PUT/DELETE /api/*` | 100 / 10s / IP | **LOG** | prod + staging + preview | ✅ live (2026-06-09) · 🟡 flip-to-enforce pending baseline |
+| `api-get-volumetric-log` | `GET /api/*` | 600 / 10s / IP | **LOG** | prod + staging + preview | ✅ live (2026-06-09) · 🟡 flip-to-enforce pending baseline |
+| Attack Mode | all unverified visitors | challenge | **OFF** (break-glass) | — | ✅ verified Off (2026-06-09) |
