@@ -242,8 +242,33 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
     expect(payload.google_maps_url).toBe(
       'https://maps.google.com/?q=place_id:ChIJgUbEo8cfqokR5lP9_Wh_DaM',
     );
-    expect(payload.duplicate_place_id).toBe('ChIJgUbEo8cfqokR5lP9_Wh_DaM');
+    expect(payload.resolved_place_id).toBe('ChIJgUbEo8cfqokR5lP9_Wh_DaM');
 
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  it('records a place_id_mismatch review_exception (no overwrite) when the row already holds a different place id', async () => {
+    // 1st call: business SELECT (row already has a DIFFERENT place id).
+    // 2nd call: guarded UPDATE matches 0 rows → 'mismatch' outcome.
+    mockSql
+      .mockImplementationOnce(() =>
+        Promise.resolve([{ id: 'biz-mismatch-1', google_place_id: 'ChIJExistingDifferent999' }]),
+      )
+      .mockImplementationOnce(() => Promise.resolve([]));
+
+    await handlePlaceIdValidation(
+      makeJob({
+        business_id: 'biz-mismatch-1',
+        google_maps_url: 'https://maps.google.com/?q=place_id:ChIJgUbEo8cfqokR5lP9_Wh_DaM',
+      }),
+    );
+
+    const payload = reviewExceptionPayload();
+    expect(payload.reason).toBe('place_id_mismatch');
+    expect(payload.resolved_place_id).toBe('ChIJgUbEo8cfqokR5lP9_Wh_DaM');
+
+    // Skip-as-success: completed, never failed, no retry.
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
@@ -269,7 +294,7 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
 
     const payload = reviewExceptionPayload();
     expect(payload.reason).toBe('duplicate_location');
-    expect(payload.duplicate_place_id).toBe('ChIJResolvedDuplicate12345');
+    expect(payload.resolved_place_id).toBe('ChIJResolvedDuplicate12345');
 
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();

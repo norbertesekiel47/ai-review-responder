@@ -435,10 +435,10 @@ describe('addLocationTransaction', () => {
     expect(template).toContain("status IN ('pending', 'dispatching', 'dispatched')");
   });
 
-  // C2 hardening: the enqueue gate is `googleMapsUrl && !(googlePlaceId &&
-  // placeIdVerified)` — the DATA decides, not the client flag. A crafted or
-  // buggy request claiming placeIdVerified:true WITHOUT a place id must still
-  // enqueue resolution, or the row permanently bypasses migration 062
+  // C2 hardening: the enqueue gate is `googleMapsUrl && !googlePlaceId` —
+  // the DATA decides, not the client flag. A crafted or buggy request
+  // claiming placeIdVerified:true WITHOUT a place id must still enqueue
+  // resolution, or the row permanently bypasses migration 062
   // (NULL google_place_id never collides under the partial unique index).
   it('still enqueues validate_place_id when placeIdVerified is true but no place id is supplied', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
@@ -454,6 +454,26 @@ describe('addLocationTransaction', () => {
       (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('validate_place_id'),
     );
     expect(validateCall).toBeDefined();
+  });
+
+  // No-silent-overwrite: a STORED place id (even unverified) suppresses the
+  // enqueue — resolution must never overwrite an explicitly supplied id. The
+  // route schema rejects the url+place-id shape outright; this pins the tx
+  // module's own defense for non-route producers.
+  it('does NOT enqueue validate_place_id when an unverified place id accompanies the URL', async () => {
+    mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
+
+    await addLocationTransaction(mkInput({
+      googleMapsUrl: 'https://maps.google.com/?q=Cafe+Test',
+      placeIdVerified: false,
+      googlePlaceId: 'ChIJExplicitButUnverified1',
+    }));
+
+    const txCalls = mockSql.mock.calls.slice(1);
+    const validateCall = txCalls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('validate_place_id'),
+    );
+    expect(validateCall).toBeUndefined();
   });
 
   // C2: a verified place id (autocomplete path) must NOT enqueue validate_place_id —

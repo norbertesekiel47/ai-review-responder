@@ -48,6 +48,12 @@ const AddLocationSchema = z.object({
 }).refine((d) => !d.placeIdVerified || !!d.googlePlaceId, {
   message: 'placeIdVerified requires googlePlaceId',
   path: ['placeIdVerified'],
+}).refine((d) => !(d.googlePlaceId && d.googleMapsUrl), {
+  // Two input modes, never both: an explicit place id with a Maps URL is
+  // ambiguous — the URL would later resolve and could silently overwrite the
+  // supplied place id. The wizard sends exactly one of the two.
+  message: 'googlePlaceId and googleMapsUrl are mutually exclusive',
+  path: ['googleMapsUrl'],
 });
 
 // Maps quota-denial reasons to HTTP status codes.

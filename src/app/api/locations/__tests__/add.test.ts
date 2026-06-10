@@ -499,6 +499,24 @@ describe('POST /api/locations/add', () => {
     expect(mockAddLocationTransaction).not.toHaveBeenCalled();
   });
 
+  // Schema refine: two input modes, never both — an explicit place id plus a
+  // Maps URL is ambiguous (the URL would later resolve and could overwrite
+  // the supplied id).
+  it('returns 400 when googlePlaceId and googleMapsUrl are both supplied', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+
+    const req = mkRequest({
+      accountId: ACCOUNT_ID,
+      displayLabel: 'Downtown Cafe',
+      googlePlaceId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+      googleMapsUrl: 'https://maps.google.com/?q=Cafe+Test',
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    expect(mockAddLocationTransaction).not.toHaveBeenCalled();
+  });
+
   it('returns 400 for an empty googlePlaceId', async () => {
     mockRequireRole.mockResolvedValueOnce(ownerUser());
 

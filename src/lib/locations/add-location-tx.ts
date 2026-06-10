@@ -248,8 +248,10 @@ export async function addLocationTransaction(
       // Gate on the DATA, not the client-supplied placeIdVerified flag: a
       // crafted/buggy request claiming verified-with-no-place-id must still
       // resolve, or the row permanently bypasses migration 062 (NULL never
-      // collides). The route schema also rejects that shape outright.
-      if (googleMapsUrl && !(googlePlaceId && placeIdVerified)) {
+      // collides). A stored place id (verified or not) suppresses the enqueue
+      // so resolution can never overwrite an explicitly supplied id — the
+      // route schema additionally rejects the url+place-id shape outright.
+      if (googleMapsUrl && !googlePlaceId) {
         await enqueueValidatePlaceId(tx, { businessId, googleMapsUrl });
       }
 
