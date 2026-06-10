@@ -132,7 +132,11 @@ d('archiveLocationTransaction primary-archive invariant integration', () => {
 //     secondary must leave the existing primary untouched (selfPromoted=false).
 
 const b3 = {
-  ownerUserId: randomUUID(),
+  // Each account needs its OWN owner: idx_accounts_owner_unique (migration 038)
+  // is a partial unique index on accounts(owner_user_id), so two accounts cannot
+  // share an owner_user_id.
+  zeroPrimaryOwnerUserId: randomUUID(),
+  hasPrimaryOwnerUserId: randomUUID(),
   zeroPrimaryAccountId: randomUUID(),
   zeroPrimaryArchivedPrimaryId: randomUUID(),
   zeroPrimarySecondaryId: randomUUID(),
@@ -147,40 +151,45 @@ d('reactivateLocationTransaction zero-primary self-heal integration', () => {
       db = postgres(testDatabaseUrl!, { max: 1, prepare: false, connection: { statement_timeout: 30_000 } });
     }
 
-    const ownerEmail = `reactivate-b3-${randomUUID()}@test.local`;
+    const zeroPrimaryEmail = `reactivate-b3-zp-${randomUUID()}@test.local`;
+    const hasPrimaryEmail = `reactivate-b3-hp-${randomUUID()}@test.local`;
     await sql().begin(async (tx) => {
       await tx`SET CONSTRAINTS ALL DEFERRED`;
       await tx`
         INSERT INTO users (id, name, email, role, account_id)
-        VALUES (${b3.ownerUserId}::uuid, 'Reactivate B3 Owner', ${ownerEmail}, 'owner', ${b3.zeroPrimaryAccountId}::uuid)
+        VALUES (${b3.zeroPrimaryOwnerUserId}::uuid, 'Reactivate B3 ZeroPrimary Owner', ${zeroPrimaryEmail}, 'owner', ${b3.zeroPrimaryAccountId}::uuid)
+      `;
+      await tx`
+        INSERT INTO users (id, name, email, role, account_id)
+        VALUES (${b3.hasPrimaryOwnerUserId}::uuid, 'Reactivate B3 HasPrimary Owner', ${hasPrimaryEmail}, 'owner', ${b3.hasPrimaryAccountId}::uuid)
       `;
 
       // Account 1: zero active primaries (primary archived).
       await tx`
         INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status, subscription_activated_at)
-        VALUES (${b3.zeroPrimaryAccountId}::uuid, ${b3.ownerUserId}::uuid, 'B3 ZeroPrimary Account', 'standard', 'active', NOW())
+        VALUES (${b3.zeroPrimaryAccountId}::uuid, ${b3.zeroPrimaryOwnerUserId}::uuid, 'B3 ZeroPrimary Account', 'standard', 'active', NOW())
       `;
       await tx`
         INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status, is_primary, archived_at)
-        VALUES (${b3.zeroPrimaryArchivedPrimaryId}::uuid, 'Zero Primary (archived)', 'Reactivate B3 Owner', ${ownerEmail}, ${b3.zeroPrimaryAccountId}::uuid, 'active', FALSE, NOW())
+        VALUES (${b3.zeroPrimaryArchivedPrimaryId}::uuid, 'Zero Primary (archived)', 'Reactivate B3 Owner', ${zeroPrimaryEmail}, ${b3.zeroPrimaryAccountId}::uuid, 'active', FALSE, NOW())
       `;
       await tx`
         INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status, is_primary, archived_at)
-        VALUES (${b3.zeroPrimarySecondaryId}::uuid, 'Zero Secondary (archived)', 'Reactivate B3 Owner', ${ownerEmail}, ${b3.zeroPrimaryAccountId}::uuid, 'active', FALSE, NOW())
+        VALUES (${b3.zeroPrimarySecondaryId}::uuid, 'Zero Secondary (archived)', 'Reactivate B3 Owner', ${zeroPrimaryEmail}, ${b3.zeroPrimaryAccountId}::uuid, 'active', FALSE, NOW())
       `;
 
-      // Account 2: an active primary already exists.
+      // Account 2: an active primary already exists (separate owner).
       await tx`
         INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status, subscription_activated_at)
-        VALUES (${b3.hasPrimaryAccountId}::uuid, ${b3.ownerUserId}::uuid, 'B3 HasPrimary Account', 'standard', 'active', NOW())
+        VALUES (${b3.hasPrimaryAccountId}::uuid, ${b3.hasPrimaryOwnerUserId}::uuid, 'B3 HasPrimary Account', 'standard', 'active', NOW())
       `;
       await tx`
         INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status, is_primary, archived_at)
-        VALUES (${b3.hasPrimaryPrimaryId}::uuid, 'Has Primary (active)', 'Reactivate B3 Owner', ${ownerEmail}, ${b3.hasPrimaryAccountId}::uuid, 'active', TRUE, NULL)
+        VALUES (${b3.hasPrimaryPrimaryId}::uuid, 'Has Primary (active)', 'Reactivate B3 Owner', ${hasPrimaryEmail}, ${b3.hasPrimaryAccountId}::uuid, 'active', TRUE, NULL)
       `;
       await tx`
         INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status, is_primary, archived_at)
-        VALUES (${b3.hasPrimaryArchivedSecondaryId}::uuid, 'Has Secondary (archived)', 'Reactivate B3 Owner', ${ownerEmail}, ${b3.hasPrimaryAccountId}::uuid, 'active', FALSE, NOW())
+        VALUES (${b3.hasPrimaryArchivedSecondaryId}::uuid, 'Has Secondary (archived)', 'Reactivate B3 Owner', ${hasPrimaryEmail}, ${b3.hasPrimaryAccountId}::uuid, 'active', FALSE, NOW())
       `;
     });
   });
@@ -193,7 +202,7 @@ d('reactivateLocationTransaction zero-primary self-heal integration', () => {
       await tx`DELETE FROM job_outbox WHERE aggregate_id IN (${b3.zeroPrimaryAccountId}::uuid, ${b3.hasPrimaryAccountId}::uuid, ${b3.zeroPrimarySecondaryId}::uuid, ${b3.hasPrimaryArchivedSecondaryId}::uuid)`;
       await tx`DELETE FROM businesses WHERE account_id IN (${b3.zeroPrimaryAccountId}::uuid, ${b3.hasPrimaryAccountId}::uuid)`;
       await tx`DELETE FROM accounts WHERE id IN (${b3.zeroPrimaryAccountId}::uuid, ${b3.hasPrimaryAccountId}::uuid)`;
-      await tx`DELETE FROM users WHERE id = ${b3.ownerUserId}::uuid`;
+      await tx`DELETE FROM users WHERE id IN (${b3.zeroPrimaryOwnerUserId}::uuid, ${b3.hasPrimaryOwnerUserId}::uuid)`;
     });
     await db.end({ timeout: 5 });
     db = undefined;
@@ -205,7 +214,7 @@ d('reactivateLocationTransaction zero-primary self-heal integration', () => {
     const result = await reactivateLocationTransaction({
       locationId: b3.zeroPrimarySecondaryId,
       accountId: b3.zeroPrimaryAccountId,
-      actorUserId: b3.ownerUserId,
+      actorUserId: b3.zeroPrimaryOwnerUserId,
     });
 
     expect(result.reactivated).toBe(true);
@@ -241,7 +250,7 @@ d('reactivateLocationTransaction zero-primary self-heal integration', () => {
     const result = await reactivateLocationTransaction({
       locationId: b3.hasPrimaryArchivedSecondaryId,
       accountId: b3.hasPrimaryAccountId,
-      actorUserId: b3.ownerUserId,
+      actorUserId: b3.hasPrimaryOwnerUserId,
     });
 
     expect(result.reactivated).toBe(true);
