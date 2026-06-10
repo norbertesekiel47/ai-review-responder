@@ -75,6 +75,7 @@ type Action =
   | { type: 'actionSucceeded'; action: ApprovalAction; message: string }
   | { type: 'actionFailed'; message: string };
 
+// fallow-ignore-next-line complexity — flat one-case-per-action switch; cyclomatic count is the action vocabulary, not tangled logic. Pre-existing; not touched by PR B.
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'loadSucceeded':
@@ -432,6 +433,7 @@ export default function ApprovalClient({ token }: { token: string }) {
   // full-island) branch. A GET failure leaves `data` null → full error island.
   useEffect(() => {
     let cancelled = false;
+    // fallow-ignore-next-line complexity — idiomatic load-then-bind effect: sequential fetch + cancellation guard branches. Pre-existing; not touched by PR B.
     void (async () => {
       try {
         const res = await fetch(`/api/approve/${token}`);

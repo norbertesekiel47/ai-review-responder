@@ -98,6 +98,34 @@ export async function readOwnerForMultiLocationRoute(
 }
 
 /**
+ * Shared preamble for the owner location-action routes (archive /
+ * promote-primary / reactivate): owner+flag gate → JSON body parse →
+ * body.accountId must match the authenticated owner. Schemas must include
+ * an `accountId` field.
+ */
+export async function readLocationActionRequest<TSchema extends z.ZodTypeAny>(
+  req: NextRequest,
+  schema: TSchema,
+  offboardingGate?: Pick<OffboardingGate, 'getOffboardingState'>,
+): Promise<
+  | { ok: true; user: LocationOwnerRouteUser; data: z.output<TSchema> }
+  | { ok: false; response: NextResponse }
+> {
+  const owner = await readOwnerForMultiLocationRoute(req, offboardingGate);
+  if (!owner.ok) return owner;
+
+  const body = await readLocationRouteJson(req, schema);
+  if (!body.ok) return body;
+
+  const { accountId } = body.data as { accountId: string };
+  if (accountId !== owner.user.accountId) {
+    return { ok: false, response: ownerAccountMismatchResponse() };
+  }
+
+  return { ok: true, user: owner.user, data: body.data };
+}
+
+/**
  * Single owner of the location-denial → HTTP-status vocabulary, shared by
  * the archive / promote-primary / reactivate routes for BOTH pre-tx guard
  * results and in-tx code-string throws. Exact-match only — substring

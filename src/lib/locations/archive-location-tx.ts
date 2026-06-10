@@ -394,34 +394,8 @@ export async function reactivateLocationTransaction(
       throw new Error('location_reactivate_conflict');
     }
 
-    // 1b. Zero-primary self-heal. The location is now active but still
-    // non-primary; if the account has NO active primary (reachable via the
-    // offboarding-cancel → reactivate flow), silently promote this location so
-    // the at-least-one-primary expectation is restored. Silent: audit row +
-    // response flag only, no notification.
-    const [primaryRow] = await tx<{ count: number }[]>`
-      SELECT COUNT(*)::int AS count FROM businesses
-      WHERE account_id = ${accountId}::uuid AND is_primary = TRUE AND archived_at IS NULL
-    `;
-    const promoted = Number(primaryRow?.count ?? 0) === 0;
-    if (promoted) {
-      // RETURNING-verified: the audit row below must never claim a promotion
-      // the database didn't apply (0 rows = the row vanished mid-tx, which
-      // the account lock makes impossible today — keep the write honest).
-      const [selfPromoted] = await tx<{ id: string }[]>`
-        UPDATE businesses SET is_primary = TRUE, updated_at = NOW()
-        WHERE id = ${locationId}::uuid AND account_id = ${accountId}::uuid
-        RETURNING id
-      `;
-      if (!selfPromoted) {
-        throw new Error('location_reactivate_conflict');
-      }
-      await tx`
-        INSERT INTO account_audit_log (id, account_id, location_id, event_type, actor_user_id, payload)
-        VALUES (${uuidv7()}::uuid, ${accountId}::uuid, ${locationId}::uuid, 'primary_promoted', ${actorUserId ?? null}::uuid,
-                ${jsonb({ old_primary_id: null, new_primary_id: locationId, reason: 'reactivation_self_heal' })})
-      `;
-    }
+    // 1b. Zero-primary self-heal (see helper below).
+    const promoted = await selfHealPrimaryIfMissing(tx, { accountId, locationId, actorUserId });
 
     // 2. Insert audit log entry
     await tx`
@@ -509,4 +483,47 @@ export async function reactivateLocationTransaction(
     reactivated: true,
     selfPromoted,
   };
+}
+
+/**
+ * Zero-primary self-heal for reactivation. The just-reactivated location is
+ * active but non-primary; if the account has NO active primary (reachable via
+ * the offboarding-cancel → reactivate flow), silently promote it so the
+ * at-least-one-primary half of the invariant is restored (canonical invariant
+ * docblock: promote-primary-tx.ts). Silent: audit row + response flag only.
+ *
+ * Caller MUST hold the accounts FOR UPDATE lock in the same tx — that is what
+ * serializes concurrent reactivations so two can't both self-promote.
+ * The promote UPDATE is RETURNING-verified: the audit row must never claim a
+ * promotion the database didn't apply.
+ */
+async function selfHealPrimaryIfMissing(
+  tx: postgres.TransactionSql,
+  input: { accountId: string; locationId: string; actorUserId?: string | null },
+): Promise<boolean> {
+  const { accountId, locationId, actorUserId } = input;
+
+  const [primaryRow] = await tx<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count FROM businesses
+    WHERE account_id = ${accountId}::uuid AND is_primary = TRUE AND archived_at IS NULL
+  `;
+  if (Number(primaryRow?.count ?? 0) !== 0) {
+    return false;
+  }
+
+  const [promotedRow] = await tx<{ id: string }[]>`
+    UPDATE businesses SET is_primary = TRUE, updated_at = NOW()
+    WHERE id = ${locationId}::uuid AND account_id = ${accountId}::uuid
+    RETURNING id
+  `;
+  if (!promotedRow) {
+    throw new Error('location_reactivate_conflict');
+  }
+
+  await tx`
+    INSERT INTO account_audit_log (id, account_id, location_id, event_type, actor_user_id, payload)
+    VALUES (${uuidv7()}::uuid, ${accountId}::uuid, ${locationId}::uuid, 'primary_promoted', ${actorUserId ?? null}::uuid,
+            ${jsonb({ old_primary_id: null, new_primary_id: locationId, reason: 'reactivation_self_heal' })})
+  `;
+  return true;
 }

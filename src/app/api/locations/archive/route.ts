@@ -22,9 +22,7 @@ import {
   LOCATION_DENIAL_STATUS,
   LOCATION_ROUTE_NO_STORE as NO_STORE,
   locationDenialResponse,
-  ownerAccountMismatchResponse,
-  readLocationRouteJson,
-  readOwnerForMultiLocationRoute,
+  readLocationActionRequest,
   UUID_RE,
 } from '@/lib/locations/owner-route';
 
@@ -56,18 +54,9 @@ const ArchiveLocationSchema = z.object({
  * The notification context will skip dispatch for archived locations.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const owner = await readOwnerForMultiLocationRoute(req);
-  if (!owner.ok) return owner.response;
-  const { user } = owner;
-
-  const body = await readLocationRouteJson(req, ArchiveLocationSchema);
-  if (!body.ok) return body.response;
-  const { locationId, accountId } = body.data;
-
-  // ── Ownership: body.accountId must match authenticated user ──────────────
-  if (accountId !== user.accountId) {
-    return ownerAccountMismatchResponse();
-  }
+  const reqCtx = await readLocationActionRequest(req, ArchiveLocationSchema);
+  if (!reqCtx.ok) return reqCtx.response;
+  const { locationId, accountId } = reqCtx.data;
 
   // Run guard checks
   const guardResult = await assertCanArchiveLocation(locationId, accountId);

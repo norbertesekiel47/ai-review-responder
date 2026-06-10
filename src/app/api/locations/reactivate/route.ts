@@ -21,9 +21,7 @@ import { getLocationById } from '@/lib/locations/repo';
 import {
   locationDenialResponse,
   LOCATION_ROUTE_NO_STORE as NO_STORE,
-  ownerAccountMismatchResponse,
-  readLocationRouteJson,
-  readOwnerForMultiLocationRoute,
+  readLocationActionRequest,
   UUID_RE,
 } from '@/lib/locations/owner-route';
 
@@ -52,18 +50,9 @@ const ReactivateSchema = z.object({
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const offboardingGate = createOffboardingGate();
-  const owner = await readOwnerForMultiLocationRoute(req, offboardingGate);
-  if (!owner.ok) return owner.response;
-  const { user } = owner;
-
-  const body = await readLocationRouteJson(req, ReactivateSchema);
-  if (!body.ok) return body.response;
-  const { locationId, accountId } = body.data;
-
-  // ── Ownership: body.accountId must match authenticated user ──────────────
-  if (accountId !== user.accountId) {
-    return ownerAccountMismatchResponse();
-  }
+  const reqCtx = await readLocationActionRequest(req, ReactivateSchema, offboardingGate);
+  if (!reqCtx.ok) return reqCtx.response;
+  const { locationId, accountId } = reqCtx.data;
 
   // Reactivating a location re-adds billable capacity (Stripe overage increment),
   // so it is a billing-expanding mutation — frozen while offboarding forbids it

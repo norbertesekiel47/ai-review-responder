@@ -18,9 +18,7 @@ import { getLocationById } from '@/lib/locations/repo';
 import {
   LOCATION_ROUTE_NO_STORE as NO_STORE,
   locationDenialResponse,
-  ownerAccountMismatchResponse,
-  readLocationRouteJson,
-  readOwnerForMultiLocationRoute,
+  readLocationActionRequest,
   UUID_RE,
 } from '@/lib/locations/owner-route';
 
@@ -45,18 +43,10 @@ const PromotePrimarySchema = z.object({
  *   3. Inserts account_audit_log with event_type 'primary_promoted'
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const owner = await readOwnerForMultiLocationRoute(req);
-  if (!owner.ok) return owner.response;
-  const { user } = owner;
-
-  const body = await readLocationRouteJson(req, PromotePrimarySchema);
-  if (!body.ok) return body.response;
-  const { newPrimaryId, accountId } = body.data;
-
-  // ── Ownership: body.accountId must match authenticated user ──────────────
-  if (accountId !== user.accountId) {
-    return ownerAccountMismatchResponse();
-  }
+  const reqCtx = await readLocationActionRequest(req, PromotePrimarySchema);
+  if (!reqCtx.ok) return reqCtx.response;
+  const { user } = reqCtx;
+  const { newPrimaryId, accountId } = reqCtx.data;
 
   // ── Ownership: verify the target location belongs to this account ───────
   const targetLocation = await getLocationById(newPrimaryId);
