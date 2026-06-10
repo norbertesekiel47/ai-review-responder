@@ -18,7 +18,6 @@ import {
   archiveLocationTransaction,
 } from '@/lib/locations/archive-location-tx';
 import { getAccountOwnerUserId } from '@/lib/accounts/repo';
-import { getActiveLocationCount } from '@/lib/locations/repo';
 import {
   LOCATION_ROUTE_NO_STORE as NO_STORE,
   ownerAccountMismatchResponse,
@@ -38,10 +37,16 @@ const ArchiveLocationSchema = z.object({
 
 // ── HTTP status mapping for guard rejection reasons ────────────────────────
 
+// Single owner of the denial→status mapping. Both the pre-tx guard result and
+// the in-tx re-assert throws (last_active_location / promote_first /
+// location_archive_conflict) resolve through this map — keep them together so
+// the same denial can never return different statuses depending on which
+// layer caught it.
 const GUARD_STATUS_MAP: Record<string, number> = {
   location_not_found: 404,
   location_not_owned: 403,
   location_already_archived: 409,
+  location_archive_conflict: 409,
   last_active_location: 409,
   promote_first: 409,
 };
@@ -84,19 +89,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Gather pre-transaction data
-  const [actorUserId, activeLocationsBefore] = await Promise.all([
-    getAccountOwnerUserId(accountId),
-    getActiveLocationCount(accountId),
-  ]);
+  const actorUserId = await getAccountOwnerUserId(accountId);
 
-  // Execute the archive transaction
+  // Execute the archive transaction. The audit payload's location counts come
+  // from the tx's locked snapshot, not a pre-tx read.
   try {
     const result = await archiveLocationTransaction({
       locationId,
       accountId,
       actorUserId,
-      activeLocationsBefore,
     });
 
     return NextResponse.json(
@@ -110,10 +111,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[locations/archive] Transaction failed for location=${locationId}: ${message}`);
-    if (message === 'last_active_location' || message === 'location_archive_conflict') {
+    const guardStatus = GUARD_STATUS_MAP[message];
+    if (guardStatus !== undefined) {
       return NextResponse.json(
         { error: message },
-        { status: 409, headers: NO_STORE },
+        { status: guardStatus, headers: NO_STORE },
       );
     }
     return NextResponse.json(

@@ -113,8 +113,13 @@ export async function revokeOpenLinksForResponse(tx: TxClient, responseId: strin
  * Guards ALL mutating approval actions — approve, edit, and regenerate —
  * and is called in-tx by every approval lane: token-mode (token-mode.ts),
  * callback-mode (callback-mode.ts), the dashboard session lane
- * (http-routes.ts), and the admin flagged-disposition lane
- * (api/admin/flagged). The dashboard lane ALSO carries a pre-tx
+ * (http-routes.ts), and the admin flagged-disposition lane's two
+ * release-style actions (api/admin/flagged — dismissed_false_positive is
+ * deliberately ungated so flags on archived locations can still be closed).
+ * Lock-order rule: every lane acquires its responses FOR UPDATE BEFORE this
+ * businesses FOR SHARE, so a concurrent archive (businesses FOR UPDATE)
+ * can never form a lock-order cycle across lanes.
+ * The dashboard lane ALSO carries a pre-tx
  * `b.archived_at IS NULL` query filter; this in-tx FOR SHARE re-check closes
  * the TOCTOU window left open by that stale-able filter, the same way the
  * other lanes have no pre-filter to rely on. An archived location has no live

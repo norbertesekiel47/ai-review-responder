@@ -69,7 +69,6 @@ function mkInput(overrides: Partial<ArchiveLocationTxInput> = {}): ArchiveLocati
     locationId: SECONDARY_LOCATION_ID,
     accountId: ACCOUNT_ID,
     actorUserId: ACTOR_USER_ID,
-    activeLocationsBefore: 2,
     ...overrides,
   };
 }
@@ -460,9 +459,10 @@ describe('archiveLocationTransaction', () => {
     expect(deleteCall).toBeUndefined();
   });
 
-  // Audit payload includes relevant archive info
+  // Audit payload includes relevant archive info (counts come from the
+  // tx's locked snapshot, not a caller-supplied pre-tx read)
   it('audit log payload includes location_id and active_locations_before', async () => {
-    await archiveLocationTransaction(mkInput({ activeLocationsBefore: 3 }));
+    await archiveLocationTransaction(mkInput());
 
     // The audit INSERT's payload should contain location_id and active_locations_before.
     // jsonb is mocked to pass through.
@@ -552,6 +552,22 @@ describe('archiveLocationTransaction — B1 race-proof primary guard', () => {
     await expect(
       archiveLocationTransaction(mkInput({ locationId: PRIMARY_LOCATION_ID })),
     ).rejects.toThrow('last_active_location');
+  });
+
+  it('surfaces location_archive_conflict for an already-archived target, even when the remaining count is 1 (double-submit on a 2-location account)', async () => {
+    // Snapshot: the target is already archived, so the active count has
+    // dropped to 1. The archived check must win over last_active_location —
+    // the owner is double-submitting, not archiving their last location.
+    drivePrimarySnapshot(1, false, new Date('2026-06-01T00:00:00Z'));
+
+    await expect(
+      archiveLocationTransaction(mkInput({ locationId: SECONDARY_LOCATION_ID })),
+    ).rejects.toThrow('location_archive_conflict');
+
+    const updateCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),
+    );
+    expect(updateCall).toBeUndefined();
   });
 
   it('adds AND is_primary = FALSE to the owner archive UPDATE WHERE clause (blockPrimary)', async () => {

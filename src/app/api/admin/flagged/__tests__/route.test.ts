@@ -172,7 +172,9 @@ describe('POST /api/admin/flagged (disposition)', () => {
   });
 
   it('approve: updates status and enqueues send_notification, returns ok', async () => {
-    txResults.push([{ id: FLAG_ID, response_id: 'resp-1', business_id: 'biz-1', account_id: 'acct-1' }]);
+    txResults.push([{ id: FLAG_ID, response_id: 'resp-1', business_id: 'biz-1', account_id: 'acct-1' }]); // flag SELECT
+    txResults.push(Object.assign([], { count: 1 })); // UPDATE flagged_responses
+    txResults.push([{ archived_at: null }]); // archived-location gate SELECT (active location)
     const res = await POST(postReq({ flaggedId: FLAG_ID, action: 'approved_for_owner_review' }));
     expect(res.status).toBe(200);
 
@@ -205,11 +207,42 @@ describe('POST /api/admin/flagged (disposition)', () => {
     expect(mockWriteAccountAuditLog).toHaveBeenCalledOnce();
   });
 
+  it('approve: rejects with 409 archived_location when the location is archived (flag stays open)', async () => {
+    txResults.push([{ id: FLAG_ID, response_id: 'resp-1', business_id: 'biz-1', account_id: 'acct-1' }]); // flag SELECT
+    txResults.push(Object.assign([], { count: 1 })); // UPDATE flagged_responses (rolled back)
+    txResults.push([{ archived_at: new Date() }]); // archived-location gate SELECT → archived
+
+    const res = await POST(postReq({ flaggedId: FLAG_ID, action: 'approved_for_owner_review' }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe('archived_location');
+
+    // No notification enqueued, no audit write committed.
+    const notifyPayloads = txCalls
+      .flatMap((c) => c.values)
+      .filter(
+        (v): v is { __jsonb: Record<string, unknown> } =>
+          !!v && typeof v === 'object' && '__jsonb' in (v as Record<string, unknown>),
+      )
+      .map((v) => v.__jsonb)
+      .filter((p) => 'response_id' in p && 'business_id' in p);
+    expect(notifyPayloads).toHaveLength(0);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+  });
+
+  it('dismiss: succeeds for an archived location (deliberately ungated — flags must be closable)', async () => {
+    txResults.push([{ id: FLAG_ID, response_id: 'resp-1', business_id: 'biz-1', account_id: 'acct-1' }]); // flag SELECT
+    // No archived-gate row queued: dismissed_false_positive never queries businesses.
+    const res = await POST(postReq({ flaggedId: FLAG_ID, action: 'dismissed_false_positive' }));
+    expect(res.status).toBe(200);
+    expect(txCalls.some((c) => /FROM businesses/.test(c.text))).toBe(false);
+  });
+
   it('requires_regeneration: supersedes the held draft and enqueues generate_response, no notification', async () => {
     txResults.push([{ id: FLAG_ID, response_id: 'resp-1', business_id: 'biz-1', account_id: 'acct-1' }]); // flag SELECT
     txResults.push(Object.assign([], { count: 1 })); // UPDATE flagged_responses
-    txResults.push([{ archived_at: null }]); // archived-location gate SELECT (active location)
     txResults.push([{ review_id: 'rev-1', version: 1, status: 'pending_approval' }]); // response SELECT FOR UPDATE
+    txResults.push([{ archived_at: null }]); // archived-location gate SELECT, AFTER the responses lock (active location)
 
     const res = await POST(postReq({ flaggedId: FLAG_ID, action: 'requires_regeneration' }));
     expect(res.status).toBe(200);

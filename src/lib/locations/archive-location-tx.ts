@@ -108,8 +108,6 @@ export interface ArchiveLocationTxInput {
   accountId: string;
   /** User ID of the actor performing the archive (for audit log). */
   actorUserId?: string | null;
-  /** Count of active locations before the archive (for audit payload). */
-  activeLocationsBefore: number;
 }
 
 export interface ArchiveLocationTxResult {
@@ -149,24 +147,31 @@ export interface ArchiveLocationForOffboardingTeardownTxResult extends ArchiveLo
 export async function archiveLocationTransaction(
   input: ArchiveLocationTxInput,
 ): Promise<ArchiveLocationTxResult> {
-  const { locationId, accountId, actorUserId, activeLocationsBefore } = input;
+  const { locationId, accountId, actorUserId } = input;
 
   await sql.begin(async (tx) => {
     const context = await lockArchiveContext(tx, locationId, accountId);
+    // Already archived (double-submit / concurrent archive): surface the
+    // conflict BEFORE the count guard — the archived target no longer counts
+    // as active, so on a 2-active-location account the count guard would
+    // misreport last_active_location for a row that is simply already gone.
+    if (context.archivedAt !== null) {
+      throw new Error('location_archive_conflict');
+    }
     if (context.activeLocationsBefore <= 1) {
       throw new Error('last_active_location');
     }
     // Race-proof primary guard: decide from the locked snapshot, not the UPDATE
     // rowcount. last_active_location is checked first (above) so the only-location
     // case never surfaces as promote_first.
-    if (context.isPrimary && context.activeLocationsBefore > 1) {
+    if (context.isPrimary) {
       throw new Error('promote_first');
     }
     await applyArchiveLocationUpdate(tx, {
       locationId,
       accountId,
       actorUserId,
-      activeLocationsBefore,
+      activeLocationsBefore: context.activeLocationsBefore,
       blockPrimary: true,
     });
   });
@@ -448,7 +453,7 @@ export async function reactivateLocationTransaction(
       await tx`
         INSERT INTO account_audit_log (id, account_id, location_id, event_type, actor_user_id, payload)
         VALUES (${uuidv7()}::uuid, ${accountId}::uuid, ${locationId}::uuid, 'primary_promoted', ${actorUserId ?? null}::uuid,
-                ${jsonb({ location_id: locationId, reason: 'reactivation_self_heal' })})
+                ${jsonb({ old_primary_id: null, new_primary_id: locationId, reason: 'reactivation_self_heal' })})
       `;
     }
 

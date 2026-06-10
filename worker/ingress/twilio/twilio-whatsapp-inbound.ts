@@ -298,7 +298,7 @@ function permanentButtonErrorMessage(err: Error): string {
     // Subclass of ResponseNotPendingError — must match before the generic
     // fallthrough, otherwise the owner sees "handled on another channel",
     // which is false here.
-    return 'This location has been archived — this draft can no longer be regenerated.';
+    return 'This location has been archived — approval actions are no longer available for this draft.';
   }
 
   return 'This reply was just handled on another channel.';

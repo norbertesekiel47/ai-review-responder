@@ -4,8 +4,10 @@
 // Gated by MULTI_LOCATION_ENABLED flag.
 //
 // Atomically changes is_primary from the current primary to the new one.
-// The partial unique index `businesses_account_primary_uniq` ensures
-// exactly one primary per active account at all times.
+// Also the REPAIR path for zero-primary accounts: demoting 0 rows is legal
+// (see the one-primary invariant docblock in
+// src/lib/locations/promote-primary-tx.ts — the index enforces AT MOST one;
+// the app repairs AT LEAST one).
 //
 // Feature spec: Primary promotion changes is_primary atomically from old to new.
 

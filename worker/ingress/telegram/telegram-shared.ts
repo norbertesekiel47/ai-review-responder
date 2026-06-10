@@ -89,7 +89,7 @@ export function messageForLinkError(err: Error): string {
   if (err instanceof ArchivedLocationError) {
     // Subclass of ResponseNotPendingError — must match before the parent,
     // otherwise the owner sees "already been handled", which is false here.
-    return 'This location has been archived — this draft can no longer be regenerated.';
+    return 'This location has been archived — approval actions are no longer available for this draft.';
   }
   if (err instanceof ResponseNotPendingError) {
     // The approval_link was still live, but the response had already been

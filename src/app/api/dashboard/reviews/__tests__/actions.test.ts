@@ -96,7 +96,7 @@ vi.mock('@/lib/approval/errors', () => {
     constructor() {
       super('archived_location');
       this.name = 'ArchivedLocationError';
-      this.message = 'This location has been archived — this draft can no longer be regenerated.';
+      this.message = 'This location has been archived — approval actions are no longer available for this draft.';
     }
   }
   return {

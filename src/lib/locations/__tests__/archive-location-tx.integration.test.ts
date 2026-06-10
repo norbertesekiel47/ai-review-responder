@@ -80,7 +80,6 @@ d('archiveLocationTransaction primary-archive invariant integration', () => {
         locationId: ids.primaryLocationId,
         accountId: ids.accountId,
         actorUserId: ids.ownerUserId,
-        activeLocationsBefore: 2,
       }),
     ).rejects.toThrow('promote_first');
 
@@ -100,7 +99,6 @@ d('archiveLocationTransaction primary-archive invariant integration', () => {
       locationId: ids.secondaryLocationId,
       accountId: ids.accountId,
       actorUserId: ids.ownerUserId,
-      activeLocationsBefore: 2,
     });
 
     expect(result).toEqual({ locationId: ids.secondaryLocationId, archived: true });

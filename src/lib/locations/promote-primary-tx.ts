@@ -3,9 +3,23 @@
 // Primary promotion transaction. Atomically changes is_primary from the
 // current primary location to a new primary location within the same account.
 //
-// Feature spec:
-//   - Primary promotion changes is_primary atomically from old to new
-//   - Exactly one primary per active account maintained by partial unique index
+// ── CANONICAL OWNER of the one-primary invariant ────────────────────────────
+// The invariant has two halves with two different enforcers:
+//   AT MOST one  — the partial unique index businesses_account_primary_uniq
+//                  (is_primary = TRUE AND archived_at IS NULL).
+//   AT LEAST one — app-level repair, NOT the index. Zero-primary is a legal
+//                  but transient state, reachable via offboarding-teardown
+//                  (archives every location, primary included) followed by a
+//                  cancelled offboarding + reactivation. It is repaired by:
+//                  (a) this transaction, which tolerates demoting 0 rows
+//                  precisely so promote can fix a zero-primary account;
+//                  (b) reactivation's self-heal (archive-location-tx.ts),
+//                  which auto-promotes when no active primary exists. The
+//                  owner archive path blocks archiving a primary
+//                  (promote_first), so steady state never drops to zero
+//                  outside offboarding.
+// New lifecycle writers (CSV import, merges, admin reassignment) must keep
+// BOTH halves: never assume a primary exists, never create a second one.
 //
 // The partial unique index `businesses_account_primary_uniq` enforces that
 // at most one row per account has is_primary = TRUE AND archived_at IS NULL.

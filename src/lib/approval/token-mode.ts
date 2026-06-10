@@ -46,8 +46,12 @@ export async function approve(
   correlationId?: string,
 ): Promise<void> {
   verifyDevice(link, deviceCookieHash);
-  await assertLocationNotArchived(tx, link.business_id);
   const resp = await lockAndConsumeTokenResponse(tx, link);
+  // Archived gate AFTER the response lock: every lane (dashboard, callback,
+  // token) acquires responses FOR UPDATE before the businesses FOR SHARE, so
+  // a concurrent archive can never form a lock-order cycle. The throw rolls
+  // back the consume — the link is not burned.
+  await assertLocationNotArchived(tx, link.business_id);
 
   await tx`
     UPDATE responses
@@ -80,11 +84,14 @@ export async function edit(
   correlationId?: string,
 ): Promise<void> {
   verifyDevice(link, deviceCookieHash);
-  await assertLocationNotArchived(tx, link.business_id);
   const sanitizedText = sanitizePublicResponseText(editedText);
   if (sanitizedText.length === 0) throw new EmptyEditedResponseError();
 
   const resp = await lockAndConsumeTokenResponse(tx, link);
+  // Archived gate AFTER the response lock — uniform responses → businesses
+  // lock order across all lanes (see approve()). Also keeps the free local
+  // empty-text validation ahead of any DB read.
+  await assertLocationNotArchived(tx, link.business_id);
 
   const editDist = distance(resp.original_draft_text, sanitizedText);
 
@@ -121,8 +128,10 @@ export async function regenerate(
   correlationId?: string,
 ): Promise<void> {
   verifyDevice(link, deviceCookieHash);
-  await assertLocationNotArchived(tx, link.business_id);
   const resp = await lockAndConsumeTokenResponse(tx, link);
+  // Archived gate AFTER the response lock — uniform responses → businesses
+  // lock order across all lanes (see approve()).
+  await assertLocationNotArchived(tx, link.business_id);
   await revokeSiblings(tx, link.response_id, link.id);
 
   await tx`
