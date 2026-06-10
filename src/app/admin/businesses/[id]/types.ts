@@ -44,7 +44,7 @@ export type AwaitingOwnerConnectResponse = ZernioPanelData['awaitingOwnerConnect
 export type ZernioFinalizeIncident = ZernioPanelData['unresolvedIncidents'][number];
 
 export interface ChannelEnrollmentRow {
-  channel: 'email' | 'sms' | 'telegram' | 'whatsapp';
+  channel: 'email' | 'telegram' | 'whatsapp';
   handle: string;
   status: 'pending_verification' | 'verified' | 'disabled' | 'unsubscribed';
   verified_at: string | null;

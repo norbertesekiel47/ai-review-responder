@@ -224,7 +224,6 @@ export interface BusinessDetailResponse {
     rankingSearchLocation: string | null;
     googlePlaceAddress: string | null;
     ownerEmailBounced: boolean;
-    smsEnabled: boolean;
     telegramEnabled: boolean;
     whatsappEnabled: boolean;
     churnScore: ChurnScore;

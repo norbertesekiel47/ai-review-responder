@@ -120,7 +120,7 @@ function resolveEffectiveEnrollments(rows: ChannelEnrollmentRow[]): ChannelEnrol
 function maskHandle(channel: string, handle: string | null): string {
   if (handle === null) return '(pending verification)';
   if (channel === 'email') return handle;
-  if (channel === 'sms' || channel === 'whatsapp') {
+  if (channel === 'whatsapp') {
     // Show first 3 + last 4, mask the rest. For short handles (<= 7 chars),
     // the hidden section becomes zero-width — must clamp to avoid
     // `'•'.repeat(-1)` which throws RangeError.

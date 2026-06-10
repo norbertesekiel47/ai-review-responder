@@ -129,7 +129,6 @@ export default function NotificationsPage() {
           >
             <option value="">All Channels</option>
             <option value="email">Email</option>
-            <option value="sms">SMS</option>
           </select>
 
           {/* Status filter */}

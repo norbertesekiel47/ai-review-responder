@@ -1,7 +1,7 @@
 // src/app/api/admin/channels/whatsapp/_shared.ts
 //
 // Shared helpers for the three admin WhatsApp routes (start, cancel, disable).
-// Mirrors the Telegram + SMS patterns at ../telegram/_shared.ts and ../sms/_shared.ts.
+// Mirrors the Telegram pattern at ../telegram/_shared.ts.
 
 import { NextResponse } from 'next/server';
 

@@ -11,8 +11,7 @@
 // to use a real Postgres pool. Real-Postgres coverage is reserved for the
 // Playwright e2e under TEST_DATABASE_POOL_URL (see the comment headers in
 // worker/jobs/zernio/__tests__/zernio-end-to-end.integration.test.ts and
-// worker/ingress/test-helpers.ts). We mirror src/app/api/admin/channels/sms/
-// __tests__/reenable-e2e.test.ts exactly: a shared hoisted sqlReturnQueue, a
+// worker/ingress/test-helpers.ts). We use a shared hoisted sqlReturnQueue, a
 // mocked requireRole (the route's only auth dependency), the REAL Twilio
 // validateRequest (so the inbound handler's signature path runs), and the REAL
 // handleTwilioWhatsAppInbound. This exercises the full round-trip — owner POST
@@ -20,9 +19,8 @@
 // — without needing a Supabase Auth session or a live database.
 //
 // Gating: runs unconditionally. Because the DB seam is mocked (no real
-// Postgres is touched), this test needs no harness env var — it mirrors
-// src/app/api/admin/channels/sms/__tests__/reenable-e2e.test.ts, which also
-// runs every Vitest invocation. Real-Postgres coverage is reserved for the
+// Postgres is touched), this test needs no harness env var. Real-Postgres
+// coverage is reserved for the
 // Playwright e2e gated on TEST_DATABASE_POOL_URL.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
