@@ -1,7 +1,6 @@
 // worker/ingress/twilio/twilio-intent.ts
 //
-// STOP/START keyword classification extracted from worker/ingress/twilio/twilio.ts so
-// both SMS and WhatsApp ingress handlers can share the logic. Pure function,
+// STOP/START keyword classification for WhatsApp ingress. Pure function,
 // no I/O. Keyword sets cover Twilio-native EN + ES per parent spec.
 //
 // Behavior unchanged — this is a mechanical move. See
