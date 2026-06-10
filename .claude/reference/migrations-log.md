@@ -603,9 +603,7 @@ org-default rows by `(account_id, channel, location_id IS NULL)`; the
 stays the legacy FK on INSERT only.
 
 **STILL OPEN (deferred, tracked in `docs/known-issues.md`):**
-- Admin **SMS** still locks per business (`withMobileEnrollmentLock`) and prechecks
-  cross-channel by `business_id` — can waste a Twilio Verify SMS + late-409 and
-  does not serialize vs TG/WA start. (`one_mobile_per_scope` still prevents dupes.)
+- ~~Admin **SMS** still locks per business (`withMobileEnrollmentLock`) and prechecks cross-channel by `business_id`~~ — **MOOT: SMS removed (migration 061, 2026-06-09).**
 - **Dispatcher** failure-handling writes (`worker/jobs/notification/dispatch.ts`)
   flip enrollment status by `business_id = ctx.businessId` — can miss the org-default
   row on multi-location.
