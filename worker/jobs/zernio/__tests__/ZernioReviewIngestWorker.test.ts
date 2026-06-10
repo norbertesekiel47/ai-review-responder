@@ -9,6 +9,7 @@ const {
   sqlReturnQueue,
   mockSql,
   mockMarkOutboxCompleted,
+  mockMarkOutboxFailed,
   mockListReviews,
   mockProcessReview,
   mockReconcileExternallyAnsweredReview,
@@ -29,6 +30,7 @@ const {
     sqlReturnQueue,
     mockSql,
     mockMarkOutboxCompleted: vi.fn(),
+    mockMarkOutboxFailed: vi.fn(),
     mockListReviews: vi.fn(),
     mockProcessReview: vi.fn(),
     mockReconcileExternallyAnsweredReview: vi.fn(),
@@ -42,7 +44,7 @@ const {
 vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
-  markOutboxFailed: vi.fn(),
+  markOutboxFailed: mockMarkOutboxFailed,
   extractOutboxHandle: (d: any, fallback: string) => ({
     outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback,
     attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined,
@@ -300,6 +302,31 @@ describe('ZernioReviewIngestWorker', () => {
     expect(mockListReviews).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+  });
+
+  // 6b. Location archived → markOutboxCompleted (skip-as-success), NO listReviews call.
+  //     Defense-in-depth for ingest jobs already queued when a location is
+  //     archived: the webhook fan-out (A1) stops enqueuing new jobs, this
+  //     skips any that were already in flight. Mirrors the cancelled-
+  //     subscription skip: complete the job, never fail/retry.
+  it('marks outbox completed and skips when the location is archived', async () => {
+    // Active subscription + active connection — only archived_at should
+    // trigger the skip. Without the guard, execution would proceed to
+    // listReviews, so this proves the archived gate is what stops it.
+    sqlReturnQueue.push([{
+      subscription_status: 'active',
+      past_due_at: null,
+      account_flags: {},
+      archived_at: '2026-06-01T00:00:00Z',
+    }]);
+    pushActiveConn();
+
+    await handleZernioReviewIngest(makeJob());
+
+    expect(mockListReviews).not.toHaveBeenCalled();
+    expect(mockProcessReview).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
   // 7. Connection no longer active → markOutboxCompleted, NO listReviews call

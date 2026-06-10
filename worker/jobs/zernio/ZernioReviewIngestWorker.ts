@@ -99,8 +99,9 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
     subscription_status: string;
     past_due_at: Date | null;
     account_flags: AccountFlagsInput;
+    archived_at: Date | null;
   }[]>`
-    SELECT a.subscription_status, a.past_due_at, a.flags AS account_flags
+    SELECT a.subscription_status, a.past_due_at, a.flags AS account_flags, b.archived_at
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${business_id}
@@ -111,6 +112,16 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
     accountFlags: acct.account_flags ?? {},
     workerType: 'generator',
   }).allowed) {
+    await markOutboxCompleted(outboxId, attempt);
+    return;
+  }
+
+  // 1b. Archived-location guard (skip-as-success). Defense-in-depth for jobs
+  // already queued when the location was archived: the webhook fan-out no
+  // longer enqueues ingest for archived locations, but in-flight jobs must
+  // skip too. Completes the job — never fails, throws, or burns a retry.
+  if (acct.archived_at) {
+    logger.log(`Business ${business_id} archived — skipping ingest (archived_location)`);
     await markOutboxCompleted(outboxId, attempt);
     return;
   }
