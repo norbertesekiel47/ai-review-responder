@@ -57,6 +57,8 @@ vi.mock('../../../src/lib/responses/review-summary', () => ({
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 
 import { handleMonthlyImpact } from '../MonthlyImpactWorker';
+import { makeSummaryReportBusiness } from './summary-report-fixtures';
+import type { SummaryReportBusiness } from '../summary-report-helpers';
 
 function makeJob(overrides: Partial<SendMonthlyImpactPayload> = {}): Job<SendMonthlyImpactPayload> {
   return {
@@ -67,21 +69,6 @@ function makeJob(overrides: Partial<SendMonthlyImpactPayload> = {}): Job<SendMon
     },
     id: 'outbox-mi-1',
   } as Job<SendMonthlyImpactPayload>;
-}
-
-function mockBusinessRow(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 'biz-1',
-    name: 'Test Biz',
-    owner_email: 'owner@test.com',
-    subscription_status: 'active',
-    account_updated_at: new Date(),
-    initial_review_count: 50,
-    initial_responded_count: 10,
-    baseline_captured_at: new Date('2026-01-01'),
-    subscription_tier: 'standard',
-    ...overrides,
-  };
 }
 
 /**
@@ -102,7 +89,7 @@ function mockBusinessRow(overrides: Record<string, unknown> = {}) {
  * 12. UPDATE sent_at (always, before email send)
  */
 function pushHappyPathSqlQueue(opts: {
-  business?: Record<string, unknown>;
+  business?: Partial<SummaryReportBusiness>;
   upsertRow?: unknown[];
   summaryText?: string | null;
   bestReview?: unknown[];
@@ -111,8 +98,7 @@ function pushHappyPathSqlQueue(opts: {
   initialRanking?: unknown[];
   ownerWithAuth?: unknown[];
 } = {}) {
-  const biz = opts.business ?? {};
-  sqlReturnQueue.push([mockBusinessRow(biz)]);                            // 1. business
+  sqlReturnQueue.push([makeSummaryReportBusiness(opts.business)]);        // 1. business
   sqlReturnQueue.push(opts.upsertRow ?? [{ sent_at: null, summary_text: opts.summaryText ?? null }]); // 2. upsert
   sqlReturnQueue.push([{ id: 'claimed-id' }]);                             // 3. claim UPDATE
   sqlReturnQueue.push([{ count: '12' }]);                                  // 4. review count
@@ -163,7 +149,7 @@ describe('MonthlyImpactWorker – handleMonthlyImpact', () => {
   });
 
   it('skips if subscription not allowed (cancelled)', async () => {
-    sqlReturnQueue.push([mockBusinessRow({ subscription_status: 'cancelled' })]);
+    sqlReturnQueue.push([makeSummaryReportBusiness({ subscription_status: 'cancelled' })]);
 
     await handleMonthlyImpact(makeJob());
 
@@ -172,7 +158,7 @@ describe('MonthlyImpactWorker – handleMonthlyImpact', () => {
   });
 
   it('skips if subscription not allowed (pending_payment)', async () => {
-    sqlReturnQueue.push([mockBusinessRow({ subscription_status: 'pending_payment' })]);
+    sqlReturnQueue.push([makeSummaryReportBusiness({ subscription_status: 'pending_payment' })]);
 
     await handleMonthlyImpact(makeJob());
 
@@ -181,7 +167,7 @@ describe('MonthlyImpactWorker – handleMonthlyImpact', () => {
   });
 
   it('already-sent report marks outbox completed without sending', async () => {
-    sqlReturnQueue.push([mockBusinessRow()]);   // business
+    sqlReturnQueue.push([makeSummaryReportBusiness()]);   // business
     sqlReturnQueue.push([]);                     // upsert returns empty
     sqlReturnQueue.push([{ sent_at: '2026-03-01', claimed_at: '2026-03-01' }]); // distinguish: sent_at IS NOT NULL
 
@@ -194,7 +180,7 @@ describe('MonthlyImpactWorker – handleMonthlyImpact', () => {
   });
 
   it('throws for retry when claimed by another worker (not yet sent)', async () => {
-    sqlReturnQueue.push([mockBusinessRow()]);   // business
+    sqlReturnQueue.push([makeSummaryReportBusiness()]);   // business
     sqlReturnQueue.push([]);                     // upsert returns empty
     sqlReturnQueue.push([{ sent_at: null, claimed_at: new Date().toISOString() }]); // claimed but not sent
 
@@ -231,6 +217,7 @@ describe('MonthlyImpactWorker – handleMonthlyImpact', () => {
     expect(emailArgs.to).toBe('owner@test.com');
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
+      accountId: 'acc-1',
       businessId: 'biz-1',
       channel: 'email',
       recipient: 'owner@test.com',

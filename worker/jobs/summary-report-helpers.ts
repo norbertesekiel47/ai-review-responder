@@ -5,6 +5,7 @@ import {
 } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
 import type { LocationId } from '../../src/lib/shared/ids';
+import type { WorkerLogger } from '../../src/lib/shared/logger';
 
 export interface SummaryReportBusiness {
   id: string;
@@ -61,7 +62,7 @@ export async function completeOrFailSkippedSummaryReport(input: {
   businessId: LocationId;
   outboxId: string;
   outboxAttempt: number | undefined;
-  logger: { warn: (message: string) => void; log: (message: string) => void };
+  logger: Pick<WorkerLogger, 'log' | 'warn'>;
 }): Promise<boolean> {
   const { business, businessId, outboxId, outboxAttempt, logger } = input;
   if (!business) {
@@ -71,7 +72,10 @@ export async function completeOrFailSkippedSummaryReport(input: {
   }
 
   if (business.archived_at) {
-    logger.log(`Business ${businessId} archived — skipping summary report`);
+    logger.log('archived — skipping summary report', {
+      reason: 'archived_location',
+      business_id: businessId,
+    });
     await markOutboxCompleted(outboxId, outboxAttempt);
     return true;
   }

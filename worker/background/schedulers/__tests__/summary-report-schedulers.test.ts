@@ -1,0 +1,103 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// One parametrized harness for the two summary-report schedulers
+// (WeeklySummaryScheduler / MonthlyImpactScheduler) — they share the same
+// candidate-selection shape and previously lived in byte-near-identical files.
+
+// ── Hoisted mock state ───────────────────────────────────────────────
+const { sqlReturnQueue, mockSql } = vi.hoisted(() => {
+  const sqlReturnQueue: unknown[] = [];
+
+  const mockSql = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) =>
+    Promise.resolve(sqlReturnQueue.shift() ?? []),
+  );
+
+  return { sqlReturnQueue, mockSql };
+});
+
+vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
+vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
+
+/** Drains the candidate query then any follow-up microtasks. */
+async function flush(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+interface SchedulerCase {
+  name: string;
+  envVar: string;
+  /** A moment inside this scheduler's UTC dispatch window. */
+  systemTime: string;
+  /** Table name unique to this scheduler's candidate query. */
+  candidateMarker: string;
+  load: () => Promise<{ start: () => void; stop: () => void }>;
+}
+
+const schedulerCases: SchedulerCase[] = [
+  {
+    name: 'WeeklySummaryScheduler',
+    envVar: 'WEEKLY_SUMMARY_SCHEDULER_INTERVAL_MS',
+    // 2026-06-01 is a Monday; 08:30 UTC is inside the 8–9 AM scheduling window.
+    systemTime: '2026-06-01T08:30:00Z',
+    candidateMarker: 'weekly_summaries',
+    load: async () => {
+      const mod = await import('../WeeklySummaryScheduler');
+      return { start: mod.startWeeklySummaryScheduler, stop: mod.stopWeeklySummaryScheduler };
+    },
+  },
+  {
+    name: 'MonthlyImpactScheduler',
+    envVar: 'MONTHLY_IMPACT_SCHEDULER_INTERVAL_MS',
+    // 1st of the month at 09:30 UTC is inside the 9–10 AM scheduling window.
+    systemTime: '2026-06-01T09:30:00Z',
+    candidateMarker: 'monthly_impact_emails',
+    load: async () => {
+      const mod = await import('../MonthlyImpactScheduler');
+      return { start: mod.startMonthlyImpactScheduler, stop: mod.stopMonthlyImpactScheduler };
+    },
+  },
+];
+
+describe.each(schedulerCases)('$name', ({ envVar, systemTime, candidateMarker, load }) => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    sqlReturnQueue.length = 0;
+    vi.resetModules();
+    delete process.env[envVar];
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('excludes archived locations from candidate selection', async () => {
+    vi.setSystemTime(new Date(systemTime));
+    sqlReturnQueue.push([]); // candidate query returns no businesses
+
+    const scheduler = await load();
+    scheduler.start();
+    await flush();
+
+    const candidateCall = mockSql.mock.calls.find((call) => {
+      const text = Array.from(call[0]).join('');
+      return text.includes('FROM businesses b') && text.includes(candidateMarker);
+    });
+    expect(candidateCall).toBeDefined();
+    const queryText = Array.from(candidateCall![0]).join('');
+
+    // Best-effort textual hardening (a DB-level integration test covers the
+    // real semantics elsewhere): the archived exclusion must be a direct
+    // predicate in the candidate query's WHERE/AND chain — not reintroduced
+    // via an outer join on businesses that could let archived rows through.
+    expect(queryText).toMatch(/WHERE[\s\S]*?\bAND\s+b\.archived_at\s+IS\s+NULL/i);
+    expect(queryText).not.toMatch(/LEFT\s+JOIN\s+businesses/i);
+    // The predicate filters candidates directly, ahead of the NOT EXISTS dedup subquery.
+    expect(queryText.indexOf('b.archived_at IS NULL')).toBeLessThan(
+      queryText.indexOf('NOT EXISTS'),
+    );
+
+    scheduler.stop();
+  });
+});

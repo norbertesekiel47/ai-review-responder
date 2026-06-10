@@ -15,28 +15,9 @@ import {
   calculateBaselineResponseRate,
   completeOrFailSkippedSummaryReport,
   mapSummaryReviews,
-  type SummaryReportBusiness,
 } from '../summary-report-helpers';
-
-function makeBusiness(overrides: Partial<SummaryReportBusiness> = {}): SummaryReportBusiness {
-  return {
-    id: 'biz-1',
-    account_id: 'acc-1',
-    name: 'Test Co',
-    owner_email: 'owner@example.com',
-    owner_email_bounced: false,
-    subscription_status: 'active',
-    account_updated_at: new Date('2026-01-01'),
-    account_past_due_at: null,
-    account_flags: {},
-    initial_review_count: null,
-    initial_responded_count: null,
-    baseline_captured_at: null,
-    subscription_tier: 'pro',
-    archived_at: null,
-    ...overrides,
-  };
-}
+import { asLocationId } from '../../../src/lib/shared/ids';
+import { makeSummaryReportBusiness } from './summary-report-fixtures';
 
 describe('summary report helpers', () => {
   it('calculates a rounded baseline response rate when baseline data is complete', () => {
@@ -96,8 +77,8 @@ describe('completeOrFailSkippedSummaryReport — archived locations', () => {
 
   it('skips an archived business as success (completes outbox, never fails)', async () => {
     const skipped = await completeOrFailSkippedSummaryReport({
-      business: makeBusiness({ archived_at: '2026-06-01T00:00:00Z' as unknown as Date }),
-      businessId: 'biz-1' as never,
+      business: makeSummaryReportBusiness({ archived_at: new Date('2026-06-01T00:00:00Z') }),
+      businessId: asLocationId('biz-1'),
       outboxId: 'o1',
       outboxAttempt: 1,
       logger: fakeLogger,
@@ -108,13 +89,13 @@ describe('completeOrFailSkippedSummaryReport — archived locations', () => {
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
-  it('checks archived before subscription — a cancelled archived business still completes (not fails)', async () => {
+  it('checks archived before subscription — pinned via the structured skip log', async () => {
     const skipped = await completeOrFailSkippedSummaryReport({
-      business: makeBusiness({
-        archived_at: '2026-06-01T00:00:00Z' as unknown as Date,
+      business: makeSummaryReportBusiness({
+        archived_at: new Date('2026-06-01T00:00:00Z'),
         subscription_status: 'cancelled',
       }),
-      businessId: 'biz-1' as never,
+      businessId: asLocationId('biz-1'),
       outboxId: 'o2',
       outboxAttempt: undefined,
       logger: fakeLogger,
@@ -123,18 +104,20 @@ describe('completeOrFailSkippedSummaryReport — archived locations', () => {
     expect(skipped).toBe(true);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('o2', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
-    // Pins ordering: the archived branch emits this exact message. If the
-    // subscription check ran first, a cancelled business would log the
-    // subscription-skip reason instead, and this assertion would fail.
+    // Pins ordering: only the archived branch logs the structured
+    // { reason: 'archived_location' } object arg. If the subscription check
+    // ran first, the cancelled business would take the subscription-skip
+    // branch (plain string log, no reason object) and this would fail.
     expect(fakeLogger.log).toHaveBeenCalledWith(
-      'Business biz-1 archived — skipping summary report',
+      'archived — skipping summary report',
+      expect.objectContaining({ reason: 'archived_location', business_id: 'biz-1' }),
     );
   });
 
   it('proceeds (returns false) for a non-archived active business — regression', async () => {
     const skipped = await completeOrFailSkippedSummaryReport({
-      business: makeBusiness({ archived_at: null }),
-      businessId: 'biz-1' as never,
+      business: makeSummaryReportBusiness({ archived_at: null }),
+      businessId: asLocationId('biz-1'),
       outboxId: 'o3',
       outboxAttempt: 1,
       logger: fakeLogger,

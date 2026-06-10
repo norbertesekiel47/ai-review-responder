@@ -57,6 +57,8 @@ vi.mock('../../../src/lib/responses/review-summary', () => ({
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 
 import { handleWeeklySummary } from '../WeeklySummaryWorker';
+import { makeSummaryReportBusiness } from './summary-report-fixtures';
+import type { SummaryReportBusiness } from '../summary-report-helpers';
 
 function makeJob(overrides: Partial<WeeklySummaryPayload> = {}): Job<WeeklySummaryPayload> {
   return {
@@ -67,22 +69,6 @@ function makeJob(overrides: Partial<WeeklySummaryPayload> = {}): Job<WeeklySumma
     },
     id: 'outbox-ws-1',
   } as Job<WeeklySummaryPayload>;
-}
-
-function mockBusinessRow(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 'biz-1',
-    name: 'Test Biz',
-    owner_email: 'owner@test.com',
-    owner_email_bounced: false,
-    subscription_status: 'active',
-    account_updated_at: new Date(),
-    initial_review_count: 50,
-    initial_responded_count: 10,
-    baseline_captured_at: new Date('2026-01-01'),
-    subscription_tier: 'standard',
-    ...overrides,
-  };
 }
 
 /**
@@ -104,7 +90,7 @@ function mockBusinessRow(overrides: Record<string, unknown> = {}) {
  * 13. UPDATE sent_at (always, before email send)
  */
 function pushHappyPathSqlQueue(opts: {
-  business?: Record<string, unknown>;
+  business?: Partial<SummaryReportBusiness>;
   reviewsForSummary?: unknown[];
   latestRanking?: unknown[];
   initialRanking?: unknown[];
@@ -112,8 +98,7 @@ function pushHappyPathSqlQueue(opts: {
   upsertRow?: unknown[];
   summaryText?: string | null;
 } = {}) {
-  const biz = opts.business ?? {};
-  sqlReturnQueue.push([mockBusinessRow(biz)]);                              // 1. business
+  sqlReturnQueue.push([makeSummaryReportBusiness(opts.business)]);          // 1. business
   sqlReturnQueue.push([{ count: '5' }]);                                    // 2. review count
   sqlReturnQueue.push([{ count: '4' }]);                                    // 3. responded count
   sqlReturnQueue.push([{ reviewer_name: 'Jane', star_rating: 1, review_text: 'Bad' }]); // 4. notable
@@ -154,7 +139,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
   });
 
   it('skips if subscription not allowed (cancelled)', async () => {
-    sqlReturnQueue.push([mockBusinessRow({ subscription_status: 'cancelled' })]);
+    sqlReturnQueue.push([makeSummaryReportBusiness({ subscription_status: 'cancelled' })]);
 
     await handleWeeklySummary(makeJob());
 
@@ -163,7 +148,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
   });
 
   it('skips if subscription not allowed (pending_payment)', async () => {
-    sqlReturnQueue.push([mockBusinessRow({ subscription_status: 'pending_payment' })]);
+    sqlReturnQueue.push([makeSummaryReportBusiness({ subscription_status: 'pending_payment' })]);
 
     await handleWeeklySummary(makeJob());
 
@@ -213,6 +198,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledOnce();
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
+      accountId: 'acc-1',
       businessId: 'biz-1',
       channel: 'email',
       recipient: 'owner@test.com',
@@ -243,7 +229,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
   });
 
   it('already-sent summary marks outbox completed without sending', async () => {
-    sqlReturnQueue.push([mockBusinessRow()]);      // business
+    sqlReturnQueue.push([makeSummaryReportBusiness()]);      // business
     sqlReturnQueue.push([{ count: '3' }]);          // review count
     sqlReturnQueue.push([{ count: '3' }]);          // responded count
     sqlReturnQueue.push([]);                         // notable
@@ -263,7 +249,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
   });
 
   it('throws for retry when claimed by another worker (not yet sent)', async () => {
-    sqlReturnQueue.push([mockBusinessRow()]);      // business
+    sqlReturnQueue.push([makeSummaryReportBusiness()]);      // business
     sqlReturnQueue.push([{ count: '3' }]);          // review count
     sqlReturnQueue.push([{ count: '3' }]);          // responded count
     sqlReturnQueue.push([]);                         // notable
