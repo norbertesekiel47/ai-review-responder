@@ -251,125 +251,118 @@ export async function dispatchAll(
 
     // Approval-link creation is per-channel — a failure here must NOT
     // abort the whole dispatch loop (other channels may still succeed).
-    {
-      let rawToken: string;
-      let approvalLinkId: string;
-      try {
-        const link = await createApprovalLink({
-          responseId: ctx.responseId,
-          businessId: ctx.businessId,
-          channel: channelId,
-        });
-        rawToken = link.rawToken;
-        approvalLinkId = link.approvalLinkId;
-      } catch (err) {
-        const reason = err instanceof Error ? err.message : String(err);
-        logger.error(`createApprovalLink failed for ${channelId} response ${ctx.responseId}: ${reason}`);
-        attempted++;
-        await insertFailedDelivery(
-          ctx.accountId,
-          ctx.businessId,
-          ctx.responseId,
-          channelId,
-          enrollment.handle,
-          `approval_link_error:${reason}`,
-        );
-        continue;
-      }
-      const approvalUrl = `${ctx.appUrl}/approve/${rawToken}`;
+    let rawToken: string;
+    let approvalLinkId: string;
+    try {
+      const link = await createApprovalLink({
+        responseId: ctx.responseId,
+        businessId: ctx.businessId,
+        channel: channelId,
+      });
+      rawToken = link.rawToken;
+      approvalLinkId = link.approvalLinkId;
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      logger.error(`createApprovalLink failed for ${channelId} response ${ctx.responseId}: ${reason}`);
       attempted++;
+      await insertFailedDelivery(
+        ctx.accountId,
+        ctx.businessId,
+        ctx.responseId,
+        channelId,
+        enrollment.handle,
+        `approval_link_error:${reason}`,
+      );
+      continue;
+    }
+    const approvalUrl = `${ctx.appUrl}/approve/${rawToken}`;
+    attempted++;
 
-      let externalMessageId: string;
-      try {
-        // VAL-NOTIF-014: locationLabel is resolved from display_label ?? name
-        const locationLabel = getDisplayLabel({
-          display_label: ctx.business.displayLabel,
-          name: ctx.business.name,
-        });
-        const result = await getChannel(channelId).sendApprovalRequest({
-          handle: enrollment.handle,
-          locationLabel,
-          businessName: ctx.business.name,
-          reviewerName: ctx.review.reviewerName,
-          starRating: ctx.review.starRating,
-          reviewText: ctx.review.reviewText,
-          reviewDate: ctx.review.reviewDate,
-          responsePreview: ctx.review.responsePreview,
-          approvalUrl,
-          approvalLinkId,
-        });
-        externalMessageId = result.externalMessageId;
-      } catch (err) {
-        const directive = classifyChannelError(channelId, err, {
-          businessId: ctx.businessId,
-          responseId: ctx.responseId,
-        });
-        // Apply the enrollment mutation. The four status-flip branches delegate
-        // to flipEnrollmentStatus, which scopes the UPDATE by account_id + the
-        // enrollment's location (org-default vs per-location override) — never by
-        // business_id (a legacy FK that can miss org-default rows on
-        // multi-location accounts). Channel names stay SQL literals (not bound)
-        // to keep the unit-test SQL-text assertions
-        // (worker/jobs/notification/__tests__/NotificationWorker.whatsapp.test.ts)
-        // green.
-        if (
-          directive.kind === 'telegram_blocked' ||
-          directive.kind === 'telegram_chat_not_found' ||
-          directive.kind === 'whatsapp_blocked' ||
-          directive.kind === 'whatsapp_invalid_recipient'
-        ) {
-          await flipEnrollmentStatus(directive.kind, ctx.accountId, enrollment);
-        }
-        // CONFIG-ERROR (whatsapp_template_config / whatsapp_session_window),
-        // TRANSIENT (whatsapp_rate_limit / whatsapp_timeout), and 'unknown'
-        // intentionally leave channel_enrollments unchanged.
-
-        // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes.
-        const cacheAccountIds = [ctx.accountId];
-        try {
-          await Promise.all(
-            cacheAccountIds.map((accountId) =>
-              safeInvalidateChannelCache(
-                asAccountId(accountId),
-                'worker.notification.dispatch.channel-write',
-                logger,
-              ),
-            ),
-          );
-        } catch (err) {
-          const reason = err instanceof Error ? err.message : String(err);
-          logger.warn(`channel cache invalidation wrapper failed: ${reason}`);
-        }
-
-        // Primary log line (preserved verbatim from the original branches).
-        logger[directive.logLevel](directive.logMessage);
-        if (directive.extraLog) {
-          logger[directive.extraLog.level](directive.extraLog.message);
-        }
-
-        await insertFailedDelivery(
-          ctx.accountId,
-          ctx.businessId,
-          ctx.responseId,
-          channelId,
-          enrollment.handle,
-          directive.failureReason,
-        );
-        continue;
-      }
-
-      await recordNotificationDelivery({
-        accountId: ctx.accountId,
+    let externalMessageId: string;
+    try {
+      // VAL-NOTIF-014: locationLabel is resolved from display_label ?? name
+      const locationLabel = getDisplayLabel({
+        display_label: ctx.business.displayLabel,
+        name: ctx.business.name,
+      });
+      const result = await getChannel(channelId).sendApprovalRequest({
+        handle: enrollment.handle,
+        locationLabel,
+        businessName: ctx.business.name,
+        reviewerName: ctx.review.reviewerName,
+        starRating: ctx.review.starRating,
+        reviewText: ctx.review.reviewText,
+        reviewDate: ctx.review.reviewDate,
+        responsePreview: ctx.review.responsePreview,
+        approvalUrl,
+        approvalLinkId,
+      });
+      externalMessageId = result.externalMessageId;
+    } catch (err) {
+      const directive = classifyChannelError(channelId, err, {
         businessId: ctx.businessId,
         responseId: ctx.responseId,
-        channel: channelId,
-        recipient: enrollment.handle,
-        template: 'approval_request',
-        externalMessageId,
       });
-      succeeded++;
-      logger.log(`${channelId} approval notification sent for response ${ctx.responseId} (business ${ctx.businessId})`);
+      // Apply the enrollment mutation. The four status-flip branches delegate
+      // to flipEnrollmentStatus, which scopes the UPDATE by account_id + the
+      // enrollment's location (org-default vs per-location override) — never by
+      // business_id (a legacy FK that can miss org-default rows on
+      // multi-location accounts). Channel names stay SQL literals (not bound)
+      // to keep the unit-test SQL-text assertions
+      // (worker/jobs/notification/__tests__/NotificationWorker.whatsapp.test.ts)
+      // green.
+      if (
+        directive.kind === 'telegram_blocked' ||
+        directive.kind === 'telegram_chat_not_found' ||
+        directive.kind === 'whatsapp_blocked' ||
+        directive.kind === 'whatsapp_invalid_recipient'
+      ) {
+        await flipEnrollmentStatus(directive.kind, ctx.accountId, enrollment);
+      }
+      // CONFIG-ERROR (whatsapp_template_config / whatsapp_session_window),
+      // TRANSIENT (whatsapp_rate_limit / whatsapp_timeout), and 'unknown'
+      // intentionally leave channel_enrollments unchanged.
+
+      // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes.
+      try {
+        await safeInvalidateChannelCache(
+          asAccountId(ctx.accountId),
+          'worker.notification.dispatch.channel-write',
+          logger,
+        );
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        logger.warn(`channel cache invalidation wrapper failed: ${reason}`);
+      }
+
+      // Primary log line (preserved verbatim from the original branches).
+      logger[directive.logLevel](directive.logMessage);
+      if (directive.extraLog) {
+        logger[directive.extraLog.level](directive.extraLog.message);
+      }
+
+      await insertFailedDelivery(
+        ctx.accountId,
+        ctx.businessId,
+        ctx.responseId,
+        channelId,
+        enrollment.handle,
+        directive.failureReason,
+      );
+      continue;
     }
+
+    await recordNotificationDelivery({
+      accountId: ctx.accountId,
+      businessId: ctx.businessId,
+      responseId: ctx.responseId,
+      channel: channelId,
+      recipient: enrollment.handle,
+      template: 'approval_request',
+      externalMessageId,
+    });
+    succeeded++;
+    logger.log(`${channelId} approval notification sent for response ${ctx.responseId} (business ${ctx.businessId})`);
   }
 
   return { attempted, succeeded };
