@@ -17,6 +17,7 @@ import {
   mapSummaryReviews,
 } from '../summary-report-helpers';
 import { asLocationId } from '../../../src/lib/shared/ids';
+import { SKIP_REASON_ARCHIVED_LOCATION } from '../../../src/lib/shared/worker-types';
 import { makeSummaryReportBusiness } from './summary-report-fixtures';
 
 describe('summary report helpers', () => {
@@ -105,12 +106,12 @@ describe('completeOrFailSkippedSummaryReport — archived locations', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('o2', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
     // Pins ordering: only the archived branch logs the structured
-    // { reason: 'archived_location' } object arg. If the subscription check
+    // { reason: archived_location } object arg. If the subscription check
     // ran first, the cancelled business would take the subscription-skip
     // branch (plain string log, no reason object) and this would fail.
     expect(fakeLogger.log).toHaveBeenCalledWith(
       'archived — skipping summary report',
-      expect.objectContaining({ reason: 'archived_location', business_id: 'biz-1' }),
+      expect.objectContaining({ reason: SKIP_REASON_ARCHIVED_LOCATION, business_id: 'biz-1' }),
     );
   });
 

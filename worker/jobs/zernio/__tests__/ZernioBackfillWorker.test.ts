@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
-import type { ZernioInitialBackfillPayload } from '../../../../src/lib/shared/worker-types';
+import { SKIP_REASON_ARCHIVED_LOCATION, type ZernioInitialBackfillPayload } from '../../../../src/lib/shared/worker-types';
 import type { ZernioReview } from '../../../../src/lib/zernio/types';
 
 // ── Hoisted state shared between mock factories and tests ──────────────
 const {
   sqlReturnQueue,
   mockSql,
+  resetMockSql,
   mkTaggedResult,
   mockMarkOutboxCompleted,
   mockListAllReviews,
@@ -14,30 +15,15 @@ const {
   mockReconcileExternallyAnsweredReview,
   mockOpenPhiReviewException,
   mockHandleZernioIngestError,
-  mockLoggerLog,
-  mockLoggerWarn,
-  mockLoggerError,
-} = vi.hoisted(() => {
-  const sqlReturnQueue: unknown[] = [];
-
-  const mkTaggedResult = <T = unknown>(rows: T[]): unknown[] & { count: number } => {
-    const arr = rows as unknown as unknown[] & { count: number };
-    arr.count = rows.length;
-    return arr;
-  };
-
-  const mockSql: any = vi.fn((_strings: TemplateStringsArray, ..._values: unknown[]) => {
-    const result = sqlReturnQueue.shift() ?? mkTaggedResult([]);
-    return Promise.resolve(result);
-  });
-
-  // sql.begin is not needed by ZernioBackfillWorker directly (it doesn't
-  // call sql.begin itself — processReview and reconcile do, both mocked).
-  mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<any>) => cb(mockSql));
+  mockLogger,
+} = await vi.hoisted(async () => {
+  const { createMockSql, mkTaggedResult, mockWorkerLogger } =
+    await import('../../../__tests__/helpers/mock-sql');
 
   return {
-    sqlReturnQueue,
-    mockSql,
+    // sql.begin is not needed by ZernioBackfillWorker directly (it doesn't
+    // call sql.begin itself — processReview and reconcile do, both mocked).
+    ...createMockSql(),
     mkTaggedResult,
     mockMarkOutboxCompleted: vi.fn(),
     mockListAllReviews: vi.fn(),
@@ -45,9 +31,7 @@ const {
     mockReconcileExternallyAnsweredReview: vi.fn(),
     mockOpenPhiReviewException: vi.fn(),
     mockHandleZernioIngestError: vi.fn(),
-    mockLoggerLog: vi.fn(),
-    mockLoggerWarn: vi.fn(),
-    mockLoggerError: vi.fn(),
+    mockLogger: mockWorkerLogger(),
   };
 });
 
@@ -79,11 +63,7 @@ vi.mock('../../../../src/lib/shared/subscription-guard', () => ({
   },
 }));
 vi.mock('../../../../src/lib/shared/logger', () => ({
-  createWorkerLogger: () => ({
-    log: mockLoggerLog,
-    warn: mockLoggerWarn,
-    error: mockLoggerError,
-  }),
+  createWorkerLogger: () => mockLogger,
 }));
 
 import { handleZernioBackfill } from '../ZernioBackfillWorker';
@@ -156,7 +136,7 @@ function pushCompletedUpdate() {
 describe('ZernioBackfillWorker', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    sqlReturnQueue.length = 0;
+    resetMockSql();
     mockProcessReview.mockResolvedValue(undefined);
     mockReconcileExternallyAnsweredReview.mockResolvedValue(undefined);
     mockHandleZernioIngestError.mockResolvedValue(undefined);
@@ -237,9 +217,9 @@ describe('ZernioBackfillWorker', () => {
     expect(mockListAllReviews).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();
     expect(mockReconcileExternallyAnsweredReview).not.toHaveBeenCalled();
-    expect(mockLoggerLog).toHaveBeenCalledWith(
+    expect(mockLogger.log).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ reason: 'archived_location', business_id: 'biz-1' }),
+      expect.objectContaining({ reason: SKIP_REASON_ARCHIVED_LOCATION, business_id: 'biz-1' }),
     );
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-backfill-1', undefined);
 
@@ -252,6 +232,27 @@ describe('ZernioBackfillWorker', () => {
         template.some((s: string) => s.includes('zernio_backfill_runs'));
     });
     expect(completedAtUpdateCall).toBeUndefined();
+  });
+
+  // Row-missing guard: the shared eligibility gate checks "no businesses⋈
+  // accounts row" BEFORE reading archived_at, and the backfill lane keeps its
+  // historical subscription_status=missing skip line.
+  it('missing business/account row: skip-as-success with subscription_status=missing log', async () => {
+    // 1. INSERT zernio_backfill_runs (no result needed)
+    sqlReturnQueue.push(mkTaggedResult([]));
+    // 2. SELECT run row (not yet completed)
+    sqlReturnQueue.push(mkTaggedResult([{ id: 'run-1', completed_at: null }]));
+    // 3. SELECT business → no row
+    sqlReturnQueue.push(mkTaggedResult([]));
+
+    await handleZernioBackfill(makeJob());
+
+    expect(mockListAllReviews).not.toHaveBeenCalled();
+    expect(mockProcessReview).not.toHaveBeenCalled();
+    expect(mockLogger.log).toHaveBeenCalledWith(
+      expect.stringContaining('subscription_status=missing'),
+    );
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-backfill-1', undefined);
   });
 
   // Test 2: Historical fixture, non-premium tier → historical=0
@@ -281,7 +282,7 @@ describe('ZernioBackfillWorker', () => {
     });
     expect(countsCallStrings).toBeDefined();
     // historicalSkipped = 3 (all historical, non-premium)
-    const allValues = countsCallStrings.flat();
+    const allValues = countsCallStrings!.flat();
     const historicalSkippedIndex = allValues.findIndex((v: any) => v === 3 && typeof v === 'number');
     expect(historicalSkippedIndex).toBeGreaterThanOrEqual(0);
   });
@@ -337,7 +338,7 @@ describe('ZernioBackfillWorker', () => {
     expect(countsCall).toBeDefined();
 
     // gap_processed_count=25, historical_processed_count=30, gap_skipped=5, historical_skipped=0
-    const values = countsCall.slice(1); // skip the template strings array
+    const values = countsCall!.slice(1); // skip the template strings array
     expect(values).toContain(25); // gap processed
     expect(values).toContain(30); // historical processed
     expect(values).toContain(5);  // gap skipped

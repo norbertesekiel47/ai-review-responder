@@ -23,6 +23,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { createHmac, randomUUID } from 'node:crypto';
+import { SKIP_REASON_ARCHIVED_LOCATION } from '../../../../src/lib/shared/worker-types';
+import {
+  cleanupTenantAccount,
+  seedTenantAccount,
+} from '../../../../src/lib/shared/__tests__/live-db-tenant';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 const RUN = Boolean(testDatabaseUrl);
@@ -113,33 +118,29 @@ d('Zernio webhook fan-out vs archived locations (live DB)', () => {
     ({ handleZernioWebhook } = await import('../zernio'));
 
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
-    await sql().begin(async (tx) => {
-      // users.account_id <-> accounts.owner_user_id are mutually referential.
-      await tx`SET CONSTRAINTS ALL DEFERRED`;
-      await tx`
-        INSERT INTO users (id, name, email, role, account_id)
-        VALUES (${tenant.userId}::uuid, 'Zernio Fanout Owner', ${ownerEmail}, 'owner', ${tenant.accountId}::uuid)
-      `;
-      await tx`
-        INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status)
-        VALUES (${tenant.accountId}::uuid, ${tenant.userId}::uuid, 'Zernio Fanout Account', 'standard', 'active')
-      `;
-      await tx`
-        INSERT INTO businesses (id, name, owner_name, owner_email, account_id, is_primary, display_label, subscription_status, archived_at)
-        VALUES
-          (${tenant.activeBusinessId}::uuid, 'Fanout Active Location', 'Zernio Fanout Owner', ${ownerEmail}, ${tenant.accountId}::uuid, TRUE, 'Fanout Active Location', 'active', NULL),
-          (${tenant.archivedBusinessId}::uuid, 'Fanout Archived Location', 'Zernio Fanout Owner', ${ownerEmail}, ${tenant.accountId}::uuid, FALSE, 'Fanout Archived Location', 'active', NOW())
-      `;
-      // Archived locations keep status='active' connections BY DESIGN
-      // (reactivation backfill) — this is exactly the trap the fan-out's
-      // businesses join must defuse.
-      await tx`
-        INSERT INTO zernio_connections (business_id, zernio_profile_id, zernio_account_id, zernio_location_id, status, connected_at)
-        VALUES
-          (${tenant.activeBusinessId}::uuid, ${`profile-${tenant.activeBusinessId}`}, ${tenant.zernioAccountId}, ${tenant.activeLocationId}, 'active', NOW()),
-          (${tenant.archivedBusinessId}::uuid, ${`profile-${tenant.archivedBusinessId}`}, ${tenant.zernioAccountId}, ${tenant.archivedLocationId}, 'active', NOW())
-      `;
+    await seedTenantAccount(sql(), {
+      userId: tenant.userId,
+      accountId: tenant.accountId,
+      ownerEmail,
+      userName: 'Zernio Fanout Owner',
+      accountDisplayName: 'Zernio Fanout Account',
     });
+    // Domain rows reference the committed user/account pair — no deferral needed.
+    await sql()`
+      INSERT INTO businesses (id, name, owner_name, owner_email, account_id, is_primary, display_label, subscription_status, archived_at)
+      VALUES
+        (${tenant.activeBusinessId}::uuid, 'Fanout Active Location', 'Zernio Fanout Owner', ${ownerEmail}, ${tenant.accountId}::uuid, TRUE, 'Fanout Active Location', 'active', NULL),
+        (${tenant.archivedBusinessId}::uuid, 'Fanout Archived Location', 'Zernio Fanout Owner', ${ownerEmail}, ${tenant.accountId}::uuid, FALSE, 'Fanout Archived Location', 'active', NOW())
+    `;
+    // Archived locations keep status='active' connections BY DESIGN
+    // (reactivation backfill) — this is exactly the trap the fan-out's
+    // businesses join must defuse.
+    await sql()`
+      INSERT INTO zernio_connections (business_id, zernio_profile_id, zernio_account_id, zernio_location_id, status, connected_at)
+      VALUES
+        (${tenant.activeBusinessId}::uuid, ${`profile-${tenant.activeBusinessId}`}, ${tenant.zernioAccountId}, ${tenant.activeLocationId}, 'active', NOW()),
+        (${tenant.archivedBusinessId}::uuid, ${`profile-${tenant.archivedBusinessId}`}, ${tenant.zernioAccountId}, ${tenant.archivedLocationId}, 'active', NOW())
+    `;
   });
 
   afterAll(async () => {
@@ -152,19 +153,15 @@ d('Zernio webhook fan-out vs archived locations (live DB)', () => {
       if (usedEventIds.length > 0) {
         await sql()`DELETE FROM inbound_events WHERE external_event_key = ANY(${usedEventIds})`;
       }
-      await sql().begin(async (tx) => {
-        await tx`SET CONSTRAINTS ALL DEFERRED`;
-        await tx`
-          DELETE FROM zernio_connections
-          WHERE business_id IN (${tenant.activeBusinessId}::uuid, ${tenant.archivedBusinessId}::uuid)
-        `;
-        await tx`
-          DELETE FROM businesses
-          WHERE id IN (${tenant.activeBusinessId}::uuid, ${tenant.archivedBusinessId}::uuid)
-        `;
-        await tx`DELETE FROM accounts WHERE id = ${tenant.accountId}::uuid`;
-        await tx`DELETE FROM users WHERE id = ${tenant.userId}::uuid`;
-      });
+      await sql()`
+        DELETE FROM zernio_connections
+        WHERE business_id IN (${tenant.activeBusinessId}::uuid, ${tenant.archivedBusinessId}::uuid)
+      `;
+      await sql()`
+        DELETE FROM businesses
+        WHERE id IN (${tenant.activeBusinessId}::uuid, ${tenant.archivedBusinessId}::uuid)
+      `;
+      await cleanupTenantAccount(sql(), tenant);
       await db.end({ timeout: 5 });
     }
     // Close the handler's shared db/server client too, or the vitest fork
@@ -215,8 +212,8 @@ d('Zernio webhook fan-out vs archived locations (live DB)', () => {
       // The EXISTS probe must classify this 0-row fan-out as an expected
       // archived skip (structured object arg), not the unconnected warn.
       expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('archived'),
-        expect.objectContaining({ reason: 'archived_location_skipped' }),
+        expect.stringContaining('archived connection(s) present'),
+        expect.objectContaining({ reason: SKIP_REASON_ARCHIVED_LOCATION }),
       );
     } finally {
       consoleLogSpy.mockRestore();

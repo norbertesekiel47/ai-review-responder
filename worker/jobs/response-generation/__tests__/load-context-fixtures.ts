@@ -1,21 +1,23 @@
-// worker/jobs/response-generation/__tests__/fixtures.ts
+// worker/jobs/response-generation/__tests__/load-context-fixtures.ts
 //
-// Shared row factories for the loadGenerationContext SQL projection.
+// Shared row factories for the loadGenerationContext SQL projections.
 // load-context.test.ts and ResponseGeneratorWorker.test.ts both feed these
-// rows into their sql mocks; a single owner keeps the projection shape
-// (incl. archived_at, added with the archived-location gate) from drifting
-// between suites — the worker suite previously omitted archived_at and only
-// passed via undefined-falsy.
+// rows into their sql mocks; a single owner — typed against the exported
+// GenerationReviewRow / GenerationBusinessRow projection types — keeps the
+// projection shape (incl. archived_at, added with the archived-location gate)
+// from drifting between suites. A column added to the SELECT without updating
+// the row type (and therefore these defaults) fails typecheck.
 
 import { asLocationId } from '../../../../src/lib/shared/ids';
+import type { GenerationReviewRow, GenerationBusinessRow } from '../load-context';
 
 export const FIXTURE_REVIEW_ID = 'rev-1';
 export const FIXTURE_BUSINESS_ID = asLocationId('biz-1');
 export const FIXTURE_ACCOUNT_ID = 'acct-1';
 
 export function makeLoadContextReviewRow(
-  overrides: Record<string, unknown> = {},
-): Record<string, unknown> {
+  overrides: Partial<GenerationReviewRow> = {},
+): GenerationReviewRow {
   return {
     id: FIXTURE_REVIEW_ID,
     reviewer_name: 'Jane',
@@ -29,8 +31,8 @@ export function makeLoadContextReviewRow(
 }
 
 export function makeLoadContextBusinessRow(
-  overrides: Record<string, unknown> = {},
-): Record<string, unknown> {
+  overrides: Partial<GenerationBusinessRow> = {},
+): GenerationBusinessRow {
   return {
     id: FIXTURE_BUSINESS_ID,
     account_id: FIXTURE_ACCOUNT_ID,

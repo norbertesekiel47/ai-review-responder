@@ -1,62 +1,15 @@
 import { createHmac } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockSql, sqlReturnQueue, sqlCalls, mockClaimInboundEvent } = vi.hoisted(() => {
-  const sqlReturnQueue: unknown[] = [];
-  const sqlCalls: { text: string; values: unknown[] }[] = [];
-
-  // Mirrors real Postgres.js semantics: sql`` returns a LAZY thenable, so a
-  // nested fragment (e.g. the conditional fan-out locationFilter) composes
-  // into the parent query's text without executing or consuming the return
-  // queue. Only awaited queries record a call and shift the queue.
-  interface MockQueryFragment {
-    __mockSqlFragment: true;
-    text: string;
-    values: unknown[];
-    then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) => Promise<unknown>;
-  }
-
-  const isFragment = (value: unknown): value is MockQueryFragment =>
-    Boolean(value && typeof value === 'object' && (value as MockQueryFragment).__mockSqlFragment);
-
-  const mockSql: any = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
-    let text = strings[0] ?? '';
-    const flatValues: unknown[] = [];
-    for (let i = 0; i < values.length; i++) {
-      const value = values[i];
-      if (isFragment(value)) {
-        text += value.text;
-        flatValues.push(...value.values);
-      } else {
-        text += '?';
-        flatValues.push(value);
-      }
-      text += strings[i + 1] ?? '';
-    }
-    const fragment: MockQueryFragment = {
-      __mockSqlFragment: true,
-      text,
-      values: flatValues,
-      then(resolve, reject) {
-        sqlCalls.push({ text, values: flatValues });
-        const queued = sqlReturnQueue.shift();
-        const result =
-          queued !== undefined ? queued : Object.assign([], { count: 0 });
-        return Promise.resolve(result).then(resolve, reject);
-      },
+const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql, mockClaimInboundEvent } = await vi.hoisted(
+  async () => {
+    const { createMockSql } = await import('../../../__tests__/helpers/mock-sql');
+    return {
+      ...createMockSql(),
+      mockClaimInboundEvent: vi.fn(),
     };
-    return fragment;
-  });
-
-  mockSql.begin = vi.fn(async (callback: (tx: any) => Promise<any>) => callback(mockSql));
-
-  return {
-    mockSql,
-    sqlReturnQueue,
-    sqlCalls,
-    mockClaimInboundEvent: vi.fn(),
-  };
-});
+  },
+);
 
 vi.mock('../../../../src/lib/db/server', () => ({
   sql: mockSql,
@@ -67,6 +20,7 @@ vi.mock('../../shared', () => ({
 }));
 
 import { handleZernioWebhook } from '../zernio';
+import { SKIP_REASON_ARCHIVED_LOCATION } from '../../../../src/lib/shared/worker-types';
 
 const SECRET = 'test-zernio-webhook-secret';
 const origZernioPublishingEnabled = process.env.ZERNIO_PUBLISHING_ENABLED;
@@ -94,8 +48,7 @@ function mkReply() {
 }
 
 beforeEach(() => {
-  sqlReturnQueue.length = 0;
-  sqlCalls.length = 0;
+  resetMockSql();
   vi.clearAllMocks();
   mockClaimInboundEvent.mockResolvedValue('claimed');
   process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
@@ -235,11 +188,12 @@ describe('Zernio review fan-out excludes archived locations', () => {
   // The INNER join is load-bearing: a LEFT JOIN with the same ON-clause
   // substrings would satisfy the substring pins while filtering nothing
   // (archived rows survive a LEFT JOIN). Pin both the substrings AND the
-  // absence of LEFT JOIN.
+  // absence of LEFT [OUTER] JOIN (OUTER is optional SQL syntax for the
+  // same join type, so the negative pin must reject it too).
   function expectFanoutExcludesArchived(query: string): void {
     expect(query).toContain('JOIN businesses b ON b.id = zc.business_id');
     expect(query).toContain('b.archived_at IS NULL');
-    expect(query).not.toMatch(/LEFT\s+JOIN\s+businesses/i);
+    expect(query).not.toMatch(/LEFT(\s+OUTER)?\s+JOIN\s+businesses/i);
   }
 
   it('location-scoped fan-out is one query: businesses inner join + archived filter + location predicate', async () => {
@@ -316,7 +270,7 @@ describe('Zernio review fan-out zero-row disambiguation', () => {
     return Object.assign([], { count: 0 });
   }
 
-  it('logs a structured archived_location_skipped line (no unconnected warn) when the only match is archived', async () => {
+  it('logs a structured archived_location line (no unconnected warn) when an archived connection matches', async () => {
     sqlReturnQueue.push(zeroRowFanout()); // fan-out INSERT…SELECT → 0 rows
     sqlReturnQueue.push([{ archived_match: true }]); // EXISTS probe
     sqlReturnQueue.push([]); // inbound_events processed
@@ -342,9 +296,54 @@ describe('Zernio review fan-out zero-row disambiguation', () => {
     expect(existsProbe!.text).toContain('b.archived_at IS NOT NULL');
     expect(existsProbe!.values).toContain('loc-arch');
 
+    // The log claims only what the probe proves: an archived connection is
+    // PRESENT — not that the archived match is the ONLY explanation (an
+    // ON CONFLICT dedup with a sibling archived connection also yields 0 rows).
     expect(consoleLogSpy).toHaveBeenCalledWith(
-      expect.stringContaining('archived'),
-      expect.objectContaining({ reason: 'archived_location_skipped' }),
+      expect.stringContaining('archived connection(s) present'),
+      expect.objectContaining({ reason: SKIP_REASON_ARCHIVED_LOCATION }),
+    );
+    expect(consoleWarnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('no business has connected this account/location'),
+    );
+  });
+
+  it('swallows a transient probe failure: event still succeeds with 200 + processed (no 500/Zernio retry)', async () => {
+    sqlReturnQueue.push(zeroRowFanout()); // fan-out INSERT…SELECT → 0 rows
+    // EXISTS probe → transient DB error. Pre-handle the rejection so Node
+    // doesn't flag it as unhandled before the mock thenable adopts it.
+    const probeFailure = Promise.reject(new Error('transient probe blip'));
+    probeFailure.catch(() => {});
+    sqlReturnQueue.push(probeFailure);
+    sqlReturnQueue.push([]); // inbound_events processed
+
+    const { status, send } = mkReply();
+    await handleZernioWebhook(
+      mkRequest(
+        {
+          event: 'review.new',
+          id: 'evt_zernio_review_probe_blip',
+          account: { id: 'zernio-account-probe-blip' },
+          review: { id: 'accounts/g-acc/locations/loc-blip/reviews/rev-3' },
+        },
+        'evt_zernio_review_probe_blip',
+      ),
+      { status, send } as any,
+    );
+
+    // The fan-out (primary side effect) already succeeded — the probe is
+    // pure observability, so its failure is logged and swallowed.
+    expect(status).toHaveBeenCalledWith(200);
+    expect(send).toHaveBeenCalledWith({ received: true });
+    expect(sqlCalls.some((call) => call.text.includes("status = 'processed'"))).toBe(true);
+    expect(sqlCalls.some((call) => call.text.includes("status = 'failed'"))).toBe(false);
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('probe failed'),
+    );
+    // Neither disambiguation line may fire — the probe never resolved.
+    expect(consoleLogSpy).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ reason: SKIP_REASON_ARCHIVED_LOCATION }),
     );
     expect(consoleWarnSpy).not.toHaveBeenCalledWith(
       expect.stringContaining('no business has connected this account/location'),
@@ -377,7 +376,7 @@ describe('Zernio review fan-out zero-row disambiguation', () => {
     );
     expect(consoleLogSpy).not.toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ reason: 'archived_location_skipped' }),
+      expect.objectContaining({ reason: SKIP_REASON_ARCHIVED_LOCATION }),
     );
   });
 });

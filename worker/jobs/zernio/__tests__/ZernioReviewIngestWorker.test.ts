@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Job } from 'bullmq';
-import type { IngestZernioReviewPayload } from '../../../../src/lib/shared/worker-types';
+import { SKIP_REASON_ARCHIVED_LOCATION, type IngestZernioReviewPayload } from '../../../../src/lib/shared/worker-types';
 import type { ZernioReview } from '../../../../src/lib/zernio/types';
 import { ZernioAuthError } from '../../../../src/lib/zernio/errors';
 
@@ -8,6 +8,7 @@ import { ZernioAuthError } from '../../../../src/lib/zernio/errors';
 const {
   sqlReturnQueue,
   mockSql,
+  resetMockSql,
   mockMarkOutboxCompleted,
   mockMarkOutboxFailed,
   mockListReviews,
@@ -16,22 +17,13 @@ const {
   mockOpenPhiReviewException,
   mockHandleZernioIngestError,
   mockApplyIngestionAuthErrorFallback,
-  mockLoggerLog,
-  mockLoggerWarn,
-  mockLoggerError,
-} = vi.hoisted(() => {
-  const sqlReturnQueue: unknown[] = [];
-
-  const mockSql: any = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => {
-    const result = sqlReturnQueue.shift() ?? Object.assign([], { count: 0 });
-    return Promise.resolve(result);
-  });
-
-  mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<any>) => cb(mockSql));
+  mockLogger,
+} = await vi.hoisted(async () => {
+  const { createMockSql, mockWorkerLogger } =
+    await import('../../../__tests__/helpers/mock-sql');
 
   return {
-    sqlReturnQueue,
-    mockSql,
+    ...createMockSql(),
     mockMarkOutboxCompleted: vi.fn(),
     mockMarkOutboxFailed: vi.fn(),
     mockListReviews: vi.fn(),
@@ -40,9 +32,7 @@ const {
     mockOpenPhiReviewException: vi.fn(),
     mockHandleZernioIngestError: vi.fn(),
     mockApplyIngestionAuthErrorFallback: vi.fn(),
-    mockLoggerLog: vi.fn(),
-    mockLoggerWarn: vi.fn(),
-    mockLoggerError: vi.fn(),
+    mockLogger: mockWorkerLogger(),
   };
 });
 
@@ -71,11 +61,7 @@ vi.mock('../../../../src/lib/zernio/auth-error-fallback', () => ({
   applyIngestionAuthErrorFallback: mockApplyIngestionAuthErrorFallback,
 }));
 vi.mock('../../../../src/lib/shared/logger', () => ({
-  createWorkerLogger: () => ({
-    log: mockLoggerLog,
-    warn: mockLoggerWarn,
-    error: mockLoggerError,
-  }),
+  createWorkerLogger: () => mockLogger,
 }));
 
 import {
@@ -132,7 +118,7 @@ function pushActiveConn() {
 describe('ZernioReviewIngestWorker', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    sqlReturnQueue.length = 0;
+    resetMockSql();
   });
 
   // 1. Page 1 hit → processReview called
@@ -340,9 +326,9 @@ describe('ZernioReviewIngestWorker', () => {
 
     expect(mockListReviews).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();
-    expect(mockLoggerLog).toHaveBeenCalledWith(
+    expect(mockLogger.log).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ reason: 'archived_location', business_id: 'biz-1' }),
+      expect.objectContaining({ reason: SKIP_REASON_ARCHIVED_LOCATION, business_id: 'biz-1' }),
     );
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
@@ -351,8 +337,8 @@ describe('ZernioReviewIngestWorker', () => {
   // 6c. Ordering pin (Greptile 4/5 finding): archived is checked BEFORE the
   //     subscription guard. A location that is BOTH archived AND on a
   //     cancelled subscription must exit via the queryable archived path
-  //     (structured { reason: 'archived_location' } log), not the silent
-  //     subscription skip.
+  //     (structured { reason: SKIP_REASON_ARCHIVED_LOCATION } log), not the
+  //     silent subscription skip.
   it('archived + cancelled exits via the archived path: structured log fires and outbox completes', async () => {
     sqlReturnQueue.push([{
       subscription_status: 'cancelled',
@@ -363,9 +349,9 @@ describe('ZernioReviewIngestWorker', () => {
 
     await handleZernioReviewIngest(makeJob());
 
-    expect(mockLoggerLog).toHaveBeenCalledWith(
+    expect(mockLogger.log).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ reason: 'archived_location', business_id: 'biz-1' }),
+      expect.objectContaining({ reason: SKIP_REASON_ARCHIVED_LOCATION, business_id: 'biz-1' }),
     );
     expect(mockListReviews).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();

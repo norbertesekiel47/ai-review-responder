@@ -131,10 +131,11 @@ vi.mock('../response-generation/persist', async (importOriginal) => {
 import { handleResponseGeneration } from '../ResponseGeneratorWorker';
 import { persistResponseAndNotify } from '../response-generation/persist';
 import { CostLimitExceededError } from '../../../src/lib/costs/tracker';
+import { SKIP_REASON_ARCHIVED_LOCATION } from '../../../src/lib/shared/worker-types';
 import {
   makeLoadContextReviewRow as mockReviewRow,
   makeLoadContextBusinessRow as mockBusinessRow,
-} from '../response-generation/__tests__/fixtures';
+} from '../response-generation/__tests__/load-context-fixtures';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -143,6 +144,42 @@ function makeJob(overrides = {}): Job<GenerateResponsePayload> {
     data: { review_id: 'rev-1', business_id: 'biz-1', version: 1, origin_lane: 'live_ingest_new', ...overrides },
     id: 'outbox-gen-1',
   } as Job<GenerateResponsePayload>;
+}
+
+// send_notification outbox payload shape: { response_id, business_id,
+// correlation_id } — distinguished from a GenerateResponsePayload by the
+// absence of version/review_id. The INSERT INTO job_outbox binds via
+// jsonb(payload); the test mock passes the object through, so payloads
+// appear as object args in the tx template calls.
+// The skip reason must be an OBJECT arg so it lands in the queryable `data`
+// field of the structured record (string args are verbatim only). Parses the
+// console.log spy's JSON lines and returns the 'skipping generation' record.
+function findSkipLogRecord(
+  logSpy: { mock: { calls: unknown[][] } },
+): { message?: string; data?: Record<string, unknown> } | undefined {
+  return logSpy.mock.calls
+    .map((call) => {
+      try {
+        return JSON.parse(String(call[0])) as { message?: string; data?: Record<string, unknown> };
+      } catch {
+        return null;
+      }
+    })
+    .filter((record): record is { message?: string; data?: Record<string, unknown> } => record !== null)
+    .find((record) => record.message === 'skipping generation');
+}
+
+function findSendNotificationPayloads(): Record<string, unknown>[] {
+  return mockTx.mock.calls
+    .flat()
+    .filter(
+      (arg): arg is Record<string, unknown> =>
+        !!arg && typeof arg === 'object' && !Array.isArray(arg)
+        && 'response_id' in arg
+        && 'business_id' in arg
+        && !('version' in arg)
+        && !('review_id' in arg),
+    );
 }
 
 // Review/business rows come from the shared loadGenerationContext fixtures
@@ -364,32 +401,15 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
 
     await handleResponseGeneration(makeJob({ correlation_id: INCOMING_CORRELATION }));
 
-    // Extract outbox payloads from tx template-arg calls. The INSERT INTO
-    // job_outbox now binds via jsonb(notifyPayload) — in the test mock that
-    // passes the OBJECT through, so we look for object args directly.
-    const payloads = mockTx.mock.calls
-      .flat()
-      .filter(
-        (arg): arg is Record<string, unknown> =>
-          !!arg && typeof arg === 'object' && !Array.isArray(arg) && 'correlation_id' in (arg as Record<string, unknown>),
-      );
-
-    // send_notification payload shape: { response_id, business_id, correlation_id }
-    // Distinguish from any other payloads by the exact key set.
-    const sendNotificationPayload = payloads.find(
-      (p) =>
-        typeof p.response_id === 'string' &&
-        typeof p.business_id === 'string' &&
-        !('version' in p) && // not a GenerateResponsePayload
-        !('review_id' in p), // not a GenerateResponsePayload
-    );
+    const [sendNotificationPayload] = findSendNotificationPayloads();
 
     expect(sendNotificationPayload).toBeDefined();
     expect(sendNotificationPayload!.correlation_id).toBe(INCOMING_CORRELATION);
   });
 
-  // 2. Subscription cancelled
-  it('completes the outbox without generating when subscription is cancelled', async () => {
+  // 2. Subscription cancelled → skip-as-success with a queryable reason
+  it('completes the outbox without generating when subscription is cancelled, with a structured skip log', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     sqlReturnQueue.push([mockReviewRow()]);
     sqlReturnQueue.push([mockBusinessRow({ subscription_status: 'cancelled' })]);
 
@@ -398,13 +418,17 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
     expect(mockGenerateResponse).not.toHaveBeenCalled();
     expect(mockGenerateMockResponse).not.toHaveBeenCalled();
+    const skipRecord = findSkipLogRecord(logSpy);
+    expect(skipRecord).toBeDefined();
+    expect(skipRecord!.data).toMatchObject({ reason: 'cancelled', business_id: 'biz-1' });
+    logSpy.mockRestore();
   });
 
   // 2b. Archived location → terminal skip-as-success
   it('skips generation as success when the location is archived, with a structured skip log', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     sqlReturnQueue.push([mockReviewRow()]);
-    sqlReturnQueue.push([mockBusinessRow({ archived_at: '2026-06-01T00:00:00Z' })]);
+    sqlReturnQueue.push([mockBusinessRow({ archived_at: new Date('2026-06-01T00:00:00Z') })]);
 
     await handleResponseGeneration(makeJob());
 
@@ -413,30 +437,19 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
 
-    // The skip reason must be an OBJECT arg so it lands in the queryable
-    // `data` field of the structured record (string args are verbatim only).
-    const records = logSpy.mock.calls
-      .map((call) => {
-        try {
-          return JSON.parse(String(call[0])) as { message?: string; data?: Record<string, unknown> };
-        } catch {
-          return null;
-        }
-      })
-      .filter((record): record is { message?: string; data?: Record<string, unknown> } => record !== null);
-    const skipRecord = records.find((record) => record.message === 'archived — skipping generation');
+    const skipRecord = findSkipLogRecord(logSpy);
     expect(skipRecord).toBeDefined();
-    expect(skipRecord!.data).toMatchObject({ reason: 'archived_location', business_id: 'biz-1' });
+    expect(skipRecord!.data).toMatchObject({ reason: SKIP_REASON_ARCHIVED_LOCATION, business_id: 'biz-1' });
     logSpy.mockRestore();
   });
 
   // FIX 2 regression (idempotency-before-archived ordering): a crash-retry
   // whose response was committed pre-archive must take the already_exists
   // path — including the first_response_drafted recovery — not be dropped
-  // as archived_location.
+  // as a skip.
   it('takes the already_exists path when the response was committed before the location was archived', async () => {
     sqlReturnQueue.push([mockReviewRow()]);
-    sqlReturnQueue.push([mockBusinessRow({ archived_at: '2026-06-01T00:00:00Z' })]);
+    sqlReturnQueue.push([mockBusinessRow({ archived_at: new Date('2026-06-01T00:00:00Z') })]);
     sqlReturnQueue.push([mockExistingResponseRow()]);
     sqlReturnQueue.push([mockFirstDraftLookup()]);
 
@@ -526,20 +539,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
 
     await handleResponseGeneration(makeJob({ suppress_notification: true }));
 
-    // No tx call should have a SendNotificationPayload-shaped object.
-    // Distinguish by key set: send_notification payload has response_id +
-    // business_id + correlation_id only — no version, no review_id.
-    const sendNotificationPayloads = mockTx.mock.calls
-      .flat()
-      .filter(
-        (arg): arg is Record<string, unknown> =>
-          !!arg && typeof arg === 'object' && !Array.isArray(arg)
-          && 'response_id' in (arg as Record<string, unknown>)
-          && 'business_id' in (arg as Record<string, unknown>)
-          && !('version' in (arg as Record<string, unknown>))
-          && !('review_id' in (arg as Record<string, unknown>)),
-      );
-    expect(sendNotificationPayloads).toHaveLength(0);
+    expect(findSendNotificationPayloads()).toHaveLength(0);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
   });
 
@@ -550,17 +550,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
 
     await handleResponseGeneration(makeJob());
 
-    const sendNotificationPayloads = mockTx.mock.calls
-      .flat()
-      .filter(
-        (arg): arg is Record<string, unknown> =>
-          !!arg && typeof arg === 'object' && !Array.isArray(arg)
-          && 'response_id' in (arg as Record<string, unknown>)
-          && 'business_id' in (arg as Record<string, unknown>)
-          && !('version' in (arg as Record<string, unknown>))
-          && !('review_id' in (arg as Record<string, unknown>)),
-      );
-    expect(sendNotificationPayloads).toHaveLength(1);
+    expect(findSendNotificationPayloads()).toHaveLength(1);
   });
 
   it('holds a high-severity flagged draft: no send_notification, writes a flagged_responses row', async () => {
@@ -575,17 +565,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
 
     await handleResponseGeneration(makeJob());
 
-    const sendNotificationPayloads = mockTx.mock.calls
-      .flat()
-      .filter(
-        (arg): arg is Record<string, unknown> =>
-          !!arg && typeof arg === 'object' && !Array.isArray(arg)
-          && 'response_id' in (arg as Record<string, unknown>)
-          && 'business_id' in (arg as Record<string, unknown>)
-          && !('version' in (arg as Record<string, unknown>))
-          && !('review_id' in (arg as Record<string, unknown>)),
-      );
-    expect(sendNotificationPayloads).toHaveLength(0);
+    expect(findSendNotificationPayloads()).toHaveLength(0);
 
     const txArgs = mockTx.mock.calls.flat();
     expect(txArgs).toContain('local_regex');
@@ -601,17 +581,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
 
     await handleResponseGeneration(makeJob());
 
-    const sendNotificationPayloads = mockTx.mock.calls
-      .flat()
-      .filter(
-        (arg): arg is Record<string, unknown> =>
-          !!arg && typeof arg === 'object' && !Array.isArray(arg)
-          && 'response_id' in (arg as Record<string, unknown>)
-          && 'business_id' in (arg as Record<string, unknown>)
-          && !('version' in (arg as Record<string, unknown>))
-          && !('review_id' in (arg as Record<string, unknown>)),
-      );
-    expect(sendNotificationPayloads).toHaveLength(1);
+    expect(findSendNotificationPayloads()).toHaveLength(1);
     const txArgs = mockTx.mock.calls.flat();
     expect(txArgs).not.toContain('open');
   });

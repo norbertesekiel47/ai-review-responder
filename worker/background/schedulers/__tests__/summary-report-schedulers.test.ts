@@ -87,12 +87,15 @@ describe.each(schedulerCases)('$name', ({ envVar, systemTime, candidateMarker, l
     expect(candidateCall).toBeDefined();
     const queryText = Array.from(candidateCall![0]).join('');
 
-    // Best-effort textual hardening (a DB-level integration test covers the
-    // real semantics elsewhere): the archived exclusion must be a direct
-    // predicate in the candidate query's WHERE/AND chain — not reintroduced
-    // via an outer join on businesses that could let archived rows through.
+    // Best-effort textual pin — currently the ONLY coverage of the
+    // scheduler's archived exclusion (the sole live-DB test exercises the
+    // webhook fan-out, not these candidate queries; a DB-level test of the
+    // scheduler semantics is a known follow-up). The archived exclusion must
+    // be a direct predicate in the candidate query's WHERE/AND chain — not
+    // reintroduced via an outer join on businesses that could let archived
+    // rows through.
     expect(queryText).toMatch(/WHERE[\s\S]*?\bAND\s+b\.archived_at\s+IS\s+NULL/i);
-    expect(queryText).not.toMatch(/LEFT\s+JOIN\s+businesses/i);
+    expect(queryText).not.toMatch(/LEFT(\s+OUTER)?\s+JOIN\s+businesses/i);
     // The predicate filters candidates directly, ahead of the NOT EXISTS dedup subquery.
     expect(queryText.indexOf('b.archived_at IS NULL')).toBeLessThan(
       queryText.indexOf('NOT EXISTS'),
