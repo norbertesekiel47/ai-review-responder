@@ -67,54 +67,19 @@ export interface PromotePrimaryTxResult {
 /**
  * Atomically promotes a location to primary, demoting the current primary.
  *
- * Steps:
- *   0. Validate the new primary exists, is active, belongs to the account,
- *      and is not already primary.
- *   1. (Inside tx) Set is_primary = FALSE on the current primary for this account
- *   2. (Inside tx) Set is_primary = TRUE on the new primary
- *   3. (Inside tx) Insert account_audit_log with event_type 'primary_promoted'
+ * Steps (all inside one tx; validation happens under the locks — the route
+ * does its own pre-checks for the 404/403 UX split via getLocationById):
+ *   1. Set is_primary = FALSE on the current primary for this account
+ *   2. Set is_primary = TRUE on the new primary
+ *   3. Insert account_audit_log with event_type 'primary_promoted'
  *
- * The partial unique index `businesses_account_primary_uniq` ensures that
- * at commit time, exactly one row per active account has is_primary = TRUE.
+ * Throws LOCATION_DENIAL_STATUS code strings ('location_not_found',
+ * 'already_primary') — see src/lib/locations/owner-route.ts.
  */
 export async function promotePrimaryTransaction(
   input: PromotePrimaryTxInput,
 ): Promise<PromotePrimaryTxResult> {
   const { accountId, newPrimaryId, actorUserId } = input;
-
-  // ── Step 0: Validate the new primary ─────────────────────────────────
-  const [newPrimary] = await sql<{
-    id: string;
-    account_id: string;
-    is_primary: boolean;
-    archived_at: Date | null;
-  }[]>`
-    SELECT id, account_id, is_primary, archived_at
-    FROM businesses
-    WHERE id = ${newPrimaryId}::uuid
-      AND account_id = ${accountId}::uuid
-      AND archived_at IS NULL
-  `;
-
-  if (!newPrimary) {
-    throw new Error(
-      `new primary location not found or not accessible: ${newPrimaryId}`,
-    );
-  }
-
-  if (newPrimary.is_primary) {
-    throw new Error(
-      `location ${newPrimaryId} is already the primary location`,
-    );
-  }
-
-  if (newPrimary.archived_at !== null) {
-    throw new Error(
-      `location ${newPrimaryId} is archived and cannot be promoted to primary`,
-    );
-  }
-
-  // ── Step 1-3: Atomic transaction ─────────────────────────────────────
 
   let oldPrimaryId: string | null = null;
 
@@ -135,14 +100,10 @@ export async function promotePrimaryTransaction(
       FOR UPDATE
     `;
     if (!lockedTarget) {
-      throw new Error(
-        `new primary location not found or not accessible: ${newPrimaryId}`,
-      );
+      throw new Error('location_not_found');
     }
     if (lockedTarget.is_primary) {
-      throw new Error(
-        `location ${newPrimaryId} is already the primary location`,
-      );
+      throw new Error('already_primary');
     }
 
     // 1. Demote the current primary
@@ -172,9 +133,7 @@ export async function promotePrimaryTransaction(
       RETURNING id
     `;
     if (!promoted) {
-      throw new Error(
-        `new primary location not found or not accessible: ${newPrimaryId}`,
-      );
+      throw new Error('location_not_found');
     }
 
     // 3. Insert audit log entry

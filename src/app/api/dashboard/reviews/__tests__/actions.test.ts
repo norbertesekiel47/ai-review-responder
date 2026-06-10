@@ -81,35 +81,22 @@ vi.mock('@/lib/approval/service', () => ({
   regenerateBySession: (...args: unknown[]) => mockRegenerateBySession(...args),
 }));
 
-vi.mock('@/lib/approval/errors', () => {
-  class ResponseNotPendingError extends Error {
-    currentStatus: string;
-    constructor(status: string) {
-      super(`Response is no longer pending approval (current status: ${status})`);
-      this.name = 'ResponseNotPendingError';
-      this.currentStatus = status;
-    }
-  }
-  // Mirrors the real subclassing: the dashboard route maps it through the
-  // existing ResponseNotPendingError 409 branch (no dedicated mapping).
-  class ArchivedLocationError extends ResponseNotPendingError {
-    constructor() {
-      super('archived_location');
-      this.name = 'ArchivedLocationError';
-      this.message = 'This location has been archived — approval actions are no longer available for this draft.';
-    }
-  }
-  return {
-    EmptyEditedResponseError: class EmptyEditedResponseError extends Error {
-      constructor() {
-        super('editedText is required');
-        this.name = 'EmptyEditedResponseError';
-      }
-    },
-    ResponseNotPendingError,
-    ArchivedLocationError,
+// The REAL claim primitive every session action opens with. The session
+// services themselves are mocked (the routes only orchestrate them), but
+// their default implementations below run lockPendingResponse for real, so
+// the in-tx archived gate it owns (responses FOR UPDATE → businesses FOR
+// SHARE) is exercised — and throws the real ArchivedLocationError — at the
+// route level.
+import { lockPendingResponse } from '@/lib/approval/locks';
+
+function installSessionClaimSimulators() {
+  const claim = async (tx: unknown, responseId: unknown) => {
+    await lockPendingResponse(tx as never, responseId as string);
   };
-});
+  mockApproveBySession.mockImplementation(claim);
+  mockEditBySession.mockImplementation(claim);
+  mockRegenerateBySession.mockImplementation(claim);
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -161,25 +148,35 @@ function setResponseLookup(
     past_due_at: null,
     flags: {},
   },
+  opts: { archivedAt?: Date | null } = {},
 ) {
+  const { archivedAt = null } = opts;
   mockSqlResults.length = 0;
   sqlCallCounter.value = 0;
   sqlQueryTexts.length = 0;
-  mockSqlResults.push(rows);
-  mockSqlResults.push([accountRow]);
-  // runDashboardReviewAction locks the response (SELECT ... FOR UPDATE) and
-  // checks for an open moderation flag (hasOpenFlag) before recovering the
-  // correlation id. Empty results = not held, so the action proceeds.
+  mockSqlResults.push(rows);          // owner-scoped response lookup
+  mockSqlResults.push([accountRow]);  // pre-tx account writable gate
+  // runDashboardReviewAction (in-tx): locks the response (SELECT ... FOR
+  // UPDATE), checks for an open moderation flag (hasOpenFlag), re-asserts
+  // the writable/offboarding gate by business id, and recovers the
+  // correlation id — then invokes the action.
   mockSqlResults.push([]); // SELECT id ... FOR UPDATE
   mockSqlResults.push([]); // hasOpenFlag → no open flag
-  // In-tx TOCTOU re-assertion: assertWritableSubscriptionForBusiness re-reads the
-  // account/offboarding projection by business id. Active + no active offboarding
-  // = writable, so the action proceeds to recover the correlation id and run.
-  // NOTE: every happy-path test that reaches the action must additionally push
-  // the in-tx archived-gate row ([{ archived_at: null }]) BEFORE the correlation
-  // row — assertLocationNotArchived (FOR SHARE) now runs for ALL mutating
-  // actions (approve/edit/regenerate), not just regenerate.
-  mockSqlResults.push([{ id: ACCOUNT_ID, subscription_status: 'active', past_due_at: null, flags: {} }]);
+  mockSqlResults.push([{ id: ACCOUNT_ID, subscription_status: 'active', past_due_at: null, flags: {} }]); // in-tx writable re-assert (business)
+  mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]); // recoverCorrelationId
+  // The action's claim (lockPendingResponse): the responses FOR UPDATE row,
+  // then the archived gate (businesses FOR SHARE) the claim owns. The gate
+  // row lives HERE — archived-409 tests pass `archivedAt` instead of
+  // pushing rows.
+  mockSqlResults.push([{
+    status: 'pending_approval',
+    original_draft_text: 'draft',
+    response_text: 'resp',
+    version: 1,
+    review_id: REVIEW_ID,
+    business_id: BUSINESS_ID,
+  }]);
+  mockSqlResults.push([{ archived_at: archivedAt }]);
 }
 
 function offboardingBlockedAccountRow() {
@@ -205,6 +202,7 @@ function offboardingBlockedAccountRow() {
 describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    installSessionClaimSimulators();
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
     sqlQueryTexts.length = 0;
@@ -243,9 +241,6 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
   it('returns 200 when owner approves their own review response', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
-    mockSqlResults.push([{ archived_at: null }]); // in-tx archived gate → not archived
-    mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
-    mockApproveBySession.mockResolvedValue(undefined);
 
     const { POST } = await import('../[reviewId]/approve/route');
     const res = await POST(
@@ -261,8 +256,8 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
     // Signature: approveBySession(tx, responseId, businessId, audit, correlationId)
     const callArgs = mockApproveBySession.mock.calls[0];
     expect(callArgs?.[4]).toBe('upstream-corr-abc');
-    // PR B extends the in-tx archived gate (FOR SHARE read on businesses) to
-    // every mutating action — approve now re-asserts it under the lock.
+    // The archived gate (FOR SHARE read on businesses) runs inside the
+    // action's lockPendingResponse claim for every mutating action.
     expect(sqlQueryTexts.some((text) => text.includes('FOR SHARE'))).toBe(true);
   });
 
@@ -384,7 +379,6 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
   it('returns 409 when response is no longer pending', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
-    mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
 
     const { ResponseNotPendingError } = await import('@/lib/approval/errors');
     mockApproveBySession.mockRejectedValue(new ResponseNotPendingError('approved'));
@@ -402,6 +396,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
 describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    installSessionClaimSimulators();
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
     sqlQueryTexts.length = 0;
@@ -440,9 +435,6 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
   it('returns 200 with valid edited text', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
-    mockSqlResults.push([{ archived_at: null }]); // in-tx archived gate → not archived
-    mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
-    mockEditBySession.mockResolvedValue(undefined);
 
     const { POST } = await import('../[reviewId]/edit/route');
     const res = await POST(
@@ -457,17 +449,14 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
     // Signature: editBySession(tx, responseId, businessId, editedText, audit, correlationId)
     const callArgs = mockEditBySession.mock.calls[0];
     expect(callArgs?.[5]).toBe('upstream-corr-abc');
-    // PR B extends the in-tx archived gate (FOR SHARE read on businesses) to
-    // every mutating action — edit now re-asserts it under the lock.
+    // The archived gate (FOR SHARE read on businesses) runs inside the
+    // action's lockPendingResponse claim for every mutating action.
     expect(sqlQueryTexts.some((text) => text.includes('FOR SHARE'))).toBe(true);
   });
 
   it('passes sanitized edited text to the session edit service', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
-    mockSqlResults.push([{ archived_at: null }]); // in-tx archived gate \u2192 not archived
-    mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
-    mockEditBySession.mockResolvedValue(undefined);
 
     const { POST } = await import('../[reviewId]/edit/route');
     const res = await POST(
@@ -485,9 +474,6 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
   it('does not count leading or trailing whitespace against the 2000 character limit', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
-    mockSqlResults.push([{ archived_at: null }]); // in-tx archived gate → not archived
-    mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
-    mockEditBySession.mockResolvedValue(undefined);
     const content = 'x'.repeat(2000);
 
     const { POST } = await import('../[reviewId]/edit/route');
@@ -588,7 +574,6 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
   it('returns 409 when response is no longer pending', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
-    mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
 
     const { ResponseNotPendingError } = await import('@/lib/approval/errors');
     mockEditBySession.mockRejectedValue(new ResponseNotPendingError('posted'));
@@ -664,9 +649,6 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
   it('returns 200 on successful regeneration request', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
-    mockSqlResults.push([{ archived_at: null }]); // in-tx archived gate → not archived
-    mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
-    mockRegenerateBySession.mockResolvedValue(undefined);
 
     const { POST } = await import('../[reviewId]/regenerate/route');
     const res = await POST(
@@ -682,17 +664,22 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
     // Signature: regenerateBySession(tx, responseId, businessId, audit, correlationId)
     const callArgs = mockRegenerateBySession.mock.calls[0];
     expect(callArgs?.[4]).toBe('upstream-corr-abc');
-    // The in-tx archived gate (locking FOR SHARE read on businesses) ran.
+    // The archived gate (locking FOR SHARE read on businesses) ran inside
+    // the action's lockPendingResponse claim.
     expect(sqlQueryTexts.some((text) => text.includes('FOR SHARE'))).toBe(true);
   });
 
   it('returns 409 and issues no supersede when the location is archived inside the transaction (TOCTOU)', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
     // The pre-tx `b.archived_at IS NULL` lookup passed, but the location was
-    // archived before the in-tx gate re-read it (ArchivedLocationError extends
-    // ResponseNotPendingError → mapped at the existing 409 branch).
-    mockSqlResults.push([{ archived_at: new Date('2026-06-01T00:00:00Z') }]);
+    // archived before the gate inside the action's lockPendingResponse claim
+    // re-read it (ArchivedLocationError extends ResponseNotPendingError →
+    // mapped at the existing 409 branch).
+    setResponseLookup(
+      [{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }],
+      undefined,
+      { archivedAt: new Date('2026-06-01T00:00:00Z') },
+    );
 
     const { POST } = await import('../[reviewId]/regenerate/route');
     const res = await POST(
@@ -703,13 +690,13 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.error).toContain('archived');
-    // The supersede/regenerate service never ran — no responses UPDATE issued.
-    expect(mockRegenerateBySession).not.toHaveBeenCalled();
+    // The claim threw before any mutation — no responses UPDATE issued.
     expect(sqlQueryTexts.some((text) => /UPDATE\s+responses/i.test(text))).toBe(false);
     // The gate SELECT (FOR SHARE) was the final statement in the transaction:
-    // lookup, account, response FOR UPDATE, hasOpenFlag, writable-business, gate.
+    // lookup, account, response FOR UPDATE, hasOpenFlag, writable-business,
+    // correlation, claim responses FOR UPDATE, gate.
     expect(sqlQueryTexts.some((text) => text.includes('FOR SHARE'))).toBe(true);
-    expect(sqlCallCounter.value).toBe(6);
+    expect(sqlCallCounter.value).toBe(8);
   });
 
   it('returns 404 when no response found', async () => {
@@ -741,8 +728,6 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
   it('returns 409 when response is no longer pending', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
-    mockSqlResults.push([{ archived_at: null }]); // in-tx archived gate → not archived
-    mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
 
     const { ResponseNotPendingError } = await import('@/lib/approval/errors');
     mockRegenerateBySession.mockRejectedValue(new ResponseNotPendingError('approved'));

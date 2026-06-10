@@ -19,7 +19,9 @@ import {
 } from '@/lib/locations/archive-location-tx';
 import { getAccountOwnerUserId } from '@/lib/accounts/repo';
 import {
+  LOCATION_DENIAL_STATUS,
   LOCATION_ROUTE_NO_STORE as NO_STORE,
+  locationDenialResponse,
   ownerAccountMismatchResponse,
   readLocationRouteJson,
   readOwnerForMultiLocationRoute,
@@ -35,21 +37,10 @@ const ArchiveLocationSchema = z.object({
   accountId: z.string().regex(UUID_RE, 'Invalid account ID format'),
 });
 
-// ── HTTP status mapping for guard rejection reasons ────────────────────────
-
-// Single owner of the denial→status mapping. Both the pre-tx guard result and
-// the in-tx re-assert throws (last_active_location / promote_first /
-// location_archive_conflict) resolve through this map — keep them together so
-// the same denial can never return different statuses depending on which
-// layer caught it.
-const GUARD_STATUS_MAP: Record<string, number> = {
-  location_not_found: 404,
-  location_not_owned: 403,
-  location_already_archived: 409,
-  location_archive_conflict: 409,
-  last_active_location: 409,
-  promote_first: 409,
-};
+// Denial→status mapping is shared across all locations routes
+// (LOCATION_DENIAL_STATUS in owner-route.ts): both the pre-tx guard result
+// and the in-tx re-assert throws resolve through it, so the same denial can
+// never return different statuses depending on which layer caught it.
 
 // ── Handler ─────────────────────────────────────────────────────────────────
 
@@ -82,7 +73,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const guardResult = await assertCanArchiveLocation(locationId, accountId);
 
   if (!guardResult.allowed) {
-    const httpStatus = GUARD_STATUS_MAP[guardResult.reason] ?? 403;
+    const httpStatus = LOCATION_DENIAL_STATUS[guardResult.reason] ?? 403;
     return NextResponse.json(
       { error: guardResult.reason },
       { status: httpStatus, headers: NO_STORE },
@@ -111,13 +102,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[locations/archive] Transaction failed for location=${locationId}: ${message}`);
-    const guardStatus = GUARD_STATUS_MAP[message];
-    if (guardStatus !== undefined) {
-      return NextResponse.json(
-        { error: message },
-        { status: guardStatus, headers: NO_STORE },
-      );
-    }
+    const denial = locationDenialResponse(message);
+    if (denial) return denial;
     return NextResponse.json(
       { error: 'archive_location_failed' },
       { status: 500, headers: NO_STORE },

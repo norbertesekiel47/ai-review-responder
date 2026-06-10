@@ -61,17 +61,11 @@ beforeEach(() => {
 // ══════════════════════════════════════════════════════════════════════════
 
 describe('promotePrimaryTransaction', () => {
-  // Helper: set up mocks for a successful promote transaction
-  // The validation query returns the new primary row,
-  // then inside the tx the demotion UPDATE RETURNING returns the old primary ID,
-  // then the promotion UPDATE and audit INSERT return empty arrays.
+  // Helper: set up mocks for a successful promote transaction.
+  // All validation happens INSIDE the tx, under the locks: account lock,
+  // target row lock (filters archived), demotion UPDATE RETURNING,
+  // promotion UPDATE RETURNING, audit INSERT.
   function setupPromoteMocks() {
-    mockSql.mockResolvedValueOnce([{
-      id: NEW_PRIMARY_ID,
-      account_id: ACCOUNT_ID,
-      is_primary: false,
-      archived_at: null,
-    }]); // validation query
     mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
     mockSql.mockResolvedValueOnce([{
       id: NEW_PRIMARY_ID,
@@ -96,12 +90,6 @@ describe('promotePrimaryTransaction', () => {
   // Zero-primary repair: promoting an active location heals an account with no
   // current primary. The demotion UPDATE returns 0 rows; this must NOT throw.
   it('repairs a zero-primary account: demotion returns 0 rows, oldPrimaryId is null', async () => {
-    mockSql.mockResolvedValueOnce([{
-      id: NEW_PRIMARY_ID,
-      account_id: ACCOUNT_ID,
-      is_primary: false,
-      archived_at: null,
-    }]); // validation query
     mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
     mockSql.mockResolvedValueOnce([{
       id: NEW_PRIMARY_ID,
@@ -132,7 +120,7 @@ describe('promotePrimaryTransaction', () => {
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
 
     // Inside the tx: UPDATE old primary, UPDATE new primary, INSERT audit
-    const txCalls = mockSql.mock.calls.slice(1); // skip validation query
+    const txCalls = mockSql.mock.calls;
     const updateCalls = txCalls.filter(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),
     );
@@ -146,7 +134,7 @@ describe('promotePrimaryTransaction', () => {
 
     await promotePrimaryTransaction(mkInput());
 
-    const txCalls = mockSql.mock.calls.slice(1);
+    const txCalls = mockSql.mock.calls;
     const updateCall = txCalls.find(
       (c: any[]) => {
         const template = (c[0] as TemplateStringsArray).join('?');
@@ -162,7 +150,7 @@ describe('promotePrimaryTransaction', () => {
 
     await promotePrimaryTransaction(mkInput());
 
-    const txCalls = mockSql.mock.calls.slice(1);
+    const txCalls = mockSql.mock.calls;
     const updateCall = txCalls.find(
       (c: any[]) => {
         const template = (c[0] as TemplateStringsArray).join('?');
@@ -173,39 +161,37 @@ describe('promotePrimaryTransaction', () => {
   });
 
   // Rejects if new primary doesn't exist or doesn't belong to account
-  it('throws if new primary does not exist or does not belong to account', async () => {
-    mockSql.mockResolvedValueOnce([]); // validation query returns no rows
+  it('throws location_not_found if new primary does not exist or does not belong to account', async () => {
+    mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
+    mockSql.mockResolvedValueOnce([]); // in-tx target lock returns no rows
 
     await expect(promotePrimaryTransaction(mkInput())).rejects.toThrow(
-      'new primary location not found',
+      'location_not_found',
     );
   });
 
   // Rejects if new primary is already the primary
-  it('throws if new primary is already the primary', async () => {
+  it('throws already_primary if new primary is already the primary', async () => {
+    mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
     mockSql.mockResolvedValueOnce([{
       id: NEW_PRIMARY_ID,
-      account_id: ACCOUNT_ID,
       is_primary: true, // already primary
-      archived_at: null,
-    }]);
+    }]); // in-tx target lock
 
     await expect(promotePrimaryTransaction(mkInput())).rejects.toThrow(
-      'already the primary',
+      'already_primary',
     );
   });
 
-  // Rejects if new primary is archived
-  it('throws if new primary is archived', async () => {
-    mockSql.mockResolvedValueOnce([{
-      id: NEW_PRIMARY_ID,
-      account_id: ACCOUNT_ID,
-      is_primary: false,
-      archived_at: new Date('2026-04-01'),
-    }]);
+  // An archived target never matches the in-tx locked SELECT (it filters
+  // archived_at IS NULL), so it surfaces as location_not_found — there is
+  // no separate "archived" error in the tx vocabulary.
+  it('archived target surfaces as location_not_found (in-tx SELECT filters archived)', async () => {
+    mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
+    mockSql.mockResolvedValueOnce([]); // archived target filtered out by archived_at IS NULL
 
     await expect(promotePrimaryTransaction(mkInput())).rejects.toThrow(
-      'archived',
+      'location_not_found',
     );
   });
 
@@ -239,12 +225,6 @@ describe('promotePrimaryTransaction', () => {
 
   // Transaction rolls back on failure
   it('rolls back entire transaction if any step fails', async () => {
-    mockSql.mockResolvedValueOnce([{
-      id: NEW_PRIMARY_ID,
-      account_id: ACCOUNT_ID,
-      is_primary: false,
-      archived_at: null,
-    }]);
     // Make the transaction throw
     mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => {
       throw new Error('audit INSERT failed');
@@ -255,18 +235,12 @@ describe('promotePrimaryTransaction', () => {
     );
   });
 
-  it('throws and skips audit when the target is archived before the transaction promotes it', async () => {
-    mockSql.mockResolvedValueOnce([{
-      id: NEW_PRIMARY_ID,
-      account_id: ACCOUNT_ID,
-      is_primary: false,
-      archived_at: null,
-    }]);
-    mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]);
-    mockSql.mockResolvedValueOnce([]);
+  it('throws location_not_found and skips demote/audit when the target archives before the in-tx lock', async () => {
+    mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
+    mockSql.mockResolvedValueOnce([]); // target archived under the lock → filtered out
 
     await expect(promotePrimaryTransaction(mkInput())).rejects.toThrow(
-      'new primary location not found',
+      'location_not_found',
     );
 
     const demoteCall = mockSql.mock.calls.find(

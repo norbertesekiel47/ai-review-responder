@@ -9,7 +9,7 @@ import { getDeviceCookieHash, validateCsrf, verifyDeviceCookie } from '@/lib/app
 import { EmptyEditedResponseError, ResponseNotPendingError } from '@/lib/approval/errors';
 import { hasOpenFlag, HeldForReviewError } from '@/lib/moderation/held-draft';
 import { handleApprovalError } from '@/lib/approval/http-errors';
-import { verifyDevice, assertLocationNotArchived } from '@/lib/approval/locks';
+import { verifyDevice } from '@/lib/approval/locks';
 import { lockValidLink } from '@/lib/approval/service';
 import type { ApprovalLink, AuditContext, SessionAuditContext } from '@/lib/approval/types';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
@@ -200,13 +200,10 @@ export async function runDashboardReviewAction(
       // and this commit. Token + callback approval paths re-check the same way.
       throwIfReadOnly(await assertWritableSubscriptionForBusiness(response.business_id as string, tx));
 
-      // Same TOCTOU reasoning for the archived gate: the pre-tx
-      // `b.archived_at IS NULL` filter above can go stale if the location is
-      // archived between it and this commit. Re-assert under the FOR SHARE lock
-      // for every mutating action (approve/edit/regenerate), matching the token
-      // and callback lanes. ArchivedLocationError extends ResponseNotPendingError → 409 below.
-      await assertLocationNotArchived(tx, response.business_id as string);
-
+      // The archived-location gate runs inside the action's
+      // lockPendingResponse claim (locks.ts) — same TOCTOU protection as the
+      // pre-tx `b.archived_at IS NULL` filter above going stale, owned by the
+      // claim primitive for every lane.
       const correlationId = await recoverCorrelationId(tx, {
         reviewId,
         responseId: response.id as string,

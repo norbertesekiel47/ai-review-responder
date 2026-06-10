@@ -19,6 +19,7 @@ import { reactivateLocationTransaction } from '@/lib/locations/archive-location-
 import { getAccountOwnerUserId } from '@/lib/accounts/repo';
 import { getLocationById } from '@/lib/locations/repo';
 import {
+  locationDenialResponse,
   LOCATION_ROUTE_NO_STORE as NO_STORE,
   ownerAccountMismatchResponse,
   readLocationRouteJson,
@@ -134,12 +135,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[locations/reactivate] Transaction failed for location=${locationId}: ${message}`);
-    if (message === 'location_reactivate_conflict') {
-      return NextResponse.json(
-        { error: message },
-        { status: 409, headers: NO_STORE },
-      );
-    }
+    const denial = locationDenialResponse(message);
+    if (denial) return denial;
     return NextResponse.json(
       { error: 'reactivate_location_failed' },
       { status: 500, headers: NO_STORE },

@@ -17,6 +17,7 @@ import { promotePrimaryTransaction } from '@/lib/locations/promote-primary-tx';
 import { getLocationById } from '@/lib/locations/repo';
 import {
   LOCATION_ROUTE_NO_STORE as NO_STORE,
+  locationDenialResponse,
   ownerAccountMismatchResponse,
   readLocationRouteJson,
   readOwnerForMultiLocationRoute,
@@ -87,32 +88,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-
-    // Map known error patterns to HTTP status codes
-    if (message.includes('already the primary')) {
-      return NextResponse.json(
-        { error: 'already_primary' },
-        { status: 400, headers: NO_STORE },
-      );
-    }
-
-    if (message.includes('not found') || message.includes('not accessible')) {
-      return NextResponse.json(
-        { error: 'location_not_found' },
-        { status: 404, headers: NO_STORE },
-      );
-    }
-
-    if (message.includes('archived')) {
-      return NextResponse.json(
-        { error: 'location_archived' },
-        { status: 400, headers: NO_STORE },
-      );
-    }
+    const denial = locationDenialResponse(message);
+    if (denial) return denial;
 
     console.error(`[locations/promote-primary] Transaction failed for account=${accountId}: ${message}`);
     return NextResponse.json(
-      { error: 'promote_primary_failed', detail: message },
+      { error: 'promote_primary_failed' },
       { status: 500, headers: NO_STORE },
     );
   }

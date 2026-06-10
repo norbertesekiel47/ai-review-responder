@@ -169,12 +169,12 @@ describe('approve', () => {
 
     const tx = createMockTx([
       // lockPendingResponse: SELECT ... FOR UPDATE
-      [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Approved draft', version: 1, review_id: 'rev-1' }],
+      [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Approved draft', version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
+      // archived gate INSIDE lockPendingResponse (uniform responses →
+      // businesses lock order): SELECT archived_at FOR SHARE
+      [{ archived_at: null }],
       // consumeLink: UPDATE approval_links SET consumed_at
       [],
-      // assertLocationNotArchived AFTER the response lock (uniform
-      // responses → businesses lock order): SELECT archived_at FOR SHARE
-      [{ archived_at: null }],
       // UPDATE responses SET status = 'approved'
       [],
       // revokeSiblings: UPDATE approval_links SET revoked_at
@@ -225,9 +225,9 @@ describe('approve', () => {
     const link = validLink({ device_cookie_hash: 'device-hash-abc' });
     const responseText = 'Thanks for the thoughtful review.';
     const tx = createMockTx([
-      [{ status: 'pending_approval', original_draft_text: 'draft', response_text: responseText, version: 1, review_id: 'rev-1' }],
+      [{ status: 'pending_approval', original_draft_text: 'draft', response_text: responseText, version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
+      [{ archived_at: null }], // archived gate, inside lockPendingResponse
       [], // consumeLink
-      [{ archived_at: null }], // archived gate, after the response lock
       [],
       [],
       [],
@@ -244,19 +244,17 @@ describe('approve', () => {
     expect(auditCall!.flat()).toContain(responseText);
   });
 
-  // Archived-location gate (PR B): the guard runs AFTER the response lock +
-  // link consume (uniform responses → businesses lock order across lanes).
-  // The throw rolls back the whole tx, so the consume is undone — no
-  // approval mutation or publish ever commits.
-  it('rejects with ArchivedLocationError when the business is archived, without approving or enqueueing anything', async () => {
+  // Archived-location gate: the guard runs INSIDE lockPendingResponse,
+  // right after the response lock and BEFORE the link consume (uniform
+  // responses → businesses lock order across lanes). The throw aborts the
+  // tx before any mutation is even issued.
+  it('rejects with ArchivedLocationError when the business is archived, without consuming, approving, or enqueueing anything', async () => {
     const link = validLink({ device_cookie_hash: 'device-hash-abc' });
 
     const tx = createMockTx([
       // lockPendingResponse: SELECT ... FOR UPDATE
-      [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Approved draft', version: 1, review_id: 'rev-1' }],
-      // consumeLink (rolled back by the gate's throw)
-      [],
-      // assertLocationNotArchived: SELECT archived_at FOR SHARE → archived
+      [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Approved draft', version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
+      // archived gate inside lockPendingResponse: SELECT archived_at FOR SHARE → archived
       [{ archived_at: new Date('2026-06-01T00:00:00Z') }],
     ]);
 
@@ -264,12 +262,13 @@ describe('approve', () => {
       approve(tx, link, 'device-hash-abc', AUDIT, 'test-correlation-xyz'),
     ).rejects.toBeInstanceOf(ArchivedLocationError);
 
-    // The gate threw immediately after lock+consume — nothing was approved
-    // or enqueued (and the consume rolls back with the tx).
-    expect(tx).toHaveBeenCalledTimes(3);
+    // The gate threw inside the claim — the link was never consumed and
+    // nothing was approved or enqueued.
+    expect(tx).toHaveBeenCalledTimes(2);
     const allSql = tx.mock.calls.map((call: unknown[]) =>
       String((call[0] as TemplateStringsArray).join(' ')),
     );
+    expect(allSql.some((s: string) => s.includes('consumed_at'))).toBe(false);
     expect(allSql.some((s: string) => s.includes("'approved'"))).toBe(false);
     expect(allSql.some((s: string) => s.includes('job_outbox'))).toBe(false);
   });
@@ -289,11 +288,11 @@ describe('edit', () => {
 
     const tx = createMockTx([
       // lockPendingResponse: SELECT ... FOR UPDATE
-      [{ status: 'pending_approval', original_draft_text: 'Original text', response_text: 'Original response', version: 1, review_id: 'rev-1' }],
+      [{ status: 'pending_approval', original_draft_text: 'Original text', response_text: 'Original response', version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
+      // archived gate inside lockPendingResponse: SELECT archived_at FOR SHARE
+      [{ archived_at: null }],
       // consumeLink
       [],
-      // assertLocationNotArchived AFTER the response lock
-      [{ archived_at: null }],
       // UPDATE responses SET status = 'edited'
       [],
       // revokeSiblings
@@ -360,18 +359,16 @@ describe('edit', () => {
     expect(publishPayload!.correlation_id).toBe('test-correlation-xyz');
   });
 
-  // Archived-location gate (PR B): the local empty-text check runs first
-  // (free, no DB), then the response lock + consume, then the gate — uniform
-  // responses → businesses lock order. The throw rolls back the whole tx.
-  it('rejects with ArchivedLocationError when the business is archived, without editing or enqueueing anything', async () => {
+  // Archived-location gate: the local empty-text check runs first (free,
+  // no DB), then the response lock, then the gate INSIDE lockPendingResponse
+  // — uniform responses → businesses lock order, before the consume.
+  it('rejects with ArchivedLocationError when the business is archived, without consuming, editing, or enqueueing anything', async () => {
     const link = validLink({ device_cookie_hash: 'device-hash-abc' });
 
     const tx = createMockTx([
       // lockPendingResponse: SELECT ... FOR UPDATE
-      [{ status: 'pending_approval', original_draft_text: 'Original text', response_text: 'Original response', version: 1, review_id: 'rev-1' }],
-      // consumeLink (rolled back by the gate's throw)
-      [],
-      // assertLocationNotArchived: SELECT archived_at FOR SHARE → archived
+      [{ status: 'pending_approval', original_draft_text: 'Original text', response_text: 'Original response', version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
+      // archived gate inside lockPendingResponse: SELECT archived_at FOR SHARE → archived
       [{ archived_at: new Date('2026-06-01T00:00:00Z') }],
     ]);
 
@@ -379,10 +376,11 @@ describe('edit', () => {
       edit(tx, link, 'A perfectly valid edited reply.', 'device-hash-abc', AUDIT, 'test-correlation-xyz'),
     ).rejects.toBeInstanceOf(ArchivedLocationError);
 
-    expect(tx).toHaveBeenCalledTimes(3);
+    expect(tx).toHaveBeenCalledTimes(2);
     const allSql = tx.mock.calls.map((call: unknown[]) =>
       String((call[0] as TemplateStringsArray).join(' ')),
     );
+    expect(allSql.some((s: string) => s.includes('consumed_at'))).toBe(false);
     expect(allSql.some((s: string) => s.includes("'edited'"))).toBe(false);
     expect(allSql.some((s: string) => s.includes('job_outbox'))).toBe(false);
   });
@@ -408,11 +406,19 @@ describe('approveBySession', () => {
 
   it('sets owner approval attribution when approving from a session', async () => {
     const tx = createMockTx([
-      [{ status: 'pending_approval', original_draft_text: 'Session draft', response_text: 'Session response', version: 1, review_id: 'rev-1' }],
+      // lockPendingResponse: SELECT ... FOR UPDATE
+      [{ status: 'pending_approval', original_draft_text: 'Session draft', response_text: 'Session response', version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
+      // archived gate inside lockPendingResponse: SELECT archived_at FOR SHARE
+      [{ archived_at: null }],
+      // revokeOpenLinksForResponse
       [],
+      // UPDATE responses SET status = 'approved'
       [],
+      // INSERT INTO job_outbox
       [],
+      // resolveAccountIdFromBusiness
       [{ account_id: 'acc-1' }],
+      // insertAuditLogSession
       [],
     ]);
 
@@ -438,7 +444,9 @@ describe('editBySession', () => {
 
     const tx = createMockTx([
       // lockPendingResponse: SELECT ... FOR UPDATE
-      [{ status: 'pending_approval', original_draft_text: 'Session draft', response_text: 'Session response', version: 1, review_id: 'rev-1' }],
+      [{ status: 'pending_approval', original_draft_text: 'Session draft', response_text: 'Session response', version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
+      // archived gate inside lockPendingResponse: SELECT archived_at FOR SHARE
+      [{ archived_at: null }],
       // revokeOpenLinksForResponse
       [],
       // UPDATE responses SET status = 'edited'
@@ -453,7 +461,7 @@ describe('editBySession', () => {
 
     await editBySession(tx, 'resp-1', 'biz-1', editedText, SESSION_AUDIT, 'test-correlation-xyz');
 
-    expect(tx).toHaveBeenCalledTimes(6);
+    expect(tx).toHaveBeenCalledTimes(7);
 
     const { distance } = await import('fastest-levenshtein');
     const expectedDist = distance('Session draft', sanitizedText);
@@ -510,11 +518,11 @@ describe('regenerate', () => {
 
     const tx = createMockTx([
       // lockPendingResponse: SELECT ... FOR UPDATE
-      [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Regenerate response', version: 1, review_id: 'rev-1' }],
+      [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Regenerate response', version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
+      // archived gate inside lockPendingResponse: SELECT archived_at FOR SHARE
+      [{ archived_at: null }],
       // consumeLink
       [],
-      // assertLocationNotArchived AFTER the response lock
-      [{ archived_at: null }],
       // revokeSiblings
       [],
       // UPDATE responses SET status = 'superseded'
@@ -563,20 +571,18 @@ describe('regenerate', () => {
     expect(parsed!.correlation_id).toBe('test-correlation-xyz');
   });
 
-  // Archived-location gate: runs AFTER the response lock + link consume
-  // (uniform responses → businesses lock order across lanes); the throw
-  // rolls back the whole tx, so nothing is superseded or enqueued. The gate
-  // covers all mutating approval actions across all lanes — the dashboard
-  // lane re-asserts it in-tx for approve/edit/regenerate too.
-  it('rejects with ArchivedLocationError when the business is archived, without superseding or enqueueing anything', async () => {
+  // Archived-location gate: runs INSIDE lockPendingResponse, right after
+  // the response lock and BEFORE the link consume (uniform responses →
+  // businesses lock order across lanes); the throw aborts the tx before any
+  // mutation is issued. Every lane (token, callback, dashboard-session)
+  // claims through lockPendingResponse, so the gate holds by construction.
+  it('rejects with ArchivedLocationError when the business is archived, without consuming, superseding, or enqueueing anything', async () => {
     const link = validLink({ device_cookie_hash: 'device-hash-abc' });
 
     const tx = createMockTx([
       // lockPendingResponse: SELECT ... FOR UPDATE
-      [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Regenerate response', version: 1, review_id: 'rev-1' }],
-      // consumeLink (rolled back by the gate's throw)
-      [],
-      // assertLocationNotArchived: SELECT archived_at FOR SHARE → archived
+      [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Regenerate response', version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
+      // archived gate inside lockPendingResponse: SELECT archived_at FOR SHARE → archived
       [{ archived_at: new Date('2026-06-01T00:00:00Z') }],
     ]);
 
@@ -584,10 +590,11 @@ describe('regenerate', () => {
       regenerate(tx, link, 'device-hash-abc', AUDIT, 'test-correlation-xyz'),
     ).rejects.toBeInstanceOf(ArchivedLocationError);
 
-    expect(tx).toHaveBeenCalledTimes(3);
+    expect(tx).toHaveBeenCalledTimes(2);
     const allSql = tx.mock.calls.map((call: unknown[]) =>
       String((call[0] as TemplateStringsArray).join(' ')),
     );
+    expect(allSql.some((s: string) => s.includes('consumed_at'))).toBe(false);
     expect(allSql.some((s: string) => s.includes("'superseded'"))).toBe(false);
     expect(allSql.some((s: string) => s.includes('job_outbox'))).toBe(false);
     expect(allSql.some((s: string) => s.includes('SET revoked_at'))).toBe(false);

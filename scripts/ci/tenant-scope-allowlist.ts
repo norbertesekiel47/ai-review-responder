@@ -1257,8 +1257,8 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/approval/locks.ts",
     table: "responses",
-    sqlSnippet: "SELECT status, original_draft_text, response_text, version, review_id FROM responses WHERE id = ${responseId} FOR UPDATE",
-    reason: "Approval transaction resolves token/response rows by durable approval identifiers before tenant scope is known.",
+    sqlSnippet: "SELECT status, original_draft_text, response_text, version, review_id, business_id FROM responses WHERE id = ${responseId} FOR UPDATE",
+    reason: "Approval transaction resolves token/response rows by durable approval identifiers before tenant scope is known; the selected business_id immediately drives the in-tx archived-location gate.",
   },
   {
     file: "src/lib/approval/locks.ts",

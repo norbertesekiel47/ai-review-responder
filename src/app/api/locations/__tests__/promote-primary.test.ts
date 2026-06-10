@@ -289,7 +289,7 @@ describe('POST /api/locations/promote-primary', () => {
       account_id: ACCOUNT_ID,
     });
     mockPromotePrimaryTransaction.mockRejectedValueOnce(
-      new Error('location bbbb...0002 is already the primary location'),
+      new Error('already_primary'),
     );
 
     const req = mkRequest({
@@ -312,7 +312,7 @@ describe('POST /api/locations/promote-primary', () => {
       account_id: ACCOUNT_ID,
     });
     mockPromotePrimaryTransaction.mockRejectedValueOnce(
-      new Error('new primary location not found or not accessible: 0000...'),
+      new Error('location_not_found'),
     );
 
     const req = mkRequest({
@@ -326,16 +326,20 @@ describe('POST /api/locations/promote-primary', () => {
     expect(body.error).toBe('location_not_found');
   });
 
-  // ── 400 when new primary is archived ──────────────────────────────────
+  // ── 404 when new primary is archived ──────────────────────────────────
+  // getLocationById does NOT filter archived rows, so the route pre-check
+  // passes; the tx's locked SELECT filters archived_at IS NULL and throws
+  // location_not_found, which the shared denial map turns into a 404.
 
-  it('returns 400 when new primary is archived', async () => {
+  it('returns 404 location_not_found when the new primary is archived (in-tx SELECT filters archived rows)', async () => {
     mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockGetLocationById.mockResolvedValueOnce({
       id: NEW_PRIMARY_ID,
       account_id: ACCOUNT_ID,
+      archived_at: new Date('2026-04-01'),
     });
     mockPromotePrimaryTransaction.mockRejectedValueOnce(
-      new Error('location bbbb...0002 is archived and cannot be promoted to primary'),
+      new Error('location_not_found'),
     );
 
     const req = mkRequest({
@@ -344,9 +348,9 @@ describe('POST /api/locations/promote-primary', () => {
     });
     const res = await POST(req);
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(404);
     const body = await res.json();
-    expect(body.error).toBe('location_archived');
+    expect(body.error).toBe('location_not_found');
   });
 
   // ── Input validation ───────────────────────────────────────────────────
@@ -395,5 +399,7 @@ describe('POST /api/locations/promote-primary', () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toBe('promote_primary_failed');
+    // The 500 body must not leak internals — no detail field.
+    expect(body).not.toHaveProperty('detail');
   });
 });

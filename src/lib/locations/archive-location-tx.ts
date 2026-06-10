@@ -172,7 +172,6 @@ export async function archiveLocationTransaction(
       accountId,
       actorUserId,
       activeLocationsBefore: context.activeLocationsBefore,
-      blockPrimary: true,
     });
   });
 
@@ -198,8 +197,6 @@ export async function archiveLocationForAccountOffboardingTeardownTransaction(
       accountId,
       actorUserId: null,
       activeLocationsBefore: context.activeLocationsBefore,
-      // Teardown intentionally archives the primary; do not block it.
-      blockPrimary: false,
       auditPayload: {
         location_id: locationId,
         active_locations_before: context.activeLocationsBefore,
@@ -260,53 +257,13 @@ async function lockArchiveContext(
   };
 }
 
-/**
- * Owner archive UPDATE. The WHERE gates on is_primary = FALSE so a primary row
- * (under a concurrent promote race) matches 0 rows and surfaces
- * location_archive_conflict instead of breaking businesses_account_primary_uniq.
- */
-async function archiveLocationRowBlockingPrimary(
-  tx: postgres.TransactionSql,
-  locationId: string,
-  accountId: string,
-): Promise<{ id: string } | undefined> {
-  const [row] = await tx<{ id: string }[]>`
-    UPDATE businesses
-    SET archived_at = NOW(),
-        is_primary = FALSE,
-        updated_at = NOW()
-    WHERE id = ${locationId}::uuid
-      AND account_id = ${accountId}::uuid
-      AND archived_at IS NULL
-      AND is_primary = FALSE
-    RETURNING id
-  `;
-  return row;
-}
-
-/**
- * Teardown archive UPDATE. Matches the row regardless of is_primary — offboarding
- * intentionally archives the primary. The SET still flips is_primary off so the
- * archived row never lingers as primary.
- */
-async function archiveLocationRow(
-  tx: postgres.TransactionSql,
-  locationId: string,
-  accountId: string,
-): Promise<{ id: string } | undefined> {
-  const [row] = await tx<{ id: string }[]>`
-    UPDATE businesses
-    SET archived_at = NOW(),
-        is_primary = FALSE,
-        updated_at = NOW()
-    WHERE id = ${locationId}::uuid
-      AND account_id = ${accountId}::uuid
-      AND archived_at IS NULL
-    RETURNING id
-  `;
-  return row;
-}
-
+// One UPDATE serves both the owner and teardown paths. The owner path's
+// "never archive a primary" rule is enforced by the promote_first guard on
+// the LOCKED snapshot in archiveLocationTransaction — the row is held
+// FOR UPDATE from snapshot to this UPDATE, and every is_primary writer
+// mutates rows via UPDATE (blocking on that lock), so the snapshot cannot
+// go stale. The teardown path archives primaries intentionally. The SET
+// always flips is_primary off so an archived row never lingers as primary.
 async function applyArchiveLocationUpdate(
   tx: postgres.TransactionSql,
   input: {
@@ -314,20 +271,19 @@ async function applyArchiveLocationUpdate(
     accountId: string;
     actorUserId?: string | null;
     activeLocationsBefore: number;
-    /**
-     * Owner path (true): the archive UPDATE additionally requires the row to be
-     * non-primary, so a primary row matches 0 rows and surfaces
-     * location_archive_conflict instead of breaking the at-most-one-primary
-     * invariant under a race. Teardown path (false): archiving the primary is
-     * intentional, so the row is matched regardless of is_primary.
-     */
-    blockPrimary: boolean;
     auditPayload?: Record<string, unknown>;
   },
 ): Promise<void> {
-  const updatedLocation = input.blockPrimary
-    ? await archiveLocationRowBlockingPrimary(tx, input.locationId, input.accountId)
-    : await archiveLocationRow(tx, input.locationId, input.accountId);
+  const [updatedLocation] = await tx<{ id: string }[]>`
+    UPDATE businesses
+    SET archived_at = NOW(),
+        is_primary = FALSE,
+        updated_at = NOW()
+    WHERE id = ${input.locationId}::uuid
+      AND account_id = ${input.accountId}::uuid
+      AND archived_at IS NULL
+    RETURNING id
+  `;
   if (!updatedLocation) {
     throw new Error('location_archive_conflict');
   }
