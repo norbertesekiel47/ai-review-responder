@@ -310,6 +310,12 @@ describe('AccountOffboarding PurgeWorker', () => {
     expect(notificationDelete?.text).toContain('nd.account_id =');
     expect(notificationDelete?.text).toContain('nd.business_id IN');
     expect(notificationDelete?.text).toContain('SELECT id FROM businesses WHERE account_id =');
+    // channel_enrollments is hard_delete/must_be_absent — the purge fails its own
+    // verification gate if no stage deletes these rows (DELETE moved here from the
+    // removed SMS opt-out stage in migration-061 cleanup).
+    const enrollmentDelete = calls.find((call) => call.text.includes('DELETE FROM channel_enrollments'));
+    expect(enrollmentDelete?.text).toContain('account_id =');
+    expect(enrollmentDelete?.scope).toBe('tx');
     expect(sqlText).toContain('recipient_email = NULL');
     expect(sqlText).toContain('stripe_customer_id = NULL');
     expect(sqlText).toContain('stripe_subscription_id = NULL');
