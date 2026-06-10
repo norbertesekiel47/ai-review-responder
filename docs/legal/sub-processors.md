@@ -1,7 +1,7 @@
 # Sub-processors
 
-Version: 2026-05-25
-Effective date: 2026-05-25
+Version: 2026-06-09
+Effective date: 2026-06-09
 Review status: founder verified; pending lawyer review for broader legal package
 
 | Vendor | Purpose | Data classes |

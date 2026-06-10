@@ -18,8 +18,8 @@ export interface LegalDoc {
   sections: LegalSection[];
 }
 
-const version = '2026-05-25';
-const effectiveDate = '2026-05-25';
+const version = '2026-06-09';
+const effectiveDate = '2026-06-09';
 
 const subProcessorRows: string[][] = [
   ['OpenAI', 'AI draft generation', 'Review text, business context, generated responses'],

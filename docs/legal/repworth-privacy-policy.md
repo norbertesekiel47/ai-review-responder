@@ -1,7 +1,7 @@
 # Privacy Policy
 
-Version: 2026-05-25
-Effective date: 2026-05-25
+Version: 2026-06-09
+Effective date: 2026-06-09
 Legal review status: pending lawyer review
 
 RepWorth ("we", "us", "our") operates the RepWorth service. This policy describes what data we process, how we use it, and your rights.

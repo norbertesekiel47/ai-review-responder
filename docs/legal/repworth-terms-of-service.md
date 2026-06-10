@@ -1,7 +1,7 @@
 # Terms of Service
 
-Version: 2026-05-25
-Effective date: 2026-05-25
+Version: 2026-06-09
+Effective date: 2026-06-09
 Legal review status: pending lawyer review
 
 By creating an account or using RepWorth, you agree to these Terms. If you do not agree, do not use the Service.

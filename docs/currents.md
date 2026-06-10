@@ -244,11 +244,11 @@ The WhatsApp code was built months ago but parked, waiting for the WhatsApp Busi
 
 ### The new house rule
 
-WhatsApp owner self-service is **single-location-only for now.** If an account has more than one location, the owner sees "coming soon" instead of the Connect button, and the connect endpoint refuses with a clear error. This is a deliberate guardrail around a pre-existing bug (the owner connect/disconnect logic looks up the row by location, but the page reads it by account, so on accounts with multiple owners they can disagree). The same bug quietly affects SMS and Telegram too — it's written up in `docs/known-issues.md` with a proper fix planned separately.
+WhatsApp owner self-service is **single-location-only for now.** If an account has more than one location, the owner sees "coming soon" instead of the Connect button, and the connect endpoint refuses with a clear error. This is a deliberate guardrail around a pre-existing bug (the owner connect/disconnect logic looks up the row by location, but the page reads it by account, so on accounts with multiple owners they can disagree). The same bug quietly affected SMS (now removed) and Telegram too — it's written up in `docs/known-issues.md` with a proper fix planned separately.
 
 ### What didn't change
 
-Email, SMS, and Telegram all work exactly as before. The admin-side WhatsApp enrollment (on the business detail page) is unchanged except that it now calls the shared helper functions. Nothing about review ingestion, response generation, or posting changed. And because the flag is still off, customers see no difference until launch.
+Email and Telegram all work exactly as before. The admin-side WhatsApp enrollment (on the business detail page) is unchanged except that it now calls the shared helper functions. Nothing about review ingestion, response generation, or posting changed. And because the flag is still off, customers see no difference until launch.
 
 ### Where to read more
 
@@ -461,7 +461,7 @@ worker/
 ├── config/           ← boot-time env-var assertions
 │
 ├── ingress/          ← webhook handlers (Stripe, Resend, etc.)
-│   ├── twilio/       ← SMS + WhatsApp inbound + their helpers
+│   ├── twilio/       ← WhatsApp inbound + shared Twilio helpers
 │   ├── telegram/     ← Telegram bot webhooks + helpers
 │   └── zernio/       ← Zernio review webhook + signature verify
 │
@@ -1253,12 +1253,12 @@ These are the new workflows added in Sprint 5B. Each one runs independently alon
 2. Page fetches GET /api/dashboard (includes settings data)
    → Shows read-only fields: name, category, Google Place ID
    → Shows editable fields: tone, products/services, avoid facts, sample responses
-   → Shows notification preferences: channel (email/sms/both), phone, weekly/monthly toggles
+   → Shows notification preferences: per-channel enrollments (email/telegram/whatsapp), weekly/monthly toggles
 
 3. Owner makes changes, clicks "Save Changes"
    → PUT /api/settings (Zod validated, owner-scoped by session — never accepts business_id in body)
    → Only sends changed fields (diff against initial values)
-   → SMS channel requires phone number (checks stored phone for partial updates)
+   → Channel preferences validated server-side (Zod, owner-scoped)
    → Success: green banner, auto-dismiss after 3 seconds
 
 4. Opt-out takes effect:
@@ -1659,8 +1659,8 @@ We built the remaining retention features — automated ranking tracking, owner 
 
 **Owner Settings + Dashboard Approval Actions (Prompt 19c-5B):**
 
-- Owner settings page at `/settings` — two sections: Business Profile (read-only name/category/placeId, editable tone/products/avoid-facts/sample-responses) and Notification Preferences (email/sms/both channel toggle, phone number, weekly summary on/off, monthly impact on/off). Single "Save Changes" button sends only changed fields.
-- PUT `/api/settings` — Zod validated, owner-scoped via `user.businessId` (never from request body). SMS channel requires phone number (checks stored phone from DB for partial updates).
+- Owner settings page at `/settings` — two sections: Business Profile (read-only name/category/placeId, editable tone/products/avoid-facts/sample-responses) and Notification Preferences (per-channel enrollments: email/telegram/whatsapp, weekly summary on/off, monthly impact on/off). Single "Save Changes" button sends only changed fields.
+- PUT `/api/settings` — Zod validated, owner-scoped via `user.businessId` (never from request body). Channel preferences validated server-side.
 - WeeklySummaryScheduler and MonthlyImpactScheduler respect `weekly_summary_enabled` / `monthly_impact_enabled` columns — businesses that opt out are skipped.
 - ApprovalService refactored: new `approveBySession()`, `editBySession()`, `regenerateBySession()` methods share the same core mutation helpers as token-based methods but write `auth_method='owner_session'` + `actor_user_id` to audit log. Token-based routes untouched.
 - Three new dashboard API routes: POST `/api/dashboard/reviews/[reviewId]/approve|edit|regenerate` — `requireRole('owner')`, business ownership check (query scoped by `business_id` to prevent IDOR), 409 for non-pending responses.
@@ -1759,7 +1759,7 @@ _(Additions and changes from Sprint 5B are marked with 🆕 for new files and �
 | 🆕 `dashboard/reviews/[reviewId]/approve/route.ts`    | POST: session-auth approve (owner scoped)                                                         | Working |
 | 🆕 `dashboard/reviews/[reviewId]/edit/route.ts`       | POST: session-auth edit with Zod validation                                                       | Working |
 | 🆕 `dashboard/reviews/[reviewId]/regenerate/route.ts` | POST: session-auth regenerate                                                                     | Working |
-| 🆕 `settings/route.ts`                                | PUT: owner settings update with SMS phone validation                                              | Working |
+| 🆕 `settings/route.ts`                                | PUT: owner settings update (Zod validated, per-channel enrollment preferences)                    | Working |
 | 🆕 `feedback/route.ts`                                | GET: HMAC-validated confirmation page (no DB write). POST: upsert satisfaction_responses + outbox | Working |
 | 📝 `admin/businesses/[id]/route.ts`                   | Returns trackedKeywords + rankingSnapshots + location data in GET                                 | Working |
 | 📝 `dashboard/route.ts`                               | Returns settings data (tone, prefs, opt-out flags) in GET                                         | Working |
@@ -2167,9 +2167,11 @@ _(Additions and changes from Sprint 6 are marked with 🆕 for new files and �
 
 ## Communication Channels (Phases 0–3)
 
-Design spec: `docs/adding-communication-channels.md`. This is the multi-channel approval-notification rollout that lets owners receive and action review approvals from **email + SMS + Telegram + WhatsApp** instead of email only. Every channel sits behind a shared `NotificationChannel` interface; the dispatcher in `NotificationWorker` fans out to whichever channels a business has verified.
+> **SMS removed 2026-06-09 (migration 061).** The SMS channel (Phase 1) was built flag-gated off pending 10DLC registration, which never cleared. All SMS code, tables, and env vars were removed entirely. The three remaining channels are **email, Telegram, and WhatsApp**.
 
-Phases 0–3 are all **code-complete** and live in `main` (except Phase 3 which is on branch `feat/channels-whatsapp-phase-3` with its PR open). SMS, Telegram, and WhatsApp all ship flag-gated **off** at merge and flip on per-channel once their external prerequisite (10DLC registration / bot registration / Meta Business verification) is done.
+Design spec: `docs/adding-communication-channels.md`. This is the multi-channel approval-notification rollout that lets owners receive and action review approvals from **email + Telegram + WhatsApp** instead of email only. Every channel sits behind a shared `NotificationChannel` interface; the dispatcher in `NotificationWorker` fans out to whichever channels a business has verified.
+
+Phases 0 and 2–3 are **code-complete** and live in `main` (except Phase 3 which is on branch `feat/channels-whatsapp-phase-3` with its PR open). Telegram and WhatsApp ship flag-gated **off** at merge and flip on per-channel once their external prerequisite (bot registration / Meta Business verification) is done.
 
 ### Phase 0: Refactor + infra (merged to main 2026-04-21)
 
@@ -2261,7 +2263,6 @@ All Channels work sits under dedicated folders so it doesn't leak into Sprint 1�
 ```
 src/
 ├── app/api/admin/channels/        # NEW — admin enrollment routes, one subfolder per channel
-│   ├── sms/        (6 routes + _shared + __tests__)
 │   ├── telegram/   (3 routes + _shared + __tests__)
 │   └── whatsapp/   (3 routes + _shared + __tests__)
 ├── components/admin/              # NEW folder
@@ -2273,7 +2274,6 @@ src/
     ├── types.ts                   # NotificationChannel interface + ChannelId type
     ├── index.ts                   # getChannel factory
     ├── email-channel.ts
-    ├── sms-channel.ts
     ├── telegram-channel.ts
     ├── telegram-client.ts
     ├── telegram-body.ts
@@ -2324,7 +2324,6 @@ supabase/migrations/
 | 🆕 `types.ts`           | `NotificationChannel` interface, `SendApprovalParams`, `ChannelId` union. The contract every channel implements.                                                                     |
 | 🆕 `index.ts`           | `getChannel(id)` factory — returns the right implementation and throws a typed error if the channel's feature flag is off.                                                           |
 | 🆕 `email-channel.ts`   | Wraps existing `sendApprovalEmail`. Zero behavior change for existing customers.                                                                                                     |
-| 🆕 `sms-channel.ts`     | Twilio Programmable SMS send via Messaging Service SID. Uses `sms-body` formatter + `sms-tracker` cost guard.                                                                        |
 | 🆕 `telegram-channel.ts`| `sendApprovalRequest` → `TelegramClient.sendMessage` with inline keyboard. Maps provider errors to typed `TelegramRecipientBlockedError` / `TelegramChatNotFoundError` / etc.         |
 | 🆕 `telegram-client.ts` | Raw Bot API wrapper — native `fetch`, 10s AbortController timeout, 4 typed error classes.                                                                                            |
 | 🆕 `telegram-body.ts`   | `formatApprovalTelegram` — pure HTML-escape + 2-row inline keyboard builder. No side effects.                                                                                        |
@@ -2332,23 +2331,10 @@ supabase/migrations/
 | 🆕 `whatsapp-client.ts` | Twilio SDK wrapper with explicit `{timeout, autoRetry: false}`, 7 typed error classes, `classifyError` dispatch by Twilio error code set membership.                                 |
 | 🆕 `whatsapp-body.ts`   | `formatApprovalWhatsApp` produces the 9 Content variables. `extractTokenFromApprovalUrl` enforces strict `/approve/<token>` shape.                                                   |
 
-### SMS-specific support files
-
-| File                                    | What it does                                                                                                                       |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| 🆕 `src/lib/notifications/sms-body.ts`  | GSM-7 single-segment formatter, two-tier length fallback (drops snippet first, then reviewer name), `SmsBodyTooLongError`.         |
-| 🆕 `src/lib/costs/sms-tracker.ts`       | Per-business + global daily cents ceiling in Redis (`SMS_DAILY_LIMIT_CENTS_PER_BUSINESS` / `_GLOBAL`). INCR + try/finally refund.  |
-
 ### Admin API routes — `src/app/api/admin/channels/`
 
 | Route                                              | What it does                                                                                                                                             |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 🆕 `sms/verify/route.ts`                           | POST: start Twilio Verify flow for a given business + phone. Inserts `pending_verification` row.                                                         |
-| 🆕 `sms/confirm/route.ts`                          | POST: accept 6-digit code, validates via Twilio, flips to `verified`.                                                                                    |
-| 🆕 `sms/cancel/route.ts`                           | POST: cancel an in-flight verification (before confirm).                                                                                                 |
-| 🆕 `sms/disable/route.ts`                          | POST: flip an enrollment to `disabled`.                                                                                                                  |
-| 🆕 `sms/delete/route.ts`                           | POST: soft-delete (`archived_at=NOW()`) so the business can re-enroll with a different number.                                                           |
-| 🆕 `sms/status/route.ts`                           | GET: current enrollment status for admin widget polling.                                                                                                 |
 | 🆕 `telegram/start/route.ts`                       | POST: generate a fresh 1h-TTL verification token, return the raw token once (for QR + deep link), persist only the SHA-256 hash.                         |
 | 🆕 `telegram/cancel/route.ts`                      | POST: cancel a `pending_verification` row before the owner taps the deep link.                                                                           |
 | 🆕 `telegram/disable/route.ts`                     | POST: flip a verified Telegram enrollment to `disabled`.                                                                                                 |
@@ -2382,12 +2368,10 @@ Every channel is **off by default**. Each flag is server-authoritative — the a
 
 | Env var                             | Purpose                                                                                                                     |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `CHANNELS_SMS_ENABLED`              | Gates factory, dispatcher, admin routes, widget. Default `false`.                                                           |
-| `CHANNELS_TELEGRAM_ENABLED`         | Same, for Telegram. Default `false`.                                                                                        |
+| `CHANNELS_TELEGRAM_ENABLED`         | Gates factory, dispatcher, admin routes, widget for Telegram. Default `false`.                                              |
 | `CHANNELS_WHATSAPP_ENABLED`         | Same, for WhatsApp. Default `false`.                                                                                        |
-| `WORKER_PUBLIC_URL`                 | Required when SMS on. Used as Twilio statusCallback base + signature-verified path.                                         |
-| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_MESSAGING_SERVICE_SID` / `TWILIO_VERIFY_SERVICE_SID` | Required when SMS on. Asserted at worker startup. |
-| `SMS_DAILY_LIMIT_CENTS_PER_BUSINESS` (default 10) / `SMS_DAILY_LIMIT_CENTS_GLOBAL` (default 500) | SMS cost guard ceilings.                                      |
+| `WORKER_PUBLIC_URL`                 | Used as Twilio statusCallback base + signature-verified path (WhatsApp). Required when WhatsApp on.                         |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_MESSAGING_SERVICE_SID` | Required when WhatsApp on. Asserted at worker startup.           |
 | `TELEGRAM_BOT_TOKEN`                | BotFather token for `@RepWorthBot`. Required when Telegram on.                                                              |
 | `TELEGRAM_WEBHOOK_SECRET`           | 32+ byte shared secret — must match value passed to Telegram `setWebhook`. Ingress rejects 401 on mismatch.                 |
 | `TELEGRAM_BOT_USERNAME`             | Optional — default `RepWorthBot`. Controls deep-link rendering.                                                             |
@@ -2805,15 +2789,14 @@ All 6 scenarios from `docs/zernio-testing-and-shipping.md` Part 1 manually exerc
 
 ### What this is in plain words
 
-Up until now, if an owner wanted to receive review-approval notifications via Telegram instead of (or in addition to) email, the sales partner had to flip Telegram on for that business from the admin CRM. Same for SMS and WhatsApp once those channels graduate. That doesn't scale — every owner who wants Telegram has to email support to be enrolled. Phase 4 fixes that for Telegram by giving the owner a self-serve page at `/settings/channels` where they can connect Telegram themselves. SMS and WhatsApp are shown but greyed out as "Coming soon" because those channels are still waiting on Twilio 10DLC and Meta business verification respectively.
+Up until now, if an owner wanted to receive review-approval notifications via Telegram instead of (or in addition to) email, the sales partner had to flip Telegram on for that business from the admin CRM. Same for WhatsApp once it graduates. That doesn't scale — every owner who wants Telegram has to email support to be enrolled. Phase 4 fixes that for Telegram by giving the owner a self-serve page at `/settings/channels` where they can connect Telegram themselves. WhatsApp is shown but greyed out as "Coming soon" because it is still waiting on Meta business verification.
 
 ### How an owner uses it
 
 1. Owner logs into the dashboard and clicks **Settings** in the nav, then the **Notification channels** tab.
-2. The page shows four rows:
+2. The page shows three rows:
    - **Email** (always-on, with their email address as the handle and an "Always on" pill).
    - **Telegram** with a Connect button (if the flag is on and the bot env is configured).
-   - **SMS** as a Coming Soon row with no button — explains "Available once 10DLC verification clears."
    - **WhatsApp** as a Coming Soon row — "Available once Meta business verification clears."
 3. Owner clicks **Connect** on the Telegram row.
 4. The page generates a QR code + a `https://t.me/RepWorthBot?start=<token>` deep link, valid for 1 hour. A countdown timer ticks down.
@@ -2856,8 +2839,8 @@ The first implementation pass shipped, but Codex (a separate AI reviewer) found 
 
 ### What's deliberately NOT in this phase
 
-- **No SMS or WhatsApp owner-side enrollment.** Both render as Coming Soon rows. SMS waits on Twilio 10DLC verification (the brand-and-campaign registration that lets us send to consumer mobile numbers in the US). WhatsApp waits on Meta business verification (a 2–4 week clock that requires a verified Meta business account + a WhatsApp Business API number).
-- **No multi-channel "and" support.** Per spec § 3, an owner picks ONE extra channel beyond email. Migration 027 enforces this at the DB level. If we ever want "Email + Telegram + SMS at the same time," we'd need a new phase that drops the partial unique index and updates the dispatcher to fan-out.
+- **No WhatsApp owner-side enrollment.** Renders as a Coming Soon row. WhatsApp waits on Meta business verification (a 2–4 week clock that requires a verified Meta business account + a WhatsApp Business API number).
+- **No multi-channel "and" support.** Per spec § 3, an owner picks ONE extra channel beyond email. Migration 027 enforces this at the DB level. If we ever want "Email + Telegram + WhatsApp at the same time," we'd need a new phase that drops the partial unique index and updates the dispatcher to fan-out.
 - **No automated component-level tests for `useEnrollment`.** Vitest is configured for node-only (no jsdom) so the hook's React-specific behavior (polling cancellation on unmount, AbortController cleanup) is covered by Playwright's `test.fixme` block and the existing reducer unit tests. Real Playwright execution is deferred until the Supabase admin `generateLink` magic-link harness lands.
 
 ### Test plan
@@ -3049,7 +3032,7 @@ The text-mismatch supersede path logs `len=` and 12-char SHA-256 fingerprints of
 
 ### Channels Phase 0 (multi-channel refactor): COMPLETE ✓
 
-### Channels Phase 1 (SMS): CODE COMPLETE ✓ — flag-off in prod pending 10DLC brand/campaign registration + real-phone pilot walkthrough
+### Channels Phase 1 (SMS): REMOVED 2026-06-09 — code, tables, and env vars deleted (migration 061); 10DLC registration never cleared
 
 ### Channels Phase 2 (Telegram): CODE COMPLETE ✓ — ship gate passed in local dev; flag-off in prod pending prod bot registration + prod `setWebhook` + one-business pilot walkthrough
 
