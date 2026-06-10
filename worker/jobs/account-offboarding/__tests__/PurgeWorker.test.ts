@@ -73,10 +73,6 @@ const {
         : [{ can_delete: false, already_detached: mockState.authAlreadyDetached }];
     }
 
-    if (text.includes('account_handles AS') && text.includes('sms_sender_opt_out_events')) {
-      return [{ messaging_service_sid: 'MG123', handle: '+15555550123' }];
-    }
-
     if (text.includes('SELECT id') && text.includes('FROM job_outbox') && text.includes('offboarding_scope AS')) {
       return [{ id: '00000000-0000-7000-8000-000000000004' }];
     }
@@ -349,17 +345,6 @@ describe('AccountOffboarding PurgeWorker', () => {
         value.some((entry) =>
           entry &&
           typeof entry === 'object' &&
-          'type' in entry &&
-          entry.type === 'sms_opt_out_scrub_scope'
-        )
-      )
-    )).toBe(true);
-    expect(calls.some((call) =>
-      call.values.some((value) =>
-        Array.isArray(value) &&
-        value.some((entry) =>
-          entry &&
-          typeof entry === 'object' &&
           'job_outbox_id' in entry &&
           entry.job_outbox_id === '00000000-0000-7000-8000-000000000004'
         )
@@ -464,15 +449,14 @@ describe('AccountOffboarding PurgeWorker', () => {
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
-  it('does not treat SMS scrub-scope records as provider-disposition purge eligibility', async () => {
+  it('does not treat non-admin scrub-scope records as provider-disposition purge eligibility', async () => {
     mockState.offboarding = {
       ...mockState.offboarding!,
       teardown_completed_at: null,
       provider_dispositions: [{
-        type: 'sms_opt_out_scrub_scope',
-        messaging_service_sid_hash: 'sid-hash',
-        handle_hash: 'handle-hash',
-        scrubbed_handle: 'sha256:handle-hash',
+        type: 'job_outbox_scrub_scope',
+        job_outbox_id: 'some-outbox-id',
+        job_outbox_id_hash: 'some-hash',
       }],
     };
 

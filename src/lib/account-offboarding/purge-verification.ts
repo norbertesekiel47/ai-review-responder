@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import { sql } from '../db/server';
 import {
@@ -34,16 +33,6 @@ export interface PurgeVerificationResult {
 type VerificationRow = { violation_count: number | string | bigint };
 type SqlExecutor = typeof sql | postgres.TransactionSql;
 
-interface SmsScrubScopeRow {
-  messaging_service_sid_hash: string | null;
-  handle_hash: string | null;
-}
-
-interface SmsOptOutRow {
-  messaging_service_sid: string;
-  handle: string;
-}
-
 export const PURGE_VERIFICATION_SQL_TABLES = Object.freeze(
   PURGE_VERIFICATION_TABLES.map((entry) => entry.table),
 );
@@ -77,13 +66,6 @@ async function countViolations(
   input: VerifyAccountOffboardingPurgeInput,
   exec: SqlExecutor,
 ): Promise<number> {
-  if (table === 'sms_sender_opt_outs') {
-    return countSmsOptOutViolations('sms_sender_opt_outs', input, exec);
-  }
-  if (table === 'sms_sender_opt_out_events') {
-    return countSmsOptOutViolations('sms_sender_opt_out_events', input, exec);
-  }
-
   const rows = await verificationQuery(table, input, exec);
   return Number(rows[0]?.violation_count ?? 0);
 }
@@ -474,10 +456,6 @@ export function verificationQuery(
           )
       `;
 
-    case 'sms_sender_opt_outs':
-    case 'sms_sender_opt_out_events':
-      throw new Error(`sms_verification_uses_node_hashing:${table}`);
-
     case 'flagged_responses':
       return exec<VerificationRow[]>`
         WITH account_businesses AS (
@@ -558,48 +536,6 @@ export function verificationQuery(
   }
 }
 
-async function countSmsOptOutViolations(
-  table: 'sms_sender_opt_outs' | 'sms_sender_opt_out_events',
-  input: VerifyAccountOffboardingPurgeInput,
-  exec: SqlExecutor,
-): Promise<number> {
-  const scopeRows = await exec<SmsScrubScopeRow[]>`
-    SELECT
-      scope.value->>'messaging_service_sid_hash' AS messaging_service_sid_hash,
-      scope.value->>'handle_hash' AS handle_hash
-    FROM account_offboardings ao
-    CROSS JOIN LATERAL jsonb_array_elements(ao.provider_dispositions) AS scope(value)
-    WHERE ao.id = ${input.offboardingId}::uuid
-      AND ao.account_id = ${input.accountId}::uuid
-      AND scope.value->>'type' = 'sms_opt_out_scrub_scope'
-  `;
-
-  const scopedHashes = new Set(
-    scopeRows.flatMap((row) =>
-      row.messaging_service_sid_hash && row.handle_hash
-        ? [`${row.messaging_service_sid_hash}:${row.handle_hash}`]
-        : [],
-    ),
-  );
-  if (scopedHashes.size === 0) return 0;
-
-  const rows = table === 'sms_sender_opt_outs'
-    ? await exec<SmsOptOutRow[]>`
-        SELECT messaging_service_sid, handle
-        FROM sms_sender_opt_outs
-        WHERE handle NOT LIKE 'sha256:%'
-      `
-    : await exec<SmsOptOutRow[]>`
-        SELECT messaging_service_sid, handle
-        FROM sms_sender_opt_out_events
-        WHERE handle NOT LIKE 'sha256:%'
-      `;
-
-  return rows.filter((row) => scopedHashes.has(
-    `${sha256Hex(row.messaging_service_sid)}:${sha256Hex(`${row.messaging_service_sid}:${row.handle}`)}`,
-  )).length;
-}
-
 // Verification twin of DELETABLE_BY_BUSINESS: count any surviving rows whose business
 // belongs to the account. Allowlisted so the dynamic table identifier is never untrusted.
 const ABSENT_BY_BUSINESS_TABLES = new Set<string>([
@@ -629,6 +565,3 @@ export function absentByBusiness(
   `;
 }
 
-function sha256Hex(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
-}

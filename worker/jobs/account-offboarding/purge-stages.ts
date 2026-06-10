@@ -10,13 +10,10 @@ import { enqueueOffboardingPurged } from '../../../src/lib/account-offboarding/a
 import { enqueueAccountOffboardingEmail } from '../../../src/lib/shared/job-outbox-helpers';
 import {
   deleteByBusiness,
-  hashSmsHandle,
   impersonationSessionScrubScopeRecord,
   isSupabaseAuthNotFound,
   jobOutboxScrubScopeRecord,
   safeSupabaseError,
-  smsOptOutScrubScopeRecord,
-  type SmsHandleRow,
 } from './purge-helpers';
 
 export interface AccountOffboardingPurgeRow {
@@ -411,100 +408,6 @@ export async function runAnalyticsPurgeStage(row: AccountOffboardingPurgeRow): P
   `;
 }
 
-export async function runSmsOptOutPurgeStage(row: AccountOffboardingPurgeRow): Promise<void> {
-  const handles = await sql<SmsHandleRow[]>`
-    WITH account_handles AS (
-      SELECT DISTINCT handle
-      FROM channel_enrollments
-      WHERE account_id = ${row.account_id}::uuid
-        AND channel IN ('sms', 'whatsapp')
-        AND handle IS NOT NULL
-    )
-    SELECT DISTINCT so.messaging_service_sid, account_handles.handle
-    FROM account_handles
-    JOIN sms_sender_opt_outs so ON so.handle = account_handles.handle
-    UNION
-    SELECT DISTINCT soe.messaging_service_sid, account_handles.handle
-    FROM account_handles
-    JOIN sms_sender_opt_out_events soe ON soe.handle = account_handles.handle
-  `;
-
-  await sql.begin(async (tx) => {
-    if (handles.length > 0) {
-      const scrubScopeRecords = handles.map(smsOptOutScrubScopeRecord);
-      await tx`
-        UPDATE account_offboardings
-        SET provider_dispositions = provider_dispositions || ${jsonb(scrubScopeRecords)},
-            updated_at = NOW()
-        WHERE id = ${row.id}::uuid
-          AND account_id = ${row.account_id}::uuid
-          AND terminal_at IS NULL
-      `;
-    }
-
-    for (const entry of handles) {
-      const hashedHandle = hashSmsHandle(entry.messaging_service_sid, entry.handle);
-      // Loop awaits run on one Postgres.js transaction connection (sql.begin); tx queries are
-      // serialized on a single connection, so the per-handle UPDATEs cannot be parallelized.
-      // react-doctor-disable-next-line react-doctor/async-await-in-loop
-      await tx`
-        UPDATE sms_sender_opt_out_events
-        SET handle = ${hashedHandle}
-        WHERE messaging_service_sid = ${entry.messaging_service_sid}
-          AND handle = ${entry.handle}
-      `;
-      await tx`
-        UPDATE sms_sender_opt_outs
-        SET handle = ${hashedHandle}
-        WHERE messaging_service_sid = ${entry.messaging_service_sid}
-          AND handle = ${entry.handle}
-      `;
-    }
-    if (handles.length > 0) {
-      const [remaining] = await tx<{ count: number | string | bigint }[]>`
-        SELECT (
-          SELECT COUNT(*)
-          FROM sms_sender_opt_outs so
-          WHERE EXISTS (
-            SELECT 1
-            FROM (
-              SELECT *
-              FROM UNNEST(
-                ${handles.map((entry) => entry.messaging_service_sid)}::text[],
-                ${handles.map((entry) => entry.handle)}::text[]
-              ) AS scoped(messaging_service_sid, handle)
-            ) scoped
-            WHERE scoped.messaging_service_sid = so.messaging_service_sid
-              AND scoped.handle = so.handle
-          )
-        ) + (
-          SELECT COUNT(*)
-          FROM sms_sender_opt_out_events soe
-          WHERE EXISTS (
-            SELECT 1
-            FROM (
-              SELECT *
-              FROM UNNEST(
-                ${handles.map((entry) => entry.messaging_service_sid)}::text[],
-                ${handles.map((entry) => entry.handle)}::text[]
-              ) AS scoped(messaging_service_sid, handle)
-            ) scoped
-            WHERE scoped.messaging_service_sid = soe.messaging_service_sid
-              AND scoped.handle = soe.handle
-          )
-        ) AS count
-      `;
-      if (Number(remaining?.count ?? 0) > 0) {
-        throw new Error('account_offboarding_sms_opt_out_scrub_incomplete');
-      }
-    }
-    await tx`
-      DELETE FROM channel_enrollments
-      WHERE account_id = ${row.account_id}::uuid
-    `;
-  });
-}
-
 export async function runProviderIdentifierPurgeStage(row: AccountOffboardingPurgeRow): Promise<void> {
   await sql.begin(async (tx) => {
     // Sequential awaits share one Postgres.js transaction connection (sql.begin); they execute
@@ -531,6 +434,10 @@ export async function runProviderIdentifierPurgeStage(row: AccountOffboardingPur
       FROM businesses b
       WHERE zbr.business_id = b.id
         AND b.account_id = ${row.account_id}::uuid
+    `;
+    await tx`
+      DELETE FROM channel_enrollments
+      WHERE account_id = ${row.account_id}::uuid
     `;
     await tx`
       DELETE FROM auto_approval_policies

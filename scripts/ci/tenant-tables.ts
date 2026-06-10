@@ -23,8 +23,6 @@ export const TENANT_TABLES = [
   'zernio_connections',
   'zernio_finalize_incidents',
   'zernio_backfill_runs',
-  'sms_sender_opt_outs',
-  'sms_sender_opt_out_events',
 ] as const;
 
 export type TenantTable = (typeof TENANT_TABLES)[number];
