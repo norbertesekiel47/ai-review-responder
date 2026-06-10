@@ -2,7 +2,41 @@
 
 This file explains what is actually built in the repository today, how it maps to the implementation plan, and what is left to build.
 
-Last updated: 2026-05-29 (Launch readiness — the production audit + fix sweep, PRs #152–#186: brand/mobile/a11y pass over the funnel, approval, MFA, demo and auth pages; hidden-config closed in `.env.example`; founders price-lock migration 054; Zernio reconnect-queue admin actions; full external-services catalogue. See the simple-words summary directly below. Earlier: Wave 3 — Visibility & AI Safety (#93–#96); Wave 2 — Activation (#87).)
+Last updated: 2026-06-09 (Rate-limiting & abuse hardening — Slices 1–2 + cost-guard item 4, PRs #254–#257: a shared per-owner "regenerate" limit, AI drafts that survive a brief cache blip, and Vercel BotID on the 4 hottest unauth routes + a WAF rate-limit runbook. See the simple-words summary directly below. Earlier: Launch readiness sweep 2026-05-29 #152–#186; Wave 3 #93–#96; Wave 2 #87.)
+
+## Quick summary — Rate-limiting & abuse hardening (2026-06-09, PRs #254–#257)
+
+In simple words: we **locked down the doors that cost us money or invite abuse**, in three steps. None of this changes how the product works (the AI drafts, the owner approves, nothing posts to Google without that approval) — it's about stopping a script or a bot from hammering the expensive bits. Importantly, our "spend ceiling" was already safe before this; this was defense-in-depth, one real gap, and a front-door bouncer.
+
+### What we changed (plain English)
+
+1. **Capped "regenerate this reply."** A logged-in owner could click "regenerate" (which spins up a fresh AI draft) as fast as they wanted — through **two** different buttons, and one of them had **no limit at all**. Now both share one limit (~5 regenerations a minute / 30 an hour per account). Real owners never hit it; a script does. If our cache (Redis) is briefly down, the limit deliberately lets requests through — the separate money-counter still prevents overspending.
+
+2. **Made AI drafts survive a brief cache hiccup.** Before, if the cache blinked at the wrong moment, a draft request failed *for good* and the draft was lost. Now those brief blips simply **retry** instead of throwing the work away. (Money was never at risk — the spend ceiling was always enforced; this was about not losing the draft.)
+
+3. **Added a bouncer at the front door (Vercel).** Bot-detection ("BotID") now guards the 4 most abuse-prone public actions — **sign-up, the demo starter, login, and the waitlist form** — so spam bots are turned away before they cost us anything. Underneath that, the Vercel firewall gets per-IP API limits: the tight ones (sign-up, demo starter) are **on**; the broad catch-all starts in **"watch only" mode** so we can confirm it won't block a busy office before switching it on. There's also a documented **"panic button"** (Attack Mode) for an active attack.
+
+During review we caught and **removed BotID from two dead endpoints** (`/api/contact`, `/api/demo-request`) that nothing in the app actually calls — leaving them on would have silently 403'd any leftover outside caller, invisible to tests. (Deleting those dead routes is a small follow-up.)
+
+### What got added — the new shape
+
+```text
+src/lib/security/                    ← NEW: bot protection
+  botid.ts                           server gate (403 a bot / fail-OPEN on a BotID outage)
+  botid-routes.ts                    the ONE list of protected routes + detection level
+  __tests__/botid.test.ts
+src/lib/shared/
+  dashboard-regen-rate-limit.ts      ← NEW: shared per-owner "regenerate" limit (both buttons)
+src/lib/costs/
+  errors.ts                          ← NEW: CostInfraUnavailableError (a cache blip now retries)
+docs/adr/0002-botid-server-check-carveout.md    ← NEW: why a bot-check inside a route is OK
+docs/runbooks/vercel-waf-rate-limiting.md        ← NEW: the firewall rules + Attack Mode (owner-applied)
+next.config.mjs · src/instrumentation-client.ts  ← wired BotID into the build + browser
+```
+
+The firewall rules themselves are **not** committed code (Vercel has no config file for them) — they live in the runbook, and the owner applies them with the `vercel firewall` CLI.
+
+---
 
 ## Quick summary — Launch readiness sweep (2026-05-28 → 2026-05-29, PRs #152–#186)
 
