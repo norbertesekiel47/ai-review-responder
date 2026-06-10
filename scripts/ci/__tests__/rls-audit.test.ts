@@ -36,8 +36,6 @@ describe('rls-audit', () => {
       'api_costs_daily_rollups',
       'zernio_finalize_incidents',
       'zernio_backfill_runs',
-      'sms_sender_opt_outs',
-      'sms_sender_opt_out_events',
     ]));
   });
 
