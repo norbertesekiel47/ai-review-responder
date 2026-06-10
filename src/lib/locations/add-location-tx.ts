@@ -236,8 +236,34 @@ export async function addLocationTransaction(
         )
       `;
 
+      // 2c. Enqueue validate_place_id on the Maps-URL path (no verified place id).
+      //
+      // URL-mode adds store a google_maps_url with NULL google_place_id, so they
+      // bypass businesses_account_place_uniq (migration 062, NON-NULL only) until
+      // the place id is resolved. Enqueueing validate_place_id (same topic the
+      // onboarding paths use) makes the worker resolve + check the place id, where
+      // a duplicate trips the unique index. WHERE NOT EXISTS dedups against an
+      // already-in-flight validate_place_id row for this business.
+      if (googleMapsUrl && !placeIdVerified) {
+        await tx`
+          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+          SELECT ${uuidv7()}::uuid, 'validate_place_id', 'business', ${businessId}::uuid,
+                 ${jsonb({
+                   business_id: businessId,
+                   google_maps_url: googleMapsUrl,
+                   correlation_id: uuidv7(),
+                 })}, 'pending'
+          WHERE NOT EXISTS (
+            SELECT 1 FROM job_outbox jo
+            WHERE jo.aggregate_id = ${businessId}::uuid
+              AND jo.topic = 'validate_place_id'
+              AND jo.status IN ('pending', 'dispatching', 'dispatched')
+          )
+        `;
+      }
+
       if (enqueueStripeOverageUpdate) {
-        // 2c. Enqueue Stripe overage update
+        // 2d. Enqueue Stripe overage update
         // VAL-BILLING-072: Uses outbox pattern instead of Checkout redirect for active accounts
         await tx`
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)

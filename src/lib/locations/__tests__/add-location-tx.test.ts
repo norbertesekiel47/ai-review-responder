@@ -392,6 +392,51 @@ describe('addLocationTransaction', () => {
     );
     expect(overageCall).toBeDefined();
   });
+
+  // C2: URL-mode add (Maps URL, no verified place id) must enqueue
+  // validate_place_id so the resolved place id is later checked against
+  // businesses_account_place_uniq (migration 062), closing the NULL-place-id gap.
+  it('enqueues validate_place_id when a Maps URL is supplied without a verified place id', async () => {
+    mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
+
+    await addLocationTransaction(mkInput({
+      googleMapsUrl: 'https://maps.google.com/?q=Cafe+Test',
+      placeIdVerified: false,
+      googlePlaceId: null,
+    }));
+
+    const txCalls = mockSql.mock.calls.slice(1);
+    const validateCall = txCalls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('validate_place_id'),
+    );
+    expect(validateCall).toBeDefined();
+
+    const template = (validateCall![0] as TemplateStringsArray).join('?');
+    // Mirrors the onboarding dedup guard: INSERT … SELECT … WHERE NOT EXISTS
+    expect(template).toContain('INSERT INTO job_outbox');
+    expect(template).toContain('WHERE NOT EXISTS');
+    expect(template).toContain("topic = 'validate_place_id'");
+    expect(template).toContain("status IN ('pending', 'dispatching', 'dispatched')");
+  });
+
+  // C2: a verified place id (autocomplete path) must NOT enqueue validate_place_id —
+  // the place id is already known and the businesses INSERT already trips the
+  // unique index directly.
+  it('does NOT enqueue validate_place_id when the place id is already verified', async () => {
+    mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
+
+    await addLocationTransaction(mkInput({
+      googlePlaceId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+      placeIdVerified: true,
+      googleMapsUrl: null,
+    }));
+
+    const txCalls = mockSql.mock.calls.slice(1);
+    const validateCall = txCalls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('validate_place_id'),
+    );
+    expect(validateCall).toBeUndefined();
+  });
 });
 
 // ── Voice independence (VAL-LOC-032) ─────────────────────────────────────────

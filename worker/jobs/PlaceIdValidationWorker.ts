@@ -9,6 +9,36 @@ import { ExceptionType } from '../../src/lib/shared/constants';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
 import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
+import { isDuplicateLocationViolation } from '../../src/lib/locations/duplicate-location';
+
+/**
+ * Writes the resolved place id + place_id_verified=TRUE for a business.
+ *
+ * Returns `true` when the UPDATE committed and `false` when it tripped
+ * businesses_account_place_uniq (migration 062) — i.e. the resolved place id
+ * already belongs to another ACTIVE location in the same account. In the
+ * duplicate case the UPDATE rolled back, so the location stays unverified
+ * (correct) and the caller skips-as-success. Any non-duplicate error
+ * propagates unchanged so the worker's existing transient/permanent handling
+ * still applies.
+ */
+async function applyResolvedPlaceId(
+  businessId: LocationId,
+  resolvedPlaceId: string,
+): Promise<boolean> {
+  try {
+    await sql`
+      UPDATE businesses
+      SET google_place_id = ${resolvedPlaceId},
+          place_id_verified = TRUE
+      WHERE id = ${businessId}
+    `;
+    return true;
+  } catch (err) {
+    if (isDuplicateLocationViolation(err)) return false;
+    throw err;
+  }
+}
 
 export async function handlePlaceIdValidation(
   job: Job<ValidatePlaceIdPayload>,
@@ -36,15 +66,17 @@ export async function handlePlaceIdValidation(
   // If URL contained a canonical Place ID, verify format and store.
   // Review ingestion is now webhook-driven via Zernio — no sync_reviews enqueue.
   if (urlData.placeId && isPlaceId(urlData.placeId)) {
-    await sql`
-      UPDATE businesses
-      SET google_place_id = ${urlData.placeId},
-          place_id_verified = TRUE
-      WHERE id = ${businessId}
-    `;
+    const applied = await applyResolvedPlaceId(businessId, urlData.placeId);
 
     await markOutboxCompleted(outboxId, outboxAttempt);
-    logger.log(`Business ${businessId} verified (canonical ID in URL)`);
+    if (applied) {
+      logger.log(`Business ${businessId} verified (canonical ID in URL)`);
+    } else {
+      logger.log(
+        `Business ${businessId} canonical place_id duplicates an active location — leaving unverified`,
+        { reason: 'duplicate_location' },
+      );
+    }
     return;
   }
 
@@ -52,15 +84,17 @@ export async function handlePlaceIdValidation(
   try {
     const resolvedPlaceId = await resolvePlaceId(urlData);
 
-    await sql`
-      UPDATE businesses
-      SET google_place_id = ${resolvedPlaceId},
-          place_id_verified = TRUE
-      WHERE id = ${businessId}
-    `;
+    const applied = await applyResolvedPlaceId(businessId, resolvedPlaceId);
 
     await markOutboxCompleted(outboxId, outboxAttempt);
-    logger.log(`Business ${businessId} resolved to ${resolvedPlaceId}`);
+    if (applied) {
+      logger.log(`Business ${businessId} resolved to ${resolvedPlaceId}`);
+    } else {
+      logger.log(
+        `Business ${businessId} resolved place_id duplicates an active location — leaving unverified`,
+        { reason: 'duplicate_location' },
+      );
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
