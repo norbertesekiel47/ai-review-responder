@@ -14,8 +14,10 @@ import {
   parseCsv,
   validateRow,
   processRow,
+  findInFileDuplicatePlaceIds,
   enqueueCsvImportStripeOverageUpdate,
   writeCsvImportAuditLog,
+  DUPLICATE_LOCATION_IN_FILE_REASON,
   MAX_FILE_SIZE,
   MAX_ROWS,
   type CsvImportReport,
@@ -130,6 +132,12 @@ async function importLocationsCsv(req: NextRequest): Promise<NextResponse> {
   const successes: Array<{ row: number; businessId: string; displayLabel: string }> = [];
   const failures: CsvRowFailure[] = [];
 
+  // Reject later occurrences of a place id repeated within this upload BEFORE
+  // processing any row — adding both would double-ingest or race the
+  // businesses_account_place_uniq constraint (migration 062). The first
+  // occurrence proceeds normally.
+  const inFileDuplicateRows = findInFileDuplicatePlaceIds(rows);
+
   for (const row of rows) {
     // 7a. Validate required fields (VAL-ADMIN-012)
     const validation = validateRow(row);
@@ -138,7 +146,13 @@ async function importLocationsCsv(req: NextRequest): Promise<NextResponse> {
       continue;
     }
 
-    // 7b. Process through add-location flow (VAL-ADMIN-009)
+    // 7b. Reject in-file duplicate place ids without touching the DB.
+    if (inFileDuplicateRows.has(row.rowIndex)) {
+      failures.push({ row: row.rowIndex, reason: DUPLICATE_LOCATION_IN_FILE_REASON });
+      continue;
+    }
+
+    // 7c. Process through add-location flow (VAL-ADMIN-009)
     const result = await processRow(row, accountId, {
       enqueueStripeOverageUpdate: false,
     });

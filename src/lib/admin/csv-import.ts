@@ -9,6 +9,7 @@ import { assertCanAddLocation } from '@/lib/accounts/quota';
 import { getAccountById, getAccountOwnerUser } from '@/lib/accounts/repo';
 import { addLocationTransaction } from '@/lib/locations/add-location-tx';
 import { getActiveLocationCount } from '@/lib/locations/repo';
+import { isDuplicateLocationViolation } from '@/lib/locations/duplicate-location';
 import { sql, jsonb } from '@/lib/db/server';
 import { v7 as uuidv7 } from 'uuid';
 
@@ -211,6 +212,36 @@ export function validateRow(row: ParsedCsvRow): RowValidationResult {
   return { valid: true };
 }
 
+/** Reason recorded for a row whose place id repeats earlier in the same file. */
+export const DUPLICATE_LOCATION_IN_FILE_REASON = 'duplicate_location_in_file';
+
+/**
+ * Finds rows that repeat a non-empty place id already seen earlier in the same
+ * upload. The FIRST occurrence is kept (not returned); every LATER occurrence's
+ * `rowIndex` is returned so the caller can reject it before touching the DB —
+ * processing both would double-ingest or race businesses_account_place_uniq
+ * (migration 062).
+ *
+ * Place ids compare case-sensitively, exactly as stored. Empty place ids
+ * (URL-mode / missing) cannot collide via this index and are ignored here.
+ */
+export function findInFileDuplicatePlaceIds(rows: ParsedCsvRow[]): Set<number> {
+  const seen = new Set<string>();
+  const laterDuplicates = new Set<number>();
+
+  for (const row of rows) {
+    const placeId = row.placeId;
+    if (!placeId) continue;
+    if (seen.has(placeId)) {
+      laterDuplicates.add(row.rowIndex);
+    } else {
+      seen.add(placeId);
+    }
+  }
+
+  return laterDuplicates;
+}
+
 // ── Row Processing ────────────────────────────────────────────────────────
 
 /**
@@ -279,6 +310,17 @@ export async function processRow(
       displayLabel: result.displayLabel,
     };
   } catch (err) {
+    // A duplicate active google_place_id surfaces here as the typed
+    // 'duplicate_location' Error that addLocationTransaction re-throws after
+    // catching Postgres 23505 (businesses_account_place_uniq, migration 062).
+    // isDuplicateLocationViolation is a defense-in-depth secondary check in
+    // case a raw 23505 ever reaches this catch without being remapped.
+    if (
+      (err instanceof Error && err.message === 'duplicate_location') ||
+      isDuplicateLocationViolation(err)
+    ) {
+      return { reason: 'duplicate_location' };
+    }
     const message = err instanceof Error ? err.message : String(err);
     return { reason: `Transaction error: ${message}` };
   }
