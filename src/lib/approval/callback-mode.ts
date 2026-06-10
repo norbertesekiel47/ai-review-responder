@@ -18,6 +18,7 @@ import {
   revokeSiblings,
 } from './locks';
 import { insertAuditLog, buildCallbackAudit } from './audit';
+import { assertLocationNotArchived } from './token-mode';
 import { recoverCorrelationId } from './correlation';
 import type { ApprovalLink, CallbackApprovalInput } from './types';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
@@ -86,7 +87,7 @@ export async function regenerateViaCallback(input: CallbackApprovalInput): Promi
   await sql.begin(async (tx) => {
     // FP: ordered writes inside one sql.begin tx (claim → revoke siblings → supersede → enqueue regenerate → audit); parallelizing would break tx ordering.
     // react-doctor-disable-next-line react-doctor/async-parallel
-    const { link, response } = await claimCallbackResponse(tx, input);
+    const { link, response } = await claimCallbackResponse(tx, input, { rejectArchivedLocation: true });
     await revokeSiblings(tx, link.response_id, link.id);
     await tx`
       UPDATE responses
@@ -113,12 +114,22 @@ export async function regenerateViaCallback(input: CallbackApprovalInput): Promi
   });
 }
 
+// rejectArchivedLocation is set only by regenerate for now — regenerate is the
+// destructive-without-replacement path. PR B of the multi-location hardening
+// spec extends the archived gate to ALL approval actions, at which point the
+// flag goes away and the guard runs unconditionally.
 async function claimCallbackResponse(
   tx: TxClient,
   input: CallbackApprovalInput,
+  options: { rejectArchivedLocation?: boolean } = {},
 ): Promise<ClaimedCallbackResponse> {
   const link = await lockLinkByIdForCallback(tx, input.approvalLinkId, input.viaChannel);
   throwIfReadOnly(await assertWritableSubscriptionForBusiness(link.business_id, tx));
+  if (options.rejectArchivedLocation) {
+    // Must run BEFORE lockPendingResponse/consumeLink so an archived location
+    // rejects without superseding the pending draft or burning the link.
+    await assertLocationNotArchived(tx, link.business_id);
+  }
 
   const response = await lockPendingResponse(tx, link.response_id);
   await consumeLink(tx, link.id);

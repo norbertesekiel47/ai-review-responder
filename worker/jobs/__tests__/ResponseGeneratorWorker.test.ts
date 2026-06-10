@@ -131,6 +131,10 @@ vi.mock('../response-generation/persist', async (importOriginal) => {
 import { handleResponseGeneration } from '../ResponseGeneratorWorker';
 import { persistResponseAndNotify } from '../response-generation/persist';
 import { CostLimitExceededError } from '../../../src/lib/costs/tracker';
+import {
+  makeLoadContextReviewRow as mockReviewRow,
+  makeLoadContextBusinessRow as mockBusinessRow,
+} from '../response-generation/__tests__/fixtures';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -141,23 +145,8 @@ function makeJob(overrides = {}): Job<GenerateResponsePayload> {
   } as Job<GenerateResponsePayload>;
 }
 
-function mockReviewRow(overrides = {}) {
-  return {
-    id: 'rev-1', reviewer_name: 'Jane', star_rating: 5,
-    review_text: 'Great!', review_date: '2026-04-01', detected_language: 'en',
-    review_content_hash: 'hash-loaded',
-    ...overrides,
-  };
-}
-
-function mockBusinessRow(overrides = {}) {
-  return {
-    id: 'biz-1', name: 'Test Biz', category: 'restaurant', tone: 'warm',
-    products_services: null, staff_names: [], highlight_facts: [], avoid_facts: [],
-    sample_responses: [], subscription_status: 'active', subscription_tier: 'standard',
-    account_id: 'acct-1', account_updated_at: new Date(), ...overrides,
-  };
-}
+// Review/business rows come from the shared loadGenerationContext fixtures
+// (imported above) so this suite can't drift from the projection shape again.
 
 function mockExistingResponseRow(overrides = {}) {
   return { id: 'resp-existing-1', business_id: 'biz-1', account_id: 'acct-1', ...overrides };
@@ -412,7 +401,8 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
   });
 
   // 2b. Archived location → terminal skip-as-success
-  it('skips generation as success when the location is archived', async () => {
+  it('skips generation as success when the location is archived, with a structured skip log', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     sqlReturnQueue.push([mockReviewRow()]);
     sqlReturnQueue.push([mockBusinessRow({ archived_at: '2026-06-01T00:00:00Z' })]);
 
@@ -422,6 +412,42 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     expect(mockGenerateMockResponse).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+
+    // The skip reason must be an OBJECT arg so it lands in the queryable
+    // `data` field of the structured record (string args are verbatim only).
+    const records = logSpy.mock.calls
+      .map((call) => {
+        try {
+          return JSON.parse(String(call[0])) as { message?: string; data?: Record<string, unknown> };
+        } catch {
+          return null;
+        }
+      })
+      .filter((record): record is { message?: string; data?: Record<string, unknown> } => record !== null);
+    const skipRecord = records.find((record) => record.message === 'archived — skipping generation');
+    expect(skipRecord).toBeDefined();
+    expect(skipRecord!.data).toMatchObject({ reason: 'archived_location', business_id: 'biz-1' });
+    logSpy.mockRestore();
+  });
+
+  // FIX 2 regression (idempotency-before-archived ordering): a crash-retry
+  // whose response was committed pre-archive must take the already_exists
+  // path — including the first_response_drafted recovery — not be dropped
+  // as archived_location.
+  it('takes the already_exists path when the response was committed before the location was archived', async () => {
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow({ archived_at: '2026-06-01T00:00:00Z' })]);
+    sqlReturnQueue.push([mockExistingResponseRow()]);
+    sqlReturnQueue.push([mockFirstDraftLookup()]);
+
+    await handleResponseGeneration(makeJob());
+
+    expect(mockGenerateResponse).not.toHaveBeenCalled();
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({
+      eventName: 'first_response_drafted',
+      eventKey: 'first_response_drafted:acct-1',
+    }));
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
   });
 
   // 3. Cost limit exceeded

@@ -40,6 +40,23 @@ export class ResponseNotPendingError extends Error {
   }
 }
 
+/**
+ * Thrown when an approval action targets a location that has been archived.
+ *
+ * Extends ResponseNotPendingError deliberately: every existing lane already
+ * classifies that class as a permanent conflict (token/dashboard routes map
+ * it to 409; the Telegram/WhatsApp callback ingress treats it as terminal,
+ * never retried), so archived rejections inherit correct handling everywhere
+ * without each lane adding a new mapping.
+ */
+export class ArchivedLocationError extends ResponseNotPendingError {
+  constructor() {
+    super('archived_location');
+    this.name = 'ArchivedLocationError';
+    this.message = 'This location has been archived — this draft can no longer be regenerated.';
+  }
+}
+
 export class EmptyEditedResponseError extends Error {
   constructor() {
     super('editedText is required');

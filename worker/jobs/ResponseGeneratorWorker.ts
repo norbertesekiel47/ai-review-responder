@@ -39,7 +39,9 @@ export async function handleResponseGeneration(
       await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
       return;
     case 'archived_location':
-      logger.log(`Business ${businessId} archived — skipping generation (archived_location)`);
+      // Object arg so `reason` is queryable in the structured log record
+      // (string args are logged verbatim, not as fields).
+      logger.log('archived — skipping generation', { reason: 'archived_location', business_id: businessId });
       await markOutboxCompleted(outboxId, outboxAttempt);
       return;
     case 'subscription_blocked':

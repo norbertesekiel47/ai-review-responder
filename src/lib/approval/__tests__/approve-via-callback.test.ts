@@ -31,6 +31,8 @@ import {
   RevokedLinkError,
   ExpiredLinkError,
   ChannelMismatchError,
+  ArchivedLocationError,
+  ResponseNotPendingError,
 } from '../errors';
 import { SubscriptionReadOnlyError } from '@/lib/shared/writable-subscription';
 
@@ -56,6 +58,14 @@ function pendingResponseRow() {
 
 function activeAccountRow() {
   return [{ subscription_status: 'active', past_due_at: null, flags: {} }];
+}
+
+function notArchivedBusinessRow() {
+  return [{ archived_at: null }];
+}
+
+function archivedBusinessRow() {
+  return [{ archived_at: new Date('2026-06-01T00:00:00Z') }];
 }
 
 function readOnlyAccountRow() {
@@ -215,6 +225,7 @@ describe('regenerateViaCallback', () => {
   it('marks response superseded and enqueues generate_response outbox', async () => {
     txQueue.push(liveLinkRow());
     txQueue.push(activeAccountRow());
+    txQueue.push(notArchivedBusinessRow()); // assertLocationNotArchived
     txQueue.push(pendingResponseRow());
     txQueue.push([]); // consumeLink
     txQueue.push([]); // revokeSiblings
@@ -291,5 +302,31 @@ describe('regenerateViaCallback', () => {
     });
 
     expectNoCallbackMutation();
+  });
+
+  // FIX 1 (archived-location gate, regenerate only — PR B extends to all
+  // approval actions): regenerate on an archived location must reject
+  // BEFORE the pending draft is superseded, the link consumed, or a
+  // generate_response job enqueued.
+  it('rejects regenerate for an archived location without consuming the link or superseding the draft', async () => {
+    txQueue.push(liveLinkRow());
+    txQueue.push(activeAccountRow());
+    txQueue.push(archivedBusinessRow()); // assertLocationNotArchived
+
+    await expect(regenerateViaCallback({
+      approvalLinkId: 'link-1',
+      chatHandle: '123',
+      viaChannel: 'telegram',
+      audit: { providerEventId: '7', ipAddress: null, telegramUpdateId: 7 },
+    })).rejects.toBeInstanceOf(ArchivedLocationError);
+
+    expectNoCallbackMutation();
+  });
+
+  // The callback ingress classifies permanent errors via instanceof
+  // ResponseNotPendingError — the archived rejection must inherit that so
+  // Telegram/WhatsApp treat it as terminal (no reclaim retry loop).
+  it('archived rejection is classified as a permanent ResponseNotPendingError', () => {
+    expect(new ArchivedLocationError()).toBeInstanceOf(ResponseNotPendingError);
   });
 });

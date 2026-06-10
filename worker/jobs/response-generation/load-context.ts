@@ -116,11 +116,43 @@ export async function loadGenerationContext(input: {
   // Surface account_id on all subsequent log lines (see header note).
   mergeLogContext({ account_id: business.account_id });
 
+  // ── Idempotency check — previous attempt may have committed ──────────
+  // The schema enforces UNIQUE (review_id, version). If a previous attempt
+  // committed the response + notification outbox but crashed before
+  // markOutboxCompleted, detect this BEFORE spending on LLM calls or
+  // reserving cost. The generator's Redis cache may have expired.
+  //
+  // Ordering: this check runs BEFORE the archived-location gate. A response
+  // committed pre-archive on a crash-retry must resolve as 'already_exists'
+  // so the caller's maybeEnqueueFirstResponseDrafted recovery still fires —
+  // 'archived_location' would silently drop it. Idempotency reflects work
+  // already done; the archived gate only prevents NEW spend.
+  const [existingResponse] = await sql<{ id: string; business_id: string; account_id: string }[]>`
+    SELECT r.id, r.business_id, b.account_id
+    FROM businesses b
+    JOIN responses r ON r.business_id = b.id
+    WHERE b.id = ${businessId}
+      AND r.review_id = ${reviewId}
+      AND r.version = ${version}
+  `;
+
+  if (existingResponse) {
+    return {
+      kind: 'already_exists',
+      existing: {
+        id: existingResponse.id,
+        businessId: existingResponse.business_id,
+        accountId: existingResponse.account_id,
+      },
+    };
+  }
+
   // ── Archived-location gate ───────────────────────────────────────────
   // Final defense in the spend-leak chain: a job for an archived location
   // (backfill/update lanes, directly-enqueued jobs) must skip BEFORE any paid
-  // LLM call. Checked before the subscription guard / idempotency so the
-  // outcome is unambiguously 'archived_location'. The caller skips-as-success.
+  // LLM call. Runs after the idempotency check (see above) but before the
+  // subscription guard so a fresh job's outcome is unambiguously
+  // 'archived_location'. The caller skips-as-success.
   if (business.archived_at) {
     return { kind: 'archived_location' };
   }
@@ -140,34 +172,6 @@ export async function loadGenerationContext(input: {
   const offboardingState = activeOffboardingStateFromProjection(business);
   if (isProcessingBlocked(offboardingState)) {
     return { kind: 'subscription_blocked', reason: 'account_offboarding_blocked' };
-  }
-
-  // ── Idempotency check — previous attempt may have committed ──────────
-  // The schema enforces UNIQUE (review_id, version). If a previous attempt
-  // committed the response + notification outbox but crashed before
-  // markOutboxCompleted, detect this BEFORE spending on LLM calls or
-  // reserving cost. The generator's Redis cache may have expired. DTO building
-  // is pure and only runs on the 'ready' path, so checking here (before the
-  // build) does not change the sequence of SQL calls (review, business,
-  // existing-response).
-  const [existingResponse] = await sql<{ id: string; business_id: string; account_id: string }[]>`
-    SELECT r.id, r.business_id, b.account_id
-    FROM businesses b
-    JOIN responses r ON r.business_id = b.id
-    WHERE b.id = ${businessId}
-      AND r.review_id = ${reviewId}
-      AND r.version = ${version}
-  `;
-
-  if (existingResponse) {
-    return {
-      kind: 'already_exists',
-      existing: {
-        id: existingResponse.id,
-        businessId: existingResponse.business_id,
-        accountId: existingResponse.account_id,
-      },
-    };
   }
 
   // ── Build DTOs ───────────────────────────────────────────────────────

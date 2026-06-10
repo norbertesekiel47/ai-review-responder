@@ -27,6 +27,8 @@ import {
   RevokedTokenError,
   ConsumedTokenError,
   DeviceConflictError,
+  ArchivedLocationError,
+  ResponseNotPendingError,
 } from '../errors';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -432,6 +434,8 @@ describe('regenerate', () => {
     const link = validLink({ device_cookie_hash: 'device-hash-abc' });
 
     const tx = createMockTx([
+      // assertLocationNotArchived: SELECT archived_at FROM businesses
+      [{ archived_at: null }],
       // lockPendingResponse: SELECT ... FOR UPDATE
       [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Regenerate response', version: 1, review_id: 'rev-1' }],
       // consumeLink
@@ -450,7 +454,7 @@ describe('regenerate', () => {
 
     await regenerate(tx, link, 'device-hash-abc', AUDIT, 'test-correlation-xyz');
 
-    expect(tx).toHaveBeenCalledTimes(7);
+    expect(tx).toHaveBeenCalledTimes(8);
 
     // Verify the outbox INSERT received the correct generate_response payload.
     // Literal SQL strings like 'generate_response' are part of the template, not interpolated.
@@ -473,5 +477,37 @@ describe('regenerate', () => {
 
     // Verify correlation_id propagates into the generate_response outbox payload.
     expect(parsed!.correlation_id).toBe('test-correlation-xyz');
+  });
+
+  // FIX 1 (archived-location gate, regenerate only — PR B extends to all
+  // approval actions): an archived location must reject BEFORE the pending
+  // response is superseded, the link consumed, or anything enqueued.
+  it('rejects with ArchivedLocationError when the business is archived, without consuming or mutating anything', async () => {
+    const link = validLink({ device_cookie_hash: 'device-hash-abc' });
+
+    const tx = createMockTx([
+      // assertLocationNotArchived: SELECT archived_at FROM businesses
+      [{ archived_at: new Date('2026-06-01T00:00:00Z') }],
+    ]);
+
+    await expect(
+      regenerate(tx, link, 'device-hash-abc', AUDIT, 'test-correlation-xyz'),
+    ).rejects.toBeInstanceOf(ArchivedLocationError);
+
+    // Only the archived-guard SELECT ran — nothing was locked, consumed,
+    // superseded, or enqueued.
+    expect(tx).toHaveBeenCalledTimes(1);
+    const allSql = tx.mock.calls.map((call: unknown[]) =>
+      String((call[0] as TemplateStringsArray).join(' ')),
+    );
+    expect(allSql.some((s: string) => s.includes('consumed_at'))).toBe(false);
+    expect(allSql.some((s: string) => s.includes("'superseded'"))).toBe(false);
+    expect(allSql.some((s: string) => s.includes('job_outbox'))).toBe(false);
+  });
+
+  it('archived rejection maps as a ResponseNotPendingError conflict (409 in every lane)', async () => {
+    const err = new ArchivedLocationError();
+    expect(err).toBeInstanceOf(ResponseNotPendingError);
+    expect(err.currentStatus).toBe('archived_location');
   });
 });
