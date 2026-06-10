@@ -20,7 +20,7 @@ export interface PerLocationOverride {
   enrollmentId: string;
   locationId: string;
   locationName: string;
-  channel: 'email' | 'sms' | 'telegram' | 'whatsapp';
+  channel: 'email' | 'telegram' | 'whatsapp';
   handle: string | null;
   status: string;
   verified_at: string | null;
@@ -52,14 +52,12 @@ interface Props {
 const CHANNEL_LABELS: Record<string, string> = {
   email: 'Email',
   telegram: 'Telegram',
-  sms: 'SMS',
   whatsapp: 'WhatsApp',
 };
 
 const CHANNEL_ICONS: Record<string, string> = {
   email: '✉️',
   telegram: '💬',
-  sms: '📱',
   whatsapp: '🟢',
 };
 

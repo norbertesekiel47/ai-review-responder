@@ -35,6 +35,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       WHERE e.account_id = ${user.accountId}::uuid
         AND e.location_id IS NOT NULL
         AND e.archived_at IS NULL
+        AND e.channel IN ('email', 'telegram', 'whatsapp') -- keep in sync with NOTIFICATION_DISPATCH_CHANNEL_ORDER (worker/jobs/notification/plan.ts)
       ORDER BY e.location_id, e.channel
     `,
     // Fetch location names for display

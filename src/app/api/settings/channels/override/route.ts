@@ -34,7 +34,7 @@ export const dynamic = 'force-dynamic';
 
 const CreateOverrideSchema = z.object({
   locationId: z.uuid(),
-  channel: z.enum(['email', 'telegram', 'sms', 'whatsapp']),
+  channel: z.enum(['email', 'telegram', 'whatsapp']),
 });
 
 async function createOverride(request: NextRequest): Promise<NextResponse> {
@@ -186,7 +186,7 @@ async function createOverride(request: NextRequest): Promise<NextResponse> {
 
 const DeleteOverrideSchema = z.object({
   locationId: z.uuid(),
-  channel: z.enum(['email', 'telegram', 'sms', 'whatsapp']),
+  channel: z.enum(['email', 'telegram', 'whatsapp']),
 });
 
 async function deleteOverride(request: NextRequest): Promise<NextResponse> {

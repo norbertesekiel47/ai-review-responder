@@ -4,8 +4,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { ChannelsClient, type InitialEnrollment } from '../ChannelsClient';
 
 // The owner Telegram/WhatsApp widgets fetch status on mount. Stub them so we
-// can freely flip telegram/whatsapp availability and prove the SMS row never
-// reacts to any flag state. (Same vi.mock-with-JSX pattern as SettingsClient.test.tsx.)
+// can freely flip telegram/whatsapp availability without network activity.
+// (Same vi.mock-with-JSX pattern as SettingsClient.test.tsx.)
 vi.mock('@/components/dashboard/channels/OwnerTelegramWidget', () => ({
   OwnerTelegramWidget: () => <div data-testid="telegram-widget" />,
 }));
@@ -39,27 +39,18 @@ function channelRow(name: string): HTMLElement {
   return row as HTMLElement;
 }
 
-describe('ChannelsClient — SMS row', () => {
-  it('renders SMS as an honest "coming soon" row', () => {
+describe('ChannelsClient', () => {
+  it('does not render an SMS row (channel removed)', () => {
     render(<ChannelsClient {...baseProps} initialAvailability={{ telegram: false, whatsapp: false }} />);
-
-    const sms = channelRow('SMS');
-    expect(within(sms).getByText('SMS notifications are coming soon')).toBeInTheDocument();
-    expect(within(sms).getByText('Coming soon')).toBeInTheDocument();
-    // Regression guard: the old flag-dependent roadmap jargon must be gone.
-    expect(sms.textContent).not.toMatch(/follow-up phase|10DLC|owner widget/i);
+    expect(screen.queryByText('SMS')).toBeNull();
+    expect(screen.queryByText('SMS notifications are coming soon')).toBeNull();
   });
 
-  it('keeps the SMS row identical when other channels become available', () => {
+  it('does not render an SMS row when other channels become available', () => {
     render(<ChannelsClient {...baseProps} initialAvailability={{ telegram: true, whatsapp: true }} />);
-
-    // Other channels mount their interactive widgets…
     expect(screen.getByTestId('telegram-widget')).toBeInTheDocument();
     expect(screen.getByTestId('whatsapp-widget')).toBeInTheDocument();
-    // …SMS is unchanged.
-    const sms = channelRow('SMS');
-    expect(within(sms).getByText('SMS notifications are coming soon')).toBeInTheDocument();
-    expect(sms.textContent).not.toMatch(/follow-up phase|10DLC|owner widget/i);
+    expect(screen.queryByText('SMS')).toBeNull();
   });
 
   it('shows the email row as Always on', () => {

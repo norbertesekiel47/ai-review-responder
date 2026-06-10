@@ -212,6 +212,14 @@ describe('POST /api/settings/channels/override', () => {
     expect(res.status).toBe(400);
   });
 
+  it('rejects channel "sms" with 400 (channel removed)', async () => {
+    const res = await POST(makePostRequest({
+      locationId: LOCATION_ID_1,
+      channel: 'sms',
+    }));
+    expect(res.status).toBe(400);
+  });
+
   it('returns 403 when user has no account', async () => {
     mockRequireRole.mockResolvedValue({
       ...ownerUser(),

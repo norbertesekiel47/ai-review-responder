@@ -397,7 +397,6 @@
 }
 .ch-email { background: #DBEAFE; }
 .ch-tg { background: #DBEAFE; }
-.ch-sms { background: #FED7CC; }
 .ch-wa { background: #DCFCE7; }
 .channel-meta { flex: 1; min-width: 0; }
 .channel-name { font-size: 14px; font-weight: 600; color: var(--rw-app-text); }

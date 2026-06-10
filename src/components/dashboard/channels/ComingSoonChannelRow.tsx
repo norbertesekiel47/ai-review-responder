@@ -5,7 +5,7 @@ export interface ComingSoonChannelRowProps {
 }
 
 export function ComingSoonChannelRow({ icon, name, reason }: ComingSoonChannelRowProps) {
-  const iconClass = name === 'SMS' ? 'ch-sms' : name === 'WhatsApp' ? 'ch-wa' : 'ch-tg';
+  const iconClass = name === 'WhatsApp' ? 'ch-wa' : 'ch-tg';
   return (
     <div className="channel-row coming-soon">
       <div className={`channel-icon ${iconClass}`} aria-hidden>{icon}</div>

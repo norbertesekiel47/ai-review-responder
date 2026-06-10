@@ -46,7 +46,6 @@ test.describe('Owner /settings/channels — authenticated (deferred)', () => {
       await expect(page.getByText('Email')).toBeVisible();
       await expect(page.getByText('Always on')).toBeVisible();
       await expect(page.getByText('Telegram')).toBeVisible();
-      await expect(page.getByText('SMS')).toBeVisible();
       await expect(page.getByText('WhatsApp')).toBeVisible();
     },
   );
@@ -152,8 +151,8 @@ test.describe('Owner /settings/channels — authenticated (deferred)', () => {
     'coming-soon rows have no button',
     async ({ page }) => {
       await page.goto('/settings/channels');
-      const smsRow = page.getByText('SMS').locator('xpath=ancestor::*[contains(@class,"rounded-lg")]');
-      await expect(smsRow.getByRole('button')).toHaveCount(0);
+      const waRow = page.getByText('WhatsApp').locator('xpath=ancestor::*[contains(@class,"rounded-lg")]');
+      await expect(waRow.getByRole('button')).toHaveCount(0);
     },
   );
 });

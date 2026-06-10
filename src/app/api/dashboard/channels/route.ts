@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic';
 function maskHandle(channel: string, handle: string | null): string | null {
   if (handle === null) return null;
   if (channel === 'email') return handle;
-  if (channel === 'sms' || channel === 'whatsapp') {
+  if (channel === 'whatsapp') {
     if (handle.length <= 4) return handle;
     const hidden = Math.max(0, handle.length - 7);
     return handle.slice(0, 3) + '•'.repeat(hidden) + handle.slice(-4);
@@ -28,13 +28,6 @@ function maskHandle(channel: string, handle: string | null): string | null {
     return '••• ' + handle.slice(-4);
   }
   return handle;
-}
-
-function smsAvailable(): boolean {
-  if (process.env.CHANNELS_SMS_ENABLED !== 'true') return false;
-  if (process.env.MOCK_EXTERNAL_APIS === 'true') return true;
-  const required = ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_MESSAGING_SERVICE_SID', 'TWILIO_VERIFY_SERVICE_SID'];
-  return required.every((k) => process.env[k] && process.env[k]!.trim().length > 0);
 }
 
 function whatsappAvailable(): boolean {
@@ -114,11 +107,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       enrollments,
       available: {
         telegram: telegramAvailable(),
-        sms: smsAvailable(),
         whatsapp: whatsappAvailable(),
       },
       reasons: {
-        sms: 'pending_10dlc',
         whatsapp: 'pending_meta_verification',
       },
     },

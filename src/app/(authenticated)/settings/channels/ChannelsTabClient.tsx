@@ -3,7 +3,7 @@
 // src/app/(authenticated)/settings/channels/ChannelsTabClient.tsx
 //
 // Owns the Notifications tab as a whole:
-//   1. The existing ChannelsClient (Email + Telegram + SMS + WhatsApp rows) — org-level defaults.
+//   1. The existing ChannelsClient (Email + Telegram + WhatsApp rows) — org-level defaults.
 //   2. Per-location channel overrides (collapsible panel).
 //   3. Reports & summaries (weekly + monthly toggles).
 //   4. Contact details (phone editable + email locked).
