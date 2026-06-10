@@ -24,6 +24,10 @@ function getPreviousMonthStart(now: Date): string {
     .slice(0, 10);
 }
 
+// Complexity is inherited — PR 262 added a single `archived_at IS NULL` SQL
+// predicate; the surrounding function shape predates it. Decomposition tracked
+// in the multi-location fast-follow spec.
+// fallow-ignore-next-line complexity
 async function checkAndSchedule(): Promise<void> {
   if (isPolling) return;
   isPolling = true;

@@ -87,6 +87,10 @@ export class ZernioIngestUnparseableLocationError extends Error {
   }
 }
 
+// Complexity is inherited (pre-PR-262 shape; this PR only swapped the inline
+// guards for guardZernioJobEligibility) — decomposition tracked in the
+// multi-location fast-follow spec, not done here to keep the hardening PR surgical.
+// fallow-ignore-next-line complexity
 export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayload>): Promise<void> {
   const logger = createWorkerLogger('[ZernioReviewIngestWorker]', job.data.correlation_id);
   const { business_id, zernio_account_id, zernio_location_id, zernio_review_id } = job.data;

@@ -22,22 +22,7 @@ export function redactWhatsAppPayload(params: Record<string, string>): Record<st
   return out;
 }
 
-// UUID v7 rendered with `v7()` from the `uuid` package produces the canonical
-// 8-4-4-4-12 hex form. Validate the suffix shape before hitting the DB — the
-// approval_links.id column is UUID, and a malformed string would raise a
-// Postgres "invalid input syntax for type uuid" error that escapes the
-// post-claim happy path. Malformed payloads route to the same processed/200
-// path as an unrecognised `a:`/`r:` prefix.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export function parseButtonPayload(
-  data: string,
-): { action: 'approve' | 'regenerate'; approvalLinkId: string } | null {
-  let action: 'approve' | 'regenerate' | null = null;
-  let rest = '';
-  if (data.startsWith('a:')) { action = 'approve'; rest = data.slice(2); }
-  else if (data.startsWith('r:')) { action = 'regenerate'; rest = data.slice(2); }
-  if (action === null) return null;
-  if (!UUID_RE.test(rest)) return null;
-  return { action, approvalLinkId: rest };
-}
+// Payload grammar (`a:`/`r:` + approval-link UUID) is shared with Telegram
+// callback buttons — one parser owns the contract (worker/ingress/shared.ts),
+// including the UUID-shape validation that keeps malformed strings off the DB.
+export { parseApprovalActionPayload as parseButtonPayload } from '../shared';

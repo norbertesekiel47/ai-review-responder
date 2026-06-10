@@ -33,25 +33,9 @@ export interface TelegramUpdate {
   };
 }
 
-const CALLBACK_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export function parseCallbackData(
-  data: string,
-): { action: 'approve' | 'regenerate'; approvalLinkId: string } | null {
-  let action: 'approve' | 'regenerate';
-  let rest: string;
-  if (data.startsWith('a:')) {
-    action = 'approve';
-    rest = data.slice(2);
-  } else if (data.startsWith('r:')) {
-    action = 'regenerate';
-    rest = data.slice(2);
-  } else {
-    return null;
-  }
-  if (!CALLBACK_UUID_RE.test(rest)) return null;
-  return { action, approvalLinkId: rest };
-}
+// Payload grammar (`a:`/`r:` + approval-link UUID) is shared with WhatsApp
+// quick-reply buttons — one parser owns the contract (worker/ingress/shared.ts).
+export { parseApprovalActionPayload as parseCallbackData } from '../shared';
 
 // Strip PII from the update before persisting to inbound_events.payload.
 // Telegram includes from.first_name / from.last_name / from.username and
