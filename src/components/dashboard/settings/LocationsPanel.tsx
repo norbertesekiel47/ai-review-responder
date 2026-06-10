@@ -6,7 +6,7 @@ import { Icon } from '@/components/dashboard/shell/Icon';
 import type { LocationId } from '@/lib/shared/ids';
 import { getDisplayLabel } from '@/lib/locations/display-label';
 import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
-import { DUPLICATE_LOCATION_MESSAGE } from '@/lib/locations/duplicate-location';
+import { ownerFacingLocationError } from '@/lib/locations/duplicate-location';
 
 /** Shared POST for location actions; throws with owner-facing copy on denial. */
 async function postLocationAction(
@@ -21,11 +21,7 @@ async function postLocationAction(
   });
   if (!res.ok) {
     const resBody = await res.json().catch(() => ({}));
-    throw new Error(
-      resBody.error === 'duplicate_location'
-        ? DUPLICATE_LOCATION_MESSAGE
-        : resBody.error ?? fallbackMessage,
-    );
+    throw new Error(ownerFacingLocationError(resBody.error, fallbackMessage));
   }
 }
 

@@ -6,6 +6,7 @@ import type { AccountId } from '@/lib/shared/ids';
 import type { z } from 'zod';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
+import { DUPLICATE_LOCATION } from './duplicate-location';
 
 export const LOCATION_ROUTE_NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -140,7 +141,7 @@ export const LOCATION_DENIAL_STATUS: Record<string, number> = {
   last_active_location: 409,
   promote_first: 409,
   already_primary: 400,
-  duplicate_location: 409,
+  [DUPLICATE_LOCATION]: 409,
 };
 
 /** Map an in-tx denial code to its response, or null for unexpected errors. */

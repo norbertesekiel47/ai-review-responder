@@ -14,6 +14,7 @@ import { extractPlaceId } from '@/lib/reviews/url-parser';
 import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { PLACEHOLDER_BUSINESS_NAME } from '@/lib/onboarding/create-business';
+import { enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -338,16 +339,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // The PlaceAutocomplete-verified path no longer enqueues anything —
       // review ingestion is webhook-driven via Zernio.
       if (validatePayload) {
-        await tx`
-          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          SELECT ${uuidv7()}::uuid, 'validate_place_id', 'business', ${bizRow.id}::uuid, ${jsonb(validatePayload)}, 'pending'
-          WHERE NOT EXISTS (
-            SELECT 1 FROM job_outbox jo
-            WHERE jo.aggregate_id = ${bizRow.id}::uuid
-              AND jo.topic = 'validate_place_id'
-              AND jo.status IN ('pending', 'dispatching', 'dispatched')
-          )
-        `;
+        await enqueueValidatePlaceId(tx, {
+          businessId: bizRow.id,
+          googleMapsUrl: validatePayload.google_maps_url,
+          correlationId: validatePayload.correlation_id,
+        });
       }
     });
   } catch (err) {

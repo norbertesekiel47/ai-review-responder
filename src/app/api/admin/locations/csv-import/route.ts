@@ -12,11 +12,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   parseCsv,
-  validateRow,
-  processRow,
+  importCsvRows,
   enqueueCsvImportStripeOverageUpdate,
   writeCsvImportAuditLog,
-  DUPLICATE_LOCATION_IN_FILE_REASON,
   MAX_FILE_SIZE,
   MAX_ROWS,
   type CsvImportReport,
@@ -124,50 +122,8 @@ async function importLocationsCsv(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // ── Step 7: Process each row (best-effort, VAL-ADMIN-010) ──────────
-  //
-  // Invalid rows (validation failures) don't block valid rows.
-  // Each valid row is processed through assertCanAddLocation + addLocationTransaction.
-  const successes: Array<{ row: number; businessId: string; displayLabel: string }> = [];
-  const failures: CsvRowFailure[] = [];
-
-  // In-file dedup: a later row repeating an EARLIER SUCCESSFULLY IMPORTED
-  // place id is rejected without touching the DB — adding both would
-  // double-ingest or race businesses_account_place_uniq (migration 062).
-  // Only successful imports claim a place id: a first occurrence that fails
-  // validation, quota, or the tx must not poison a corrected row later in
-  // the same file (the admin's fix-and-keep-both-rows pattern).
-  const importedPlaceIds = new Set<string>();
-
-  for (const row of rows) {
-    // 7a. Validate required fields (VAL-ADMIN-012)
-    const validation = validateRow(row);
-    if (!validation.valid) {
-      failures.push({ row: row.rowIndex, reason: validation.reason! });
-      continue;
-    }
-
-    // 7b. Reject in-file duplicates of an already-imported place id.
-    if (row.placeId && importedPlaceIds.has(row.placeId)) {
-      failures.push({ row: row.rowIndex, reason: DUPLICATE_LOCATION_IN_FILE_REASON });
-      continue;
-    }
-
-    // 7c. Process through add-location flow (VAL-ADMIN-009)
-    const result = await processRow(row, accountId, {
-      enqueueStripeOverageUpdate: false,
-    });
-    if ('reason' in result) {
-      failures.push({ row: row.rowIndex, reason: result.reason });
-    } else {
-      if (row.placeId) importedPlaceIds.add(row.placeId);
-      successes.push({
-        row: row.rowIndex,
-        businessId: result.businessId,
-        displayLabel: result.displayLabel,
-      });
-    }
-  }
+  // ── Step 7: Import rows (policy owned by csv-import.importCsvRows) ──
+  const { successes, failures } = await importCsvRows(rows, accountId);
 
   const report: CsvImportReport = {
     created: successes.length,

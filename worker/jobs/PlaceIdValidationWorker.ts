@@ -9,7 +9,7 @@ import { ExceptionType } from '../../src/lib/shared/constants';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
 import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
-import { isDuplicateLocationViolation } from '../../src/lib/locations/duplicate-location';
+import { isDuplicateLocationViolation, DUPLICATE_LOCATION } from '../../src/lib/locations/duplicate-location';
 
 /**
  * Writes the resolved place id + place_id_verified=TRUE for a business.
@@ -57,14 +57,15 @@ async function recordDuplicateLocationException(
     INSERT INTO review_exceptions (id, business_id, review_id, type, status, payload)
     VALUES (
       ${uuidv7()}, ${businessId}, NULL, ${ExceptionType.PLACE_ID_RESOLUTION_FAILED}, 'open',
-      ${jsonb({ reason: 'duplicate_location', google_maps_url: googleMapsUrl, duplicate_place_id: duplicatePlaceId })}
+      ${jsonb({ reason: DUPLICATE_LOCATION, google_maps_url: googleMapsUrl, duplicate_place_id: duplicatePlaceId })}
     )
   `;
 }
 
 /**
  * Apply the resolved place id, record a durable exception if it duplicates an
- * active location, complete the outbox (skip-as-success either way), and log.
+ * active location, and complete the outbox (skip-as-success either way).
+ * Returns whether the place id was applied; the caller owns logging.
  */
 async function applyPlaceIdAndFinalize(input: {
   businessId: LocationId;
@@ -72,20 +73,13 @@ async function applyPlaceIdAndFinalize(input: {
   placeId: string;
   outboxId: string;
   outboxAttempt: number | undefined;
-  logger: ReturnType<typeof createWorkerLogger>;
-  successMessage: string;
-  duplicateMessage: string;
-}): Promise<void> {
+}): Promise<boolean> {
   const applied = await applyResolvedPlaceId(input.businessId, input.placeId);
   if (!applied) {
     await recordDuplicateLocationException(input.businessId, input.googleMapsUrl, input.placeId);
   }
   await markOutboxCompleted(input.outboxId, input.outboxAttempt);
-  if (applied) {
-    input.logger.log(input.successMessage);
-  } else {
-    input.logger.log(input.duplicateMessage, { reason: 'duplicate_location' });
-  }
+  return applied;
 }
 
 export async function handlePlaceIdValidation(
@@ -114,16 +108,21 @@ export async function handlePlaceIdValidation(
   // If URL contained a canonical Place ID, verify format and store.
   // Review ingestion is now webhook-driven via Zernio — no sync_reviews enqueue.
   if (urlData.placeId && isPlaceId(urlData.placeId)) {
-    await applyPlaceIdAndFinalize({
+    const applied = await applyPlaceIdAndFinalize({
       businessId,
       googleMapsUrl: google_maps_url,
       placeId: urlData.placeId,
       outboxId,
       outboxAttempt,
-      logger,
-      successMessage: `Business ${businessId} verified (canonical ID in URL)`,
-      duplicateMessage: `Business ${businessId} canonical place_id duplicates an active location — leaving unverified`,
     });
+    if (applied) {
+      logger.log(`Business ${businessId} verified (canonical ID in URL)`);
+    } else {
+      logger.log(
+        `Business ${businessId} canonical place_id duplicates an active location — leaving unverified`,
+        { reason: DUPLICATE_LOCATION },
+      );
+    }
     return;
   }
 
@@ -131,16 +130,21 @@ export async function handlePlaceIdValidation(
   try {
     const resolvedPlaceId = await resolvePlaceId(urlData);
 
-    await applyPlaceIdAndFinalize({
+    const applied = await applyPlaceIdAndFinalize({
       businessId,
       googleMapsUrl: google_maps_url,
       placeId: resolvedPlaceId,
       outboxId,
       outboxAttempt,
-      logger,
-      successMessage: `Business ${businessId} resolved to ${resolvedPlaceId}`,
-      duplicateMessage: `Business ${businessId} resolved place_id duplicates an active location — leaving unverified`,
     });
+    if (applied) {
+      logger.log(`Business ${businessId} resolved to ${resolvedPlaceId}`);
+    } else {
+      logger.log(
+        `Business ${businessId} resolved place_id duplicates an active location — leaving unverified`,
+        { reason: DUPLICATE_LOCATION },
+      );
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 

@@ -136,9 +136,21 @@
       // complex on main — CSV tokenisation is inherently branchy; PR C only added the
       // in-file dedup wiring + per-row duplicate reason. Acknowledged as pre-existing;
       // deferred cleanup: extract the shared CSV parser (see duplicates ack below).
+      // (csv-import route entry dropped: the import-policy loop moved into
+      // csv-import.importCsvRows, returning the route to parse+authorize+call.)
       "src/lib/locations/add-location-tx.ts",
-      "src/app/api/admin/locations/csv-import/route.ts",
-      "src/lib/admin/csv-import.ts"
+      "src/lib/admin/csv-import.ts",
+      // ── Pre-existing complexity swept in by PR C's mechanical touches ──
+      // PR C's edits to these files were small (6-line enqueueValidatePlaceId
+      // swaps in the two onboarding routes; duplicate_location error-copy
+      // mapping in the panel/wizard). The flagged functions (onboarding POST
+      // handlers, LocationRow/locationRowReducer, wizard fetchers) predate the
+      // PR and were not grown by it; refactoring live onboarding/UI flows
+      // pre-launch is unjustified risk. Cleanup candidates post-launch.
+      "src/app/api/onboarding/start/route.ts",
+      "src/app/api/onboarding/business/route.ts",
+      "src/components/dashboard/settings/LocationsPanel.tsx",
+      "src/app/(authenticated)/dashboard/add-location/wizard/useAddLocationWizard.ts"
     ]
   },
   "duplicates": {

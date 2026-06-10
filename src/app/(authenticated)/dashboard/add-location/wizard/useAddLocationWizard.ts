@@ -14,12 +14,14 @@ import type { LocationId } from '@/lib/shared/ids';
 import { computeNextLocationBillingPreview, computeProration } from './billing';
 import { buildAddLocationPayload, hasStep1LocationDetails } from './payload';
 import { initialState, reducer } from './reducer';
-import { DUPLICATE_LOCATION_MESSAGE } from '@/lib/locations/duplicate-location';
+import { ownerFacingLocationError } from '@/lib/locations/duplicate-location';
 
 /** Owner-facing message for an add-location submit failure. */
 function submitErrorMessage(body: { error?: string; detail?: string }, status: number): string {
-  if (body.error === 'duplicate_location') return DUPLICATE_LOCATION_MESSAGE;
-  return body.error ?? body.detail ?? `Failed to add location (${status})`;
+  return ownerFacingLocationError(
+    body.error,
+    body.detail ?? `Failed to add location (${status})`,
+  );
 }
 
 import {

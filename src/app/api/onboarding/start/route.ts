@@ -12,6 +12,7 @@ import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { PLACEHOLDER_BUSINESS_NAME } from '@/lib/onboarding/create-business';
 import { botIdBlockResponse } from '@/lib/security/botid';
 import type postgres from 'postgres';
+import { enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -115,16 +116,11 @@ async function persistOnboardingStart(tx: TxClient, p: OnboardingStartTxParams):
   `;
 
   if (p.validatePayload) {
-    await tx`
-      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-      SELECT ${uuidv7()}::uuid, 'validate_place_id', 'business', ${p.bizRow.id}::uuid, ${jsonb(p.validatePayload)}, 'pending'
-      WHERE NOT EXISTS (
-        SELECT 1 FROM job_outbox jo
-        WHERE jo.aggregate_id = ${p.bizRow.id}::uuid
-          AND jo.topic = 'validate_place_id'
-          AND jo.status IN ('pending', 'dispatching', 'dispatched')
-      )
-    `;
+    await enqueueValidatePlaceId(tx, {
+      businessId: p.bizRow.id,
+      googleMapsUrl: p.validatePayload.google_maps_url,
+      correlationId: p.validatePayload.correlation_id,
+    });
   }
 
   if (p.demoBlocked) return false;

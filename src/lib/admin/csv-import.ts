@@ -11,6 +11,7 @@ import { addLocationTransaction } from '@/lib/locations/add-location-tx';
 import { getActiveLocationCount } from '@/lib/locations/repo';
 import { sql, jsonb } from '@/lib/db/server';
 import { v7 as uuidv7 } from 'uuid';
+import { DUPLICATE_LOCATION } from '@/lib/locations/duplicate-location';
 
 // ── Constants ────────────────────────────────────────────────────────────
 
@@ -212,7 +213,63 @@ export function validateRow(row: ParsedCsvRow): RowValidationResult {
 }
 
 /** Reason recorded for a row whose place id repeats earlier in the same file. */
-export const DUPLICATE_LOCATION_IN_FILE_REASON = 'duplicate_location_in_file';
+const DUPLICATE_LOCATION_IN_FILE_REASON = 'duplicate_location_in_file';
+
+export interface CsvImportOutcome {
+  successes: Array<{ row: number; businessId: string; displayLabel: string }>;
+  failures: CsvRowFailure[];
+}
+
+/**
+ * Import parsed CSV rows, best-effort (VAL-ADMIN-009/-010/-012): invalid rows
+ * don't block valid rows; each valid row goes through assertCanAddLocation +
+ * addLocationTransaction. Stripe overage is NOT enqueued per row — the route
+ * enqueues one aggregate update after the import.
+ *
+ * In-file dedup: a later row repeating an EARLIER SUCCESSFULLY IMPORTED place
+ * id is rejected without touching the DB — adding both would double-ingest or
+ * race businesses_account_place_uniq (migration 062). Only successful imports
+ * claim a place id: a first occurrence that fails validation, quota, or the
+ * tx must not poison a corrected row later in the same file (the admin's
+ * fix-and-keep-both-rows pattern).
+ */
+export async function importCsvRows(
+  rows: ParsedCsvRow[],
+  accountId: string,
+): Promise<CsvImportOutcome> {
+  const successes: CsvImportOutcome['successes'] = [];
+  const failures: CsvRowFailure[] = [];
+  const importedPlaceIds = new Set<string>();
+
+  for (const row of rows) {
+    const validation = validateRow(row);
+    if (!validation.valid) {
+      failures.push({ row: row.rowIndex, reason: validation.reason! });
+      continue;
+    }
+
+    if (row.placeId && importedPlaceIds.has(row.placeId)) {
+      failures.push({ row: row.rowIndex, reason: DUPLICATE_LOCATION_IN_FILE_REASON });
+      continue;
+    }
+
+    const result = await processRow(row, accountId, {
+      enqueueStripeOverageUpdate: false,
+    });
+    if ('reason' in result) {
+      failures.push({ row: row.rowIndex, reason: result.reason });
+    } else {
+      if (row.placeId) importedPlaceIds.add(row.placeId);
+      successes.push({
+        row: row.rowIndex,
+        businessId: result.businessId,
+        displayLabel: result.displayLabel,
+      });
+    }
+  }
+
+  return { successes, failures };
+}
 
 // ── Row Processing ────────────────────────────────────────────────────────
 
@@ -286,8 +343,8 @@ export async function processRow(
     // 'duplicate_location' Error that addLocationTransaction re-throws after
     // catching Postgres 23505 (businesses_account_place_uniq, migration 062) —
     // the remap happens inside the tx module, so a raw 23505 cannot reach here.
-    if (err instanceof Error && err.message === 'duplicate_location') {
-      return { reason: 'duplicate_location' };
+    if (err instanceof Error && err.message === DUPLICATE_LOCATION) {
+      return { reason: DUPLICATE_LOCATION };
     }
     const message = err instanceof Error ? err.message : String(err);
     return { reason: `Transaction error: ${message}` };

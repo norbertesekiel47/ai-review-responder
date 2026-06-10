@@ -10,6 +10,9 @@
  * below is the only consumer, so it stays unexported (no dead public export). */
 const DUPLICATE_LOCATION_CONSTRAINT = 'businesses_account_place_uniq';
 
+/** Typed denial code for an active duplicate place id — the only owner of the literal. */
+export const DUPLICATE_LOCATION = 'duplicate_location';
+
 /**
  * True only for a Postgres unique violation (23505) on the active-duplicate
  * place-id index. Guarding on the CONSTRAINT name keeps any unrelated 23505
@@ -18,11 +21,7 @@ const DUPLICATE_LOCATION_CONSTRAINT = 'businesses_account_place_uniq';
 export function isDuplicateLocationViolation(err: unknown): boolean {
   if (typeof err !== 'object' || err === null) return false;
   const e = err as Record<string, unknown>;
-  return (
-    e.code === '23505' &&
-    typeof e.constraint_name === 'string' &&
-    e.constraint_name === DUPLICATE_LOCATION_CONSTRAINT
-  );
+  return e.code === '23505' && e.constraint_name === DUPLICATE_LOCATION_CONSTRAINT;
 }
 
 /**
@@ -32,10 +31,19 @@ export function isDuplicateLocationViolation(err: unknown): boolean {
  * matches on the typed message.
  */
 export function rethrowAsDuplicateLocation(err: unknown): never {
-  if (isDuplicateLocationViolation(err)) throw new Error('duplicate_location');
+  if (isDuplicateLocationViolation(err)) throw new Error(DUPLICATE_LOCATION);
   throw err;
 }
 
 /** Owner-facing copy for the duplicate_location denial (wizard + panel). */
-export const DUPLICATE_LOCATION_MESSAGE =
+const DUPLICATE_LOCATION_MESSAGE =
   'This Google location is already on your account.';
+
+/** Map a route denial code to owner-facing copy (single owner of code→copy). */
+export function ownerFacingLocationError(
+  error: string | undefined,
+  fallback: string,
+): string {
+  if (error === DUPLICATE_LOCATION) return DUPLICATE_LOCATION_MESSAGE;
+  return error ?? fallback;
+}
