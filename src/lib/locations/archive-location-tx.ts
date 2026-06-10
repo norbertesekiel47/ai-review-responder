@@ -405,7 +405,17 @@ export async function reactivateLocationTransaction(
     `;
     const promoted = Number(primaryRow?.count ?? 0) === 0;
     if (promoted) {
-      await tx`UPDATE businesses SET is_primary = TRUE, updated_at = NOW() WHERE id = ${locationId}::uuid AND account_id = ${accountId}::uuid`;
+      // RETURNING-verified: the audit row below must never claim a promotion
+      // the database didn't apply (0 rows = the row vanished mid-tx, which
+      // the account lock makes impossible today — keep the write honest).
+      const [selfPromoted] = await tx<{ id: string }[]>`
+        UPDATE businesses SET is_primary = TRUE, updated_at = NOW()
+        WHERE id = ${locationId}::uuid AND account_id = ${accountId}::uuid
+        RETURNING id
+      `;
+      if (!selfPromoted) {
+        throw new Error('location_reactivate_conflict');
+      }
       await tx`
         INSERT INTO account_audit_log (id, account_id, location_id, event_type, actor_user_id, payload)
         VALUES (${uuidv7()}::uuid, ${accountId}::uuid, ${locationId}::uuid, 'primary_promoted', ${actorUserId ?? null}::uuid,

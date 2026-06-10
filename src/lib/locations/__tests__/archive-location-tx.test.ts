@@ -100,6 +100,7 @@ function driveArchiveDb({
   archivedAt = null as Date | null,
   activePrimaryCount = 1,
   updateRows = [{ id: SECONDARY_LOCATION_ID }] as Array<{ id: string }>,
+  selfPromoteRows = undefined as Array<{ id: string }> | undefined,
   zernio = defaultZernioRow as typeof defaultZernioRow | null,
 } = {}) {
   mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
@@ -119,6 +120,9 @@ function driveArchiveDb({
     }
     if (template.includes('SELECT archived_at') && template.includes('FROM businesses') && template.includes('FOR UPDATE')) {
       return [{ archived_at: archivedAt, is_primary: isPrimary }];
+    }
+    if (template.includes('UPDATE businesses') && template.includes('SET is_primary = TRUE')) {
+      return selfPromoteRows ?? updateRows;
     }
     if (template.includes('UPDATE businesses')) {
       return updateRows;
@@ -807,6 +811,22 @@ describe('reactivateLocationTransaction — B3 zero-primary self-heal', () => {
 
     // A primary_promoted audit row must have been written.
     expect(primaryPromotedAuditCalls().length).toBe(1);
+  });
+
+  it('throws (and skips the audit row) when the self-promote UPDATE affects 0 rows', async () => {
+    // RETURNING-verified write: the audit row must never claim a promotion
+    // the database did not apply.
+    driveArchiveDb({ activePrimaryCount: 0, selfPromoteRows: [], zernio: null });
+
+    await expect(
+      reactivateLocationTransaction({
+        locationId: SECONDARY_LOCATION_ID,
+        accountId: ACCOUNT_ID,
+        actorUserId: ACTOR_USER_ID,
+      }),
+    ).rejects.toThrow('location_reactivate_conflict');
+
+    expect(primaryPromotedAuditCalls().length).toBe(0);
   });
 
   it('does NOT self-promote when the account already has an active primary', async () => {
