@@ -42,4 +42,18 @@ describe('orderNotificationDispatchEnrollments', () => {
       { channel: 'whatsapp', handle: 'wa-1' },
     ]);
   });
+
+  it('drops unknown-channel enrollments and does not throw', () => {
+    const enrollments = [
+      { channel: 'email' as const, handle: 'email-1' },
+      { channel: 'sms' as never, handle: 'sms-1' },
+      { channel: 'whatsapp' as const, handle: 'wa-1' },
+    ];
+
+    expect(() => orderNotificationDispatchEnrollments(enrollments)).not.toThrow();
+    expect(orderNotificationDispatchEnrollments(enrollments)).toEqual([
+      { channel: 'email', handle: 'email-1' },
+      { channel: 'whatsapp', handle: 'wa-1' },
+    ]);
+  });
 });

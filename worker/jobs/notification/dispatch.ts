@@ -215,10 +215,11 @@ export async function dispatchAll(
   let succeeded = 0;
 
   // channel_enrollments.channel is a TEXT column — filter out any stale
-  // values (e.g. 'sms' after its removal) BEFORE ordering so that
-  // orderNotificationDispatchEnrollments never receives an unknown key.
-  // This guard is defense-in-depth; the primary filter is the SQL WHERE
-  // clause in resolve-channels.ts and the eligibility flag in eligibility.ts.
+  // values (e.g. 'sms' after its removal) and emit a warn log entry per
+  // skipped enrollment. orderNotificationDispatchEnrollments now owns the
+  // correctness guard (unknown channels are dropped there, not crashed on),
+  // so this pre-filter is purely observability: it surfaces stale rows in
+  // logs without requiring the caller to inspect the ordered output.
   const supportedEnrollments = enrollments.filter((e) => {
     if (DISPATCHABLE_CHANNELS.has(e.channel)) return true;
     logger.warn(`Skipping unsupported channel "${e.channel}" for response ${ctx.responseId} (stale enrollment row)`);

@@ -7,6 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ChannelId } from '../channels/types';
+import { CHANNEL_IDS } from '../channels/types';
 
 // ── Hoisted mock state ──────────────────────────────────────────────────
 
@@ -437,14 +438,20 @@ describe('resolveChannels — stale channel guard', () => {
 
     // Second SQL call is the channel_enrollments query
     const enrollmentsCall = mockSql.mock.calls[1];
-    const [template] = enrollmentsCall as [TemplateStringsArray, ...unknown[]];
+    const [template, ...boundValues] = enrollmentsCall as [TemplateStringsArray, ...unknown[]];
     const queryText = template.join('?');
 
-    // Must restrict to the three supported channels, excluding 'sms'
-    expect(queryText).toMatch(/channel IN/);
-    expect(queryText).toContain("'email'");
-    expect(queryText).toContain("'telegram'");
-    expect(queryText).toContain("'whatsapp'");
+    // Must use the = ANY(...::text[]) idiom (single owner: CHANNEL_IDS)
+    expect(queryText).toMatch(/channel = ANY\(/);
+    // The channel list is a bound parameter (not inlined), so it must not
+    // appear as SQL literals in the query text.
+    expect(queryText).not.toContain("'email'");
+    expect(queryText).not.toContain("'sms'");
+    // The bound values must include an array equal to [...CHANNEL_IDS]
+    const channelArray = boundValues.find(
+      (v) => Array.isArray(v) && (v as unknown[]).includes('email'),
+    );
+    expect(channelArray).toEqual([...CHANNEL_IDS]);
   });
 
   // Guard: cache namespace bumped to v2 so entries cached before SMS removal

@@ -14,6 +14,7 @@
 
 import { sql } from '../db/server';
 import { getCacheRedis } from '../db/redis-cache';
+import { CHANNEL_IDS } from './channels/types';
 import type { ChannelId } from './channels/types';
 import type { AccountId, LocationId } from '../shared/ids';
 
@@ -96,7 +97,7 @@ export async function resolveChannels(
       AND status = 'verified'
       AND archived_at IS NULL
       AND unsubscribed_at IS NULL
-      AND channel IN ('email', 'telegram', 'whatsapp') -- keep in sync with NOTIFICATION_DISPATCH_CHANNEL_ORDER (worker/jobs/notification/plan.ts); Postgres.js IN lists must stay literal
+      AND channel = ANY(${[...CHANNEL_IDS] as string[]}::text[])
     ORDER BY
       -- Per-location overrides first so the dedup loop prefers them
       CASE WHEN location_id IS NOT NULL THEN 0 ELSE 1 END,

@@ -12,23 +12,11 @@ import { requireRoleOr401 } from '@/lib/auth/route-helpers';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 import { whatsappEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
+import { CHANNEL_IDS } from '@/lib/notifications/channels/types';
+import { maskChannelHandle } from '@/lib/notifications/mask-handle';
 
 export const dynamic = 'force-dynamic';
 
-function maskHandle(channel: string, handle: string | null): string | null {
-  if (handle === null) return null;
-  if (channel === 'email') return handle;
-  if (channel === 'whatsapp') {
-    if (handle.length <= 4) return handle;
-    const hidden = Math.max(0, handle.length - 7);
-    return handle.slice(0, 3) + '•'.repeat(hidden) + handle.slice(-4);
-  }
-  if (channel === 'telegram') {
-    if (handle.length <= 4) return handle;
-    return '••• ' + handle.slice(-4);
-  }
-  return handle;
-}
 
 function whatsappAvailable(): boolean {
   if (process.env.CHANNELS_WHATSAPP_ENABLED !== 'true') return false;
@@ -88,13 +76,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     WHERE e.account_id = ${accountId}
       AND e.location_id IS NULL
       AND e.archived_at IS NULL
-      AND e.channel IN ('email', 'telegram', 'whatsapp')
+      AND e.channel = ANY(${[...CHANNEL_IDS] as string[]}::text[])
     ORDER BY e.created_at ASC
   `;
 
   const enrollments = rows.map((r) => ({
     channel: r.channel,
-    handle: maskHandle(r.channel, r.handle),
+    handle: r.handle !== null ? maskChannelHandle(r.channel, r.handle) : null,
     status: r.status,
     verified_at: r.verified_at?.toISOString() ?? null,
     disabled_at: r.disabled_at?.toISOString() ?? null,
