@@ -46,6 +46,12 @@ export interface DispatchContext {
   };
 }
 
+// channel_enrollments.channel is a TEXT column — a stale value (e.g. 'sms'
+// after its removal) must not reach createApprovalLink() or getChannel().
+// This is defense-in-depth; the primary filter is the SQL WHERE clause in
+// resolve-channels.ts and the eligibility flag check in eligibility.ts.
+const DISPATCHABLE_CHANNELS: ReadonlySet<string> = new Set(['email', 'telegram', 'whatsapp']);
+
 type StatusFlipKind =
   | 'telegram_blocked'
   | 'telegram_chat_not_found'
@@ -208,7 +214,18 @@ export async function dispatchAll(
   let attempted = 0;
   let succeeded = 0;
 
-  const orderedEnrollments = orderNotificationDispatchEnrollments(enrollments);
+  // channel_enrollments.channel is a TEXT column — filter out any stale
+  // values (e.g. 'sms' after its removal) BEFORE ordering so that
+  // orderNotificationDispatchEnrollments never receives an unknown key.
+  // This guard is defense-in-depth; the primary filter is the SQL WHERE
+  // clause in resolve-channels.ts and the eligibility flag in eligibility.ts.
+  const supportedEnrollments = enrollments.filter((e) => {
+    if (DISPATCHABLE_CHANNELS.has(e.channel)) return true;
+    logger.warn(`Skipping unsupported channel "${e.channel}" for response ${ctx.responseId} (stale enrollment row)`);
+    return false;
+  });
+
+  const orderedEnrollments = orderNotificationDispatchEnrollments(supportedEnrollments);
 
   for (const enrollment of orderedEnrollments) {
     const channelId: ChannelId = enrollment.channel;

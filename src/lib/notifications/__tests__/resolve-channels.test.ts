@@ -421,6 +421,48 @@ describe('resolveChannels — channel cache', () => {
   });
 });
 
+// ── Tests: Stale channel guard (SMS removal) ─────────────────────────────
+
+describe('resolveChannels — stale channel guard', () => {
+  beforeEach(beforeEachSetup);
+
+  // Guard: SQL filters to the supported channel set so stale 'sms' rows in
+  // channel_enrollments.channel (TEXT column) are excluded at the DB layer.
+  it('filters the enrollment query to supported channels only', async () => {
+    seedSqlQueue([
+      makeEnrollmentRow({ channel: 'email', handle: 'owner@example.com', location_id: null }),
+    ]);
+
+    await resolveChannels(ACCOUNT_A, LOCATION_L1);
+
+    // Second SQL call is the channel_enrollments query
+    const enrollmentsCall = mockSql.mock.calls[1];
+    const [template] = enrollmentsCall as [TemplateStringsArray, ...unknown[]];
+    const queryText = template.join('?');
+
+    // Must restrict to the three supported channels, excluding 'sms'
+    expect(queryText).toMatch(/channel IN \('email', 'telegram', 'whatsapp'\)/);
+  });
+
+  // Guard: cache namespace bumped to v2 so entries cached before SMS removal
+  // (which may contain 'sms' resolutions) are unreadable instead of waiting
+  // out the 300s TTL.
+  it('uses the v2 cache namespace', async () => {
+    seedSqlQueue([
+      makeEnrollmentRow({ channel: 'email', handle: 'owner@example.com', location_id: null }),
+    ]);
+
+    await resolveChannels(ACCOUNT_A, LOCATION_L1);
+
+    // Both get (cache miss) and set (cache store) must use the v2 prefix
+    const getKey = mockRedisGet.mock.calls[0]![0] as string;
+    expect(getKey).toMatch(/^rch:channels:v2:/);
+
+    const setKey = mockRedisSet.mock.calls[0]![0] as string;
+    expect(setKey).toMatch(/^rch:channels:v2:/);
+  });
+});
+
 // ── Tests: Query shape verification ──────────────────────────────────────
 
 describe('resolveChannels — query shape', () => {

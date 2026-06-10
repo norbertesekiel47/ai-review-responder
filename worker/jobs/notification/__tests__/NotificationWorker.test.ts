@@ -157,6 +157,8 @@ vi.mock('../../../../src/lib/approval/create-link', () => ({
 
 // Import after mocks are wired
 import { handleSendNotification } from '../NotificationWorker';
+import { dispatchAll } from '../dispatch';
+import type { DispatchContext } from '../dispatch';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -383,6 +385,66 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
     expect(mockChannelSend).not.toHaveBeenCalled();
+  });
+});
+
+describe('NotificationWorker — stale channel guard (dispatch layer)', () => {
+  beforeEach(beforeEachSetup);
+
+  // Defense-in-depth: channel_enrollments.channel is a TEXT column.
+  // A stale 'sms' row that survived the migration must NOT create an approval
+  // link or reach getChannel() — only supported channels proceed.
+  //
+  // This test calls dispatchAll directly (bypassing eligibility.ts) so it
+  // exercises the dispatch-layer guard specifically, not the eligibility filter.
+  it('skips a stale unsupported channel row before approval-link creation', async () => {
+    stubEmailChannel();
+
+    const ctx: DispatchContext = {
+      responseId: 'resp-1',
+      businessId: 'biz-1',
+      accountId: 'acct-1',
+      isFailover: false,
+      appUrl: 'https://repworth.example.com',
+      business: { name: 'Test Biz', displayLabel: null, owner_email_bounced: false },
+      review: {
+        reviewerName: 'Jane',
+        starRating: 5,
+        reviewText: 'Great place!',
+        reviewDate: '2026-04-01',
+        responsePreview: 'Thank you, Jane!',
+      },
+    };
+
+    const enrollments = [
+      // Stale 'sms' row injected via cast — simulates a TEXT column value
+      // that predates the SMS removal migration.
+      { channel: 'sms' as never, handle: '+15551234567', location_id: null },
+      { channel: 'email' as const, handle: 'owner@example.com', location_id: null },
+    ];
+
+    sqlReturnQueue.push(
+      [],  // email idempotency check
+      [],  // email delivery INSERT
+    );
+
+    const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+    // Must not throw even though 'sms' is not a valid channel
+    await expect(dispatchAll(ctx, enrollments, logger)).resolves.toBeDefined();
+
+    // createApprovalLink must NOT have been called with 'sms'
+    const approvalLinkCalls = mockCreateApprovalLink.mock.calls;
+    const smsCalls = approvalLinkCalls.filter(
+      (call) => (call[0] as { channel: string }).channel === 'sms',
+    );
+    expect(smsCalls).toHaveLength(0);
+
+    // createApprovalLink WAS called for 'email'
+    const emailCalls = approvalLinkCalls.filter(
+      (call) => (call[0] as { channel: string }).channel === 'email',
+    );
+    expect(emailCalls).toHaveLength(1);
   });
 });
 
