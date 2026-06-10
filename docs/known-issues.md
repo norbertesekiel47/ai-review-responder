@@ -14,7 +14,7 @@ design/fix doc where one exists. Add new issues at the top.
   advisory lock is account-scoped. The WhatsApp single-location interim guard (PR #53)
   was removed.
 - **Affects:** Owner self-service channel enrollment (`/settings/channels`) for
-  **SMS, Telegram, and WhatsApp** — the bug was in the shared owner-enrollment
+  **Telegram and WhatsApp** — the bug was in the shared owner-enrollment
   read/write paths, not any single channel.
 - **Full write-up:** `docs/superpowers/specs/2026-05-22-owner-channel-account-scope-design.md`
 
@@ -38,14 +38,6 @@ runtime API didn't see it (no `business_id = their location` row), so:
 - **Disconnect → 404** (no matching row for their `business_id`).
 - **Connect → 500** (INSERT tripped `channel_enrollments_account_channel_scope_uniq`;
   the non-mobile constraint name was classified as `EnrollmentDatabaseError`).
-
-### Remaining gap — SMS
-
-SMS owner self-service does not exist yet. The SMS **admin** routes are now fully
-account-scoped org-default (PR #135): `withMobileEnrollmentLock` keys by
-`mobile_enroll:${accountId}`, and every SMS-row read/write keys by `account_id` +
-`channel = 'sms'` + `location_id IS NULL`. When owner self-service is built it
-**must** follow the same account-scoped pattern.
 
 ### RESOLVED (PR #135, 2026-05-28): Admin SMS lock + cross-channel precheck + SMS-row scope
 
@@ -109,7 +101,7 @@ and filtering `location_id IS NULL`.
   `whatsapp_invalid_recipient`) now scope the UPDATE by `account_id = ctx.accountId`
   plus the enrollment's location (`location_id IS NULL` for org-default,
   `location_id = <id>` for a per-location override, from `ResolvedChannel.location_id`).
-  The `sms_unsubscribed` branch stays handle-global for TCPA.
+  The `sms_unsubscribed` branch (now removed with SMS channel) was handle-global for TCPA.
 - **Affects:** `worker/jobs/notification/dispatch.ts` failure branches for
   `telegram_blocked`, `telegram_chat_not_found`, `whatsapp_blocked`, and similar
   states that flip `channel_enrollments.status` via `WHERE business_id = ctx.businessId`.

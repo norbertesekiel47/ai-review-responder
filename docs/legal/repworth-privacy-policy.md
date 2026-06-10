@@ -26,7 +26,7 @@ RepWorth ("we", "us", "our") operates the RepWorth service. This policy describe
 - To generate AI response drafts for owner approval.
 - To display, edit, approve, and publish approved responses.
 - To send approval, notification, onboarding, and account emails.
-- To send SMS, WhatsApp, or Telegram service notifications when enabled.
+- To send WhatsApp or Telegram service notifications when enabled.
 - To process subscription billing through Stripe.
 - To secure the Service, prevent abuse, debug errors, and measure service-operation outcomes.
 
@@ -50,7 +50,7 @@ Review text and relevant business context may be sent to OpenAI or Anthropic to 
 | Railway | Worker hosting | Request metadata, job processing metadata |
 | Upstash | Redis cache and queues | Cache keys, job payload metadata |
 | Resend | Email | Email addresses, message content, delivery metadata |
-| Twilio | SMS and WhatsApp | Phone numbers, message content, delivery metadata |
+| Twilio | WhatsApp | Phone numbers, message content, delivery metadata |
 | Telegram | Bot delivery when enabled | Telegram identifiers, message content |
 | Zernio | Google review ingestion and posting | GBP OAuth tokens, review data, posting metadata |
 | Sentry | Error tracking | Scrubbed error metadata |
@@ -61,9 +61,9 @@ This list intentionally excludes vendors without a live product data path.
 
 ---
 
-## 5. SMS and Mobile Data
+## 5. Mobile Data
 
-If you opt in to SMS or WhatsApp notifications, RepWorth uses your phone number solely to deliver service notifications and related account messages.
+If you opt in to WhatsApp notifications, RepWorth uses your phone number solely to deliver service notifications and related account messages.
 
 Mobile opt-in data and mobile phone numbers are not shared, sold, rented, or disclosed to third parties or affiliates for marketing or promotional purposes.
 
@@ -85,7 +85,7 @@ No SOC 2, insurance, ZAP, Trivy, or Snyk completion claim is made by this policy
 
 ## 8. Retention
 
-Account and review data is retained while your subscription is active and then deleted or anonymized according to product workflows and legal requirements. SMS opt-out and audit records may be retained as needed to honor compliance and security obligations.
+Account and review data is retained while your subscription is active and then deleted or anonymized according to product workflows and legal requirements. Opt-out and audit records may be retained as needed to honor compliance and security obligations.
 
 ---
 

@@ -12,7 +12,7 @@ Review cadence: before each launch, after team changes, and monthly
 - [ ] Railway: project access is limited to founder accounts; worker env vars are present only in the production worker service.
 - [ ] Stripe: live mode access is limited to founder accounts; webhook endpoint points at Railway ingress.
 - [ ] Resend: domain sending access is limited to founder accounts; API key is production-only.
-- [ ] Twilio: console access and auth token access are limited to founder accounts if SMS is enabled.
+- [ ] Twilio: console access and auth token access are limited to founder accounts if WhatsApp is enabled.
 - [ ] Zernio: API key access is limited to founder accounts; webhook signing secret is known only to runtime env stores.
 - [ ] Google Cloud or Maps keys: browser key restrictions are enabled for public keys.
 - [ ] GitHub: branch protections and required checks are enabled for production branches.

@@ -10,7 +10,7 @@ manually from invoices. Copy this table each month.
 | Anthropic | LLM (code-computed) | | | /admin/costs | variable | Haiku fallback — watch fallback rate |
 | SerpAPI | Reviews API (code-computed) | | | /admin/costs | variable | |
 | Resend | Email (code-computed) | | | /admin/costs | variable | |
-| Twilio | SMS (code-computed) | | | provider dashboard | variable | |
+| Twilio | WhatsApp (code-computed, when enabled) | | | provider dashboard | variable | |
 | Supabase | DB/auth (vendor bill) | | | invoice | fixed opex | |
 | Railway | Worker host (vendor bill) | | | invoice | fixed opex | |
 | Vercel | Web host (vendor bill) | | | invoice | fixed opex | |

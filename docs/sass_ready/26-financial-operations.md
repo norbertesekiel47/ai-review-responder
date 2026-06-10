@@ -37,7 +37,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 | **GRR** | (MRR_prior_cohort − Contraction − Churn) / MRR_prior_cohort | Cohort analysis |
 | CAC | Marketing + sales cost ÷ new customers | Spend trackers + Stripe |
 | CAC payback | Months to recover CAC from gross margin | Derived |
-| Gross margin | Revenue − COGS (hosting + AI + Stripe + email + SMS) | Stripe + cloud bills |
+| Gross margin | Revenue − COGS (hosting + AI + Stripe + email) | Stripe + cloud bills |
 
 ### Tooling
 - **ProfitWell** (free, by Paddle) — MRR, churn, expansion automatically calculated from Stripe.
@@ -53,8 +53,8 @@ Track monthly in `docs/finance/cogs-YYYY-MM.md`:
 - OpenAI + Anthropic API
 - Stripe fees (2.9% + $0.30 per transaction)
 - Resend
-- Twilio (SMS)
-- Sentry, PostHog (decided Step 0 — adds COGS once on a paid tier), Help Scout (planned support tool — [Spec 13](./13-customer-support.md); not yet provisioned) _(Loops is rejected — lifecycle stays on Resend. Until PostHog/Help Scout are provisioned, count COGS for live vendors only: Supabase, Railway, Vercel, Upstash, OpenAI, Anthropic, Stripe, Resend, Twilio, Sentry)_
+- Twilio (WhatsApp, when enabled)
+- Sentry, PostHog (decided Step 0 — adds COGS once on a paid tier), Help Scout (planned support tool — [Spec 13](./13-customer-support.md); not yet provisioned) _(Loops is rejected — lifecycle stays on Resend. Until PostHog/Help Scout are provisioned, count COGS for live vendors only: Supabase, Railway, Vercel, Upstash, OpenAI, Anthropic, Stripe, Resend, Sentry; add Twilio if WhatsApp channel is enabled)_
 
 ### Gross margin target
 - **≥ 75%.**

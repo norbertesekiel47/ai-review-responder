@@ -1,6 +1,6 @@
 # Spec 21 — Mobile
 
-> **Goal:** Mobile-first responsive web that approves in 2 taps from a push notification, PWA installable, native iOS/Android on the 18-month roadmap, SMS approval flow tested with real SMB owners.
+> **Goal:** Mobile-first responsive web that approves in 2 taps from a push notification, PWA installable, native iOS/Android on the 18-month roadmap.
 
 ---
 
@@ -13,9 +13,8 @@ The SMB owner approving a response is doing it on her phone between customer app
 _Verified 2026-05-23 against the live tree (migration head 042)._
 
 - Dashboard redesigned; responsive with a `MobileTabBar` (bottom nav) — but no swipe gestures / sticky-approve, and not phone-first-tested.
-- **SMS approval implemented** (`worker/ingress/twilio/`, `src/lib/notifications/sms-body.ts`): signed approval-token URL + `STOP`/`START` opt-out (`sms_sender_opt_outs` table). ⚠️ The spec's free-text `Reply YES/EDIT/NO` parsing is **not** how it works — SMS uses the link; **Telegram** (`telegram-callback.ts`) and **WhatsApp** (`twilio-whatsapp-inbound.ts`) use **interactive buttons** (callback payloads via `src/lib/approval/service`), not free-text.
-- WhatsApp + Telegram approval implemented (button-based).
-- Notification settings (`settings/channels`) show enrollment **status** per channel (SMS "coming soon"); no explicit per-channel disable toggles yet.
+- WhatsApp + Telegram approval implemented (button-based, via `worker/ingress/twilio/whatsapp-*` and `telegram-callback.ts`; callback payloads via `src/lib/approval/service`).
+- Notification settings (`settings/channels`) show enrollment **status** per channel; no explicit per-channel disable toggles yet.
 - **No PWA** (no `public/manifest.json`, no service worker, no web-push). No native apps.
 - Approval tokens: SHA-256 hash only (verified).
 
@@ -42,26 +41,13 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - Push notifications via APNs / FCM at native ship.
 
 ### Push notifications
-- **Web push from PWA + email + optional SMS day 1.**
+- **Web push from PWA + email day 1.**
 - Native push follows native apps.
 - Notification triggers:
   - New low-rating review (≤ 3 stars) needs approval.
   - Draft approved by teammate awaits owner review.
   - Subscription past_due day 1, 3, 5.
 - Quiet hours: respect user's locale TZ + Settings → Notifications → Quiet hours.
-
-### SMS approval flow (real-owner tested)
-- **Test with 5 actual SMB owners, not your friends.**
-- ⚠️ **Current mechanic = signed link, not free-text replies.** Today SMS sends the approval-token URL (tap → approve page) + `STOP`/`START`. Telegram/WhatsApp already do **button-based** approval. The free-text `YES/EDIT/NO` parser below is **net-new** — decide whether it's worth building vs. leaning on the link + buttons.
-- Mechanics (proposed, if free-text parsing is pursued):
-  - SMS contains: review excerpt, draft response, signed approval token URL, `Reply YES to approve`, `Reply EDIT for the link`, `Reply NO to reject`.
-  - Reply parsing: case-insensitive, tolerant of typos (`Y`, `yes!`, `approve`).
-  - Multi-review batching: if multiple drafts pending, send list with numbered options.
-  - Opt-out: `STOP` per Twilio compliance.
-- Pain-test edge cases:
-  - Ambiguous "yes" interpretation (which review?).
-  - Conversation history (owner replies an hour later).
-  - Multi-location owner switching contexts.
 
 ### Telegram + WhatsApp approval
 - Already designed; same approval-token + audit pattern.
@@ -78,12 +64,11 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 1. Audit dashboard for mobile experience. Identify any > 2-tap approval path. File issues.
 2. Add `public/manifest.json` and basic service worker. Test installability on iOS + Android.
 3. Implement web push subscription flow. Wire to `worker/jobs/notification/*`.
-4. Update notification preferences in Settings → Notifications: email / SMS / Telegram / WhatsApp / web push / native push (when shipped). Per-channel toggles.
-5. Conduct **5 real SMB owner SMS tests**. Capture pain points in `docs/research/sms-approval-feedback-YYYY-MM.md`. Fix top 3.
-6. Build offline read-only mode in PWA (cache last 50 reviews + drafts).
-7. Build approve-action queue: tap Approve while offline → action stored locally → flushed on reconnect.
-8. Set mobile-test cadence: weekly smoke on iPhone SE + Pixel 4a. Add to `docs/runbooks/smoke-test-checklist.md`.
-9. Native iOS/Android roadmap doc in `docs/plans/native-apps-roadmap.md` — trigger conditions, tech-stack decision.
+4. Update notification preferences in Settings → Notifications: email / Telegram / WhatsApp / web push / native push (when shipped). Per-channel toggles.
+5. Build offline read-only mode in PWA (cache last 50 reviews + drafts).
+6. Build approve-action queue: tap Approve while offline → action stored locally → flushed on reconnect.
+7. Set mobile-test cadence: weekly smoke on iPhone SE + Pixel 4a. Add to `docs/runbooks/smoke-test-checklist.md`.
+8. Native iOS/Android roadmap doc in `docs/plans/native-apps-roadmap.md` — trigger conditions, tech-stack decision.
 
 ## 5. Acceptance criteria
 
@@ -91,7 +76,6 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - [ ] PWA installable on both platforms.
 - [ ] Offline mode shows last 50 reviews; approve queues + flushes on reconnect.
 - [ ] Web push subscription functional with quiet-hours respected.
-- [ ] 5 real-owner SMS tests completed; feedback captured + top 3 fixes shipped.
 - [ ] Lighthouse Mobile Performance ≥ 90 on dashboard home.
 - [ ] All 4 mobile-UX patterns (bottom nav, sticky approve, swipe gestures, touch targets) on response detail page.
 
@@ -101,13 +85,11 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 |---|---|
 | Approve-time-from-notification (median) | < 5 seconds |
 | PWA install rate (active users) | ≥ 30% |
-| SMS approval reply success rate | ≥ 95% |
 | Mobile Lighthouse Performance | ≥ 90 |
 | Mobile DAU/WAU ratio | Tracked; > 70% triggers native-app evaluation |
 
 ## 7. Risks & mitigations
 
-- **Risk:** SMS approval misinterprets ambiguous reply. **Mitigation:** confirmation reply for ambiguous cases ("Do you mean the 1-star review from John? Reply YES to confirm.").
 - **Risk:** Push notification fatigue. **Mitigation:** quiet hours + per-channel toggles + smart bundling (multiple low-rating drafts → single notification).
 - **Risk:** Offline approve flushes a stale draft. **Mitigation:** include draft hash in queued action; reject + alert if draft changed on server.
 
@@ -115,18 +97,16 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 
 - [Spec 04 — Auth & Identity](./04-auth-identity.md) (approval token model)
 - [Spec 06 — Onboarding](./06-onboarding-activation.md) (notification setup in checklist)
-- [Spec 10 — Trust & Safety](./10-trust-safety.md) (Twilio compliance, STOP)
+- [Spec 10 — Trust & Safety](./10-trust-safety.md) (WhatsApp Twilio compliance, STOP)
 - [Spec 22 — AI/LLM Operations](./22-ai-llm-ops.md) (draft generation feeding the notification)
-- Code anchors: `worker/ingress/twilio/*`, `worker/ingress/telegram/telegram-callback.ts`, `src/lib/notifications/sms-body.ts`, `src/lib/approval/service`, `src/components/dashboard/MobileTabBar.tsx`
+- Code anchors: `worker/ingress/twilio/*`, `worker/ingress/telegram/telegram-callback.ts`, `src/lib/approval/service`, `src/components/dashboard/MobileTabBar.tsx`
 - Architecture invariant: "Approval tokens never stored raw" (CLAUDE.md)
 
 ## 9. Implementation in the current repo
 
-- **The notification → approval rails already exist** (SMS link + Telegram/WhatsApp buttons, all on the SHA-256 approval-token model). The net-new mobile work is **PWA + web-push** and **mobile-UX polish** (sticky approve, swipe, 44px targets) on the existing `MobileTabBar` shell.
-- **Web push** wires into the existing `worker/jobs/notification/*` dispatch — add a push channel alongside email/SMS/Telegram/WhatsApp; respect the existing channel-enrollment model (account-scoped, per CLAUDE.md).
+- **The notification → approval rails already exist** (Telegram/WhatsApp buttons, email link; all on the SHA-256 approval-token model). The net-new mobile work is **PWA + web-push** and **mobile-UX polish** (sticky approve, swipe, 44px targets) on the existing `MobileTabBar` shell.
+- **Web push** wires into the existing `worker/jobs/notification/*` dispatch — add a push channel alongside email/Telegram/WhatsApp; respect the existing channel-enrollment model (account-scoped, per CLAUDE.md).
 - **PWA** is additive: `public/manifest.json` + a service worker; offline approve-queue must carry the draft hash and reject on server-side drift.
 - **Notification settings** already render per-channel status — add explicit enable/disable toggles there rather than a new page.
-- The **free-text SMS YES/NO parser** is a genuine build decision (link + buttons may suffice) — don't assume it.
-
 ---
-_Verified 2026-05-23 against migration head 042. Corrected the SMS mechanic (link + button-based, not free-text), the existing `MobileTabBar`, the channel-settings reality, and confirmed PWA/web-push are greenfield._
+_Verified 2026-05-23 against migration head 042. Updated for SMS channel removal (migration 061). Telegram/WhatsApp use button-based approval; PWA/web-push are greenfield._

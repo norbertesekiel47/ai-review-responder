@@ -30,7 +30,7 @@ against `.env.example`.
 | **Google Sheets** | Optional owner-lead mirror (service-account JWT) | REST/JWT | `OWNER_LEADS_*`, `GOOGLE_SHEETS_*` | server |
 | **Google GBP API** | *Phase 5 — not yet wired* | placeholder | `GOOGLE_CLIENT_*`, `GCP_PROJECT_ID` | — |
 | **Resend** | Transactional + marketing email + custom SMTP | `resend` | `RESEND_*`, `LIST_UNSUBSCRIBE_*`, `CONTACT_NOTIFY_TO`, `ADMIN_NOTIFICATION_EMAIL` | worker |
-| **Twilio** | SMS / WhatsApp / Verify OTP (*channel flags off by default*) | `twilio` | `TWILIO_*`, `WHATSAPP_*`, `SMS_*` | worker |
+| **Twilio** | WhatsApp (*channel flag off by default*) | `twilio` | `TWILIO_*`, `WHATSAPP_*` | worker |
 | **Telegram** | Bot approval channel (*flag off by default*) | raw Bot API (no SDK) | `TELEGRAM_*` | worker |
 | **Stripe** | Subscriptions / billing (Checkout Sessions + webhooks) | `stripe` | `STRIPE_*` | both |
 | **Sentry** | Error tracking (browser + server + worker) | `@sentry/nextjs`, `@sentry/node` | `SENTRY_*`, `NEXT_PUBLIC_SENTRY_DSN` | both |
@@ -82,9 +82,8 @@ only · ⚙️ platform-injected (not app config).
 `STRIPE_SECRET_KEY` ✅ · `STRIPE_WEBHOOK_SECRET` ✅ · `STRIPE_PRICE_BASIC` / `_FOUNDING` / `_FOUNDERS_OVERAGE` / `_STANDARD` / `_STANDARD_OVERAGE` / `_PREMIUM` / `_PREMIUM_OVERAGE` ✅ (Payment Links deprecated)
 
 ### Channels (Twilio / Telegram) — flags off by default
-SMS: `CHANNELS_SMS_ENABLED` ✅ · `TWILIO_ACCOUNT_SID` ✅ · `TWILIO_AUTH_TOKEN` ✅ · `TWILIO_MESSAGING_SERVICE_SID` ✅ · `TWILIO_VERIFY_SERVICE_SID` ✅ · `SMS_DAILY_LIMIT_CENTS_PER_BUSINESS` ✅ · `SMS_DAILY_LIMIT_CENTS_GLOBAL` ✅
 Telegram: `CHANNELS_TELEGRAM_ENABLED` ✅ · `TELEGRAM_BOT_TOKEN` ✅ · `TELEGRAM_WEBHOOK_SECRET` ✅ · `TELEGRAM_BOT_USERNAME` ✅
-WhatsApp: `CHANNELS_WHATSAPP_ENABLED` ✅ · `TWILIO_WHATSAPP_NUMBER` ✅ · `WHATSAPP_APPROVAL_TEMPLATE_SID` ✅ · `WHATSAPP_APPROVAL_URL_BASE` ✅
+WhatsApp: `CHANNELS_WHATSAPP_ENABLED` ✅ · `TWILIO_ACCOUNT_SID` ✅ · `TWILIO_AUTH_TOKEN` ✅ · `TWILIO_WHATSAPP_NUMBER` ✅ · `WHATSAPP_APPROVAL_TEMPLATE_SID` ✅ · `WHATSAPP_APPROVAL_URL_BASE` ✅
 
 ### Security / secrets
 | Var | Status | Note |
@@ -98,7 +97,7 @@ WhatsApp: `CHANNELS_WHATSAPP_ENABLED` ✅ · `TWILIO_WHATSAPP_NUMBER` ✅ · `WH
 | Var | Status | Note |
 |---|---|---|
 | `NEXT_PUBLIC_APP_URL` | ✅ | |
-| `WORKER_PUBLIC_URL` | ✅ | public worker origin (webhook signature base + SMS statusCallback); 10 code refs |
+| `WORKER_PUBLIC_URL` | ✅ | public worker origin (webhook signature base); 10 code refs |
 | `WORKER_SERVICE_URL` | 🔸 | **Retired.** 0 code refs — superseded by `WORKER_PUBLIC_URL`. Commented out pending removal. |
 
 ### Observability

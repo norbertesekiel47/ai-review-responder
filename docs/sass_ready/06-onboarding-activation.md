@@ -77,7 +77,7 @@ Not "No reviews yet" — instead:
 > **"You're ahead of the curve. Here's what to do while you wait for your next review:"**
 > - [ ] Train brand voice with past responses
 > - [ ] Invite teammates
-> - [ ] Set notification preferences (email / SMS / Telegram)
+- [ ] Set notification preferences (email / Telegram / WhatsApp)
 
 ## 4. Implementation tasks
 

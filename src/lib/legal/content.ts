@@ -30,7 +30,7 @@ const subProcessorRows: string[][] = [
   ['Railway', 'Worker hosting', 'Request metadata, job processing metadata'],
   ['Upstash', 'Redis cache and queues', 'Cache keys, job payload metadata'],
   ['Resend', 'Email', 'Email addresses, message content, delivery metadata'],
-  ['Twilio', 'SMS and WhatsApp', 'Phone numbers, message content, delivery metadata'],
+  ['Twilio', 'WhatsApp', 'Phone numbers, message content, delivery metadata'],
   ['Telegram', 'Bot delivery when enabled', 'Telegram identifiers, message content'],
   ['Zernio', 'Google review ingestion and posting', 'GBP OAuth tokens, review data, posting metadata'],
   ['Sentry', 'Error tracking', 'Scrubbed error metadata'],
@@ -59,7 +59,7 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
       {
         heading: 'The Service',
         body: [
-          'RepWorth monitors Google Business Profile reviews, generates AI-drafted response suggestions in your business voice, and delivers those drafts for owner approval by email, SMS, WhatsApp, Telegram, or other enabled product channels.',
+          'RepWorth monitors Google Business Profile reviews, generates AI-drafted response suggestions in your business voice, and delivers those drafts for owner approval by email, WhatsApp, Telegram, or other enabled product channels.',
           'No response is published to Google without explicit owner approval. You remain responsible for all content posted under your business accounts.',
         ],
       },
@@ -89,8 +89,8 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
         heading: 'Notifications',
         body: [
           'RepWorth may send service notifications when new reviews arrive, when drafts are ready for approval, when approval links are used, or when account action is required.',
-          'If you provide a mobile phone number and opt in to SMS or WhatsApp notifications, you consent to receive recurring automated service messages from RepWorth. Consent is not a condition of purchase. Message frequency varies based on review volume. Message and data rates may apply.',
-          'To opt out of SMS, reply STOP. For help, reply HELP or contact info@repworth.net. RepWorth does not share, sell, or rent mobile opt-in data or mobile numbers to third parties or affiliates for marketing or promotional purposes.',
+          'If you provide a mobile phone number and opt in to WhatsApp notifications, you consent to receive recurring automated service messages from RepWorth. Consent is not a condition of purchase. Message frequency varies based on review volume. Message and data rates may apply.',
+          'To opt out of WhatsApp, reply STOP. For help, reply HELP or contact info@repworth.net. RepWorth does not share, sell, or rent mobile opt-in data or mobile numbers to third parties or affiliates for marketing or promotional purposes.',
         ],
       },
       {
@@ -182,7 +182,7 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
           'To generate AI response drafts for owner approval.',
           'To display, edit, approve, and publish approved responses.',
           'To send approval, notification, onboarding, and account emails.',
-          'To send SMS, WhatsApp, or Telegram service notifications when enabled.',
+          'To send WhatsApp or Telegram service notifications when enabled.',
           'To process subscription billing through Stripe.',
           'To secure the Service, prevent abuse, debug errors, and measure service-operation outcomes.',
         ],
@@ -199,9 +199,9 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
         table: subProcessorTable,
       },
       {
-        heading: 'SMS and Mobile Data',
+        heading: 'Mobile Data',
         body: [
-          'If you opt in to SMS or WhatsApp notifications, RepWorth uses your phone number solely to deliver service notifications and related account messages.',
+          'If you opt in to WhatsApp notifications, RepWorth uses your phone number solely to deliver service notifications and related account messages.',
           'Mobile opt-in data and mobile phone numbers are not shared, sold, rented, or disclosed to third parties or affiliates for marketing or promotional purposes.',
         ],
       },
@@ -221,7 +221,7 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
       {
         heading: 'Retention',
         body: [
-          'Account and review data is retained while your subscription is active and then deleted or anonymized according to product workflows and legal requirements. SMS opt-out and audit records may be retained as needed to honor compliance and security obligations.',
+          'Account and review data is retained while your subscription is active and then deleted or anonymized according to product workflows and legal requirements. Opt-out and audit records may be retained as needed to honor compliance and security obligations.',
         ],
       },
       {

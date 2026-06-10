@@ -113,7 +113,7 @@ Next.js App Router pages, grouped by access level.
 | `settings/page.tsx` | Owner settings shell — renders `SettingsTabs` + `SettingsGeneralForm` (tone, products/services, avoid-facts). |
 | `settings/SettingsGeneralForm.tsx` | Client form for general business settings. |
 | `settings/channels/page.tsx` | Server shell for the owner channel-management page. Auth + subscription guard run server-side; fetches enrollment state for SSR hydration. |
-| `settings/channels/ChannelsClient.tsx` | Client component. Renders `OwnerTelegramWidget` for Telegram (live enrollment UI) and `ComingSoonChannelRow` for SMS and WhatsApp. |
+| `settings/channels/ChannelsClient.tsx` | Client component. Renders `OwnerTelegramWidget` for Telegram (live enrollment UI) and `ComingSoonChannelRow` for WhatsApp. |
 
 ---
 
@@ -272,13 +272,6 @@ POST: disconnects an active Zernio connection; marks `zernio_connections` status
 | `impersonation/start/route.ts` | **(Wave 2)** Starts an audited one-hour admin impersonation session. Same-origin, admin, current AAL2, validates owner/account, sets a signed httpOnly cookie. |
 | `impersonation/end/route.ts` | **(Wave 2)** Ends the current signed impersonation session and clears the cookie. |
 | `locations/csv-import/route.ts` | Admin CSV bulk-location import. Returns partial-success row failures and writes aggregate audit + billing outbox. |
-| `channels/sms/_shared.ts` | Feature-flag helpers and env-var assertions shared by all SMS admin routes. |
-| `channels/sms/verify/route.ts` | POST: initiate SMS verification (Twilio Verify). |
-| `channels/sms/confirm/route.ts` | POST: confirm OTP. |
-| `channels/sms/cancel/route.ts` | POST: cancel pending enrollment. |
-| `channels/sms/disable/route.ts` | POST: disable active enrollment. |
-| `channels/sms/delete/route.ts` | POST: hard-delete enrollment row. |
-| `channels/sms/status/route.ts` | GET: enrollment status. |
 | `channels/telegram/_shared.ts` | `isTelegramEnabled()`, `flagOff()`, `assertTelegramEnvReady()` — shared by all Telegram admin routes. |
 | `channels/telegram/start/route.ts` | POST: start Telegram enrollment (generates QR token). |
 | `channels/telegram/cancel/route.ts` | POST: cancel pending enrollment. |
@@ -317,7 +310,6 @@ Reusable React components imported by multiple pages.
 | `AdminNav.tsx` | Top nav bar for the admin panel. |
 | `PlaceAutocomplete.tsx` | Google Places autocomplete input (uses `PlaceAutocompleteElement`; guarded for SSR with `typeof window !== 'undefined'`). |
 | `admin/ChannelsSection.tsx` | Admin panel section showing all three channel widgets side-by-side. |
-| `admin/SmsEnrollmentWidget.tsx` | 7-state machine UI for SMS enrollment (idle → verifying → confirmed, etc.). Polls server state. |
 | `admin/TelegramEnrollmentWidget.tsx` | 8-state machine UI for Telegram enrollment. Shows QR code (server-rendered data URL). 3s polling + 1h TTL countdown. |
 | `admin/WhatsAppEnrollmentWidget.tsx` | 8-state machine UI for WhatsApp enrollment. Masked phone `+15•••4567`. Same polling pattern as Telegram. |
 | `auth/LoginFormClient.tsx` | Login form (email + password → Supabase sign-in). |
@@ -326,7 +318,7 @@ Reusable React components imported by multiple pages.
 | `dashboard/AccountStateScreens.tsx` | Full-page states for non-active accounts (pending payment, cancelled, past-due). |
 | `dashboard/Charts.tsx` | Recharts-based charts for the owner dashboard (response rate, star distribution, etc.). |
 | `dashboard/ConnectGoogleBanner.tsx` | Banner surfacing the owner's Zernio GBP connection state. States: active (hidden), none (blue CTA), disconnected (orange CTA), finalize_unknown (yellow ops-alert). |
-| `dashboard/ComingSoonChannelRow.tsx` | Placeholder row for channels not yet available to owners (SMS, WhatsApp). |
+| `dashboard/ComingSoonChannelRow.tsx` | Placeholder row for channels not yet available to owners (WhatsApp only). |
 | `dashboard/HistoricalUpgradeBanner.tsx` | Soft upsell banner shown on the "Past Replies" tab to non-premium owners above the historical section. References the future GBP-era edit feature. Rendered when `PAST_REPLIES_VIEW_ENABLED=true` and the owner is non-premium. |
 | `dashboard/PastReplyCard.tsx` | Read-only card for one already-posted Google reply on the Past Replies tab. Shows review summary on the left, current Google reply on the right, and a provenance label ("Imported from Google · YYYY-MM-DD" / "Posted via RepWorth · YYYY-MM-DD"). No edit affordances — the full edit drawer (`EditReplyDrawer`) is parked on tag `wip/edit-existing-replies-zernio-v1`. |
 | `dashboard/OwnerTelegramWidget.tsx` | Owner-facing Telegram enrollment widget. Uses `useEnrollment` + `enrollmentReducer`; SSR-hydrated from server-loaded enrollment row. |
@@ -484,11 +476,9 @@ Sending approval notifications to business owners.
 | `email/templates/owner-reconnect-required.ts` | HTML template for Zernio "reconnect required" owner email (response queued, reconnect to post). |
 | `delivery.ts` | `recordNotificationDelivery()` / `insertFailedDelivery()` — writes to `notification_deliveries` table. |
 | `enrollments.ts` | `getVerifiedEnrollments(businessId)` — returns all `verified` channel enrollments for a business. |
-| `sms-body.ts` | Formats the SMS message text (GSM-7 single-segment). |
 | `channels/types.ts` | `ChannelId` union type; `NotificationChannel` interface (`send()`). |
 | `channels/index.ts` | `getChannel(channelId)` factory — returns the correct channel implementation. Re-exports all channel classes and typed errors. |
 | `channels/email-channel.ts` | Email implementation of `NotificationChannel`. |
-| `channels/sms-channel.ts` | SMS via Twilio Messaging Service. Checks `CHANNELS_SMS_ENABLED`. |
 | `channels/telegram-channel.ts` | Telegram via Bot API. Checks `CHANNELS_TELEGRAM_ENABLED`. |
 | `channels/telegram-client.ts` | Low-level Telegram REST client (native `fetch`, 10s timeout, 4 typed error classes). |
 | `channels/telegram-body.ts` | Formats the Telegram HTML message and inline keyboard. |
@@ -508,7 +498,6 @@ LLM cost tracking and enforcement.
 |------|--------------|
 | `tracker.ts` | `reserveCost()` / `finalizeCost()` / `refundCost()` — Redis INCRBY/DECRBY for pessimistic reservation before LLM calls. Enforces per-business and global daily ceilings. |
 | `audit.ts` | `recordApiCost()` — writes completed costs to the `api_costs` table (audit trail, reconciled hourly by `ReconciliationPoller`). |
-| `sms-tracker.ts` | Same pattern as `tracker.ts` but for SMS — `SMS_DAILY_LIMIT_CENTS_PER_BUSINESS` and `SMS_DAILY_LIMIT_CENTS_GLOBAL`. |
 
 ### `payments/`
 
@@ -660,10 +649,9 @@ Extracted from `NotificationWorker.ts` to keep each concern focused. The orchest
 |------|--------------|
 | `NotificationWorker.ts` | Orchestrator. Imports all four sub-modules below and runs the notification send loop. |
 | `context.ts` | Loads response + business rows; applies early-exit guards (not found, ID mismatch, wrong status). Returns discriminated `{ result: 'ok' | 'skip' | 'fail' }`. |
-| `dispatch.ts` | Per-channel send loop with isolated error handling. One failed channel does not abort the rest. Calls `getChannel()`, `createApprovalLink()`, `recordNotificationDelivery()`, and the SMS cost reserve/refund flow. |
+| `dispatch.ts` | Per-channel send loop with isolated error handling. One failed channel does not abort the rest. Calls `getChannel()`, `createApprovalLink()`, `recordNotificationDelivery()`. |
 | `eligibility.ts` | Subscription guard + feature-flag check + `getVerifiedEnrollments()`. Returns the list of channels eligible to receive the notification. |
 | `errors.ts` | `classifyChannelError()` — maps provider errors to a discriminated dispatch directive (enrollment mutation, failure reason, log level). No DB writes; the dispatcher applies the directive. |
-| `sms-budget.ts` | Re-exports `reserveSmsCost`, `refundSmsCost`, `DailySmsLimitExceededError` from `src/lib/costs/sms-tracker` so the dispatcher's import surface stays scoped to `./notification/*`. |
 
 #### `worker/jobs/publisher/` — ResponsePublisher helpers
 
@@ -722,8 +710,7 @@ Each handler is registered as a Fastify route in `worker/index.ts`. They all fol
 | `shared.ts` | *(utility)* | `claimInboundEvent()`, `markInboundEventProcessed()`, `markInboundEventFailed()` — atomically insert/update `inbound_events` rows. Used as the dedup guard in every other ingress handler. |
 | `stripe.ts` | `POST /ingress/stripe` | Verifies Stripe webhook signature. `checkout.session.completed` → transitions `subscription_status` to `active` + enqueues `SyncReviewsPayload`. `customer.subscription.updated` → updates status. |
 | `resend.ts` | `POST /ingress/resend` | Verifies Svix signature. Maps `email.delivered` / `email.bounced` / `email.complained` events to `notification_deliveries` status updates and `owner_email_bounced` flag. |
-| `twilio/twilio.ts` | `POST /ingress/twilio/status`, `POST /ingress/twilio/inbound` | Status callback: records SMS delivery result. Inbound: handles `STOP` (opt-out fan-out + TCPA audit) and `START` (opt back in). |
-| `twilio/twilio-intent.ts` | *(utility)* | `classifyIntent(body)` — shared STOP/START keyword detection used by both SMS and WhatsApp ingress. |
+| `twilio/twilio-intent.ts` | *(utility)* | `classifyIntent(body)` — shared STOP/START keyword detection used by WhatsApp ingress. |
 | `twilio/twilio-verify.ts` | *(utility)* | Verifies Twilio request signatures (HMAC-SHA1 on URL + params). |
 | `twilio/twilio-whatsapp.ts` | *(barrel)* | Re-exports both WhatsApp ingress handlers and shared helpers for unit tests. Mounts were moved to focused modules. |
 | `twilio/twilio-whatsapp-status.ts` | `POST /ingress/twilio/whatsapp-status` | WhatsApp delivery status callback. Signature verify → dedup on `${MessageSid}:${MessageStatus}` → first-wins terminal state → update `notification_deliveries`. |
