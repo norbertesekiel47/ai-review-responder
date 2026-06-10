@@ -16,6 +16,9 @@ const {
   mockOpenPhiReviewException,
   mockHandleZernioIngestError,
   mockApplyIngestionAuthErrorFallback,
+  mockLoggerLog,
+  mockLoggerWarn,
+  mockLoggerError,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
 
@@ -37,6 +40,9 @@ const {
     mockOpenPhiReviewException: vi.fn(),
     mockHandleZernioIngestError: vi.fn(),
     mockApplyIngestionAuthErrorFallback: vi.fn(),
+    mockLoggerLog: vi.fn(),
+    mockLoggerWarn: vi.fn(),
+    mockLoggerError: vi.fn(),
   };
 });
 
@@ -63,6 +69,13 @@ vi.mock('../zernio-ingest-shared', () => ({
 }));
 vi.mock('../../../../src/lib/zernio/auth-error-fallback', () => ({
   applyIngestionAuthErrorFallback: mockApplyIngestionAuthErrorFallback,
+}));
+vi.mock('../../../../src/lib/shared/logger', () => ({
+  createWorkerLogger: () => ({
+    log: mockLoggerLog,
+    warn: mockLoggerWarn,
+    error: mockLoggerError,
+  }),
 }));
 
 import {
@@ -310,19 +323,50 @@ describe('ZernioReviewIngestWorker', () => {
   //     skips any that were already in flight. Mirrors the cancelled-
   //     subscription skip: complete the job, never fail/retry.
   it('marks outbox completed and skips when the location is archived', async () => {
-    // Active subscription + active connection — only archived_at should
-    // trigger the skip. Without the guard, execution would proceed to
-    // listReviews, so this proves the archived gate is what stops it.
+    // Active subscription — only archived_at should trigger the skip.
+    // The archived guard runs before the connection lookup, so no
+    // zernio_connections row is queued. Without the guard, execution would
+    // proceed to the connection query (empty queue → mismatch skip), so
+    // listReviews staying uncalled alone wouldn't prove the archived gate;
+    // the structured archived log below does.
     sqlReturnQueue.push([{
       subscription_status: 'active',
       past_due_at: null,
       account_flags: {},
       archived_at: '2026-06-01T00:00:00Z',
     }]);
-    pushActiveConn();
 
     await handleZernioReviewIngest(makeJob());
 
+    expect(mockListReviews).not.toHaveBeenCalled();
+    expect(mockProcessReview).not.toHaveBeenCalled();
+    expect(mockLoggerLog).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ reason: 'archived_location', business_id: 'biz-1' }),
+    );
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  // 6c. Ordering pin (Greptile 4/5 finding): archived is checked BEFORE the
+  //     subscription guard. A location that is BOTH archived AND on a
+  //     cancelled subscription must exit via the queryable archived path
+  //     (structured { reason: 'archived_location' } log), not the silent
+  //     subscription skip.
+  it('archived + cancelled exits via the archived path: structured log fires and outbox completes', async () => {
+    sqlReturnQueue.push([{
+      subscription_status: 'cancelled',
+      past_due_at: null,
+      account_flags: {},
+      archived_at: '2026-06-01T00:00:00Z',
+    }]);
+
+    await handleZernioReviewIngest(makeJob());
+
+    expect(mockLoggerLog).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ reason: 'archived_location', business_id: 'biz-1' }),
+    );
     expect(mockListReviews).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);

@@ -270,66 +270,70 @@ export async function handleZernioWebhook(
         // Without this, Zernio's webhook retry on worker crash would
         // produce duplicate outbox rows that all do the same listReviews
         // walk → wasted Zernio API quota.
-        let fanoutResult;
-        if (parsed.locationIdFromPayload) {
-          fanoutResult = await sql`
-            INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-            SELECT
-              gen_random_uuid(),
-              'ingest_zernio_review',
-              'business',
-              zc.business_id,
-              jsonb_build_object(
-                'business_id', zc.business_id,
-                'zernio_account_id', ${parsed.accountId}::text,
-                'zernio_location_id', zc.zernio_location_id,
-                'zernio_review_id', ${parsed.reviewId}::text,
-                'correlation_id', ${eventId}::text
-              ),
-              'pending'
-            FROM zernio_connections zc
-            JOIN businesses b ON b.id = zc.business_id AND b.archived_at IS NULL
-            WHERE zc.zernio_account_id = ${parsed.accountId}
-              AND zc.zernio_location_id = ${parsed.locationIdFromPayload}
-              AND zc.status = 'active'
-            ON CONFLICT (aggregate_id, (payload->>'zernio_review_id'))
-              WHERE topic = 'ingest_zernio_review'
-                AND status IN ('pending', 'dispatching', 'dispatched')
-            DO NOTHING
-          `;
-        } else {
-          fanoutResult = await sql`
-            INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-            SELECT
-              gen_random_uuid(),
-              'ingest_zernio_review',
-              'business',
-              zc.business_id,
-              jsonb_build_object(
-                'business_id', zc.business_id,
-                'zernio_account_id', ${parsed.accountId}::text,
-                'zernio_location_id', zc.zernio_location_id,
-                'zernio_review_id', ${parsed.reviewId}::text,
-                'correlation_id', ${eventId}::text
-              ),
-              'pending'
-            FROM zernio_connections zc
-            JOIN businesses b ON b.id = zc.business_id AND b.archived_at IS NULL
-            WHERE zc.zernio_account_id = ${parsed.accountId}
-              AND zc.status = 'active'
-            ON CONFLICT (aggregate_id, (payload->>'zernio_review_id'))
-              WHERE topic = 'ingest_zernio_review'
-                AND status IN ('pending', 'dispatching', 'dispatched')
-            DO NOTHING
-          `;
-        }
+        //
+        // One query for both lanes: the only difference between the
+        // location-scoped and account-wide fan-out is the location
+        // predicate, composed as a conditional Postgres.js fragment.
+        const locationFilter = parsed.locationIdFromPayload
+          ? sql`AND zc.zernio_location_id = ${parsed.locationIdFromPayload}`
+          : sql``;
+        const fanoutResult = await sql`
+          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+          SELECT
+            gen_random_uuid(),
+            'ingest_zernio_review',
+            'business',
+            zc.business_id,
+            jsonb_build_object(
+              'business_id', zc.business_id,
+              'zernio_account_id', ${parsed.accountId}::text,
+              'zernio_location_id', zc.zernio_location_id,
+              'zernio_review_id', ${parsed.reviewId}::text,
+              'correlation_id', ${eventId}::text
+            ),
+            'pending'
+          FROM zernio_connections zc
+          JOIN businesses b ON b.id = zc.business_id AND b.archived_at IS NULL
+          WHERE zc.zernio_account_id = ${parsed.accountId}
+            AND zc.status = 'active'
+            ${locationFilter}
+          ON CONFLICT (aggregate_id, (payload->>'zernio_review_id'))
+            WHERE topic = 'ingest_zernio_review'
+              AND status IN ('pending', 'dispatching', 'dispatched')
+          DO NOTHING
+        `;
         const inserted = fanoutResult.count ?? 0;
         if (inserted === 0) {
-          console.warn(
-            `${LOG_PREFIX} ${eventType} fan-out matched 0 active connections for account=${parsed.accountId}` +
-              (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : '') +
-              ` — webhook ignored (no business has connected this account/location)`,
-          );
+          // Archived locations intentionally keep status='active' connections
+          // (for reactivation backfill), so a 0-row fan-out means either
+          // "nobody has connected this account/location" or "the connected
+          // location is archived". Disambiguate so ops doesn't chase a
+          // phantom unconnected warn for an expected archived skip.
+          const [archivedCheck] = await sql<{ archived_match: boolean }[]>`
+            SELECT EXISTS (
+              SELECT 1
+              FROM zernio_connections zc
+              JOIN businesses b ON b.id = zc.business_id
+              WHERE zc.zernio_account_id = ${parsed.accountId}
+                AND zc.status = 'active'
+                ${locationFilter}
+                AND b.archived_at IS NOT NULL
+            ) AS archived_match
+          `;
+          if (archivedCheck?.archived_match) {
+            console.log(
+              `${LOG_PREFIX} ${eventType} fan-out matched only archived location(s) for account=${parsed.accountId}` +
+                (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : '') +
+                ` — skipped`,
+              { reason: 'archived_location_skipped' },
+            );
+          } else {
+            console.warn(
+              `${LOG_PREFIX} ${eventType} fan-out matched 0 active connections for account=${parsed.accountId}` +
+                (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : '') +
+                ` — webhook ignored (no business has connected this account/location)`,
+            );
+          }
         } else {
           console.log(`${LOG_PREFIX} ${eventType} fan-out enqueued ${inserted} outbox row(s)`);
         }

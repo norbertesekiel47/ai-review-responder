@@ -124,12 +124,27 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
     subscription_status: string;
     past_due_at: Date | null;
     account_flags: AccountFlagsInput;
+    archived_at: Date | null;
   }[]>`
-    SELECT a.subscription_status, a.past_due_at, a.flags AS account_flags
+    SELECT a.subscription_status, a.past_due_at, a.flags AS account_flags, b.archived_at
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${business_id}
   `;
+
+  // Archived-location guard (skip-as-success), checked BEFORE the
+  // subscription branch (project convention: archived-before-subscription).
+  // Mirrors the ingest worker: archived locations keep status='active'
+  // connections for reactivation, so a queued backfill for an archived
+  // location must complete without walking listAllReviews. Like the
+  // subscription skip, completed_at on the zernio_backfill_runs row is NOT
+  // set — un-archiving re-enters the same row idempotently.
+  if (acct?.archived_at) {
+    logger.log('archived — skipping backfill', { reason: 'archived_location', business_id });
+    await markOutboxCompleted(outboxId, attempt);
+    return;
+  }
+
   if (!acct || !checkSubscription({
     status: acct.subscription_status,
     pastDueAt: acct.past_due_at,

@@ -1035,26 +1035,26 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/zernio/zernio.ts",
     table: "zernio_connections",
-    sqlSnippet: "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT gen_random_uuid(), 'ingest_zernio_review', 'business', zc.business_id, jsonb_build_object( 'business_id', zc.business_id, 'zernio_account_id', ${parsed.accountId}::text, 'zernio_location_id', zc.zernio_location_id, 'zernio_review_id', ${parsed.reviewId}::text, 'correlation_id', ${eventId}::text ), 'pending' FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id AND b.archived_at IS NULL WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.zernio_location_id = ${parsed.locationIdFromPayload} AND zc.status = 'active' ON CONFLICT (aggregate_id, (payload->>'zernio_review_id')) WHERE topic = 'ingest_zernio_review' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
-    reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available.",
+    sqlSnippet: "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT gen_random_uuid(), 'ingest_zernio_review', 'business', zc.business_id, jsonb_build_object( 'business_id', zc.business_id, 'zernio_account_id', ${parsed.accountId}::text, 'zernio_location_id', zc.zernio_location_id, 'zernio_review_id', ${parsed.reviewId}::text, 'correlation_id', ${eventId}::text ), 'pending' FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id AND b.archived_at IS NULL WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ${locationFilter} ON CONFLICT (aggregate_id, (payload->>'zernio_review_id')) WHERE topic = 'ingest_zernio_review' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
+    reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available. ${locationFilter} is the conditional location-scoping fragment (payload location id when present, empty for account-wide fan-out).",
+  },
+  {
+    file: "worker/ingress/zernio/zernio.ts",
+    table: "businesses",
+    sqlSnippet: "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT gen_random_uuid(), 'ingest_zernio_review', 'business', zc.business_id, jsonb_build_object( 'business_id', zc.business_id, 'zernio_account_id', ${parsed.accountId}::text, 'zernio_location_id', zc.zernio_location_id, 'zernio_review_id', ${parsed.reviewId}::text, 'correlation_id', ${eventId}::text ), 'pending' FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id AND b.archived_at IS NULL WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ${locationFilter} ON CONFLICT (aggregate_id, (payload->>'zernio_review_id')) WHERE topic = 'ingest_zernio_review' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
+    reason: "Provider ingress fan-out excludes archived locations via a businesses join keyed on the connection's business_id; tenant ids are not yet available from the signed webhook.",
   },
   {
     file: "worker/ingress/zernio/zernio.ts",
     table: "zernio_connections",
-    sqlSnippet: "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT gen_random_uuid(), 'ingest_zernio_review', 'business', zc.business_id, jsonb_build_object( 'business_id', zc.business_id, 'zernio_account_id', ${parsed.accountId}::text, 'zernio_location_id', zc.zernio_location_id, 'zernio_review_id', ${parsed.reviewId}::text, 'correlation_id', ${eventId}::text ), 'pending' FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id AND b.archived_at IS NULL WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ON CONFLICT (aggregate_id, (payload->>'zernio_review_id')) WHERE topic = 'ingest_zernio_review' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
-    reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available.",
+    sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ${locationFilter} AND b.archived_at IS NOT NULL ) AS archived_match",
+    reason: "Provider ingress disambiguates a 0-row fan-out (archived location vs genuinely unconnected) from signed provider identifiers before tenant ids are available.",
   },
   {
     file: "worker/ingress/zernio/zernio.ts",
     table: "businesses",
-    sqlSnippet: "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT gen_random_uuid(), 'ingest_zernio_review', 'business', zc.business_id, jsonb_build_object( 'business_id', zc.business_id, 'zernio_account_id', ${parsed.accountId}::text, 'zernio_location_id', zc.zernio_location_id, 'zernio_review_id', ${parsed.reviewId}::text, 'correlation_id', ${eventId}::text ), 'pending' FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id AND b.archived_at IS NULL WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.zernio_location_id = ${parsed.locationIdFromPayload} AND zc.status = 'active' ON CONFLICT (aggregate_id, (payload->>'zernio_review_id')) WHERE topic = 'ingest_zernio_review' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
-    reason: "Provider ingress fan-out excludes archived locations via a businesses join keyed on the connection's business_id; tenant ids are not yet available from the signed webhook.",
-  },
-  {
-    file: "worker/ingress/zernio/zernio.ts",
-    table: "businesses",
-    sqlSnippet: "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT gen_random_uuid(), 'ingest_zernio_review', 'business', zc.business_id, jsonb_build_object( 'business_id', zc.business_id, 'zernio_account_id', ${parsed.accountId}::text, 'zernio_location_id', zc.zernio_location_id, 'zernio_review_id', ${parsed.reviewId}::text, 'correlation_id', ${eventId}::text ), 'pending' FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id AND b.archived_at IS NULL WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ON CONFLICT (aggregate_id, (payload->>'zernio_review_id')) WHERE topic = 'ingest_zernio_review' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
-    reason: "Provider ingress fan-out excludes archived locations via a businesses join keyed on the connection's business_id; tenant ids are not yet available from the signed webhook.",
+    sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ${locationFilter} AND b.archived_at IS NOT NULL ) AS archived_match",
+    reason: "Provider ingress disambiguates a 0-row fan-out (archived location vs genuinely unconnected) from signed provider identifiers before tenant ids are available.",
   },
   {
     file: "worker/jobs/AdminExceptionWorker.ts",

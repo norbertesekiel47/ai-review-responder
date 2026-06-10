@@ -14,6 +14,9 @@ const {
   mockReconcileExternallyAnsweredReview,
   mockOpenPhiReviewException,
   mockHandleZernioIngestError,
+  mockLoggerLog,
+  mockLoggerWarn,
+  mockLoggerError,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
 
@@ -42,6 +45,9 @@ const {
     mockReconcileExternallyAnsweredReview: vi.fn(),
     mockOpenPhiReviewException: vi.fn(),
     mockHandleZernioIngestError: vi.fn(),
+    mockLoggerLog: vi.fn(),
+    mockLoggerWarn: vi.fn(),
+    mockLoggerError: vi.fn(),
   };
 });
 
@@ -71,6 +77,13 @@ vi.mock('../../../../src/lib/shared/subscription-guard', () => ({
     if (input.status === 'active') return { allowed: true };
     return { allowed: false, reason: input.status };
   },
+}));
+vi.mock('../../../../src/lib/shared/logger', () => ({
+  createWorkerLogger: () => ({
+    log: mockLoggerLog,
+    warn: mockLoggerWarn,
+    error: mockLoggerError,
+  }),
 }));
 
 import { handleZernioBackfill } from '../ZernioBackfillWorker';
@@ -119,11 +132,12 @@ function pushStandardSqlSetup(runId = 'run-1') {
   sqlReturnQueue.push(mkTaggedResult([]));
   // 2. SELECT run row (not yet completed)
   sqlReturnQueue.push(mkTaggedResult([{ id: runId, completed_at: null }]));
-  // 3. SELECT business (active)
+  // 3. SELECT business (active, not archived)
   sqlReturnQueue.push(mkTaggedResult([{
     subscription_status: 'active',
     past_due_at: null,
     account_flags: {},
+    archived_at: null,
   }]));
 }
 
@@ -197,6 +211,47 @@ describe('ZernioBackfillWorker', () => {
     const firstSqlText = firstSql?.join('?') ?? '';
     expect(firstSqlText).toContain('run_reason');
     expect(firstSqlText).toContain('ON CONFLICT (correlation_id)');
+  });
+
+  // Archived-location guard (mirrors the ingest worker's skip-as-success):
+  // archived locations keep status='active' connections for reactivation, so
+  // a queued backfill for an archived location must complete WITHOUT walking
+  // listAllReviews — never fail or burn a retry. The row is also marked
+  // cancelled to pin the archived-before-subscription ordering: the exit must
+  // be the queryable archived path, not the silent subscription skip.
+  it('archived location: skip-as-success — listAllReviews never called, structured log, outbox completed', async () => {
+    // 1. INSERT zernio_backfill_runs (no result needed)
+    sqlReturnQueue.push(mkTaggedResult([]));
+    // 2. SELECT run row (not yet completed)
+    sqlReturnQueue.push(mkTaggedResult([{ id: 'run-1', completed_at: null }]));
+    // 3. SELECT business — archived AND cancelled
+    sqlReturnQueue.push(mkTaggedResult([{
+      subscription_status: 'cancelled',
+      past_due_at: null,
+      account_flags: {},
+      archived_at: '2026-06-01T00:00:00Z',
+    }]));
+
+    await handleZernioBackfill(makeJob());
+
+    expect(mockListAllReviews).not.toHaveBeenCalled();
+    expect(mockProcessReview).not.toHaveBeenCalled();
+    expect(mockReconcileExternallyAnsweredReview).not.toHaveBeenCalled();
+    expect(mockLoggerLog).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ reason: 'archived_location', business_id: 'biz-1' }),
+    );
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-backfill-1', undefined);
+
+    // completed_at must NOT be stamped — un-archiving re-enters the same
+    // zernio_backfill_runs row idempotently (same rule as the subscription skip).
+    const completedAtUpdateCall = mockSql.mock.calls.find((call: any[]) => {
+      const template = call[0];
+      return Array.isArray(template) &&
+        template.some((s: string) => s.includes('completed_at = NOW()')) &&
+        template.some((s: string) => s.includes('zernio_backfill_runs'));
+    });
+    expect(completedAtUpdateCall).toBeUndefined();
   });
 
   // Test 2: Historical fixture, non-premium tier → historical=0

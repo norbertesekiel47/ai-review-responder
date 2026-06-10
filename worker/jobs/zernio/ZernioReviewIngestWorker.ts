@@ -4,7 +4,8 @@
 // at the firing Zernio account, fanned out by worker/ingress/zernio/zernio.ts).
 //
 // Flow per spec §4.2:
-//   1. Subscription guard.
+//   1. Archived-location guard (skip-as-success), THEN subscription guard —
+//      archived-before-subscription is the project-wide guard ordering.
 //   2. Verify zernio_connections row still active for (business, account, location).
 //   3. Mock-mode short-circuit (markOutboxCompleted + return).
 //   4. Walk up to 2 listReviews pages (locationId-scoped).
@@ -94,7 +95,8 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
   const { business_id, zernio_account_id, zernio_location_id, zernio_review_id } = job.data;
   const { outboxId, attempt } = extractOutboxHandle(job.data, job.id!);
 
-  // 1. Subscription guard (reads from accounts, not deprecated businesses.subscription_status)
+  // 1. Load business + account state in one row (accounts via businesses join,
+  // not deprecated businesses.subscription_status).
   const [acct] = await sql<{
     subscription_status: string;
     past_due_at: Date | null;
@@ -106,22 +108,31 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${business_id}
   `;
-  if (!acct || !checkSubscription({
+  if (!acct) {
+    await markOutboxCompleted(outboxId, attempt);
+    return;
+  }
+
+  // 1a. Archived-location guard (skip-as-success), checked BEFORE the
+  // subscription guard (project convention: archived-before-subscription) so
+  // an archived+cancelled location exits via this queryable archived path,
+  // not the silent subscription skip. Defense-in-depth for jobs already
+  // queued when the location was archived: the webhook fan-out no longer
+  // enqueues ingest for archived locations, but in-flight jobs must skip
+  // too. Completes the job — never fails, throws, or burns a retry.
+  if (acct.archived_at) {
+    logger.log('archived — skipping ingest', { reason: 'archived_location', business_id });
+    await markOutboxCompleted(outboxId, attempt);
+    return;
+  }
+
+  // 1b. Subscription guard.
+  if (!checkSubscription({
     status: acct.subscription_status,
     pastDueAt: acct.past_due_at,
     accountFlags: acct.account_flags ?? {},
     workerType: 'generator',
   }).allowed) {
-    await markOutboxCompleted(outboxId, attempt);
-    return;
-  }
-
-  // 1b. Archived-location guard (skip-as-success). Defense-in-depth for jobs
-  // already queued when the location was archived: the webhook fan-out no
-  // longer enqueues ingest for archived locations, but in-flight jobs must
-  // skip too. Completes the job — never fails, throws, or burns a retry.
-  if (acct.archived_at) {
-    logger.log(`Business ${business_id} archived — skipping ingest (archived_location)`);
     await markOutboxCompleted(outboxId, attempt);
     return;
   }
