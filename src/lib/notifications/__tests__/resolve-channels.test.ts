@@ -279,16 +279,16 @@ describe('resolveChannels', () => {
     expect(telegram.location_id).toBeNull();
   });
 
-  // VAL-NOTIF-018: SMS/WhatsApp channels included in resolver result when configured
-  it('includes SMS channel when enrollment exists', async () => {
+  // VAL-NOTIF-018: WhatsApp/Telegram channels included in resolver result when configured
+  it('includes WhatsApp channel when enrollment exists', async () => {
     seedSqlQueue([
       makeEnrollmentRow({ channel: 'email', handle: 'owner@example.com', location_id: null }),
-      makeEnrollmentRow({ channel: 'sms', handle: '+15551234567', location_id: null }),
+      makeEnrollmentRow({ channel: 'whatsapp', handle: '+15551234567', location_id: null }),
     ]);
 
     const result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
 
-    expect(result.map(c => c.channel)).toContain('sms');
+    expect(result.map(c => c.channel)).toContain('whatsapp');
   });
 
   it('includes WhatsApp channel at per-location scope when enrollment exists', async () => {

@@ -17,8 +17,8 @@ const MAX_LABEL_LENGTH = 30;
  * Rules:
  * 1. Replace `[` with `(` and `]` with `)` to prevent bracket nesting
  *    ambiguity (e.g. "[Downtown [Main]]" → "[Downtown (Main)]").
- * 2. Truncate to 30 characters with ellipsis if longer (prevents SMS
- *    segment overflow and overly long Telegram/email subjects).
+ * 2. Truncate to 30 characters with ellipsis if longer (prevents overly
+ *    long Telegram/WhatsApp/email subjects).
  * 3. Colons are preserved — they don't break the template structure.
  *
  * @param label - The resolved location label (display_label ?? name).

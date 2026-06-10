@@ -85,7 +85,7 @@ describe('insertFailedDelivery', () => {
   });
 
   it('inserts a notification_deliveries row with account_id, failed_at, failure_reason', async () => {
-    await insertFailedDelivery('acct-1', 'biz-1', 'resp-1', 'sms', '+15551234567', 'send_error:test');
+    await insertFailedDelivery('acct-1', 'biz-1', 'resp-1', 'telegram', '@ownerbot', 'send_error:test');
 
     expect(mockSql).toHaveBeenCalledTimes(1);
     const call = sqlCalls[0]!;
@@ -96,13 +96,13 @@ describe('insertFailedDelivery', () => {
     expect(call.values).toContain('acct-1');
     expect(call.values).toContain('biz-1');
     expect(call.values).toContain('resp-1');
-    expect(call.values).toContain('sms');
-    expect(call.values).toContain('+15551234567');
+    expect(call.values).toContain('telegram');
+    expect(call.values).toContain('@ownerbot');
     expect(call.values).toContain('send_error:test');
   });
 
   it('defaults template to approval_request when not provided', async () => {
-    await insertFailedDelivery('acct-1', 'biz-1', 'resp-1', 'sms', '+15551234567', 'cap_hit');
+    await insertFailedDelivery('acct-1', 'biz-1', 'resp-1', 'telegram', '@ownerbot', 'cap_hit');
     const call = sqlCalls[0]!;
     expect(call.values).toContain('approval_request');
     expect(call.values).toContain('acct-1');
@@ -125,7 +125,7 @@ describe('insertFailedDelivery', () => {
   });
 
   it('includes account_id in the INSERT column list for failed delivery', async () => {
-    await insertFailedDelivery('acct-99', 'biz-1', 'resp-1', 'sms', '+15551234567', 'cap_hit');
+    await insertFailedDelivery('acct-99', 'biz-1', 'resp-1', 'telegram', '@ownerbot', 'cap_hit');
     const call = sqlCalls[0]!;
     expect(call.template).toMatch(/account_id/);
     expect(call.values).toContain('acct-99');

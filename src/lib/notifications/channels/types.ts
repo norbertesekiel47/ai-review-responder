@@ -7,7 +7,7 @@
 //
 // See docs/adding-communication-channels.md §1 for rationale.
 
-export type ChannelId = 'email' | 'sms' | 'telegram' | 'whatsapp';
+export type ChannelId = 'email' | 'telegram' | 'whatsapp';
 
 export interface SendApprovalParams {
   /** Per-enrollment recipient: email address, E.164 phone, or telegram chat_id. */
