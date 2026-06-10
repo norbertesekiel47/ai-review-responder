@@ -175,9 +175,10 @@ function setResponseLookup(
   // In-tx TOCTOU re-assertion: assertWritableSubscriptionForBusiness re-reads the
   // account/offboarding projection by business id. Active + no active offboarding
   // = writable, so the action proceeds to recover the correlation id and run.
-  // NOTE: regenerate tests must additionally push the in-tx archived-gate row
-  // ([{ archived_at: null }] for the happy path) BEFORE the correlation row —
-  // assertLocationNotArchived runs only for actionName === 'regenerate'.
+  // NOTE: every happy-path test that reaches the action must additionally push
+  // the in-tx archived-gate row ([{ archived_at: null }]) BEFORE the correlation
+  // row — assertLocationNotArchived (FOR SHARE) now runs for ALL mutating
+  // actions (approve/edit/regenerate), not just regenerate.
   mockSqlResults.push([{ id: ACCOUNT_ID, subscription_status: 'active', past_due_at: null, flags: {} }]);
 }
 
@@ -242,6 +243,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
   it('returns 200 when owner approves their own review response', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
+    mockSqlResults.push([{ archived_at: null }]); // in-tx archived gate → not archived
     mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
     mockApproveBySession.mockResolvedValue(undefined);
 
@@ -259,9 +261,9 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
     // Signature: approveBySession(tx, responseId, businessId, audit, correlationId)
     const callArgs = mockApproveBySession.mock.calls[0];
     expect(callArgs?.[4]).toBe('upstream-corr-abc');
-    // The in-tx archived gate (FOR SHARE read on businesses) is scoped to
-    // regenerate only until PR B — approve must NOT issue it.
-    expect(sqlQueryTexts.some((text) => text.includes('FOR SHARE'))).toBe(false);
+    // PR B extends the in-tx archived gate (FOR SHARE read on businesses) to
+    // every mutating action — approve now re-asserts it under the lock.
+    expect(sqlQueryTexts.some((text) => text.includes('FOR SHARE'))).toBe(true);
   });
 
   it('returns 402 when the account is past-due read-only', async () => {
@@ -438,6 +440,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
   it('returns 200 with valid edited text', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
+    mockSqlResults.push([{ archived_at: null }]); // in-tx archived gate → not archived
     mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
     mockEditBySession.mockResolvedValue(undefined);
 
@@ -454,14 +457,15 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
     // Signature: editBySession(tx, responseId, businessId, editedText, audit, correlationId)
     const callArgs = mockEditBySession.mock.calls[0];
     expect(callArgs?.[5]).toBe('upstream-corr-abc');
-    // The in-tx archived gate (FOR SHARE read on businesses) is scoped to
-    // regenerate only until PR B — edit must NOT issue it.
-    expect(sqlQueryTexts.some((text) => text.includes('FOR SHARE'))).toBe(false);
+    // PR B extends the in-tx archived gate (FOR SHARE read on businesses) to
+    // every mutating action — edit now re-asserts it under the lock.
+    expect(sqlQueryTexts.some((text) => text.includes('FOR SHARE'))).toBe(true);
   });
 
   it('passes sanitized edited text to the session edit service', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
+    mockSqlResults.push([{ archived_at: null }]); // in-tx archived gate \u2192 not archived
     mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
     mockEditBySession.mockResolvedValue(undefined);
 
@@ -481,6 +485,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
   it('does not count leading or trailing whitespace against the 2000 character limit', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
+    mockSqlResults.push([{ archived_at: null }]); // in-tx archived gate → not archived
     mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
     mockEditBySession.mockResolvedValue(undefined);
     const content = 'x'.repeat(2000);

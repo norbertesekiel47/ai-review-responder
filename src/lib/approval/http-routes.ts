@@ -202,12 +202,10 @@ export async function runDashboardReviewAction(
 
       // Same TOCTOU reasoning for the archived gate: the pre-tx
       // `b.archived_at IS NULL` filter above can go stale if the location is
-      // archived between it and this commit. Regenerate-only (matches the
-      // token/callback lanes) until PR B extends to approve/edit.
-      // ArchivedLocationError extends ResponseNotPendingError → 409 below.
-      if (actionName === 'regenerate') {
-        await assertLocationNotArchived(tx, response.business_id as string);
-      }
+      // archived between it and this commit. Re-assert under the FOR SHARE lock
+      // for every mutating action (approve/edit/regenerate), matching the token
+      // and callback lanes. ArchivedLocationError extends ResponseNotPendingError → 409 below.
+      await assertLocationNotArchived(tx, response.business_id as string);
 
       const correlationId = await recoverCorrelationId(tx, {
         reviewId,

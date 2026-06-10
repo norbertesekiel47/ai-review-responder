@@ -111,12 +111,17 @@ export async function revokeOpenLinksForResponse(tx: TxClient, responseId: strin
  * Reject mutating approval actions that target an archived location.
  *
  * Guards ALL mutating approval actions — approve, edit, and regenerate —
- * across the token-mode and callback-mode lanes (the dashboard session lane
- * enforces the same rule via its `b.archived_at IS NULL` query filter). An
- * archived location has no live Google connection to post to and the
- * generator skips its regenerate jobs, so any approve/edit/regenerate would
- * either fail downstream or, for regenerate, destructively supersede the
- * pending draft and leave the owner with nothing.
+ * and is called in-tx by every approval lane: token-mode (token-mode.ts),
+ * callback-mode (callback-mode.ts), the dashboard session lane
+ * (http-routes.ts), and the admin flagged-disposition lane
+ * (api/admin/flagged). The dashboard lane ALSO carries a pre-tx
+ * `b.archived_at IS NULL` query filter; this in-tx FOR SHARE re-check closes
+ * the TOCTOU window left open by that stale-able filter, the same way the
+ * other lanes have no pre-filter to rely on. An archived location has no live
+ * Google connection to post to and the generator skips its regenerate jobs,
+ * so any approve/edit/regenerate would either fail downstream or, for
+ * regenerate, destructively supersede the pending draft and leave the owner
+ * with nothing.
  *
  * FOR SHARE makes this a locking read: the archive tx takes the same
  * businesses row FOR UPDATE, so an in-flight archive blocks this gate and

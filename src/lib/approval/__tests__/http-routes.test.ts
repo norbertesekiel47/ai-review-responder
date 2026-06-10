@@ -412,6 +412,7 @@ describe('runDashboardReviewAction', () => {
     sqlResults.push([]); // SELECT id ... FOR UPDATE
     sqlResults.push([]); // hasOpenFlag → no open flag
     sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
+    sqlResults.push([{ archived_at: null }]); // assertLocationNotArchived → live location
     const action = vi.fn();
 
     const res = await runDashboardReviewAction(
@@ -437,6 +438,50 @@ describe('runDashboardReviewAction', () => {
       audit: { actorUserId: 'owner-1', ipAddress: '203.0.113.10' },
       correlationId: 'corr-1',
     }));
+  });
+
+  it('re-asserts the archived gate inside the tx and rejects approve with 409 when the location archives after the pre-tx check', async () => {
+    sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // outer pre-tx account gate
+    sqlResults.push([]); // SELECT ... FOR UPDATE
+    sqlResults.push([]); // hasOpenFlag → no open flag
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
+    sqlResults.push([{ archived_at: new Date('2026-06-01T00:00:00.000Z') }]); // assertLocationNotArchived → archived
+    const action = vi.fn();
+
+    const res = await runDashboardReviewAction(
+      request(),
+      'rev-1',
+      { id: 'owner-1', accountId: 'acct-1' },
+      'approve',
+      'Response approved.',
+      action,
+    );
+
+    expect(res.status).toBe(409);
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it('re-asserts the archived gate inside the tx and rejects edit with 409 when the location archives after the pre-tx check', async () => {
+    sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // outer pre-tx account gate
+    sqlResults.push([]); // SELECT ... FOR UPDATE
+    sqlResults.push([]); // hasOpenFlag → no open flag
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
+    sqlResults.push([{ archived_at: new Date('2026-06-01T00:00:00.000Z') }]); // assertLocationNotArchived → archived
+    const action = vi.fn();
+
+    const res = await runDashboardReviewAction(
+      request(),
+      'rev-1',
+      { id: 'owner-1', accountId: 'acct-1' },
+      'edit',
+      'Response updated.',
+      action,
+    );
+
+    expect(res.status).toBe(409);
+    expect(action).not.toHaveBeenCalled();
   });
 
   it('re-asserts the writable/offboarding gate inside the tx and blocks an offboarding confirmed after the pre-tx check', async () => {
@@ -507,6 +552,7 @@ describe('runDashboardReviewAction', () => {
     sqlResults.push([]); // SELECT id ... FOR UPDATE
     sqlResults.push([]); // hasOpenFlag → no open flag
     sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
+    sqlResults.push([{ archived_at: null }]); // assertLocationNotArchived → live location
     const staleRes = await runDashboardReviewAction(
       request(),
       'rev-1',
@@ -524,6 +570,7 @@ describe('runDashboardReviewAction', () => {
     sqlResults.push([]); // SELECT id ... FOR UPDATE
     sqlResults.push([]); // hasOpenFlag → no open flag
     sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
+    sqlResults.push([{ archived_at: null }]); // assertLocationNotArchived → live location
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const unexpectedRes = await runDashboardReviewAction(
       request(),

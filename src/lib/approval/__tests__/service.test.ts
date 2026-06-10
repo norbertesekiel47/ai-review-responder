@@ -547,9 +547,10 @@ describe('regenerate', () => {
     expect(parsed!.correlation_id).toBe('test-correlation-xyz');
   });
 
-  // FIX 1 (archived-location gate, regenerate only — PR B extends to all
-  // approval actions): an archived location must reject BEFORE the pending
-  // response is superseded, the link consumed, or anything enqueued.
+  // Archived-location gate: an archived location must reject BEFORE the
+  // pending response is superseded, the link consumed, or anything enqueued.
+  // The gate covers all mutating approval actions across all lanes — the
+  // dashboard lane now re-asserts it in-tx for approve/edit/regenerate too.
   it('rejects with ArchivedLocationError when the business is archived, without consuming or mutating anything', async () => {
     const link = validLink({ device_cookie_hash: 'device-hash-abc' });
 
