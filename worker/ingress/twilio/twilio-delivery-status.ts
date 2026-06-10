@@ -13,7 +13,7 @@ import {
 } from '../shared';
 import { parseTwilioBody, verifyTwilioSignature } from './twilio-verify';
 
-type DeliveryChannel = 'sms' | 'whatsapp';
+type DeliveryChannel = 'whatsapp';
 
 interface DeliveryStatusOptions {
   channel: DeliveryChannel;
