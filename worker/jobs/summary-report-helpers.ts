@@ -20,6 +20,7 @@ export interface SummaryReportBusiness {
   initial_responded_count: number | null;
   baseline_captured_at: Date | null;
   subscription_tier: string;
+  archived_at: Date | null;
 }
 
 export interface BaselineFields {
@@ -47,7 +48,7 @@ export async function loadSummaryReportBusiness(
            a.id AS account_id, a.subscription_status, a.updated_at AS account_updated_at,
            a.past_due_at AS account_past_due_at, a.flags AS account_flags,
            b.initial_review_count, b.initial_responded_count, b.baseline_captured_at,
-           a.subscription_tier
+           a.subscription_tier, b.archived_at
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${businessId}
@@ -66,6 +67,12 @@ export async function completeOrFailSkippedSummaryReport(input: {
   if (!business) {
     logger.warn(`Business ${businessId} not found`);
     await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
+    return true;
+  }
+
+  if (business.archived_at) {
+    logger.log(`Business ${businessId} archived — skipping summary report`);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return true;
   }
 
