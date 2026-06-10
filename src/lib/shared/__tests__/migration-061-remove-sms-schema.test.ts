@@ -4,10 +4,14 @@
  * SMS channel removal: validates the migration archives stale sms
  * enrollments, replaces the sms+whatsapp handle index with a whatsapp-only
  * one, rebuilds one_mobile_per_scope without 'sms', and drops both
- * sms_sender_opt_out tables (events first — it holds the FK).
+ * sms_sender_opt_out tables (events first — no FK links the two tables;
+ * conventional child-before-parent order. Events' only FK points at
+ * inbound_events).
  *
  * NOT a database integration test — catches accidental edits to the
  * archive predicate, index predicates, or drop order.
+ *
+ * Run: pnpm test -- migration-061
  */
 
 import { readFileSync } from 'node:fs';
@@ -20,6 +24,7 @@ const MIGRATION_PATH = resolve(
 );
 
 let sql: string;
+/** SQL with comment lines stripped (avoids false positive matches on commented-out code). */
 let sqlNoComments: string;
 
 beforeAll(() => {
