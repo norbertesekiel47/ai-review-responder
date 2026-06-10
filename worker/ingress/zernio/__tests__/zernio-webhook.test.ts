@@ -180,3 +180,68 @@ describe('Zernio account.disconnected webhook', () => {
     ).toBe(false);
   });
 });
+
+describe('Zernio review fan-out excludes archived locations', () => {
+  // Regression pin (Task A1 / spend-leak): archived businesses keep their
+  // Zernio connection active for reactivation backfill, so the fan-out MUST
+  // join `businesses` and filter `archived_at IS NULL` or it pays for LLM
+  // drafts on archived locations. Both fan-out queries (location-scoped and
+  // account-wide fallback) carry the literal 'ingest_zernio_review', which is
+  // how we isolate them. ZernioRecentReviewPoller already filters this way; the
+  // webhook lane must match.
+  function fanoutQueries(): string[] {
+    return sqlCalls
+      .map((call) => call.text)
+      .filter((text) => text.includes("'ingest_zernio_review'"));
+  }
+
+  it('location-scoped fan-out joins businesses and excludes archived locations', async () => {
+    const { status, send } = mkReply();
+    await handleZernioWebhook(
+      mkRequest(
+        {
+          event: 'review.new',
+          id: 'evt_zernio_review_located',
+          account: { id: 'zernio-account-loc' },
+          review: { id: 'accounts/g-acc/locations/loc-123/reviews/rev-1' },
+        },
+        'evt_zernio_review_located',
+      ),
+      { status, send } as any,
+    );
+
+    expect(status).toHaveBeenCalledWith(200);
+
+    const fanout = fanoutQueries();
+    expect(fanout.length).toBeGreaterThan(0);
+    for (const query of fanout) {
+      expect(query).toContain('JOIN businesses b ON b.id = zc.business_id');
+      expect(query).toContain('b.archived_at IS NULL');
+    }
+  });
+
+  it('account-wide fallback fan-out joins businesses and excludes archived locations', async () => {
+    const { status, send } = mkReply();
+    await handleZernioWebhook(
+      mkRequest(
+        {
+          event: 'review.new',
+          id: 'evt_zernio_review_accountwide',
+          account: { id: 'zernio-account-wide' },
+          review: { id: 'rev-bare-1' },
+        },
+        'evt_zernio_review_accountwide',
+      ),
+      { status, send } as any,
+    );
+
+    expect(status).toHaveBeenCalledWith(200);
+
+    const fanout = fanoutQueries();
+    expect(fanout.length).toBeGreaterThan(0);
+    for (const query of fanout) {
+      expect(query).toContain('JOIN businesses b ON b.id = zc.business_id');
+      expect(query).toContain('b.archived_at IS NULL');
+    }
+  });
+});

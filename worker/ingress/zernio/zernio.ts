@@ -288,6 +288,7 @@ export async function handleZernioWebhook(
               ),
               'pending'
             FROM zernio_connections zc
+            JOIN businesses b ON b.id = zc.business_id AND b.archived_at IS NULL
             WHERE zc.zernio_account_id = ${parsed.accountId}
               AND zc.zernio_location_id = ${parsed.locationIdFromPayload}
               AND zc.status = 'active'
@@ -313,6 +314,7 @@ export async function handleZernioWebhook(
               ),
               'pending'
             FROM zernio_connections zc
+            JOIN businesses b ON b.id = zc.business_id AND b.archived_at IS NULL
             WHERE zc.zernio_account_id = ${parsed.accountId}
               AND zc.status = 'active'
             ON CONFLICT (aggregate_id, (payload->>'zernio_review_id'))
