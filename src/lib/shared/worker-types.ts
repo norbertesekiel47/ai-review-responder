@@ -15,6 +15,11 @@ export interface BasePayload {
   outbox_attempt?: number;
 }
 
+// Queryable skip-reason token emitted by every archived-location gate
+// (fan-out ingress, ingest/backfill workers, generator, summary helper,
+// approval lanes). One owner so ops queries filter on a single value.
+export const SKIP_REASON_ARCHIVED_LOCATION = 'archived_location' as const;
+
 export const GENERATE_RESPONSE_ORIGIN_LANE = {
   LIVE_INGEST_NEW: 'live_ingest_new',
   LIVE_INGEST_UPDATE: 'live_ingest_update',

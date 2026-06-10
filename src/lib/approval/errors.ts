@@ -1,3 +1,5 @@
+import { SKIP_REASON_ARCHIVED_LOCATION } from '@/lib/shared/worker-types';
+
 export class InvalidTokenError extends Error {
   constructor() {
     super('Invalid or unknown approval token');
@@ -51,7 +53,7 @@ export class ResponseNotPendingError extends Error {
  */
 export class ArchivedLocationError extends ResponseNotPendingError {
   constructor() {
-    super('archived_location');
+    super(SKIP_REASON_ARCHIVED_LOCATION);
     this.name = 'ArchivedLocationError';
     this.message = 'This location has been archived — this draft can no longer be regenerated.';
   }

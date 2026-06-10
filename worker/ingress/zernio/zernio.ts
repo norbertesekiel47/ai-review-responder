@@ -10,8 +10,8 @@
 //   5. Switch on body.event:
 //        account.disconnected → multi-business UPDATE+INSERT in single tx (§5.4)
 //        account.connected    → log only (defensive drift detector)
-//        review.new           → INCRBY zernio_event_seen counter (Phase 3 readiness)
-//        review.updated       → INCRBY zernio_event_seen counter (Phase 3 readiness)
+//        review.new           → processReviewEvent fan-out (§4.3)
+//        review.updated       → processReviewEvent fan-out (§4.3)
 //        webhook.test         → log + 200
 //        default              → log unhandled, 200
 //   6. Mark inbound_events processed
@@ -25,6 +25,7 @@ import {
   parseZernioReviewWebhook,
   ZernioReviewWebhookParseError,
 } from '../../../src/lib/zernio/parse-review-webhook';
+import { SKIP_REASON_ARCHIVED_LOCATION } from '../../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[ingress/zernio]';
 
@@ -141,6 +142,127 @@ async function processAccountDisconnected(body: ZernioWebhookBody): Promise<void
   console.log(`${LOG_PREFIX} account.disconnected processed for account=${accountId}`);
 }
 
+/**
+ * Handle review.new / review.updated per spec §4.3: parse the payload, then
+ * emit one ingest_zernio_review outbox row per active connection at the
+ * firing Zernio account. When the payload carries a parseable location,
+ * narrow the fan-out to that exact location to avoid sibling businesses at
+ * the same account walking listReviews + escalating to review_exceptions on
+ * every webhook. Account-wide fallback only when payload has no location
+ * segment. A 0-row fan-out is disambiguated (best-effort) by the archived
+ * probe so ops doesn't chase a phantom unconnected warn for an expected
+ * archived skip.
+ */
+async function processReviewEvent(
+  eventType: string,
+  eventId: string,
+  body: ZernioWebhookBody,
+): Promise<void> {
+  let parsed;
+  try {
+    parsed = parseZernioReviewWebhook(body);
+  } catch (err) {
+    if (err instanceof ZernioReviewWebhookParseError) {
+      console.warn(`${LOG_PREFIX} ${eventType} unparseable: ${err.message}`);
+      return;  // 200 OK — Zernio shouldn't retry malformed payloads
+    }
+    throw err;
+  }
+
+  console.log(
+    `${LOG_PREFIX} ${eventType} received eventId=${eventId} account=${parsed.accountId} review=${parsed.reviewId}` +
+      (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : ' (account-wide fan-out)'),
+  );
+
+  // ON CONFLICT DO NOTHING dedups against any non-terminal outbox
+  // row already in flight for the same (business, zernio_review_id).
+  // Migration 030's partial unique index is the conflict target.
+  // Without this, Zernio's webhook retry on worker crash would
+  // produce duplicate outbox rows that all do the same listReviews
+  // walk → wasted Zernio API quota.
+  //
+  // One query for both lanes: the only difference between the
+  // location-scoped and account-wide fan-out is the location
+  // predicate, composed as a conditional Postgres.js fragment.
+  const locationFilter = parsed.locationIdFromPayload
+    ? sql`AND zc.zernio_location_id = ${parsed.locationIdFromPayload}`
+    : sql``;
+  const fanoutResult = await sql`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    SELECT
+      gen_random_uuid(),
+      'ingest_zernio_review',
+      'business',
+      zc.business_id,
+      jsonb_build_object(
+        'business_id', zc.business_id,
+        'zernio_account_id', ${parsed.accountId}::text,
+        'zernio_location_id', zc.zernio_location_id,
+        'zernio_review_id', ${parsed.reviewId}::text,
+        'correlation_id', ${eventId}::text
+      ),
+      'pending'
+    FROM zernio_connections zc
+    JOIN businesses b ON b.id = zc.business_id AND b.archived_at IS NULL
+    WHERE zc.zernio_account_id = ${parsed.accountId}
+      AND zc.status = 'active'
+      ${locationFilter}
+    ON CONFLICT (aggregate_id, (payload->>'zernio_review_id'))
+      WHERE topic = 'ingest_zernio_review'
+        AND status IN ('pending', 'dispatching', 'dispatched')
+    DO NOTHING
+  `;
+  const inserted = fanoutResult.count ?? 0;
+  if (inserted > 0) {
+    console.log(`${LOG_PREFIX} ${eventType} fan-out enqueued ${inserted} outbox row(s)`);
+    return;
+  }
+
+  // Pure observability AFTER the primary side effect (the fan-out INSERT
+  // committed above), so it gets its own try/catch (log-and-swallow): a
+  // transient DB blip during the probe must not flip an already-succeeded
+  // event to failed → 500 → Zernio retry.
+  try {
+    // Archived locations intentionally keep status='active' connections
+    // (for reactivation backfill), so a 0-row fan-out means "nobody has
+    // connected this account/location", "the connected location is
+    // archived", or an ON CONFLICT dedup against an in-flight outbox row
+    // (possibly alongside an archived sibling). The EXISTS probe only
+    // proves an archived connection is PRESENT — it cannot rule out the
+    // dedup case — so the log claims exactly that, no more.
+    const [archivedCheck] = await sql<{ archived_match: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM zernio_connections zc
+        JOIN businesses b ON b.id = zc.business_id
+        WHERE zc.zernio_account_id = ${parsed.accountId}
+          AND zc.status = 'active'
+          ${locationFilter}
+          AND b.archived_at IS NOT NULL
+      ) AS archived_match
+    `;
+    if (archivedCheck?.archived_match) {
+      console.log(
+        `${LOG_PREFIX} ${eventType} fan-out inserted 0 rows; archived connection(s) present for account=${parsed.accountId}` +
+          (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : '') +
+          ` — skipped`,
+        { reason: SKIP_REASON_ARCHIVED_LOCATION },
+      );
+    } else {
+      console.warn(
+        `${LOG_PREFIX} ${eventType} fan-out matched 0 active connections for account=${parsed.accountId}` +
+          (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : '') +
+          ` — webhook ignored (no business has connected this account/location)`,
+      );
+    }
+  } catch (probeErr) {
+    console.warn(
+      `${LOG_PREFIX} ${eventType} fan-out inserted 0 rows for account=${parsed.accountId}; ` +
+        `archived-vs-unconnected probe failed (event already processed): ${probeErr instanceof Error ? probeErr.message : probeErr}`,
+    );
+  }
+}
+
 export async function handleZernioWebhook(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -241,104 +363,9 @@ export async function handleZernioWebhook(
         break;
 
       case 'review.new':
-      case 'review.updated': {
-        // Fan-out per spec §4.3: emit one ingest_zernio_review outbox row per
-        // active connection at the firing Zernio account. When the payload
-        // carries a parseable location, narrow the fan-out to that exact
-        // location to avoid sibling businesses at the same account walking
-        // listReviews + escalating to review_exceptions on every webhook.
-        // Account-wide fallback only when payload has no location segment.
-        let parsed;
-        try {
-          parsed = parseZernioReviewWebhook(body);
-        } catch (err) {
-          if (err instanceof ZernioReviewWebhookParseError) {
-            console.warn(`${LOG_PREFIX} ${eventType} unparseable: ${err.message}`);
-            break;  // 200 OK — Zernio shouldn't retry malformed payloads
-          }
-          throw err;
-        }
-
-        console.log(
-          `${LOG_PREFIX} ${eventType} received eventId=${eventId} account=${parsed.accountId} review=${parsed.reviewId}` +
-            (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : ' (account-wide fan-out)'),
-        );
-
-        // ON CONFLICT DO NOTHING dedups against any non-terminal outbox
-        // row already in flight for the same (business, zernio_review_id).
-        // Migration 030's partial unique index is the conflict target.
-        // Without this, Zernio's webhook retry on worker crash would
-        // produce duplicate outbox rows that all do the same listReviews
-        // walk → wasted Zernio API quota.
-        //
-        // One query for both lanes: the only difference between the
-        // location-scoped and account-wide fan-out is the location
-        // predicate, composed as a conditional Postgres.js fragment.
-        const locationFilter = parsed.locationIdFromPayload
-          ? sql`AND zc.zernio_location_id = ${parsed.locationIdFromPayload}`
-          : sql``;
-        const fanoutResult = await sql`
-          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          SELECT
-            gen_random_uuid(),
-            'ingest_zernio_review',
-            'business',
-            zc.business_id,
-            jsonb_build_object(
-              'business_id', zc.business_id,
-              'zernio_account_id', ${parsed.accountId}::text,
-              'zernio_location_id', zc.zernio_location_id,
-              'zernio_review_id', ${parsed.reviewId}::text,
-              'correlation_id', ${eventId}::text
-            ),
-            'pending'
-          FROM zernio_connections zc
-          JOIN businesses b ON b.id = zc.business_id AND b.archived_at IS NULL
-          WHERE zc.zernio_account_id = ${parsed.accountId}
-            AND zc.status = 'active'
-            ${locationFilter}
-          ON CONFLICT (aggregate_id, (payload->>'zernio_review_id'))
-            WHERE topic = 'ingest_zernio_review'
-              AND status IN ('pending', 'dispatching', 'dispatched')
-          DO NOTHING
-        `;
-        const inserted = fanoutResult.count ?? 0;
-        if (inserted === 0) {
-          // Archived locations intentionally keep status='active' connections
-          // (for reactivation backfill), so a 0-row fan-out means either
-          // "nobody has connected this account/location" or "the connected
-          // location is archived". Disambiguate so ops doesn't chase a
-          // phantom unconnected warn for an expected archived skip.
-          const [archivedCheck] = await sql<{ archived_match: boolean }[]>`
-            SELECT EXISTS (
-              SELECT 1
-              FROM zernio_connections zc
-              JOIN businesses b ON b.id = zc.business_id
-              WHERE zc.zernio_account_id = ${parsed.accountId}
-                AND zc.status = 'active'
-                ${locationFilter}
-                AND b.archived_at IS NOT NULL
-            ) AS archived_match
-          `;
-          if (archivedCheck?.archived_match) {
-            console.log(
-              `${LOG_PREFIX} ${eventType} fan-out matched only archived location(s) for account=${parsed.accountId}` +
-                (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : '') +
-                ` — skipped`,
-              { reason: 'archived_location_skipped' },
-            );
-          } else {
-            console.warn(
-              `${LOG_PREFIX} ${eventType} fan-out matched 0 active connections for account=${parsed.accountId}` +
-                (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : '') +
-                ` — webhook ignored (no business has connected this account/location)`,
-            );
-          }
-        } else {
-          console.log(`${LOG_PREFIX} ${eventType} fan-out enqueued ${inserted} outbox row(s)`);
-        }
+      case 'review.updated':
+        await processReviewEvent(eventType, eventId, body);
         break;
-      }
 
       case 'webhook.test':
         console.log(`${LOG_PREFIX} webhook.test received (event=${eventId})`);

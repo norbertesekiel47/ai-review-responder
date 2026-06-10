@@ -19,10 +19,6 @@
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../../src/lib/db/server';
-import {
-  checkSubscription,
-  type AccountFlagsInput,
-} from '../../../src/lib/shared/subscription-guard';
 import { extractOutboxHandle, markOutboxCompleted } from '../../../src/lib/shared/outbox';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
@@ -39,6 +35,7 @@ import {
   openPhiReviewException,
   reconcileExternallyAnsweredReview,
 } from './zernio-ingest-shared';
+import { guardZernioJobEligibility } from './job-eligibility';
 import type { ZernioInitialBackfillPayload } from '../../../src/lib/shared/worker-types';
 import type { MonitoredReview } from '../../../src/lib/reviews/types';
 import type { ZernioReview } from '../../../src/lib/zernio/types';
@@ -114,47 +111,22 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
     return;
   }
 
-  // Subscription guard. Do NOT set completed_at on skip — billing may be
-  // restored later (past_due → active, pending_payment → active) and the
-  // owner deserves a backfill at that point. The outbox row is completed
-  // so this attempt isn't retried automatically; a future reconnect (or
-  // ops-triggered re-enqueue) will retry the backfill via the same
-  // zernio_backfill_runs row (completed_at IS NULL → idempotent re-entry).
-  const [acct] = await sql<{
-    subscription_status: string;
-    past_due_at: Date | null;
-    account_flags: AccountFlagsInput;
-    archived_at: Date | null;
-  }[]>`
-    SELECT a.subscription_status, a.past_due_at, a.flags AS account_flags, b.archived_at
-    FROM businesses b
-    JOIN accounts a ON a.id = b.account_id
-    WHERE b.id = ${business_id}
-  `;
-
-  // Archived-location guard (skip-as-success), checked BEFORE the
-  // subscription branch (project convention: archived-before-subscription).
-  // Mirrors the ingest worker: archived locations keep status='active'
-  // connections for reactivation, so a queued backfill for an archived
-  // location must complete without walking listAllReviews. Like the
-  // subscription skip, completed_at on the zernio_backfill_runs row is NOT
-  // set — un-archiving re-enters the same row idempotently.
-  if (acct?.archived_at) {
-    logger.log('archived — skipping backfill', { reason: 'archived_location', business_id });
-    await markOutboxCompleted(outboxId, attempt);
-    return;
-  }
-
-  if (!acct || !checkSubscription({
-    status: acct.subscription_status,
-    pastDueAt: acct.past_due_at,
-    accountFlags: acct.account_flags ?? {},
-    workerType: 'generator',
-  }).allowed) {
-    logger.log(
-      `Backfill skipped for business=${business_id}: subscription_status=${acct?.subscription_status ?? 'missing'}`,
-    );
-    await markOutboxCompleted(outboxId, attempt);
+  // Shared pre-flight gates (row-missing, archived-location, subscription) —
+  // guard ordering + skip semantics live in job-eligibility.ts. On skip the
+  // OUTBOX row completes, but completed_at on the zernio_backfill_runs row is
+  // NOT set — billing may be restored later (past_due → active,
+  // pending_payment → active) or the location un-archived, and the owner
+  // deserves a backfill at that point. A future reconnect (or ops-triggered
+  // re-enqueue) retries via the same zernio_backfill_runs row
+  // (completed_at IS NULL → idempotent re-entry).
+  const eligibility = await guardZernioJobEligibility({
+    businessId: business_id,
+    outboxId,
+    attempt,
+    logger,
+    jobKind: 'backfill',
+  });
+  if (eligibility.kind === 'skipped') {
     return;
   }
 

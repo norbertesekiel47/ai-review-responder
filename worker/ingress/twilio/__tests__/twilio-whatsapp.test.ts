@@ -103,6 +103,7 @@ import {
   ExpiredLinkError,
   ChannelMismatchError,
   ResponseNotPendingError,
+  ArchivedLocationError,
 } from '../../../../src/lib/approval/errors';
 import { SubscriptionReadOnlyError } from '../../../../src/lib/shared/writable-subscription';
 
@@ -332,6 +333,38 @@ describe('handleTwilioWhatsAppInbound — button tap path', () => {
 
     expect(mockSendFreeform).toHaveBeenCalledWith(expect.objectContaining({
       body: expect.stringMatching(/handled on another channel|no longer valid/i),
+    }));
+    // Plain ResponseNotPendingError keeps the "handled" copy — the
+    // archived-specific copy is reserved for ArchivedLocationError.
+    expect(mockSendFreeform).not.toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.stringMatching(/archived/i),
+    }));
+    expect(reply.status).toHaveBeenCalledWith(200);
+  });
+
+  it('classifies ArchivedLocationError as permanent with archived-specific copy, NOT the handled copy', async () => {
+    sqlQueue.push([{ id: '019db8c1-c3f4-7668-b353-2b8b718ec603', business_id: 'biz-1' }]);
+    sqlQueue.push([{ handle: '+15551234567' }]);
+    mockRegenerateViaCallback.mockRejectedValueOnce(new ArchivedLocationError());
+    sqlQueue.push([]); // markProcessed
+
+    const req = buildRequest({
+      MessageSid: 'SM_arch', From: 'whatsapp:+15551234567', ButtonPayload: 'r:019db8c1-c3f4-7668-b353-2b8b718ec603',
+    });
+    const reply = buildReply();
+    await handleTwilioWhatsAppInbound(req, reply);
+
+    expect(mockSendFreeform).toHaveBeenCalledTimes(1);
+    expect(mockSendFreeform).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.stringMatching(/archived/i),
+    }));
+    expect(mockSendFreeform).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.stringMatching(/can no longer be regenerated/i),
+    }));
+    // ArchivedLocationError extends ResponseNotPendingError — it must NOT
+    // fall through to the parent's "handled on another channel" copy.
+    expect(mockSendFreeform).not.toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.stringMatching(/handled on another channel/i),
     }));
     expect(reply.status).toHaveBeenCalledWith(200);
   });

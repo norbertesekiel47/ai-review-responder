@@ -225,9 +225,9 @@ describe('regenerateViaCallback', () => {
   it('marks response superseded and enqueues generate_response outbox', async () => {
     txQueue.push(liveLinkRow());
     txQueue.push(activeAccountRow());
-    txQueue.push(notArchivedBusinessRow()); // assertLocationNotArchived
     txQueue.push(pendingResponseRow());
     txQueue.push([]); // consumeLink
+    txQueue.push(notArchivedBusinessRow()); // assertLocationNotArchived (after claim)
     txQueue.push([]); // revokeSiblings
     txQueue.push([]); // UPDATE responses superseded
     txQueue.push([]); // INSERT outbox
@@ -304,14 +304,19 @@ describe('regenerateViaCallback', () => {
     expectNoCallbackMutation();
   });
 
-  // FIX 1 (archived-location gate, regenerate only — PR B extends to all
-  // approval actions): regenerate on an archived location must reject
-  // BEFORE the pending draft is superseded, the link consumed, or a
-  // generate_response job enqueued.
-  it('rejects regenerate for an archived location without consuming the link or superseding the draft', async () => {
+  // Archived-location gate (regenerate only — PR B extends to all approval
+  // actions): the guard runs AFTER the claim, inside the same sql.begin, so
+  // the throw rolls the whole transaction back — the consume is never
+  // committed, the draft is never superseded, nothing is enqueued. The
+  // mocked tx cannot model the rollback of the consume statement itself, so
+  // we assert the throw plus the absence of every statement issued after
+  // the guard (supersede, outbox, audit).
+  it('rejects regenerate for an archived location and issues no post-guard mutations', async () => {
     txQueue.push(liveLinkRow());
     txQueue.push(activeAccountRow());
-    txQueue.push(archivedBusinessRow()); // assertLocationNotArchived
+    txQueue.push(pendingResponseRow()); // lockPendingResponse (claim)
+    txQueue.push([]);                   // consumeLink (claim — rolled back with the tx)
+    txQueue.push(archivedBusinessRow()); // assertLocationNotArchived → throws
 
     await expect(regenerateViaCallback({
       approvalLinkId: 'link-1',
@@ -320,7 +325,9 @@ describe('regenerateViaCallback', () => {
       audit: { providerEventId: '7', ipAddress: null, telegramUpdateId: 7 },
     })).rejects.toBeInstanceOf(ArchivedLocationError);
 
-    expectNoCallbackMutation();
+    expect(txCalls.some((call) => call.sql.includes("'superseded'"))).toBe(false);
+    expect(txCalls.some((call) => call.sql.includes('job_outbox'))).toBe(false);
+    expect(txCalls.some((call) => call.sql.includes('approval_audit_log'))).toBe(false);
   });
 
   // The callback ingress classifies permanent errors via instanceof

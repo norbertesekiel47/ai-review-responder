@@ -17,9 +17,10 @@ import {
   lockPendingResponse,
   consumeLink,
   revokeSiblings,
+  assertLocationNotArchived,
 } from './locks';
 import { insertAuditLog, type AuditContext } from './audit';
-import { ArchivedLocationError, EmptyEditedResponseError } from './errors';
+import { EmptyEditedResponseError } from './errors';
 import type { ApprovalLink } from './types';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
 import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
@@ -138,31 +139,6 @@ export async function regenerate(
   });
 
   await insertAuditLog(tx, link.response_id, link.business_id, 'regenerate', audit);
-}
-
-/**
- * Reject approval actions that target an archived location.
- *
- * Scoped to REGENERATE for now because regenerate is destructive without a
- * replacement: it supersedes the pending draft, consumes the link, and
- * enqueues a generate_response job the generator skips for archived
- * locations — leaving the owner with nothing. PR B of the multi-location
- * hardening spec extends this gate to ALL approval actions (approve/edit);
- * when that lands this helper should move to locks.ts alongside the other
- * shared guards. Shared by token-mode and callback-mode regenerate.
- *
- * Fails closed: a missing business row also rejects.
- */
-export async function assertLocationNotArchived(
-  tx: TxClient,
-  businessId: string,
-): Promise<void> {
-  const [business] = await tx<{ archived_at: Date | null }[]>`
-    SELECT archived_at FROM businesses WHERE id = ${businessId}
-  `;
-  if (!business || business.archived_at !== null) {
-    throw new ArchivedLocationError();
-  }
 }
 
 async function lockAndConsumeTokenResponse(

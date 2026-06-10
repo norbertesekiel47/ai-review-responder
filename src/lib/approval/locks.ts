@@ -18,6 +18,7 @@ import {
   RevokedLinkError,
   ExpiredLinkError,
   ChannelMismatchError,
+  ArchivedLocationError,
 } from './errors';
 import type { ApprovalLink } from './types';
 
@@ -104,6 +105,30 @@ export async function revokeOpenLinksForResponse(tx: TxClient, responseId: strin
       AND revoked_at IS NULL
       AND expires_at > NOW()
   `;
+}
+
+/**
+ * Reject approval actions that target an archived location.
+ *
+ * Scoped to REGENERATE for now because regenerate is destructive without a
+ * replacement: it supersedes the pending draft, consumes the link, and
+ * enqueues a generate_response job the generator skips for archived
+ * locations — leaving the owner with nothing. PR B of the multi-location
+ * hardening spec extends this gate to ALL approval actions (approve/edit).
+ * Shared by token-mode and callback-mode regenerate.
+ *
+ * Fails closed: a missing business row also rejects.
+ */
+export async function assertLocationNotArchived(
+  tx: TxClient,
+  businessId: string,
+): Promise<void> {
+  const [business] = await tx<{ archived_at: Date | null }[]>`
+    SELECT archived_at FROM businesses WHERE id = ${businessId}
+  `;
+  if (!business || business.archived_at !== null) {
+    throw new ArchivedLocationError();
+  }
 }
 
 export async function lockLinkByIdForCallback(

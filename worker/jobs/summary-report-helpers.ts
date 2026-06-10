@@ -4,6 +4,7 @@ import {
   type AccountFlagsInput,
 } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
+import { SKIP_REASON_ARCHIVED_LOCATION } from '../../src/lib/shared/worker-types';
 import type { LocationId } from '../../src/lib/shared/ids';
 import type { WorkerLogger } from '../../src/lib/shared/logger';
 
@@ -73,7 +74,7 @@ export async function completeOrFailSkippedSummaryReport(input: {
 
   if (business.archived_at) {
     logger.log('archived — skipping summary report', {
-      reason: 'archived_location',
+      reason: SKIP_REASON_ARCHIVED_LOCATION,
       business_id: businessId,
     });
     await markOutboxCompleted(outboxId, outboxAttempt);

@@ -30,6 +30,7 @@ import {
   ArchivedLocationError,
   ResponseNotPendingError,
 } from '../errors';
+import { SKIP_REASON_ARCHIVED_LOCATION } from '@/lib/shared/worker-types';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -454,7 +455,16 @@ describe('regenerate', () => {
 
     await regenerate(tx, link, 'device-hash-abc', AUDIT, 'test-correlation-xyz');
 
-    expect(tx).toHaveBeenCalledTimes(8);
+    // Assert each expected statement ran (the contract), not an exact call
+    // count (brittle — breaks whenever an unrelated statement is added).
+    const issuedSql = tx.mock.calls.map((call: unknown[]) =>
+      String((call[0] as TemplateStringsArray).join(' ')),
+    );
+    expect(issuedSql.some((s: string) => s.includes('SET consumed_at'))).toBe(true);
+    expect(issuedSql.some((s: string) => s.includes('SET revoked_at'))).toBe(true);
+    expect(issuedSql.some((s: string) => s.includes("'superseded'"))).toBe(true);
+    expect(issuedSql.some((s: string) => s.includes('job_outbox'))).toBe(true);
+    expect(issuedSql.some((s: string) => s.includes('approval_audit_log'))).toBe(true);
 
     // Verify the outbox INSERT received the correct generate_response payload.
     // Literal SQL strings like 'generate_response' are part of the template, not interpolated.
@@ -508,6 +518,6 @@ describe('regenerate', () => {
   it('archived rejection maps as a ResponseNotPendingError conflict (409 in every lane)', async () => {
     const err = new ArchivedLocationError();
     expect(err).toBeInstanceOf(ResponseNotPendingError);
-    expect(err.currentStatus).toBe('archived_location');
+    expect(err.currentStatus).toBe(SKIP_REASON_ARCHIVED_LOCATION);
   });
 });

@@ -10,6 +10,7 @@ import {
   RevokedLinkError,
   ExpiredLinkError,
   ResponseNotPendingError,
+  ArchivedLocationError,
 } from '../../../src/lib/approval/errors';
 import { SubscriptionReadOnlyError } from '../../../src/lib/shared/writable-subscription';
 
@@ -100,6 +101,11 @@ export function messageForLinkError(err: Error): string {
   }
   if (err instanceof ExpiredLinkError) {
     return 'This approval link has expired — a new draft will arrive on the next review.';
+  }
+  if (err instanceof ArchivedLocationError) {
+    // Subclass of ResponseNotPendingError — must match before the parent,
+    // otherwise the owner sees "already been handled", which is false here.
+    return 'This location has been archived — this draft can no longer be regenerated.';
   }
   if (err instanceof ResponseNotPendingError) {
     // The approval_link was still live, but the response had already been

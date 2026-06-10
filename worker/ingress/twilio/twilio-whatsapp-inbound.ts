@@ -22,6 +22,7 @@ import {
   ExpiredLinkError,
   ChannelMismatchError,
   ResponseNotPendingError,
+  ArchivedLocationError,
 } from '../../../src/lib/approval/errors';
 import { WhatsAppClient } from '../../../src/lib/notifications/channels/whatsapp-client';
 import { stripWaPrefix, toWaRecipient } from '../../../src/lib/notifications/channels/whatsapp-body';
@@ -291,6 +292,13 @@ function permanentButtonErrorMessage(err: Error): string {
 
   if (err instanceof ExpiredLinkError) {
     return 'This approval link has expired — a new draft will arrive on the next review.';
+  }
+
+  if (err instanceof ArchivedLocationError) {
+    // Subclass of ResponseNotPendingError — must match before the generic
+    // fallthrough, otherwise the owner sees "handled on another channel",
+    // which is false here.
+    return 'This location has been archived — this draft can no longer be regenerated.';
   }
 
   return 'This reply was just handled on another channel.';

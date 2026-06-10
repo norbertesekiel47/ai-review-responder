@@ -4,8 +4,8 @@
 // at the firing Zernio account, fanned out by worker/ingress/zernio/zernio.ts).
 //
 // Flow per spec §4.2:
-//   1. Archived-location guard (skip-as-success), THEN subscription guard —
-//      archived-before-subscription is the project-wide guard ordering.
+//   1. Shared eligibility gate (job-eligibility.ts): row-missing, then
+//      archived-location guard (skip-as-success), then subscription guard.
 //   2. Verify zernio_connections row still active for (business, account, location).
 //   3. Mock-mode short-circuit (markOutboxCompleted + return).
 //   4. Walk up to 2 listReviews pages (locationId-scoped).
@@ -20,10 +20,6 @@
 
 import type { Job } from 'bullmq';
 import { sql } from '../../../src/lib/db/server';
-import {
-  checkSubscription,
-  type AccountFlagsInput,
-} from '../../../src/lib/shared/subscription-guard';
 import { extractOutboxHandle, markOutboxCompleted } from '../../../src/lib/shared/outbox';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
@@ -39,6 +35,7 @@ import {
   openPhiReviewException,
   reconcileExternallyAnsweredReview,
 } from './zernio-ingest-shared';
+import { guardZernioJobEligibility } from './job-eligibility';
 import type { IngestZernioReviewPayload } from '../../../src/lib/shared/worker-types';
 import type { MonitoredReview } from '../../../src/lib/reviews/types';
 import type { ZernioReview } from '../../../src/lib/zernio/types';
@@ -95,45 +92,19 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
   const { business_id, zernio_account_id, zernio_location_id, zernio_review_id } = job.data;
   const { outboxId, attempt } = extractOutboxHandle(job.data, job.id!);
 
-  // 1. Load business + account state in one row (accounts via businesses join,
-  // not deprecated businesses.subscription_status).
-  const [acct] = await sql<{
-    subscription_status: string;
-    past_due_at: Date | null;
-    account_flags: AccountFlagsInput;
-    archived_at: Date | null;
-  }[]>`
-    SELECT a.subscription_status, a.past_due_at, a.flags AS account_flags, b.archived_at
-    FROM businesses b
-    JOIN accounts a ON a.id = b.account_id
-    WHERE b.id = ${business_id}
-  `;
-  if (!acct) {
-    await markOutboxCompleted(outboxId, attempt);
-    return;
-  }
-
-  // 1a. Archived-location guard (skip-as-success), checked BEFORE the
-  // subscription guard (project convention: archived-before-subscription) so
-  // an archived+cancelled location exits via this queryable archived path,
-  // not the silent subscription skip. Defense-in-depth for jobs already
-  // queued when the location was archived: the webhook fan-out no longer
-  // enqueues ingest for archived locations, but in-flight jobs must skip
-  // too. Completes the job — never fails, throws, or burns a retry.
-  if (acct.archived_at) {
-    logger.log('archived — skipping ingest', { reason: 'archived_location', business_id });
-    await markOutboxCompleted(outboxId, attempt);
-    return;
-  }
-
-  // 1b. Subscription guard.
-  if (!checkSubscription({
-    status: acct.subscription_status,
-    pastDueAt: acct.past_due_at,
-    accountFlags: acct.account_flags ?? {},
-    workerType: 'generator',
-  }).allowed) {
-    await markOutboxCompleted(outboxId, attempt);
+  // 1. Shared pre-flight gates (row-missing, archived-location,
+  // subscription) — guard ordering + skip semantics live in job-eligibility.ts.
+  // Defense-in-depth for jobs already queued when the location was archived:
+  // the webhook fan-out no longer enqueues ingest for archived locations, but
+  // in-flight jobs must skip too.
+  const eligibility = await guardZernioJobEligibility({
+    businessId: business_id,
+    outboxId,
+    attempt,
+    logger,
+    jobKind: 'ingest',
+  });
+  if (eligibility.kind === 'skipped') {
     return;
   }
 
