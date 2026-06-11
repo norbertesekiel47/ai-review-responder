@@ -17,6 +17,7 @@ import {
   seedMultiLocationAccount,
   cleanupMultiLocationAccount,
   getE2eSql,
+  STANDARD_TIER_SNAPSHOT,
 } from '../../e2e/seed';
 
 // One runnable assertion even when the DB is absent, so the file is never a
@@ -50,9 +51,11 @@ describe.skipIf(!isE2eConfigured)(
           FROM accounts WHERE id = ${seed.accountId}::uuid
         `;
         expect(account).toBeDefined();
-        expect(account?.subscription_tier).toBe('standard');
-        expect(Number(account?.locations_overage_price_cents)).toBe(2500);
-        expect(Number(account?.base_price_cents)).toBe(7900);
+        expect(account?.subscription_tier).toBe(STANDARD_TIER_SNAPSHOT.tier);
+        expect(Number(account?.locations_overage_price_cents)).toBe(
+          STANDARD_TIER_SNAPSHOT.overagePriceCents,
+        );
+        expect(Number(account?.base_price_cents)).toBe(STANDARD_TIER_SNAPSHOT.basePriceCents);
         expect(Number(account?.locations_included)).toBe(2);
 
         // ── Businesses: exactly 2, one primary + one secondary, distinct
@@ -103,23 +106,23 @@ describe.skipIf(!isE2eConfigured)(
         await cleanupMultiLocationAccount(seed.accountId);
       }
 
-      // ── Cleanup removed every seeded row. ──
-      const sqlAfter = getE2eSql();
-      const [accountCount] = await sqlAfter<{ count: number }[]>`
+      // ── Cleanup removed every seeded row. (Same cached connection — the
+      //    cleanup transaction committed, so its effects are visible here.) ──
+      const [accountCount] = await sql<{ count: number }[]>`
         SELECT COUNT(*)::int AS count FROM accounts WHERE id = ${seed.accountId}::uuid
       `;
-      const [businessCount] = await sqlAfter<{ count: number }[]>`
+      const [businessCount] = await sql<{ count: number }[]>`
         SELECT COUNT(*)::int AS count FROM businesses WHERE account_id = ${seed.accountId}::uuid
       `;
-      const [connectionCount] = await sqlAfter<{ count: number }[]>`
+      const [connectionCount] = await sql<{ count: number }[]>`
         SELECT COUNT(*)::int AS count
         FROM zernio_connections
         WHERE zernio_account_id = ${seed.zernioAccountId}
       `;
-      const [enrollmentCountAfter] = await sqlAfter<{ count: number }[]>`
+      const [enrollmentCountAfter] = await sql<{ count: number }[]>`
         SELECT COUNT(*)::int AS count FROM channel_enrollments WHERE account_id = ${seed.accountId}::uuid
       `;
-      const [userCount] = await sqlAfter<{ count: number }[]>`
+      const [userCount] = await sql<{ count: number }[]>`
         SELECT COUNT(*)::int AS count FROM users WHERE id = ${seed.userId}::uuid
       `;
 

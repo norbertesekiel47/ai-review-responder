@@ -40,6 +40,9 @@ export async function request<T>(opts: RequestOptions): Promise<T> {
   return requestWithOptions<T>(opts);
 }
 
+// Per-endpoint request dispatcher: the cyclomatic count is the Zernio
+// endpoint/error vocabulary, not tangled logic. Pre-existing; PR F did not grow it.
+// fallow-ignore-next-line complexity
 async function requestWithOptions<T>(
   opts: RequestOptions,
   options: ZernioTransportOptions = {},
@@ -132,6 +135,9 @@ function mockLocations(): MockLocation[] {
   });
 }
 
+// One-case-per-endpoint mock switch; the count is the endpoint vocabulary.
+// PR F simplified the list_locations branch (inline array → mockLocations()).
+// fallow-ignore-next-line complexity
 async function mockResponse<T>(opts: RequestOptions): Promise<T> {
   switch (opts.endpointKind) {
     case 'create_profile':

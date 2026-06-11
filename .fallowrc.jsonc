@@ -193,22 +193,17 @@
       "src/app/admin/runbook/page.tsx",
 
       // ── Multi-location E2E verification kit (PR F) ──
-      // E2E test scaffolding, not production paths. The two-location seeder
-      // (e2e/seed.ts — a multi-table single-tx INSERT, same nature as the
-      // already-large seedOwnerOffboardingAccount) and the in-memory Zernio
-      // fixture server (e2e/fixtures/zernio-fixture-server.ts — a per-endpoint
-      // HTTP request router) are intentionally DAMP test infrastructure, like the
-      // already-ignored **/__tests__/** and *.spec.ts.
-      "e2e/**",
-      // src/lib/zernio/client/transport.ts: PR F did NOT grow the flagged
-      // functions. requestWithOptions (20-cyclomatic) is the pre-existing request
-      // dispatcher, unchanged by PR F. mockResponse's list_locations branch was
-      // SIMPLIFIED (inline array → mockLocations() call). Both are per-Zernio-
-      // operation switch dispatchers whose cyclomatic count is inherent to the
-      // endpoint count; they were swept into changed-file scope only because the
-      // file gained the small mockLocations() helper. Decomposing a transport
-      // request-dispatch switch would add indirection the design rules reject.
-      "src/lib/zernio/client/transport.ts"
+      // ONLY the two DAMP infrastructure files, named explicitly — no blanket
+      // e2e/** (which would pre-suppress every future e2e file unseen). Specs
+      // and __tests__ are already covered by the global ignores. The seeder is
+      // a multi-table single-tx INSERT module; the fixture server is a
+      // per-endpoint HTTP request router — both intentionally DAMP.
+      // (src/lib/zernio/client/transport.ts carries finding-level
+      // fallow-ignore-next-line suppressions in-file instead of a whole-file
+      // entry here, so future complexity growth in that production file is
+      // NOT masked.)
+      "e2e/seed.ts",
+      "e2e/fixtures/zernio-fixture-server.ts"
     ]
   },
   "duplicates": {
