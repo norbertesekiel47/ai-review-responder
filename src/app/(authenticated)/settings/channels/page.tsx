@@ -21,7 +21,7 @@ import { type InitialEnrollment } from './ChannelsClient';
 import { ChannelsTabClient } from './ChannelsTabClient';
 import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 import { whatsappEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
-import { getLocationsForAccount, getActiveLocationCount } from '@/lib/locations/repo';
+import { getLocationsForAccount, getArchivedLocationsForAccount, getActiveLocationCount } from '@/lib/locations/repo';
 import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
 import {
   shouldShowLocationsSettings,
@@ -108,13 +108,22 @@ export default async function ChannelsPage() {
   const orgLevelEnrollments: InitialEnrollment[] = [];
   const perLocationOverrides: PerLocationOverride[] = [];
 
-  // We need location names for the overrides — fetch them
-  let locationMap = new Map<string, { name: string; display_label: string | null }>();
+  // We need location names for the overrides — fetch active + archived so
+  // overrides on archived locations resolve to "<label> (archived)" instead of a raw UUID.
+  let locationNameMap = new Map<string, string>();
+  let activeLocationsForOptions: Awaited<ReturnType<typeof getLocationsForAccount>> = [];
 
   if (multiLocationEnabled) {
-    const locations = await getLocationsForAccount(access.accountId);
-    for (const loc of locations) {
-      locationMap.set(loc.id, { name: loc.name, display_label: loc.display_label });
+    const [activeLocations, archivedLocations] = await Promise.all([
+      getLocationsForAccount(access.accountId),
+      getArchivedLocationsForAccount(access.accountId),
+    ]);
+    activeLocationsForOptions = activeLocations;
+    for (const loc of activeLocations) {
+      locationNameMap.set(loc.id, getDisplayLabel(loc as HasDisplayLabel));
+    }
+    for (const loc of archivedLocations) {
+      locationNameMap.set(loc.id, `${getDisplayLabel(loc as HasDisplayLabel)} (archived)`);
     }
   }
 
@@ -136,9 +145,8 @@ export default async function ChannelsPage() {
       // Org-level default
       orgLevelEnrollments.push(enrollmentBase);
     } else {
-      // Per-location override
-      const locInfo = locationMap.get(r.location_id);
-      const locName = locInfo ? getDisplayLabel(locInfo as HasDisplayLabel) : r.location_id;
+      // Per-location override — fall back to raw UUID only for a truly-unknown id
+      const locName = locationNameMap.get(r.location_id) ?? r.location_id;
 
       perLocationOverrides.push({
         enrollmentId: r.id,
@@ -152,11 +160,10 @@ export default async function ChannelsPage() {
     }
   }
 
-  // Build location options for the override panel
+  // Build location options for the override panel (active locations only)
   let locationOptions: LocationOption[] = [];
   if (multiLocationEnabled) {
-    const locations = await getLocationsForAccount(access.accountId);
-    locationOptions = locations.map((loc) => ({
+    locationOptions = activeLocationsForOptions.map((loc) => ({
       id: loc.id,
       displayName: getDisplayLabel(loc as HasDisplayLabel),
       isPrimary: loc.is_primary,

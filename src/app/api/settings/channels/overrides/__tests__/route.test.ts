@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const { mockRequireRole, mockSql, mockGetLocationsForAccount } = vi.hoisted(() => ({
+const { mockRequireRole, mockSql, mockGetLocationsForAccount, mockGetArchivedLocationsForAccount } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockSql: vi.fn(),
   mockGetLocationsForAccount: vi.fn(),
+  mockGetArchivedLocationsForAccount: vi.fn(),
 }));
 
 vi.mock('@/lib/db/auth', () => {
@@ -29,6 +30,7 @@ vi.mock('@/lib/db/server', () => ({
 
 vi.mock('@/lib/locations/repo', () => ({
   getLocationsForAccount: (...args: unknown[]) => mockGetLocationsForAccount(...args),
+  getArchivedLocationsForAccount: (...args: unknown[]) => mockGetArchivedLocationsForAccount(...args),
 }));
 
 import { GET } from '../route';
@@ -81,6 +83,7 @@ describe('GET /api/settings/channels/overrides', () => {
         created_at: new Date('2026-01-01T00:00:00.000Z'),
       },
     ]);
+    mockGetArchivedLocationsForAccount.mockResolvedValueOnce([]);
 
     const res = await GET(makeRequest());
 
@@ -100,5 +103,65 @@ describe('GET /api/settings/channels/overrides', () => {
         },
       ],
     });
+  });
+
+  it('labels an archived-location override with " (archived)" and resolves an active label without suffix', async () => {
+    const ARCHIVED_LOCATION_ID = 'c2222222-0000-4000-8000-000000000002';
+
+    mockSql.mockResolvedValueOnce([
+      {
+        id: 'enrollment-active',
+        channel: 'telegram',
+        handle: '@downtown',
+        status: 'verified',
+        verified_at: new Date('2026-01-02T03:04:05.000Z'),
+        location_id: LOCATION_ID,
+      },
+      {
+        id: 'enrollment-archived',
+        channel: 'telegram',
+        handle: '@uptown',
+        status: 'verified',
+        verified_at: new Date('2026-02-01T00:00:00.000Z'),
+        location_id: ARCHIVED_LOCATION_ID,
+      },
+    ]);
+    mockGetLocationsForAccount.mockResolvedValueOnce([
+      {
+        id: LOCATION_ID,
+        account_id: ACCOUNT_ID,
+        name: 'Downtown Cafe',
+        display_label: 'Downtown',
+        is_primary: true,
+        archived_at: null,
+        google_place_id: 'place-1',
+        google_place_address: null,
+        created_at: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    ]);
+    mockGetArchivedLocationsForAccount.mockResolvedValueOnce([
+      {
+        id: ARCHIVED_LOCATION_ID,
+        account_id: ACCOUNT_ID,
+        name: 'Uptown Branch',
+        display_label: 'Uptown',
+        is_primary: false,
+        archived_at: new Date('2026-03-01T00:00:00.000Z'),
+        google_place_id: 'place-2',
+        google_place_address: null,
+        created_at: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    ]);
+
+    const res = await GET(makeRequest());
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { overrides: { locationId: string; locationName: string }[] };
+
+    const active = body.overrides.find((o) => o.locationId === LOCATION_ID);
+    const archived = body.overrides.find((o) => o.locationId === ARCHIVED_LOCATION_ID);
+
+    expect(active?.locationName).toBe('Downtown');
+    expect(archived?.locationName).toBe('Uptown (archived)');
   });
 });

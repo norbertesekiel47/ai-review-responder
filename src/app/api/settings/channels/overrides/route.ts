@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { jsonResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
-import { getLocationsForAccount } from '@/lib/locations/repo';
+import { getLocationsForAccount, getArchivedLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
 import { CHANNEL_IDS } from '@/lib/notifications/channels/types';
 
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!owner.ok) return owner.response;
   const user = owner.user;
 
-  const [overrides, locations] = await Promise.all([
+  const [overrides, activeLocations, archivedLocations] = await Promise.all([
     // Fetch per-location overrides (location_id IS NOT NULL)
     sql<{
       id: string;
@@ -39,16 +39,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         AND e.channel = ANY(${[...CHANNEL_IDS] as string[]}::text[])
       ORDER BY e.location_id, e.channel
     `,
-    // Fetch location names for display
+    // Fetch active location names for display
     getLocationsForAccount(owner.accountId),
+    // Fetch archived location names so overrides on archived locations resolve correctly
+    getArchivedLocationsForAccount(owner.accountId),
   ]);
-  const locationMap = new Map(
-    locations.map((loc) => [loc.id, { name: loc.name, display_label: loc.display_label }]),
-  );
+
+  const locationMap = new Map<string, string>();
+  for (const loc of activeLocations) {
+    locationMap.set(loc.id, getDisplayLabel(loc as HasDisplayLabel));
+  }
+  for (const loc of archivedLocations) {
+    locationMap.set(loc.id, `${getDisplayLabel(loc as HasDisplayLabel)} (archived)`);
+  }
 
   const result = overrides.map((o) => {
-    const locInfo = locationMap.get(o.location_id);
-    const locName = locInfo ? getDisplayLabel(locInfo as HasDisplayLabel) : o.location_id;
+    // Fall back to raw UUID only for a truly-unknown id (shouldn't happen in practice)
+    const locName = locationMap.get(o.location_id) ?? o.location_id;
 
     return {
       enrollmentId: o.id,
