@@ -277,3 +277,110 @@ d('reactivateLocationTransaction zero-primary self-heal integration', () => {
     expect(Number(noopAuditRow?.count)).toBe(0);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// B3 race: two CONCURRENT reactivations against a zero-primary account
+// ══════════════════════════════════════════════════════════════════════════
+// Real concurrency (not deterministic mocks): both reactivations run through
+// the module's connection pool at once. The accounts FOR UPDATE lock taken
+// FIRST in reactivateLocationTransaction must serialize them so exactly one
+// self-promotes — without it both would read primary-count 0 and both promote
+// (double-primary, tripping businesses_account_primary_uniq or worse).
+
+const race = {
+  ownerUserId: randomUUID(),
+  accountId: randomUUID(),
+  archivedLocationAId: randomUUID(),
+  archivedLocationBId: randomUUID(),
+};
+
+d('reactivateLocationTransaction concurrent zero-primary race integration', () => {
+  beforeAll(async () => {
+    if (!db) {
+      db = postgres(testDatabaseUrl!, { max: 1, prepare: false, connection: { statement_timeout: 30_000 } });
+    }
+
+    const ownerEmail = `reactivate-race-${randomUUID()}@test.local`;
+    await sql().begin(async (tx) => {
+      await tx`SET CONSTRAINTS ALL DEFERRED`;
+      await tx`
+        INSERT INTO users (id, name, email, role, account_id)
+        VALUES (${race.ownerUserId}::uuid, 'Reactivate Race Owner', ${ownerEmail}, 'owner', ${race.accountId}::uuid)
+      `;
+      await tx`
+        INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status, subscription_activated_at)
+        VALUES (${race.accountId}::uuid, ${race.ownerUserId}::uuid, 'Reactivate Race Account', 'standard', 'active', NOW())
+      `;
+      // Zero active primaries: both locations archived, neither primary.
+      await tx`
+        INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status, is_primary, archived_at)
+        VALUES (${race.archivedLocationAId}::uuid, 'Race Loc A (archived)', 'Reactivate Race Owner', ${ownerEmail}, ${race.accountId}::uuid, 'active', FALSE, NOW())
+      `;
+      await tx`
+        INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status, is_primary, archived_at)
+        VALUES (${race.archivedLocationBId}::uuid, 'Race Loc B (archived)', 'Reactivate Race Owner', ${ownerEmail}, ${race.accountId}::uuid, 'active', FALSE, NOW())
+      `;
+    });
+  });
+
+  afterAll(async () => {
+    if (!db) return;
+    await sql().begin(async (tx) => {
+      await tx`SET CONSTRAINTS ALL DEFERRED`;
+      await tx`DELETE FROM account_audit_log WHERE account_id = ${race.accountId}::uuid`;
+      await tx`DELETE FROM job_outbox WHERE aggregate_id IN (${race.accountId}::uuid, ${race.archivedLocationAId}::uuid, ${race.archivedLocationBId}::uuid)`;
+      await tx`DELETE FROM businesses WHERE account_id = ${race.accountId}::uuid`;
+      await tx`DELETE FROM accounts WHERE id = ${race.accountId}::uuid`;
+      await tx`DELETE FROM users WHERE id = ${race.ownerUserId}::uuid`;
+    });
+    await db.end({ timeout: 5 });
+    db = undefined;
+  });
+
+  it('exactly one of two concurrent reactivations self-promotes; exactly one active primary results', async () => {
+    const { reactivateLocationTransaction } = await import('../archive-location-tx');
+
+    // Start both reactivations together — the module pool (max > 1) runs them
+    // on separate connections, so they genuinely contend for the account lock.
+    const [resultA, resultB] = await Promise.all([
+      reactivateLocationTransaction({
+        locationId: race.archivedLocationAId,
+        accountId: race.accountId,
+        actorUserId: race.ownerUserId,
+      }),
+      reactivateLocationTransaction({
+        locationId: race.archivedLocationBId,
+        accountId: race.accountId,
+        actorUserId: race.ownerUserId,
+      }),
+    ]);
+
+    expect(resultA.reactivated).toBe(true);
+    expect(resultB.reactivated).toBe(true);
+
+    // Exactly ONE result self-promoted.
+    const promotedCount = [resultA, resultB].filter((r) => r.selfPromoted).length;
+    expect(promotedCount).toBe(1);
+
+    // Exactly ONE businesses row is the active primary.
+    const [primaryRow] = await sql()<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count FROM businesses
+      WHERE account_id = ${race.accountId}::uuid AND is_primary = TRUE AND archived_at IS NULL
+    `;
+    expect(Number(primaryRow?.count)).toBe(1);
+
+    // Both locations are active again.
+    const [activeRow] = await sql()<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count FROM businesses
+      WHERE account_id = ${race.accountId}::uuid AND archived_at IS NULL
+    `;
+    expect(Number(activeRow?.count)).toBe(2);
+
+    // Exactly one primary_promoted audit row (the self-heal is audited once).
+    const [auditRow] = await sql()<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count FROM account_audit_log
+      WHERE account_id = ${race.accountId}::uuid AND event_type = 'primary_promoted'
+    `;
+    expect(Number(auditRow?.count)).toBe(1);
+  });
+});

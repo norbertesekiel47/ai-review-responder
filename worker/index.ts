@@ -34,7 +34,7 @@ import { handleStripeWebhook } from './ingress/stripe';
 import { handleTwilioWhatsAppInbound, handleTwilioWhatsAppStatus } from './ingress/twilio/twilio-whatsapp';
 import { handleTelegramWebhook } from './ingress/telegram/telegram';
 import { handleZernioWebhook } from './ingress/zernio/zernio';
-import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
+import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertSingleConcurrencyWorker, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './background/pollers/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './background/schedulers/WeeklySummaryScheduler';
 import { startArchivalPoller, stopArchivalPoller } from './background/pollers/ArchivalPoller';
@@ -166,7 +166,10 @@ const updateStripeOverageWorker = new Worker(QUEUE_NAMES.UPDATE_STRIPE_OVERAGE, 
 // Single-consumer invariant: the operation-scoped Stripe idempotency keys
 // (overage-sync.ts) assume no two overage jobs for the same account run
 // concurrently. The explicit concurrency:1 literal above plus a single
-// Railway worker instance guarantees this — keep both.
+// Railway worker instance guarantees this — keep both. The boot guard reads
+// the EFFECTIVE worker options, so any future edit of the options object that
+// drops concurrency:1 fails the boot instead of silently double-running jobs.
+assertSingleConcurrencyWorker(QUEUE_NAMES.UPDATE_STRIPE_OVERAGE, updateStripeOverageWorker.opts);
 
 const stripeCheckoutReconcileWorker = new Worker<StripeCheckoutReconcilePayload>(
   QUEUE_NAMES.STRIPE_CHECKOUT_RECONCILE,

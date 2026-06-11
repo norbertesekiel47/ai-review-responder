@@ -56,6 +56,26 @@ export function assertStripeWorkerEnv(): void {
 }
 
 /**
+ * Boot-time guard for workers whose correctness depends on serialized job
+ * execution. UpdateStripeOverageWorker's operation-scoped Stripe idempotency
+ * keys (overage-sync.ts) assume no two overage jobs run concurrently — its
+ * registration must carry concurrency: 1. Called at the registration site in
+ * worker/index.ts with the EFFECTIVE Worker options (worker.opts), so an edit
+ * of the options object fails the boot instead of silently double-running jobs.
+ */
+export function assertSingleConcurrencyWorker(
+  queueName: string,
+  opts: { concurrency?: number },
+): void {
+  if (opts.concurrency !== 1) {
+    throw new Error(
+      `[startup] ${queueName} worker must be registered with concurrency: 1 `
+        + `(operation-scoped idempotency keys assume serialized jobs); got ${String(opts.concurrency)}`,
+    );
+  }
+}
+
+/**
  * Boot-time assertion. ADMIN_NOTIFICATION_EMAIL is the recipient for every admin
  * exception / failover / engagement alert. When unset these alerts silently drop:
  * AdminExceptionWorker marks the outbox completed, NotificationFailoverPoller warns
