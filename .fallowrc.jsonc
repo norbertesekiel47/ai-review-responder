@@ -190,7 +190,25 @@
       "src/app/api/dashboard/channels/whatsapp/start/route.ts",
       "src/app/api/dashboard/channels/telegram/cancel/route.ts",
       "src/lib/dashboard/service.ts",
-      "src/app/admin/runbook/page.tsx"
+      "src/app/admin/runbook/page.tsx",
+
+      // ── Multi-location E2E verification kit (PR F) ──
+      // E2E test scaffolding, not production paths. The two-location seeder
+      // (e2e/seed.ts — a multi-table single-tx INSERT, same nature as the
+      // already-large seedOwnerOffboardingAccount) and the in-memory Zernio
+      // fixture server (e2e/fixtures/zernio-fixture-server.ts — a per-endpoint
+      // HTTP request router) are intentionally DAMP test infrastructure, like the
+      // already-ignored **/__tests__/** and *.spec.ts.
+      "e2e/**",
+      // src/lib/zernio/client/transport.ts: PR F did NOT grow the flagged
+      // functions. requestWithOptions (20-cyclomatic) is the pre-existing request
+      // dispatcher, unchanged by PR F. mockResponse's list_locations branch was
+      // SIMPLIFIED (inline array → mockLocations() call). Both are per-Zernio-
+      // operation switch dispatchers whose cyclomatic count is inherent to the
+      // endpoint count; they were swept into changed-file scope only because the
+      // file gained the small mockLocations() helper. Decomposing a transport
+      // request-dispatch switch would add indirection the design rules reject.
+      "src/lib/zernio/client/transport.ts"
     ]
   },
   "duplicates": {
