@@ -2,7 +2,34 @@
 
 This file explains what is actually built in the repository today, how it maps to the implementation plan, and what is left to build.
 
-Last updated: 2026-06-09 (Rate-limiting & abuse hardening — Slices 1–2 + cost-guard item 4, PRs #254–#257: a shared per-owner "regenerate" limit, AI drafts that survive a brief cache blip, and Vercel BotID on the 4 hottest unauth routes + a WAF rate-limit runbook. See the simple-words summary directly below. Earlier: Launch readiness sweep 2026-05-29 #152–#186; Wave 3 #93–#96; Wave 2 #87.)
+Last updated: 2026-06-11 (Multi-location launch hardening — PRs A–F #262–#265/#270/#271 + #272/#273: made running more than one location per account safe to launch, then ran the whole pipeline end-to-end for two locations to prove it. See the simple-words summary directly below. Earlier: Rate-limiting & abuse hardening 2026-06-09 #254–#257; Launch readiness sweep 2026-05-29 #152–#186; Wave 3 #93–#96; Wave 2 #87.)
+
+## Quick summary — Multi-location launch hardening (2026-06-09 → 2026-06-11, PRs A–F + follow-ups)
+
+In simple words: a customer's account can hold **more than one business location** (each location is one Google Business Profile). That feature mostly worked, but a careful review found a list of edge-case bugs that would bite at launch — money leaks, double-billing, settings that silently ignored a secondary location, and channel settings that kept routing after you turned them off. We fixed them in **six ordered pull requests (A–F)**, then **ran the entire pipeline for two locations on a real (local) stack** to prove the whole thing works and nothing cross-routes between locations.
+
+### What we changed (plain English)
+
+- **A — stop a spend leak.** When a location was archived, some background jobs still generated AI drafts for it (= wasted LLM money). Now every spend path checks the location is active first.
+- **B — exactly one "primary" location.** Hardened the rule so an account always has exactly one primary location even under races; you can't archive your primary out from under yourself, and reactivation/promotion repair the state. Also: you can't approve/edit/post a reply for an **archived** location anymore.
+- **C — no duplicate Google location.** Added a database rule (migration 062) so the same Google place can't be added twice to one account; the wizard/CSV/URL paths all show a friendly "already on your account" message instead of a crash.
+- **D — billing that recovers and never double-charges.** One shared helper now decides "which Stripe line is the overage charge" (three copies used to disagree → a second overage item = double-billing). When a past-due subscription recovers, we recompute the overage. Stripe errors are now split into "retry" vs "give up" so a blip doesn't lose a billing update.
+- **E — settings that respect every location (migration 063).** The weekly/monthly email toggles were shown as account-wide but stored per-location and only on the primary — so a second location could never opt out and archived locations kept emailing. We moved those toggles to the **account**. Channel overrides now stay visible (and deletable) even after you archive back to one location, show "(archived)" labels, and disconnecting a channel now also turns off its per-location overrides — all in one transaction with an audit trail.
+- **F — a way to prove it without a real Google account.** A test kit: a two-location seeder, a fake in-memory "Zernio" server, a per-location webhook script, and a runbook. We then **ran the full loop** (webhook → AI draft → owner approval → publish reply) for two locations and recorded the sign-off. The run itself caught two bugs in the test kit (the fake server didn't echo the posted reply back; the launcher used top-level await) — both fixed (#273).
+
+### What got added — the new shape (where the new code lives)
+
+- `src/lib/payments/overage-item.ts` — the single "find the overage Stripe line item" helper (base-item excluded first; used by the worker, the reconcile poller, and the tier-change route).
+- `worker/jobs/billing/stripe-overage-error.ts` — classifies Stripe overage errors as transient (retry) vs terminal (mark failed), mirroring the cost-guard rules.
+- `src/lib/locations/duplicate-location.ts` — one owner of the "duplicate Google place" error → HTTP 409 + owner-facing copy.
+- `supabase/migrations/062_*` (duplicate-place unique index) and `063_*` (account-level digest toggle columns + backfill).
+- `src/lib/channels/` — consolidated into `disable-enrollment.ts`, `mobile-enrollment.ts` (was telegram/whatsapp-enrollment), `override.ts`, `overrides-view.ts`; disable now cascades to overrides.
+- `e2e/seed.ts` (`seedMultiLocationAccount`), `e2e/fixtures/zernio-fixture-server.ts` + `serve.ts`, `e2e/multi-location.spec.ts`, and `MOCK_ZERNIO_LOCATION_COUNT` in `src/lib/zernio/client/transport.ts` — the E2E kit.
+- `docs/runbooks/multi-location-e2e-full-loop.md` — the launch-gating full-loop procedure + the recorded sign-off.
+
+### One thing to remember
+
+The product behaviour did not change for the happy path: a review still comes in, the AI drafts a reply, the **owner approves**, and only then does it post. This work fixed the *multi-location edges* around that flow — and the two-location loop run is the evidence it holds together end-to-end.
 
 ## Quick summary — Rate-limiting & abuse hardening (2026-06-09, PRs #254–#257)
 
