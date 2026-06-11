@@ -114,20 +114,38 @@ function queueHappyPath(currentStatus: string, options: { updateBusinessesCount?
   sqlReturnQueue.push([]); // pg_advisory_xact_lock
   // SELECT subscription_status FROM accounts ... FOR UPDATE
   sqlReturnQueue.push([{ subscription_status: currentStatus }]);
-  // UPDATE accounts → active
-  const updateAcct: any = []; updateAcct.count = 1;
+  // UPDATE accounts → active (WHERE subscription_status IN ('pending_payment','past_due'))
+  // Returns count=0 when already active (status guard blocks the update).
+  const didActivate = currentStatus !== 'active';
+  const updateAcct: any = []; updateAcct.count = didActivate ? 1 : 0;
   sqlReturnQueue.push(updateAcct);
-  // INSERT account_audit_log (subscription_status_changed)
-  const auditLog: any = []; auditLog.count = 1;
-  sqlReturnQueue.push(auditLog);
+  if (didActivate) {
+    // INSERT account_audit_log (subscription_status_changed)
+    const auditLog: any = []; auditLog.count = 1;
+    sqlReturnQueue.push(auditLog);
+    // INSERT job_outbox (update_stripe_overage_quantity) — D3: inside the
+    // if (updateAcct.count > 0) block.
+    const overageOutbox: any = []; overageOutbox.count = 1;
+    sqlReturnQueue.push(overageOutbox);
+  }
   // UPDATE businesses (deprecated column compat)
   const updateBiz: any = []; updateBiz.count = options.updateBusinessesCount ?? 1;
   sqlReturnQueue.push(updateBiz);
 }
 
 function getInsertOutboxCall() {
+  // Narrowed to zernio_initial_backfill — the overage INSERT is separate
+  // (update_stripe_overage_quantity) and tested by its own helper below.
   return sqlCalls.find(
-    (c) => c.text.includes('INSERT INTO job_outbox') || (c.text.includes('INSERT') && c.text.includes('job_outbox')),
+    (c) => (c.text.includes('INSERT INTO job_outbox') || (c.text.includes('INSERT') && c.text.includes('job_outbox')))
+      && c.text.includes("'zernio_initial_backfill'"),
+  );
+}
+
+function getOverageOutboxInserts() {
+  // Topic is an interpolated value, not a template literal — check values array.
+  return sqlCalls.filter(
+    (c) => c.text.includes('INSERT INTO job_outbox') && c.values.includes('update_stripe_overage_quantity'),
   );
 }
 
@@ -373,5 +391,33 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     expect(insertSql).toBeDefined();
     expect(insertSql!.text).toContain('NOT EXISTS');
     expect(insertSql!.text).toMatch(/status\s+IN/);
+  });
+
+  // ── D3: overage outbox enqueue on recovery ────────────────────────────
+
+  it('VAL-BILLING-D3c: pending_payment → active activation inserts one update_stripe_overage_quantity outbox row', async () => {
+    setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
+    queueHappyPath('pending_payment');
+
+    const { handleStripeWebhook } = await import('../stripe');
+    await handleStripeWebhook(makeRequest(), makeReply());
+
+    const inserts = getOverageOutboxInserts();
+    expect(inserts).toHaveLength(1);
+    const insert = inserts[0]!;
+    expect(insert.text).toContain("'account'");   // aggregate_type — SQL literal
+    expect(insert.text).toContain("'pending'");   // status — SQL literal
+    // The account id resolved by queueHappyPath account lookup
+    expect(insert.values).toContain('019dc366-29ce-7000-a000-000000000000'); // aggregate_id
+  });
+
+  it('VAL-BILLING-D3d: active → active no-op (updateAcct.count === 0) does NOT insert overage outbox row', async () => {
+    setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_ACTIVE_DUP });
+    queueHappyPath('active', { updateBusinessesCount: 0 });
+
+    const { handleStripeWebhook } = await import('../stripe');
+    await handleStripeWebhook(makeRequest(), makeReply());
+
+    expect(getOverageOutboxInserts()).toHaveLength(0);
   });
 });

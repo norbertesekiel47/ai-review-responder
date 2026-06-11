@@ -2,6 +2,7 @@ import Stripe from 'stripe';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import { LOG_PREFIX, extractCustomerId, extractSubscriptionId, UUID_RE, maybeEnqueueBackfillResume } from './shared';
+import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 
 export async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
   // The client_reference_id is set by /api/billing/checkout to the account ID.
@@ -112,6 +113,24 @@ export async function processCheckoutSessionCompleted(session: Stripe.Checkout.S
           ${accountId!}::uuid,
           'subscription_status_changed',
           ${jsonb({ fromStatus: oldStatus, toStatus: 'active' })}
+        )
+      `;
+
+      // Recompute Stripe overage quantity after recovery from past_due or
+      // initial pending_payment activation. The worker is idempotent so a
+      // redundant enqueue is harmless convergence. Must be inside this tx
+      // (transactional outbox invariant: state change + enqueue in one
+      // Postgres transaction). Guarded by the rowcount check above so only
+      // fires when the UPDATE actually changed the row.
+      await tx`
+        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+        VALUES (
+          ${uuidv7()},
+          ${QUEUE_NAMES.UPDATE_STRIPE_OVERAGE},
+          'account',
+          ${accountId!}::uuid,
+          ${jsonb({ account_id: accountId!, correlation_id: uuidv7() })},
+          'pending'
         )
       `;
     } else {

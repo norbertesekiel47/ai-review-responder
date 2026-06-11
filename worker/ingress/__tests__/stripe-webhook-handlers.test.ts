@@ -214,6 +214,9 @@ function queueInvoicePaid(opts: {
     sqlReturnQueue.push(r1);
     const r2: any = []; r2.count = 1;
     sqlReturnQueue.push(r2);
+    // Overage outbox INSERT (D3: inside tx, before recovered.push)
+    const outboxInsert: any = []; outboxInsert.count = 1;
+    sqlReturnQueue.push(outboxInsert);
     sqlReturnQueue.push([{ id: '019dc366-29ce-7000-a000-000000000099' }]); // primary business lookup
     sqlReturnQueue.push([]); // zernio predicate (no match by default)
   }
@@ -951,6 +954,53 @@ describe('invoice.paid — active recovery from past_due', () => {
       (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'") && !c.text.includes('inbound_events'),
     );
     expect(updateAcct).toEqual([]);
+  });
+
+  it('VAL-BILLING-D3a: past_due → active recovery inserts one update_stripe_overage_quantity outbox row', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_inv_paid_overage_enqueue',
+      type: 'invoice.paid',
+      data: { object: { id: 'in_paid_overage', customer: TEST_CUSTOMER_ID } },
+    });
+
+    queueInvoicePaid({ status: 'past_due' });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(200);
+
+    // Topic is an interpolated value — in values array; aggregate_type/'pending'
+    // are SQL string literals — in the text.
+    const overageInserts = sqlCalls.filter(
+      (c) => c.text.includes('INSERT INTO job_outbox') && c.values.includes('update_stripe_overage_quantity'),
+    );
+    expect(overageInserts).toHaveLength(1);
+    const insert = overageInserts[0]!;
+    expect(insert.text).toContain("'account'");   // aggregate_type — SQL literal
+    expect(insert.text).toContain("'pending'");   // status — SQL literal
+    expect(insert.values).toContain(TEST_ACCOUNT_ID); // aggregate_id — interpolated
+  });
+
+  it('VAL-BILLING-D3b: already-active account (VAL-BILLING-014 no-op) does NOT insert overage outbox row', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_inv_paid_noop_overage',
+      type: 'invoice.paid',
+      data: { object: { id: 'in_paid_noop_overage', customer: TEST_CUSTOMER_ID } },
+    });
+
+    queueInvoicePaid({ status: 'active' });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(200);
+
+    // Topic is an interpolated value — check values array.
+    const overageInserts = sqlCalls.filter(
+      (c) => c.text.includes('INSERT INTO job_outbox') && c.values.includes('update_stripe_overage_quantity'),
+    );
+    expect(overageInserts).toHaveLength(0);
   });
 
   it('missing customer → warns and skips', async () => {
