@@ -114,11 +114,14 @@ export function ChannelsTabClient(props: Props) {
       {/* Org-level defaults — the existing ChannelsClient */}
       <ChannelsClient {...props} />
 
-      {/* Per-location overrides — collapsed by default */}
-      {props.multiLocationEnabled && props.locationOptions && props.locationOptions.length > 1 && (
+      {/* Per-location overrides — collapsed by default.
+          Render when there are existing overrides to list/delete (regardless of
+          location count), OR when in multi-location mode so the owner can add new
+          ones. The panel itself gates creation controls on locationOptions.length > 1. */}
+      {(overrides.length > 0 || (props.multiLocationEnabled && props.locationOptions && props.locationOptions.length > 1)) && (
         <PerLocationOverridePanel
           overrides={overrides}
-          locationOptions={props.locationOptions}
+          locationOptions={props.locationOptions ?? []}
           orgDefaults={orgDefaults}
           accountId={props.accountId ?? ''}
           onOverrideAdded={refreshOverrides}

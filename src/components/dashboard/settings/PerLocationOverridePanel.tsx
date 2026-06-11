@@ -186,10 +186,15 @@ export function PerLocationOverridePanel({
     }
   }, [onOverrideAdded]);
 
-  // Don't render the section at all if there are no locations (single-location account)
-  if (locationOptions.length <= 1) {
+  // Don't render if there are no overrides to show AND not in multi-location mode.
+  // Once overrides exist they must remain listable+deletable even after archiving back
+  // to a single location (the UI to add new ones is separately gated below).
+  if (overrides.length === 0 && locationOptions.length <= 1) {
     return null;
   }
+
+  // Whether the owner can add new overrides (requires multi-location mode).
+  const canAddOverrides = locationOptions.length > 1;
 
   const hasOverrides = overrides.length > 0;
   const overrideCount = overrides.length;
@@ -259,8 +264,10 @@ export function PerLocationOverridePanel({
                   />
                 ))}
 
-                {/* VAL-SETTINGS-014: Add override button per location per channel */}
-                {availableChannels.map((channel) => (
+                {/* VAL-SETTINGS-014: Add override button per location per channel.
+                    Creation is gated on multi-location mode — single-location owners
+                    can still view and delete existing overrides, just not add new ones. */}
+                {canAddOverrides && availableChannels.map((channel) => (
                   <button
                     key={channel}
                     type="button"
