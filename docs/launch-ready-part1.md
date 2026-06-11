@@ -129,12 +129,12 @@ Worktrees under `.claude/worktrees/` backed these three (all clean) + a `tracker
 - ✅ **Resend webhook signature accept path covered (#155)** — `worker/ingress/__tests__/resend-webhook-signature.test.ts` exercises a real svix HMAC accept plus stale-timestamp reject (was: only the rejection path covered).
 
 **P1:**
-- **`hasOpenFlag` (`src/lib/moderation/held-draft.ts`)** has no direct unit test — a typo in its `status='open'` predicate would silently release held drafts. *(Still outstanding — only covered indirectly via integration tests.)*
-- 🟡 **`past_due`/`pending_payment` subscription guard** tested in the pure unit but not exercised in worker integration tests. *(Partial: `pending_payment` is now exercised in `worker/jobs/notification/__tests__/NotificationWorker.test.ts`; the `past_due` worker-path is still uncovered.)*
+- ✅ **`hasOpenFlag` (`src/lib/moderation/held-draft.ts`)** has no direct unit test — a typo in its `status='open'` predicate would silently release held drafts. *(→ ✅ DONE (2026-06-11): `src/lib/moderation/__tests__/held-draft.test.ts` asserts the true/false paths AND the `status = 'open'` + response-id predicate text.)*
+- ✅ **`past_due`/`pending_payment` subscription guard** tested in the pure unit but not exercised in worker integration tests. *(→ ✅ DONE (2026-06-11): `NotificationWorker.test.ts` now exercises `pending_payment`, `past_due` beyond the 7-day grace (skips), and `past_due` within grace (sends).)*
 
 **P2:**
 - Permanently-skipped e2e: `e2e/forgot-password.spec.ts` (4), `e2e/reset-password.spec.ts` (3), `e2e/signup-google.spec.ts` (1) — all `test.skip(true, ...)` (harness not wired). *(Still skipped.)*
-- `session-mode.ts` / `token-mode.ts` only tested indirectly via `service.test.ts`. *(Still no direct test.)*
+- ✅ `session-mode.ts` / `token-mode.ts` only tested indirectly via `service.test.ts`. *(→ ✅ DONE (2026-06-11): direct unit suites `src/lib/approval/__tests__/{token-mode,session-mode}.test.ts` — lock-before-consume ordering, empty-edit rejection, device binding/conflict, supersede+regenerate, publish enqueue + audit shapes.)*
 - Tenant-isolation integration test self-skips without `TEST_DATABASE_POOL_URL` (see P2 CI gap above). *(Still dark in CI.)*
 
 ---
