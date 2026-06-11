@@ -490,10 +490,18 @@ All tables use UUIDv7 (time-ordered primary keys).
   rows → `bool_and` over zero rows is NULL → outer `COALESCE` yields TRUE (the
   column default). Deliberately NOT a flat `COALESCE(primary, aggregate, TRUE)`
   chain (that wrongly falls through to the aggregate when an active primary has a
-  NULL value). The backfill `UPDATE` is **re-run once post-deploy** to close the
-  write-path window — idempotent in shape (re-derives the same value from the
-  source-of-truth `businesses` rows; no `IS NULL` guard since columns are NOT
-  NULL with a default) per spec Fix 5. Transactional (the `accounts` table is
+  NULL value). **Pre-flight (run against staging AND prod BEFORE applying):**
+  `SELECT account_id, id FROM businesses WHERE (weekly_summary_enabled = FALSE
+  OR monthly_impact_enabled = FALSE) AND is_primary = FALSE AND archived_at IS
+  NULL;` — any rows mean an active non-primary location carries an opt-out the
+  active-primary backfill branch ignores; carry those opt-outs forward manually
+  (`bool_and` over the account's businesses rows). **Post-deploy re-run (spec
+  Fix 5) is NOT the backfill UPDATE** — by then `accounts` is live source of
+  truth and a full re-derive could re-enable an account-level opt-out recorded
+  after the migration. The re-run (exact SQL in the migration header) only
+  PROPAGATES NEW OPT-OUTS: per column, `SET <col> = FALSE WHERE <col> = TRUE
+  AND <derived-from-businesses> = FALSE` — TRUE→FALSE tightening only, never
+  re-enables. Transactional (the `accounts` table is
   small — no CONCURRENTLY). Apply staging-first, then production, both Supabase
   projects in lockstep. No RLS change (new columns inherit the `accounts` SELECT
   policy); no index. Verified against a local postgres:16 (migrations 001→062
