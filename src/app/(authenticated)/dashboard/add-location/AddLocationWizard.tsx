@@ -19,6 +19,7 @@
 
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
+import { LiveRegion } from '@/components/ui/LiveRegion';
 import { useAddLocationWizard } from './wizard/useAddLocationWizard';
 import type { Props, WizardStep } from './wizard/types';
 import { Step1Location } from './wizard/steps/Step1Location';
@@ -37,6 +38,12 @@ export function AddLocationWizard(props: Props) {
         rightLink={{ href: '/dashboard', label: 'Cancel' }}
       />
       <div className="wizard-container">
+        {/* Wizard errors are rendered inline by the steps; this region makes
+            them audible to screen readers (visible markup unchanged). */}
+        <LiveRegion
+          level="assertive"
+          message={wiz.submitError ?? wiz.displayLabelError ?? wiz.placeIdDuplicateError ?? ''}
+        />
         {/* Step indicator */}
         <div className="wizard-steps">
           {([1, 2, 3, 4] as WizardStep[]).map((s) => (
