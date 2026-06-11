@@ -62,7 +62,7 @@ Most are **ops/config (set in Vercel + Railway)**, not code:
 2. **Set real production URLs** — `NEXT_PUBLIC_APP_URL`, `WORKER_SERVICE_URL`, `WORKER_PUBLIC_URL` (currently localhost / Cloudflare dev tunnel). Approval email links + Twilio callbacks break otherwise.
 3. **Switch Stripe to live mode** — replace `sk_test_…` + all test `price_…` IDs with live ones in prod env.
 4. 🟡 **Set `ADMIN_NOTIFICATION_EMAIL`** — **undocumented in `.env.example`** but all admin exception/failover/engagement alerts route here and **silently drop if unset** (`worker/jobs/AdminExceptionWorker.ts:121`, `worker/background/pollers/NotificationFailoverPoller.ts:172`, `worker/jobs/EngagementAlertWorker.ts:227`). Highest-risk hidden var. **→ ✅ Code-side closed (#156): now documented + boot-hardened in `.env.example`; setting the real prod value remains an ops step.**
-5. 🟡 **Set `CONTACT_NOTIFY_TO`** — undocumented; contact/demo/lead emails silently fall back to a personal Gmail (`src/app/api/contact/route.ts:8`, `demo-request/route.ts:8`, `lead-intake/route.ts:145`). **→ ✅ Code-side closed (#156): now documented + boot-hardened in `.env.example`; prod value remains ops.**
+5. 🟡 **Set `CONTACT_NOTIFY_TO`** — undocumented; contact/demo/lead emails silently fall back to a personal Gmail (`src/app/api/contact/route.ts:8`, `demo-request/route.ts:8`, `lead-intake/route.ts:145`). **→ ✅ Code-side closed (#156): documented in `.env.example`. (Correction 2026-06-11: unlike `ADMIN_NOTIFICATION_EMAIL`, this key is NOT boot-asserted in `startup-assert.ts` — setting the real prod value remains an ops step with no boot guard.)**
 6. **External drills from `docs/launch-checklist.md` (can't verify from repo):**
    - PITR restore drill never run (🔴).
    - Email auth (DKIM/SPF/DMARC) unconfirmed — the approval email loop *is* the product (🔴).
@@ -73,7 +73,7 @@ Most are **ops/config (set in Vercel + Railway)**, not code:
 ## 🟠 P1 — Before paying customers
 
 - 🟡 **`SENTRY_DSN` blank** in both env files — Sentry fully wired (`src/instrumentation.ts`, `worker/sentry.ts`) but silently no-ops; prod errors untracked. **→ ✅ Key now documented in `.env.example` (#156); providing the real DSN is an ops step.**
-- 🟡 **Cost circuit-breakers undocumented** — `DAILY_COST_LIMIT_CENTS_FOUNDING/STANDARD/PREMIUM` (500/1000/2000¢) + `GLOBAL_DAILY_COST_LIMIT_CENTS` (10000¢) have code defaults but aren't in `.env.example`. Set consciously before live LLM calls. **→ ✅ `FOUNDING`, `STANDARD`, and `GLOBAL` now documented in `.env.example`; `DAILY_COST_LIMIT_CENTS_PREMIUM` is still missing from the example.**
+- 🟡 **Cost circuit-breakers undocumented** — `DAILY_COST_LIMIT_CENTS_FOUNDING/STANDARD/PREMIUM` (500/1000/2000¢) + `GLOBAL_DAILY_COST_LIMIT_CENTS` (10000¢) have code defaults but aren't in `.env.example`. Set consciously before live LLM calls. **→ ✅ All four keys (`FOUNDING`, `STANDARD`, `PREMIUM`, `GLOBAL`) now documented in `.env.example:175-178` (re-verified 2026-06-11).**
 - 🟡 **`STRIPE_PRICE_FOUNDING` + all `STRIPE_PRICE_*`** must be set before flipping `SELF_SERVE_SIGNUP_ENABLED`, or checkout/webhook silently mishandles tiers (`create-checkout-session.ts`, `subscription-updated.ts`). **→ ✅ All `STRIPE_PRICE_*` (+ `_OVERAGE`) keys now documented in `.env.example`; live values remain ops.**
 - 🟡 **`IMPERSONATION_COOKIE_SECRET`** required before admin "view-as" works (fails closed). `openssl rand -hex 32`. **→ ✅ Documented in `.env.example` (#156); generating/setting the secret is ops.**
 - 🟡 **`LIST_UNSUBSCRIBE_EMAIL` unset** → marketing emails fail Gmail/Outlook bulk-sender compliance (`src/lib/notifications/email/headers.ts:65`). **→ ✅ Documented + boot-hardened in `.env.example` (#156); value remains ops.**
@@ -83,7 +83,7 @@ Most are **ops/config (set in Vercel + Railway)**, not code:
 
 ## 🟡 P2 — Before scale / GA polish
 
-- ✅ **Railway IaC added (#154)** — `railway.toml` now lives in repo (`builder = "NIXPACKS"`, `startCommand = "pnpm worker"`, `healthcheckPath = "/api/health"`, supervised `ON_FAILURE` restart policy) so config survives project recreation. `vercel.json` intentionally deferred — no route needs a timeout above plan defaults yet.
+- ✅ **Railway IaC added (#154)** — `railway.toml` now lives in repo (`builder = "RAILPACK"` — was NIXPACKS at audit time, changed post-audit; `startCommand = "pnpm worker"`, `healthcheckPath = "/api/health"`, supervised `ON_FAILURE` restart policy) so config survives project recreation. `vercel.json` intentionally deferred — no route needs a timeout above plan defaults yet.
 - **`TEST_DATABASE_POOL_URL` not in CI** → cross-tenant RLS isolation test (`src/__tests__/tenant-isolation.test.ts`) and 13 Playwright E2E tests never run in the PR gate. Strongest correctness guarantee, currently dark. *(Still outstanding — CI wiring not yet added.)*
 - ✅ **PII in `console.log`** — *FIXED (#152):* `contact`/`demo-request` routes now log only sanitized metadata (lengths/flags, no PII), and all four schedulers (`OnboardingDripScheduler.ts`, `WeeklySummaryScheduler.ts`, `MonthlyImpactScheduler.ts`, `StripeLocationsReconcilePoller.ts`) use `createWorkerLogger`.
 - ✅ **`docs/runbooks/rollback.md` added (#154)** — full rollback runbook now in repo (was: only the Zernio kill-switch documented in the beta plan §10.5).
@@ -143,7 +143,7 @@ Worktrees under `.claude/worktrees/` backed these three (all clean) + a `tracker
 
 - **Pricing page** — Basic/Standard/Premium cards hardcoded `'Coming soon'` + disabled; only Founders claimable (`src/app/(public)/pricing/PricingContent.tsx`). Intentional waitlist mode; flip when those tiers open. *(Unchanged — by design.)*
 - **SMS owner self-enrollment** — admin widget exists; owner-facing widget hardcoded "coming soon" regardless of `CHANNELS_SMS_ENABLED` (`ChannelsClient.tsx`). *(Unchanged — intentional post-launch; honest "coming soon" row.)*
-- **Admin Zernio panel** — no force-drain/dismiss buttons for stuck reconnect-queue responses (`ZernioConnectionPanel.tsx`). *(Still outstanding — TODO present.)*
+- ✅ **Admin Zernio panel** — no force-drain/dismiss buttons for stuck reconnect-queue responses (`ZernioConnectionPanel.tsx`). *(→ ✅ DONE: `POST /api/admin/businesses/[id]/zernio-queue` ships force-drain + per-row dismiss with audit logging; panel buttons added; `TODO(zernio)` removed. See part2 #23b.)*
 - **Signup wizard-complete signal** is a timestamp proxy that can false-positive (`src/app/api/auth/signup-status/route.ts`); planned `business_profile_completed_at` column. *(Still outstanding — no migration/column yet.)*
 - 4 `any` usages (all low-risk UI/Google Maps typing); 8 `eslint-disable` (all `exhaustive-deps`/`no-img-element`). No `debugger`, no `throw "not implemented"` in prod paths.
 
