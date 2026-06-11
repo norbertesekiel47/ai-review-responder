@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/nextjs';
 import { scrubSentryEvent } from '@/lib/shared/sentry-scrub';
+import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
 
 export const onRequestError = Sentry.captureRequestError;
 
@@ -27,16 +28,7 @@ export async function register() {
     // missing_price_config) when an overage price var is missing here. Surface
     // the config drift loudly instead of letting it masquerade as a code bug.
     if (process.env.STRIPE_SECRET_KEY) {
-      const REQUIRED_STRIPE_PRICE_VARS = [
-        'STRIPE_PRICE_BASIC',
-        'STRIPE_PRICE_FOUNDING',
-        'STRIPE_PRICE_STANDARD',
-        'STRIPE_PRICE_PREMIUM',
-        'STRIPE_PRICE_STANDARD_OVERAGE',
-        'STRIPE_PRICE_PREMIUM_OVERAGE',
-        'STRIPE_PRICE_FOUNDERS_OVERAGE',
-      ];
-      const missing = REQUIRED_STRIPE_PRICE_VARS.filter(
+      const missing = STRIPE_PRICE_ENV_VARS.filter(
         (name) => !process.env[name] || process.env[name]!.trim().length === 0,
       );
       if (missing.length > 0) {

@@ -163,13 +163,10 @@ const onboardingDemoWorker = new Worker(QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE, ha
 
 const updateStripeOverageWorker = new Worker(QUEUE_NAMES.UPDATE_STRIPE_OVERAGE, handleUpdateStripeOverage, { ...workerOpts, concurrency: 1 });
 
-// Single-consumer invariant: the operation-scoped Stripe idempotency keys assume
-// no two overage jobs for the same account run concurrently. concurrency:1 plus a
-// single Railway worker instance guarantees this. Assert it at boot so a future
-// workerOpts change can't silently break it.
-if (updateStripeOverageWorker.opts.concurrency !== 1) {
-  throw new Error('UpdateStripeOverageWorker must run with concurrency:1 (single-consumer idempotency invariant)');
-}
+// Single-consumer invariant: the operation-scoped Stripe idempotency keys
+// (overage-sync.ts) assume no two overage jobs for the same account run
+// concurrently. The explicit concurrency:1 literal above plus a single
+// Railway worker instance guarantees this — keep both.
 
 const stripeCheckoutReconcileWorker = new Worker<StripeCheckoutReconcilePayload>(
   QUEUE_NAMES.STRIPE_CHECKOUT_RECONCILE,

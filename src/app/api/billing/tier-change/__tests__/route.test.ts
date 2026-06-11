@@ -54,7 +54,10 @@ const { mockValidateTierChange } = vi.hoisted(() => ({
   mockValidateTierChange: vi.fn(),
 }));
 
-vi.mock('@/lib/accounts/tier-change', () => ({
+vi.mock('@/lib/accounts/tier-change', async (importOriginal) => ({
+  // applyTierChange runs REAL — it executes against the test's sql/stripe
+  // mocks, so the suite still exercises the full Stripe+DB orchestration.
+  ...(await importOriginal<typeof import('@/lib/accounts/tier-change')>()),
   validateTierChange: mockValidateTierChange,
 }));
 

@@ -353,7 +353,7 @@ export async function processRow(
 }
 
 export async function enqueueCsvImportStripeOverageUpdate(accountId: string): Promise<void> {
-  await enqueueStripeOverageRecompute(sql, accountId);
+  await sql.begin((tx) => enqueueStripeOverageRecompute(tx, accountId));
 }
 
 // ── Audit Log ─────────────────────────────────────────────────────────────

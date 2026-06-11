@@ -131,6 +131,7 @@ describe('UpdateStripeOverageWorker', () => {
       {
         quantity: 2, // 3 locations - 1 included = 2 overage
         proration_behavior: 'create_prorations',
+        metadata: { billing_role: 'overage' },
       },
       {
         idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_123:2:outbox:outbox-1:corr:corr-1',
@@ -397,7 +398,7 @@ describe('UpdateStripeOverageWorker', () => {
 
     expect(mockStripeSubscriptionItemsUpdate).toHaveBeenCalledWith(
       overageItemId,
-      { quantity: 2, proration_behavior: 'create_prorations' },
+      { quantity: 2, proration_behavior: 'create_prorations', metadata: { billing_role: 'overage' } },
       {
         idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_idem:2:outbox:outbox-1:corr:corr-1',
       },
@@ -414,7 +415,7 @@ describe('UpdateStripeOverageWorker', () => {
     // Same overage quantity computed from same location count
     expect(mockStripeSubscriptionItemsUpdate).toHaveBeenCalledWith(
       overageItemId,
-      { quantity: 2, proration_behavior: 'create_prorations' },
+      { quantity: 2, proration_behavior: 'create_prorations', metadata: { billing_role: 'overage' } },
       {
         idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_idem:2:outbox:outbox-1:corr:corr-1',
       },

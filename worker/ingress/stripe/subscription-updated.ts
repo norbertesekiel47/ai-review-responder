@@ -2,11 +2,8 @@ import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import { TIER_CONFIG, type SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
-import { tierForBasePriceId, overagePriceIdSet, basePriceIdSet } from '../../../src/lib/payments/price-tier-map';
-import {
-  findOverageItemMatch,
-  MUTATION_SAFE_OVERAGE_MATCHES,
-} from '../../../src/lib/payments/overage-item';
+import { tierForBasePriceId } from '../../../src/lib/payments/price-tier-map';
+import { resolveOverageItem } from '../../../src/lib/payments/overage-item';
 import { LOG_PREFIX, extractCustomerId } from './shared';
 
 export async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<void> {
@@ -23,7 +20,6 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
   }
 
   const items = sub.items?.data ?? [];
-  const overagePriceIds = overagePriceIdSet();
 
   // VAL-BILLING-009: resolve base item -> tier via the single-owner price map.
   // Resolve POSITIVELY (the item whose price maps to a tier) rather than
@@ -106,19 +102,15 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
     // — recognized by the account's STORED cents — keeps its quantity synced
     // instead of being zeroed when the env overage price has been rotated.
     // Descriptor-only (keyword) matches are not trusted for this write.
-    const overageMatch = findOverageItemMatch(items, {
-      overagePriceIds,
-      basePriceIds: new Set([...basePriceIdSet(), basePriceId]),
+    const resolution = resolveOverageItem(items, {
       storedOveragePriceCents: Number(acctRow.locations_overage_price_cents),
     });
-    const overageMatchTrusted =
-      overageMatch !== undefined && MUTATION_SAFE_OVERAGE_MATCHES.has(overageMatch.matchedBy);
-    if (overageMatch && !overageMatchTrusted) {
+    if (resolution.kind === 'untrusted') {
       console.warn(
-        `${LOG_PREFIX} descriptor-only overage match (item ${overageMatch.item.id}) for account ${acctRow.id} — treating as no overage item`,
+        `${LOG_PREFIX} descriptor-only overage match (item ${resolution.item.id}) for account ${acctRow.id} — treating as no overage item`,
       );
     }
-    const locationsPaid = overageMatchTrusted ? overageMatch.item.quantity ?? 0 : 0;
+    const locationsPaid = resolution.kind === 'trusted' ? resolution.item.quantity ?? 0 : 0;
 
     const tierChanged = acctRow.subscription_tier !== tier;
     const locationsPaidChanged = acctRow.locations_paid !== locationsPaid;

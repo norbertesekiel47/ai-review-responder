@@ -1,6 +1,5 @@
 import Stripe from 'stripe';
-import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '../../../src/lib/db/server';
+import { sql } from '../../../src/lib/db/server';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { LOG_PREFIX, extractCustomerId, maybeEnqueueBackfillResume } from './shared';
 import { enqueueStripeOverageRecompute } from '../../../src/lib/shared/job-outbox-helpers';

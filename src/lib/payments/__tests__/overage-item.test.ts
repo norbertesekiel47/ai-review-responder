@@ -1,12 +1,45 @@
 import Stripe from 'stripe';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  findOverageItem,
-  findOverageItemMatch,
-  MUTATION_SAFE_OVERAGE_MATCHES,
+  resolveOverageItem,
+  overageItemMutationParams,
   OVERAGE_BILLING_ROLE,
-  type FindOverageItemOptions,
 } from '../overage-item';
+
+// ---------------------------------------------------------------------------
+// Env stubs — the module reads the price-ID sets itself (call-time env, same
+// semantics as price-tier-map). Tests stub env exactly as price-tier-map's
+// own tests do.
+// ---------------------------------------------------------------------------
+
+const ENV_KEYS = [
+  'STRIPE_PRICE_BASIC',
+  'STRIPE_PRICE_STANDARD',
+  'STRIPE_PRICE_PREMIUM',
+  'STRIPE_PRICE_FOUNDING',
+  'STRIPE_PRICE_STANDARD_OVERAGE',
+  'STRIPE_PRICE_PREMIUM_OVERAGE',
+  'STRIPE_PRICE_FOUNDERS_OVERAGE',
+] as const;
+
+const savedEnv: Record<string, string | undefined> = {};
+
+beforeEach(() => {
+  for (const key of ENV_KEYS) {
+    savedEnv[key] = process.env[key];
+    delete process.env[key];
+  }
+  // Default fixtures: one env overage ID and one env base ID.
+  process.env.STRIPE_PRICE_STANDARD_OVERAGE = 'price_env_overage';
+  process.env.STRIPE_PRICE_STANDARD = 'price_base';
+});
+
+afterEach(() => {
+  for (const key of ENV_KEYS) {
+    if (savedEnv[key] === undefined) delete process.env[key];
+    else process.env[key] = savedEnv[key];
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Fixture builder
@@ -19,6 +52,7 @@ function makeItem({
   lookup_key,
   nickname,
   metadata,
+  itemMetadata,
 }: {
   id: string;
   priceId: string;
@@ -26,6 +60,7 @@ function makeItem({
   lookup_key?: string;
   nickname?: string;
   metadata?: Record<string, string>;
+  itemMetadata?: Record<string, string>;
 }): Stripe.SubscriptionItem {
   return {
     id,
@@ -54,252 +89,186 @@ function makeItem({
     } as unknown as Stripe.Price,
     quantity: 1,
     created: 0,
-    metadata: {},
+    metadata: itemMetadata ?? {},
     subscription: 'sub_test',
   } as unknown as Stripe.SubscriptionItem;
 }
 
+const OPTS = { storedOveragePriceCents: 2500 };
+
+function resolvedItem(items: Stripe.SubscriptionItem[], opts = OPTS) {
+  const res = resolveOverageItem(items, opts);
+  return res.kind === 'none' ? undefined : res.item;
+}
+
 // ---------------------------------------------------------------------------
-// Tests
+// Matching heuristics (selection semantics)
 // ---------------------------------------------------------------------------
 
-describe('findOverageItem', () => {
-  const defaultOptions = {
-    overagePriceIds: new Set<string>(),
-    basePriceIds: new Set<string>(),
-    storedOveragePriceCents: 0,
-  };
-
-  // -------------------------------------------------------------------------
-  // Env price-ID match
-  // -------------------------------------------------------------------------
-
+describe('resolveOverageItem — selection', () => {
   it('matches by env overage price ID', () => {
-    const item = makeItem({ id: 'si_overage', priceId: 'price_overage_env' });
-    const found = findOverageItem([item], {
-      ...defaultOptions,
-      overagePriceIds: new Set(['price_overage_env']),
-    });
-    expect(found).toBe(item);
+    const item = makeItem({ id: 'si_1', priceId: 'price_env_overage' });
+    expect(resolvedItem([item])).toBe(item);
   });
 
-  it('returns undefined when price ID is not in overagePriceIds', () => {
-    const item = makeItem({ id: 'si_other', priceId: 'price_other' });
-    const found = findOverageItem([item], {
-      ...defaultOptions,
-      overagePriceIds: new Set(['price_different']),
-    });
-    expect(found).toBeUndefined();
+  it('resolves none when price ID is not in the env overage set and nothing else matches', () => {
+    const item = makeItem({ id: 'si_1', priceId: 'price_unrelated' });
+    expect(resolveOverageItem([item], { storedOveragePriceCents: 0 })).toEqual({ kind: 'none' });
   });
-
-  // -------------------------------------------------------------------------
-  // Keyword descriptor matches
-  // -------------------------------------------------------------------------
 
   it('matches by lookup_key containing "overage"', () => {
-    // Use a value where "overage" is a discrete word token so \b boundaries apply.
-    const item = makeItem({ id: 'si_1', priceId: 'price_1', lookup_key: 'overage location' });
-    const found = findOverageItem([item], defaultOptions);
-    expect(found).toBe(item);
+    const item = makeItem({ id: 'si_1', priceId: 'price_x', lookup_key: 'location overage' });
+    expect(resolvedItem([item])).toBe(item);
   });
 
   it('matches by nickname containing "additional"', () => {
-    const item = makeItem({ id: 'si_2', priceId: 'price_2', nickname: 'Additional Location' });
-    const found = findOverageItem([item], defaultOptions);
-    expect(found).toBe(item);
+    const item = makeItem({ id: 'si_1', priceId: 'price_x', nickname: 'additional locations' });
+    expect(resolvedItem([item])).toBe(item);
   });
 
-  it('matches by metadata.billing_role containing "extra"', () => {
-    const item = makeItem({ id: 'si_3', priceId: 'price_3', metadata: { billing_role: 'extra' } });
-    const found = findOverageItem([item], defaultOptions);
-    expect(found).toBe(item);
+  it('matches by price metadata.billing_role containing "extra"', () => {
+    const item = makeItem({ id: 'si_1', priceId: 'price_x', metadata: { billing_role: 'extra location' } });
+    expect(resolvedItem([item])).toBe(item);
   });
 
-  it('matches by metadata.role containing "add-on"', () => {
-    const item = makeItem({ id: 'si_4', priceId: 'price_4', metadata: { role: 'add-on' } });
-    const found = findOverageItem([item], defaultOptions);
-    expect(found).toBe(item);
+  it('matches by price metadata.role containing "add-on"', () => {
+    const item = makeItem({ id: 'si_1', priceId: 'price_x', metadata: { role: 'location add-on' } });
+    expect(resolvedItem([item])).toBe(item);
   });
 
   it('matches by nickname containing "addon" (no hyphen variant)', () => {
-    const item = makeItem({ id: 'si_5', priceId: 'price_5', nickname: 'addon plan' });
-    const found = findOverageItem([item], defaultOptions);
-    expect(found).toBe(item);
+    const item = makeItem({ id: 'si_1', priceId: 'price_x', nickname: 'location addon' });
+    expect(resolvedItem([item])).toBe(item);
   });
 
-  // -------------------------------------------------------------------------
-  // Unit-amount match — multi-item only
-  // -------------------------------------------------------------------------
-
   it('matches by unit_amount when more than one item is present', () => {
-    const base = makeItem({ id: 'si_base', priceId: 'price_base', unit_amount: 4900 });
-    const overage = makeItem({ id: 'si_overage', priceId: 'price_overage', unit_amount: 2500 });
-    const found = findOverageItem([base, overage], {
-      ...defaultOptions,
-      storedOveragePriceCents: 2500,
-    });
-    expect(found).toBe(overage);
+    const base = makeItem({ id: 'si_base', priceId: 'price_other', unit_amount: 4900 });
+    const overage = makeItem({ id: 'si_over', priceId: 'price_legacy', unit_amount: 2500 });
+    expect(resolvedItem([base, overage])).toBe(overage);
   });
 
   it('does NOT match by unit_amount for a single-item subscription', () => {
-    const item = makeItem({ id: 'si_only', priceId: 'price_only', unit_amount: 2500 });
-    const found = findOverageItem([item], {
-      ...defaultOptions,
-      storedOveragePriceCents: 2500,
-    });
-    expect(found).toBeUndefined();
+    const only = makeItem({ id: 'si_only', priceId: 'price_legacy', unit_amount: 2500 });
+    expect(resolveOverageItem([only], OPTS)).toEqual({ kind: 'none' });
   });
-
-  // -------------------------------------------------------------------------
-  // Base-exclusion runs FIRST
-  // -------------------------------------------------------------------------
 
   it('never selects the base item even when its unit_amount collides with stored overage cents', () => {
     const base = makeItem({ id: 'si_base', priceId: 'price_base', unit_amount: 2500 });
-    const found = findOverageItem([base], {
-      overagePriceIds: new Set<string>(),
-      basePriceIds: new Set(['price_base']),
-      storedOveragePriceCents: 2500,
-    });
-    expect(found).toBeUndefined();
+    expect(resolveOverageItem([base], OPTS)).toEqual({ kind: 'none' });
   });
 
   it('excludes base item by ID even in a multi-item subscription with unit_amount collision', () => {
     const base = makeItem({ id: 'si_base', priceId: 'price_base', unit_amount: 2500 });
-    const unrelated = makeItem({ id: 'si_other', priceId: 'price_other', unit_amount: 9900 });
-    // Two items but the only one matching storedOveragePriceCents is the base — still excluded
-    const found = findOverageItem([base, unrelated], {
-      overagePriceIds: new Set<string>(),
-      basePriceIds: new Set(['price_base']),
-      storedOveragePriceCents: 2500,
-    });
-    expect(found).toBeUndefined();
+    const other = makeItem({ id: 'si_other', priceId: 'price_other', unit_amount: 9900 });
+    expect(resolveOverageItem([base, other], OPTS)).toEqual({ kind: 'none' });
   });
 
   it('excludes a base item even when its descriptor matches an overage keyword', () => {
-    // Proves base-exclusion runs BEFORE the keyword heuristic: a future refactor that
-    // reorders these two checks would wrongly return the base item and this test catches it.
-    const base = makeItem({ id: 'si_base', priceId: 'price_base', nickname: 'overage seats' });
-    const found = findOverageItem([base], {
-      overagePriceIds: new Set<string>(),
-      basePriceIds: new Set(['price_base']),
-      storedOveragePriceCents: 0,
-    });
-    expect(found).toBeUndefined();
+    const base = makeItem({ id: 'si_base', priceId: 'price_base', nickname: 'standard plan with extra perks' });
+    expect(resolveOverageItem([base], OPTS)).toEqual({ kind: 'none' });
   });
 
   it('returns the real overage item when a base item with an overage keyword coexists with it', () => {
-    // Multi-item variant: base-exclusion must filter the base item first so the
-    // keyword scan then correctly identifies the non-base overage item.
-    const base = makeItem({ id: 'si_base', priceId: 'price_base', nickname: 'overage seats' });
-    const realOverage = makeItem({ id: 'si_overage', priceId: 'price_overage', nickname: 'extra location' });
-    const found = findOverageItem([base, realOverage], {
-      overagePriceIds: new Set<string>(),
-      basePriceIds: new Set(['price_base']),
-      storedOveragePriceCents: 0,
-    });
-    expect(found).toBe(realOverage);
+    const base = makeItem({ id: 'si_base', priceId: 'price_base', nickname: 'plan with extra perks' });
+    const overage = makeItem({ id: 'si_over', priceId: 'price_env_overage' });
+    expect(resolvedItem([base, overage])).toBe(overage);
   });
 
-  // -------------------------------------------------------------------------
-  // Returns undefined when nothing matches
-  // -------------------------------------------------------------------------
-
-  it('returns undefined for an empty item list', () => {
-    const found = findOverageItem([], defaultOptions);
-    expect(found).toBeUndefined();
+  it('resolves none for an empty item list', () => {
+    expect(resolveOverageItem([], OPTS)).toEqual({ kind: 'none' });
   });
 
-  it('returns undefined when no item matches any heuristic', () => {
-    const item = makeItem({ id: 'si_1', priceId: 'price_1', unit_amount: 9900, nickname: 'Base Plan' });
-    const found = findOverageItem([item], {
-      ...defaultOptions,
-      storedOveragePriceCents: 9900,
-      // single item → unit-amount guard prevents match
-    });
-    expect(found).toBeUndefined();
+  it('resolves none when no item matches any heuristic', () => {
+    const a = makeItem({ id: 'si_a', priceId: 'price_a', unit_amount: 1100, nickname: 'support' });
+    const b = makeItem({ id: 'si_b', priceId: 'price_b', unit_amount: 9900 });
+    expect(resolveOverageItem([a, b], OPTS)).toEqual({ kind: 'none' });
   });
+});
 
-  // -------------------------------------------------------------------------
-  // Priority: env-ID > keyword > unit-amount
-  // -------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Priority ordering
+// ---------------------------------------------------------------------------
 
+describe('resolveOverageItem — priority', () => {
   it('prefers env-ID match over keyword match', () => {
-    const byKeyword = makeItem({ id: 'si_keyword', priceId: 'price_kw', nickname: 'overage' });
+    const byKeyword = makeItem({ id: 'si_kw', priceId: 'price_kw', lookup_key: 'extra seat' });
     const byEnvId = makeItem({ id: 'si_env', priceId: 'price_env_overage' });
-    const found = findOverageItem([byKeyword, byEnvId], {
-      overagePriceIds: new Set(['price_env_overage']),
-      basePriceIds: new Set<string>(),
-      storedOveragePriceCents: 0,
-    });
-    expect(found).toBe(byEnvId);
+    expect(resolvedItem([byKeyword, byEnvId])).toBe(byEnvId);
   });
 
   it('prefers env-ID match over unit-amount match', () => {
     const byUnitAmount = makeItem({ id: 'si_unit', priceId: 'price_unit', unit_amount: 2500 });
     const byEnvId = makeItem({ id: 'si_env', priceId: 'price_env_overage', unit_amount: 9900 });
-    // Two items so unit-amount guard passes
-    const found = findOverageItem([byUnitAmount, byEnvId], {
-      overagePriceIds: new Set(['price_env_overage']),
-      basePriceIds: new Set<string>(),
-      storedOveragePriceCents: 2500,
-    });
-    expect(found).toBe(byEnvId);
+    expect(resolvedItem([byUnitAmount, byEnvId])).toBe(byEnvId);
   });
 
-  it('prefers unit-amount match (high confidence) over keyword match (low confidence)', () => {
+  it('prefers unit-amount match (trusted) over keyword match (untrusted)', () => {
     const byUnitAmount = makeItem({ id: 'si_unit', priceId: 'price_unit', unit_amount: 2500 });
-    // Use a space-separated keyword so \b word boundaries fire correctly.
+    // Space-separated keyword so \b word boundaries fire correctly.
     const byKeyword = makeItem({ id: 'si_kw', priceId: 'price_kw', lookup_key: 'extra seat', unit_amount: 9900 });
     // The stored-cents match is the account's own grandfathered snapshot — a
     // strictly stronger signal than a nickname keyword. Mutating callers rely
-    // on this ordering: descriptor-only matches are refused for writes.
-    const found = findOverageItem([byUnitAmount, byKeyword], {
-      overagePriceIds: new Set<string>(),
-      basePriceIds: new Set<string>(),
-      storedOveragePriceCents: 2500,
-    });
-    expect(found).toBe(byUnitAmount);
+    // on this ordering: untrusted matches are refused for writes.
+    expect(resolvedItem([byUnitAmount, byKeyword])).toBe(byUnitAmount);
   });
 });
 
-describe('findOverageItemMatch — confidence labels', () => {
-  const opts = (over: Partial<FindOverageItemOptions> = {}): FindOverageItemOptions => ({
-    overagePriceIds: new Set<string>(),
-    basePriceIds: new Set<string>(),
-    storedOveragePriceCents: 2500,
-    ...over,
+// ---------------------------------------------------------------------------
+// Confidence kinds — the contract mutating callers depend on
+// ---------------------------------------------------------------------------
+
+describe('resolveOverageItem — confidence kinds', () => {
+  it('labels an env price-ID match trusted (price_id)', () => {
+    const item = makeItem({ id: 'si_env', priceId: 'price_env_overage', unit_amount: 9900 });
+    expect(resolveOverageItem([item], OPTS)).toEqual({ kind: 'trusted', item, matchedBy: 'price_id' });
   });
 
-  it('labels an env price-ID match as price_id', () => {
-    const item = makeItem({ id: 'si_env', priceId: 'price_env', unit_amount: 9900 });
-    const match = findOverageItemMatch([item], opts({ overagePriceIds: new Set(['price_env']) }));
-    expect(match).toEqual({ item, matchedBy: 'price_id' });
-    expect(MUTATION_SAFE_OVERAGE_MATCHES.has(match!.matchedBy)).toBe(true);
+  it('labels an item-metadata billing_role=overage match trusted (metadata_role)', () => {
+    const stamped = makeItem({
+      id: 'si_meta',
+      priceId: 'price_x',
+      unit_amount: 9900,
+      itemMetadata: { billing_role: OVERAGE_BILLING_ROLE },
+    });
+    const other = makeItem({ id: 'si_other', priceId: 'price_y' });
+    expect(resolveOverageItem([stamped, other], OPTS)).toEqual({
+      kind: 'trusted',
+      item: stamped,
+      matchedBy: 'metadata_role',
+    });
   });
 
-  it('labels an item-metadata billing_role=overage match as metadata_role (mutation-safe)', () => {
-    const stamped = makeItem({ id: 'si_meta', priceId: 'price_x', unit_amount: 9900 });
-    stamped.metadata = { billing_role: OVERAGE_BILLING_ROLE };
-    const match = findOverageItemMatch([stamped, makeItem({ id: 'si_other', priceId: 'price_y' })], opts());
-    expect(match).toEqual({ item: stamped, matchedBy: 'metadata_role' });
-    expect(MUTATION_SAFE_OVERAGE_MATCHES.has(match!.matchedBy)).toBe(true);
-  });
-
-  it('labels a stored-cents match as unit_amount (mutation-safe)', () => {
+  it('labels a stored-cents match trusted (unit_amount)', () => {
     const legacy = makeItem({ id: 'si_legacy', priceId: 'price_old', unit_amount: 2500 });
     const base = makeItem({ id: 'si_base', priceId: 'price_base', unit_amount: 4900 });
-    const match = findOverageItemMatch([base, legacy], opts({ basePriceIds: new Set(['price_base']) }));
-    expect(match).toEqual({ item: legacy, matchedBy: 'unit_amount' });
-    expect(MUTATION_SAFE_OVERAGE_MATCHES.has(match!.matchedBy)).toBe(true);
+    expect(resolveOverageItem([base, legacy], OPTS)).toEqual({
+      kind: 'trusted',
+      item: legacy,
+      matchedBy: 'unit_amount',
+    });
   });
 
-  it('labels a keyword-only match as descriptor and excludes it from mutation-safe set', () => {
+  it('labels a keyword-only match UNTRUSTED (descriptor) — mutating callers must refuse it', () => {
     const addOn = makeItem({ id: 'si_addon', priceId: 'price_addon', lookup_key: 'extra seat', unit_amount: 9900 });
     const other = makeItem({ id: 'si_other', priceId: 'price_other', unit_amount: 1100 });
-    const match = findOverageItemMatch([addOn, other], opts());
-    expect(match).toEqual({ item: addOn, matchedBy: 'descriptor' });
-    // The contract mutating callers depend on: descriptor is NEVER mutation-safe.
-    expect(MUTATION_SAFE_OVERAGE_MATCHES.has('descriptor')).toBe(false);
+    expect(resolveOverageItem([addOn, other], OPTS)).toEqual({
+      kind: 'untrusted',
+      item: addOn,
+      matchedBy: 'descriptor',
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mutation params builder
+// ---------------------------------------------------------------------------
+
+describe('overageItemMutationParams', () => {
+  it('always carries the billing_role stamp and proration', () => {
+    expect(overageItemMutationParams(3)).toEqual({
+      quantity: 3,
+      proration_behavior: 'create_prorations',
+      metadata: { billing_role: OVERAGE_BILLING_ROLE },
+    });
   });
 });

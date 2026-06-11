@@ -284,16 +284,16 @@ export async function enqueueSendNotification(
  * of this enqueue shape — used by location add/archive/reactivate, admin CSV
  * import, and the Stripe webhook recovery paths. The worker recomputes the
  * quantity from committed state, so a redundant enqueue is harmless
- * convergence. Call with the surrounding transaction whenever the enqueue
- * follows a state change (transactional-outbox invariant); the CSV-import
- * caller passes the base client by pre-existing design.
+ * convergence. Takes the surrounding transaction — like every enqueue helper
+ * in this file, the TxClient parameter IS the transactional-outbox invariant
+ * expressed as a type.
  */
 export async function enqueueStripeOverageRecompute(
-  exec: TxClient | postgres.Sql,
+  tx: TxClient,
   accountId: string,
   correlationId?: string,
 ): Promise<void> {
-  await exec`
+  await tx`
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
     VALUES (
       ${uuidv7()},

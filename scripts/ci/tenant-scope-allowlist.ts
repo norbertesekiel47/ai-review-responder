@@ -103,7 +103,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
   },
   {
-    file: "src/app/api/billing/tier-change/route.ts",
+    file: "src/lib/accounts/tier-change.ts",
     table: "accounts",
     sqlSnippet: "SELECT stripe_subscription_id, subscription_tier, locations_overage_price_cents FROM accounts WHERE id = ${accountId}::uuid",
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",

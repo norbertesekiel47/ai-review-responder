@@ -9,7 +9,7 @@
 
 import Stripe from 'stripe';
 import { isSubscriptionTier, TIER_CONFIG } from '../../../../src/lib/accounts/tier-config';
-import { findOverageItem } from '../../../../src/lib/payments/overage-item';
+import { resolveOverageItem } from '../../../../src/lib/payments/overage-item';
 import {
   compareUpcomingInvoice,
   isExpectedStatusWindow,
@@ -35,8 +35,6 @@ export interface AccountReconcileOutcome {
 export async function reconcileAccount(
   stripe: Stripe,
   account: AccountWithLocations,
-  overagePriceIds: Set<string>,
-  basePriceIds: Set<string>,
 ): Promise<AccountReconcileOutcome> {
   const drifts: DriftAlertPayload[] = [];
   let errors = 0;
@@ -154,11 +152,12 @@ export async function reconcileAccount(
     });
   }
 
-  const overageItem = findOverageItem(subscription.items?.data ?? [], {
-    overagePriceIds,
-    basePriceIds,
+  // Read-only drift detection deliberately accepts ANY confidence, including
+  // untrusted descriptor matches — flagging is exactly what this poller is for.
+  const overageResolution = resolveOverageItem(subscription.items?.data ?? [], {
     storedOveragePriceCents: expectedInvoice.overageUnitPriceCents,
   });
+  const overageItem = overageResolution.kind === 'none' ? undefined : overageResolution.item;
   const stripeOverageQuantity = overageItem?.quantity ?? 0;
 
   const subscriptionItems = subscription.items?.data ?? [];

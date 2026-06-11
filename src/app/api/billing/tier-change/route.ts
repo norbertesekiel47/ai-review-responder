@@ -1,8 +1,9 @@
 // src/app/api/billing/tier-change/route.ts
 //
 // POST /api/billing/tier-change — Changes the account's subscription tier.
-// Uses Stripe's subscription item update to swap the base price and
-// recalculate overage. Validates via validateTierChange before proceeding.
+// Parses + authorizes the request, calls validateTierChange / applyTierChange
+// (src/lib/accounts/tier-change.ts owns the tier-change concept), and maps
+// outcomes to HTTP. No business logic lives here.
 //
 // VAL-BILLING-073: Tier change UI renders downgrade confirmation modal
 // with new billing summary.
@@ -12,18 +13,13 @@ import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getOffboardingState, isBillingMutationBlocked } from '@/lib/account-offboarding/gate';
-import { sql, jsonb } from '@/lib/db/server';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
-import { validateTierChange } from '@/lib/accounts/tier-change';
-import { isSubscriptionTier, type SubscriptionTierValue, TIER_CONFIG } from '@/lib/accounts/tier-config';
-import { getAccountOwnerUserId } from '@/lib/accounts/repo';
-import { getStripe } from '@/lib/payments/stripe-client';
-import { basePriceIdForTier, basePriceIdSet, overagePriceIdForTier, overagePriceIdSet } from '@/lib/payments/price-tier-map';
 import {
-  findOverageItemMatch,
-  MUTATION_SAFE_OVERAGE_MATCHES,
-  OVERAGE_BILLING_ROLE,
-} from '@/lib/payments/overage-item';
+  validateTierChange,
+  applyTierChange,
+  type TierChangeFailureCode,
+} from '@/lib/accounts/tier-change';
+import { isSubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
@@ -40,22 +36,20 @@ const TierChangeSchema = z.object({
   preview: z.boolean().optional().default(false),
 });
 
-// ── Price ID reverse map ──────────────────────────────────────────────────
-
-function configuredBasePriceIds(): Set<string> {
-  return basePriceIdSet();
-}
-
-function configuredOveragePriceIds(): Set<string> {
-  return overagePriceIdSet();
-}
-
 function normalizeIdempotencyKey(raw: string | null): string {
   const source = raw && raw.trim().length > 0 ? raw.trim() : uuidv7();
   const safe = source.replace(/[^a-zA-Z0-9_-]/g, '-');
   if (safe.length > 0 && safe.length <= 96) return safe;
   return createHash('sha256').update(source).digest('hex');
 }
+
+const FAILURE_STATUS: Record<TierChangeFailureCode, number> = {
+  no_stripe_subscription: 400,
+  missing_price_config: 500,
+  base_item_not_found: 500,
+  ambiguous_overage_item: 500,
+  tier_change_failed: 502,
+};
 
 // ── Handler ─────────────────────────────────────────────────────────────────
 
@@ -97,9 +91,7 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Validate the tier change
   const validation = await validateTierChange(accountId, tier);
-
   if (!validation.allowed) {
     return NextResponse.json(
       { error: validation.reason ?? 'tier_change_not_allowed' },
@@ -119,204 +111,28 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Get the account's Stripe subscription ID
-  const [account] = await sql<{
-    stripe_subscription_id: string | null;
-    subscription_tier: string;
-    locations_overage_price_cents: number;
-  }[]>`
-    SELECT stripe_subscription_id, subscription_tier, locations_overage_price_cents
-    FROM accounts
-    WHERE id = ${accountId}::uuid
-  `;
-
-  if (!account?.stripe_subscription_id) {
-    return NextResponse.json(
-      { error: 'no_stripe_subscription', detail: 'Account has no active Stripe subscription' },
-      { status: 400, headers: NO_STORE_HEADERS },
-    );
-  }
-
-  const newBasePriceId = basePriceIdForTier(tier);
-  if (!newBasePriceId) {
-    return NextResponse.json(
-      { error: 'missing_price_config', detail: `No Stripe price configured for tier: ${tier}` },
-      { status: 500, headers: NO_STORE_HEADERS },
-    );
-  }
-
-  const newConfig = TIER_CONFIG[tier];
-  const newOverageUnits = validation.newBillingPreview?.overageUnits ?? 0;
-  const actorUserId = await getAccountOwnerUserId(accountId);
-  const operationKey = normalizeIdempotencyKey(req.headers.get('Idempotency-Key'));
-  const stripeOptions = (step: string) => ({
-    idempotencyKey: `tier-change:${accountId}:${operationKey}:${step}`,
+  const outcome = await applyTierChange({
+    accountId,
+    tier,
+    newOverageUnits: validation.newBillingPreview?.overageUnits ?? 0,
+    operationKey: normalizeIdempotencyKey(req.headers.get('Idempotency-Key')),
   });
 
-  try {
-    const stripe = getStripe();
-
-    // Retrieve the current subscription to find the base item ID
-    const subscription = await stripe.subscriptions.retrieve(account.stripe_subscription_id);
-
-    const basePriceIds = configuredBasePriceIds();
-    const overagePriceIds = configuredOveragePriceIds();
-
-    // Only configured base price IDs are safe to mutate. Quantity-based
-    // fallbacks can match setup fees, credits, or legacy add-ons.
-    const baseItem = subscription.items.data.find((item) => basePriceIds.has(item.price.id));
-    if (!baseItem) {
-      return NextResponse.json(
-        { error: 'base_item_not_found', detail: 'Could not identify the base subscription item' },
-        { status: 500, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    // Single owner of the overage-item predicate. Base items are excluded first,
-    // so this can never return baseItem and never grabs an arbitrary non-base
-    // item (setup fees, credits, legacy add-ons) the way the old fallback did.
-    const overageMatch = findOverageItemMatch(subscription.items.data, {
-      overagePriceIds,
-      basePriceIds,
-      storedOveragePriceCents: account.locations_overage_price_cents,
-    });
-
-    // A descriptor-only (keyword) match is enough to flag an item, never enough
-    // to delete or re-price it. Fail closed BEFORE any Stripe mutation; ops
-    // resolves by stamping metadata.billing_role on the real overage item.
-    if (overageMatch && !MUTATION_SAFE_OVERAGE_MATCHES.has(overageMatch.matchedBy)) {
-      return NextResponse.json(
-        {
-          error: 'ambiguous_overage_item',
-          detail: `Subscription item ${overageMatch.item.id} matched only by ${overageMatch.matchedBy}; refusing to modify it`,
-        },
-        { status: 500, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    const overageItem = overageMatch?.item;
-
-    // Resolve whether this tier change needs an overage line and its env price
-    // BEFORE the first Stripe mutation. If the target tier requires overage but
-    // its env price is unconfigured, fail closed — otherwise the base price would
-    // be swapped first and the overage step silently no-op'd, leaving the account
-    // on the new tier with no overage line (under-billing) or a stale one.
-    const needsOverage =
-      newConfig.overageCents > 0 && newConfig.multiLocAllowed && newOverageUnits > 0;
-    const overagePriceId = overagePriceIdForTier(tier);
-    if (needsOverage && !overagePriceId) {
-      return NextResponse.json(
-        { error: 'missing_price_config', detail: `No Stripe overage price configured for tier: ${tier}` },
-        { status: 500, headers: NO_STORE_HEADERS },
-      );
-    }
-
-    // Stripe is updated before the local DB row. If the DB transaction below
-    // fails after these calls, the client receives a retryable 502 and Stripe
-    // webhooks remain the reconciliation path back into accounts.subscription_tier.
-    // Keep operationKey stable across retries so reruns can safely complete the
-    // local DB/audit update without double-applying Stripe changes.
-    // Stripe will prorate automatically.
-    await stripe.subscriptionItems.update(baseItem.id, {
-      price: newBasePriceId,
-      proration_behavior: 'create_prorations',
-    }, stripeOptions('base'));
-
-    // Handle overage item:
-    // - If overage units remain, update/create the overage item with quantity.
-    //   A tier change is a deliberate re-pricing event, so re-pricing the overage
-    //   item to the target tier's env price is intentional here (unlike the
-    //   reconciliation worker, which grandfathers legacy prices).
-    // - If overage drops to zero or the tier has no overage, remove stale items.
-    if (needsOverage) {
-      // overagePriceId is non-null here (validated above before any mutation).
-      // The billing_role stamp makes the item exactly matchable forever,
-      // independent of price rotations and descriptors — and migrates legacy
-      // (pre-stamp) items to the authoritative marker on their next tier change.
-      if (overageItem) {
-        await stripe.subscriptionItems.update(overageItem.id, {
-          price: overagePriceId!,
-          quantity: newOverageUnits,
-          proration_behavior: 'create_prorations',
-          metadata: { billing_role: OVERAGE_BILLING_ROLE },
-        }, stripeOptions('overage-update'));
-      } else {
-        await stripe.subscriptionItems.create({
-          subscription: account.stripe_subscription_id,
-          price: overagePriceId!,
-          quantity: newOverageUnits,
-          proration_behavior: 'create_prorations',
-          metadata: { billing_role: OVERAGE_BILLING_ROLE },
-        }, stripeOptions('overage-create'));
-      }
-    } else if (overageItem) {
-      await stripe.subscriptionItems.del(overageItem.id, {}, stripeOptions('overage-delete'));
-    }
-
-    await sql.begin(async (tx) => {
-      await tx`
-        SELECT id
-        FROM accounts
-        WHERE id = ${accountId}::uuid
-        FOR UPDATE
-      `;
-
-      // Update the accounts row immediately. This is the PRIMARY writer for a
-      // tier change — it must snapshot ALL tier-derived billing columns from
-      // TIER_CONFIG, not just tier + included. The Stripe webhook is only a
-      // defense-in-depth confirmation, and it re-snapshots base_price_cents /
-      // locations_included via `CASE WHEN tierChanged`; because this UPDATE
-      // commits the new tier first, the webhook sees tierChanged=false and
-      // skips that branch. So base_price_cents and locations_overage_price_cents
-      // would never update unless we write them here, leaving e.g. a Premium
-      // account billed against the Standard base price (snapshot/margin/invoice
-      // reconciliation drift). Mirrors the snapshot written at select-plan/signup.
-      await tx`
-        UPDATE accounts
-        SET subscription_tier = ${tier},
-            locations_included = ${newConfig.included},
-            locations_overage_price_cents = ${newConfig.overageCents},
-            base_price_cents = ${newConfig.baseCents},
-            updated_at = NOW()
-        WHERE id = ${accountId}::uuid
-      `;
-
-      // Insert audit log
-      await tx`
-        INSERT INTO account_audit_log (
-          id, account_id, event_type, actor_user_id, payload
-        ) VALUES (
-          ${uuidv7()}::uuid,
-          ${accountId}::uuid,
-          'tier_changed',
-          ${actorUserId ?? null}::uuid,
-          ${jsonb({
-            old_tier: account.subscription_tier,
-            new_tier: tier,
-            new_base_price_cents: newConfig.baseCents,
-            new_overage_price_cents: newConfig.overageCents,
-            idempotency_key: operationKey,
-          })}
-        )
-      `;
-    });
-
+  if (!outcome.ok) {
     return NextResponse.json(
-      {
-        success: true,
-        newTier: tier,
-        newBilling: validation.newBillingPreview,
-      },
-      { status: 200, headers: NO_STORE_HEADERS },
-    );
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[billing/tier-change] Failed for account=${accountId}: ${message}`);
-    return NextResponse.json(
-      { error: 'tier_change_failed', detail: 'Unable to change subscription tier. Please try again later.' },
-      { status: 502, headers: NO_STORE_HEADERS },
+      { error: outcome.code, detail: outcome.detail },
+      { status: FAILURE_STATUS[outcome.code], headers: NO_STORE_HEADERS },
     );
   }
+
+  return NextResponse.json(
+    {
+      success: true,
+      newTier: tier,
+      newBilling: validation.newBillingPreview,
+    },
+    { status: 200, headers: NO_STORE_HEADERS },
+  );
 }
 
 export const POST = withSameOrigin()(changeBillingTier);
