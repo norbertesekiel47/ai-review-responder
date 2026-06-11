@@ -25,15 +25,19 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   if (gate.kind === 'no_account') return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   const accountId = gate.accountId;
 
-  const result = await disableWhatsAppEnrollment(sql, accountId);
+  // Disconnect cascades: the org-default disable AND every per-location
+  // override disable (plus their audit rows) commit in one transaction.
+  const result = await sql.begin((tx) =>
+    disableWhatsAppEnrollment(tx, { accountId, actorUserId: user.id }),
+  );
 
   const noStore = { 'Cache-Control': 'no-store, private' };
   if (result.kind === 'not_found') {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: noStore });
   }
 
-  // Invalidate channel cache — the disabled channel must be removed from
-  // the dispatch resolution immediately.
+  // Invalidate channel cache AFTER the tx commits — the disabled channel must
+  // be removed from the dispatch resolution immediately.
   await safeInvalidateChannelCache(asAccountId(accountId), 'dashboard.whatsapp.disable');
 
   return NextResponse.json({ ok: true }, { headers: noStore });

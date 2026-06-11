@@ -1,5 +1,11 @@
 // src/lib/channels/__tests__/telegram-enrollment.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { WriteAccountAuditLogInput } from '@/lib/audit/log';
+
+const mockWriteAccountAuditLog = vi.fn(async (_input: WriteAccountAuditLogInput) => {});
+vi.mock('@/lib/audit/log', () => ({
+  writeAccountAuditLog: (input: WriteAccountAuditLogInput) => mockWriteAccountAuditLog(input),
+}));
 
 // Module-under-test imports go below the mock.
 const mockTx = vi.fn();
@@ -204,33 +210,118 @@ describe('cancelTelegramEnrollment', () => {
 });
 
 describe('disableTelegramEnrollment', () => {
-  it('returns ok when UPDATE affects rows', async () => {
-    const sql = vi.fn().mockResolvedValue([{ id: 'row-1' }]);
+  beforeEach(() => {
+    mockWriteAccountAuditLog.mockClear();
+  });
+
+  // Call 0 = org-default UPDATE (location_id IS NULL); call 1 = override UPDATE.
+  function makeDisableTx(orgDefaultRows: unknown[], overrideRows: unknown[]): ReturnType<typeof makeTx> {
+    const tx = makeTx();
+    tx.mockResolvedValueOnce(orgDefaultRows);
+    tx.mockResolvedValueOnce(overrideRows);
+    return tx;
+  }
+
+  it('returns ok when only the org-default UPDATE affects rows', async () => {
+    const tx = makeDisableTx([{ id: 'row-1' }], []);
     const { disableTelegramEnrollment } = await import('../telegram-enrollment');
-    const result = await disableTelegramEnrollment(sql as never, 'acct-1');
+    const result = await disableTelegramEnrollment(tx as never, { accountId: 'acct-1' });
     expect(result.kind).toBe('ok');
   });
 
-  it('returns not_found when UPDATE affects 0 rows', async () => {
-    const sql = vi.fn().mockResolvedValue([]);
+  it('returns not_found only when BOTH the org-default and override UPDATEs affect 0 rows', async () => {
+    const tx = makeDisableTx([], []);
     const { disableTelegramEnrollment } = await import('../telegram-enrollment');
-    const result = await disableTelegramEnrollment(sql as never, 'acct-1');
+    const result = await disableTelegramEnrollment(tx as never, { accountId: 'acct-1' });
     expect(result.kind).toBe('not_found');
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });
 
-  it('SQL sets status = disabled, handle = NULL, filters by account_id + location_id IS NULL', async () => {
-    const sql = vi.fn().mockResolvedValue([{ id: 'row-1' }]);
+  it('cascades + audits overrides even when the org-default is already disabled (0 org rows)', async () => {
+    const tx = makeDisableTx([], [{ id: 'ov-1', location_id: 'loc-1' }, { id: 'ov-2', location_id: 'loc-2' }]);
     const { disableTelegramEnrollment } = await import('../telegram-enrollment');
-    await disableTelegramEnrollment(sql as never, 'acct-1');
-    const firstCall = sql.mock.calls[0];
-    expect(firstCall).toBeDefined();
-    const sqlText = (firstCall![0] as TemplateStringsArray).join('?');
-    expect(sqlText).toContain("status = 'disabled'");
-    expect(sqlText).toContain('handle = NULL');
-    expect(sqlText).toContain('account_id =');
-    expect(sqlText).toContain('location_id IS NULL');
-    expect(sqlText).toContain("channel = 'telegram'");
-    expect(sqlText).toContain("status = 'verified'");
-    expect(sqlText).toContain('archived_at IS NULL');
+    const result = await disableTelegramEnrollment(tx as never, { accountId: 'acct-1' });
+    expect(result.kind).toBe('ok'); // something changed → NOT 404
+
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(2);
+    const inputs = mockWriteAccountAuditLog.mock.calls.map((call) => call[0]);
+    expect(inputs.map((input) => input.eventType)).toEqual(['channel_override_disabled', 'channel_override_disabled']);
+    expect(inputs.map((input) => input.locationId)).toEqual(['loc-1', 'loc-2']);
+  });
+
+  it('full cascade: audits the org-default AND each override row', async () => {
+    const tx = makeDisableTx([{ id: 'org-1' }], [{ id: 'ov-1', location_id: 'loc-1' }, { id: 'ov-2', location_id: 'loc-2' }]);
+    const { disableTelegramEnrollment } = await import('../telegram-enrollment');
+    const result = await disableTelegramEnrollment(tx as never, {
+      accountId: 'acct-1',
+      actorUserId: 'user-9',
+      ip: '1.2.3.4',
+      userAgent: 'jest',
+      requestId: 'req-7',
+    });
+    expect(result.kind).toBe('ok');
+
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(3);
+    const calls = mockWriteAccountAuditLog.mock.calls.map((call) => call[0]);
+
+    const orgDefaultAudit = calls.find((input) => input.eventType === 'channel_disabled');
+    expect(orgDefaultAudit).toBeDefined();
+    expect(orgDefaultAudit!.locationId).toBeNull();
+    expect(orgDefaultAudit!.actorUserId).toBe('user-9');
+
+    const overrideAudits = calls.filter((input) => input.eventType === 'channel_override_disabled');
+    expect(overrideAudits).toHaveLength(2);
+    expect(overrideAudits.map((input) => input.locationId)).toEqual(['loc-1', 'loc-2']);
+    expect(overrideAudits[0]!.entityType).toBe('channel_enrollment');
+    expect(overrideAudits[0]!.entityId).toBe('ov-1');
+    expect(overrideAudits[0]!.payload).toEqual({ channel: 'telegram' });
+
+    // actor context threads through to the audit writes
+    for (const input of calls) {
+      expect(input.actorUserId).toBe('user-9');
+      expect(input.ip).toBe('1.2.3.4');
+      expect(input.userAgent).toBe('jest');
+      expect(input.requestId).toBe('req-7');
+    }
+  });
+
+  it('org-default UPDATE sets status=disabled, handle=NULL, filters account_id + location_id IS NULL', async () => {
+    const tx = makeDisableTx([{ id: 'row-1' }], []);
+    const { disableTelegramEnrollment } = await import('../telegram-enrollment');
+    await disableTelegramEnrollment(tx as never, { accountId: 'acct-1' });
+    const orgSql = (tx.mock.calls[0]?.[0] as TemplateStringsArray).join('?');
+    expect(orgSql).toContain("status = 'disabled'");
+    expect(orgSql).toContain('handle = NULL');
+    expect(orgSql).toContain('account_id =');
+    expect(orgSql).toContain('location_id IS NULL');
+    expect(orgSql).toContain("channel = 'telegram'");
+    expect(orgSql).toContain("status = 'verified'");
+    expect(orgSql).toContain('archived_at IS NULL');
+  });
+
+  it('override cascade UPDATE filters account_id + location_id IS NOT NULL + verified', async () => {
+    const tx = makeDisableTx([], [{ id: 'ov-1', location_id: 'loc-1' }]);
+    const { disableTelegramEnrollment } = await import('../telegram-enrollment');
+    await disableTelegramEnrollment(tx as never, { accountId: 'acct-1' });
+    const overrideSql = (tx.mock.calls[1]?.[0] as TemplateStringsArray).join('?');
+    expect(overrideSql).toContain('account_id =');
+    expect(overrideSql).toContain('location_id IS NOT NULL');
+    expect(overrideSql).toContain("channel = 'telegram'");
+    expect(overrideSql).toContain("status = 'verified'");
+    expect(overrideSql).toContain('archived_at IS NULL');
+    expect(overrideSql).toContain('location_id'); // RETURNING id, location_id
+  });
+
+  it('no enroll/verify path re-enables override rows on reconnect (absence assertion)', async () => {
+    // Reconnect = startTelegramEnrollment, which only touches the org-default
+    // (location_id IS NULL) row. It must NEVER emit an UPDATE that flips an
+    // override (location_id IS NOT NULL) row back to verified/pending.
+    const tx = makeTx();
+    tx.mockResolvedValueOnce([]); // SELECT
+    tx.mockResolvedValueOnce([]); // INSERT
+    const { startTelegramEnrollment } = await import('../telegram-enrollment');
+    await startTelegramEnrollment(tx as never, 'biz-1', 'acct-1', 'a'.repeat(64), new Date());
+    const allSql = tx.mock.calls.map((call) => (call[0] as TemplateStringsArray).join('?')).join('\n');
+    expect(allSql).not.toContain('location_id IS NOT NULL');
   });
 });

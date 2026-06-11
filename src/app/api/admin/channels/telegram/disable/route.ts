@@ -16,19 +16,22 @@ async function disableTelegram(req: NextRequest): Promise<NextResponse> {
 
   const resolved = await resolveAdminChannelAccount(req);
   if (!resolved.ok) return resolved.response;
-  const { accountId } = resolved;
+  const { accountId, actorUserId } = resolved;
 
   const noStore = { 'Cache-Control': 'no-store, private' };
 
-  // disableTelegramEnrollment is account-scoped (org-default row,
-  // location_id IS NULL), so it is keyed by the resolved account.
-  const result = await disableTelegramEnrollment(sql, accountId);
+  // disableTelegramEnrollment is account-scoped: it disables the org-default
+  // row AND cascades to every per-location override (with audit rows) in one
+  // transaction.
+  const result = await sql.begin((tx) =>
+    disableTelegramEnrollment(tx, { accountId, actorUserId }),
+  );
   if (result.kind === 'not_found') {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: noStore });
   }
 
-  // Invalidate channel cache — the disabled channel must be removed from
-  // the dispatch resolution immediately.
+  // Invalidate channel cache AFTER the tx commits — the disabled channel must
+  // be removed from the dispatch resolution immediately.
   await safeInvalidateChannelCache(asAccountId(accountId), 'admin.telegram.disable');
 
   return NextResponse.json({ ok: true }, { headers: noStore });

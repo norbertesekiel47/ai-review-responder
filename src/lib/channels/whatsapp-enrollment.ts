@@ -7,6 +7,8 @@
 
 import { v7 as uuidv7 } from 'uuid';
 import { classifyEnrollmentError } from './unique-violation';
+import type { DisableEnrollmentInput } from './telegram-enrollment';
+import { writeAccountAuditLog } from '@/lib/audit/log';
 
 // Postgres.js TransactionSql / Sql types return a PendingQuery that carries
 // extra properties beyond a plain Promise. Using `unknown` return type lets
@@ -109,15 +111,19 @@ export async function cancelWhatsAppEnrollment(
 }
 
 /**
- * Owner/admin disconnect. Flips verified → disabled, clears handle.
- * No sql.begin, no advisory lock. Returns not_found if no verified row matched.
- * Mirrors disableTelegramEnrollment.
+ * Owner/admin disconnect of the WhatsApp channel. Disables the org-default row
+ * AND cascades to every per-location override for the account+channel, writing
+ * an audit row per changed enrollment — all in the caller's transaction.
+ * Mirrors disableTelegramEnrollment; see its doc for the cascade + reconnect
+ * (no auto-re-enable of overrides) semantics. Caller MUST pass a `sql.begin` tx.
  */
 export async function disableWhatsAppEnrollment(
-  sql: TxLike,
-  accountId: string,
+  tx: TxLike,
+  input: DisableEnrollmentInput,
 ): Promise<{ kind: 'ok' | 'not_found' }> {
-  const updated = (await sql`
+  const { accountId } = input;
+
+  const orgDefaultRows = (await tx`
     UPDATE channel_enrollments
     SET status = 'disabled',
         handle = NULL,
@@ -130,5 +136,55 @@ export async function disableWhatsAppEnrollment(
       AND archived_at IS NULL
     RETURNING id
   `) as Array<{ id: string }>;
-  return updated.length > 0 ? { kind: 'ok' } : { kind: 'not_found' };
+
+  const overrideRows = (await tx`
+    UPDATE channel_enrollments
+    SET status = 'disabled',
+        handle = NULL,
+        disabled_at = NOW(),
+        updated_at = NOW()
+    WHERE account_id = ${accountId}
+      AND channel = 'whatsapp'
+      AND status = 'verified'
+      AND location_id IS NOT NULL
+      AND archived_at IS NULL
+    RETURNING id, location_id
+  `) as Array<{ id: string; location_id: string }>;
+
+  for (const _row of orgDefaultRows) {
+    await writeAccountAuditLog(
+      {
+        accountId,
+        locationId: null,
+        actorUserId: input.actorUserId ?? null,
+        eventType: 'channel_disabled',
+        payload: { channel: 'whatsapp' },
+        ip: input.ip ?? null,
+        userAgent: input.userAgent ?? null,
+        requestId: input.requestId ?? null,
+      },
+      tx as never,
+    );
+  }
+
+  for (const row of overrideRows) {
+    await writeAccountAuditLog(
+      {
+        accountId,
+        locationId: row.location_id,
+        actorUserId: input.actorUserId ?? null,
+        eventType: 'channel_override_disabled',
+        payload: { channel: 'whatsapp' },
+        entityType: 'channel_enrollment',
+        entityId: row.id,
+        ip: input.ip ?? null,
+        userAgent: input.userAgent ?? null,
+        requestId: input.requestId ?? null,
+      },
+      tx as never,
+    );
+  }
+
+  const changed = orgDefaultRows.length + overrideRows.length;
+  return changed > 0 ? { kind: 'ok' } : { kind: 'not_found' };
 }

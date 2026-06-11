@@ -11,17 +11,20 @@ import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 
 export type AdminChannelAccount =
-  | { ok: true; businessId: string; accountId: string }
+  | { ok: true; businessId: string; accountId: string; actorUserId: string | null }
   | { ok: false; response: NextResponse };
 
 /**
  * Authenticates the admin caller, reads `businessId` from the JSON body, and
- * resolves the owning account_id. Returns the inline Response on any failure
- * (auth error, missing businessId → 400, unknown business → 404).
+ * resolves the owning account_id. Also surfaces the admin's user id as
+ * `actorUserId` for audit attribution. Returns the inline Response on any
+ * failure (auth error, missing businessId → 400, unknown business → 404).
  */
 export async function resolveAdminChannelAccount(req: NextRequest): Promise<AdminChannelAccount> {
+  let actorUserId: string | null = null;
   try {
-    await requireRole(req, 'admin');
+    const admin = await requireRole(req, 'admin');
+    actorUserId = admin.id;
   } catch (e) {
     if (e instanceof AuthError) {
       return { ok: false, response: NextResponse.json({ error: e.message }, { status: e.statusCode }) };
@@ -42,5 +45,5 @@ export async function resolveAdminChannelAccount(req: NextRequest): Promise<Admi
     return { ok: false, response: NextResponse.json({ error: 'not_found' }, { status: 404 }) };
   }
 
-  return { ok: true, businessId, accountId: acctRow.account_id };
+  return { ok: true, businessId, accountId: acctRow.account_id, actorUserId };
 }

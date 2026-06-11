@@ -1,18 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const sqlQueue: unknown[] = [];
-const sqlCalls: Array<{ raw: string; values: unknown[] }> = [];
-vi.mock('@/lib/db/server', () => ({
-  sql: async (strings: TemplateStringsArray, ...values: unknown[]) => {
-    sqlCalls.push({ raw: Array.isArray(strings) ? strings.join('?') : '', values });
-    const next = sqlQueue.shift();
+const { sqlQueue, sqlCalls, consume } = vi.hoisted(() => {
+  const q: unknown[] = [];
+  const calls: Array<{ raw: string; values: unknown[] }> = [];
+  const c = async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    calls.push({ raw: Array.isArray(strings) ? strings.join('?') : '', values });
+    const next = q.shift();
     return Array.isArray(next) ? next : [];
-  },
+  };
+  return { sqlQueue: q, sqlCalls: calls, consume: c };
+});
+vi.mock('@/lib/db/server', () => ({
+  // The disable route now wraps the cascade in sql.begin; the tx shares the
+  // same recording tagged-template fn so every UPDATE/audit INSERT is captured
+  // in sqlCalls and pulls from sqlQueue in order.
+  sql: Object.assign(consume, { begin: async (fn: (tx: unknown) => Promise<unknown>) => fn(consume) }),
   jsonb: (v: unknown) => v,
 }));
 
 vi.mock('@/lib/db/auth', () => ({
-  requireRole: vi.fn(async () => ({ userId: 'admin-1', role: 'admin' })),
+  requireRole: vi.fn(async () => ({ id: 'admin-1', role: 'admin' })),
   AuthError: class extends Error {},
 }));
 

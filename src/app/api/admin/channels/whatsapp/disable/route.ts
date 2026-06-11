@@ -20,20 +20,23 @@ async function disableWhatsApp(req: NextRequest): Promise<NextResponse> {
 
   const resolved = await resolveAdminChannelAccount(req);
   if (!resolved.ok) return resolved.response;
-  const { accountId } = resolved;
+  const { accountId, actorUserId } = resolved;
 
   // M6: no-store for consistency across admin whatsapp routes.
   const noStore = { 'Cache-Control': 'no-store, private' };
 
-  // disableWhatsAppEnrollment is account-scoped (org-default row,
-  // location_id IS NULL), so it is keyed by the resolved account.
-  const result = await disableWhatsAppEnrollment(sql, accountId);
+  // disableWhatsAppEnrollment is account-scoped: it disables the org-default
+  // row AND cascades to every per-location override (with audit rows) in one
+  // transaction.
+  const result = await sql.begin((tx) =>
+    disableWhatsAppEnrollment(tx, { accountId, actorUserId }),
+  );
   if (result.kind === 'not_found') {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: noStore });
   }
 
-  // Invalidate channel cache — the disabled channel must be removed from
-  // the dispatch resolution immediately.
+  // Invalidate channel cache AFTER the tx commits — the disabled channel must
+  // be removed from the dispatch resolution immediately.
   await safeInvalidateChannelCache(asAccountId(accountId), 'admin.whatsapp.disable');
 
   return NextResponse.json({ ok: true }, { headers: noStore });

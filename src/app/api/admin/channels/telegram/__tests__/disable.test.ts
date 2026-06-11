@@ -1,16 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const sqlQueue: unknown[] = [];
-vi.mock('@/lib/db/server', () => ({
-  sql: async () => {
-    const next = sqlQueue.shift();
+const { sqlQueue, consume } = vi.hoisted(() => {
+  const q: unknown[] = [];
+  const c = async () => {
+    const next = q.shift();
     return Array.isArray(next) ? next : [];
-  },
+  };
+  return { sqlQueue: q, consume: c };
+});
+vi.mock('@/lib/db/server', () => ({
+  // The disable route now wraps the cascade in sql.begin; the tx shares the
+  // same queued-result tagged-template fn so every UPDATE/audit INSERT pulls
+  // from sqlQueue in order.
+  sql: Object.assign(consume, { begin: async (fn: (tx: unknown) => Promise<unknown>) => fn(consume) }),
   jsonb: (v: unknown) => v,
 }));
 
 vi.mock('@/lib/db/auth', () => ({
-  requireRole: vi.fn(async () => ({ userId: 'admin-1', role: 'admin' })),
+  requireRole: vi.fn(async () => ({ id: 'admin-1', role: 'admin' })),
   AuthError: class extends Error {},
 }));
 
