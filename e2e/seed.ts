@@ -560,9 +560,13 @@ export async function seedLocationReview(input: {
   const contentHash = createHash('sha256').update(reviewId).digest('hex');
 
   await sql.begin(async (tx) => {
+    // Sentiment columns mirror classifySentiment (deterministic_star_v1) for
+    // star 4: score (4-3)/2 = 0.5, label 'positive'. Review-content write
+    // sites populate sentiment (repo convention); values are inlined because
+    // seed.ts is raw-SQL-only and does not import from src/.
     await tx`
-      INSERT INTO reviews (id, business_id, provider, provider_review_id, provider_review_name, provider_location_name, reviewer_name, star_rating, review_text, review_date, detected_language, review_content_hash, status)
-      VALUES (${reviewId}, ${input.businessId}, 'test', ${reviewId}, ${'test://review/' + reviewId}, ${'test://location/' + input.businessId}, 'E2E Reviewer', 4, ${input.marker + ' — great experience, would come again!'}, NOW(), 'en', ${contentHash}, 'pending_approval')
+      INSERT INTO reviews (id, business_id, provider, provider_review_id, provider_review_name, provider_location_name, reviewer_name, star_rating, review_text, review_date, detected_language, review_content_hash, status, sentiment_score, sentiment_label, sentiment_source)
+      VALUES (${reviewId}, ${input.businessId}, 'test', ${reviewId}, ${'test://review/' + reviewId}, ${'test://location/' + input.businessId}, 'E2E Reviewer', 4, ${input.marker + ' — great experience, would come again!'}, NOW(), 'en', ${contentHash}, 'pending_approval', 0.5, 'positive', 'deterministic_star_v1')
     `;
     await tx`
       INSERT INTO responses (id, review_id, business_id, response_text, response_language, version, status, original_draft_text, llm_provider, llm_model, prompt_tokens, completion_tokens)

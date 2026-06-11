@@ -59,6 +59,7 @@ Assertion source: `worker/config/startup-assert.ts`.
 | `E2E_OWNER_EMAIL` | — | Confirmed owner login on the test Supabase, used by the owner-login E2E specs (`e2e/remaining-scenarios`, `e2e/edit-replies-runbook`). Specs skip when unset. Never hardcode in spec files. |
 | `E2E_OWNER_PASSWORD` | — | Password for `E2E_OWNER_EMAIL`. Server/test-only; never committed. |
 | `E2E_DATABASE_URL` | — | Optional Postgres URL for the raw-`psql` E2E fixtures; falls back to `TEST_DATABASE_POOL_URL` when unset. |
+| `FIXTURE_ACCOUNT_ID` | `fixture-account-1` | Test-only: Zernio account id the fake fixture-server launcher (`e2e/fixtures/serve.ts`) reports for its locations. Override to match the seeded `zernio_connections.zernio_account_id` in the multi-location full-loop runbook. Never read by production code. |
 
 ---
 

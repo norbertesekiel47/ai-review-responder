@@ -130,6 +130,11 @@ pnpm exec tsx e2e/fixtures/serve.ts
 # → prints e.g.  ZERNIO_API_BASE=http://127.0.0.1:54xxx
 ```
 
+The launcher reports its locations under the Zernio account id
+`FIXTURE_ACCOUNT_ID` (default `fixture-account-1`) — set it to the
+`zernio_account_id` your seed step uses so webhook fan-out matches the
+seeded `zernio_connections` rows.
+
 Export that URL as `ZERNIO_API_BASE` for the worker (terminal B) and the control
 terminal (C). Reviews are seeded in step 4c via `POST /__control/reviews`;
 recorded replies are readable at `GET /__control/replies` (step 4f.4) and
