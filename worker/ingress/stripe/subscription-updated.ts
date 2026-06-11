@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import type postgres from 'postgres';
 import { sql } from '../../../src/lib/db/server';
 import { TIER_CONFIG, type SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
@@ -101,62 +102,84 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
     // Shared matcher (4th consumer): a grandfathered legacy-priced overage item
     // — recognized by the account's STORED cents — keeps its quantity synced
     // instead of being zeroed when the env overage price has been rotated.
-    // Descriptor-only (keyword) matches are not trusted for this write.
-    const resolution = resolveOverageItem(items, {
-      storedOveragePriceCents: Number(acctRow.locations_overage_price_cents),
-    });
-    if (resolution.kind === 'untrusted') {
-      console.warn(
-        `${LOG_PREFIX} descriptor-only overage match (item ${resolution.item.id}) for account ${acctRow.id} — treating as no overage item`,
-      );
-    }
-    const locationsPaid = resolution.kind === 'trusted' ? resolution.item.quantity ?? 0 : 0;
+    const locationsPaid = trustedOverageQuantity(items, acctRow);
 
-    const tierChanged = acctRow.subscription_tier !== tier;
-    const locationsPaidChanged = acctRow.locations_paid !== locationsPaid;
-
-    // Update accounts (source of truth)
-    await tx`
-      UPDATE accounts
-      SET
-        subscription_tier = ${tier},
-        locations_paid = ${locationsPaid},
-        locations_included = CASE WHEN ${tierChanged} THEN ${TIER_CONFIG[tier].included} ELSE locations_included END,
-        locations_overage_price_cents = CASE WHEN ${tierChanged} THEN ${TIER_CONFIG[tier].overageCents} ELSE locations_overage_price_cents END,
-        base_price_cents = CASE WHEN ${tierChanged} THEN ${TIER_CONFIG[tier].baseCents} ELSE base_price_cents END,
-        updated_at = NOW()
-      WHERE id = ${acctRow.id}::uuid
-    `;
-
-    // VAL-LOC-029 / VAL-LOC-058: audit only real changes. Setting locationsPaid
-    // only when it changed lets the guard below skip no-op deliveries entirely.
-    const auditPayload: Record<string, unknown> = {};
-    if (tierChanged) {
-      auditPayload.fromTier = acctRow.subscription_tier;
-      auditPayload.toTier = tier;
-    }
-    if (locationsPaidChanged) {
-      auditPayload.locationsPaid = locationsPaid;
-    }
-
-    if (Object.keys(auditPayload).length > 0) {
-      await writeAccountAuditLog(
-        {
-          accountId: acctRow.id,
-          eventType: 'subscription_updated',
-          payload: auditPayload,
-        },
-        tx,
-      );
-    }
-
-    // Also update businesses deprecated column
-    await tx`
-      UPDATE businesses
-      SET subscription_tier = ${tier}, updated_at = NOW()
-      WHERE account_id = ${acctRow.id}::uuid
-    `;
-
-    console.log(`${LOG_PREFIX} Account ${acctRow.id} tier updated to ${tier}, locations_paid=${locationsPaid}`);
+    await applyAccountSubscriptionUpdate(tx, acctRow, tier, locationsPaid);
   });
+}
+
+/**
+ * Overage quantity from the shared resolver. Descriptor-only (keyword)
+ * matches are not trusted for this write — treated as no overage item.
+ */
+function trustedOverageQuantity(
+  items: Stripe.SubscriptionItem[],
+  acctRow: { id: string; locations_overage_price_cents: number },
+): number {
+  const resolution = resolveOverageItem(items, {
+    storedOveragePriceCents: Number(acctRow.locations_overage_price_cents),
+  });
+  if (resolution.kind === 'untrusted') {
+    console.warn(
+      `${LOG_PREFIX} descriptor-only overage match (item ${resolution.item.id}) for account ${acctRow.id} — treating as no overage item`,
+    );
+  }
+  return resolution.kind === 'trusted' ? resolution.item.quantity ?? 0 : 0;
+}
+
+/**
+ * Writes the tier + locations_paid sync: accounts (source of truth), the
+ * change-only audit row, and the deprecated businesses compat column.
+ */
+async function applyAccountSubscriptionUpdate(
+  tx: postgres.TransactionSql,
+  acctRow: { id: string; subscription_tier: string; locations_paid: number },
+  tier: SubscriptionTierValue,
+  locationsPaid: number,
+): Promise<void> {
+  const tierChanged = acctRow.subscription_tier !== tier;
+  const locationsPaidChanged = acctRow.locations_paid !== locationsPaid;
+
+  await tx`
+    UPDATE accounts
+    SET
+      subscription_tier = ${tier},
+      locations_paid = ${locationsPaid},
+      locations_included = CASE WHEN ${tierChanged} THEN ${TIER_CONFIG[tier].included} ELSE locations_included END,
+      locations_overage_price_cents = CASE WHEN ${tierChanged} THEN ${TIER_CONFIG[tier].overageCents} ELSE locations_overage_price_cents END,
+      base_price_cents = CASE WHEN ${tierChanged} THEN ${TIER_CONFIG[tier].baseCents} ELSE base_price_cents END,
+      updated_at = NOW()
+    WHERE id = ${acctRow.id}::uuid
+  `;
+
+  // VAL-LOC-029 / VAL-LOC-058: audit only real changes. Setting locationsPaid
+  // only when it changed lets the dispatch guard skip no-op deliveries entirely.
+  const auditPayload: Record<string, unknown> = {};
+  if (tierChanged) {
+    auditPayload.fromTier = acctRow.subscription_tier;
+    auditPayload.toTier = tier;
+  }
+  if (locationsPaidChanged) {
+    auditPayload.locationsPaid = locationsPaid;
+  }
+
+  if (Object.keys(auditPayload).length > 0) {
+    await writeAccountAuditLog(
+      {
+        accountId: acctRow.id,
+        eventType: 'subscription_updated',
+        payload: auditPayload,
+      },
+      tx,
+    );
+  }
+
+  // Also update businesses deprecated column
+  await tx`
+    UPDATE businesses
+    SET subscription_tier = ${tier}, updated_at = NOW()
+    WHERE account_id = ${acctRow.id}::uuid
+  `;
+
+  console.log(`${LOG_PREFIX} Account ${acctRow.id} tier updated to ${tier}, locations_paid=${locationsPaid}`);
 }

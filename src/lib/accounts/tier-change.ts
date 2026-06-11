@@ -144,6 +144,124 @@ type OverageMutation =
   | { kind: 'none' };
 
 /**
+ * Resolves the FULL overage mutation before the first Stripe call. If the
+ * target tier requires overage but its env price is unconfigured, fail
+ * closed — otherwise the base price would be swapped first and the overage
+ * step silently no-op'd (under-billing or a stale line). Constructing
+ * 'update'/'create' requires the price ID, so a missing price is
+ * unrepresentable past this point. A tier change is a deliberate re-pricing
+ * event, so re-pricing the overage item to the target tier's env price is
+ * intentional here (unlike the recompute worker, which grandfathers legacy
+ * prices). An untrusted (descriptor-only keyword) match is enough to flag an
+ * item, never enough to delete or re-price it — fail closed; ops resolves by
+ * stamping metadata.billing_role on the real item.
+ */
+function planOverageMutation(input: {
+  items: Parameters<typeof resolveOverageItem>[0];
+  storedOveragePriceCents: number;
+  tier: SubscriptionTierValue;
+  newOverageUnits: number;
+}): { plan: OverageMutation } | { failure: TierChangeOutcome & { ok: false } } {
+  const { items, storedOveragePriceCents, tier, newOverageUnits } = input;
+
+  const resolution = resolveOverageItem(items, { storedOveragePriceCents });
+  if (resolution.kind === 'untrusted') {
+    return {
+      failure: {
+        ok: false,
+        code: 'ambiguous_overage_item',
+        detail: `Subscription item ${resolution.item.id} matched only by ${resolution.matchedBy}; refusing to modify it`,
+      },
+    };
+  }
+  const overageItem = resolution.kind === 'trusted' ? resolution.item : undefined;
+
+  const newConfig = TIER_CONFIG[tier];
+  const needsOverage =
+    newConfig.overageCents > 0 && newConfig.multiLocAllowed && newOverageUnits > 0;
+  if (!needsOverage) {
+    return { plan: overageItem ? { kind: 'delete', itemId: overageItem.id } : { kind: 'none' } };
+  }
+
+  const overagePriceId = overagePriceIdForTier(tier);
+  if (!overagePriceId) {
+    return {
+      failure: {
+        ok: false,
+        code: 'missing_price_config',
+        detail: `No Stripe overage price configured for tier: ${tier}`,
+      },
+    };
+  }
+  return {
+    plan: overageItem
+      ? { kind: 'update', itemId: overageItem.id, priceId: overagePriceId, quantity: newOverageUnits }
+      : { kind: 'create', priceId: overagePriceId, quantity: newOverageUnits },
+  };
+}
+
+/**
+ * Snapshots the tier-derived billing columns + audit row in one transaction.
+ * This is the PRIMARY writer for a tier change — it must snapshot ALL
+ * tier-derived billing columns from TIER_CONFIG, not just tier + included.
+ * The Stripe webhook is only a defense-in-depth confirmation, and it
+ * re-snapshots base_price_cents / locations_included via `CASE WHEN
+ * tierChanged`; because this UPDATE commits the new tier first, the webhook
+ * sees tierChanged=false and skips that branch. So base_price_cents and
+ * locations_overage_price_cents would never update unless written here,
+ * leaving e.g. a Premium account billed against the Standard base price
+ * (snapshot/margin/invoice reconciliation drift). Mirrors the snapshot
+ * written at select-plan/signup.
+ */
+async function persistTierChangeTx(input: {
+  accountId: string;
+  tier: SubscriptionTierValue;
+  oldTier: string;
+  actorUserId: string | null;
+  operationKey: string;
+}): Promise<void> {
+  const { accountId, tier, oldTier, actorUserId, operationKey } = input;
+  const newConfig = TIER_CONFIG[tier];
+
+  await sql.begin(async (tx) => {
+    await tx`
+      SELECT id
+      FROM accounts
+      WHERE id = ${accountId}::uuid
+      FOR UPDATE
+    `;
+
+    await tx`
+      UPDATE accounts
+      SET subscription_tier = ${tier},
+          locations_included = ${newConfig.included},
+          locations_overage_price_cents = ${newConfig.overageCents},
+          base_price_cents = ${newConfig.baseCents},
+          updated_at = NOW()
+      WHERE id = ${accountId}::uuid
+    `;
+
+    await tx`
+      INSERT INTO account_audit_log (
+        id, account_id, event_type, actor_user_id, payload
+      ) VALUES (
+        ${uuidv7()}::uuid,
+        ${accountId}::uuid,
+        'tier_changed',
+        ${actorUserId ?? null}::uuid,
+        ${jsonb({
+          old_tier: oldTier,
+          new_tier: tier,
+          new_base_price_cents: newConfig.baseCents,
+          new_overage_price_cents: newConfig.overageCents,
+          idempotency_key: operationKey,
+        })}
+      )
+    `;
+  });
+}
+
+/**
  * Executes a validated tier change: swaps the base item's price, applies the
  * overage mutation, then snapshots the tier-derived billing columns + audit
  * row in one DB transaction. Owner of the tier-change execution semantics
@@ -186,7 +304,6 @@ export async function applyTierChange(input: ApplyTierChangeInput): Promise<Tier
     };
   }
 
-  const newConfig = TIER_CONFIG[tier];
   const actorUserId = await getAccountOwnerUserId(accountId);
   const stripeOptions = (step: string) => ({
     idempotencyKey: `tier-change:${accountId}:${operationKey}:${step}`,
@@ -207,50 +324,14 @@ export async function applyTierChange(input: ApplyTierChangeInput): Promise<Tier
       };
     }
 
-    // Single owner of the overage-item predicate (base items excluded first).
-    const resolution = resolveOverageItem(subscription.items.data, {
+    const planned = planOverageMutation({
+      items: subscription.items.data,
       storedOveragePriceCents: account.locations_overage_price_cents,
+      tier,
+      newOverageUnits,
     });
-
-    // An untrusted (descriptor-only keyword) match is enough to flag an item,
-    // never enough to delete or re-price it. Fail closed BEFORE any Stripe
-    // mutation; ops resolves by stamping metadata.billing_role on the real item.
-    if (resolution.kind === 'untrusted') {
-      return {
-        ok: false,
-        code: 'ambiguous_overage_item',
-        detail: `Subscription item ${resolution.item.id} matched only by ${resolution.matchedBy}; refusing to modify it`,
-      };
-    }
-    const overageItem = resolution.kind === 'trusted' ? resolution.item : undefined;
-
-    // Resolve the FULL overage mutation before the first Stripe call. If the
-    // target tier requires overage but its env price is unconfigured, fail
-    // closed — otherwise the base price would be swapped first and the overage
-    // step silently no-op'd (under-billing or a stale line). Constructing
-    // 'update'/'create' requires the price ID, so a missing price is
-    // unrepresentable past this point. A tier change is a deliberate
-    // re-pricing event, so re-pricing the overage item to the target tier's
-    // env price is intentional here (unlike the recompute worker, which
-    // grandfathers legacy prices).
-    const needsOverage =
-      newConfig.overageCents > 0 && newConfig.multiLocAllowed && newOverageUnits > 0;
-    let overageMutation: OverageMutation;
-    if (needsOverage) {
-      const overagePriceId = overagePriceIdForTier(tier);
-      if (!overagePriceId) {
-        return {
-          ok: false,
-          code: 'missing_price_config',
-          detail: `No Stripe overage price configured for tier: ${tier}`,
-        };
-      }
-      overageMutation = overageItem
-        ? { kind: 'update', itemId: overageItem.id, priceId: overagePriceId, quantity: newOverageUnits }
-        : { kind: 'create', priceId: overagePriceId, quantity: newOverageUnits };
-    } else {
-      overageMutation = overageItem ? { kind: 'delete', itemId: overageItem.id } : { kind: 'none' };
-    }
+    if ('failure' in planned) return planned.failure;
+    const overageMutation = planned.plan;
 
     // Stripe will prorate automatically.
     await stripe.subscriptionItems.update(baseItem.id, {
@@ -282,51 +363,12 @@ export async function applyTierChange(input: ApplyTierChangeInput): Promise<Tier
         break;
     }
 
-    await sql.begin(async (tx) => {
-      await tx`
-        SELECT id
-        FROM accounts
-        WHERE id = ${accountId}::uuid
-        FOR UPDATE
-      `;
-
-      // Update the accounts row immediately. This is the PRIMARY writer for a
-      // tier change — it must snapshot ALL tier-derived billing columns from
-      // TIER_CONFIG, not just tier + included. The Stripe webhook is only a
-      // defense-in-depth confirmation, and it re-snapshots base_price_cents /
-      // locations_included via `CASE WHEN tierChanged`; because this UPDATE
-      // commits the new tier first, the webhook sees tierChanged=false and
-      // skips that branch. So base_price_cents and locations_overage_price_cents
-      // would never update unless we write them here, leaving e.g. a Premium
-      // account billed against the Standard base price (snapshot/margin/invoice
-      // reconciliation drift). Mirrors the snapshot written at select-plan/signup.
-      await tx`
-        UPDATE accounts
-        SET subscription_tier = ${tier},
-            locations_included = ${newConfig.included},
-            locations_overage_price_cents = ${newConfig.overageCents},
-            base_price_cents = ${newConfig.baseCents},
-            updated_at = NOW()
-        WHERE id = ${accountId}::uuid
-      `;
-
-      await tx`
-        INSERT INTO account_audit_log (
-          id, account_id, event_type, actor_user_id, payload
-        ) VALUES (
-          ${uuidv7()}::uuid,
-          ${accountId}::uuid,
-          'tier_changed',
-          ${actorUserId ?? null}::uuid,
-          ${jsonb({
-            old_tier: account.subscription_tier,
-            new_tier: tier,
-            new_base_price_cents: newConfig.baseCents,
-            new_overage_price_cents: newConfig.overageCents,
-            idempotency_key: operationKey,
-          })}
-        )
-      `;
+    await persistTierChangeTx({
+      accountId,
+      tier,
+      oldTier: account.subscription_tier,
+      actorUserId,
+      operationKey,
     });
 
     return { ok: true };
