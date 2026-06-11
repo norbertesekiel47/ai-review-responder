@@ -55,13 +55,14 @@ export async function getActiveDashboardData(
   ] = await Promise.all([
     // Business info + settings
     sql<DashboardBusinessRow[]>`
-      SELECT name, created_at, initial_review_count, initial_responded_count, baseline_captured_at,
-             tone, products_services, avoid_facts, sample_responses,
-             owner_phone, owner_email,
-             weekly_summary_enabled, monthly_impact_enabled,
-             category, google_place_id
-      FROM businesses
-      WHERE id = ${businessId}
+      SELECT b.name, b.created_at, b.initial_review_count, b.initial_responded_count, b.baseline_captured_at,
+             b.tone, b.products_services, b.avoid_facts, b.sample_responses,
+             b.owner_phone, b.owner_email,
+             a.weekly_summary_enabled, a.monthly_impact_enabled,
+             b.category, b.google_place_id
+      FROM businesses b
+      JOIN accounts a ON a.id = b.account_id
+      WHERE b.id = ${businessId}
       LIMIT 1
     `,
     // Total reviews (all time)

@@ -71,7 +71,7 @@ const SCENARIOS: Scenario[] = [
     id: 'A4',
     customerSays: "I'm getting too many emails.",
     firstCheck:
-      'Owner controls opt-outs on /settings. Check weekly_summary_enabled, monthly_impact_enabled, channel_enrollments.status/unsubscribed_at columns.',
+      'Owner controls opt-outs on /settings. Check accounts.weekly_summary_enabled / accounts.monthly_impact_enabled (account-level since migration 063; the per-business columns on businesses are deprecated), plus channel_enrollments.status/unsubscribed_at columns.',
     fix: 'Owner logs in → /settings → toggle off unwanted categories. Admins can UPDATE the same columns directly if needed.',
   },
   {
