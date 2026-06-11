@@ -1,6 +1,6 @@
 import postgres from 'postgres';
 import { randomUUID, createHash } from 'node:crypto';
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 
 /**
  * Whether E2E DB seeding is configured. Import this in test files
@@ -58,6 +58,26 @@ export interface OwnerOffboardingSeedData {
   zernioProfileId: string | null;
 }
 
+export interface MultiLocationSeedData {
+  accountId: string;
+  primaryBusinessId: string;
+  secondaryBusinessId: string;
+  zernioAccountId: string;
+  primaryZernioLocationId: string;
+  secondaryZernioLocationId: string;
+  userId: string;
+  authUserId: string;
+  ownerEmail: string;
+}
+
+export interface SeedMultiLocationAccountOptions {
+  subscriptionStatus?: 'active' | 'pending_payment' | 'past_due' | 'cancelled';
+  /** Override to 1 to exercise overage path (secondary location exceeds quota). Default: 2. */
+  locationsIncluded?: number;
+  /** Insert an org-default email channel enrollment. Default: true. */
+  orgDefaultChannel?: boolean;
+}
+
 export interface SeedOwnerOffboardingAccountOptions {
   subscriptionStatus?: 'active' | 'pending_payment' | 'past_due' | 'cancelled';
   stripeCustomerId?: string | null;
@@ -67,6 +87,213 @@ export interface SeedOwnerOffboardingAccountOptions {
 
 export function getE2eSql(): Sql {
   return getSql();
+}
+
+/**
+ * Point-in-time standard-tier billing snapshot (invariant #9a) stamped onto
+ * every seeded accounts row. One owner for the numbers the seeders write and
+ * the integration tests assert — import it instead of repeating the literals.
+ */
+export const STANDARD_TIER_SNAPSHOT = {
+  tier: 'standard',
+  overagePriceCents: 2500,
+  basePriceCents: 7900,
+} as const;
+
+// ── Shared seed builders ─────────────────────────────────────────────────────
+// Every account-shaped seeder (offboarding, multi-location, the next one)
+// composes these instead of cloning INSERT blocks. One column list per table;
+// adding a column is a one-place change.
+
+interface OwnerAccountSeed {
+  accountId: string;
+  userId: string;
+  authUserId: string;
+  ownerName: string;
+  ownerEmail: string;
+  accountDisplayName: string;
+  subscriptionStatus: string;
+  locationsIncluded: number;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+}
+
+// users.account_id ↔ accounts.owner_user_id are circular DEFERRABLE FKs
+// (migration 036) — hence SET CONSTRAINTS ALL DEFERRED before the pair.
+async function insertOwnerWithAccount(tx: TransactionSql, seed: OwnerAccountSeed): Promise<void> {
+  await tx`SET CONSTRAINTS ALL DEFERRED`;
+  await tx`
+    INSERT INTO users (id, name, email, role, auth_id, account_id)
+    VALUES (
+      ${seed.userId}::uuid,
+      ${seed.ownerName},
+      ${seed.ownerEmail},
+      'owner',
+      ${seed.authUserId},
+      ${seed.accountId}::uuid
+    )
+  `;
+  await tx`
+    INSERT INTO accounts (
+      id,
+      owner_user_id,
+      display_name,
+      subscription_tier,
+      subscription_status,
+      stripe_customer_id,
+      stripe_subscription_id,
+      subscription_activated_at,
+      locations_included,
+      locations_paid,
+      locations_overage_price_cents,
+      base_price_cents
+    ) VALUES (
+      ${seed.accountId}::uuid,
+      ${seed.userId}::uuid,
+      ${seed.accountDisplayName},
+      ${STANDARD_TIER_SNAPSHOT.tier},
+      ${seed.subscriptionStatus},
+      ${seed.stripeCustomerId},
+      ${seed.stripeSubscriptionId},
+      NOW(),
+      ${seed.locationsIncluded},
+      0,
+      ${STANDARD_TIER_SNAPSHOT.overagePriceCents},
+      ${STANDARD_TIER_SNAPSHOT.basePriceCents}
+    )
+  `;
+}
+
+interface BusinessSeedRow {
+  id: string;
+  name: string;
+  display_label: string | null;
+  category: string;
+  google_place_id: string;
+  owner_name: string;
+  owner_email: string;
+  subscription_tier: string;
+  subscription_status: string;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  account_id: string;
+  is_primary: boolean;
+  onboarded_by: string;
+}
+
+async function insertBusinesses(tx: TransactionSql, rows: BusinessSeedRow[]): Promise<void> {
+  await tx`INSERT INTO businesses ${tx(rows)}`;
+}
+
+interface ZernioConnectionSeedRow {
+  business_id: string;
+  zernio_profile_id: string;
+  zernio_account_id: string;
+  zernio_location_id: string;
+  status: string;
+  connected_at: Date;
+}
+
+async function insertZernioConnections(
+  tx: TransactionSql,
+  rows: ZernioConnectionSeedRow[],
+): Promise<void> {
+  await tx`INSERT INTO zernio_connections ${tx(rows)}`;
+}
+
+/**
+ * Account-scoped delete cascade — the ONE owner of the table order needed to
+ * tear down a seeded account. Every seeder family's cleanup delegates here so
+ * a new FK-bearing table is a one-place change. (The previous twin cascades
+ * diverged twice in a single PR: channel_enrollments and api_costs each
+ * landed in only one copy.)
+ *
+ * `knownBusinessIds` / `ownerUserId` keep callers robust when the flow under
+ * test already mutated the graph: offboarding purge tests may have deleted
+ * the accounts row (so owner_user_id is unfetchable) or unlinked businesses
+ * (so resolving them via account_id alone would miss rows).
+ */
+async function cleanupAccountCascade(
+  accountId: string,
+  opts: {
+    ownerUserId?: string | null;
+    knownBusinessIds?: readonly string[];
+    analyticsEventKeyLike?: string;
+  } = {},
+): Promise<void> {
+  const sql = getSql();
+  const ownerUserId =
+    opts.ownerUserId !== undefined
+      ? opts.ownerUserId
+      : ((
+          await sql<{ owner_user_id: string }[]>`
+            SELECT owner_user_id FROM accounts WHERE id = ${accountId}::uuid
+          `
+        )[0]?.owner_user_id ?? null);
+
+  await sql.begin(async (tx) => {
+    const liveBizRows = await tx<{ id: string }[]>`
+      SELECT id FROM businesses WHERE account_id = ${accountId}::uuid
+    `;
+    const bizIds = [
+      ...new Set([...liveBizRows.map((row) => row.id), ...(opts.knownBusinessIds ?? [])]),
+    ];
+
+    await tx`
+      DELETE FROM job_outbox
+      WHERE aggregate_id = ${accountId}::uuid
+         OR aggregate_id = ANY(${bizIds}::uuid[])
+         OR payload->>'account_id' = ${accountId}
+         OR payload->>'business_id' = ANY(${bizIds}::text[])
+    `;
+    await tx`
+      DELETE FROM analytics_events
+      WHERE account_id = ${accountId}::uuid
+         OR business_id = ANY(${bizIds}::uuid[])
+         ${ownerUserId ? tx`OR user_id = ${ownerUserId}::uuid` : tx``}
+         ${opts.analyticsEventKeyLike ? tx`OR event_key LIKE ${opts.analyticsEventKeyLike}` : tx``}
+    `;
+    await tx`
+      DELETE FROM account_offboarding_tokens t
+      USING account_offboardings ao
+      WHERE t.account_offboarding_id = ao.id
+        AND ao.account_id = ${accountId}::uuid
+    `;
+    await tx`DELETE FROM account_offboardings WHERE account_id = ${accountId}::uuid`;
+    await tx`
+      DELETE FROM notification_deliveries
+      WHERE account_id = ${accountId}::uuid OR business_id = ANY(${bizIds}::uuid[])
+    `;
+    await tx`
+      DELETE FROM approval_audit_log
+      WHERE account_id = ${accountId}::uuid OR business_id = ANY(${bizIds}::uuid[])
+    `;
+    await tx`DELETE FROM account_audit_log WHERE account_id = ${accountId}::uuid`;
+    await tx`DELETE FROM channel_enrollments WHERE account_id = ${accountId}::uuid`;
+    await tx`DELETE FROM zernio_connections WHERE business_id = ANY(${bizIds}::uuid[])`;
+    // api_costs.business_id / .response_id have NO ON DELETE action (001 schema):
+    // rows written by real draft generation block both the businesses delete and
+    // the responses cascade, so they go first.
+    await tx`
+      DELETE FROM api_costs
+      WHERE account_id = ${accountId}::uuid
+         OR business_id = ANY(${bizIds}::uuid[])
+         OR response_id IN (
+           SELECT id FROM responses WHERE business_id = ANY(${bizIds}::uuid[])
+         )
+    `;
+    await tx`
+      DELETE FROM businesses
+      WHERE account_id = ${accountId}::uuid OR id = ANY(${bizIds}::uuid[])
+    `;
+    if (ownerUserId) {
+      await tx`UPDATE users SET account_id = NULL WHERE id = ${ownerUserId}::uuid`;
+    }
+    await tx`DELETE FROM accounts WHERE id = ${accountId}::uuid`;
+    if (ownerUserId) {
+      await tx`DELETE FROM users WHERE id = ${ownerUserId}::uuid`;
+    }
+  });
 }
 
 /**
@@ -136,96 +363,47 @@ export async function seedOwnerOffboardingAccount(
   const zernioProfileId = options.zernioConnection === false ? null : `zprof_e2e_${suffix}`;
 
   await sql.begin(async (tx) => {
-    await tx`SET CONSTRAINTS ALL DEFERRED`;
-    await tx`
-      INSERT INTO users (id, name, email, role, auth_id, account_id)
-      VALUES (
-        ${userId}::uuid,
-        ${'Owner Offboarding ' + suffix},
-        ${ownerEmail},
-        'owner',
-        ${authUserId},
-        ${accountId}::uuid
-      )
-    `;
-    await tx`
-      INSERT INTO accounts (
-        id,
-        owner_user_id,
-        display_name,
-        subscription_tier,
-        subscription_status,
-        stripe_customer_id,
-        stripe_subscription_id,
-        subscription_activated_at,
-        locations_included,
-        locations_paid,
-        locations_overage_price_cents,
-        base_price_cents
-      ) VALUES (
-        ${accountId}::uuid,
-        ${userId}::uuid,
-        ${'Owner Offboarding Account ' + suffix},
-        'standard',
-        ${subscriptionStatus},
-        ${stripeCustomerId},
-        ${stripeSubscriptionId},
-        NOW(),
-        1,
-        0,
-        2500,
-        7900
-      )
-    `;
-    await tx`
-      INSERT INTO businesses (
-        id,
-        name,
-        category,
-        google_place_id,
-        owner_name,
-        owner_email,
-        subscription_tier,
-        subscription_status,
-        stripe_customer_id,
-        stripe_subscription_id,
-        account_id,
-        is_primary,
-        onboarded_by
-      ) VALUES (
-        ${businessId}::uuid,
-        ${'Owner Offboarding Location ' + suffix},
-        'restaurant',
-        ${'e2e-owner-offboarding-' + suffix},
-        'Owner Offboarding',
-        ${ownerEmail},
-        'standard',
-        ${subscriptionStatus},
-        ${stripeCustomerId},
-        ${stripeSubscriptionId},
-        ${accountId}::uuid,
-        TRUE,
-        ${userId}::uuid
-      )
-    `;
+    await insertOwnerWithAccount(tx, {
+      accountId,
+      userId,
+      authUserId,
+      ownerName: `Owner Offboarding ${suffix}`,
+      ownerEmail,
+      accountDisplayName: `Owner Offboarding Account ${suffix}`,
+      subscriptionStatus,
+      locationsIncluded: 1,
+      stripeCustomerId,
+      stripeSubscriptionId,
+    });
+    await insertBusinesses(tx, [
+      {
+        id: businessId,
+        name: `Owner Offboarding Location ${suffix}`,
+        display_label: null,
+        category: 'restaurant',
+        google_place_id: `e2e-owner-offboarding-${suffix}`,
+        owner_name: 'Owner Offboarding',
+        owner_email: ownerEmail,
+        subscription_tier: STANDARD_TIER_SNAPSHOT.tier,
+        subscription_status: subscriptionStatus,
+        stripe_customer_id: stripeCustomerId,
+        stripe_subscription_id: stripeSubscriptionId,
+        account_id: accountId,
+        is_primary: true,
+        onboarded_by: userId,
+      },
+    ]);
     if (zernioAccountId && zernioProfileId) {
-      await tx`
-        INSERT INTO zernio_connections (
-          business_id,
-          zernio_profile_id,
-          zernio_account_id,
-          zernio_location_id,
-          status,
-          connected_at
-        ) VALUES (
-          ${businessId}::uuid,
-          ${zernioProfileId},
-          ${zernioAccountId},
-          ${'zloc_e2e_' + suffix},
-          'active',
-          NOW()
-        )
-      `;
+      await insertZernioConnections(tx, [
+        {
+          business_id: businessId,
+          zernio_profile_id: zernioProfileId,
+          zernio_account_id: zernioAccountId,
+          zernio_location_id: `zloc_e2e_${suffix}`,
+          status: 'active',
+          connected_at: new Date(),
+        },
+      ]);
     }
   });
 
@@ -240,6 +418,167 @@ export async function seedOwnerOffboardingAccount(
     zernioAccountId,
     zernioProfileId,
   };
+}
+
+export async function seedMultiLocationAccount(
+  options: SeedMultiLocationAccountOptions = {},
+): Promise<MultiLocationSeedData> {
+  const sql = getSql();
+  const accountId = randomUUID();
+  const primaryBusinessId = randomUUID();
+  const secondaryBusinessId = randomUUID();
+  const userId = randomUUID();
+  const authUserId = randomUUID();
+  const suffix = accountId.slice(0, 8);
+  const ownerEmail = `owner-multiloc-${suffix}@test.local`;
+  const subscriptionStatus = options.subscriptionStatus ?? 'active';
+  const locationsIncluded = options.locationsIncluded ?? 2;
+  const orgDefaultChannel = options.orgDefaultChannel !== false;
+  const zernioAccountId = `zacct_e2e_${suffix}`;
+  const primaryZernioLocationId = `zloc_e2e_${suffix}_1`;
+  const secondaryZernioLocationId = `zloc_e2e_${suffix}_2`;
+
+  await sql.begin(async (tx) => {
+    await insertOwnerWithAccount(tx, {
+      accountId,
+      userId,
+      authUserId,
+      ownerName: `Multi-Location Owner ${suffix}`,
+      ownerEmail,
+      accountDisplayName: `Multi-Location Account ${suffix}`,
+      subscriptionStatus,
+      locationsIncluded,
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+    });
+    const sharedBusinessColumns = {
+      category: 'restaurant',
+      owner_name: 'Multi-Location Owner',
+      owner_email: ownerEmail,
+      subscription_tier: STANDARD_TIER_SNAPSHOT.tier,
+      subscription_status: subscriptionStatus,
+      stripe_customer_id: null,
+      stripe_subscription_id: null,
+      account_id: accountId,
+      onboarded_by: userId,
+    };
+    await insertBusinesses(tx, [
+      {
+        ...sharedBusinessColumns,
+        id: primaryBusinessId,
+        name: `E2E Primary Location ${suffix}`,
+        display_label: 'Downtown',
+        google_place_id: `e2e-ml-${suffix}-loc1`,
+        is_primary: true,
+      },
+      {
+        ...sharedBusinessColumns,
+        id: secondaryBusinessId,
+        name: `E2E Secondary Location ${suffix}`,
+        display_label: 'Airport',
+        google_place_id: `e2e-ml-${suffix}-loc2`,
+        is_primary: false,
+      },
+    ]);
+    await insertZernioConnections(tx, [
+      {
+        business_id: primaryBusinessId,
+        zernio_profile_id: `zprof_e2e_${suffix}_1`,
+        zernio_account_id: zernioAccountId,
+        zernio_location_id: primaryZernioLocationId,
+        status: 'active',
+        connected_at: new Date(),
+      },
+      {
+        business_id: secondaryBusinessId,
+        zernio_profile_id: `zprof_e2e_${suffix}_2`,
+        zernio_account_id: zernioAccountId,
+        zernio_location_id: secondaryZernioLocationId,
+        status: 'active',
+        connected_at: new Date(),
+      },
+    ]);
+    if (orgDefaultChannel) {
+      await tx`
+        INSERT INTO channel_enrollments (
+          id,
+          business_id,
+          account_id,
+          location_id,
+          channel,
+          handle,
+          status,
+          verified_at
+        ) VALUES (
+          ${randomUUID()}::uuid,
+          ${primaryBusinessId}::uuid,
+          ${accountId}::uuid,
+          NULL,
+          'email',
+          ${ownerEmail},
+          'verified',
+          NOW()
+        )
+      `;
+    }
+  });
+
+  return {
+    accountId,
+    primaryBusinessId,
+    secondaryBusinessId,
+    zernioAccountId,
+    primaryZernioLocationId,
+    secondaryZernioLocationId,
+    userId,
+    authUserId,
+    ownerEmail,
+  };
+}
+
+export interface LocationReviewSeedData {
+  reviewId: string;
+  responseId: string;
+}
+
+/**
+ * Seed one review + pending_approval response on a specific location, with a
+ * caller-supplied marker woven into the review and draft text so per-location
+ * scoping assertions can tell the two locations' data apart. This is the seed
+ * capability the fixme'd scoping scenarios in e2e/multi-location.spec.ts
+ * assert against; rows cascade on business delete, and api_costs rows (only
+ * written by REAL generation, not this seeder) are removed by
+ * cleanupMultiLocationAccount.
+ */
+export async function seedLocationReview(input: {
+  businessId: string;
+  marker: string;
+}): Promise<LocationReviewSeedData> {
+  const sql = getSql();
+  const reviewId = randomUUID();
+  const responseId = randomUUID();
+  const contentHash = createHash('sha256').update(reviewId).digest('hex');
+
+  await sql.begin(async (tx) => {
+    // Sentiment columns mirror classifySentiment (deterministic_star_v1) for
+    // star 4: score (4-3)/2 = 0.5, label 'positive'. Review-content write
+    // sites populate sentiment (repo convention); values are inlined because
+    // seed.ts is raw-SQL-only and does not import from src/.
+    await tx`
+      INSERT INTO reviews (id, business_id, provider, provider_review_id, provider_review_name, provider_location_name, reviewer_name, star_rating, review_text, review_date, detected_language, review_content_hash, status, sentiment_score, sentiment_label, sentiment_source)
+      VALUES (${reviewId}, ${input.businessId}, 'test', ${reviewId}, ${'test://review/' + reviewId}, ${'test://location/' + input.businessId}, 'E2E Reviewer', 4, ${input.marker + ' — great experience, would come again!'}, NOW(), 'en', ${contentHash}, 'pending_approval', 0.5, 'positive', 'deterministic_star_v1')
+    `;
+    await tx`
+      INSERT INTO responses (id, review_id, business_id, response_text, response_language, version, status, original_draft_text, llm_provider, llm_model, prompt_tokens, completion_tokens)
+      VALUES (${responseId}, ${reviewId}, ${input.businessId}, ${'Thank you for your kind words! ' + input.marker}, 'en', 1, 'pending_approval', ${'Thank you for your kind words! ' + input.marker}, 'openai', 'gpt-4o-mini', 100, 50)
+    `;
+  });
+
+  return { reviewId, responseId };
+}
+
+export async function cleanupMultiLocationAccount(accountId: string): Promise<void> {
+  await cleanupAccountCascade(accountId);
 }
 
 /**
@@ -265,38 +604,13 @@ export async function cleanupApprovalFlow(data: SeedData): Promise<void> {
 }
 
 export async function cleanupOwnerOffboardingSeed(data: OwnerOffboardingSeedData): Promise<void> {
-  const sql = getSql();
-  const { accountId, businessId, userId } = data;
-
-  await sql.begin(async (tx) => {
-    await tx`
-      DELETE FROM job_outbox
-      WHERE aggregate_id IN (${accountId}::uuid, ${businessId}::uuid)
-         OR payload->>'account_id' = ${accountId}
-         OR payload->>'business_id' = ${businessId}
-    `;
-    await tx`
-      DELETE FROM analytics_events
-      WHERE account_id = ${accountId}::uuid
-         OR business_id = ${businessId}::uuid
-         OR user_id = ${userId}::uuid
-         OR event_key LIKE 'offboarding_%'
-    `;
-    await tx`
-      DELETE FROM account_offboarding_tokens t
-      USING account_offboardings ao
-      WHERE t.account_offboarding_id = ao.id
-        AND ao.account_id = ${accountId}::uuid
-    `;
-    await tx`DELETE FROM account_offboardings WHERE account_id = ${accountId}::uuid`;
-    await tx`DELETE FROM notification_deliveries WHERE account_id = ${accountId}::uuid OR business_id = ${businessId}::uuid`;
-    await tx`DELETE FROM approval_audit_log WHERE account_id = ${accountId}::uuid OR business_id = ${businessId}::uuid`;
-    await tx`DELETE FROM account_audit_log WHERE account_id = ${accountId}::uuid`;
-    await tx`DELETE FROM zernio_connections WHERE business_id = ${businessId}::uuid`;
-    await tx`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
-    await tx`UPDATE users SET account_id = NULL WHERE id = ${userId}::uuid`;
-    await tx`DELETE FROM accounts WHERE id = ${accountId}::uuid`;
-    await tx`DELETE FROM users WHERE id = ${userId}::uuid`;
+  // ownerUserId/knownBusinessIds come from the seed handle, NOT a live lookup:
+  // offboarding purge tests may have already deleted the accounts row or
+  // unlinked the business, and cleanup must still remove everything.
+  await cleanupAccountCascade(data.accountId, {
+    ownerUserId: data.userId,
+    knownBusinessIds: [data.businessId],
+    analyticsEventKeyLike: 'offboarding_%',
   });
 }
 

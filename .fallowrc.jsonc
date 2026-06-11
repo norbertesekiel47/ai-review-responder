@@ -190,7 +190,20 @@
       "src/app/api/dashboard/channels/whatsapp/start/route.ts",
       "src/app/api/dashboard/channels/telegram/cancel/route.ts",
       "src/lib/dashboard/service.ts",
-      "src/app/admin/runbook/page.tsx"
+      "src/app/admin/runbook/page.tsx",
+
+      // ── Multi-location E2E verification kit (PR F) ──
+      // ONLY the two DAMP infrastructure files, named explicitly — no blanket
+      // e2e/** (which would pre-suppress every future e2e file unseen). Specs
+      // and __tests__ are already covered by the global ignores. The seeder is
+      // a multi-table single-tx INSERT module; the fixture server is a
+      // per-endpoint HTTP request router — both intentionally DAMP.
+      // (src/lib/zernio/client/transport.ts carries finding-level
+      // fallow-ignore-next-line suppressions in-file instead of a whole-file
+      // entry here, so future complexity growth in that production file is
+      // NOT masked.)
+      "e2e/seed.ts",
+      "e2e/fixtures/zernio-fixture-server.ts"
     ]
   },
   "duplicates": {

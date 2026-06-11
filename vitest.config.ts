@@ -17,6 +17,11 @@ export default defineConfig({
       'src/**/__tests__/**/*.test.{ts,tsx}',
       'worker/**/__tests__/**/*.test.{ts,tsx}',
       'tests/**/__tests__/**/*.test.ts',
+      // E2E *fixtures* carry vitest unit tests under __tests__/ (e.g. the
+      // Zernio fixture-server review-name contract). Playwright specs live at
+      // e2e/*.spec.ts and are NOT matched by this __tests__/*.test.ts glob, so
+      // they stay in the `pnpm test:e2e` lane.
+      'e2e/**/__tests__/**/*.test.ts',
     ],
     setupFiles: ['./vitest.setup.ts'],
     coverage: {
