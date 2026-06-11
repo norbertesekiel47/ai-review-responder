@@ -13,12 +13,8 @@
 //
 // See docs/superpowers/specs/2026-04-28-phase-4-owner-channel-dashboard-design.md §4.2-4.4.
 
-import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { classifyEnrollmentError } from './unique-violation';
-import { disableChannelEnrollment, type DisableEnrollmentInput } from './disable-enrollment';
-
-export type { DisableEnrollmentInput } from './disable-enrollment';
 
 // Postgres.js TransactionSql / Sql types return a PendingQuery that carries
 // extra properties beyond a plain Promise. Using `unknown` return type lets
@@ -133,15 +129,4 @@ export async function cancelTelegramEnrollment(
     RETURNING id
   `) as Array<{ id: string }>;
   return updated.length > 0 ? { kind: 'ok' } : { kind: 'not_found' };
-}
-
-/**
- * Owner/admin-initiated disconnect of the Telegram channel. See
- * disableChannelEnrollment for the cascade + reconnect semantics.
- */
-export async function disableTelegramEnrollment(
-  tx: postgres.TransactionSql,
-  input: DisableEnrollmentInput,
-): Promise<{ kind: 'ok' | 'not_found' }> {
-  return disableChannelEnrollment(tx, { ...input, channel: 'telegram' });
 }

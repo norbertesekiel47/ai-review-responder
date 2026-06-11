@@ -5,10 +5,8 @@
 // Caller must hold the `mobile_enroll:${accountId}` advisory lock
 // inside sql.begin — these helpers do not lock.
 
-import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { classifyEnrollmentError } from './unique-violation';
-import { disableChannelEnrollment, type DisableEnrollmentInput } from './disable-enrollment';
 
 // Postgres.js TransactionSql / Sql types return a PendingQuery that carries
 // extra properties beyond a plain Promise. Using `unknown` return type lets
@@ -108,15 +106,4 @@ export async function cancelWhatsAppEnrollment(
     RETURNING id
   `) as Array<{ id: string }>;
   return updated.length > 0 ? { kind: 'ok' } : { kind: 'not_found' };
-}
-
-/**
- * Owner/admin disconnect of the WhatsApp channel. See
- * disableChannelEnrollment for the cascade + reconnect semantics.
- */
-export async function disableWhatsAppEnrollment(
-  tx: postgres.TransactionSql,
-  input: DisableEnrollmentInput,
-): Promise<{ kind: 'ok' | 'not_found' }> {
-  return disableChannelEnrollment(tx, { ...input, channel: 'whatsapp' });
 }

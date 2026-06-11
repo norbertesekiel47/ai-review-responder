@@ -1,13 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type postgres from 'postgres';
-import type { WriteAccountAuditLogInput } from '@/lib/audit/log';
-
-const mockWriteAccountAuditLog = vi.fn(async (_input: WriteAccountAuditLogInput) => {});
-vi.mock('@/lib/audit/log', () => ({
-  writeAccountAuditLog: (input: WriteAccountAuditLogInput) => mockWriteAccountAuditLog(input),
-}));
-
-import { startWhatsAppEnrollment, cancelWhatsAppEnrollment, disableWhatsAppEnrollment } from '../whatsapp-enrollment';
+import { describe, it, expect } from 'vitest';
+import { startWhatsAppEnrollment, cancelWhatsAppEnrollment } from '../whatsapp-enrollment';
 import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '../unique-violation';
 
 /** Tagged-template mock: returns queued result arrays in call order, records SQL text. */
@@ -116,77 +108,5 @@ describe('cancelWhatsAppEnrollment', () => {
   it('returns not_found when nothing matched', async () => {
     const { tx } = makeTx([[]]);
     expect(await cancelWhatsAppEnrollment(tx, 'acct-1')).toEqual({ kind: 'not_found' });
-  });
-});
-
-describe('disableWhatsAppEnrollment', () => {
-  beforeEach(() => {
-    mockWriteAccountAuditLog.mockClear();
-  });
-
-  it('returns ok + audits the org-default when only the org-default UPDATE affects rows', async () => {
-    // call 0 = org-default UPDATE; call 1 = override cascade UPDATE.
-    const { tx, calls } = makeTx([[{ id: 'org-1' }], []]);
-    expect(await disableWhatsAppEnrollment(tx as unknown as postgres.TransactionSql, { accountId: 'acct-1' })).toEqual({ kind: 'ok' });
-
-    const orgSql = calls[0];
-    expect(orgSql).toContain('account_id');
-    expect(orgSql).toContain('location_id IS NULL');
-    expect(orgSql).toContain('channel');
-    expect(orgSql).toContain('verified');
-    expect(orgSql).toContain('archived_at IS NULL');
-
-    const overrideSql = calls[1];
-    expect(overrideSql).toContain('account_id');
-    expect(overrideSql).toContain('location_id IS NOT NULL');
-    // Cascade catches pending/pending_verification clones — only
-    // already-disabled rows are excluded.
-    expect(overrideSql).toContain("status != 'disabled'");
-    expect(overrideSql).not.toContain("status = 'verified'");
-
-    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
-    expect(mockWriteAccountAuditLog.mock.calls[0]![0].eventType).toBe('channel_disabled');
-  });
-
-  it('returns not_found + writes no audit only when BOTH UPDATEs affect 0 rows', async () => {
-    const { tx } = makeTx([[], []]);
-    expect(await disableWhatsAppEnrollment(tx as unknown as postgres.TransactionSql, { accountId: 'acct-1' })).toEqual({ kind: 'not_found' });
-    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
-  });
-
-  it('cascades + audits overrides even when the org-default is already disabled (0 org rows)', async () => {
-    const { tx } = makeTx([[], [{ id: 'ov-1', location_id: 'loc-1' }, { id: 'ov-2', location_id: 'loc-2' }]]);
-    expect(await disableWhatsAppEnrollment(tx as unknown as postgres.TransactionSql, { accountId: 'acct-1' })).toEqual({ kind: 'ok' });
-
-    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(2);
-    const inputs = mockWriteAccountAuditLog.mock.calls.map((call) => call[0]);
-    expect(inputs.map((input) => input.eventType)).toEqual(['channel_override_disabled', 'channel_override_disabled']);
-    expect(inputs.map((input) => input.locationId)).toEqual(['loc-1', 'loc-2']);
-  });
-
-  it('full cascade: audits org-default (channel_disabled, locationId null) AND each override', async () => {
-    const { tx } = makeTx([[{ id: 'org-1' }], [{ id: 'ov-1', location_id: 'loc-1' }]]);
-    expect(
-      await disableWhatsAppEnrollment(tx as unknown as postgres.TransactionSql, { accountId: 'acct-1', actorUserId: 'user-9' }),
-    ).toEqual({ kind: 'ok' });
-
-    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(2);
-    const calls = mockWriteAccountAuditLog.mock.calls.map((call) => call[0]);
-
-    const orgAudit = calls.find((input) => input.eventType === 'channel_disabled')!;
-    expect(orgAudit.locationId).toBeNull();
-    expect(orgAudit.actorUserId).toBe('user-9');
-
-    const overrideAudit = calls.find((input) => input.eventType === 'channel_override_disabled')!;
-    expect(overrideAudit.locationId).toBe('loc-1');
-    expect(overrideAudit.entityType).toBe('channel_enrollment');
-    expect(overrideAudit.entityId).toBe('ov-1');
-    expect(overrideAudit.payload).toEqual({ channel: 'whatsapp' });
-  });
-
-  it('no enroll/verify path re-enables override rows on reconnect (absence assertion)', async () => {
-    const { tx, calls } = makeTx([[] /* SELECT */, [] /* INSERT */]);
-    await startWhatsAppEnrollment(tx, 'biz-1', 'acct-1', 'hash', TS);
-    expect(calls.some((c) => c.includes('location_id IS NOT NULL'))).toBe(false);
   });
 });
