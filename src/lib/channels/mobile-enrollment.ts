@@ -80,6 +80,7 @@ export async function startMobileEnrollment(
             unsubscribed_reason           = NULL,
             updated_at                    = NOW()
         WHERE id = ${existingRow.id}
+          AND account_id = ${accountId}
       `;
     } else {
       await tx`

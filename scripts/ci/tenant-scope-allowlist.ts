@@ -1741,18 +1741,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "ZernioBackfillWorker marks complete on the run row id loaded by correlation id for the current business-scoped backfill job.",
   },
   {
-    file: "src/lib/channels/telegram-enrollment.ts",
-    table: "channel_enrollments",
-    sqlSnippet: "UPDATE channel_enrollments SET status = 'pending_verification', handle = NULL, verification_token_hash = ${tokenHash}, verification_token_expires_at = ${expiresAt}, disabled_at = NULL, unsubscribed_at = NULL, unsubscribed_reason = NULL, updated_at = NOW() WHERE id = ${existingRow.id}",
-    reason: "Enrollment start transaction first locks the org-default row by account_id/channel, then updates that locked row id in the same transaction.",
-  },
-  {
-    file: "src/lib/channels/whatsapp-enrollment.ts",
-    table: "channel_enrollments",
-    sqlSnippet: "UPDATE channel_enrollments SET status = 'pending_verification', handle = NULL, verification_token_hash = ${tokenHash}, verification_token_expires_at = ${expiresAt}, disabled_at = NULL, unsubscribed_at = NULL, unsubscribed_reason = NULL, updated_at = NOW() WHERE id = ${existingRow.id}",
-    reason: "Enrollment start transaction first locks the org-default row by account_id/channel, then updates that locked row id in the same transaction.",
-  },
-  {
     file: "worker/background/pollers/EmailChannelReconcilePoller.ts",
     table: "channel_enrollments",
     sqlSnippet: "SELECT b.id AS business_id, b.account_id, b.owner_email FROM businesses b JOIN users u ON u.account_id = b.account_id AND u.role = 'owner' JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status = 'active' AND u.auth_id IS NOT NULL AND b.owner_email IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM channel_enrollments ce WHERE ce.business_id = b.id AND ce.channel = 'email' ) LIMIT ${batchSize}",
