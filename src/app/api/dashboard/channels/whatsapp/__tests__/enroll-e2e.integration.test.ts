@@ -199,7 +199,8 @@ d('owner WhatsApp enrollment round-trip (route start → inbound verify)', () =>
     const insertCall = sqlCallsLog.find((c) => c.raw.includes('INSERT INTO channel_enrollments'));
     expect(insertCall).toBeDefined();
     expect(insertCall!.values).toContain(tokenHash);
-    expect(insertCall!.raw).toMatch(/'whatsapp'/);
+    // Channel is a bound parameter in the shared mobile-enrollment helper.
+    expect(insertCall!.values).toContain('whatsapp');
     expect(insertCall!.raw).toMatch(/'pending_verification'/);
 
     // ── Step 2: inbound webhook ("owner scans QR") ─────────────────────────
@@ -284,7 +285,7 @@ d('owner WhatsApp enrollment round-trip (route start → inbound verify)', () =>
 
     // SQL call 1: SELECT a.id, a.subscription_status FROM accounts a JOIN businesses b WHERE b.id = L2
     sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'active' }]);
-    // SQL call 2: disableWhatsAppEnrollment — UPDATE … WHERE account_id = acct-1 … RETURNING id
+    // SQL call 2: disable cascade org-default UPDATE … WHERE account_id = acct-1 … RETURNING id
     // Matched by account_id (account-scoped), not by the requester's locationId.
     sqlReturnQueue.push([{ id: 'e_orgdefault' }]);
 

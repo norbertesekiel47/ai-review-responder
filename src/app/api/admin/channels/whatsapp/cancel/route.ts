@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
 import { resolveAdminChannelAccount } from '@/app/api/admin/channels/_shared/account';
-import { cancelWhatsAppEnrollment } from '@/lib/channels/whatsapp-enrollment';
+import { cancelMobileEnrollment } from '@/lib/channels/mobile-enrollment';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
@@ -34,7 +34,7 @@ async function cancelWhatsApp(req: NextRequest): Promise<NextResponse> {
   // so the chat channels mutually exclude on the lock.
   await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${accountId}`}, 0))`;
-    return cancelWhatsAppEnrollment(tx, accountId);
+    return cancelMobileEnrollment(tx, 'whatsapp', accountId);
   });
 
   // Invalidate channel cache — the cancelled verification changes which

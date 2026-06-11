@@ -10,8 +10,9 @@ import { sql } from '@/lib/db/server';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
+import type { MobileChannel } from './mobile-enrollment';
 
-export type DisableableChannel = 'telegram' | 'whatsapp';
+export type DisableableChannel = MobileChannel;
 
 export interface DisableEnrollmentInput {
   accountId: string;

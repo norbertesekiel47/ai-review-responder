@@ -26,12 +26,12 @@ vi.mock('@/lib/auth/route-helpers', async (importOriginal) => {
 vi.mock('@/lib/notifications/resolve-channels', () => ({ safeInvalidateChannelCache: vi.fn(async () => {}) }));
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(async () => 'data:image/png;base64,TEST') } }));
 
-const startTelegramEnrollmentMock = vi.fn<() => Promise<{ kind: string }>>();
-vi.mock('@/lib/channels/telegram-enrollment', async (importOriginal) => {
-  const real = await importOriginal<typeof import('@/lib/channels/telegram-enrollment')>();
+const startMobileEnrollmentMock = vi.fn<() => Promise<{ kind: string }>>();
+vi.mock('@/lib/channels/mobile-enrollment', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/channels/mobile-enrollment')>();
   return {
     ...real,
-    startTelegramEnrollment: (...a: unknown[]) => startTelegramEnrollmentMock(...(a as [])),
+    startMobileEnrollment: (...a: unknown[]) => startMobileEnrollmentMock(...(a as [])),
   };
 });
 
@@ -47,7 +47,7 @@ function mkReq() {
 beforeEach(() => {
   sqlQueue.length = 0;
   requireRoleMock.mockResolvedValue({ userId: 'owner-1', role: 'owner', locationId: 'biz-1' });
-  startTelegramEnrollmentMock.mockResolvedValue({ kind: 'ok' });
+  startMobileEnrollmentMock.mockResolvedValue({ kind: 'ok' });
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   process.env.MOCK_EXTERNAL_APIS = 'true';
   delete process.env.CHANNELS_TELEGRAM_ENABLED;
@@ -72,7 +72,7 @@ describe('POST /api/dashboard/channels/telegram/start', () => {
     process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
     process.env.TELEGRAM_BOT_USERNAME = 'MyCustomBot';
     sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]);
-    startTelegramEnrollmentMock.mockResolvedValue({ kind: 'ok' });
+    startMobileEnrollmentMock.mockResolvedValue({ kind: 'ok' });
     const res = await POST(mkReq() as any);
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -86,7 +86,7 @@ describe('POST /api/dashboard/channels/telegram/start', () => {
     process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
     process.env.TELEGRAM_BOT_USERNAME = '   ';
     sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]);
-    startTelegramEnrollmentMock.mockResolvedValue({ kind: 'ok' });
+    startMobileEnrollmentMock.mockResolvedValue({ kind: 'ok' });
     const res = await POST(mkReq() as any);
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -97,7 +97,7 @@ describe('POST /api/dashboard/channels/telegram/start', () => {
     process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
     delete process.env.TELEGRAM_BOT_USERNAME;
     sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]);
-    startTelegramEnrollmentMock.mockResolvedValue({ kind: 'ok' });
+    startMobileEnrollmentMock.mockResolvedValue({ kind: 'ok' });
     const res = await POST(mkReq() as any);
     expect(res.status).toBe(200);
     const body = await res.json();

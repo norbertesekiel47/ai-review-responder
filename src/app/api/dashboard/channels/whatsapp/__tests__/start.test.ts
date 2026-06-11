@@ -27,12 +27,12 @@ vi.mock('@/lib/notifications/resolve-channels', () => ({ safeInvalidateChannelCa
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(async () => 'data:image/png;base64,TEST') } }));
 
 // WhatsApp enrollment mock — used only by the MultipleMobileChannelsError test.
-const startWhatsAppEnrollmentMock = vi.fn<() => Promise<{ kind: string }>>();
-vi.mock('@/lib/channels/whatsapp-enrollment', async (importOriginal) => {
-  const real = await importOriginal<typeof import('@/lib/channels/whatsapp-enrollment')>();
+const startMobileEnrollmentMock = vi.fn<() => Promise<{ kind: string }>>();
+vi.mock('@/lib/channels/mobile-enrollment', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/channels/mobile-enrollment')>();
   return {
     ...real,
-    startWhatsAppEnrollment: (...a: unknown[]) => startWhatsAppEnrollmentMock(...(a as [])),
+    startMobileEnrollment: (...a: unknown[]) => startMobileEnrollmentMock(...(a as [])),
   };
 });
 
@@ -49,7 +49,7 @@ function mkReq() {
 beforeEach(() => {
   sqlQueue.length = 0;
   requireRoleMock.mockResolvedValue({ userId: 'owner-1', role: 'owner', locationId: 'biz-1' });
-  startWhatsAppEnrollmentMock.mockResolvedValue({ kind: 'ok' });
+  startMobileEnrollmentMock.mockResolvedValue({ kind: 'ok' });
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   process.env.MOCK_EXTERNAL_APIS = 'true';
   process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+15551230000';
@@ -113,10 +113,10 @@ describe('POST /api/dashboard/channels/whatsapp/start', () => {
     expect((await res.json()).error).toBe('past_due_read_only');
   });
 
-  it('returns 409 multiple_mobile_channels when startWhatsAppEnrollment throws MultipleMobileChannelsError', async () => {
+  it('returns 409 multiple_mobile_channels when startMobileEnrollment throws MultipleMobileChannelsError', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
     sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // accounts lookup
-    startWhatsAppEnrollmentMock.mockRejectedValue(new MultipleMobileChannelsError());
+    startMobileEnrollmentMock.mockRejectedValue(new MultipleMobileChannelsError());
     const res = await POST(mkReq() as any);
     expect(res.status).toBe(409);
     expect((await res.json()).error).toBe('multiple_mobile_channels');
@@ -128,7 +128,7 @@ describe('POST /api/dashboard/channels/whatsapp/start', () => {
     sqlQueue.push([]);          // advisory lock
     sqlQueue.push([]);          // SELECT FOR UPDATE (no existing row)
     sqlQueue.push([]);          // INSERT
-    startWhatsAppEnrollmentMock.mockResolvedValue({ kind: 'ok' });
+    startMobileEnrollmentMock.mockResolvedValue({ kind: 'ok' });
     const res = await POST(mkReq() as any);
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -139,7 +139,7 @@ describe('POST /api/dashboard/channels/whatsapp/start', () => {
   it('returns 409 already_verified when a verified row exists', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
     sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]);
-    startWhatsAppEnrollmentMock.mockResolvedValue({ kind: 'already_verified' });
+    startMobileEnrollmentMock.mockResolvedValue({ kind: 'already_verified' });
     const res = await POST(mkReq() as any);
     expect(res.status).toBe(409);
     expect((await res.json()).error).toBe('already_verified');
@@ -152,7 +152,7 @@ describe('POST /api/dashboard/channels/whatsapp/start', () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
     process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+1 (555) 123-0000';
     sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]);
-    startWhatsAppEnrollmentMock.mockResolvedValue({ kind: 'ok' });
+    startMobileEnrollmentMock.mockResolvedValue({ kind: 'ok' });
     const res = await POST(mkReq() as any);
     expect(res.status).toBe(200);
     const body = await res.json();

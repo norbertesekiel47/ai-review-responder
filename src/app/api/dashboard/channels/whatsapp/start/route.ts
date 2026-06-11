@@ -2,7 +2,7 @@
 //
 // POST /api/dashboard/channels/whatsapp/start — owner-scoped enrollment.
 // Mirrors the owner Telegram route: locationId from session (never body),
-// wrapped with withSameOrigin() (CSRF). Orchestrates startWhatsAppEnrollment.
+// wrapped with withSameOrigin() (CSRF). Orchestrates startMobileEnrollment.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash, randomUUID } from 'node:crypto';
@@ -11,7 +11,7 @@ import { sql } from '@/lib/db/server';
 import { resolveWritableAccountForLocation } from '@/lib/shared/writable-subscription';
 import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
-import { startWhatsAppEnrollment } from '@/lib/channels/whatsapp-enrollment';
+import { startMobileEnrollment } from '@/lib/channels/mobile-enrollment';
 import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
 import { TOKEN_TTL_MS } from '@/lib/notifications/channels/constants';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
@@ -40,11 +40,11 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
 
-  let result: Awaited<ReturnType<typeof startWhatsAppEnrollment>> | undefined;
+  let result: Awaited<ReturnType<typeof startMobileEnrollment>> | undefined;
   try {
     result = await sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${accountId}`}, 0))`;
-      return startWhatsAppEnrollment(tx, locationId, accountId, tokenHash, expiresAt);
+      return startMobileEnrollment(tx, 'whatsapp', locationId, accountId, tokenHash, expiresAt);
     });
   } catch (err) {
     if (err instanceof MultipleMobileChannelsError) {

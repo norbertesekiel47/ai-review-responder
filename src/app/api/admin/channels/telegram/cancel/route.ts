@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
 import { resolveAdminChannelAccount } from '@/app/api/admin/channels/_shared/account';
-import { cancelTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
+import { cancelMobileEnrollment } from '@/lib/channels/mobile-enrollment';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
@@ -22,7 +22,7 @@ async function cancelTelegram(req: NextRequest): Promise<NextResponse> {
   // same account+channel mutually exclude (shared mobile_enroll key).
   await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${accountId}`}, 0))`;
-    return cancelTelegramEnrollment(tx, accountId);
+    return cancelMobileEnrollment(tx, 'telegram', accountId);
   });
 
   // Invalidate channel cache — the cancelled verification changes which

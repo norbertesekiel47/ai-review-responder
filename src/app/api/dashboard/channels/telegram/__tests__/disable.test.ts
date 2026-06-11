@@ -64,7 +64,7 @@ describe('POST /api/dashboard/channels/telegram/disable', () => {
   it('404 when no verified row to disable', async () => {
     process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
     sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // accounts lookup
-    sqlQueue.push([]);                                                  // disableTelegramEnrollment UPDATE → no rows
+    sqlQueue.push([]);                                                  // disable cascade org-default UPDATE → no rows
     const res = await POST(mkReq() as any);
     expect(res.status).toBe(404);
   });
@@ -72,7 +72,7 @@ describe('POST /api/dashboard/channels/telegram/disable', () => {
   it('200 ok when a verified row is disabled', async () => {
     process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
     sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // accounts lookup
-    sqlQueue.push([{ id: 'e1' }]);                                      // disableTelegramEnrollment UPDATE RETURNING
+    sqlQueue.push([{ id: 'e1' }]);                                      // disable cascade org-default UPDATE RETURNING
     const res = await POST(mkReq() as any);
     expect(res.status).toBe(200);
     expect((await res.json()).ok).toBe(true);
@@ -84,7 +84,7 @@ describe('POST /api/dashboard/channels/telegram/disable', () => {
     // never business_id = L2.
     process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
     sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // accounts lookup
-    sqlQueue.push([{ id: 'e1' }]);                                      // disableTelegramEnrollment UPDATE RETURNING
+    sqlQueue.push([{ id: 'e1' }]);                                      // disable cascade org-default UPDATE RETURNING
     await POST(mkReq() as any);
 
     const disableQuery = sqlCalls.find(
