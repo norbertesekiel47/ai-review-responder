@@ -34,19 +34,15 @@ function hashAccountId(accountId: string): string {
 export async function enforceDashboardRegenRateLimit(
   accountId: string,
 ): Promise<NextResponse | null> {
-  // Evaluate both layers (each increments its own counter), then decide — both
-  // windows must advance on every request, mirroring the multi-layer pattern in
-  // src/app/api/onboarding/start/route.ts.
-  const burst = await checkRateLimit(
-    `dashregen:owner:${accountId}:burst`,
-    BURST_MAX,
-    BURST_WINDOW_SECONDS,
-  );
-  const hour = await checkRateLimit(
-    `dashregen:owner:${accountId}:hour`,
-    HOUR_MAX,
-    HOUR_WINDOW_SECONDS,
-  );
+  // Evaluate both layers concurrently (each increments its own counter), then
+  // decide — both windows must advance on every request, mirroring the
+  // multi-layer pattern in src/app/api/onboarding/start/route.ts. Promise.all
+  // is safe here: the keys are distinct and checkRateLimit never rejects in
+  // default (non-strict) mode, so failure semantics are unchanged.
+  const [burst, hour] = await Promise.all([
+    checkRateLimit(`dashregen:owner:${accountId}:burst`, BURST_MAX, BURST_WINDOW_SECONDS),
+    checkRateLimit(`dashregen:owner:${accountId}:hour`, HOUR_MAX, HOUR_WINDOW_SECONDS),
+  ]);
 
   if (burst.allowed && hour.allowed) {
     return null;
