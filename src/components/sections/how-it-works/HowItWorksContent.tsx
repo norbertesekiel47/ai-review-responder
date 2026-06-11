@@ -237,7 +237,6 @@ function Step3Artifact() {
             <button
               type="button"
               className="hiw-btn hiw-btn-approve"
-              style={{ background: '#16A34A' }}
               disabled
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -317,7 +316,7 @@ function Step4Artifact() {
           <div className="hiw-receipt-cell">
             <span className="hiw-receipt-lbl">Status</span>
             <span className="hiw-receipt-val">
-              <span style={{ width: 8, height: 8, borderRadius: 9999, background: '#16A34A', display: 'inline-block' }} />
+              <span style={{ width: 8, height: 8, borderRadius: 9999, background: '#97B3AE', display: 'inline-block' }} />
               Posted
             </span>
           </div>
