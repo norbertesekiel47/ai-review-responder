@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import type postgres from 'postgres';
 import { sql } from '@/lib/db/server';
 import { jsonResponse, requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
@@ -39,10 +40,47 @@ type AccountField = keyof typeof ACCOUNT_FIELD_TO_COLUMN;
 type BusinessField = keyof typeof BUSINESS_FIELD_TO_COLUMN;
 
 // Sentinel so we can throw out of sql.begin and catch the 404 outside.
-class BusinessNotFoundError extends Error {
+// "Settings" prefix avoids shadowing the exported BusinessNotFoundError in
+// src/lib/dashboard/service.ts.
+class SettingsBusinessNotFoundError extends Error {
   constructor() {
     super('Business not found');
-    this.name = 'BusinessNotFoundError';
+    this.name = 'SettingsBusinessNotFoundError';
+  }
+}
+
+// Builds and runs one dynamic UPDATE for the fields routed to `table`.
+// `expectRow: true` throws SettingsBusinessNotFoundError when no row matched.
+async function runScopedUpdate<Field extends string>(
+  tx: postgres.TransactionSql,
+  options: {
+    table: 'businesses' | 'accounts';
+    idValue: string;
+    fieldMap: Record<Field, string>;
+    fields: Field[];
+    data: Partial<Record<Field, unknown>>;
+    expectRow: boolean;
+  },
+): Promise<void> {
+  const { table, idValue, fieldMap, fields, data, expectRow } = options;
+
+  // $1 reserved for the id; field values start at $2.
+  const setClauses: string[] = [];
+  const values: unknown[] = [idValue];
+
+  for (const field of fields) {
+    const value = data[field] ?? null;
+    values.push(value);
+    setClauses.push(`${fieldMap[field]} = $${values.length}`);
+  }
+  setClauses.push('updated_at = NOW()');
+
+  const query = `UPDATE ${table} SET ${setClauses.join(', ')} WHERE id = $1`;
+  const result = await tx.unsafe(query, values as (string | string[] | boolean | null)[]);
+
+  if (expectRow && result.count === 0) {
+    // Throw sentinel to roll back the whole tx and surface a 404.
+    throw new SettingsBusinessNotFoundError();
   }
 }
 
@@ -62,7 +100,11 @@ async function putSettings(request: NextRequest): Promise<NextResponse> {
     return jsonResponse({ error: 'No account associated with this user' }, 403);
   }
 
-  const writable = await assertWritableSubscriptionForAccount(user.accountId);
+  // Captured as consts so the narrowing survives into the sql.begin callback.
+  const locationId = user.locationId;
+  const accountId = user.accountId;
+
+  const writable = await assertWritableSubscriptionForAccount(accountId);
   if (!writable.ok) {
     return jsonResponse({ error: writable.error }, writable.status);
   }
@@ -93,50 +135,33 @@ async function putSettings(request: NextRequest): Promise<NextResponse> {
     await sql.begin(async (tx) => {
       // ── Businesses update (voice/contact fields) ──
       if (businessFields.length > 0) {
-        // $1 reserved for locationId; field values start at $2.
-        const setClauses: string[] = [];
-        const values: unknown[] = [user.locationId];
-
-        for (const field of businessFields) {
-          const column = BUSINESS_FIELD_TO_COLUMN[field];
-          const value = data[field] ?? null;
-          values.push(value);
-          setClauses.push(`${column} = $${values.length}`);
-        }
-        setClauses.push('updated_at = NOW()');
-
-        const query = `UPDATE businesses SET ${setClauses.join(', ')} WHERE id = $1`;
-        const result = await tx.unsafe(query, values as (string | string[] | boolean | null)[]);
-
-        if (result.count === 0) {
-          // Throw sentinel to roll back the whole tx and surface a 404.
-          throw new BusinessNotFoundError();
-        }
+        await runScopedUpdate(tx, {
+          table: 'businesses',
+          idValue: locationId,
+          fieldMap: BUSINESS_FIELD_TO_COLUMN,
+          fields: businessFields,
+          data,
+          expectRow: true,
+        });
       }
 
       // ── Accounts update (digest toggle fields) ──
       if (accountFields.length > 0) {
-        // $1 reserved for accountId; field values start at $2.
-        const setClauses: string[] = [];
-        const values: unknown[] = [user.accountId];
-
-        for (const field of accountFields) {
-          const column = ACCOUNT_FIELD_TO_COLUMN[field];
-          const value = data[field] ?? null;
-          values.push(value);
-          setClauses.push(`${column} = $${values.length}`);
-        }
-        setClauses.push('updated_at = NOW()');
-
-        const query = `UPDATE accounts SET ${setClauses.join(', ')} WHERE id = $1`;
-        await tx.unsafe(query, values as (string | boolean | null)[]);
-        // Account is guaranteed by the 403 guard above; no 404 check needed.
+        await runScopedUpdate(tx, {
+          table: 'accounts',
+          idValue: accountId,
+          fieldMap: ACCOUNT_FIELD_TO_COLUMN,
+          fields: accountFields,
+          data,
+          // Account is guaranteed by the 403 guard above; no 404 check needed.
+          expectRow: false,
+        });
       }
     });
 
     return jsonResponse({ success: true });
   } catch (error) {
-    if (error instanceof BusinessNotFoundError) {
+    if (error instanceof SettingsBusinessNotFoundError) {
       return jsonResponse({ error: 'Business not found' }, 404);
     }
     console.error('[api/settings PUT] Failed:', error);
