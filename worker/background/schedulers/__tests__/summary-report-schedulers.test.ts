@@ -132,6 +132,11 @@ describe.each(schedulerCases)('$name', ({ envVar, systemTime, candidateMarker, d
     expect(queryText).toContain(`a.${digestColumn}`);
     expect(queryText).not.toContain(`b.${digestColumn}`);
 
+    // The accounts column is NOT NULL DEFAULT TRUE (migration 063) — the
+    // predicate is a plain equality, with no dead IS-NULL arm.
+    expect(queryText).toContain(`a.${digestColumn} = TRUE`);
+    expect(queryText).not.toContain(`a.${digestColumn} IS NULL`);
+
     scheduler.stop();
   });
 });

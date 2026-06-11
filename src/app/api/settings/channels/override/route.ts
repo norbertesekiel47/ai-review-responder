@@ -130,6 +130,7 @@ async function createOverride(request: NextRequest): Promise<NextResponse> {
                 disabled_at = NULL,
                 updated_at = NOW()
             WHERE id = ${existing.id}::uuid
+              AND account_id = ${user.accountId}::uuid
               AND status = 'disabled'
               AND archived_at IS NULL
             RETURNING id

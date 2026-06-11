@@ -44,7 +44,7 @@ async function checkAndSchedule(): Promise<void> {
       JOIN accounts a ON a.id = b.account_id
       WHERE a.subscription_status IN ('active', 'past_due')
         AND b.archived_at IS NULL
-        AND (a.monthly_impact_enabled IS NULL OR a.monthly_impact_enabled = TRUE)
+        AND a.monthly_impact_enabled = TRUE
         AND NOT EXISTS (
           SELECT 1 FROM monthly_impact_emails mie
           WHERE mie.business_id = b.id
