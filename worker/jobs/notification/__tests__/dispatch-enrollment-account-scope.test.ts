@@ -1,7 +1,7 @@
 // worker/jobs/notification/__tests__/dispatch-enrollment-account-scope.test.ts
 //
-// Regression guard for the known issue "Dispatcher failure-handling enrollment
-// writes still key by business_id" (docs/known-issues.md).
+// Regression guard for the dispatcher failure-handling enrollment-write scoping
+// contract (was: "writes still key by business_id").
 //
 // The four send-failure branches that flip channel_enrollments.status
 // (telegram_blocked, telegram_chat_not_found, whatsapp_blocked,
