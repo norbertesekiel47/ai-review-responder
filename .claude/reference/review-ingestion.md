@@ -100,6 +100,21 @@ WHERE topic = 'ingest_zernio_review' AND status NOT IN ('completed', 'failed')
 
 Webhook fan-out uses `INSERT ... ON CONFLICT DO NOTHING` against this index.
 
+**Per-location routing (multi-location hardening, 2026-06):** the webhook fan-out is
+scoped per location. `worker/ingress/zernio/zernio.ts` reads
+`parsed.locationIdFromPayload` (parsed from the review resource name
+`accounts/{a}/locations/{loc}/reviews/{r}` by `parseZernioReviewWebhook`) and
+narrows the fan-out to `zernio_connections WHERE zernio_account_id = …
+AND zernio_location_id = <loc>` — so a review only lands on the location it
+belongs to (no cross-routing across an account's locations). The ingest worker
+then **fails closed** on a location mismatch: `extractLocationFromReviewName`
+(`src/lib/reviews/zernio-normalize.ts`) returning null →
+`ZernioIngestUnparseableLocationError`; a parsed location ≠ the connection's
+`zernio_location_id` → no-op (it's a sibling location's review). The fan-out also
+**skips archived locations** (PR A spend-leak fix): `guardZernioJobEligibility`
+short-circuits jobs for an archived `business`, so an archived location never
+ingests or generates a draft.
+
 ## ReviewSource Contract
 
 ALL review sources (SerpAPI, manual paste, Zernio, future GBP API) must
