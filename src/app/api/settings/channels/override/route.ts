@@ -72,7 +72,9 @@ async function createOverride(request: NextRequest): Promise<NextResponse> {
     return jsonResponse({ error: 'Location not found or not accessible' }, 404);
   }
 
-  // Find the org-default enrollment for this channel
+  // Find the VERIFIED org-default enrollment for this channel. Requiring
+  // status = 'verified' here means clones always carry a verified status —
+  // non-verified org defaults (pending, disabled) cannot spawn override rows.
   const [orgDefault] = await sql<{
     id: string;
     handle: string | null;
@@ -83,6 +85,7 @@ async function createOverride(request: NextRequest): Promise<NextResponse> {
     FROM channel_enrollments
     WHERE account_id = ${user.accountId}::uuid
       AND channel = ${channel}
+      AND status = 'verified'
       AND location_id IS NULL
       AND archived_at IS NULL
     ORDER BY created_at DESC
@@ -94,9 +97,11 @@ async function createOverride(request: NextRequest): Promise<NextResponse> {
   }
 
   // Check for existing per-location override
-  // VAL-SETTINGS-033: Only one override per (account, location, channel)
-  const [existing] = await sql<{ id: string }[]>`
-    SELECT id FROM channel_enrollments
+  // VAL-SETTINGS-033: Only one override per (account, location, channel).
+  // A cascade-disabled row (status = 'disabled', not archived — left behind by
+  // a channel disconnect) is NOT a conflict: it gets revived below.
+  const [existing] = await sql<{ id: string; status: string }[]>`
+    SELECT id, status FROM channel_enrollments
     WHERE account_id = ${user.accountId}::uuid
       AND channel = ${channel}
       AND location_id = ${locationId}::uuid
@@ -104,39 +109,53 @@ async function createOverride(request: NextRequest): Promise<NextResponse> {
     LIMIT 1
   `;
 
-  if (existing) {
+  if (existing && existing.status !== 'disabled') {
     return jsonResponse({ error: 'Override already exists for this location and channel' }, 409);
   }
 
-  // Clone the org-default enrollment as a per-location override.
-  // Both the enrollment INSERT and audit write happen in ONE transaction so a
-  // failed audit write rolls back the enrollment — no partial state.
+  // Clone the org-default enrollment as a per-location override — INSERT for a
+  // fresh override, UPDATE (revive) for a cascade-disabled row. Enrollment
+  // mutation and audit write happen in ONE transaction so a failed audit write
+  // rolls back the enrollment — no partial state.
   // VAL-SETTINGS-014: Clones handle values from org-default
   let newRow: { id: string } | undefined;
   try {
     await sql.begin(async (tx) => {
-      const rows = await tx<{ id: string }[]>`
-        INSERT INTO channel_enrollments (
-          id, account_id, business_id, location_id, channel, handle,
-          status, verified_at, created_at, updated_at
-        ) VALUES (
-          ${uuidv7()}::uuid,
-          ${user.accountId}::uuid,
-          ${locationId}::uuid,
-          ${locationId}::uuid,
-          ${channel},
-          ${orgDefault.handle},
-          ${orgDefault.status},
-          ${orgDefault.verified_at},
-          NOW(),
-          NOW()
-        )
-        RETURNING id
-      `;
+      const rows = existing
+        ? await tx<{ id: string }[]>`
+            UPDATE channel_enrollments
+            SET handle = ${orgDefault.handle},
+                status = ${orgDefault.status},
+                verified_at = ${orgDefault.verified_at},
+                disabled_at = NULL,
+                updated_at = NOW()
+            WHERE id = ${existing.id}::uuid
+              AND status = 'disabled'
+              AND archived_at IS NULL
+            RETURNING id
+          `
+        : await tx<{ id: string }[]>`
+            INSERT INTO channel_enrollments (
+              id, account_id, business_id, location_id, channel, handle,
+              status, verified_at, created_at, updated_at
+            ) VALUES (
+              ${uuidv7()}::uuid,
+              ${user.accountId}::uuid,
+              ${locationId}::uuid,
+              ${locationId}::uuid,
+              ${channel},
+              ${orgDefault.handle},
+              ${orgDefault.status},
+              ${orgDefault.verified_at},
+              NOW(),
+              NOW()
+            )
+            RETURNING id
+          `;
 
-      const inserted = rows[0];
-      if (!inserted) {
-        throw new Error('INSERT returned no rows');
+      const upserted = rows[0];
+      if (!upserted) {
+        throw new Error('Override INSERT/revive returned no rows');
       }
 
       // Audit trail: channel_override_created (inside tx — rolls back with enrollment on failure)
@@ -146,16 +165,17 @@ async function createOverride(request: NextRequest): Promise<NextResponse> {
         actorUserId: user.id ?? null,
         eventType: 'channel_override_created',
         entityType: 'channel_enrollment',
-        entityId: inserted.id,
+        entityId: upserted.id,
         payload: {
           channel,
-          override_enrollment_id: inserted.id,
+          override_enrollment_id: upserted.id,
           cloned_handle: orgDefault.handle,
           cloned_status: orgDefault.status,
+          revived: Boolean(existing),
         },
       }, tx);
 
-      newRow = inserted;
+      newRow = upserted;
     });
   } catch (error: unknown) {
     // Handle potential unique constraint violation (race condition)
@@ -258,8 +278,7 @@ async function deleteOverride(request: NextRequest): Promise<NextResponse> {
       archivedId = archived.id;
     });
   } catch (error: unknown) {
-    const sentinel = error as { _notFound?: boolean };
-    if (sentinel._notFound) {
+    if (error !== null && typeof error === 'object' && (error as { _notFound?: boolean })._notFound) {
       return jsonResponse({ error: 'No override found for this location and channel' }, 404);
     }
     console.error('[api/settings/channels/override DELETE] Failed:', error);

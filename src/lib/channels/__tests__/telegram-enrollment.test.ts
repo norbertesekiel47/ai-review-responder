@@ -286,7 +286,7 @@ describe('disableTelegramEnrollment', () => {
     }
   });
 
-  it('org-default UPDATE sets status=disabled, handle=NULL, filters account_id + location_id IS NULL', async () => {
+  it('org-default UPDATE sets status=disabled, handle=NULL, filters account_id + location_id IS NULL + verified', async () => {
     const tx = makeDisableTx([{ id: 'row-1' }], []);
     const { disableTelegramEnrollment } = await import('../telegram-enrollment');
     await disableTelegramEnrollment(tx as unknown as postgres.TransactionSql, { accountId: 'acct-1' });
@@ -295,20 +295,24 @@ describe('disableTelegramEnrollment', () => {
     expect(orgSql).toContain('handle = NULL');
     expect(orgSql).toContain('account_id =');
     expect(orgSql).toContain('location_id IS NULL');
-    expect(orgSql).toContain("channel = 'telegram'");
     expect(orgSql).toContain("status = 'verified'");
     expect(orgSql).toContain('archived_at IS NULL');
+    // Channel is a parameter in the shared cascade — assert the bound value.
+    expect(tx.mock.calls[0]).toContain('telegram');
   });
 
-  it('override cascade UPDATE filters account_id + location_id IS NOT NULL + verified', async () => {
+  it('override cascade UPDATE disables ALL non-disabled overrides (pending included), not just verified', async () => {
     const tx = makeDisableTx([], [{ id: 'ov-1', location_id: 'loc-1' }]);
     const { disableTelegramEnrollment } = await import('../telegram-enrollment');
     await disableTelegramEnrollment(tx as unknown as postgres.TransactionSql, { accountId: 'acct-1' });
     const overrideSql = (tx.mock.calls[1]?.[0] as TemplateStringsArray).join('?');
     expect(overrideSql).toContain('account_id =');
     expect(overrideSql).toContain('location_id IS NOT NULL');
-    expect(overrideSql).toContain("channel = 'telegram'");
-    expect(overrideSql).toContain("status = 'verified'");
+    expect(tx.mock.calls[1]).toContain('telegram');
+    // The cascade must catch pending/pending_verification clones too — the
+    // only excluded statuses are already-disabled (and archived rows).
+    expect(overrideSql).toContain("status != 'disabled'");
+    expect(overrideSql).not.toContain("status = 'verified'");
     expect(overrideSql).toContain('archived_at IS NULL');
     expect(overrideSql).toContain('location_id'); // RETURNING id, location_id
   });

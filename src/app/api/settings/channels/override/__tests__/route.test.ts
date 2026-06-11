@@ -174,7 +174,7 @@ describe('POST /api/settings/channels/override', () => {
     expect(body.override.channel).toBe('telegram');
   });
 
-  it('returns 409 when override already exists', async () => {
+  it('returns 409 when an ACTIVE (non-disabled) override already exists', async () => {
     // Mock: location validation
     mockSql.mockResolvedValueOnce([{
       id: LOCATION_ID_1,
@@ -188,8 +188,8 @@ describe('POST /api/settings/channels/override', () => {
       status: 'verified',
       verified_at: new Date(),
     }]);
-    // Mock: existing override found
-    mockSql.mockResolvedValueOnce([{ id: ENROLLMENT_ID_OVERRIDE }]);
+    // Mock: existing ACTIVE override found
+    mockSql.mockResolvedValueOnce([{ id: ENROLLMENT_ID_OVERRIDE, status: 'verified' }]);
 
     const res = await POST(makePostRequest({
       locationId: LOCATION_ID_1,
@@ -199,6 +199,52 @@ describe('POST /api/settings/channels/override', () => {
 
     const body = await res.json();
     expect(body.error).toContain('already exists');
+    expect(mockSqlBegin).not.toHaveBeenCalled();
+  });
+
+  it('revives a cascade-disabled override (UPDATE, not INSERT) instead of 409ing', async () => {
+    // Mock: location validation
+    mockSql.mockResolvedValueOnce([{
+      id: LOCATION_ID_1,
+      name: 'Downtown Cafe',
+      display_label: 'Downtown Cafe',
+    }]);
+    // Mock: org-default exists and is verified
+    mockSql.mockResolvedValueOnce([{
+      id: ENROLLMENT_ID_ORG,
+      handle: '@org_bot',
+      status: 'verified',
+      verified_at: new Date('2025-01-01'),
+    }]);
+    // Mock: existing override is cascade-disabled (disconnect left it behind)
+    mockSql.mockResolvedValueOnce([{ id: ENROLLMENT_ID_OVERRIDE, status: 'disabled' }]);
+    // Inside tx: revival UPDATE returns the row
+    mockTx.mockResolvedValueOnce([{ id: ENROLLMENT_ID_OVERRIDE }]);
+
+    const res = await POST(makePostRequest({
+      locationId: LOCATION_ID_1,
+      channel: 'telegram',
+    }));
+    expect(res.status).toBe(201);
+
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.override.handle).toBe('@org_bot');
+    expect(body.override.status).toBe('verified');
+
+    // The tx statement must be an UPDATE that re-clones + clears disabled_at —
+    // never a second INSERT for the same (account, location, channel).
+    const txSql = (mockTx.mock.calls[0]?.[0] as TemplateStringsArray).join('?');
+    expect(txSql).toContain('UPDATE channel_enrollments');
+    expect(txSql).toContain('disabled_at = NULL');
+    expect(txSql).toContain("status = 'disabled'");
+    expect(txSql).not.toContain('INSERT');
+
+    // Audit records the revival
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledOnce();
+    const [auditInput] = mockWriteAccountAuditLog.mock.calls[0] as [{ eventType: string; payload: Record<string, unknown> }];
+    expect(auditInput.eventType).toBe('channel_override_created');
+    expect(auditInput.payload).toMatchObject({ revived: true });
   });
 
   it('returns 404 when no org-default enrollment exists', async () => {
@@ -219,6 +265,30 @@ describe('POST /api/settings/channels/override', () => {
 
     const body = await res.json();
     expect(body.error).toContain('No org-default enrollment');
+  });
+
+  it('returns 404 when the org default exists but is NOT verified (lookup filters status)', async () => {
+    // Mock: location validation
+    mockSql.mockResolvedValueOnce([{
+      id: LOCATION_ID_1,
+      name: 'Downtown Cafe',
+      display_label: null,
+    }]);
+    // Mock: org-default lookup returns nothing because the only org default is
+    // pending_verification and the SQL requires status = 'verified'.
+    mockSql.mockResolvedValueOnce([]);
+
+    const res = await POST(makePostRequest({
+      locationId: LOCATION_ID_1,
+      channel: 'telegram',
+    }));
+    expect(res.status).toBe(404);
+
+    // The org-default lookup SQL must require a verified row so non-verified
+    // statuses can never be cloned into override rows.
+    const orgDefaultLookup = (mockSql.mock.calls[1]?.[0] as TemplateStringsArray).join('?');
+    expect(orgDefaultLookup).toContain("status = 'verified'");
+    expect(mockSqlBegin).not.toHaveBeenCalled();
   });
 
   it('returns 404 when location not found or not accessible', async () => {

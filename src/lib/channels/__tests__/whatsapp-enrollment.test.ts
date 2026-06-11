@@ -139,6 +139,10 @@ describe('disableWhatsAppEnrollment', () => {
     const overrideSql = calls[1];
     expect(overrideSql).toContain('account_id');
     expect(overrideSql).toContain('location_id IS NOT NULL');
+    // Cascade catches pending/pending_verification clones — only
+    // already-disabled rows are excluded.
+    expect(overrideSql).toContain("status != 'disabled'");
+    expect(overrideSql).not.toContain("status = 'verified'");
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
     expect(mockWriteAccountAuditLog.mock.calls[0]![0].eventType).toBe('channel_disabled');
