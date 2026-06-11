@@ -105,6 +105,30 @@ async function requestWithOptions<T>(
   }
 }
 
+interface MockLocation {
+  id: string;
+  name: string;
+  address: string;
+}
+
+// Deterministic mock locations for E2E/local mock mode. Count is driven by
+// MOCK_ZERNIO_LOCATION_COUNT so the full ingest→publish loop can be exercised
+// against two (or more) locations without a real Google Business Profile.
+// Defaults to 1 (preserves single-location mock behavior); any non-numeric or
+// sub-1 value is clamped to 1.
+function mockLocations(): MockLocation[] {
+  const raw = Number(process.env.MOCK_ZERNIO_LOCATION_COUNT ?? 1);
+  const count = Number.isInteger(raw) && raw >= 1 ? raw : 1;
+  return Array.from({ length: count }, (_, i) => {
+    const n = i + 1;
+    return {
+      id: `mock-loc-${n}`,
+      name: `Mock Location ${n}`,
+      address: `123 Mock St #${n}`,
+    };
+  });
+}
+
 async function mockResponse<T>(opts: RequestOptions): Promise<T> {
   switch (opts.endpointKind) {
     case 'create_profile':
@@ -114,9 +138,7 @@ async function mockResponse<T>(opts: RequestOptions): Promise<T> {
         authUrl: 'http://localhost:3000/__mock_oauth_complete',
       } as unknown as T;
     case 'list_locations':
-      return {
-        locations: [{ id: 'mock-loc-1', name: 'Mock Location', address: '123 Mock St' }],
-      } as unknown as T;
+      return { locations: mockLocations() } as unknown as T;
     case 'select_location':
       return { accountId: `mock-account-${Date.now()}` } as unknown as T;
     case 'list_reviews':

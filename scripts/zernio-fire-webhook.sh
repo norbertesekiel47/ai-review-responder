@@ -13,6 +13,27 @@
 #   bash scripts/zernio-fire-webhook.sh "" webhook.test                          # webhook.test (no account needed)
 #   bash scripts/zernio-fire-webhook.sh mock-account-1234 account.disconnected '{"reason":"user_revoked"}'
 #
+# Targeting a SPECIFIC location (review.new / review.updated only):
+#   The webhook ingress narrows its fan-out to one location by parsing the
+#   {locationId} segment out of the review RESOURCE NAME
+#   (`accounts/{a}/locations/{loc}/reviews/{r}`) — see
+#   src/lib/zernio/parse-review-webhook.ts. Set LOCATION_ID to build that
+#   resource name so the parsed location matches a seeded zernio_location_id:
+#
+#     LOCATION_ID=mock-loc-2 bash scripts/zernio-fire-webhook.sh mock-account-1 review.new
+#
+#   Overridable companions (defaults shown):
+#     REVIEW_ID=mock-review-1            # the {reviewId} path segment
+#     RESOURCE_ACCOUNT_ID=gmb-account-1  # the {accountResource} path segment.
+#                                        # NOTE: Google's account id, a DIFFERENT
+#                                        # id space from the top-level Zernio
+#                                        # account.id (first positional arg).
+#                                        # The parser deliberately does NOT
+#                                        # cross-check the two.
+#
+#   When LOCATION_ID is unset, review.new/review.updated keep the legacy
+#   behavior: a bare review.id and account-wide fan-out.
+#
 # Requires:
 #   - openssl (for HMAC-SHA256)
 #   - curl
@@ -49,8 +70,19 @@ case "$EVENT" in
     BODY=$(printf '{"id":"%s","event":"%s"}' "$EVENT_ID" "$EVENT")
     ;;
   review.new|review.updated)
-    BODY=$(printf '{"id":"%s","event":"%s","review":{"id":"mock-review-1"},"account":{"id":"%s"}}' \
-      "$EVENT_ID" "$EVENT" "$ACCOUNT_ID")
+    REVIEW_ID="${REVIEW_ID:-mock-review-1}"
+    if [ -n "${LOCATION_ID:-}" ]; then
+      # Build the review RESOURCE NAME so the ingress parses {locationId} and
+      # narrows fan-out to exactly that seeded zernio_location_id.
+      RESOURCE_ACCOUNT_ID="${RESOURCE_ACCOUNT_ID:-gmb-account-1}"
+      REVIEW_NAME="accounts/${RESOURCE_ACCOUNT_ID}/locations/${LOCATION_ID}/reviews/${REVIEW_ID}"
+      BODY=$(printf '{"id":"%s","event":"%s","review":{"id":"%s","name":"%s"},"account":{"id":"%s"}}' \
+        "$EVENT_ID" "$EVENT" "$REVIEW_ID" "$REVIEW_NAME" "$ACCOUNT_ID")
+    else
+      # Legacy: bare review id, account-wide fan-out.
+      BODY=$(printf '{"id":"%s","event":"%s","review":{"id":"%s"},"account":{"id":"%s"}}' \
+        "$EVENT_ID" "$EVENT" "$REVIEW_ID" "$ACCOUNT_ID")
+    fi
     ;;
   *)
     BODY=$(printf '{"id":"%s","event":"%s","account":{"id":"%s"}}' \
