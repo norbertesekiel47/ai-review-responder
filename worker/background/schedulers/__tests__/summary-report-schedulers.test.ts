@@ -31,6 +31,12 @@ interface SchedulerCase {
   systemTime: string;
   /** Table name unique to this scheduler's candidate query. */
   candidateMarker: string;
+  /**
+   * The digest opt-in column this scheduler filters on. Since PR E the toggle
+   * lives on `accounts` (migration 063); the candidate query must read it from
+   * the joined `accounts a`, NOT the deprecated per-business column.
+   */
+  digestColumn: string;
   load: () => Promise<{ start: () => void; stop: () => void }>;
 }
 
@@ -41,6 +47,7 @@ const schedulerCases: SchedulerCase[] = [
     // 2026-06-01 is a Monday; 08:30 UTC is inside the 8–9 AM scheduling window.
     systemTime: '2026-06-01T08:30:00Z',
     candidateMarker: 'weekly_summaries',
+    digestColumn: 'weekly_summary_enabled',
     load: async () => {
       const mod = await import('../WeeklySummaryScheduler');
       return { start: mod.startWeeklySummaryScheduler, stop: mod.stopWeeklySummaryScheduler };
@@ -52,6 +59,7 @@ const schedulerCases: SchedulerCase[] = [
     // 1st of the month at 09:30 UTC is inside the 9–10 AM scheduling window.
     systemTime: '2026-06-01T09:30:00Z',
     candidateMarker: 'monthly_impact_emails',
+    digestColumn: 'monthly_impact_enabled',
     load: async () => {
       const mod = await import('../MonthlyImpactScheduler');
       return { start: mod.startMonthlyImpactScheduler, stop: mod.stopMonthlyImpactScheduler };
@@ -59,7 +67,7 @@ const schedulerCases: SchedulerCase[] = [
   },
 ];
 
-describe.each(schedulerCases)('$name', ({ envVar, systemTime, candidateMarker, load }) => {
+describe.each(schedulerCases)('$name', ({ envVar, systemTime, candidateMarker, digestColumn, load }) => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -99,6 +107,35 @@ describe.each(schedulerCases)('$name', ({ envVar, systemTime, candidateMarker, l
     expect(queryText.indexOf('b.archived_at IS NULL')).toBeLessThan(
       queryText.indexOf('NOT EXISTS'),
     );
+
+    scheduler.stop();
+  });
+
+  it('reads the digest opt-in from accounts, not the deprecated per-business column', async () => {
+    vi.setSystemTime(new Date(systemTime));
+    sqlReturnQueue.push([]); // candidate query returns no businesses
+
+    const scheduler = await load();
+    scheduler.start();
+    await flush();
+
+    const candidateCall = sqlCalls.find(
+      (call) => call.text.includes('FROM businesses b') && call.text.includes(candidateMarker),
+    );
+    expect(candidateCall).toBeDefined();
+    const queryText = candidateCall!.text;
+
+    // PR E moved the digest toggle to account level (migration 063). The
+    // candidate query must filter on the joined `accounts a` column so a write
+    // to `accounts` is honored; the per-business column is deprecated and must
+    // no longer gate candidate selection.
+    expect(queryText).toContain(`a.${digestColumn}`);
+    expect(queryText).not.toContain(`b.${digestColumn}`);
+
+    // The accounts column is NOT NULL DEFAULT TRUE (migration 063) — the
+    // predicate is a plain equality, with no dead IS-NULL arm.
+    expect(queryText).toContain(`a.${digestColumn} = TRUE`);
+    expect(queryText).not.toContain(`a.${digestColumn} IS NULL`);
 
     scheduler.stop();
   });

@@ -4,7 +4,7 @@ import { sql } from '@/lib/db/server';
 import { resolveWritableAccountForLocation } from '@/lib/shared/writable-subscription';
 import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
-import { cancelWhatsAppEnrollment } from '@/lib/channels/whatsapp-enrollment';
+import { cancelMobileEnrollment } from '@/lib/channels/mobile-enrollment';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
 
@@ -27,7 +27,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
   await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${accountId}`}, 0))`;
-    return cancelWhatsAppEnrollment(tx, accountId);
+    return cancelMobileEnrollment(tx, 'whatsapp', accountId);
   });
 
   // Invalidate channel cache — the cancelled verification changes which

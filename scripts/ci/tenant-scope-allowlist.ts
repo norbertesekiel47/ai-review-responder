@@ -5,6 +5,27 @@ export interface TenantScopeAllowlistEntry {
   reason: string;
 }
 
+// ── Shared snippets ─────────────────────────────────────────────────────────
+// One query that the audit attributes to multiple tables needs one entry per
+// table, but the snippet text itself must stay byte-identical to the source —
+// so each multi-entry query is hoisted here once instead of being copy-pasted
+// per entry.
+
+const MONTHLY_IMPACT_CANDIDATES_SQL =
+  "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND b.archived_at IS NULL AND a.monthly_impact_enabled = TRUE AND NOT EXISTS ( SELECT 1 FROM monthly_impact_emails mie WHERE mie.business_id = b.id AND mie.month_start_date = ${monthStartDate}::date AND mie.sent_at IS NOT NULL )";
+
+const ONBOARDING_DRIP_CANDIDATES_SQL =
+  "SELECT b.id AS business_id, d.drip_type FROM businesses b JOIN accounts a ON a.id = b.account_id CROSS JOIN (VALUES ('day_1', 1), ('day_7', 7), ('day_30', 30)) AS d(drip_type, days) WHERE a.subscription_status = 'active' AND b.subscription_activated_at IS NOT NULL AND b.subscription_activated_at <= NOW() - (d.days || ' days')::interval AND NOT EXISTS ( SELECT 1 FROM onboarding_drip_log dl WHERE dl.business_id = b.id AND dl.drip_type = d.drip_type AND dl.sent_at IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = 'onboarding_drip' AND jo.aggregate_id = b.id AND jo.status <> 'failed' AND jo.payload->>'drip_type' = d.drip_type )";
+
+const WEEKLY_SUMMARY_CANDIDATES_SQL =
+  "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND b.archived_at IS NULL AND a.weekly_summary_enabled = TRUE AND NOT EXISTS ( SELECT 1 FROM weekly_summaries ws WHERE ws.business_id = b.id AND ws.week_start_date = ${weekStartDate}::date AND ws.sent_at IS NOT NULL )";
+
+const RANKING_TRACKING_CANDIDATES_SQL =
+  "SELECT b.id, b.google_place_id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status = 'active' AND b.place_id_verified = TRUE AND b.google_place_id IS NOT NULL AND b.tracked_keywords <> '[]'::jsonb AND ( (b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL) OR b.ranking_search_location IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = 'track_ranking' AND jo.aggregate_id = b.id AND jo.status IN ('pending', 'dispatching', 'dispatched') )";
+
+const DASHBOARD_SETTINGS_SELECT_SQL =
+  "SELECT b.name, b.created_at, b.initial_review_count, b.initial_responded_count, b.baseline_captured_at, b.tone, b.products_services, b.avoid_facts, b.sample_responses, b.owner_phone, b.owner_email, a.weekly_summary_enabled, a.monthly_impact_enabled, b.category, b.google_place_id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE b.id = ${businessId} LIMIT 1";
+
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/(authenticated)/layout.tsx",
@@ -255,8 +276,14 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/dashboard/service.ts",
     table: "businesses",
-    sqlSnippet: "SELECT name, created_at, initial_review_count, initial_responded_count, baseline_captured_at, tone, products_services, avoid_facts, sample_responses, owner_phone, owner_email, weekly_summary_enabled, monthly_impact_enabled, category, google_place_id FROM businesses WHERE id = ${businessId} LIMIT 1",
+    sqlSnippet: DASHBOARD_SETTINGS_SELECT_SQL,
     reason: "Authenticated flow uses business/location id as the lookup key after owner scope has been established.",
+  },
+  {
+    file: "src/lib/dashboard/service.ts",
+    table: "accounts",
+    sqlSnippet: DASHBOARD_SETTINGS_SELECT_SQL,
+    reason: "Account is joined on the already-scoped business/location id (b.id = ${businessId}) only to read the account-level digest opt-in toggles (migration 063); no cross-account fan-out.",
   },
   {
     file: "src/lib/db/account-guard.ts",
@@ -717,49 +744,49 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/schedulers/MonthlyImpactScheduler.ts",
     table: "accounts",
-    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND b.archived_at IS NULL AND (b.monthly_impact_enabled IS NULL OR b.monthly_impact_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM monthly_impact_emails mie WHERE mie.business_id = b.id AND mie.month_start_date = ${monthStartDate}::date AND mie.sent_at IS NOT NULL )",
+    sqlSnippet: MONTHLY_IMPACT_CANDIDATES_SQL,
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/schedulers/MonthlyImpactScheduler.ts",
     table: "businesses",
-    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND b.archived_at IS NULL AND (b.monthly_impact_enabled IS NULL OR b.monthly_impact_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM monthly_impact_emails mie WHERE mie.business_id = b.id AND mie.month_start_date = ${monthStartDate}::date AND mie.sent_at IS NOT NULL )",
+    sqlSnippet: MONTHLY_IMPACT_CANDIDATES_SQL,
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/schedulers/OnboardingDripScheduler.ts",
     table: "accounts",
-    sqlSnippet: "SELECT b.id AS business_id, d.drip_type FROM businesses b JOIN accounts a ON a.id = b.account_id CROSS JOIN (VALUES ('day_1', 1), ('day_7', 7), ('day_30', 30)) AS d(drip_type, days) WHERE a.subscription_status = 'active' AND b.subscription_activated_at IS NOT NULL AND b.subscription_activated_at <= NOW() - (d.days || ' days')::interval AND NOT EXISTS ( SELECT 1 FROM onboarding_drip_log dl WHERE dl.business_id = b.id AND dl.drip_type = d.drip_type AND dl.sent_at IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = 'onboarding_drip' AND jo.aggregate_id = b.id AND jo.status <> 'failed' AND jo.payload->>'drip_type' = d.drip_type )",
+    sqlSnippet: ONBOARDING_DRIP_CANDIDATES_SQL,
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/schedulers/OnboardingDripScheduler.ts",
     table: "businesses",
-    sqlSnippet: "SELECT b.id AS business_id, d.drip_type FROM businesses b JOIN accounts a ON a.id = b.account_id CROSS JOIN (VALUES ('day_1', 1), ('day_7', 7), ('day_30', 30)) AS d(drip_type, days) WHERE a.subscription_status = 'active' AND b.subscription_activated_at IS NOT NULL AND b.subscription_activated_at <= NOW() - (d.days || ' days')::interval AND NOT EXISTS ( SELECT 1 FROM onboarding_drip_log dl WHERE dl.business_id = b.id AND dl.drip_type = d.drip_type AND dl.sent_at IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = 'onboarding_drip' AND jo.aggregate_id = b.id AND jo.status <> 'failed' AND jo.payload->>'drip_type' = d.drip_type )",
+    sqlSnippet: ONBOARDING_DRIP_CANDIDATES_SQL,
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/schedulers/RankingTrackingScheduler.ts",
     table: "accounts",
-    sqlSnippet: "SELECT b.id, b.google_place_id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status = 'active' AND b.place_id_verified = TRUE AND b.google_place_id IS NOT NULL AND b.tracked_keywords <> '[]'::jsonb AND ( (b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL) OR b.ranking_search_location IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = 'track_ranking' AND jo.aggregate_id = b.id AND jo.status IN ('pending', 'dispatching', 'dispatched') )",
+    sqlSnippet: RANKING_TRACKING_CANDIDATES_SQL,
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/schedulers/RankingTrackingScheduler.ts",
     table: "businesses",
-    sqlSnippet: "SELECT b.id, b.google_place_id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status = 'active' AND b.place_id_verified = TRUE AND b.google_place_id IS NOT NULL AND b.tracked_keywords <> '[]'::jsonb AND ( (b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL) OR b.ranking_search_location IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = 'track_ranking' AND jo.aggregate_id = b.id AND jo.status IN ('pending', 'dispatching', 'dispatched') )",
+    sqlSnippet: RANKING_TRACKING_CANDIDATES_SQL,
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/schedulers/WeeklySummaryScheduler.ts",
     table: "accounts",
-    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND b.archived_at IS NULL AND (b.weekly_summary_enabled IS NULL OR b.weekly_summary_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM weekly_summaries ws WHERE ws.business_id = b.id AND ws.week_start_date = ${weekStartDate}::date AND ws.sent_at IS NOT NULL )",
+    sqlSnippet: WEEKLY_SUMMARY_CANDIDATES_SQL,
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/schedulers/WeeklySummaryScheduler.ts",
     table: "businesses",
-    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND b.archived_at IS NULL AND (b.weekly_summary_enabled IS NULL OR b.weekly_summary_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM weekly_summaries ws WHERE ws.business_id = b.id AND ws.week_start_date = ${weekStartDate}::date AND ws.sent_at IS NOT NULL )",
+    sqlSnippet: WEEKLY_SUMMARY_CANDIDATES_SQL,
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
@@ -1689,19 +1716,19 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/schedulers/MonthlyImpactScheduler.ts",
     table: "monthly_impact_emails",
-    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND b.archived_at IS NULL AND (b.monthly_impact_enabled IS NULL OR b.monthly_impact_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM monthly_impact_emails mie WHERE mie.business_id = b.id AND mie.month_start_date = ${monthStartDate}::date AND mie.sent_at IS NOT NULL )",
+    sqlSnippet: MONTHLY_IMPACT_CANDIDATES_SQL,
     reason: "Background scheduler globally scans active accounts and uses monthly_impact_emails only as an idempotency marker before enqueueing scoped jobs.",
   },
   {
     file: "worker/background/schedulers/OnboardingDripScheduler.ts",
     table: "onboarding_drip_log",
-    sqlSnippet: "SELECT b.id AS business_id, d.drip_type FROM businesses b JOIN accounts a ON a.id = b.account_id CROSS JOIN (VALUES ('day_1', 1), ('day_7', 7), ('day_30', 30)) AS d(drip_type, days) WHERE a.subscription_status = 'active' AND b.subscription_activated_at IS NOT NULL AND b.subscription_activated_at <= NOW() - (d.days || ' days')::interval AND NOT EXISTS ( SELECT 1 FROM onboarding_drip_log dl WHERE dl.business_id = b.id AND dl.drip_type = d.drip_type AND dl.sent_at IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = 'onboarding_drip' AND jo.aggregate_id = b.id AND jo.status <> 'failed' AND jo.payload->>'drip_type' = d.drip_type )",
+    sqlSnippet: ONBOARDING_DRIP_CANDIDATES_SQL,
     reason: "Background scheduler globally scans active accounts and uses onboarding_drip_log only as an idempotency marker before enqueueing scoped jobs.",
   },
   {
     file: "worker/background/schedulers/WeeklySummaryScheduler.ts",
     table: "weekly_summaries",
-    sqlSnippet: "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND b.archived_at IS NULL AND (b.weekly_summary_enabled IS NULL OR b.weekly_summary_enabled = TRUE) AND NOT EXISTS ( SELECT 1 FROM weekly_summaries ws WHERE ws.business_id = b.id AND ws.week_start_date = ${weekStartDate}::date AND ws.sent_at IS NOT NULL )",
+    sqlSnippet: WEEKLY_SUMMARY_CANDIDATES_SQL,
     reason: "Background scheduler globally scans active accounts and uses weekly_summaries only as an idempotency marker before enqueueing scoped jobs.",
   },
   {
@@ -1733,18 +1760,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "zernio_backfill_runs",
     sqlSnippet: "UPDATE zernio_backfill_runs SET completed_at = NOW(), updated_at = NOW() WHERE id = ${run.id}",
     reason: "ZernioBackfillWorker marks complete on the run row id loaded by correlation id for the current business-scoped backfill job.",
-  },
-  {
-    file: "src/lib/channels/telegram-enrollment.ts",
-    table: "channel_enrollments",
-    sqlSnippet: "UPDATE channel_enrollments SET status = 'pending_verification', handle = NULL, verification_token_hash = ${tokenHash}, verification_token_expires_at = ${expiresAt}, disabled_at = NULL, unsubscribed_at = NULL, unsubscribed_reason = NULL, updated_at = NOW() WHERE id = ${existingRow.id}",
-    reason: "Enrollment start transaction first locks the org-default row by account_id/channel, then updates that locked row id in the same transaction.",
-  },
-  {
-    file: "src/lib/channels/whatsapp-enrollment.ts",
-    table: "channel_enrollments",
-    sqlSnippet: "UPDATE channel_enrollments SET status = 'pending_verification', handle = NULL, verification_token_hash = ${tokenHash}, verification_token_expires_at = ${expiresAt}, disabled_at = NULL, unsubscribed_at = NULL, unsubscribed_reason = NULL, updated_at = NOW() WHERE id = ${existingRow.id}",
-    reason: "Enrollment start transaction first locks the org-default row by account_id/channel, then updates that locked row id in the same transaction.",
   },
   {
     file: "worker/background/pollers/EmailChannelReconcilePoller.ts",

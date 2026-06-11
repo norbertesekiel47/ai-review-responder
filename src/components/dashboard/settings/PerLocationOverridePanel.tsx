@@ -13,18 +13,13 @@
 
 import { useCallback, useState } from 'react';
 import { Icon } from '@/components/dashboard/shell/Icon';
+import type { PerLocationOverride } from '@/lib/channels/overrides-view';
+import type { ChannelId } from '@/lib/notifications/channels/types';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
-export interface PerLocationOverride {
-  enrollmentId: string;
-  locationId: string;
-  locationName: string;
-  channel: 'email' | 'telegram' | 'whatsapp';
-  handle: string | null;
-  status: string;
-  verified_at: string | null;
-}
+// DTO is owned by the override view module (type-only import — client-safe).
+export type { PerLocationOverride } from '@/lib/channels/overrides-view';
 
 export interface LocationOption {
   id: string;
@@ -32,17 +27,13 @@ export interface LocationOption {
   isPrimary: boolean;
 }
 
-interface OrgDefaultEnrollment {
-  channel: string;
-  handle: string | null;
-  status: string;
-}
-
 interface Props {
   overrides: PerLocationOverride[];
   locationOptions: LocationOption[];
-  orgDefaults: OrgDefaultEnrollment[];
-  accountId: string;
+  /** Org-default channels eligible to spawn overrides (live verified enrollment). */
+  verifiedOrgChannels: ChannelId[];
+  /** Eligibility to ADD overrides — existing ones stay listable/deletable regardless. */
+  canAddOverrides: boolean;
   onOverrideAdded?: () => void;
   onOverrideRemoved?: () => void;
 }
@@ -60,6 +51,31 @@ const CHANNEL_ICONS: Record<string, string> = {
   telegram: '💬',
   whatsapp: '🟢',
 };
+
+function formatOverrideLocationLabel(override: PerLocationOverride): string {
+  return override.archived ? `${override.locationName} (archived)` : override.locationName;
+}
+
+// Shared add/remove call to the override endpoint — POST creates, DELETE
+// removes. Throws with the server's error string (or a status fallback) so
+// each caller owns only its own UI failure handling.
+async function mutateOverride(
+  method: 'POST' | 'DELETE',
+  failVerb: 'Add' | 'Remove',
+  locationId: string,
+  channel: string,
+): Promise<void> {
+  const res = await fetch('/api/settings/channels/override', {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ locationId, channel }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `${failVerb} failed (${res.status})`);
+  }
+}
 
 // ── Sub-component: Single Override Row ───────────────────────────────────
 
@@ -84,7 +100,7 @@ function OverrideRow({
           {CHANNEL_LABELS[override.channel] ?? override.channel}
         </div>
         <div className="channel-handle" style={{ fontSize: 12, color: '#6B7280' }}>
-          {override.locationName}
+          {formatOverrideLocationLabel(override)}
           {isConnected && override.handle && ` · ${override.handle}`}
         </div>
       </div>
@@ -109,8 +125,8 @@ function OverrideRow({
 export function PerLocationOverridePanel({
   overrides,
   locationOptions,
-  orgDefaults,
-  accountId,
+  verifiedOrgChannels,
+  canAddOverrides,
   onOverrideAdded,
   onOverrideRemoved,
 }: Props) {
@@ -127,27 +143,12 @@ export function PerLocationOverridePanel({
     overridesByLocation.set(o.locationId, list);
   }
 
-  // Only allow adding overrides for channels that have verified org-defaults
-  const overridableChannels = orgDefaults.flatMap((d) =>
-    d.status === 'verified' ? [d.channel] : [],
-  );
-
   // Remove an override
   const handleRemove = useCallback(async (enrollmentId: string, locationId: string, channel: string) => {
     setRemovingIds((prev) => new Set(prev).add(enrollmentId));
 
     try {
-      const res = await fetch('/api/settings/channels/override', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ locationId, channel }),
-      });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Remove failed (${res.status})`);
-      }
-
+      await mutateOverride('DELETE', 'Remove', locationId, channel);
       onOverrideRemoved?.();
     } catch (err) {
       console.error('Failed to remove override:', err);
@@ -167,17 +168,7 @@ export function PerLocationOverridePanel({
     setAddError(null);
 
     try {
-      const res = await fetch('/api/settings/channels/override', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ locationId, channel }),
-      });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Add failed (${res.status})`);
-      }
-
+      await mutateOverride('POST', 'Add', locationId, channel);
       onOverrideAdded?.();
     } catch (err) {
       setAddError(err instanceof Error ? err.message : 'Failed to add override');
@@ -186,12 +177,29 @@ export function PerLocationOverridePanel({
     }
   }, [onOverrideAdded]);
 
-  // Don't render the section at all if there are no locations (single-location account)
-  if (locationOptions.length <= 1) {
+  // The panel owns its visibility: hidden only when there is nothing to list
+  // AND nothing can be added. Once overrides exist they must remain
+  // listable+deletable even after losing add-eligibility (flag off, or
+  // archiving back to a single location) — creation controls are gated
+  // separately below.
+  if (overrides.length === 0 && !canAddOverrides) {
     return null;
   }
 
-  const hasOverrides = overrides.length > 0;
+  // Classification is driven by the DTO `archived` flag — NOT membership in
+  // locationOptions — so an override on a still-active sole location renders
+  // in the active section. Non-archived overrides whose location is missing
+  // from the active options (defensive) also render in the inactive section
+  // below so they never become invisible.
+  const activeLocationIds = new Set(locationOptions.map((l) => l.id));
+  const inactiveOverridesByLocation = new Map<string, PerLocationOverride[]>();
+  for (const o of overrides) {
+    if (!o.archived && activeLocationIds.has(o.locationId)) continue;
+    const list = inactiveOverridesByLocation.get(o.locationId) ?? [];
+    list.push(o);
+    inactiveOverridesByLocation.set(o.locationId, list);
+  }
+
   const overrideCount = overrides.length;
 
   return (
@@ -233,7 +241,7 @@ export function PerLocationOverridePanel({
             const overriddenChannels = new Set<string>(locOverrides.map((o) => o.channel));
 
             // Channels that have verified org-defaults but no per-location override yet
-            const availableChannels = overridableChannels.filter(
+            const availableChannels = verifiedOrgChannels.filter(
               (ch) => !overriddenChannels.has(ch),
             );
 
@@ -259,13 +267,15 @@ export function PerLocationOverridePanel({
                   />
                 ))}
 
-                {/* VAL-SETTINGS-014: Add override button per location per channel */}
-                {availableChannels.map((channel) => (
+                {/* VAL-SETTINGS-014: Add override button per location per channel.
+                    Creation is gated on canAddOverrides — ineligible owners can
+                    still view and delete existing overrides, just not add new ones. */}
+                {canAddOverrides && availableChannels.map((channel) => (
                   <button
                     key={channel}
                     type="button"
                     className="list-add"
-                    style={{ marginTop: 4, fontSize: 12, marginLeft: locOverrides.length > 0 ? 0 : 0 }}
+                    style={{ marginTop: 4, fontSize: 12 }}
                     onClick={() => handleAdd(loc.id, channel)}
                     disabled={addingFor === loc.id + ':' + channel}
                   >
@@ -284,6 +294,31 @@ export function PerLocationOverridePanel({
                     No overrides, uses default channels
                   </div>
                 )}
+              </div>
+            );
+          })}
+
+          {/* E4/E5: overrides on archived locations (DTO archived flag). These
+              stay listable + deletable but get NO "Add override" buttons — you
+              cannot add an override to an inactive location. The " (archived)"
+              suffix is derived from the flag at render time. */}
+          {[...inactiveOverridesByLocation.entries()].map(([locId, locOverrides]) => {
+            const firstOverride = locOverrides[0];
+            const label = firstOverride ? formatOverrideLocationLabel(firstOverride) : locId;
+            return (
+              <div key={locId} style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="location" size={14} />
+                  {label}
+                </div>
+                {locOverrides.map((o) => (
+                  <OverrideRow
+                    key={o.enrollmentId}
+                    override={o}
+                    onRemove={handleRemove}
+                    removing={removingIds.has(o.enrollmentId)}
+                  />
+                ))}
               </div>
             );
           })}

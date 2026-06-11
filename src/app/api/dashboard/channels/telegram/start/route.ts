@@ -11,7 +11,7 @@ import { sql } from '@/lib/db/server';
 import { resolveWritableAccountForLocation } from '@/lib/shared/writable-subscription';
 import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
-import { startTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
+import { startMobileEnrollment } from '@/lib/channels/mobile-enrollment';
 import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
 import { TOKEN_TTL_MS } from '@/lib/notifications/channels/constants';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
@@ -40,11 +40,11 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
   const noStore = { 'Cache-Control': 'no-store, private' };
 
-  let result: Awaited<ReturnType<typeof startTelegramEnrollment>> | undefined;
+  let result: Awaited<ReturnType<typeof startMobileEnrollment>> | undefined;
   try {
     result = await sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${accountId}`}, 0))`;
-      return startTelegramEnrollment(tx, locationId, accountId, tokenHash, expiresAt);
+      return startMobileEnrollment(tx, 'telegram', locationId, accountId, tokenHash, expiresAt);
     });
   } catch (err) {
     if (err instanceof MultipleMobileChannelsError) {

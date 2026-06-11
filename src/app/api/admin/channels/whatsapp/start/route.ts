@@ -6,14 +6,13 @@
 // The full handler (flag/env → admin auth → businessId → active-subscription
 // account → advisory-locked enrollment upsert → QR response) lives in the
 // shared runAdminChannelStart; this route supplies the WhatsApp bindings.
-// State machine logic lives in src/lib/channels/whatsapp-enrollment.ts.
+// State machine logic lives in src/lib/channels/mobile-enrollment.ts.
 //
 // Subscription gate: strict 'active' status. Dispatcher honors past_due grace at
 // send time; admin enrollment mutations during grace require explicit active.
 
 import { NextRequest } from 'next/server';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
-import { startWhatsAppEnrollment } from '@/lib/channels/whatsapp-enrollment';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { runAdminChannelStart } from '@/app/api/admin/channels/_shared/start';
 
@@ -26,10 +25,10 @@ function buildWhatsAppDeepLink(rawToken: string): string {
 
 export const POST = withSameOrigin()((req: NextRequest) =>
   runAdminChannelStart(req, {
+    channel: 'whatsapp',
     isEnabled: isWhatsAppEnabled,
     flagOff,
     assertEnvReady: assertWhatsAppEnvReady,
-    startEnrollment: startWhatsAppEnrollment,
     buildDeepLink: buildWhatsAppDeepLink,
     cacheLabel: 'admin.whatsapp.start',
     errorLogPrefix: '[whatsapp/start]',

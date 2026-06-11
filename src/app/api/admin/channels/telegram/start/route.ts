@@ -6,12 +6,11 @@
 // The full handler (flag/env → admin auth → businessId → active-subscription
 // account → advisory-locked enrollment upsert → QR response) lives in the
 // shared runAdminChannelStart; this route supplies the Telegram bindings.
-// State machine logic lives in src/lib/channels/telegram-enrollment.ts and is
+// State machine logic lives in src/lib/channels/mobile-enrollment.ts and is
 // shared with the owner route at /api/dashboard/channels/telegram/start.
 
 import { NextRequest } from 'next/server';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
-import { startTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { runAdminChannelStart } from '@/app/api/admin/channels/_shared/start';
 
@@ -22,10 +21,10 @@ function buildTelegramDeepLink(rawToken: string): string {
 
 export const POST = withSameOrigin()((req: NextRequest) =>
   runAdminChannelStart(req, {
+    channel: 'telegram',
     isEnabled: isTelegramEnabled,
     flagOff,
     assertEnvReady: assertTelegramEnvReady,
-    startEnrollment: startTelegramEnrollment,
     buildDeepLink: buildTelegramDeepLink,
     cacheLabel: 'admin.telegram.start',
     errorLogPrefix: '[telegram/start]',

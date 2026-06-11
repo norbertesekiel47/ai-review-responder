@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **062** — next migration is **063**
+Current head: **063** — next migration is **064**
 All tables use UUIDv7 (time-ordered primary keys).
 
 ## Migration Log
@@ -469,6 +469,45 @@ All tables use UUIDv7 (time-ordered primary keys).
   the resolved-place_id UPDATE as `duplicate_location` (leaves the location
   unverified, no job failure). Verified against a local postgres:16 (all migrations
   applied): active dup rejected, archived dup + NULL place_ids allowed.
+
+- **063** — Account-level digest toggles + backfill (multi-location hardening PR E,
+  `feat/multi-loc-E-digests-channels`). **Adds** `accounts.weekly_summary_enabled`
+  and `accounts.monthly_impact_enabled` (both `BOOLEAN NOT NULL DEFAULT TRUE`,
+  `ADD COLUMN IF NOT EXISTS` → additive + idempotent in shape). Moves the digest
+  opt-out from per-location (`businesses`, migration 014, written only to the
+  primary location, read per-location — so secondaries can never opt out and
+  archived locations keep emailing) to account-level. The per-business
+  `businesses.weekly_summary_enabled` / `monthly_impact_enabled` columns are
+  **DEPRECATED** (read fallback during the cutover) and **NOT dropped**; the
+  write/read path moves to the new account columns in later PR-E tasks (E2/E3).
+  **Backfill (spec contract, three explicit branches via `CASE WHEN EXISTS`)**:
+  (1) account HAS an active primary (`is_primary AND archived_at IS NULL`) →
+  `COALESCE(activePrimary.<col>, TRUE)` (NULL→TRUE; does NOT fall through to the
+  aggregate even when the primary's stored value is NULL); (2) no active primary
+  row → `bool_and(COALESCE(<col>, TRUE))` over ALL the account's businesses rows
+  (active OR archived) so any recorded opt-out anywhere survives ("former primary"
+  is not identifiable — archiving sets `is_primary = FALSE`); (3) no businesses
+  rows → `bool_and` over zero rows is NULL → outer `COALESCE` yields TRUE (the
+  column default). Deliberately NOT a flat `COALESCE(primary, aggregate, TRUE)`
+  chain (that wrongly falls through to the aggregate when an active primary has a
+  NULL value). **Pre-flight (run against staging AND prod BEFORE applying):**
+  `SELECT account_id, id FROM businesses WHERE (weekly_summary_enabled = FALSE
+  OR monthly_impact_enabled = FALSE) AND is_primary = FALSE AND archived_at IS
+  NULL;` — any rows mean an active non-primary location carries an opt-out the
+  active-primary backfill branch ignores; carry those opt-outs forward manually
+  (`bool_and` over the account's businesses rows). **Post-deploy re-run (spec
+  Fix 5) is NOT the backfill UPDATE** — by then `accounts` is live source of
+  truth and a full re-derive could re-enable an account-level opt-out recorded
+  after the migration. The re-run (exact SQL in the migration header) only
+  PROPAGATES NEW OPT-OUTS: per column, `SET <col> = FALSE WHERE <col> = TRUE
+  AND <derived-from-businesses> = FALSE` — TRUE→FALSE tightening only, never
+  re-enables. Transactional (the `accounts` table is
+  small — no CONCURRENTLY). Apply staging-first, then production, both Supabase
+  projects in lockstep. No RLS change (new columns inherit the `accounts` SELECT
+  policy); no index. Verified against a local postgres:16 (migrations 001→062
+  applied) inside a rolled-back tx: active-primary FALSE → FALSE; active-primary
+  NULL + archived FALSE → TRUE; no-active-primary archived FALSE → FALSE (aggregate
+  path); no-businesses → TRUE.
 
 ## Key Tables Reference
 

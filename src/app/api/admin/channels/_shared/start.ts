@@ -9,8 +9,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash, randomUUID } from 'node:crypto';
 import QRCode from 'qrcode';
-import type postgres from 'postgres';
 import { sql } from '@/lib/db/server';
+import { startMobileEnrollment, type MobileChannel } from '@/lib/channels/mobile-enrollment';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
@@ -21,16 +21,10 @@ import { asAccountId } from '@/lib/shared/ids';
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
 export interface AdminChannelStartConfig {
+  channel: MobileChannel;
   isEnabled: () => boolean;
   flagOff: () => NextResponse;
   assertEnvReady: () => NextResponse | null;
-  startEnrollment: (
-    tx: postgres.TransactionSql,
-    businessId: string,
-    accountId: string,
-    tokenHash: string,
-    expiresAt: Date,
-  ) => Promise<{ kind: 'ok' } | { kind: 'already_verified' }>;
   /** Builds the channel deep link the owner scans, from the raw token. */
   buildDeepLink: (rawToken: string) => string;
   /** safeInvalidateChannelCache label, e.g. "admin.telegram.start". */
@@ -84,7 +78,7 @@ export async function runAdminChannelStart(
   try {
     result = await sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${accountId}`}, 0))`;
-      return config.startEnrollment(tx, businessId, accountId, tokenHash, expiresAt);
+      return startMobileEnrollment(tx, config.channel, businessId, accountId, tokenHash, expiresAt);
     });
   } catch (err) {
     if (err instanceof MultipleMobileChannelsError) {

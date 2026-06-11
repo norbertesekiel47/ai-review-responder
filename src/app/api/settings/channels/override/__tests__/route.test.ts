@@ -1,23 +1,18 @@
+// Route-level tests: auth gates, body parsing, and status-mapping of the
+// override module's result unions. The business-logic contract (pre-checks,
+// revive-vs-insert, audit, cache invalidation) is owned by
+// src/lib/channels/__tests__/override.test.ts.
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-// ── Hoisted shared state ────────────────────────────────────────────
-
-const {
-  mockRequireRole,
-  mockSql,
-  mockSqlUnsafe,
-  mockJsonb,
-  mockAssertWritableSubscriptionForAccount,
-} = vi.hoisted(() => ({
-  mockRequireRole: vi.fn(),
-  mockSql: vi.fn(),
-  mockSqlUnsafe: vi.fn(),
-  mockJsonb: vi.fn((val: unknown) => JSON.stringify(val)),
-  mockAssertWritableSubscriptionForAccount: vi.fn(),
-}));
-
-// ── Mock Auth ───────────────────────────────────────────────────────
+const { mockRequireRole, mockAssertWritableSubscriptionForAccount, mockCreateOrRevive, mockRemove } =
+  vi.hoisted(() => ({
+    mockRequireRole: vi.fn(),
+    mockAssertWritableSubscriptionForAccount: vi.fn(),
+    mockCreateOrRevive: vi.fn(),
+    mockRemove: vi.fn(),
+  }));
 
 vi.mock('@/lib/db/auth', () => {
   class AuthError extends Error {
@@ -35,46 +30,23 @@ vi.mock('@/lib/db/auth', () => {
   };
 });
 
-// ── Mock DB ─────────────────────────────────────────────────────────
-
-vi.mock('@/lib/db/server', () => {
-  const sqlProxy = Object.assign((...args: unknown[]) => mockSql(...args), {
-    unsafe: (...args: unknown[]) => mockSqlUnsafe(...args),
-  });
-  return { sql: sqlProxy, jsonb: mockJsonb };
-});
-
 vi.mock('@/lib/shared/writable-subscription', () => ({
-  assertWritableSubscriptionForAccount: (...args: unknown[]) => mockAssertWritableSubscriptionForAccount(...args),
+  assertWritableSubscriptionForAccount: (...args: unknown[]) =>
+    mockAssertWritableSubscriptionForAccount(...args),
 }));
 
-// ── Mock uuid ───────────────────────────────────────────────────────
-
-vi.mock('uuid', () => ({
-  v7: () => 'mock-uuid-v7',
-}));
-
-// ── Mock redis-cache (invalidateChannelCache calls getCacheRedis) ───
-
-vi.mock('@/lib/db/redis-cache', () => ({
-  getCacheRedis: () => ({
-    get: vi.fn().mockResolvedValue(null),
-    set: vi.fn().mockResolvedValue('OK'),
-    keys: vi.fn().mockResolvedValue([]),
-    del: vi.fn().mockResolvedValue(0),
-  }),
+vi.mock('@/lib/channels/override', () => ({
+  createOrReviveOverride: (...args: unknown[]) => mockCreateOrRevive(...args),
+  removeOverride: (...args: unknown[]) => mockRemove(...args),
 }));
 
 // Import AFTER mocks
 import { POST, DELETE } from '../route';
 import { AuthError } from '@/lib/db/auth';
 
-// ── Helpers ─────────────────────────────────────────────────────────
-
 const ACCOUNT_ID = 'a0000000-0000-4000-8000-000000000001';
-const LOCATION_ID_1 = 'b1111111-0000-4000-8000-000000000001';
-const ENROLLMENT_ID_ORG = 'e0000000-0000-4000-8000-000000000001';
-const ENROLLMENT_ID_OVERRIDE = 'e0000000-0000-4000-8000-000000000002';
+const LOCATION_ID = 'b1111111-0000-4000-8000-000000000001';
+const OVERRIDE_ID = 'e0000000-0000-4000-8000-000000000002';
 const APP_URL = 'http://localhost:3000';
 
 function ownerUser() {
@@ -84,335 +56,165 @@ function ownerUser() {
     email: 'owner@test.com',
     role: 'owner',
     accountId: ACCOUNT_ID,
-    locationId: LOCATION_ID_1,
+    locationId: LOCATION_ID,
   };
 }
 
-function makePostRequest(body: unknown): NextRequest {
+function makeRequest(method: 'POST' | 'DELETE', body: unknown): NextRequest {
   return new NextRequest('http://localhost:3000/api/settings/channels/override', {
-    method: 'POST',
+    method,
     headers: { 'Content-Type': 'application/json', Origin: APP_URL },
     body: JSON.stringify(body),
   });
 }
 
-function makeDeleteRequest(body: unknown): NextRequest {
-  return new NextRequest('http://localhost:3000/api/settings/channels/override', {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json', Origin: APP_URL },
-    body: JSON.stringify(body),
-  });
-}
+const VALID_BODY = { locationId: LOCATION_ID, channel: 'telegram' };
 
-// ── Tests ────────────────────────────────────────────────────────────
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockRequireRole.mockResolvedValue(ownerUser());
+  mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
+  process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+});
 
-describe('POST /api/settings/channels/override', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockRequireRole.mockResolvedValue(ownerUser());
-    mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
-    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
-  });
-
-  it('creates per-location override cloning org-default values', async () => {
-    // Mock: location belongs to account and is active
-    mockSql.mockResolvedValueOnce([{
-      id: LOCATION_ID_1,
-      name: 'Downtown Cafe',
-      display_label: 'Downtown Cafe',
-    }]);
-    // Mock: org-default enrollment exists
-    mockSql.mockResolvedValueOnce([{
-      id: ENROLLMENT_ID_ORG,
-      handle: '@org_bot',
-      status: 'verified',
-      verified_at: new Date('2025-01-01'),
-    }]);
-    // Mock: no existing override
-    mockSql.mockResolvedValueOnce([]);
-    // Mock: INSERT succeeds
-    mockSql.mockResolvedValueOnce([{ id: ENROLLMENT_ID_OVERRIDE }]);
-
-    const res = await POST(makePostRequest({
-      locationId: LOCATION_ID_1,
-      channel: 'telegram',
-    }));
-    expect(res.status).toBe(201);
-
-    const body = await res.json();
-    expect(body.success).toBe(true);
-    expect(body.override.handle).toBe('@org_bot');
-    expect(body.override.locationId).toBe(LOCATION_ID_1);
-    expect(body.override.channel).toBe('telegram');
+describe('POST /api/settings/channels/override — auth + parsing', () => {
+  it('returns 401 when not authenticated, without calling the module', async () => {
+    mockRequireRole.mockRejectedValue(new AuthError('Unauthorized', 401));
+    const res = await POST(makeRequest('POST', VALID_BODY));
+    expect(res.status).toBe(401);
+    expect(mockCreateOrRevive).not.toHaveBeenCalled();
   });
 
-  it('returns 409 when override already exists', async () => {
-    // Mock: location validation
-    mockSql.mockResolvedValueOnce([{
-      id: LOCATION_ID_1,
-      name: 'Downtown Cafe',
-      display_label: 'Downtown Cafe',
-    }]);
-    // Mock: org-default exists
-    mockSql.mockResolvedValueOnce([{
-      id: ENROLLMENT_ID_ORG,
-      handle: '@org_bot',
-      status: 'verified',
-      verified_at: new Date(),
-    }]);
-    // Mock: existing override found
-    mockSql.mockResolvedValueOnce([{ id: ENROLLMENT_ID_OVERRIDE }]);
-
-    const res = await POST(makePostRequest({
-      locationId: LOCATION_ID_1,
-      channel: 'telegram',
-    }));
-    expect(res.status).toBe(409);
-
-    const body = await res.json();
-    expect(body.error).toContain('already exists');
-  });
-
-  it('returns 404 when no org-default enrollment exists', async () => {
-    // Mock: location validation
-    mockSql.mockResolvedValueOnce([{
-      id: LOCATION_ID_1,
-      name: 'Downtown Cafe',
-      display_label: null,
-    }]);
-    // Mock: no org-default
-    mockSql.mockResolvedValueOnce([]);
-
-    const res = await POST(makePostRequest({
-      locationId: LOCATION_ID_1,
-      channel: 'telegram',
-    }));
-    expect(res.status).toBe(404);
-
-    const body = await res.json();
-    expect(body.error).toContain('No org-default enrollment');
-  });
-
-  it('returns 404 when location not found or not accessible', async () => {
-    // Mock: location not found
-    mockSql.mockResolvedValueOnce([]);
-
-    const res = await POST(makePostRequest({
-      locationId: '99999999-0000-4000-8000-000000000001',
-      channel: 'telegram',
-    }));
-    expect(res.status).toBe(404);
-  });
-
-  it('returns 400 for invalid channel', async () => {
-    const res = await POST(makePostRequest({
-      locationId: LOCATION_ID_1,
-      channel: 'invalid_channel',
-    }));
-    expect(res.status).toBe(400);
-  });
-
-  it('rejects channel "sms" with 400 (channel removed)', async () => {
-    const res = await POST(makePostRequest({
-      locationId: LOCATION_ID_1,
-      channel: 'sms',
-    }));
-    expect(res.status).toBe(400);
-  });
-
-  it('returns 403 when user has no account', async () => {
-    mockRequireRole.mockResolvedValue({
-      ...ownerUser(),
-      accountId: null,
-    });
-
-    const res = await POST(makePostRequest({
-      locationId: LOCATION_ID_1,
-      channel: 'telegram',
-    }));
+  it('returns 403 when the user has no account', async () => {
+    mockRequireRole.mockResolvedValue({ ...ownerUser(), accountId: null });
+    const res = await POST(makeRequest('POST', VALID_BODY));
     expect(res.status).toBe(403);
+    expect(mockCreateOrRevive).not.toHaveBeenCalled();
   });
 
-  it('returns 402 without creating an override when the account is past-due read-only', async () => {
+  it('returns 402 without touching the module when the account is past-due read-only', async () => {
     mockAssertWritableSubscriptionForAccount.mockResolvedValueOnce({
       ok: false,
       status: 402,
       error: 'past_due_read_only',
     });
-
-    const res = await POST(makePostRequest({
-      locationId: LOCATION_ID_1,
-      channel: 'telegram',
-    }));
-
+    const res = await POST(makeRequest('POST', VALID_BODY));
     expect(res.status).toBe(402);
     expect(await res.json()).toEqual({ error: 'past_due_read_only' });
     expect(mockAssertWritableSubscriptionForAccount).toHaveBeenCalledWith(ACCOUNT_ID);
-    expect(mockSql).not.toHaveBeenCalled();
+    expect(mockCreateOrRevive).not.toHaveBeenCalled();
   });
 
-  it('handles unique constraint violation gracefully', async () => {
-    // Mock: location validation
-    mockSql.mockResolvedValueOnce([{
-      id: LOCATION_ID_1,
-      name: 'Test',
-      display_label: null,
-    }]);
-    // Mock: org-default exists
-    mockSql.mockResolvedValueOnce([{
-      id: ENROLLMENT_ID_ORG,
-      handle: '@org_bot',
-      status: 'verified',
-      verified_at: new Date(),
-    }]);
-    // Mock: no existing override check
-    mockSql.mockResolvedValueOnce([]);
-    // Mock: INSERT fails with unique violation
-    mockSql.mockRejectedValueOnce({ code: '23505', constraint: 'test_uniq' });
+  it('returns 400 for an invalid channel', async () => {
+    const res = await POST(makeRequest('POST', { locationId: LOCATION_ID, channel: 'invalid_channel' }));
+    expect(res.status).toBe(400);
+    expect(mockCreateOrRevive).not.toHaveBeenCalled();
+  });
 
-    const res = await POST(makePostRequest({
-      locationId: LOCATION_ID_1,
+  it('rejects channel "sms" with 400 (channel removed)', async () => {
+    const res = await POST(makeRequest('POST', { locationId: LOCATION_ID, channel: 'sms' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('forwards accountId/actorUserId/locationId/channel to the module', async () => {
+    mockCreateOrRevive.mockResolvedValue({
+      kind: 'created',
+      override: { id: OVERRIDE_ID, locationId: LOCATION_ID, channel: 'telegram', handle: '@h', status: 'verified' },
+    });
+    await POST(makeRequest('POST', VALID_BODY));
+    expect(mockCreateOrRevive).toHaveBeenCalledWith({
+      accountId: ACCOUNT_ID,
+      actorUserId: 'user-1',
+      locationId: LOCATION_ID,
       channel: 'telegram',
-    }));
-    expect(res.status).toBe(409);
+    });
   });
 });
 
-describe('DELETE /api/settings/channels/override', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockRequireRole.mockResolvedValue(ownerUser());
-    mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
-    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+describe('POST /api/settings/channels/override — status mapping', () => {
+  it.each([
+    ['not_eligible', 403, 'not_eligible'],
+    ['location_not_found', 404, 'Location not found or not accessible'],
+    ['no_org_default', 404, 'No org-default enrollment found for this channel'],
+    ['conflict', 409, 'Override already exists for this location and channel'],
+  ] as const)('%s → %i', async (kind, status, error) => {
+    mockCreateOrRevive.mockResolvedValue({ kind });
+    const res = await POST(makeRequest('POST', VALID_BODY));
+    expect(res.status).toBe(status);
+    expect(await res.json()).toEqual({ error });
   });
 
-  it('soft-deletes per-location override', async () => {
-    // Mock: override found and archived
-    mockSql.mockResolvedValueOnce([{ id: ENROLLMENT_ID_OVERRIDE }]);
-
-    const res = await DELETE(makeDeleteRequest({
-      locationId: LOCATION_ID_1,
+  it.each(['created', 'revived'] as const)('%s → 201 with the override payload', async (kind) => {
+    const override = {
+      id: OVERRIDE_ID,
+      locationId: LOCATION_ID,
       channel: 'telegram',
-    }));
+      handle: '@org_bot',
+      status: 'verified',
+    };
+    mockCreateOrRevive.mockResolvedValue({ kind, override });
+    const res = await POST(makeRequest('POST', VALID_BODY));
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ success: true, override });
+  });
+
+  it('module throw → 500', async () => {
+    mockCreateOrRevive.mockRejectedValue(new Error('db down'));
+    const res = await POST(makeRequest('POST', VALID_BODY));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Failed to create override' });
+  });
+});
+
+describe('DELETE /api/settings/channels/override — status mapping', () => {
+  it('ok → 200 { success: true }', async () => {
+    mockRemove.mockResolvedValue({ kind: 'ok' });
+    const res = await DELETE(makeRequest('DELETE', VALID_BODY));
     expect(res.status).toBe(200);
-
-    const body = await res.json();
-    expect(body.success).toBe(true);
+    expect(await res.json()).toEqual({ success: true });
+    expect(mockRemove).toHaveBeenCalledWith({
+      accountId: ACCOUNT_ID,
+      actorUserId: 'user-1',
+      locationId: LOCATION_ID,
+      channel: 'telegram',
+    });
   });
 
-  it('returns 404 when no override found', async () => {
-    // Mock: no override found
-    mockSql.mockResolvedValueOnce([]);
-
-    const res = await DELETE(makeDeleteRequest({
-      locationId: '99999999-0000-4000-8000-000000000001',
-      channel: 'telegram',
-    }));
+  it('not_found → 404', async () => {
+    mockRemove.mockResolvedValue({ kind: 'not_found' });
+    const res = await DELETE(makeRequest('DELETE', VALID_BODY));
     expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'No override found for this location and channel' });
+  });
+
+  it('module throw → 500', async () => {
+    mockRemove.mockRejectedValue(new Error('db down'));
+    const res = await DELETE(makeRequest('DELETE', VALID_BODY));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Failed to remove override' });
   });
 
   it('returns 401 when not authenticated', async () => {
     mockRequireRole.mockRejectedValue(new AuthError('Unauthorized', 401));
-
-    const res = await DELETE(makeDeleteRequest({
-      locationId: LOCATION_ID_1,
-      channel: 'telegram',
-    }));
+    const res = await DELETE(makeRequest('DELETE', VALID_BODY));
     expect(res.status).toBe(401);
+    expect(mockRemove).not.toHaveBeenCalled();
   });
 
-  it('returns 400 for invalid channel', async () => {
-    const res = await DELETE(makeDeleteRequest({
-      locationId: LOCATION_ID_1,
-      channel: 'invalid',
-    }));
+  it('returns 400 for an invalid channel', async () => {
+    const res = await DELETE(makeRequest('DELETE', { locationId: LOCATION_ID, channel: 'invalid' }));
     expect(res.status).toBe(400);
   });
 
-  it('returns 402 without deleting an override when the account is past-due read-only', async () => {
+  it('returns 402 without touching the module when the account is past-due read-only', async () => {
     mockAssertWritableSubscriptionForAccount.mockResolvedValueOnce({
       ok: false,
       status: 402,
       error: 'past_due_read_only',
     });
-
-    const res = await DELETE(makeDeleteRequest({
-      locationId: LOCATION_ID_1,
-      channel: 'telegram',
-    }));
-
+    const res = await DELETE(makeRequest('DELETE', VALID_BODY));
     expect(res.status).toBe(402);
     expect(await res.json()).toEqual({ error: 'past_due_read_only' });
-    expect(mockAssertWritableSubscriptionForAccount).toHaveBeenCalledWith(ACCOUNT_ID);
-    expect(mockSql).not.toHaveBeenCalled();
-  });
-});
-
-// ── Audit trail for channel override changes ─────────────────────────
-
-describe('Audit trail for channel override changes', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockRequireRole.mockResolvedValue(ownerUser());
-    mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
-    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
-  });
-
-  it('POST writes account_audit_log entry with channel_override_created event', async () => {
-    // Mock: location validation
-    mockSql.mockResolvedValueOnce([{
-      id: LOCATION_ID_1,
-      name: 'Downtown Cafe',
-      display_label: 'Downtown Cafe',
-    }]);
-    // Mock: org-default enrollment exists
-    mockSql.mockResolvedValueOnce([{
-      id: ENROLLMENT_ID_ORG,
-      handle: '@org_bot',
-      status: 'verified',
-      verified_at: new Date('2025-01-01'),
-    }]);
-    // Mock: no existing override
-    mockSql.mockResolvedValueOnce([]);
-    // Mock: INSERT succeeds
-    mockSql.mockResolvedValueOnce([{ id: ENROLLMENT_ID_OVERRIDE }]);
-    // Mock: audit log INSERT succeeds
-    mockSql.mockResolvedValueOnce([{ id: 'audit-1' }]);
-
-    const res = await POST(makePostRequest({
-      locationId: LOCATION_ID_1,
-      channel: 'telegram',
-    }));
-    expect(res.status).toBe(201);
-
-    // Verify audit log INSERT was called (5th SQL call)
-    expect(mockSql).toHaveBeenCalledTimes(5);
-    // The 5th call should be the audit log INSERT — verify the jsonb payload
-    const lastCallArgs = mockSql.mock.calls[4]!;
-    const sqlTemplate = lastCallArgs[0];
-    const sqlString = Array.isArray(sqlTemplate) ? sqlTemplate.join('') : String(sqlTemplate);
-    expect(sqlString).toContain('account_audit_log');
-    expect(sqlString).toContain('channel_override_created');
-  });
-
-  it('DELETE writes account_audit_log entry with channel_override_removed event', async () => {
-    // Mock: override found and archived
-    mockSql.mockResolvedValueOnce([{ id: ENROLLMENT_ID_OVERRIDE }]);
-    // Mock: audit log INSERT succeeds
-    mockSql.mockResolvedValueOnce([{ id: 'audit-2' }]);
-
-    const res = await DELETE(makeDeleteRequest({
-      locationId: LOCATION_ID_1,
-      channel: 'telegram',
-    }));
-    expect(res.status).toBe(200);
-
-    // Verify audit log INSERT was called (2nd SQL call)
-    expect(mockSql).toHaveBeenCalledTimes(2);
-    const lastCallArgs = mockSql.mock.calls[1]!;
-    const sqlTemplate = lastCallArgs[0];
-    const sqlString = Array.isArray(sqlTemplate) ? sqlTemplate.join('') : String(sqlTemplate);
-    expect(sqlString).toContain('account_audit_log');
-    expect(sqlString).toContain('channel_override_removed');
+    expect(mockRemove).not.toHaveBeenCalled();
   });
 });

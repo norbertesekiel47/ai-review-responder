@@ -27,44 +27,57 @@ import {
   type PerLocationOverride,
   type LocationOption,
 } from '@/components/dashboard/settings/PerLocationOverridePanel';
+import type { ChannelOverridesView } from '@/lib/channels/overrides-view';
+import type { ChannelId } from '@/lib/notifications/channels/types';
 
 interface Props extends ChannelsClientProps {
-  multiLocationEnabled?: boolean;
-  locationsSettingsEnabled?: boolean;
-  perLocationOverrides?: PerLocationOverride[];
-  locationOptions?: LocationOption[];
-  accountId?: string;
+  multiLocationEnabled: boolean;
+  locationsSettingsEnabled: boolean;
+  /** Computed once by the page: multi-location mode AND >1 active location. */
+  canAddOverrides: boolean;
+  perLocationOverrides: PerLocationOverride[];
+  locationOptions: LocationOption[];
+  verifiedOrgChannels: ChannelId[];
 }
 
 export function ChannelsTabClient(props: Props) {
   const f = useSettingsForm();
 
-  // Track overrides in local state so we can update after add/remove
+  // Track the override view in local state so we can update after add/remove
   // without a full page reload. The initial values come from SSR.
-  const [overrides, setOverrides] = useState<PerLocationOverride[]>(
-    props.perLocationOverrides ?? [],
+  //
+  // Hydrate-then-own: the SSR server-component page passes these props exactly
+  // once (navigation remounts the component, so the props never change identity
+  // during the client lifetime), and refreshOverrides re-seeds all three from
+  // the API afterwards — deriving inline from props would discard refreshes.
+  // This is the rule's documented "captures the initial prop value once and
+  // never re-syncs" exception.
+  // react-doctor-disable-next-line react-doctor/no-derived-useState -- SSR seed captured once; client owns state via refreshOverrides
+  const [overrides, setOverrides] = useState<PerLocationOverride[]>(props.perLocationOverrides);
+  // react-doctor-disable-next-line react-doctor/no-derived-useState -- SSR seed captured once; client owns state via refreshOverrides
+  const [locationOptions, setLocationOptions] = useState<LocationOption[]>(props.locationOptions);
+  // react-doctor-disable-next-line react-doctor/no-derived-useState -- SSR seed captured once; client owns state via refreshOverrides
+  const [verifiedOrgChannels, setVerifiedOrgChannels] = useState<ChannelId[]>(
+    props.verifiedOrgChannels,
   );
 
-  // Refresh overrides from server after add/remove
+  // Refresh the full override view from the server after add/remove — not just
+  // the override list, so verified-org-channel changes are never stale. The
+  // route serves the same typed ChannelOverridesView the SSR path hydrates
+  // from, so the fields are trusted as-is (matching page.tsx).
   const refreshOverrides = async () => {
     try {
       const res = await fetch('/api/settings/channels/overrides');
-      if (res.ok) {
-        const data = await res.json();
-        setOverrides(data.overrides ?? []);
-      }
+      if (!res.ok) throw new Error(`overrides refresh failed (${res.status})`);
+      const view = (await res.json()) as ChannelOverridesView;
+      setOverrides(view.overrides);
+      setLocationOptions(view.locations.filter((location) => !location.archived));
+      setVerifiedOrgChannels(view.verifiedOrgChannels);
     } catch {
       // Fallback: full page reload
       window.location.reload();
     }
   };
-
-  // Org-level defaults for the override panel to reference
-  const orgDefaults = props.initialEnrollments.map((e) => ({
-    channel: e.channel,
-    handle: e.handle,
-    status: e.status,
-  }));
 
   if (f.fetchError) {
     return (
@@ -114,17 +127,17 @@ export function ChannelsTabClient(props: Props) {
       {/* Org-level defaults — the existing ChannelsClient */}
       <ChannelsClient {...props} />
 
-      {/* Per-location overrides — collapsed by default */}
-      {props.multiLocationEnabled && props.locationOptions && props.locationOptions.length > 1 && (
-        <PerLocationOverridePanel
-          overrides={overrides}
-          locationOptions={props.locationOptions}
-          orgDefaults={orgDefaults}
-          accountId={props.accountId ?? ''}
-          onOverrideAdded={refreshOverrides}
-          onOverrideRemoved={refreshOverrides}
-        />
-      )}
+      {/* Per-location overrides — collapsed by default. The panel owns its
+          own visibility (hidden when there is nothing to list and nothing
+          can be added). */}
+      <PerLocationOverridePanel
+        overrides={overrides}
+        locationOptions={locationOptions}
+        verifiedOrgChannels={verifiedOrgChannels}
+        canAddOverrides={props.canAddOverrides}
+        onOverrideAdded={refreshOverrides}
+        onOverrideRemoved={refreshOverrides}
+      />
 
       <div className="set-section">
         <div className="set-section-head">

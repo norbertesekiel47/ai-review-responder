@@ -224,6 +224,7 @@ async function persistTierChangeTx(input: {
   const newConfig = TIER_CONFIG[tier];
 
   await sql.begin(async (tx) => {
+    // react-doctor-disable-next-line react-doctor/async-parallel -- ordered writes inside one Postgres.js transaction (single connection): the FOR UPDATE row lock must precede the UPDATE and audit INSERT
     await tx`
       SELECT id
       FROM accounts
