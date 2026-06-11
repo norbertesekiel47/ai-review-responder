@@ -2024,13 +2024,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/stripe/subscription-updated.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.locations_paid, a.stripe_subscription_id, CASE WHEN EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) THEN ${subscriptionId} ELSE NULL END AS active_offboarding_subscription_id FROM accounts a WHERE a.stripe_customer_id = ${customerId} FOR UPDATE",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.locations_paid, a.locations_overage_price_cents, a.stripe_subscription_id, CASE WHEN EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) THEN ${subscriptionId} ELSE NULL END AS active_offboarding_subscription_id FROM accounts a WHERE a.stripe_customer_id = ${customerId} FOR UPDATE",
     reason: "Stripe webhook resolves account and offboarding state from signed provider identifiers before tenant ids are available.",
   },
   {
     file: "worker/ingress/stripe/subscription-updated.ts",
     table: "account_offboardings",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.locations_paid, a.stripe_subscription_id, CASE WHEN EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) THEN ${subscriptionId} ELSE NULL END AS active_offboarding_subscription_id FROM accounts a WHERE a.stripe_customer_id = ${customerId} FOR UPDATE",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.locations_paid, a.locations_overage_price_cents, a.stripe_subscription_id, CASE WHEN EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) THEN ${subscriptionId} ELSE NULL END AS active_offboarding_subscription_id FROM accounts a WHERE a.stripe_customer_id = ${customerId} FOR UPDATE",
     reason: "Stripe webhook resolves account and offboarding state from signed provider identifiers before tenant ids are available.",
   },
   {

@@ -2,7 +2,7 @@ import Stripe from 'stripe';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import { LOG_PREFIX, extractCustomerId, extractSubscriptionId, UUID_RE, maybeEnqueueBackfillResume } from './shared';
-import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
+import { enqueueStripeOverageRecompute } from '../../../src/lib/shared/job-outbox-helpers';
 
 export async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
   // The client_reference_id is set by /api/billing/checkout to the account ID.
@@ -122,17 +122,7 @@ export async function processCheckoutSessionCompleted(session: Stripe.Checkout.S
       // (transactional outbox invariant: state change + enqueue in one
       // Postgres transaction). Guarded by the rowcount check above so only
       // fires when the UPDATE actually changed the row.
-      await tx`
-        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-        VALUES (
-          ${uuidv7()},
-          ${QUEUE_NAMES.UPDATE_STRIPE_OVERAGE},
-          'account',
-          ${accountId!}::uuid,
-          ${jsonb({ account_id: accountId!, correlation_id: uuidv7() })},
-          'pending'
-        )
-      `;
+      await enqueueStripeOverageRecompute(tx, accountId!);
     } else {
       console.warn(`${LOG_PREFIX} Account ${accountId!} not activated — current status is ${oldStatus}`);
     }

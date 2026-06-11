@@ -2,7 +2,11 @@ import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import { TIER_CONFIG, type SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
-import { tierForBasePriceId, overagePriceIdSet } from '../../../src/lib/payments/price-tier-map';
+import { tierForBasePriceId, overagePriceIdSet, basePriceIdSet } from '../../../src/lib/payments/price-tier-map';
+import {
+  findOverageItemMatch,
+  MUTATION_SAFE_OVERAGE_MATCHES,
+} from '../../../src/lib/payments/overage-item';
 import { LOG_PREFIX, extractCustomerId } from './shared';
 
 export async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<void> {
@@ -19,31 +23,27 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
   }
 
   const items = sub.items?.data ?? [];
-  // Build the overage-price-ID set once; both item searches reuse it (the
-  // price-tier-map module recommends this over per-item isOveragePriceId).
   const overagePriceIds = overagePriceIdSet();
 
   // VAL-BILLING-009: resolve base item -> tier via the single-owner price map.
+  // Resolve POSITIVELY (the item whose price maps to a tier) rather than
+  // "first item not in the env overage set" — after an overage price rotation
+  // a grandfathered overage item is outside the env set and, if it sorts
+  // first, the old negative match would mis-pick it as the base item.
   const baseItem = items.find(
-    (item) => item.price?.id && !overagePriceIds.has(item.price.id),
+    (item) => item.price?.id != null && tierForBasePriceId(item.price.id) !== null,
   );
   if (!baseItem?.price?.id) {
     console.warn(`${LOG_PREFIX} customer.subscription.updated missing base price ID for customer=${customerId} — skipping tier update`);
     return;
   }
 
-  const tier: SubscriptionTierValue | null = tierForBasePriceId(baseItem.price.id);
+  const basePriceId = baseItem.price.id;
+  const tier: SubscriptionTierValue | null = tierForBasePriceId(basePriceId);
   if (!tier) {
-    console.warn(`${LOG_PREFIX} Unknown base price ID ${baseItem.price.id} for customer=${customerId} — skipping tier update`);
+    console.warn(`${LOG_PREFIX} Unknown base price ID ${basePriceId} for customer=${customerId} — skipping tier update`);
     return;
   }
-
-  // VAL-BILLING-010: overage item quantity -> accounts.locations_paid.
-  // VAL-BILLING-011: tolerate legacy single-item subscriptions (quantity 0).
-  const overageItem = items.find(
-    (item) => item.price?.id && overagePriceIds.has(item.price.id),
-  );
-  const locationsPaid = overageItem?.quantity ?? 0;
 
   // VAL-BILLING-062: advisory lock prevents concurrent tier/overage writes.
   await sql.begin(async (tx) => {
@@ -52,6 +52,7 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
       subscription_tier: string;
       subscription_status: string;
       locations_paid: number;
+      locations_overage_price_cents: number;
       stripe_subscription_id: string | null;
       active_offboarding_subscription_id: string | null;
     }[]>`
@@ -60,6 +61,7 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
         a.subscription_tier,
         a.subscription_status,
         a.locations_paid,
+        a.locations_overage_price_cents,
         a.stripe_subscription_id,
         CASE
           WHEN EXISTS (
@@ -97,6 +99,26 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
     }
 
     await tx`SELECT pg_advisory_xact_lock(hashtext(${acctRow.id + ':subscription_update'}))`;
+
+    // VAL-BILLING-010: overage item quantity -> accounts.locations_paid.
+    // VAL-BILLING-011: tolerate legacy single-item subscriptions (quantity 0).
+    // Shared matcher (4th consumer): a grandfathered legacy-priced overage item
+    // — recognized by the account's STORED cents — keeps its quantity synced
+    // instead of being zeroed when the env overage price has been rotated.
+    // Descriptor-only (keyword) matches are not trusted for this write.
+    const overageMatch = findOverageItemMatch(items, {
+      overagePriceIds,
+      basePriceIds: new Set([...basePriceIdSet(), basePriceId]),
+      storedOveragePriceCents: Number(acctRow.locations_overage_price_cents),
+    });
+    const overageMatchTrusted =
+      overageMatch !== undefined && MUTATION_SAFE_OVERAGE_MATCHES.has(overageMatch.matchedBy);
+    if (overageMatch && !overageMatchTrusted) {
+      console.warn(
+        `${LOG_PREFIX} descriptor-only overage match (item ${overageMatch.item.id}) for account ${acctRow.id} — treating as no overage item`,
+      );
+    }
+    const locationsPaid = overageMatchTrusted ? overageMatch.item.quantity ?? 0 : 0;
 
     const tierChanged = acctRow.subscription_tier !== tier;
     const locationsPaidChanged = acctRow.locations_paid !== locationsPaid;

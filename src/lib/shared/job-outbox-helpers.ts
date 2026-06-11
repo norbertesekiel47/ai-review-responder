@@ -280,6 +280,36 @@ export async function enqueueSendNotification(
 }
 
 /**
+ * Enqueue an UpdateStripeOverageWorker recompute for the account. Single owner
+ * of this enqueue shape — used by location add/archive/reactivate, admin CSV
+ * import, and the Stripe webhook recovery paths. The worker recomputes the
+ * quantity from committed state, so a redundant enqueue is harmless
+ * convergence. Call with the surrounding transaction whenever the enqueue
+ * follows a state change (transactional-outbox invariant); the CSV-import
+ * caller passes the base client by pre-existing design.
+ */
+export async function enqueueStripeOverageRecompute(
+  exec: TxClient | postgres.Sql,
+  accountId: string,
+  correlationId?: string,
+): Promise<void> {
+  await exec`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${uuidv7()},
+      ${QUEUE_NAMES.UPDATE_STRIPE_OVERAGE},
+      'account',
+      ${accountId}::uuid,
+      ${jsonb({
+        account_id: accountId,
+        correlation_id: correlationId ?? uuidv7(),
+      })},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
+  `;
+}
+
+/**
  * Enqueue a validate_place_id job with in-flight dedup: if a pending /
  * dispatching / dispatched validate_place_id row already exists for this
  * business, the INSERT is a no-op. Single owner of that dedup rule — used by

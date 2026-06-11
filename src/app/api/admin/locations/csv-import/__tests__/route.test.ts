@@ -326,10 +326,10 @@ Westside Grill,ChIJ9012`;
       expect(input).toMatchObject({ enqueueStripeOverageUpdate: false });
     }
 
-    const overageOutboxCalls = mockSql.mock.calls.filter((call: any[]) => {
-      const raw = call?.[0]?.raw;
-      return Array.isArray(raw) && raw.join('').includes('update_stripe_overage_quantity');
-    });
+    // Topic is bound as a parameter by enqueueStripeOverageRecompute.
+    const overageOutboxCalls = mockSql.mock.calls.filter((call: any[]) =>
+      call.slice(1).includes('update_stripe_overage_quantity'),
+    );
     expect(overageOutboxCalls).toHaveLength(1);
   });
 
@@ -484,9 +484,9 @@ Uptown Bistro,ChIJ5678`;
     setupHappyPathRow();
     mockAssertCanAddLocation.mockResolvedValue({ allowed: true, overageUnits: 1 });
     mockGetActiveLocationCount.mockResolvedValue(1);
-    mockSql.mockImplementation((strings: TemplateStringsArray) => {
+    mockSql.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = strings.raw.join('');
-      if (text.includes('update_stripe_overage_quantity')) {
+      if (text.includes('INSERT INTO job_outbox') && values.includes('update_stripe_overage_quantity')) {
         throw new Error('outbox unavailable');
       }
       return Promise.resolve([]);

@@ -401,16 +401,14 @@
       "worker/jobs/response-generation/load-context.ts",
       "worker/jobs/response-generation/persist.ts",
 
-      // ── Multi-location billing-recovery hardening (PR D, acknowledged) ──
-      // stripe-overage-error.ts (the overage worker's transient/terminal classifier)
-      // shares the trivial typed object-property readers (stringProperty/numberProperty)
-      // with account-offboarding/stripe-invoices.ts. This follows the SAME codified
-      // policy already applied to the offboarding teardown classifiers above: the
-      // bounded Stripe error-classifier is intentionally co-located per worker
-      // (reliability-sensitive; production.md) rather than hoisted across the
-      // worker/lib boundary into a shared module — and the divergent 409-in-flight
-      // rule means the two classifiers must NOT be merged. Listing the new worker-side
-      // file drops the 2-instance helper clone below minOccurrences.
+      // ── Multi-location billing-recovery hardening (PR D) ──
+      // The error-inspection VOCABULARY (type sets, network codes, property
+      // readers) formerly cloned between stripe-overage-error.ts and
+      // account-offboarding/stripe-invoices.ts now lives in the shared
+      // src/lib/payments/stripe-error-inspect.ts; each worker keeps only its
+      // own retry POLICY (the divergent 409-in-flight rule). The entry stays
+      // because the two thin policy functions still share their if-chain shape
+      // by design and must not be merged into one policy.
       "worker/jobs/billing/stripe-overage-error.ts"
     ]
   }

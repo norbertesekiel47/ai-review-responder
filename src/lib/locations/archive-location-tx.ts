@@ -23,6 +23,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { getLocationById, getActiveLocationCount } from './repo';
 import { rethrowAsDuplicateLocation } from './duplicate-location';
+import { enqueueStripeOverageRecompute } from '@/lib/shared/job-outbox-helpers';
 
 // ── Guard result types ─────────────────────────────────────────────────────
 
@@ -306,20 +307,7 @@ async function applyArchiveLocationUpdate(
     )
   `;
 
-  await tx`
-    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    VALUES (
-      ${uuidv7()},
-      'update_stripe_overage_quantity',
-      'account',
-      ${input.accountId}::uuid,
-      ${jsonb({
-        account_id: input.accountId,
-        correlation_id: uuidv7(),
-      })},
-      'pending'
-    )
-  `;
+  await enqueueStripeOverageRecompute(tx, input.accountId);
 }
 
 // ── Reactivate transaction input/result ──────────────────────────────────────
@@ -420,20 +408,7 @@ export async function reactivateLocationTransaction(
       `;
 
       // 3. Enqueue Stripe overage update (increment)
-      await tx`
-        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-        VALUES (
-          ${uuidv7()},
-          'update_stripe_overage_quantity',
-          'account',
-          ${accountId}::uuid,
-          ${jsonb({
-            account_id: accountId,
-            correlation_id: uuidv7(),
-          })},
-          'pending'
-        )
-      `;
+      await enqueueStripeOverageRecompute(tx, accountId);
 
       const [backfillContext] = await tx<{
         zernio_account_id: string;

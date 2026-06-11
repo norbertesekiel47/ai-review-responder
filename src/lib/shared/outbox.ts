@@ -108,6 +108,32 @@ export async function markOutboxFailed(
 }
 
 /**
+ * Surfaces a transient error on a still-'dispatched' outbox row WITHOUT
+ * changing its status — the row remains eligible for BullMQ retries and the
+ * watchdog. Best-effort by design: observability must never poison the retry
+ * path, so any failure here is logged and swallowed.
+ */
+export async function recordOutboxTransientError(
+  outboxId: string,
+  error: string,
+): Promise<void> {
+  try {
+    await sql`
+      UPDATE job_outbox
+      SET last_error = ${error}
+      WHERE id = ${outboxId}
+        AND status = 'dispatched'
+    `;
+  } catch (recordErr) {
+    console.warn(
+      `[outbox] recordOutboxTransientError failed for ${outboxId} — observability only, swallowing: ${
+        recordErr instanceof Error ? recordErr.message : String(recordErr)
+      }`,
+    );
+  }
+}
+
+/**
  * True when the BullMQ job is on (or has exhausted) its final attempt — i.e. a
  * failure here is terminal and will not be retried. Reads only `opts.attempts`
  * (defaulting to 1 when unset/invalid) and `attemptsMade`. Worker `'failed'`

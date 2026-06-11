@@ -71,6 +71,7 @@ function makeStripe(opts: {
 }
 
 const OVERAGE_IDS = new Set(['price_overage_std']);
+const BASE_IDS = new Set(['price_base_std']);
 
 describe('reconcileAccount', () => {
   let errorSpy: ReturnType<typeof vi.spyOn>;
@@ -83,13 +84,13 @@ describe('reconcileAccount', () => {
 
   it('returns checked:1 with no drift for a matching account', async () => {
     const stripe = makeStripe({ retrieve: makeSubscription(2), createPreview: makePreview(2) });
-    const outcome = await reconcileAccount(stripe, makeAccount(), OVERAGE_IDS);
+    const outcome = await reconcileAccount(stripe, makeAccount(), OVERAGE_IDS, BASE_IDS);
     expect(outcome).toEqual({ accountsChecked: 1, drifts: [], errors: 0 });
   });
 
   it('returns errors:1 checked:0 for an unknown tier', async () => {
     const stripe = makeStripe({});
-    const outcome = await reconcileAccount(stripe, makeAccount({ subscription_tier: 'nope' }), OVERAGE_IDS);
+    const outcome = await reconcileAccount(stripe, makeAccount({ subscription_tier: 'nope' }), OVERAGE_IDS, BASE_IDS);
     expect(outcome.accountsChecked).toBe(0);
     expect(outcome.errors).toBe(1);
     expect(outcome.drifts).toEqual([]);
@@ -98,7 +99,7 @@ describe('reconcileAccount', () => {
 
   it('reports missing_subscription when stripe_subscription_id is null', async () => {
     const stripe = makeStripe({});
-    const outcome = await reconcileAccount(stripe, makeAccount({ stripe_subscription_id: null }), OVERAGE_IDS);
+    const outcome = await reconcileAccount(stripe, makeAccount({ stripe_subscription_id: null }), OVERAGE_IDS, BASE_IDS);
     expect(outcome.accountsChecked).toBe(1);
     expect(outcome.errors).toBe(0);
     expect(outcome.drifts).toHaveLength(1);
@@ -109,7 +110,7 @@ describe('reconcileAccount', () => {
   it('reports missing_subscription (handled) when Stripe 404s the subscription', async () => {
     const err = Object.assign(new Error('No such subscription'), { code: 'resource_missing', statusCode: 404 });
     const stripe = makeStripe({ retrieveError: err });
-    const outcome = await reconcileAccount(stripe, makeAccount(), OVERAGE_IDS);
+    const outcome = await reconcileAccount(stripe, makeAccount(), OVERAGE_IDS, BASE_IDS);
     expect(outcome).toMatchObject({ accountsChecked: 1, errors: 0 });
     expect(outcome.drifts).toHaveLength(1);
     expect(outcome.drifts[0]!.driftType).toBe('missing_subscription');
@@ -117,7 +118,7 @@ describe('reconcileAccount', () => {
 
   it('re-throws a non-missing Stripe retrieve error', async () => {
     const stripe = makeStripe({ retrieveError: new Error('Stripe API timeout') });
-    await expect(reconcileAccount(stripe, makeAccount(), OVERAGE_IDS)).rejects.toThrow('Stripe API timeout');
+    await expect(reconcileAccount(stripe, makeAccount(), OVERAGE_IDS, BASE_IDS)).rejects.toThrow('Stripe API timeout');
   });
 
   it('counts a duplicate-list failure as a handled error and still checks the account', async () => {
@@ -125,7 +126,7 @@ describe('reconcileAccount', () => {
       retrieve: makeSubscription(2), createPreview: makePreview(2),
       listError: new Error('list failed'),
     });
-    const outcome = await reconcileAccount(stripe, makeAccount(), OVERAGE_IDS);
+    const outcome = await reconcileAccount(stripe, makeAccount(), OVERAGE_IDS, BASE_IDS);
     expect(outcome.accountsChecked).toBe(1);
     expect(outcome.errors).toBe(1);
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Error listing Stripe subscriptions'));
@@ -136,11 +137,11 @@ describe('reconcileAccount', () => {
       retrieve: makeSubscription(5),
       createPreviewError: new Error('preview timeout'),
     });
-    const outcome = await reconcileAccount(stripe, makeAccount({ active_location_count: 3, locations_included: 1 }), OVERAGE_IDS);
+    const outcome = await reconcileAccount(stripe, makeAccount({ active_location_count: 3, locations_included: 1 }), OVERAGE_IDS, BASE_IDS);
     expect(outcome.accountsChecked).toBe(1);
     expect(outcome.errors).toBe(1);
     expect(outcome.drifts.some((d) => d.driftType === 'quantity_mismatch')).toBe(true);
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Error reconciling invoice preview'));
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Invoice-preview reconciliation UNAVAILABLE'));
   });
 
   it('reports a duplicate_subscription drift', async () => {
@@ -148,7 +149,7 @@ describe('reconcileAccount', () => {
       retrieve: makeSubscription(2), createPreview: makePreview(2),
       list: { data: [ { id: 'sub_123', status: 'active' }, { id: 'sub_dup', status: 'active' } ] },
     });
-    const outcome = await reconcileAccount(stripe, makeAccount(), OVERAGE_IDS);
+    const outcome = await reconcileAccount(stripe, makeAccount(), OVERAGE_IDS, BASE_IDS);
     expect(outcome.drifts.some((d) => d.driftType === 'duplicate_subscription')).toBe(true);
   });
 });

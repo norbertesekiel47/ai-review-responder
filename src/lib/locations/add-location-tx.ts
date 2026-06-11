@@ -17,7 +17,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import type { AccountId, LocationId } from '@/lib/shared/ids';
 import { rethrowAsDuplicateLocation } from './duplicate-location';
-import { enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
+import { enqueueValidatePlaceId, enqueueStripeOverageRecompute } from '@/lib/shared/job-outbox-helpers';
 
 // ── Input / Output types ───────────────────────────────────────────────────
 
@@ -258,20 +258,7 @@ export async function addLocationTransaction(
       if (enqueueStripeOverageUpdate) {
         // 2d. Enqueue Stripe overage update
         // VAL-BILLING-072: Uses outbox pattern instead of Checkout redirect for active accounts
-        await tx`
-          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          VALUES (
-            ${uuidv7()},
-            'update_stripe_overage_quantity',
-            'account',
-            ${accountId}::uuid,
-            ${jsonb({
-              account_id: accountId,
-              correlation_id: uuidv7(),
-            })},
-            'pending'
-          )
-        `;
+        await enqueueStripeOverageRecompute(tx, accountId);
       }
 
       // Zernio backfill is queued by /api/zernio/connect/select-location after

@@ -1218,7 +1218,7 @@ describe('StripeLocationsReconcilePoller', () => {
       expect.stringContaining('acct-preview-fails'),
     );
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Error reconciling invoice preview for account acct-preview-fails'),
+      expect.stringContaining('Invoice-preview reconciliation UNAVAILABLE for account acct-preview-fails'),
     );
   });
 

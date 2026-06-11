@@ -11,13 +11,22 @@
 //
 // Validation contract: VAL-BILLING-071, VAL-LOC-010, VAL-LOC-011, VAL-LOC-012.
 
-import type { Job } from 'bullmq';
+import { UnrecoverableError, type Job } from 'bullmq';
 import { getStripe } from '../../../src/lib/payments/stripe-client';
 import { sql } from '../../../src/lib/db/server';
-import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../../src/lib/shared/outbox';
+import {
+  markOutboxCompleted,
+  markOutboxFailed,
+  recordOutboxTransientError,
+  extractOutboxHandle,
+} from '../../../src/lib/shared/outbox';
 import { TIER_CONFIG, type SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
 import { basePriceIdSet, overagePriceIdForTier, overagePriceIdSet } from '../../../src/lib/payments/price-tier-map';
-import { findOverageItem } from '../../../src/lib/payments/overage-item';
+import {
+  findOverageItemMatch,
+  MUTATION_SAFE_OVERAGE_MATCHES,
+  OVERAGE_BILLING_ROLE,
+} from '../../../src/lib/payments/overage-item';
 import { computeOverageQuantity } from '../../../src/lib/accounts/quota';
 import { createWorkerLogger, type WorkerLogger } from '../../../src/lib/shared/logger';
 import { classifyStripeOverageError } from './stripe-overage-error';
@@ -151,6 +160,12 @@ export async function handleUpdateStripeOverage(
 
   const stripe = getStripe();
 
+  // Set inside the try when the only match is descriptor-confidence: that is
+  // enough to FLAG an item (read-only poller tolerance) but never enough to
+  // DELETE or re-quantity one — a nickname like "Priority Support Add-on"
+  // keyword-matches. Terminal-fail for ops attention instead of mutating.
+  let ambiguousMatchError: string | undefined;
+
   try {
     // Retrieve the subscription to find the overage item
     const subscription = await stripe.subscriptions.retrieve(
@@ -161,13 +176,27 @@ export async function handleUpdateStripeOverage(
     // a legacy/rotated price by stored unit-amount (not just the env price ID)
     // is what prevents adding a SECOND overage item — and double-billing — when
     // the env overage price has been rotated away from the one on the sub.
-    const existingOverageItem = findOverageItem(subscription.items.data, {
+    const overageMatch = findOverageItemMatch(subscription.items.data, {
       overagePriceIds: overagePriceIdSet(),
       basePriceIds: basePriceIdSet(),
       storedOveragePriceCents: account.locations_overage_price_cents,
     });
 
-    if (existingOverageItem && newQuantity === 0) {
+    if (overageMatch && !MUTATION_SAFE_OVERAGE_MATCHES.has(overageMatch.matchedBy)) {
+      ambiguousMatchError =
+        `ambiguous_overage_item: item ${overageMatch.item.id} matched only by ` +
+        `${overageMatch.matchedBy} — refusing to mutate; resolve manually ` +
+        `(stamp metadata.billing_role='${OVERAGE_BILLING_ROLE}' on the real overage item)`;
+    }
+
+    const existingOverageItem =
+      overageMatch && MUTATION_SAFE_OVERAGE_MATCHES.has(overageMatch.matchedBy)
+        ? overageMatch.item
+        : undefined;
+
+    if (ambiguousMatchError) {
+      // Fall through to the post-try handling below without touching Stripe.
+    } else if (existingOverageItem && newQuantity === 0) {
       await stripe.subscriptionItems.del(
         existingOverageItem.id,
         {},
@@ -199,13 +228,16 @@ export async function handleUpdateStripeOverage(
       );
       logger.log(`Updated overage item ${existingOverageItem.id} to quantity=${newQuantity} for account ${account_id}`);
     } else if (newQuantity > 0) {
-      // VAL-BILLING-071: Create overage subscription item when none exists
+      // VAL-BILLING-071: Create overage subscription item when none exists.
+      // The billing_role stamp makes every app-created item exactly matchable
+      // forever, independent of price rotations and descriptors.
       await stripe.subscriptionItems.create(
         {
           subscription: account.stripe_subscription_id,
           price: overagePriceId,
           quantity: newQuantity,
           proration_behavior: 'create_prorations',
+          metadata: { billing_role: OVERAGE_BILLING_ROLE },
         },
         {
           idempotencyKey: overageCreateIdempotencyKey(
@@ -221,19 +253,37 @@ export async function handleUpdateStripeOverage(
     } else {
       logger.log(`No overage item exists and computed quantity=0 for account ${account_id} — nothing to create`);
     }
-
-    await markOutboxCompleted(outboxId, outboxAttempt);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (classifyStripeOverageError(err) === 'transient') {
       // Leave the outbox row 'dispatched' so BullMQ retries and the 1h outbox
-      // watchdog re-dispatches. Do NOT markOutboxFailed — that forfeits the watchdog.
+      // watchdog re-dispatches. Do NOT markOutboxFailed — that forfeits the
+      // watchdog. Best-effort: surface the real error on the row for ops
+      // visibility during a sustained outage (status untouched).
+      await recordOutboxTransientError(outboxId, message);
       logger.error(`Transient Stripe overage error for account ${account_id} (will retry): ${message}`);
       throw err;
     }
     // Terminal: a deterministic failure that will never heal on retry.
+    // UnrecoverableError stops BullMQ from re-running a failure the code just
+    // declared deterministic (a plain throw would re-execute the Stripe calls).
     logger.error(`Terminal Stripe overage error for account ${account_id}: ${message}`);
     await markOutboxFailed(outboxId, message, outboxAttempt);
-    throw err;
+    throw new UnrecoverableError(message);
   }
+
+  if (ambiguousMatchError) {
+    // No Stripe mutation happened. Terminal-fail the outbox row so ops sees it;
+    // the reconcile poller independently alerts on the underlying drift.
+    logger.error(`${ambiguousMatchError} (account ${account_id})`);
+    await markOutboxFailed(outboxId, ambiguousMatchError, outboxAttempt);
+    return;
+  }
+
+  // Outside the Stripe try/catch on purpose: a transient Postgres blip here
+  // must NOT reach the Stripe classifier (it would mislabel a succeeded
+  // operation as terminal and flip the row to 'failed'). Letting it throw
+  // fails the job → BullMQ retries → the idempotency keys dedup the Stripe
+  // re-run → completion is re-attempted. Convergent either way.
+  await markOutboxCompleted(outboxId, outboxAttempt);
 }

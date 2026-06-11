@@ -1,6 +1,12 @@
 import Stripe from 'stripe';
 import { describe, expect, it } from 'vitest';
-import { findOverageItem } from '../overage-item';
+import {
+  findOverageItem,
+  findOverageItemMatch,
+  MUTATION_SAFE_OVERAGE_MATCHES,
+  OVERAGE_BILLING_ROLE,
+  type FindOverageItemOptions,
+} from '../overage-item';
 
 // ---------------------------------------------------------------------------
 // Fixture builder
@@ -241,16 +247,59 @@ describe('findOverageItem', () => {
     expect(found).toBe(byEnvId);
   });
 
-  it('prefers keyword match over unit-amount match', () => {
+  it('prefers unit-amount match (high confidence) over keyword match (low confidence)', () => {
     const byUnitAmount = makeItem({ id: 'si_unit', priceId: 'price_unit', unit_amount: 2500 });
     // Use a space-separated keyword so \b word boundaries fire correctly.
     const byKeyword = makeItem({ id: 'si_kw', priceId: 'price_kw', lookup_key: 'extra seat', unit_amount: 9900 });
-    // Two items so unit-amount guard passes for byUnitAmount; keyword should still win.
+    // The stored-cents match is the account's own grandfathered snapshot — a
+    // strictly stronger signal than a nickname keyword. Mutating callers rely
+    // on this ordering: descriptor-only matches are refused for writes.
     const found = findOverageItem([byUnitAmount, byKeyword], {
       overagePriceIds: new Set<string>(),
       basePriceIds: new Set<string>(),
       storedOveragePriceCents: 2500,
     });
-    expect(found).toBe(byKeyword);
+    expect(found).toBe(byUnitAmount);
+  });
+});
+
+describe('findOverageItemMatch — confidence labels', () => {
+  const opts = (over: Partial<FindOverageItemOptions> = {}): FindOverageItemOptions => ({
+    overagePriceIds: new Set<string>(),
+    basePriceIds: new Set<string>(),
+    storedOveragePriceCents: 2500,
+    ...over,
+  });
+
+  it('labels an env price-ID match as price_id', () => {
+    const item = makeItem({ id: 'si_env', priceId: 'price_env', unit_amount: 9900 });
+    const match = findOverageItemMatch([item], opts({ overagePriceIds: new Set(['price_env']) }));
+    expect(match).toEqual({ item, matchedBy: 'price_id' });
+    expect(MUTATION_SAFE_OVERAGE_MATCHES.has(match!.matchedBy)).toBe(true);
+  });
+
+  it('labels an item-metadata billing_role=overage match as metadata_role (mutation-safe)', () => {
+    const stamped = makeItem({ id: 'si_meta', priceId: 'price_x', unit_amount: 9900 });
+    stamped.metadata = { billing_role: OVERAGE_BILLING_ROLE };
+    const match = findOverageItemMatch([stamped, makeItem({ id: 'si_other', priceId: 'price_y' })], opts());
+    expect(match).toEqual({ item: stamped, matchedBy: 'metadata_role' });
+    expect(MUTATION_SAFE_OVERAGE_MATCHES.has(match!.matchedBy)).toBe(true);
+  });
+
+  it('labels a stored-cents match as unit_amount (mutation-safe)', () => {
+    const legacy = makeItem({ id: 'si_legacy', priceId: 'price_old', unit_amount: 2500 });
+    const base = makeItem({ id: 'si_base', priceId: 'price_base', unit_amount: 4900 });
+    const match = findOverageItemMatch([base, legacy], opts({ basePriceIds: new Set(['price_base']) }));
+    expect(match).toEqual({ item: legacy, matchedBy: 'unit_amount' });
+    expect(MUTATION_SAFE_OVERAGE_MATCHES.has(match!.matchedBy)).toBe(true);
+  });
+
+  it('labels a keyword-only match as descriptor and excludes it from mutation-safe set', () => {
+    const addOn = makeItem({ id: 'si_addon', priceId: 'price_addon', lookup_key: 'extra seat', unit_amount: 9900 });
+    const other = makeItem({ id: 'si_other', priceId: 'price_other', unit_amount: 1100 });
+    const match = findOverageItemMatch([addOn, other], opts());
+    expect(match).toEqual({ item: addOn, matchedBy: 'descriptor' });
+    // The contract mutating callers depend on: descriptor is NEVER mutation-safe.
+    expect(MUTATION_SAFE_OVERAGE_MATCHES.has('descriptor')).toBe(false);
   });
 });

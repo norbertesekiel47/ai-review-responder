@@ -171,8 +171,8 @@ describe('addLocationTransaction', () => {
       (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'),
     );
     expect(outboxCall).toBeDefined();
-    const template = (outboxCall![0] as TemplateStringsArray).join('?');
-    expect(template).toContain('update_stripe_overage_quantity');
+    // Topic is bound as a parameter by enqueueStripeOverageRecompute, not inlined SQL text.
+    expect(outboxCall!.slice(1)).toContain('update_stripe_overage_quantity');
   });
 
   // VAL-LOC-031: Voice config cloned from primary location at creation time
@@ -403,7 +403,7 @@ describe('addLocationTransaction', () => {
     );
 
     const overageCall = outboxCalls.find(
-      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('update_stripe_overage_quantity'),
+      (c: any[]) => c.slice(1).includes('update_stripe_overage_quantity'),
     );
     expect(overageCall).toBeDefined();
   });

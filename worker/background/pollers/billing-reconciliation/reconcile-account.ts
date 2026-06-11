@@ -10,7 +10,6 @@
 import Stripe from 'stripe';
 import { isSubscriptionTier, TIER_CONFIG } from '../../../../src/lib/accounts/tier-config';
 import { findOverageItem } from '../../../../src/lib/payments/overage-item';
-import { basePriceIdSet } from '../../../../src/lib/payments/price-tier-map';
 import {
   compareUpcomingInvoice,
   isExpectedStatusWindow,
@@ -37,6 +36,7 @@ export async function reconcileAccount(
   stripe: Stripe,
   account: AccountWithLocations,
   overagePriceIds: Set<string>,
+  basePriceIds: Set<string>,
 ): Promise<AccountReconcileOutcome> {
   const drifts: DriftAlertPayload[] = [];
   let errors = 0;
@@ -156,7 +156,7 @@ export async function reconcileAccount(
 
   const overageItem = findOverageItem(subscription.items?.data ?? [], {
     overagePriceIds,
-    basePriceIds: basePriceIdSet(),
+    basePriceIds,
     storedOveragePriceCents: expectedInvoice.overageUnitPriceCents,
   });
   const stripeOverageQuantity = overageItem?.quantity ?? 0;
@@ -277,8 +277,12 @@ export async function reconcileAccount(
   } catch (err) {
     errors++;
     const message = err instanceof Error ? err.message : String(err);
+    // While the invoice preview is failing, the upcoming_invoice_mismatch check
+    // is blind — and it is the only check that catches a DUPLICATE overage item
+    // (the quantity check reads the canonical item, which can look correct while
+    // a legacy duplicate still bills). Keep this loud until preview recovers.
     console.error(
-      `${LOG_PREFIX} Error reconciling invoice preview for account ${account.id}: ${message}`,
+      `${LOG_PREFIX} Invoice-preview reconciliation UNAVAILABLE for account ${account.id} — duplicate-overage-item drift undetectable this cycle: ${message}`,
     );
   }
 

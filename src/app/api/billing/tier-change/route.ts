@@ -19,7 +19,11 @@ import { isSubscriptionTier, type SubscriptionTierValue, TIER_CONFIG } from '@/l
 import { getAccountOwnerUserId } from '@/lib/accounts/repo';
 import { getStripe } from '@/lib/payments/stripe-client';
 import { basePriceIdForTier, basePriceIdSet, overagePriceIdForTier, overagePriceIdSet } from '@/lib/payments/price-tier-map';
-import { findOverageItem } from '@/lib/payments/overage-item';
+import {
+  findOverageItemMatch,
+  MUTATION_SAFE_OVERAGE_MATCHES,
+  OVERAGE_BILLING_ROLE,
+} from '@/lib/payments/overage-item';
 import { requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
@@ -171,11 +175,26 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
     // Single owner of the overage-item predicate. Base items are excluded first,
     // so this can never return baseItem and never grabs an arbitrary non-base
     // item (setup fees, credits, legacy add-ons) the way the old fallback did.
-    const overageItem = findOverageItem(subscription.items.data, {
+    const overageMatch = findOverageItemMatch(subscription.items.data, {
       overagePriceIds,
       basePriceIds,
       storedOveragePriceCents: account.locations_overage_price_cents,
     });
+
+    // A descriptor-only (keyword) match is enough to flag an item, never enough
+    // to delete or re-price it. Fail closed BEFORE any Stripe mutation; ops
+    // resolves by stamping metadata.billing_role on the real overage item.
+    if (overageMatch && !MUTATION_SAFE_OVERAGE_MATCHES.has(overageMatch.matchedBy)) {
+      return NextResponse.json(
+        {
+          error: 'ambiguous_overage_item',
+          detail: `Subscription item ${overageMatch.item.id} matched only by ${overageMatch.matchedBy}; refusing to modify it`,
+        },
+        { status: 500, headers: NO_STORE_HEADERS },
+      );
+    }
+
+    const overageItem = overageMatch?.item;
 
     // Resolve whether this tier change needs an overage line and its env price
     // BEFORE the first Stripe mutation. If the target tier requires overage but
@@ -211,11 +230,15 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
     // - If overage drops to zero or the tier has no overage, remove stale items.
     if (needsOverage) {
       // overagePriceId is non-null here (validated above before any mutation).
+      // The billing_role stamp makes the item exactly matchable forever,
+      // independent of price rotations and descriptors — and migrates legacy
+      // (pre-stamp) items to the authoritative marker on their next tier change.
       if (overageItem) {
         await stripe.subscriptionItems.update(overageItem.id, {
           price: overagePriceId!,
           quantity: newOverageUnits,
           proration_behavior: 'create_prorations',
+          metadata: { billing_role: OVERAGE_BILLING_ROLE },
         }, stripeOptions('overage-update'));
       } else {
         await stripe.subscriptionItems.create({
@@ -223,6 +246,7 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
           price: overagePriceId!,
           quantity: newOverageUnits,
           proration_behavior: 'create_prorations',
+          metadata: { billing_role: OVERAGE_BILLING_ROLE },
         }, stripeOptions('overage-create'));
       }
     } else if (overageItem) {

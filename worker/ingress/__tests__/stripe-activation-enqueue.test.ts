@@ -406,7 +406,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     expect(inserts).toHaveLength(1);
     const insert = inserts[0]!;
     expect(insert.text).toContain("'account'");   // aggregate_type — SQL literal
-    expect(insert.text).toContain("'pending'");   // status — SQL literal
+    expect(insert.values).toContain('pending');   // status — bound by enqueueStripeOverageRecompute
     // The account id resolved by queueHappyPath account lookup
     expect(insert.values).toContain('019dc366-29ce-7000-a000-000000000000'); // aggregate_id
   });
