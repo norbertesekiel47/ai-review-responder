@@ -34,9 +34,10 @@ describe('hasOpenFlag', () => {
     const { tx, calls } = mkTx([]);
     await hasOpenFlag(tx, RESPONSE_ID);
     expect(calls).toHaveLength(1);
-    expect(calls[0].text).toContain("status = 'open'");
-    expect(calls[0].text).toContain('FROM flagged_responses');
-    expect(calls[0].values).toContain(RESPONSE_ID);
+    const [query] = calls;
+    expect(query!.text).toContain("status = 'open'");
+    expect(query!.text).toContain('FROM flagged_responses');
+    expect(query!.values).toContain(RESPONSE_ID);
   });
 });
 

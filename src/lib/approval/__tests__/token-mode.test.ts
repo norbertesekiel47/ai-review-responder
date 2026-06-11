@@ -88,9 +88,11 @@ describe('token-mode approve', () => {
     expect(mockVerifyDevice).toHaveBeenCalledWith(LINK, 'device-hash');
     // Lock-before-consume ordering: a non-pending response throws inside the
     // lock, rolling back BEFORE the link is consumed — no false success.
-    expect(mockLockPendingResponse.mock.invocationCallOrder[0]).toBeLessThan(
-      mockConsumeLink.mock.invocationCallOrder[0],
-    );
+    // (?? defaults make the assertion fail if either mock was never called.)
+    const lockOrder =
+      mockLockPendingResponse.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER;
+    const consumeOrder = mockConsumeLink.mock.invocationCallOrder[0] ?? -1;
+    expect(lockOrder).toBeLessThan(consumeOrder);
     const update = calls.find((c) => c.text.includes("status = 'approved'"));
     expect(update).toBeDefined();
     expect(update!.values).toContain('resp-1');
