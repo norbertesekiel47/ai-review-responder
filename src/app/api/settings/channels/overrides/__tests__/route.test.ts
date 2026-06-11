@@ -1,11 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const { mockRequireRole, mockSql, mockGetLocationsForAccount, mockGetArchivedLocationsForAccount } = vi.hoisted(() => ({
+const { mockRequireRole, mockSql, mockGetAllLocationsForAccount } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockSql: vi.fn(),
-  mockGetLocationsForAccount: vi.fn(),
-  mockGetArchivedLocationsForAccount: vi.fn(),
+  mockGetAllLocationsForAccount: vi.fn(),
 }));
 
 vi.mock('@/lib/db/auth', () => {
@@ -28,9 +27,11 @@ vi.mock('@/lib/db/server', () => ({
   sql: (...args: unknown[]) => mockSql(...args),
 }));
 
+// The route resolves labels via getLocationLabelMap, which issues ONE
+// businesses query through the repo — mock at the repo seam so the helper's
+// label/archived derivation is exercised for real.
 vi.mock('@/lib/locations/repo', () => ({
-  getLocationsForAccount: (...args: unknown[]) => mockGetLocationsForAccount(...args),
-  getArchivedLocationsForAccount: (...args: unknown[]) => mockGetArchivedLocationsForAccount(...args),
+  getAllLocationsForAccount: (...args: unknown[]) => mockGetAllLocationsForAccount(...args),
 }));
 
 import { GET } from '../route';
@@ -70,7 +71,7 @@ describe('GET /api/settings/channels/overrides', () => {
         location_id: LOCATION_ID,
       },
     ]);
-    mockGetLocationsForAccount.mockResolvedValueOnce([
+    mockGetAllLocationsForAccount.mockResolvedValueOnce([
       {
         id: LOCATION_ID,
         account_id: ACCOUNT_ID,
@@ -83,19 +84,19 @@ describe('GET /api/settings/channels/overrides', () => {
         created_at: new Date('2026-01-01T00:00:00.000Z'),
       },
     ]);
-    mockGetArchivedLocationsForAccount.mockResolvedValueOnce([]);
 
     const res = await GET(makeRequest());
 
     expect(res.status).toBe(200);
     expect(mockSql).toHaveBeenCalledTimes(1);
-    expect(mockGetLocationsForAccount).toHaveBeenCalledWith(ACCOUNT_ID);
+    expect(mockGetAllLocationsForAccount).toHaveBeenCalledWith(ACCOUNT_ID);
     await expect(res.json()).resolves.toEqual({
       overrides: [
         {
           enrollmentId: 'enrollment-1',
           locationId: LOCATION_ID,
           locationName: 'Downtown',
+          archived: false,
           channel: 'telegram',
           handle: '@downtown',
           status: 'verified',
@@ -105,7 +106,7 @@ describe('GET /api/settings/channels/overrides', () => {
     });
   });
 
-  it('labels an archived-location override with " (archived)" and resolves an active label without suffix', async () => {
+  it('flags an archived-location override via `archived: true` and never suffixes the label server-side', async () => {
     const ARCHIVED_LOCATION_ID = 'c2222222-0000-4000-8000-000000000002';
 
     mockSql.mockResolvedValueOnce([
@@ -126,7 +127,7 @@ describe('GET /api/settings/channels/overrides', () => {
         location_id: ARCHIVED_LOCATION_ID,
       },
     ]);
-    mockGetLocationsForAccount.mockResolvedValueOnce([
+    mockGetAllLocationsForAccount.mockResolvedValueOnce([
       {
         id: LOCATION_ID,
         account_id: ACCOUNT_ID,
@@ -138,8 +139,6 @@ describe('GET /api/settings/channels/overrides', () => {
         google_place_address: null,
         created_at: new Date('2026-01-01T00:00:00.000Z'),
       },
-    ]);
-    mockGetArchivedLocationsForAccount.mockResolvedValueOnce([
       {
         id: ARCHIVED_LOCATION_ID,
         account_id: ACCOUNT_ID,
@@ -156,12 +155,15 @@ describe('GET /api/settings/channels/overrides', () => {
     const res = await GET(makeRequest());
 
     expect(res.status).toBe(200);
-    const body = await res.json() as { overrides: { locationId: string; locationName: string }[] };
+    const body = await res.json() as { overrides: { locationId: string; locationName: string; archived: boolean }[] };
 
     const active = body.overrides.find((o) => o.locationId === LOCATION_ID);
     const archived = body.overrides.find((o) => o.locationId === ARCHIVED_LOCATION_ID);
 
     expect(active?.locationName).toBe('Downtown');
-    expect(archived?.locationName).toBe('Uptown (archived)');
+    expect(active?.archived).toBe(false);
+    // The label is plain — "(archived)" is derived from the flag at render time.
+    expect(archived?.locationName).toBe('Uptown');
+    expect(archived?.archived).toBe(true);
   });
 });

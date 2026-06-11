@@ -10,8 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { jsonResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
-import { getLocationsForAccount, getArchivedLocationsForAccount } from '@/lib/locations/repo';
-import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
+import { getLocationLabelMap } from '@/lib/locations/location-label-map';
 import { CHANNEL_IDS } from '@/lib/notifications/channels/types';
 
 export const dynamic = 'force-dynamic';
@@ -21,7 +20,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!owner.ok) return owner.response;
   const user = owner.user;
 
-  const [overrides, activeLocations, archivedLocations] = await Promise.all([
+  const [overrides, locationLabelMap] = await Promise.all([
     // Fetch per-location overrides (location_id IS NOT NULL)
     sql<{
       id: string;
@@ -39,28 +38,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         AND e.channel = ANY(${[...CHANNEL_IDS] as string[]}::text[])
       ORDER BY e.location_id, e.channel
     `,
-    // Fetch active location names for display
-    getLocationsForAccount(owner.accountId),
-    // Fetch archived location names so overrides on archived locations resolve correctly
-    getArchivedLocationsForAccount(owner.accountId),
+    // Active + archived labels in one query; archived is a flag on the DTO —
+    // the "(archived)" suffix is derived client-side at render time.
+    getLocationLabelMap(owner.accountId),
   ]);
 
-  const locationMap = new Map<string, string>();
-  for (const loc of activeLocations) {
-    locationMap.set(loc.id, getDisplayLabel(loc as HasDisplayLabel));
-  }
-  for (const loc of archivedLocations) {
-    locationMap.set(loc.id, `${getDisplayLabel(loc as HasDisplayLabel)} (archived)`);
-  }
-
   const result = overrides.map((o) => {
-    // Fall back to raw UUID only for a truly-unknown id (shouldn't happen in practice)
-    const locName = locationMap.get(o.location_id) ?? o.location_id;
+    const entry = locationLabelMap.get(o.location_id);
 
     return {
       enrollmentId: o.id,
       locationId: o.location_id,
-      locationName: locName,
+      // Fall back to raw UUID only for a truly-unknown id (shouldn't happen in practice)
+      locationName: entry?.label ?? o.location_id,
+      archived: entry?.archived ?? false,
       channel: o.channel,
       handle: o.handle,
       status: o.status,

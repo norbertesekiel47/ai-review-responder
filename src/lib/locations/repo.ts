@@ -114,6 +114,36 @@ export async function getArchivedLocationsForAccount(
   return rows;
 }
 
+// ── getAllLocationsForAccount ──────────────────────────────────────────────
+
+/**
+ * Returns ALL locations for an account — active AND archived — in one query,
+ * ordered primary-first then created_at ASC. Callers that need both
+ * populations at once (e.g. label resolution for channel overrides) should
+ * use this instead of getLocationsForAccount + getArchivedLocationsForAccount.
+ */
+export async function getAllLocationsForAccount(
+  accountId: string,
+): Promise<LocationRow[]> {
+  const rows = await sql<LocationRow[]>`
+    SELECT
+      id,
+      account_id,
+      name,
+      display_label,
+      is_primary,
+      archived_at,
+      google_place_id,
+      google_place_address,
+      created_at
+    FROM businesses
+    WHERE account_id = ${accountId}::uuid
+    ORDER BY is_primary DESC, created_at ASC
+  `;
+
+  return rows;
+}
+
 // ── getLocationById ────────────────────────────────────────────────────────
 
 /**

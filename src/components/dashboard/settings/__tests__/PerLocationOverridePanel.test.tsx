@@ -25,11 +25,13 @@ const VERIFIED_ORG_DEFAULTS = [
 function makeOverride(
   locationId: string,
   locationName = 'Main St Branch',
+  archived = false,
 ): PerLocationOverride {
   return {
     enrollmentId: `enroll-${locationId}`,
     locationId,
     locationName,
+    archived,
     channel: 'whatsapp',
     handle: '+447700900000',
     status: 'verified',
@@ -133,13 +135,13 @@ describe('PerLocationOverridePanel visibility gating', () => {
   });
 
   // E4/E5: an override whose location was archived back to single-location must
-  // remain listable + deletable, displayed with its " (archived)" label suffix.
-  // The archived location is NOT present in locationOptions.
+  // remain listable + deletable. The " (archived)" suffix is derived at render
+  // time from the DTO `archived` flag — the server sends the plain label.
   it('renders + allows deleting an override pointing at an archived location', async () => {
     render(
       <PerLocationOverridePanel
         {...BASE_PROPS}
-        overrides={[makeOverride('loc-archived', 'Old Shop (archived)')]}
+        overrides={[makeOverride('loc-archived', 'Old Shop', true)]}
         locationOptions={SINGLE_LOCATION}
         orgDefaults={[{ channel: 'email', handle: 'owner@example.com', status: 'verified' }]}
       />,
@@ -148,7 +150,7 @@ describe('PerLocationOverridePanel visibility gating', () => {
     const toggle = screen.getByRole('button', { name: /per-location overrides/i });
     toggle.click();
 
-    // The archived location's label (carrying the " (archived)" suffix) must show.
+    // The " (archived)" suffix is derived from the flag at render time.
     expect(await screen.findByText('Old Shop (archived)')).toBeInTheDocument();
 
     // The override row must be deletable from the UI.
@@ -157,6 +159,44 @@ describe('PerLocationOverridePanel visibility gating', () => {
     ).toBeInTheDocument();
 
     // Creation stays gated/absent for archived/inactive locations.
+    expect(screen.queryByRole('button', { name: /add .* override/i })).toBeNull();
+  });
+
+  // Regression: a single-location account with overrides on BOTH an archived
+  // location and the still-active sole location must render real labels and
+  // classify by the DTO archived flag — the active-location override renders
+  // in the active section (under its locationOptions heading), NOT in the
+  // archived group.
+  it('classifies a single-location account with active + archived overrides by the archived flag', async () => {
+    render(
+      <PerLocationOverridePanel
+        {...BASE_PROPS}
+        overrides={[
+          makeOverride('loc-1', 'Main St Branch', false),
+          makeOverride('loc-archived', 'Old Shop', true),
+        ]}
+        locationOptions={SINGLE_LOCATION}
+        orgDefaults={[{ channel: 'email', handle: 'owner@example.com', status: 'verified' }]}
+      />,
+    );
+
+    const toggle = screen.getByRole('button', { name: /per-location overrides/i });
+    toggle.click();
+
+    // Active location heading renders once (the locationOptions section) and
+    // its override row shows the plain label without any archived suffix.
+    const activeHeadings = await screen.findAllByText('Main St Branch');
+    expect(activeHeadings.length).toBeGreaterThan(0);
+    expect(screen.queryByText('Main St Branch (archived)')).toBeNull();
+
+    // Archived override renders in the archived group with the derived suffix.
+    expect(screen.getAllByText('Old Shop (archived)').length).toBeGreaterThan(0);
+
+    // Both overrides stay deletable.
+    const removeButtons = screen.getAllByRole('button', { name: /remove override/i });
+    expect(removeButtons).toHaveLength(2);
+
+    // Single-location: creation controls remain absent.
     expect(screen.queryByRole('button', { name: /add .* override/i })).toBeNull();
   });
 });

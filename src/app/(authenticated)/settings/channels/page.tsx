@@ -21,8 +21,9 @@ import { type InitialEnrollment } from './ChannelsClient';
 import { ChannelsTabClient } from './ChannelsTabClient';
 import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 import { whatsappEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
-import { getLocationsForAccount, getArchivedLocationsForAccount, getActiveLocationCount } from '@/lib/locations/repo';
+import { getLocationsForAccount, getActiveLocationCount } from '@/lib/locations/repo';
 import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
+import { getLocationLabelMap, type LocationLabelEntry } from '@/lib/locations/location-label-map';
 import {
   shouldShowLocationsSettings,
   shouldUseMultiLocationSettings,
@@ -45,7 +46,8 @@ function telegramAvailable(): boolean {
 interface PerLocationOverride {
   enrollmentId: string;
   locationId: string;
-  locationName: string; // display_label ?? name
+  locationName: string; // display_label ?? name — no "(archived)" suffix; derived at render time
+  archived: boolean;
   channel: 'email' | 'telegram' | 'whatsapp';
   handle: string | null;
   status: string;
@@ -108,23 +110,26 @@ export default async function ChannelsPage() {
   const orgLevelEnrollments: InitialEnrollment[] = [];
   const perLocationOverrides: PerLocationOverride[] = [];
 
-  // We need location names for the overrides — fetch active + archived so
-  // overrides on archived locations resolve to "<label> (archived)" instead of a raw UUID.
-  let locationNameMap = new Map<string, string>();
-  let activeLocationsForOptions: Awaited<ReturnType<typeof getLocationsForAccount>> = [];
+  // Location labels + options are needed whenever overrides exist OR the
+  // account is in multi-location mode — a single-location account with
+  // surviving overrides (e.g. after archiving back to one location) still
+  // needs real labels and correct active/archived classification.
+  const hasOverrideRows = enrollmentRows.some((r) => r.location_id !== null);
 
-  if (multiLocationEnabled) {
-    const [activeLocations, archivedLocations] = await Promise.all([
+  let locationLabelMap = new Map<string, LocationLabelEntry>();
+  let locationOptions: LocationOption[] = [];
+
+  if (hasOverrideRows || multiLocationEnabled) {
+    const [labelMap, activeLocations] = await Promise.all([
+      getLocationLabelMap(access.accountId),
       getLocationsForAccount(access.accountId),
-      getArchivedLocationsForAccount(access.accountId),
     ]);
-    activeLocationsForOptions = activeLocations;
-    for (const loc of activeLocations) {
-      locationNameMap.set(loc.id, getDisplayLabel(loc as HasDisplayLabel));
-    }
-    for (const loc of archivedLocations) {
-      locationNameMap.set(loc.id, `${getDisplayLabel(loc as HasDisplayLabel)} (archived)`);
-    }
+    locationLabelMap = labelMap;
+    locationOptions = activeLocations.map((loc) => ({
+      id: loc.id,
+      displayName: getDisplayLabel(loc as HasDisplayLabel),
+      isPrimary: loc.is_primary,
+    }));
   }
 
   for (const r of enrollmentRows) {
@@ -146,28 +151,19 @@ export default async function ChannelsPage() {
       orgLevelEnrollments.push(enrollmentBase);
     } else {
       // Per-location override — fall back to raw UUID only for a truly-unknown id
-      const locName = locationNameMap.get(r.location_id) ?? r.location_id;
+      const labelEntry = locationLabelMap.get(r.location_id);
 
       perLocationOverrides.push({
         enrollmentId: r.id,
         locationId: r.location_id,
-        locationName: locName,
+        locationName: labelEntry?.label ?? r.location_id,
+        archived: labelEntry?.archived ?? false,
         channel: r.channel as PerLocationOverride['channel'],
         handle: r.handle,
         status: r.status,
         verified_at: r.verified_at?.toISOString() ?? null,
       });
     }
-  }
-
-  // Build location options for the override panel (active locations only)
-  let locationOptions: LocationOption[] = [];
-  if (multiLocationEnabled) {
-    locationOptions = activeLocationsForOptions.map((loc) => ({
-      id: loc.id,
-      displayName: getDisplayLabel(loc as HasDisplayLabel),
-      isPrimary: loc.is_primary,
-    }));
   }
 
   return (

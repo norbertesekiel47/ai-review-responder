@@ -19,7 +19,9 @@ import { Icon } from '@/components/dashboard/shell/Icon';
 export interface PerLocationOverride {
   enrollmentId: string;
   locationId: string;
+  /** Plain display label — any "(archived)" suffix is derived from `archived` at render time. */
   locationName: string;
+  archived: boolean;
   channel: 'email' | 'telegram' | 'whatsapp';
   handle: string | null;
   status: string;
@@ -61,6 +63,10 @@ const CHANNEL_ICONS: Record<string, string> = {
   whatsapp: '🟢',
 };
 
+function formatOverrideLocationLabel(override: PerLocationOverride): string {
+  return override.archived ? `${override.locationName} (archived)` : override.locationName;
+}
+
 // ── Sub-component: Single Override Row ───────────────────────────────────
 
 function OverrideRow({
@@ -84,7 +90,7 @@ function OverrideRow({
           {CHANNEL_LABELS[override.channel] ?? override.channel}
         </div>
         <div className="channel-handle" style={{ fontSize: 12, color: '#6B7280' }}>
-          {override.locationName}
+          {formatOverrideLocationLabel(override)}
           {isConnected && override.handle && ` · ${override.handle}`}
         </div>
       </div>
@@ -196,10 +202,19 @@ export function PerLocationOverridePanel({
   // Whether the owner can add new overrides (requires multi-location mode).
   const canAddOverrides = locationOptions.length > 1;
 
-  // Active (non-archived) location IDs. Overrides whose location is absent from
-  // this set point at archived/inactive locations and are rendered separately
-  // below so they stay listable + deletable after archiving back to single-location.
+  // Classification is driven by the DTO `archived` flag — NOT membership in
+  // locationOptions — so an override on a still-active sole location renders
+  // in the active section. Non-archived overrides whose location is missing
+  // from the active options (defensive) also render in the inactive section
+  // below so they never become invisible.
   const activeLocationIds = new Set(locationOptions.map((l) => l.id));
+  const inactiveOverridesByLocation = new Map<string, PerLocationOverride[]>();
+  for (const o of overrides) {
+    if (!o.archived && activeLocationIds.has(o.locationId)) continue;
+    const list = inactiveOverridesByLocation.get(o.locationId) ?? [];
+    list.push(o);
+    inactiveOverridesByLocation.set(o.locationId, list);
+  }
 
   const hasOverrides = overrides.length > 0;
   const overrideCount = overrides.length;
@@ -300,33 +315,30 @@ export function PerLocationOverridePanel({
             );
           })}
 
-          {/* E4/E5: overrides on archived/inactive locations (absent from the
-              active set). These stay listable + deletable but get NO "Add
-              override" buttons — you cannot add an override to an inactive
-              location. The label carries the " (archived)" suffix appended
-              upstream by the SSR page / GET /overrides API. */}
-          {[...overridesByLocation.keys()]
-            .filter((locId) => !activeLocationIds.has(locId))
-            .map((locId) => {
-              const locOverrides = overridesByLocation.get(locId) ?? [];
-              const label = locOverrides[0]?.locationName ?? locId;
-              return (
-                <div key={locId} style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Icon name="location" size={14} />
-                    {label}
-                  </div>
-                  {locOverrides.map((o) => (
-                    <OverrideRow
-                      key={o.enrollmentId}
-                      override={o}
-                      onRemove={handleRemove}
-                      removing={removingIds.has(o.enrollmentId)}
-                    />
-                  ))}
+          {/* E4/E5: overrides on archived locations (DTO archived flag). These
+              stay listable + deletable but get NO "Add override" buttons — you
+              cannot add an override to an inactive location. The " (archived)"
+              suffix is derived from the flag at render time. */}
+          {[...inactiveOverridesByLocation.entries()].map(([locId, locOverrides]) => {
+            const firstOverride = locOverrides[0];
+            const label = firstOverride ? formatOverrideLocationLabel(firstOverride) : locId;
+            return (
+              <div key={locId} style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="location" size={14} />
+                  {label}
                 </div>
-              );
-            })}
+                {locOverrides.map((o) => (
+                  <OverrideRow
+                    key={o.enrollmentId}
+                    override={o}
+                    onRemove={handleRemove}
+                    removing={removingIds.has(o.enrollmentId)}
+                  />
+                ))}
+              </div>
+            );
+          })}
 
           {addError && (
             <p style={{ fontSize: 13, color: '#DC2626', marginTop: 4 }}>{addError}</p>
