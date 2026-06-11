@@ -196,6 +196,11 @@ export function PerLocationOverridePanel({
   // Whether the owner can add new overrides (requires multi-location mode).
   const canAddOverrides = locationOptions.length > 1;
 
+  // Active (non-archived) location IDs. Overrides whose location is absent from
+  // this set point at archived/inactive locations and are rendered separately
+  // below so they stay listable + deletable after archiving back to single-location.
+  const activeLocationIds = new Set(locationOptions.map((l) => l.id));
+
   const hasOverrides = overrides.length > 0;
   const overrideCount = overrides.length;
 
@@ -294,6 +299,34 @@ export function PerLocationOverridePanel({
               </div>
             );
           })}
+
+          {/* E4/E5: overrides on archived/inactive locations (absent from the
+              active set). These stay listable + deletable but get NO "Add
+              override" buttons — you cannot add an override to an inactive
+              location. The label carries the " (archived)" suffix appended
+              upstream by the SSR page / GET /overrides API. */}
+          {[...overridesByLocation.keys()]
+            .filter((locId) => !activeLocationIds.has(locId))
+            .map((locId) => {
+              const locOverrides = overridesByLocation.get(locId) ?? [];
+              const label = locOverrides[0]?.locationName ?? locId;
+              return (
+                <div key={locId} style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Icon name="location" size={14} />
+                    {label}
+                  </div>
+                  {locOverrides.map((o) => (
+                    <OverrideRow
+                      key={o.enrollmentId}
+                      override={o}
+                      onRemove={handleRemove}
+                      removing={removingIds.has(o.enrollmentId)}
+                    />
+                  ))}
+                </div>
+              );
+            })}
 
           {addError && (
             <p style={{ fontSize: 13, color: '#DC2626', marginTop: 4 }}>{addError}</p>

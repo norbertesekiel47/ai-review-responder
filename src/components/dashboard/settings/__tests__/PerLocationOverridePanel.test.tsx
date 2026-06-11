@@ -22,11 +22,14 @@ const VERIFIED_ORG_DEFAULTS = [
   { channel: 'email', handle: 'owner@example.com', status: 'verified' },
 ];
 
-function makeOverride(locationId: string): PerLocationOverride {
+function makeOverride(
+  locationId: string,
+  locationName = 'Main St Branch',
+): PerLocationOverride {
   return {
     enrollmentId: `enroll-${locationId}`,
     locationId,
-    locationName: 'Main St Branch',
+    locationName,
     channel: 'whatsapp',
     handle: '+447700900000',
     status: 'verified',
@@ -127,5 +130,33 @@ describe('PerLocationOverridePanel visibility gating', () => {
     // Should show at least one "Add … override" button
     const addButtons = await screen.findAllByRole('button', { name: /add .* override/i });
     expect(addButtons.length).toBeGreaterThan(0);
+  });
+
+  // E4/E5: an override whose location was archived back to single-location must
+  // remain listable + deletable, displayed with its " (archived)" label suffix.
+  // The archived location is NOT present in locationOptions.
+  it('renders + allows deleting an override pointing at an archived location', async () => {
+    render(
+      <PerLocationOverridePanel
+        {...BASE_PROPS}
+        overrides={[makeOverride('loc-archived', 'Old Shop (archived)')]}
+        locationOptions={SINGLE_LOCATION}
+        orgDefaults={[{ channel: 'email', handle: 'owner@example.com', status: 'verified' }]}
+      />,
+    );
+
+    const toggle = screen.getByRole('button', { name: /per-location overrides/i });
+    toggle.click();
+
+    // The archived location's label (carrying the " (archived)" suffix) must show.
+    expect(await screen.findByText('Old Shop (archived)')).toBeInTheDocument();
+
+    // The override row must be deletable from the UI.
+    expect(
+      await screen.findByRole('button', { name: /remove override/i }),
+    ).toBeInTheDocument();
+
+    // Creation stays gated/absent for archived/inactive locations.
+    expect(screen.queryByRole('button', { name: /add .* override/i })).toBeNull();
   });
 });
