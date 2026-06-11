@@ -49,8 +49,12 @@ class SettingsBusinessNotFoundError extends Error {
   }
 }
 
-// Builds and runs one dynamic UPDATE for the fields routed to `table`.
-// `expectRow: true` throws SettingsBusinessNotFoundError when no row matched.
+type ColumnValue = string | string[] | boolean | null;
+
+// Runs one dynamic UPDATE for the fields routed to `table`, via the
+// Postgres.js dynamic-identifier (tx(table)) and dynamic-column-object
+// (tx(updates)) helpers. Returns the matched-row count so each caller owns
+// its own not-found semantics.
 async function runScopedUpdate<Field extends string>(
   tx: postgres.TransactionSql,
   options: {
@@ -59,29 +63,21 @@ async function runScopedUpdate<Field extends string>(
     fieldMap: Record<Field, string>;
     fields: Field[];
     data: Partial<Record<Field, unknown>>;
-    expectRow: boolean;
   },
-): Promise<void> {
-  const { table, idValue, fieldMap, fields, data, expectRow } = options;
+): Promise<number> {
+  const { table, idValue, fieldMap, fields, data } = options;
 
-  // $1 reserved for the id; field values start at $2.
-  const setClauses: string[] = [];
-  const values: unknown[] = [idValue];
-
+  const updates: Record<string, ColumnValue> = {};
   for (const field of fields) {
-    const value = data[field] ?? null;
-    values.push(value);
-    setClauses.push(`${fieldMap[field]} = $${values.length}`);
+    updates[fieldMap[field]] = (data[field] ?? null) as ColumnValue;
   }
-  setClauses.push('updated_at = NOW()');
 
-  const query = `UPDATE ${table} SET ${setClauses.join(', ')} WHERE id = $1`;
-  const result = await tx.unsafe(query, values as (string | string[] | boolean | null)[]);
-
-  if (expectRow && result.count === 0) {
-    // Throw sentinel to roll back the whole tx and surface a 404.
-    throw new SettingsBusinessNotFoundError();
-  }
+  const result = await tx`
+    UPDATE ${tx(table)}
+    SET ${tx(updates)}, updated_at = NOW()
+    WHERE id = ${idValue}
+  `;
+  return result.count;
 }
 
 async function putSettings(request: NextRequest): Promise<NextResponse> {
@@ -135,26 +131,28 @@ async function putSettings(request: NextRequest): Promise<NextResponse> {
     await sql.begin(async (tx) => {
       // ── Businesses update (voice/contact fields) ──
       if (businessFields.length > 0) {
-        await runScopedUpdate(tx, {
+        const matched = await runScopedUpdate(tx, {
           table: 'businesses',
           idValue: locationId,
           fieldMap: BUSINESS_FIELD_TO_COLUMN,
           fields: businessFields,
           data,
-          expectRow: true,
         });
+        if (matched === 0) {
+          // Throw sentinel to roll back the whole tx and surface a 404.
+          throw new SettingsBusinessNotFoundError();
+        }
       }
 
       // ── Accounts update (digest toggle fields) ──
       if (accountFields.length > 0) {
+        // Account is guaranteed by the 403 guard above; no 404 check needed.
         await runScopedUpdate(tx, {
           table: 'accounts',
           idValue: accountId,
           fieldMap: ACCOUNT_FIELD_TO_COLUMN,
           fields: accountFields,
           data,
-          // Account is guaranteed by the 403 guard above; no 404 check needed.
-          expectRow: false,
         });
       }
     });

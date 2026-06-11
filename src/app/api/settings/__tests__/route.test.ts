@@ -2,27 +2,68 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state ────────────────────────────────────────────
+//
+// The route builds its UPDATEs with the Postgres.js dynamic helpers:
+//   tx`UPDATE ${tx(table)} SET ${tx(updates)}, updated_at = NOW() WHERE id = ${id}`
+// The mock tx mirrors the real sql() dispatch: a tagged-template call routes
+// to mockTxQuery(strings, ...values); a helper call (identifier string or
+// column-value object) returns a { __helper } marker that shows up among the
+// bound values, so tests assert bound values + table identifiers instead of
+// assembled SQL strings.
 
 const {
   mockRequireRole,
-  mockSqlUnsafe,
-  mockTxUnsafe,
+  mockTxQuery,
   mockSqlBegin,
   mockAssertWritableSubscriptionForAccount,
 } = vi.hoisted(() => {
-  const mockTxUnsafe = vi.fn();
-  const mockSqlBegin = vi.fn(async (callback: (tx: { unsafe: typeof mockTxUnsafe }) => Promise<unknown>) => {
-    return callback({ unsafe: mockTxUnsafe });
+  const mockTxQuery = vi.fn();
+  const tx = (...args: unknown[]) => {
+    const [first] = args;
+    if (Array.isArray(first) && Object.prototype.hasOwnProperty.call(first, 'raw')) {
+      return mockTxQuery(first, ...args.slice(1));
+    }
+    return { __helper: first };
+  };
+  const mockSqlBegin = vi.fn(async (callback: (t: typeof tx) => Promise<unknown>) => {
+    return callback(tx);
   });
 
   return {
     mockRequireRole: vi.fn(),
-    mockSqlUnsafe: vi.fn(),
-    mockTxUnsafe,
+    mockTxQuery,
     mockSqlBegin,
     mockAssertWritableSubscriptionForAccount: vi.fn(),
   };
 });
+
+type TxQueryCall = [TemplateStringsArray, ...unknown[]];
+
+function txQueryCalls(): TxQueryCall[] {
+  return mockTxQuery.mock.calls as TxQueryCall[];
+}
+
+function txQueryCall(index: number): TxQueryCall {
+  const call = txQueryCalls()[index];
+  if (!call) throw new Error(`expected a tx query call at index ${index}`);
+  return call;
+}
+
+function queryText(call: TxQueryCall): string {
+  return call[0].join(' ? ');
+}
+
+function tableOf(call: TxQueryCall): unknown {
+  return (call[1] as { __helper: unknown }).__helper;
+}
+
+function updatesOf(call: TxQueryCall): unknown {
+  return (call[2] as { __helper: unknown }).__helper;
+}
+
+function idOf(call: TxQueryCall): unknown {
+  return call[3];
+}
 
 // ── Mock Auth ───────────────────────────────────────────────────────
 
@@ -46,7 +87,6 @@ vi.mock('@/lib/db/auth', () => {
 
 vi.mock('@/lib/db/server', () => {
   const sqlProxy = Object.assign(() => {}, {
-    unsafe: (...args: unknown[]) => mockSqlUnsafe(...args),
     begin: (...args: unknown[]) => mockSqlBegin(...(args as Parameters<typeof mockSqlBegin>)),
   });
   return { sql: sqlProxy, jsonb: (v: unknown) => v };
@@ -100,7 +140,7 @@ describe('PUT /api/settings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Default: tx updates return count=1 (success)
-    mockTxUnsafe.mockResolvedValue({ count: 1 });
+    mockTxQuery.mockResolvedValue({ count: 1 });
     mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
@@ -156,7 +196,7 @@ describe('PUT /api/settings', () => {
     expect(body.error).toBe('At least one field must be provided');
   });
 
-  it('returns 200 for updating tone (business-only, issues only businesses UPDATE)', async () => {
+  it('returns 200 for updating tone (business-only, issues only the businesses UPDATE)', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
 
     const res = await PUT(makeRequest({ tone: 'professional' }));
@@ -165,47 +205,42 @@ describe('PUT /api/settings', () => {
     const body = await res.json();
     expect(body.success).toBe(true);
 
-    // One sql.begin call; one tx.unsafe call (businesses only)
+    // One sql.begin call; one UPDATE (businesses only)
     expect(mockSqlBegin).toHaveBeenCalledOnce();
-    expect(mockTxUnsafe).toHaveBeenCalledOnce();
-    const [query, values] = mockTxUnsafe.mock.calls[0] as [string, unknown[]];
-    expect(query).toContain('UPDATE businesses');
-    expect(query).toContain('tone = $2');
-    expect(query).toContain('updated_at = NOW()');
-    expect(values[0]).toBe(BUSINESS_ID);
-    expect(values[1]).toBe('professional');
+    expect(mockTxQuery).toHaveBeenCalledOnce();
+    const call = txQueryCall(0);
+    expect(tableOf(call)).toBe('businesses');
+    expect(updatesOf(call)).toEqual({ tone: 'professional' });
+    expect(idOf(call)).toBe(BUSINESS_ID);
+    expect(queryText(call)).toContain('updated_at = NOW()');
   });
 
-  it('returns 200 for toggling weeklySummaryEnabled to false (account-only, issues only accounts UPDATE)', async () => {
+  it('returns 200 for toggling weeklySummaryEnabled to false (account-only, issues only the accounts UPDATE)', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
 
     const res = await PUT(makeRequest({ weeklySummaryEnabled: false }));
     expect(res.status).toBe(200);
 
     expect(mockSqlBegin).toHaveBeenCalledOnce();
-    expect(mockTxUnsafe).toHaveBeenCalledOnce();
-    const [query, values] = mockTxUnsafe.mock.calls[0] as [string, unknown[]];
-    expect(query).toContain('UPDATE accounts');
-    expect(query).not.toContain('UPDATE businesses');
-    expect(query).toContain('weekly_summary_enabled = $2');
-    expect(values[0]).toBe(ACCOUNT_ID);
-    expect(values[1]).toBe(false);
+    expect(mockTxQuery).toHaveBeenCalledOnce();
+    const call = txQueryCall(0);
+    expect(tableOf(call)).toBe('accounts');
+    expect(updatesOf(call)).toEqual({ weekly_summary_enabled: false });
+    expect(idOf(call)).toBe(ACCOUNT_ID);
   });
 
-  it('returns 200 for toggling monthlyImpactEnabled to false (account-only, issues only accounts UPDATE)', async () => {
+  it('returns 200 for toggling monthlyImpactEnabled to false (account-only, issues only the accounts UPDATE)', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
 
     const res = await PUT(makeRequest({ monthlyImpactEnabled: false }));
     expect(res.status).toBe(200);
 
     expect(mockSqlBegin).toHaveBeenCalledOnce();
-    expect(mockTxUnsafe).toHaveBeenCalledOnce();
-    const [query, values] = mockTxUnsafe.mock.calls[0] as [string, unknown[]];
-    expect(query).toContain('UPDATE accounts');
-    expect(query).not.toContain('UPDATE businesses');
-    expect(query).toContain('monthly_impact_enabled = $2');
-    expect(values[0]).toBe(ACCOUNT_ID);
-    expect(values[1]).toBe(false);
+    expect(mockTxQuery).toHaveBeenCalledOnce();
+    const call = txQueryCall(0);
+    expect(tableOf(call)).toBe('accounts');
+    expect(updatesOf(call)).toEqual({ monthly_impact_enabled: false });
+    expect(idOf(call)).toBe(ACCOUNT_ID);
   });
 
   it('ignores business_id in body and uses user.locationId', async () => {
@@ -216,18 +251,18 @@ describe('PUT /api/settings', () => {
     );
     expect(res.status).toBe(200);
 
-    expect(mockTxUnsafe).toHaveBeenCalledOnce();
-    const [query, values] = mockTxUnsafe.mock.calls[0] as [string, unknown[]];
-    expect(query).toContain('WHERE id = $1');
-    expect(values[0]).toBe(BUSINESS_ID);
-    // business_id from body never appears in values
-    expect(values).not.toContain('attacker-id-999');
+    expect(mockTxQuery).toHaveBeenCalledOnce();
+    const call = txQueryCall(0);
+    expect(idOf(call)).toBe(BUSINESS_ID);
+    // business_id from body never appears in the bound updates or values
+    expect(updatesOf(call)).toEqual({ tone: 'warm' });
+    expect(call.slice(1)).not.toContain('attacker-id-999');
   });
 
   it('returns 404 when business not found (count=0)', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     // businesses update returns count=0 → not found
-    mockTxUnsafe.mockResolvedValue({ count: 0 });
+    mockTxQuery.mockResolvedValue({ count: 0 });
 
     const res = await PUT(makeRequest({ tone: 'casual' }));
     expect(res.status).toBe(404);
@@ -259,63 +294,52 @@ describe('PUT /api/settings', () => {
     expect(res.status).toBe(200);
     expect((await res.json()).success).toBe(true);
 
-    // Exactly one transaction
+    // Exactly one transaction with exactly two UPDATEs (businesses + accounts)
     expect(mockSqlBegin).toHaveBeenCalledOnce();
-    // Exactly two tx.unsafe calls (accounts + businesses)
-    expect(mockTxUnsafe).toHaveBeenCalledTimes(2);
+    expect(mockTxQuery).toHaveBeenCalledTimes(2);
 
-    const queries = mockTxUnsafe.mock.calls.map(([q]) => q as string);
-    const accountsQuery = queries.find((q) => q.includes('UPDATE accounts'));
-    const businessesQuery = queries.find((q) => q.includes('UPDATE businesses'));
+    const businessesCall = txQueryCalls().find((call) => tableOf(call) === 'businesses');
+    const accountsCall = txQueryCalls().find((call) => tableOf(call) === 'accounts');
+    expect(businessesCall).toBeDefined();
+    expect(accountsCall).toBeDefined();
 
-    expect(accountsQuery).toBeDefined();
-    expect(businessesQuery).toBeDefined();
+    // accounts update binds accountId and the toggle column
+    expect(updatesOf(accountsCall!)).toEqual({ weekly_summary_enabled: false });
+    expect(idOf(accountsCall!)).toBe(ACCOUNT_ID);
 
-    // accounts update uses accountId and the toggle column
-    const accountsCall = mockTxUnsafe.mock.calls.find(([q]) => (q as string).includes('UPDATE accounts')) as [string, unknown[]];
-    expect(accountsCall[0]).toContain('weekly_summary_enabled = $2');
-    expect(accountsCall[1][0]).toBe(ACCOUNT_ID);
-    expect(accountsCall[1][1]).toBe(false);
-
-    // businesses update uses locationId and tone
-    const businessCall = mockTxUnsafe.mock.calls.find(([q]) => (q as string).includes('UPDATE businesses')) as [string, unknown[]];
-    expect(businessCall[0]).toContain('tone = $2');
-    expect(businessCall[1][0]).toBe(BUSINESS_ID);
-    expect(businessCall[1][1]).toBe('warm');
+    // businesses update binds locationId and tone
+    expect(updatesOf(businessesCall!)).toEqual({ tone: 'warm' });
+    expect(idOf(businessesCall!)).toBe(BUSINESS_ID);
   });
 
-  it('account-only: PUT { monthlyImpactEnabled } issues ONLY accounts UPDATE, no businesses UPDATE', async () => {
+  it('account-only: PUT { monthlyImpactEnabled } issues ONLY the accounts UPDATE, no businesses UPDATE', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
 
     const res = await PUT(makeRequest({ monthlyImpactEnabled: true }));
     expect(res.status).toBe(200);
 
     expect(mockSqlBegin).toHaveBeenCalledOnce();
-    expect(mockTxUnsafe).toHaveBeenCalledOnce();
+    expect(mockTxQuery).toHaveBeenCalledOnce();
 
-    const [query, values] = mockTxUnsafe.mock.calls[0] as [string, unknown[]];
-    expect(query).toContain('UPDATE accounts');
-    expect(query).not.toContain('UPDATE businesses');
-    expect(query).toContain('monthly_impact_enabled = $2');
-    expect(values[0]).toBe(ACCOUNT_ID);
-    expect(values[1]).toBe(true);
+    const call = txQueryCall(0);
+    expect(tableOf(call)).toBe('accounts');
+    expect(updatesOf(call)).toEqual({ monthly_impact_enabled: true });
+    expect(idOf(call)).toBe(ACCOUNT_ID);
   });
 
-  it('business-only: PUT { tone } issues ONLY businesses UPDATE, no accounts UPDATE', async () => {
+  it('business-only: PUT { tone } issues ONLY the businesses UPDATE, no accounts UPDATE', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
 
     const res = await PUT(makeRequest({ tone: 'casual' }));
     expect(res.status).toBe(200);
 
     expect(mockSqlBegin).toHaveBeenCalledOnce();
-    expect(mockTxUnsafe).toHaveBeenCalledOnce();
+    expect(mockTxQuery).toHaveBeenCalledOnce();
 
-    const [query, values] = mockTxUnsafe.mock.calls[0] as [string, unknown[]];
-    expect(query).toContain('UPDATE businesses');
-    expect(query).not.toContain('UPDATE accounts');
-    expect(query).toContain('tone = $2');
-    expect(values[0]).toBe(BUSINESS_ID);
-    expect(values[1]).toBe('casual');
+    const call = txQueryCall(0);
+    expect(tableOf(call)).toBe('businesses');
+    expect(updatesOf(call)).toEqual({ tone: 'casual' });
+    expect(idOf(call)).toBe(BUSINESS_ID);
   });
 
   it('business-not-found rolls back: businesses count=0 returns 404 and rolls back the tx', async () => {
@@ -324,7 +348,7 @@ describe('PUT /api/settings', () => {
     // Route runs businesses UPDATE first, then accounts UPDATE.
     // Simulate businesses returning count=0 (not found); accounts would be
     // skipped because the sentinel throw rolls back the tx.
-    mockTxUnsafe.mockResolvedValueOnce({ count: 0 }); // businesses call → not found
+    mockTxQuery.mockResolvedValueOnce({ count: 0 }); // businesses call → not found
 
     // Send both scopes so both updates would be attempted if tx continued
     const res = await PUT(makeRequest({ weeklySummaryEnabled: true, tone: 'warm' }));
@@ -335,7 +359,19 @@ describe('PUT /api/settings', () => {
 
     // The sql.begin was called; sentinel throw caused rollback before accounts UPDATE
     expect(mockSqlBegin).toHaveBeenCalledOnce();
-    // Only one tx.unsafe call — businesses; accounts never reached
-    expect(mockTxUnsafe).toHaveBeenCalledOnce();
+    // Only one UPDATE — businesses; accounts never reached
+    expect(mockTxQuery).toHaveBeenCalledOnce();
+  });
+
+  it('nullable business field: PUT { ownerPhone: null } binds NULL, not undefined', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const res = await PUT(makeRequest({ ownerPhone: null }));
+    expect(res.status).toBe(200);
+
+    const call = txQueryCall(0);
+    expect(tableOf(call)).toBe('businesses');
+    expect(updatesOf(call)).toEqual({ owner_phone: null });
+    expect(idOf(call)).toBe(BUSINESS_ID);
   });
 });
