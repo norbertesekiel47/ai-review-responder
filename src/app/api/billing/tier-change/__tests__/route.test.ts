@@ -542,7 +542,7 @@ describe('POST /api/billing/tier-change', () => {
   it('touches no overage item when none matches and zero overage units are needed', async () => {
     // Regression: the old `?? find(item => item.id !== baseItem.id)` fallback
     // would grab an arbitrary non-base item (e.g. a setup fee or credit) and
-    // delete it. With findOverageItem there is no overage match, and with zero
+    // delete it. With resolveOverageItem there is no overage match, and with zero
     // overage units required, the route must not delete/create/re-price anything.
     mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockValidateTierChange.mockResolvedValueOnce({

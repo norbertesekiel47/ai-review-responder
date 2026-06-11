@@ -138,16 +138,37 @@ describe('createBusinessTx — self_serve mode', () => {
 });
 
 describe('createBusinessTx — duplicate email', () => {
-  it('throws DuplicateEmailError on PG 23505', async () => {
+  it('throws DuplicateEmailError on PG 23505 against the users.email constraint', async () => {
     mockSql.mockImplementation(() => {
       const err: any = new Error('duplicate key');
       err.code = '23505';
+      err.constraint_name = 'users_email_key';
       throw err;
     });
     mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
     await expect(
       createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' }),
     ).rejects.toThrow(DuplicateEmailError);
+  });
+
+  // A 23505 on a DIFFERENT constraint (here migration 062's duplicate-place
+  // index) must propagate unchanged — mapping it to DuplicateEmailError would
+  // mislabel a duplicate-location conflict as a duplicate email and hide the
+  // real cause from the caller.
+  it('re-throws a 23505 on businesses_account_place_uniq unchanged (not DuplicateEmailError)', async () => {
+    const placeErr: any = new Error(
+      'duplicate key value violates unique constraint "businesses_account_place_uniq"',
+    );
+    placeErr.code = '23505';
+    placeErr.constraint_name = 'businesses_account_place_uniq';
+    mockSql.mockImplementation(() => {
+      throw placeErr;
+    });
+    mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
+
+    await expect(
+      createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' }),
+    ).rejects.toBe(placeErr);
   });
 
   it('re-throws non-23505 PG errors unchanged', async () => {

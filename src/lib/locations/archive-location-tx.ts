@@ -23,7 +23,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { getLocationById, getActiveLocationCount } from './repo';
 import { rethrowAsDuplicateLocation } from './duplicate-location';
-import { enqueueStripeOverageRecompute } from '@/lib/shared/job-outbox-helpers';
+import { enqueueStripeOverageRecompute, enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
 
 // ── Guard result types ─────────────────────────────────────────────────────
 
@@ -375,17 +375,34 @@ export async function reactivateLocationTransaction(
       await tx`SELECT id FROM accounts WHERE id = ${accountId}::uuid FOR UPDATE`;
 
       // 1. Set archived_at = NULL (reactivate)
-      const [updatedLocation] = await tx<{ id: string }[]>`
+      const [updatedLocation] = await tx<{
+        id: string;
+        google_place_id: string | null;
+        google_maps_url: string | null;
+      }[]>`
         UPDATE businesses
         SET archived_at = NULL,
             updated_at = NOW()
         WHERE id = ${locationId}::uuid
           AND account_id = ${accountId}::uuid
           AND archived_at IS NOT NULL
-        RETURNING id
+        RETURNING id, google_place_id, google_maps_url
       `;
       if (!updatedLocation) {
         throw new Error('location_reactivate_conflict');
+      }
+
+      // 1a. URL-mode locations archived before resolution completed come back
+      // with google_place_id IS NULL — re-enqueue validate_place_id from the
+      // stored Maps URL so the location doesn't stay permanently unverified
+      // and outside migration 062's duplicate enforcement (NULL never collides
+      // under the partial unique index). The shared helper dedups against an
+      // already-in-flight validate_place_id row for this business.
+      if (!updatedLocation.google_place_id && updatedLocation.google_maps_url) {
+        await enqueueValidatePlaceId(tx, {
+          businessId: locationId,
+          googleMapsUrl: updatedLocation.google_maps_url,
+        });
       }
 
       // 1b. Zero-primary self-heal (see helper below).

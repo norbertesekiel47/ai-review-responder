@@ -450,8 +450,8 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/jobs/PlaceIdValidationWorker.ts",
     table: "businesses",
-    sqlSnippet: "UPDATE businesses SET google_place_id = ${resolvedPlaceId}, place_id_verified = TRUE WHERE id = ${businessId} AND (google_place_id IS NULL OR google_place_id = ${resolvedPlaceId}) RETURNING id",
-    reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement. The extra place-id predicate is the no-silent-overwrite guard, not tenant scoping.",
+    sqlSnippet: "UPDATE businesses SET google_place_id = ${resolvedPlaceId}, place_id_verified = TRUE WHERE id = ${businessId} AND (google_place_id IS NULL OR google_place_id = ${resolvedPlaceId} OR google_place_id = ${overwritableStoredId}) RETURNING id",
+    reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement. The extra place-id predicates are the no-silent-overwrite guard plus the hex-CID self-heal arm, not tenant scoping.",
   },
   {
     file: "worker/jobs/RankingTrackingWorker.ts",
@@ -1512,7 +1512,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/locations/archive-location-tx.ts",
     table: "businesses",
-    sqlSnippet: "UPDATE businesses SET archived_at = NULL, updated_at = NOW() WHERE id = ${locationId}::uuid AND account_id = ${accountId}::uuid AND archived_at IS NOT NULL RETURNING id",
+    sqlSnippet: "UPDATE businesses SET archived_at = NULL, updated_at = NOW() WHERE id = ${locationId}::uuid AND account_id = ${accountId}::uuid AND archived_at IS NOT NULL RETURNING id, google_place_id, google_maps_url",
     reason: "Location helper filters by the accountId/locationId pair supplied by the owner access guard.",
   },
   {

@@ -329,6 +329,111 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
     expect(hasReviewExceptionInsert()).toBe(true);
   });
 
+  // ── Hex-CID self-heal: a stored NON-canonical identifier is overwritable ──
+  //
+  // Three onboarding paths (onboarding/start, onboarding/business, admin
+  // onboarding) store a TENTATIVE extracted identifier that can be a hex CID
+  // (`0x...:0x...`, from extractPlaceId) alongside the validate_place_id
+  // enqueue. The UPDATE guard must let the resolved CANONICAL id overwrite
+  // that non-canonical value — mismatch protection applies ONLY to stored
+  // canonical place IDs. Without this, URL-mode locations with a hex CID
+  // resolve to 'mismatch' and silently stay permanently unverified.
+
+  const STORED_HEX_CID = '0x89c259af336b3341:0xa4969e07ce3108de';
+
+  /** The businesses UPDATE calls (template contains 'UPDATE businesses'). */
+  function businessUpdateCalls(): unknown[][] {
+    return mockSql.mock.calls.filter(
+      (c: unknown[]) =>
+        (c[0] as TemplateStringsArray | undefined)?.join?.('?')?.includes('UPDATE businesses'),
+    );
+  }
+
+  it('overwrites a stored hex CID with the resolved canonical id (self-heal applied)', async () => {
+    // 1st call: business SELECT returns the tentative hex CID.
+    // 2nd call: the widened UPDATE matches → applied.
+    mockSql
+      .mockImplementationOnce(() =>
+        Promise.resolve([{ id: 'biz-cid-1', google_place_id: STORED_HEX_CID }]),
+      )
+      .mockImplementationOnce(() => Promise.resolve([{ id: 'biz-cid-1' }]));
+    mockResolvePlaceId.mockResolvedValueOnce('ChIJResolvedCanonical12345');
+
+    await handlePlaceIdValidation(
+      makeJob({
+        business_id: 'biz-cid-1',
+        // No canonical Place ID in the URL → resolver path (the hex-CID shape).
+        google_maps_url:
+          'https://www.google.com/maps/place/Cafe+Test/@37.7749,-122.4194,15z/data=!1s0x89c259af336b3341:0xa4969e07ce3108de',
+      }),
+    );
+
+    // The widened guard passes the stored hex CID as the overwritable value.
+    const updates = businessUpdateCalls();
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.slice(1)).toContain(STORED_HEX_CID);
+
+    // Applied: verified, no review_exceptions, skip-as-success completion.
+    expect(hasReviewExceptionInsert()).toBe(false);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  it('does NOT widen the guard for a stored CANONICAL place id (still mismatch)', async () => {
+    // Stored canonical id ≠ resolved → the guard must NOT treat it as
+    // overwritable: the UPDATE matches 0 rows and the outcome is 'mismatch'.
+    mockSql
+      .mockImplementationOnce(() =>
+        Promise.resolve([{ id: 'biz-canon-1', google_place_id: 'ChIJExistingDifferent999xyz' }]),
+      )
+      .mockImplementationOnce(() => Promise.resolve([]));
+    mockResolvePlaceId.mockResolvedValueOnce('ChIJResolvedCanonical12345');
+
+    await handlePlaceIdValidation(
+      makeJob({
+        business_id: 'biz-canon-1',
+        google_maps_url:
+          'https://www.google.com/maps/place/Cafe+Test/@37.7749,-122.4194,15z',
+      }),
+    );
+
+    // The stored canonical id is NOT passed as an overwritable value — the
+    // guard's third arm gets null (interpolations: resolved, id, resolved, null).
+    const updates = businessUpdateCalls();
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.slice(1)).not.toContain('ChIJExistingDifferent999xyz');
+    expect(updates[0]!.slice(1)).toContain(null);
+
+    const payload = reviewExceptionPayload();
+    expect(payload.reason).toBe('place_id_mismatch');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  it('skips-as-success with duplicate_location when the hex-CID overwrite collides with another active location (23505)', async () => {
+    mockSql
+      .mockImplementationOnce(() =>
+        Promise.resolve([{ id: 'biz-cid-dup', google_place_id: STORED_HEX_CID }]),
+      )
+      .mockImplementationOnce(() => Promise.reject(dupPlaceIdError()));
+    mockResolvePlaceId.mockResolvedValueOnce('ChIJResolvedDuplicate12345');
+
+    await handlePlaceIdValidation(
+      makeJob({
+        business_id: 'biz-cid-dup',
+        google_maps_url:
+          'https://www.google.com/maps/place/Cafe+Test/@37.7749,-122.4194,15z',
+      }),
+    );
+
+    const payload = reviewExceptionPayload();
+    expect(payload.reason).toBe('duplicate_location');
+    expect(payload.resolved_place_id).toBe('ChIJResolvedDuplicate12345');
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
   it('still throws on a transient SerpAPI error after the dup-tolerance change (regression)', async () => {
     mockSql.mockImplementationOnce(() =>
       Promise.resolve([{ id: 'biz-transient', google_place_id: null }]),

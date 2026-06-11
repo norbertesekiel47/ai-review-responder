@@ -20,10 +20,19 @@ type ApplyPlaceIdOutcome = 'applied' | 'duplicate' | 'mismatch';
  *  - 'applied'   — the UPDATE committed.
  *  - 'duplicate' — tripped businesses_account_place_uniq (migration 062): the
  *    resolved id already belongs to another ACTIVE location in the account.
- *  - 'mismatch'  — the row already holds a DIFFERENT non-null place id; the
+ *  - 'mismatch'  — the row already holds a DIFFERENT canonical place id; the
  *    WHERE guard matched 0 rows. Resolution must never silently overwrite an
- *    explicitly stored id (defense for any producer that enqueues alongside a
- *    stored id — current routes prevent that shape, queued legacy jobs may not).
+ *    explicitly stored CANONICAL id (defense for any producer that enqueues
+ *    alongside a stored id — current routes prevent that shape, queued legacy
+ *    jobs may not).
+ *
+ * A stored NON-canonical identifier (hex CID `0x...:0x...` — the tentative
+ * value the URL-mode onboarding paths extract before resolution) IS
+ * overwritable by the resolved canonical id; without that self-heal those
+ * locations would resolve to 'mismatch' and stay permanently unverified.
+ * Race-safe: the guard only overwrites the exact non-canonical value loaded
+ * at job start, so a concurrent write of a canonical id still mismatches.
+ *
  * In the non-applied cases the row is untouched and the caller
  * skips-as-success. Any other error propagates unchanged so the worker's
  * existing transient/permanent handling still applies.
@@ -31,14 +40,19 @@ type ApplyPlaceIdOutcome = 'applied' | 'duplicate' | 'mismatch';
 async function applyResolvedPlaceId(
   businessId: LocationId,
   resolvedPlaceId: string,
+  storedPlaceId: string | null,
 ): Promise<ApplyPlaceIdOutcome> {
+  const overwritableStoredId =
+    storedPlaceId !== null && !isPlaceId(storedPlaceId) ? storedPlaceId : null;
   try {
     const rows = await sql`
       UPDATE businesses
       SET google_place_id = ${resolvedPlaceId},
           place_id_verified = TRUE
       WHERE id = ${businessId}
-        AND (google_place_id IS NULL OR google_place_id = ${resolvedPlaceId})
+        AND (google_place_id IS NULL
+          OR google_place_id = ${resolvedPlaceId}
+          OR google_place_id = ${overwritableStoredId})
       RETURNING id
     `;
     return rows.length > 0 ? 'applied' : 'mismatch';
@@ -80,10 +94,11 @@ async function applyPlaceIdAndFinalize(input: {
   businessId: LocationId;
   googleMapsUrl: string;
   placeId: string;
+  storedPlaceId: string | null;
   outboxId: string;
   outboxAttempt: number | undefined;
 }): Promise<ApplyPlaceIdOutcome> {
-  const outcome = await applyResolvedPlaceId(input.businessId, input.placeId);
+  const outcome = await applyResolvedPlaceId(input.businessId, input.placeId, input.storedPlaceId);
   if (outcome !== 'applied') {
     await recordSkippedResolutionException(
       input.businessId,
@@ -131,6 +146,7 @@ export async function handlePlaceIdValidation(
       businessId,
       googleMapsUrl: google_maps_url,
       placeId: urlData.placeId,
+      storedPlaceId: business.google_place_id,
       outboxId,
       outboxAttempt,
     });
@@ -153,6 +169,7 @@ export async function handlePlaceIdValidation(
       businessId,
       googleMapsUrl: google_maps_url,
       placeId: resolvedPlaceId,
+      storedPlaceId: business.google_place_id,
       outboxId,
       outboxAttempt,
     });

@@ -99,7 +99,11 @@ function driveArchiveDb({
   isPrimary = false,
   archivedAt = null as Date | null,
   activePrimaryCount = 1,
-  updateRows = [{ id: SECONDARY_LOCATION_ID }] as Array<{ id: string }>,
+  updateRows = [{ id: SECONDARY_LOCATION_ID }] as Array<{
+    id: string;
+    google_place_id?: string | null;
+    google_maps_url?: string | null;
+  }>,
   selfPromoteRows = undefined as Array<{ id: string }> | undefined,
   zernio = defaultZernioRow as typeof defaultZernioRow | null,
 } = {}) {
@@ -766,6 +770,59 @@ describe('reactivateLocationTransaction', () => {
     });
 
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
+  });
+
+  // Unresolved URL-mode locations (google_place_id NULL + stored Maps URL —
+  // e.g. archived before PlaceIdValidationWorker resolved) must re-enqueue
+  // validate_place_id on reactivation, or they stay permanently unverified and
+  // outside migration 062's duplicate enforcement (NULL never collides under
+  // the partial unique index). Mirrors the add-location-tx URL-mode gate.
+  it('re-enqueues validate_place_id when the reactivated row has a Maps URL but no place id', async () => {
+    driveArchiveDb({
+      updateRows: [{
+        id: SECONDARY_LOCATION_ID,
+        google_place_id: null,
+        google_maps_url: 'https://maps.google.com/?q=Cafe+Test',
+      }],
+    });
+
+    await reactivateLocationTransaction({
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+    });
+
+    const validateCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('validate_place_id'),
+    );
+    expect(validateCall).toBeDefined();
+    // Shared helper (enqueueValidatePlaceId in job-outbox-helpers): same
+    // dedup-guarded SQL shape as the add-location / onboarding paths.
+    const template = (validateCall![0] as TemplateStringsArray).join('?');
+    expect(template).toContain('INSERT INTO job_outbox');
+    expect(template).toContain('WHERE NOT EXISTS');
+    expect(template).toContain("topic = 'validate_place_id'");
+  });
+
+  it('does NOT enqueue validate_place_id when the reactivated row already has a place id', async () => {
+    driveArchiveDb({
+      updateRows: [{
+        id: SECONDARY_LOCATION_ID,
+        google_place_id: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+        google_maps_url: 'https://maps.google.com/?q=Cafe+Test',
+      }],
+    });
+
+    await reactivateLocationTransaction({
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+    });
+
+    const validateCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('validate_place_id'),
+    );
+    expect(validateCall).toBeUndefined();
   });
 
   // C1: un-archiving a location whose (account_id, google_place_id) is already

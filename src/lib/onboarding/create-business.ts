@@ -6,14 +6,27 @@ import { TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-con
 
 /**
  * Thrown when the businesses+users insert transaction fails on a PG 23505
- * (unique_violation) — currently the `users.email` unique constraint is the
- * only expected trigger. Callers translate this into a 409 response.
+ * (unique_violation) on the `users.email` unique constraint. Callers
+ * translate this into a 409 response. Any 23505 on a DIFFERENT constraint
+ * (e.g. businesses_account_place_uniq, migration 062) propagates unchanged —
+ * mislabeling it as a duplicate email would mask the real conflict.
  */
 export class DuplicateEmailError extends Error {
   constructor() {
     super('users.email unique constraint violation');
     this.name = 'DuplicateEmailError';
   }
+}
+
+/** Default-named inline UNIQUE on users.email (001_initial_schema.sql). */
+const USERS_EMAIL_CONSTRAINT = 'users_email_key';
+
+/** True only for a PG unique violation (23505) on users.email — mirrors the
+ * constraint-name matching in src/lib/locations/duplicate-location.ts. */
+function isDuplicateEmailViolation(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as Record<string, unknown>;
+  return e.code === '23505' && e.constraint_name === USERS_EMAIL_CONSTRAINT;
 }
 
 /**
@@ -163,8 +176,7 @@ export async function createBusinessTx(
       });
     }
   } catch (err) {
-    const pgErr = err as { code?: string };
-    if (pgErr.code === '23505') {
+    if (isDuplicateEmailViolation(err)) {
       throw new DuplicateEmailError();
     }
     throw err;

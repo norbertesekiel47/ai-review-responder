@@ -4,6 +4,7 @@ import {
   assertProductionMockModeEnv,
   assertServerOnlyFeatureOptionalBooleansEnv,
   assertSelfServeSignupEnv,
+  assertSingleConcurrencyWorker,
   assertStripeWorkerEnv,
   assertWorkerStartupEnv,
   warnMissingProductionEnv,
@@ -631,5 +632,25 @@ describe('assertAccountOffboardingEnv', () => {
     process.env.SESSION_COOKIE_SECRET = 'secret-value';
     process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
     expect(() => assertAccountOffboardingEnv()).not.toThrow();
+  });
+});
+
+describe('assertSingleConcurrencyWorker', () => {
+  it('passes when the effective concurrency is exactly 1', () => {
+    expect(() =>
+      assertSingleConcurrencyWorker('update_stripe_overage', { concurrency: 1 }),
+    ).not.toThrow();
+  });
+
+  it('throws at boot when the effective concurrency is greater than 1', () => {
+    expect(() =>
+      assertSingleConcurrencyWorker('update_stripe_overage', { concurrency: 5 }),
+    ).toThrow(/update_stripe_overage.*concurrency: 1.*got 5/);
+  });
+
+  it('throws at boot when concurrency is missing from the effective options', () => {
+    expect(() =>
+      assertSingleConcurrencyWorker('update_stripe_overage', {}),
+    ).toThrow(/got undefined/);
   });
 });

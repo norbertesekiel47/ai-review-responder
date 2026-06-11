@@ -5,7 +5,7 @@
 // customer id. No I/O — these operate on already-retrieved Stripe objects.
 //
 // The overage-item predicate is NOT defined here: it is owned by
-// `@/lib/payments/overage-item` (findOverageItem) so the poller, the overage
+// `@/lib/payments/overage-item` (resolveOverageItem) so the poller, the overage
 // worker, and the tier-change route can never disagree and create a duplicate
 // overage item.
 
