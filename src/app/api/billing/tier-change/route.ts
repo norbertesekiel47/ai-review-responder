@@ -18,7 +18,8 @@ import { validateTierChange } from '@/lib/accounts/tier-change';
 import { isSubscriptionTier, type SubscriptionTierValue, TIER_CONFIG } from '@/lib/accounts/tier-config';
 import { getAccountOwnerUserId } from '@/lib/accounts/repo';
 import { getStripe } from '@/lib/payments/stripe-client';
-import { basePriceIdForTier, overagePriceIdForTier, overagePriceIdSet } from '@/lib/payments/price-tier-map';
+import { basePriceIdForTier, basePriceIdSet, overagePriceIdForTier, overagePriceIdSet } from '@/lib/payments/price-tier-map';
+import { findOverageItem } from '@/lib/payments/overage-item';
 import { requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
@@ -38,11 +39,7 @@ const TierChangeSchema = z.object({
 // ── Price ID reverse map ──────────────────────────────────────────────────
 
 function configuredBasePriceIds(): Set<string> {
-  return new Set(
-    (Object.keys(TIER_CONFIG) as SubscriptionTierValue[])
-      .map(basePriceIdForTier)
-      .filter((priceId): priceId is string => Boolean(priceId)),
-  );
+  return basePriceIdSet();
 }
 
 function configuredOveragePriceIds(): Set<string> {
@@ -122,8 +119,9 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
   const [account] = await sql<{
     stripe_subscription_id: string | null;
     subscription_tier: string;
+    locations_overage_price_cents: number;
   }[]>`
-    SELECT stripe_subscription_id, subscription_tier
+    SELECT stripe_subscription_id, subscription_tier, locations_overage_price_cents
     FROM accounts
     WHERE id = ${accountId}::uuid
   `;
@@ -170,9 +168,29 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const overageItem = subscription.items.data.find(
-      (item) => item.id !== baseItem.id && overagePriceIds.has(item.price.id),
-    ) ?? subscription.items.data.find((item) => item.id !== baseItem.id);
+    // Single owner of the overage-item predicate. Base items are excluded first,
+    // so this can never return baseItem and never grabs an arbitrary non-base
+    // item (setup fees, credits, legacy add-ons) the way the old fallback did.
+    const overageItem = findOverageItem(subscription.items.data, {
+      overagePriceIds,
+      basePriceIds,
+      storedOveragePriceCents: account.locations_overage_price_cents,
+    });
+
+    // Resolve whether this tier change needs an overage line and its env price
+    // BEFORE the first Stripe mutation. If the target tier requires overage but
+    // its env price is unconfigured, fail closed — otherwise the base price would
+    // be swapped first and the overage step silently no-op'd, leaving the account
+    // on the new tier with no overage line (under-billing) or a stale one.
+    const needsOverage =
+      newConfig.overageCents > 0 && newConfig.multiLocAllowed && newOverageUnits > 0;
+    const overagePriceId = overagePriceIdForTier(tier);
+    if (needsOverage && !overagePriceId) {
+      return NextResponse.json(
+        { error: 'missing_price_config', detail: `No Stripe overage price configured for tier: ${tier}` },
+        { status: 500, headers: NO_STORE_HEADERS },
+      );
+    }
 
     // Stripe is updated before the local DB row. If the DB transaction below
     // fails after these calls, the client receives a retryable 502 and Stripe
@@ -187,31 +205,28 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
 
     // Handle overage item:
     // - If overage units remain, update/create the overage item with quantity.
+    //   A tier change is a deliberate re-pricing event, so re-pricing the overage
+    //   item to the target tier's env price is intentional here (unlike the
+    //   reconciliation worker, which grandfathers legacy prices).
     // - If overage drops to zero or the tier has no overage, remove stale items.
-    if (newConfig.overageCents > 0 && newConfig.multiLocAllowed && newOverageUnits > 0) {
-      const overagePriceId = overagePriceIdForTier(tier);
-
+    if (needsOverage) {
+      // overagePriceId is non-null here (validated above before any mutation).
       if (overageItem) {
-        if (overagePriceId) {
-          await stripe.subscriptionItems.update(overageItem.id, {
-            price: overagePriceId,
-            quantity: newOverageUnits,
-            proration_behavior: 'create_prorations',
-          }, stripeOptions('overage-update'));
-        }
-      } else if (overagePriceId) {
-        // Create overage item
+        await stripe.subscriptionItems.update(overageItem.id, {
+          price: overagePriceId!,
+          quantity: newOverageUnits,
+          proration_behavior: 'create_prorations',
+        }, stripeOptions('overage-update'));
+      } else {
         await stripe.subscriptionItems.create({
           subscription: account.stripe_subscription_id,
-          price: overagePriceId,
+          price: overagePriceId!,
           quantity: newOverageUnits,
           proration_behavior: 'create_prorations',
         }, stripeOptions('overage-create'));
       }
-    } else {
-      if (overageItem) {
-        await stripe.subscriptionItems.del(overageItem.id, {}, stripeOptions('overage-delete'));
-      }
+    } else if (overageItem) {
+      await stripe.subscriptionItems.del(overageItem.id, {}, stripeOptions('overage-delete'));
     }
 
     await sql.begin(async (tx) => {

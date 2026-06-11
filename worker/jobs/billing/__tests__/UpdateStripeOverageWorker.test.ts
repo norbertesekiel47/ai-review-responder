@@ -84,6 +84,7 @@ function mockAccountRow(overrides: Record<string, unknown> = {}) {
     stripe_customer_id: 'cus_test',
     stripe_subscription_id: 'sub_test',
     locations_included: 1,
+    locations_overage_price_cents: 2500,
     ...overrides,
   };
 }
@@ -276,6 +277,39 @@ describe('UpdateStripeOverageWorker', () => {
       },
     );
     expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+  });
+
+  // Grandfathering: a legacy/rotated overage price (not in the env set) matched
+  // by stored unit-amount must be UPDATED in place, never duplicated by a CREATE.
+  it('updates a legacy-priced overage item (not in env set) and does not create a duplicate', async () => {
+    mockSql.mockReset();
+    mockSql.mockResolvedValueOnce([mockAccountRow({
+      locations_included: 1,
+      locations_overage_price_cents: 3000,
+    })]);
+    mockSql.mockResolvedValueOnce([{ count: 3 }]); // 3 active, 1 included → quantity 2
+
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_standard' }, quantity: 1 },
+          // Legacy/rotated overage price: NOT 'price_std_overage', matched by stored unit-amount.
+          { id: 'si_leg', price: { id: 'price_legacy_overage', unit_amount: 3000 }, quantity: 1 },
+        ],
+      },
+    });
+
+    await handleUpdateStripeOverage(mockJob());
+
+    expect(mockStripeSubscriptionItemsUpdate).toHaveBeenCalledWith(
+      'si_leg',
+      expect.objectContaining({ quantity: 2 }),
+      expect.anything(),
+    );
+    // The legacy update must NOT switch the price.
+    expect(mockStripeSubscriptionItemsUpdate.mock.calls[0]?.[1]).not.toHaveProperty('price');
+    expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
   });
 

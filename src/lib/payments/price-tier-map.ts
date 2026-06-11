@@ -60,6 +60,13 @@ export function tierForBasePriceId(
   return null;
 }
 
+/** The set of configured (non-empty) base price IDs. */
+export function basePriceIdSet(): Set<string> {
+  return new Set(
+    Object.values(baseEnvMap()).filter((id): id is string => Boolean(id)),
+  );
+}
+
 /** The set of configured (non-empty) overage price IDs. */
 export function overagePriceIdSet(): Set<string> {
   return new Set(

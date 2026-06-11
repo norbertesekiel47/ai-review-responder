@@ -1,9 +1,13 @@
 // worker/background/pollers/billing-reconciliation/stripe-overage.ts
 //
-// Pure Stripe-item helpers for billing reconciliation: identifying the overage
-// subscription item, classifying missing-subscription errors, filtering active
-// subscriptions, and reading the customer id. No I/O — these operate on
-// already-retrieved Stripe objects and environment-configured price IDs.
+// Pure Stripe-item helpers for billing reconciliation: classifying
+// missing-subscription errors, filtering active subscriptions, and reading the
+// customer id. No I/O — these operate on already-retrieved Stripe objects.
+//
+// The overage-item predicate is NOT defined here: it is owned by
+// `@/lib/payments/overage-item` (findOverageItem) so the poller, the overage
+// worker, and the tier-change route can never disagree and create a duplicate
+// overage item.
 
 import Stripe from 'stripe';
 
@@ -36,40 +40,4 @@ export function activeStripeSubscriptions(
   return data.filter((subscription) =>
     ['active', 'trialing', 'past_due', 'unpaid'].includes(subscription.status),
   );
-}
-
-export function findOverageItem(
-  subscription: Stripe.Subscription,
-  overagePriceIds: Set<string>,
-  expectedOverageUnitPriceCents: number,
-): Stripe.SubscriptionItem | undefined {
-  const items = subscription.items?.data ?? [];
-  return items.find((item) =>
-    isOverageItem(item, overagePriceIds, expectedOverageUnitPriceCents, items.length),
-  );
-}
-
-export function isOverageItem(
-  item: Stripe.SubscriptionItem,
-  overagePriceIds: Set<string>,
-  expectedOverageUnitPriceCents: number,
-  itemCount: number,
-): boolean {
-  const price = item.price;
-  if (!price) return false;
-  if (price.id && overagePriceIds.has(price.id)) return true;
-
-  const priceDescriptor = [
-    price.lookup_key,
-    price.nickname,
-    price.metadata?.billing_role,
-    price.metadata?.role,
-  ].filter(Boolean).join(' ').toLowerCase();
-  if (/\b(overage|additional|extra|add-on|addon)\b/.test(priceDescriptor)) {
-    return true;
-  }
-
-  return itemCount > 1
-    && expectedOverageUnitPriceCents > 0
-    && price.unit_amount === expectedOverageUnitPriceCents;
 }

@@ -9,6 +9,8 @@
 
 import Stripe from 'stripe';
 import { isSubscriptionTier, TIER_CONFIG } from '../../../../src/lib/accounts/tier-config';
+import { findOverageItem } from '../../../../src/lib/payments/overage-item';
+import { basePriceIdSet } from '../../../../src/lib/payments/price-tier-map';
 import {
   compareUpcomingInvoice,
   isExpectedStatusWindow,
@@ -19,7 +21,6 @@ import { parseAccountFlags, isPilotAccount } from './account-flags';
 import {
   activeStripeSubscriptions,
   extractStripeCustomerId,
-  findOverageItem,
   isMissingStripeSubscriptionError,
 } from './stripe-overage';
 import { LOG_PREFIX } from './constants';
@@ -153,11 +154,11 @@ export async function reconcileAccount(
     });
   }
 
-  const overageItem = findOverageItem(
-    subscription,
+  const overageItem = findOverageItem(subscription.items?.data ?? [], {
     overagePriceIds,
-    expectedInvoice.overageUnitPriceCents,
-  );
+    basePriceIds: basePriceIdSet(),
+    storedOveragePriceCents: expectedInvoice.overageUnitPriceCents,
+  });
   const stripeOverageQuantity = overageItem?.quantity ?? 0;
 
   const subscriptionItems = subscription.items?.data ?? [];

@@ -105,7 +105,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/billing/tier-change/route.ts",
     table: "accounts",
-    sqlSnippet: "SELECT stripe_subscription_id, subscription_tier FROM accounts WHERE id = ${accountId}::uuid",
+    sqlSnippet: "SELECT stripe_subscription_id, subscription_tier, locations_overage_price_cents FROM accounts WHERE id = ${accountId}::uuid",
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
   },
   {
@@ -459,7 +459,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/jobs/billing/UpdateStripeOverageWorker.ts",
     table: "accounts",
-    sqlSnippet: "SELECT id, subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id, locations_included FROM accounts WHERE id = ${account_id}::uuid",
+    sqlSnippet: "SELECT id, subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id, locations_included, locations_overage_price_cents FROM accounts WHERE id = ${account_id}::uuid",
     reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
   },
   {

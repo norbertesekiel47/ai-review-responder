@@ -16,7 +16,8 @@ import { getStripe } from '../../../src/lib/payments/stripe-client';
 import { sql } from '../../../src/lib/db/server';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../../src/lib/shared/outbox';
 import { TIER_CONFIG, type SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
-import { overagePriceIdForTier, overagePriceIdSet } from '../../../src/lib/payments/price-tier-map';
+import { basePriceIdSet, overagePriceIdForTier, overagePriceIdSet } from '../../../src/lib/payments/price-tier-map';
+import { findOverageItem } from '../../../src/lib/payments/overage-item';
 import { computeOverageQuantity } from '../../../src/lib/accounts/quota';
 import { createWorkerLogger, type WorkerLogger } from '../../../src/lib/shared/logger';
 
@@ -76,9 +77,11 @@ export async function handleUpdateStripeOverage(
     stripe_customer_id: string | null;
     stripe_subscription_id: string | null;
     locations_included: number;
+    locations_overage_price_cents: number;
   }[]>`
     SELECT id, subscription_tier, subscription_status,
-           stripe_customer_id, stripe_subscription_id, locations_included
+           stripe_customer_id, stripe_subscription_id, locations_included,
+           locations_overage_price_cents
     FROM accounts
     WHERE id = ${account_id}::uuid
   `;
@@ -145,11 +148,15 @@ export async function handleUpdateStripeOverage(
       account.stripe_subscription_id,
     );
 
-    const overagePriceIds = overagePriceIdSet();
-
-    const existingOverageItem = subscription.items.data.find(
-      (item) => item.price?.id && overagePriceIds.has(item.price.id),
-    );
+    // Single owner of the "which item is the overage item?" predicate. Matching
+    // a legacy/rotated price by stored unit-amount (not just the env price ID)
+    // is what prevents adding a SECOND overage item — and double-billing — when
+    // the env overage price has been rotated away from the one on the sub.
+    const existingOverageItem = findOverageItem(subscription.items.data, {
+      overagePriceIds: overagePriceIdSet(),
+      basePriceIds: basePriceIdSet(),
+      storedOveragePriceCents: account.locations_overage_price_cents,
+    });
 
     if (existingOverageItem && newQuantity === 0) {
       await stripe.subscriptionItems.del(
