@@ -58,6 +58,26 @@ export interface OwnerOffboardingSeedData {
   zernioProfileId: string | null;
 }
 
+export interface MultiLocationSeedData {
+  accountId: string;
+  primaryBusinessId: string;
+  secondaryBusinessId: string;
+  zernioAccountId: string;
+  primaryZernioLocationId: string;
+  secondaryZernioLocationId: string;
+  userId: string;
+  authUserId: string;
+  ownerEmail: string;
+}
+
+export interface SeedMultiLocationAccountOptions {
+  subscriptionStatus?: 'active' | 'pending_payment' | 'past_due' | 'cancelled';
+  /** Override to 1 to exercise overage path (secondary location exceeds quota). Default: 2. */
+  locationsIncluded?: number;
+  /** Insert an org-default email channel enrollment. Default: true. */
+  orgDefaultChannel?: boolean;
+}
+
 export interface SeedOwnerOffboardingAccountOptions {
   subscriptionStatus?: 'active' | 'pending_payment' | 'past_due' | 'cancelled';
   stripeCustomerId?: string | null;
@@ -240,6 +260,232 @@ export async function seedOwnerOffboardingAccount(
     zernioAccountId,
     zernioProfileId,
   };
+}
+
+export async function seedMultiLocationAccount(
+  options: SeedMultiLocationAccountOptions = {},
+): Promise<MultiLocationSeedData> {
+  const sql = getSql();
+  const accountId = randomUUID();
+  const primaryBusinessId = randomUUID();
+  const secondaryBusinessId = randomUUID();
+  const userId = randomUUID();
+  const authUserId = randomUUID();
+  const suffix = accountId.slice(0, 8);
+  const ownerEmail = `owner-multiloc-${suffix}@test.local`;
+  const subscriptionStatus = options.subscriptionStatus ?? 'active';
+  const locationsIncluded = options.locationsIncluded ?? 2;
+  const orgDefaultChannel = options.orgDefaultChannel !== false;
+  const zernioAccountId = `zacct_e2e_${suffix}`;
+  const primaryZernioLocationId = `zloc_e2e_${suffix}_1`;
+  const secondaryZernioLocationId = `zloc_e2e_${suffix}_2`;
+
+  await sql.begin(async (tx) => {
+    await tx`SET CONSTRAINTS ALL DEFERRED`;
+    await tx`
+      INSERT INTO users (id, name, email, role, auth_id, account_id)
+      VALUES (
+        ${userId}::uuid,
+        ${'Multi-Location Owner ' + suffix},
+        ${ownerEmail},
+        'owner',
+        ${authUserId},
+        ${accountId}::uuid
+      )
+    `;
+    await tx`
+      INSERT INTO accounts (
+        id,
+        owner_user_id,
+        display_name,
+        subscription_tier,
+        subscription_status,
+        subscription_activated_at,
+        locations_included,
+        locations_paid,
+        locations_overage_price_cents,
+        base_price_cents
+      ) VALUES (
+        ${accountId}::uuid,
+        ${userId}::uuid,
+        ${'Multi-Location Account ' + suffix},
+        'standard',
+        ${subscriptionStatus},
+        NOW(),
+        ${locationsIncluded},
+        0,
+        2500,
+        7900
+      )
+    `;
+    await tx`
+      INSERT INTO businesses (
+        id,
+        name,
+        category,
+        google_place_id,
+        owner_name,
+        owner_email,
+        subscription_tier,
+        subscription_status,
+        account_id,
+        is_primary,
+        onboarded_by
+      ) VALUES (
+        ${primaryBusinessId}::uuid,
+        ${'E2E Primary Location ' + suffix},
+        'restaurant',
+        ${'e2e-ml-' + suffix + '-loc1'},
+        'Multi-Location Owner',
+        ${ownerEmail},
+        'standard',
+        ${subscriptionStatus},
+        ${accountId}::uuid,
+        TRUE,
+        ${userId}::uuid
+      )
+    `;
+    await tx`
+      INSERT INTO businesses (
+        id,
+        name,
+        category,
+        google_place_id,
+        owner_name,
+        owner_email,
+        subscription_tier,
+        subscription_status,
+        account_id,
+        is_primary,
+        onboarded_by
+      ) VALUES (
+        ${secondaryBusinessId}::uuid,
+        ${'E2E Secondary Location ' + suffix},
+        'restaurant',
+        ${'e2e-ml-' + suffix + '-loc2'},
+        'Multi-Location Owner',
+        ${ownerEmail},
+        'standard',
+        ${subscriptionStatus},
+        ${accountId}::uuid,
+        FALSE,
+        ${userId}::uuid
+      )
+    `;
+    await tx`
+      INSERT INTO zernio_connections (
+        business_id,
+        zernio_profile_id,
+        zernio_account_id,
+        zernio_location_id,
+        status,
+        connected_at
+      ) VALUES (
+        ${primaryBusinessId}::uuid,
+        ${'zprof_e2e_' + suffix + '_1'},
+        ${zernioAccountId},
+        ${primaryZernioLocationId},
+        'active',
+        NOW()
+      )
+    `;
+    await tx`
+      INSERT INTO zernio_connections (
+        business_id,
+        zernio_profile_id,
+        zernio_account_id,
+        zernio_location_id,
+        status,
+        connected_at
+      ) VALUES (
+        ${secondaryBusinessId}::uuid,
+        ${'zprof_e2e_' + suffix + '_2'},
+        ${zernioAccountId},
+        ${secondaryZernioLocationId},
+        'active',
+        NOW()
+      )
+    `;
+    if (orgDefaultChannel) {
+      await tx`
+        INSERT INTO channel_enrollments (
+          id,
+          business_id,
+          account_id,
+          location_id,
+          channel,
+          handle,
+          status,
+          verified_at
+        ) VALUES (
+          ${randomUUID()}::uuid,
+          ${primaryBusinessId}::uuid,
+          ${accountId}::uuid,
+          NULL,
+          'email',
+          ${ownerEmail},
+          'verified',
+          NOW()
+        )
+      `;
+    }
+  });
+
+  return {
+    accountId,
+    primaryBusinessId,
+    secondaryBusinessId,
+    zernioAccountId,
+    primaryZernioLocationId,
+    secondaryZernioLocationId,
+    userId,
+    authUserId,
+    ownerEmail,
+  };
+}
+
+export async function cleanupMultiLocationAccount(accountId: string): Promise<void> {
+  const sql = getSql();
+
+  // Fetch the owner user id before the transaction so we can delete the user last.
+  const [ownerRow] = await sql<{ owner_user_id: string }[]>`
+    SELECT owner_user_id FROM accounts WHERE id = ${accountId}::uuid
+  `;
+  const userId = ownerRow?.owner_user_id ?? null;
+
+  await sql.begin(async (tx) => {
+    await tx`
+      DELETE FROM job_outbox
+      WHERE aggregate_id = ${accountId}::uuid
+         OR payload->>'account_id' = ${accountId}
+         OR aggregate_id IN (SELECT id FROM businesses WHERE account_id = ${accountId}::uuid)
+         OR payload->>'business_id' IN (SELECT id::text FROM businesses WHERE account_id = ${accountId}::uuid)
+    `;
+    await tx`
+      DELETE FROM analytics_events
+      WHERE account_id = ${accountId}::uuid
+    `;
+    await tx`
+      DELETE FROM account_offboarding_tokens t
+      USING account_offboardings ao
+      WHERE t.account_offboarding_id = ao.id
+        AND ao.account_id = ${accountId}::uuid
+    `;
+    await tx`DELETE FROM account_offboardings WHERE account_id = ${accountId}::uuid`;
+    await tx`DELETE FROM notification_deliveries WHERE account_id = ${accountId}::uuid`;
+    await tx`DELETE FROM approval_audit_log WHERE account_id = ${accountId}::uuid`;
+    await tx`DELETE FROM account_audit_log WHERE account_id = ${accountId}::uuid`;
+    await tx`DELETE FROM channel_enrollments WHERE account_id = ${accountId}::uuid`;
+    await tx`DELETE FROM zernio_connections WHERE business_id IN (SELECT id FROM businesses WHERE account_id = ${accountId}::uuid)`;
+    await tx`DELETE FROM businesses WHERE account_id = ${accountId}::uuid`;
+    if (userId) {
+      await tx`UPDATE users SET account_id = NULL WHERE id = ${userId}::uuid`;
+    }
+    await tx`DELETE FROM accounts WHERE id = ${accountId}::uuid`;
+    if (userId) {
+      await tx`DELETE FROM users WHERE id = ${userId}::uuid`;
+    }
+  });
 }
 
 /**
