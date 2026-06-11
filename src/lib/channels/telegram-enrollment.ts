@@ -13,6 +13,7 @@
 //
 // See docs/superpowers/specs/2026-04-28-phase-4-owner-channel-dashboard-design.md §4.2-4.4.
 
+import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { classifyEnrollmentError } from './unique-violation';
 import { writeAccountAuditLog } from '@/lib/audit/log';
@@ -160,7 +161,7 @@ export interface DisableEnrollmentInput {
  * neither the org-default nor any override was changed.
  */
 export async function disableTelegramEnrollment(
-  tx: TxLike,
+  tx: postgres.TransactionSql,
   input: DisableEnrollmentInput,
 ): Promise<{ kind: 'ok' | 'not_found' }> {
   const { accountId } = input;
@@ -205,7 +206,7 @@ export async function disableTelegramEnrollment(
         userAgent: input.userAgent ?? null,
         requestId: input.requestId ?? null,
       },
-      tx as never,
+      tx,
     );
   }
 
@@ -223,7 +224,7 @@ export async function disableTelegramEnrollment(
         userAgent: input.userAgent ?? null,
         requestId: input.requestId ?? null,
       },
-      tx as never,
+      tx,
     );
   }
 

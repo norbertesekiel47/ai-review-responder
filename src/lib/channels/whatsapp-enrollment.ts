@@ -5,6 +5,7 @@
 // Caller must hold the `mobile_enroll:${accountId}` advisory lock
 // inside sql.begin — these helpers do not lock.
 
+import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { classifyEnrollmentError } from './unique-violation';
 import type { DisableEnrollmentInput } from './telegram-enrollment';
@@ -118,7 +119,7 @@ export async function cancelWhatsAppEnrollment(
  * (no auto-re-enable of overrides) semantics. Caller MUST pass a `sql.begin` tx.
  */
 export async function disableWhatsAppEnrollment(
-  tx: TxLike,
+  tx: postgres.TransactionSql,
   input: DisableEnrollmentInput,
 ): Promise<{ kind: 'ok' | 'not_found' }> {
   const { accountId } = input;
@@ -163,7 +164,7 @@ export async function disableWhatsAppEnrollment(
         userAgent: input.userAgent ?? null,
         requestId: input.requestId ?? null,
       },
-      tx as never,
+      tx,
     );
   }
 
@@ -181,7 +182,7 @@ export async function disableWhatsAppEnrollment(
         userAgent: input.userAgent ?? null,
         requestId: input.requestId ?? null,
       },
-      tx as never,
+      tx,
     );
   }
 

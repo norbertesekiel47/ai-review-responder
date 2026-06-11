@@ -1,5 +1,6 @@
 // src/lib/channels/__tests__/telegram-enrollment.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type postgres from 'postgres';
 import type { WriteAccountAuditLogInput } from '@/lib/audit/log';
 
 const mockWriteAccountAuditLog = vi.fn(async (_input: WriteAccountAuditLogInput) => {});
@@ -225,14 +226,14 @@ describe('disableTelegramEnrollment', () => {
   it('returns ok when only the org-default UPDATE affects rows', async () => {
     const tx = makeDisableTx([{ id: 'row-1' }], []);
     const { disableTelegramEnrollment } = await import('../telegram-enrollment');
-    const result = await disableTelegramEnrollment(tx as never, { accountId: 'acct-1' });
+    const result = await disableTelegramEnrollment(tx as unknown as postgres.TransactionSql, { accountId: 'acct-1' });
     expect(result.kind).toBe('ok');
   });
 
   it('returns not_found only when BOTH the org-default and override UPDATEs affect 0 rows', async () => {
     const tx = makeDisableTx([], []);
     const { disableTelegramEnrollment } = await import('../telegram-enrollment');
-    const result = await disableTelegramEnrollment(tx as never, { accountId: 'acct-1' });
+    const result = await disableTelegramEnrollment(tx as unknown as postgres.TransactionSql, { accountId: 'acct-1' });
     expect(result.kind).toBe('not_found');
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });
@@ -240,7 +241,7 @@ describe('disableTelegramEnrollment', () => {
   it('cascades + audits overrides even when the org-default is already disabled (0 org rows)', async () => {
     const tx = makeDisableTx([], [{ id: 'ov-1', location_id: 'loc-1' }, { id: 'ov-2', location_id: 'loc-2' }]);
     const { disableTelegramEnrollment } = await import('../telegram-enrollment');
-    const result = await disableTelegramEnrollment(tx as never, { accountId: 'acct-1' });
+    const result = await disableTelegramEnrollment(tx as unknown as postgres.TransactionSql, { accountId: 'acct-1' });
     expect(result.kind).toBe('ok'); // something changed → NOT 404
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(2);
@@ -252,7 +253,7 @@ describe('disableTelegramEnrollment', () => {
   it('full cascade: audits the org-default AND each override row', async () => {
     const tx = makeDisableTx([{ id: 'org-1' }], [{ id: 'ov-1', location_id: 'loc-1' }, { id: 'ov-2', location_id: 'loc-2' }]);
     const { disableTelegramEnrollment } = await import('../telegram-enrollment');
-    const result = await disableTelegramEnrollment(tx as never, {
+    const result = await disableTelegramEnrollment(tx as unknown as postgres.TransactionSql, {
       accountId: 'acct-1',
       actorUserId: 'user-9',
       ip: '1.2.3.4',
@@ -288,7 +289,7 @@ describe('disableTelegramEnrollment', () => {
   it('org-default UPDATE sets status=disabled, handle=NULL, filters account_id + location_id IS NULL', async () => {
     const tx = makeDisableTx([{ id: 'row-1' }], []);
     const { disableTelegramEnrollment } = await import('../telegram-enrollment');
-    await disableTelegramEnrollment(tx as never, { accountId: 'acct-1' });
+    await disableTelegramEnrollment(tx as unknown as postgres.TransactionSql, { accountId: 'acct-1' });
     const orgSql = (tx.mock.calls[0]?.[0] as TemplateStringsArray).join('?');
     expect(orgSql).toContain("status = 'disabled'");
     expect(orgSql).toContain('handle = NULL');
@@ -302,7 +303,7 @@ describe('disableTelegramEnrollment', () => {
   it('override cascade UPDATE filters account_id + location_id IS NOT NULL + verified', async () => {
     const tx = makeDisableTx([], [{ id: 'ov-1', location_id: 'loc-1' }]);
     const { disableTelegramEnrollment } = await import('../telegram-enrollment');
-    await disableTelegramEnrollment(tx as never, { accountId: 'acct-1' });
+    await disableTelegramEnrollment(tx as unknown as postgres.TransactionSql, { accountId: 'acct-1' });
     const overrideSql = (tx.mock.calls[1]?.[0] as TemplateStringsArray).join('?');
     expect(overrideSql).toContain('account_id =');
     expect(overrideSql).toContain('location_id IS NOT NULL');

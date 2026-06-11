@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type postgres from 'postgres';
 import type { WriteAccountAuditLogInput } from '@/lib/audit/log';
 
 const mockWriteAccountAuditLog = vi.fn(async (_input: WriteAccountAuditLogInput) => {});
@@ -126,7 +127,7 @@ describe('disableWhatsAppEnrollment', () => {
   it('returns ok + audits the org-default when only the org-default UPDATE affects rows', async () => {
     // call 0 = org-default UPDATE; call 1 = override cascade UPDATE.
     const { tx, calls } = makeTx([[{ id: 'org-1' }], []]);
-    expect(await disableWhatsAppEnrollment(tx, { accountId: 'acct-1' })).toEqual({ kind: 'ok' });
+    expect(await disableWhatsAppEnrollment(tx as unknown as postgres.TransactionSql, { accountId: 'acct-1' })).toEqual({ kind: 'ok' });
 
     const orgSql = calls[0];
     expect(orgSql).toContain('account_id');
@@ -145,13 +146,13 @@ describe('disableWhatsAppEnrollment', () => {
 
   it('returns not_found + writes no audit only when BOTH UPDATEs affect 0 rows', async () => {
     const { tx } = makeTx([[], []]);
-    expect(await disableWhatsAppEnrollment(tx, { accountId: 'acct-1' })).toEqual({ kind: 'not_found' });
+    expect(await disableWhatsAppEnrollment(tx as unknown as postgres.TransactionSql, { accountId: 'acct-1' })).toEqual({ kind: 'not_found' });
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });
 
   it('cascades + audits overrides even when the org-default is already disabled (0 org rows)', async () => {
     const { tx } = makeTx([[], [{ id: 'ov-1', location_id: 'loc-1' }, { id: 'ov-2', location_id: 'loc-2' }]]);
-    expect(await disableWhatsAppEnrollment(tx, { accountId: 'acct-1' })).toEqual({ kind: 'ok' });
+    expect(await disableWhatsAppEnrollment(tx as unknown as postgres.TransactionSql, { accountId: 'acct-1' })).toEqual({ kind: 'ok' });
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(2);
     const inputs = mockWriteAccountAuditLog.mock.calls.map((call) => call[0]);
@@ -162,7 +163,7 @@ describe('disableWhatsAppEnrollment', () => {
   it('full cascade: audits org-default (channel_disabled, locationId null) AND each override', async () => {
     const { tx } = makeTx([[{ id: 'org-1' }], [{ id: 'ov-1', location_id: 'loc-1' }]]);
     expect(
-      await disableWhatsAppEnrollment(tx, { accountId: 'acct-1', actorUserId: 'user-9' }),
+      await disableWhatsAppEnrollment(tx as unknown as postgres.TransactionSql, { accountId: 'acct-1', actorUserId: 'user-9' }),
     ).toEqual({ kind: 'ok' });
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(2);
