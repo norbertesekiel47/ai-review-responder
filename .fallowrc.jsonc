@@ -172,7 +172,25 @@
       // Cleanup candidates post-launch.
       "worker/background/pollers/billing-reconciliation/reconcile-account.ts",
       "worker/jobs/billing/UpdateStripeOverageWorker.ts",
-      "worker/ingress/stripe/checkout-completed.ts"
+      "worker/ingress/stripe/checkout-completed.ts",
+
+      // ── Pre-existing complexity swept in by PR E's mechanical touches ──
+      // PR E (digest toggles → accounts + channel-module consolidation) touched
+      // these files without growing the flagged functions. The owner telegram/
+      // whatsapp start handlers (13/12-cyclomatic) and the telegram cancel
+      // handler predate the branch — PR E only swapped the per-channel
+      // enrollment imports for the parameterized mobile-enrollment module.
+      // getActiveDashboardData (188 lines) only changed its digest-toggle read
+      // to JOIN accounts; the runbook page change is a one-line copy edit.
+      // Refactoring live enrollment/dashboard flows for an import swap is
+      // unjustified risk pre-launch; cleanup candidates post-launch. (The two
+      // summary schedulers carry their own in-file fallow-ignore suppressions —
+      // not duplicated here.)
+      "src/app/api/dashboard/channels/telegram/start/route.ts",
+      "src/app/api/dashboard/channels/whatsapp/start/route.ts",
+      "src/app/api/dashboard/channels/telegram/cancel/route.ts",
+      "src/lib/dashboard/service.ts",
+      "src/app/admin/runbook/page.tsx"
     ]
   },
   "duplicates": {
@@ -283,6 +301,15 @@
       "src/app/api/auth/mfa/challenge/route.ts",
       "src/app/api/auth/reset-password/route.ts",
       "src/components/auth/auth-island/SignupForm.tsx",
+
+      // Settings page client vs channels-tab client: both render the
+      // standardized fetchError fallback (SettingsShell + error set-section),
+      // but the shells take different tab wiring and children (the channels
+      // tab keeps the org-default ChannelsClient above the error card) and the
+      // copy differs per surface. The only truly shared piece is a 4-line
+      // styled div — extracting it would be a thin pass-through component.
+      "src/app/(authenticated)/settings/SettingsClient.tsx",
+      "src/app/(authenticated)/settings/channels/ChannelsTabClient.tsx",
 
       // Dashboard data hooks + approval client: SWR/fetch boilerplate; forcing a
       // generic hook would over-couple distinct data shapes.
