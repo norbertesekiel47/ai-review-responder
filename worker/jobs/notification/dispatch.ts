@@ -63,8 +63,7 @@ type StatusFlipKind =
  * permanent send failure.
  *
  * Scoping contract (see CLAUDE.md "Owner channel enrollment org-default is
- * account-scoped" and docs/known-issues.md "Dispatcher failure-handling
- * enrollment writes still key by business_id"): the row is keyed by
+ * account-scoped"): the row is keyed by
  * `account_id` + the enrollment's location, NOT by `business_id`. On a
  * multi-location account the org-default row (`location_id IS NULL`) carries a
  * legacy `business_id` from its original INSERT, so a `business_id`-keyed UPDATE

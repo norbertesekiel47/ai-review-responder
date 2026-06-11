@@ -46,8 +46,7 @@ export async function GET(
   // which location's detail page is open. `business_id` on the table is a legacy
   // FK and is NOT the org-default lookup key. So we resolve the account from the
   // location, then read account-scoped — mirroring resolveChannels' precedence
-  // (per-location override beats org-default). See docs/known-issues.md
-  // "ACTIVE: Admin per-business channel status read".
+  // (per-location override beats org-default).
   const [accountRow] = await sql<{ account_id: string }[]>`
     SELECT account_id FROM businesses WHERE id = ${businessId}
   `;
