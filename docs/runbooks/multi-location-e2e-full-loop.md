@@ -249,33 +249,42 @@ pass condition.
 
 ## 5. Sign-Off Record
 
-Fill this in **after** a clean run.
-
 ```
 Multi-location two-location full-loop sign-off
-Date:           ____________________
-Operator:       ____________________
-Commit / SHA:   ____________________
+Date:           2026-06-11
+Operator:       Claude Code (driven per this runbook against local-confined infra —
+                Postgres 5499, local Redis on isolated DBs, fixture for Zernio;
+                real OpenAI gpt-4o-mini drafts; approval via the owner approveBySession path)
+Commit / SHA:   main @ 0a830bf6 (PRs A–F + PR G all merged)
 
-Primary location (zernio_location_id: __________________)
-  [ ] review ingested
-  [ ] draft generated
-  [ ] draft approved
-  [ ] publish_reply recorded by fixture
+Primary location — Downtown (zernio_location_id: zloc_e2e_<run>_1)
+  [x] review ingested        (5★ "Great service at the main shop")
+  [x] draft generated        (real OpenAI — "Hi Pat, Thank you for your fantastic review…")
+  [x] draft approved         (approval_method=owner)
+  [x] publish_reply recorded by fixture + response status=posted
 
-Secondary location (zernio_location_id: __________________)
-  [ ] review ingested
-  [ ] draft generated
-  [ ] draft approved
-  [ ] publish_reply recorded by fixture
+Secondary location — Airport (zernio_location_id: zloc_e2e_<run>_2)
+  [x] review ingested        (4★ "Solid second location")
+  [x] draft generated        (real OpenAI — "Hi Sam, Thank you for your positive feedback…")
+  [x] draft approved         (approval_method=owner)
+  [x] publish_reply recorded by fixture + response status=posted
 
-No cross-routing observed (each review landed on its own location): [ ]
-Deviations / notes: ___________________________________________________
-```
+No cross-routing observed (each review landed on its own location): [x]
+  (per-location webhook fan-out enqueued exactly 1 row each; primary review → primary
+  business, secondary review → secondary business; fixture replies matched per review id.)
 
-> **TODO — first run pending.** This record is filled in by the operator who runs
-> the loop with real test keys. The PR F kit (seeder, fixture server, webhook
-> param, this runbook) is in place; the run itself is the launch-gating step.
+Deviations / notes: TWO kit defects were found and fixed during this run (this PR):
+  1. The fixture's publish_reply recorded the reply but did NOT attach it to the stored
+     review, so the publisher's post-publish verification (verifyOwnReplyAttached, the
+     safety check behind the 2026-05-31 phantom-id false-positive) re-read the review,
+     saw reviewReply=null, and marked BOTH responses failed (review_found_but_reply_null).
+     Fixed: publish_reply now attaches reviewReply to the review (mirrors real Zernio);
+     after the fix both responses reached status=posted.
+  2. e2e/fixtures/serve.ts used top-level await, which tsx rejects under this repo's CJS
+     transform, so the documented `pnpm exec tsx e2e/fixtures/serve.ts` failed to start.
+     Fixed: wrapped the body in an async IIFE.
+  No defects were found in the product pipeline itself — ingest routing, draft generation,
+  approval, and the publish call all behaved correctly for both locations.
 
 ---
 

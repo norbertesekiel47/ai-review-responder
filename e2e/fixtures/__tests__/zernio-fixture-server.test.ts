@@ -160,6 +160,35 @@ describe('zernio fixture server (through the real transport)', () => {
     expect(fixture.deletedReplies).toEqual([{ reviewId: 'rev-1' }]);
   });
 
+  it('reflects a published reply onto the review so post-publish verification confirms it', async () => {
+    // The publisher's verifyOwnReplyAttached re-reads the review after postReply
+    // and requires OUR reply text to be attached; if the fixture left
+    // reviewReply null, every full-loop response would be marked failed
+    // (review_found_but_reply_null). The fixture must mirror real Zernio and
+    // attach the reply to the stored review.
+    fixture = await startZernioFixtureServer({
+      accountId: ACCOUNT_ID,
+      seeds: [
+        {
+          locationId: 'loc-1',
+          reviews: [
+            makeFixtureReview({ accountId: ACCOUNT_ID, locationId: 'loc-1', reviewId: 'rev-1', rating: 5 }),
+          ],
+        },
+      ],
+    });
+    const { locations, replies } = clientFor(fixture);
+
+    const before = await locations.listAllReviews(ACCOUNT_ID, { locationId: 'loc-1', pageSize: 50, maxPages: 5 });
+    expect(before[0]!.reviewReply).toBeNull();
+
+    await replies.postReply(ACCOUNT_ID, 'rev-1', { comment: 'Thanks for the kind words!' });
+
+    const after = await locations.listAllReviews(ACCOUNT_ID, { locationId: 'loc-1', pageSize: 50, maxPages: 5 });
+    expect(after[0]!.reviewReply).not.toBeNull();
+    expect(after[0]!.reviewReply!.comment).toBe('Thanks for the kind words!');
+  });
+
   it('defaults list_locations to ONE entry per seeded location, not just the first', async () => {
     fixture = await startZernioFixtureServer({
       accountId: ACCOUNT_ID,

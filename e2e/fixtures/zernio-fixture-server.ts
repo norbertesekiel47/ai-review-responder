@@ -278,12 +278,26 @@ export async function startZernioFixtureServer(
       const body = (await readJsonBody(req)) as { comment?: string } | undefined;
       const comment = typeof body?.comment === 'string' ? body.comment : '';
       const reviewId = decodeURIComponent(publishMatch[2]!);
+      const updateTime = new Date().toISOString();
       publishedReplies.push({
         accountId: decodeURIComponent(publishMatch[1]!),
         reviewId,
         comment,
       });
-      sendJson(res, 200, { comment, updateTime: new Date().toISOString() });
+      // Reflect the reply onto the stored review so a subsequent list_reviews
+      // shows it — real Zernio attaches the reply to the review. Without this,
+      // the publisher's post-publish verification (verifyOwnReplyAttached
+      // re-reads the review and requires OUR reply text to be attached) sees
+      // reviewReply: null forever and marks the response failed
+      // (review_found_but_reply_null), so the full loop can never reach `posted`.
+      for (const reviews of reviewsByLocation.values()) {
+        const review = reviews.find((r) => r.id === reviewId);
+        if (review) {
+          review.reviewReply = { comment, updateTime };
+          break;
+        }
+      }
+      sendJson(res, 200, { comment, updateTime });
       return;
     }
 

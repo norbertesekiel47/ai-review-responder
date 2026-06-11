@@ -11,15 +11,19 @@
 // are readable via GET /__control/replies (and resettable via DELETE).
 import { startZernioFixtureServer } from './zernio-fixture-server';
 
-const server = await startZernioFixtureServer({
-  accountId: process.env.FIXTURE_ACCOUNT_ID ?? 'fixture-account-1',
-});
+// Wrapped in an async IIFE rather than using top-level await: tsx transforms
+// .ts to CJS in this repo (package.json has no "type":"module"), and top-level
+// await is unsupported under CJS — `pnpm exec tsx e2e/fixtures/serve.ts` would
+// fail to transform. The listening HTTP server keeps the process alive.
+void (async () => {
+  const server = await startZernioFixtureServer({
+    accountId: process.env.FIXTURE_ACCOUNT_ID ?? 'fixture-account-1',
+  });
 
-console.log(`ZERNIO_API_BASE=${server.url}`);
-console.log(`control: POST ${server.url}/__control/reviews · GET ${server.url}/__control/replies`);
+  console.log(`ZERNIO_API_BASE=${server.url}`);
+  console.log(`control: POST ${server.url}/__control/reviews · GET ${server.url}/__control/replies`);
 
-process.on('SIGINT', () => {
-  void server.stop().then(() => process.exit(0));
-});
-
-await new Promise(() => {});
+  process.on('SIGINT', () => {
+    void server.stop().then(() => process.exit(0));
+  });
+})();
