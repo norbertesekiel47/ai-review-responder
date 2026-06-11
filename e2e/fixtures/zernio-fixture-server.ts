@@ -30,8 +30,10 @@
 //   delete_reply     DELETE /v1/inbox/reviews/{reviewId}/reply
 //   delete_profile   DELETE /v1/profiles/{profileId}
 //   delete_account   DELETE /v1/accounts/{accountId}
-// Plus a control endpoint, NOT part of the Zernio API:
+// Plus control endpoints, NOT part of the Zernio API:
 //   seed reviews     POST   /__control/reviews   { locationId, reviews[] }
+//   read replies     GET    /__control/replies   → { publishedReplies, deletedReplies }
+//   reset replies    DELETE /__control/replies
 
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -52,8 +54,9 @@ export interface ZernioFixtureOptions {
   /** Defaults to 'fixture-account-1' — the {accountId} segment in review names
    *  and the account id returned by select_location. */
   accountId?: string;
-  /** Locations returned by list_locations. Defaults to a single location whose
-   *  id is the first seed's locationId, or 'fixture-loc-1' when no seeds. */
+  /** Locations returned by list_locations. Defaults to one location PER seeded
+   *  locationId (so multi-location seeds get a multi-location picker without
+   *  passing this), or a single 'fixture-loc-1' when no seeds. */
   locations?: ZernioFixtureLocation[];
   /** Initial per-location review seeds. More can be added at runtime via
    *  POST /__control/reviews. */
@@ -174,8 +177,16 @@ export async function startZernioFixtureServer(
     opts.locations ??
     (() => {
       const seededLocationIds = [...reviewsByLocation.keys()];
-      const firstLocationId = seededLocationIds[0] ?? 'fixture-loc-1';
-      return [{ id: firstLocationId, name: 'Fixture Location 1', address: '1 Fixture St' }];
+      if (seededLocationIds.length === 0) {
+        return [{ id: 'fixture-loc-1', name: 'Fixture Location 1', address: '1 Fixture St' }];
+      }
+      // One picker entry per seeded location — a two-location seed must yield a
+      // two-location account, or the multi-location path silently isn't exercised.
+      return seededLocationIds.map((id, index) => ({
+        id,
+        name: `Fixture Location ${index + 1}`,
+        address: `${index + 1} Fixture St`,
+      }));
     })();
 
   const publishedReplies: PublishedReplyRecord[] = [];
@@ -185,6 +196,23 @@ export async function startZernioFixtureServer(
     const method = req.method ?? 'GET';
     const requestUrl = new URL(req.url ?? '/', 'http://localhost');
     const path = requestUrl.pathname;
+
+    // Control endpoint — read recorded replies over HTTP so the runbook's
+    // pass condition ("two entries in publishedReplies") is checkable without
+    // grepping worker logs. Not Zernio API.
+    if (method === 'GET' && path === '/__control/replies') {
+      sendJson(res, 200, { publishedReplies, deletedReplies });
+      return;
+    }
+
+    // Control endpoint — clear recorded replies between runbook attempts so a
+    // long-lived fixture process doesn't accumulate stale records. Not Zernio API.
+    if (method === 'DELETE' && path === '/__control/replies') {
+      publishedReplies.length = 0;
+      deletedReplies.length = 0;
+      sendNoContent(res);
+      return;
+    }
 
     // Control endpoint — seed/replace reviews for a location. Not Zernio API.
     if (method === 'POST' && path === '/__control/reviews') {
@@ -285,8 +313,14 @@ export async function startZernioFixtureServer(
     });
   });
 
-  await new Promise<void>((resolve) => {
-    server.listen(0, '127.0.0.1', resolve);
+  await new Promise<void>((resolve, reject) => {
+    // Without the error handler a listen failure (EPERM/EADDRNOTAVAIL in
+    // sandboxed runners) leaves this promise pending forever with no diagnostic.
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.removeListener('error', reject);
+      resolve();
+    });
   });
 
   const address = server.address() as AddressInfo;

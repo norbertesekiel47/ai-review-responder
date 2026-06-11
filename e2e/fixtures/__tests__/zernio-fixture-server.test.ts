@@ -22,7 +22,10 @@ describe('buildReviewName', () => {
 });
 
 describe('zernio fixture server (through the real transport)', () => {
-  let fixture: ZernioFixtureServer;
+  // `undefined` between tests: if startZernioFixtureServer throws mid-test,
+  // afterEach must not call stop() on the PREVIOUS test's already-stopped
+  // server (close() on a non-running server rejects and masks the real error).
+  let fixture: ZernioFixtureServer | undefined;
   let originalApiBase: string | undefined;
   let originalMockExternalApis: string | undefined;
 
@@ -35,7 +38,10 @@ describe('zernio fixture server (through the real transport)', () => {
   });
 
   afterEach(async () => {
-    if (fixture) await fixture.stop();
+    if (fixture) {
+      await fixture.stop();
+      fixture = undefined;
+    }
     if (originalApiBase === undefined) {
       delete process.env.ZERNIO_API_BASE;
     } else {
@@ -152,6 +158,45 @@ describe('zernio fixture server (through the real transport)', () => {
 
     await replies.deleteReply(ACCOUNT_ID, 'rev-1');
     expect(fixture.deletedReplies).toEqual([{ reviewId: 'rev-1' }]);
+  });
+
+  it('defaults list_locations to ONE entry per seeded location, not just the first', async () => {
+    fixture = await startZernioFixtureServer({
+      accountId: ACCOUNT_ID,
+      seeds: [
+        { locationId: 'loc-a', reviews: [] },
+        { locationId: 'loc-b', reviews: [] },
+      ],
+      // no `locations` option — the default must derive BOTH from the seeds,
+      // or a two-location seed silently exercises a single-location picker.
+    });
+    const { locations } = clientFor(fixture);
+    const result = await locations.listLocations({
+      profileId: 'prof-1',
+      pendingDataToken: 'pdt-1',
+    });
+    expect(result.locations.map((l) => l.id).sort()).toEqual(['loc-a', 'loc-b']);
+  });
+
+  it('exposes recorded replies over /__control/replies (read + reset)', async () => {
+    fixture = await startZernioFixtureServer({ accountId: ACCOUNT_ID });
+    const { replies } = clientFor(fixture);
+    await replies.postReply(ACCOUNT_ID, 'rev-1', { comment: 'Thanks!' });
+
+    const read = await fetch(`${fixture.url}/__control/replies`);
+    const body = (await read.json()) as {
+      publishedReplies: Array<{ reviewId: string }>;
+      deletedReplies: unknown[];
+    };
+    expect(body.publishedReplies.map((r) => r.reviewId)).toEqual(['rev-1']);
+
+    const reset = await fetch(`${fixture.url}/__control/replies`, { method: 'DELETE' });
+    expect(reset.status).toBe(204);
+    const after = await fetch(`${fixture.url}/__control/replies`);
+    const afterBody = (await after.json()) as { publishedReplies: unknown[] };
+    expect(afterBody.publishedReplies).toEqual([]);
+    // The reset clears in place — the server object's live references agree.
+    expect(fixture.publishedReplies).toEqual([]);
   });
 
   it('supports runtime re-seeding via seedReviews()', async () => {

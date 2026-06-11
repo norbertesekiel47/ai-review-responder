@@ -26,6 +26,15 @@
 //      archiving the PRIMARY is blocked (PR B invariant).         [fixme: auth]
 //   5. Promote a secondary to primary.                            [fixme: auth]
 //   6. Add-location wizard eligibility gate.            [partial real + fixme]
+//
+// ⚠️ COVERAGE STATUS — READ BEFORE TREATING A GREEN RUN AS SIGN-OFF ⚠️
+// Until the session-cookie harness lands, the ONLY executing tests here are
+// the three unauthenticated route gates. Scenarios 1-6 are test.fixme and
+// assert NOTHING yet. A green `pnpm test:e2e` therefore does NOT verify any
+// authenticated multi-location behavior — the launch-gating verification is
+// the manual full-loop runbook (docs/runbooks/multi-location-e2e-full-loop.md),
+// not this suite. Everything the fixmes need is now in place (per-location
+// review/response seeding via seedLocationReview) EXCEPT the auth harness.
 
 import { test, expect } from '@playwright/test';
 import {
@@ -107,13 +116,13 @@ test.describe('Multi-location — authenticated owner (seeded)', () => {
   });
 
   // ── Scenario 2: per-location scoping (dashboard + past-replies) ───────────
-  // Needs auth AND seeded per-location reviews/responses to assert isolation.
-  // The seeder currently creates locations + connections but no per-location
-  // reviews; the harness step must seed one review per business and then
-  // assert each scope sees only its own. Recipe: e2e/README.md.
+  // Needs auth only. The per-location data capability EXISTS: in the un-fixme'd
+  // version, add to beforeAll —
+  //   await seedLocationReview({ businessId: seed.primaryBusinessId, marker: 'PRIMARY-REVIEW-MARKER' });
+  //   await seedLocationReview({ businessId: seed.secondaryBusinessId, marker: 'SECONDARY-REVIEW-MARKER' });
+  // (rows cascade on cleanup). Recipe for the session cookie: e2e/README.md.
   test.fixme('dashboard + past-replies are scoped per location', async ({ page }) => {
-    // HARNESS: authed session + one review/response per business (primary vs
-    // secondary) with distinguishable text.
+    // HARNESS: authed session; per-location reviews seeded as above.
     await page.goto('/dashboard');
 
     // Select the primary location in the switcher.

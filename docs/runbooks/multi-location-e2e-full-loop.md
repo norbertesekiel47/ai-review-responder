@@ -57,7 +57,9 @@ requires the **full** credential set below. Use **test/sandbox** keys everywhere
 > Stripe/Resend paths assume sandbox. Run with `NODE_ENV=development` (or unset).
 
 ### Local infrastructure
-- **Postgres** — the dev/test database with migrations `001 → 063` applied.
+- **Postgres** — the dev/test database with ALL migrations applied, through the
+  current head per `.claude/reference/migrations-log.md` (the log is the single
+  owner of that number — do not trust a stale copy here).
 - **Redis** — both the BullMQ **queue** (Railway-Redis-equivalent locally) and the
   **cache** (Upstash-equivalent locally). The worker needs the queue; rate-limit /
   cost-reserve needs the cache.
@@ -105,36 +107,33 @@ Stripe/Zernio creds, so it never runs in CI. The CI lane covers the kit's
 *contract* (the fixture review-name format, the mock-transport location count, the
 seeder DB contract) via the vitest suite; only the live two-location loop is manual.
 
+> **Coverage honesty:** the authenticated scenarios in `e2e/multi-location.spec.ts`
+> are `test.fixme` until the session-cookie harness lands — a green
+> `pnpm test:e2e` does NOT verify authenticated multi-location behavior. THIS
+> runbook's recorded run is the launch-gating verification.
+
 ---
 
 ## 4. Procedure
 
-All commands run from the repo root. Keep three terminals: **A** (fixture server),
-**B** (worker), **C** (control: seed + fire webhooks).
+All commands run from the repo root. Keep FOUR terminals: **A** (fixture server),
+**B** (worker), **C** (control: seed + fire webhooks), **D** (Next.js app — the
+dashboard and approval links in step 4f.3 are served by it; without it every
+approval URL is connection-refused).
 
 ### 4a. Start the fixture server (terminal A)
-The fixture implements the Zernio HTTP contract in memory. Launch it and capture
-its `url`:
-
-```ts
-// /tmp/start-fixture.ts  (throwaway launcher)
-import { startZernioFixtureServer } from './e2e/fixtures/zernio-fixture-server';
-
-const server = await startZernioFixtureServer({ accountId: 'fixture-account-1' });
-console.log('ZERNIO_API_BASE=' + server.url);
-// Keep the process alive; Ctrl-C to stop (calls server.stop()).
-process.on('SIGINT', async () => { await server.stop(); process.exit(0); });
-await new Promise(() => {});
-```
+The fixture implements the Zernio HTTP contract in memory. The committed
+launcher starts it on an ephemeral port and prints the url:
 
 ```bash
-pnpm exec tsx /tmp/start-fixture.ts
-# → prints e.g.  ZERNIO_API_BASE=http://127.0.0.1:54''xxx
+pnpm exec tsx e2e/fixtures/serve.ts
+# → prints e.g.  ZERNIO_API_BASE=http://127.0.0.1:54xxx
 ```
 
 Export that URL as `ZERNIO_API_BASE` for the worker (terminal B) and the control
-terminal (C). Reviews are seeded in step 4c via the same process's `seedReviews`
-or its `POST /__control/reviews` endpoint.
+terminal (C). Reviews are seeded in step 4c via `POST /__control/reviews`;
+recorded replies are readable at `GET /__control/replies` (step 4f.4) and
+resettable between attempts with `DELETE /__control/replies`.
 
 ### 4b. Seed two locations (terminal C)
 ```bash
@@ -143,15 +142,10 @@ export DATABASE_POOL_URL="<your dev DB url>"
 export DATABASE_URL="<your dev DB url>"
 export ALLOW_E2E_DB_WRITES=true
 ```
-```ts
-// /tmp/seed-two-loc.ts  (throwaway)
-import { seedMultiLocationAccount } from './e2e/seed';
-const s = await seedMultiLocationAccount();   // standard tier, locations_included=2
-console.log(JSON.stringify(s, null, 2));
-process.exit(0);
-```
 ```bash
-pnpm exec tsx /tmp/seed-two-loc.ts
+# Same dynamic-import pattern as the §6 teardown — resolves against the repo
+# cwd, so no throwaway launcher file is needed:
+pnpm exec tsx -e "import('./e2e/seed').then(m => m.seedMultiLocationAccount()).then(s => { console.log(JSON.stringify(s, null, 2)); process.exit(0); })"
 ```
 Capture from the output: `accountId`, `zernioAccountId`, `primaryZernioLocationId`,
 `secondaryZernioLocationId`. (Each business already has a distinct
@@ -184,13 +178,20 @@ curl -sX POST "$ZERNIO_API_BASE/__control/reviews" -H 'content-type: application
         "createTime":"2026-06-11T00:00:00Z","updateTime":"2026-06-11T00:00:00Z","reviewReply":null}]}'
 ```
 
-### 4d. Boot the worker with mocks OFF (terminal B)
+### 4d. Boot the worker with mocks OFF (terminal B) and the app (terminal D)
 Export every var from §2 (including `ZERNIO_API_BASE` from 4a), then:
 ```bash
 MOCK_EXTERNAL_APIS=false NODE_ENV=development pnpm worker
 ```
 Confirm it boots without a `[startup]` assertion error (a missing env var aborts
 boot with the exact name). The worker now talks to the fixture for all Zernio calls.
+
+In terminal D, start the Next.js app — it serves the dashboard and every approval
+link at `NEXT_PUBLIC_APP_URL` (`http://localhost:3000`), which step 4f.3 depends on.
+Point it at the SAME database the seeder wrote to:
+```bash
+pnpm dev
+```
 
 ### 4e. Fire a signed per-location webhook for EACH location (terminal C)
 `scripts/zernio-fire-webhook.sh` signs the body (HMAC-SHA256, `ZERNIO_WEBHOOK_SECRET`)
@@ -227,11 +228,14 @@ For each location, confirm the chain:
 3. **Approved** — approve each draft (Resend approval link, or the dashboard, or a
    manually-built approval link). After approval a `publish_response` job is
    enqueued.
-4. **Published** — the fixture recorded a reply for each review. If you held a
-   reference to the server object, `server.publishedReplies` has two entries
-   (`reviewId` = `rev-primary-1` and `rev-secondary-1`); otherwise check the worker
-   log line `[ResponsePublisherWorker] … published` for each, and the `responses`
-   row status advancing to posted.
+4. **Published** — the fixture recorded a reply for each review. Check over HTTP:
+   ```bash
+   curl -s "$ZERNIO_API_BASE/__control/replies"
+   # → {"publishedReplies":[{"reviewId":"rev-primary-1",...},{"reviewId":"rev-secondary-1",...}],"deletedReplies":[]}
+   ```
+   Two entries with the right `reviewId`s is the pass signal; the worker log line
+   `[ResponsePublisherWorker] … published` and the `responses` rows advancing to
+   posted corroborate it. (Re-running? `curl -X DELETE "$ZERNIO_API_BASE/__control/replies"` first.)
 
 Both locations completing the chain independently — with no cross-routing — is the
 pass condition.
@@ -275,6 +279,10 @@ Deviations / notes: ___________________________________________________
 # Remove the seeded account + both businesses + both connections + enrollment:
 pnpm exec tsx -e "import('./e2e/seed').then(m => m.cleanupMultiLocationAccount('<accountId>')).then(() => process.exit(0))"
 ```
-- Stop the worker (terminal B, Ctrl-C).
-- Stop the fixture server (terminal A, Ctrl-C — calls `server.stop()`).
-- Delete the throwaway `/tmp/*.ts` launchers.
+- Stop the worker (terminal B, Ctrl-C), the app (terminal D, Ctrl-C), and the
+  fixture server (terminal A, Ctrl-C — calls `server.stop()`).
+
+The teardown removes the seeded account, both businesses + connections, the
+enrollment, AND any `api_costs` rows the real draft generation wrote (their FKs
+have no ON DELETE action, so they must go before the businesses delete — the
+cleanup handles this).

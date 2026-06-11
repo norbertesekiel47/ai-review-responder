@@ -54,6 +54,7 @@ Assertion source: `worker/config/startup-assert.ts`.
 | Var | Default | Notes |
 |---|---|---|
 | `MOCK_EXTERNAL_APIS` | `false` | `true` → bypass SerpAPI + LLM + Twilio/Telegram channel boot assertions. Uses `MockReviewSource` + `generateMockResponse`. |
+| `MOCK_ZERNIO_LOCATION_COUNT` | `1` | Mock-mode only: number of deterministic locations (`mock-loc-1..n`) returned by the mock transport's `list_locations`, so the connect flow can simulate multi-location accounts. Clamped to 1–50. No effect when `MOCK_EXTERNAL_APIS=false`. |
 | `TEST_DATABASE_POOL_URL` | — | E2E tests skip gracefully when unset. |
 | `E2E_OWNER_EMAIL` | — | Confirmed owner login on the test Supabase, used by the owner-login E2E specs (`e2e/remaining-scenarios`, `e2e/edit-replies-runbook`). Specs skip when unset. Never hardcode in spec files. |
 | `E2E_OWNER_PASSWORD` | — | Password for `E2E_OWNER_EMAIL`. Server/test-only; never committed. |

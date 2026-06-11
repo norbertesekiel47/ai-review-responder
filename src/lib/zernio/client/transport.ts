@@ -115,10 +115,13 @@ interface MockLocation {
 // MOCK_ZERNIO_LOCATION_COUNT so the full ingest→publish loop can be exercised
 // against two (or more) locations without a real Google Business Profile.
 // Defaults to 1 (preserves single-location mock behavior); any non-numeric or
-// sub-1 value is clamped to 1.
+// sub-1 value is clamped to 1, and the ceiling guards against a typo'd count
+// (Number('1e8') is a valid integer) building a giant array in-process.
+const MAX_MOCK_LOCATIONS = 50;
+
 function mockLocations(): MockLocation[] {
   const raw = Number(process.env.MOCK_ZERNIO_LOCATION_COUNT ?? 1);
-  const count = Number.isInteger(raw) && raw >= 1 ? raw : 1;
+  const count = Number.isInteger(raw) && raw >= 1 ? Math.min(raw, MAX_MOCK_LOCATIONS) : 1;
   return Array.from({ length: count }, (_, i) => {
     const n = i + 1;
     return {

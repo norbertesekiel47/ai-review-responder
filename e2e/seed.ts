@@ -322,6 +322,7 @@ export async function seedMultiLocationAccount(
       INSERT INTO businesses (
         id,
         name,
+        display_label,
         category,
         google_place_id,
         owner_name,
@@ -334,6 +335,7 @@ export async function seedMultiLocationAccount(
       ) VALUES (
         ${primaryBusinessId}::uuid,
         ${'E2E Primary Location ' + suffix},
+        'Downtown',
         'restaurant',
         ${'e2e-ml-' + suffix + '-loc1'},
         'Multi-Location Owner',
@@ -349,6 +351,7 @@ export async function seedMultiLocationAccount(
       INSERT INTO businesses (
         id,
         name,
+        display_label,
         category,
         google_place_id,
         owner_name,
@@ -361,6 +364,7 @@ export async function seedMultiLocationAccount(
       ) VALUES (
         ${secondaryBusinessId}::uuid,
         ${'E2E Secondary Location ' + suffix},
+        'Airport',
         'restaurant',
         ${'e2e-ml-' + suffix + '-loc2'},
         'Multi-Location Owner',
@@ -444,6 +448,43 @@ export async function seedMultiLocationAccount(
   };
 }
 
+export interface LocationReviewSeedData {
+  reviewId: string;
+  responseId: string;
+}
+
+/**
+ * Seed one review + pending_approval response on a specific location, with a
+ * caller-supplied marker woven into the review and draft text so per-location
+ * scoping assertions can tell the two locations' data apart. This is the seed
+ * capability the fixme'd scoping scenarios in e2e/multi-location.spec.ts
+ * assert against; rows cascade on business delete, and api_costs rows (only
+ * written by REAL generation, not this seeder) are removed by
+ * cleanupMultiLocationAccount.
+ */
+export async function seedLocationReview(input: {
+  businessId: string;
+  marker: string;
+}): Promise<LocationReviewSeedData> {
+  const sql = getSql();
+  const reviewId = randomUUID();
+  const responseId = randomUUID();
+  const contentHash = createHash('sha256').update(reviewId).digest('hex');
+
+  await sql.begin(async (tx) => {
+    await tx`
+      INSERT INTO reviews (id, business_id, provider, provider_review_id, provider_review_name, provider_location_name, reviewer_name, star_rating, review_text, review_date, detected_language, review_content_hash, status)
+      VALUES (${reviewId}, ${input.businessId}, 'test', ${reviewId}, ${'test://review/' + reviewId}, ${'test://location/' + input.businessId}, 'E2E Reviewer', 4, ${input.marker + ' — great experience, would come again!'}, NOW(), 'en', ${contentHash}, 'pending_approval')
+    `;
+    await tx`
+      INSERT INTO responses (id, review_id, business_id, response_text, response_language, version, status, original_draft_text, llm_provider, llm_model, prompt_tokens, completion_tokens)
+      VALUES (${responseId}, ${reviewId}, ${input.businessId}, ${'Thank you for your kind words! ' + input.marker}, 'en', 1, 'pending_approval', ${'Thank you for your kind words! ' + input.marker}, 'openai', 'gpt-4o-mini', 100, 50)
+    `;
+  });
+
+  return { reviewId, responseId };
+}
+
 export async function cleanupMultiLocationAccount(accountId: string): Promise<void> {
   const sql = getSql();
 
@@ -477,6 +518,18 @@ export async function cleanupMultiLocationAccount(accountId: string): Promise<vo
     await tx`DELETE FROM account_audit_log WHERE account_id = ${accountId}::uuid`;
     await tx`DELETE FROM channel_enrollments WHERE account_id = ${accountId}::uuid`;
     await tx`DELETE FROM zernio_connections WHERE business_id IN (SELECT id FROM businesses WHERE account_id = ${accountId}::uuid)`;
+    // api_costs.business_id / .response_id have NO ON DELETE action (001 schema),
+    // so rows written by real draft generation during the full-loop runbook block
+    // both the businesses delete and the responses cascade. Delete them first.
+    await tx`
+      DELETE FROM api_costs
+      WHERE account_id = ${accountId}::uuid
+         OR business_id IN (SELECT id FROM businesses WHERE account_id = ${accountId}::uuid)
+         OR response_id IN (
+           SELECT r.id FROM responses r
+           WHERE r.business_id IN (SELECT id FROM businesses WHERE account_id = ${accountId}::uuid)
+         )
+    `;
     await tx`DELETE FROM businesses WHERE account_id = ${accountId}::uuid`;
     if (userId) {
       await tx`UPDATE users SET account_id = NULL WHERE id = ${userId}::uuid`;

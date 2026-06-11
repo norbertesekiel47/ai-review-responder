@@ -2,6 +2,11 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
+  // Playwright owns only *.spec.ts. Vitest unit tests colocated under
+  // e2e/**/__tests__/ must NOT be collected — Playwright's default testMatch
+  // also matches *.test.ts, and loading a vitest file aborts collection for
+  // the entire run (0 tests in 0 files).
+  testMatch: '**/*.spec.ts',
   timeout: 30_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,

@@ -76,4 +76,14 @@ describe('mock list_locations — MOCK_ZERNIO_LOCATION_COUNT', () => {
     const { locations } = await listMockLocations();
     expect(locations.map((l) => l.id)).toEqual(['mock-loc-1']);
   });
+
+  it('clamps a runaway count to the ceiling instead of building a giant array', async () => {
+    // Number('1e8') is a valid integer — without the ceiling this would
+    // allocate 100M mock locations in-process.
+    process.env.MOCK_ZERNIO_LOCATION_COUNT = '1e8';
+    const { locations } = await listMockLocations();
+    expect(locations).toHaveLength(50);
+    expect(locations[0]!.id).toBe('mock-loc-1');
+    expect(locations[49]!.id).toBe('mock-loc-50');
+  });
 });
