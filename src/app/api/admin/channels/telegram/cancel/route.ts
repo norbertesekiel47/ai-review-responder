@@ -1,35 +1,20 @@
 // src/app/api/admin/channels/telegram/cancel/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db/server';
+//
+// POST /api/admin/channels/telegram/cancel — admin cancels a pending Telegram
+// verification. The full handler (flag/env → admin auth → businessId →
+// advisory-locked cancel → cache invalidation) lives in the shared
+// runAdminChannelCancel; this route supplies the Telegram bindings.
+
+import { NextRequest } from 'next/server';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
-import { resolveAdminChannelAccount } from '@/app/api/admin/channels/_shared/account';
-import { cancelMobileEnrollment } from '@/lib/channels/mobile-enrollment';
-import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
-import { asAccountId } from '@/lib/shared/ids';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { runAdminChannelCancel } from '@/app/api/admin/channels/_shared/action';
 
-async function cancelTelegram(req: NextRequest): Promise<NextResponse> {
-  if (!isTelegramEnabled()) return flagOff();
-
-  const envErr = assertTelegramEnvReady();
-  if (envErr) return envErr;
-
-  const resolved = await resolveAdminChannelAccount(req);
-  if (!resolved.ok) return resolved.response;
-  const { accountId } = resolved;
-
-  // Advisory lock uses account_id so an admin cancel and an owner start on the
-  // same account+channel mutually exclude (shared mobile_enroll key).
-  await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${accountId}`}, 0))`;
-    return cancelMobileEnrollment(tx, 'telegram', accountId);
-  });
-
-  // Invalidate channel cache — the cancelled verification changes which
-  // channels are available for dispatch.
-  await safeInvalidateChannelCache(asAccountId(accountId), 'admin.telegram.cancel');
-
-  return NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store, private' } });
-}
-
-export const POST = withSameOrigin()(cancelTelegram);
+export const POST = withSameOrigin()((req: NextRequest) =>
+  runAdminChannelCancel(req, {
+    channel: 'telegram',
+    isEnabled: isTelegramEnabled,
+    flagOff,
+    assertEnvReady: assertTelegramEnvReady,
+  }),
+);

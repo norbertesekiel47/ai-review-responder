@@ -1,36 +1,20 @@
-// src/app/api/admin/channels/whatsapp/disable — admin disables a verified enrollment.
-// Returns 404 if no verified row matches (user-facing signal that there's nothing to disable).
+// src/app/api/admin/channels/whatsapp/disable/route.ts
 //
-// Handler order: same-origin wrapper → flag → env → auth → businessId.
+// POST /api/admin/channels/whatsapp/disable — admin disables a verified
+// WhatsApp enrollment (404 when there's nothing to disable). The full handler
+// lives in the shared runAdminChannelDisable; this route supplies the WhatsApp
+// bindings. The disable cascade itself is owned by disconnectChannel.
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
-import { resolveAdminChannelAccount } from '@/app/api/admin/channels/_shared/account';
-import { disconnectChannel } from '@/lib/channels/disable-enrollment';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { runAdminChannelDisable } from '@/app/api/admin/channels/_shared/action';
 
-async function disableWhatsApp(req: NextRequest): Promise<NextResponse> {
-  if (!isWhatsAppEnabled()) return flagOff();
-
-  const envErr = assertWhatsAppEnvReady();
-  if (envErr) return envErr;
-
-  const resolved = await resolveAdminChannelAccount(req);
-  if (!resolved.ok) return resolved.response;
-
-  const result = await disconnectChannel({
+export const POST = withSameOrigin()((req: NextRequest) =>
+  runAdminChannelDisable(req, {
     channel: 'whatsapp',
-    accountId: resolved.accountId,
-    actorUserId: resolved.actorUserId,
-    surface: 'admin',
-  });
-
-  // M6: no-store for consistency across admin whatsapp routes.
-  const noStore = { 'Cache-Control': 'no-store, private' };
-  if (result.kind === 'not_found') {
-    return NextResponse.json({ error: 'not_found' }, { status: 404, headers: noStore });
-  }
-  return NextResponse.json({ ok: true }, { headers: noStore });
-}
-
-export const POST = withSameOrigin()(disableWhatsApp);
+    isEnabled: isWhatsAppEnabled,
+    flagOff,
+    assertEnvReady: assertWhatsAppEnvReady,
+  }),
+);

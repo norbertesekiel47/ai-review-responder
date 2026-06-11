@@ -1,31 +1,20 @@
 // src/app/api/admin/channels/telegram/disable/route.ts
-import { NextRequest, NextResponse } from 'next/server';
+//
+// POST /api/admin/channels/telegram/disable — admin disables a verified
+// Telegram enrollment (404 when there's nothing to disable). The full handler
+// lives in the shared runAdminChannelDisable; this route supplies the Telegram
+// bindings. The disable cascade itself is owned by disconnectChannel.
+
+import { NextRequest } from 'next/server';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
-import { resolveAdminChannelAccount } from '@/app/api/admin/channels/_shared/account';
-import { disconnectChannel } from '@/lib/channels/disable-enrollment';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { runAdminChannelDisable } from '@/app/api/admin/channels/_shared/action';
 
-async function disableTelegram(req: NextRequest): Promise<NextResponse> {
-  if (!isTelegramEnabled()) return flagOff();
-
-  const envErr = assertTelegramEnvReady();
-  if (envErr) return envErr;
-
-  const resolved = await resolveAdminChannelAccount(req);
-  if (!resolved.ok) return resolved.response;
-
-  const result = await disconnectChannel({
+export const POST = withSameOrigin()((req: NextRequest) =>
+  runAdminChannelDisable(req, {
     channel: 'telegram',
-    accountId: resolved.accountId,
-    actorUserId: resolved.actorUserId,
-    surface: 'admin',
-  });
-
-  const noStore = { 'Cache-Control': 'no-store, private' };
-  if (result.kind === 'not_found') {
-    return NextResponse.json({ error: 'not_found' }, { status: 404, headers: noStore });
-  }
-  return NextResponse.json({ ok: true }, { headers: noStore });
-}
-
-export const POST = withSameOrigin()(disableTelegram);
+    isEnabled: isTelegramEnabled,
+    flagOff,
+    assertEnvReady: assertTelegramEnvReady,
+  }),
+);
