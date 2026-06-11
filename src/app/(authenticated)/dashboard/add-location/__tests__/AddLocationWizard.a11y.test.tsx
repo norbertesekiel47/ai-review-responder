@@ -29,7 +29,7 @@ const baseWiz = {
 const mockUseWizard = vi.fn(() => baseWiz);
 
 vi.mock('../wizard/useAddLocationWizard', () => ({
-  useAddLocationWizard: (props: Props) => mockUseWizard(props),
+  useAddLocationWizard: () => mockUseWizard(),
 }));
 vi.mock('@/components/dashboard/shell/TopBar', () => ({ TopBar: () => null }));
 vi.mock('@/components/dashboard/shell/Icon', () => ({ Icon: () => null }));
