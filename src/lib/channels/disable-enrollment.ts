@@ -108,6 +108,7 @@ export async function disableChannelEnrollment(
   `) as Array<{ id: string; location_id: string }>;
 
   for (const _row of orgDefaultRows) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- inside a Postgres.js transaction (tx): single connection, queries must stay sequential; Promise.all inside a tx is a known repo footgun
     await writeAccountAuditLog(
       {
         accountId,
@@ -121,6 +122,7 @@ export async function disableChannelEnrollment(
   }
 
   for (const row of overrideRows) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- inside a Postgres.js transaction (tx): single connection, queries must stay sequential; Promise.all inside a tx is a known repo footgun
     await writeAccountAuditLog(
       {
         accountId,

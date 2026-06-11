@@ -30,6 +30,7 @@ export function ToneChipPicker({ tone, onChange }: Props) {
   // truth. This is React's "adjust state during render when a prop changes"
   // pattern — the reset lands in the same commit as the prop change (no effect,
   // no stale-UI flash); React bails out before committing the discarded render.
+  // react-doctor-disable-next-line react-doctor/no-derived-useState, react-doctor/rerender-state-only-in-handlers -- react.dev "adjust state during render" prev-value pattern: lastWritten IS read during render (the comparison below gates the override reset) and must be state, not a ref — refs must not be written during render, and the setState-during-render re-render bail-out is the point
   const [lastWritten, setLastWritten] = useState(tone);
   if (tone !== lastWritten) {
     setLastWritten(tone);

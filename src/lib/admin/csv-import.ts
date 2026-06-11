@@ -254,6 +254,7 @@ export async function importCsvRows(
       continue;
     }
 
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- loop-carried state: importedPlaceIds and the per-row quota check (assertCanAddLocation) depend on prior rows having committed; rows must import in file order
     const result = await processRow(row, accountId, {
       enqueueStripeOverageUpdate: false,
     });

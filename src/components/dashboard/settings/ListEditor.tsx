@@ -36,6 +36,7 @@ export function ListEditor({ items, onChange, placeholder, addLabel, maxItems, m
   return (
     <div className="list-editor">
       {items.map((it, i) => (
+        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- rows are bare strings with no per-item identity (duplicates allowed, edited in place): content-derived keys would remount the input on every keystroke, and the parallel-id-array alternative was deliberately removed (react-hooks/refs violation — see component comment + git history)
         <div className="list-row" key={i}>
           <input
             aria-label={`Edit ${itemLabel} ${i + 1}`}

@@ -45,8 +45,18 @@ export function ChannelsTabClient(props: Props) {
 
   // Track the override view in local state so we can update after add/remove
   // without a full page reload. The initial values come from SSR.
+  //
+  // Hydrate-then-own: the SSR server-component page passes these props exactly
+  // once (navigation remounts the component, so the props never change identity
+  // during the client lifetime), and refreshOverrides re-seeds all three from
+  // the API afterwards — deriving inline from props would discard refreshes.
+  // This is the rule's documented "captures the initial prop value once and
+  // never re-syncs" exception.
+  // react-doctor-disable-next-line react-doctor/no-derived-useState -- SSR seed captured once; client owns state via refreshOverrides
   const [overrides, setOverrides] = useState<PerLocationOverride[]>(props.perLocationOverrides);
+  // react-doctor-disable-next-line react-doctor/no-derived-useState -- SSR seed captured once; client owns state via refreshOverrides
   const [locationOptions, setLocationOptions] = useState<LocationOption[]>(props.locationOptions);
+  // react-doctor-disable-next-line react-doctor/no-derived-useState -- SSR seed captured once; client owns state via refreshOverrides
   const [verifiedOrgChannels, setVerifiedOrgChannels] = useState<ChannelId[]>(
     props.verifiedOrgChannels,
   );
