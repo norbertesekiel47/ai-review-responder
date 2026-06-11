@@ -56,6 +56,27 @@ function formatOverrideLocationLabel(override: PerLocationOverride): string {
   return override.archived ? `${override.locationName} (archived)` : override.locationName;
 }
 
+// Shared add/remove call to the override endpoint — POST creates, DELETE
+// removes. Throws with the server's error string (or a status fallback) so
+// each caller owns only its own UI failure handling.
+async function mutateOverride(
+  method: 'POST' | 'DELETE',
+  failVerb: 'Add' | 'Remove',
+  locationId: string,
+  channel: string,
+): Promise<void> {
+  const res = await fetch('/api/settings/channels/override', {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ locationId, channel }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `${failVerb} failed (${res.status})`);
+  }
+}
+
 // ── Sub-component: Single Override Row ───────────────────────────────────
 
 function OverrideRow({
@@ -127,17 +148,7 @@ export function PerLocationOverridePanel({
     setRemovingIds((prev) => new Set(prev).add(enrollmentId));
 
     try {
-      const res = await fetch('/api/settings/channels/override', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ locationId, channel }),
-      });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Remove failed (${res.status})`);
-      }
-
+      await mutateOverride('DELETE', 'Remove', locationId, channel);
       onOverrideRemoved?.();
     } catch (err) {
       console.error('Failed to remove override:', err);
@@ -157,17 +168,7 @@ export function PerLocationOverridePanel({
     setAddError(null);
 
     try {
-      const res = await fetch('/api/settings/channels/override', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ locationId, channel }),
-      });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Add failed (${res.status})`);
-      }
-
+      await mutateOverride('POST', 'Add', locationId, channel);
       onOverrideAdded?.();
     } catch (err) {
       setAddError(err instanceof Error ? err.message : 'Failed to add override');

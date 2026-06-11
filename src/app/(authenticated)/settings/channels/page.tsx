@@ -26,6 +26,10 @@ import {
   shouldUseMultiLocationSettings,
 } from '@/lib/locations/multi-location-mode';
 
+function isoOrNull(value: Date | null): string | null {
+  return value ? value.toISOString() : null;
+}
+
 function whatsappAvailable(): boolean {
   if (process.env.CHANNELS_WHATSAPP_ENABLED !== 'true') return false;
   return whatsappEnvReady();
@@ -93,11 +97,11 @@ export default async function ChannelsPage() {
     channel: r.channel as InitialEnrollment['channel'],
     handle: r.handle,
     status: r.status,
-    verified_at: r.verified_at?.toISOString() ?? null,
-    disabled_at: r.disabled_at?.toISOString() ?? null,
-    unsubscribed_at: r.unsubscribed_at?.toISOString() ?? null,
+    verified_at: isoOrNull(r.verified_at),
+    disabled_at: isoOrNull(r.disabled_at),
+    unsubscribed_at: isoOrNull(r.unsubscribed_at),
     unsubscribed_reason: r.unsubscribed_reason,
-    expires_at: r.expires_at?.toISOString() ?? null,
+    expires_at: isoOrNull(r.expires_at),
   }));
 
   return (

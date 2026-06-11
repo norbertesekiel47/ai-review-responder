@@ -52,16 +52,17 @@ export function ChannelsTabClient(props: Props) {
   );
 
   // Refresh the full override view from the server after add/remove — not just
-  // the override list, so verified-org-channel changes are never stale.
+  // the override list, so verified-org-channel changes are never stale. The
+  // route serves the same typed ChannelOverridesView the SSR path hydrates
+  // from, so the fields are trusted as-is (matching page.tsx).
   const refreshOverrides = async () => {
     try {
       const res = await fetch('/api/settings/channels/overrides');
-      if (res.ok) {
-        const view = (await res.json()) as ChannelOverridesView;
-        setOverrides(view.overrides ?? []);
-        setLocationOptions((view.locations ?? []).filter((location) => !location.archived));
-        setVerifiedOrgChannels(view.verifiedOrgChannels ?? []);
-      }
+      if (!res.ok) throw new Error(`overrides refresh failed (${res.status})`);
+      const view = (await res.json()) as ChannelOverridesView;
+      setOverrides(view.overrides);
+      setLocationOptions(view.locations.filter((location) => !location.archived));
+      setVerifiedOrgChannels(view.verifiedOrgChannels);
     } catch {
       // Fallback: full page reload
       window.location.reload();
