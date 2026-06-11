@@ -4,6 +4,7 @@
 // Validation contract: VAL-BILLING-071, VAL-LOC-010, VAL-LOC-011, VAL-LOC-012.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { UnrecoverableError } from 'bullmq';
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────
 
@@ -15,6 +16,7 @@ const {
   mockStripeSubscriptionItemsDel,
   mockMarkOutboxCompleted,
   mockMarkOutboxFailed,
+  mockRecordOutboxTransientError,
 } = vi.hoisted(() => ({
   mockSql: vi.fn(),
   mockStripeSubscriptionsRetrieve: vi.fn(),
@@ -23,6 +25,7 @@ const {
   mockStripeSubscriptionItemsDel: vi.fn(),
   mockMarkOutboxCompleted: vi.fn(),
   mockMarkOutboxFailed: vi.fn(),
+  mockRecordOutboxTransientError: vi.fn(),
 }));
 
 vi.mock('../../../../src/lib/db/server', () => ({
@@ -33,6 +36,7 @@ vi.mock('../../../../src/lib/db/server', () => ({
 vi.mock('../../../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
+  recordOutboxTransientError: mockRecordOutboxTransientError,
   extractOutboxHandle: vi.fn((data: { outbox_id?: string; outbox_attempt?: number }, jobId: string) => ({
     outboxId: data.outbox_id ?? jobId,
     attempt: data.outbox_attempt ?? 1,
@@ -84,6 +88,7 @@ function mockAccountRow(overrides: Record<string, unknown> = {}) {
     stripe_customer_id: 'cus_test',
     stripe_subscription_id: 'sub_test',
     locations_included: 1,
+    locations_overage_price_cents: 2500,
     ...overrides,
   };
 }
@@ -97,6 +102,7 @@ beforeEach(() => {
   mockStripeSubscriptionItemsDel.mockReset();
   mockMarkOutboxCompleted.mockReset();
   mockMarkOutboxFailed.mockReset();
+  mockRecordOutboxTransientError.mockReset();
 
   // Default: account with active subscription
   mockSql.mockResolvedValueOnce([mockAccountRow()]); // account lookup
@@ -125,6 +131,7 @@ describe('UpdateStripeOverageWorker', () => {
       {
         quantity: 2, // 3 locations - 1 included = 2 overage
         proration_behavior: 'create_prorations',
+        metadata: { billing_role: 'overage' },
       },
       {
         idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_123:2:outbox:outbox-1:corr:corr-1',
@@ -279,6 +286,39 @@ describe('UpdateStripeOverageWorker', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
   });
 
+  // Grandfathering: a legacy/rotated overage price (not in the env set) matched
+  // by stored unit-amount must be UPDATED in place, never duplicated by a CREATE.
+  it('updates a legacy-priced overage item (not in env set) and does not create a duplicate', async () => {
+    mockSql.mockReset();
+    mockSql.mockResolvedValueOnce([mockAccountRow({
+      locations_included: 1,
+      locations_overage_price_cents: 3000,
+    })]);
+    mockSql.mockResolvedValueOnce([{ count: 3 }]); // 3 active, 1 included → quantity 2
+
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_standard' }, quantity: 1 },
+          // Legacy/rotated overage price: NOT 'price_std_overage', matched by stored unit-amount.
+          { id: 'si_leg', price: { id: 'price_legacy_overage', unit_amount: 3000 }, quantity: 1 },
+        ],
+      },
+    });
+
+    await handleUpdateStripeOverage(mockJob());
+
+    expect(mockStripeSubscriptionItemsUpdate).toHaveBeenCalledWith(
+      'si_leg',
+      expect.objectContaining({ quantity: 2 }),
+      expect.anything(),
+    );
+    // The legacy update must NOT switch the price.
+    expect(mockStripeSubscriptionItemsUpdate.mock.calls[0]?.[1]).not.toHaveProperty('price');
+    expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+  });
+
   it('skips when account has no Stripe subscription', async () => {
     mockSql.mockReset();
     mockSql.mockResolvedValueOnce([mockAccountRow({ stripe_subscription_id: null })]);
@@ -358,7 +398,7 @@ describe('UpdateStripeOverageWorker', () => {
 
     expect(mockStripeSubscriptionItemsUpdate).toHaveBeenCalledWith(
       overageItemId,
-      { quantity: 2, proration_behavior: 'create_prorations' },
+      { quantity: 2, proration_behavior: 'create_prorations', metadata: { billing_role: 'overage' } },
       {
         idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_idem:2:outbox:outbox-1:corr:corr-1',
       },
@@ -375,7 +415,7 @@ describe('UpdateStripeOverageWorker', () => {
     // Same overage quantity computed from same location count
     expect(mockStripeSubscriptionItemsUpdate).toHaveBeenCalledWith(
       overageItemId,
-      { quantity: 2, proration_behavior: 'create_prorations' },
+      { quantity: 2, proration_behavior: 'create_prorations', metadata: { billing_role: 'overage' } },
       {
         idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_idem:2:outbox:outbox-1:corr:corr-1',
       },
@@ -434,5 +474,180 @@ describe('UpdateStripeOverageWorker', () => {
 
     const accountLookupSql = (mockSql.mock.calls[0]![0] as TemplateStringsArray).join('?');
     expect(accountLookupSql).not.toMatch(/\bFOR\s+UPDATE\b/i);
+  });
+
+  // ── Transient/terminal outbox semantics (mirrors #255) ────────────────────
+  // Transient Stripe failures must leave the outbox row 'dispatched' (BullMQ
+  // retries + 1h watchdog re-dispatches) — markOutboxFailed forfeits the
+  // watchdog. Terminal failures must markOutboxFailed (deterministic, never
+  // heals on retry).
+
+  function subscriptionWithOverageItem() {
+    return {
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_standard' }, quantity: 1 },
+          { id: 'si_overage', price: { id: 'price_std_overage' }, quantity: 1 },
+        ],
+      },
+    };
+  }
+
+  it('TRANSIENT: a Stripe rate-limit error leaves the outbox row dispatched (no markOutboxFailed)', async () => {
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce(subscriptionWithOverageItem());
+    mockStripeSubscriptionItemsUpdate.mockRejectedValueOnce(
+      Object.assign(new Error('Too many requests'), { type: 'StripeRateLimitError', statusCode: 429 }),
+    );
+
+    await expect(handleUpdateStripeOverage(mockJob())).rejects.toThrow('Too many requests');
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    // Observability without status change: the real Stripe error lands on the
+    // row's last_error while it stays 'dispatched' for the watchdog.
+    expect(mockRecordOutboxTransientError).toHaveBeenCalledWith(
+      'outbox-1',
+      expect.stringContaining('Too many requests'),
+    );
+  });
+
+  it('TERMINAL: a 400 idempotency_error marks the outbox row failed', async () => {
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce(subscriptionWithOverageItem());
+    mockStripeSubscriptionItemsUpdate.mockRejectedValueOnce(
+      Object.assign(new Error('Keys for idempotent requests can only be used with the same parameters'), {
+        type: 'StripeInvalidRequestError',
+        code: 'idempotency_error',
+        statusCode: 400,
+      }),
+    );
+
+    await expect(handleUpdateStripeOverage(mockJob())).rejects.toThrow();
+    expect(mockMarkOutboxFailed).toHaveBeenCalled();
+  });
+
+  it('TRANSIENT: a 409 in-flight idempotency conflict leaves the outbox row dispatched (no markOutboxFailed)', async () => {
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce(subscriptionWithOverageItem());
+    mockStripeSubscriptionItemsUpdate.mockRejectedValueOnce(
+      Object.assign(new Error('A request with this idempotency key is already in progress'), {
+        type: 'StripeIdempotencyError',
+        statusCode: 409,
+      }),
+    );
+
+    await expect(handleUpdateStripeOverage(mockJob())).rejects.toThrow();
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  it('TRANSIENT: a 5xx Stripe server error leaves the outbox row dispatched (no markOutboxFailed)', async () => {
+    mockStripeSubscriptionsRetrieve.mockRejectedValueOnce(
+      Object.assign(new Error('Service unavailable'), { statusCode: 503 }),
+    );
+
+    await expect(handleUpdateStripeOverage(mockJob())).rejects.toThrow();
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  it('TERMINAL: a StripeAuthenticationError marks the outbox row failed', async () => {
+    mockStripeSubscriptionsRetrieve.mockRejectedValueOnce(
+      Object.assign(new Error('Invalid API key'), { type: 'StripeAuthenticationError', statusCode: 401 }),
+    );
+
+    await expect(handleUpdateStripeOverage(mockJob())).rejects.toThrow();
+    expect(mockMarkOutboxFailed).toHaveBeenCalled();
+  });
+
+  it('idempotency keys stay operation-scoped (per-outbox) so a delete→re-add yields a fresh key', async () => {
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce(subscriptionWithOverageItem());
+
+    await handleUpdateStripeOverage(mockJob());
+
+    const options = mockStripeSubscriptionItemsUpdate.mock.calls[0]?.[2];
+    expect(options?.idempotencyKey).toContain('outbox:outbox-1');
+  });
+});
+
+describe('UpdateStripeOverageWorker — confidence gate + outbox isolation', () => {
+  it('AMBIGUOUS: a descriptor-only (keyword) match never mutates Stripe; outbox failed with ambiguous_overage_item', async () => {
+    // Quantity computes to 0 (1 active location, 1 included) — on a fuzzy match
+    // this would have DELETED the add-on before the confidence gate existed.
+    mockSql.mockReset();
+    mockSql.mockResolvedValue([]);
+    mockSql.mockResolvedValueOnce([mockAccountRow()]);
+    mockSql.mockResolvedValueOnce([{ count: 1 }]);
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_standard' }, quantity: 1 },
+          {
+            id: 'si_addon',
+            price: { id: 'price_support', nickname: 'Priority Support Add-on', unit_amount: 9900, metadata: {} },
+            quantity: 1,
+          },
+        ],
+      },
+    });
+
+    await handleUpdateStripeOverage(mockJob());
+
+    expect(mockStripeSubscriptionItemsDel).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      'outbox-1',
+      expect.stringContaining('ambiguous_overage_item'),
+      1,
+    );
+  });
+
+  it('CREATE stamps metadata.billing_role=overage so the item is exactly matchable after any price rotation', async () => {
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: { data: [{ id: 'si_base', price: { id: 'price_standard' }, quantity: 1 }] },
+    });
+
+    await handleUpdateStripeOverage(mockJob());
+
+    expect(mockStripeSubscriptionItemsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ metadata: { billing_role: 'overage' } }),
+      expect.anything(),
+    );
+  });
+
+  it('TERMINAL errors throw UnrecoverableError so BullMQ does not re-run a deterministic failure', async () => {
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_standard' }, quantity: 1 },
+          { id: 'si_overage', price: { id: 'price_std_overage' }, quantity: 1 },
+        ],
+      },
+    });
+    mockStripeSubscriptionItemsUpdate.mockRejectedValueOnce(
+      Object.assign(new Error('key reused with different params'), {
+        type: 'StripeInvalidRequestError',
+        statusCode: 400,
+        code: 'idempotency_error',
+      }),
+    );
+
+    await expect(handleUpdateStripeOverage(mockJob())).rejects.toBeInstanceOf(UnrecoverableError);
+    expect(mockMarkOutboxFailed).toHaveBeenCalled();
+  });
+
+  it('a transient DB error on markOutboxCompleted after a SUCCESSFUL Stripe mutation never reaches the classifier (no markOutboxFailed, original error propagates)', async () => {
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_standard' }, quantity: 1 },
+          { id: 'si_overage', price: { id: 'price_std_overage' }, quantity: 1 },
+        ],
+      },
+    });
+    const dbBlip = Object.assign(new Error('write CONNECTION_CLOSED'), { code: 'CONNECTION_CLOSED' });
+    mockMarkOutboxCompleted.mockRejectedValueOnce(dbBlip);
+
+    await expect(handleUpdateStripeOverage(mockJob())).rejects.toThrow('write CONNECTION_CLOSED');
+    // The Stripe mutation succeeded; a completion blip must stay a plain job
+    // failure (BullMQ retry → idempotent re-run), never a terminal outbox flip.
+    expect(mockStripeSubscriptionItemsUpdate).toHaveBeenCalled();
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 });

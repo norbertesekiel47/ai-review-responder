@@ -103,9 +103,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
   },
   {
-    file: "src/app/api/billing/tier-change/route.ts",
+    file: "src/lib/accounts/tier-change.ts",
     table: "accounts",
-    sqlSnippet: "SELECT stripe_subscription_id, subscription_tier FROM accounts WHERE id = ${accountId}::uuid",
+    sqlSnippet: "SELECT stripe_subscription_id, subscription_tier, locations_overage_price_cents FROM accounts WHERE id = ${accountId}::uuid",
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
   },
   {
@@ -459,7 +459,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/jobs/billing/UpdateStripeOverageWorker.ts",
     table: "accounts",
-    sqlSnippet: "SELECT id, subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id, locations_included FROM accounts WHERE id = ${account_id}::uuid",
+    sqlSnippet: "SELECT id, subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id, locations_included, locations_overage_price_cents FROM accounts WHERE id = ${account_id}::uuid",
     reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
   },
   {
@@ -2024,13 +2024,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/stripe/subscription-updated.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.locations_paid, a.stripe_subscription_id, CASE WHEN EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) THEN ${subscriptionId} ELSE NULL END AS active_offboarding_subscription_id FROM accounts a WHERE a.stripe_customer_id = ${customerId} FOR UPDATE",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.locations_paid, a.locations_overage_price_cents, a.stripe_subscription_id, CASE WHEN EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) THEN ${subscriptionId} ELSE NULL END AS active_offboarding_subscription_id FROM accounts a WHERE a.stripe_customer_id = ${customerId} FOR UPDATE",
     reason: "Stripe webhook resolves account and offboarding state from signed provider identifiers before tenant ids are available.",
   },
   {
     file: "worker/ingress/stripe/subscription-updated.ts",
     table: "account_offboardings",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.locations_paid, a.stripe_subscription_id, CASE WHEN EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) THEN ${subscriptionId} ELSE NULL END AS active_offboarding_subscription_id FROM accounts a WHERE a.stripe_customer_id = ${customerId} FOR UPDATE",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.locations_paid, a.locations_overage_price_cents, a.stripe_subscription_id, CASE WHEN EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) THEN ${subscriptionId} ELSE NULL END AS active_offboarding_subscription_id FROM accounts a WHERE a.stripe_customer_id = ${customerId} FOR UPDATE",
     reason: "Stripe webhook resolves account and offboarding state from signed provider identifiers before tenant ids are available.",
   },
   {

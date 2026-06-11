@@ -14,6 +14,22 @@
 
 import { type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
+/**
+ * The seven Stripe price env vars this module reads. Single owner of the
+ * list — the worker boot assertions and the Next.js instrumentation
+ * soft-assert derive from it, so adding a tier means adding it HERE and in
+ * the env maps below, nowhere else.
+ */
+export const STRIPE_PRICE_ENV_VARS = [
+  'STRIPE_PRICE_BASIC',
+  'STRIPE_PRICE_FOUNDING',
+  'STRIPE_PRICE_STANDARD',
+  'STRIPE_PRICE_PREMIUM',
+  'STRIPE_PRICE_STANDARD_OVERAGE',
+  'STRIPE_PRICE_PREMIUM_OVERAGE',
+  'STRIPE_PRICE_FOUNDERS_OVERAGE',
+] as const;
+
 function baseEnvMap(): Record<SubscriptionTierValue, string | undefined> {
   return {
     basic: process.env.STRIPE_PRICE_BASIC,
@@ -58,6 +74,13 @@ export function tierForBasePriceId(
     if (id && id === priceId) return tier;
   }
   return null;
+}
+
+/** The set of configured (non-empty) base price IDs. */
+export function basePriceIdSet(): Set<string> {
+  return new Set(
+    Object.values(baseEnvMap()).filter((id): id is string => Boolean(id)),
+  );
 }
 
 /** The set of configured (non-empty) overage price IDs. */

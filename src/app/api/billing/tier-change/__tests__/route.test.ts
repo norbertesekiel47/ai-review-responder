@@ -54,7 +54,10 @@ const { mockValidateTierChange } = vi.hoisted(() => ({
   mockValidateTierChange: vi.fn(),
 }));
 
-vi.mock('@/lib/accounts/tier-change', () => ({
+vi.mock('@/lib/accounts/tier-change', async (importOriginal) => ({
+  // applyTierChange runs REAL — it executes against the test's sql/stripe
+  // mocks, so the suite still exercises the full Stripe+DB orchestration.
+  ...(await importOriginal<typeof import('@/lib/accounts/tier-change')>()),
   validateTierChange: mockValidateTierChange,
 }));
 
@@ -536,6 +539,149 @@ describe('POST /api/billing/tier-change', () => {
     expect(mockSubscriptionItemsDel).not.toHaveBeenCalled();
   });
 
+  it('touches no overage item when none matches and zero overage units are needed', async () => {
+    // Regression: the old `?? find(item => item.id !== baseItem.id)` fallback
+    // would grab an arbitrary non-base item (e.g. a setup fee or credit) and
+    // delete it. With findOverageItem there is no overage match, and with zero
+    // overage units required, the route must not delete/create/re-price anything.
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockValidateTierChange.mockResolvedValueOnce({
+      allowed: true,
+      newBillingPreview: {
+        basePriceCents: 19900,
+        overagePriceCents: 0,
+        overageUnits: 0,
+        totalCents: 19900,
+      },
+    });
+    mockSql.mockResolvedValueOnce([{
+      stripe_subscription_id: SUBSCRIPTION_ID,
+      subscription_tier: 'standard',
+      locations_overage_price_cents: 2500,
+    }]);
+    mockGetAccountOwnerUserId.mockResolvedValueOnce(USER_ID);
+    mockSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: BASE_ITEM_ID, quantity: 1, price: { id: 'price_standard_test' } },
+          // A non-base, non-overage item (e.g. a one-time credit). Must NOT be deleted.
+          { id: 'si_unrelated_credit', quantity: 1, price: { id: 'price_unrelated_credit', unit_amount: 500 } },
+        ],
+      },
+    });
+    mockSubscriptionItemsUpdate.mockResolvedValueOnce({});
+
+    const req = mkRequest({ accountId: ACCOUNT_ID, newTier: 'premium' });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    // Base swap still happens.
+    expect(mockSubscriptionItemsUpdate).toHaveBeenCalledWith(
+      BASE_ITEM_ID,
+      expect.objectContaining({ price: 'price_premium_test' }),
+      expect.any(Object),
+    );
+    // No overage operation on the unrelated item.
+    expect(mockSubscriptionItemsDel).not.toHaveBeenCalled();
+    expect(mockSubscriptionItemsCreate).not.toHaveBeenCalled();
+    expect(mockSubscriptionItemsUpdate).not.toHaveBeenCalledWith(
+      'si_unrelated_credit',
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('creates an overage item at the target tier env price when none matches and overage units are needed', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockValidateTierChange.mockResolvedValueOnce({
+      allowed: true,
+      newBillingPreview: {
+        basePriceCents: 19900,
+        overagePriceCents: 2000,
+        overageUnits: 3,
+        totalCents: 25900,
+      },
+    });
+    mockSql.mockResolvedValueOnce([{
+      stripe_subscription_id: SUBSCRIPTION_ID,
+      subscription_tier: 'standard',
+      locations_overage_price_cents: 2500,
+    }]);
+    mockGetAccountOwnerUserId.mockResolvedValueOnce(USER_ID);
+    mockSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: BASE_ITEM_ID, quantity: 1, price: { id: 'price_standard_test' } },
+          // No overage item present.
+        ],
+      },
+    });
+    mockSubscriptionItemsUpdate.mockResolvedValueOnce({});
+    mockSubscriptionItemsCreate.mockResolvedValueOnce({});
+
+    const req = mkRequest({ accountId: ACCOUNT_ID, newTier: 'premium' });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(mockSubscriptionItemsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subscription: SUBSCRIPTION_ID,
+        price: 'price_premium_overage_test',
+        quantity: 3,
+        proration_behavior: 'create_prorations',
+      }),
+      expect.any(Object),
+    );
+    expect(mockSubscriptionItemsDel).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 and does NOT mutate the base item when the target tier overage env is missing', async () => {
+    // Regression: the missing-overage-env case used to be silently no-op'd AFTER
+    // the base price had already been swapped. The env presence check must run
+    // BEFORE the first Stripe mutation, so the base item is never touched.
+    const savedPremiumOverage = process.env.STRIPE_PRICE_PREMIUM_OVERAGE;
+    delete process.env.STRIPE_PRICE_PREMIUM_OVERAGE;
+    try {
+      mockRequireRole.mockResolvedValueOnce(ownerUser());
+      mockValidateTierChange.mockResolvedValueOnce({
+        allowed: true,
+        newBillingPreview: {
+          basePriceCents: 19900,
+          overagePriceCents: 2000,
+          overageUnits: 3,
+          totalCents: 25900,
+        },
+      });
+      mockSql.mockResolvedValueOnce([{
+        stripe_subscription_id: SUBSCRIPTION_ID,
+        subscription_tier: 'standard',
+        locations_overage_price_cents: 2500,
+      }]);
+      mockGetAccountOwnerUserId.mockResolvedValueOnce(USER_ID);
+      mockSubscriptionsRetrieve.mockResolvedValueOnce({
+        items: {
+          data: [
+            { id: BASE_ITEM_ID, quantity: 1, price: { id: 'price_standard_test' } },
+          ],
+        },
+      });
+
+      const req = mkRequest({ accountId: ACCOUNT_ID, newTier: 'premium' });
+      const res = await POST(req);
+      const body = await res.json();
+
+      expect(res.status).toBe(500);
+      expect(body.error).toBe('missing_price_config');
+      // The base mutation must NOT have happened.
+      expect(mockSubscriptionItemsUpdate).not.toHaveBeenCalled();
+      expect(mockSubscriptionItemsCreate).not.toHaveBeenCalled();
+      expect(mockSubscriptionItemsDel).not.toHaveBeenCalled();
+    } finally {
+      if (savedPremiumOverage === undefined) delete process.env.STRIPE_PRICE_PREMIUM_OVERAGE;
+      else process.env.STRIPE_PRICE_PREMIUM_OVERAGE = savedPremiumOverage;
+    }
+  });
+
   it('inserts account_audit_log on successful tier change', async () => {
     setupHappyPathMocks();
 
@@ -601,5 +747,81 @@ describe('POST /api/billing/tier-change', () => {
     const req = mkRequest({ accountId: ACCOUNT_ID, newTier: 'premium' });
     const res = await POST(req);
     expect(res.status).toBe(502);
+  });
+
+  it('returns 500 ambiguous_overage_item and mutates nothing when the only match is a keyword descriptor', async () => {
+    // A nickname like "Extra seats" keyword-matches but is LOW confidence —
+    // enough to flag, never enough to delete or re-price. Must fail closed
+    // BEFORE the base mutation.
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockValidateTierChange.mockResolvedValueOnce({
+      allowed: true,
+      newBillingPreview: {
+        basePriceCents: 7900,
+        overagePriceCents: 2500,
+        overageUnits: 2,
+        totalCents: 12900,
+      },
+    });
+    mockSql.mockResolvedValueOnce([{
+      stripe_subscription_id: SUBSCRIPTION_ID,
+      subscription_tier: 'premium',
+    }]);
+    mockGetAccountOwnerUserId.mockResolvedValueOnce(USER_ID);
+    mockSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: BASE_ITEM_ID, quantity: 1, price: { id: 'price_premium_test' } },
+          { id: 'si_addon', quantity: 1, price: { id: 'price_addon', nickname: 'Extra seats', unit_amount: 9900, metadata: {} } },
+        ],
+      },
+    });
+
+    const req = mkRequest({ accountId: ACCOUNT_ID, newTier: 'standard' });
+    const res = await POST(req);
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe('ambiguous_overage_item');
+    expect(mockSubscriptionItemsUpdate).not.toHaveBeenCalled();
+    expect(mockSubscriptionItemsCreate).not.toHaveBeenCalled();
+    expect(mockSubscriptionItemsDel).not.toHaveBeenCalled();
+  });
+
+  it('stamps metadata.billing_role=overage on overage update and create (exact matching after price rotation)', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockValidateTierChange.mockResolvedValueOnce({
+      allowed: true,
+      newBillingPreview: {
+        basePriceCents: 7900,
+        overagePriceCents: 2500,
+        overageUnits: 2,
+        totalCents: 12900,
+      },
+    });
+    mockSql.mockResolvedValueOnce([{
+      stripe_subscription_id: SUBSCRIPTION_ID,
+      subscription_tier: 'premium',
+    }]);
+    mockGetAccountOwnerUserId.mockResolvedValueOnce(USER_ID);
+    mockSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: BASE_ITEM_ID, quantity: 1, price: { id: 'price_premium_test' } },
+          { id: OVERAGE_ITEM_ID, quantity: 1, price: { id: 'price_premium_overage_test' } },
+        ],
+      },
+    });
+    mockSubscriptionItemsUpdate.mockResolvedValue({});
+
+    const req = mkRequest({ accountId: ACCOUNT_ID, newTier: 'standard' });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(mockSubscriptionItemsUpdate).toHaveBeenCalledWith(
+      OVERAGE_ITEM_ID,
+      expect.objectContaining({ metadata: { billing_role: 'overage' } }),
+      expect.any(Object),
+    );
   });
 });

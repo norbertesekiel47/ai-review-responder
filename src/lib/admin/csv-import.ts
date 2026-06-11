@@ -12,6 +12,7 @@ import { getActiveLocationCount } from '@/lib/locations/repo';
 import { sql, jsonb } from '@/lib/db/server';
 import { v7 as uuidv7 } from 'uuid';
 import { DUPLICATE_LOCATION } from '@/lib/locations/duplicate-location';
+import { enqueueStripeOverageRecompute } from '@/lib/shared/job-outbox-helpers';
 
 // ── Constants ────────────────────────────────────────────────────────────
 
@@ -352,20 +353,7 @@ export async function processRow(
 }
 
 export async function enqueueCsvImportStripeOverageUpdate(accountId: string): Promise<void> {
-  await sql`
-    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    VALUES (
-      ${uuidv7()},
-      'update_stripe_overage_quantity',
-      'account',
-      ${accountId}::uuid,
-      ${jsonb({
-        account_id: accountId,
-        correlation_id: uuidv7(),
-      })},
-      'pending'
-    )
-  `;
+  await sql.begin((tx) => enqueueStripeOverageRecompute(tx, accountId));
 }
 
 // ── Audit Log ─────────────────────────────────────────────────────────────

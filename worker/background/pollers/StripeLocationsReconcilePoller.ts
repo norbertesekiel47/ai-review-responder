@@ -24,7 +24,6 @@
 import { getStripe } from '../../../src/lib/payments/stripe-client';
 import { sql } from '../../../src/lib/db/server';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
-import { overagePriceIdSet } from '../../../src/lib/payments/price-tier-map';
 import { emitDriftAlert } from './billing-reconciliation/drift-alert';
 import { reconcileAccount } from './billing-reconciliation/reconcile-account';
 import { LOG_PREFIX } from './billing-reconciliation/constants';
@@ -94,7 +93,6 @@ export async function runOnce(): Promise<ReconcileResult> {
       return { accountsChecked: 0, driftsFound: 0, errors: 0 };
     }
 
-    const overagePriceIds = overagePriceIdSet();
     const stripe = getStripe();
 
     let accountsChecked = 0;
@@ -103,7 +101,7 @@ export async function runOnce(): Promise<ReconcileResult> {
 
     for (const account of accounts) {
       try {
-        const outcome = await reconcileAccount(stripe, account, overagePriceIds);
+        const outcome = await reconcileAccount(stripe, account);
         accountsChecked += outcome.accountsChecked;
         errors += outcome.errors;
         for (const payload of outcome.drifts) {

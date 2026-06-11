@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   basePriceIdForTier,
+  basePriceIdSet,
   overagePriceIdForTier,
   tierForBasePriceId,
   isOveragePriceId,
@@ -84,6 +85,24 @@ describe('price-tier-map', () => {
       delete process.env.STRIPE_PRICE_STANDARD;
       expect(tierForBasePriceId('')).toBeNull();
       expect(tierForBasePriceId('price_premium')).toBe('premium');
+    });
+  });
+
+  describe('basePriceIdSet', () => {
+    it('contains the configured base price IDs only', () => {
+      const set = basePriceIdSet();
+      expect(set.has('price_basic')).toBe(true);
+      expect(set.has('price_standard')).toBe(true);
+      expect(set.has('price_premium')).toBe(true);
+      expect(set.has('price_founders')).toBe(true);
+      expect(set.has('')).toBe(false);
+      expect(set.size).toBe(4);
+    });
+    it('excludes unset base vars from the set', () => {
+      delete process.env.STRIPE_PRICE_STANDARD;
+      const set = basePriceIdSet();
+      expect(set.has('price_standard')).toBe(false);
+      expect(set.size).toBe(3);
     });
   });
 

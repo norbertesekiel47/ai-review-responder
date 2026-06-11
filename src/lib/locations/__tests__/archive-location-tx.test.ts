@@ -427,8 +427,8 @@ describe('archiveLocationTransaction', () => {
       (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'),
     );
     expect(outboxCall).toBeDefined();
-    const template = (outboxCall![0] as TemplateStringsArray).join('?');
-    expect(template).toContain('update_stripe_overage_quantity');
+    // Topic is bound as a parameter by enqueueStripeOverageRecompute, not inlined SQL text.
+    expect(outboxCall!.slice(1)).toContain('update_stripe_overage_quantity');
   });
 
   // VAL-LOC-043: If any step fails, all rollback
@@ -705,8 +705,8 @@ describe('reactivateLocationTransaction', () => {
       (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'),
     );
     expect(outboxCall).toBeDefined();
-    const template = (outboxCall![0] as TemplateStringsArray).join('?');
-    expect(template).toContain('update_stripe_overage_quantity');
+    // Topic is bound as a parameter by enqueueStripeOverageRecompute, not inlined SQL text.
+    expect(outboxCall!.slice(1)).toContain('update_stripe_overage_quantity');
   });
 
   // VAL-LOC-071: Zernio backfill enqueued on reactivation

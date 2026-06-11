@@ -2,6 +2,7 @@ import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { LOG_PREFIX, extractCustomerId, maybeEnqueueBackfillResume } from './shared';
+import { enqueueStripeOverageRecompute } from '../../../src/lib/shared/job-outbox-helpers';
 
 export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
   const customerId = extractCustomerId(invoice.customer);
@@ -56,6 +57,12 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
         WHERE account_id = ${acct.id}::uuid
           AND subscription_status = 'past_due'
       `;
+
+      // Recompute Stripe overage quantity after recovery — the worker is
+      // idempotent so a redundant enqueue is harmless convergence. Must be
+      // inside this tx (transactional outbox invariant: state change +
+      // enqueue in one Postgres transaction).
+      await enqueueStripeOverageRecompute(tx, acct.id);
 
       recovered.push(acct);
     }

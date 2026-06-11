@@ -9,6 +9,7 @@
 
 import Stripe from 'stripe';
 import { isSubscriptionTier, TIER_CONFIG } from '../../../../src/lib/accounts/tier-config';
+import { resolveOverageItem } from '../../../../src/lib/payments/overage-item';
 import {
   compareUpcomingInvoice,
   isExpectedStatusWindow,
@@ -19,7 +20,6 @@ import { parseAccountFlags, isPilotAccount } from './account-flags';
 import {
   activeStripeSubscriptions,
   extractStripeCustomerId,
-  findOverageItem,
   isMissingStripeSubscriptionError,
 } from './stripe-overage';
 import { LOG_PREFIX } from './constants';
@@ -35,7 +35,6 @@ export interface AccountReconcileOutcome {
 export async function reconcileAccount(
   stripe: Stripe,
   account: AccountWithLocations,
-  overagePriceIds: Set<string>,
 ): Promise<AccountReconcileOutcome> {
   const drifts: DriftAlertPayload[] = [];
   let errors = 0;
@@ -153,11 +152,12 @@ export async function reconcileAccount(
     });
   }
 
-  const overageItem = findOverageItem(
-    subscription,
-    overagePriceIds,
-    expectedInvoice.overageUnitPriceCents,
-  );
+  // Read-only drift detection deliberately accepts ANY confidence, including
+  // untrusted descriptor matches — flagging is exactly what this poller is for.
+  const overageResolution = resolveOverageItem(subscription.items?.data ?? [], {
+    storedOveragePriceCents: expectedInvoice.overageUnitPriceCents,
+  });
+  const overageItem = overageResolution.kind === 'none' ? undefined : overageResolution.item;
   const stripeOverageQuantity = overageItem?.quantity ?? 0;
 
   const subscriptionItems = subscription.items?.data ?? [];
@@ -276,8 +276,12 @@ export async function reconcileAccount(
   } catch (err) {
     errors++;
     const message = err instanceof Error ? err.message : String(err);
+    // While the invoice preview is failing, the upcoming_invoice_mismatch check
+    // is blind — and it is the only check that catches a DUPLICATE overage item
+    // (the quantity check reads the canonical item, which can look correct while
+    // a legacy duplicate still bills). Keep this loud until preview recovers.
     console.error(
-      `${LOG_PREFIX} Error reconciling invoice preview for account ${account.id}: ${message}`,
+      `${LOG_PREFIX} Invoice-preview reconciliation UNAVAILABLE for account ${account.id} — duplicate-overage-item drift undetectable this cycle: ${message}`,
     );
   }
 

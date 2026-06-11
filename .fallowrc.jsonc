@@ -155,7 +155,24 @@
       "src/app/api/onboarding/business/route.ts",
       "src/lib/onboarding/create-business.ts",
       "src/components/dashboard/settings/LocationsPanel.tsx",
-      "src/app/(authenticated)/dashboard/add-location/wizard/useAddLocationWizard.ts"
+      "src/app/(authenticated)/dashboard/add-location/wizard/useAddLocationWizard.ts",
+
+      // ── Multi-location billing-recovery hardening (PR D, touched mechanically) ──
+      // Pre-existing large worker functions PR D extended with small, spec-mandated
+      // edits — not structural growth. reconcileAccount: a behavior-preserving
+      // findOverageItem call-site swap (the local heuristic was deleted, logic moved
+      // to the shared src/lib/payments/overage-item.ts). handleUpdateStripeOverage:
+      // one transient/terminal catch branch; the classification logic itself is
+      // extracted into stripe-overage-error.classifyStripeOverageError, so what
+      // remains is the inherent gates→Stripe-calls→outbox orchestration.
+      // processCheckoutSessionCompleted: one outbox INSERT added inside the existing
+      // rowcount-guarded activation block — zero new branches. These are entry-point
+      // orchestration (invariant #12) whose complexity is inherent to the one-pass
+      // flow; splitting them is separate refactor work, unjustified risk pre-launch.
+      // Cleanup candidates post-launch.
+      "worker/background/pollers/billing-reconciliation/reconcile-account.ts",
+      "worker/jobs/billing/UpdateStripeOverageWorker.ts",
+      "worker/ingress/stripe/checkout-completed.ts"
     ]
   },
   "duplicates": {
@@ -382,7 +399,17 @@
       "src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx",
       "src/app/(public)/pricing/PricingContent.tsx",
       "worker/jobs/response-generation/load-context.ts",
-      "worker/jobs/response-generation/persist.ts"
+      "worker/jobs/response-generation/persist.ts",
+
+      // ── Multi-location billing-recovery hardening (PR D) ──
+      // The error-inspection VOCABULARY (type sets, network codes, property
+      // readers) formerly cloned between stripe-overage-error.ts and
+      // account-offboarding/stripe-invoices.ts now lives in the shared
+      // src/lib/payments/stripe-error-inspect.ts; each worker keeps only its
+      // own retry POLICY (the divergent 409-in-flight rule). The entry stays
+      // because the two thin policy functions still share their if-chain shape
+      // by design and must not be merged into one policy.
+      "worker/jobs/billing/stripe-overage-error.ts"
     ]
   }
 }

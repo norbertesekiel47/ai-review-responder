@@ -5,16 +5,12 @@
 // heavy top-level side effects of index.ts (Sentry.init, Fastify instance,
 // BullMQ Worker construction which opens Redis connections, etc.).
 
+import { STRIPE_PRICE_ENV_VARS } from '../../src/lib/payments/price-tier-map';
+
 const STRIPE_WORKER_REQUIRED_ENV = [
   'STRIPE_SECRET_KEY',
   'STRIPE_WEBHOOK_SECRET',
-  'STRIPE_PRICE_BASIC',
-  'STRIPE_PRICE_FOUNDING',
-  'STRIPE_PRICE_STANDARD',
-  'STRIPE_PRICE_PREMIUM',
-  'STRIPE_PRICE_STANDARD_OVERAGE',
-  'STRIPE_PRICE_PREMIUM_OVERAGE',
-  'STRIPE_PRICE_FOUNDERS_OVERAGE',
+  ...STRIPE_PRICE_ENV_VARS,
 ];
 
 const SERVER_ONLY_FEATURE_OPTIONAL_BOOLEAN_ENV = [
@@ -136,16 +132,7 @@ export function assertSelfServeSignupEnv(): void {
   }
   // Checkout Sessions replaced Payment Links — STRIPE_PRICE_* vars are
   // required instead of the obsolete payment-link URL vars.
-  const requiredPriceVars = [
-    'STRIPE_PRICE_BASIC',
-    'STRIPE_PRICE_FOUNDING',
-    'STRIPE_PRICE_STANDARD',
-    'STRIPE_PRICE_PREMIUM',
-    'STRIPE_PRICE_STANDARD_OVERAGE',
-    'STRIPE_PRICE_PREMIUM_OVERAGE',
-    'STRIPE_PRICE_FOUNDERS_OVERAGE',
-  ];
-  const missing = requiredPriceVars.filter((k) => !process.env[k] || process.env[k]!.trim().length === 0);
+  const missing = STRIPE_PRICE_ENV_VARS.filter((k) => !process.env[k] || process.env[k]!.trim().length === 0);
   if (missing.length > 0) {
     throw new Error(
       `[startup] SELF_SERVE_SIGNUP_ENABLED=true requires ${missing.join(', ')}`,

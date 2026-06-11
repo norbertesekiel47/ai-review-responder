@@ -1,4 +1,11 @@
 import { createHash } from 'node:crypto';
+import {
+  RETRYABLE_STRIPE_ERROR_TYPES,
+  PERMANENT_STRIPE_ERROR_TYPES,
+  RETRYABLE_NETWORK_ERROR_CODES,
+  errorStringProperty as stringProperty,
+  errorNumberProperty as numberProperty,
+} from '../payments/stripe-error-inspect';
 
 type StripeInvoiceStatus = 'draft' | 'open' | 'paid' | 'uncollectible' | 'void';
 type StripeInvoiceCleanupOperation = 'list' | 'inspect' | 'finalize' | 'void';
@@ -106,28 +113,10 @@ export class StripeInvoiceCleanupError extends Error {
 
 const STRIPE_INVOICE_CLEANUP_KEY_NAMESPACE = 'acct-offboarding.invoice-cleanup';
 const MAX_STRIPE_IDEMPOTENCY_KEY_LENGTH = 255;
-const RETRYABLE_STRIPE_ERROR_TYPES = new Set([
-  'StripeAPIConnectionError',
-  'StripeConnectionError',
-  'StripeAPIError',
-  'StripeRateLimitError',
-]);
-const PERMANENT_STRIPE_ERROR_TYPES = new Set([
-  'StripeInvalidRequestError',
-  'StripeAuthenticationError',
-  'StripePermissionError',
-  'StripeIdempotencyError',
-]);
-const RETRYABLE_NETWORK_ERROR_CODES = new Set([
-  'ECONNABORTED',
-  'ECONNREFUSED',
-  'ECONNRESET',
-  'EAI_AGAIN',
-  'ENETDOWN',
-  'ENETRESET',
-  'ENETUNREACH',
-  'ETIMEDOUT',
-]);
+// Error-type sets, network codes, and property readers come from
+// src/lib/payments/stripe-error-inspect.ts — the single owner of the Stripe
+// error-inspection vocabulary. The retry POLICY here (isRetryableStripeError:
+// all idempotency errors permanent) remains this module's own.
 const DEFAULT_MAX_NETWORK_RETRIES = 2;
 const MAX_NETWORK_RETRIES_CAP = 2;
 
@@ -461,18 +450,6 @@ function isRetryableStripeError(err: unknown): boolean {
 
   const code = stringProperty(err, 'code');
   return code ? RETRYABLE_NETWORK_ERROR_CODES.has(code) : false;
-}
-
-function stringProperty(value: unknown, property: string): string | undefined {
-  if (!value || typeof value !== 'object') return undefined;
-  const candidate = (value as Record<string, unknown>)[property];
-  return typeof candidate === 'string' ? candidate : undefined;
-}
-
-function numberProperty(value: unknown, property: string): number | undefined {
-  if (!value || typeof value !== 'object') return undefined;
-  const candidate = (value as Record<string, unknown>)[property];
-  return typeof candidate === 'number' ? candidate : undefined;
 }
 
 function stripeErrorDetails(err: unknown): StripeInvoiceCleanupErrorDetails {

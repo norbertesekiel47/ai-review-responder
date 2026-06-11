@@ -2,6 +2,7 @@ import Stripe from 'stripe';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import { LOG_PREFIX, extractCustomerId, extractSubscriptionId, UUID_RE, maybeEnqueueBackfillResume } from './shared';
+import { enqueueStripeOverageRecompute } from '../../../src/lib/shared/job-outbox-helpers';
 
 export async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
   // The client_reference_id is set by /api/billing/checkout to the account ID.
@@ -114,6 +115,14 @@ export async function processCheckoutSessionCompleted(session: Stripe.Checkout.S
           ${jsonb({ fromStatus: oldStatus, toStatus: 'active' })}
         )
       `;
+
+      // Recompute Stripe overage quantity after recovery from past_due or
+      // initial pending_payment activation. The worker is idempotent so a
+      // redundant enqueue is harmless convergence. Must be inside this tx
+      // (transactional outbox invariant: state change + enqueue in one
+      // Postgres transaction). Guarded by the rowcount check above so only
+      // fires when the UPDATE actually changed the row.
+      await enqueueStripeOverageRecompute(tx, accountId!);
     } else {
       console.warn(`${LOG_PREFIX} Account ${accountId!} not activated — current status is ${oldStatus}`);
     }

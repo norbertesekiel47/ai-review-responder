@@ -3,22 +3,29 @@
 // Updates the Stripe subscription's overage item quantity when the
 // number of active locations changes (add, archive, tier change).
 //
-// Reads outbox rows with topic 'update_stripe_overage_quantity', then:
-//   1. Looks up the account's Stripe subscription
-//   2. Finds or creates the overage subscription item
-//   3. Updates, creates, or deletes the overage subscription item
-//      and uses proration_behavior = 'create_prorations' for billed changes
+// Reads outbox rows with topic 'update_stripe_overage_quantity'. The handler
+// orchestrates only: load context → call syncStripeOverageItem (which owns the
+// Stripe interaction and returns a discriminated outcome) → map the outcome
+// onto exactly one outbox effect. Error classification (transient/terminal)
+// lives in stripe-overage-error.ts; the Stripe mutation logic in overage-sync.ts.
 //
 // Validation contract: VAL-BILLING-071, VAL-LOC-010, VAL-LOC-011, VAL-LOC-012.
 
-import type { Job } from 'bullmq';
+import { UnrecoverableError, type Job } from 'bullmq';
 import { getStripe } from '../../../src/lib/payments/stripe-client';
 import { sql } from '../../../src/lib/db/server';
-import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../../src/lib/shared/outbox';
+import {
+  markOutboxCompleted,
+  markOutboxFailed,
+  recordOutboxTransientError,
+  extractOutboxHandle,
+} from '../../../src/lib/shared/outbox';
 import { TIER_CONFIG, type SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
-import { overagePriceIdForTier, overagePriceIdSet } from '../../../src/lib/payments/price-tier-map';
+import { overagePriceIdForTier } from '../../../src/lib/payments/price-tier-map';
 import { computeOverageQuantity } from '../../../src/lib/accounts/quota';
-import { createWorkerLogger, type WorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { classifyStripeOverageError } from './stripe-overage-error';
+import { syncStripeOverageItem, type OverageSyncOutcome } from './overage-sync';
 
 export interface UpdateStripeOveragePayload {
   account_id: string;
@@ -27,48 +34,18 @@ export interface UpdateStripeOveragePayload {
   outbox_attempt?: number;
 }
 
-function overageUpdateIdempotencyKey(
-  accountId: string,
-  subscriptionItemId: string,
-  quantity: number,
-  operationScope: string,
-): string {
-  return `stripe-overage-update:${accountId}:${subscriptionItemId}:${quantity}:${operationScope}`;
-}
-
-function overageCreateIdempotencyKey(
-  accountId: string,
-  subscriptionId: string,
-  priceId: string,
-  quantity: number,
-  operationScope: string,
-): string {
-  return `stripe-overage-create:${accountId}:${subscriptionId}:${priceId}:${quantity}:${operationScope}`;
-}
-
-function overageDeleteIdempotencyKey(
-  accountId: string,
-  subscriptionItemId: string,
-  operationScope: string,
-): string {
-  return `stripe-overage-delete:${accountId}:${subscriptionItemId}:0:${operationScope}`;
-}
-
-function overageOperationScope(outboxId: string, correlationId: string | undefined): string {
-  return `outbox:${outboxId}:corr:${correlationId ?? 'none'}`;
-}
-
 export async function handleUpdateStripeOverage(
   job: Job<UpdateStripeOveragePayload>,
 ): Promise<void> {
   const logger = createWorkerLogger('[UpdateStripeOverageWorker]', job.data.correlation_id);
   const { account_id } = job.data;
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
-  const operationScope = overageOperationScope(outboxId, job.data.correlation_id);
+  const operationScope = `outbox:${outboxId}:corr:${job.data.correlation_id ?? 'none'}`;
 
-  // Read account row. Stripe idempotency keys below handle concurrent jobs;
-  // a SELECT FOR UPDATE here would not survive PgBouncer transaction pooling
-  // unless the entire Stripe call happened inside a DB transaction.
+  // Read account row. Stripe idempotency keys (overage-sync.ts) handle
+  // concurrent jobs; a SELECT FOR UPDATE here would not survive PgBouncer
+  // transaction pooling unless the entire Stripe call happened inside a DB
+  // transaction.
   const [account] = await sql<{
     id: string;
     subscription_tier: string;
@@ -76,9 +53,11 @@ export async function handleUpdateStripeOverage(
     stripe_customer_id: string | null;
     stripe_subscription_id: string | null;
     locations_included: number;
+    locations_overage_price_cents: number;
   }[]>`
     SELECT id, subscription_tier, subscription_status,
-           stripe_customer_id, stripe_subscription_id, locations_included
+           stripe_customer_id, stripe_subscription_id, locations_included,
+           locations_overage_price_cents
     FROM accounts
     WHERE id = ${account_id}::uuid
   `;
@@ -112,7 +91,6 @@ export async function handleUpdateStripeOverage(
   `;
   const activeLocations = Number(locationRow?.count ?? 0);
 
-  // Compute new overage quantity
   const tier = account.subscription_tier as SubscriptionTierValue;
   const config = TIER_CONFIG[tier];
   if (!config) {
@@ -137,80 +115,47 @@ export async function handleUpdateStripeOverage(
     return;
   }
 
-  const stripe = getStripe();
-
+  let outcome: OverageSyncOutcome;
   try {
-    // Retrieve the subscription to find the overage item
-    const subscription = await stripe.subscriptions.retrieve(
-      account.stripe_subscription_id,
-    );
-
-    const overagePriceIds = overagePriceIdSet();
-
-    const existingOverageItem = subscription.items.data.find(
-      (item) => item.price?.id && overagePriceIds.has(item.price.id),
-    );
-
-    if (existingOverageItem && newQuantity === 0) {
-      await stripe.subscriptionItems.del(
-        existingOverageItem.id,
-        {},
-        {
-          idempotencyKey: overageDeleteIdempotencyKey(
-            account_id,
-            existingOverageItem.id,
-            operationScope,
-          ),
-        },
-      );
-      logger.log(`Deleted overage item ${existingOverageItem.id} for account ${account_id} because computed quantity=0`);
-    } else if (existingOverageItem) {
-      // VAL-LOC-010: Update existing overage item quantity
-      await stripe.subscriptionItems.update(
-        existingOverageItem.id,
-        {
-          quantity: newQuantity,
-          proration_behavior: 'create_prorations',
-        },
-        {
-          idempotencyKey: overageUpdateIdempotencyKey(
-            account_id,
-            existingOverageItem.id,
-            newQuantity,
-            operationScope,
-          ),
-        },
-      );
-      logger.log(`Updated overage item ${existingOverageItem.id} to quantity=${newQuantity} for account ${account_id}`);
-    } else if (newQuantity > 0) {
-      // VAL-BILLING-071: Create overage subscription item when none exists
-      await stripe.subscriptionItems.create(
-        {
-          subscription: account.stripe_subscription_id,
-          price: overagePriceId,
-          quantity: newQuantity,
-          proration_behavior: 'create_prorations',
-        },
-        {
-          idempotencyKey: overageCreateIdempotencyKey(
-            account_id,
-            account.stripe_subscription_id,
-            overagePriceId,
-            newQuantity,
-            operationScope,
-          ),
-        },
-      );
-      logger.log(`Created overage item with price=${overagePriceId} quantity=${newQuantity} for account ${account_id}`);
-    } else {
-      logger.log(`No overage item exists and computed quantity=0 for account ${account_id} — nothing to create`);
-    }
-
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    outcome = await syncStripeOverageItem(getStripe(), {
+      accountId: account_id,
+      subscriptionId: account.stripe_subscription_id,
+      storedOveragePriceCents: account.locations_overage_price_cents,
+      overagePriceId,
+      newQuantity,
+      operationScope,
+    }, logger);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    logger.error(`Stripe overage update failed for account ${account_id}: ${message}`);
+    if (classifyStripeOverageError(err) === 'transient') {
+      // Leave the outbox row 'dispatched' so BullMQ retries and the 1h outbox
+      // watchdog re-dispatches. Do NOT markOutboxFailed — that forfeits the
+      // watchdog. Best-effort: surface the real error on the row for ops
+      // visibility during a sustained outage (status untouched).
+      await recordOutboxTransientError(outboxId, message);
+      logger.error(`Transient Stripe overage error for account ${account_id} (will retry): ${message}`);
+      throw err;
+    }
+    // Terminal: a deterministic failure that will never heal on retry.
+    // UnrecoverableError stops BullMQ from re-running a failure the code just
+    // declared deterministic (a plain throw would re-execute the Stripe calls).
+    logger.error(`Terminal Stripe overage error for account ${account_id}: ${message}`);
     await markOutboxFailed(outboxId, message, outboxAttempt);
-    throw err; // Re-throw so BullMQ retries
+    throw new UnrecoverableError(message);
   }
+
+  if (outcome.kind === 'ambiguous') {
+    // No Stripe mutation happened. Terminal-fail the outbox row so ops sees it;
+    // the reconcile poller independently alerts on the underlying drift.
+    logger.error(`${outcome.detail} (account ${account_id})`);
+    await markOutboxFailed(outboxId, outcome.detail, outboxAttempt);
+    return;
+  }
+
+  // Outside the Stripe try/catch on purpose: a transient Postgres blip here
+  // must NOT reach the Stripe classifier (it would mislabel a succeeded
+  // operation as terminal and flip the row to 'failed'). Letting it throw
+  // fails the job → BullMQ retries → the idempotency keys dedup the Stripe
+  // re-run → completion is re-attempted. Convergent either way.
+  await markOutboxCompleted(outboxId, outboxAttempt);
 }

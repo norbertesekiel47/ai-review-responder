@@ -162,6 +162,7 @@ function queueSubscriptionUpdated(opts: {
   updateBiz?: boolean;
   stripeSubscriptionId?: string;
   activeOffboardingSubscriptionId?: string | null;
+  overagePriceCents?: number;
 } = {}) {
   const tier = opts.tier ?? 'standard';
   const status = opts.status ?? 'active';
@@ -173,6 +174,7 @@ function queueSubscriptionUpdated(opts: {
     subscription_tier: tier,
     subscription_status: status,
     locations_paid: locationsPaid,
+    locations_overage_price_cents: opts.overagePriceCents ?? 2500,
     stripe_subscription_id: opts.stripeSubscriptionId ?? TEST_SUBSCRIPTION_ID,
     active_offboarding_subscription_id: opts.activeOffboardingSubscriptionId ?? null,
   }]);
@@ -214,6 +216,9 @@ function queueInvoicePaid(opts: {
     sqlReturnQueue.push(r1);
     const r2: any = []; r2.count = 1;
     sqlReturnQueue.push(r2);
+    // Overage outbox INSERT (D3: inside tx, before recovered.push)
+    const outboxInsert: any = []; outboxInsert.count = 1;
+    sqlReturnQueue.push(outboxInsert);
     sqlReturnQueue.push([{ id: '019dc366-29ce-7000-a000-000000000099' }]); // primary business lookup
     sqlReturnQueue.push([]); // zernio predicate (no match by default)
   }
@@ -518,9 +523,45 @@ describe('customer.subscription.updated — two-item subscription', () => {
     expect(updateAcct).toEqual([]);
 
     const warnedText = consoleSpy.mock.calls.flat().join(' ');
-    expect(warnedText).toMatch(/Unknown base price ID/);
+    expect(warnedText).toMatch(/missing base price ID/);
 
     consoleSpy.mockRestore();
+  });
+
+  it('grandfathered legacy-priced overage item (rotated env) keeps locations_paid synced — even when it sorts before the base item', async () => {
+    // After an overage price rotation, the item's price ID is no longer in the
+    // env set. The shared matcher recognizes it by the account's STORED cents;
+    // the base item is resolved positively (price -> tier), so legacy-first
+    // ordering cannot mis-pick the overage item as base and skip the sync.
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_sub_updated_gf',
+      type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: TEST_SUBSCRIPTION_ID,
+          customer: TEST_CUSTOMER_ID,
+          items: {
+            data: [
+              { price: { id: 'price_legacy_overage_rotated', unit_amount: 2500, metadata: {} }, quantity: 4 },
+              { price: { id: 'price_standard_test', unit_amount: 7900, metadata: {} }, quantity: 1 },
+            ],
+          },
+        },
+      },
+    });
+
+    queueSubscriptionUpdated({ tier: 'standard', locationsPaid: 1, overagePriceCents: 2500 });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(200);
+    const updateAcct = sqlCalls.find(
+      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes('subscription_tier'),
+    );
+    expect(updateAcct).toBeDefined();
+    // locations_paid must be the legacy item's quantity (4), not zeroed.
+    expect(updateAcct!.values).toContain(4);
   });
 
   it('missing customer → warns and skips', async () => {
@@ -951,6 +992,53 @@ describe('invoice.paid — active recovery from past_due', () => {
       (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'") && !c.text.includes('inbound_events'),
     );
     expect(updateAcct).toEqual([]);
+  });
+
+  it('VAL-BILLING-D3a: past_due → active recovery inserts one update_stripe_overage_quantity outbox row', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_inv_paid_overage_enqueue',
+      type: 'invoice.paid',
+      data: { object: { id: 'in_paid_overage', customer: TEST_CUSTOMER_ID } },
+    });
+
+    queueInvoicePaid({ status: 'past_due' });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(200);
+
+    // Topic is an interpolated value — in values array; aggregate_type/'pending'
+    // are SQL string literals — in the text.
+    const overageInserts = sqlCalls.filter(
+      (c) => c.text.includes('INSERT INTO job_outbox') && c.values.includes('update_stripe_overage_quantity'),
+    );
+    expect(overageInserts).toHaveLength(1);
+    const insert = overageInserts[0]!;
+    expect(insert.text).toContain("'account'");   // aggregate_type — SQL literal
+    expect(insert.values).toContain('pending');   // status — bound by enqueueStripeOverageRecompute
+    expect(insert.values).toContain(TEST_ACCOUNT_ID); // aggregate_id — interpolated
+  });
+
+  it('VAL-BILLING-D3b: already-active account (VAL-BILLING-014 no-op) does NOT insert overage outbox row', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_inv_paid_noop_overage',
+      type: 'invoice.paid',
+      data: { object: { id: 'in_paid_noop_overage', customer: TEST_CUSTOMER_ID } },
+    });
+
+    queueInvoicePaid({ status: 'active' });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(200);
+
+    // Topic is an interpolated value — check values array.
+    const overageInserts = sqlCalls.filter(
+      (c) => c.text.includes('INSERT INTO job_outbox') && c.values.includes('update_stripe_overage_quantity'),
+    );
+    expect(overageInserts).toHaveLength(0);
   });
 
   it('missing customer → warns and skips', async () => {
