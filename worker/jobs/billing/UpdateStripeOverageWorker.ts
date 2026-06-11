@@ -20,6 +20,7 @@ import { basePriceIdSet, overagePriceIdForTier, overagePriceIdSet } from '../../
 import { findOverageItem } from '../../../src/lib/payments/overage-item';
 import { computeOverageQuantity } from '../../../src/lib/accounts/quota';
 import { createWorkerLogger, type WorkerLogger } from '../../../src/lib/shared/logger';
+import { classifyStripeOverageError } from './stripe-overage-error';
 
 export interface UpdateStripeOveragePayload {
   account_id: string;
@@ -28,6 +29,14 @@ export interface UpdateStripeOveragePayload {
   outbox_attempt?: number;
 }
 
+// Idempotency keys stay operation-scoped (per-outbox via overageOperationScope)
+// on purpose. This worker is single-consumer (concurrency:1 + one Railway
+// instance), so BullMQ's bounded retry window (~3 attempts over ~15s) never
+// overlaps the 1h outbox watchdog — a per-job key safely dedups the retry burst.
+// A stable per-subscription create key was rejected: a delete→re-add within
+// Stripe's ~24h key TTL would 400 `idempotency_error` deterministically (same
+// key, different params), permanently failing a legitimate re-add. The
+// per-outbox scope gives every distinct recompute a fresh key.
 function overageUpdateIdempotencyKey(
   accountId: string,
   subscriptionItemId: string,
@@ -216,8 +225,15 @@ export async function handleUpdateStripeOverage(
     await markOutboxCompleted(outboxId, outboxAttempt);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    logger.error(`Stripe overage update failed for account ${account_id}: ${message}`);
+    if (classifyStripeOverageError(err) === 'transient') {
+      // Leave the outbox row 'dispatched' so BullMQ retries and the 1h outbox
+      // watchdog re-dispatches. Do NOT markOutboxFailed — that forfeits the watchdog.
+      logger.error(`Transient Stripe overage error for account ${account_id} (will retry): ${message}`);
+      throw err;
+    }
+    // Terminal: a deterministic failure that will never heal on retry.
+    logger.error(`Terminal Stripe overage error for account ${account_id}: ${message}`);
     await markOutboxFailed(outboxId, message, outboxAttempt);
-    throw err; // Re-throw so BullMQ retries
+    throw err;
   }
 }

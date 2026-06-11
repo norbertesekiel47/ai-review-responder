@@ -469,4 +469,85 @@ describe('UpdateStripeOverageWorker', () => {
     const accountLookupSql = (mockSql.mock.calls[0]![0] as TemplateStringsArray).join('?');
     expect(accountLookupSql).not.toMatch(/\bFOR\s+UPDATE\b/i);
   });
+
+  // ── Transient/terminal outbox semantics (mirrors #255) ────────────────────
+  // Transient Stripe failures must leave the outbox row 'dispatched' (BullMQ
+  // retries + 1h watchdog re-dispatches) — markOutboxFailed forfeits the
+  // watchdog. Terminal failures must markOutboxFailed (deterministic, never
+  // heals on retry).
+
+  function subscriptionWithOverageItem() {
+    return {
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_standard' }, quantity: 1 },
+          { id: 'si_overage', price: { id: 'price_std_overage' }, quantity: 1 },
+        ],
+      },
+    };
+  }
+
+  it('TRANSIENT: a Stripe rate-limit error leaves the outbox row dispatched (no markOutboxFailed)', async () => {
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce(subscriptionWithOverageItem());
+    mockStripeSubscriptionItemsUpdate.mockRejectedValueOnce(
+      Object.assign(new Error('Too many requests'), { type: 'StripeRateLimitError', statusCode: 429 }),
+    );
+
+    await expect(handleUpdateStripeOverage(mockJob())).rejects.toThrow();
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  it('TERMINAL: a 400 idempotency_error marks the outbox row failed', async () => {
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce(subscriptionWithOverageItem());
+    mockStripeSubscriptionItemsUpdate.mockRejectedValueOnce(
+      Object.assign(new Error('Keys for idempotent requests can only be used with the same parameters'), {
+        type: 'StripeInvalidRequestError',
+        code: 'idempotency_error',
+        statusCode: 400,
+      }),
+    );
+
+    await expect(handleUpdateStripeOverage(mockJob())).rejects.toThrow();
+    expect(mockMarkOutboxFailed).toHaveBeenCalled();
+  });
+
+  it('TRANSIENT: a 409 in-flight idempotency conflict leaves the outbox row dispatched (no markOutboxFailed)', async () => {
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce(subscriptionWithOverageItem());
+    mockStripeSubscriptionItemsUpdate.mockRejectedValueOnce(
+      Object.assign(new Error('A request with this idempotency key is already in progress'), {
+        type: 'StripeIdempotencyError',
+        statusCode: 409,
+      }),
+    );
+
+    await expect(handleUpdateStripeOverage(mockJob())).rejects.toThrow();
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  it('TRANSIENT: a 5xx Stripe server error leaves the outbox row dispatched (no markOutboxFailed)', async () => {
+    mockStripeSubscriptionsRetrieve.mockRejectedValueOnce(
+      Object.assign(new Error('Service unavailable'), { statusCode: 503 }),
+    );
+
+    await expect(handleUpdateStripeOverage(mockJob())).rejects.toThrow();
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  it('TERMINAL: a StripeAuthenticationError marks the outbox row failed', async () => {
+    mockStripeSubscriptionsRetrieve.mockRejectedValueOnce(
+      Object.assign(new Error('Invalid API key'), { type: 'StripeAuthenticationError', statusCode: 401 }),
+    );
+
+    await expect(handleUpdateStripeOverage(mockJob())).rejects.toThrow();
+    expect(mockMarkOutboxFailed).toHaveBeenCalled();
+  });
+
+  it('idempotency keys stay operation-scoped (per-outbox) so a delete→re-add yields a fresh key', async () => {
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce(subscriptionWithOverageItem());
+
+    await handleUpdateStripeOverage(mockJob());
+
+    const options = mockStripeSubscriptionItemsUpdate.mock.calls[0]?.[2];
+    expect(options?.idempotencyKey).toContain('outbox:outbox-1');
+  });
 });
