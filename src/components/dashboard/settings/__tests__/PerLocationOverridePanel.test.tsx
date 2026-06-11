@@ -6,6 +6,7 @@ import {
   type PerLocationOverride,
   type LocationOption,
 } from '@/components/dashboard/settings/PerLocationOverridePanel';
+import type { ChannelId } from '@/lib/notifications/channels/types';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -16,10 +17,6 @@ const SINGLE_LOCATION: LocationOption[] = [
 const TWO_LOCATIONS: LocationOption[] = [
   { id: 'loc-1', displayName: 'Main St Branch', isPrimary: true },
   { id: 'loc-2', displayName: 'Park Ave Branch', isPrimary: false },
-];
-
-const VERIFIED_ORG_DEFAULTS = [
-  { channel: 'email', handle: 'owner@example.com', status: 'verified' },
 ];
 
 function makeOverride(
@@ -39,54 +36,57 @@ function makeOverride(
   };
 }
 
-const BASE_PROPS = {
-  orgDefaults: VERIFIED_ORG_DEFAULTS,
-  accountId: 'acct-1',
+const BASE_PROPS: { verifiedOrgChannels: ChannelId[] } = {
+  verifiedOrgChannels: ['email'],
 };
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('PerLocationOverridePanel visibility gating', () => {
-  it('renders null when there are no overrides and only one location', () => {
+  it('renders null when there are no overrides and adding is not allowed', () => {
     const { container } = render(
       <PerLocationOverridePanel
         {...BASE_PROPS}
         overrides={[]}
         locationOptions={SINGLE_LOCATION}
+        canAddOverrides={false}
       />,
     );
     expect(container.firstChild).toBeNull();
   });
 
-  it('renders the panel when in multi-location mode (no overrides yet)', () => {
+  it('renders the panel when adding is allowed (no overrides yet)', () => {
     render(
       <PerLocationOverridePanel
         {...BASE_PROPS}
         overrides={[]}
         locationOptions={TWO_LOCATIONS}
+        canAddOverrides
       />,
     );
     // The heading should be present
     expect(screen.getByText(/per-location overrides/i)).toBeInTheDocument();
   });
 
-  it('renders the panel when there are overrides even with a single location', () => {
+  it('renders the panel when there are overrides even when adding is not allowed', () => {
     render(
       <PerLocationOverridePanel
         {...BASE_PROPS}
         overrides={[makeOverride('loc-1')]}
         locationOptions={SINGLE_LOCATION}
+        canAddOverrides={false}
       />,
     );
     expect(screen.getByText(/per-location overrides/i)).toBeInTheDocument();
   });
 
-  it('shows the Remove override control in the list when single-location with existing overrides', async () => {
+  it('shows the Remove override control in the list when add-ineligible with existing overrides', async () => {
     render(
       <PerLocationOverridePanel
         {...BASE_PROPS}
         overrides={[makeOverride('loc-1')]}
         locationOptions={SINGLE_LOCATION}
+        canAddOverrides={false}
       />,
     );
 
@@ -98,31 +98,38 @@ describe('PerLocationOverridePanel visibility gating', () => {
     expect(await screen.findByRole('button', { name: /remove override/i })).toBeInTheDocument();
   });
 
-  it('does NOT show Add override creation controls when single-location with existing overrides', async () => {
+  // Regression: feature flag OFF with 2+ active locations and existing
+  // overrides — canAddOverrides is false even though locationOptions.length > 1.
+  // The override list must still render (and stay deletable) with NO add
+  // controls; eligibility comes from the prop, never from the location count.
+  it('canAddOverrides=false with multiple locations + overrides: list rendered, no add buttons', async () => {
     render(
       <PerLocationOverridePanel
         {...BASE_PROPS}
-        overrides={[makeOverride('loc-1')]}
-        locationOptions={SINGLE_LOCATION}
-        // org default for email is verified → normally an "Add email override" button would appear
-        orgDefaults={[{ channel: 'email', handle: 'owner@example.com', status: 'verified' }]}
+        overrides={[makeOverride('loc-1'), makeOverride('loc-2', 'Park Ave Branch')]}
+        locationOptions={TWO_LOCATIONS}
+        canAddOverrides={false}
       />,
     );
 
     const toggle = screen.getByRole('button', { name: /per-location overrides/i });
     toggle.click();
 
-    // The "Add … override" creation button should NOT appear
+    // Both override rows stay listed and deletable.
+    const removeButtons = await screen.findAllByRole('button', { name: /remove override/i });
+    expect(removeButtons).toHaveLength(2);
+
+    // The "Add … override" creation buttons must NOT appear.
     expect(screen.queryByRole('button', { name: /add .* override/i })).toBeNull();
   });
 
-  it('shows Add override creation controls when multi-location', async () => {
+  it('shows Add override creation controls when canAddOverrides is true', async () => {
     render(
       <PerLocationOverridePanel
         {...BASE_PROPS}
         overrides={[]}
         locationOptions={TWO_LOCATIONS}
-        orgDefaults={[{ channel: 'email', handle: 'owner@example.com', status: 'verified' }]}
+        canAddOverrides
       />,
     );
 
@@ -134,6 +141,26 @@ describe('PerLocationOverridePanel visibility gating', () => {
     expect(addButtons.length).toBeGreaterThan(0);
   });
 
+  it('offers add controls only for verified org channels not already overridden', async () => {
+    render(
+      <PerLocationOverridePanel
+        overrides={[]}
+        locationOptions={TWO_LOCATIONS}
+        verifiedOrgChannels={['email', 'telegram']}
+        canAddOverrides
+      />,
+    );
+
+    const toggle = screen.getByRole('button', { name: /per-location overrides/i });
+    toggle.click();
+
+    // 2 channels × 2 locations.
+    const addButtons = await screen.findAllByRole('button', { name: /add .* override/i });
+    expect(addButtons).toHaveLength(4);
+    expect(screen.getAllByRole('button', { name: /add email override/i })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: /add telegram override/i })).toHaveLength(2);
+  });
+
   // E4/E5: an override whose location was archived back to single-location must
   // remain listable + deletable. The " (archived)" suffix is derived at render
   // time from the DTO `archived` flag — the server sends the plain label.
@@ -143,7 +170,7 @@ describe('PerLocationOverridePanel visibility gating', () => {
         {...BASE_PROPS}
         overrides={[makeOverride('loc-archived', 'Old Shop', true)]}
         locationOptions={SINGLE_LOCATION}
-        orgDefaults={[{ channel: 'email', handle: 'owner@example.com', status: 'verified' }]}
+        canAddOverrides={false}
       />,
     );
 
@@ -176,7 +203,7 @@ describe('PerLocationOverridePanel visibility gating', () => {
           makeOverride('loc-archived', 'Old Shop', true),
         ]}
         locationOptions={SINGLE_LOCATION}
-        orgDefaults={[{ channel: 'email', handle: 'owner@example.com', status: 'verified' }]}
+        canAddOverrides={false}
       />,
     );
 
@@ -196,7 +223,7 @@ describe('PerLocationOverridePanel visibility gating', () => {
     const removeButtons = screen.getAllByRole('button', { name: /remove override/i });
     expect(removeButtons).toHaveLength(2);
 
-    // Single-location: creation controls remain absent.
+    // Add-ineligible: creation controls remain absent.
     expect(screen.queryByRole('button', { name: /add .* override/i })).toBeNull();
   });
 });

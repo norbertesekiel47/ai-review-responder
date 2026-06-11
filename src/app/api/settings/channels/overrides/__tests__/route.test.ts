@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const { mockRequireRole, mockSql, mockGetAllLocationsForAccount } = vi.hoisted(() => ({
+const { mockRequireRole, mockGetChannelOverridesView } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
-  mockSql: vi.fn(),
-  mockGetAllLocationsForAccount: vi.fn(),
+  mockGetChannelOverridesView: vi.fn(),
 }));
 
 vi.mock('@/lib/db/auth', () => {
@@ -23,18 +22,14 @@ vi.mock('@/lib/db/auth', () => {
   };
 });
 
-vi.mock('@/lib/db/server', () => ({
-  sql: (...args: unknown[]) => mockSql(...args),
-}));
-
-// The route resolves labels via getLocationLabelMap, which issues ONE
-// businesses query through the repo — mock at the repo seam so the helper's
-// label/archived derivation is exercised for real.
-vi.mock('@/lib/locations/repo', () => ({
-  getAllLocationsForAccount: (...args: unknown[]) => mockGetAllLocationsForAccount(...args),
+// The route is a pure parse → auth → call → respond shell; the view module
+// owns the query + DTO mapping contract (see overrides-view.test.ts).
+vi.mock('@/lib/channels/overrides-view', () => ({
+  getChannelOverridesView: (...args: unknown[]) => mockGetChannelOverridesView(...args),
 }));
 
 import { GET } from '../route';
+import { AuthError } from '@/lib/db/auth';
 
 const ACCOUNT_ID = 'a0000000-0000-4000-8000-000000000001';
 const LOCATION_ID = 'b1111111-0000-4000-8000-000000000001';
@@ -54,116 +49,55 @@ function ownerUser() {
   };
 }
 
+const FULL_VIEW = {
+  overrides: [
+    {
+      enrollmentId: 'enrollment-1',
+      locationId: LOCATION_ID,
+      locationName: 'Downtown',
+      archived: false,
+      channel: 'telegram',
+      handle: '@downtown',
+      status: 'verified',
+      verified_at: '2026-01-02T03:04:05.000Z',
+    },
+  ],
+  locations: [
+    { id: LOCATION_ID, displayName: 'Downtown', isPrimary: true, archived: false },
+  ],
+  verifiedOrgChannels: ['email', 'telegram'],
+};
+
 describe('GET /api/settings/channels/overrides', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue(ownerUser());
+    mockGetChannelOverridesView.mockResolvedValue(FULL_VIEW);
   });
 
-  it('maps per-location overrides to display labels', async () => {
-    mockSql.mockResolvedValueOnce([
-      {
-        id: 'enrollment-1',
-        channel: 'telegram',
-        handle: '@downtown',
-        status: 'verified',
-        verified_at: new Date('2026-01-02T03:04:05.000Z'),
-        location_id: LOCATION_ID,
-      },
-    ]);
-    mockGetAllLocationsForAccount.mockResolvedValueOnce([
-      {
-        id: LOCATION_ID,
-        account_id: ACCOUNT_ID,
-        name: 'Downtown Cafe',
-        display_label: 'Downtown',
-        is_primary: true,
-        archived_at: null,
-        google_place_id: 'place-1',
-        google_place_address: null,
-        created_at: new Date('2026-01-01T00:00:00.000Z'),
-      },
-    ]);
-
+  it('returns the FULL override view for the authed account (overrides + locations + verifiedOrgChannels)', async () => {
     const res = await GET(makeRequest());
 
     expect(res.status).toBe(200);
-    expect(mockSql).toHaveBeenCalledTimes(1);
-    expect(mockGetAllLocationsForAccount).toHaveBeenCalledWith(ACCOUNT_ID);
-    await expect(res.json()).resolves.toEqual({
-      overrides: [
-        {
-          enrollmentId: 'enrollment-1',
-          locationId: LOCATION_ID,
-          locationName: 'Downtown',
-          archived: false,
-          channel: 'telegram',
-          handle: '@downtown',
-          status: 'verified',
-          verified_at: '2026-01-02T03:04:05.000Z',
-        },
-      ],
-    });
+    expect(mockGetChannelOverridesView).toHaveBeenCalledExactlyOnceWith(ACCOUNT_ID);
+    await expect(res.json()).resolves.toEqual(FULL_VIEW);
   });
 
-  it('flags an archived-location override via `archived: true` and never suffixes the label server-side', async () => {
-    const ARCHIVED_LOCATION_ID = 'c2222222-0000-4000-8000-000000000002';
-
-    mockSql.mockResolvedValueOnce([
-      {
-        id: 'enrollment-active',
-        channel: 'telegram',
-        handle: '@downtown',
-        status: 'verified',
-        verified_at: new Date('2026-01-02T03:04:05.000Z'),
-        location_id: LOCATION_ID,
-      },
-      {
-        id: 'enrollment-archived',
-        channel: 'telegram',
-        handle: '@uptown',
-        status: 'verified',
-        verified_at: new Date('2026-02-01T00:00:00.000Z'),
-        location_id: ARCHIVED_LOCATION_ID,
-      },
-    ]);
-    mockGetAllLocationsForAccount.mockResolvedValueOnce([
-      {
-        id: LOCATION_ID,
-        account_id: ACCOUNT_ID,
-        name: 'Downtown Cafe',
-        display_label: 'Downtown',
-        is_primary: true,
-        archived_at: null,
-        google_place_id: 'place-1',
-        google_place_address: null,
-        created_at: new Date('2026-01-01T00:00:00.000Z'),
-      },
-      {
-        id: ARCHIVED_LOCATION_ID,
-        account_id: ACCOUNT_ID,
-        name: 'Uptown Branch',
-        display_label: 'Uptown',
-        is_primary: false,
-        archived_at: new Date('2026-03-01T00:00:00.000Z'),
-        google_place_id: 'place-2',
-        google_place_address: null,
-        created_at: new Date('2026-01-01T00:00:00.000Z'),
-      },
-    ]);
+  it('returns 401 without calling the view when auth fails', async () => {
+    mockRequireRole.mockRejectedValue(new AuthError('Unauthorized', 401));
 
     const res = await GET(makeRequest());
 
-    expect(res.status).toBe(200);
-    const body = await res.json() as { overrides: { locationId: string; locationName: string; archived: boolean }[] };
+    expect(res.status).toBe(401);
+    expect(mockGetChannelOverridesView).not.toHaveBeenCalled();
+  });
 
-    const active = body.overrides.find((o) => o.locationId === LOCATION_ID);
-    const archived = body.overrides.find((o) => o.locationId === ARCHIVED_LOCATION_ID);
+  it('returns 403 without calling the view when the owner has no account', async () => {
+    mockRequireRole.mockResolvedValue({ ...ownerUser(), accountId: null });
 
-    expect(active?.locationName).toBe('Downtown');
-    expect(active?.archived).toBe(false);
-    // The label is plain — "(archived)" is derived from the flag at render time.
-    expect(archived?.locationName).toBe('Uptown');
-    expect(archived?.archived).toBe(true);
+    const res = await GET(makeRequest());
+
+    expect(res.status).toBe(403);
+    expect(mockGetChannelOverridesView).not.toHaveBeenCalled();
   });
 });

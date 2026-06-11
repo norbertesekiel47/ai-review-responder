@@ -27,44 +27,46 @@ import {
   type PerLocationOverride,
   type LocationOption,
 } from '@/components/dashboard/settings/PerLocationOverridePanel';
+import type { ChannelOverridesView } from '@/lib/channels/overrides-view';
+import type { ChannelId } from '@/lib/notifications/channels/types';
 
 interface Props extends ChannelsClientProps {
-  multiLocationEnabled?: boolean;
-  locationsSettingsEnabled?: boolean;
-  perLocationOverrides?: PerLocationOverride[];
-  locationOptions?: LocationOption[];
-  accountId?: string;
+  multiLocationEnabled: boolean;
+  locationsSettingsEnabled: boolean;
+  /** Computed once by the page: multi-location mode AND >1 active location. */
+  canAddOverrides: boolean;
+  perLocationOverrides: PerLocationOverride[];
+  locationOptions: LocationOption[];
+  verifiedOrgChannels: ChannelId[];
 }
 
 export function ChannelsTabClient(props: Props) {
   const f = useSettingsForm();
 
-  // Track overrides in local state so we can update after add/remove
+  // Track the override view in local state so we can update after add/remove
   // without a full page reload. The initial values come from SSR.
-  const [overrides, setOverrides] = useState<PerLocationOverride[]>(
-    props.perLocationOverrides ?? [],
+  const [overrides, setOverrides] = useState<PerLocationOverride[]>(props.perLocationOverrides);
+  const [locationOptions, setLocationOptions] = useState<LocationOption[]>(props.locationOptions);
+  const [verifiedOrgChannels, setVerifiedOrgChannels] = useState<ChannelId[]>(
+    props.verifiedOrgChannels,
   );
 
-  // Refresh overrides from server after add/remove
+  // Refresh the full override view from the server after add/remove — not just
+  // the override list, so verified-org-channel changes are never stale.
   const refreshOverrides = async () => {
     try {
       const res = await fetch('/api/settings/channels/overrides');
       if (res.ok) {
-        const data = await res.json();
-        setOverrides(data.overrides ?? []);
+        const view = (await res.json()) as ChannelOverridesView;
+        setOverrides(view.overrides ?? []);
+        setLocationOptions((view.locations ?? []).filter((location) => !location.archived));
+        setVerifiedOrgChannels(view.verifiedOrgChannels ?? []);
       }
     } catch {
       // Fallback: full page reload
       window.location.reload();
     }
   };
-
-  // Org-level defaults for the override panel to reference
-  const orgDefaults = props.initialEnrollments.map((e) => ({
-    channel: e.channel,
-    handle: e.handle,
-    status: e.status,
-  }));
 
   if (f.fetchError) {
     return (
@@ -114,20 +116,17 @@ export function ChannelsTabClient(props: Props) {
       {/* Org-level defaults — the existing ChannelsClient */}
       <ChannelsClient {...props} />
 
-      {/* Per-location overrides — collapsed by default.
-          Render when there are existing overrides to list/delete (regardless of
-          location count), OR when in multi-location mode so the owner can add new
-          ones. The panel itself gates creation controls on locationOptions.length > 1. */}
-      {(overrides.length > 0 || (props.multiLocationEnabled && props.locationOptions && props.locationOptions.length > 1)) && (
-        <PerLocationOverridePanel
-          overrides={overrides}
-          locationOptions={props.locationOptions ?? []}
-          orgDefaults={orgDefaults}
-          accountId={props.accountId ?? ''}
-          onOverrideAdded={refreshOverrides}
-          onOverrideRemoved={refreshOverrides}
-        />
-      )}
+      {/* Per-location overrides — collapsed by default. The panel owns its
+          own visibility (hidden when there is nothing to list and nothing
+          can be added). */}
+      <PerLocationOverridePanel
+        overrides={overrides}
+        locationOptions={locationOptions}
+        verifiedOrgChannels={verifiedOrgChannels}
+        canAddOverrides={props.canAddOverrides}
+        onOverrideAdded={refreshOverrides}
+        onOverrideRemoved={refreshOverrides}
+      />
 
       <div className="set-section">
         <div className="set-section-head">
