@@ -16,10 +16,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '@/lib/db/server';
+import { sql } from '@/lib/db/server';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
 import { jsonResponse, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
+import { writeAccountAuditLog } from '@/lib/audit/log';
 
 export const dynamic = 'force-dynamic';
 
@@ -107,65 +108,55 @@ async function createOverride(request: NextRequest): Promise<NextResponse> {
     return jsonResponse({ error: 'Override already exists for this location and channel' }, 409);
   }
 
-  // Clone the org-default enrollment as a per-location override
+  // Clone the org-default enrollment as a per-location override.
+  // Both the enrollment INSERT and audit write happen in ONE transaction so a
+  // failed audit write rolls back the enrollment — no partial state.
   // VAL-SETTINGS-014: Clones handle values from org-default
+  let newRow: { id: string } | undefined;
   try {
-    const rows = await sql<{ id: string }[]>`
-      INSERT INTO channel_enrollments (
-        id, account_id, business_id, location_id, channel, handle,
-        status, verified_at, created_at, updated_at
-      ) VALUES (
-        ${uuidv7()}::uuid,
-        ${user.accountId}::uuid,
-        ${locationId}::uuid,
-        ${locationId}::uuid,
-        ${channel},
-        ${orgDefault.handle},
-        ${orgDefault.status},
-        ${orgDefault.verified_at},
-        NOW(),
-        NOW()
-      )
-      RETURNING id
-    `;
+    await sql.begin(async (tx) => {
+      const rows = await tx<{ id: string }[]>`
+        INSERT INTO channel_enrollments (
+          id, account_id, business_id, location_id, channel, handle,
+          status, verified_at, created_at, updated_at
+        ) VALUES (
+          ${uuidv7()}::uuid,
+          ${user.accountId}::uuid,
+          ${locationId}::uuid,
+          ${locationId}::uuid,
+          ${channel},
+          ${orgDefault.handle},
+          ${orgDefault.status},
+          ${orgDefault.verified_at},
+          NOW(),
+          NOW()
+        )
+        RETURNING id
+      `;
 
-    const newRow = rows[0];
-    if (!newRow) {
-      return jsonResponse({ error: 'Failed to create override' }, 500);
-    }
+      const inserted = rows[0];
+      if (!inserted) {
+        throw new Error('INSERT returned no rows');
+      }
 
-    // Audit trail: channel_override_created
-    await sql`
-      INSERT INTO account_audit_log (
-        id, account_id, location_id, event_type, actor_user_id, payload
-      ) VALUES (
-        ${uuidv7()}::uuid,
-        ${user.accountId}::uuid,
-        ${locationId}::uuid,
-        'channel_override_created',
-        ${user.id ?? null}::uuid,
-        ${jsonb({
+      // Audit trail: channel_override_created (inside tx — rolls back with enrollment on failure)
+      await writeAccountAuditLog({
+        accountId: owner.accountId,
+        locationId,
+        actorUserId: user.id ?? null,
+        eventType: 'channel_override_created',
+        entityType: 'channel_enrollment',
+        entityId: inserted.id,
+        payload: {
           channel,
-          override_enrollment_id: newRow.id,
+          override_enrollment_id: inserted.id,
           cloned_handle: orgDefault.handle,
           cloned_status: orgDefault.status,
-        })}
-      )
-    `;
+        },
+      }, tx);
 
-    // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes
-    await safeInvalidateChannelCache(asAccountId(owner.accountId), 'settings.channels.override.upsert');
-
-    return jsonResponse({
-      success: true,
-      override: {
-        id: newRow.id,
-        locationId,
-        channel,
-        handle: orgDefault.handle,
-        status: orgDefault.status,
-      },
-    }, 201);
+      newRow = inserted;
+    });
   } catch (error: unknown) {
     // Handle potential unique constraint violation (race condition)
     const pgError = error as { code?: string; constraint?: string };
@@ -175,6 +166,24 @@ async function createOverride(request: NextRequest): Promise<NextResponse> {
     console.error('[api/settings/channels/override POST] Failed:', error);
     return jsonResponse({ error: 'Failed to create override' }, 500);
   }
+
+  if (!newRow) {
+    return jsonResponse({ error: 'Failed to create override' }, 500);
+  }
+
+  // VAL-NOTIF-009: Invalidate cache AFTER commit — never inside the transaction
+  await safeInvalidateChannelCache(asAccountId(owner.accountId), 'settings.channels.override.upsert');
+
+  return jsonResponse({
+    success: true,
+    override: {
+      id: newRow.id,
+      locationId,
+      channel,
+      handle: orgDefault.handle,
+      status: orgDefault.status,
+    },
+  }, 201);
 }
 
 // ── DELETE: Remove per-location channel override ────────────────────────
@@ -211,40 +220,57 @@ async function deleteOverride(request: NextRequest): Promise<NextResponse> {
 
   const { locationId, channel } = parsed.data;
 
-  // Soft-delete the per-location override
+  // Soft-delete the per-location override and write audit in ONE transaction.
+  // A failed audit write rolls back the soft-delete — no partial state.
   // Only archive overrides (location_id IS NOT NULL) — never org-defaults
-  const [archived] = await sql<{ id: string }[]>`
-    UPDATE channel_enrollments
-    SET archived_at = NOW(), updated_at = NOW()
-    WHERE account_id = ${user.accountId}::uuid
-      AND channel = ${channel}
-      AND location_id = ${locationId}::uuid
-      AND archived_at IS NULL
-    RETURNING id
-  `;
+  let archivedId: string | undefined;
+  try {
+    await sql.begin(async (tx) => {
+      const [archived] = await tx<{ id: string }[]>`
+        UPDATE channel_enrollments
+        SET archived_at = NOW(), updated_at = NOW()
+        WHERE account_id = ${user.accountId}::uuid
+          AND channel = ${channel}
+          AND location_id = ${locationId}::uuid
+          AND archived_at IS NULL
+        RETURNING id
+      `;
 
-  if (!archived) {
-    return jsonResponse({ error: 'No override found for this location and channel' }, 404);
+      if (!archived) {
+        // Surface 404 outside the tx via a sentinel — no audit row for a no-op
+        throw Object.assign(new Error('Not found'), { _notFound: true });
+      }
+
+      // Audit trail: channel_override_removed (inside tx — rolls back with enrollment on failure)
+      await writeAccountAuditLog({
+        accountId: owner.accountId,
+        locationId,
+        actorUserId: user.id ?? null,
+        eventType: 'channel_override_removed',
+        entityType: 'channel_enrollment',
+        entityId: archived.id,
+        payload: {
+          channel,
+          archived_enrollment_id: archived.id,
+        },
+      }, tx);
+
+      archivedId = archived.id;
+    });
+  } catch (error: unknown) {
+    const sentinel = error as { _notFound?: boolean };
+    if (sentinel._notFound) {
+      return jsonResponse({ error: 'No override found for this location and channel' }, 404);
+    }
+    console.error('[api/settings/channels/override DELETE] Failed:', error);
+    return jsonResponse({ error: 'Failed to remove override' }, 500);
   }
 
-  // Audit trail: channel_override_removed
-  await sql`
-    INSERT INTO account_audit_log (
-      id, account_id, location_id, event_type, actor_user_id, payload
-    ) VALUES (
-      ${uuidv7()}::uuid,
-      ${user.accountId}::uuid,
-      ${locationId}::uuid,
-      'channel_override_removed',
-      ${user.id ?? null}::uuid,
-      ${jsonb({
-        channel,
-        archived_enrollment_id: archived.id,
-      })}
-    )
-  `;
+  if (!archivedId) {
+    return jsonResponse({ error: 'Failed to remove override' }, 500);
+  }
 
-  // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes
+  // VAL-NOTIF-009: Invalidate cache AFTER commit — never inside the transaction
   await safeInvalidateChannelCache(asAccountId(owner.accountId), 'settings.channels.override.delete');
 
   return jsonResponse({ success: true });
