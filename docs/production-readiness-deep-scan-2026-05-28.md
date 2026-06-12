@@ -177,6 +177,8 @@ _(scanned directly — not delegated)_
   browsing-topics=()`. Cheap, standard hardening.
 
 ### 🟡 1.4 — Tenant-scope audit allowlist has grown to 335 entries / 2,052 lines
+
+> **Status: ✅ Resolved** in PR #298 (2026-06-12) — every entry categorized (8-value `TenantScopeAllowlistCategory`), per-category path invariants enforced by the audit, exact-match `ALLOWLIST_BASELINE = 340` gate (any add/remove requires an explicit bump), count printed in audit output. No SQL snippet reworded.
 - **Location:** `scripts/ci/tenant-scope-allowlist.ts` (196 KB, 335 entries)
 - **Evidence:** Each entry is a query **exempted** from the cross-tenant scoping
   audit. 335 exemptions is large enough that (a) a genuinely-unsafe query can hide

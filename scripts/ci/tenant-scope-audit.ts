@@ -1,7 +1,12 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { tenantScopeAllowlist, type TenantScopeAllowlistEntry } from './tenant-scope-allowlist';
+import {
+  ALLOWLIST_BASELINE,
+  CATEGORY_PATH_RULES,
+  tenantScopeAllowlist,
+  type TenantScopeAllowlistEntry,
+} from './tenant-scope-allowlist';
 import { TENANT_TABLES, type TenantTable } from './tenant-tables';
 
 export interface TenantScopeFinding {
@@ -493,6 +498,43 @@ function findUnusedAllowlistEntries(usedAllowlistKeys: Set<string>): TenantScope
     }));
 }
 
+/**
+ * Structural checks on the allowlist itself: the exact-match baseline gate
+ * (any add or remove must bump ALLOWLIST_BASELINE in the same PR) and the
+ * per-category path invariants (an entry may not claim a justification its
+ * file location contradicts). Exported for tests.
+ */
+export function findAllowlistIntegrityFindings(
+  entries: readonly TenantScopeAllowlistEntry[] = tenantScopeAllowlist,
+  baseline: number = ALLOWLIST_BASELINE,
+): TenantScopeFinding[] {
+  const findings: TenantScopeFinding[] = [];
+
+  if (entries.length !== baseline) {
+    findings.push({
+      file: 'scripts/ci/tenant-scope-allowlist.ts',
+      table: '(allowlist)',
+      reason: `allowlist has ${entries.length} entries but ALLOWLIST_BASELINE is ${baseline} — update the baseline in the same PR so the change is an explicit, reviewed decision`,
+    });
+  }
+
+  for (const entry of entries) {
+    const rule = CATEGORY_PATH_RULES[entry.category];
+    if (!rule) continue;
+    const allowed = rule.allowedPrefixes.some((prefix) => entry.file.startsWith(prefix))
+      || rule.allowedFiles?.includes(entry.file);
+    if (!allowed) {
+      findings.push({
+        file: entry.file,
+        table: entry.table,
+        reason: `category '${entry.category}' requires the file to live under ${rule.allowedPrefixes.join(' | ')} — recategorize the entry, or add the file to this category's allowedFiles in CATEGORY_PATH_RULES with a justification`,
+      });
+    }
+  }
+
+  return findings;
+}
+
 export function auditSqlText(
   file: string,
   sqlText: string,
@@ -858,6 +900,7 @@ async function auditRepository(): Promise<TenantScopeFinding[]> {
   }
 
   return [
+    ...findAllowlistIntegrityFindings(),
     ...findDuplicateAllowlistEntries(),
     ...findUnusedAllowlistEntries(usedAllowlistKeys),
     ...findings,
@@ -866,15 +909,16 @@ async function auditRepository(): Promise<TenantScopeFinding[]> {
 
 async function main(): Promise<void> {
   const findings = await auditRepository();
+  const countSummary = `entries: ${tenantScopeAllowlist.length} (baseline: ${ALLOWLIST_BASELINE})`;
   if (findings.length > 0) {
-    console.error('tenant-scope-audit: failed');
+    console.error(`tenant-scope-audit: failed — ${countSummary}`);
     for (const finding of findings) {
       console.error(`${finding.file}: ${finding.table}: ${finding.reason}`);
     }
     process.exit(1);
   }
 
-  console.log('tenant-scope-audit: passed');
+  console.log(`tenant-scope-audit: passed — ${countSummary}`);
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
