@@ -59,6 +59,9 @@ Assertion source: `worker/config/startup-assert.ts`.
 | `ALLOW_E2E_DB_WRITES` | — | Second half of `e2e/seed.ts`'s `isE2eConfigured` gate (Playwright doesn't run with `NODE_ENV=test`): `true` lets the seed helpers write to `TEST_DATABASE_POOL_URL`. Set only against disposable test databases — never dev/staging. CI's `e2e` job sets it. |
 | `E2E_OWNER_EMAIL` | — | Confirmed owner login on the test Supabase, used by the owner-login E2E specs (`e2e/remaining-scenarios`, `e2e/edit-replies-runbook`). Specs skip when unset. Never hardcode in spec files. |
 | `E2E_OWNER_PASSWORD` | — | Password for `E2E_OWNER_EMAIL`. Server/test-only; never committed. |
+| `E2E_SUPABASE_URL` | — | Auth-harness (e2e/harness.ts) Supabase project URL — the STAGING project. With `E2E_SUPABASE_SERVICE_KEY`, enables the 4 base-tier auth-funnel specs. Never set in CI. |
+| `E2E_SUPABASE_SERVICE_KEY` | — | Service-role key for the harness project (admin createUser/generateLink/deleteUser). Never committed, never in CI. |
+| `E2E_AUTH_DEEP` | — | `true` opts into the 4 deep auth specs, which require `TEST_DATABASE_POOL_URL` = the staging Postgres (dual-client constraint). Seeds/cleans shared staging rows — deliberate local use only; see `docs/runbooks/e2e-local-setup.md#auth-harness`. |
 | `E2E_DATABASE_URL` | — | Optional Postgres URL for the raw-`psql` E2E fixtures; falls back to `TEST_DATABASE_POOL_URL` when unset. |
 | `FIXTURE_ACCOUNT_ID` | `fixture-account-1` | Test-only: Zernio account id the fake fixture-server launcher (`e2e/fixtures/serve.ts`) reports for its locations. Override to match the seeded `zernio_connections.zernio_account_id` in the multi-location full-loop runbook. Never read by production code. |
 

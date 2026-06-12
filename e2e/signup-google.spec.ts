@@ -1,82 +1,68 @@
 import { test, expect } from '@playwright/test';
+import { isE2eConfigured } from './seed';
+import {
+  isAuthHarnessConfigured,
+  createBareAuthUser,
+  deleteProvisionedOwner,
+  signInViaMagicLink,
+  isDeepAuthConfigured,
+} from './harness';
+
+// ---------------------------------------------------------------------------
+// Post-OAuth signup completion: /signup/finish → name form → /onboarding/pay.
+//
+// Playwright cannot drive Google's real consent screen, so the harness
+// simulates the post-callback state: a confirmed bare auth user (no app rows
+// yet — exactly what a first-time OAuth identity looks like) signed in via an
+// admin magic link routed through the app's own callback.
+//
+// NOTE: the spec's original scaffold predated the current finish form — the
+// page collects name/phone only ("we'll set up your business after payment");
+// the business form moved into the post-pay wizard.
+// ---------------------------------------------------------------------------
 
 test.describe('owner Google signup flow', () => {
-  test('Google OAuth redirect → /signup/finish → business form → /onboarding/pay', async ({
+  test.skip(!isE2eConfigured, 'TEST_DATABASE_POOL_URL not set');
+  test.skip(
+    !isAuthHarnessConfigured,
+    'E2E_SUPABASE_URL / E2E_SUPABASE_SERVICE_KEY not set — auth-harness specs run locally against staging (e2e/README.md)',
+  );
+
+  test('OAuth-state session → /signup/finish → name form → /onboarding/pay', async ({
     page,
-    context,
   }) => {
-    // REQUIRES:
-    //   SELF_SERVE_SIGNUP_ENABLED=true
-    //   NEXT_PUBLIC_APP_URL=http://localhost:3000
-    //   Supabase project configured with Google OAuth provider
-    //
-    // Because Playwright cannot interact with Google's real OAuth consent screen,
-    // simulate the post-callback state by injecting a Supabase session cookie
-    // directly via the admin API:
-    //
-    //   1. Create a Supabase Auth user with email_confirmed=true to match the
-    //      OAuth identity state:
-    //        const { data } = await supabase.auth.admin.createUser({
-    //          email: 'e2e-google@example.com',
-    //          email_confirm: true,
-    //          user_metadata: { full_name: 'E2E Google User' },
-    //        });
-    //
-    //   2. Generate a magic-link session and extract the access/refresh tokens:
-    //        const { data: link } = await supabase.auth.admin.generateLink({
-    //          type: 'magiclink',
-    //          email: 'e2e-google@example.com',
-    //        });
-    //        // Navigate to link.properties.action_link to obtain session cookies.
-    //
-    //   3. Inject the session cookie so /signup/finish sees an authenticated user:
-    //        await context.addCookies([
-    //          { name: 'sb-<ref>-auth-token', value: '<base64-session>', ... },
-    //        ]);
-    //
-    // Cleanup: supabase.auth.admin.deleteUser(data.user.id)
-    //          + DELETE FROM businesses WHERE owner_email = 'e2e-google@example.com'
+    test.skip(
+      !isDeepAuthConfigured,
+      'Deep auth tier: requires E2E_AUTH_DEEP=true with TEST_DATABASE_POOL_URL pointed at the staging Postgres (dual-client constraint) — see docs/runbooks/e2e-local-setup.md',
+    );
+    let authUserId: string | undefined;
+    try {
+      const bare = await createBareAuthUser();
+      authUserId = bare.authUserId;
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // STEP 1: Inject harness session cookie (see above).
-    // Uncomment once harness is wired up per e2e/README.md.
-    // ──────────────────────────────────────────────────────────────────────────
+      // STEP 1: materialize an authenticated session through the app's own
+      // callback (no hand-crafted cookies).
+      await signInViaMagicLink(page, bare.email, '/signup/finish');
 
-    // await context.addCookies([/* harness-provided Supabase session cookies */]);
+      // STEP 2: the finish page renders for the fresh identity.
+      await page.goto('/signup/finish');
+      await expect(page.getByText(/almost there/i)).toBeVisible({ timeout: 15_000 });
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // STEP 2: Navigate to the post-OAuth finish page.
-    // ──────────────────────────────────────────────────────────────────────────
+      // STEP 3: the email field is pre-filled from the OAuth identity and
+      // not editable.
+      const emailField = page.getByLabel(/email \(from your google account\)/i);
+      await expect(emailField).toBeDisabled();
+      await expect(emailField).toHaveValue(bare.email);
 
-    // await page.goto('/signup/finish');
-    // await expect(page.getByText(/almost there/i)).toBeVisible();
+      // STEP 4: complete the name form.
+      await page.getByLabel('Your name').fill('E2E Google User');
+      await page.getByRole('button', { name: /continue/i }).click();
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // STEP 3: The email field should be pre-filled and read-only (from the
-    //         OAuth identity — owner cannot change it).
-    // ──────────────────────────────────────────────────────────────────────────
-
-    // const disabledEmail = page.locator('input[disabled]').first();
-    // await expect(disabledEmail).toHaveValue(/example\.com/);
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // STEP 4: Fill the business-info portion of the finish form.
-    // ──────────────────────────────────────────────────────────────────────────
-
-    // await page.getByPlaceholder('Business name').fill('E2E Google Biz');
-    // await page.getByPlaceholder('Google Maps URL').fill(
-    //   'https://www.google.com/maps/place/X/@0,0,17z/data=!3m1!4b1!4m6!3m5!1s0x0:0x0!8m2!3d0!4d0',
-    // );
-    // await page.getByRole('button', { name: /continue to payment/i }).click();
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // STEP 5: Assert redirect to payment page.
-    // ──────────────────────────────────────────────────────────────────────────
-
-    // await expect(page).toHaveURL(/\/onboarding\/pay/);
-
-    // Placeholder assertion so the test file is a valid Playwright spec
-    // and is visible in the report while the harness is being wired up.
-    test.skip(true, 'Harness (session cookie injection) not yet wired up — see e2e/README.md');
+      // STEP 5: provisioning done → first onboarding step (/onboarding/start
+      // when ONBOARDING_DEMO_ENABLED, /onboarding/pay in the legacy flow).
+      await page.waitForURL(/\/onboarding\/(start|pay)/, { timeout: 20_000 });
+    } finally {
+      if (authUserId) await deleteProvisionedOwner(authUserId);
+    }
   });
 });

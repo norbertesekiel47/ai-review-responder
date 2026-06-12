@@ -1,89 +1,124 @@
 import { test, expect } from '@playwright/test';
+import { isE2eConfigured } from './seed';
+import {
+  isAuthHarnessConfigured,
+  createOwnerUser,
+  deleteOwnerUser,
+  getResetUrl,
+  isDeepAuthConfigured,
+  type OwnerHandle,
+} from './harness';
 
 // ---------------------------------------------------------------------------
 // Full owner reset-password flow:
 //   recovery link → /reset-password → set new password → redirected to /login
-//   → sign in with new password → /dashboard
+//   → sign in with new password → authenticated app.
+//
+// Harness: staging Supabase (E2E_SUPABASE_URL/E2E_SUPABASE_SERVICE_KEY); the
+// app under test must point at the same project — see
+// docs/runbooks/e2e-local-setup.md §auth-harness.
 // ---------------------------------------------------------------------------
 
 test.describe('owner reset-password completion', () => {
-  // REQUIRES:
-  //   SELF_SERVE_SIGNUP_ENABLED=true
-  //   NEXT_PUBLIC_APP_URL=http://localhost:3000
-  //   Supabase project with password auth enabled
-  //   harness.createOwnerUser() — creates a Supabase Auth + users row
-  //   harness.getResetUrl(email) — calls
-  //     supabase.auth.admin.generateLink({ type: 'recovery', email })
-  //     and returns the action_link URL
-  //
-  // Cleanup:
-  //   supabase.auth.admin.deleteUser(userId)
-  //   DELETE FROM users WHERE auth_id = userId
+  test.skip(!isE2eConfigured, 'TEST_DATABASE_POOL_URL not set');
+  test.skip(
+    !isAuthHarnessConfigured,
+    'E2E_SUPABASE_URL / E2E_SUPABASE_SERVICE_KEY not set — auth-harness specs run locally against staging (e2e/README.md)',
+  );
 
-  test('recovery URL → reset-password → new password → login', async ({ page }) => {
-    // STEP 1: Obtain a recovery link via admin API (no real email sent).
-    //   const ownerEmail = await harness.createOwnerUser();
-    //   const resetUrl = await harness.getResetUrl(ownerEmail);
+  test('recovery URL → reset-password → new password → login works', async ({ page }) => {
+    test.skip(
+      !isDeepAuthConfigured,
+      'Deep auth tier: requires E2E_AUTH_DEEP=true with TEST_DATABASE_POOL_URL pointed at the staging Postgres (dual-client constraint) — see docs/runbooks/e2e-local-setup.md',
+    );
+    let owner: OwnerHandle | undefined;
+    try {
+      owner = await createOwnerUser();
 
-    // STEP 2: Navigate to the recovery link.  The /api/auth/callback handler
-    //         exchanges the code and redirects to /reset-password.
-    //   await page.goto(resetUrl);
-    //   await page.waitForURL(/\/reset-password/);
-    //   await expect(page.getByText(/set a new password/i)).toBeVisible();
+      // STEP 1-2: admin-API recovery link (no real email) → callback →
+      // owner reset page.
+      const resetUrl = await getResetUrl(owner.email);
+      await page.goto(resetUrl);
+      await page.waitForURL(/\/reset-password/, { timeout: 15_000 });
+      await expect(page.getByText(/set a new password/i)).toBeVisible();
 
-    // STEP 3: Fill the reset form with a new password.
-    //   const newPassword = `pw-${Date.now()}`;
-    //   await page.getByPlaceholder(/new password/i).fill(newPassword);
-    //   await page.getByPlaceholder(/confirm password/i).fill(newPassword);
-    //   await page.getByRole('button', { name: /update password/i }).click();
+      // STEP 3: set the new password (owner variant — labeled fields).
+      const newPassword = `pw-new-${Date.now()}`;
+      await page.getByLabel('New password').fill(newPassword);
+      await page.getByLabel('Confirm password').fill(newPassword);
+      await page.getByRole('button', { name: /update password/i }).click();
 
-    // STEP 4: After a successful reset the page must redirect to /login.
-    //   await page.waitForURL(/\/login/);
+      // STEP 4: successful reset redirects to the owner login.
+      await page.waitForURL(/\/login/, { timeout: 15_000 });
 
-    // STEP 5: Sign in with the new password to confirm the change persisted.
-    //   await page.getByPlaceholder('Email').fill(ownerEmail);
-    //   await page.getByPlaceholder(/password/i).fill(newPassword);
-    //   await page.getByRole('button', { name: /sign in/i }).click();
-    //   await expect(page).toHaveURL(/\/dashboard/);
-
-    test.skip(true, 'Harness (auth.admin.generateLink recovery) not yet wired up — see e2e/README.md');
+      // STEP 5: the new password actually works.
+      await page.getByLabel('Email').fill(owner.email);
+      await page.getByLabel('Password').fill(newPassword);
+      await page.getByRole('button', { name: /sign in/i }).click();
+      // Authenticated landing — exact destination depends on onboarding
+      // state; the contract here is "left the login page without an error".
+      await page.waitForURL((url) => !/\/login/.test(url.pathname), { timeout: 20_000 });
+    } finally {
+      if (owner) await deleteOwnerUser(owner);
+    }
   });
 
-  test('mismatched-portal recovery link → redirected to correct portal reset page', async ({
+  test('mismatched-portal recovery link → never lands on the admin reset page', async ({
     page,
   }) => {
-    // Cross-portal invariant: a recovery link generated for the owner portal
-    // (flow=owner) must not be accepted on /admin/reset-password and vice versa.
-    // The callback route should redirect to the correct portal's reset page.
-    //
-    // REQUIRES:
-    //   const ownerEmail = await harness.createOwnerUser();
-    //   const resetUrl = await harness.getResetUrl(ownerEmail);
-    //   // Manually rewrite the callback `next` param to point at the admin portal:
-    //   const wrongPortalUrl = resetUrl.replace('next=/reset-password', 'next=/admin/reset-password');
+    // Cross-portal invariant: a recovery link generated for the owner flow,
+    // with its `next` rewritten toward the admin portal, must not be accepted
+    // at /admin/reset-password.
+    let owner: OwnerHandle | undefined;
+    try {
+      owner = await createOwnerUser();
 
-    //   await page.goto(wrongPortalUrl);
-    //   // The callback handler detects the role mismatch and redirects to the
-    //   // correct portal rather than rendering the wrong one.
-    //   await page.waitForURL(/\/reset-password/);          // owner portal
-    //   await expect(page).not.toHaveURL(/\/admin\/reset-password/);
+      const resetUrl = await getResetUrl(owner.email);
+      const wrongPortalUrl = resetUrl.replace(
+        'next%3D%2Freset-password',
+        'next%3D%2Fadmin%2Freset-password',
+      ).replace('next=/reset-password', 'next=/admin/reset-password');
 
-    test.skip(true, 'Harness (auth.admin.generateLink recovery + cross-portal redirect) not yet wired up — see e2e/README.md');
+      await page.goto(wrongPortalUrl);
+      // The callback detects the role/flow mismatch and routes to the owner
+      // portal (or an error) — never the admin reset form.
+      await page.waitForURL(/\/(reset-password|login|forgot-password)/, { timeout: 15_000 });
+      await expect(page).not.toHaveURL(/\/admin\/reset-password/);
+    } finally {
+      if (owner) await deleteOwnerUser(owner);
+    }
   });
 
-  test('expired recovery link → error page', async ({ page }) => {
-    // Supabase recovery codes expire after 1 hour by default.
-    // A replayed / stale link must land on an error state rather than the form.
-    //
-    // REQUIRES:
-    //   A genuinely expired link (hard to generate in-harness) OR the callback
-    //   handler short-circuits and redirects to /reset-password?error=expired.
-    //   One approach: call supabase.auth.admin.generateLink for a deleted user.
+  test('consumed recovery link cannot be replayed', async ({ page }) => {
+    test.skip(
+      !isDeepAuthConfigured,
+      'Deep auth tier: requires E2E_AUTH_DEEP=true with TEST_DATABASE_POOL_URL pointed at the staging Postgres (dual-client constraint) — see docs/runbooks/e2e-local-setup.md',
+    );
+    // Supabase recovery codes are single-use; a replayed link must not yield
+    // a usable reset form session a second time. (True time-expiry is not
+    // generatable in-harness; single-use consumption covers the replay half.)
+    let owner: OwnerHandle | undefined;
+    try {
+      owner = await createOwnerUser();
 
-    //   await page.goto('/reset-password?error=expired');
-    //   await expect(page.getByText(/link has expired/i)).toBeVisible();
-    //   await expect(page.getByRole('link', { name: /request a new link/i })).toBeVisible();
+      const resetUrl = await getResetUrl(owner.email);
+      await page.goto(resetUrl);
+      await page.waitForURL(/\/reset-password/, { timeout: 15_000 });
 
-    test.skip(true, 'Harness (expired link simulation) not yet wired up — see e2e/README.md');
+      // Complete the reset so the link is consumed.
+      const newPassword = `pw-new-${Date.now()}`;
+      await page.getByLabel('New password').fill(newPassword);
+      await page.getByLabel('Confirm password').fill(newPassword);
+      await page.getByRole('button', { name: /update password/i }).click();
+      await page.waitForURL(/\/login/, { timeout: 15_000 });
+
+      // Replay the SAME link in a fresh context-free navigation: it must not
+      // land back on a working reset form (error param or bounce elsewhere).
+      await page.context().clearCookies();
+      await page.goto(resetUrl);
+      await expect(page).not.toHaveURL(/\/reset-password$/, { timeout: 15_000 });
+    } finally {
+      if (owner) await deleteOwnerUser(owner);
+    }
   });
 });

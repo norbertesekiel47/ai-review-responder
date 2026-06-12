@@ -51,7 +51,53 @@ pnpm test:e2e --project=chromium
 | Owner-offboarding DB-backed lifecycle | quarantined — dynamic src/worker imports break under Playwright's transform (issue #283) | same |
 | mobile-chrome project | not in CI (runtime budget) | `pnpm test:e2e --project=mobile-chrome` |
 
-## 4. Cleanup
+## 4. Auth harness (forgot/reset/signup-google) {#auth-harness}
+
+The auth-funnel specs use `e2e/harness.ts` — a Supabase `auth.admin` wrapper
+backed by the STAGING project. Two tiers:
+
+**Base tier (4 specs — cross-portal anti-enumeration, mismatched-portal):**
+staging Auth users + the local test DB. Safe by construction; unique emails
+(`e2e-*@e2e.repworth.net`), `finally` cleanup.
+
+```bash
+export E2E_SUPABASE_URL=$STAGING_NEXT_PUBLIC_SUPABASE_URL
+export E2E_SUPABASE_SERVICE_KEY=$STAGING_SUPABASE_SERVICE_KEY
+# app under test must point at the SAME Supabase project:
+export NEXT_PUBLIC_SUPABASE_URL=$E2E_SUPABASE_URL
+export NEXT_PUBLIC_SUPABASE_ANON_KEY=$STAGING_NEXT_PUBLIC_SUPABASE_ANON_KEY
+export SUPABASE_URL=$E2E_SUPABASE_URL
+export SUPABASE_SERVICE_KEY=$E2E_SUPABASE_SERVICE_KEY
+export SELF_SERVE_SIGNUP_ENABLED=true
+TEST_DATABASE_POOL_URL=postgres://test:test@localhost:5433/test \
+ALLOW_E2E_DB_WRITES=true \
+pnpm test:e2e e2e/forgot-password.spec.ts e2e/reset-password.spec.ts e2e/signup-google.spec.ts --project=chromium
+```
+
+**Deep tier (4 specs — recovery callback, reset happy-path, link replay,
+signup-google; explicit opt-in `E2E_AUTH_DEEP=true`):** the app reads `users`
+through BOTH Postgres.js (`DATABASE_POOL_URL`) and supabase-js/PostgREST (the
+Supabase project's own Postgres), so these only work when
+`TEST_DATABASE_POOL_URL` points at the SAME database as `E2E_SUPABASE_URL` —
+i.e. the **staging Postgres**. That seeds/cleans rows in shared staging state
+(unique IDs, `finally` cleanup) — opt in deliberately, never in CI, and run
+the residue check afterwards:
+
+```bash
+# additionally:
+export E2E_AUTH_DEEP=true
+export TEST_DATABASE_POOL_URL=$STAGING_DATABASE_POOL_URL   # ← staging DB, eyes open
+# … same pnpm test:e2e invocation …
+
+# residue check (expect 0):
+node -e "const{createClient}=require('@supabase/supabase-js');createClient(process.env.E2E_SUPABASE_URL,process.env.E2E_SUPABASE_SERVICE_KEY,{auth:{persistSession:false}}).auth.admin.listUsers({perPage:200}).then(({data})=>console.log('e2e residue:',data.users.filter(u=>(u.email||'').includes('e2e-')).length))"
+```
+
+One caveat: the matched-role forgot-password spec submits the real form, so
+the app fires one genuine `resetPasswordForEmail` → a single transactional
+email to a non-existent `@e2e.repworth.net` address per run (bounces; accepted).
+
+## 4b. Cleanup
 
 ```bash
 docker rm -f repworth-e2e-db

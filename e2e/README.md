@@ -43,11 +43,28 @@ After each test, delete:
 Consider using unique per-run emails (`test+${Date.now()}@example.com`) to
 avoid conflicts when cleanup is incomplete.
 
-## Current state
+## Current state (2026-06-11)
 
-The signup-password.spec.ts test documents the happy path but harness-required
-steps are commented out pending CI infrastructure. Implement the `harness` helper
-module and uncomment those sections once the above is wired up.
+**`e2e/harness.ts` is implemented** — a staging-backed Supabase `auth.admin`
+wrapper (createOwnerUser/createAdminUser/createBareAuthUser, getResetUrl,
+signInViaMagicLink, deletion helpers). Links are NOT navigated through
+Supabase's hosted `/verify` (its redirect honors only the project allow-list);
+the harness builds the app's own `/api/auth/callback?token_hash=…` URL, which
+verifies server-side via `verifyOtp`.
+
+Two tiers (recipes: `docs/runbooks/e2e-local-setup.md#auth-harness`):
+
+- **Base** (`E2E_SUPABASE_URL` + `E2E_SUPABASE_SERVICE_KEY`): the 4
+  cross-portal/anti-enumeration specs — staging Auth + local test DB.
+- **Deep** (`E2E_AUTH_DEEP=true`, TEST_DATABASE_POOL_URL = staging Postgres):
+  recovery callback, reset happy-path, link replay, signup-google. Required
+  because the app reads `users` through BOTH Postgres.js and
+  supabase-js/PostgREST — the two must see the same database.
+
+CI never gets the harness env, so all 8 self-skip there.
+
+`signup-password.spec.ts` (full Stripe payment loop) remains hard-gated —
+it additionally needs the Stripe test-mode payment automation described above.
 
 ---
 
