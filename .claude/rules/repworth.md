@@ -55,6 +55,9 @@ with CLAUDE.md, CLAUDE.md wins.
 - Write tests for: webhook handlers, billing math, idempotency keys,
   tenant-scoped queries, approval-token paths, outbox transitions,
   subscription guards.
+- When deleting a doc or marking a checklist item done, fix its audit tick in
+  the same change and grep the filename to clean every cross-reference —
+  dangling refs and stale ticks are bugs.
 
 ## Never do
 

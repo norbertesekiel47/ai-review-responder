@@ -86,6 +86,7 @@ Detailed inventories load on demand — read the matching file before the work:
 | touch a named library/subsystem (Postgres.js, Zernio, Stripe, Supabase auth, Vercel BotID/WAF, …) | `.claude/reference/lab-notes.md` |
 | deploy, promote, or reason about the preview/staging/prod split | `docs/runbooks/deployment-guide.md` |
 | harden bot-protection / edge rate-limiting / WAF / Attack Mode | runbook `docs/runbooks/vercel-waf-rate-limiting.md` + `src/lib/security/botid*` + ADR `docs/adr/0002-botid-server-check-carveout.md` |
+| verify a spec / plan / launch doc against the codebase, or answer "what's remaining" on a checklist | invoke the `verify-spec` skill — evidence table + mandatory `VERDICT: PASS/FAIL` |
 
 Patterns to follow (invoke as Skills): `outbox-pattern`, `approval-security`,
 `cost-guard`, `onboarding-demo-cost-guard`. Also invoke: `repworth-brand-design`
