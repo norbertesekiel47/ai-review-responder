@@ -13,6 +13,7 @@
 
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
+import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 
 const LOG_PREFIX = '[CancellationGracePoller]';
 const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours
@@ -30,6 +31,7 @@ function getIntervalMs(): number {
 async function runCancellationGrace(): Promise<void> {
   if (isPolling) return;
   isPolling = true;
+  const logger = createWorkerLogger(LOG_PREFIX);
 
   try {
     // Find accounts that have been cancelled for more than 30 days
@@ -54,12 +56,15 @@ async function runCancellationGrace(): Promise<void> {
     `;
 
     if (expiredAccounts.length === 0) {
-      console.log(`${LOG_PREFIX} No expired cancelled accounts to archive`);
+      logger.log('No expired cancelled accounts to archive');
       return;
     }
 
     for (const { account_id, cancelled_count } of expiredAccounts) {
-      console.log(`${LOG_PREFIX} Soft-archiving ${cancelled_count} locations for expired cancelled account ${account_id}`);
+      logger.log('Soft-archiving locations for expired cancelled account', {
+        account_id,
+        cancelled_count,
+      });
 
       await sql.begin(async (tx) => {
         // Soft-archive all active locations and use the updated row set for
@@ -98,9 +103,9 @@ async function runCancellationGrace(): Promise<void> {
       });
     }
 
-    console.log(`${LOG_PREFIX} Processed ${expiredAccounts.length} expired cancelled accounts`);
+    logger.log('Processed expired cancelled accounts', { account_count: expiredAccounts.length });
   } catch (error) {
-    console.error(`${LOG_PREFIX} Grace period archival cycle failed:`, error);
+    logger.error('Grace period archival cycle failed', toError(error));
   } finally {
     isPolling = false;
   }
@@ -108,10 +113,10 @@ async function runCancellationGrace(): Promise<void> {
 
 export function startCancellationGracePoller(): void {
   const intervalMs = getIntervalMs();
-  console.log(`${LOG_PREFIX} Starting (interval=${intervalMs}ms)`);
-  runCancellationGrace().catch(console.error);
+  createWorkerLogger(LOG_PREFIX).log('Starting', { interval_ms: intervalMs });
+  runCancellationGrace().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {
-    runCancellationGrace().catch(console.error);
+    runCancellationGrace().catch(logUnhandledPollError(LOG_PREFIX));
   }, intervalMs);
 }
 
@@ -119,6 +124,6 @@ export function stopCancellationGracePoller(): void {
   if (pollerInterval) {
     clearInterval(pollerInterval);
     pollerInterval = null;
-    console.log(`${LOG_PREFIX} Stopped`);
+    createWorkerLogger(LOG_PREFIX).log('Stopped');
   }
 }

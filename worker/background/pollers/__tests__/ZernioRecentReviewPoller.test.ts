@@ -308,9 +308,11 @@ describe('ZernioRecentReviewPoller', () => {
       'Zernio auth error (401): {"code":"token_refresh_failed"}',
     );
     expect(errorSpy).not.toHaveBeenCalled();
+    // The structured logger emits one JSON line per call via console.warn.
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(
-      'disconnected business=business-1 after Zernio auth failure',
+      '"message":"disconnected business after Zernio auth failure"',
     ));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('"business_id":"business-1"'));
     expect(mockProcessReview).not.toHaveBeenCalled();
   });
 });

@@ -28,6 +28,8 @@ const { mockLogger } = vi.hoisted(() => ({
   mockLogger: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 vi.mock('../../../../src/lib/shared/logger', () => ({
+  toError: (value: unknown) => (value instanceof Error ? value : new Error(String(value))),
+  logUnhandledPollError: () => () => {},
   createWorkerLogger: () => mockLogger,
 }));
 

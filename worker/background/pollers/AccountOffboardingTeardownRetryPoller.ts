@@ -2,7 +2,7 @@ import { accountOffboardingEnabled } from '../../../src/lib/account-offboarding/
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { sql } from '../../../src/lib/db/server';
 import { enqueueAccountOffboardingTeardown } from '../../../src/lib/shared/job-outbox-helpers';
-import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 
 // Autonomous re-drive for teardowns that exhausted their BullMQ attempts and
 // landed status='failed', failed_step='teardown' (both modes). Without this a
@@ -67,9 +67,7 @@ export async function runAccountOffboardingTeardownRetryOnce(): Promise<void> {
   try {
     await runAccountOffboardingTeardownRetryInner(logger);
   } catch (err) {
-    logger.error(
-      `Poll cycle failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    logger.error('Poll cycle failed', toError(err));
   } finally {
     inProgress = false;
   }
@@ -142,12 +140,13 @@ async function runAccountOffboardingTeardownRetryInner(
     if (result.kind === 'redriven') redrivenCount++;
   }
 
-  logger.log(`Run complete: redriven=${redrivenCount}`);
+  logger.log('Run complete', { redriven: redrivenCount });
 }
 
 export function startAccountOffboardingTeardownRetryPoller(): void {
+  const logger = createWorkerLogger(LOG_PREFIX);
   if (!accountOffboardingEnabled()) {
-    console.log(`${LOG_PREFIX} ACCOUNT_OFFBOARDING_ENABLED != true — not starting`);
+    logger.log('ACCOUNT_OFFBOARDING_ENABLED != true — not starting');
     return;
   }
 
@@ -156,10 +155,10 @@ export function startAccountOffboardingTeardownRetryPoller(): void {
   }
 
   const intervalMs = getIntervalMs();
-  console.log(`${LOG_PREFIX} Starting (interval=${intervalMs}ms, batch=${getBatchSize()})`);
-  runAccountOffboardingTeardownRetryOnce().catch(console.error);
+  logger.log('Starting', { interval_ms: intervalMs, batch: getBatchSize() });
+  runAccountOffboardingTeardownRetryOnce().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {
-    runAccountOffboardingTeardownRetryOnce().catch(console.error);
+    runAccountOffboardingTeardownRetryOnce().catch(logUnhandledPollError(LOG_PREFIX));
   }, intervalMs);
 }
 
@@ -167,6 +166,6 @@ export function stopAccountOffboardingTeardownRetryPoller(): void {
   if (pollerInterval) {
     clearInterval(pollerInterval);
     pollerInterval = null;
-    console.log(`${LOG_PREFIX} Stopped`);
+    createWorkerLogger(LOG_PREFIX).log('Stopped');
   }
 }

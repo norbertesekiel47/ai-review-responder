@@ -2,7 +2,7 @@ import { accountOffboardingEnabled } from '../../../src/lib/account-offboarding/
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { sql } from '../../../src/lib/db/server';
 import { enqueueAccountOffboardingTeardown } from '../../../src/lib/shared/job-outbox-helpers';
-import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 
 const LOG_PREFIX = '[AccountOffboardingAccessEndPoller]';
 const DEFAULT_INTERVAL_MS = 60_000;
@@ -57,9 +57,7 @@ export async function runAccountOffboardingAccessEndOnce(): Promise<void> {
   try {
     await runAccountOffboardingAccessEndInner(logger);
   } catch (err) {
-    logger.error(
-      `Poll cycle failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    logger.error('Poll cycle failed', toError(err));
   } finally {
     inProgress = false;
   }
@@ -112,9 +110,9 @@ async function runAccountOffboardingAccessEndInner(
       `;
 
       if (!claimed) {
-        logger.log(
-          `Skipped ${candidate.id} - state changed before teardown claim`,
-        );
+        logger.log('Skipped - state changed before teardown claim', {
+          offboarding_id: candidate.id,
+        });
         return { kind: 'skipped' } satisfies ClaimResult;
       }
 
@@ -152,7 +150,7 @@ async function runAccountOffboardingAccessEndInner(
     }
   }
 
-  logger.log(`Run complete: claimed=${claimedCount}`);
+  logger.log('Run complete', { claimed: claimedCount });
 }
 
 function formatTimestamp(value: Date | string): string {
@@ -160,8 +158,9 @@ function formatTimestamp(value: Date | string): string {
 }
 
 export function startAccountOffboardingAccessEndPoller(): void {
+  const logger = createWorkerLogger(LOG_PREFIX);
   if (!accountOffboardingEnabled()) {
-    console.log(`${LOG_PREFIX} ACCOUNT_OFFBOARDING_ENABLED != true — not starting`);
+    logger.log('ACCOUNT_OFFBOARDING_ENABLED != true — not starting');
     return;
   }
 
@@ -170,10 +169,10 @@ export function startAccountOffboardingAccessEndPoller(): void {
   }
 
   const intervalMs = getIntervalMs();
-  console.log(`${LOG_PREFIX} Starting (interval=${intervalMs}ms, batch=${getBatchSize()})`);
-  runAccountOffboardingAccessEndOnce().catch(console.error);
+  logger.log('Starting', { interval_ms: intervalMs, batch: getBatchSize() });
+  runAccountOffboardingAccessEndOnce().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {
-    runAccountOffboardingAccessEndOnce().catch(console.error);
+    runAccountOffboardingAccessEndOnce().catch(logUnhandledPollError(LOG_PREFIX));
   }, intervalMs);
 }
 
@@ -181,6 +180,6 @@ export function stopAccountOffboardingAccessEndPoller(): void {
   if (pollerInterval) {
     clearInterval(pollerInterval);
     pollerInterval = null;
-    console.log(`${LOG_PREFIX} Stopped`);
+    createWorkerLogger(LOG_PREFIX).log('Stopped');
   }
 }

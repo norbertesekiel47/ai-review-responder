@@ -102,13 +102,15 @@ describe('OutboxPoller.pollOutbox', () => {
     sqlReturnQueue.push([]); // no pending rows
     await pollOutbox();
 
+    // createWorkerLogger emits one JSON line per call via console.log.
     const watchdogLog = logSpy.mock.calls.find(
       (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('Watchdog'),
     );
     expect(watchdogLog).toBeDefined();
-    expect(watchdogLog![0]).toContain('recovered=2');
-    expect(watchdogLog![0]).toContain('failed=1');
-    expect(watchdogLog![0]).toContain('stale_dispatching=3');
+    expect(watchdogLog![0]).toContain('"logger":"OutboxPoller"');
+    expect(watchdogLog![0]).toContain('"recovered":2');
+    expect(watchdogLog![0]).toContain('"failed":1');
+    expect(watchdogLog![0]).toContain('"stale_dispatching":3');
   });
 
   it('continues to dispatch even if the watchdog transaction throws', async () => {

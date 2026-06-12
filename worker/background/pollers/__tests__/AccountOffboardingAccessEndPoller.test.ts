@@ -97,6 +97,8 @@ vi.mock('../../../../src/lib/shared/job-outbox-helpers', () => ({
 }));
 
 vi.mock('../../../../src/lib/shared/logger', () => ({
+  toError: (value: unknown) => (value instanceof Error ? value : new Error(String(value))),
+  logUnhandledPollError: () => () => {},
   createWorkerLogger: () => ({
     log: mockLoggerLog,
     warn: mockLoggerWarn,
@@ -323,7 +325,8 @@ describe('AccountOffboardingAccessEndPoller', () => {
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
     expect(mockEnqueueAccountOffboardingTeardown).not.toHaveBeenCalled();
     expect(mockLoggerLog).toHaveBeenCalledWith(
-      expect.stringContaining(`Skipped ${row.id}`),
+      'Skipped - state changed before teardown claim',
+      { offboarding_id: row.id },
     );
   });
 

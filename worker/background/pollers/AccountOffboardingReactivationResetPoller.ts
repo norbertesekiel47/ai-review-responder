@@ -2,7 +2,7 @@ import { getStripe } from '../../../src/lib/payments/stripe-client';
 import { accountOffboardingEnabled } from '../../../src/lib/account-offboarding/flags';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { sql } from '../../../src/lib/db/server';
-import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 
 // Autonomous recovery for stale cancel_only reactivation claims (M1). A claim is
 // stale when its originating reactivation process died mid-reversal — the row sits
@@ -52,9 +52,7 @@ export async function runAccountOffboardingReactivationResetOnce(): Promise<void
   try {
     await runAccountOffboardingReactivationResetInner(logger);
   } catch (err) {
-    logger.error(
-      `Poll cycle failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    logger.error('Poll cycle failed', toError(err));
   } finally {
     inProgress = false;
   }
@@ -86,7 +84,7 @@ async function runAccountOffboardingReactivationResetInner(
     if (didReset) resetCount++;
   }
 
-  logger.log(`Run complete: reset=${resetCount} of ${candidates.length} candidate(s)`);
+  logger.log('Run complete', { reset: resetCount, candidates: candidates.length });
 }
 
 async function resetStaleReactivationClaim(
@@ -109,12 +107,12 @@ async function resetStaleReactivationClaim(
       );
     } catch (err) {
       if (isRetryableStripeError(err)) {
-        logger.log(`Deferring reset for ${candidate.id} - retryable Stripe error`);
+        logger.log('Deferring reset - retryable Stripe error', { offboarding_id: candidate.id });
         return false;
       }
       // Permanent error (e.g. subscription already gone): nothing to restore,
       // fall through and release the stranded claim.
-      logger.log(`Stripe compensation permanent error for ${candidate.id} - releasing claim anyway`);
+      logger.log('Stripe compensation permanent error - releasing claim anyway', { offboarding_id: candidate.id });
     }
   }
 
@@ -138,7 +136,7 @@ async function resetStaleReactivationClaim(
     `;
 
     if (!cleared) {
-      logger.log(`Skipped ${candidate.id} - claim changed before reset`);
+      logger.log('Skipped - claim changed before reset', { offboarding_id: candidate.id });
       return false;
     }
 
@@ -186,8 +184,9 @@ function isRetryableStripeError(err: unknown): boolean {
 }
 
 export function startAccountOffboardingReactivationResetPoller(): void {
+  const logger = createWorkerLogger(LOG_PREFIX);
   if (!accountOffboardingEnabled()) {
-    console.log(`${LOG_PREFIX} ACCOUNT_OFFBOARDING_ENABLED != true — not starting`);
+    logger.log('ACCOUNT_OFFBOARDING_ENABLED != true — not starting');
     return;
   }
 
@@ -196,10 +195,10 @@ export function startAccountOffboardingReactivationResetPoller(): void {
   }
 
   const intervalMs = getIntervalMs();
-  console.log(`${LOG_PREFIX} Starting (interval=${intervalMs}ms, batch=${getBatchSize()})`);
-  runAccountOffboardingReactivationResetOnce().catch(console.error);
+  logger.log('Starting', { interval_ms: intervalMs, batch: getBatchSize() });
+  runAccountOffboardingReactivationResetOnce().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {
-    runAccountOffboardingReactivationResetOnce().catch(console.error);
+    runAccountOffboardingReactivationResetOnce().catch(logUnhandledPollError(LOG_PREFIX));
   }, intervalMs);
 }
 
@@ -207,6 +206,6 @@ export function stopAccountOffboardingReactivationResetPoller(): void {
   if (pollerInterval) {
     clearInterval(pollerInterval);
     pollerInterval = null;
-    console.log(`${LOG_PREFIX} Stopped`);
+    createWorkerLogger(LOG_PREFIX).log('Stopped');
   }
 }

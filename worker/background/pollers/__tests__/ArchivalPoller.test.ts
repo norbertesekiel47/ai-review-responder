@@ -79,15 +79,15 @@ describe('ArchivalPoller', () => {
     await runOneCycle();
 
     const archivedLog = logSpy.mock.calls.find((call: unknown[]) =>
-      typeof call[0] === 'string' && (call[0] as string).includes('Archived:'),
+      typeof call[0] === 'string' && (call[0] as string).includes('"message":"Archived"'),
     );
     expect(archivedLog).toBeDefined();
     const msg = archivedLog![0] as string;
-    expect(msg).toContain('10 outbox');
-    expect(msg).toContain('20 events');
-    expect(msg).toContain('5 demos');
-    expect(msg).toContain('100 api_costs');
-    expect(msg).toContain('50 notifications');
+    expect(msg).toContain('"outbox":10');
+    expect(msg).toContain('"events":20');
+    expect(msg).toContain('"demos":5');
+    expect(msg).toContain('"api_costs":100');
+    expect(msg).toContain('"notifications":50');
   });
 
   it('logs "Nothing to archive" when all 5 targets return 0', async () => {

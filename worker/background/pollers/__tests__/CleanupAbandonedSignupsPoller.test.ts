@@ -70,6 +70,8 @@ vi.mock('@/lib/db/server', () => {
 });
 
 vi.mock('@/lib/shared/logger', () => ({
+  toError: (value: unknown) => (value instanceof Error ? value : new Error(String(value))),
+  logUnhandledPollError: () => () => {},
   createWorkerLogger: () => ({
     log: mockLoggerLog,
     warn: mockLoggerWarn,
@@ -170,8 +172,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
         String(args[0]).includes('Run complete'),
       );
       expect(logCall).toBeDefined();
-      expect(String(logCall![0])).toContain('candidates=0');
-      expect(String(logCall![0])).toContain('deleted=0');
+      expect(logCall![1]).toMatchObject({ candidates: 0, deleted: 0 });
     });
 
     it('self-serve candidate with no refs: advisory lock, supabase delete, users delete', async () => {
@@ -214,8 +215,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
       const logCall = mockLoggerLog.mock.calls.find((args) =>
         String(args[0]).includes('Run complete'),
       );
-      expect(String(logCall![0])).toContain('deleted=1');
-      expect(String(logCall![0])).toContain('skipped_refs=0');
+      expect(logCall![1]).toMatchObject({ deleted: 1, skipped_refs: 0 });
     });
 
     it('candidates SQL filter enforces abandoned-signup scope (no account + auth_id IS NOT NULL)', async () => {
@@ -264,8 +264,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
       const logCall = mockLoggerLog.mock.calls.find((args) =>
         String(args[0]).includes('Run complete'),
       );
-      expect(String(logCall![0])).toContain('skipped_refs=1');
-      expect(String(logCall![0])).toContain('deleted=0');
+      expect(logCall![1]).toMatchObject({ skipped_refs: 1, deleted: 0 });
     });
 
     it('candidate with has_demos=true refs: skipped, warn logged', async () => {
@@ -282,7 +281,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
       const logCall = mockLoggerLog.mock.calls.find((args) =>
         String(args[0]).includes('Run complete'),
       );
-      expect(String(logCall![0])).toContain('skipped_refs=1');
+      expect(logCall![1]).toMatchObject({ skipped_refs: 1 });
     });
 
     // TOCTOU regression guard — without the FOR UPDATE re-check inside the tx,
@@ -317,8 +316,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
       const logCall = mockLoggerLog.mock.calls.find((args) =>
         String(args[0]).includes('Run complete'),
       );
-      expect(String(logCall![0])).toContain('skipped_state_changed=1');
-      expect(String(logCall![0])).toContain('deleted=0');
+      expect(logCall![1]).toMatchObject({ skipped_state_changed: 1, deleted: 0 });
     });
 
     it('TOCTOU: user auth_id changed between SELECT and tx — skipped', async () => {
@@ -341,7 +339,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
       const logCall = mockLoggerLog.mock.calls.find((args) =>
         String(args[0]).includes('Run complete'),
       );
-      expect(String(logCall![0])).toContain('skipped_state_changed=1');
+      expect(logCall![1]).toMatchObject({ skipped_state_changed: 1 });
     });
 
     it('TOCTOU: user row vanished between SELECT and tx — skipped (cleanly), no delete', async () => {
@@ -355,7 +353,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
       const logCall = mockLoggerLog.mock.calls.find((args) =>
         String(args[0]).includes('Run complete'),
       );
-      expect(String(logCall![0])).toContain('skipped_state_changed=1');
+      expect(logCall![1]).toMatchObject({ skipped_state_changed: 1 });
     });
 
     it('Supabase 404: treated as success, proceeds to DB delete', async () => {
@@ -380,7 +378,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
       const logCall = mockLoggerLog.mock.calls.find((args) =>
         String(args[0]).includes('Run complete'),
       );
-      expect(String(logCall![0])).toContain('deleted=1');
+      expect(logCall![1]).toMatchObject({ deleted: 1 });
     });
 
     it('Supabase non-404 error: tx rolls back, error logged, loop continues to next candidate', async () => {
@@ -420,9 +418,11 @@ describe('CleanupAbandonedSignupsPoller', () => {
       const logCall = mockLoggerLog.mock.calls.find((args) =>
         String(args[0]).includes('Run complete'),
       );
-      expect(String(logCall![0])).toContain('candidates=2');
-      expect(String(logCall![0])).toContain('deleted=1');
-      expect(String(logCall![0])).toContain('supabase_failed=1');
+      expect(logCall![1]).toMatchObject({
+        candidates: 2,
+        deleted: 1,
+        supabase_failed: 1,
+      });
     });
 
     it('CLEANUP_ABANDONED_SIGNUPS_BATCH_SIZE env override respected', async () => {
@@ -478,7 +478,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
         await runPromise;
 
         const warnCall = mockLoggerWarn.mock.calls.find((args) =>
-          String(args[0]).includes('timeout for'),
+          String(args[0]).includes('deleteUser timeout'),
         );
         expect(warnCall).toBeDefined();
 
@@ -489,8 +489,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
         const logCall = mockLoggerLog.mock.calls.find((args) =>
           String(args[0]).includes('Run complete'),
         );
-        expect(String(logCall![0])).toContain('supabase_failed=1');
-        expect(String(logCall![0])).toContain('deleted=0');
+        expect(logCall![1]).toMatchObject({ supabase_failed: 1, deleted: 0 });
       } finally {
         vi.useRealTimers();
       }
@@ -500,19 +499,18 @@ describe('CleanupAbandonedSignupsPoller', () => {
   describe('startCleanupAbandonedSignupsPoller', () => {
     it('SELF_SERVE_SIGNUP_ENABLED !== "true": logs and does NOT start interval', () => {
       delete process.env.SELF_SERVE_SIGNUP_ENABLED;
-      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
       const setIntervalSpy = vi.spyOn(global, 'setInterval');
 
       startCleanupAbandonedSignupsPoller();
 
       expect(setIntervalSpy).not.toHaveBeenCalled();
+      // start() logs through the mocked structured logger, not console.
       expect(
-        logSpy.mock.calls.some((args) =>
+        mockLoggerLog.mock.calls.some((args) =>
           String(args[0]).includes('SELF_SERVE_SIGNUP_ENABLED'),
         ),
       ).toBe(true);
 
-      logSpy.mockRestore();
       setIntervalSpy.mockRestore();
     });
 
@@ -583,9 +581,10 @@ describe('CleanupAbandonedSignupsPoller', () => {
       startCleanupAbandonedSignupsPoller(); // second call — should bail
 
       expect(setIntervalSpy).toHaveBeenCalledOnce();
-      // The second call logs the duplicate-guard breadcrumb.
+      // The second call logs the duplicate-guard breadcrumb (via the mocked
+      // structured logger).
       expect(
-        logSpy.mock.calls.some((args) =>
+        mockLoggerLog.mock.calls.some((args) =>
           String(args[0]).includes('Already started'),
         ),
       ).toBe(true);

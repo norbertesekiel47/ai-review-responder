@@ -110,6 +110,8 @@ vi.mock('../../../../src/lib/shared/job-outbox-helpers', () => ({
 }));
 
 vi.mock('../../../../src/lib/shared/logger', () => ({
+  toError: (value: unknown) => (value instanceof Error ? value : new Error(String(value))),
+  logUnhandledPollError: () => () => {},
   createWorkerLogger: () => ({
     log: mockLoggerLog,
     warn: mockLoggerWarn,
@@ -362,7 +364,8 @@ describe('AccountOffboardingPurgePoller', () => {
     expect(mockEnqueueAccountOffboardingPurge).not.toHaveBeenCalled();
     expect(testState.revokedTokenCount).toBe(0);
     expect(mockLoggerLog).toHaveBeenCalledWith(
-      expect.stringContaining('Skipped offboarding-1'),
+      'Skipped - state changed before purge claim',
+      { offboarding_id: 'offboarding-1' },
     );
   });
 

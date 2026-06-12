@@ -78,8 +78,12 @@ describe('RankingTrackingScheduler', () => {
     const mod = await import('../RankingTrackingScheduler');
     await mod.runRankingCheck();
 
+    // Structured logger emits one JSON line per call via console.log.
     expect(consoleSpy).toHaveBeenCalledWith(
-      '[RankingTrackingScheduler] Mock mode — skipping',
+      expect.stringContaining('"message":"Mock mode — skipping"'),
+    );
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"logger":"RankingTrackingScheduler"'),
     );
     expect(mockSql).not.toHaveBeenCalled();
 
@@ -173,9 +177,12 @@ describe('RankingTrackingScheduler', () => {
     });
     expect(insertCalls).toHaveLength(2);
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Queued 2 track_ranking outbox entries'),
-    );
+    const queuedLine = consoleSpy.mock.calls
+      .map((c) => String(c[0]))
+      .find((l) => l.includes('"message":"Queued track_ranking outbox entries"'));
+    expect(queuedLine).toBeDefined();
+    expect(queuedLine).toContain('"queued":2');
+    expect(queuedLine).toContain('"candidates_checked":2');
 
     consoleSpy.mockRestore();
   });
@@ -246,9 +253,11 @@ describe('RankingTrackingScheduler', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
       const mod = await import('../RankingTrackingScheduler');
       mod.startRankingTrackingScheduler();
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('interval=3600000ms'),
-      );
+      const startLine = consoleSpy.mock.calls
+        .map((c) => String(c[0]))
+        .find((l) => l.includes('"message":"Starting"'));
+      expect(startLine).toBeDefined();
+      expect(startLine).toContain('"interval_ms":3600000');
       mod.stopRankingTrackingScheduler();
       consoleSpy.mockRestore();
     });
@@ -258,9 +267,11 @@ describe('RankingTrackingScheduler', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
       const mod = await import('../RankingTrackingScheduler');
       mod.startRankingTrackingScheduler();
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('interval=120000ms'),
-      );
+      const startLine = consoleSpy.mock.calls
+        .map((c) => String(c[0]))
+        .find((l) => l.includes('"message":"Starting"'));
+      expect(startLine).toBeDefined();
+      expect(startLine).toContain('"interval_ms":120000');
       mod.stopRankingTrackingScheduler();
       consoleSpy.mockRestore();
     });
@@ -270,7 +281,9 @@ describe('RankingTrackingScheduler', () => {
       const mod = await import('../RankingTrackingScheduler');
       mod.startRankingTrackingScheduler();
       mod.stopRankingTrackingScheduler();
-      expect(consoleSpy).toHaveBeenCalledWith('[RankingTrackingScheduler] Stopped');
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"message":"Stopped"'),
+      );
       consoleSpy.mockRestore();
     });
 

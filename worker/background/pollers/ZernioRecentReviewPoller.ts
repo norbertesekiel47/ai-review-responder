@@ -19,6 +19,7 @@ import {
   reconcileExternallyAnsweredReview,
 } from '../../jobs/zernio/zernio-ingest-shared';
 import type { ZernioReview } from '../../../src/lib/zernio/types';
+import { createWorkerLogger, type WorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 
 const LOG_PREFIX = '[ZernioRecentReviewPoller]';
 const DEFAULT_INTERVAL_MS = 5 * 60_000;
@@ -107,6 +108,7 @@ async function loadAllActiveConnections(): Promise<ConnectionRow[]> {
 async function processZernioReview(
   connection: ConnectionRow,
   review: ZernioReview,
+  logger: WorkerLogger,
 ): Promise<'processed' | 'reconciled' | 'skipped'> {
   if (extractLocationFromReviewName(review.name) !== connection.zernio_location_id) {
     return 'skipped';
@@ -121,16 +123,18 @@ async function processZernioReview(
       connection.business_id,
       connection.zernio_account_id,
       connection.zernio_location_id,
-      console,
+      logger,
     );
     return 'reconciled';
   }
 
   const phi = detectLikelyPhi(review.comment);
   if (phi.matched) {
-    console.warn(
-      `${LOG_PREFIX} Likely PHI detected for review ${review.id}; reasons=${phi.reasons.join(',')}; review_text=${redactPhiForLog(review.comment)}; skipping`,
-    );
+    logger.warn('Likely PHI detected; skipping', {
+      review_id: review.id,
+      reasons: phi.reasons.join(','),
+      review_text_redacted: redactPhiForLog(review.comment),
+    });
     await sql.begin((tx) => openPhiReviewException(tx, {
       businessId: connection.business_id,
       accountId: connection.zernio_account_id,
@@ -138,7 +142,7 @@ async function processZernioReview(
       review,
       reasons: phi.reasons,
       source: 'recent_poller',
-    }, console));
+    }, logger));
     return 'skipped';
   }
 
@@ -207,6 +211,7 @@ async function fetchConnectionReviews(
   connection: ConnectionRow,
   pageSize: number,
   maxPages: number,
+  logger: WorkerLogger,
 ): Promise<FetchOutcome> {
   const reviews: ZernioReview[] = [];
   let feedComplete = false;
@@ -234,12 +239,18 @@ async function fetchConnectionReviews(
         connection.zernio_location_id,
         err.message,
       );
-      console.warn(
-        `${LOG_PREFIX} disconnected business=${connection.business_id} after Zernio auth failure: ${err.message}`,
+      logger.warn(
+        'disconnected business after Zernio auth failure',
+        { business_id: connection.business_id },
+        err,
       );
       return { error: true };
     }
-    console.error(`${LOG_PREFIX} listReviews failed for business=${connection.business_id}:`, err);
+    logger.error(
+      'listReviews failed',
+      { business_id: connection.business_id },
+      toError(err),
+    );
     return { error: true };
   }
 }
@@ -250,26 +261,32 @@ async function processConnectionReviews(
   connection: ConnectionRow,
   reviews: ZernioReview[],
   result: ZernioRecentReviewPollResult,
+  logger: WorkerLogger,
 ): Promise<void> {
   for (const review of reviews) {
     try {
-      const outcome = await processZernioReview(connection, review);
+      const outcome = await processZernioReview(connection, review, logger);
       if (outcome === 'processed') result.reviewsProcessed += 1;
       if (outcome === 'reconciled') result.reviewsReconciled += 1;
       if (outcome === 'skipped') result.reviewsSkipped += 1;
     } catch (err) {
       if (err instanceof ZernioReviewNormalizationError) {
         result.reviewsSkipped += 1;
-        console.warn(`${LOG_PREFIX} Skipping malformed review ${review.id}: ${err.message}`);
+        logger.warn('Skipping malformed review', { review_id: review.id }, err);
         continue;
       }
       result.errors += 1;
-      console.error(`${LOG_PREFIX} Failed to process review ${review.id}:`, err);
+      logger.error(
+        'Failed to process review',
+        { review_id: review.id },
+        toError(err),
+      );
     }
   }
 }
 
 export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
+  const logger = createWorkerLogger(LOG_PREFIX);
   const result: ZernioRecentReviewPollResult = {
     connectionsChecked: 0,
     reviewsSeen: 0,
@@ -300,7 +317,7 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
       continue;
     }
 
-    const fetched = await fetchConnectionReviews(connection, pageSize, maxPages);
+    const fetched = await fetchConnectionReviews(connection, pageSize, maxPages, logger);
     if ('error' in fetched) {
       result.errors += 1;
       continue;
@@ -308,7 +325,7 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
     const { reviews, feedComplete } = fetched;
     result.reviewsSeen += reviews.length;
 
-    await processConnectionReviews(connection, reviews, result);
+    await processConnectionReviews(connection, reviews, result, logger);
 
     try {
       result.reviewsDeleted += await tombstoneMissingSourceReviews(
@@ -318,7 +335,11 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
       );
     } catch (err) {
       result.errors += 1;
-      console.error(`${LOG_PREFIX} Failed to tombstone missing reviews for business=${connection.business_id}:`, err);
+      logger.error(
+        'Failed to tombstone missing reviews',
+        { business_id: connection.business_id },
+        toError(err),
+      );
     }
   }
 
@@ -328,6 +349,7 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
 async function poll(): Promise<void> {
   if (isPolling) return;
   isPolling = true;
+  const logger = createWorkerLogger(LOG_PREFIX);
   try {
     const result = await runOnce();
     if (
@@ -336,29 +358,34 @@ async function poll(): Promise<void> {
       result.reviewsDeleted > 0 ||
       result.errors > 0
     ) {
-      console.log(
-        `${LOG_PREFIX} checked=${result.connectionsChecked} seen=${result.reviewsSeen} ` +
-        `processed=${result.reviewsProcessed} reconciled=${result.reviewsReconciled} ` +
-        `skipped=${result.reviewsSkipped} deleted=${result.reviewsDeleted} errors=${result.errors}`,
-      );
+      logger.log('Poll cycle summary', {
+        checked: result.connectionsChecked,
+        seen: result.reviewsSeen,
+        processed: result.reviewsProcessed,
+        reconciled: result.reviewsReconciled,
+        skipped: result.reviewsSkipped,
+        deleted: result.reviewsDeleted,
+        errors: result.errors,
+      });
     }
   } catch (err) {
-    console.error(`${LOG_PREFIX} Poll cycle failed:`, err);
+    logger.error('Poll cycle failed', toError(err));
   } finally {
     isPolling = false;
   }
 }
 
 export function startZernioRecentReviewPoller(): void {
+  const logger = createWorkerLogger(LOG_PREFIX);
   if (process.env.ZERNIO_RECENT_REVIEW_POLL_DISABLED === 'true') {
-    console.log(`${LOG_PREFIX} Skipped - ZERNIO_RECENT_REVIEW_POLL_DISABLED=true`);
+    logger.log('Skipped - ZERNIO_RECENT_REVIEW_POLL_DISABLED=true');
     return;
   }
   const intervalMs = readPositiveInt('ZERNIO_RECENT_REVIEW_POLL_INTERVAL_MS', DEFAULT_INTERVAL_MS);
-  console.log(`${LOG_PREFIX} Starting (interval=${intervalMs}ms)`);
-  poll().catch(console.error);
+  logger.log('Starting', { interval_ms: intervalMs });
+  poll().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {
-    poll().catch(console.error);
+    poll().catch(logUnhandledPollError(LOG_PREFIX));
   }, intervalMs);
 }
 
@@ -366,6 +393,6 @@ export function stopZernioRecentReviewPoller(): void {
   if (pollerInterval) {
     clearInterval(pollerInterval);
     pollerInterval = null;
-    console.log(`${LOG_PREFIX} Stopped`);
+    createWorkerLogger(LOG_PREFIX).log('Stopped');
   }
 }

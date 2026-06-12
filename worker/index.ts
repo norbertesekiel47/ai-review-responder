@@ -68,6 +68,7 @@ import { startAccountOffboardingPurgeReminderPoller, stopAccountOffboardingPurge
 import { startAccountOffboardingReactivationResetPoller, stopAccountOffboardingReactivationResetPoller } from './background/pollers/AccountOffboardingReactivationResetPoller';
 import { startAccountOffboardingTeardownRetryPoller, stopAccountOffboardingTeardownRetryPoller } from './background/pollers/AccountOffboardingTeardownRetryPoller';
 import { isMockMode } from '../src/lib/shared/mock-mode';
+import { createWorkerLogger } from '../src/lib/shared/logger';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
@@ -395,6 +396,29 @@ async function shutdown(): Promise<void> {
 
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+// ---------------------------------------------------------------------------
+// Last-resort crash net (deep-scan §2.7). BullMQ wraps job-handler rejections,
+// but a stray un-awaited promise in a poller/scheduler would otherwise be lost.
+// Deliberately minimal — capture to Sentry, one structured log line, exit(1)
+// after a short flush so Railway restarts the process. Does NOT call the
+// graceful shutdown() above: the process state is unknown after an uncaught
+// error, and shutdown re-entrancy hardening is tracked separately (§5.4).
+// ---------------------------------------------------------------------------
+let fatalExitInProgress = false;
+function fatalExit(crashKind: 'unhandledRejection' | 'uncaughtException', err: unknown): void {
+  if (fatalExitInProgress) return;
+  fatalExitInProgress = true;
+  const error = err instanceof Error ? err : new Error(String(err));
+  Sentry.captureException(error, { tags: { crash_kind: crashKind } });
+  createWorkerLogger('[worker]').error('Fatal process-level error - exiting', { crash_kind: crashKind }, error);
+  void Sentry.flush(2_000).then(
+    () => process.exit(1),
+    () => process.exit(1),
+  );
+}
+process.on('unhandledRejection', (reason) => fatalExit('unhandledRejection', reason));
+process.on('uncaughtException', (err) => fatalExit('uncaughtException', err));
 
 main().catch((error) => {
   console.error('Worker failed to start:', error);
