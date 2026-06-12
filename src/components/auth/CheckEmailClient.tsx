@@ -4,6 +4,8 @@ import { Suspense, useReducer } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { redirectAfterServerSessionCookie } from './CheckEmailClient.helpers';
+import { AuthCardShell, authFieldClass, authPrimaryButtonClass } from './AuthCardShell';
+import { LiveRegion } from '@/components/ui/LiveRegion';
 
 interface CheckEmailState {
   code: string;
@@ -56,7 +58,7 @@ function checkEmailReducer(state: CheckEmailState, action: CheckEmailAction): Ch
 
 export function CheckEmailClient() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-gray-50" />}>
+    <Suspense fallback={<div className="min-h-screen bg-[#D2E0D3]" />}>
       <CheckEmailInner />
     </Suspense>
   );
@@ -161,91 +163,93 @@ function CheckEmailInner() {
     : 'We sent an 8-digit code to your inbox. Enter it below to activate your account.';
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <div className="w-full max-w-md bg-white rounded-lg border border-gray-200 p-8">
-        <h1 className="text-2xl font-bold mb-2 text-center">{heading}</h1>
-        <p className="text-gray-700 mb-1 text-center">{subtext}</p>
-        {email && (
-          <p className="text-sm text-gray-500 mb-6 text-center">
-            Sent to <span className="font-medium text-gray-700">{email}</span>
-          </p>
+    <AuthCardShell>
+      <h1 className="text-2xl font-semibold text-[#2a2a2a] mb-2 text-center">{heading}</h1>
+      <p className="text-[#6a6a6a] mb-1 text-center">{subtext}</p>
+      {email && (
+        <p className="text-sm text-[#6a6a6a] mb-6 text-center">
+          Sent to <span className="font-medium text-[#2a2a2a]">{email}</span>
+        </p>
+      )}
+
+      <form onSubmit={handleVerify} className="space-y-3 mb-6">
+        <div>
+          <label htmlFor="verify-code" className="sr-only">
+            Confirmation code
+          </label>
+          {/*
+            Input contract matches Supabase prod's "Email OTP Length = 8".
+            minLength + maxLength + numeric pattern enforce the format
+            client-side so the user gets browser-native validation feedback
+            before submitting.
+
+            Server-side `VerifyEmailOtpSchema` deliberately stays at 4–10
+            alphanumeric (defense-in-depth — if Supabase config flips to
+            6-digit or alphanumeric, the API survives without a redeploy).
+            When the source-of-truth Supabase setting changes, update the
+            minLength + maxLength + pattern + placeholder + the subtext
+            copy above in lockstep.
+          */}
+          <input
+            id="verify-code"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            required
+            minLength={8}
+            maxLength={8}
+            pattern="\d{8}"
+            title="Enter the 8-digit code from your email"
+            placeholder="8-digit code"
+            value={code}
+            onChange={(e) => dispatch({ type: 'setCode', code: e.target.value })}
+            className={`${authFieldClass} text-center tracking-[0.5em] font-mono`}
+          />
+        </div>
+        {verifyError && (
+          <p className="text-sm text-red-600">{verifyError}</p>
         )}
+        <button
+          type="submit"
+          disabled={verifying}
+          className={authPrimaryButtonClass}
+        >
+          {verifying ? 'Verifying...' : 'Verify and continue'}
+        </button>
+      </form>
 
-        <form onSubmit={handleVerify} className="space-y-3 mb-6">
-          <div>
-            <label htmlFor="verify-code" className="sr-only">
-              Confirmation code
-            </label>
-            {/*
-              Input contract matches Supabase prod's "Email OTP Length = 8".
-              minLength + maxLength + numeric pattern enforce the format
-              client-side so the user gets browser-native validation feedback
-              before submitting.
+      <LiveRegion level="assertive" message={verifyError} />
+      <LiveRegion level="assertive" message={resendError} />
+      <LiveRegion message={resendSent ? 'A new code is on its way.' : ''} />
 
-              Server-side `VerifyEmailOtpSchema` deliberately stays at 4–10
-              alphanumeric (defense-in-depth — if Supabase config flips to
-              6-digit or alphanumeric, the API survives without a redeploy).
-              When the source-of-truth Supabase setting changes, update the
-              minLength + maxLength + pattern + placeholder + the subtext
-              copy above in lockstep.
-            */}
-            <input
-              id="verify-code"
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              required
-              minLength={8}
-              maxLength={8}
-              pattern="\d{8}"
-              title="Enter the 8-digit code from your email"
-              placeholder="8-digit code"
-              value={code}
-              onChange={(e) => dispatch({ type: 'setCode', code: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-base text-center tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          {verifyError && (
-            <p className="text-sm text-red-600">{verifyError}</p>
-          )}
+      <div className="border-t border-[#2a2a2a]/10 pt-4 space-y-3 text-center">
+        <p className="text-xs text-[#6a6a6a]">
+          Didn&apos;t get a code? Check your spam folder. Codes expire in 24
+          hours.
+        </p>
+        {resendSent ? (
+          <p className="text-sm text-[#2a2a2a]">A new code is on its way.</p>
+        ) : resendError ? (
+          <p className="text-sm text-red-600">{resendError}</p>
+        ) : (
           <button
-            type="submit"
-            disabled={verifying}
-            className="w-full bg-blue-600 text-white font-medium py-3 rounded-md hover:bg-blue-700 disabled:opacity-50"
+            type="button"
+            onClick={handleResend}
+            disabled={resendLoading || !email}
+            className="text-sm text-[#97B3AE] hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {verifying ? 'Verifying...' : 'Verify and continue'}
+            {resendLoading ? 'Sending…' : 'Resend code'}
           </button>
-        </form>
-
-        <div className="border-t border-gray-200 pt-4 space-y-3 text-center">
-          <p className="text-xs text-gray-500">
-            Didn&apos;t get a code? Check your spam folder. Codes expire in 24
-            hours.
-          </p>
-          {resendSent ? (
-            <p className="text-sm text-green-700">A new code is on its way.</p>
-          ) : resendError ? (
-            <p className="text-sm text-red-600">{resendError}</p>
-          ) : (
-            <button
-              type="button"
-              onClick={handleResend}
-              disabled={resendLoading || !email}
-              className="text-sm text-blue-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {resendLoading ? 'Sending…' : 'Resend code'}
-            </button>
-          )}
-          <div>
-            <Link
-              href="/signup"
-              className="text-sm text-gray-500 hover:text-gray-700 hover:underline"
-            >
-              ← Go back and change email
-            </Link>
-          </div>
+        )}
+        <div>
+          <Link
+            href="/signup"
+            className="text-sm text-[#6a6a6a] hover:text-[#2a2a2a] hover:underline"
+          >
+            ← Go back and change email
+          </Link>
         </div>
       </div>
-    </div>
+    </AuthCardShell>
   );
 }
