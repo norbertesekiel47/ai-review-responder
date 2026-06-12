@@ -8,6 +8,8 @@
 ---
 
 > **Progress markers (re-verified 2026-05-29):** ✅ = code-side work complete and confirmed in the current tree · 🟡 = partially done (residual noted — usually an ops/prod step) · unmarked = ops/config only, intentional waitlist, or still outstanding. These ticks were reconstructed from a fresh code-based audit (the worktree copy was lost), cross-checked against merged PRs **#152–#158** and **#132/#133/#135**.
+>
+> **Re-verified 2026-06-11 (PRs #276–#279):** every remaining code-side item in this doc is now closed — how-it-works palette + wizard aria-live + doc drift (#276), all open test-coverage gaps except the e2e/CI-DB infra items (#277), the auth-form island rebrand (#278, part 2's last P0), and the signup wizard-completion column (#279, migration 064). Outstanding work below is ops/config, launch-flag flips, the `TEST_DATABASE_POOL_URL` CI wiring (+ skipped e2e), and intentionally deferred items (demo view-counter debounce, GBP API application, PostHog dashboards).
 
 ## Headline
 
@@ -97,7 +99,7 @@ Most are **ops/config (set in Vercel + Railway)**, not code:
 
 | Flag | Prerequisite before flipping ON |
 |---|---|
-| `SELF_SERVE_SIGNUP_ENABLED` | Stripe prices + Supabase SMTP + OTP email templates using `{{ .Token }}` (NOT `{{ .ConfirmationURL }}`) |
+| `SELF_SERVE_SIGNUP_ENABLED` | Stripe prices + Supabase SMTP + OTP email templates using `{{ .Token }}` (NOT `{{ .ConfirmationURL }}`) + **migration 064 applied to PROD** (signup-status reads `accounts.onboarding_wizard_completed_at` once this flag is on; staging applied + verified 2026-06-11, prod pending — see PR #279) |
 | `OPENAI_MODERATION_ENABLED` | Threshold tuning on real samples (local regex runs regardless) |
 | `MFA_ENFORCEMENT_ENABLED` | Regression pass (AAL2 already enforced at sensitive routes; this only adds page-nav redirect) |
 | `MULTI_LOCATION_ENABLED` | `STRIPE_PRICE_*_OVERAGE` ids; migrations 034–041 already shipped |
