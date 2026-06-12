@@ -165,6 +165,8 @@ _(scanned directly — not delegated)_
   dedicated job) so RLS regressions fail the build like tenant-scope does.
 
 ### 🟡 1.3 — Missing `Referrer-Policy` and `Permissions-Policy` response headers
+
+> **Status: ✅ Resolved** in PR #297 (2026-06-12) — both headers added in `next.config.mjs` `headers()`; verified against a production build with PlaceAutocomplete intact.
 - **Location:** `next.config.mjs:7-33` (`headers()`)
 - **Evidence:** Sets HSTS, `X-Content-Type-Options`, `X-Frame-Options`, CSP — but
   **no `Referrer-Policy`** (review/business URLs can leak in the `Referer` header
@@ -190,6 +192,8 @@ _(scanned directly — not delegated)_
   without a linked reason. Track absolute count as a health metric.
 
 ### 🟢 1.5 — CI jobs have no `timeout-minutes`; no dependency-vuln gate
+
+> **Status: ✅ Resolved** in PR #297 (2026-06-12) — `timeout-minutes` on every job in every workflow; non-blocking `pnpm audit --prod` step in the lint job.
 - **Location:** `.github/workflows/ci.yml` (all 4 jobs)
 - **Evidence:** No job sets `timeout-minutes` → a hung step runs to GitHub's
   6-hour default, burning runner minutes and blocking the queue. Separately, there
