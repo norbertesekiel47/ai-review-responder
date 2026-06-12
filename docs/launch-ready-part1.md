@@ -86,7 +86,7 @@ Most are **ops/config (set in Vercel + Railway)**, not code:
 ## 🟡 P2 — Before scale / GA polish
 
 - ✅ **Railway IaC added (#154)** — `railway.toml` now lives in repo (`builder = "RAILPACK"` — was NIXPACKS at audit time, changed post-audit; `startCommand = "pnpm worker"`, `healthcheckPath = "/api/health"`, supervised `ON_FAILURE` restart policy) so config survives project recreation. `vercel.json` intentionally deferred — no route needs a timeout above plan defaults yet.
-- **`TEST_DATABASE_POOL_URL` not in CI** → cross-tenant RLS isolation test (`src/__tests__/tenant-isolation.test.ts`) and 13 Playwright E2E tests never run in the PR gate. Strongest correctness guarantee, currently dark. *(Still outstanding — CI wiring not yet added.)*
+- ✅ **`TEST_DATABASE_POOL_URL` not in CI** → cross-tenant RLS isolation test (`src/__tests__/tenant-isolation.test.ts`) and 13 Playwright E2E tests never run in the PR gate. Strongest correctness guarantee, currently dark. *(→ ✅ DONE in two parts: the Vitest half was wired ~2026-06-07 (postgres:16 service + bootstrap + migrations in the CI `test` job — this line was stale); the Playwright half landed 2026-06-11: a parallel `e2e` CI job runs the hermetic chromium specs via the shared `.github/actions/test-db` composite, and the live RLS audit now executes in the `test` job. Local setup: `docs/runbooks/e2e-local-setup.md`.)*
 - ✅ **PII in `console.log`** — *FIXED (#152):* `contact`/`demo-request` routes now log only sanitized metadata (lengths/flags, no PII), and all four schedulers (`OnboardingDripScheduler.ts`, `WeeklySummaryScheduler.ts`, `MonthlyImpactScheduler.ts`, `StripeLocationsReconcilePoller.ts`) use `createWorkerLogger`.
 - ✅ **`docs/runbooks/rollback.md` added (#154)** — full rollback runbook now in repo (was: only the Zernio kill-switch documented in the beta plan §10.5).
 - ✅ **Founders tier price-lock gap** — *FIXED (#157):* migration `054_accounts_base_price_cents.sql` adds `accounts.base_price_cents` (backfilled, NOT NULL); `quota.ts` and `margin-service.ts` now read the stored column instead of `TIER_CONFIG.baseCents`, so the "3-year price lock" no longer drifts.
@@ -135,9 +135,9 @@ Worktrees under `.claude/worktrees/` backed these three (all clean) + a `tracker
 - ✅ **`past_due`/`pending_payment` subscription guard** tested in the pure unit but not exercised in worker integration tests. *(→ ✅ DONE (2026-06-11): `NotificationWorker.test.ts` now exercises `pending_payment`, `past_due` beyond the 7-day grace (skips), and `past_due` within grace (sends).)*
 
 **P2:**
-- Permanently-skipped e2e: `e2e/forgot-password.spec.ts` (4), `e2e/reset-password.spec.ts` (3), `e2e/signup-google.spec.ts` (1) — all `test.skip(true, ...)` (harness not wired). *(Still skipped.)*
+- Permanently-skipped e2e: `e2e/forgot-password.spec.ts` (4), `e2e/reset-password.spec.ts` (3), `e2e/signup-google.spec.ts` (1) — all `test.skip(true, ...)` (harness not wired). *(Still skipped — the Supabase `auth.admin` harness (staging-backed, local runs) is the in-flight follow-up PR; `signup-password.spec.ts` gained the same gate 2026-06-11, and the owner-offboarding DB-backed lifecycle specs are quarantined under issue #283.)*
 - ✅ `session-mode.ts` / `token-mode.ts` only tested indirectly via `service.test.ts`. *(→ ✅ DONE (2026-06-11): direct unit suites `src/lib/approval/__tests__/{token-mode,session-mode}.test.ts` — lock-before-consume ordering, empty-edit rejection, device binding/conflict, supersede+regenerate, publish enqueue + audit shapes.)*
-- Tenant-isolation integration test self-skips without `TEST_DATABASE_POOL_URL` (see P2 CI gap above). *(Still dark in CI.)*
+- ✅ Tenant-isolation integration test self-skips without `TEST_DATABASE_POOL_URL` (see P2 CI gap above). *(→ ✅ runs in CI since the test job gained its Postgres service (~2026-06-07); this line was stale — re-verified 2026-06-11.)*
 
 ---
 
@@ -168,7 +168,7 @@ Worktrees under `.claude/worktrees/` backed these three (all clean) + a `tracker
 
 1. ✅ **Finish PR #135** (get all 3 channel-scoping PRs merged) — *DONE: #132/#133/#135 all merged.*
 2. **P0 ops/config block** (secrets rotation, prod URLs, Stripe live, the two hidden alert/email vars) + the 3 external drills from `docs/launch-checklist.md`. *(Env vars now documented + boot-hardened in code (#156); the remaining work is setting real prod values + drills.)*
-3. **Wire Sentry DSN + `TEST_DATABASE_POOL_URL` in CI** — restores error tracking and the RLS gate. *(Still outstanding.)*
+3. **Wire Sentry DSN + `TEST_DATABASE_POOL_URL` in CI** — restores error tracking and the RLS gate. *(CI half ✅ DONE — see P2 above; providing the real `SENTRY_DSN` value remains ops.)*
 4. ✅ **Close `OutboxPoller` + Resend-signature test gaps.** *DONE (#153, #155).*
 5. **Flip `SELF_SERVE_SIGNUP_ENABLED` + `OPENAI_MODERATION_ENABLED`** once prerequisites met.
 6. ✅ **P2 cleanups** (IaC, rollback runbook, logging hygiene, founders price column) — *DONE (#154, #152, #157).*

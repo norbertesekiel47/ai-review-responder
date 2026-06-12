@@ -26,7 +26,7 @@ import { simulateWhatsAppStart } from './helpers/whatsapp-test-ingress';
 test.describe('Owner /settings/channels — unauthenticated', () => {
   test('unauthenticated /settings/channels redirects to login', async ({ page }) => {
     await page.goto('/settings/channels');
-    await expect(page).toHaveURL(/\/admin\/login/, { timeout: 10_000 });
+    await expect(page).toHaveURL(/\/login\?from=/, { timeout: 10_000 });
   });
 });
 

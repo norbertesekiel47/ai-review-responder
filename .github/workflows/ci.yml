@@ -99,17 +99,69 @@ jobs:
           persist-credentials: false
       - name: Setup Node + pnpm
         uses: ./.github/actions/setup
-      - name: Apply Supabase prerequisites + migrations to the test database
-        env:
-          PGPASSWORD: test
-        run: |
-          psql -h localhost -U test -d test -v ON_ERROR_STOP=1 -f scripts/ci/test-db-bootstrap.sql
-          for f in $(ls supabase/migrations/*.sql | sort); do
-            echo "applying $(basename "$f")"
-            psql -h localhost -U test -d test -v ON_ERROR_STOP=1 -q -f "$f"
-          done
+      - name: Prepare test database
+        uses: ./.github/actions/test-db
+      # Live RLS check needs a real database — it self-skips in the lint job
+      # (static gate only); here TEST_DATABASE_POOL_URL makes it execute.
+      - name: RLS audit (live)
+        run: pnpm ci:rls-audit
       - name: Run unit tests
         run: pnpm test
+
+  # Playwright e2e against the same Postgres recipe. The app boots via
+  # playwright.config.ts `webServer` (pnpm dev) — one owner for app boot.
+  # Auth-dependent specs self-skip here (no E2E_OWNER_* / harness env);
+  # only the hermetic seeded/token flows run. Mobile-chrome stays local-only
+  # (PR-gate runtime budget). Dummy Supabase/session values exist solely so
+  # server modules can construct clients — nothing authenticates in CI.
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_POOL_URL: postgres://test:test@localhost:5432/test
+      ALLOW_E2E_DB_WRITES: "true"
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      PLAYWRIGHT_BASE_URL: http://localhost:3000
+      NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key-for-ci
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_KEY: dummy-service-key-for-ci
+      SESSION_COOKIE_SECRET: e2e-ci-session-cookie-secret-0123456789abcdef
+      SELF_SERVE_SIGNUP_ENABLED: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup
+      - name: Prepare test database
+        uses: ./.github/actions/test-db
+      - name: Install Playwright chromium
+        run: pnpm exec playwright install chromium --with-deps
+      - name: Run e2e (chromium)
+        run: pnpm test:e2e --project=chromium
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
 
   build:
     name: build

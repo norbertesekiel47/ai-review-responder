@@ -33,12 +33,13 @@ test.describe('Zernio connect happy-path E2E', () => {
 
   test('unauthenticated /dashboard/connect redirects to login', async ({ page }) => {
     // Static-surface check: visiting the connect entry point without a
-    // Supabase session must bounce to /admin/login (enforced by the
+    // Supabase session must bounce to the owner login (/login?from=…,
+    // enforced by the
     // (authenticated) layout). This confirms the route exists and the auth
     // gate is wired before we layer authenticated assertions on top.
     await page.goto('/dashboard/connect');
 
-    await expect(page).toHaveURL(/\/admin\/login/, { timeout: 10_000 });
+    await expect(page).toHaveURL(/\/login\?from=/, { timeout: 10_000 });
   });
 
   // ── Authenticated happy path ────────────────────────────────────────

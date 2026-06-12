@@ -68,12 +68,18 @@ test.describe('Owner offboarding — unauthenticated', () => {
 
   test('status page redirects unauthenticated owners to login', async ({ page }) => {
     await page.goto('/account/offboarding/status');
-    await expect(page).toHaveURL(/\/admin\/login/, { timeout: 10_000 });
+    await expect(page).toHaveURL(/\/login\?from=/, { timeout: 10_000 });
   });
 });
 
 test.describe.serial('Owner offboarding — DB-backed lifecycle', () => {
   test.skip(!isE2eConfigured, 'TEST_DATABASE_POOL_URL not set');
+  // QUARANTINED (pre-existing, reproduces on main): lifecycleModules()'s
+  // dynamic src/worker imports die under Playwright's CJS transform
+  // ("Cannot use import statement outside a module") — an ESM-only dep in
+  // the worker import graph. Tracked in issue #283; likely fix is moving
+  // these to the *.integration.test.ts (Vitest) lane.
+  test.skip(true, 'Dynamic src/worker imports break under Playwright transform — see issue #283');
 
   test.beforeAll(() => {
     configureOwnerOffboardingE2eRuntime();
