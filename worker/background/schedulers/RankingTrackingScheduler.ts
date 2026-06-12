@@ -1,6 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
-import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 import { isMockMode } from '../../../src/lib/shared/mock-mode';
 import type { TrackRankingPayload } from '../../../src/lib/shared/worker-types';
 
@@ -119,7 +119,7 @@ export async function runRankingCheck(): Promise<void> {
   } catch (error) {
     logger.error(
       'Ranking check failed',
-      error instanceof Error ? error : new Error(String(error)),
+      toError(error),
     );
   } finally {
     isPolling = false;
@@ -131,19 +131,9 @@ export function startRankingTrackingScheduler(): void {
   const logger = createWorkerLogger(LOG_PREFIX);
   const intervalMs = getIntervalMs();
   logger.log('Starting', { interval_ms: intervalMs });
-  runRankingCheck().catch((err) =>
-    createWorkerLogger(LOG_PREFIX).error(
-      'Unhandled poll error',
-      err instanceof Error ? err : new Error(String(err)),
-    ),
-  );
+  runRankingCheck().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {
-    runRankingCheck().catch((err) =>
-      createWorkerLogger(LOG_PREFIX).error(
-        'Unhandled poll error',
-        err instanceof Error ? err : new Error(String(err)),
-      ),
-    );
+    runRankingCheck().catch(logUnhandledPollError(LOG_PREFIX));
   }, intervalMs);
 }
 

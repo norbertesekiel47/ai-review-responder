@@ -1,5 +1,5 @@
 import { sql } from '../../../src/lib/db/server';
-import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 
 const LOG_PREFIX = '[ArchivalPoller]';
 const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours
@@ -177,7 +177,7 @@ async function runArchival(): Promise<void> {
       logger.log('Nothing to archive');
     }
   } catch (error) {
-    logger.error('Archival cycle failed', error instanceof Error ? error : new Error(String(error)));
+    logger.error('Archival cycle failed', toError(error));
   } finally {
     isPolling = false;
   }
@@ -186,13 +186,9 @@ async function runArchival(): Promise<void> {
 export function startArchivalPoller(): void {
   const intervalMs = getIntervalMs();
   createWorkerLogger(LOG_PREFIX).log('Starting', { interval_ms: intervalMs });
-  runArchival().catch((err) =>
-    createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-  );
+  runArchival().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {
-    runArchival().catch((err) =>
-      createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-    );
+    runArchival().catch(logUnhandledPollError(LOG_PREFIX));
   }, intervalMs);
 }
 

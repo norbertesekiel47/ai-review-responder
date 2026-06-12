@@ -3,7 +3,7 @@ import { sql, jsonb } from '../../../src/lib/db/server';
 import { sendInternalEmail } from '../../../src/lib/notifications/email';
 import { recordNotificationDelivery } from '../../../src/lib/notifications/delivery';
 import { escapeHtml } from '../../../src/lib/shared/html';
-import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 import type { SendNotificationPayload } from '../../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[NotificationFailover]';
@@ -231,7 +231,7 @@ export async function runFailoverPollerOnce(): Promise<void> {
         logger.error(
           'Failed to queue all-failed failover',
           { response_id: row.response_id },
-          err instanceof Error ? err : new Error(String(err)),
+          toError(err),
         );
       }
     }
@@ -324,7 +324,7 @@ export async function runFailoverPollerOnce(): Promise<void> {
       });
     }
   } catch (error) {
-    logger.error('Poll cycle failed', error instanceof Error ? error : new Error(String(error)));
+    logger.error('Poll cycle failed', toError(error));
   } finally {
     isPolling = false;
   }
@@ -334,13 +334,9 @@ export function startNotificationFailoverPoller(): void {
   const intervalMs = getIntervalMs();
   const logger = createWorkerLogger(LOG_PREFIX);
   logger.log('Starting', { interval_ms: intervalMs });
-  runFailoverPollerOnce().catch((err) =>
-    createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-  );
+  runFailoverPollerOnce().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {
-    runFailoverPollerOnce().catch((err) =>
-      createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-    );
+    runFailoverPollerOnce().catch(logUnhandledPollError(LOG_PREFIX));
   }, intervalMs);
 }
 

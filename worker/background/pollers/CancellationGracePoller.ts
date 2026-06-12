@@ -13,7 +13,7 @@
 
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
-import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 
 const LOG_PREFIX = '[CancellationGracePoller]';
 const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours
@@ -105,7 +105,7 @@ async function runCancellationGrace(): Promise<void> {
 
     logger.log('Processed expired cancelled accounts', { account_count: expiredAccounts.length });
   } catch (error) {
-    logger.error('Grace period archival cycle failed', error instanceof Error ? error : new Error(String(error)));
+    logger.error('Grace period archival cycle failed', toError(error));
   } finally {
     isPolling = false;
   }
@@ -114,13 +114,9 @@ async function runCancellationGrace(): Promise<void> {
 export function startCancellationGracePoller(): void {
   const intervalMs = getIntervalMs();
   createWorkerLogger(LOG_PREFIX).log('Starting', { interval_ms: intervalMs });
-  runCancellationGrace().catch((err) =>
-    createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-  );
+  runCancellationGrace().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {
-    runCancellationGrace().catch((err) =>
-      createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-    );
+    runCancellationGrace().catch(logUnhandledPollError(LOG_PREFIX));
   }, intervalMs);
 }
 

@@ -19,7 +19,7 @@ import {
   reconcileExternallyAnsweredReview,
 } from '../../jobs/zernio/zernio-ingest-shared';
 import type { ZernioReview } from '../../../src/lib/zernio/types';
-import { createWorkerLogger, type WorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, type WorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 
 const LOG_PREFIX = '[ZernioRecentReviewPoller]';
 const DEFAULT_INTERVAL_MS = 5 * 60_000;
@@ -249,7 +249,7 @@ async function fetchConnectionReviews(
     logger.error(
       'listReviews failed',
       { business_id: connection.business_id },
-      err instanceof Error ? err : new Error(String(err)),
+      toError(err),
     );
     return { error: true };
   }
@@ -279,7 +279,7 @@ async function processConnectionReviews(
       logger.error(
         'Failed to process review',
         { review_id: review.id },
-        err instanceof Error ? err : new Error(String(err)),
+        toError(err),
       );
     }
   }
@@ -338,7 +338,7 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
       logger.error(
         'Failed to tombstone missing reviews',
         { business_id: connection.business_id },
-        err instanceof Error ? err : new Error(String(err)),
+        toError(err),
       );
     }
   }
@@ -369,7 +369,7 @@ async function poll(): Promise<void> {
       });
     }
   } catch (err) {
-    logger.error('Poll cycle failed', err instanceof Error ? err : new Error(String(err)));
+    logger.error('Poll cycle failed', toError(err));
   } finally {
     isPolling = false;
   }
@@ -383,9 +383,9 @@ export function startZernioRecentReviewPoller(): void {
   }
   const intervalMs = readPositiveInt('ZERNIO_RECENT_REVIEW_POLL_INTERVAL_MS', DEFAULT_INTERVAL_MS);
   logger.log('Starting', { interval_ms: intervalMs });
-  poll().catch((err) => createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))));
+  poll().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {
-    poll().catch((err) => createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))));
+    poll().catch(logUnhandledPollError(LOG_PREFIX));
   }, intervalMs);
 }
 

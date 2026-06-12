@@ -2,7 +2,7 @@ import { accountOffboardingEnabled } from '../../../src/lib/account-offboarding/
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { sql } from '../../../src/lib/db/server';
 import { enqueueAccountOffboardingTeardown } from '../../../src/lib/shared/job-outbox-helpers';
-import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 
 const LOG_PREFIX = '[AccountOffboardingAccessEndPoller]';
 const DEFAULT_INTERVAL_MS = 60_000;
@@ -57,7 +57,7 @@ export async function runAccountOffboardingAccessEndOnce(): Promise<void> {
   try {
     await runAccountOffboardingAccessEndInner(logger);
   } catch (err) {
-    logger.error('Poll cycle failed', err instanceof Error ? err : new Error(String(err)));
+    logger.error('Poll cycle failed', toError(err));
   } finally {
     inProgress = false;
   }
@@ -170,13 +170,9 @@ export function startAccountOffboardingAccessEndPoller(): void {
 
   const intervalMs = getIntervalMs();
   logger.log('Starting', { interval_ms: intervalMs, batch: getBatchSize() });
-  runAccountOffboardingAccessEndOnce().catch((err) =>
-    createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-  );
+  runAccountOffboardingAccessEndOnce().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {
-    runAccountOffboardingAccessEndOnce().catch((err) =>
-      createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-    );
+    runAccountOffboardingAccessEndOnce().catch(logUnhandledPollError(LOG_PREFIX));
   }, intervalMs);
 }
 

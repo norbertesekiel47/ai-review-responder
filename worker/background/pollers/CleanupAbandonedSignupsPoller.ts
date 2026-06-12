@@ -1,5 +1,5 @@
 import { sql, supabaseServer } from '../../../src/lib/db/server';
-import { createWorkerLogger, type WorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, type WorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 
 const LOG_PREFIX = '[CleanupAbandonedSignups]';
 const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours
@@ -73,7 +73,7 @@ async function runOnceInner(logger: WorkerLogger): Promise<void> {
   } catch (err) {
     logger.error(
       'Failed to cleanup stale onboarding demos',
-      err instanceof Error ? err : new Error(String(err)),
+      toError(err),
     );
   }
 
@@ -251,7 +251,7 @@ async function runOnceInner(logger: WorkerLogger): Promise<void> {
       logger.error(
         'Cleanup tx failed for user',
         { user_id: candidate.user_id },
-        err instanceof Error ? err : new Error(String(err)),
+        toError(err),
       );
     }
   }
@@ -288,19 +288,9 @@ export function startCleanupAbandonedSignupsPoller(): void {
   const interval = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 
   logger.log('Starting', { interval_ms: interval });
-  runOnce().catch((err) =>
-    createWorkerLogger(LOG_PREFIX).error(
-      'Initial run failed',
-      err instanceof Error ? err : new Error(String(err)),
-    ),
-  );
+  runOnce().catch(logUnhandledPollError(LOG_PREFIX, 'Initial run failed'));
   timer = setInterval(() => {
-    runOnce().catch((err) =>
-      createWorkerLogger(LOG_PREFIX).error(
-        'Scheduled run failed',
-        err instanceof Error ? err : new Error(String(err)),
-      ),
-    );
+    runOnce().catch(logUnhandledPollError(LOG_PREFIX, 'Scheduled run failed'));
   }, interval);
 }
 

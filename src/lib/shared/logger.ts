@@ -112,3 +112,20 @@ export function createWorkerLogger(prefix: string, correlationId?: string): Work
     error: (...args: unknown[]) => emit('error', prefix, correlationId, args),
   };
 }
+
+/** Normalizes a caught value to an Error so the logger serializes it. */
+export function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
+}
+
+/**
+ * Catch handler for fire-and-forget poller/scheduler ticks: routes the
+ * rejection through the structured logger instead of losing it. Single owner
+ * of the `.catch(...)` boilerplate every background loop needs.
+ */
+export function logUnhandledPollError(
+  prefix: string,
+  message = 'Unhandled poll error',
+): (err: unknown) => void {
+  return (err) => createWorkerLogger(prefix).error(message, toError(err));
+}

@@ -26,6 +26,8 @@ vi.mock('../../../../src/lib/account-offboarding/flags', () => ({
   accountOffboardingEnabled: mockAccountOffboardingEnabled,
 }));
 vi.mock('../../../../src/lib/shared/logger', () => ({
+  toError: (value: unknown) => (value instanceof Error ? value : new Error(String(value))),
+  logUnhandledPollError: () => () => {},
   createWorkerLogger: () => ({ log: mockLoggerLog, error: mockLoggerError }),
 }));
 vi.mock('stripe', () => ({

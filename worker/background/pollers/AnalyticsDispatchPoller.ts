@@ -4,7 +4,7 @@ import {
   flushAnalytics,
   isAnalyticsConfigured,
 } from '../../../src/lib/analytics/posthog';
-import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, logUnhandledPollError } from '../../../src/lib/shared/logger';
 
 const LOG_PREFIX = '[AnalyticsDispatchPoller]';
 
@@ -188,13 +188,9 @@ export function startAnalyticsDispatchPoller(): void {
   const pollInterval = pollIntervalMs();
   const logger = createWorkerLogger(LOG_PREFIX);
   logger.log('Starting', { interval_ms: pollInterval, batch: batchSize() });
-  runAnalyticsDispatchOnce().catch((err) =>
-    createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-  );
+  runAnalyticsDispatchOnce().catch(logUnhandledPollError(LOG_PREFIX));
   interval = setInterval(() => {
-    runAnalyticsDispatchOnce().catch((err) =>
-      createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-    );
+    runAnalyticsDispatchOnce().catch(logUnhandledPollError(LOG_PREFIX));
   }, pollInterval);
 }
 

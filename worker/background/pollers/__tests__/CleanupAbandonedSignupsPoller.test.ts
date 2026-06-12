@@ -70,6 +70,8 @@ vi.mock('@/lib/db/server', () => {
 });
 
 vi.mock('@/lib/shared/logger', () => ({
+  toError: (value: unknown) => (value instanceof Error ? value : new Error(String(value))),
+  logUnhandledPollError: () => () => {},
   createWorkerLogger: () => ({
     log: mockLoggerLog,
     warn: mockLoggerWarn,

@@ -1,5 +1,5 @@
 import { sql } from '../../../src/lib/db/server';
-import { createWorkerLogger, type WorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, type WorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 import { invalidateChannelCache } from '../../../src/lib/notifications/resolve-channels';
 import { asAccountId } from '../../../src/lib/shared/ids';
 import { v7 as uuidv7 } from 'uuid';
@@ -192,7 +192,7 @@ async function runOnceInner(
       logger.error(
         'INSERT failed for business',
         { business_id: row.business_id },
-        err instanceof Error ? err : new Error(String(err)),
+        toError(err),
       );
     }
   }
@@ -232,19 +232,9 @@ export function startEmailChannelReconcilePoller(): void {
     Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 
   logger.log('Starting', { interval_ms: interval });
-  runOnce().catch((err) =>
-    createWorkerLogger(LOG_PREFIX).error(
-      'Initial run failed',
-      err instanceof Error ? err : new Error(String(err)),
-    ),
-  );
+  runOnce().catch(logUnhandledPollError(LOG_PREFIX, 'Initial run failed'));
   timer = setInterval(() => {
-    runOnce().catch((err) =>
-      createWorkerLogger(LOG_PREFIX).error(
-        'Scheduled run failed',
-        err instanceof Error ? err : new Error(String(err)),
-      ),
-    );
+    runOnce().catch(logUnhandledPollError(LOG_PREFIX, 'Scheduled run failed'));
   }, interval);
 }
 

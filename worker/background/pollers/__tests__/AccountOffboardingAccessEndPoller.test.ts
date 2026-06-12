@@ -97,6 +97,8 @@ vi.mock('../../../../src/lib/shared/job-outbox-helpers', () => ({
 }));
 
 vi.mock('../../../../src/lib/shared/logger', () => ({
+  toError: (value: unknown) => (value instanceof Error ? value : new Error(String(value))),
+  logUnhandledPollError: () => () => {},
   createWorkerLogger: () => ({
     log: mockLoggerLog,
     warn: mockLoggerWarn,

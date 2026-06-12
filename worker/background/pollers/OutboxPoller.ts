@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/node';
 import { sql } from '../../../src/lib/db/server';
-import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 import { topicToQueue } from '../../queues';
 
 const LOG_PREFIX = '[OutboxPoller]';
@@ -99,7 +99,7 @@ export async function pollOutbox(): Promise<void> {
     } catch (watchdogError) {
       logger.error(
         'Watchdog recovery failed (continuing to dispatch)',
-        watchdogError instanceof Error ? watchdogError : new Error(String(watchdogError)),
+        toError(watchdogError),
       );
     }
 
@@ -190,7 +190,7 @@ export async function pollOutbox(): Promise<void> {
         logger.error(
           'Failed to dispatch entry',
           { outbox_id: entry.id, topic: entry.topic },
-          dispatchError instanceof Error ? dispatchError : new Error(String(dispatchError)),
+          toError(dispatchError),
         );
 
         Sentry.addBreadcrumb({
@@ -225,7 +225,7 @@ export async function pollOutbox(): Promise<void> {
       }
     }
   } catch (error) {
-    logger.error('Poll cycle failed', error instanceof Error ? error : new Error(String(error)));
+    logger.error('Poll cycle failed', toError(error));
   } finally {
     isPolling = false;
   }
@@ -234,13 +234,9 @@ export async function pollOutbox(): Promise<void> {
 export function startOutboxPoller(): void {
   const logger = createWorkerLogger(LOG_PREFIX);
   logger.log('Starting', { interval_ms: POLL_INTERVAL_MS, batch: BATCH_SIZE });
-  pollOutbox().catch((err) =>
-    createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-  );
+  pollOutbox().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {
-    pollOutbox().catch((err) =>
-      createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-    );
+    pollOutbox().catch(logUnhandledPollError(LOG_PREFIX));
   }, POLL_INTERVAL_MS);
 }
 

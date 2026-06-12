@@ -2,7 +2,7 @@ import { getStripe } from '../../../src/lib/payments/stripe-client';
 import { accountOffboardingEnabled } from '../../../src/lib/account-offboarding/flags';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { sql } from '../../../src/lib/db/server';
-import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 
 // Autonomous recovery for stale cancel_only reactivation claims (M1). A claim is
 // stale when its originating reactivation process died mid-reversal — the row sits
@@ -52,7 +52,7 @@ export async function runAccountOffboardingReactivationResetOnce(): Promise<void
   try {
     await runAccountOffboardingReactivationResetInner(logger);
   } catch (err) {
-    logger.error('Poll cycle failed', err instanceof Error ? err : new Error(String(err)));
+    logger.error('Poll cycle failed', toError(err));
   } finally {
     inProgress = false;
   }
@@ -196,13 +196,9 @@ export function startAccountOffboardingReactivationResetPoller(): void {
 
   const intervalMs = getIntervalMs();
   logger.log('Starting', { interval_ms: intervalMs, batch: getBatchSize() });
-  runAccountOffboardingReactivationResetOnce().catch((err) =>
-    createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-  );
+  runAccountOffboardingReactivationResetOnce().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {
-    runAccountOffboardingReactivationResetOnce().catch((err) =>
-      createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-    );
+    runAccountOffboardingReactivationResetOnce().catch(logUnhandledPollError(LOG_PREFIX));
   }, intervalMs);
 }
 

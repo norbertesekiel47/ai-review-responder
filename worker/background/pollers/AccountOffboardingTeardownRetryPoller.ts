@@ -2,7 +2,7 @@ import { accountOffboardingEnabled } from '../../../src/lib/account-offboarding/
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { sql } from '../../../src/lib/db/server';
 import { enqueueAccountOffboardingTeardown } from '../../../src/lib/shared/job-outbox-helpers';
-import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 
 // Autonomous re-drive for teardowns that exhausted their BullMQ attempts and
 // landed status='failed', failed_step='teardown' (both modes). Without this a
@@ -67,7 +67,7 @@ export async function runAccountOffboardingTeardownRetryOnce(): Promise<void> {
   try {
     await runAccountOffboardingTeardownRetryInner(logger);
   } catch (err) {
-    logger.error('Poll cycle failed', err instanceof Error ? err : new Error(String(err)));
+    logger.error('Poll cycle failed', toError(err));
   } finally {
     inProgress = false;
   }
@@ -156,13 +156,9 @@ export function startAccountOffboardingTeardownRetryPoller(): void {
 
   const intervalMs = getIntervalMs();
   logger.log('Starting', { interval_ms: intervalMs, batch: getBatchSize() });
-  runAccountOffboardingTeardownRetryOnce().catch((err) =>
-    createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-  );
+  runAccountOffboardingTeardownRetryOnce().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {
-    runAccountOffboardingTeardownRetryOnce().catch((err) =>
-      createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-    );
+    runAccountOffboardingTeardownRetryOnce().catch(logUnhandledPollError(LOG_PREFIX));
   }, intervalMs);
 }
 

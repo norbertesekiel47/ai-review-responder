@@ -9,7 +9,7 @@
 
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
-import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 import type { EngagementAlertPayload, EngagementAlertType } from '../../../src/lib/shared/worker-types';
 import { HANDLED_STATUSES } from '../../../src/lib/shared/response-status';
 
@@ -209,7 +209,7 @@ async function runEngagementCheck(): Promise<void> {
       logger.log('No engagement alerts needed');
     }
   } catch (error) {
-    logger.error('Engagement check failed', error instanceof Error ? error : new Error(String(error)));
+    logger.error('Engagement check failed', toError(error));
   } finally {
     isPolling = false;
   }
@@ -219,13 +219,9 @@ export function startEngagementMonitorPoller(): void {
   const intervalMs = getIntervalMs();
   const logger = createWorkerLogger(LOG_PREFIX);
   logger.log('Starting', { interval_ms: intervalMs });
-  runEngagementCheck().catch((err) =>
-    createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-  );
+  runEngagementCheck().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {
-    runEngagementCheck().catch((err) =>
-      createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
-    );
+    runEngagementCheck().catch(logUnhandledPollError(LOG_PREFIX));
   }, intervalMs);
 }
 

@@ -22,7 +22,7 @@ import {
   extractStripeCustomerId,
   isMissingStripeSubscriptionError,
 } from './stripe-overage';
-import { createWorkerLogger } from '../../../../src/lib/shared/logger';
+import { createWorkerLogger, toError } from '../../../../src/lib/shared/logger';
 import { LOG_PREFIX } from './constants';
 import type { DriftAlertPayload } from './drift-alert';
 import type { AccountWithLocations, BillingReconciliationAccount } from './types';
@@ -134,7 +134,7 @@ export async function reconcileAccount(
       logger.error(
         'Error listing Stripe subscriptions for account',
         { account_id: account.id },
-        err instanceof Error ? err : new Error(String(err)),
+        toError(err),
       );
     }
   }
@@ -289,7 +289,7 @@ export async function reconcileAccount(
     logger.error(
       'Invoice-preview reconciliation UNAVAILABLE — duplicate-overage-item drift undetectable this cycle',
       { account_id: account.id },
-      err instanceof Error ? err : new Error(String(err)),
+      toError(err),
     );
   }
 
