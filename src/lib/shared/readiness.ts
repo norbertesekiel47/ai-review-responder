@@ -9,7 +9,7 @@
  * configured") marks the dependency failed instead of throwing.
  */
 
-export const READINESS_PROBE_TIMEOUT_MS = 2_000;
+const READINESS_PROBE_TIMEOUT_MS = 2_000;
 
 export interface DependencyProbe {
   name: string;
