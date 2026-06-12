@@ -2,53 +2,48 @@
 
 import { useState } from 'react';
 import type { AuthFlow } from '@/lib/shared/auth-flow';
+import {
+  AuthCardShell,
+  authFieldClass,
+  authLabelClass,
+  authPrimaryButtonClass,
+} from './AuthCardShell';
+import { LiveRegion } from '@/components/ui/LiveRegion';
+
+// Single owner for the sent-state copy: used by both variants and the
+// LiveRegion so the text can never drift between them.
+const SENT_MESSAGE =
+  "If an account exists for that email, we've sent a reset link. Check your inbox.";
 
 export interface ForgotPasswordFormProps {
   portal: AuthFlow;
   brandName: string;
 }
 
-export function ForgotPasswordFormClient({
-  portal,
+interface AdminForgotPasswordProps {
+  brandName: string;
+  email: string;
+  setEmail: (v: string) => void;
+  sent: boolean;
+  loading: boolean;
+  handleSubmit: (e: React.FormEvent) => Promise<void>;
+}
+
+/** Renders the unchanged utilitarian gray/blue card for the admin portal. */
+function AdminForgotPassword({
   brandName,
-}: ForgotPasswordFormProps) {
-  const [email, setEmail] = useState('');
-  const [sent, setSent] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await fetch('/api/auth/forgot-password', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          role: portal,
-        }),
-      });
-      setSent(true);
-    } catch {
-      // No-enumeration policy: always show the same success message even on
-      // connection failure. The API is best-effort on the client side; any
-      // hard failure still surfaces as the generic "if an account exists"
-      // message. Logging could go here in the future.
-      setSent(true);
-    } finally {
-      setLoading(false);
-    }
-  }
-
+  email,
+  setEmail,
+  sent,
+  loading,
+  handleSubmit,
+}: AdminForgotPasswordProps) {
   if (sent) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
         <div className="w-full max-w-sm bg-white rounded-lg border border-gray-200 p-6 text-center">
           <h1 className="text-xl font-bold text-gray-900 mb-4">{brandName}</h1>
-          <p className="text-sm text-gray-700">
-            If an account exists for that email, we&apos;ve sent a reset link.
-            Check your inbox.
-          </p>
+          <p className="text-sm text-gray-700">{SENT_MESSAGE}</p>
         </div>
       </div>
     );
@@ -94,5 +89,79 @@ export function ForgotPasswordFormClient({
         </form>
       </div>
     </div>
+  );
+}
+
+export function ForgotPasswordFormClient({
+  portal,
+  brandName,
+}: ForgotPasswordFormProps) {
+  const [email, setEmail] = useState('');
+  const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          role: portal,
+        }),
+      });
+      setSent(true);
+    } catch {
+      // No-enumeration policy: always show the same success message even on
+      // connection failure. The API is best-effort on the client side; any
+      // hard failure still surfaces as the generic "if an account exists"
+      // message. Logging could go here in the future.
+      setSent(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (portal === 'admin') {
+    return (
+      <AdminForgotPassword
+        brandName={brandName}
+        email={email}
+        setEmail={setEmail}
+        sent={sent}
+        loading={loading}
+        handleSubmit={handleSubmit}
+      />
+    );
+  }
+
+  return (
+    <AuthCardShell width="sm">
+      <LiveRegion message={sent ? SENT_MESSAGE : ''} />
+      {sent ? (
+        <p className="text-base text-[#2a2a2a] text-center">{SENT_MESSAGE}</p>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <h1 className="text-2xl font-semibold text-[#2a2a2a]">Reset your password</h1>
+          <div>
+            <label htmlFor="forgot-email" className={authLabelClass}>Email</label>
+            <input
+              id="forgot-email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={authFieldClass}
+            />
+          </div>
+          <button type="submit" disabled={loading} className={authPrimaryButtonClass}>
+            {loading ? 'Sending...' : 'Send reset link'}
+          </button>
+        </form>
+      )}
+    </AuthCardShell>
   );
 }

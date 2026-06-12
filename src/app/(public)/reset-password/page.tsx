@@ -7,5 +7,5 @@ export const metadata: Metadata = { title: 'Set a new password · RepWorth', rob
 
 export default function OwnerResetPasswordPage() {
   if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') notFound();
-  return <ResetPasswordFormClient brandName="RepWorth" />;
+  return <ResetPasswordFormClient portal="owner" brandName="RepWorth" />;
 }
