@@ -122,3 +122,6 @@ tests/llm-eval/reports/*
 .pnpm-store/
 # LLM eval run artifacts (PR4 harness; reports are not committed)
 tests/llm-eval/reports/
+
+# understand-anything knowledge graph (local analysis artifacts)
+.understand-anything/
