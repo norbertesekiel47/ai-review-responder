@@ -8,6 +8,7 @@ import { getIpKey } from '@/lib/shared/request-ip';
 import { createCheckoutSession, CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -127,7 +128,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
   } catch (err) {
-    console.error('[select-plan] rate-limit strict failure:', err);
+    reportCaughtError('select-plan', err, { reason: 'rate_limit_strict_failure' });
     return NextResponse.json(
       { error: 'rate_limit_unavailable' },
       { status: 503, headers: NO_STORE },
@@ -275,8 +276,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 502, headers: NO_STORE },
       );
     }
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[select-plan] Checkout Session creation failed for business=${businessId}: ${message}`);
+    reportCaughtError('select-plan', err, { reason: 'checkout_session_creation_failed', businessId });
     // VAL-BILLING-066: Return 502 with user-facing error for Stripe failures
     return NextResponse.json(
       { error: 'checkout_error', detail: 'Unable to connect to payment provider. Please try again later.' },

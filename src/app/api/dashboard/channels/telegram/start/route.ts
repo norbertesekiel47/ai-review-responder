@@ -16,6 +16,7 @@ import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/chan
 import { TOKEN_TTL_MS } from '@/lib/notifications/channels/constants';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 async function handler(req: NextRequest): Promise<NextResponse> {
   if (!isTelegramEnabled()) return flagOff();
@@ -51,7 +52,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'multiple_mobile_channels' }, { status: 409, headers: noStore });
     }
     if (err instanceof EnrollmentDatabaseError) {
-      console.error('[owner telegram/start] enrollment db error', err);
+      reportCaughtError('owner telegram/start', err, { accountId, locationId });
       return NextResponse.json({ error: 'internal' }, { status: 500, headers: noStore });
     }
     throw err;

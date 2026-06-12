@@ -6,6 +6,7 @@ import { asLocationId } from '@/lib/shared/ids';
 import type { LocationId } from '@/lib/shared/ids';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -80,7 +81,7 @@ async function createRankingSnapshot(
         { status: 404, headers: NO_STORE_HEADERS },
       );
     }
-    console.error('[api/ranking] Failed to upsert ranking snapshot:', error);
+    reportCaughtError('api/ranking', error, { businessId });
     return NextResponse.json(
       { error: 'Failed to save ranking snapshot' },
       { status: 500 },

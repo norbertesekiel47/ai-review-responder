@@ -1,6 +1,7 @@
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { zernioClient } from '@/lib/zernio/client';
 import { pendingKey, locationsKey, generateSessionId } from '@/lib/zernio/connect-state';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import type {
   ConnectStateBlob,
   ConnectPendingMarker,
@@ -170,13 +171,18 @@ export async function listLocationsAndStash(args: {
         });
       }
     } catch (cleanupErr) {
-      console.error(
-        '[api/zernio/connect/callback] cleanup failed (non-fatal):',
-        cleanupErr,
-      );
+      reportCaughtError('api/zernio/connect/callback', cleanupErr, {
+        step: 'listlocations_failure_cleanup',
+        businessId: stored.businessId,
+        profileId: stored.profileId,
+      });
     }
 
-    console.error('[api/zernio/connect/callback] listLocations failed:', cbErr);
+    reportCaughtError('api/zernio/connect/callback', cbErr, {
+      step: 'zernio_listlocations',
+      businessId: stored.businessId,
+      profileId: stored.profileId,
+    });
     return { ok: false, kind: 'thrown', code: 'zernio_listlocations_failed' };
   }
 }

@@ -40,6 +40,7 @@ import {
 } from '@/lib/responses/edit-existing';
 import { authorizeEditReplyResponse } from '@/app/api/dashboard/past-replies/_shared/edit-reply-request';
 import { snapshotSchema } from '@/app/api/dashboard/past-replies/_shared/schemas';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -167,7 +168,7 @@ export async function PATCH(
       return new NextResponse(null, { status: 204 });
     });
   } catch (err) {
-    console.error('[past-replies/draft PATCH] unexpected:', err);
+    reportCaughtError('past-replies/draft PATCH', err, { accountId, locationId, responseId });
     return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }
@@ -241,7 +242,7 @@ export async function DELETE(
       return new NextResponse(null, { status: 204 });
     });
   } catch (err) {
-    console.error('[past-replies/draft DELETE] unexpected:', err);
+    reportCaughtError('past-replies/draft DELETE', err, { accountId, locationId, responseId });
     return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }

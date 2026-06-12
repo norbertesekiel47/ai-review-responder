@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type postgres from 'postgres';
 import { sql } from '@/lib/db/server';
 import { jsonResponse, requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 
 export const dynamic = 'force-dynamic';
@@ -162,7 +163,7 @@ async function putSettings(request: NextRequest): Promise<NextResponse> {
     if (error instanceof SettingsBusinessNotFoundError) {
       return jsonResponse({ error: 'Business not found' }, 404);
     }
-    console.error('[api/settings PUT] Failed:', error);
+    reportCaughtError('api/settings PUT', error, { accountId, locationId });
     return jsonResponse({ error: 'Failed to update settings' }, 500);
   }
 }

@@ -1,4 +1,5 @@
 import { getCacheRedis } from '@/lib/db/redis-cache';
+import { reportCaughtError } from './report-caught-error';
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -68,8 +69,14 @@ export async function checkRateLimit(
     if (strict) {
       throw err; // Let caller decide how to handle Redis failure
     }
-    // Redis connection failure — allow the request rather than blocking the user
-    console.error('[rate-limit] Redis unavailable, allowing request:', err instanceof Error ? err.message : err);
+    // Redis connection failure — allow the request rather than blocking the
+    // user, but surface the fail-open to Sentry so an Upstash outage is
+    // visible instead of silently disabling rate limiting (deep-scan §8.3).
+    // Only the limiter name is reported — the full key can embed a client IP.
+    reportCaughtError('shared/rate-limit', err, {
+      fail_open: true,
+      limiter: key.split(':')[0],
+    });
     return { allowed: true, remaining: maxRequests };
   }
 }

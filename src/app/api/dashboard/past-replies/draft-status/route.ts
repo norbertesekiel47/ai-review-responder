@@ -32,6 +32,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -140,7 +141,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       { status: 200 },
     );
   } catch (err) {
-    console.error('[past-replies/draft-status GET] unexpected:', err);
+    reportCaughtError('past-replies/draft-status GET', err, { locationId, outboxId });
     return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { parseCostQuery, getCostReport } from '@/lib/admin/cost-report-service';
 import { getMarginReport } from '@/lib/admin/margin-service';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,16 +22,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // down the pre-existing cost report. On failure, return the cost report
       // with `margin: null` (the admin costs page guards for a missing margin).
       getMarginReport({ limit: 20 }).catch((marginErr) => {
-        console.error(
-          '[api/admin/costs] margin computation failed (cost report still returned):',
-          marginErr,
-        );
+        reportCaughtError('api/admin/costs', marginErr, {
+          failure: 'margin_report_cost_report_still_returned',
+        });
         return null;
       }),
     ]);
     return NextResponse.json({ ...cost, margin });
   } catch (error) {
-    console.error('[api/admin/costs] Failed to fetch cost data:', error);
+    reportCaughtError('api/admin/costs', error, { failure: 'cost_report' });
     return NextResponse.json({ error: 'Failed to fetch cost data' }, { status: 500 });
   }
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRoleOr401 } from '@/lib/auth/route-helpers';
 import type { DemoListItem } from '@/lib/demos/types';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json(demos);
   } catch (error) {
-    console.error('[api/demos] Failed to fetch demos:', error);
+    reportCaughtError('api/demos', error);
     return NextResponse.json(
       { error: 'Failed to fetch demos' },
       { status: 500 },

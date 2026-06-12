@@ -3,6 +3,7 @@ import { sql } from '@/lib/db/server';
 import { requireRoleOr401 } from '@/lib/auth/route-helpers';
 import { asLocationId, asAccountId } from '@/lib/shared/ids';
 import type { LocationId, AccountId } from '@/lib/shared/ids';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -175,7 +176,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json(data);
   } catch (error) {
-    console.error('[api/admin/notifications] Failed to fetch notification data:', error);
+    reportCaughtError('api/admin/notifications', error);
     return NextResponse.json(
       { error: 'Failed to fetch notification data' },
       { status: 500 },

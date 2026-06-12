@@ -9,6 +9,7 @@ import {
   updateBusiness,
 } from '@/lib/admin/business-detail-service';
 import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,7 +34,7 @@ export async function GET(
     }
     return NextResponse.json(detail);
   } catch (error) {
-    console.error('[api/admin/businesses/[id] GET] Failed:', error);
+    reportCaughtError('api/admin/businesses/[id] GET', error, { businessId });
     return NextResponse.json({ error: 'Failed to fetch business' }, { status: 500 });
   }
 }
@@ -99,7 +100,7 @@ async function patchBusiness(
     if (pgError.code === '23505') {
       return NextResponse.json({ error: 'Email already in use' }, { status: 409 });
     }
-    console.error('[api/admin/businesses/[id] PATCH] Failed:', error);
+    reportCaughtError('api/admin/businesses/[id] PATCH', error, { businessId });
     return NextResponse.json({ error: 'Failed to update business' }, { status: 500 });
   }
 }

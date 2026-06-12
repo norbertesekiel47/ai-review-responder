@@ -13,6 +13,7 @@ import { requireRole, AuthError } from '@/lib/db/auth';
 import { ZernioRouteError } from '@/lib/zernio/errors';
 import { zernioRouteErrorResponse } from '@/app/api/zernio/_shared/error-response';
 import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { zernioClient } from '@/lib/zernio/client';
 import { isFreshPendingMarker, parseConnectPendingMarker } from '../_shared/pending-flow';
 import { parseRequestedLocationId, preflightErrorResponse } from '../_shared/preflight';
@@ -322,7 +323,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           },
         });
       } catch (analyticsErr) {
-        console.error('[api/zernio/connect/start] gbp_connect_started enqueue failed:', analyticsErr);
+        reportCaughtError('api/zernio/connect/start', analyticsErr, {
+          step: 'gbp_connect_started_enqueue',
+          businessId: locationId,
+          flowId,
+        });
       }
 
       return NextResponse.json({ authUrl }, { status: 200, headers: NO_STORE });

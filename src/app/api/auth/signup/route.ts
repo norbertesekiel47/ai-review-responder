@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql, supabaseServer } from '@/lib/db/server';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { SignupSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
@@ -45,7 +46,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
   } catch (err) {
-    console.error('[api/auth/signup] rate-limit strict failure:', err);
+    reportCaughtError('api/auth/signup', err, { reason: 'rate_limit_strict_failure' });
     return NextResponse.json(
       {
         error: 'rate_limit_unavailable',
@@ -202,15 +203,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     try {
       await supabaseServer.auth.admin.deleteUser(authId);
     } catch (delErr) {
-      console.error(
-        `[signup-cleanup] Failed to delete orphan auth user ${authId}:`,
-        delErr instanceof Error ? delErr.message : delErr,
-      );
+      reportCaughtError('signup-cleanup', delErr, {
+        reason: 'orphan_auth_user_delete_failed',
+        authId,
+      });
     }
     if (err instanceof DuplicateEmailError) {
       return accountExistsResponse();
     }
-    console.error('[api/auth/signup] createBusinessTx failed:', err);
+    reportCaughtError('api/auth/signup', err, { reason: 'create_business_tx_failed' });
     return NextResponse.json({ error: 'internal' }, { status: 500 });
   }
 

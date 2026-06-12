@@ -14,6 +14,7 @@ import { assertCanAddLocation } from '@/lib/accounts/quota';
 import { getAccountById, getAccountOwnerUserId } from '@/lib/accounts/repo';
 import { addLocationTransaction } from '@/lib/locations/add-location-tx';
 import { getActiveLocationCount } from '@/lib/locations/repo';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import {
   locationDenialResponse,
   LOCATION_ROUTE_NO_STORE as NO_STORE,
@@ -160,7 +161,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[locations/add] Transaction failed for account=${accountId}: ${message}`);
+    reportCaughtError('locations/add', err, { accountId });
     // duplicate_location (active-duplicate google_place_id, migration 062) → 409.
     const denial = locationDenialResponse(message);
     if (denial) return denial;

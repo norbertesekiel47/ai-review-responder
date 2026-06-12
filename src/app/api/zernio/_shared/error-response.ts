@@ -8,6 +8,7 @@
 
 import { NextResponse } from 'next/server';
 import { ZernioRouteError } from '@/lib/zernio/errors';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 const ZERNIO_NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
@@ -18,7 +19,7 @@ export function zernioRouteErrorResponse(err: unknown, logPrefix: string): NextR
       { status: err.statusCode, headers: ZERNIO_NO_STORE },
     );
   }
-  console.error(`${logPrefix} internal error:`, err);
+  reportCaughtError(logPrefix.replace(/^\[|\]$/g, ''), err, { kind: 'internal_error' });
   return NextResponse.json(
     { error: 'internal_error' },
     { status: 500, headers: ZERNIO_NO_STORE },

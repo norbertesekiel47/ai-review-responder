@@ -5,6 +5,7 @@ import { asLocationId } from '@/lib/shared/ids';
 import type { LocationId } from '@/lib/shared/ids';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,7 +54,7 @@ async function updateKeywords(
 
     return NextResponse.json({ success: true }, { headers: NO_STORE_HEADERS });
   } catch (error) {
-    console.error('[api/keywords] Failed to update keywords:', error);
+    reportCaughtError('api/keywords', error, { businessId });
     return NextResponse.json(
       { error: 'Failed to update keywords' },
       { status: 500 },

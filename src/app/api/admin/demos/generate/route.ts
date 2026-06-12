@@ -7,6 +7,7 @@ import { isPlaceId, extractPlaceId } from '@/lib/reviews/url-parser';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import type { DemoJobPayload } from '@/lib/demos/types';
 import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 const GenerateDemoSchema = z
   .object({
@@ -116,7 +117,7 @@ async function generateDemo(request: NextRequest): Promise<NextResponse> {
       `;
     });
   } catch (error) {
-    console.error('[api/demos/generate] Transaction failed:', error);
+    reportCaughtError('api/demos/generate', error, { failure: 'outbox_transaction', demoId });
     return NextResponse.json(
       { error: 'Failed to queue demo generation' },
       { status: 500 },

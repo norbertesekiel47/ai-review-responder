@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { IMPERSONATION_COOKIE_NAME } from '@/lib/admin/impersonation/cookie';
 import { getOffboardingState, isOperationalUIBlocked } from '@/lib/account-offboarding/gate';
 import { jsonResponse, requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import {
   AutoApprovalConfirmationRequiredError,
   AutoApprovalExpansionBlockedError,
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     });
     return jsonResponse(state);
   } catch (error) {
-    console.error('[api/settings/auto-approval GET] Failed:', error);
+    reportCaughtError('api/settings/auto-approval GET', error, { accountId: owner.accountId });
     return jsonResponse({ error: 'internal_error' }, 500);
   }
 }
@@ -66,7 +67,7 @@ async function patchSettings(request: NextRequest): Promise<NextResponse> {
     const mapped = autoApprovalErrorResponse(error);
     if (mapped) return mapped;
 
-    console.error('[api/settings/auto-approval PATCH] Failed:', error);
+    reportCaughtError('api/settings/auto-approval PATCH', error, { accountId: owner.accountId });
     return jsonResponse({ error: 'internal_error' }, 500);
   }
 }

@@ -5,6 +5,7 @@ import {
   ZernioValidationError,
 } from '@/lib/zernio/errors';
 import { zernioRouteErrorResponse } from '@/app/api/zernio/_shared/error-response';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,
@@ -140,10 +141,9 @@ function errorToResponse(err: unknown): NextResponse {
   if (err instanceof ZernioAuthError) {
     // Outcome-known revert path bubbled up — surface as 502 since Zernio
     // refused at auth layer (likely stale connect_token).
-    console.error(
-      '[api/zernio/connect/select-location] Zernio auth error:',
-      err,
-    );
+    reportCaughtError('api/zernio/connect/select-location', err, {
+      kind: 'zernio_auth_error',
+    });
     return NextResponse.json(
       { error: 'zernio_auth_error' },
       { status: 502, headers: NO_STORE },
@@ -151,10 +151,10 @@ function errorToResponse(err: unknown): NextResponse {
   }
   if (err instanceof ZernioValidationError) {
     // Outcome-known revert path bubbled up — pre-mutation reject.
-    console.error(
-      '[api/zernio/connect/select-location] Zernio validation error:',
-      err,
-    );
+    reportCaughtError('api/zernio/connect/select-location', err, {
+      kind: 'zernio_validation_error',
+      code: err.code,
+    });
     return NextResponse.json(
       { error: 'zernio_validation_error', code: err.code },
       { status: 400, headers: NO_STORE },

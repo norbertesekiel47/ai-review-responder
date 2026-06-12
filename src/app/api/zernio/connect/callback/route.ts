@@ -13,6 +13,7 @@ import {
   luaDeletePendingByFlowIdAnyStatus,
 } from '@/lib/zernio/connect-state';
 import { setConnectSessionCookie } from '@/lib/zernio/connect-session-cookie';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { cleanupAfterOauthDenial } from '../_shared/callback/oauth-denial';
 import { cleanupMissingTokenState } from '../_shared/callback/missing-token';
 import { claimAndVerifyConnectState } from '../_shared/callback/claim-and-verify';
@@ -62,10 +63,10 @@ async function cleanupOrphanedProfileBestEffort(
   try {
     await zernioClient.deleteProfile(profileId);
   } catch (err) {
-    console.error(
-      '[api/zernio/connect/callback] orphan profile cleanup failed (non-fatal):',
-      err,
-    );
+    reportCaughtError('api/zernio/connect/callback', err, {
+      step: 'orphan_profile_cleanup',
+      profileId,
+    });
   }
 }
 
@@ -152,7 +153,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     business = await loadCallbackBusiness(stored.businessId);
   } catch (err) {
-    console.error('[api/zernio/connect/callback] offboarding lookup failed:', err);
+    reportCaughtError('api/zernio/connect/callback', err, {
+      step: 'offboarding_lookup',
+      businessId: stored.businessId,
+    });
     await cleanupBlockedConnectFlow(stored, pending);
     return redirectError(origin, 'internal_error');
   }
@@ -243,6 +247,10 @@ async function cleanupBlockedConnectFlow(
       // Best-effort: pending marker auto-expires.
     });
   await zernioClient.deleteProfile(stored.profileId).catch((err) => {
-    console.error('[api/zernio/connect/callback] blocked-flow profile cleanup failed:', err);
+    reportCaughtError('api/zernio/connect/callback', err, {
+      step: 'blocked_flow_profile_cleanup',
+      profileId: stored.profileId,
+      businessId: stored.businessId,
+    });
   });
 }

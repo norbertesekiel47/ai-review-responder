@@ -3,6 +3,7 @@ import { createServerClient } from '@supabase/ssr';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { VerifyEmailOtpSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
     }
   } catch (err) {
-    console.error('[verify-otp] rate-limit strict failure:', err);
+    reportCaughtError('verify-otp', err, { reason: 'rate_limit_strict_failure' });
     return NextResponse.json(
       { error: 'rate_limit_unavailable' },
       { status: 503 },
@@ -189,10 +190,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       ON CONFLICT (account_id, channel, COALESCE(location_id, '00000000-0000-0000-0000-000000000000')) WHERE archived_at IS NULL DO NOTHING
     `;
   } catch (err) {
-    console.error(
-      `[verify-otp] channel_enrollments INSERT failed for business ${row.business_id}:`,
-      err instanceof Error ? err.message : err,
-    );
+    reportCaughtError('verify-otp', err, {
+      reason: 'channel_enrollments_insert_failed',
+      businessId: row.business_id,
+    });
   }
 
   try {
@@ -209,10 +210,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       },
     });
   } catch (err) {
-    console.error(
-      `[verify-otp] email_verified analytics enqueue failed for user ${row.user_id}:`,
-      err instanceof Error ? err.message : err,
-    );
+    reportCaughtError('verify-otp', err, {
+      reason: 'email_verified_analytics_enqueue_failed',
+      userId: row.user_id,
+    });
   }
 
   // Build the success response carrying the freshly-written session cookies.

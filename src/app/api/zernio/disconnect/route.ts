@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as Sentry from '@sentry/nextjs';
 import {
   activeOffboardingStateFromProjection,
   isConnectBlocked,
@@ -9,6 +8,7 @@ import { sql } from '@/lib/db/server';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { zernioRouteErrorResponse } from '../_shared/error-response';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import { zernioClient } from '@/lib/zernio/client';
 import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
@@ -280,13 +280,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     await zernioClient.deleteAccount(accountId);
   } catch (zernioErr) {
-    Sentry.captureException(zernioErr, {
-      tags: { business_id: businessId, kind: 'zernio_delete_account' },
+    reportCaughtError('api/zernio/disconnect', zernioErr, {
+      businessId,
+      kind: 'zernio_delete_account',
     });
-    console.error(
-      '[api/zernio/disconnect] best-effort deleteAccount failed:',
-      zernioErr,
-    );
   }
 
   return NextResponse.json({ ok: true }, { status: 200, headers: NO_STORE });

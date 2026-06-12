@@ -17,6 +17,7 @@ import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/chan
 import { TOKEN_TTL_MS } from '@/lib/notifications/channels/constants';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
@@ -29,8 +30,8 @@ export interface AdminChannelStartConfig {
   buildDeepLink: (rawToken: string) => string;
   /** safeInvalidateChannelCache label, e.g. "admin.telegram.start". */
   cacheLabel: string;
-  /** console.error prefix for enrollment DB errors, e.g. "[telegram/start]". */
-  errorLogPrefix: string;
+  /** reportCaughtError endpoint tag for enrollment DB errors, e.g. "telegram/start". */
+  endpoint: string;
 }
 
 export async function runAdminChannelStart(
@@ -85,7 +86,12 @@ export async function runAdminChannelStart(
       return NextResponse.json({ error: 'multiple_mobile_channels' }, { status: 409, headers: NO_STORE });
     }
     if (err instanceof EnrollmentDatabaseError) {
-      console.error(`${config.errorLogPrefix} enrollment db error`, err);
+      reportCaughtError(config.endpoint, err, {
+        failure: 'enrollment_db_error',
+        channel: config.channel,
+        businessId,
+        accountId,
+      });
       return NextResponse.json({ error: 'internal' }, { status: 500, headers: NO_STORE });
     }
     throw err;

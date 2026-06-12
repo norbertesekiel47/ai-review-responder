@@ -13,6 +13,7 @@ import { PLACEHOLDER_BUSINESS_NAME } from '@/lib/onboarding/create-business';
 import { botIdBlockResponse } from '@/lib/security/botid';
 import type postgres from 'postgres';
 import { enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -237,7 +238,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: NO_STORE });
     }
   } catch (err) {
-    console.error('[api/onboarding/start] rate-limit strict failure:', err);
+    reportCaughtError('api/onboarding/start', err, { reason: 'rate_limit_strict_failure' });
     return NextResponse.json({ error: 'rate_limit_unavailable' }, { status: 503, headers: NO_STORE });
   }
 
@@ -272,7 +273,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       blockReason = 'rate_limit';
     }
   } catch (err) {
-    console.error('[api/onboarding/start] demo rate-limit check failed:', err);
+    reportCaughtError('api/onboarding/start', err, { reason: 'demo_rate_limit_check_failed' });
     return NextResponse.json({ error: 'rate_limit_unavailable' }, { status: 503, headers: NO_STORE });
   }
 
@@ -288,7 +289,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         demoBlocked = true;
         blockReason = 'cost_ceiling';
       } else {
-        console.error('[api/onboarding/start] cost-guard reservation failed:', err);
+        reportCaughtError('api/onboarding/start', err, { reason: 'cost_guard_reservation_failed' });
         return NextResponse.json({ error: 'redis_unavailable' }, { status: 503, headers: NO_STORE });
       }
     }
@@ -325,7 +326,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (cleanupReservation) {
       try { await cleanupReservation(); } catch { /* ignore */ }
     }
-    console.error('[api/onboarding/start] transaction failed:', err);
+    reportCaughtError('api/onboarding/start', err, { reason: 'transaction_failed', businessId: bizRow.id });
     return NextResponse.json({ error: 'internal' }, { status: 500, headers: NO_STORE });
   }
 
