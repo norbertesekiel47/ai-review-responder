@@ -1,6 +1,6 @@
 # RepWorth SaaS-Readiness Specs
 
-> Optimized, implementation-ready specs derived from `docs/saas_readiness_questions_for_repworth.md`. Each spec is a self-contained design document for closing a specific readiness gap, tied to RepWorth's code, migrations, and runbooks.
+> Optimized, implementation-ready specs derived from a SaaS-readiness Q&A audit (the original question doc has since been removed as stale — this folder is the surviving source of truth). Each spec is a self-contained design document for closing a specific readiness gap, tied to RepWorth's code, migrations, and runbooks.
 
 ---
 
@@ -204,4 +204,4 @@ Specs 01 (PMF) and 02 (Pricing) thread continuously — review monthly, not "shi
 
 ## Source
 
-These specs synthesize and operationalize the answers in [`../saas_readiness_questions_for_repworth.md`](../saas_readiness_questions_for_repworth.md) — the prescriptive "best answer" doc that motivated this folder. The question doc is the **why**; this folder is the **how**.
+These specs synthesized and operationalized the answers in `docs/saas_readiness_questions_for_repworth.md` — the prescriptive "best answer" doc that motivated this folder. That question doc has since been deleted as stale; everything actionable from it lives in these specs, which are now the source of truth.

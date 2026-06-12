@@ -16,7 +16,7 @@ This is the **strategic transformation map** — the "where are we going and why
 | Agent substrate, run engine, trust dial, Reply/Solicitation agents, posting adapters, **forced pricing-migration mechanics** | [`docs/future-plans/2026-05-22-saas-2-0-vertical-agent-platform-design.md`](2026-05-22-saas-2-0-vertical-agent-platform-design.md) |
 | Auto-approval runtime (gates, kill-switch, policy resolution) | [`docs/superpowers/specs/2026-05-31-auto-approval-design.md`](../superpowers/specs/2026-05-31-auto-approval-design.md) — shipped in PR #227 |
 | Architecture invariants (NEVER-violate list, incl. #3/#4/#11/#14 evolution) | [`.claude/CLAUDE.md`](../../.claude/CLAUDE.md) |
-| SaaS-readiness open questions | [`docs/saas_readiness_questions_for_repworth.md`](../saas_readiness_questions_for_repworth.md) |
+| SaaS-readiness gaps and how to close them | [`docs/sass_ready/`](../sass_ready/README.md) (the original Q&A doc was removed as stale; the specs folder supersedes it) |
 
 **Relationship to the 2026-05-22 program doc:** that doc ([2026-05-22-saas-2-0-vertical-agent-platform-design.md](2026-05-22-saas-2-0-vertical-agent-platform-design.md)) is a *committed program* for converting RepWorth into a vertical AI-agent platform (Reply spine → Solicitation → outcome pricing). This doc is the wider lens: it frames that program as **Phase A ("deepen to autonomous")** of a two-stage journey, and adds the **Phase B ("broaden to managed reputation")** destination, the calibrated-confidence / online-eval capabilities, and the moat/risk framing the program doc treats as given. Where the two ever disagree on mechanics, the program doc and CLAUDE.md win.
 
