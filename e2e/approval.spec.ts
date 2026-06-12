@@ -28,7 +28,7 @@ test.describe('Approval flow E2E', () => {
       await approveBtn.click();
 
       // Success message appears
-      await expect(page.getByText('approved', { exact: false })).toBeVisible({ timeout: 5_000 });
+      await expect(page.getByRole('heading', { name: 'Response approved!' })).toBeVisible({ timeout: 5_000 });
 
       // Verify DB state
       const resp = await getResponse(data.responseId);
@@ -67,7 +67,7 @@ test.describe('Approval flow E2E', () => {
       await saveBtn.click();
 
       // Success message
-      await expect(page.getByText('approved', { exact: false })).toBeVisible({ timeout: 5_000 });
+      await expect(page.getByRole('heading', { name: 'Response approved!' })).toBeVisible({ timeout: 5_000 });
 
       // Verify DB state
       const resp = await getResponse(data.responseId);
@@ -115,7 +115,7 @@ test.describe('Approval flow E2E', () => {
 
       // Success message about new response / check email
       await expect(
-        page.getByText(/generat|email/i),
+        page.getByRole('heading', { name: 'New draft on the way' }),
       ).toBeVisible({ timeout: 5_000 });
 
       // Verify DB: old response is superseded

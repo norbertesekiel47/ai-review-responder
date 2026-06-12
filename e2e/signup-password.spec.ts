@@ -2,6 +2,10 @@ import { test, expect } from '@playwright/test';
 
 test.describe('owner password signup flow', () => {
   test('signup → check-email → (harness) confirm + pay → dashboard active', async ({ page }) => {
+    // Gate mirrors the other auth-flow specs: the body below stops at the
+    // harness step regardless, and the signup POST needs a real Supabase.
+    test.skip(true, 'Harness (Supabase signup + email capture + Stripe payment link) not yet wired up — see e2e/README.md');
+
     // REQUIRES:
     //   SELF_SERVE_SIGNUP_ENABLED=true
     //   STRIPE_PAYMENT_LINK_STANDARD=<test-mode Payment Link with success_url set>

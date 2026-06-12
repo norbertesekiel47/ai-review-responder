@@ -38,6 +38,8 @@ function getSql(): Sql {
 }
 
 export interface SeedData {
+  accountId: string;
+  userId: string;
   businessId: string;
   reviewId: string;
   responseId: string;
@@ -307,21 +309,55 @@ export async function seedApprovalFlow(
   } = {},
 ): Promise<SeedData> {
   const sql = getSql();
+  const accountId = randomUUID();
+  const userId = randomUUID();
+  const authUserId = randomUUID();
   const businessId = randomUUID();
   const reviewId = randomUUID();
   const responseId = randomUUID();
   const approvalLinkId = randomUUID();
   const rawToken = randomUUID();
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+  const suffix = businessId.slice(0, 8);
+  const ownerEmail = `e2e-approval-${suffix}@test.local`;
 
   const expiresAt = overrides.expiresAt ?? new Date(Date.now() + 48 * 3600_000);
   const consumedAt = overrides.consumedAt ?? null;
 
   await sql.begin(async (tx) => {
-    await tx`
-      INSERT INTO businesses (id, name, category, owner_name, owner_email, subscription_status, google_place_id)
-      VALUES (${businessId}, ${'E2E Test Biz ' + businessId.slice(0, 8)}, 'restaurant', 'Test Owner', 'e2e@test.local', 'active', ${'e2e-place-' + businessId.slice(0, 8)})
-    `;
+    // businesses.account_id is NOT NULL (accounts-parent schema) — every
+    // location needs its billing account + owner user, even for the
+    // token-based approval flow that never logs in.
+    await insertOwnerWithAccount(tx, {
+      accountId,
+      userId,
+      authUserId,
+      ownerName: 'Test Owner',
+      ownerEmail,
+      accountDisplayName: `E2E Approval Account ${suffix}`,
+      subscriptionStatus: 'active',
+      locationsIncluded: 1,
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+    });
+    await insertBusinesses(tx, [
+      {
+        id: businessId,
+        name: `E2E Test Biz ${suffix}`,
+        display_label: null,
+        category: 'restaurant',
+        google_place_id: `e2e-place-${suffix}`,
+        owner_name: 'Test Owner',
+        owner_email: ownerEmail,
+        subscription_tier: STANDARD_TIER_SNAPSHOT.tier,
+        subscription_status: 'active',
+        stripe_customer_id: null,
+        stripe_subscription_id: null,
+        account_id: accountId,
+        is_primary: true,
+        onboarded_by: userId,
+      },
+    ]);
 
     await tx`
       INSERT INTO reviews (id, business_id, provider, provider_review_id, provider_review_name, provider_location_name, reviewer_name, star_rating, review_text, review_date, detected_language, review_content_hash, status)
@@ -339,7 +375,7 @@ export async function seedApprovalFlow(
     `;
   });
 
-  return { businessId, reviewId, responseId, rawToken, tokenHash, approvalLinkId };
+  return { accountId, userId, businessId, reviewId, responseId, rawToken, tokenHash, approvalLinkId };
 }
 
 export async function seedOwnerOffboardingAccount(
@@ -587,7 +623,7 @@ export async function cleanupMultiLocationAccount(accountId: string): Promise<vo
  */
 export async function cleanupApprovalFlow(data: SeedData): Promise<void> {
   const sql = getSql();
-  const { businessId, reviewId, responseId } = data;
+  const { accountId, userId, businessId, reviewId, responseId } = data;
 
   await sql`
     DELETE FROM job_outbox
@@ -601,6 +637,11 @@ export async function cleanupApprovalFlow(data: SeedData): Promise<void> {
   await sql`DELETE FROM responses WHERE business_id = ${businessId}`;
   await sql`DELETE FROM reviews WHERE business_id = ${businessId}`;
   await sql`DELETE FROM businesses WHERE id = ${businessId}`;
+  // users.account_id ↔ accounts.owner_user_id are circular FKs — break the
+  // link before deleting either side (same dance as the other cleanups).
+  await sql`UPDATE users SET account_id = NULL WHERE id = ${userId}::uuid`;
+  await sql`DELETE FROM accounts WHERE id = ${accountId}::uuid`;
+  await sql`DELETE FROM users WHERE id = ${userId}::uuid`;
 }
 
 export async function cleanupOwnerOffboardingSeed(data: OwnerOffboardingSeedData): Promise<void> {
