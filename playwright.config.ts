@@ -27,24 +27,26 @@ export default defineConfig({
       use: { ...devices['Pixel 5'] },
     },
   ],
-  webServer: process.env.CI
-    ? undefined
-    : {
-        command: 'pnpm dev',
-        port: 3000,
-        reuseExistingServer: true,
-        // When E2E tests use a dedicated test DB, the app under test must
-        // read from the same database so it can find seeded approval tokens.
-        env: {
-          ...(process.env.TEST_DATABASE_POOL_URL
-            ? { DATABASE_POOL_URL: process.env.TEST_DATABASE_POOL_URL }
-            : {}),
-          ...(process.env.ACCOUNT_OFFBOARDING_ENABLED
-            ? { ACCOUNT_OFFBOARDING_ENABLED: process.env.ACCOUNT_OFFBOARDING_ENABLED }
-            : {}),
-          ...(process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS
-            ? { ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS: process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS }
-            : {}),
-        },
-      },
+  // One owner for app boot, locally AND in CI (the CI `e2e` job relies on
+  // this block — see .github/workflows/ci.yml). CI cold-boots the dev server
+  // and compiles routes on first hit, hence the generous timeout.
+  webServer: {
+    command: 'pnpm dev',
+    port: 3000,
+    reuseExistingServer: !process.env.CI,
+    timeout: 180_000,
+    // When E2E tests use a dedicated test DB, the app under test must
+    // read from the same database so it can find seeded approval tokens.
+    env: {
+      ...(process.env.TEST_DATABASE_POOL_URL
+        ? { DATABASE_POOL_URL: process.env.TEST_DATABASE_POOL_URL }
+        : {}),
+      ...(process.env.ACCOUNT_OFFBOARDING_ENABLED
+        ? { ACCOUNT_OFFBOARDING_ENABLED: process.env.ACCOUNT_OFFBOARDING_ENABLED }
+        : {}),
+      ...(process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS
+        ? { ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS: process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS }
+        : {}),
+    },
+  },
 });
