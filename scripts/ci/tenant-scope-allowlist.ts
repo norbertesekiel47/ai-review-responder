@@ -828,13 +828,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/auth/signup-status/route.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id AS account_id, a.subscription_status, u.role, b.place_id_verified, b.google_maps_url, a.subscription_activated_at, b.updated_at FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = ${ownerRole} LIMIT 1",
+    sqlSnippet: "SELECT a.id AS account_id, a.subscription_status, u.role, b.place_id_verified, b.google_maps_url, a.onboarding_wizard_completed_at FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = ${ownerRole} LIMIT 1",
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
   {
     file: "src/app/api/auth/signup-status/route.ts",
     table: "businesses",
-    sqlSnippet: "SELECT a.id AS account_id, a.subscription_status, u.role, b.place_id_verified, b.google_maps_url, a.subscription_activated_at, b.updated_at FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = ${ownerRole} LIMIT 1",
+    sqlSnippet: "SELECT a.id AS account_id, a.subscription_status, u.role, b.place_id_verified, b.google_maps_url, a.onboarding_wizard_completed_at FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = ${ownerRole} LIMIT 1",
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
   {
