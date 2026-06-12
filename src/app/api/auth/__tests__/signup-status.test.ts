@@ -142,8 +142,7 @@ describe('GET /api/auth/signup-status', () => {
     role?: string;
     place_id_verified?: boolean;
     google_maps_url?: string | null;
-    subscription_activated_at?: Date | null;
-    updated_at?: Date;
+    onboarding_wizard_completed_at?: Date | null;
   } = {}) {
     return {
       account_id: opts.account_id ?? 'acct-uuid-123',
@@ -151,8 +150,7 @@ describe('GET /api/auth/signup-status', () => {
       role: opts.role ?? 'owner',
       place_id_verified: opts.place_id_verified ?? false,
       google_maps_url: opts.google_maps_url ?? null,
-      subscription_activated_at: opts.subscription_activated_at ?? null,
-      updated_at: opts.updated_at ?? new Date(),
+      onboarding_wizard_completed_at: opts.onboarding_wizard_completed_at ?? null,
     };
   }
 
@@ -257,15 +255,13 @@ describe('GET /api/auth/signup-status', () => {
     expect(json.businessOnboarded).toBe(false);
   });
 
-  it('demo flow: businessOnboarded=false when subscription active but updated_at = subscription_activated_at (Stripe just fired, wizard not yet run)', async () => {
+  it('demo flow: businessOnboarded=false when the wizard stamp is NULL (Stripe just fired, wizard not yet run)', async () => {
     process.env.ONBOARDING_DEMO_ENABLED = 'true';
-    const activatedAt = new Date('2026-05-04T12:00:00Z');
     mockSql.mockResolvedValueOnce([
       rowFor({
         subscription_status: 'active',
         place_id_verified: true, // /start set this BEFORE Stripe — must NOT be treated as "onboarded"
-        subscription_activated_at: activatedAt,
-        updated_at: activatedAt,
+        onboarding_wizard_completed_at: null,
       }),
     ]);
     const res = await GET(mkReq());
@@ -275,22 +271,35 @@ describe('GET /api/auth/signup-status', () => {
     delete process.env.ONBOARDING_DEMO_ENABLED;
   });
 
-  it('demo flow: businessOnboarded=true when updated_at > subscription_activated_at + 2s (post-pay wizard ran)', async () => {
+  it('demo flow: businessOnboarded=true when onboarding_wizard_completed_at is set (post-pay wizard ran)', async () => {
     process.env.ONBOARDING_DEMO_ENABLED = 'true';
-    const activatedAt = new Date('2026-05-04T12:00:00Z');
-    const wizardSubmitAt = new Date(activatedAt.getTime() + 5_000); // 5s later
     mockSql.mockResolvedValueOnce([
       rowFor({
         subscription_status: 'active',
         place_id_verified: true,
-        subscription_activated_at: activatedAt,
-        updated_at: wizardSubmitAt,
+        onboarding_wizard_completed_at: new Date('2026-05-04T12:05:00Z'),
       }),
     ]);
     const res = await GET(mkReq());
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.businessOnboarded).toBe(true);
+    delete process.env.ONBOARDING_DEMO_ENABLED;
+  });
+
+  it('demo flow: businessOnboarded=false when the stamp is set but subscription is not active', async () => {
+    process.env.ONBOARDING_DEMO_ENABLED = 'true';
+    mockSql.mockResolvedValueOnce([
+      rowFor({
+        subscription_status: 'pending_payment',
+        place_id_verified: true,
+        onboarding_wizard_completed_at: new Date('2026-05-04T12:05:00Z'),
+      }),
+    ]);
+    const res = await GET(mkReq());
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.businessOnboarded).toBe(false);
     delete process.env.ONBOARDING_DEMO_ENABLED;
   });
 

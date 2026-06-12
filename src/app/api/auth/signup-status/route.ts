@@ -14,8 +14,7 @@ type SignupStatusRow = {
   role: string;
   place_id_verified: boolean;
   google_maps_url: string | null;
-  subscription_activated_at: Date | null;
-  updated_at: Date;
+  onboarding_wizard_completed_at: Date | null;
 };
 
 function getCheckoutSessionId(req: NextRequest): string | null {
@@ -130,23 +129,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   //      BEFORE Stripe. The legacy definition would mark every paying user
   //      "onboarded" as soon as Stripe fires — pulling them straight to
   //      /dashboard and skipping the post-pay 2-step Profile/Voice wizard.
-  //      We need a "wizard ran post-Stripe" signal instead. Proxy: the
-  //      post-pay wizard's UPDATE bumps `updated_at`, while the Stripe
-  //      webhook sets `subscription_activated_at` and `updated_at` together.
-  //      So `updated_at > subscription_activated_at + small buffer` indicates
-  //      a write strictly after Stripe — almost always the wizard.
-  //
-  //      Phase 2 follow-up: add an explicit `business_profile_completed_at`
-  //      column and migrate to that. The proxy can false-positive if the
-  //      PlaceIdValidationWorker (URL-paste path) lands its UPDATE after
-  //      Stripe; for the autocomplete path (pre-verified Place ID, no
-  //      validation worker enqueued) the proxy is exact.
+  //      We need a "wizard ran post-Stripe" signal instead: the wizard route
+  //      (/api/onboarding/business) stamps
+  //      `accounts.onboarding_wizard_completed_at` in its own transaction
+  //      (migration 064) — read it directly. (Replaced the old
+  //      updated_at-vs-subscription_activated_at proxy, which could
+  //      false-positive when the PlaceIdValidationWorker's UPDATE landed
+  //      after Stripe.)
   const demoFlowEnabled = process.env.ONBOARDING_DEMO_ENABLED === 'true';
   const ownerRole = 'owner';
   const [row] = await sql<SignupStatusRow[]>`
     SELECT a.id AS account_id, a.subscription_status, u.role,
            b.place_id_verified, b.google_maps_url,
-           a.subscription_activated_at, b.updated_at
+           a.onboarding_wizard_completed_at
     FROM users u
     JOIN accounts a ON a.id = u.account_id
     JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
@@ -162,7 +157,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   const subscriptionStatus = row.subscription_status;
-  const subscriptionActivatedAt = row.subscription_activated_at;
   const checkoutSessionId = getCheckoutSessionId(req);
   if (
     subscriptionStatus !== SubscriptionStatus.ACTIVE &&
@@ -183,13 +177,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   // 5. Compute business_onboarded based on the active flow. Done in JS
   //    rather than a SQL CASE so the test mocks (single tagged-template
-  //    call, plain row return) stay simple — and the proxy logic is easier
+  //    call, plain row return) stay simple — and the branch logic is easier
   //    to reason about co-located with the comment above.
   const businessOnboarded = demoFlowEnabled
     ? subscriptionStatus === SubscriptionStatus.ACTIVE
-      && subscriptionActivatedAt !== null
-      && new Date(row.updated_at).getTime()
-         > new Date(subscriptionActivatedAt).getTime() + 2_000
+      && row.onboarding_wizard_completed_at !== null
     : row.place_id_verified || row.google_maps_url !== null;
 
   // 6. Return subscription status + role + businessOnboarded. The

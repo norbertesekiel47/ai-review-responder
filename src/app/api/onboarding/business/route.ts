@@ -326,6 +326,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         `;
       }
 
+      // Explicit wizard-completion stamp — the one authoritative "wizard ran"
+      // signal read by /api/auth/signup-status (migration 064; replaces the
+      // updated_at-vs-activation proxy). COALESCE: first completion wins,
+      // resubmits don't move the timestamp. Stamped on BOTH flow branches —
+      // the legacy read path doesn't use it today, but the stamp is true in
+      // both flows and survives ONBOARDING_DEMO_ENABLED flips.
+      await tx`
+        UPDATE accounts
+        SET onboarding_wizard_completed_at = COALESCE(onboarding_wizard_completed_at, NOW()),
+            updated_at = NOW()
+        WHERE id = ${bizRow.account_id}::uuid
+      `;
+
       if (data.businessName) {
         await tx`
           UPDATE accounts
