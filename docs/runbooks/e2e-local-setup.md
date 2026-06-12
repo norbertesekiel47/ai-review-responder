@@ -48,7 +48,7 @@ pnpm test:e2e --project=chromium
 | Hermetic seeded/token flows (approval, owner-channels, multi-location, zernio-connect redirect, admin runtime, …) | ✅ runs (chromium only) | ✅ runs |
 | Owner-login flows (`remaining-scenarios`, `edit-replies-runbook`, `pricing-toggle`) | self-skip (no `E2E_OWNER_EMAIL`/`E2E_OWNER_PASSWORD`) | run if you set both against the test Supabase |
 | Auth-funnel specs (`forgot-password`, `reset-password`, `signup-google`, `signup-password`) | hard-skipped — Supabase `auth.admin` harness pending (see `e2e/README.md`) | same |
-| Owner-offboarding DB-backed lifecycle | quarantined — dynamic src/worker imports break under Playwright's transform (issue #283) | same |
+| Owner-offboarding DB-backed lifecycle | ✅ ported to the Vitest integration lane (`worker/jobs/account-offboarding/__tests__/integration-lifecycle.test.ts`) — runs in the CI `test` job (issue #283) | runs via `pnpm test` with `TEST_DATABASE_POOL_URL` |
 | mobile-chrome project | not in CI (runtime budget) | `pnpm test:e2e --project=mobile-chrome` |
 
 ## 4. Auth harness (forgot/reset/signup-google) {#auth-harness}
