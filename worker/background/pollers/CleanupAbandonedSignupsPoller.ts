@@ -1,6 +1,7 @@
 import { sql, supabaseServer } from '../../../src/lib/db/server';
-import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, type WorkerLogger } from '../../../src/lib/shared/logger';
 
+const LOG_PREFIX = '[CleanupAbandonedSignups]';
 const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours
 const DEFAULT_BATCH_SIZE = 100;
 
@@ -34,7 +35,7 @@ let inProgress = false;
  *      Auth user but the DB tx failed; the next poll sees 404 and should proceed.
  */
 export async function runOnce(): Promise<void> {
-  const logger = createWorkerLogger('[CleanupAbandonedSignups]');
+  const logger = createWorkerLogger(LOG_PREFIX);
   // Single-flight: if a previous invocation is still executing, skip this
   // tick. The check + set is safe because the JS event loop is
   // single-threaded — no atomic-CAS needed. The finally below clears the
@@ -51,9 +52,7 @@ export async function runOnce(): Promise<void> {
   }
 }
 
-async function runOnceInner(
-  logger: ReturnType<typeof createWorkerLogger>,
-): Promise<void> {
+async function runOnceInner(logger: WorkerLogger): Promise<void> {
   // Tier-2 housekeeping: drop completed onboarding demos older than 30 days.
   // CASCADE on user_id/business_id covers the abandoned-signup path; this
   // independent pass collects long-lived demo rows from successful signups
@@ -67,11 +66,14 @@ async function runOnceInner(
         AND completed_at < NOW() - INTERVAL '30 days'
     `;
     if (staleResult.count && staleResult.count > 0) {
-      logger.log(`Deleted ${staleResult.count} stale completed onboarding demos`);
+      logger.log('Deleted stale completed onboarding demos', {
+        count: staleResult.count,
+      });
     }
   } catch (err) {
     logger.error(
-      `Failed to cleanup stale onboarding demos: ${err instanceof Error ? err.message : err}`,
+      'Failed to cleanup stale onboarding demos',
+      err instanceof Error ? err : new Error(String(err)),
     );
   }
 
@@ -146,9 +148,11 @@ async function runOnceInner(
           // this is healthy poller behavior, not a bug. Other reasons: someone
           // manually mutated state, or the row was already deleted by an
           // earlier batch.
-          logger.log(
-            `Skipping ${candidate.user_id} — state changed since selection (account_id=${usr?.account_id ?? 'missing'} auth_id=${usr?.auth_id ?? 'null'})`,
-          );
+          logger.log('Skipping candidate — state changed since selection', {
+            user_id: candidate.user_id,
+            account_id: usr?.account_id ?? 'missing',
+            auth_id: usr?.auth_id ?? 'null',
+          });
           skippedStateChanged++;
           return;
         }
@@ -164,7 +168,12 @@ async function runOnceInner(
 
         if (refs && (refs.has_onboarded || refs.has_prospect_demos)) {
           logger.warn(
-            `Skipping ${candidate.user_id} — referenced by other tables (invariant violation): has_onboarded=${refs.has_onboarded} has_prospect_demos=${refs.has_prospect_demos}`,
+            'Skipping candidate — referenced by other tables (invariant violation)',
+            {
+              user_id: candidate.user_id,
+              has_onboarded: refs.has_onboarded,
+              has_prospect_demos: refs.has_prospect_demos,
+            },
           );
           skippedRefs++;
           return;
@@ -196,9 +205,9 @@ async function runOnceInner(
         } catch (raceErr) {
           const errCode = (raceErr as { code?: string } | null)?.code;
           if (errCode === 'TIMEOUT') {
-            logger.warn(
-              `Supabase deleteUser timeout for ${candidate.auth_id} after 10s`,
-            );
+            logger.warn('Supabase deleteUser timeout after 10s', {
+              auth_id: candidate.auth_id,
+            });
           }
           supabaseFailed++;
           throw raceErr; // rolls back tx
@@ -208,9 +217,10 @@ async function runOnceInner(
         // "User not found" means a prior cleanup deleted the Supabase user but
         // the DB tx didn't commit. Proceed with DB delete to finish the job.
         if (error && !/not[_ ]?found|404/i.test(error.message)) {
-          logger.warn(
-            `Supabase deleteUser failed for ${candidate.auth_id}: ${error.message}`,
-          );
+          logger.warn('Supabase deleteUser failed', {
+            auth_id: candidate.auth_id,
+            error_message: error.message,
+          });
           supabaseFailed++;
           throw error;
         }
@@ -239,21 +249,26 @@ async function runOnceInner(
       });
     } catch (err) {
       logger.error(
-        `Cleanup tx failed for user ${candidate.user_id}: ${err instanceof Error ? err.message : err}`,
+        'Cleanup tx failed for user',
+        { user_id: candidate.user_id },
+        err instanceof Error ? err : new Error(String(err)),
       );
     }
   }
 
-  logger.log(
-    `Run complete: candidates=${candidates.length} deleted=${deleted} skipped_state_changed=${skippedStateChanged} skipped_refs=${skippedRefs} supabase_failed=${supabaseFailed}`,
-  );
+  logger.log('Run complete', {
+    candidates: candidates.length,
+    deleted,
+    skipped_state_changed: skippedStateChanged,
+    skipped_refs: skippedRefs,
+    supabase_failed: supabaseFailed,
+  });
 }
 
 export function startCleanupAbandonedSignupsPoller(): void {
+  const logger = createWorkerLogger(LOG_PREFIX);
   if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
-    console.log(
-      '[CleanupAbandonedSignups] SELF_SERVE_SIGNUP_ENABLED != true — not starting',
-    );
+    logger.log('SELF_SERVE_SIGNUP_ENABLED != true — not starting');
     return;
   }
 
@@ -262,8 +277,8 @@ export function startCleanupAbandonedSignupsPoller(): void {
   // early instead of overwriting `timer` — overwriting leaks the previous
   // setInterval handle so stop() can never clear it.
   if (timer !== null) {
-    console.log(
-      '[CleanupAbandonedSignups] Already started — ignoring duplicate startCleanupAbandonedSignupsPoller() call',
+    logger.log(
+      'Already started — ignoring duplicate startCleanupAbandonedSignupsPoller() call',
     );
     return;
   }
@@ -272,13 +287,19 @@ export function startCleanupAbandonedSignupsPoller(): void {
   const parsed = envVal ? parseInt(envVal, 10) : NaN;
   const interval = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 
-  console.log(`[CleanupAbandonedSignups] Starting (interval=${interval}ms)`);
+  logger.log('Starting', { interval_ms: interval });
   runOnce().catch((err) =>
-    console.error('[CleanupAbandonedSignups] Initial run failed:', err),
+    createWorkerLogger(LOG_PREFIX).error(
+      'Initial run failed',
+      err instanceof Error ? err : new Error(String(err)),
+    ),
   );
   timer = setInterval(() => {
     runOnce().catch((err) =>
-      console.error('[CleanupAbandonedSignups] Scheduled run failed:', err),
+      createWorkerLogger(LOG_PREFIX).error(
+        'Scheduled run failed',
+        err instanceof Error ? err : new Error(String(err)),
+      ),
     );
   }, interval);
 }

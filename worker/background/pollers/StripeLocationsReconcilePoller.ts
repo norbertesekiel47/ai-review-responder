@@ -2,7 +2,7 @@
 //
 // Hourly drift detection: compares actual non-archived location count
 // against Stripe subscription_items[overage].quantity. Drift > 0
-// emits Sentry alert (or console.warn when SENTRY_DSN unset).
+// emits Sentry alert (or a warn-level structured log when SENTRY_DSN unset).
 //
 // Does NOT auto-correct — manual investigation only.
 //

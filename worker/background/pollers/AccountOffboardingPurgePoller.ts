@@ -66,9 +66,7 @@ export async function runAccountOffboardingPurgeOnce(): Promise<void> {
   try {
     await runAccountOffboardingPurgeInner(logger);
   } catch (err) {
-    logger.error(
-      `Poll cycle failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    logger.error('Poll cycle failed', err instanceof Error ? err : new Error(String(err)));
   } finally {
     inProgress = false;
   }
@@ -161,9 +159,9 @@ async function runAccountOffboardingPurgeInner(
       `;
 
       if (!claimed) {
-        logger.log(
-          `Skipped ${candidate.id} - state changed before purge claim`,
-        );
+        logger.log('Skipped - state changed before purge claim', {
+          offboarding_id: candidate.id,
+        });
         return { kind: 'skipped' } satisfies ClaimResult;
       }
 
@@ -218,7 +216,7 @@ async function runAccountOffboardingPurgeInner(
     }
   }
 
-  logger.log(`Run complete: claimed=${claimedCount}`);
+  logger.log('Run complete', { claimed: claimedCount });
 }
 
 function formatTimestamp(value: Date | string): string {
@@ -226,8 +224,9 @@ function formatTimestamp(value: Date | string): string {
 }
 
 export function startAccountOffboardingPurgePoller(): void {
+  const logger = createWorkerLogger(LOG_PREFIX);
   if (!accountOffboardingEnabled()) {
-    console.log(`${LOG_PREFIX} ACCOUNT_OFFBOARDING_ENABLED != true - not starting`);
+    logger.log('ACCOUNT_OFFBOARDING_ENABLED != true - not starting');
     return;
   }
 
@@ -236,10 +235,14 @@ export function startAccountOffboardingPurgePoller(): void {
   }
 
   const intervalMs = getIntervalMs();
-  console.log(`${LOG_PREFIX} Starting (interval=${intervalMs}ms, batch=${getBatchSize()})`);
-  runAccountOffboardingPurgeOnce().catch(console.error);
+  logger.log('Starting', { interval_ms: intervalMs, batch: getBatchSize() });
+  runAccountOffboardingPurgeOnce().catch((err) =>
+    createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
+  );
   pollerInterval = setInterval(() => {
-    runAccountOffboardingPurgeOnce().catch(console.error);
+    runAccountOffboardingPurgeOnce().catch((err) =>
+      createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
+    );
   }, intervalMs);
 }
 
@@ -247,6 +250,6 @@ export function stopAccountOffboardingPurgePoller(): void {
   if (pollerInterval) {
     clearInterval(pollerInterval);
     pollerInterval = null;
-    console.log(`${LOG_PREFIX} Stopped`);
+    createWorkerLogger(LOG_PREFIX).log('Stopped');
   }
 }

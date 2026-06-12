@@ -362,7 +362,8 @@ describe('AccountOffboardingPurgePoller', () => {
     expect(mockEnqueueAccountOffboardingPurge).not.toHaveBeenCalled();
     expect(testState.revokedTokenCount).toBe(0);
     expect(mockLoggerLog).toHaveBeenCalledWith(
-      expect.stringContaining('Skipped offboarding-1'),
+      'Skipped - state changed before purge claim',
+      { offboarding_id: 'offboarding-1' },
     );
   });
 

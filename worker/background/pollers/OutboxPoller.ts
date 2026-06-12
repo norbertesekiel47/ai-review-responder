@@ -1,6 +1,9 @@
 import * as Sentry from '@sentry/node';
 import { sql } from '../../../src/lib/db/server';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { topicToQueue } from '../../queues';
+
+const LOG_PREFIX = '[OutboxPoller]';
 
 interface OutboxEntry {
   id: string;
@@ -26,6 +29,8 @@ let isPolling = false;
 export async function pollOutbox(): Promise<void> {
   if (isPolling) return;
   isPolling = true;
+
+  const logger = createWorkerLogger(LOG_PREFIX);
 
   try {
     // ── Phase 1: Watchdog recovery (separate transaction) ───────────
@@ -84,13 +89,18 @@ export async function pollOutbox(): Promise<void> {
         const staleDispatchingCount = parseInt(staleDispatching?.count ?? '0', 10);
 
         if (recoveredCount > 0 || terminatedCount > 0 || staleDispatchingCount > 0) {
-          console.log(
-            `[OutboxPoller] Watchdog: recovered=${recoveredCount}, failed=${terminatedCount}, stale_dispatching=${staleDispatchingCount}`,
-          );
+          logger.log('Watchdog recovered stale entries', {
+            recovered: recoveredCount,
+            failed: terminatedCount,
+            stale_dispatching: staleDispatchingCount,
+          });
         }
       });
     } catch (watchdogError) {
-      console.error('[OutboxPoller] Watchdog recovery failed (continuing to dispatch):', watchdogError);
+      logger.error(
+        'Watchdog recovery failed (continuing to dispatch)',
+        watchdogError instanceof Error ? watchdogError : new Error(String(watchdogError)),
+      );
     }
 
     // ── Phase 2: Claim pending rows (atomic, outside BullMQ) ────────
@@ -110,14 +120,14 @@ export async function pollOutbox(): Promise<void> {
 
     if (entries.length === 0) return;
 
-    console.log(`[OutboxPoller] Found ${entries.length} pending entries`);
+    logger.log('Found pending entries', { count: entries.length });
 
     // ── Phase 3: Dispatch to BullMQ (outside transaction) ───────────
     for (const entry of entries) {
       const queue = topicToQueue[entry.topic];
 
       if (!queue) {
-        console.error(`[OutboxPoller] Unknown topic "${entry.topic}" for outbox entry ${entry.id}`);
+        logger.error('Unknown topic for outbox entry', { topic: entry.topic, outbox_id: entry.id });
         // Unknown topic means a registration drift between the outbox
         // producer and the queue registry — an operational bug that would
         // otherwise silently turn rows into 'failed' without operator
@@ -177,9 +187,10 @@ export async function pollOutbox(): Promise<void> {
             AND attempts = ${entry.attempts}
         `;
       } catch (dispatchError) {
-        console.error(
-          `[OutboxPoller] Failed to dispatch entry ${entry.id} (topic=${entry.topic}):`,
-          dispatchError,
+        logger.error(
+          'Failed to dispatch entry',
+          { outbox_id: entry.id, topic: entry.topic },
+          dispatchError instanceof Error ? dispatchError : new Error(String(dispatchError)),
         );
 
         Sentry.addBreadcrumb({
@@ -190,9 +201,10 @@ export async function pollOutbox(): Promise<void> {
 
         const errorMsg = dispatchError instanceof Error ? dispatchError.message : String(dispatchError);
         if (entry.attempts >= entry.max_attempts) {
-          console.error(
-            `[OutboxPoller] Entry ${entry.id} exceeded max_attempts (${entry.max_attempts}), marking as failed`,
-          );
+          logger.error('Entry exceeded max_attempts, marking as failed', {
+            outbox_id: entry.id,
+            max_attempts: entry.max_attempts,
+          });
           await sql`
             UPDATE job_outbox
             SET status = 'failed', last_error = ${errorMsg}
@@ -213,17 +225,22 @@ export async function pollOutbox(): Promise<void> {
       }
     }
   } catch (error) {
-    console.error('[OutboxPoller] Poll cycle failed:', error);
+    logger.error('Poll cycle failed', error instanceof Error ? error : new Error(String(error)));
   } finally {
     isPolling = false;
   }
 }
 
 export function startOutboxPoller(): void {
-  console.log(`[OutboxPoller] Starting (interval=${POLL_INTERVAL_MS}ms, batch=${BATCH_SIZE})`);
-  pollOutbox().catch(console.error);
+  const logger = createWorkerLogger(LOG_PREFIX);
+  logger.log('Starting', { interval_ms: POLL_INTERVAL_MS, batch: BATCH_SIZE });
+  pollOutbox().catch((err) =>
+    createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
+  );
   pollerInterval = setInterval(() => {
-    pollOutbox().catch(console.error);
+    pollOutbox().catch((err) =>
+      createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
+    );
   }, POLL_INTERVAL_MS);
 }
 
@@ -231,6 +248,6 @@ export function stopOutboxPoller(): void {
   if (pollerInterval) {
     clearInterval(pollerInterval);
     pollerInterval = null;
-    console.log('[OutboxPoller] Stopped');
+    createWorkerLogger(LOG_PREFIX).log('Stopped');
   }
 }

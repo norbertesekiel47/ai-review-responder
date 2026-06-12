@@ -323,7 +323,8 @@ describe('AccountOffboardingAccessEndPoller', () => {
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
     expect(mockEnqueueAccountOffboardingTeardown).not.toHaveBeenCalled();
     expect(mockLoggerLog).toHaveBeenCalledWith(
-      expect.stringContaining(`Skipped ${row.id}`),
+      'Skipped - state changed before teardown claim',
+      { offboarding_id: row.id },
     );
   });
 

@@ -1,4 +1,5 @@
 import { sql } from '../../../src/lib/db/server';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 
 const LOG_PREFIX = '[ArchivalPoller]';
 const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours
@@ -16,6 +17,7 @@ function getIntervalMs(): number {
 async function runArchival(): Promise<void> {
   if (isPolling) return;
   isPolling = true;
+  const logger = createWorkerLogger(LOG_PREFIX);
 
   try {
     // 1. Completed outbox entries older than 7 days (batched to avoid long locks)
@@ -148,9 +150,13 @@ async function runArchival(): Promise<void> {
     const totalArchived = outboxCount + eventsCount + demosCount + costsCount + notificationsCount;
 
     if (totalArchived > 0) {
-      console.log(
-        `${LOG_PREFIX} Archived: ${outboxCount} outbox, ${eventsCount} events, ${demosCount} demos, ${costsCount} api_costs, ${notificationsCount} notifications`,
-      );
+      logger.log('Archived', {
+        outbox: outboxCount,
+        events: eventsCount,
+        demos: demosCount,
+        api_costs: costsCount,
+        notifications: notificationsCount,
+      });
 
       const BATCH_LIMIT = 5000;
       const saturated: string[] = [];
@@ -161,15 +167,17 @@ async function runArchival(): Promise<void> {
       if (notificationsCount >= BATCH_LIMIT) saturated.push('notifications');
 
       if (saturated.length > 0) {
-        console.warn(
-          `${LOG_PREFIX} Batch limit (${BATCH_LIMIT}) reached for: ${saturated.join(', ')} — more rows may remain. Next cycle will continue cleanup.`,
-        );
+        // The sanitizer drops array values, so join the target names into a string.
+        logger.warn('Batch limit reached — more rows may remain; next cycle will continue cleanup', {
+          batch_limit: BATCH_LIMIT,
+          saturated_targets: saturated.join(', '),
+        });
       }
     } else {
-      console.log(`${LOG_PREFIX} Nothing to archive`);
+      logger.log('Nothing to archive');
     }
   } catch (error) {
-    console.error(`${LOG_PREFIX} Archival cycle failed:`, error);
+    logger.error('Archival cycle failed', error instanceof Error ? error : new Error(String(error)));
   } finally {
     isPolling = false;
   }
@@ -177,10 +185,14 @@ async function runArchival(): Promise<void> {
 
 export function startArchivalPoller(): void {
   const intervalMs = getIntervalMs();
-  console.log(`${LOG_PREFIX} Starting (interval=${intervalMs}ms)`);
-  runArchival().catch(console.error);
+  createWorkerLogger(LOG_PREFIX).log('Starting', { interval_ms: intervalMs });
+  runArchival().catch((err) =>
+    createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
+  );
   pollerInterval = setInterval(() => {
-    runArchival().catch(console.error);
+    runArchival().catch((err) =>
+      createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
+    );
   }, intervalMs);
 }
 
@@ -188,6 +200,6 @@ export function stopArchivalPoller(): void {
   if (pollerInterval) {
     clearInterval(pollerInterval);
     pollerInterval = null;
-    console.log(`${LOG_PREFIX} Stopped`);
+    createWorkerLogger(LOG_PREFIX).log('Stopped');
   }
 }

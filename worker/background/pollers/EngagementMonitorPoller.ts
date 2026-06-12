@@ -9,6 +9,7 @@
 
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import type { EngagementAlertPayload, EngagementAlertType } from '../../../src/lib/shared/worker-types';
 import { HANDLED_STATUSES } from '../../../src/lib/shared/response-status';
 
@@ -78,6 +79,7 @@ function getIntervalMs(): number {
 async function runEngagementCheck(): Promise<void> {
   if (isPolling) return;
   isPolling = true;
+  const logger = createWorkerLogger(LOG_PREFIX);
 
   try {
     const rows = await sql<BusinessMetrics[]>`
@@ -199,14 +201,15 @@ async function runEngagementCheck(): Promise<void> {
     }
 
     if (totalAlerts > 0) {
-      console.log(
-        `${LOG_PREFIX} Queued ${totalAlerts} engagement alerts for ${businessesAlerted.size} businesses`,
-      );
+      logger.log('Queued engagement alerts', {
+        alert_count: totalAlerts,
+        business_count: businessesAlerted.size,
+      });
     } else {
-      console.log(`${LOG_PREFIX} No engagement alerts needed`);
+      logger.log('No engagement alerts needed');
     }
   } catch (error) {
-    console.error(`${LOG_PREFIX} Engagement check failed:`, error);
+    logger.error('Engagement check failed', error instanceof Error ? error : new Error(String(error)));
   } finally {
     isPolling = false;
   }
@@ -214,10 +217,15 @@ async function runEngagementCheck(): Promise<void> {
 
 export function startEngagementMonitorPoller(): void {
   const intervalMs = getIntervalMs();
-  console.log(`${LOG_PREFIX} Starting (interval=${intervalMs}ms)`);
-  runEngagementCheck().catch(console.error);
+  const logger = createWorkerLogger(LOG_PREFIX);
+  logger.log('Starting', { interval_ms: intervalMs });
+  runEngagementCheck().catch((err) =>
+    createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
+  );
   pollerInterval = setInterval(() => {
-    runEngagementCheck().catch(console.error);
+    runEngagementCheck().catch((err) =>
+      createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
+    );
   }, intervalMs);
 }
 
@@ -225,6 +233,6 @@ export function stopEngagementMonitorPoller(): void {
   if (pollerInterval) {
     clearInterval(pollerInterval);
     pollerInterval = null;
-    console.log(`${LOG_PREFIX} Stopped`);
+    createWorkerLogger(LOG_PREFIX).log('Stopped');
   }
 }

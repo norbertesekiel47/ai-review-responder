@@ -1,5 +1,5 @@
 import { sql } from '../../../src/lib/db/server';
-import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, type WorkerLogger } from '../../../src/lib/shared/logger';
 import { invalidateChannelCache } from '../../../src/lib/notifications/resolve-channels';
 import { asAccountId } from '../../../src/lib/shared/ids';
 import { v7 as uuidv7 } from 'uuid';
@@ -45,6 +45,7 @@ import { v7 as uuidv7 } from 'uuid';
  * `EMAIL_CHANNEL_RECONCILE_INTERVAL_MS`. Set
  * `EMAIL_CHANNEL_RECONCILE_DISABLED=true` to skip entirely (mock mode does too).
  */
+const LOG_PREFIX = '[EmailChannelReconcile]';
 const DEFAULT_INTERVAL_MS = 600_000; // 10 minutes
 const DEFAULT_BATCH_SIZE = 100;
 // Hard ceiling on how many candidates one tick processes. Without this, a
@@ -72,7 +73,7 @@ export async function runOnce(): Promise<{
   inserted: number;
   failed: number;
 }> {
-  const logger = createWorkerLogger('[EmailChannelReconcile]');
+  const logger = createWorkerLogger(LOG_PREFIX);
   // Single-flight: if a previous invocation is still executing, skip this
   // tick and return zero-counts. The check + set is safe because the JS
   // event loop is single-threaded. The finally below clears the flag so
@@ -90,7 +91,7 @@ export async function runOnce(): Promise<{
 }
 
 async function runOnceInner(
-  logger: ReturnType<typeof createWorkerLogger>,
+  logger: WorkerLogger,
 ): Promise<{
   candidates: number;
   inserted: number;
@@ -174,9 +175,9 @@ async function runOnceInner(
         // `SELECT owner_email FROM businesses WHERE id = '<biz_id>'`.
         // Same posture as the error + run-complete logs in this file
         // and the PII-redaction pattern in worker/ingress/telegram/telegram.ts.
-        logger.log(
-          `Backfilled email channel for business ${row.business_id}`,
-        );
+        logger.log('Backfilled email channel for business', {
+          business_id: row.business_id,
+        });
       }
     } catch (err) {
       // A 23505 unique violation from a concurrent INSERT racing our
@@ -189,37 +190,38 @@ async function runOnceInner(
       }
       failed++;
       logger.error(
-        `INSERT failed for business ${row.business_id}: ${err instanceof Error ? err.message : err}`,
+        'INSERT failed for business',
+        { business_id: row.business_id },
+        err instanceof Error ? err : new Error(String(err)),
       );
     }
   }
 
   if (candidates.length > 0 || inserted > 0 || failed > 0) {
-    logger.log(
-      `Run complete: candidates=${candidates.length} inserted=${inserted} failed=${failed}`,
-    );
+    logger.log('Run complete', {
+      candidates: candidates.length,
+      inserted,
+      failed,
+    });
   }
   return { candidates: candidates.length, inserted, failed };
 }
 
 export function startEmailChannelReconcilePoller(): void {
+  const logger = createWorkerLogger(LOG_PREFIX);
   if (process.env.EMAIL_CHANNEL_RECONCILE_DISABLED === 'true') {
-    console.log(
-      '[EmailChannelReconcile] EMAIL_CHANNEL_RECONCILE_DISABLED=true — not starting',
-    );
+    logger.log('EMAIL_CHANNEL_RECONCILE_DISABLED=true — not starting');
     return;
   }
   if (process.env.MOCK_EXTERNAL_APIS === 'true') {
-    console.log(
-      '[EmailChannelReconcile] MOCK_EXTERNAL_APIS=true — not starting',
-    );
+    logger.log('MOCK_EXTERNAL_APIS=true — not starting');
     return;
   }
 
   // Idempotent start: see CleanupAbandonedSignupsPoller for rationale.
   if (timer !== null) {
-    console.log(
-      '[EmailChannelReconcile] Already started — ignoring duplicate startEmailChannelReconcilePoller() call',
+    logger.log(
+      'Already started — ignoring duplicate startEmailChannelReconcilePoller() call',
     );
     return;
   }
@@ -229,13 +231,19 @@ export function startEmailChannelReconcilePoller(): void {
   const interval =
     Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 
-  console.log(`[EmailChannelReconcile] Starting (interval=${interval}ms)`);
+  logger.log('Starting', { interval_ms: interval });
   runOnce().catch((err) =>
-    console.error('[EmailChannelReconcile] Initial run failed:', err),
+    createWorkerLogger(LOG_PREFIX).error(
+      'Initial run failed',
+      err instanceof Error ? err : new Error(String(err)),
+    ),
   );
   timer = setInterval(() => {
     runOnce().catch((err) =>
-      console.error('[EmailChannelReconcile] Scheduled run failed:', err),
+      createWorkerLogger(LOG_PREFIX).error(
+        'Scheduled run failed',
+        err instanceof Error ? err : new Error(String(err)),
+      ),
     );
   }, interval);
 }

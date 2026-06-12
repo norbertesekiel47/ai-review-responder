@@ -22,9 +22,12 @@ import {
   extractStripeCustomerId,
   isMissingStripeSubscriptionError,
 } from './stripe-overage';
+import { createWorkerLogger } from '../../../../src/lib/shared/logger';
 import { LOG_PREFIX } from './constants';
 import type { DriftAlertPayload } from './drift-alert';
 import type { AccountWithLocations, BillingReconciliationAccount } from './types';
+
+const logger = createWorkerLogger(LOG_PREFIX);
 
 export interface AccountReconcileOutcome {
   accountsChecked: 0 | 1;
@@ -41,7 +44,10 @@ export async function reconcileAccount(
 
   const tier = account.subscription_tier;
   if (!isSubscriptionTier(tier)) {
-    console.error(`${LOG_PREFIX} Unknown tier ${tier} for account ${account.id} — skipping`);
+    logger.error('Unknown subscription tier — skipping account', {
+      tier,
+      account_id: account.id,
+    });
     return { accountsChecked: 0, drifts, errors: 1 };
   }
 
@@ -125,9 +131,10 @@ export async function reconcileAccount(
       }
     } catch (err) {
       errors++;
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(
-        `${LOG_PREFIX} Error listing Stripe subscriptions for account ${account.id}: ${message}`,
+      logger.error(
+        'Error listing Stripe subscriptions for account',
+        { account_id: account.id },
+        err instanceof Error ? err : new Error(String(err)),
       );
     }
   }
@@ -275,13 +282,14 @@ export async function reconcileAccount(
     }
   } catch (err) {
     errors++;
-    const message = err instanceof Error ? err.message : String(err);
     // While the invoice preview is failing, the upcoming_invoice_mismatch check
     // is blind — and it is the only check that catches a DUPLICATE overage item
     // (the quantity check reads the canonical item, which can look correct while
     // a legacy duplicate still bills). Keep this loud until preview recovers.
-    console.error(
-      `${LOG_PREFIX} Invoice-preview reconciliation UNAVAILABLE for account ${account.id} — duplicate-overage-item drift undetectable this cycle: ${message}`,
+    logger.error(
+      'Invoice-preview reconciliation UNAVAILABLE — duplicate-overage-item drift undetectable this cycle',
+      { account_id: account.id },
+      err instanceof Error ? err : new Error(String(err)),
     );
   }
 

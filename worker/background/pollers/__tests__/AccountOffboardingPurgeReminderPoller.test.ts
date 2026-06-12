@@ -150,7 +150,9 @@ describe('AccountOffboardingPurgeReminderPoller', () => {
 
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
     expect(mockEnqueueAccountOffboardingEmail).not.toHaveBeenCalled();
-    expect(mockLoggerLog).toHaveBeenCalledWith(expect.stringContaining(`Skipped ${ROW.id}`));
+    expect(mockLoggerLog).toHaveBeenCalledWith('Skipped - state changed before reminder claim', {
+      offboarding_id: ROW.id,
+    });
   });
 
   it('starts only one timer and stop clears it', async () => {

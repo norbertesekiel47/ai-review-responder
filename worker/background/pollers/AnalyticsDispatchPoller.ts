@@ -4,6 +4,9 @@ import {
   flushAnalytics,
   isAnalyticsConfigured,
 } from '../../../src/lib/analytics/posthog';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
+
+const LOG_PREFIX = '[AnalyticsDispatchPoller]';
 
 interface AnalyticsEventRow {
   id: string;
@@ -183,10 +186,15 @@ export function runAnalyticsDispatchOnce(): Promise<void> {
 
 export function startAnalyticsDispatchPoller(): void {
   const pollInterval = pollIntervalMs();
-  console.log(`[AnalyticsDispatchPoller] Starting (interval=${pollInterval}ms, batch=${batchSize()})`);
-  runAnalyticsDispatchOnce().catch(console.error);
+  const logger = createWorkerLogger(LOG_PREFIX);
+  logger.log('Starting', { interval_ms: pollInterval, batch: batchSize() });
+  runAnalyticsDispatchOnce().catch((err) =>
+    createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
+  );
   interval = setInterval(() => {
-    runAnalyticsDispatchOnce().catch(console.error);
+    runAnalyticsDispatchOnce().catch((err) =>
+      createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
+    );
   }, pollInterval);
 }
 
@@ -194,7 +202,7 @@ export async function stopAnalyticsDispatchPoller(): Promise<void> {
   if (interval) {
     clearInterval(interval);
     interval = null;
-    console.log('[AnalyticsDispatchPoller] Stopped');
+    createWorkerLogger(LOG_PREFIX).log('Stopped');
   }
   // Drain the in-flight batch so we never mark rows completed (or call PostHog)
   // after the client has been shut down and the DB pool closed.

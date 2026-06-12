@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { isMockMode } from '../../../src/lib/shared/mock-mode';
 import type { TrackRankingPayload } from '../../../src/lib/shared/worker-types';
 
@@ -33,12 +34,13 @@ export async function runRankingCheck(): Promise<void> {
   if (isPolling) return;
   isPolling = true;
 
+  const logger = createWorkerLogger(LOG_PREFIX);
   try {
     // Feature flag — silent return when disabled (runs hourly, no log spam)
     if (process.env.RANKING_TRACKING_ENABLED !== 'true') return;
 
     if (isMockMode()) {
-      console.log(`${LOG_PREFIX} Mock mode — skipping`);
+      logger.log('Mock mode — skipping');
       return;
     }
 
@@ -109,12 +111,16 @@ export async function runRankingCheck(): Promise<void> {
     }
 
     if (queued > 0) {
-      console.log(
-        `${LOG_PREFIX} Queued ${queued} track_ranking outbox entries (${candidates.length} candidates checked)`,
-      );
+      logger.log('Queued track_ranking outbox entries', {
+        queued,
+        candidates_checked: candidates.length,
+      });
     }
   } catch (error) {
-    console.error(`${LOG_PREFIX} Ranking check failed:`, error);
+    logger.error(
+      'Ranking check failed',
+      error instanceof Error ? error : new Error(String(error)),
+    );
   } finally {
     isPolling = false;
   }
@@ -122,11 +128,22 @@ export async function runRankingCheck(): Promise<void> {
 
 export function startRankingTrackingScheduler(): void {
   if (pollerInterval) return; // Prevent duplicate intervals on double-start
+  const logger = createWorkerLogger(LOG_PREFIX);
   const intervalMs = getIntervalMs();
-  console.log(`${LOG_PREFIX} Starting (interval=${intervalMs}ms)`);
-  runRankingCheck().catch(console.error);
+  logger.log('Starting', { interval_ms: intervalMs });
+  runRankingCheck().catch((err) =>
+    createWorkerLogger(LOG_PREFIX).error(
+      'Unhandled poll error',
+      err instanceof Error ? err : new Error(String(err)),
+    ),
+  );
   pollerInterval = setInterval(() => {
-    runRankingCheck().catch(console.error);
+    runRankingCheck().catch((err) =>
+      createWorkerLogger(LOG_PREFIX).error(
+        'Unhandled poll error',
+        err instanceof Error ? err : new Error(String(err)),
+      ),
+    );
   }, intervalMs);
 }
 
@@ -134,6 +151,6 @@ export function stopRankingTrackingScheduler(): void {
   if (pollerInterval) {
     clearInterval(pollerInterval);
     pollerInterval = null;
-    console.log(`${LOG_PREFIX} Stopped`);
+    createWorkerLogger(LOG_PREFIX).log('Stopped');
   }
 }

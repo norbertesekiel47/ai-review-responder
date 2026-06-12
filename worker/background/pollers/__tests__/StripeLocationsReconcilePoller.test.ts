@@ -3,8 +3,12 @@
 // TDD assertions for StripeLocationsReconcilePoller.
 // Hourly drift detection: compares actual non-archived location count
 // against Stripe subscription_items[overage].quantity. Emits Sentry
-// alert (or console.warn when Sentry DSN unset) when drift > 0.
-// Does NOT auto-correct — manual investigation only.
+// alert (or a warn-level structured JSON log line when Sentry DSN unset)
+// when drift > 0. Does NOT auto-correct — manual investigation only.
+//
+// The structured logger is NOT mocked here on purpose: the drift-alert
+// fallback contract is "one JSON line via console.warn", so the console
+// spies assert the real emitted line.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -23,14 +27,13 @@ const { sqlReturnQueue, mockSql, sqlCalls } = vi.hoisted(() => {
   return { sqlReturnQueue, mockSql, sqlCalls };
 });
 
-const { mockCaptureMessage, mockConsoleWarn } = vi.hoisted(() => ({
+const { mockCaptureMessage } = vi.hoisted(() => ({
   mockCaptureMessage: vi.fn(),
-  mockConsoleWarn: vi.fn(),
 }));
 
 // Mock Sentry — always returns a captureMessage function.
 // The poller checks process.env.SENTRY_DSN at runtime to decide
-// whether to call Sentry or fall back to console.warn.
+// whether to call Sentry or fall back to a warn-level structured log.
 vi.mock('../../../../worker/sentry', () => ({
   Sentry: {
     init: vi.fn(),
@@ -42,13 +45,6 @@ vi.mock('../../../../worker/sentry', () => ({
 
 vi.mock('../../../../src/lib/db/server', () => ({
   sql: mockSql,
-}));
-
-const { mockLogger } = vi.hoisted(() => ({
-  mockLogger: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
-}));
-vi.mock('../../../../src/lib/shared/logger', () => ({
-  createWorkerLogger: () => mockLogger,
 }));
 
 // Mock Stripe SDK — returns a lazy getter the poller can use
@@ -391,7 +387,6 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.length = 0;
     sqlCalls.length = 0;
     mockCaptureMessage.mockClear();
-    mockConsoleWarn.mockClear();
     mockStripeRetrieve.mockClear();
     mockStripeList.mockClear();
     mockStripeCreatePreview.mockClear();
@@ -710,7 +705,7 @@ describe('StripeLocationsReconcilePoller', () => {
 
     expect(result.accountsChecked).toBe(1);
     expect(result.driftsFound).toBe(1);
-    // Should emit alert via console.warn (SENTRY_DSN unset) — single string arg
+    // Should emit alert via console.warn (SENTRY_DSN unset) — one JSON line
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('acct-drift-high'),
     );
@@ -763,15 +758,19 @@ describe('StripeLocationsReconcilePoller', () => {
 
     await runOnce();
 
-    // The warn message should include the account_id and both quantities
+    // The warn JSON line should carry the account_id and both quantities
     const warnCall = warnSpy.mock.calls.find(
-      (c: any[]) => c[0] && c[0].includes('acct-detail'),
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('acct-detail'),
     );
     expect(warnCall).toBeDefined();
-    const alertPayload = warnCall![0] as string;
-    expect(alertPayload).toContain('acct-detail');
-    expect(alertPayload).toContain('3'); // expected from DB
-    expect(alertPayload).toContain('7'); // actual from Stripe
+    expect(warnCall!.length).toBe(1); // one JSON line per log call
+    const record = JSON.parse(warnCall![0] as string);
+    expect(record.level).toBe('warn');
+    expect(record.logger).toBe('StripeLocationsReconcilePoller');
+    expect(record.message).toContain('Stripe billing drift detected');
+    expect(record.data.account_id).toBe('acct-detail');
+    expect(record.data.db_expected_overage).toBe(3); // expected from DB
+    expect(record.data.stripe_overage_quantity).toBe(7); // actual from Stripe
   });
 
   // ── Sentry path when DSN is set ─────────────────────────────────
@@ -799,10 +798,8 @@ describe('StripeLocationsReconcilePoller', () => {
       expect.stringContaining('acct-sentry'),
       expect.objectContaining({ level: 'warning' }),
     );
-    // Should NOT also console.warn when Sentry is active
-    expect(warnSpy).not.toHaveBeenCalledWith(
-      expect.stringContaining('location drift'),
-    );
+    // Should NOT also emit the warn-level fallback when Sentry is active
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it('adds typed Sentry metadata for invoice drift alerts', async () => {
@@ -1217,9 +1214,15 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('acct-preview-fails'),
     );
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Invoice-preview reconciliation UNAVAILABLE for account acct-preview-fails'),
-    );
+    const previewErrorLine = errorSpy.mock.calls
+      .map((c: any[]) => c[0])
+      .find(
+        (line: unknown): line is string =>
+          typeof line === 'string'
+          && line.includes('Invoice-preview reconciliation UNAVAILABLE'),
+      );
+    expect(previewErrorLine).toBeDefined();
+    expect(previewErrorLine).toContain('acct-preview-fails');
   });
 
   // ── No accounts to check ────────────────────────────────────────
@@ -1255,7 +1258,7 @@ describe('StripeLocationsReconcilePoller', () => {
   it('does not start when MOCK_EXTERNAL_APIS=true', () => {
     process.env.MOCK_EXTERNAL_APIS = 'true';
     startStripeLocationsReconcilePoller();
-    expect(mockLogger.log).toHaveBeenCalledWith(
+    expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('MOCK_EXTERNAL_APIS=true'),
     );
     stopStripeLocationsReconcilePoller();
@@ -1267,7 +1270,7 @@ describe('StripeLocationsReconcilePoller', () => {
   it('does not start when STRIPE_LOCATIONS_RECONCILE_DISABLED=true', () => {
     process.env.STRIPE_LOCATIONS_RECONCILE_DISABLED = 'true';
     startStripeLocationsReconcilePoller();
-    expect(mockLogger.log).toHaveBeenCalledWith(
+    expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('STRIPE_LOCATIONS_RECONCILE_DISABLED=true'),
     );
     stopStripeLocationsReconcilePoller();

@@ -3,6 +3,7 @@ import { sql, jsonb } from '../../../src/lib/db/server';
 import { sendInternalEmail } from '../../../src/lib/notifications/email';
 import { recordNotificationDelivery } from '../../../src/lib/notifications/delivery';
 import { escapeHtml } from '../../../src/lib/shared/html';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import type { SendNotificationPayload } from '../../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[NotificationFailover]';
@@ -128,6 +129,7 @@ async function recoverFailoverCorrelationId(responseId: string): Promise<string>
 export async function runFailoverPollerOnce(): Promise<void> {
   if (isPolling) return;
   isPolling = true;
+  const logger = createWorkerLogger(LOG_PREFIX);
 
   try {
     // ── 1. All-failed: every approval_request delivery has failed_at set ──
@@ -196,7 +198,7 @@ export async function runFailoverPollerOnce(): Promise<void> {
           },
         );
         if (claimed === 'send_error') {
-          console.error(`${LOG_PREFIX} Failed to send admin alert for response ${row.response_id}`);
+          logger.error('Failed to send admin alert', { response_id: row.response_id });
         }
       }
 
@@ -226,12 +228,16 @@ export async function runFailoverPollerOnce(): Promise<void> {
       } catch (err: unknown) {
         const code = (err as { code?: string }).code;
         if (code === '23505') continue;
-        console.error(`${LOG_PREFIX} Failed to queue all-failed failover for response ${row.response_id}:`, err);
+        logger.error(
+          'Failed to queue all-failed failover',
+          { response_id: row.response_id },
+          err instanceof Error ? err : new Error(String(err)),
+        );
       }
     }
 
     if (allFailedResponses.length > 0) {
-      console.log(`${LOG_PREFIX} Processed ${allFailedResponses.length} all-failed responses`);
+      logger.log('Processed all-failed responses', { count: allFailedResponses.length });
     }
 
     // ── 2. Stale: pending_approval >4h, at least one send attempted, no approval ──
@@ -278,7 +284,9 @@ export async function runFailoverPollerOnce(): Promise<void> {
     let alertedCount = 0;
     for (const row of staleResponses) {
       if (!adminEmail) {
-        console.warn(`${LOG_PREFIX} Stuck response ${row.response_id} detected but ADMIN_NOTIFICATION_EMAIL not set — no alert sent`);
+        logger.warn('Stuck response detected but ADMIN_NOTIFICATION_EMAIL not set — no alert sent', {
+          response_id: row.response_id,
+        });
         continue;
       }
 
@@ -305,15 +313,18 @@ export async function runFailoverPollerOnce(): Promise<void> {
       );
       if (outcome === 'sent') alertedCount++;
       if (outcome === 'send_error') {
-        console.error(`${LOG_PREFIX} Failed to send responsiveness alert for response ${row.response_id}`);
+        logger.error('Failed to send responsiveness alert', { response_id: row.response_id });
       }
     }
 
     if (alertedCount > 0) {
-      console.log(`${LOG_PREFIX} Sent ${alertedCount} responsiveness alerts (${staleResponses.length} stuck candidates)`);
+      logger.log('Sent responsiveness alerts', {
+        alerted_count: alertedCount,
+        stuck_candidate_count: staleResponses.length,
+      });
     }
   } catch (error) {
-    console.error(`${LOG_PREFIX} Poll cycle failed:`, error);
+    logger.error('Poll cycle failed', error instanceof Error ? error : new Error(String(error)));
   } finally {
     isPolling = false;
   }
@@ -321,10 +332,15 @@ export async function runFailoverPollerOnce(): Promise<void> {
 
 export function startNotificationFailoverPoller(): void {
   const intervalMs = getIntervalMs();
-  console.log(`${LOG_PREFIX} Starting (interval=${intervalMs}ms)`);
-  runFailoverPollerOnce().catch(console.error);
+  const logger = createWorkerLogger(LOG_PREFIX);
+  logger.log('Starting', { interval_ms: intervalMs });
+  runFailoverPollerOnce().catch((err) =>
+    createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
+  );
   pollerInterval = setInterval(() => {
-    runFailoverPollerOnce().catch(console.error);
+    runFailoverPollerOnce().catch((err) =>
+      createWorkerLogger(LOG_PREFIX).error('Unhandled poll error', err instanceof Error ? err : new Error(String(err))),
+    );
   }, intervalMs);
 }
 
@@ -332,6 +348,6 @@ export function stopNotificationFailoverPoller(): void {
   if (pollerInterval) {
     clearInterval(pollerInterval);
     pollerInterval = null;
-    console.log(`${LOG_PREFIX} Stopped`);
+    createWorkerLogger(LOG_PREFIX).log('Stopped');
   }
 }

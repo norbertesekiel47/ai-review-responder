@@ -268,7 +268,11 @@ describe('NotificationFailoverPoller', () => {
     mod.startNotificationFailoverPoller();
     await vi.advanceTimersByTimeAsync(0);
     mod.stopNotificationFailoverPoller();
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('[NotificationFailover] Stopped'));
+    // Structured logger emits one JSON line per call via console.log.
+    const stoppedLine = consoleSpy.mock.calls
+      .map((call) => call[0])
+      .find((line) => typeof line === 'string' && line.includes('"message":"Stopped"'));
+    expect(stoppedLine).toEqual(expect.stringContaining('"logger":"NotificationFailover"'));
     consoleSpy.mockRestore();
   });
 });
