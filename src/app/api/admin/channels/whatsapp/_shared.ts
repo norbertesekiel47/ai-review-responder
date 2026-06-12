@@ -4,6 +4,7 @@
 // Mirrors the Telegram pattern at ../telegram/_shared.ts.
 
 import { NextResponse } from 'next/server';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export function isWhatsAppEnabled(): boolean {
   return process.env.CHANNELS_WHATSAPP_ENABLED === 'true';
@@ -47,6 +48,10 @@ export function whatsappEnvReady(): boolean {
 export function assertWhatsAppEnvReady(): NextResponse | null {
   if (whatsappEnvReady()) return null;
   const missing = missingWhatsAppEnv();
-  console.error(`[whatsapp-admin] CHANNELS_WHATSAPP_ENABLED=true but missing env vars: ${missing.join(', ')}`);
+  reportCaughtError(
+    'whatsapp-admin',
+    new Error('CHANNELS_WHATSAPP_ENABLED=true but required env vars are missing'),
+    { missingEnvVars: missing },
+  );
   return NextResponse.json({ ok: false, reason: 'whatsapp_env_not_ready', missing }, { status: 503 });
 }

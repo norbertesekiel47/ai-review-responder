@@ -4,6 +4,7 @@ import type { RedisOptions } from 'ioredis';
 import { sql } from '@/lib/db/server';
 import { requireRoleOr401 } from '@/lib/auth/route-helpers';
 import { ALL_QUEUE_NAMES } from '@/lib/shared/queue-names';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 // Queue names come from the shared registry (src/lib/shared/queue-names.ts)
 // so this list cannot drift behind worker/queues.ts. Importing worker/queues.ts
@@ -150,7 +151,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json(data);
   } catch (error) {
-    console.error('[api/admin/jobs] Failed to fetch job data:', error);
+    reportCaughtError('api/admin/jobs', error);
     return NextResponse.json({ error: 'Failed to fetch job data' }, { status: 500 });
   }
 }

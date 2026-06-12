@@ -44,6 +44,7 @@ import {
 import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
 import { enqueuePublishResponse } from '@/lib/shared/job-outbox-helpers';
 import { POST_AFTER_DELETE_FAILED_PREFIX } from '@/lib/publishing/orphan-markers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -178,8 +179,9 @@ export async function POST(
       // at least one text column is set. If we ever hit it, surface as 500
       // rather than crash on the NOT NULL constraint.
       if (restoredText === null) {
-        console.error(
-          '[past-replies/restore-original] superseded row had all text columns NULL',
+        reportCaughtError(
+          'past-replies/restore-original',
+          new Error('superseded row had all text columns NULL'),
           { responseId, supersededId: superseded.id },
         );
         return NextResponse.json({ error: 'internal_error' }, { status: 500 });
@@ -243,7 +245,7 @@ export async function POST(
       );
     });
   } catch (err) {
-    console.error('[past-replies/restore-original] unexpected:', err);
+    reportCaughtError('past-replies/restore-original', err, { accountId, locationId, responseId });
     return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }

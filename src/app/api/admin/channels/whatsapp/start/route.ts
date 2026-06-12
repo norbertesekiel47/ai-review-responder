@@ -31,6 +31,6 @@ export const POST = withSameOrigin()((req: NextRequest) =>
     assertEnvReady: assertWhatsAppEnvReady,
     buildDeepLink: buildWhatsAppDeepLink,
     cacheLabel: 'admin.whatsapp.start',
-    errorLogPrefix: '[whatsapp/start]',
+    endpoint: 'whatsapp/start',
   }),
 );

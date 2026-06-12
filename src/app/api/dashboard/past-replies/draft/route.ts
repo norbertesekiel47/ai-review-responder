@@ -44,6 +44,7 @@ import { snapshotSchema } from '../_shared/schemas';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
 import { enqueueGenerateResponse } from '@/lib/shared/job-outbox-helpers';
 import { enforceDashboardRegenRateLimit } from '@/lib/shared/dashboard-regen-rate-limit';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -236,7 +237,12 @@ async function handler(request: NextRequest): Promise<Response> {
       return NextResponse.json({ outbox_id: outboxId }, { status: 200 });
     });
   } catch (err) {
-    console.error('[past-replies/draft] unexpected:', err);
+    reportCaughtError('past-replies/draft', err, {
+      accountId,
+      locationId,
+      reviewId: parsed.data.review_id,
+      mode: parsed.data.mode,
+    });
     return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql, supabaseServer } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { ForgotPasswordSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
@@ -97,7 +98,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
     }
   } catch (err) {
-    console.error('[forgot-password] rate-limit strict failure:', err);
+    reportCaughtError('forgot-password', err, { reason: 'rate_limit_strict_failure' });
     return NextResponse.json(
       { error: 'rate_limit_unavailable' },
       { status: 503 },
@@ -138,16 +139,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { redirectTo },
       );
       if (response.error) {
-        console.error(
-          `[forgot-password] resetPasswordForEmail returned error for role=${role}:`,
-          response.error.message ?? response.error,
-        );
+        reportCaughtError('forgot-password', response.error, {
+          reason: 'reset_password_email_error',
+          role,
+        });
       }
     } catch (thrownErr) {
-      console.error(
-        `[forgot-password] resetPasswordForEmail threw for role=${role}:`,
-        thrownErr,
-      );
+      reportCaughtError('forgot-password', thrownErr, {
+        reason: 'reset_password_email_threw',
+        role,
+      });
     }
   }
 

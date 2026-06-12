@@ -4,6 +4,7 @@ import { appendOwnerLeadToSheet } from '@/lib/google/owner-leads-sheet';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { notifyContactSubmission } from '@/lib/notifications/contact-notify';
 import { botIdBlockResponse } from '@/lib/security/botid';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -152,7 +153,7 @@ async function sendLeadNotification(lead: ValidatedLead, submittedAt: string): P
     });
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('[lead-intake] notification failed:', error instanceof Error ? error.message : error);
+    reportCaughtError('lead-intake', error, { reason: 'notification_failed' });
     return jsonError('Failed to send notification', 500);
   }
 }
@@ -234,7 +235,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const savedLeadId = savedRows[0]?.id;
     leadId = typeof savedLeadId === 'string' ? savedLeadId : null;
   } catch (error) {
-    console.error('[lead-intake] database error:', error);
+    reportCaughtError('lead-intake', error, { reason: 'database_error' });
     return jsonError('Failed to save lead', 500);
   }
 
@@ -253,7 +254,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       submittedAt,
     });
   } catch (error) {
-    console.error('[lead-intake] Google Sheets append error:', error);
+    reportCaughtError('lead-intake', error, { reason: 'sheets_append_error', leadId });
   }
 
   return sendLeadNotification(lead, submittedAt);

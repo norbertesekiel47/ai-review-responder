@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { jsonResponse, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import {
   createOrReviveOverride,
   removeOverride,
@@ -65,7 +66,11 @@ async function createOverride(request: NextRequest): Promise<NextResponse> {
   try {
     result = await createOrReviveOverride(parsed.input);
   } catch (error: unknown) {
-    console.error('[api/settings/channels/override POST] Failed:', error);
+    reportCaughtError('api/settings/channels/override POST', error, {
+      accountId: parsed.input.accountId,
+      locationId: parsed.input.locationId,
+      channel: parsed.input.channel,
+    });
     return jsonResponse({ error: 'Failed to create override' }, 500);
   }
 
@@ -92,7 +97,11 @@ async function deleteOverride(request: NextRequest): Promise<NextResponse> {
   try {
     result = await removeOverride(parsed.input);
   } catch (error: unknown) {
-    console.error('[api/settings/channels/override DELETE] Failed:', error);
+    reportCaughtError('api/settings/channels/override DELETE', error, {
+      accountId: parsed.input.accountId,
+      locationId: parsed.input.locationId,
+      channel: parsed.input.channel,
+    });
     return jsonResponse({ error: 'Failed to remove override' }, 500);
   }
 

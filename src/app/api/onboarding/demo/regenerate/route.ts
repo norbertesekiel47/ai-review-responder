@@ -6,6 +6,7 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { reserveOnboardingDemoBudget, CostCeilingExceeded } from '@/lib/costs/onboarding-demo-cost-guard';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -165,7 +166,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (cleanupReservation) {
       try { await cleanupReservation(); } catch { /* ignore */ }
     }
-    console.error('[api/onboarding/demo/regenerate] transaction failed:', err);
+    reportCaughtError('api/onboarding/demo/regenerate', err, { reason: 'transaction_failed', demoId: newDemoId });
     return NextResponse.json({ error: 'internal' }, { status: 500, headers: NO_STORE });
   }
 

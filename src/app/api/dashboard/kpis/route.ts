@@ -5,6 +5,7 @@ import { subscriptionAllowsDashboardRead } from '@/lib/shared/subscription-statu
 import { isValidUuid } from '@/lib/shared/ids';
 import { getLocationById } from '@/lib/locations/repo';
 import { getLocationKpiSummary, getAccountKpiSummary } from '@/lib/kpi/service';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { resolveDashboardScopePolicy } from '../policy';
 
 export const dynamic = 'force-dynamic';
@@ -87,7 +88,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const summary = await getLocationKpiSummary(locationId);
     return jsonResponse(summary);
   } catch (err) {
-    console.error('[api/dashboard/kpis] failed to fetch KPIs:', err);
+    reportCaughtError('api/dashboard/kpis', err, { accountId });
     return jsonResponse({ error: 'Failed to fetch KPIs' }, 500);
   }
 }

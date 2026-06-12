@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { ResetPasswordSchema } from '@/lib/shared/schemas';
 
@@ -125,7 +126,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
     }
   } catch (err) {
-    console.error('[reset-password] rate-limit strict failure:', err);
+    reportCaughtError('reset-password', err, { reason: 'rate_limit_strict_failure' });
     return NextResponse.json(
       { error: 'rate_limit_unavailable' },
       { status: 503 },

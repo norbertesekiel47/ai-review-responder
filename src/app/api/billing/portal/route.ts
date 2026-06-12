@@ -12,6 +12,7 @@ import { sql } from '@/lib/db/server';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { getStripe } from '@/lib/payments/stripe-client';
 import { requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -143,8 +144,7 @@ async function createBillingPortal(req: NextRequest): Promise<NextResponse> {
     );
   } catch (err) {
     // VAL-BILLING-069: Return user-facing error instead of broken URL
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[billing/portal] Stripe portal session creation failed for account=${accountId}: ${message}`);
+    reportCaughtError('billing/portal', err, { reason: 'portal_session_creation_failed', accountId });
     return NextResponse.json(
       { error: 'portal_unavailable', detail: 'Unable to open billing portal. Please try again later.' },
       { status: 502, headers: NO_STORE },

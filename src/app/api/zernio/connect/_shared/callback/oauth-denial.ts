@@ -7,6 +7,7 @@ import {
   luaDeletePendingByFlowIdAnyStatus,
 } from '@/lib/zernio/connect-state';
 import type { ConnectStateBlob, ConnectPendingMarker } from '@/lib/zernio/types';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 /**
  * OAuth-denial cleanup (callback spec §3.2 step 2).
@@ -59,16 +60,16 @@ export async function cleanupAfterOauthDenial(stateParam: string): Promise<void>
             }
           }
         } catch (e) {
-          console.error(
-            '[zernio/callback] OAuth-denial pending cleanup failed:',
-            e,
-          );
+          reportCaughtError('zernio/callback', e, {
+            step: 'oauth_denial_pending_cleanup',
+            businessId: stored.businessId,
+          });
         }
         await zernioClient.deleteProfile(stored.profileId).catch((e) => {
-          console.error(
-            '[zernio/callback] OAuth-denial deleteProfile failed:',
-            e,
-          );
+          reportCaughtError('zernio/callback', e, {
+            step: 'oauth_denial_delete_profile',
+            profileId: stored.profileId,
+          });
         });
         await redisCleanup.del(profileStateKey(stored.profileId)).catch(() => {
           // Best-effort.
@@ -76,6 +77,6 @@ export async function cleanupAfterOauthDenial(stateParam: string): Promise<void>
       }
     }
   } catch (e) {
-    console.error('[zernio/callback] OAuth-denial cleanup failed:', e);
+    reportCaughtError('zernio/callback', e, { step: 'oauth_denial_cleanup' });
   }
 }

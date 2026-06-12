@@ -22,6 +22,7 @@ import {
 } from '@/lib/admin/csv-import';
 import { getAccountById } from '@/lib/accounts/repo';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -141,8 +142,13 @@ async function importLocationsCsv(req: NextRequest): Promise<NextResponse> {
       failures.map((f) => f.reason),
     );
   } catch (err) {
-    // Audit log failure is non-blocking — log but don't fail the response
-    console.error('[csv-import] Failed to write audit log:', err);
+    // Audit log failure is non-blocking — report but don't fail the response
+    reportCaughtError('csv-import', err, {
+      failure: 'audit_log_write',
+      accountId,
+      created: successes.length,
+      failedCount: failures.length,
+    });
   }
 
   // Step 9: Enqueue aggregate billing update after audit logging.

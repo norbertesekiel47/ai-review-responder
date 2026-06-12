@@ -15,6 +15,7 @@ import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { PLACEHOLDER_BUSINESS_NAME } from '@/lib/onboarding/create-business';
 import { enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -179,7 +180,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: NO_STORE });
     }
   } catch (err) {
-    console.error('[api/onboarding/business] rate-limit strict failure:', err);
+    reportCaughtError('api/onboarding/business', err, { reason: 'rate_limit_strict_failure' });
     return NextResponse.json(
       { error: 'rate_limit_unavailable' },
       { status: 503, headers: NO_STORE },
@@ -360,7 +361,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
     });
   } catch (err) {
-    console.error('[api/onboarding/business] transaction failed:', err);
+    reportCaughtError('api/onboarding/business', err, { reason: 'transaction_failed', businessId: bizRow.id });
     return NextResponse.json({ error: 'internal' }, { status: 500, headers: NO_STORE });
   }
 

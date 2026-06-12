@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { getIpKey } from '@/lib/shared/request-ip';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { botIdBlockResponse } from '@/lib/security/botid';
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
   } catch (err) {
-    console.error('[login-attempt] rate-limit strict failure:', err);
+    reportCaughtError('login-attempt', err, { reason: 'rate_limit_strict_failure' });
     return NextResponse.json(
       { error: 'rate_limit_unavailable' },
       { status: 503 },

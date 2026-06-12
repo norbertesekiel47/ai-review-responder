@@ -14,6 +14,7 @@ import { isSubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/t
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { createCheckoutSession, CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
 import { requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -140,8 +141,7 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
         { status: 502, headers: NO_STORE },
       );
     }
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[billing/checkout] Stripe error for account=${accountId}: ${message}`);
+    reportCaughtError('billing/checkout', err, { reason: 'stripe_error', accountId });
     return NextResponse.json(
       { error: 'stripe_error', detail: 'Unable to connect to payment provider. Please try again later.' },
       { status: 502, headers: NO_STORE },

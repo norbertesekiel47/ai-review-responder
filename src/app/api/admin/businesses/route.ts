@@ -6,6 +6,7 @@ import {
   AdminOnboardingError,
 } from '@/lib/onboarding/admin-onboarding-service';
 import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -70,7 +71,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       offset,
     });
   } catch (error) {
-    console.error('[api/admin/businesses GET] Failed to fetch businesses:', error);
+    reportCaughtError('api/admin/businesses GET', error);
     return NextResponse.json(
       { error: 'Failed to fetch businesses' },
       { status: 500 },
@@ -124,7 +125,7 @@ async function createBusiness(request: NextRequest): Promise<NextResponse> {
       }
       return NextResponse.json(body, { status: err.status });
     }
-    console.error('[api/admin/businesses POST] Unexpected error:', err);
+    reportCaughtError('api/admin/businesses POST', err);
     return NextResponse.json(
       { error: 'Failed to onboard business' },
       { status: 500 },

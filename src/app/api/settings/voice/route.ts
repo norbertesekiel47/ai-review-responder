@@ -14,6 +14,7 @@ import { sql } from '@/lib/db/server';
 import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
 import { jsonResponse, requireOwnerWithAccount, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -186,7 +187,7 @@ async function putVoiceConfig(request: NextRequest): Promise<NextResponse> {
 
     return jsonResponse({ success: true });
   } catch (error) {
-    console.error('[api/settings/voice PUT] Failed:', error);
+    reportCaughtError('api/settings/voice PUT', error, { locationId });
     return jsonResponse({ error: 'Failed to update voice config' }, 500);
   }
 }

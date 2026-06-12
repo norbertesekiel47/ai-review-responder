@@ -27,6 +27,6 @@ export const POST = withSameOrigin()((req: NextRequest) =>
     assertEnvReady: assertTelegramEnvReady,
     buildDeepLink: buildTelegramDeepLink,
     cacheLabel: 'admin.telegram.start',
-    errorLogPrefix: '[telegram/start]',
+    endpoint: 'telegram/start',
   }),
 );

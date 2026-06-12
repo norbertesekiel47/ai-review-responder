@@ -3,6 +3,7 @@
 // Shared helpers for admin Telegram routes.
 
 import { NextResponse } from 'next/server';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export function isTelegramEnabled(): boolean {
   return process.env.CHANNELS_TELEGRAM_ENABLED === 'true';
@@ -24,6 +25,10 @@ export function assertTelegramEnvReady(): NextResponse | null {
   const required = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET'];
   const missing = required.filter((k) => !process.env[k] || process.env[k]!.trim().length === 0);
   if (missing.length === 0) return null;
-  console.error(`[telegram-admin] CHANNELS_TELEGRAM_ENABLED=true but missing env vars: ${missing.join(', ')}`);
+  reportCaughtError(
+    'telegram-admin',
+    new Error('CHANNELS_TELEGRAM_ENABLED=true but required env vars are missing'),
+    { missingEnvVars: missing },
+  );
   return NextResponse.json({ ok: false, reason: 'telegram_env_not_ready', missing }, { status: 503 });
 }

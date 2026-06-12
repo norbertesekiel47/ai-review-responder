@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { notifyContactSubmission } from '@/lib/notifications/contact-notify';
 import { parseContactCoreFields } from '@/lib/notifications/contact-form';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,7 +73,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       ],
     });
   } catch (err) {
-    console.error('[demo-request] notification failed:', err instanceof Error ? err.message : err);
+    reportCaughtError('demo-request', err, { reason: 'notification_failed' });
     return NextResponse.json({ error: 'Failed to send notification' }, { status: 500 });
   }
 

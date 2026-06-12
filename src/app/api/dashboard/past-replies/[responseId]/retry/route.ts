@@ -43,6 +43,7 @@ import {
   PENDING_AFTER_DELETE,
   isRecoverableFailedPostingError,
 } from '@/lib/publishing/orphan-markers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -195,7 +196,7 @@ export async function POST(
       return NextResponse.json({ outbox_id: outboxId }, { status: 200 });
     });
   } catch (err) {
-    console.error('[past-replies/retry] unexpected:', err);
+    reportCaughtError('past-replies/retry', err, { accountId, locationId, responseId });
     return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }

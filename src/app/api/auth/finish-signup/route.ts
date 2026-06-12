@@ -3,6 +3,7 @@ import { createServerClient } from '@supabase/ssr';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { FinishSignupSchema } from '@/lib/shared/schemas';
 import { accountExistsResponse } from '@/lib/shared/auth-responses';
@@ -90,7 +91,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
     }
   } catch (err) {
-    console.error('[api/auth/finish-signup] rate-limit strict failure:', err);
+    reportCaughtError('api/auth/finish-signup', err, { reason: 'rate_limit_strict_failure' });
     return NextResponse.json(
       { error: 'rate_limit_unavailable' },
       { status: 503 },
@@ -169,7 +170,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // pre-check's email_exists branch (enumeration defense).
       return accountExistsResponse();
     }
-    console.error('[api/auth/finish-signup] createBusinessTx failed:', err);
+    reportCaughtError('api/auth/finish-signup', err, { reason: 'create_business_tx_failed' });
     return NextResponse.json({ error: 'internal' }, { status: 500 });
   }
 
@@ -217,10 +218,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       `;
     }
   } catch (err) {
-    console.error(
-      `[api/auth/finish-signup] channel_enrollments INSERT failed for business ${businessId}:`,
-      err instanceof Error ? err.message : err,
-    );
+    reportCaughtError('api/auth/finish-signup', err, {
+      reason: 'channel_enrollments_insert_failed',
+      businessId,
+    });
   }
 
   // 10. Success. Google-confirmed email is auto-verified so we skip the

@@ -5,6 +5,7 @@ import { setFreshAuthCookie } from '@/lib/account-offboarding/destructive-auth';
 import { requireCurrentAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 
 export const dynamic = 'force-dynamic';
@@ -67,7 +68,10 @@ async function auditMfaEvent(
       });
     }
   } catch (err) {
-    console.error('[mfa-challenge] audit write failed:', err);
+    reportCaughtError('mfa-challenge', err, {
+      reason: 'audit_write_failed',
+      eventType,
+    });
   }
 }
 
@@ -84,7 +88,7 @@ async function accountOwnerForAuthUser(
     if (actor?.role !== 'owner' || !actor.account_id) return null;
     return { userId: actor.id, accountId: actor.account_id };
   } catch (err) {
-    console.error('[mfa-challenge] fresh-auth owner lookup failed:', err);
+    reportCaughtError('mfa-challenge', err, { reason: 'fresh_auth_owner_lookup_failed' });
     return null;
   }
 }
@@ -176,7 +180,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
   } catch (err) {
-    console.error('[mfa-challenge] rate-limit strict failure:', err);
+    reportCaughtError('mfa-challenge', err, {
+      reason: 'rate_limit_strict_failure',
+      action: body.action,
+    });
     return jsonWithCookies(
       cookieJar,
       { error: 'rate_limit_unavailable' },

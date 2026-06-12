@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { getCurrentUser } from '@/lib/db/auth';
 import { pendingKey, stateKey, profileStateKey } from '@/lib/zernio/connect-state';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import type { ConnectStateBlob, ConnectPendingMarker } from '@/lib/zernio/types';
 
 export type ClaimResult =
@@ -46,7 +47,7 @@ export async function claimAndVerifyConnectState(
   try {
     stateRaw = await redis.getdel(stateKey(state));
   } catch (err) {
-    console.error('[api/zernio/connect/callback] redis getdel failed:', err);
+    reportCaughtError('api/zernio/connect/callback', err, { step: 'redis_getdel_state' });
     return { ok: false, code: 'internal_error', cleanupProfileId: null };
   }
   if (!stateRaw) {
@@ -68,7 +69,10 @@ export async function claimAndVerifyConnectState(
   try {
     pendingRaw = await redis.get(pendingKey(stored.businessId));
   } catch (err) {
-    console.error('[api/zernio/connect/callback] redis get pending failed:', err);
+    reportCaughtError('api/zernio/connect/callback', err, {
+      step: 'redis_get_pending',
+      businessId: stored.businessId,
+    });
     return { ok: false, code: 'internal_error', cleanupProfileId: stored.profileId };
   }
   if (!pendingRaw) {

@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { promotePrimaryTransaction } from '@/lib/locations/promote-primary-tx';
 import { getLocationById } from '@/lib/locations/repo';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import {
   LOCATION_ROUTE_NO_STORE as NO_STORE,
   locationDenialResponse,
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const denial = locationDenialResponse(message);
     if (denial) return denial;
 
-    console.error(`[locations/promote-primary] Transaction failed for account=${accountId}: ${message}`);
+    reportCaughtError('locations/promote-primary', err, { accountId, newPrimaryId });
     return NextResponse.json(
       { error: 'promote_primary_failed' },
       { status: 500, headers: NO_STORE },

@@ -9,6 +9,7 @@ import {
   withSameOrigin,
 } from '@/lib/auth/route-helpers';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { getIpKey } from '@/lib/shared/request-ip';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
@@ -63,7 +64,10 @@ async function freshAuth(req: NextRequest): Promise<NextResponse> {
       );
     }
   } catch (err) {
-    console.error('[account-offboarding/fresh-auth] rate-limit strict failure:', err);
+    reportCaughtError('account-offboarding/fresh-auth', err, {
+      reason: 'rate_limit_strict_failure',
+      accountId: owner.accountId,
+    });
     return jsonResponse({ error: 'rate_limit_unavailable' }, 503);
   }
 

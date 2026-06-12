@@ -3,6 +3,7 @@ import { createServerClient } from '@supabase/ssr';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 
@@ -168,10 +169,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         row.account_id,
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(
-        `[signup-status] Checkout Session reconciliation enqueue failed for account=${row.account_id}: ${message}`,
-      );
+      reportCaughtError('signup-status', err, {
+        reason: 'checkout_session_reconcile_enqueue_failed',
+        accountId: row.account_id,
+      });
     }
   }
 

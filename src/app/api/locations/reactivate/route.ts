@@ -18,6 +18,7 @@ import { assertCanAddLocation } from '@/lib/accounts/quota';
 import { reactivateLocationTransaction } from '@/lib/locations/archive-location-tx';
 import { getAccountOwnerUserId } from '@/lib/accounts/repo';
 import { getLocationById } from '@/lib/locations/repo';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import {
   locationDenialResponse,
   LOCATION_ROUTE_NO_STORE as NO_STORE,
@@ -123,7 +124,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[locations/reactivate] Transaction failed for location=${locationId}: ${message}`);
+    reportCaughtError('locations/reactivate', err, { accountId, locationId });
     const denial = locationDenialResponse(message);
     if (denial) return denial;
     return NextResponse.json(

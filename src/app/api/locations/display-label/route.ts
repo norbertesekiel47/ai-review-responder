@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { sql } from '@/lib/db/server';
 import { updateDisplayLabel } from '@/lib/locations/update-display-label';
 import { jsonResponse, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -63,7 +64,7 @@ async function updateLocationDisplayLabel(request: NextRequest): Promise<NextRes
 
     return jsonResponse({ success: true, displayLabel: result.displayLabel });
   } catch (err) {
-    console.error('[api/locations/display-label PUT] Failed:', err);
+    reportCaughtError('api/locations/display-label PUT', err, { accountId, locationId });
     return jsonResponse({ error: 'Failed to update display label' }, 500);
   }
 }

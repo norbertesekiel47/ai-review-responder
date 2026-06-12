@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { ResendConfirmationSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
 
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
     }
   } catch (err) {
-    console.error('[resend-confirmation] rate-limit strict failure:', err);
+    reportCaughtError('resend-confirmation', err, { reason: 'rate_limit_strict_failure' });
     return NextResponse.json({ error: 'rate_limit_unavailable' }, { status: 503 });
   }
 
@@ -72,10 +73,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let parsedAppUrl: URL;
   try {
     parsedAppUrl = new URL(rawAppUrl.trim());
-  } catch {
-    console.error(
-      `[resend-confirmation] NEXT_PUBLIC_APP_URL is malformed (${rawAppUrl.trim()}) — cannot build emailRedirectTo`,
-    );
+  } catch (err) {
+    reportCaughtError('resend-confirmation', err, {
+      reason: 'app_url_malformed_cannot_build_email_redirect',
+      appUrl: rawAppUrl.trim(),
+    });
     return NextResponse.json(
       { error: 'server_misconfigured' },
       { status: 500 },
@@ -91,7 +93,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   await supabaseServer.auth
     .resend({ type: 'signup', email, options: { emailRedirectTo } })
     .catch((err) => {
-      console.error('[resend-confirmation] supabase resend failed:', err);
+      reportCaughtError('resend-confirmation', err, { reason: 'supabase_resend_failed' });
     });
 
   return NextResponse.json({ ok: true });

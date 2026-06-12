@@ -3,6 +3,7 @@ import { sql } from '@/lib/db/server';
 import { requireRoleOr401 } from '@/lib/auth/route-helpers';
 import { computeChurnRiskScore, type ChurnScore } from '@/lib/shared/churn-score';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -282,7 +283,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json(data);
   } catch (error) {
-    console.error('[api/admin/overview] Failed to fetch overview:', error);
+    reportCaughtError('api/admin/overview', error);
     return NextResponse.json(
       { error: 'Failed to fetch overview' },
       { status: 500 },

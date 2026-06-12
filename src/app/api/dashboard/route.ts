@@ -14,6 +14,7 @@ import {
   type AccountFlagsInput,
   type PastDueRecoveryState,
 } from '@/lib/shared/past-due-recovery';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { resolveDashboardScopePolicy } from './policy';
 
 export const dynamic = 'force-dynamic';
@@ -285,7 +286,7 @@ async function handleAggregateDashboard(accountId: string): Promise<NextResponse
     const data = await getAggregateDashboardData(accountId);
     return jsonResponse(data);
   } catch (error) {
-    console.error('[api/dashboard] Failed to fetch aggregate data:', error);
+    reportCaughtError('api/dashboard', error, { accountId, scope: 'aggregate' });
     return jsonResponse({ error: 'Failed to fetch aggregate dashboard data' }, 500);
   }
 }
@@ -343,7 +344,7 @@ async function handlePerLocationDashboard(
     if (error instanceof BusinessNotFoundError) {
       return jsonResponse({ error: 'Business not found' }, 404);
     }
-    console.error('[api/dashboard] Failed to fetch dashboard data:', error);
+    reportCaughtError('api/dashboard', error, { accountId, locationId });
     return jsonResponse({ error: 'Failed to fetch dashboard data' }, 500);
   }
 }

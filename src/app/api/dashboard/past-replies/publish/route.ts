@@ -45,6 +45,7 @@ import { hasOpenFlag } from '@/lib/moderation/held-draft';
 import type { SessionAuditContext } from '@/lib/approval/audit';
 import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
 import { enqueuePublishResponse } from '@/lib/shared/job-outbox-helpers';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -198,7 +199,11 @@ async function handler(request: NextRequest): Promise<Response> {
       return NextResponse.json({ outbox_id: outboxId }, { status: 200 });
     });
   } catch (err) {
-    console.error('[past-replies/publish] unexpected:', err);
+    reportCaughtError('past-replies/publish', err, {
+      accountId,
+      locationId,
+      responseId: parsed.data.response_id,
+    });
     return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }
