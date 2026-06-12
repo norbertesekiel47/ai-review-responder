@@ -1,7 +1,5 @@
 import Link from 'next/link';
 
-export const metadata = { title: 'Page not found | RepWorth' };
-
 // Branded root 404 — island layout on the sage background, server-rendered
 // (no client motion needed for a static error surface).
 export default function NotFound() {
