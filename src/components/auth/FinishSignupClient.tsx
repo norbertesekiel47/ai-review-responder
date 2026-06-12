@@ -3,6 +3,12 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LiveRegion } from '@/components/ui/LiveRegion';
+import {
+  AuthCardShell,
+  authFieldClass,
+  authLabelClass,
+  authPrimaryButtonClass,
+} from './AuthCardShell';
 
 type FormState = {
   ownerName: string;
@@ -58,76 +64,74 @@ export function FinishSignupClient({
       setForm({ ...form, [k]: e.target.value });
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4">
-      <div className="max-w-sm mx-auto">
-        <h1 className="text-2xl font-bold text-center mb-2">
-          Almost there, just your name
-        </h1>
-        <p className="text-center text-gray-600 mb-8">
-          We&apos;ll set up your business after payment.
-        </p>
+    <AuthCardShell width="sm">
+      <h1 className="text-2xl font-semibold text-[#2a2a2a] text-center mb-2">
+        Almost there, just your name
+      </h1>
+      <p className="text-center text-[#6a6a6a] mb-8">
+        We&apos;ll set up your business after payment.
+      </p>
 
-        <form
-          onSubmit={handleSubmit}
-          className="bg-white rounded-lg border border-gray-200 p-6 space-y-4"
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-4"
+      >
+        <div>
+          <label htmlFor="finish-email" className={authLabelClass}>
+            Email (from your Google account)
+          </label>
+          <input
+            id="finish-email"
+            type="email"
+            autoComplete="email"
+            disabled
+            value={defaultEmail}
+            // Display-only: the email is fixed to the Google account. The
+            // field stays `disabled` (not `readOnly`); the no-op onChange just
+            // makes it a formally controlled input.
+            onChange={() => undefined}
+            className={`${authFieldClass} bg-[#F0EEEA] text-[#6a6a6a]`}
+          />
+        </div>
+        <div>
+          <label htmlFor="finish-name" className={authLabelClass}>
+            Your name
+          </label>
+          <input
+            id="finish-name"
+            type="text"
+            autoComplete="name"
+            required
+            value={form.ownerName}
+            onChange={onChange('ownerName')}
+            className={authFieldClass}
+          />
+        </div>
+        <div>
+          <label htmlFor="finish-phone" className={authLabelClass}>
+            Phone (optional)
+          </label>
+          <input
+            id="finish-phone"
+            type="tel"
+            autoComplete="tel"
+            value={form.ownerPhone}
+            onChange={onChange('ownerPhone')}
+            className={authFieldClass}
+          />
+        </div>
+
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <LiveRegion level="assertive" message={error} />
+
+        <button
+          type="submit"
+          disabled={loading}
+          className={authPrimaryButtonClass}
         >
-          <div>
-            <label htmlFor="finish-email" className="block text-sm font-medium text-gray-700 mb-1">
-              Email (from your Google account)
-            </label>
-            <input
-              id="finish-email"
-              type="email"
-              autoComplete="email"
-              disabled
-              value={defaultEmail}
-              // Display-only: the email is fixed to the Google account. The
-              // field stays `disabled` (not `readOnly`); the no-op onChange just
-              // makes it a formally controlled input.
-              onChange={() => undefined}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-gray-100 text-gray-600"
-            />
-          </div>
-          <div>
-            <label htmlFor="finish-name" className="block text-sm font-medium text-gray-700 mb-1">
-              Your name
-            </label>
-            <input
-              id="finish-name"
-              type="text"
-              autoComplete="name"
-              required
-              value={form.ownerName}
-              onChange={onChange('ownerName')}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label htmlFor="finish-phone" className="block text-sm font-medium text-gray-700 mb-1">
-              Phone (optional)
-            </label>
-            <input
-              id="finish-phone"
-              type="tel"
-              autoComplete="tel"
-              value={form.ownerPhone}
-              onChange={onChange('ownerPhone')}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <LiveRegion level="assertive" message={error} />
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 text-white font-medium py-3 rounded-md hover:bg-blue-700 disabled:opacity-50"
-          >
-            {loading ? 'Submitting...' : 'Continue'}
-          </button>
-        </form>
-      </div>
-    </div>
+          {loading ? 'Submitting...' : 'Continue'}
+        </button>
+      </form>
+    </AuthCardShell>
   );
 }

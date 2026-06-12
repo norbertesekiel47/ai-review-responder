@@ -30,6 +30,18 @@ describe('FinishSignupClient', () => {
     expect(email).not.toHaveAttribute('readOnly');
   });
 
+  it('renders the branded island, not gray/blue', () => {
+    const { container } = render(
+      <FinishSignupClient defaultEmail="a@b.co" defaultName="Ada" />,
+    );
+    expect(container.innerHTML).toContain('bg-[#D2E0D3]');
+    expect(container.innerHTML).not.toContain('bg-gray-50');
+    expect(container.innerHTML).not.toContain('bg-blue-600');
+    const name = container.querySelector('input#finish-name');
+    expect(name).not.toBeNull();
+    expect(name!.className).toContain('text-base');
+  });
+
   it('announces a submission error via an assertive live region', async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
