@@ -38,6 +38,7 @@ jobs:
   lint:
     name: lint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -55,10 +56,16 @@ jobs:
         run: pnpm ci:static-policy
       - name: Run RLS coverage audit
         run: pnpm ci:rls-audit
+      # Informational only: Dependabot owns dependency updates; this surfaces
+      # vulnerable transitive deps between Dependabot runs without gating PRs.
+      - name: Dependency vulnerability audit (non-blocking)
+        run: pnpm audit --prod
+        continue-on-error: true
 
   typecheck:
     name: typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -72,6 +79,7 @@ jobs:
   test:
     name: test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # A real Postgres so the DB-backed suite (CHECK-constraint, RLS, tenant-scope,
     # and other *.integration.test.ts) actually runs instead of self-skipping.
     # DATABASE_POOL_URL is already pointed here by the workflow env; TEST_DATABASE_POOL_URL
@@ -117,6 +125,7 @@ jobs:
   e2e:
     name: e2e
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16
@@ -166,6 +175,7 @@ jobs:
   build:
     name: build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -184,6 +194,7 @@ jobs:
   deploy-install:
     name: deploy-install
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
