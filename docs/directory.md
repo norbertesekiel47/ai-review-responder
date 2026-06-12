@@ -864,6 +864,5 @@ All schema migrations live here, numbered `001` … `045` (head; next is `046`).
 - `docs/finance/` — **(Wave 1)** pilot invoice-review template for the first multi-location accounts (`accounts.flags.is_pilot`).
 - `docs/legal/` — legal source docs + external-gate status (`legal-review.md`, `insurance.md`); rendered pages come from `src/lib/legal/content.ts`, not these.
 - `public/.well-known/security.txt` — **(Wave 1)** RFC 9116 disclosure pointer (contact `security@repworth.net`, links to `/security`).
-- `docs/PENDING-db-gated-tests.md` — **(Wave 1)** the 6 integration tests that self-skip in secret-free CI (need `TEST_DATABASE_POOL_URL`); run before launch.
 - `docs/superpowers/` — historical specs + plans for every feature, dated. The plan file at the head of each branch is the spec of record for that feature.
 - `tests/` and per-module `__tests__/` directories — Vitest unit + integration tests; Playwright E2E lives in `tests/e2e/`.

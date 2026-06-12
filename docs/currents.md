@@ -3282,7 +3282,7 @@ supabase/migrations/
 
 ### One thing to remember
 
-The PHI filter and the approval snapshot have **no off-switch** on purpose — they're launch-risk guardrails, not optional features. And the billing watchdog only *alerts*; it never changes anyone's subscription or invoice automatically. Two integration tests (the cross-tenant leak test and the approval-snapshot immutability test) need a real database, so they don't run in our secret-free CI yet — see `docs/PENDING-db-gated-tests.md` for how to run them before launch.
+The PHI filter and the approval snapshot have **no off-switch** on purpose — they're launch-risk guardrails, not optional features. And the billing watchdog only *alerts*; it never changes anyone's subscription or invoice automatically. Two integration tests (the cross-tenant leak test and the approval-snapshot immutability test) need a real database, so at the time they didn't run in our secret-free CI. That gap has since closed: CI's `test` job runs a Postgres service with `TEST_DATABASE_POOL_URL`, the suites run on every PR, and the old `docs/PENDING-db-gated-tests.md` reminder was deleted.
 
 ---
 
