@@ -363,4 +363,54 @@ describe('POST /api/onboarding/business', () => {
     expect(json.redirectTo).toBe('/onboarding/start');
     delete process.env.ONBOARDING_DEMO_ENABLED;
   });
+
+  // Migration 064: the wizard stamps accounts.onboarding_wizard_completed_at
+  // in the SAME transaction — the authoritative "wizard ran" signal read by
+  // /api/auth/signup-status (replaces the updated_at-vs-activation proxy).
+  it('stamps accounts.onboarding_wizard_completed_at in the wizard transaction (legacy path)', async () => {
+    mockSql.mockResolvedValueOnce([activeBizRow]); // initial JOIN read
+
+    const txCalls: string[] = [];
+    mockSql.begin = vi.fn(async (cb: any) => {
+      const tx: any = vi.fn(async (strings: TemplateStringsArray) => {
+        const text = strings.join('?');
+        txCalls.push(text);
+        if (text.includes('FOR UPDATE')) return [activeBizRow];
+        return [];
+      });
+      return cb(tx);
+    });
+
+    const res = await POST(mkReq(validBody));
+    expect(res.status).toBe(200);
+
+    const stamp = txCalls.find((text) => text.includes('onboarding_wizard_completed_at'));
+    expect(stamp).toBeDefined();
+    // First completion wins; resubmits must not move the timestamp.
+    expect(stamp).toContain('COALESCE(onboarding_wizard_completed_at, NOW())');
+  });
+
+  it('flag-on: stamps accounts.onboarding_wizard_completed_at on the post-pay wizard path', async () => {
+    process.env.ONBOARDING_DEMO_ENABLED = 'true';
+    const postPayBizRow = { ...activeBizRow, place_id_verified: true };
+    mockSql.mockResolvedValueOnce([postPayBizRow]); // initial JOIN read
+
+    const txCalls: string[] = [];
+    mockSql.begin = vi.fn(async (cb: any) => {
+      const tx: any = vi.fn(async (strings: TemplateStringsArray) => {
+        const text = strings.join('?');
+        txCalls.push(text);
+        if (text.includes('FOR UPDATE')) return [postPayBizRow];
+        return [];
+      });
+      return cb(tx);
+    });
+
+    const res = await POST(mkReq({ businessName: 'Acme Cafe', tone: 'casual' }));
+    expect(res.status).toBe(200);
+
+    const stamp = txCalls.find((text) => text.includes('onboarding_wizard_completed_at'));
+    expect(stamp).toBeDefined();
+    delete process.env.ONBOARDING_DEMO_ENABLED;
+  });
 });
