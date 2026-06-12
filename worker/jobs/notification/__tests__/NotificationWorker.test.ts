@@ -276,6 +276,54 @@ describe('NotificationWorker – handleSendNotification', () => {
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
   });
 
+  // 2b. Subscription past_due beyond the 7-day grace window blocks the worker
+  //     (launch-audit part1 test gap: the guard's past_due branch was unit-
+  //     tested but never exercised through the worker path).
+  it('skips notification for past_due beyond the 7-day grace window', async () => {
+    mockGetVerifiedEnrollments.mockResolvedValue([
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
+    ]);
+
+    sqlReturnQueue.push(
+      [mockResponseRow()],
+      [mockBusinessRow({
+        subscription_status: 'past_due',
+        account_past_due_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+      })],
+    );
+
+    await handleSendNotification(makeJob());
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
+    expect(mockChannelSend).not.toHaveBeenCalled();
+    expect(mockCreateApprovalLink).not.toHaveBeenCalled();
+  });
+
+  // 2c. Subscription past_due WITHIN the 7-day grace window proceeds normally.
+  it('sends notification for past_due within the 7-day grace window', async () => {
+    stubEmailChannel();
+    mockGetVerifiedEnrollments.mockResolvedValue([
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
+    ]);
+
+    sqlReturnQueue.push(
+      [mockResponseRow()],
+      [mockBusinessRow({
+        subscription_status: 'past_due',
+        account_past_due_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      })],
+      [], // email idempotency check → none
+      [], // recordNotificationDelivery INSERT
+    );
+
+    await handleSendNotification(makeJob());
+
+    expect(mockCreateApprovalLink).toHaveBeenCalledOnce();
+    expect(mockChannelSend).toHaveBeenCalledOnce();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
   // 3. Existing delivery (idempotent skip)
   it('completes outbox without sending when delivery already exists', async () => {
     stubEmailChannel();
