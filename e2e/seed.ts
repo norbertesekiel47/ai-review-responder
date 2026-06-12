@@ -33,7 +33,11 @@ function getSql(): Sql {
     );
   }
 
-  _sql = postgres(dbUrl);
+  // prepare:false — TEST_DATABASE_POOL_URL may point at a Supabase PgBouncer
+  // pooler (transaction pooling drops prepared statements between queries;
+  // same setting as the app client in src/lib/db/server.ts). Harmless against
+  // a direct local Postgres.
+  _sql = postgres(dbUrl, { prepare: false });
   return _sql;
 }
 
