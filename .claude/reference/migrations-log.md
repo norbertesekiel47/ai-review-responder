@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **063** — next migration is **064**
+Current head: **064** — next migration is **065**
 All tables use UUIDv7 (time-ordered primary keys).
 
 ## Migration Log
@@ -508,6 +508,24 @@ All tables use UUIDv7 (time-ordered primary keys).
   applied) inside a rolled-back tx: active-primary FALSE → FALSE; active-primary
   NULL + archived FALSE → TRUE; no-active-primary archived FALSE → FALSE (aggregate
   path); no-businesses → TRUE.
+
+- **064** — Explicit wizard-completion stamp. **Adds**
+  `accounts.onboarding_wizard_completed_at TIMESTAMPTZ` (nullable,
+  `ADD COLUMN IF NOT EXISTS` → additive + idempotent). Replaces the
+  `/api/auth/signup-status` timestamp proxy (`businesses.updated_at >
+  accounts.subscription_activated_at + 2s`), which could false-positive when
+  the `PlaceIdValidationWorker`'s UPDATE landed after Stripe activation.
+  **Writer**: `/api/onboarding/business` stamps
+  `COALESCE(onboarding_wizard_completed_at, NOW())` in the SAME tx as the
+  wizard's businesses UPDATE (both legacy and post-pay branches; first
+  completion wins). **Reader**: signup-status's `ONBOARDING_DEMO_ENABLED=true`
+  branch reads the column directly (legacy branch still reads
+  `place_id_verified`/`google_maps_url` — unchanged). **Backfill**: copies
+  `b.updated_at` for accounts whose primary business satisfies the old proxy
+  predicate, preserving every pre-migration `businessOnboarded` answer.
+  No RLS change (inherits `accounts` policy); no index (only read via the
+  already-indexed account row). Apply staging-first, then production, in
+  lockstep.
 
 ## Key Tables Reference
 
