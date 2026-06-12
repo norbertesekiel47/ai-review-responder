@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { auditSqlText, extractSqlTemplates } from '../tenant-scope-audit';
-import { tenantScopeAllowlist } from '../tenant-scope-allowlist';
+import { auditSqlText, extractSqlTemplates, findAllowlistIntegrityFindings } from '../tenant-scope-audit';
+import {
+  ALLOWLIST_BASELINE,
+  tenantScopeAllowlist,
+  type TenantScopeAllowlistEntry,
+} from '../tenant-scope-allowlist';
 
 describe('tenant-scope-audit', () => {
   const finding = (file: string, table: string) => [
@@ -465,5 +469,64 @@ describe('tenant-scope-audit', () => {
     `)).toEqual([
       { tag: 'sql', sqlText: "SELECT '/*' AS marker FROM reviews WHERE business_id = ${businessId}" },
     ]);
+  });
+});
+
+describe('allowlist integrity (baseline gate + category invariants)', () => {
+  const entry = (overrides: Partial<TenantScopeAllowlistEntry>): TenantScopeAllowlistEntry => ({
+    file: 'src/app/api/admin/example/route.ts',
+    table: 'businesses',
+    sqlSnippet: 'SELECT id FROM businesses',
+    category: 'admin-after-require-role',
+    reason: 'test entry',
+    ...overrides,
+  });
+
+  it('passes when the entry count matches the baseline and categories satisfy their path rules', () => {
+    expect(findAllowlistIntegrityFindings([entry({})], 1)).toEqual([]);
+  });
+
+  it('fails when the entry count exceeds the baseline', () => {
+    const findings = findAllowlistIntegrityFindings([entry({}), entry({ table: 'reviews' })], 1);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.reason).toContain('2 entries but ALLOWLIST_BASELINE is 1');
+  });
+
+  it('fails when the entry count shrinks below the baseline (no shrink-then-regrow masking)', () => {
+    const findings = findAllowlistIntegrityFindings([entry({})], 2);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.reason).toContain('1 entries but ALLOWLIST_BASELINE is 2');
+  });
+
+  it('fails an admin-category entry living outside the admin paths', () => {
+    const findings = findAllowlistIntegrityFindings(
+      [entry({ file: 'src/lib/reviews/example.ts' })],
+      1,
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.reason).toContain("category 'admin-after-require-role'");
+  });
+
+  it('accepts an explicitly allowed file outside the standard prefixes', () => {
+    expect(
+      findAllowlistIntegrityFindings(
+        [entry({ file: 'src/lib/account-offboarding/provider-disposition.ts' })],
+        1,
+      ),
+    ).toEqual([]);
+  });
+
+  it('applies no path rule to categories whose justification is contextual', () => {
+    expect(
+      findAllowlistIntegrityFindings(
+        [entry({ file: 'src/lib/anywhere/example.ts', category: 'tenant-root-lookup' })],
+        1,
+      ),
+    ).toEqual([]);
+  });
+
+  it('holds against the real allowlist: count matches baseline and all invariants pass', () => {
+    expect(findAllowlistIntegrityFindings()).toEqual([]);
+    expect(tenantScopeAllowlist.length).toBe(ALLOWLIST_BASELINE);
   });
 });
