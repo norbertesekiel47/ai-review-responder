@@ -1,0 +1,36 @@
+name: Prepare test database
+description: >
+  Applies Supabase prerequisites (scripts/ci/test-db-bootstrap.sql) and all
+  supabase/migrations/*.sql to the job's Postgres service container, in order.
+  Shared by the `test` and `e2e` jobs so the schema recipe has one owner.
+
+inputs:
+  host:
+    description: Postgres host
+    default: localhost
+  port:
+    description: Postgres port
+    default: "5432"
+  user:
+    description: Postgres user
+    default: test
+  password:
+    description: Postgres password
+    default: test
+  database:
+    description: Postgres database
+    default: test
+
+runs:
+  using: composite
+  steps:
+    - name: Apply Supabase prerequisites + migrations
+      shell: bash
+      env:
+        PGPASSWORD: ${{ inputs.password }}
+      run: |
+        psql -h "${{ inputs.host }}" -p "${{ inputs.port }}" -U "${{ inputs.user }}" -d "${{ inputs.database }}" -v ON_ERROR_STOP=1 -f scripts/ci/test-db-bootstrap.sql
+        for f in $(ls supabase/migrations/*.sql | sort); do
+          echo "applying $(basename "$f")"
+          psql -h "${{ inputs.host }}" -p "${{ inputs.port }}" -U "${{ inputs.user }}" -d "${{ inputs.database }}" -v ON_ERROR_STOP=1 -q -f "$f"
+        done
