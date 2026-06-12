@@ -655,6 +655,73 @@ export async function cleanupOwnerOffboardingSeed(data: OwnerOffboardingSeedData
   });
 }
 
+// ── Auth-harness owner seed (e2e/harness.ts) ────────────────────────────────
+// A full owner identity for the auth-funnel specs: the Supabase Auth user
+// lives in the harness project (staging); these are the matching TEST-DB rows
+// (account + users + primary business) keyed by that auth user's id.
+
+export interface AuthOwnerSeedData {
+  accountId: string;
+  userId: string;
+  businessId: string;
+  ownerEmail: string;
+}
+
+export async function seedAuthOwnerAccount(input: {
+  ownerEmail: string;
+  authUserId: string;
+}): Promise<AuthOwnerSeedData> {
+  const sql = getSql();
+  const accountId = randomUUID();
+  const userId = randomUUID();
+  const businessId = randomUUID();
+  const suffix = accountId.slice(0, 8);
+
+  await sql.begin(async (tx) => {
+    await insertOwnerWithAccount(tx, {
+      accountId,
+      userId,
+      authUserId: input.authUserId,
+      ownerName: 'E2E Harness Owner',
+      ownerEmail: input.ownerEmail,
+      accountDisplayName: `E2E Auth Account ${suffix}`,
+      subscriptionStatus: 'active',
+      locationsIncluded: 1,
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+    });
+    await insertBusinesses(tx, [
+      {
+        id: businessId,
+        name: `E2E Auth Biz ${suffix}`,
+        display_label: null,
+        category: 'restaurant',
+        google_place_id: `e2e-auth-${suffix}`,
+        owner_name: 'E2E Harness Owner',
+        owner_email: input.ownerEmail,
+        subscription_tier: STANDARD_TIER_SNAPSHOT.tier,
+        subscription_status: 'active',
+        stripe_customer_id: null,
+        stripe_subscription_id: null,
+        account_id: accountId,
+        is_primary: true,
+        onboarded_by: userId,
+      },
+    ]);
+  });
+
+  return { accountId, userId, businessId, ownerEmail: input.ownerEmail };
+}
+
+export async function cleanupAuthOwnerAccount(data: AuthOwnerSeedData): Promise<void> {
+  const sql = getSql();
+  await sql`DELETE FROM channel_enrollments WHERE business_id = ${data.businessId}::uuid`;
+  await sql`DELETE FROM businesses WHERE id = ${data.businessId}::uuid`;
+  await sql`UPDATE users SET account_id = NULL WHERE id = ${data.userId}::uuid`;
+  await sql`DELETE FROM accounts WHERE id = ${data.accountId}::uuid`;
+  await sql`DELETE FROM users WHERE id = ${data.userId}::uuid`;
+}
+
 /** Read a response row by ID for assertions. */
 export async function getResponse(
   responseId: string,
