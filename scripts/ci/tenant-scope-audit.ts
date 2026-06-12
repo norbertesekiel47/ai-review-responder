@@ -527,7 +527,7 @@ export function findAllowlistIntegrityFindings(
       findings.push({
         file: entry.file,
         table: entry.table,
-        reason: `category '${entry.category}' requires the file to live under ${rule.allowedPrefixes.join(' | ')} — recategorize the entry or justify the location in CATEGORY_PATH_RULES`,
+        reason: `category '${entry.category}' requires the file to live under ${rule.allowedPrefixes.join(' | ')} — recategorize the entry, or add the file to this category's allowedFiles in CATEGORY_PATH_RULES with a justification`,
       });
     }
   }
