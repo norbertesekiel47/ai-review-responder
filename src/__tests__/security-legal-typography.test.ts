@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-// launch-ready-part2 P2 #26: Security + Legal pages must follow the brand
+// 2026-05 launch audit P2 #26 (doc retired): Security + Legal pages must follow the brand
 // typography rubric — rubric h1 scale and #6a6a6a body (not text-3xl/#4a4a4a).
 const SECURITY = resolve(process.cwd(), 'src/app/(public)/security/page.tsx');
 const LEGAL = resolve(process.cwd(), 'src/components/legal/LegalPage.tsx');

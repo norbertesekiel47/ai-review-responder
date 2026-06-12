@@ -1193,7 +1193,7 @@ branch switch or stash reorder can't lose it;
 ## 2026-05-29 — Launch readiness (Parts 1 & 2)
 
 ### iOS Safari clips the rounded island — `overflow:hidden` + `border-radius` + retained `transform`, NOT the sibling clip the audit assumed
-The launch-ready-part2 audit reported that `.rw-island { overflow:hidden }` was
+The 2026-05 launch audit (part 2, doc since retired) reported that `.rw-island { overflow:hidden }` was
 clipping the **fixed dot-nav + parallax** on iOS. That diagnosis was wrong: the
 dot-nav and parallax are *siblings* of `.rw-island`, not descendants, so they were
 never inside its clip box. The real bug (PR #161) is the well-known **iOS Safari

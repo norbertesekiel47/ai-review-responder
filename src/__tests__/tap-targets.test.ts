@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-// launch-ready-part2 P2 #27: interactive controls need a ≥44×44 hit area.
+// 2026-05 launch audit P2 #27 (doc retired): interactive controls need a ≥44×44 hit area.
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf-8');
 
 describe('44×44 tap targets (P2 #27)', () => {

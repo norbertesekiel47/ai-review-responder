@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-// launch-ready-part2 P2 #28: review-star GLYPHS use brand teal #97B3AE, never
+// 2026-05 launch audit P2 #28 (doc retired): review-star GLYPHS use brand teal #97B3AE, never
 // yellow. Scoped to star call-sites so it never trips on legit yellow STATUS
 // badges (e.g. admin past_due `bg-yellow-100 text-yellow-800`).
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf-8');

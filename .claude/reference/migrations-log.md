@@ -351,8 +351,8 @@ All tables use UUIDv7 (time-ordered primary keys).
   existed on `users.role` (bare `VARCHAR(20)`); role had been app-enforced only.
   Additive + re-runnable. Completes #43's runtime removal at the DB layer.
 
-- **054** — `accounts.base_price_cents` founders price-lock (launch-ready-part1
-  item 4). **Adds** nullable `base_price_cents` (INTEGER), backfills existing rows
+- **054** — `accounts.base_price_cents` founders price-lock (2026-05 launch audit,
+  doc retired → ops follow-ups in issues #286–#291). **Adds** nullable `base_price_cents` (INTEGER), backfills existing rows
   per current tier from `TIER_CONFIG` base prices (basic 2900 / standard 7900 /
   premium 19900 / founders 1900; `WHERE base_price_cents IS NULL`, so re-running
   is a no-op), then `SET DEFAULT 7900` (mirrors `subscription_tier DEFAULT
@@ -637,7 +637,7 @@ A customer activating Stripe in January but connecting Zernio in July gets all
 Requires snapshotting `connected_at` into `zernio_backfill_runs`.
 
 ### 4. No `accounts.base_price_cents` — base price is not grandfathered (RESOLVED, migration 054 / PR #157)
-> **RESOLVED (2026-05-29, migration 054, PR #157 — launch-ready-part1 item 4):**
+> **RESOLVED (2026-05-29, migration 054, PR #157 — 2026-05 launch-audit item):**
 > `accounts.base_price_cents` now exists (backfilled per current tier, `NOT NULL`,
 > non-negative CHECK). `currentBillingSnapshot`, `monthlyMrrCents`, and
 > `expectedInvoiceForAccount` read the **stored** column instead of live

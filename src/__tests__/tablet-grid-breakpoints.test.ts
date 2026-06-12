@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-// launch-ready-part2 M7 / P2 #25: KPI + Past-Replies stat grids stayed 3/4-col
+// 2026-05 launch audit M7 / P2 #25 (doc retired): KPI + Past-Replies stat grids stayed 3/4-col
 // from 769–900px (cramped on iPad portrait). A ~900px breakpoint must drop them
 // to 2 columns above the existing 768px rule.
 const CASES = [

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-// launch-ready-part2 P1 #14 + repworth-brand-design rubric: amber, orange, and
+// 2026-05 launch audit P1 #14 (doc retired) + repworth-brand-design rubric: amber, orange, and
 // stone are banned. This guard locks the swept Console + Admin surfaces so the
 // off-brand palette cannot silently regress. SCOPED to the cleaned file set —
 // NOT global — so it never trips on the deliberately-excluded surfaces:
