@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 340;
+export const ALLOWLIST_BASELINE = 357;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -2511,5 +2511,135 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT b.id, b.account_id, b.name, b.category, b.tone, b.products_services, b.staff_names, b.highlight_facts, b.avoid_facts, b.sample_responses, b.archived_at, a.subscription_status, a.subscription_tier, a.past_due_at AS account_past_due_at, a.flags AS account_flags, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN account_offboardings ao ON ao.account_id = a.id AND ao.terminal_at IS NULL WHERE b.id = ${businessId} ORDER BY ao.created_at DESC NULLS LAST LIMIT 1",
     category: 'worker-job-scoped',
     reason: "Response-generation worker follows a durable job business id and joins to the active offboarding gate for that business account before drafting.",
+  },
+
+  // ── deep-scan §4.1 — RLS on inbound_events / prospect_demos / google_connections ──
+  // Migration 066 enables deny-all RLS on these three pre-existing tables and
+  // adds them to TENANT_TABLES so ci:rls-audit guards them. None carry an
+  // account/business column, so every read/mutation below is exempt for a
+  // STRUCTURAL reason (provider event id, opaque demo slug, global retention,
+  // admin role, or an offboarding job whose account scope is applied via an
+  // account_id-derived subquery the audit cannot see through). Server reaches
+  // all of them via the RLS-bypassing Postgres.js `postgres` role.
+  // google_connections has no direct SQL touchpoint (all access flows through
+  // identifier-interpolating purge helpers), so it needs no entry here.
+  {
+    file: "src/app/(public)/demo/[slug]/page.tsx",
+    table: "prospect_demos",
+    sqlSnippet: "SELECT id, business_name, generation_status, generation_error, reviews_snapshot, generated_responses, view_count, expires_at FROM prospect_demos WHERE demo_url_slug = ${slug}",
+    category: 'pre-auth-token',
+    reason: "Public demo viewer: the opaque demo_url_slug must resolve the prospect_demos row before any tenant scope is knowable. prospect_demos is not account/business-scoped (deny-all RLS, migration 066).",
+  },
+  {
+    file: "src/app/(public)/demo/[slug]/page.tsx",
+    table: "prospect_demos",
+    sqlSnippet: "UPDATE prospect_demos SET view_count = view_count + 1, last_viewed_at = NOW() WHERE id = ${demo.id}",
+    category: 'pre-auth-token',
+    reason: "Public demo viewer: the view-count bump targets the prospect_demos id just resolved from the opaque slug in the same request; this table has no tenant column (deny-all RLS, migration 066).",
+  },
+  {
+    file: "src/app/api/admin/demos/route.ts",
+    table: "prospect_demos",
+    sqlSnippet: "SELECT id, demo_url_slug, business_name, generation_status, generation_error, view_count, generated_at, expires_at FROM prospect_demos ORDER BY generated_at DESC",
+    category: 'admin-after-require-role',
+    reason: "Admin-only sales-demo list performed after requireRole(admin); prospect_demos is a cross-tenant sales surface with no account/business column (deny-all RLS, migration 066).",
+  },
+  {
+    file: "src/app/api/admin/payment-success/route.ts",
+    table: "inbound_events",
+    sqlSnippet: "SELECT payload FROM inbound_events WHERE source = 'stripe' AND event_type = 'checkout.session.completed' AND payload->'data'->'object'->>'id' = ${sessionId} LIMIT 1",
+    category: 'admin-after-require-role',
+    reason: "Admin-only post-checkout lookup performed after requireRole(admin); inbound_events is keyed by the Stripe event payload, not a tenant id (deny-all RLS, migration 066).",
+  },
+  {
+    file: "worker/background/pollers/ArchivalPoller.ts",
+    table: "inbound_events",
+    sqlSnippet: "WITH candidates AS ( SELECT id FROM inbound_events WHERE status = 'processed' AND processed_at < NOW() - INTERVAL '30 days' LIMIT 5000 ), deleted AS ( DELETE FROM inbound_events WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
+    category: 'background-global-scan',
+    reason: "Global retention poller deletes processed webhook rows independent of tenant request scope; inbound_events has no account/business column (deny-all RLS, migration 066).",
+  },
+  {
+    file: "worker/background/pollers/ArchivalPoller.ts",
+    table: "prospect_demos",
+    sqlSnippet: "WITH candidates AS ( SELECT id FROM prospect_demos WHERE expires_at < NOW() - INTERVAL '30 days' AND generation_status = 'completed' LIMIT 5000 ), deleted AS ( DELETE FROM prospect_demos WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
+    category: 'background-global-scan',
+    reason: "Global retention poller deletes expired sales demos independent of tenant request scope; prospect_demos has no account/business column (deny-all RLS, migration 066).",
+  },
+  {
+    file: "worker/background/pollers/CleanupAbandonedSignupsPoller.ts",
+    table: "prospect_demos",
+    sqlSnippet: "SELECT EXISTS (SELECT 1 FROM businesses WHERE onboarded_by = ${candidate.user_id}::uuid) AS has_onboarded, EXISTS (SELECT 1 FROM prospect_demos WHERE created_by = ${candidate.user_id}::uuid) AS has_prospect_demos",
+    category: 'background-global-scan',
+    reason: "Abandoned-signup cleanup defensively checks whether the user being deleted authored any prospect_demos before deletion; global lifecycle scan, prospect_demos has no account/business column (deny-all RLS, migration 066).",
+  },
+  {
+    file: "worker/ingress/resend.ts",
+    table: "inbound_events",
+    sqlSnippet: "SELECT status FROM inbound_events WHERE external_event_key = ${svixId} LIMIT 1",
+    category: 'provider-ingress',
+    reason: "Webhook ingress reads the dedup row by provider event id (external_event_key) before tenant scope is available; inbound_events holds raw provider payloads (deny-all RLS, migration 066).",
+  },
+  {
+    file: "worker/ingress/shared.ts",
+    table: "inbound_events",
+    sqlSnippet: "UPDATE inbound_events SET received_at = NOW(), status = 'received', error_message = NULL WHERE external_event_key = ${dedupKey} AND (status = 'failed' OR (status = 'received' AND received_at < NOW() - INTERVAL '2 minutes')) RETURNING id",
+    category: 'provider-ingress',
+    reason: "Webhook ingress claims/reclaims the dedup row by provider event id (external_event_key) before tenant scope is available; inbound_events holds raw provider payloads (deny-all RLS, migration 066).",
+  },
+  {
+    file: "worker/ingress/shared.ts",
+    table: "inbound_events",
+    sqlSnippet: "UPDATE inbound_events SET status = 'processed', processed_at = NOW() WHERE external_event_key = ${dedupKey}",
+    category: 'provider-ingress',
+    reason: "Webhook ingress marks the dedup row processed by provider event id (external_event_key); inbound_events holds raw provider payloads, not a tenant id (deny-all RLS, migration 066).",
+  },
+  {
+    file: "worker/ingress/shared.ts",
+    table: "inbound_events",
+    sqlSnippet: "UPDATE inbound_events SET status = 'failed', error_message = ${reason} WHERE external_event_key = ${dedupKey}",
+    category: 'provider-ingress',
+    reason: "Webhook ingress marks the dedup row failed by provider event id (external_event_key); inbound_events holds raw provider payloads, not a tenant id (deny-all RLS, migration 066).",
+  },
+  {
+    file: "worker/ingress/stripe.ts",
+    table: "inbound_events",
+    sqlSnippet: "UPDATE inbound_events SET status = 'processed', processed_at = NOW() WHERE external_event_key = ${event.id}",
+    category: 'provider-ingress',
+    reason: "Stripe ingress marks the dedup row processed by Stripe event id (external_event_key); inbound_events holds raw provider payloads, not a tenant id (deny-all RLS, migration 066).",
+  },
+  {
+    file: "worker/ingress/stripe.ts",
+    table: "inbound_events",
+    sqlSnippet: "UPDATE inbound_events SET status = 'failed', error_message = ${message} WHERE external_event_key = ${event.id}",
+    category: 'provider-ingress',
+    reason: "Stripe ingress marks the dedup row failed by Stripe event id (external_event_key); inbound_events holds raw provider payloads, not a tenant id (deny-all RLS, migration 066).",
+  },
+  {
+    file: "worker/ingress/zernio/zernio.ts",
+    table: "inbound_events",
+    sqlSnippet: "UPDATE inbound_events SET status = 'processed', processed_at = NOW() WHERE external_event_key = ${eventId} AND source = 'zernio'",
+    category: 'provider-ingress',
+    reason: "Zernio ingress marks the dedup row processed by provider event id (external_event_key); inbound_events holds raw provider payloads, not a tenant id (deny-all RLS, migration 066).",
+  },
+  {
+    file: "worker/ingress/zernio/zernio.ts",
+    table: "inbound_events",
+    sqlSnippet: "UPDATE inbound_events SET status = 'failed', error_message = ${message} WHERE external_event_key = ${eventId} AND source = 'zernio'",
+    category: 'provider-ingress',
+    reason: "Zernio ingress marks the dedup row failed by provider event id (external_event_key); inbound_events holds raw provider payloads, not a tenant id (deny-all RLS, migration 066).",
+  },
+  {
+    file: "worker/jobs/account-offboarding/purge-stages.ts",
+    table: "prospect_demos",
+    sqlSnippet: "DELETE FROM prospect_demos WHERE created_by IN ( SELECT id FROM users WHERE account_id = ${row.account_id}::uuid )",
+    category: 'worker-job-scoped',
+    reason: "Owner-offboarding purge worker following a durable job: the DELETE IS account-scoped via the users.account_id subquery, but the audit strips subqueries; prospect_demos has no direct account column (deny-all RLS, migration 066).",
+  },
+  {
+    file: "worker/jobs/account-offboarding/purge-stages.ts",
+    table: "inbound_events",
+    sqlSnippet: "WITH account_businesses AS ( SELECT b.id::text AS id FROM businesses b WHERE b.account_id = ${row.account_id}::uuid ), onboarding_demo_scope AS ( SELECT od.id::text AS identifier FROM onboarding_demos od JOIN businesses b ON b.id = od.business_id WHERE b.account_id = ${row.account_id}::uuid ), offboarding_scope AS ( SELECT id::text AS identifier FROM account_businesses UNION ALL SELECT identifier FROM onboarding_demo_scope UNION ALL SELECT ${row.account_id}::text UNION ALL SELECT ${row.id}::text UNION ALL SELECT ${row.auth_user_id ?? null}::text UNION ALL SELECT ${row.stripe_customer_id ?? null}::text UNION ALL SELECT ${row.stripe_subscription_id ?? null}::text UNION ALL SELECT UNNEST(${row.zernio_account_ids ?? []}::text[]) UNION ALL SELECT UNNEST(${row.zernio_profile_ids ?? []}::text[]) UNION ALL SELECT auth_user_id FROM account_offboardings WHERE id = ${row.id}::uuid AND account_id = ${row.account_id}::uuid AND auth_user_id IS NOT NULL UNION ALL SELECT stripe_customer_id FROM account_offboardings WHERE id = ${row.id}::uuid AND account_id = ${row.account_id}::uuid AND stripe_customer_id IS NOT NULL UNION ALL SELECT stripe_subscription_id FROM account_offboardings WHERE id = ${row.id}::uuid AND account_id = ${row.account_id}::uuid AND stripe_subscription_id IS NOT NULL UNION ALL SELECT unnest(zernio_account_ids) FROM account_offboardings WHERE id = ${row.id}::uuid AND account_id = ${row.account_id}::uuid AND zernio_account_ids IS NOT NULL UNION ALL SELECT unnest(zernio_profile_ids) FROM account_offboardings WHERE id = ${row.id}::uuid AND account_id = ${row.account_id}::uuid AND zernio_profile_ids IS NOT NULL ) UPDATE inbound_events SET external_event_key = 'scrubbed:' || id::text, aggregate_key = NULL, payload = '{}'::jsonb, error_message = NULL WHERE EXISTS ( SELECT 1 FROM offboarding_scope s WHERE s.identifier IS NOT NULL AND length(btrim(s.identifier)) > 0 AND ( inbound_events.payload::text LIKE ('%' || s.identifier || '%') OR inbound_events.aggregate_key LIKE ('%' || s.identifier || '%') OR inbound_events.error_message LIKE ('%' || s.identifier || '%') ) )",
+    category: 'worker-job-scoped',
+    reason: "Owner-offboarding purge worker following a durable job: scrubs raw webhook payloads matching this account's identifier set (every identifier derived from account_id). inbound_events has no direct account column (deny-all RLS, migration 066).",
   },
 ];

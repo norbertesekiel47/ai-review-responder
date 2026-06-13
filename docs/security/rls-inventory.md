@@ -4,6 +4,8 @@ RepWorth uses authenticated Supabase reads for owner-facing data and service-rol
 
 Run `pnpm ci:rls-audit` to verify the required tables below still have `relrowsecurity = true`. The audit uses `TEST_DATABASE_POOL_URL` first, then `DATABASE_POOL_URL`; if neither is set, it prints a skip message and exits successfully.
 
+Rows marked `— (deny-all)` in the Scope column are **not** owner-scoped by an `account_id`/`business_id` predicate. They are listed here (and in `TENANT_TABLES`) so the audit keeps RLS enabled on them as a defense-in-depth backstop — server access is via the RLS-bypassing Postgres.js `postgres` role, and their SQL touchpoints are exempted in `scripts/ci/tenant-scope-allowlist.ts` for structural reasons (provider event id, opaque slug, global retention, admin role, or offboarding job scope).
+
 | Table | Scope column | Enforcement note |
 | --- | --- | --- |
 | `accounts` | `id` | Billing-parent rows are tenant roots. Owner reads compare `accounts.id` to `owner_account_id()`; service-role writes remain app-enforced. |
@@ -30,6 +32,9 @@ Run `pnpm ci:rls-audit` to verify the required tables below still have `relrowse
 | `zernio_connections` | `business_id` | Zernio mappings are per location; owner reads join through the owning business account. |
 | `zernio_finalize_incidents` | `business_id` | Finalize-unknown incident rows inherit tenant scope through the affected location. |
 | `zernio_backfill_runs` | `business_id` | Backfill summary rows inherit tenant scope through the connected location. |
+| `inbound_events` | — (deny-all) | Raw webhook payloads (Stripe/Twilio/Resend/Zernio) — can carry PII. Not account/business-columned. Deny-all RLS (migration 066, deep-scan §4.1); reached only via the RLS-bypassing Postgres.js `postgres` role (ingress, archival, admin payment-success, offboarding scrub). |
+| `prospect_demos` | — (deny-all) | Admin sales-demo snapshots + the by-design public slug viewer. Not account/business-columned. Deny-all RLS (migration 066, deep-scan §4.1); all access via the RLS-bypassing Postgres.js `postgres` role. |
+| `google_connections` | — (deny-all) | Legacy Google OAuth token store (`*_encrypted`, `encrypted_dek`), superseded by Zernio; retained as an owner-offboarding `hard_delete` purge target. Deny-all RLS (migration 066, deep-scan §4.1); no direct SQL touchpoint — accessed only via identifier-interpolating purge helpers. |
 <!-- `sms_sender_opt_outs` and `sms_sender_opt_out_events` dropped by migration 061 (SMS channel removal). -->
 
 The audit is intentionally small: it verifies that required tenant tables appear in `pg_class` for the public schema and that RLS is enabled. It does not prove every policy predicate. Policy behavior remains covered by focused integration tests and route/module tests.

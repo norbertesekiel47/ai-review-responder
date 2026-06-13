@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **065** — next migration is **066**
+Current head: **066** — next migration is **067**
 All tables use UUIDv7 (time-ordered primary keys).
 
 ## Data retention policy
@@ -570,13 +570,34 @@ Revisit triggers:
   invalid index, re-run. No table/RLS changes. Apply staging-first, then
   production, in lockstep.
 
+- **066** — RLS on `inbound_events`, `prospect_demos`, `google_connections`
+  (deep-scan §4.1). Three pre-existing tables (created in 001) held tenant / PII /
+  secret-shaped data with **no `ENABLE ROW LEVEL SECURITY`** and were absent from
+  `scripts/ci/tenant-tables.ts`, so `ci:rls-audit` was structurally blind to them
+  (a public-schema table without RLS is anon-readable via PostgREST). Enables
+  **deny-all RLS** (enable RLS, NO policy) on all three — server reaches them only
+  via the RLS-bypassing Postgres.js `postgres` role, exactly like
+  `analytics_events` (049) / `flagged_responses` (051) / `impersonation_sessions`
+  (048). Lands **together with** the matching `TENANT_TABLES` entries +
+  `docs/security/rls-inventory.md` rows + `scripts/ci/tenant-scope-allowlist.ts`
+  exemptions (17 entries; baseline 340→357) so `ci:rls-audit` and
+  `ci:tenant-scope` both stay green. `google_connections` was NOT dropped (the
+  deep-scan's "dead table, drop it" advice is stale): owner-offboarding references
+  it as a `hard_delete` purge target in `table-disposition.ts`,
+  `purge-stages.ts`, `purge-helpers.ts`, `purge-verification.ts`. No
+  table/column/data change. **Transactional — safe to apply in a SINGLE
+  transaction** (no CONCURRENTLY). Apply staging-first, then production, both
+  Supabase projects in lockstep. Verification after apply:
+  `SELECT relname, relrowsecurity FROM pg_class WHERE relname IN
+  ('inbound_events','prospect_demos','google_connections');` → all `t`.
+
 ## Key Tables Reference
 
 | Table | Purpose |
 |---|---|
 | `users` | App users with `auth_id` → Supabase Auth mapping |
 | `businesses` | Owner businesses: `subscription_status`, `subscription_tier`, `place_id_verified`, `onboarded_by`, `stripe_customer_id`, `last_sync_at` |
-| `google_connections` | Future GBP OAuth tokens (populated in Phase 5) |
+| `google_connections` | Legacy direct-GBP OAuth token store (`*_encrypted`, `encrypted_dek`), superseded by Zernio. Not populated on the live path; retained as an owner-offboarding `hard_delete` purge target. Deny-all RLS (migration 066). |
 | `reviews` | Ingested reviews from all sources |
 | `responses` | AI-drafted responses — see status values below |
 | `approval_links` | SHA-256 hashed tokens only — raw tokens never stored |
