@@ -360,6 +360,8 @@ _(delegated scan — agent provided strong verification incl. a thorough "verifi
   (processed_at) WHERE status = 'processed';` (or composite `(status,
   processed_at)`). Use `CONCURRENTLY`.
 
+> **Status: ✅ Resolved** in PR #304 (2026-06-12) — migration 065 adds `idx_ie_archival ON inbound_events (processed_at) WHERE status = 'processed'` (`CREATE INDEX CONCURRENTLY`, standalone non-transactional file with header warning). Predicate mirrors the ArchivalPoller DELETE exactly.
+
 ### 🟠 3.2 — `analytics_events` has no retention / cleanup (unbounded growth)
 - **Location:** `046_analytics_events.sql`; `ArchivalPoller.ts` (absent for this table)
 - **Evidence:** `AnalyticsDispatchPoller` marks rows `status='completed'` and
@@ -368,6 +370,8 @@ _(delegated scan — agent provided strong verification incl. a thorough "verifi
   `analytics_events`. True unbounded table with no TTL/partition/DELETE path.
 - **Recommendation:** add a batched DELETE of `completed` rows older than ~30d to
   ArchivalPoller, mirroring its existing batch + saturation-warning pattern.
+
+> **Status: ✅ Resolved** in PR #304 (2026-06-12) — ArchivalPoller gained an `analytics_events` block: `completed` >30d and `failed` >90d (by `occurred_at`, so the existing `idx_analytics_events_status (status, occurred_at DESC)` serves both arms — no new index), mirroring the LIMIT-5000 + saturation-warning + FOR UPDATE SKIP LOCKED pattern, with tests. Windows recorded in the migrations-log retention table.
 
 ### 🟠 3.3 — `job_outbox` watchdog scans lack an index for `dispatched`/`dispatching`
 - **Location:** `worker/background/pollers/OutboxPoller.ts:40-82` + `001_initial_schema.sql:320-321`
@@ -380,6 +384,8 @@ _(delegated scan — agent provided strong verification incl. a thorough "verifi
 - **Recommendation:** `CREATE INDEX idx_jo_recovery ON job_outbox (dispatched_at)
   WHERE status IN ('dispatched','dispatching');` (matches the watchdog's
   `dispatched_at <` predicate).
+
+> **Status: ✅ Resolved** in PR #304 (2026-06-12) — migration 065 adds `idx_jo_recovery ON job_outbox (dispatched_at) WHERE status IN ('dispatched','dispatching')`; all three watchdog predicates imply the index predicate (btree stores the NULL `dispatched_at` rows the stale-dispatching arm scans).
 
 ### 🟡 3.4 — All-locations dashboard is N+1 by location (~11·N + 2 queries/load)
 - **Location:** `src/lib/dashboard/aggregate-service.ts:87-127` →
@@ -414,6 +420,8 @@ _(delegated scan — agent provided strong verification incl. a thorough "verifi
   retention window + batched cleanup, **or** document a deliberate "keep forever"
   decision so it's a choice, not an accident.
 
+> **Status: ✅ Resolved** in PR #304 (2026-06-12) — deliberate **keep-forever** documented in the migrations-log "Data retention policy" table (compliance/audit surfaces; `approval_audit_log` backs invariant #3's recorded-approval evidence chain). Revisit triggers: a documented compliance retention ceiling, or either table exceeding ~10M rows.
+
 ### 🟡 3.7 — `ZernioRecentReviewPoller` loads all active connections into memory, serial external fan-out
 - **Location:** `worker/background/pollers/ZernioRecentReviewPoller.ts:96-105,291-323`
 - **Evidence:** `loadAllActiveConnections` paginates the DB read but accumulates
@@ -436,12 +444,16 @@ _(delegated scan — agent provided strong verification incl. a thorough "verifi
   (and can opt files out of the wrapping tx), or split CONCURRENTLY statements into
   clearly-flagged standalone files.
 
+> **Status: ✅ Resolved** in PR #304 (2026-06-12) — `deployment-guide.md` §2a is the standing procedure (numeric order, both-projects-staging-first, uncheck-single-transaction for CONCURRENTLY, INVALID-index repair, log entry in the same PR); convention adopted that CONCURRENTLY statements live in standalone flagged files (065 is the template). A full runner is deliberately deferred — revisit if migration cadence or team size makes manual application error-prone.
+
 ### 🟢 3.9 — `reviews`/`responses` unbounded by design — record the decision
 - **Evidence:** Core tenant data is intentionally retained (correct), but no
   explicit statement that they're exempt from retention. At high volume, hot KPI/
   dashboard queries will eventually need `deleted`-status pruning or partitioning.
 - **Recommendation:** document the deliberate exemption now; revisit partitioning
   at scale.
+
+> **Status: ✅ Resolved** in PR #304 (2026-06-12) — exemption documented in the migrations-log retention table: `reviews`/`responses` are core tenant data, deliberately retained; revisit (pruning of `status='deleted'` tombstones and/or partitioning) before multi-location scale degrades hot KPI/dashboard queries.
 
 ### Verified safe (DB/perf) — high confidence, the agent actually checked
 - **No `${JSON.stringify(x)}::jsonb`** anywhere in src/worker (only doc comments);
