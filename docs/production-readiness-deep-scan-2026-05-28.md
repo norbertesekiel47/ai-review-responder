@@ -435,6 +435,8 @@ _(delegated scan — agent provided strong verification incl. a thorough "verifi
 - **Recommendation:** cap connections processed per cycle, add bounded concurrency,
   add a per-cycle deadline.
 
+> **Status: ✅ Resolved** in PR #306 (2026-06-12) — per-cycle connection cap (`ZERNIO_RECENT_REVIEW_POLL_MAX_CONNECTIONS`, default 100) with an in-memory `business_id` keyset cursor (full rotation across cycles, wraps at end), bounded fan-out (`ZERNIO_RECENT_REVIEW_POLL_CONCURRENCY`, default 3), and a per-cycle deadline (`ZERNIO_RECENT_REVIEW_POLL_DEADLINE_MS`, default 4 min) that defers — and warn-logs — connections instead of running unbounded; the cursor advances only past dispatched connections so deferred ones lead the next cycle. Tests cover cap, cursor resume/wrap, deadline, and concurrency bound.
+
 ### 🟢 3.8 — No migration runner; CONCURRENTLY safety relies on operator reading a comment
 - **Location:** `package.json` (no migrate script); `031_edit_existing_replies.sql:1-7`
 - **Evidence:** Migrations are applied by hand in the Supabase SQL editor. Mig 031
