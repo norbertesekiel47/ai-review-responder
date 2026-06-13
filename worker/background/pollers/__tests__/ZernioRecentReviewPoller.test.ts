@@ -408,6 +408,36 @@ describe('ZernioRecentReviewPoller', () => {
       expect(loads[1]!.values.slice(0, 2)).toEqual(['business-1', 'business-1']);
     });
 
+    it('contains an unexpected throw from checkConnection: counts it, advances the cursor, finishes the cycle', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      process.env.ZERNIO_RECENT_REVIEW_POLL_CONCURRENCY = '1';
+      sqlReturnQueue.push([makeConnection('business-1'), makeConnection('business-2')]);
+      // First connection loses Zernio auth; the disconnect fallback then throws
+      // (e.g. a transient Postgres blip) — that rejection must NOT escape the
+      // pool worker and reject Promise.all.
+      mockListReviews
+        .mockRejectedValueOnce(new ZernioAuthError(401, '{"code":"token_refresh_failed"}'))
+        .mockResolvedValueOnce({ reviews: [] });
+      mockApplyAuthErrorFallback.mockRejectedValueOnce(new Error('postgres unreachable'));
+
+      const result = await runOnce();
+
+      // Both connections were still processed; the throw was contained.
+      expect(result.connectionsChecked).toBe(2);
+      expect(result.connectionsDeferred).toBe(0);
+      expect(result.errors).toBeGreaterThanOrEqual(1);
+
+      // Cursor advanced past the full batch despite the throw — the next cycle
+      // wraps to the top rather than re-failing the same batch forever.
+      sqlReturnQueue.push([makeConnection('business-1')]);
+      mockListReviews.mockResolvedValue({ reviews: [] });
+      await runOnce();
+      const loads = connectionLoadCalls();
+      expect(loads[1]!.values.slice(0, 2)).toEqual([null, null]);
+
+      errorSpy.mockRestore();
+    });
+
     it('bounds the Zernio fan-out to the configured concurrency', async () => {
       process.env.ZERNIO_RECENT_REVIEW_POLL_CONCURRENCY = '2';
       sqlReturnQueue.push([

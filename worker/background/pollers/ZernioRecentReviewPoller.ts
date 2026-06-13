@@ -60,8 +60,12 @@ let isPolling = false;
 // Keyset cursor for the per-cycle connection cap: business_id of the last
 // connection dispatched in the previous cycle. Connections are processed in
 // business_id order; when a cycle reaches the end of the table the cursor
-// wraps to null. In-memory on purpose — a worker restart just restarts the
-// rotation, which is harmless for a 5-minute poll loop.
+// wraps to null. In-memory on purpose — a worker restart restarts the
+// rotation from the top. That is safe while a full rotation
+// (ceil(activeConnections / cap) cycles) completes between restarts; if
+// connection count ever grows so a rotation outlasts the worker's restart
+// cadence, raise ZERNIO_RECENT_REVIEW_POLL_MAX_CONNECTIONS so high-business_id
+// connections at the tail aren't repeatedly skipped.
 let connectionCursor: string | null = null;
 
 export function resetConnectionCursorForTests(): void {
@@ -378,16 +382,19 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
     DEFAULT_CYCLE_DEADLINE_MS,
   );
 
-  const startedAt = Date.now();
   const connections = await loadActiveConnections(maxConnections, connectionCursor);
   const reachedEndOfRotation = connections.length < maxConnections;
 
+  // Budget the deadline against dispatch time, not the DB load — the load is
+  // a single keyset query and shouldn't eat into the per-connection budget.
+  const startedAt = Date.now();
+
   // Bounded fan-out: a fixed pool of workers pulls connections in order.
-  // Past the deadline no NEW connection is dispatched (in-flight ones
-  // finish), so a slow Zernio cycle degrades by deferring — never by
-  // running unbounded into the next interval.
+  // `nextIndex` is the shared claim pointer; once the pool drains it equals
+  // the number of connections dispatched this cycle. Past the deadline no NEW
+  // connection is dispatched (in-flight ones finish), so a slow Zernio cycle
+  // degrades by deferring — never by running unbounded into the next interval.
   let nextIndex = 0;
-  let dispatchedCount = 0;
   const workerCount = Math.min(concurrency, connections.length);
   await Promise.all(
     Array.from({ length: workerCount }, async () => {
@@ -395,33 +402,46 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
         if (Date.now() - startedAt >= deadlineMs) return;
         const connection = connections[nextIndex]!;
         nextIndex += 1;
-        dispatchedCount += 1;
-        await checkConnection(connection, pageSize, maxPages, result, logger);
+        // checkConnection contains its own failure modes, but a secondary
+        // write (e.g. the auth-error disconnect) can still throw. Contain it
+        // here: an unhandled rejection would reject Promise.all, leave the
+        // sibling workers running detached, and skip the cursor advance below
+        // (re-failing the same batch forever).
+        try {
+          await checkConnection(connection, pageSize, maxPages, result, logger);
+        } catch (err) {
+          result.errors += 1;
+          logger.error(
+            'Connection processing failed',
+            { business_id: connection.business_id },
+            toError(err),
+          );
+        }
       }
     }),
   );
 
-  result.connectionsDeferred = connections.length - dispatchedCount;
+  const dispatched = nextIndex;
+  result.connectionsDeferred = connections.length - dispatched;
   if (result.connectionsDeferred > 0) {
     // production.md: no silent truncation — say what was dropped and why.
     logger.warn('Cycle deadline reached — deferring connections to the next cycle', {
       deadline_ms: deadlineMs,
-      dispatched: dispatchedCount,
+      dispatched,
       deferred: result.connectionsDeferred,
     });
   }
 
-  // Advance the cursor only past connections actually dispatched, so
-  // deferred ones lead the next cycle. Wrap to the start once a full
-  // rotation completes.
-  if (result.connectionsDeferred > 0) {
-    if (dispatchedCount > 0) {
-      connectionCursor = connections[dispatchedCount - 1]!.business_id;
-    }
-  } else {
-    connectionCursor = reachedEndOfRotation
-      ? null
-      : connections[connections.length - 1]!.business_id;
+  // Cursor = the last connection actually dispatched, so deferred ones lead
+  // the next cycle. A fully-drained final batch wraps to the start. A
+  // transiently-errored connection is treated as dispatched (it retries on the
+  // next rotation, not the next cycle — an accepted latency tradeoff for the
+  // per-cycle cap; revisit with per-connection retry tracking if it bites).
+  if (dispatched > 0) {
+    connectionCursor = connections[dispatched - 1]!.business_id;
+  }
+  if (result.connectionsDeferred === 0 && reachedEndOfRotation) {
+    connectionCursor = null;
   }
 
   return result;
