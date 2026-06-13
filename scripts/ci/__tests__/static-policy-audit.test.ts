@@ -130,6 +130,57 @@ describe('scanFile — server-owned table browser access', () => {
   });
 });
 
+describe('scanFile — server-only DB module client import (deep-scan §4.3)', () => {
+  it.each([
+    "import { sql } from '@/lib/db/server';",
+    "import { sql, jsonb } from '@/lib/db/server';",
+    "import { supabaseServer } from '../../lib/db/server';",
+    "const { sql } = await import('@/lib/db/server');",
+    "export { sql } from '@/lib/db/server';",
+  ])('flags a client component that imports the DB module: %s', (importLine) => {
+    const findings = scanFile(
+      'src/app/dashboard/widget.tsx',
+      ["'use client';", importLine].join('\n'),
+    );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe('server-db-client-import');
+    expect(findings[0]!.detail).toContain('@/lib/db/server');
+  });
+
+  it('allows a server route to import the DB module', () => {
+    const findings = scanFile(
+      'src/app/api/feedback/route.ts',
+      "import { sql } from '@/lib/db/server';",
+    );
+    expect(findings).toHaveLength(0);
+  });
+
+  it('allows the Railway worker to import the DB module', () => {
+    const findings = scanFile(
+      'worker/jobs/EngagementAlertWorker.ts',
+      "import { sql } from '../../src/lib/db/server';",
+    );
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not flag a type-only import in a client component (erased at build)', () => {
+    const findings = scanFile(
+      'src/app/dashboard/widget.tsx',
+      ["'use client';", "import type { Sql } from '@/lib/db/server';"].join('\n'),
+    );
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not flag an unrelated import in a client component', () => {
+    const findings = scanFile(
+      'src/app/dashboard/widget.tsx',
+      ["'use client';", "import { useState } from 'react';"].join('\n'),
+    );
+    expect(findings).toHaveLength(0);
+  });
+});
+
 describe('auditPackageJson — crypto-js (invariant #10)', () => {
   it('flags crypto-js in dependencies', () => {
     const findings = auditPackageJson({ dependencies: { 'crypto-js': '^4.2.0' } });
