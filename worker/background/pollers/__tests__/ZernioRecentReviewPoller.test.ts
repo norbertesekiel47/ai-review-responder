@@ -55,7 +55,7 @@ vi.mock('../../../../src/lib/zernio/auth-error-fallback', () => ({
 }));
 
 import { ZernioAuthError } from '../../../../src/lib/zernio/errors';
-import { runOnce } from '../ZernioRecentReviewPoller';
+import { runOnce, resetConnectionCursorForTests } from '../ZernioRecentReviewPoller';
 
 function makeReview(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -83,6 +83,10 @@ describe('ZernioRecentReviewPoller', () => {
     sqlCalls.length = 0;
     process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
     delete process.env.ZERNIO_RECENT_REVIEW_POLL_MAX_PAGES;
+    delete process.env.ZERNIO_RECENT_REVIEW_POLL_MAX_CONNECTIONS;
+    delete process.env.ZERNIO_RECENT_REVIEW_POLL_CONCURRENCY;
+    delete process.env.ZERNIO_RECENT_REVIEW_POLL_DEADLINE_MS;
+    resetConnectionCursorForTests();
   });
 
   it('imports recent connected-account reviews and ignores older reviews', async () => {
@@ -314,5 +318,150 @@ describe('ZernioRecentReviewPoller', () => {
     ));
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('"business_id":"business-1"'));
     expect(mockProcessReview).not.toHaveBeenCalled();
+  });
+
+  describe('per-cycle bounds (deep-scan §3.7)', () => {
+    function makeConnection(businessId: string) {
+      return {
+        business_id: businessId,
+        zernio_account_id: 'zernio-account-1',
+        zernio_location_id: 'location-1',
+        connected_at: new Date('2026-05-10T06:28:15.000Z'),
+        subscription_status: 'active',
+        past_due_at: null,
+        account_flags: {},
+      };
+    }
+
+    function connectionLoadCalls() {
+      return sqlCalls.filter((call) => call.template.includes('FROM zernio_connections'));
+    }
+
+    it('passes the connection cap and a null cursor to the first load query', async () => {
+      process.env.ZERNIO_RECENT_REVIEW_POLL_MAX_CONNECTIONS = '2';
+      sqlReturnQueue.push([makeConnection('business-1')]);
+      mockListReviews.mockResolvedValue({ reviews: [] });
+
+      await runOnce();
+
+      const [load] = connectionLoadCalls();
+      expect(load).toBeDefined();
+      expect(load!.template).toContain('LIMIT');
+      expect(load!.values).toEqual([null, null, 2]);
+    });
+
+    it('resumes from the last dispatched business_id and wraps after a full rotation', async () => {
+      process.env.ZERNIO_RECENT_REVIEW_POLL_MAX_CONNECTIONS = '2';
+      mockListReviews.mockResolvedValue({ reviews: [] });
+
+      // Cycle 1: full batch (= cap) → cursor advances to business-2.
+      sqlReturnQueue.push([makeConnection('business-1'), makeConnection('business-2')]);
+      await runOnce();
+
+      // Cycle 2: partial batch (< cap) → end of rotation → cursor wraps to null.
+      sqlReturnQueue.push([makeConnection('business-3')]);
+      await runOnce();
+
+      // Cycle 3: starts from the top again.
+      sqlReturnQueue.push([makeConnection('business-1')]);
+      await runOnce();
+
+      const loads = connectionLoadCalls();
+      expect(loads).toHaveLength(3);
+      expect(loads[0]!.values).toEqual([null, null, 2]);
+      expect(loads[1]!.values).toEqual(['business-2', 'business-2', 2]);
+      expect(loads[2]!.values).toEqual([null, null, 2]);
+    });
+
+    it('stops dispatching at the cycle deadline, logs and counts deferred connections', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      process.env.ZERNIO_RECENT_REVIEW_POLL_CONCURRENCY = '1';
+      process.env.ZERNIO_RECENT_REVIEW_POLL_DEADLINE_MS = '50';
+      sqlReturnQueue.push([
+        makeConnection('business-1'),
+        makeConnection('business-2'),
+        makeConnection('business-3'),
+      ]);
+      // Each Zernio fetch outlasts the 50ms deadline, so only the first
+      // connection is dispatched before the deadline check trips.
+      mockListReviews.mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve({ reviews: [] }), 100)),
+      );
+
+      const result = await runOnce();
+
+      expect(result.connectionsChecked).toBe(1);
+      expect(result.connectionsDeferred).toBe(2);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(
+        '"message":"Cycle deadline reached — deferring connections to the next cycle"',
+      ));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('"deferred":2'));
+
+      // The cursor advanced only past the dispatched connection, so the
+      // deferred ones lead the next cycle.
+      sqlReturnQueue.push([makeConnection('business-2')]);
+      mockListReviews.mockResolvedValue({ reviews: [] });
+      delete process.env.ZERNIO_RECENT_REVIEW_POLL_DEADLINE_MS;
+      await runOnce();
+
+      const loads = connectionLoadCalls();
+      expect(loads[1]!.values.slice(0, 2)).toEqual(['business-1', 'business-1']);
+    });
+
+    it('contains an unexpected throw from checkConnection: counts it, advances the cursor, finishes the cycle', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      process.env.ZERNIO_RECENT_REVIEW_POLL_CONCURRENCY = '1';
+      sqlReturnQueue.push([makeConnection('business-1'), makeConnection('business-2')]);
+      // First connection loses Zernio auth; the disconnect fallback then throws
+      // (e.g. a transient Postgres blip) — that rejection must NOT escape the
+      // pool worker and reject Promise.all.
+      mockListReviews
+        .mockRejectedValueOnce(new ZernioAuthError(401, '{"code":"token_refresh_failed"}'))
+        .mockResolvedValueOnce({ reviews: [] });
+      mockApplyAuthErrorFallback.mockRejectedValueOnce(new Error('postgres unreachable'));
+
+      const result = await runOnce();
+
+      // Both connections were still processed; the throw was contained.
+      expect(result.connectionsChecked).toBe(2);
+      expect(result.connectionsDeferred).toBe(0);
+      expect(result.errors).toBeGreaterThanOrEqual(1);
+
+      // Cursor advanced past the full batch despite the throw — the next cycle
+      // wraps to the top rather than re-failing the same batch forever.
+      sqlReturnQueue.push([makeConnection('business-1')]);
+      mockListReviews.mockResolvedValue({ reviews: [] });
+      await runOnce();
+      const loads = connectionLoadCalls();
+      expect(loads[1]!.values.slice(0, 2)).toEqual([null, null]);
+
+      errorSpy.mockRestore();
+    });
+
+    it('bounds the Zernio fan-out to the configured concurrency', async () => {
+      process.env.ZERNIO_RECENT_REVIEW_POLL_CONCURRENCY = '2';
+      sqlReturnQueue.push([
+        makeConnection('business-1'),
+        makeConnection('business-2'),
+        makeConnection('business-3'),
+        makeConnection('business-4'),
+      ]);
+
+      let inFlight = 0;
+      let maxInFlight = 0;
+      mockListReviews.mockImplementation(async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        inFlight -= 1;
+        return { reviews: [] };
+      });
+
+      const result = await runOnce();
+
+      expect(result.connectionsChecked).toBe(4);
+      expect(result.connectionsDeferred).toBe(0);
+      expect(maxInFlight).toBe(2);
+    });
   });
 });

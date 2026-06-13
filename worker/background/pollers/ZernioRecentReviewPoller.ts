@@ -26,6 +26,12 @@ const DEFAULT_INTERVAL_MS = 5 * 60_000;
 const DEFAULT_PAGE_SIZE = 50;
 const DEFAULT_MAX_PAGES = 4;
 const DEFAULT_CONNECT_GRACE_MS = 5 * 60_000;
+// Per-cycle bounds (deep-scan §3.7): cap the connections processed per cycle,
+// fan out with bounded concurrency, and stop dispatching at a deadline so a
+// cycle can never run unbounded against the 5-minute interval.
+const DEFAULT_MAX_CONNECTIONS_PER_CYCLE = 100;
+const DEFAULT_FAN_OUT_CONCURRENCY = 3;
+const DEFAULT_CYCLE_DEADLINE_MS = 4 * 60_000;
 
 interface ConnectionRow {
   business_id: string;
@@ -39,6 +45,7 @@ interface ConnectionRow {
 
 export interface ZernioRecentReviewPollResult {
   connectionsChecked: number;
+  connectionsDeferred: number;
   reviewsSeen: number;
   reviewsProcessed: number;
   reviewsReconciled: number;
@@ -49,6 +56,21 @@ export interface ZernioRecentReviewPollResult {
 
 let pollerInterval: ReturnType<typeof setInterval> | null = null;
 let isPolling = false;
+
+// Keyset cursor for the per-cycle connection cap: business_id of the last
+// connection dispatched in the previous cycle. Connections are processed in
+// business_id order; when a cycle reaches the end of the table the cursor
+// wraps to null. In-memory on purpose — a worker restart restarts the
+// rotation from the top. That is safe while a full rotation
+// (ceil(activeConnections / cap) cycles) completes between restarts; if
+// connection count ever grows so a rotation outlasts the worker's restart
+// cadence, raise ZERNIO_RECENT_REVIEW_POLL_MAX_CONNECTIONS so high-business_id
+// connections at the tail aren't repeatedly skipped.
+let connectionCursor: string | null = null;
+
+export function resetConnectionCursorForTests(): void {
+  connectionCursor = null;
+}
 
 function readPositiveInt(name: string, fallback: number): number {
   const parsed = parseInt(process.env[name] ?? '', 10);
@@ -73,7 +95,14 @@ function connectionCutoff(connectedAt: Date | null): Date | null {
   return new Date(connectedMs - graceMs);
 }
 
-async function loadActiveConnections(limit: number, offset: number): Promise<ConnectionRow[]> {
+// Keyset pagination by business_id (stable total order) so the per-cycle cap
+// still covers every connection across cycles. The previous connected_at DESC
+// ordering prioritized newest connections, which only mattered when every
+// cycle visited all of them.
+async function loadActiveConnections(
+  limit: number,
+  afterBusinessId: string | null,
+): Promise<ConnectionRow[]> {
   return await sql<ConnectionRow[]>`
     SELECT
       zc.business_id,
@@ -88,21 +117,10 @@ async function loadActiveConnections(limit: number, offset: number): Promise<Con
     JOIN accounts a ON a.id = b.account_id
     WHERE zc.status = 'active'
       AND b.archived_at IS NULL
-    ORDER BY zc.connected_at DESC NULLS LAST, zc.business_id ASC
+      AND (${afterBusinessId}::uuid IS NULL OR zc.business_id > ${afterBusinessId}::uuid)
+    ORDER BY zc.business_id ASC
     LIMIT ${limit}
-    OFFSET ${offset}
   `;
-}
-
-async function loadAllActiveConnections(): Promise<ConnectionRow[]> {
-  const batchSize = readPositiveInt('ZERNIO_RECENT_REVIEW_POLL_BATCH_SIZE', 50);
-  const connections: ConnectionRow[] = [];
-  for (let offset = 0; ; offset += batchSize) {
-    const batch = await loadActiveConnections(batchSize, offset);
-    connections.push(...batch);
-    if (batch.length < batchSize) break;
-  }
-  return connections;
 }
 
 async function processZernioReview(
@@ -285,10 +303,58 @@ async function processConnectionReviews(
   }
 }
 
+// Full per-connection pass: subscription gate, Zernio fetch, review
+// processing, tombstoning. Mutates the shared result accumulator (safe —
+// single-threaded event loop; the fan-out interleaves awaits, not writes).
+async function checkConnection(
+  connection: ConnectionRow,
+  pageSize: number,
+  maxPages: number,
+  result: ZernioRecentReviewPollResult,
+  logger: WorkerLogger,
+): Promise<void> {
+  result.connectionsChecked += 1;
+  const sub = checkSubscription({
+    status: connection.subscription_status,
+    pastDueAt: connection.past_due_at,
+    accountFlags: connection.account_flags ?? {},
+    workerType: 'generator',
+  });
+  if (!sub.allowed) {
+    return;
+  }
+
+  const fetched = await fetchConnectionReviews(connection, pageSize, maxPages, logger);
+  if ('error' in fetched) {
+    result.errors += 1;
+    return;
+  }
+  const { reviews, feedComplete } = fetched;
+  result.reviewsSeen += reviews.length;
+
+  await processConnectionReviews(connection, reviews, result, logger);
+
+  try {
+    result.reviewsDeleted += await tombstoneMissingSourceReviews(
+      connection,
+      new Set(reviews.map((review) => review.id)),
+      feedComplete,
+    );
+  } catch (err) {
+    result.errors += 1;
+    logger.error(
+      'Failed to tombstone missing reviews',
+      { business_id: connection.business_id },
+      toError(err),
+    );
+  }
+}
+
 export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
   const logger = createWorkerLogger(LOG_PREFIX);
   const result: ZernioRecentReviewPollResult = {
     connectionsChecked: 0,
+    connectionsDeferred: 0,
     reviewsSeen: 0,
     reviewsProcessed: 0,
     reviewsReconciled: 0,
@@ -301,46 +367,81 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
     return result;
   }
 
-  const connections = await loadAllActiveConnections();
   const pageSize = readPositiveInt('ZERNIO_RECENT_REVIEW_POLL_PAGE_SIZE', DEFAULT_PAGE_SIZE);
   const maxPages = readPositiveInt('ZERNIO_RECENT_REVIEW_POLL_MAX_PAGES', DEFAULT_MAX_PAGES);
+  const maxConnections = readPositiveInt(
+    'ZERNIO_RECENT_REVIEW_POLL_MAX_CONNECTIONS',
+    DEFAULT_MAX_CONNECTIONS_PER_CYCLE,
+  );
+  const concurrency = readPositiveInt(
+    'ZERNIO_RECENT_REVIEW_POLL_CONCURRENCY',
+    DEFAULT_FAN_OUT_CONCURRENCY,
+  );
+  const deadlineMs = readPositiveInt(
+    'ZERNIO_RECENT_REVIEW_POLL_DEADLINE_MS',
+    DEFAULT_CYCLE_DEADLINE_MS,
+  );
 
-  for (const connection of connections) {
-    result.connectionsChecked += 1;
-    const sub = checkSubscription({
-      status: connection.subscription_status,
-      pastDueAt: connection.past_due_at,
-      accountFlags: connection.account_flags ?? {},
-      workerType: 'generator',
+  const connections = await loadActiveConnections(maxConnections, connectionCursor);
+  const reachedEndOfRotation = connections.length < maxConnections;
+
+  // Budget the deadline against dispatch time, not the DB load — the load is
+  // a single keyset query and shouldn't eat into the per-connection budget.
+  const startedAt = Date.now();
+
+  // Bounded fan-out: a fixed pool of workers pulls connections in order.
+  // `nextIndex` is the shared claim pointer; once the pool drains it equals
+  // the number of connections dispatched this cycle. Past the deadline no NEW
+  // connection is dispatched (in-flight ones finish), so a slow Zernio cycle
+  // degrades by deferring — never by running unbounded into the next interval.
+  let nextIndex = 0;
+  const workerCount = Math.min(concurrency, connections.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < connections.length) {
+        if (Date.now() - startedAt >= deadlineMs) return;
+        const connection = connections[nextIndex]!;
+        nextIndex += 1;
+        // checkConnection contains its own failure modes, but a secondary
+        // write (e.g. the auth-error disconnect) can still throw. Contain it
+        // here: an unhandled rejection would reject Promise.all, leave the
+        // sibling workers running detached, and skip the cursor advance below
+        // (re-failing the same batch forever).
+        try {
+          await checkConnection(connection, pageSize, maxPages, result, logger);
+        } catch (err) {
+          result.errors += 1;
+          logger.error(
+            'Connection processing failed',
+            { business_id: connection.business_id },
+            toError(err),
+          );
+        }
+      }
+    }),
+  );
+
+  const dispatched = nextIndex;
+  result.connectionsDeferred = connections.length - dispatched;
+  if (result.connectionsDeferred > 0) {
+    // production.md: no silent truncation — say what was dropped and why.
+    logger.warn('Cycle deadline reached — deferring connections to the next cycle', {
+      deadline_ms: deadlineMs,
+      dispatched,
+      deferred: result.connectionsDeferred,
     });
-    if (!sub.allowed) {
-      continue;
-    }
+  }
 
-    const fetched = await fetchConnectionReviews(connection, pageSize, maxPages, logger);
-    if ('error' in fetched) {
-      result.errors += 1;
-      continue;
-    }
-    const { reviews, feedComplete } = fetched;
-    result.reviewsSeen += reviews.length;
-
-    await processConnectionReviews(connection, reviews, result, logger);
-
-    try {
-      result.reviewsDeleted += await tombstoneMissingSourceReviews(
-        connection,
-        new Set(reviews.map((review) => review.id)),
-        feedComplete,
-      );
-    } catch (err) {
-      result.errors += 1;
-      logger.error(
-        'Failed to tombstone missing reviews',
-        { business_id: connection.business_id },
-        toError(err),
-      );
-    }
+  // Cursor = the last connection actually dispatched, so deferred ones lead
+  // the next cycle. A fully-drained final batch wraps to the start. A
+  // transiently-errored connection is treated as dispatched (it retries on the
+  // next rotation, not the next cycle — an accepted latency tradeoff for the
+  // per-cycle cap; revisit with per-connection retry tracking if it bites).
+  if (dispatched > 0) {
+    connectionCursor = connections[dispatched - 1]!.business_id;
+  }
+  if (result.connectionsDeferred === 0 && reachedEndOfRotation) {
+    connectionCursor = null;
   }
 
   return result;
@@ -356,10 +457,12 @@ async function poll(): Promise<void> {
       result.reviewsProcessed > 0 ||
       result.reviewsReconciled > 0 ||
       result.reviewsDeleted > 0 ||
+      result.connectionsDeferred > 0 ||
       result.errors > 0
     ) {
       logger.log('Poll cycle summary', {
         checked: result.connectionsChecked,
+        deferred: result.connectionsDeferred,
         seen: result.reviewsSeen,
         processed: result.reviewsProcessed,
         reconciled: result.reviewsReconciled,
