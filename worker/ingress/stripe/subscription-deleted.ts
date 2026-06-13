@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
+import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { LOG_PREFIX, extractCustomerId, AccountNotProvisionedYetError } from './shared';
 
 export async function processSubscriptionDeleted(sub: Stripe.Subscription): Promise<void> {
@@ -74,12 +75,12 @@ export async function processSubscriptionDeleted(sub: Stripe.Subscription): Prom
     // Idempotent: when the account is already cancelled we intentionally skip
     // the write (and log the skip in the else branch); re-applying 'cancelled'
     // would be a no-op.
-    if (acctRow.subscription_status !== 'cancelled') {
+    if (acctRow.subscription_status !== SubscriptionStatus.CANCELLED) {
       const oldStatus = acctRow.subscription_status;
 
       await tx`
         UPDATE accounts
-        SET subscription_status = 'cancelled',
+        SET subscription_status = 'cancelled',  -- enum: SubscriptionStatus.CANCELLED
             cancelled_at = NOW(),
             past_due_at = NULL,
             updated_at = NOW()
@@ -101,7 +102,7 @@ export async function processSubscriptionDeleted(sub: Stripe.Subscription): Prom
       // Also update businesses deprecated column
       await tx`
         UPDATE businesses
-        SET subscription_status = 'cancelled', updated_at = NOW()
+        SET subscription_status = 'cancelled', updated_at = NOW()  -- enum: SubscriptionStatus.CANCELLED
         WHERE account_id = ${acctRow.id}::uuid
       `;
 

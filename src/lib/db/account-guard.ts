@@ -9,6 +9,7 @@
 
 import { sql } from '@/lib/db/server';
 import type { AccountId } from '@/lib/shared/ids';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -48,17 +49,17 @@ export async function isAccountActive(
     return { active: false, reason: 'not_found' };
   }
 
-  if (row.subscription_status === 'active') {
+  if (row.subscription_status === SubscriptionStatus.ACTIVE) {
     return { active: true };
   }
 
   // Map the non-active status to a reason string.
   // Only the four canonical statuses from SubscriptionStatus are expected.
   const reason =
-    row.subscription_status === 'pending_payment' ? 'pending_payment' :
-    row.subscription_status === 'past_due' ? 'past_due' :
-    row.subscription_status === 'cancelled' ? 'cancelled' :
-    'not_found'; // fallback for unexpected values
+    row.subscription_status === SubscriptionStatus.PENDING_PAYMENT ? SubscriptionStatus.PENDING_PAYMENT :
+    row.subscription_status === SubscriptionStatus.PAST_DUE ? SubscriptionStatus.PAST_DUE :
+    row.subscription_status === SubscriptionStatus.CANCELLED ? SubscriptionStatus.CANCELLED :
+    'not_found'; // fallback for unexpected values (not a SubscriptionStatus)
 
   return { active: false, reason: reason as AccountInactiveResult['reason'] };
 }

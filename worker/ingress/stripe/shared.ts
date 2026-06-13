@@ -85,7 +85,7 @@ export async function maybeEnqueueBackfillResume(businessId: string): Promise<vo
     WHERE zc.business_id = ${businessId}::uuid
       AND zc.status = 'active'
       AND b.archived_at IS NULL
-      AND a.subscription_status = 'active'
+      AND a.subscription_status = 'active'  -- enum: SubscriptionStatus.ACTIVE
       AND a.subscription_activated_at IS NOT NULL
       AND NOT EXISTS (
         SELECT 1 FROM zernio_backfill_runs br

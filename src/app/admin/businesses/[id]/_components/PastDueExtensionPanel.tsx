@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useReducer } from 'react';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 interface PastDueExtensionPanelProps {
   accountId: string;
@@ -74,7 +75,7 @@ export function PastDueExtensionPanel({
   const [state, dispatch] = useReducer(reducer, initialState);
   const { days, ticketId, reason, message, error, submitting } = state;
 
-  if (subscriptionStatus !== 'past_due') {
+  if (subscriptionStatus !== SubscriptionStatus.PAST_DUE) {
     return null;
   }
 

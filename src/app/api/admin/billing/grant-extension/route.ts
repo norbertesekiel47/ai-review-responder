@@ -67,7 +67,7 @@ async function grantExtension(request: NextRequest): Promise<NextResponse> {
         SELECT past_due_at
         FROM accounts
         WHERE id = ${accountId}::uuid
-          AND subscription_status = 'past_due'
+          AND subscription_status = 'past_due'  -- enum: SubscriptionStatus.PAST_DUE
         FOR UPDATE
       `;
       const account = accountRows[0];
@@ -105,7 +105,7 @@ async function grantExtension(request: NextRequest): Promise<NextResponse> {
           true
         )
         WHERE id = ${accountId}::uuid
-          AND subscription_status = 'past_due'
+          AND subscription_status = 'past_due'  -- enum: SubscriptionStatus.PAST_DUE
       `;
 
       if (result.count !== 1) {

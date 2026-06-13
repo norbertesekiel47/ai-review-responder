@@ -2,6 +2,7 @@
 
 import { TelegramEnrollmentWidget } from '@/components/admin/TelegramEnrollmentWidget';
 import { WhatsAppEnrollmentWidget } from '@/components/admin/WhatsAppEnrollmentWidget';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import type { BusinessDetail, ChannelEnrollmentRow } from '../types';
 
 const STATUS_BADGE_STYLES: Record<ChannelEnrollmentRow['status'], string> = {
@@ -71,7 +72,7 @@ export function ChannelsPanel({ business, businessId, enrollments }: ChannelsPan
       {business.telegramEnabled && (
         <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
           <h2 className="text-lg font-semibold text-gray-800 mb-3">Telegram enrollment</h2>
-          {business.subscriptionStatus !== 'active' ? (
+          {business.subscriptionStatus !== SubscriptionStatus.ACTIVE ? (
             <p className="text-sm text-gray-500">
               Complete payment first. Telegram enrollment unlocks once the business&apos;s subscription transitions to active.
             </p>
@@ -85,7 +86,7 @@ export function ChannelsPanel({ business, businessId, enrollments }: ChannelsPan
       {business.whatsappEnabled && (
         <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
           <h2 className="text-lg font-semibold text-gray-800 mb-3">WhatsApp enrollment</h2>
-          {business.subscriptionStatus !== 'active' ? (
+          {business.subscriptionStatus !== SubscriptionStatus.ACTIVE ? (
             <p className="text-sm text-gray-500">
               Complete payment first. WhatsApp enrollment unlocks once the business&apos;s subscription transitions to active.
             </p>

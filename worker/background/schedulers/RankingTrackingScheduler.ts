@@ -56,7 +56,7 @@ export async function runRankingCheck(): Promise<void> {
       SELECT b.id, b.google_place_id
       FROM businesses b
       JOIN accounts a ON a.id = b.account_id
-      WHERE a.subscription_status = 'active'
+      WHERE a.subscription_status = 'active'  -- enum: SubscriptionStatus.ACTIVE
         AND b.place_id_verified = TRUE
         AND b.google_place_id IS NOT NULL
         AND b.tracked_keywords <> '[]'::jsonb

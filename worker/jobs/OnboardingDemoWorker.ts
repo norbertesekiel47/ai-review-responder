@@ -9,6 +9,7 @@ import {
   checkCostThreshold,
 } from '../../src/lib/costs/onboarding-demo-cost-guard';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
+import { SubscriptionStatus } from '../../src/lib/shared/subscription-status';
 import * as Sentry from '@sentry/node';
 import { buildOnboardingDemoSource } from './onboarding-demo/demo-source';
 import { resolveOnboardingDemoPlaceId } from './onboarding-demo/place-resolution';
@@ -66,7 +67,7 @@ export async function handleOnboardingDemo(
     JOIN accounts a ON a.id = b.account_id
     WHERE od.id = ${demoId}
   `;
-  if (biz && biz.subscription_status !== 'pending_payment') {
+  if (biz && biz.subscription_status !== SubscriptionStatus.PENDING_PAYMENT) {
     logger.warn(`Demo ${demoId} account status=${biz.subscription_status}, marking failed`);
     try {
       await failOnboardingDemoTerminal({

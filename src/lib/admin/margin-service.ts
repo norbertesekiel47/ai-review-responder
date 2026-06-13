@@ -132,7 +132,7 @@ export async function getMarginReport(
              COUNT(b.id) FILTER (WHERE b.archived_at IS NULL)::int AS active_locations
       FROM accounts a
       LEFT JOIN businesses b ON b.account_id = a.id
-      WHERE a.subscription_status IN ('active', 'past_due')
+      WHERE a.subscription_status IN ('active', 'past_due')  -- enum: SubscriptionStatus.ACTIVE / .PAST_DUE
       GROUP BY a.id
     `,
     sql<CostAggRow[]>`

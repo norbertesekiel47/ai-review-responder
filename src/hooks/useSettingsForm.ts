@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardData, DashboardDataActive, DashboardSettings } from '@/lib/dashboard/types';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 export interface SettingsForm {
   tone: string;
@@ -48,7 +49,7 @@ function buildPatch(initial: SettingsForm, current: SettingsForm): Record<string
 }
 
 export function settingsRedirectForDashboardData(json: DashboardData): string | null {
-  if (json.subscriptionStatus === 'pending_payment') return json.paymentUrl ?? '/dashboard';
+  if (json.subscriptionStatus === SubscriptionStatus.PENDING_PAYMENT) return json.paymentUrl ?? '/dashboard';
   if (
     json.subscriptionStatus === 'active_pending_business' ||
     json.subscriptionStatus === 'pending_payment_admin_handoff'
