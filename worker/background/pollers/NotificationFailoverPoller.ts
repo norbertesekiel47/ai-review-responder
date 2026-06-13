@@ -9,6 +9,16 @@ import type { SendNotificationPayload } from '../../../src/lib/shared/worker-typ
 const LOG_PREFIX = '[NotificationFailover]';
 const DEFAULT_INTERVAL_MS = 7_200_000; // 2 hours
 
+// Per-tick row cap (deep-scan §5.7). The two driving SELECTs below are otherwise
+// unbounded; this caps how many candidate rows one 2-hour tick loads into memory.
+// Paired with ORDER BY created_at ASC so the oldest-stuck responses are triaged
+// first. all-failed rows leave the predicate set once their failover outbox row
+// is queued (drains cleanly across ticks); the stale arm re-selects already-
+// alerted rows but tryClaimAlert's 24h dedup makes re-processing a cheap no-op,
+// so a >200 simultaneous-stuck backlog (itself a sev incident) is triaged
+// oldest-first over successive ticks rather than loaded all at once.
+const BATCH_LIMIT = 200;
+
 let pollerInterval: ReturnType<typeof setInterval> | null = null;
 let isPolling = false;
 
@@ -168,6 +178,8 @@ export async function runFailoverPollerOnce(): Promise<void> {
             AND jo.aggregate_id = resp.id
             AND jo.status IN ('pending', 'dispatching', 'dispatched')
         )
+      ORDER BY resp.created_at ASC
+      LIMIT ${BATCH_LIMIT}
     `;
 
     for (const row of allFailedResponses) {
@@ -278,6 +290,8 @@ export async function runFailoverPollerOnce(): Promise<void> {
             AND jo.aggregate_id = resp.id
             AND jo.status IN ('pending', 'dispatching', 'dispatched')
         )
+      ORDER BY resp.created_at ASC
+      LIMIT ${BATCH_LIMIT}
     `;
 
     const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
