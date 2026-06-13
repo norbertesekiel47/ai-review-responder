@@ -341,6 +341,9 @@ Confirmed unused by the 2026-05-29 codebase scan (PR #186) and **commented out /
 | `STRIPE_LOCATIONS_RECONCILE_DISABLED` | `false` | `true` → skip the billing reconcile poller (mock mode auto-skips) |
 | `ANALYTICS_DISPATCH_POLL_INTERVAL_MS` | 30000 (30s) | `AnalyticsDispatchPoller` cadence (Wave 2). Rejects non-numeric/unit-suffixed values (`'30s'` → falls back to default). |
 | `ANALYTICS_DISPATCH_BATCH_SIZE` | 50 | Rows claimed per dispatch pass (clamped 1–250). |
+| `ZERNIO_RECENT_REVIEW_POLL_MAX_CONNECTIONS` | 100 | `ZernioRecentReviewPoller` per-cycle connection cap (deep-scan §3.7). An in-memory `business_id` keyset cursor rotates through all active connections across cycles, wrapping at the end; a worker restart restarts the rotation. (Replaces the removed `ZERNIO_RECENT_REVIEW_POLL_BATCH_SIZE` load-page size.) |
+| `ZERNIO_RECENT_REVIEW_POLL_CONCURRENCY` | 3 | Bounded fan-out: connections polled against Zernio in parallel per cycle (pages within a connection stay serial). |
+| `ZERNIO_RECENT_REVIEW_POLL_DEADLINE_MS` | 240000 (4min) | Per-cycle deadline: past it no new connection is dispatched (in-flight finish); deferred count is warn-logged and those connections lead the next cycle. Keep below `ZERNIO_RECENT_REVIEW_POLL_INTERVAL_MS` (5min default). |
 
 > **Wave 1 launch-risk controls are unconditional — no kill-switch (since 2026-05-25, PR #85):**
 > the **PHI scanner** on Zernio ingest (`src/lib/security/phi-scanner.ts` →

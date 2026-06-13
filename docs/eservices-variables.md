@@ -70,6 +70,9 @@ only · ⚙️ platform-injected (not app config).
 | `ZERNIO_INGEST_MAX_PAGES` | 🟢 | optional — backfill page cap |
 | `ZERNIO_RECENT_REVIEW_POLL_DISABLED` | 🟢 | optional |
 | `ZERNIO_RECENT_REVIEW_POLL_MAX_PAGES` | 🟢 | optional |
+| `ZERNIO_RECENT_REVIEW_POLL_MAX_CONNECTIONS` | 🟢 | optional |
+| `ZERNIO_RECENT_REVIEW_POLL_CONCURRENCY` | 🟢 | optional |
+| `ZERNIO_RECENT_REVIEW_POLL_DEADLINE_MS` | 🟢 | optional |
 | `SERPAPI_API_KEY` | ✅ | |
 | `SERPAPI_TIMEOUT_MS` | 🟢 | optional |
 | `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | ✅ | referrer-locked |
