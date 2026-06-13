@@ -297,12 +297,12 @@ openssl rand -hex 32      # → IMPERSONATION_COOKIE_SECRET  (admin view-as; ≥
 ## §2. Database — apply migrations 001–054
 
 > **Fresh environment (staging, or a prod that mirrors `main`)?** Apply the full set
-> **001→054**. Migrations 018, 023, 026, 031 build indexes `CONCURRENTLY` and must
+> **001→054**. Migrations 018, 023, 026, 031, 065 build indexes `CONCURRENTLY` and must
 > run **outside** a transaction; check `.claude/reference/migrations-log.md` for
 > per-migration handling. See §II.2.1.
 
 - [ ] In Supabase SQL editor, run each `supabase/migrations/0XX_*.sql` **in numeric order, 001→054**. Per CLAUDE.md / user feedback memory, Claude does not run these for you — you run them, in the editor, and check the result.
-- [ ] **Non-transactional migrations:** 018, 023, 026, and 031 use `CREATE INDEX CONCURRENTLY`, which **cannot** run inside a transaction block — run each of those on its own (not wrapped in `BEGIN/COMMIT`). See `.claude/reference/migrations-log.md` for per-migration handling.
+- [ ] **Non-transactional migrations:** 018, 023, 026, 031, and 065 use `CREATE INDEX CONCURRENTLY`, which **cannot** run inside a transaction block — run each of those on its own (not wrapped in `BEGIN/COMMIT`). See `.claude/reference/migrations-log.md` for per-migration handling.
 - [ ] Pre-flight before 029 (idempotent — should be 0 in a fresh DB):
   ```sql
   SELECT COUNT(*) FROM responses WHERE status = 'awaiting_manual_post';
@@ -339,6 +339,39 @@ openssl rand -hex 32      # → IMPERSONATION_COOKIE_SECRET  (admin view-as; ≥
           'admin', '<auth-user-uuid-from-supabase-auth>');
   ```
   (See `docs/runbooks/personal_testing.md` §4 for the auth-id linking step.)
+
+### §2a. Applying new migrations after go-live — the standing procedure
+
+There is deliberately **no migration runner** (deep-scan §3.8 — deferred until
+manual application becomes error-prone; revisit if migration cadence or team
+size grows). Every migration is applied by hand in the Supabase SQL editor,
+following this procedure exactly:
+
+1. **Read `.claude/reference/migrations-log.md` first** — it is authoritative
+   for the current head, per-migration handling notes, and pre-flight checks.
+2. **Numeric order, no gaps.** Apply `0XX_*.sql` files strictly in ascending
+   order. Never skip ahead; never apply out of order.
+3. **Both projects, staging first.** Every migration runs against the staging
+   Supabase project, gets verified there, then runs against production —
+   in lockstep. "Applied to prod, not staging" (or the reverse, left to
+   linger) is a bug.
+4. **`CREATE INDEX CONCURRENTLY` cannot run in a transaction.** Migrations
+   containing it (018, 023, 026, 031, 065, and any future ones) carry a header
+   warning and must be applied with the SQL editor's **"single transaction"
+   box unchecked** (or each statement run individually). Convention going
+   forward: CONCURRENTLY statements live in clearly-flagged **standalone**
+   migration files (no mixed transactional DDL) — migration 065 is the
+   template.
+5. **If a CONCURRENTLY statement fails partway**, it can leave an `INVALID`
+   index behind. Check and repair before re-running:
+   ```sql
+   SELECT indexrelid::regclass FROM pg_index WHERE NOT indisvalid;
+   -- DROP INDEX <name>; then re-run the CREATE INDEX CONCURRENTLY statement
+   ```
+6. **Verify, then log.** Run the migration's verification query (or
+   `pg_indexes`/`information_schema` spot-check) on each project, and confirm
+   the migration has its entry in `.claude/reference/migrations-log.md`
+   (the entry lands in the same PR as the migration file).
 
 ---
 
@@ -842,7 +875,7 @@ These are the items not covered above that I'd want to know before hitting deplo
 
 9. **Stripe webhooks are wired (§6.3).** Self-serve customers get `subscription_activated_at` automatically from `checkout.session.completed`. Only the **admin-onboarded-without-payment** path (§7B) needs the manual SQL `UPDATE`. Anything keyed on that timestamp (engagement monitor, onboarding drip) fires from whatever set it; the onboarding drip fires day 1 / 7 / 30. Gate: `worker/background/schedulers/OnboardingDripScheduler.ts`.
 
-10. **Migrations run 001→054, and four use `CONCURRENTLY`.** Migrations 018, 023, 026, and 031 build indexes with `CREATE INDEX CONCURRENTLY`, which **must not** run inside a transaction block — apply each on its own. Do **not** stop at 030 (old beta scope); a current environment needs the full set. See `.claude/reference/migrations-log.md`.
+10. **Migrations run 001→054, and five use `CONCURRENTLY`.** Migrations 018, 023, 026, 031, and 065 build indexes with `CREATE INDEX CONCURRENTLY`, which **must not** run inside a transaction block — apply each on its own. Do **not** stop at 030 (old beta scope); a current environment needs the full set. See `.claude/reference/migrations-log.md`.
 
 11. **Everything is on `main`.** Vercel and Railway both deploy from `main`; there's no feature branch to merge first. Staging tracks the `staging` branch (Part II §II.5).
 
@@ -901,7 +934,7 @@ staging-specific deltas from Part I's prod recipe.
 ### §II.2.1 Staging Supabase — separate project
 - Create a new project `repworth-staging`. Apply **all migrations `001`→`054`** in
   numeric order (Part I §2 shows the SQL-editor procedure + verification queries).
-  Run the `CONCURRENTLY` migrations (018, 023, 026, 031) **outside** a transaction;
+  Run the `CONCURRENTLY` migrations (018, 023, 026, 031, 065) **outside** a transaction;
   see `.claude/reference/migrations-log.md`.
 - Capture `DATABASE_URL` (direct, 5432), `DATABASE_POOL_URL` (pooler, 6543,
   `?pgbouncer=true`), `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`,

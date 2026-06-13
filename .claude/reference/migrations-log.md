@@ -1,8 +1,37 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **064** — next migration is **065**
+Current head: **065** — next migration is **066**
 All tables use UUIDv7 (time-ordered primary keys).
+
+## Data retention policy
+
+One authoritative statement of what gets deleted, what is kept, and why.
+Enforcement is `worker/background/pollers/ArchivalPoller.ts` (daily cycle;
+LIMIT-5000 batches + saturation warning) unless noted. Decided 2026-06-12
+(production-readiness deep-scan §3.2/§3.6/§3.9).
+
+| Table | Retention | Enforcement |
+|---|---|---|
+| `job_outbox` | `completed` > 7 days → deleted | ArchivalPoller |
+| `inbound_events` | `processed` > 30 days → deleted | ArchivalPoller (index `idx_ie_archival`, migration 065) |
+| `prospect_demos` | completed demos > 30 days past expiry → deleted | ArchivalPoller |
+| `api_costs` | > 90 days → aggregated into `api_costs_daily_rollups`, then deleted | ArchivalPoller |
+| `notification_deliveries` | > 90 days → deleted | ArchivalPoller |
+| `analytics_events` | `completed` > 30 days and `failed` > 90 days (by `occurred_at`) → deleted | ArchivalPoller (served by existing `idx_analytics_events_status`) |
+| `account_audit_log` | **keep forever** — deliberate | none (compliance/audit surface) |
+| `approval_audit_log` | **keep forever** — deliberate | none (backs invariant #3's recorded-approval evidence chain) |
+| `reviews` / `responses` | **deliberately exempt** — core tenant data | none |
+
+Revisit triggers:
+
+- **Audit tables (keep-forever):** revisit if a documented compliance retention
+  ceiling ever applies (e.g. a data-protection regime with a maximum retention
+  period), or if either table exceeds ~10M rows.
+- **`reviews`/`responses` exemption:** revisit (pruning of `status='deleted'`
+  tombstones and/or partitioning) before hot KPI/dashboard queries degrade at
+  scale — the deep-scan frames this as a pre-multi-location-scale item, not a
+  launch item.
 
 ## Migration Log
 
@@ -526,6 +555,20 @@ All tables use UUIDv7 (time-ordered primary keys).
   No RLS change (inherits `accounts` policy); no index (only read via the
   already-indexed account row). Apply staging-first, then production, in
   lockstep.
+
+- **065** — Archival + watchdog covering indexes (deep-scan §3.1/§3.3).
+  **Adds** two partial indexes, both `CREATE INDEX CONCURRENTLY IF NOT EXISTS`:
+  `idx_ie_archival ON inbound_events (processed_at) WHERE status = 'processed'`
+  (the ArchivalPoller's daily DELETE predicate — the existing `idx_ie_status`
+  is partial `WHERE status != 'processed'` and excludes exactly those rows) and
+  `idx_jo_recovery ON job_outbox (dispatched_at) WHERE status IN ('dispatched',
+  'dispatching')` (the OutboxPoller watchdog's per-cycle recovery scans; all
+  three watchdog predicates imply the index predicate, and btree stores the
+  NULL `dispatched_at` rows the stale-`dispatching` arm needs). **CONCURRENTLY
+  ⇒ non-transactional**: uncheck "single transaction" in the Supabase SQL
+  editor; on partial failure check `pg_index WHERE NOT indisvalid`, drop the
+  invalid index, re-run. No table/RLS changes. Apply staging-first, then
+  production, in lockstep.
 
 ## Key Tables Reference
 

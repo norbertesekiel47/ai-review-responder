@@ -141,13 +141,38 @@ async function runArchival(): Promise<void> {
       SELECT COUNT(*)::text AS count FROM deleted
     `;
 
+    // 6. analytics_events: completed rows older than 30 days (already shipped
+    // to PostHog), failed rows older than 90 days (exhausted max_attempts;
+    // kept longer for dispatch-outage forensics). Predicating age on
+    // occurred_at lets the existing idx_analytics_events_status
+    // (status, occurred_at DESC) serve both arms — no new index needed.
+    //
+    // FOR UPDATE SKIP LOCKED: same concurrent-cycle count-accuracy
+    // rationale as notification_deliveries above.
+    const [analyticsResult] = await sql<{ count: string }[]>`
+      WITH candidates AS (
+        SELECT id FROM analytics_events
+        WHERE (status = 'completed' AND occurred_at < NOW() - INTERVAL '30 days')
+           OR (status = 'failed' AND occurred_at < NOW() - INTERVAL '90 days')
+        LIMIT 5000
+        FOR UPDATE SKIP LOCKED
+      ),
+      deleted AS (
+        DELETE FROM analytics_events WHERE id IN (SELECT id FROM candidates)
+        RETURNING id
+      )
+      SELECT COUNT(*)::text AS count FROM deleted
+    `;
+
     const outboxCount = parseInt(outboxResult?.count ?? '0', 10);
     const eventsCount = parseInt(eventsResult?.count ?? '0', 10);
     const demosCount = parseInt(demosResult?.count ?? '0', 10);
     const costsCount = parseInt(costsResult?.count ?? '0', 10);
     const notificationsCount = parseInt(notificationsResult?.count ?? '0', 10);
+    const analyticsCount = parseInt(analyticsResult?.count ?? '0', 10);
 
-    const totalArchived = outboxCount + eventsCount + demosCount + costsCount + notificationsCount;
+    const totalArchived =
+      outboxCount + eventsCount + demosCount + costsCount + notificationsCount + analyticsCount;
 
     if (totalArchived > 0) {
       logger.log('Archived', {
@@ -156,6 +181,7 @@ async function runArchival(): Promise<void> {
         demos: demosCount,
         api_costs: costsCount,
         notifications: notificationsCount,
+        analytics_events: analyticsCount,
       });
 
       const BATCH_LIMIT = 5000;
@@ -165,6 +191,7 @@ async function runArchival(): Promise<void> {
       if (demosCount >= BATCH_LIMIT) saturated.push('demos');
       if (costsCount >= BATCH_LIMIT) saturated.push('api_costs');
       if (notificationsCount >= BATCH_LIMIT) saturated.push('notifications');
+      if (analyticsCount >= BATCH_LIMIT) saturated.push('analytics_events');
 
       if (saturated.length > 0) {
         // The sanitizer drops array values, so join the target names into a string.
