@@ -316,6 +316,42 @@ describe('billing reconciliation helpers', () => {
     }, 'past_due', now)).toBe(false);
   });
 
+  it('treats past_due past the 7d grace but within an active grant-extension as expected (deep-scan §6.3/§6.5)', () => {
+    // 15 days past due (past the default 7d grace) but an admin grant-extension
+    // pushes the effective deadline to 2026-05-30 — Stripe sitting in 'unpaid'
+    // must NOT false-alert while the customer legitimately still has access.
+    const now = new Date('2026-05-25T00:00:00.000Z');
+    expect(isExpectedStatusWindow({
+      id: 'acct-extended',
+      subscription_tier: 'standard',
+      subscription_status: 'past_due',
+      stripe_subscription_id: 'sub_123',
+      locations_included: 1,
+      locations_overage_price_cents: 2500,
+      base_price_cents: 7900,
+      active_location_count: 1,
+      past_due_at: new Date('2026-05-10T00:00:00.000Z'),
+      flags: { past_due_extension: { days: 7, expires_at: '2026-05-30T00:00:00.000Z' } },
+    }, 'unpaid', now)).toBe(true);
+  });
+
+  it('does not treat past_due past grace with an EXPIRED extension as expected (deep-scan §6.3/§6.5)', () => {
+    // Extension already lapsed (expires_at < now) → access is cut → real drift.
+    const now = new Date('2026-05-25T00:00:00.000Z');
+    expect(isExpectedStatusWindow({
+      id: 'acct-extended-expired',
+      subscription_tier: 'standard',
+      subscription_status: 'past_due',
+      stripe_subscription_id: 'sub_123',
+      locations_included: 1,
+      locations_overage_price_cents: 2500,
+      base_price_cents: 7900,
+      active_location_count: 1,
+      past_due_at: new Date('2026-05-10T00:00:00.000Z'),
+      flags: { past_due_extension: { days: 3, expires_at: '2026-05-20T00:00:00.000Z' } },
+    }, 'unpaid', now)).toBe(false);
+  });
+
   it('does not treat missing past_due_at as expected status window', () => {
     expect(isExpectedStatusWindow({
       id: 'acct-past-due',
@@ -681,6 +717,29 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(result.driftsFound).toBe(0);
     expect(warnSpy).not.toHaveBeenCalled();
     vi.useRealTimers();
+  });
+
+  it('does not alert status_mismatch when Stripe status is trialing (deep-scan §6.5)', async () => {
+    // No trial product today, but if a Price ever carries a trial, a Stripe
+    // 'trialing' status (vs our 'active' DB status) must not false-alert hourly.
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-trialing',
+        subscription_tier: 'standard',
+        subscription_status: 'active',
+        locations_included: 1,
+        active_location_count: 3,
+      }),
+    ]);
+    mockStripeRetrieve.mockResolvedValue({
+      ...makeStripeSubscription(2, 'price_overage_std'),
+      status: 'trialing',
+    });
+
+    const result = await runOnce();
+
+    expect(result.driftsFound).toBe(0);
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   // ── Drift detected ──────────────────────────────────────────────

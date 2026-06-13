@@ -245,6 +245,35 @@ describe('POST /api/admin/billing/grant-extension', () => {
     vi.useRealTimers();
   });
 
+  it('a max 7-day grant on a fresh past_due account yields ~14 days total (deep-scan §6.3 additive ceiling)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-26T12:00:00.000Z'));
+    // Fresh past_due (== now): grace deadline is now + 7d; an additional +7 anchors
+    // to that deadline → 14 days total from past_due. This pins the chosen ADDITIVE
+    // semantics (NOT extend-to-N-total) and the documented up-to-14 ceiling.
+    txResults.length = 0;
+    txResults.push(
+      [{ past_due_at: '2026-05-26T12:00:00.000Z' }],
+      Object.assign([], { count: 1 }),
+    );
+    const { POST } = await import('../route');
+
+    const res = await POST(req({
+      accountId: ACCOUNT_ID,
+      days: 7,
+      ticketId: 'SUP-999',
+      reason: 'Max grant on a fresh past_due account.',
+    }));
+
+    expect(res.status).toBe(200);
+    // max(past_due_at + 7d, now) + 7d = 2026-06-02 + 7d = 2026-06-09 = past_due_at + 14d.
+    expect(await res.json()).toEqual({
+      ok: true,
+      extension: { days: 7, expires_at: '2026-06-09T12:00:00.000Z' },
+    });
+    vi.useRealTimers();
+  });
+
   it('rejects accounts missing past_due_at because the extension would not be honored', async () => {
     const { POST } = await import('../route');
     txResults.length = 0;

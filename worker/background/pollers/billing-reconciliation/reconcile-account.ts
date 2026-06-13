@@ -139,8 +139,16 @@ export async function reconcileAccount(
     }
   }
 
+  // deep-scan §6.5: RepWorth sells no trial today, so a Stripe 'trialing' status
+  // cannot occur — but if a Price ever carries a trial, 'trialing' would diverge
+  // from our 'active' DB status and false-alert status_mismatch hourly. Tolerate
+  // it explicitly HERE (not in isExpectedStatusWindow, which is gated on our
+  // status being past_due and would never see this case). Revisit when trials
+  // become a real feature.
+  const stripeTrialing = subscription.status === 'trialing';
   if (
     subscription.status !== account.subscription_status
+    && !stripeTrialing
     && !isExpectedStatusWindow(expectedAccount, subscription.status)
   ) {
     drifts.push({

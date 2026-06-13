@@ -8,14 +8,21 @@ import { jsonb, sql } from '@/lib/db/server';
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
-const MAX_EXTENSION_DAYS = 7;
+// ADDITIONAL days added ON TOP of whatever grace the account still has — NOT an
+// absolute total. The deadline is anchored to max(past_due grace deadline, now)
+// and then `days` are added (see the formula below), so for an in-window account
+// a max grant of 7 yields an effective grace of UP TO ~14 days from past_due
+// (deep-scan §6.3 — intentional, "additive" semantics chosen 2026-06-13). The
+// real resulting deadline is surfaced to the admin in the success response and
+// the UI, so "7" never silently becomes "14".
+const MAX_ADDITIONAL_EXTENSION_DAYS = 7;
 const DAY_MS = 86_400_000;
 // Must match GRACE_MS in src/lib/shared/past-due-recovery.ts (the read-only clock).
 const GRACE_MS = 7 * DAY_MS;
 
 const GrantExtensionSchema = z.object({
   accountId: z.uuid(),
-  days: z.number().int().min(1).max(MAX_EXTENSION_DAYS),
+  days: z.number().int().min(1).max(MAX_ADDITIONAL_EXTENSION_DAYS),
   ticketId: z.string().trim().min(1).max(100),
   reason: z.string().trim().min(1).max(1_000),
 });

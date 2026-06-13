@@ -1,7 +1,10 @@
-import { SubscriptionStatus } from '../../../../src/lib/shared/subscription-status';
+import { computePastDueRecoveryState } from '../../../../src/lib/shared/past-due-recovery';
 import type { BillingReconciliationAccount, DriftFinding } from './types';
 
-const PAST_DUE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+// Stripe statuses that are EXPECTED while our DB row sits in its past-due grace
+// window (Stripe's dunning keeps the subscription past_due/unpaid until it
+// either recovers or cancels). Outside the window these would be real drift.
+const TOLERATED_PAST_DUE_STRIPE_STATUSES = ['past_due', 'unpaid'];
 
 interface PreviewInvoiceLine {
   amount?: number | null;
@@ -30,18 +33,36 @@ interface PreviewInvoice {
   } | null;
 }
 
+/**
+ * True when a Stripe past_due/unpaid status is EXPECTED because our account is
+ * still inside its past-due grace window — so the reconcile poller must not
+ * raise a false status_mismatch.
+ *
+ * The window is computed by the single grace-clock owner
+ * (`computePastDueRecoveryState`, the same logic the read-only access gate
+ * uses), which makes this EXTENSION-AWARE: an admin `grant-extension`
+ * (`flags.past_due_extension`) pushes the effective deadline past the default
+ * 7-day grace, and we tolerate the Stripe divergence for exactly as long as the
+ * customer legitimately retains access. (deep-scan §6.3 / §6.5 — previously a
+ * hardcoded 7-day window that ignored extensions and false-alerted hourly once
+ * an extended account passed day 7.)
+ */
 export function isExpectedStatusWindow(
   account: BillingReconciliationAccount,
   stripeStatus: string,
   now: Date = new Date(),
 ): boolean {
-  if (account.subscription_status !== SubscriptionStatus.PAST_DUE) return false;
-  if (!account.past_due_at) return false;
+  if (!TOLERATED_PAST_DUE_STRIPE_STATUSES.includes(stripeStatus)) return false;
 
-  const ageMs = now.getTime() - new Date(account.past_due_at).getTime();
-  return ageMs >= 0
-    && ageMs <= PAST_DUE_GRACE_MS
-    && ['past_due', 'unpaid'].includes(stripeStatus);
+  const recovery = computePastDueRecoveryState({
+    subscriptionStatus: account.subscription_status,
+    pastDueAt: account.past_due_at,
+    accountFlags: account.flags,
+    now,
+  });
+
+  // In-window == past_due AND access not yet cut (extension-aware deadline).
+  return recovery.isPastDue && !recovery.isReadOnly;
 }
 
 export function compareUpcomingInvoice(
