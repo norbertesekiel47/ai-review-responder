@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
-import { LOG_PREFIX, extractCustomerId } from './shared';
+import { LOG_PREFIX, extractCustomerId, AccountNotProvisionedYetError } from './shared';
 
 export async function processSubscriptionDeleted(sub: Stripe.Subscription): Promise<void> {
   const subscriptionId = sub.id;
@@ -46,8 +46,13 @@ export async function processSubscriptionDeleted(sub: Stripe.Subscription): Prom
     `;
 
     if (!acctRow) {
-      console.warn(`${LOG_PREFIX} customer.subscription.deleted no account found for customer=${customerId} — skipping`);
-      return;
+      // Out-of-order delivery (deep-scan §6.2): mirror subscription-updated —
+      // THROW so the wrapper replies 500 and Stripe redelivers once
+      // checkout-completed has written stripe_customer_id. Cancellation re-applies
+      // idempotently (status-guarded UPDATE skips an already-cancelled account).
+      // The mismatch branches below stay clean returns.
+      console.warn(`${LOG_PREFIX} customer.subscription.deleted no account found for customer=${customerId} — signaling retry`);
+      throw new AccountNotProvisionedYetError(customerId);
     }
 
     if (subscriptionId !== acctRow.stripe_subscription_id) {

@@ -5,7 +5,7 @@ import { TIER_CONFIG, type SubscriptionTierValue } from '../../../src/lib/accoun
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { tierForBasePriceId } from '../../../src/lib/payments/price-tier-map';
 import { resolveOverageItem } from '../../../src/lib/payments/overage-item';
-import { LOG_PREFIX, extractCustomerId } from './shared';
+import { LOG_PREFIX, extractCustomerId, AccountNotProvisionedYetError } from './shared';
 
 export async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<void> {
   const subscriptionId = sub.id;
@@ -77,8 +77,13 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
     `;
 
     if (!acctRow) {
-      console.warn(`${LOG_PREFIX} customer.subscription.updated no account found for customer=${customerId} — skipping tier update`);
-      return;
+      // Out-of-order delivery (deep-scan §6.2): this event likely arrived before
+      // checkout.session.completed wrote accounts.stripe_customer_id. THROW (not a
+      // clean return) so the wrapper replies 500 and Stripe redelivers once the
+      // account exists. Redelivery is idempotent (status-guarded tier UPDATE +
+      // claimInboundEvent). The mismatch branches below stay clean returns.
+      console.warn(`${LOG_PREFIX} customer.subscription.updated no account found for customer=${customerId} — signaling retry`);
+      throw new AccountNotProvisionedYetError(customerId);
     }
 
     if (subscriptionId !== acctRow.stripe_subscription_id) {
