@@ -36,6 +36,7 @@ Assertion source: `worker/config/startup-assert.ts`.
 | Var | Notes |
 |---|---|
 | `DATABASE_URL` | Postgres connection string (PgBouncer pooled) |
+| `DB_POOL_MAX` | Optional, default `10`. Postgres.js per-process connection-pool ceiling (`src/lib/db/server.ts`). The default matches the Railway worker's needs; **set `3` on Vercel** (prod + staging Custom Env + preview) so each serverless instance stays small against the Supabase pooler's client-connection ceiling. The other pool bounds (`idle_timeout: 30`, `max_lifetime: 1800`, `connect_timeout: 10` — Postgres.js takes seconds) are fixed in code, deep-scan §3.5. |
 | `DIRECT_URL` | Postgres direct connection (for migrations, bypasses PgBouncer) |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key (browser-safe) |

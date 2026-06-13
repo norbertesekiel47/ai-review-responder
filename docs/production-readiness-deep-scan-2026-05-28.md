@@ -411,6 +411,8 @@ _(delegated scan — agent provided strong verification incl. a thorough "verifi
   `connect_timeout` per process role (Vercel route vs worker), sized to the
   Supabase/PgBouncer ceiling.
 
+> **Status: ✅ Resolved** in PR #305 (2026-06-12) — `src/lib/db/server.ts` now sets `max` (env-tunable `DB_POOL_MAX`, default 10), `idle_timeout: 30`, `max_lifetime: 1800`, `connect_timeout: 10` (Postgres.js seconds). Worker keeps 10; Vercel environments set `DB_POOL_MAX=3` per instance (documented in `env-vars.md`). `prepare:false` + `statement_timeout` untouched.
+
 ### 🟡 3.6 — `account_audit_log` / `approval_audit_log` have no retention policy
 - **Location:** `034_multi_location_schema.sql:62-79`, `001_initial_schema.sql:458-473`
 - **Evidence:** Both grow unboundedly; neither is in the ArchivalPoller set. Slower
