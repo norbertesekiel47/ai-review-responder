@@ -357,8 +357,10 @@ describe('tenant-scope-audit', () => {
     );
   });
 
-  it('ignores global table query', () => {
-    expect(auditSqlText('src/example.ts', 'SELECT * FROM inbound_events')).toEqual([]);
+  it('ignores a non-tenant table query (table absent from TENANT_TABLES)', () => {
+    // owner_leads is a real table (migration 033) that is intentionally NOT in
+    // TENANT_TABLES, so the audit never scopes it.
+    expect(auditSqlText('src/example.ts', 'SELECT * FROM owner_leads')).toEqual([]);
   });
 
   it('extracts sql, transaction, and imported sql-alias tagged templates', () => {

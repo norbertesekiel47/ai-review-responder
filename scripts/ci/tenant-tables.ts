@@ -23,6 +23,14 @@ export const TENANT_TABLES = [
   'zernio_connections',
   'zernio_finalize_incidents',
   'zernio_backfill_runs',
+  // Deny-all RLS (migration 066, deep-scan §4.1) — listed so ci:rls-audit
+  // guards them. These are NOT account/business-scoped: raw webhook payloads,
+  // sales-demo snapshots, and legacy Google OAuth secrets. Their SQL touchpoints
+  // are exempt via tenant-scope-allowlist.ts (ingress / background / admin /
+  // worker-job / pre-auth-token categories), not because they carry a tenant id.
+  'inbound_events',
+  'prospect_demos',
+  'google_connections',
 ] as const;
 
 export type TenantTable = (typeof TENANT_TABLES)[number];
