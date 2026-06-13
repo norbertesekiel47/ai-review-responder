@@ -6,8 +6,21 @@ import { createClient } from '@supabase/supabase-js';
 // Uses PgBouncer pooled connection; prepared statements disabled (required)
 // Usage: await sql`SELECT ...`  or  await sql.begin(tx => { ... })
 // ---------------------------------------------------------------------------
+function readPoolMax(): number {
+  const parsed = parseInt(process.env.DB_POOL_MAX ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
+}
+
 export const sql = postgres(process.env.DATABASE_POOL_URL!, {
   prepare: false,
+  // Explicit pool bounds (deep-scan §3.5). Postgres.js takes these in SECONDS.
+  // One client serves two roles, so `max` is env-tunable: the Railway worker
+  // keeps the default 10; Vercel sets DB_POOL_MAX=3 per serverless instance
+  // (the Supabase pooler multiplexes behind it — keep per-instance demand low).
+  max: readPoolMax(),
+  idle_timeout: 30, // reap idle connections — matters most on quiet serverless instances
+  max_lifetime: 1800, // bound connection age; tolerates pooler restarts/failovers
+  connect_timeout: 10, // fail fast — a connect taking >10s is already an incident
   // Supabase PgBouncer has a short default statement_timeout (~8s).
   // The OutboxPoller watchdog CTE can exceed this when updating locked rows.
   // 30s is generous but safe — the poller runs every 10s, so a long query
