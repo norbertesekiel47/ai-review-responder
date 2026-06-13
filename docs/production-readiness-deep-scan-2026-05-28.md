@@ -399,6 +399,8 @@ _(delegated scan — agent provided strong verification incl. a thorough "verifi
   account-scoped `GROUP BY` queries (data is account-filterable via
   `businesses.account_id`).
 
+> **Status: ⏸️ Deferred (deliberate)** as of 2026-06-12 — the §3.1/§3.3 covering indexes (PR #304) and the §3.5 pool bounds (PR #305) remove the acute pool-saturation risk this item was paired with, so the N+1 refactor is not launch-blocking. Deferred to keep the change measured (snapshot query count → fold the 2–3 heaviest of ~11 per-location queries into account-scoped `GROUP BY business_id` → assert identical output shapes against the existing unit tests), which needs green CI + code-review to land safely. **Revisit trigger:** before accounts with >5 active locations become common (the doc's own "before scaling multi-location" framing) — at that point a 10-location dashboard load can still issue ~112 queries against the now-bounded pool.
+
 ### 🟡 3.5 — Postgres.js connection pool size/lifetimes not configured
 - **Location:** `src/lib/db/server.ts:8-19`
 - **Evidence:** `postgres()` sets only `prepare:false` + `statement_timeout:30_000`.
