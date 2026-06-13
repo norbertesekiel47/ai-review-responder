@@ -18,12 +18,27 @@ export { QUEUE_NAMES, getRedisOptions };
 // ---------------------------------------------------------------------------
 const opts = getRedisOptions();
 
-// Default job options: 3 retry attempts with exponential backoff starting at 5s.
-// This ensures transient failures (network errors, rate limits) are retried
-// automatically instead of relying on the 1-hour OutboxPoller watchdog.
+// Default job options: 3 retry attempts with jittered exponential backoff
+// starting at 5s. This ensures transient failures (network errors, rate limits)
+// are retried automatically instead of relying on the 1-hour OutboxPoller watchdog.
+//
+// deep-scan §5.3:
+//   - jitter: 0.5 — BullMQ (≥5) randomizes each retry delay into
+//     [maxDelay·(1-jitter), maxDelay], i.e. ~[2.5s,5s]→[5s,10s]→[10s,20s]. A
+//     provider outage hitting many jobs no longer retries in lockstep
+//     (thundering herd against the recovering dependency). Jitter only pulls
+//     delays EARLIER than the pure-exponential ceiling, never later — no SLA
+//     regression vs the previous fixed 5s/10s/20s schedule.
+//   - removeOnComplete/removeOnFail — evict finished job records so BullMQ
+//     doesn't retain every finished job forever on the fixed-size **Railway**
+//     Redis (the BullMQ queue lives on Railway Redis via REDIS_QUEUE_URL, NOT
+//     Upstash). Completed: 24h or last 1000; failed: 7d or last 5000 (the count
+//     cap bounds a sustained-outage failed-job pile on the fixed instance).
 const defaultJobOptions = {
   attempts: 3,
-  backoff: { type: 'exponential' as const, delay: 5_000 },
+  backoff: { type: 'exponential' as const, delay: 5_000, jitter: 0.5 },
+  removeOnComplete: { age: 86_400, count: 1_000 },
+  removeOnFail: { age: 604_800, count: 5_000 },
 };
 
 export const queues = {
