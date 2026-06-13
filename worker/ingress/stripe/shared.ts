@@ -6,6 +6,28 @@ export const LOG_PREFIX = '[ingress/stripe]';
 
 export { getStripe } from '../../../src/lib/payments/stripe-client';
 
+/**
+ * Thrown by subscription.updated/.deleted handlers when no account resolves by
+ * stripe_customer_id. accounts.stripe_customer_id is written ONLY by
+ * checkout-completed, and Stripe does not guarantee event ordering, so a
+ * subscription.* event can arrive BEFORE its checkout.session.completed. This
+ * is a deliberate, transient retry signal — NOT a bug: the ingress wrapper maps
+ * any throw to status='failed' + HTTP 500 so Stripe redelivers, by which time
+ * checkout-completed has written the customer id and the redelivery resolves
+ * the account (idempotent via claimInboundEvent + the status-guarded UPDATE). A
+ * genuinely orphaned customer (checkout abandoned, account never created)
+ * simply retries until Stripe's ~3-day schedule gives up; the hourly reconcile
+ * poller is the standing backstop. (deep-scan §6.2)
+ */
+export class AccountNotProvisionedYetError extends Error {
+  constructor(customerId: string) {
+    super(
+      `No account found for stripe_customer_id=${customerId} — likely a subscription event delivered before checkout.session.completed; signaling retry`,
+    );
+    this.name = 'AccountNotProvisionedYetError';
+  }
+}
+
 export function extractCustomerId(customer: string | Stripe.Customer | Stripe.DeletedCustomer | null): string | null {
   if (!customer) return null;
   return typeof customer === 'string' ? customer : customer.id;

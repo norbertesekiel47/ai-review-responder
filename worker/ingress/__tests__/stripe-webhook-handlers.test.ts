@@ -1647,3 +1647,118 @@ describe('subscription_status_changed audit logging', () => {
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────
+// Out-of-order delivery (deep-scan §6.2):
+// customer.subscription.updated/.deleted delivered BEFORE checkout.session.completed
+// has written accounts.stripe_customer_id. The lookup misses → handler throws
+// AccountNotProvisionedYetError → wrapper marks inbound_events 'failed' + replies
+// 500 → Stripe redelivers → resolves once the account exists, exactly once.
+// ───────────────────────────────────────────────────────────────────────
+
+describe('out-of-order delivery — subscription.* before checkout.session.completed (deep-scan §6.2)', () => {
+  function findInboundUpdate(statusValue: 'failed' | 'processed') {
+    return sqlCalls.find((c) =>
+      new RegExp(`UPDATE inbound_events\\s+SET status = '${statusValue}'`).test(c.text),
+    );
+  }
+  function findTierApply() {
+    return sqlCalls.filter(
+      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes('subscription_tier'),
+    );
+  }
+
+  it('subscription.updated with no matching account → throws → 500 + inbound_events failed (no tier write)', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_ooo_updated_1',
+      type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: TEST_SUBSCRIPTION_ID,
+          customer: TEST_CUSTOMER_ID,
+          items: { data: [{ price: { id: 'price_standard_test' }, quantity: 1 }] },
+        },
+      },
+    });
+
+    // checkout-completed has not yet written stripe_customer_id → SELECT misses.
+    sqlReturnQueue.push([]);
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(500);
+    expect(findInboundUpdate('failed')).toBeDefined();
+    expect(findTierApply()).toHaveLength(0);
+  });
+
+  it('subscription.deleted with no matching account → throws → 500 + inbound_events failed (no cancel write)', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_ooo_deleted_1',
+      type: 'customer.subscription.deleted',
+      data: { object: { id: TEST_SUBSCRIPTION_ID, customer: TEST_CUSTOMER_ID } },
+    });
+
+    sqlReturnQueue.push([]); // no account yet
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(500);
+    expect(findInboundUpdate('failed')).toBeDefined();
+    const cancelWrite = sqlCalls.find(
+      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'cancelled'"),
+    );
+    expect(cancelWrite).toBeUndefined();
+  });
+
+  it('full sequence: updated→500 → checkout writes customer → redeliver applies ONCE → 200; duplicate redelivery → 200 no-op', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_ooo_seq',
+      type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: TEST_SUBSCRIPTION_ID,
+          customer: TEST_CUSTOMER_ID,
+          items: {
+            data: [
+              { price: { id: 'price_standard_test' }, quantity: 1 },
+              { price: { id: 'price_standard_overage_test' }, quantity: 3 },
+            ],
+          },
+        },
+      },
+    });
+
+    // ── Delivery 1: account not provisioned → 500 + failed ──
+    mockClaimInboundEvent.mockResolvedValueOnce('claimed');
+    sqlReturnQueue.push([]); // SELECT misses
+    let reply = mkReply();
+    await handleStripeWebhook(mkRequest(), reply as any);
+    expect(reply.status).toHaveBeenCalledWith(500);
+    expect(findInboundUpdate('failed')).toBeDefined();
+
+    // ── checkout.session.completed now writes accounts.stripe_customer_id ──
+    sqlCalls.length = 0;
+
+    // ── Delivery 2 (Stripe redelivery): failed row reclaimed, account exists → apply once → 200 ──
+    mockClaimInboundEvent.mockResolvedValueOnce('claimed');
+    queueSubscriptionUpdated({ tier: 'standard' });
+    reply = mkReply();
+    await handleStripeWebhook(mkRequest(), reply as any);
+    expect(reply.status).toHaveBeenCalledWith(200);
+    const applied = findTierApply();
+    expect(applied).toHaveLength(1);
+    expect(applied[0]!.values).toContain('standard');
+    expect(applied[0]!.values).toContain(3);
+    expect(findInboundUpdate('processed')).toBeDefined();
+
+    // ── Delivery 3 (duplicate after success): claim='duplicate' → 200 no-op, NO second apply ──
+    sqlCalls.length = 0;
+    mockClaimInboundEvent.mockResolvedValueOnce('duplicate');
+    reply = mkReply();
+    await handleStripeWebhook(mkRequest(), reply as any);
+    expect(reply.status).toHaveBeenCalledWith(200);
+    expect(findTierApply()).toHaveLength(0);
+  });
+});
