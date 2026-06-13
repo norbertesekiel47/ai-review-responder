@@ -132,6 +132,12 @@ export function PastDueExtensionPanel({
           <p className="mt-1 text-sm text-blue-800">
             Requires AAL2 and writes an account audit log entry.
           </p>
+          <p className="mt-1 text-sm text-blue-800">
+            Days are added <strong>on top of</strong> any grace the account still
+            has — for an account early in its window a full 7-day grant can extend
+            total access up to ~14 days from when it went past due. The exact new
+            deadline is shown below after you grant.
+          </p>
         </div>
       </div>
 
