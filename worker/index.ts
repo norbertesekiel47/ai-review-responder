@@ -8,6 +8,7 @@ import { Worker } from 'bullmq';
 import Redis from 'ioredis';
 import { getRedisOptions, QUEUE_NAMES, queues } from './queues';
 import { withJobLogContext } from './job-log-context';
+import { createGracefulShutdown } from './shutdown';
 import { startOutboxPoller, stopOutboxPoller } from './background/pollers/OutboxPoller';
 import { handleDemoGeneration } from './jobs/DemoGenerationWorker';
 import { handleResponseGeneration } from './jobs/ResponseGeneratorWorker';
@@ -382,61 +383,92 @@ async function main(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Graceful shutdown — close poller, workers, queues, server, DB
+// Graceful shutdown + last-resort crash net (deep-scan §5.4 + §2.7)
+//
+// `fatalExitInProgress` is declared FIRST so it is mutually safe with the
+// graceful shutdown handler: shutdown bails if a fatal exit is already taking
+// the process down (a crash owns the exit), while fatalExit keeps its own guard
+// and never bails on a graceful shutdown (it must still be able to force exit(1)
+// if shutdown itself wedges). The shutdown orchestration lives in ./shutdown.ts
+// (testable with injected fakes); this entry point only wires real deps.
 // ---------------------------------------------------------------------------
-async function shutdown(): Promise<void> {
-  console.log('Shutting down worker...');
-  stopOutboxPoller();
-  stopNotificationFailoverPoller();
-  stopWeeklySummaryScheduler();
-  stopArchivalPoller();
-  stopMonthlyImpactScheduler();
-  stopEngagementMonitorPoller();
-  stopRankingTrackingScheduler();
-  stopOnboardingDripScheduler();
-  stopCleanupAbandonedSignupsPoller();
-  stopEmailChannelReconcilePoller();
-  stopCancellationGracePoller();
-  stopStripeLocationsReconcilePoller();
-  stopZernioRecentReviewPoller();
-  stopAccountOffboardingAccessEndPoller();
-  stopAccountOffboardingPurgePoller();
-  stopAccountOffboardingPurgeReminderPoller();
-  stopAccountOffboardingReactivationResetPoller();
-  stopAccountOffboardingTeardownRetryPoller();
-  // Await the analytics drain so we never mark rows completed (or call PostHog)
-  // after the client is shut down and the DB pool is closed below.
-  await stopAnalyticsDispatchPoller();
-  await Promise.all(workers.map((w) => w.close()));
-  await Promise.all(Object.values(queues).map((q) => q.close()));
-  await app.close();
+let fatalExitInProgress = false;
 
-  const { shutdownAnalytics } = await import('../src/lib/analytics/posthog');
-  try {
+// Watchdog grace window before a wedged shutdown is force-exited. Sized inside
+// the Railway SIGTERM→SIGKILL window (default 25s); env-tunable per env-vars.md.
+const SHUTDOWN_GRACE_MS = ((): number => {
+  const raw = Number(process.env.WORKER_SHUTDOWN_GRACE_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 25_000;
+})();
+
+const shutdown = createGracefulShutdown({
+  graceMs: SHUTDOWN_GRACE_MS,
+  isFatalExitInProgress: () => fatalExitInProgress,
+  stopBackgroundLoops: () => {
+    stopOutboxPoller();
+    stopNotificationFailoverPoller();
+    stopWeeklySummaryScheduler();
+    stopArchivalPoller();
+    stopMonthlyImpactScheduler();
+    stopEngagementMonitorPoller();
+    stopRankingTrackingScheduler();
+    stopOnboardingDripScheduler();
+    stopCleanupAbandonedSignupsPoller();
+    stopEmailChannelReconcilePoller();
+    stopCancellationGracePoller();
+    stopStripeLocationsReconcilePoller();
+    stopZernioRecentReviewPoller();
+    stopAccountOffboardingAccessEndPoller();
+    stopAccountOffboardingPurgePoller();
+    stopAccountOffboardingPurgeReminderPoller();
+    stopAccountOffboardingReactivationResetPoller();
+    stopAccountOffboardingTeardownRetryPoller();
+  },
+  // Drain the DB-backed analytics dispatch before the DB pool closes, so we
+  // never mark rows completed (or call PostHog) after sql.end().
+  drainAnalyticsDispatch: () => stopAnalyticsDispatchPoller(),
+  flushAnalytics: async () => {
+    const { flushAnalytics } = await import('../src/lib/analytics/posthog');
+    await flushAnalytics();
+  },
+  flushSentry: async () => {
+    await Sentry.flush(2_000);
+  },
+  closeWorkers: async () => {
+    await Promise.all(workers.map((w) => w.close()));
+  },
+  closeQueues: async () => {
+    await Promise.all(Object.values(queues).map((q) => q.close()));
+  },
+  closeServer: () => app.close(),
+  shutdownAnalytics: async () => {
+    const { shutdownAnalytics } = await import('../src/lib/analytics/posthog');
     await shutdownAnalytics();
-  } catch (err) {
-    // Best-effort flush — never let analytics block the DB teardown below.
-    console.error('shutdownAnalytics failed during worker shutdown', err);
-  }
-
-  const { sql } = await import('../src/lib/db/server');
-  await sql.end();
-
-  process.exit(0);
-}
+  },
+  closeDb: async () => {
+    const { sql } = await import('../src/lib/db/server');
+    await sql.end();
+  },
+  exit: (code) => process.exit(code),
+  armWatchdog: (onTimeout, ms) => {
+    const timer = setTimeout(onTimeout, ms);
+    timer.unref();
+    return () => clearTimeout(timer);
+  },
+  log: (message) => console.log(message),
+  logError: (message, err) => (err === undefined ? console.error(message) : console.error(message, err)),
+});
 
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
-// ---------------------------------------------------------------------------
 // Last-resort crash net (deep-scan §2.7). BullMQ wraps job-handler rejections,
 // but a stray un-awaited promise in a poller/scheduler would otherwise be lost.
 // Deliberately minimal — capture to Sentry, one structured log line, exit(1)
 // after a short flush so Railway restarts the process. Does NOT call the
 // graceful shutdown() above: the process state is unknown after an uncaught
-// error, and shutdown re-entrancy hardening is tracked separately (§5.4).
-// ---------------------------------------------------------------------------
-let fatalExitInProgress = false;
+// error. shutdown() reads fatalExitInProgress and no-ops if a crash is already
+// in flight, so the two paths never both tear down.
 function fatalExit(crashKind: 'unhandledRejection' | 'uncaughtException', err: unknown): void {
   if (fatalExitInProgress) return;
   fatalExitInProgress = true;
