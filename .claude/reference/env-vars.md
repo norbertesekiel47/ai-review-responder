@@ -310,6 +310,7 @@ sent. Tuning: `ANALYTICS_DISPATCH_*` under Poller Tuning below.
 |---|---|
 | `WORKER_PUBLIC_URL` | Public URL of Railway worker. Required for Twilio webhook signature verification. Must match Twilio console exactly (scheme, host, no trailing slash). This is the single canonical worker-URL var — the older `WORKER_SERVICE_URL` was **retired** in PR #186 (deduped into `WORKER_PUBLIC_URL`). |
 | `PORT` | Worker Fastify port (default: `3001`) |
+| `WORKER_SHUTDOWN_GRACE_MS` | Optional, default `25_000`. Graceful-shutdown watchdog deadline (`worker/shutdown.ts`, deep-scan §5.4): if `worker.close()` wedges on a hung outbound call, the process force-exits within this window instead of waiting for Railway's SIGKILL (which would lose the analytics/Sentry flush). Size it **inside** the Railway SIGTERM→SIGKILL window (~30s); non-numeric/≤0 values fall back to `25_000`. |
 
 ---
 
