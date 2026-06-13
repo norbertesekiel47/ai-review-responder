@@ -90,6 +90,13 @@ async function fetchAccessToken(config: GoogleSheetConfig): Promise<string> {
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: body.toString(),
+    // Bound the OAuth token exchange on the user-facing /api/lead-intake path
+    // (deep-scan §5.5) — a hung Google connection must not block the response.
+    // The caller already try/catches this enrichment, so a TimeoutError is
+    // logged-and-swallowed (lead is persisted regardless). v1: timeout is
+    // sufficient; moving the append to the worker via an outbox row is the
+    // longer-term ADR-0001 option.
+    signal: AbortSignal.timeout(5_000),
   });
 
   if (!response.ok) {
@@ -144,6 +151,9 @@ export async function appendOwnerLeadToSheet(row: OwnerLeadSheetRow): Promise<vo
       majorDimension: 'ROWS',
       values: [toSheetValues(row)],
     }),
+    // Bound the Sheets append on the user-facing path (deep-scan §5.5); see the
+    // token-exchange fetch above for the failure-tolerance rationale.
+    signal: AbortSignal.timeout(5_000),
   });
 
   if (!response.ok) {
