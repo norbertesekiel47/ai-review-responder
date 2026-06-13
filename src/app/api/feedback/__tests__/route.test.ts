@@ -3,16 +3,23 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 
-const { mockVerifyFeedback, mockSqlCalls, mockBeginCallback } = vi.hoisted(() => ({
+const { mockVerifyFeedback, mockSqlCalls, mockBeginCallback, mockCheckRateLimit } = vi.hoisted(() => ({
   mockVerifyFeedback: vi.fn(),
   mockSqlCalls: [] as unknown[][],
   mockBeginCallback: { fn: null as ((tx: unknown) => Promise<void>) | null },
+  mockCheckRateLimit: vi.fn(),
 }));
 
 // ── Mock feedback-hmac ─────────────────────────────────────────────
 
 vi.mock('@/lib/shared/feedback-hmac', () => ({
   verifyFeedback: (...args: unknown[]) => mockVerifyFeedback(...args),
+}));
+
+// ── Mock rate-limit (§4.2) — allow by default; deny in dedicated tests ─
+
+vi.mock('@/lib/shared/rate-limit', () => ({
+  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
 }));
 
 // ── Mock DB ─────────────────────────────────────────────────────────
@@ -87,6 +94,7 @@ describe('GET /api/feedback', () => {
     mockSqlCalls.length = 0;
     mockBeginCallback.fn = null;
     mockVerifyFeedback.mockReturnValue(true);
+    mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 29 });
   });
 
   it('returns 200 HTML with form and hidden inputs for valid sig', async () => {
@@ -168,6 +176,7 @@ describe('POST /api/feedback', () => {
     mockSqlCalls.length = 0;
     mockBeginCallback.fn = null;
     mockVerifyFeedback.mockReturnValue(true);
+    mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 29 });
   });
 
   it('calls sql.begin for valid sig', async () => {
@@ -257,5 +266,50 @@ describe('POST /api/feedback', () => {
 
     expect(res.status).toBe(400);
     expect(mockSqlCalls).toHaveLength(0);
+  });
+});
+
+describe('per-IP rate limit (deep-scan §4.2)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSqlCalls.length = 0;
+    mockBeginCallback.fn = null;
+    mockVerifyFeedback.mockReturnValue(true);
+    mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 29 });
+  });
+
+  it('GET returns 429 (before validating params) when the limiter denies', async () => {
+    mockCheckRateLimit.mockResolvedValueOnce({ allowed: false, remaining: 0 });
+
+    const req = new NextRequest(makeGetUrl(), { headers: { 'x-forwarded-for': '203.0.113.9' } });
+    const res = await GET(req);
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('60');
+    expect(mockVerifyFeedback).not.toHaveBeenCalled();
+
+    // IP-based key shape, fail-open (no strict option) per §4.2.
+    const call = mockCheckRateLimit.mock.calls[0]!;
+    expect(call[0]).toBe('feedback:ip:203.0.113.9');
+    expect(call[1]).toBe(30);
+    expect(call[2]).toBe(60);
+    expect(call[3]).toBeUndefined();
+  });
+
+  it('POST returns 429 when the limiter denies (no DB work attempted)', async () => {
+    mockCheckRateLimit.mockResolvedValueOnce({ allowed: false, remaining: 0 });
+
+    const res = await POST(makePostRequest(defaultPostFields()));
+
+    expect(res.status).toBe(429);
+    expect(mockSqlCalls).toHaveLength(0);
+    expect(mockBeginCallback.fn).toBeNull();
+  });
+
+  it('GET proceeds past the limiter on allow (200 happy path)', async () => {
+    const res = await GET(makeGetRequest());
+
+    expect(res.status).toBe(200);
+    expect(mockCheckRateLimit).toHaveBeenCalledTimes(1);
   });
 });

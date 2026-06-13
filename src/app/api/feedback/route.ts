@@ -4,6 +4,8 @@ import { sql, jsonb } from '@/lib/db/server';
 import { verifyFeedback } from '@/lib/shared/feedback-hmac';
 import type { EngagementAlertPayload } from '@/lib/shared/worker-types';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { getIpKey } from '@/lib/shared/request-ip';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +14,31 @@ type Rating = (typeof VALID_RATINGS)[number];
 
 const WEEK_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_COMMENT_LENGTH = 1000;
+
+// Per-IP limiter shared by GET (renders the confirm form) and POST (writes the
+// satisfaction row + maybe enqueues an alert). The link is HMAC-signed, so this
+// guards against a signed link being replayed to drive DB load — it is not an
+// auth gate, so fail-open (the default) is correct: an Upstash blip must not
+// block legitimate owner feedback.
+const RATE_LIMIT_MAX_REQUESTS = 30;
+const RATE_LIMIT_WINDOW_SECONDS = 60;
+
+async function rateLimitResponse(request: NextRequest): Promise<NextResponse | null> {
+  const { allowed } = await checkRateLimit(
+    getIpKey(request, 'feedback'),
+    RATE_LIMIT_MAX_REQUESTS,
+    RATE_LIMIT_WINDOW_SECONDS,
+  );
+  if (allowed) return null;
+  return new NextResponse('Too many requests — please try again in a minute.', {
+    status: 429,
+    headers: {
+      'Content-Type': 'text/plain',
+      'Retry-After': String(RATE_LIMIT_WINDOW_SECONDS),
+      ...NO_STORE_HEADERS,
+    },
+  });
+}
 
 const RATING_LABELS: Record<Rating, string> = {
   great: 'Great',
@@ -56,6 +83,9 @@ function validateParams(
 // ── GET — render confirmation form (never writes to DB) ─────────────
 
 export async function GET(request: NextRequest) {
+  const limited = await rateLimitResponse(request);
+  if (limited) return limited;
+
   const url = request.nextUrl;
   const result = validateParams(
     url.searchParams.get('business_id'),
@@ -122,6 +152,9 @@ export async function GET(request: NextRequest) {
 // ── POST — persist feedback + optionally queue alert ────────────────
 
 export async function POST(request: NextRequest) {
+  const limited = await rateLimitResponse(request);
+  if (limited) return limited;
+
   let formData: FormData;
   try {
     formData = await request.formData();

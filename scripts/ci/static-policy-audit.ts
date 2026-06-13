@@ -3,7 +3,7 @@ import { join, resolve, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 /**
- * Enforces two CLAUDE.md architecture invariants that are otherwise pure
+ * Enforces CLAUDE.md architecture invariants that are otherwise pure
  * developer discipline (no type system or framework catches them):
  *
  *   #10 — Use Node.js native crypto. The `crypto-js` package must never appear
@@ -11,8 +11,13 @@ import { pathToFileURL } from 'node:url';
  *   #13 — Feature flags are server-authoritative. The browser must not learn
  *         flag state from a `NEXT_PUBLIC_*` env var, so every `NEXT_PUBLIC_`
  *         read in code must be on an explicit allowlist of browser-safe values.
- *   Server-owned policy/lifecycle rows must not be read or written directly
- *         by client components through Supabase.
+ *   #14 — Server-owned policy/lifecycle rows must not be read or written
+ *         directly by client components through Supabase.
+ *    §  — A `'use client'` component must not import `@/lib/db/server`; that
+ *         would bundle DATABASE_POOL_URL / SUPABASE_SERVICE_KEY into the browser.
+ *         The runtime `server-only` tripwire cannot guard this module — the
+ *         Railway worker imports it under tsx and would crash on boot — so this
+ *         build-time check stands in (deep-scan §4.3).
  *
  * Whole-repo (src + worker + scripts), unlike `pnpm lint` which only covers
  * `src`. Adding a genuinely browser-safe public var is a deliberate one-line
@@ -39,7 +44,8 @@ const SELF = join('scripts', 'ci', 'static-policy-audit.ts');
 export type PolicyRule =
   | 'crypto-js'
   | 'next-public-allowlist'
-  | 'server-owned-table-browser-access';
+  | 'server-owned-table-browser-access'
+  | 'server-db-client-import';
 
 export interface PolicyFinding {
   file: string;
@@ -66,6 +72,18 @@ const SERVER_OWNED_BROWSER_FORBIDDEN_TABLE_PATTERNS =
     table,
     pattern: new RegExp(`\\b${table}\\b`),
   }));
+
+// Module specifier in a `from '…'` / `import('…')` / `require('…')` position.
+const MODULE_SPECIFIER_RE = /(?:from|import|require)\s*\(?\s*['"]([^'"]+)['"]/g;
+
+// True when a specifier resolves to the server-only DB module (`@/lib/db/server`
+// or any relative path ending in `lib/db/server` / `db/server`). Mirrors the
+// tenant-scope audit's `isDbServerImportSource` so the two stay in agreement.
+function isDbServerSpecifier(specifier: string): boolean {
+  return specifier === '@/lib/db/server'
+    || /(?:^|\/)(?:src\/)?lib\/db\/server$/.test(specifier)
+    || /(?:^|\/)db\/server$/.test(specifier);
+}
 
 /**
  * True only when `'use client'` is a genuine file-prologue directive — the
@@ -141,6 +159,23 @@ export function scanFile(file: string, text: string): PolicyFinding[] {
             `client components must not access ${table} directly; ` +
             'server-owned table reads/writes must flow through server routes',
         });
+      }
+
+      // A type-only import (`import type … from`) erases at build time and is
+      // harmless; everything else pulls runtime code (and its env secrets).
+      if (!/^\s*import\s+type\b/.test(lineText)) {
+        for (const match of lineText.matchAll(MODULE_SPECIFIER_RE)) {
+          if (!isDbServerSpecifier(match[1]!)) continue;
+          findings.push({
+            file,
+            line: i + 1,
+            rule: 'server-db-client-import',
+            detail:
+              'client components must not import @/lib/db/server (bundles ' +
+              'DATABASE_POOL_URL / SUPABASE_SERVICE_KEY into the browser); ' +
+              'DB access must flow through server routes',
+          });
+        }
       }
     }
   }
