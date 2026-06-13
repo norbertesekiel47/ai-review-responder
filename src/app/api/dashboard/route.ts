@@ -111,7 +111,7 @@ async function fetchPerLocationData(
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
     const paymentUrl = `${baseUrl}/onboarding/pay`;
     return jsonResponse({
-      subscriptionStatus: 'pending_payment',
+      subscriptionStatus: SubscriptionStatus.PENDING_PAYMENT,
       locationId,
       businessName: subRow.name,
       paymentUrl,
@@ -138,7 +138,7 @@ async function fetchPerLocationData(
       ? gracePeriodEnd > new Date()
       : true; // default to read access if we can't determine
     return jsonResponse({
-      subscriptionStatus: 'cancelled',
+      subscriptionStatus: SubscriptionStatus.CANCELLED,
       businessName: subRow.name,
       gracePeriodEndDate: gracePeriodEnd?.toISOString() ?? null,
       readAccess,
@@ -158,7 +158,7 @@ async function fetchPerLocationData(
     const data = await getActiveDashboardData(locationId);
     return jsonResponse({
       ...data,
-      subscriptionStatus: 'past_due',
+      subscriptionStatus: SubscriptionStatus.PAST_DUE,
       accountId,
       businessName: subRow.name,
       billingPortalUrl,
@@ -209,7 +209,7 @@ async function aggregateSubscriptionResponse(
 ): Promise<NextResponse | null> {
   if (accountRow.subscription_status === SubscriptionStatus.PENDING_PAYMENT) {
     return jsonResponse({
-      subscriptionStatus: 'pending_payment',
+      subscriptionStatus: SubscriptionStatus.PENDING_PAYMENT,
       businessName: 'Account',
       paymentUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/onboarding/pay`,
     });
@@ -231,7 +231,7 @@ async function aggregateSubscriptionResponse(
       ? gracePeriodEnd > new Date()
       : true;
     return jsonResponse({
-      subscriptionStatus: 'cancelled',
+      subscriptionStatus: SubscriptionStatus.CANCELLED,
       businessName: 'Account',
       gracePeriodEndDate: gracePeriodEnd?.toISOString() ?? null,
       readAccess,
@@ -251,7 +251,7 @@ async function aggregateSubscriptionResponse(
     const data = await getAggregateDashboardData(accountId);
     return jsonResponse({
       ...data,
-      subscriptionStatus: 'past_due',
+      subscriptionStatus: SubscriptionStatus.PAST_DUE,
       businessName: 'Account',
       accountId,
       billingPortalUrl,

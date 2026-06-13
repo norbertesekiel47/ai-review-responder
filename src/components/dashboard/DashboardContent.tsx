@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { redirect } from 'next/navigation';
 import type { DashboardDataActive, DashboardDataPastDue, AggregateDashboardData } from '@/lib/dashboard/types';
 import type { DashboardOrAggregate } from '@/hooks/useDashboardData';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   ActivePendingBusinessScreen,
 } from '@/components/dashboard/account-state/AccountStateScreens';
@@ -216,7 +217,7 @@ function DashboardOperationalContent() {
     );
   }
 
-  if (data.subscriptionStatus === 'pending_payment') {
+  if (data.subscriptionStatus === SubscriptionStatus.PENDING_PAYMENT) {
     return (
       <>
         <TopBar title="Dashboard" />
@@ -228,7 +229,7 @@ function DashboardOperationalContent() {
   }
 
   // VAL-CROSS-011: Cancelled account — read-only banner, write actions disabled
-  if (data.subscriptionStatus === 'cancelled') {
+  if (data.subscriptionStatus === SubscriptionStatus.CANCELLED) {
     const cancelledData = data as import('@/lib/dashboard/types').DashboardDataCancelled;
     return (
       <>
@@ -259,7 +260,7 @@ function DashboardOperationalContent() {
 
   // Active per-location view (same as before redesign)
   const pastDueData: DashboardDataPastDue | null =
-    data.subscriptionStatus === 'past_due' ? data : null;
+    data.subscriptionStatus === SubscriptionStatus.PAST_DUE ? data : null;
   const activeData: DashboardDataActive = data as DashboardDataActive;
   const { valueSummary, reviewVelocity, ranking, recentReviews, latestBrief, zernioConnection, business } = activeData;
   const pending = recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval').length;
@@ -357,7 +358,7 @@ function computePendingCount(data: DashboardOrAggregate | null): number {
       (r) => (r.responseStatus ?? r.status) === 'pending_approval',
     ).length;
   }
-  if (data.subscriptionStatus === undefined || data.subscriptionStatus === 'past_due') {
+  if (data.subscriptionStatus === undefined || data.subscriptionStatus === SubscriptionStatus.PAST_DUE) {
     return data.recentReviews.filter(
       (r) => (r.responseStatus ?? r.status) === 'pending_approval',
     ).length;

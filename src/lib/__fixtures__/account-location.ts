@@ -7,7 +7,7 @@
 // shape of database rows, suitable for mocking `sql` return values.
 
 import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
-import type { SubscriptionStatusValue } from '@/lib/shared/subscription-status';
+import { SubscriptionStatus, type SubscriptionStatusValue } from '@/lib/shared/subscription-status';
 
 // ── Account row factory ────────────────────────────────────────────────────
 
@@ -44,7 +44,7 @@ export function createAccountRow(
 ): AccountRow {
   const id = overrides.id ?? nextAccountId();
   const tier = overrides.subscription_tier ?? 'standard';
-  const status = overrides.subscription_status ?? 'active';
+  const status = overrides.subscription_status ?? SubscriptionStatus.ACTIVE;
 
   // Derive quota fields from tier config when not explicitly provided
   let locations_included = overrides.locations_included;

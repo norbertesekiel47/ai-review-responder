@@ -92,13 +92,13 @@ export async function processCheckoutSessionCompleted(session: Stripe.Checkout.S
     const updateAcct = await tx`
       UPDATE accounts
       SET
-        subscription_status = 'active',
+        subscription_status = 'active',  -- enum: SubscriptionStatus.ACTIVE
         stripe_customer_id = ${customerId},
         stripe_subscription_id = ${subscriptionId},
         subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
         updated_at = NOW()
       WHERE id = ${accountId!}::uuid
-        AND subscription_status IN ('pending_payment', 'past_due')
+        AND subscription_status IN ('pending_payment', 'past_due')  -- enum: SubscriptionStatus.PENDING_PAYMENT / .PAST_DUE
     `;
 
     if (updateAcct.count > 0) {
@@ -132,7 +132,7 @@ export async function processCheckoutSessionCompleted(session: Stripe.Checkout.S
     await tx`
       UPDATE businesses
       SET
-        subscription_status = 'active',
+        subscription_status = 'active',  -- enum: SubscriptionStatus.ACTIVE
         stripe_customer_id = ${customerId},
         stripe_subscription_id = ${subscriptionId},
         subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
@@ -140,7 +140,7 @@ export async function processCheckoutSessionCompleted(session: Stripe.Checkout.S
       WHERE account_id = ${accountId!}::uuid
         AND is_primary = TRUE
         AND archived_at IS NULL
-        AND subscription_status IN ('pending_payment', 'past_due')
+        AND subscription_status IN ('pending_payment', 'past_due')  -- enum: SubscriptionStatus.PENDING_PAYMENT / .PAST_DUE
     `;
   });
 

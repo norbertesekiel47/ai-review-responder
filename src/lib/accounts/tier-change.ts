@@ -9,6 +9,7 @@
 
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   TIER_CONFIG,
   type SubscriptionTierValue,
@@ -73,7 +74,7 @@ export async function validateTierChange(
   }
 
   // Only active subscriptions can change tiers
-  if (account.subscription_status !== 'active') {
+  if (account.subscription_status !== SubscriptionStatus.ACTIVE) {
     return { allowed: false, reason: 'subscription_inactive' };
   }
 

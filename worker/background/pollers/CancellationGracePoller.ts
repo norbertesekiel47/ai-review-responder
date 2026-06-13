@@ -43,7 +43,7 @@ async function runCancellationGrace(): Promise<void> {
       SELECT a.id AS account_id, COUNT(b.id) AS cancelled_count
       FROM accounts a
       JOIN businesses b ON b.account_id = a.id
-      WHERE a.subscription_status = 'cancelled'
+      WHERE a.subscription_status = 'cancelled'  -- enum: SubscriptionStatus.CANCELLED
         AND a.cancelled_at IS NOT NULL
         AND a.cancelled_at < NOW() - INTERVAL '30 days'
         AND b.archived_at IS NULL

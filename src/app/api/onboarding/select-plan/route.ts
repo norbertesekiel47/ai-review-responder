@@ -246,7 +246,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       `[select-plan] UPDATE matched 0 rows for business ${businessId} despite pending_payment check passing — race_lost branch`,
     );
     return NextResponse.json(
-      { error: 'subscription_not_pending', subscriptionStatus: 'active' },
+      { error: 'subscription_not_pending', subscriptionStatus: SubscriptionStatus.ACTIVE },
       { status: 409, headers: NO_STORE },
     );
   }

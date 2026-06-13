@@ -6,6 +6,7 @@ import { LazyMotion, m, domAnimation } from 'motion/react';
 import { buttonMotion } from '../_shared/field-styles';
 
 import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 import { getOnboardingPlans } from './plan-options';
 
@@ -35,7 +36,7 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
           return;
         }
         const body = await res.json().catch(() => ({}));
-        if (res.status === 409 && body.subscriptionStatus === 'active') {
+        if (res.status === 409 && body.subscriptionStatus === SubscriptionStatus.ACTIVE) {
           // Hard navigation so the dashboard loads with fresh server state.
           // eslint-disable-next-line react-hooks/immutability
           window.location.href = '/dashboard';

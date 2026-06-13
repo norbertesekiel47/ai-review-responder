@@ -24,6 +24,7 @@ import { TIER_CONFIG, type SubscriptionTierValue } from '../../../src/lib/accoun
 import { overagePriceIdForTier } from '../../../src/lib/payments/price-tier-map';
 import { computeOverageQuantity } from '../../../src/lib/accounts/quota';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { classifyStripeOverageError } from './stripe-overage-error';
 import { syncStripeOverageItem, type OverageSyncOutcome } from './overage-sync';
 
@@ -76,7 +77,7 @@ export async function handleUpdateStripeOverage(
   }
 
   // Skip if subscription is not active (cancelled, pending, etc.)
-  if (account.subscription_status !== 'active') {
+  if (account.subscription_status !== SubscriptionStatus.ACTIVE) {
     logger.log(`Account ${account_id} subscription status is ${account.subscription_status} — skipping overage update`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;

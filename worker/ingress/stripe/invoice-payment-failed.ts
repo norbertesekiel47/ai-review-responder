@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
+import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { LOG_PREFIX, extractCustomerId } from './shared';
 
 export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
@@ -30,10 +31,10 @@ export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Prom
     await tx`SELECT pg_advisory_xact_lock(hashtext(${acctRow.id + ':status_change'}))`;
 
     // Idempotent: only flip active → past_due (skip if already past_due or other status)
-    if (acctRow.subscription_status === 'active') {
+    if (acctRow.subscription_status === SubscriptionStatus.ACTIVE) {
       await tx`
         UPDATE accounts
-        SET subscription_status = 'past_due',
+        SET subscription_status = 'past_due',  -- enum: SubscriptionStatus.PAST_DUE
             past_due_at = NOW(),
             updated_at = NOW()
         WHERE id = ${acctRow.id}::uuid
@@ -54,9 +55,9 @@ export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Prom
       // Also update businesses deprecated column
       await tx`
         UPDATE businesses
-        SET subscription_status = 'past_due', updated_at = NOW()
+        SET subscription_status = 'past_due', updated_at = NOW()  -- enum: SubscriptionStatus.PAST_DUE
         WHERE account_id = ${acctRow.id}::uuid
-          AND subscription_status = 'active'
+          AND subscription_status = 'active'  -- enum: SubscriptionStatus.ACTIVE
       `;
 
       console.log(`${LOG_PREFIX} Account ${acctRow.id} marked past_due (customer=${customerId})`);

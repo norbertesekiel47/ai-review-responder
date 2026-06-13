@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
+import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { LOG_PREFIX, extractCustomerId, maybeEnqueueBackfillResume } from './shared';
 import { enqueueStripeOverageRecompute } from '../../../src/lib/shared/job-outbox-helpers';
 
@@ -26,13 +27,13 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
     `;
 
     for (const acct of accounts) {
-      if (acct.subscription_status !== 'past_due') continue;
+      if (acct.subscription_status !== SubscriptionStatus.PAST_DUE) continue;
 
       await tx`SELECT pg_advisory_xact_lock(hashtext(${acct.id + ':status_change'}))`;
 
       await tx`
         UPDATE accounts
-        SET subscription_status = 'active',
+        SET subscription_status = 'active',  -- enum: SubscriptionStatus.ACTIVE
             past_due_at = NULL,
             updated_at = NOW()
         WHERE id = ${acct.id}::uuid
@@ -53,9 +54,9 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
       // Also update businesses deprecated column
       await tx`
         UPDATE businesses
-        SET subscription_status = 'active', updated_at = NOW()
+        SET subscription_status = 'active', updated_at = NOW()  -- enum: SubscriptionStatus.ACTIVE
         WHERE account_id = ${acct.id}::uuid
-          AND subscription_status = 'past_due'
+          AND subscription_status = 'past_due'  -- enum: SubscriptionStatus.PAST_DUE
       `;
 
       // Recompute Stripe overage quantity after recovery — the worker is

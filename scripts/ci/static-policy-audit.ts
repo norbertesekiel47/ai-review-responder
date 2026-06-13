@@ -45,7 +45,8 @@ export type PolicyRule =
   | 'crypto-js'
   | 'next-public-allowlist'
   | 'server-owned-table-browser-access'
-  | 'server-db-client-import';
+  | 'server-db-client-import'
+  | 'subscription-status-literal';
 
 export interface PolicyFinding {
   file: string;
@@ -116,11 +117,76 @@ function stripLeadingWhitespaceAndComments(text: string): string {
   return remaining;
 }
 
+// ── Subscription-status bare-literal guard (deep-scan §7.1; repworth.md "Never do") ──
+// Subscription status values must use the `SubscriptionStatus` enum
+// (src/lib/shared/subscription-status.ts), never bare string literals. Detection
+// is LINE-SCOPED to avoid false-positives on OTHER status domains (Zernio
+// connection status, review status, job/outbox status): a bare status literal is
+// flagged ONLY on a non-comment line that ALSO names the `subscription_status`
+// column or `subscriptionStatus` field. The bounded quotes deliberately exclude
+// synthetic supersets like 'active_pending_business' / 'pending_payment_admin_handoff'.
+// SQL predicates (the enum can't be imported into a postgres.js sql`` template,
+// so they keep the literal + a `-- enum:` reference comment) and the dashboard
+// view-model discriminant union are the explicit, reviewed allowlist below; the
+// carve-out count is printed so growth stays visible.
+const SUBSCRIPTION_STATUS_FIELD = /subscription[_]?[Ss]tatus/;
+const SUBSCRIPTION_STATUS_LITERAL = /['"](?:active|past_due|cancelled|pending_payment)['"]/;
+
+// file:line sites that legitimately keep a bare literal. Each is either a SQL
+// predicate inside a postgres.js sql`` template (annotated with a `-- enum:`
+// reference comment) or a type-level discriminant in the dashboard view-model
+// union (which mixes enum statuses with synthetic states). Adding a new entry is
+// a deliberate, reviewed edit — that review is the point.
+export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Set([
+  // ── SQL predicates inside postgres.js sql`` templates (enum can't be imported;
+  //    each keeps the literal + a trailing `-- enum: SubscriptionStatus.X` comment) ──
+  'src/app/api/admin/billing/grant-extension/route.ts:70',
+  'src/app/api/admin/billing/grant-extension/route.ts:108',
+  'src/lib/admin/margin-service.ts:135',
+  'worker/background/pollers/CancellationGracePoller.ts:46',
+  'worker/background/pollers/EmailChannelReconcilePoller.ts:113',
+  'worker/background/pollers/EngagementMonitorPoller.ts:90',
+  'worker/background/schedulers/MonthlyImpactScheduler.ts:45',
+  'worker/background/schedulers/OnboardingDripScheduler.ts:39',
+  'worker/background/schedulers/RankingTrackingScheduler.ts:59',
+  'worker/background/schedulers/WeeklySummaryScheduler.ts:58',
+  'worker/ingress/stripe/checkout-completed.ts:95',
+  'worker/ingress/stripe/checkout-completed.ts:101',
+  'worker/ingress/stripe/checkout-completed.ts:135',
+  'worker/ingress/stripe/checkout-completed.ts:143',
+  'worker/ingress/stripe/invoice-paid.ts:36',
+  'worker/ingress/stripe/invoice-paid.ts:57',
+  'worker/ingress/stripe/invoice-paid.ts:59',
+  'worker/ingress/stripe/invoice-payment-failed.ts:37',
+  'worker/ingress/stripe/invoice-payment-failed.ts:58',
+  'worker/ingress/stripe/invoice-payment-failed.ts:60',
+  'worker/ingress/stripe/shared.ts:88',
+  'worker/ingress/stripe/subscription-deleted.ts:83',
+  'worker/ingress/stripe/subscription-deleted.ts:105',
+  // ── dashboard view-model discriminant union (type-level literals; the union
+  //    mixes enum statuses with synthetic states like 'active_pending_business') ──
+  'src/lib/dashboard/types.ts:67',
+  'src/lib/dashboard/types.ts:86',
+  'src/lib/dashboard/types.ts:95',
+  'src/lib/dashboard/types.ts:214',
+]);
+
+/** True when the trimmed line begins a line/block comment (so a status literal
+ * mentioned in prose is not mistaken for code). */
+function isCommentLine(line: string): boolean {
+  const trimmed = line.trimStart();
+  return trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*');
+}
+
 /** Scan one file's text for both forbidden patterns. Pure — unit-tested. */
 export function scanFile(file: string, text: string): PolicyFinding[] {
   const findings: PolicyFinding[] = [];
   const lines = text.split('\n');
   const isClientComponent = isClientComponentFile(text);
+  // The subscription-status enum rule targets application code only. `scripts/`
+  // (CI tooling, audit allowlist DATA that names real queries) legitimately
+  // carries status literals as data and cannot meaningfully import the enum.
+  const inAppCode = /^(?:src|worker)[/\\]/.test(file);
   for (let i = 0; i < lines.length; i++) {
     const lineText = lines[i]!;
 
@@ -146,6 +212,25 @@ export function scanFile(file: string, text: string): PolicyFinding[] {
             'browser-safe and not a flag, add it to ALLOWED_NEXT_PUBLIC.',
         });
       }
+    }
+
+    if (
+      inAppCode &&
+      !isCommentLine(lineText) &&
+      SUBSCRIPTION_STATUS_FIELD.test(lineText) &&
+      SUBSCRIPTION_STATUS_LITERAL.test(lineText) &&
+      !SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has(`${file}:${i + 1}`)
+    ) {
+      findings.push({
+        file,
+        line: i + 1,
+        rule: 'subscription-status-literal',
+        detail:
+          'bare subscription-status string literal — use the SubscriptionStatus ' +
+          'enum (src/lib/shared/subscription-status.ts), not a raw string. If this ' +
+          'is a SQL predicate or a type-level discriminant that cannot import the ' +
+          'enum, add file:line to SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.',
+      });
     }
 
     if (isClientComponent) {
@@ -241,6 +326,10 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   console.log(`static-policy-audit: passed (${files.length} files scanned)`);
+  console.log(
+    'static-policy-audit: subscription-status literal carve-outs allowlisted: ' +
+    `${SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.size}`,
+  );
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {

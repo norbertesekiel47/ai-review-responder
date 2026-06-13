@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { AggregateDashboardData } from '@/lib/dashboard/types';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { AggregateKpiCards } from '@/components/dashboard/aggregate/AggregateKpiCards';
 import { AggregateReviewsCard } from '@/components/dashboard/aggregate/AggregateReviewsCard';
@@ -63,7 +64,7 @@ export function AggregateDashboardContent({ data, refresh }: Props) {
     data.recentReviews.length === 0 &&
     data.ranking === null;
 
-  const subtitle = data.subscriptionStatus === 'past_due'
+  const subtitle = data.subscriptionStatus === SubscriptionStatus.PAST_DUE
     ? 'Payment overdue — please update your payment method'
     : `Welcome back — here's what's new across your ${data.activeLocationCount} location${data.activeLocationCount !== 1 ? 's' : ''}.`;
 
@@ -71,7 +72,7 @@ export function AggregateDashboardContent({ data, refresh }: Props) {
     <>
       <TopBar title="Dashboard" subtitle={subtitle} showLive refresh={refresh} />
       <div className="content">
-        {data.subscriptionStatus === 'past_due' && (
+        {data.subscriptionStatus === SubscriptionStatus.PAST_DUE && (
           <div className="section-enter section-enter-1">
             <PastDueBanner
               billingPortalUrl={data.billingPortalUrl ?? null}

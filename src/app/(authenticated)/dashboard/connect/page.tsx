@@ -8,6 +8,7 @@ import { useLocationScope } from '@/contexts/LocationContext';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import type { DashboardDataActive } from '@/lib/dashboard/types';
 import type { LocationId } from '@/lib/shared/ids';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 // Console text tokens reused across the connect views (no warm tones).
 const MUTED = { color: 'var(--rw-app-text-muted)' } as const;
@@ -161,7 +162,7 @@ function ConnectPageInner() {
 
   const zernio = data.zernioConnection;
   const isReadOnly =
-    data.subscriptionStatus === 'past_due' && 'isReadOnly' in data && data.isReadOnly === true;
+    data.subscriptionStatus === SubscriptionStatus.PAST_DUE && 'isReadOnly' in data && data.isReadOnly === true;
 
   // Active: redirect already issued in effect; render nothing to avoid flash.
   if (zernio.status === 'active') return null;

@@ -9,6 +9,7 @@ import type { TrackRankingPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
 import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
+import { SubscriptionStatus } from '../../src/lib/shared/subscription-status';
 import { getLocationContext } from '../../src/lib/db/account-guard';
 
 type RankingLogger = ReturnType<typeof createWorkerLogger>;
@@ -136,7 +137,7 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
   // ── Step 2: Strict active-only guard (ranking costs real SerpAPI spend) ──
   // Unlike notification/summary workers that use checkSubscription (allows past_due grace),
   // ranking requires strictly active — no paid API calls for non-paying businesses.
-  if (ctx.account.subscriptionStatus !== 'active') {
+  if (ctx.account.subscriptionStatus !== SubscriptionStatus.ACTIVE) {
     logger.log(`Business ${businessId} skipped: subscription_status=${ctx.account.subscriptionStatus}`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { scanFile, auditPackageJson, ALLOWED_NEXT_PUBLIC } from '../static-policy-audit';
+import {
+  scanFile,
+  auditPackageJson,
+  ALLOWED_NEXT_PUBLIC,
+  SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST,
+} from '../static-policy-audit';
 
 describe('scanFile — crypto-js (invariant #10)', () => {
   it('flags a named ESM import of crypto-js', () => {
@@ -178,6 +183,64 @@ describe('scanFile — server-only DB module client import (deep-scan §4.3)', (
       ["'use client';", "import { useState } from 'react';"].join('\n'),
     );
     expect(findings).toHaveLength(0);
+  });
+});
+
+describe('scanFile — subscription-status bare literal (deep-scan §7.1; repworth.md)', () => {
+  it('flags a camelCase field compared to a bare status literal', () => {
+    const findings = scanFile('src/lib/x.ts', "if (account.subscriptionStatus === 'active') {}");
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe('subscription-status-literal');
+    expect(findings[0]!.detail).toContain('SubscriptionStatus');
+  });
+
+  it('flags a snake_case column compared to a bare status literal', () => {
+    const findings = scanFile('worker/jobs/x.ts', "if (row.subscription_status !== 'cancelled') {}");
+    expect(findings.some((f) => f.rule === 'subscription-status-literal')).toBe(true);
+  });
+
+  it('does NOT flag another status domain on a line without a subscription field', () => {
+    // The trap: connection / review status literals must never be migrated.
+    expect(scanFile('src/x.ts', "if (conn.status === 'active') return null;")).toHaveLength(0);
+    expect(scanFile('src/x.ts', "const open = review.status === 'pending_approval';")).toHaveLength(0);
+  });
+
+  it('does NOT flag synthetic discriminant supersets (bounded quotes)', () => {
+    // 'active_pending_business' / 'pending_payment_admin_handoff' are dashboard
+    // view-model states, not the enum; the closing-quote anchor excludes them.
+    expect(
+      scanFile('src/x.ts', "if (data.subscriptionStatus === 'active_pending_business') {}"),
+    ).toHaveLength(0);
+    expect(
+      scanFile('src/x.ts', "if (data.subscriptionStatus === 'pending_payment_admin_handoff') {}"),
+    ).toHaveLength(0);
+  });
+
+  it('does NOT flag a status literal mentioned in a comment line', () => {
+    expect(scanFile('src/x.ts', "// historically subscription_status was 'active'")).toHaveLength(0);
+    expect(scanFile('src/x.ts', " * sets subscription_status = 'past_due' on failure")).toHaveLength(0);
+  });
+
+  it('does NOT flag in scripts/ (rule is application-code scoped: src/ + worker/)', () => {
+    // scripts/ allowlist DATA legitimately names real queries with status literals.
+    expect(
+      scanFile('scripts/ci/tenant-scope-allowlist.ts', "subscription_status IN ('active', 'past_due')"),
+    ).toHaveLength(0);
+  });
+
+  it('honors the allowlist line-precisely (allowlisted line passes; same file, other line fails)', () => {
+    const literal = "  subscriptionStatus: 'past_due';";
+    // dashboard/types.ts:67 is an allowlisted type-discriminant — land the literal on line 67.
+    const onAllowlistedLine = Array(66).fill('').join('\n') + '\n' + literal;
+    expect(scanFile('src/lib/dashboard/types.ts', onAllowlistedLine)).toHaveLength(0);
+    // Same file, line 1 (NOT allowlisted) — the carve-out is line-precise, not file-wide.
+    expect(scanFile('src/lib/dashboard/types.ts', literal)).toHaveLength(1);
+  });
+
+  it('exposes a non-empty, reviewed carve-out allowlist', () => {
+    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.size).toBeGreaterThan(0);
+    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('worker/ingress/stripe/shared.ts:88')).toBe(true);
+    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('src/lib/dashboard/types.ts:67')).toBe(true);
   });
 });
 
