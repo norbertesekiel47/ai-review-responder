@@ -223,6 +223,8 @@ _(scanned directly — not delegated)_
 _(delegated scan, severities recalibrated against design intent)_
 
 ### 🟠 2.1 — Background schedulers/pollers log via `console.*`, not `createWorkerLogger`
+
+> **Status: ✅ Resolved** in PR #299 (2026-06-12) — all remaining `console.*` calls in `worker/background/{pollers,schedulers}` (~113 across 18 files) migrated to `createWorkerLogger`; dynamic values moved into sanitized object args, helpers receive the threaded `WorkerLogger`, catch boilerplate deduplicated via `logUnhandledPollError`/`toError` in `logger.ts`. Zero `console.*` left in the tree.
 - **Location:** `worker/background/schedulers/*.ts`, `worker/background/pollers/*.ts`
   (e.g. `MonthlyImpactScheduler.ts:24`, `OnboardingDripScheduler.ts:25`,
   `WeeklySummaryScheduler.ts:92`, `CleanupAbandonedSignupsPoller.ts:43,73,149`,
@@ -238,6 +240,8 @@ _(delegated scan, severities recalibrated against design intent)_
   consistency/queryability gap, not data loss.)
 
 ### 🟡 2.2 — Caught errors in route handlers go to `console.error`, bypassing Sentry
+
+> **Status: ✅ Resolved** in PR #300 (2026-06-12) — shared `reportCaughtError(endpoint, err, context)` helper (`src/lib/shared/report-caught-error.ts`: `Sentry.captureException` tagged by endpoint + one structured log line) wired into every caught→logged→swallowed catch across `src/app/api` (~70 sites); log-then-rethrow paths left to `onRequestError`. Context objects carry IDs/failure codes only, never PII.
 - **Location:** e.g. `src/app/api/auth/signup/route.ts:42`,
   `src/app/api/auth/verify-otp/route.ts:98`,
   `src/app/api/auth/mfa/challenge/route.ts:69`, `src/app/api/settings/route.ts:109`,
@@ -256,6 +260,8 @@ _(delegated scan, severities recalibrated against design intent)_
   contain PII.
 
 ### 🟡 2.3 — No custom `loading.tsx`, `not-found.tsx`; error boundaries on only 3 segments
+
+> **Status: ✅ Resolved** in PR #301 (2026-06-12) — `error.tsx` for `(authenticated)/dashboard`, `(authenticated)/settings` (shared `SegmentErrorState` component) and `admin` (first boundary in that tree); `loading.tsx` for dashboard, past-replies, and admin lists; branded root `not-found.tsx` (island layout, brand tokens).
 - **Location:** `src/app/**` — `loading.tsx`: **0**, `not-found.tsx`: **0**,
   `error.tsx`: only `(public)/login`, `(public)/signup`, `onboarding`
   (+ `global-error.tsx`). 57 `page.tsx` total.
@@ -269,6 +275,8 @@ _(delegated scan, severities recalibrated against design intent)_
   (dashboard, past-replies, admin lists); add a branded `not-found.tsx`.
 
 ### 🟡 2.4 — SEO: only 1 of 57 pages exports `metadata`; no `robots.ts`/`sitemap.ts`
+
+> **Status: ✅ Resolved** in PR #301 (2026-06-12) — `robots.ts` (disallows `/admin` `/api` `/auth` `/approve` + authed surfaces + tokenized `/demo`) and `sitemap.ts` (canonical public marketing + legal pages). Per-page `metadata` on `(public)` pages had already landed since this baseline — every public page exports it.
 - **Location:** `src/app/**` — 1 file exports `metadata`/`generateMetadata`;
   **no `robots.ts`, `sitemap.ts`, or `manifest.ts`.**
 - **Evidence:** Public marketing/legal/pricing/feature pages inherit only the root
@@ -280,6 +288,8 @@ _(delegated scan, severities recalibrated against design intent)_
   `metadata` exports with title/description/OpenGraph to all public pages.
 
 ### 🟡 2.5 — `/api/health` is liveness-only; no readiness (deep) check exists
+
+> **Status: ✅ Resolved** in PR #302 (2026-06-12) — web `GET /api/health/ready` (Postgres `SELECT 1` + Upstash PING) and worker `GET /ready` (Postgres + both Redis instances) via shared `src/lib/shared/readiness.ts` (2s per-probe timeout, 503 + per-dep status). `/api/health` untouched (liveness by contract). Verified live incl. the 503 path with a dead cache Redis.
 - **Location:** `src/app/api/health/route.ts`
 - **Evidence calibration:** The agent flagged "health returns 200 without checking
   deps" as Critical, but the route is **intentionally dependency-light by
@@ -305,6 +315,8 @@ _(delegated scan, severities recalibrated against design intent)_
   `src/instrumentation-client.ts`.
 
 ### 🟢 2.7 — Worker has no `process.on('unhandledRejection'|'uncaughtException')` net
+
+> **Status: ✅ Resolved** in PR #299 (2026-06-12) — re-entrancy-guarded `unhandledRejection`/`uncaughtException` handlers in `worker/index.ts`: Sentry capture + one structured log line + `exit(1)` after a short flush. Deliberately does not re-enter graceful `shutdown()` (§5.4 stays open).
 - **Location:** `worker/index.ts`
 - **Evidence:** BullMQ wraps job-handler rejections, so most are caught; but a
   stray un-awaited promise rejection in a poller/scheduler would be lost. A
@@ -653,6 +665,8 @@ _(scanned directly — lanes no agent owned)_
   org-default row created under one location is read/written by `account_id`.
 
 ### 🟢 8.3 — Rate-limiter fail-open default — confirm coverage on all auth surfaces
+
+> **Status: ✅ Resolved** in PR #300 (2026-06-12) — the fail-open branch now calls `reportCaughtError` (Sentry + structured log, limiter name only — keys can embed IPs), so a degraded limiter is visible. Strict coverage confirmed during the same sweep: signup, verify-otp, mfa/challenge, forgot-password, reset-password, resend-confirmation, login-attempt, and finish-signup all carry a `strict: true` failure catch returning 503.
 - **Location:** `src/lib/shared/rate-limit.ts:30,67-73`
 - **Evidence calibration:** Default is **fail-open** (Redis down → allow) "suitable
   for user-facing defense-in-depth," with an opt-in **strict** (fail-closed, 503)
