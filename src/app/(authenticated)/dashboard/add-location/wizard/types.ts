@@ -30,6 +30,17 @@ export interface ExistingLocationVoice {
   sampleResponses: string[];
 }
 
+/** Raw shape of a location item from `GET /api/settings/voice`. Optional/nullable
+ * fields are defaulted (`?? ''` / `?? []`) when mapped into ExistingLocationVoice. */
+export interface VoiceConfigApiLocation {
+  locationId: string;
+  displayName: string;
+  tone?: string | null;
+  productsServices?: string | null;
+  avoidFacts?: string[] | null;
+  sampleResponses?: string[] | null;
+}
+
 export interface Step1LocationInput {
   inputMode: LocationInputMode;
   placeSelection: PlaceSelection | null;

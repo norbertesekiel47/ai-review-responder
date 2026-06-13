@@ -9,7 +9,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import QRCode from 'qrcode';
 import { sql } from '@/lib/db/server';
 import { resolveWritableAccountForLocation } from '@/lib/shared/writable-subscription';
-import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireRoleOr401, withSameOrigin, errorResponse } from '@/lib/auth/route-helpers';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 import { startMobileEnrollment } from '@/lib/channels/mobile-enrollment';
 import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
@@ -29,11 +29,11 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   const user = auth.user;
 
   const locationId = user.locationId;
-  if (!locationId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
+  if (!locationId) return errorResponse('no_business', 403);
 
   const gate = await resolveWritableAccountForLocation(locationId);
-  if (gate.kind === 'no_account') return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  if (gate.kind === 'blocked') return NextResponse.json({ error: gate.error }, { status: gate.status });
+  if (gate.kind === 'no_account') return errorResponse('not_found', 404);
+  if (gate.kind === 'blocked') return errorResponse(gate.error, gate.status);
   const accountId = gate.accountId;
 
   const rawToken = randomUUID();
@@ -49,17 +49,17 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     });
   } catch (err) {
     if (err instanceof MultipleMobileChannelsError) {
-      return NextResponse.json({ error: 'multiple_mobile_channels' }, { status: 409, headers: noStore });
+      return errorResponse('multiple_mobile_channels', 409);
     }
     if (err instanceof EnrollmentDatabaseError) {
       reportCaughtError('owner telegram/start', err, { accountId, locationId });
-      return NextResponse.json({ error: 'internal' }, { status: 500, headers: noStore });
+      return errorResponse('internal', 500);
     }
     throw err;
   }
 
   if (result?.kind === 'already_verified') {
-    return NextResponse.json({ error: 'already_verified' }, { status: 409, headers: noStore });
+    return errorResponse('already_verified', 409);
   }
 
   // Invalidate channel cache — the enrollment state change affects which
