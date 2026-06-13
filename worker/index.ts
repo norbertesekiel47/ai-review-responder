@@ -5,6 +5,7 @@ import { Sentry } from './sentry';
 import Fastify from 'fastify';
 import rawBody from 'fastify-raw-body';
 import { Worker } from 'bullmq';
+import Redis from 'ioredis';
 import { getRedisOptions, QUEUE_NAMES, queues } from './queues';
 import { withJobLogContext } from './job-log-context';
 import { startOutboxPoller, stopOutboxPoller } from './background/pollers/OutboxPoller';
@@ -69,6 +70,9 @@ import { startAccountOffboardingReactivationResetPoller, stopAccountOffboardingR
 import { startAccountOffboardingTeardownRetryPoller, stopAccountOffboardingTeardownRetryPoller } from './background/pollers/AccountOffboardingTeardownRetryPoller';
 import { isMockMode } from '../src/lib/shared/mock-mode';
 import { createWorkerLogger } from '../src/lib/shared/logger';
+import { runReadinessProbes } from '../src/lib/shared/readiness';
+import { sql } from '../src/lib/db/server';
+import { getCacheRedis } from '../src/lib/db/redis-cache';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
@@ -305,6 +309,33 @@ async function main(): Promise<void> {
     timestamp: new Date().toISOString(),
     uptime_seconds: Math.round(process.uptime()),
   }));
+
+  // Readiness (deep-scan §2.5) — verifies the worker can actually serve:
+  // Postgres + BOTH Redis instances (queue = Railway Redis via the same
+  // connection options BullMQ uses — incl. the IPv6 `family` hint — on a
+  // dedicated lazy probe client, since BullMQ's typings don't expose ping;
+  // cache = Upstash). 2s timeout per probe; 503 when any dep is down.
+  let queueProbeRedis: Redis | null = null;
+  const getQueueProbeRedis = (): Redis => {
+    queueProbeRedis ??= new Redis(getRedisOptions());
+    return queueProbeRedis;
+  };
+  app.get('/ready', async (_request, reply) => {
+    const result = await runReadinessProbes([
+      { name: 'postgres', probe: () => sql`SELECT 1` },
+      { name: 'queue_redis', probe: () => getQueueProbeRedis().ping() },
+      { name: 'cache_redis', probe: () => getCacheRedis().ping() },
+    ]);
+    return reply
+      .code(result.ready ? 200 : 503)
+      .header('Cache-Control', 'no-store')
+      .send({
+        status: result.ready ? 'ready' : 'unready',
+        service: 'worker',
+        checks: result.checks,
+        timestamp: new Date().toISOString(),
+      });
+  });
 
   // Stripe webhook ingress — real handler
   app.post('/ingress/stripe', { config: { rawBody: true } }, handleStripeWebhook);
