@@ -17,7 +17,7 @@ import { isMockMode } from '@/lib/shared/mock-mode';
 import { escapeHtml } from '@/lib/shared/html';
 import { getResend } from '../client';
 import { getEmailTags, type EmailCategory } from '../headers';
-import { LOG_PREFIX, renderStars, escapeHrefUrl } from './shared';
+import { LOG_PREFIX, renderStars, escapeHrefUrl, buildEmailShell } from './shared';
 import { sanitizeLocationLabelForPrefix } from '@/lib/notifications/channels/template-prefix';
 
 export interface AutoPostNoticeEmailParams {
@@ -44,14 +44,7 @@ function buildAutoPostNoticeEmailHtml(params: AutoPostNoticeEmailParams): string
         </td></tr>`
     : '';
 
-  return `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f5f5f5;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:24px 0;">
-    <tr><td align="center">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;max-width:600px;width:100%;">
-        <tr><td style="padding:32px 24px 0;">
+  return buildEmailShell(`        <tr><td style="padding:32px 24px 0;">
           <h1 style="margin:0 0 4px;font-size:20px;color:#111;">[${safeLabel}] ✅ Auto-approved reply posted</h1>
           <p style="margin:0 0 20px;font-size:14px;color:#666;">Your auto-approval policy approved and posted a reply to a new review — no action needed.</p>
         </td></tr>
@@ -66,12 +59,7 @@ function buildAutoPostNoticeEmailHtml(params: AutoPostNoticeEmailParams): string
         ${cta}
         <tr><td style="padding:16px 24px 24px;">
           <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">You're receiving this because auto-approval is enabled for this location.</p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
+        </td></tr>`);
 }
 
 export { buildAutoPostNoticeEmailHtml };
