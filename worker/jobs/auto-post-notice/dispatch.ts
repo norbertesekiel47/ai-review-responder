@@ -38,6 +38,7 @@ export interface AutoPostNoticeDispatchResult {
   retryableFailed: number;
 }
 
+// fallow-ignore-next-line complexity — per-channel delivery loop whose branches are the distinct claim→send outcomes (whatsapp pre-filter, dedup, channel-skip, sent, retryable-release, terminal-fail); inherent to the one-pass fan-out over the delivery.ts claim helpers it orchestrates.
 export async function dispatchAutoPostNotice(
   input: AutoPostNoticeDispatchInput,
   enrollments: ResolvedChannel[],

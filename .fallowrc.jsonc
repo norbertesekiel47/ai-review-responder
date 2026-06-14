@@ -47,6 +47,13 @@
       "exports": ["AccountOffboardingTerminalStatus"]
     }
   ],
+  // NotificationChannel send methods are invoked via interface dispatch through the
+  // getChannel(id) factory, so fallow's syntactic analysis can't link the concrete class
+  // methods (EmailChannel/TelegramChannel/WhatsAppChannel) to their call sites. Allowlist
+  // them on the interface so the dispatched methods aren't reported as unused.
+  "usedClassMembers": [
+    { "implements": "NotificationChannel", "members": ["sendApprovalRequest", "sendAutoPostNotice"] }
+  ],
   "health": {
     "ignore": [
       "**/dist/**",
@@ -449,7 +456,19 @@
       // own retry POLICY (the divergent 409-in-flight rule). The entry stays
       // because the two thin policy functions still share their if-chain shape
       // by design and must not be merged into one policy.
-      "worker/jobs/billing/stripe-overage-error.ts"
+      "worker/jobs/billing/stripe-overage-error.ts",
+
+      // ── Auto-approved post FYI (Workstream B) ──
+      // AutoPostNoticeWorker + its context loader deliberately parallel the approval
+      // NotificationWorker/context skeleton: the shared fragments are worker entry
+      // boilerplate (job.data destructuring + outbox handle + load context) and the
+      // eligibility guard around the ALREADY-shared getEligibleChannels primitive. The two
+      // workers/contexts diverge in their real logic (pending_approval approval-link dispatch
+      // vs posted+auto_policy FYI fan-out; different SELECT/WHERE), so extracting the glue
+      // would add a pass-through the design rules reject. Ignoring the FYI side drops each
+      // 2-instance group below minOccurrences.
+      "worker/jobs/auto-post-notice/AutoPostNoticeWorker.ts",
+      "worker/jobs/auto-post-notice/context.ts"
     ]
   }
 }

@@ -62,8 +62,6 @@ function buildAutoPostNoticeEmailHtml(params: AutoPostNoticeEmailParams): string
         </td></tr>`);
 }
 
-export { buildAutoPostNoticeEmailHtml };
-
 export async function sendAutoPostNoticeEmail(
   params: AutoPostNoticeEmailParams,
 ): Promise<{ messageId: string }> {

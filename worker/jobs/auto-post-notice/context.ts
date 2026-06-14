@@ -60,6 +60,7 @@ export type AutoPostNoticeContextResult =
   | { kind: 'fail'; reason: string }
   | { kind: 'skip'; reason: string };
 
+// fallow-ignore-next-line complexity — discriminated ok/fail/skip context loader whose branches map 1:1 to the load-and-validate gates (response missing/mismatch, not posted, not auto_policy, business missing); inherent to a single-pass loader.
 export async function loadAutoPostNoticeContext(
   input: AutoPostNoticeContextInput,
   logger: AutoPostNoticeContextLogger,
