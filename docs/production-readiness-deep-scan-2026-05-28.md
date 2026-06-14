@@ -126,6 +126,8 @@ against source._
 _(scanned directly — not delegated)_
 
 ### 🔴 1.1 — Production CSP breaks Google Maps PlaceAutocomplete (signup-blocking, dev-invisible)
+
+> **Status: ✅ Resolved** in PRs #200 + #203 (verified 2026-06-14) — the production CSP now allowlists the Google Maps Places hosts. The policy was extracted from `next.config.mjs` into a dedicated `src/lib/security/csp.mjs` (`buildContentSecurityPolicy`, wired into `next.config.mjs:3` `headers()`): `script-src` includes `https://maps.googleapis.com` (`csp.mjs:31`), `connect-src` includes `https://maps.googleapis.com https://places.googleapis.com` (`:35`), and `style-src`/`font-src` include `https://maps.gstatic.com` (`:32`,`:34`). `src/lib/security/__tests__/csp.test.ts` pins these hosts as a regression guard — an automated check stronger than the recommendation's manual prod-build smoke test (the CSP is no longer dev-invisible). The scan flagged this against `head migration 052`; the fix landed as a fast-follow (#200/#203) before the §1.x sweep but was never annotated here — recorded now during the §8 closure pass.
 - **Location:** `next.config.mjs:25-28` (CSP) vs `src/components/PlaceAutocomplete.tsx:4,20-24`
 - **Evidence:** `PlaceAutocomplete` uses `@googlemaps/js-api-loader`'s
   `importLibrary('places')`, which **dynamically injects a `<script
@@ -153,6 +155,8 @@ _(scanned directly — not delegated)_
   *not* affected (it uses hosted Checkout via full-navigation redirect, verified).
 
 ### 🟠 1.2 — `ci:rls-audit` is never run in CI
+
+> **Status: ✅ Resolved** in PR #284 (verified 2026-06-14) — `pnpm ci:rls-audit` now runs in CI: `.github/workflows/ci.yml:58` (lint job) and `:115` (test job, live RLS audit against the e2e DB). The original "grep rls-audit .github/ → not found" evidence is stale; a migration that drops/weakens RLS on the deny-all tables now fails the PR gate like `ci:tenant-scope`. Annotated here during the §8 closure pass.
 - **Location:** `.github/workflows/ci.yml:49-54` (lint job runs `ci:tenant-scope`
   + `ci:analytics-events` only); `package.json` defines `ci:rls-audit`.
 - **Evidence:** `grep -rn "rls-audit" .github/` → **not found in any workflow.**
@@ -305,6 +309,8 @@ _(delegated scan, severities recalibrated against design intent)_
   checks to the readiness endpoint.
 
 ### 🟡 2.6 — Verify client (browser) Sentry applies the PII scrubber
+
+> **Status: ✅ Resolved (confirmed)** (verified 2026-06-14) — the client Sentry init applies the shared scrubber: `src/instrumentation-client.ts:3,14-15` imports `scrubSentryEvent` from `@/lib/shared/sentry-scrub` and runs it in `beforeSend(event)`, so browser events pass through the same redaction (key/secret/token/password/authorization) as the worker. Confirm-item closed; annotated here during the §8 closure pass.
 - **Location:** `src/instrumentation-client.ts` vs `worker/sentry.ts` (scrubber)
 - **Evidence:** The worker Sentry init has a `beforeSend` scrubber; the **client**
   init should be confirmed to apply the same scrubbing (`scrubSentryEvent`) so
