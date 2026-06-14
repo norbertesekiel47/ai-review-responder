@@ -26,6 +26,7 @@ import { TelegramClient } from '../../../src/lib/notifications/channels/telegram
 import { type TelegramUpdate, redactForAudit } from './telegram-shared';
 import { handleEnrollment } from './telegram-enrollment';
 import { handleCallback } from './telegram-callback';
+import { handleConversationalMessage } from '../conversational-seam';
 
 export async function handleTelegramWebhook(
   request: FastifyRequest,
@@ -47,7 +48,11 @@ export async function handleTelegramWebhook(
   }
 
   const dedupKey = `tg:${update.update_id}`;
-  const eventType = update.callback_query ? 'callback_query' : 'enrollment_start';
+  const eventType = update.callback_query
+    ? 'callback_query'
+    : update.message?.text?.startsWith('/start ')
+      ? 'enrollment_start'
+      : 'conversational_message';
 
   // Step 3: dedup claim with redacted payload (PII-stripped audit row).
   const claim = await claimInboundEvent('telegram', dedupKey, eventType, redactForAudit(update));
@@ -73,7 +78,19 @@ export async function handleTelegramWebhook(
       reply.code(200).send({ ok: true });
       return;
     }
-    // Unknown update type — silent 200, mark processed.
+    if (typeof update.message?.text === 'string') {
+      // Non-command, non-button free text to the bot → future-agent seam.
+      // No-op today (auth-gated, no reply); the body is already redacted in
+      // the inbound_events payload by redactForAudit.
+      await handleConversationalMessage({
+        channel: 'telegram',
+        senderHandle: String(update.message.chat?.id ?? update.message.from?.id ?? ''),
+      });
+      await markInboundEventProcessed(dedupKey);
+      reply.code(200).send({ ok: true });
+      return;
+    }
+    // Unknown update type (edited message, channel post, …) — silent 200.
     await markInboundEventProcessed(dedupKey);
     reply.code(200).send({ ok: true });
   } catch (err) {

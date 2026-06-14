@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 365;
+export const ALLOWLIST_BASELINE = 367;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -2553,6 +2553,20 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT b.google_maps_url FROM responses resp JOIN businesses b ON b.id = resp.business_id WHERE resp.id = ${responseId} AND resp.status = 'posted' LIMIT 1",
     category: 'pre-auth-token',
     reason: "Public 'View on Google' redirect resolves a posted response by opaque id from the URL before any tenant scope is knowable; requires the response<->business join + status='posted', then redirects only to an allowlisted Google host.",
+  },
+  {
+    file: "worker/ingress/conversational-seam.ts",
+    table: "channel_enrollments",
+    sqlSnippet: "SELECT ce.id FROM channel_enrollments ce JOIN accounts a ON a.id = ce.account_id WHERE ce.channel = ${channel} AND ce.handle = ${senderHandle} AND ce.status = 'verified' AND ce.archived_at IS NULL AND a.subscription_status IN ('active', 'past_due') LIMIT 1",
+    category: 'provider-ingress',
+    reason: "Conversational-seam auth boundary resolves the sender's verified enrollment from the provider sender id (chat_id / phone) before tenant scope is knowable — same provider-identifier resolution as other webhook ingress.",
+  },
+  {
+    file: "worker/ingress/conversational-seam.ts",
+    table: "accounts",
+    sqlSnippet: "SELECT ce.id FROM channel_enrollments ce JOIN accounts a ON a.id = ce.account_id WHERE ce.channel = ${channel} AND ce.handle = ${senderHandle} AND ce.status = 'verified' AND ce.archived_at IS NULL AND a.subscription_status IN ('active', 'past_due') LIMIT 1",
+    category: 'provider-ingress',
+    reason: "Conversational-seam auth boundary resolves the sender's verified enrollment from the provider sender id (chat_id / phone) before tenant scope is knowable — same provider-identifier resolution as other webhook ingress.",
   },
   {
     file: "worker/jobs/publisher/load-context.ts",
