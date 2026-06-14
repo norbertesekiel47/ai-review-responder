@@ -226,6 +226,28 @@ describe('handleResendWebhook — bounce handling', () => {
     expect(mockSendInternalEmail).toHaveBeenCalledOnce();
   });
 
+  // ── Regression: auto_post_notice FYI is owner-directed (Workstream B / Codex R1 #8) ──
+  it('DOES flag owner_email_bounced for an auto_post_notice hard bounce', async () => {
+    sqlReturnQueue.push({ count: 1 });
+    sqlReturnQueue.push([{ business_id: 'biz-1', template: 'auto_post_notice' }]);
+    sqlReturnQueue.push([]); // UPDATE notification_deliveries
+    sqlReturnQueue.push([{ id: 'biz-1' }]); // UPDATE businesses RETURNING (transition)
+    sqlReturnQueue.push([]); // UPDATE inbound_events
+
+    const body = {
+      type: 'email.bounced',
+      data: { email_id: 'msg-abc', bounce: { type: 'Permanent' } },
+    };
+    const { reply, captured } = makeReply();
+    await handleResendWebhook(makeReq(body), reply);
+
+    expect(captured.status).toBe(200);
+    const joinedSql = joinSql(mockSql.mock.calls);
+    expect(joinedSql).toContain('owner_email_bounced');
+    expect(joinedSql).toContain('UPDATE businesses');
+    expect(mockSendInternalEmail).toHaveBeenCalledOnce();
+  });
+
   // ── Regression: transition guard prevents duplicate admin alerts ──
   it('does NOT send a duplicate admin alert when business already has owner_email_bounced=true', async () => {
     sqlReturnQueue.push({ count: 1 });

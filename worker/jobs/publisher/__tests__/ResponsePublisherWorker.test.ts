@@ -467,6 +467,52 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     ).toBeLessThan(mockMarkOutboxCompleted.mock.invocationCallOrder[0]!);
   });
 
+  // ── Branch B: auto-post FYI enqueue on the fresh-2xx success path ─────
+
+  it('fresh 2xx success for an auto_policy response enqueues the auto-post FYI exactly once', async () => {
+    process.env.AUTO_APPROVAL_ENABLED = 'true'; // else the auto_policy row is downgraded, not published
+    sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]); // 1: response
+    sqlReturnQueue.push([mockBusinessRow()]);                                    // 2: business
+    sqlReturnQueue.push([mockZernioConnectionRow()]);                            // 3: zernio_connections
+    sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'auto_policy' }]);      // 4: markPosted UPDATE ... RETURNING (1 row transitioned)
+    sqlReturnQueue.push(Object.assign([], { count: 0 }));                         // 5: enqueueAutoPostNotice INSERT
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockPostReply.mockResolvedValueOnce({ comment: 'Thank you for your kind review!', updateTime: '2026-04-27T00:00:00Z' });
+    mockListAllReviews.mockResolvedValueOnce([
+      makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
+    ]);
+
+    await handlePublishResponse(makeJob());
+
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    // The in-flight ON CONFLICT predicate carries the literal topic in the
+    // template text, so exactly one enqueue is observable here.
+    expect(callTexts.filter((t: string) => /topic = 'auto_post_notice'/.test(t))).toHaveLength(1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+  });
+
+  it('fresh 2xx success for an owner-approved response enqueues NO FYI', async () => {
+    sqlReturnQueue.push([mockResponseRow({ approval_method: 'owner' })]); // 1: response
+    sqlReturnQueue.push([mockBusinessRow()]);                              // 2: business
+    sqlReturnQueue.push([mockZernioConnectionRow()]);                      // 3: zernio_connections
+    sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'owner' }]);      // 4: markPosted UPDATE ... RETURNING (owner)
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockPostReply.mockResolvedValueOnce({ comment: 'Thank you for your kind review!', updateTime: '2026-04-27T00:00:00Z' });
+    mockListAllReviews.mockResolvedValueOnce([
+      makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
+    ]);
+
+    await handlePublishResponse(makeJob());
+
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.some((t: string) => /topic = 'auto_post_notice'/.test(t))).toBe(false);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+  });
+
   // ── Branch B: ZernioReviewNotFoundError → terminal failed + exception
 
   it('opens review_exception and marks response failed on review-not-found', async () => {
@@ -644,6 +690,30 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(callTexts.some((t: string) => /superseded/.test(t))).toBe(false);
   });
 
+  it('409 recovery for an auto_policy response enqueues the auto-post FYI exactly once', async () => {
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]); // 1: response
+    sqlReturnQueue.push([mockBusinessRow()]);                                    // 2: business
+    sqlReturnQueue.push([mockZernioConnectionRow()]);                            // 3: zernio_connections
+    sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'auto_policy' }]);      // 4: markPosted UPDATE ... RETURNING (inside verify409 begin)
+    sqlReturnQueue.push(Object.assign([], { count: 0 }));                         // 5: enqueueAutoPostNotice INSERT
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockPostReply.mockRejectedValueOnce(
+      new ZernioReplyAlreadyExistsError({ message: 'reply already exists' }),
+    );
+    mockListAllReviews.mockResolvedValueOnce([
+      makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
+    ]);
+
+    await handlePublishResponse(makeJob());
+
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.filter((t: string) => /topic = 'auto_post_notice'/.test(t))).toHaveLength(1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+  });
+
   it('409 + target NOT found → throws ZernioReplyVerificationIndeterminateError reason=review_not_found_after_pagination', async () => {
     push409BaseSequence();
     // no UPDATE SQL — response should NOT be touched
@@ -777,6 +847,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
     vi.clearAllMocks();
     sqlReturnQueue.length = 0;
     delete process.env.EDIT_REPLIES_ENABLED;
+    delete process.env.AUTO_APPROVAL_ENABLED;
     mockRunEditPublishIfApplicable.mockResolvedValue({ outcome: 'continue_to_fresh' });
     mockMaybeCaptureActivationCompleted.mockResolvedValue(undefined);
   });
@@ -915,6 +986,33 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
 
     expect(mockRunEditPublishIfApplicable).not.toHaveBeenCalled();
     expect(mockPostReply).toHaveBeenCalledTimes(1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+  });
+
+  it('P1 regression: flag ON + auto_policy + no sibling/orphan → falls through to fresh POST (NO throw) and enqueues the FYI', async () => {
+    process.env.EDIT_REPLIES_ENABLED = 'true';
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    pushDispatchBaseSequence({ approval_method: 'auto_policy' }); // 1-3: response(auto_policy) / business / connections
+    sqlReturnQueue.push([]);                                       // 4: sibling probe → none
+    sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'auto_policy' }]); // 5: markPosted UPDATE ... RETURNING
+    sqlReturnQueue.push(Object.assign([], { count: 0 }));          // 6: enqueueAutoPostNotice INSERT
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockPostReply.mockResolvedValueOnce({ comment: 'Thank you for your kind review!', updateTime: '2026-04-27T00:00:00Z' });
+    mockListAllReviews.mockResolvedValueOnce([
+      makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
+    ]);
+
+    // Must NOT throw the edit-publish invariant assertion: auto_policy never
+    // entered the edit path (no sibling, no orphan), so it falls through to the
+    // fresh POST. (The assertion now lives INSIDE the edit-path branch.)
+    await handlePublishResponse(makeJob());
+
+    expect(mockRunEditPublishIfApplicable).not.toHaveBeenCalled();
+    expect(mockPostReply).toHaveBeenCalledTimes(1);
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.filter((t: string) => /topic = 'auto_post_notice'/.test(t))).toHaveLength(1);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
   });
 
