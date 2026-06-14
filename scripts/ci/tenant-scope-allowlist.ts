@@ -2557,14 +2557,14 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/conversational-seam.ts",
     table: "channel_enrollments",
-    sqlSnippet: "SELECT ce.id FROM channel_enrollments ce JOIN accounts a ON a.id = ce.account_id WHERE ce.channel = ${channel} AND ce.handle = ${senderHandle} AND ce.status = 'verified' AND ce.archived_at IS NULL AND a.subscription_status IN ('active', 'past_due') LIMIT 1",
+    sqlSnippet: "SELECT a.subscription_status, a.past_due_at, a.flags FROM channel_enrollments ce JOIN accounts a ON a.id = ce.account_id WHERE ce.channel = ${channel} AND ce.handle = ${senderHandle} AND ce.status = 'verified' AND ce.archived_at IS NULL LIMIT 1",
     category: 'provider-ingress',
     reason: "Conversational-seam auth boundary resolves the sender's verified enrollment from the provider sender id (chat_id / phone) before tenant scope is knowable — same provider-identifier resolution as other webhook ingress.",
   },
   {
     file: "worker/ingress/conversational-seam.ts",
     table: "accounts",
-    sqlSnippet: "SELECT ce.id FROM channel_enrollments ce JOIN accounts a ON a.id = ce.account_id WHERE ce.channel = ${channel} AND ce.handle = ${senderHandle} AND ce.status = 'verified' AND ce.archived_at IS NULL AND a.subscription_status IN ('active', 'past_due') LIMIT 1",
+    sqlSnippet: "SELECT a.subscription_status, a.past_due_at, a.flags FROM channel_enrollments ce JOIN accounts a ON a.id = ce.account_id WHERE ce.channel = ${channel} AND ce.handle = ${senderHandle} AND ce.status = 'verified' AND ce.archived_at IS NULL LIMIT 1",
     category: 'provider-ingress',
     reason: "Conversational-seam auth boundary resolves the sender's verified enrollment from the provider sender id (chat_id / phone) before tenant scope is knowable — same provider-identifier resolution as other webhook ingress.",
   },
