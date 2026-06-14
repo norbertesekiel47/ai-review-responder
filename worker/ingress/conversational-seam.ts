@@ -21,6 +21,7 @@
 
 import { sql } from '../../src/lib/db/server';
 import { maskChannelHandle } from '../../src/lib/notifications/mask-handle';
+import { checkSubscription, type AccountFlagsInput } from '../../src/lib/shared/subscription-guard';
 
 const LOG_PREFIX = '[ingress/conversational-seam]';
 
@@ -52,16 +53,28 @@ export async function isAuthorizedConversationalSender(
   senderHandle: string,
 ): Promise<boolean> {
   if (!senderHandle) return false;
-  const rows = await sql<{ id: string }[]>`
-    SELECT ce.id
+  const rows = await sql<
+    { subscription_status: string; past_due_at: Date | null; flags: AccountFlagsInput | null }[]
+  >`
+    SELECT a.subscription_status, a.past_due_at, a.flags
     FROM channel_enrollments ce
     JOIN accounts a ON a.id = ce.account_id
     WHERE ce.channel = ${channel}
       AND ce.handle = ${senderHandle}
       AND ce.status = 'verified'
       AND ce.archived_at IS NULL
-      AND a.subscription_status IN ('active', 'past_due') -- enum: SubscriptionStatus.ACTIVE / PAST_DUE
     LIMIT 1
   `;
-  return rows.length > 0;
+  const row = rows[0];
+  if (!row) return false;
+  // Use the SHARED subscription guard so past_due honors the 7-day grace window
+  // (a past_due-beyond-grace account is NOT authorized) — same semantics as the
+  // notification worker, rather than a bare `status IN ('active','past_due')`
+  // that would authorize an expired past_due account (Codex review P2).
+  return checkSubscription({
+    status: row.subscription_status,
+    pastDueAt: row.past_due_at,
+    accountFlags: row.flags ?? {},
+    workerType: 'notification',
+  }).allowed;
 }
