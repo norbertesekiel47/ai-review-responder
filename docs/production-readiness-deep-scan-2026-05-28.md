@@ -706,6 +706,8 @@ _(scanned directly — lanes no agent owned)_
   record, even if the self-serve UI comes later. Document the data map + retention
   in the DPA. Pairs with the audit-table retention decision (§3.6).
 
+> **Status: ⏸️ Deferred (deliberate)** (2026-06-14) — **erasure (Art.17) is shipped; data EXPORT (Art.15 access/portability) is deliberately deferred until the first EU/UK paying customer** — the scan's own trigger — exactly like §3.4 and §7.4. The owner-offboarding cascade (spec `docs/superpowers/specs/2026-06-05-owner-offboarding-design.md`, migrations 056–061) gives a tested **erasure** path (`cancel_only` / `delete_data`) driven by the single-source-of-truth table map `src/lib/account-offboarding/table-disposition.ts` (33 tenant tables, each with disposition + scope evidence + purge-verification mode), with admin (`/api/admin/offboardings/*`) and owner (`/api/account/offboarding/*`) routes and an in-tx `account_audit_log` / `account_offboardings` record. **No Art.15 export path exists** — the offboarding `mode` schema accepts only `cancel_only` / `delete_data` (an `export_data` mode is rejected `400` by design; `src/app/api/account/offboarding/__tests__/confirm.test.ts` pins this), and `src/lib/legal/content.ts` states RepWorth provides no self-serve export. **Interim (pre-trigger) fulfillment:** an admin can satisfy a manual Art.15 request using that same `table-disposition.ts` map + one-off `account_id`/`business_id`-scoped reads — the capability exists, only the self-serve endpoint is deferred. **When built** (admin-operated minimum first, per the recommendation): an outbox-enqueued (invariant #2) Railway worker job (invariant #1) that DERIVES its table list from `table-disposition.ts` so export and purge can never drift — including the `retain_deidentified` tables (`accounts`/`businesses`/`users`) as the subject's own data — streams paginated JSON (no in-memory batch), writes an audit entry, and passes `ci:tenant-scope` + `ci:rls-audit`. Like §3.4 / §7.4, a conscious deferral with a documented trigger, not an oversight.
+
 ### 🟡 8.2 — Multi-location channel-enrollment account-scoping (documented active debt)
 - **Location:** `docs/known-issues.md` — three **ACTIVE** items: (a) admin SMS lock
   `withMobileEnrollmentLock` + cross-channel precheck still keyed by `business_id`
@@ -726,6 +728,8 @@ _(scanned directly — lanes no agent owned)_
   multi-location correctness bugs (invariant: org-default enrollment is
   account-scoped, `business_id` is legacy FK only). Add a regression test that an
   org-default row created under one location is read/written by `account_id`.
+
+> **Status: ✅ Resolved (stale)** (2026-06-14) — resolved **by removal**, no code change. The item's source registry `docs/known-issues.md` was deleted (#275), and the **SMS notification channel was removed entirely** (#260, migration `061_remove_sms_schema.sql` — `CHANNEL_IDS` is now `['email','telegram','whatsapp']`; SMS was never live, `CHANNELS_SMS_ENABLED` defaulted off). That dissolved all three "active" sub-items: (a) the `withMobileEnrollmentLock` SMS lock + cross-channel SMS precheck and `src/app/api/admin/channels/sms/` no longer exist; (b)/(c) the SMS-admin read + dispatcher `WHERE business_id` enrollment writes that conflicted with the account-scoped org-default are gone. PRs #132/#133/#135 are moot. (Twilio remains, for **WhatsApp** delivery only — distinct from the removed SMS channel.) **Not a bug:** `src/app/api/admin/businesses/[id]/channels/route.ts` still reads by `business_id` — correct, because per-location *override* resolution is business-scoped; only **org-default** lookup is account-scoped + `location_id IS NULL` (invariant unchanged).
 
 ### 🟢 8.3 — Rate-limiter fail-open default — confirm coverage on all auth surfaces
 
@@ -750,9 +754,12 @@ _(scanned directly — lanes no agent owned)_
   highest-risk template — it renders raw, attacker-influenceable review text)
   applies `escapeHtml()` to review text, reviewer name, business name, response
   preview, and date, and `escapeHrefUrl()` to links. Review content cannot inject
-  HTML/phishing markup into the owner's inbox. *(Minor follow-up: spot-check the
-  other templates — `weekly-value-report`, `monthly-impact` — apply the same
-  escaping to any business-supplied strings.)*
+  HTML/phishing markup into the owner's inbox. *(Follow-up ✅ verified 2026-06-14:
+  `templates/weekly-value-report.ts` (12 `escapeHtml`/`escapeHrefUrl` sites) and
+  `templates/monthly-impact.ts` (10) escape every business-supplied string —
+  business name, keyword, intelligence brief, review/response text, reviewer name —
+  and `escapeHrefUrl()` all links, matching `approval.ts`. No injection surface in
+  the digest templates.)*
 
 ---
 
