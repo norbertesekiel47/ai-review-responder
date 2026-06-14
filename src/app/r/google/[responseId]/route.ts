@@ -38,10 +38,14 @@ function isAllowedGoogleMapsUrl(raw: string): boolean {
   if (url.protocol !== 'https:') return false;
   const host = url.hostname.toLowerCase();
   const path = url.pathname;
-  if (host === 'maps.app.goo.gl') return true;          // Google Maps app short links
-  if (host === 'maps.google.com') return true;          // maps subdomain (any path)
-  if (host === 'google.com' || host === 'www.google.com') return path.startsWith('/maps');
-  if (host === 'goo.gl') return path.startsWith('/maps');
+  if (host === 'maps.app.goo.gl') return true;            // opaque Maps app short links
+  if (host === 'goo.gl') return path.startsWith('/maps'); // legacy short links
+  // google.com / www.google.com / maps.google.com: require a maps path OR a
+  // query string — covers `/maps/place/...` and `maps.google.com/?cid=...` while
+  // refusing a bare arbitrary path on the maps subdomain (Codex review #3).
+  if (host === 'google.com' || host === 'www.google.com' || host === 'maps.google.com') {
+    return path.startsWith('/maps') || url.search.length > 0;
+  }
   return false;
 }
 

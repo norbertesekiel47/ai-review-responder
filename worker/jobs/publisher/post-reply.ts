@@ -61,6 +61,7 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
         approved_text: approvedText,
         outboxId,
         outboxAttempt,
+        correlation_id: correlationId,
         logger,
       });
 

@@ -35,6 +35,17 @@ describe('GET /r/google/[responseId]', () => {
     expect((await call(UUID)).status).toBe(302);
   });
 
+  it('accepts maps.google.com with a /maps path or a query, but NOT a bare arbitrary path (Codex review #3)', async () => {
+    sqlResult.rows = [{ google_maps_url: 'https://maps.google.com/?cid=12345' }];
+    expect((await call(UUID)).status).toBe(302);
+    sqlResult.rows = [{ google_maps_url: 'https://maps.google.com/maps/place/x' }];
+    expect((await call(UUID)).status).toBe(302);
+    // bare arbitrary path on the maps subdomain (no /maps path, no query) is no
+    // longer blindly trusted → unavailable.
+    sqlResult.rows = [{ google_maps_url: 'https://maps.google.com/redirect/somewhere' }];
+    expect((await call(UUID)).status).toBe(200);
+  });
+
   it('renders the unavailable PAGE (not a redirect) when google_maps_url is null', async () => {
     sqlResult.rows = [{ google_maps_url: null }];
     const res = await call(UUID);

@@ -102,6 +102,16 @@ export async function handleAutoPostNotice(job: Job<AutoPostNoticePayload>): Pro
     `terminal_failed=${dispatch.terminalFailed} retryable_failed=${dispatch.retryableFailed}`,
   );
 
+  // Systemic-failure signal (Codex review #4): if EVERY eligible channel failed
+  // (nothing sent), surface at error level so it alerts — the per-channel warn
+  // lines alone would not. The Google post still succeeded; only the FYI failed.
+  const totalFailed = dispatch.terminalFailed + dispatch.retryableFailed;
+  if (dispatch.sent === 0 && totalFailed > 0) {
+    logger.error(
+      `auto_post_notice systemic-failure response=${response_id} — all ${totalFailed} channel send(s) failed, no FYI delivered`,
+    );
+  }
+
   // B9: never mutate the already-posted response. Retry ONLY when a transient
   // failure left work to do (the released claims let those channels re-send);
   // terminal failures are recorded and done.

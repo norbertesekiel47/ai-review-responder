@@ -11,6 +11,7 @@ vi.mock('../../../../src/lib/db/server', () => {
   const sqlFn = async (strings: TemplateStringsArray) => {
     sqlCalls.push(strings.join('?'));
     const next = sqlQueue.shift();
+    if (next instanceof Error) throw next;
     return Array.isArray(next) ? next : [];
   };
   return { sql: sqlFn, jsonb: (v: unknown) => v };
@@ -68,6 +69,15 @@ describe('dispatchAutoPostNotice', () => {
 
     expect(res.skipped).toBe(1);
     expect(res.sent).toBe(0);
+    expect(mockGetChannel).not.toHaveBeenCalled();
+  });
+
+  it('re-throws when the claim INSERT itself fails (DB infra → whole job retries, FYI not dropped) [Codex review #5]', async () => {
+    mockGetChannel.mockReturnValue({ sendAutoPostNotice: vi.fn() });
+    sqlQueue.push(new Error('db down on claim INSERT'));
+
+    await expect(dispatchAutoPostNotice(INPUT, [email()], logger)).rejects.toThrow(/db down/);
+    // Never attempted a send on a failed claim, and did not silently swallow it.
     expect(mockGetChannel).not.toHaveBeenCalled();
   });
 

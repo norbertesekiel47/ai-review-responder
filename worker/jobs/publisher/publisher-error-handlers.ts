@@ -334,6 +334,8 @@ interface Verify409Args {
   approved_text: string;
   outboxId: string;
   outboxAttempt: number | undefined;
+  /** Propagated to the auto-post FYI enqueue on the 409 recovery for trace continuity. */
+  correlation_id?: string;
   logger: WorkerLogger;
 }
 
@@ -381,7 +383,7 @@ export async function verify409AndDispose(args: Verify409Args): Promise<Verify40
   const {
     response_id, business_id, review_id,
     account_id, location_id, zernio_review_id,
-    approved_text, outboxId, outboxAttempt, logger,
+    approved_text, outboxId, outboxAttempt, correlation_id, logger,
   } = args;
 
   const maxPages = await resolveVerifierMaxPages(account_id, location_id, zernio_review_id);
@@ -477,6 +479,7 @@ export async function verify409AndDispose(args: Verify409Args): Promise<Verify40
         tx,
         responseId: response_id,
         businessId: business_id,
+        correlationId: correlation_id,
         logger,
       });
     });

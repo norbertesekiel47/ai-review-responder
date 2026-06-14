@@ -63,31 +63,7 @@ export async function dispatchAutoPostNotice(
       continue;
     }
 
-    // ── Claim BEFORE send (Codex R1 #3) ──────────────────────────────────────
-    // Predicate matches notification_deliveries_auto_post_notice_claim
-    // byte-for-byte. A pre-existing SENT row (external_message_id set) or
-    // TERMINAL-failed row (failed_at set) conflicts → dedup-skip; a released
-    // (deleted) retryable claim does not → re-send.
     const deliveryId = uuidv7();
-    const claimed = await sql<{ id: string }[]>`
-      INSERT INTO notification_deliveries
-        (id, account_id, business_id, response_id, channel, recipient, template)
-      VALUES
-        (${deliveryId}, ${input.accountId}, ${input.businessId}, ${input.responseId},
-         ${channelId}, ${recipient}, ${TEMPLATE})
-      ON CONFLICT (response_id, channel, recipient)
-        WHERE response_id IS NOT NULL AND template = 'auto_post_notice'
-        DO NOTHING
-      RETURNING id
-    `;
-    if (claimed.length === 0) {
-      result.skipped += 1;
-      logger.log(
-        `auto_post_notice dedup channel=${channelId} response=${input.responseId} — already claimed`,
-      );
-      continue;
-    }
-
     const params: SendAutoPostNoticeParams = {
       handle: recipient,
       locationLabel,
@@ -99,7 +75,37 @@ export async function dispatchAutoPostNotice(
       responseId: input.responseId,
     };
 
+    // The claim INSERT lives INSIDE the per-channel try (Codex review #5) so one
+    // channel's failure is isolated. But a claim/DB-infra failure (before
+    // claimAcquired) must RETRY the whole job rather than be classified as a
+    // per-channel send failure — so it re-throws, never silently dropping the FYI.
+    let claimAcquired = false;
     try {
+      // ── Claim BEFORE send (Codex R1 #3) ────────────────────────────────────
+      // Predicate matches notification_deliveries_auto_post_notice_claim
+      // byte-for-byte. A pre-existing SENT row (external_message_id set) or
+      // TERMINAL-failed row (failed_at set) conflicts → dedup-skip; a released
+      // (deleted) retryable claim does not → re-send.
+      const claimed = await sql<{ id: string }[]>`
+        INSERT INTO notification_deliveries
+          (id, account_id, business_id, response_id, channel, recipient, template)
+        VALUES
+          (${deliveryId}, ${input.accountId}, ${input.businessId}, ${input.responseId},
+           ${channelId}, ${recipient}, ${TEMPLATE})
+        ON CONFLICT (response_id, channel, recipient)
+          WHERE response_id IS NOT NULL AND template = 'auto_post_notice'
+          DO NOTHING
+        RETURNING id
+      `;
+      if (claimed.length === 0) {
+        result.skipped += 1;
+        logger.log(
+          `auto_post_notice dedup channel=${channelId} response=${input.responseId} — already claimed`,
+        );
+        continue;
+      }
+      claimAcquired = true;
+
       const sendResult = await getChannel(channelId).sendAutoPostNotice(params);
       if (sendResult.status === 'skipped') {
         // Channel declined after claim — release so a later config fix re-sends.
@@ -118,6 +124,11 @@ export async function dispatchAutoPostNotice(
       result.sent += 1;
       logger.log(`auto_post_notice sent channel=${channelId} response=${input.responseId}`);
     } catch (err) {
+      if (!claimAcquired) {
+        // The claim INSERT itself failed (DB infra) — re-throw so the whole job
+        // retries; there is no claim to release and the FYI must not be dropped.
+        throw err;
+      }
       const classification = classifyAutoPostNoticeSendError(err);
       if (classification.retryable) {
         // RELEASE the claim so a BullMQ retry re-acquires + re-sends.
