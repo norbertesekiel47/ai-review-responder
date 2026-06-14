@@ -649,15 +649,21 @@ _(delegated scan — modularization effort has clearly paid off: **no file excee
 - **Evidence:** This gate enforces invariant 4 (high-confidence unsafe drafts are held, not posted). It's exercised **indirectly** via integration tests (`publish.test.ts`, approval `http-routes.test.ts`), but has **no dedicated unit test** for the boundary conditions of `hasOpenFlag()` (open row → true; no/closed rows → false; filters on `response_id AND status='open'`). The project rule requires tests for approval-token paths and outbox transitions; this safety gate sits in the same risk class.
 - **Recommendation:** add `src/lib/moderation/__tests__/held-draft.test.ts` covering the open/closed/empty cases. (Medium because the behavior *is* covered end-to-end; the gap is isolation + boundary precision.)
 
+> **Status: ✅ Resolved** in PR #277 — `src/lib/moderation/__tests__/held-draft.test.ts` exists with the isolated boundary cases (open row → true; no/closed rows → false; `response_id AND status='open'` filter); 10 `hasOpenFlag`/`HeldForReviewError` assertions. Verify-only — no change in this sweep.
+
 ### 🟡 7.3 — Billing-math test reads source via `readFileSync` instead of importing it
 - **Location:** `…/add-location/wizard/AddLocationWizard.test.ts:15-19` against `…/wizard/billing.ts`
 - **Evidence:** The test reads `billing.ts` from disk at runtime rather than importing the functions — brittle to file moves and bypasses type-checking of the contract under test.
 - **Recommendation:** `import { computeProration, computeNextLocationBillingPreview }` directly so the test binds to the real module contract.
 
+> **Status: ✅ Resolved** — the billing-math functions are imported and exercised **directly** (`computeProration`, `computeNextLocationBillingPreview`) in `src/app/(authenticated)/dashboard/add-location/__tests__/AddLocationWizard.test.ts` and `deferred-loc-assertions.test.ts`; no `readFileSync` against `billing.ts` remains in the wizard test dir. (The deep-scan's residual-`readFileSync` note referred to a separate legit source-assertion helper, not the billing-math test.) Verify-only.
+
 ### 🟢 7.4 — One `FeaturesContent.tsx` at 1,150 lines (largest file; marketing markup)
 - **Location:** `src/components/sections/features/FeaturesContent.tsx`
 - **Evidence:** Contains 7 inline `FeatXxx()` section components + 2 shared hooks in one file. It's cohesive presentational markup (low logic risk) and already composes internal components, so it's lower-risk than its line count suggests — but it's the one remaining outlier after the modularization sweep.
 - **Recommendation:** extract each `FeatXxx()` to `feature-sections/` and the hooks to `./hooks.ts`, leaving a thin orchestrator. Low priority.
+
+> **Status: ⏸️ Deferred (deliberate)** (2026-06-13) — `FeaturesContent.tsx` is still 1,171 lines, but it's cohesive presentational marketing markup (7 inline `FeatXxx()` sections + 2 hooks) with **zero correctness risk**, and `fallow`'s new-only gate does not flag it as a new finding. The split touches rendered markup (react-doctor / `repworth-brand-design` surface) for no functional gain, so it's deferred behind the higher-value §7.1/§7.5 items per the §7 LOW-defer guidance — tracked for a future markup-only cleanup PR. Like §3.4, this is a conscious deferral, not an oversight.
 
 ### 🟢 7.5 — Minor hygiene
 - **`any` in `…/add-location/wizard/useAddLocationWizard.ts:48`** — `(loc: any)` mapping a known API shape; type it (one of only 4 `any` in the codebase).
@@ -665,6 +671,13 @@ _(delegated scan — modularization effort has clearly paid off: **no file excee
 - **Untracked `TODO`s** in `quota.ts:90-96`, `margin-service.ts:64`, `demo/[slug]/page.tsx` — add ticket refs (the quota/margin ones are closed by the §6.1 fix).
 - **Inconsistent route error shape** — mix of `jsonResponse({error})` and `NextResponse.json({error},{status})` across `api/dashboard/*`; centralize a typed error helper.
 - **Document the `any` PgBouncer-JSONB carve-out** explicitly in CLAUDE.md so the 4 allowed sites are an explicit allowlist, not folklore.
+
+> **Status (per sub-item):**
+> - **§7.5a ✅ Resolved** in PR #316 — typed the `(loc: any)` in `useAddLocationWizard.ts` via a `VoiceConfigApiLocation` input DTO (nullable source shape, distinct from the defaulted `ExistingLocationVoice`).
+> - **§7.5b ✅ Resolved** — the `FeaturesContent.tsx` disable was removed in an earlier sweep; the two remaining `react-hooks/exhaustive-deps` disables (`LoginForm.tsx`, `useLocationVoiceForm.ts`) now carry a prose justification (both are mount-only effects) added in PR #316. (The earlier "done" claim was incomplete — these two were still unjustified; verified and closed here.)
+> - **§7.5c ✅ Resolved** — the `quota.ts:90-96` / `margin-service.ts:64` TODOs were closed by the §6.1 stored-snapshot fix (none remain in either file).
+> - **§7.5d ✅ Resolved** in PR #316 — added a typed `errorResponse(code, status)` to `route-helpers.ts` and routed **41** dashboard error sites (`channels/**` + `dashboard/route.ts` + `kpis`) through it; every dashboard error now returns the uniform `{ error }` + no-store shape. Success payloads + the edit-reply flow untouched.
+> - **§7.5e ✅ Resolved** in PR #316 — `CLAUDE.md` now documents the PgBouncer-JSONB `any` carve-out as an **explicit 2-site allowlist** (`RankingTrackingWorker.ts`, `admin/payment-success/route.ts`), correcting the scan's "4" (the Zernio request-body parses are HTTP bodies, not the stringified-column carve-out).
 
 ### Test-coverage assessment (mostly strong)
 ✅ Webhook handlers, billing math (`quota.test.ts`), idempotency/outbox transitions, tenant-scope (integration), approval-token paths, subscription guards, cost guard, output-filter/moderate — all have tests. ⚠️ **Gap:** `held-draft.ts` isolated tests (§7.2).

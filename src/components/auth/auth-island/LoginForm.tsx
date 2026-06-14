@@ -46,6 +46,9 @@ function LoginFormInner() {
       const qs = next.toString();
       router.replace(qs ? `/login?${qs}` : '/login');
     }
+    // exhaustive-deps: mount-only — apply the one-time email prefill and strip the
+    // ?email query param once on load; intentionally not re-run when searchParams/
+    // router identities change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
