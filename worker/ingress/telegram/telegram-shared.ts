@@ -60,8 +60,12 @@ export function redactForAudit(update: TelegramUpdate): Record<string, unknown> 
 
   const msgAny = clone.message as Record<string, unknown> | undefined;
   if (msgAny) {
-    const text = msgAny.text;
-    if (typeof text === 'string' && text.startsWith('/start ')) msgAny.text = '[redacted]';
+    // Redact ALL message bodies, not just '/start ' tokens (Codex R1 #9):
+    // arbitrary free-text to the bot (the conversational seam) must never land
+    // raw in inbound_events.payload. The live dispatch reads the ORIGINAL
+    // update (e.g. handleEnrollment extracts the /start token), so redacting
+    // the audit clone here does not affect enrollment.
+    if (typeof msgAny.text === 'string') msgAny.text = '[redacted]';
     const mFrom = msgAny.from as { id?: number } | undefined;
     if (mFrom) msgAny.from = { id: mFrom.id };
     const mChat = msgAny.chat as { id?: number; type?: string } | undefined;

@@ -31,6 +31,7 @@ import { classifyIntent } from './twilio-intent';
 import { safeInvalidateChannelCache } from '../../../src/lib/notifications/resolve-channels';
 import { asAccountId } from '../../../src/lib/shared/ids';
 import { parseTwilioWhatsAppInbound } from './parse-inbound';
+import { handleConversationalMessage } from '../conversational-seam';
 
 const LOG_PREFIX = '[ingress/twilio-whatsapp]';
 
@@ -396,14 +397,10 @@ async function verifyEnrollmentToken(
 }
 
 async function handleUnrecognizedInbound(ctx: WhatsAppInboundContext): Promise<void> {
-  // Mask the phone number; only the last 4 digits land in logs. MessageSid is
-  // fine to log raw because it is the canonical Twilio support handle.
-  const maskedSender = ctx.senderHandle.length > 4
-    ? `***${ctx.senderHandle.slice(-4)}`
-    : '***';
-  console.log(
-    `${LOG_PREFIX} unrecognised inbound from ${maskedSender} (MessageSid=${ctx.messageSid})`,
-  );
+  // Non-command, non-button free text → future-agent seam (no-op today:
+  // auth-gated, no reply). The Body is already redacted in the inbound_events
+  // payload by redactWhatsAppPayload.
+  await handleConversationalMessage({ channel: 'whatsapp', senderHandle: ctx.senderHandle });
   await acknowledgeProcessed(ctx);
 }
 
