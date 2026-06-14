@@ -36,6 +36,7 @@ vi.mock('@/lib/channels/mobile-enrollment', async (importOriginal) => {
 });
 
 import { POST } from '../start/route';
+import { MultipleMobileChannelsError } from '@/lib/channels/unique-violation';
 
 const APP_URL = 'http://localhost';
 function mkReq() {
@@ -66,6 +67,20 @@ describe('POST /api/dashboard/channels/telegram/start', () => {
     requireRoleMock.mockRejectedValue(new AuthError('unauthorized', 401));
     const res = await POST(mkReq() as any);
     expect(res.status).toBe(401);
+  });
+
+  it('returns 409 multiple_mobile_channels when startMobileEnrollment throws MultipleMobileChannelsError', async () => {
+    // Mobile-channel exclusivity (email + exactly ONE of telegram/whatsapp): a
+    // 2nd mobile enroll hits the one_mobile_per_scope unique index (23505),
+    // classified to MultipleMobileChannelsError, which this route maps to 409.
+    // Mirrors the WhatsApp /start coverage so neither mobile channel can
+    // regress the exclusivity contract.
+    process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // accounts lookup
+    startMobileEnrollmentMock.mockRejectedValue(new MultipleMobileChannelsError());
+    const res = await POST(mkReq() as any);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe('multiple_mobile_channels');
   });
 
   it('uses the configured TELEGRAM_BOT_USERNAME in the t.me deep link', async () => {

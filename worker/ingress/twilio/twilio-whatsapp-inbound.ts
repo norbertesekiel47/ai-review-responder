@@ -166,16 +166,17 @@ async function handleButtonTap(
 
   const link = await findLiveApprovalLink(parsed.approvalLinkId);
   if (!link) {
-    await sendFreeformIgnoringErrors(
+    await sendFreeformBestEffort(
       ctx,
       'This reply was just handled on another channel.',
+      'handled-elsewhere notice',
     );
     await acknowledgeProcessed(ctx);
     return;
   }
 
   if (!(await hasVerifiedWhatsAppEnrollment(link.business_id, ctx.senderHandle))) {
-    await sendFreeformIgnoringErrors(ctx, 'This approval is no longer valid.');
+    await sendFreeformBestEffort(ctx, 'This approval is no longer valid.', 'enrollment-invalid notice');
     await acknowledgeProcessed(ctx);
     return;
   }
@@ -184,7 +185,7 @@ async function handleButtonTap(
     // FP: ordering-dependent — the action must succeed before the success message + ack send; failure routes to handleButtonActionError, so these cannot run in parallel.
     // react-doctor-disable-next-line react-doctor/async-parallel
     await runButtonAction(ctx, parsed, link.id);
-    await sendFreeformIgnoringErrors(ctx, buttonSuccessMessage(parsed.action));
+    await sendFreeformBestEffort(ctx, buttonSuccessMessage(parsed.action), 'button-success confirmation');
     await acknowledgeProcessed(ctx);
   } catch (err) {
     await handleButtonActionError(ctx, err);
@@ -256,15 +257,16 @@ async function handleButtonActionError(
 ): Promise<void> {
   const e = err as Error;
   if (isPermanentButtonError(e)) {
-    await sendFreeformIgnoringErrors(ctx, permanentButtonErrorMessage(e));
+    await sendFreeformBestEffort(ctx, permanentButtonErrorMessage(e), 'permanent-error notice');
     await acknowledgeProcessed(ctx);
     return;
   }
 
   console.error(`${LOG_PREFIX} unexpected error during button tap: ${e.message}`);
-  await sendFreeformIgnoringErrors(
+  await sendFreeformBestEffort(
     ctx,
     '⚠️ Something went wrong on our end. Please tap the Edit link in the approval message above to finish in browser.',
+    'unexpected-error notice',
   );
   await markInboundEventFailed(ctx.dedupKey, e.message);
   ctx.reply.status(503).send({ received: true, retry: true });
@@ -407,13 +409,26 @@ async function handleUnrecognizedInbound(ctx: WhatsAppInboundContext): Promise<v
   await acknowledgeProcessed(ctx);
 }
 
-async function sendFreeformIgnoringErrors(
+async function sendFreeformBestEffort(
   ctx: WhatsAppInboundContext,
   body: string,
+  context: string,
 ): Promise<void> {
+  // Best-effort confirmation/notice send. It must never poison the flow that
+  // precedes it — by the time a button-success confirmation is sent the
+  // approval/regenerate action has already committed — so failures are NOT
+  // rethrown. But a failure here (most notably a 63016 freeform-outside-the-
+  // 24h-window) must be classified + logged, not silently swallowed
+  // (Codex R1 #7). Mirrors the enrollment-confirmation logging in
+  // handleEnrollmentStart. The WhatsAppClient already classifies the Twilio
+  // code into a typed error whose message carries the classification.
   await ctx.client
     .sendFreeform({ to: toWaRecipient(ctx.senderHandle), body })
-    .catch(() => {});
+    .catch((err) => {
+      console.warn(
+        `${LOG_PREFIX} best-effort freeform send failed (${context}): ${(err as Error).message}`,
+      );
+    });
 }
 
 async function acknowledgeProcessed(ctx: WhatsAppInboundContext): Promise<void> {
