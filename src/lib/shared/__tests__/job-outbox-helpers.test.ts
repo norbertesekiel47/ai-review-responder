@@ -9,6 +9,7 @@ vi.mock('@/lib/db/server', () => ({
 import {
   enqueueAccountOffboardingEmail,
   enqueueAccountOffboardingReactivation,
+  enqueueAutoPostNotice,
   enqueueGenerateResponse,
   enqueuePublishResponse,
   enqueueValidatePlaceId,
@@ -150,6 +151,34 @@ describe('job outbox helpers', () => {
     );
     expect(tx.mock.calls[0]).toContain(QUEUE_NAMES.PUBLISH_RESPONSE);
 
+    const payload = objectArgs(tx).find((arg) => arg.response_id === 'response-1');
+    expect(payload).toEqual({
+      response_id: 'response-1',
+      business_id: 'business-1',
+      correlation_id: 'corr-1',
+    });
+  });
+
+  it('enqueues auto_post_notice with the in-flight conflict guard matching migration 067 byte-for-byte', async () => {
+    const tx = createMockTx();
+
+    await enqueueAutoPostNotice(tx, {
+      responseId: 'response-1',
+      businessId: 'business-1',
+      correlationId: 'corr-1',
+    });
+
+    expect(tx).toHaveBeenCalledOnce();
+    const text = sqlText(tx.mock.calls[0]!);
+    expect(text).toContain('INSERT INTO job_outbox');
+    expect(text).toContain('ON CONFLICT (topic, aggregate_id)');
+    // Byte-for-byte the predicate of idx_jo_auto_post_notice_inflight (067).
+    expect(text).toContain(
+      "WHERE topic = 'auto_post_notice' AND status IN ('pending', 'dispatching', 'dispatched')",
+    );
+    expect(tx.mock.calls[0]).toContain(QUEUE_NAMES.AUTO_POST_NOTICE);
+
+    // snake_case payload (Codex R2 HIGH) — matches the worker's job.data reads.
     const payload = objectArgs(tx).find((arg) => arg.response_id === 'response-1');
     expect(payload).toEqual({
       response_id: 'response-1',

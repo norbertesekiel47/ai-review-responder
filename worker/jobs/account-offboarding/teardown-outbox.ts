@@ -24,7 +24,7 @@ export async function runOutboxTerminalization(
     WHERE status = 'pending'
       AND (
         (
-          topic IN ('generate_response', 'send_notification', 'publish_response')
+          topic IN ('generate_response', 'send_notification', 'publish_response', 'auto_post_notice')
           AND payload->>'business_id' = ANY(${locationIds}::text[])
         )
         OR (

@@ -13,6 +13,7 @@ import { startOutboxPoller, stopOutboxPoller } from './background/pollers/Outbox
 import { handleDemoGeneration } from './jobs/DemoGenerationWorker';
 import { handleResponseGeneration } from './jobs/ResponseGeneratorWorker';
 import { handleSendNotification } from './jobs/notification/NotificationWorker';
+import { handleAutoPostNotice } from './jobs/auto-post-notice/AutoPostNoticeWorker';
 import { handlePublishResponse } from './jobs/publisher/ResponsePublisherWorker';
 import { handlePublisherFailed } from './jobs/publisher/failed-hook';
 import { handleZernioReviewIngest } from './jobs/zernio/ZernioReviewIngestWorker';
@@ -147,6 +148,8 @@ const publisherWorker = new Worker(QUEUE_NAMES.PUBLISH_RESPONSE, withJobLogConte
 
 publisherWorker.on('failed', handlePublisherFailed);
 
+const autoPostNoticeWorker = new Worker(QUEUE_NAMES.AUTO_POST_NOTICE, withJobLogContext(handleAutoPostNotice), workerOpts);
+
 const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminException, workerOpts);
 
 const weeklySummaryWorker = new Worker(QUEUE_NAMES.WEEKLY_SUMMARY, handleWeeklySummary, workerOpts);
@@ -224,6 +227,7 @@ const workersByQueue = {
   [QUEUE_NAMES.GENERATE_RESPONSE]: responseGenWorker,
   [QUEUE_NAMES.SEND_NOTIFICATION]: notificationWorker,
   [QUEUE_NAMES.PUBLISH_RESPONSE]: publisherWorker,
+  [QUEUE_NAMES.AUTO_POST_NOTICE]: autoPostNoticeWorker,
   [QUEUE_NAMES.NOTIFY_ADMIN]: adminExceptionWorker,
   [QUEUE_NAMES.WEEKLY_SUMMARY]: weeklySummaryWorker,
   [QUEUE_NAMES.VALIDATE_PLACE_ID]: placeIdValidationWorker,

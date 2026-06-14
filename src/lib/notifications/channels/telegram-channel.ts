@@ -9,9 +9,16 @@
 //   - Format the message (telegram-body.ts)
 //   - Call Bot API sendMessage (telegram-client.ts)
 
-import { formatApprovalTelegram } from './telegram-body';
+import { formatApprovalTelegram, formatAutoPostNoticeTelegram } from './telegram-body';
 import { TelegramClient } from './telegram-client';
-import type { NotificationChannel, ChannelId, SendApprovalParams, SendApprovalResult } from './types';
+import type {
+  NotificationChannel,
+  ChannelId,
+  SendApprovalParams,
+  SendApprovalResult,
+  SendAutoPostNoticeParams,
+  SendAutoPostNoticeResult,
+} from './types';
 
 export class TelegramChannel implements NotificationChannel {
   readonly id: ChannelId = 'telegram';
@@ -38,5 +45,26 @@ export class TelegramChannel implements NotificationChannel {
       disable_web_page_preview: true,
     });
     return { externalMessageId: `${result.chat.id}:${result.message_id}` };
+  }
+
+  async sendAutoPostNotice(p: SendAutoPostNoticeParams): Promise<SendAutoPostNoticeResult> {
+    const { text, inline_keyboard } = formatAutoPostNoticeTelegram({
+      locationLabel: p.locationLabel,
+      reviewerName: p.reviewerName,
+      starRating: p.starRating,
+      googleMapsUrl: p.googleMapsUrl,
+      viewUrl: p.viewUrl,
+    });
+    const client = new TelegramClient();
+    const result = await client.sendMessage({
+      chat_id: p.handle,
+      text,
+      // No CTA when the destination is unknown — pass no reply_markup rather
+      // than an empty keyboard (which the Bot API rejects).
+      reply_markup: inline_keyboard.length > 0 ? { inline_keyboard } : undefined,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+    });
+    return { status: 'sent', externalMessageId: `${result.chat.id}:${result.message_id}` };
   }
 }

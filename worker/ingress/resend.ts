@@ -145,6 +145,9 @@ const OWNER_DIRECTED_TEMPLATES = new Set([
   'owner_nudge',
   'owner_reconnect_required',
   'owner_connection_lost',
+  // Auto-approved post FYI (Workstream B) — owner-directed, so a hard bounce
+  // flags businesses.owner_email_bounced like any other owner email.
+  'auto_post_notice',
 ]);
 
 /**

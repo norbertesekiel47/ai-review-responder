@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 357;
+export const ALLOWLIST_BASELINE = 365;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -2497,6 +2497,62 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT b.name, b.display_label, b.owner_email_bounced, b.archived_at, a.id AS account_id, a.subscription_status, a.updated_at AS account_updated_at, a.past_due_at AS account_past_due_at, a.flags AS account_flags, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN account_offboardings ao ON ao.account_id = a.id AND ao.terminal_at IS NULL WHERE b.id = ${input.businessId} ORDER BY ao.created_at DESC NULLS LAST LIMIT 1",
     category: 'worker-job-scoped',
     reason: "Notification worker follows a durable job business id and joins to the active offboarding gate for that business account before dispatch.",
+  },
+  {
+    file: "worker/jobs/auto-post-notice/context.ts",
+    table: "reviews",
+    sqlSnippet: "SELECT resp.id, resp.status, resp.approval_method, resp.business_id AS resp_business_id, resp.review_id, r.reviewer_name, r.star_rating, r.review_date FROM responses resp JOIN reviews r ON resp.review_id = r.id WHERE resp.id = ${input.responseId}",
+    category: 'background-global-scan',
+    reason: "Auto-post FYI worker follows a durable job payload response id; tenant context fixed upstream by the publisher that enqueued the FYI.",
+  },
+  {
+    file: "worker/jobs/auto-post-notice/context.ts",
+    table: "responses",
+    sqlSnippet: "SELECT resp.id, resp.status, resp.approval_method, resp.business_id AS resp_business_id, resp.review_id, r.reviewer_name, r.star_rating, r.review_date FROM responses resp JOIN reviews r ON resp.review_id = r.id WHERE resp.id = ${input.responseId}",
+    category: 'background-global-scan',
+    reason: "Auto-post FYI worker follows a durable job payload response id; tenant context fixed upstream by the publisher that enqueued the FYI.",
+  },
+  {
+    file: "worker/jobs/auto-post-notice/context.ts",
+    table: "account_offboardings",
+    sqlSnippet: "SELECT b.name, b.display_label, b.google_maps_url, b.archived_at, a.id AS account_id, a.subscription_status, a.past_due_at AS account_past_due_at, a.flags AS account_flags, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN account_offboardings ao ON ao.account_id = a.id AND ao.terminal_at IS NULL WHERE b.id = ${input.businessId} ORDER BY ao.created_at DESC NULLS LAST LIMIT 1",
+    category: 'worker-job-scoped',
+    reason: "Auto-post FYI worker follows a durable job business id and joins to the active offboarding gate for that business account before dispatch.",
+  },
+  {
+    file: "worker/jobs/auto-post-notice/dispatch.ts",
+    table: "notification_deliveries",
+    sqlSnippet: "UPDATE notification_deliveries SET external_message_id = ${sendResult.externalMessageId}, sent_at = NOW() WHERE id = ${deliveryId}",
+    category: 'background-global-scan',
+    reason: "Finalizes the FYI claim row the worker just INSERTed (account_id + business_id set on the claim); by-id update of a worker-owned row.",
+  },
+  {
+    file: "worker/jobs/auto-post-notice/dispatch.ts",
+    table: "notification_deliveries",
+    sqlSnippet: "UPDATE notification_deliveries SET failed_at = NOW(), failure_reason = ${classification.reason} WHERE id = ${deliveryId}",
+    category: 'background-global-scan',
+    reason: "Marks the FYI claim row the worker just INSERTed as a terminal failed delivery; by-id update of a worker-owned row.",
+  },
+  {
+    file: "worker/jobs/auto-post-notice/dispatch.ts",
+    table: "notification_deliveries",
+    sqlSnippet: "DELETE FROM notification_deliveries WHERE id = ${deliveryId} AND external_message_id IS NULL AND failed_at IS NULL",
+    category: 'background-global-scan',
+    reason: "Releases the FYI claim row the worker just INSERTed on a retryable send failure; by-id delete of a worker-owned, un-finalized row.",
+  },
+  {
+    file: "src/app/r/google/[responseId]/route.ts",
+    table: "responses",
+    sqlSnippet: "SELECT b.google_maps_url FROM responses resp JOIN businesses b ON b.id = resp.business_id WHERE resp.id = ${responseId} AND resp.status = 'posted' LIMIT 1",
+    category: 'pre-auth-token',
+    reason: "Public 'View on Google' redirect resolves a posted response by opaque id from the URL before any tenant scope is knowable; requires the response<->business join + status='posted', then redirects only to an allowlisted Google host.",
+  },
+  {
+    file: "src/app/r/google/[responseId]/route.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT b.google_maps_url FROM responses resp JOIN businesses b ON b.id = resp.business_id WHERE resp.id = ${responseId} AND resp.status = 'posted' LIMIT 1",
+    category: 'pre-auth-token',
+    reason: "Public 'View on Google' redirect resolves a posted response by opaque id from the URL before any tenant scope is knowable; requires the response<->business join + status='posted', then redirects only to an allowlisted Google host.",
   },
   {
     file: "worker/jobs/publisher/load-context.ts",

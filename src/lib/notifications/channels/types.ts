@@ -49,6 +49,35 @@ export interface SendApprovalResult {
   externalMessageId: string;
 }
 
+/**
+ * Params for the auto-approved post FYI (Workstream B). NO approval fields —
+ * the response is already posted to Google. The "View on Google" CTA routes
+ * through the hardened `/r/google/<responseId>` redirect (`viewUrl`);
+ * `responseId` is also the dynamic suffix for the WhatsApp template URL button.
+ */
+export interface SendAutoPostNoticeParams {
+  /** Per-enrollment recipient: email address, E.164 phone, or telegram chat_id. */
+  handle: string;
+  locationLabel: string;
+  businessName: string;
+  reviewerName: string;
+  starRating: number;
+  /** Business-profile Google Maps URL, or null when unknown. Free-form channels omit the CTA when null. */
+  googleMapsUrl: string | null;
+  /** Stable redirect CTA target: `${APP_URL}/r/google/${responseId}`. */
+  viewUrl: string;
+  /** responseId — dynamic suffix for the WhatsApp template URL button. */
+  responseId: string;
+}
+
+/**
+ * Discriminated result so a channel can decline cleanly — e.g. WhatsApp without
+ * its FYI template SID — without a fake success or a retry loop.
+ */
+export type SendAutoPostNoticeResult =
+  | { status: 'sent'; externalMessageId: string }
+  | { status: 'skipped'; reason: string };
+
 export interface NotificationChannel {
   readonly id: ChannelId;
   /** True if the channel supports inline buttons for approve/regenerate. */
@@ -56,4 +85,10 @@ export interface NotificationChannel {
   /** True if owner must initiate contact before we can send (Telegram, WhatsApp). */
   readonly requiresOptInHandshake: boolean;
   sendApprovalRequest(p: SendApprovalParams): Promise<SendApprovalResult>;
+  /**
+   * Send the per-event "your response was auto-approved & posted" FYI. NO
+   * approval affordance (the post already happened). Returns a sent/skipped
+   * union (see SendAutoPostNoticeResult).
+   */
+  sendAutoPostNotice(p: SendAutoPostNoticeParams): Promise<SendAutoPostNoticeResult>;
 }

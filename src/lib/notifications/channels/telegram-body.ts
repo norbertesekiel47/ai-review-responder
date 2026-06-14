@@ -76,3 +76,37 @@ export function formatApprovalTelegram(p: TelegramApprovalParams): FormattedAppr
 
   return { text, inline_keyboard };
 }
+
+export interface TelegramAutoPostNoticeParams {
+  /** Resolved location label: display_label ?? businesses.name. Always non-null. */
+  locationLabel: string;
+  reviewerName: string;
+  starRating: number;
+  /** null when the business has no known Google Maps URL — CTA omitted. */
+  googleMapsUrl: string | null;
+  /** Stable redirect CTA target: `${APP_URL}/r/google/${responseId}`. */
+  viewUrl: string;
+}
+
+/**
+ * Pure formatter for the auto-approved post FYI. No approve/regenerate buttons
+ * (the post already happened). A single "View on Google" CTA is included ONLY
+ * when the business has a known Google Maps URL — otherwise no button (don't
+ * show a button that leads nowhere). `inline_keyboard` is `[]` in that case,
+ * and the channel passes no `reply_markup`.
+ */
+export function formatAutoPostNoticeTelegram(p: TelegramAutoPostNoticeParams): FormattedApprovalMessage {
+  const location = escapeHtml(sanitizeLocationLabelForPrefix(p.locationLabel));
+  const reviewer = escapeHtml(p.reviewerName);
+
+  const text = [
+    `<b>[${location}] ✅ Auto-approved reply posted</b>`,
+    `Your reply to ${reviewer}'s ⭐${p.starRating} review was approved by your auto-policy and posted to Google. No action needed.`,
+  ].join('\n');
+
+  const inline_keyboard: TelegramInlineButton[][] = p.googleMapsUrl !== null
+    ? [[{ text: '🔗 View on Google', url: p.viewUrl }]]
+    : [];
+
+  return { text, inline_keyboard };
+}

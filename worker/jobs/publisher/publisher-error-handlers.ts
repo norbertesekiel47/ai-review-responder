@@ -32,6 +32,7 @@ import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import type { SendOwnerEmailPayload } from '../../../src/lib/shared/worker-types';
 import * as Sentry from '@sentry/node';
 import { maybeCaptureActivationCompleted } from './activation';
+import { markPostedAndMaybeEnqueueAutoPostNotice } from './mark-posted';
 
 /** Strip credential-bearing patterns from an error body before persisting
  *  in audit fields (zernio_connections.last_error, responses.posting_error).
@@ -467,13 +468,18 @@ export async function verify409AndDispose(args: Verify409Args): Promise<Verify40
   const ourText = canonicalizeReplyText(approved_text);
 
   if (existingText === ourText) {
-    await sql`
-      UPDATE responses
-      SET status = 'posted', posted_at = NOW(), updated_at = NOW()
-      WHERE id = ${response_id}
-        AND business_id = ${business_id}
-        AND status IN ('approved', 'edited', 'awaiting_owner_connect')
-    `;
+    // Same shared helper as the fresh-2xx path (Codex R1 #1): the auto-post FYI
+    // must be enqueued on THIS retry-after-409 recovery too, atomically with the
+    // status flip, or it is silently lost. The affected-row guard means a row
+    // already posted (no transition) emits no stray FYI.
+    await sql.begin(async (tx) => {
+      await markPostedAndMaybeEnqueueAutoPostNotice({
+        tx,
+        responseId: response_id,
+        businessId: business_id,
+        logger,
+      });
+    });
     logger.log(`Response ${response_id} already posted on Zernio (409, text match), marked posted`);
     await maybeCaptureActivationCompleted({
       responseId: response_id,

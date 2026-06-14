@@ -11,6 +11,7 @@ import {
   type AccountOffboardingPurgePayload,
   type AccountOffboardingReactivationPayload,
   type AccountOffboardingTeardownPayload,
+  type AutoPostNoticePayload,
   type GenerateResponsePayload,
   type PublishResponsePayload,
   type SendNotificationPayload,
@@ -54,6 +55,13 @@ export interface EnqueuePublishResponseInput {
 }
 
 export interface EnqueueSendNotificationInput {
+  outboxId?: string;
+  responseId: string;
+  businessId: string;
+  correlationId?: string;
+}
+
+export interface EnqueueAutoPostNoticeInput {
   outboxId?: string;
   responseId: string;
   businessId: string;
@@ -240,6 +248,48 @@ export async function enqueuePublishResponse(
     )
     ON CONFLICT (topic, aggregate_id)
     WHERE topic = 'publish_response'
+      AND status IN ('pending', 'dispatching', 'dispatched')
+    DO NOTHING
+  `;
+  return outboxId;
+}
+
+/**
+ * Enqueues the auto-approved "your response was posted" FYI. Mirrors
+ * `enqueuePublishResponse`'s in-flight guard: a PARTIAL unique index on
+ * `(topic, aggregate_id) WHERE topic='auto_post_notice' AND status IN
+ * ('pending','dispatching','dispatched')` (migration 067) backs the
+ * byte-for-byte `ON CONFLICT` predicate below — so a no-op/race retry of the
+ * publisher cannot emit a second FYI while one is still in flight. The caller
+ * (`markPostedAndMaybeEnqueueAutoPostNotice`) MUST only enqueue when the
+ * posted-transition affected exactly one row, AND only for
+ * `approval_method='auto_policy'`. snake_case payload matches the worker reads.
+ */
+export async function enqueueAutoPostNotice(
+  tx: TxClient,
+  input: EnqueueAutoPostNoticeInput,
+): Promise<string> {
+  const outboxId = input.outboxId ?? uuidv7();
+  const payload: AutoPostNoticePayload = {
+    response_id: input.responseId,
+    business_id: input.businessId,
+  };
+  if (input.correlationId !== undefined) {
+    payload.correlation_id = input.correlationId;
+  }
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.AUTO_POST_NOTICE},
+      ${AGGREGATE_TYPE_RESPONSE},
+      ${input.responseId},
+      ${jsonb(payload)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
+    ON CONFLICT (topic, aggregate_id)
+    WHERE topic = 'auto_post_notice'
       AND status IN ('pending', 'dispatching', 'dispatched')
     DO NOTHING
   `;
