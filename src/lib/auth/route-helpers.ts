@@ -95,6 +95,16 @@ export function jsonResponse(body: unknown, status = 200): NextResponse {
   return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
 }
 
+/**
+ * The single error-response shape for owner/account JSON routes: `{ error: code }`
+ * at `status`, with the standard no-store headers (via `jsonResponse`). Use this
+ * instead of hand-writing `NextResponse.json({ error }, { status })` so every
+ * dashboard error returns the same body shape and cache semantics.
+ */
+export function errorResponse(code: string, status: number): NextResponse {
+  return jsonResponse({ error: code }, status);
+}
+
 export type RoleAuthResult =
   | { ok: true; user: AppUser }
   | { ok: false; response: NextResponse };

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { jsonResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
+import { jsonResponse, errorResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   getActiveDashboardData,
@@ -84,12 +84,12 @@ async function fetchPerLocationData(
   `;
 
   if (!subRow) {
-    return jsonResponse({ error: 'Business not found' }, 404);
+    return errorResponse('Business not found', 404);
   }
 
   // VAL-DASH-029: If the fallback location itself is archived, we're stuck
   if (subRow.archived_at !== null) {
-    return jsonResponse({ error: 'No active location available' }, 404);
+    return errorResponse('No active location available', 404);
   }
 
   if (subRow.subscription_status === SubscriptionStatus.PENDING_PAYMENT) {
@@ -277,7 +277,7 @@ async function handleAggregateDashboard(accountId: string): Promise<NextResponse
       WHERE id = ${accountId}::uuid
     `;
     if (!accountRow) {
-      return jsonResponse({ error: 'Account not found' }, 404);
+      return errorResponse('Account not found', 404);
     }
 
     const gated = await aggregateSubscriptionResponse(accountRow, accountId);
@@ -287,7 +287,7 @@ async function handleAggregateDashboard(accountId: string): Promise<NextResponse
     return jsonResponse(data);
   } catch (error) {
     reportCaughtError('api/dashboard', error, { accountId, scope: 'aggregate' });
-    return jsonResponse({ error: 'Failed to fetch aggregate dashboard data' }, 500);
+    return errorResponse('Failed to fetch aggregate dashboard data', 500);
   }
 }
 
@@ -301,7 +301,7 @@ async function handlePerLocationDashboard(
   // client-supplied `?scope=` value produces a controlled 400, not a
   // Postgres `::uuid` cast error surfaced as a 500.
   if (!isValidUuid(locationId)) {
-    return jsonResponse({ error: 'Invalid scope: location must be a valid UUID' }, 400);
+    return errorResponse('Invalid scope: location must be a valid UUID', 400);
   }
 
   try {
@@ -318,12 +318,12 @@ async function handlePerLocationDashboard(
           scopeFallback: { reason: 'location_not_found', fallbackLocationId: primary },
         });
       }
-      return jsonResponse({ error: 'Business not found' }, 404);
+      return errorResponse('Business not found', 404);
     }
 
     if (location.account_id !== accountId) {
       // IDOR attempt: location exists but belongs to a different account
-      return jsonResponse({ error: 'Not authorized to access this location' }, 403);
+      return errorResponse('Not authorized to access this location', 403);
     }
 
     if (location.archived_at !== null) {
@@ -335,17 +335,17 @@ async function handlePerLocationDashboard(
         });
       }
       // Primary itself archived or same — return error
-      return jsonResponse({ error: 'No active location available' }, 404);
+      return errorResponse('No active location available', 404);
     }
 
     // Location is active and owned — fetch its data normally
     return fetchPerLocationData(locationId, accountId);
   } catch (error) {
     if (error instanceof BusinessNotFoundError) {
-      return jsonResponse({ error: 'Business not found' }, 404);
+      return errorResponse('Business not found', 404);
     }
     reportCaughtError('api/dashboard', error, { accountId, locationId });
-    return jsonResponse({ error: 'Failed to fetch dashboard data' }, 500);
+    return errorResponse('Failed to fetch dashboard data', 500);
   }
 }
 
@@ -372,7 +372,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const locationId = scopePolicy.locationId;
   if (!locationId) {
-    return jsonResponse({ error: 'No business associated with this account' }, 403);
+    return errorResponse('No business associated with this account', 403);
   }
 
   return handlePerLocationDashboard(locationId, accountId);

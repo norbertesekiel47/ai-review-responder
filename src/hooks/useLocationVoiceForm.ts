@@ -181,6 +181,8 @@ export function useLocationVoiceForm(): UseLocationVoiceForm {
 
     load();
     return () => { cancelled = true; };
+    // exhaustive-deps: mount-only initial fetch — load voice settings once; the
+    // `cancelled` flag prevents a state update after unmount. Not re-run per render.
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Current entry

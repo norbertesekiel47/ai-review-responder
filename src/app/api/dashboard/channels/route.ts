@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireRoleOr401 } from '@/lib/auth/route-helpers';
+import { requireRoleOr401, errorResponse } from '@/lib/auth/route-helpers';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 import { whatsappEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const user = auth.user;
 
   if (!user.locationId) {
-    return NextResponse.json({ error: 'no_business' }, { status: 403 });
+    return errorResponse('no_business', 403);
   }
 
   // Subscription guard — defense-in-depth (page server component already redirects).
@@ -47,12 +47,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     JOIN businesses b ON b.account_id = a.id
     WHERE b.id = ${user.locationId}
   `;
-  if (!accountRow) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  if (!accountRow) return errorResponse('not_found', 404);
   if (
     accountRow.subscription_status !== SubscriptionStatus.ACTIVE
     && accountRow.subscription_status !== SubscriptionStatus.PAST_DUE
   ) {
-    return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
+    return errorResponse('subscription_not_active', 403);
   }
   const accountId = accountRow.id;
 

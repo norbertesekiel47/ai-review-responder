@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { resolveWritableAccountForLocation } from '@/lib/shared/writable-subscription';
-import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireRoleOr401, withSameOrigin, errorResponse } from '@/lib/auth/route-helpers';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 import { cancelMobileEnrollment } from '@/lib/channels/mobile-enrollment';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
@@ -18,11 +18,11 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   if (!auth.ok) return auth.response;
   const user = auth.user;
 
-  if (!user.locationId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
+  if (!user.locationId) return errorResponse('no_business', 403);
 
   const gate = await resolveWritableAccountForLocation(user.locationId);
-  if (gate.kind === 'blocked') return NextResponse.json({ error: gate.error }, { status: gate.status });
-  if (gate.kind === 'no_account') return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
+  if (gate.kind === 'blocked') return errorResponse(gate.error, gate.status);
+  if (gate.kind === 'no_account') return errorResponse('subscription_not_active', 403);
   const accountId = gate.accountId;
 
   await sql.begin(async (tx) => {

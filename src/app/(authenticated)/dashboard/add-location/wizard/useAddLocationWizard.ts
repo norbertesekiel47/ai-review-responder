@@ -28,6 +28,7 @@ import {
   STEP_INFO,
   type ExistingLocationVoice,
   type Props,
+  type VoiceConfigApiLocation,
   type VoiceFormState,
 } from './types';
 
@@ -55,7 +56,7 @@ export function useAddLocationWizard({
         if (cancelled) return;
 
         const locs: ExistingLocationVoice[] = (json.locations ?? []).map(
-          (loc: any) => ({
+          (loc: VoiceConfigApiLocation) => ({
             locationId: loc.locationId,
             displayName: loc.displayName,
             tone: loc.tone ?? '',

@@ -1,7 +1,7 @@
 // src/app/api/dashboard/channels/whatsapp/disable/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveWritableAccountForLocation } from '@/lib/shared/writable-subscription';
-import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireRoleOr401, withSameOrigin, errorResponse } from '@/lib/auth/route-helpers';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
 import { disconnectChannel } from '@/lib/channels/disable-enrollment';
 
@@ -15,11 +15,11 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   if (!auth.ok) return auth.response;
   const user = auth.user;
 
-  if (!user.locationId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
+  if (!user.locationId) return errorResponse('no_business', 403);
 
   const gate = await resolveWritableAccountForLocation(user.locationId);
-  if (gate.kind === 'blocked') return NextResponse.json({ error: gate.error }, { status: gate.status });
-  if (gate.kind === 'no_account') return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
+  if (gate.kind === 'blocked') return errorResponse(gate.error, gate.status);
+  if (gate.kind === 'no_account') return errorResponse('subscription_not_active', 403);
 
   const result = await disconnectChannel({
     channel: 'whatsapp',
@@ -30,7 +30,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
   const noStore = { 'Cache-Control': 'no-store, private' };
   if (result.kind === 'not_found') {
-    return NextResponse.json({ error: 'not_found' }, { status: 404, headers: noStore });
+    return errorResponse('not_found', 404);
   }
   return NextResponse.json({ ok: true }, { headers: noStore });
 }
