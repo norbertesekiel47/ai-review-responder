@@ -859,7 +859,7 @@ All schema migrations live here, numbered `001` … `045` (head; next is `046`).
 - `.claude/rules/` — always-loaded behavioral law: `repworth.md` (project rules) plus the generic `engineering.md` / `production.md` / `design.md`.
 - `.claude/skills/` — patterns to follow, invoked on demand (cost-guard, approval-security, outbox-pattern, onboarding-demo-cost-guard).
 - `.claude/reference/` — recall-when-needed inventories, read on demand (env-vars, migrations-log, lab-notes, review-ingestion).
-- `docs/runbooks/` — operational + deployment runbooks (Zernio launch, smoke tests, ops, email deliverability, beta deployment plan; **Wave 1** added `secrets-rotation-*.md` + `security-scan-staging.md`).
+- `docs/runbooks/` — operational + deployment runbooks (Zernio launch, smoke tests, ops, email deliverability, beta deployment plan; **Wave 1** added `secrets-rotation-*.md` + `security-scan-staging.md`; **channels** added `channels-rollout.md` (prod flip: Telegram-first/WhatsApp-follows) + `channels-staging-smoke-test.md` (end-to-end staging verification)).
 - `docs/security/` — **(Wave 1)** RLS inventory, tenant-isolation model, vendor-risk + access registers, CSP rollout plan.
 - `docs/finance/` — **(Wave 1)** pilot invoice-review template for the first multi-location accounts (`accounts.flags.is_pilot`).
 - `docs/legal/` — legal source docs + external-gate status (`legal-review.md`, `insurance.md`); rendered pages come from `src/lib/legal/content.ts`, not these.
