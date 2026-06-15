@@ -35,3 +35,25 @@ export function truncate(text: string, maxLength: number): string {
 export function escapeHrefUrl(url: string): string {
   return url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 }
+
+/**
+ * Wrap a card's inner `<tr>` rows in the shared RepWorth transactional-email
+ * shell (doctype + responsive 600px white card on a grey backdrop). Defined
+ * ONCE here so the chrome can't drift between templates; each template supplies
+ * only its card content rows (indented to sit inside the card `<table>`).
+ */
+export function buildEmailShell(cardRowsHtml: string): string {
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f5f5f5;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;max-width:600px;width:100%;">
+${cardRowsHtml}
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}

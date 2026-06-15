@@ -24,6 +24,9 @@ vi.mock('../activation', () => ({
 vi.mock('@sentry/node', () => ({
   captureMessage: vi.fn(),
 }));
+vi.mock('../mark-posted', () => ({
+  markPostedAndMaybeEnqueueAutoPostNotice: vi.fn(),
+}));
 
 import {
   handlePublisherAuthErrorTerminal,
@@ -40,6 +43,7 @@ import {
   ZernioValidationError,
 } from '@/lib/zernio/errors';
 import { maybeCaptureActivationCompleted } from '../activation';
+import { markPostedAndMaybeEnqueueAutoPostNotice } from '../mark-posted';
 
 const mkLogger = () => ({ log: vi.fn(), warn: vi.fn(), error: vi.fn() });
 
@@ -195,6 +199,7 @@ describe('verify409AndDispose', () => {
     approved_text: 'Thank you!',
     outboxId: 'outbox-1',
     outboxAttempt: 1 as number | undefined,
+    correlation_id: 'corr-409',
     logger: { log: vi.fn(), warn: vi.fn(), error: vi.fn() } as any,
   };
 
@@ -214,7 +219,7 @@ describe('verify409AndDispose', () => {
     };
   }
 
-  it('happy path posted: text match → UPDATE posted + markOutboxCompleted, returns { outcome: posted }', async () => {
+  it('happy path posted: text match → mark-posted helper inside a tx + markOutboxCompleted, returns { outcome: posted }', async () => {
     const { zernioClient } = await import('@/lib/zernio/client');
     const { getCachedZernioReviewPage } = await import('@/lib/publishing/zernio-publisher');
     const { markOutboxCompleted } = await import('@/lib/shared/outbox');
@@ -224,11 +229,26 @@ describe('verify409AndDispose', () => {
     (zernioClient as any).listAllReviews = vi.fn().mockResolvedValue([
       makeZernioReviewWith('Thank you!'),
     ]);
-    (sql as any).mockResolvedValue(Object.assign([], { count: 1 }));
+    // Wire sql.begin to ACTUALLY run its callback with a tx, so the shared
+    // mark-posted helper (and thus its FYI enqueue) is exercised — without this
+    // the assertion below is vacuous (the callback never runs).
+    const tx = (() => Promise.resolve(mkTaggedResult([]))) as any;
+    (sql as any).begin = vi.fn(async (cb: (t: any) => Promise<unknown>) => cb(tx));
 
     const result = await verify409AndDispose(baseArgs);
 
     expect(result.outcome).toBe('posted');
+    // Codex R1 #1: the retry-after-409 recovery MUST route the posted-transition
+    // + FYI enqueue through the SAME shared helper as the fresh-2xx path, inside
+    // the tx — otherwise the auto-post FYI is silently lost on every 409 retry.
+    expect(markPostedAndMaybeEnqueueAutoPostNotice).toHaveBeenCalledTimes(1);
+    expect(markPostedAndMaybeEnqueueAutoPostNotice).toHaveBeenCalledWith({
+      tx,
+      responseId: 'R',
+      businessId: 'B',
+      correlationId: 'corr-409', // Codex review #2: correlation_id threaded for trace continuity
+      logger: expect.any(Object),
+    });
     expect(maybeCaptureActivationCompleted).toHaveBeenCalledWith({
       responseId: 'R',
       businessId: 'B',
@@ -253,6 +273,8 @@ describe('verify409AndDispose', () => {
     const result = await verify409AndDispose(baseArgs);
 
     expect(result.outcome).toBe('superseded');
+    // The superseded path does NOT mark posted → it must NOT touch the FYI helper.
+    expect(markPostedAndMaybeEnqueueAutoPostNotice).not.toHaveBeenCalled();
     expect(maybeCaptureActivationCompleted).not.toHaveBeenCalled();
     expect(markOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
   });

@@ -139,6 +139,17 @@ disagree on which env vars count (all 5, incl. `WHATSAPP_APPROVAL_URL_BASE`).
 - `WHATSAPP_APPROVAL_TEMPLATE_SID` — Twilio Content SID for `repworth_approval_request_v1`
 - `WHATSAPP_APPROVAL_URL_BASE` — must equal `NEXT_PUBLIC_APP_URL + '/approve/'` (assertion enforces equality)
 
+**Optional (degrading) — NOT startup-required:**
+- `WHATSAPP_AUTOPOST_TEMPLATE_SID` — Twilio Content SID for the auto-approved post
+  FYI template `repworth_autopost_notice_v1` (Workstream B; see
+  `docs/runbooks/whatsapp-templates.md`). **Deliberately absent from
+  `assertChannelsWhatsAppEnv`** — its absence must NOT fail worker boot. When
+  unset, the FYI dispatcher pre-filters WhatsApp (`skipped`, logged) and the
+  WhatsApp channel's `sendAutoPostNotice` returns `{status:'skipped'}`; email +
+  Telegram FYIs still send. Set on **both** Vercel and Railway once the Meta
+  template clears, then the WhatsApp FYI activates with no code change. No
+  `NEXT_PUBLIC_*` companion.
+
 **Before flipping:** Meta Business verification (2–4 week process) + WABA setup + Content template approval.
 
 **Critical error handling note:** `TemplateConfigError` and `SessionWindowError`

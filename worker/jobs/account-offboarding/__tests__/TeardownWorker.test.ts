@@ -208,7 +208,7 @@ const {
     if (
       text.includes('UPDATE job_outbox')
       && text.includes("status = 'completed'")
-      && text.includes("topic IN ('generate_response', 'send_notification', 'publish_response')")
+      && text.includes("topic IN ('generate_response', 'send_notification', 'publish_response', 'auto_post_notice')")
       && text.includes("'account_offboarding_billing_schedule'")
       && text.includes("'account_offboarding_reactivation'")
       && text.includes("'account_offboarding_teardown'")
@@ -439,7 +439,7 @@ describe('AccountOffboarding TeardownWorker', () => {
     expect(combinedSql).toContain("COALESCE(array_length(zernio_profile_ids, 1), 0) > 0 AND zernio_profiles_step = 'success'");
     expect(combinedSql).toContain("COALESCE(array_length(location_ids, 1), 0) > 0 AND location_archival_step = 'success'");
     expect(combinedSql).toContain("job_terminalization_step = 'success'");
-    expect(combinedSql).toContain("topic IN ('generate_response', 'send_notification', 'publish_response')");
+    expect(combinedSql).toContain("topic IN ('generate_response', 'send_notification', 'publish_response', 'auto_post_notice')");
     expect(combinedSql).toContain("'account_offboarding_billing_schedule'");
     expect(combinedSql).toContain("'account_offboarding_reactivation'");
     expect(combinedSql).toContain("'account_offboarding_teardown'");
@@ -840,7 +840,7 @@ describe('AccountOffboarding TeardownWorker', () => {
     await runOutboxTerminalization(row, 'outbox-teardown-1');
 
     const updateCall = sqlCalls.find((call) => call.text.includes('UPDATE job_outbox'));
-    expect(updateCall?.text).toContain("topic IN ('generate_response', 'send_notification', 'publish_response')");
+    expect(updateCall?.text).toContain("topic IN ('generate_response', 'send_notification', 'publish_response', 'auto_post_notice')");
     expect(updateCall?.text).toContain("payload->>'business_id' = ANY(?::text[])");
     expect(updateCall?.text).toContain("'account_offboarding_billing_schedule'");
     expect(updateCall?.text).toContain("'account_offboarding_reactivation'");

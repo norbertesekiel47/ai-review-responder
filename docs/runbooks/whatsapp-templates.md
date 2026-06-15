@@ -181,3 +181,81 @@ Before Meta approves the real template, use Twilio's WhatsApp sandbox:
 2. `TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886` (Twilio's sandbox sender).
 3. `WHATSAPP_APPROVAL_TEMPLATE_SID=<sandbox template SID>` — sandbox accepts free-form sends, so a minimal template SID is sufficient for end-to-end wiring.
 4. Keep `CHANNELS_WHATSAPP_ENABLED=false` in production until the real template is approved and the ship gate passes.
+
+---
+
+## `repworth_autopost_notice_v1`
+
+**Purpose:** Tell a business owner that their auto-approval policy approved AND
+posted a reply to a new review (the per-event FYI, Workstream B). One-way — the
+FYI has **no** approve/regenerate buttons (the post already happened) and **no**
+approval link. Only a single "View on Google" URL button.
+
+**Twilio Content type:** `whatsapp/card` (same as the approval template — gives a
+real `body` field plus a URL button).
+
+**Meta category:** UTILITY (transactional — it confirms an action the owner's
+policy already authorized). If Meta reclassifies as MARKETING, the copy may need
+a rework; the `_v1` suffix reserves room for a versioned resubmit.
+
+**Body text:**
+
+```
+✅ Auto-approved reply posted for {{1}}
+
+Your reply to {{2}}'s ⭐{{3}} review was approved by your auto-policy and posted to Google. No action needed.
+```
+
+**Variables:** (must match `formatAutoPostNoticeWhatsApp` in `src/lib/notifications/channels/whatsapp-body.ts` — keys `"1"`–`"4"`, passed positionally)
+
+| Index | Content | Type | Max length | Null-safe default |
+|-------|---------|------|------------|-------------------|
+| 1 | Business name | string | 100 | — (always set) |
+| 2 | Reviewer name | string | 100 | `"Reviewer"` if missing |
+| 3 | Star rating | string `"1"`–`"5"` | 1 | — |
+| 4 | URL button suffix (responseId, a UUIDv7) | string | 36 | — |
+
+**Buttons:**
+
+| Index | Type | Label | Dynamic content |
+|-------|------|-------|-----------------|
+| 0 | URL | View on Google | `url` field = `https://app.repworth.com/r/google/{{4}}` |
+
+**URL button base:** `https://app.repworth.com/r/google/` — a **fixed prefix +
+dynamic `{{4}}` suffix** (the same shape Meta already approved for the approval
+template's `/approve/{{9}}` button — verified viable in production). The route
+`/r/google/<responseId>` 302-redirects to the business's Google Maps URL after a
+host allowlist + `status='posted'` check, and renders an "unavailable" page when
+the destination is unknown. There is **no env-var equality assertion** for this
+base (unlike `WHATSAPP_APPROVAL_URL_BASE`) — the suffix is the responseId, not a
+secret token, and the redirect is server-validated.
+
+### Submission JSON (Twilio Content API)
+
+Submit via the Content Editor UI or `POST /v1/Content`. After Meta approves,
+Twilio returns an `HX...` Content SID — set it as `WHATSAPP_AUTOPOST_TEMPLATE_SID`
+on **both** Vercel and Railway. If unset, the WhatsApp FYI is skipped gracefully
+(email + Telegram still send); it is **NOT** a startup-required var.
+
+```json
+{
+  "friendly_name": "repworth_autopost_notice_v1",
+  "language": "en",
+  "variables": { "1": "Acme Co", "2": "Jane D", "3": "5", "4": "019db8c1-c3f4-7668-b353-2b8b718ec603" },
+  "types": {
+    "whatsapp/card": {
+      "body": "✅ Auto-approved reply posted for {{1}}\n\nYour reply to {{2}}'s ⭐{{3}} review was approved by your auto-policy and posted to Google. No action needed.",
+      "actions": [
+        { "type": "URL", "title": "View on Google", "url": "https://app.repworth.com/r/google/{{4}}" }
+      ]
+    }
+  }
+}
+```
+
+**Variable-map validation gate (before submitting):** diff `{{1}}`–`{{4}}`
+against `formatAutoPostNoticeWhatsApp` — `"1"`=businessName, `"2"`=reviewerName
+(`|| 'Reviewer'`), `"3"`=`String(starRating)`, `"4"`=responseId (URL suffix).
+
+**What triggers a resubmission:** body wording, the button label/URL base, the
+category, or the variable count/order — same rules as the approval template.

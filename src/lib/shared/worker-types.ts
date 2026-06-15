@@ -71,6 +71,19 @@ export interface PublishResponsePayload extends BasePayload {
   business_id: string;
 }
 
+/**
+ * AutoPostNoticePayload — emitted ONLY by the shared publisher helper
+ * `markPostedAndMaybeEnqueueAutoPostNotice` after an `approval_method='auto_policy'`
+ * response transitions to `posted`. Drives the per-event "your response was
+ * auto-approved & posted" FYI. snake_case to match the worker's
+ * `job.data.response_id` / `business_id` reads (the enqueue helper maps
+ * camelCase inputs to this shape).
+ */
+export interface AutoPostNoticePayload extends BasePayload {
+  response_id: string;
+  business_id: string;
+}
+
 export interface NotifyAdminExceptionPayload extends BasePayload {
   review_exception_id: string;
   business_id: string;

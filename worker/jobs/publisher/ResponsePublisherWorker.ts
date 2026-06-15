@@ -20,6 +20,7 @@ import { runEditPublishIfApplicable } from './edit-publish';
 import { isOrphanMarker } from '../../../src/lib/publishing/orphan-markers';
 import { maybeCaptureActivationCompleted } from './activation';
 import { downgradeAutoApprovedResponseForManualReview } from './auto-policy-downgrade';
+import { markPostedAndMaybeEnqueueAutoPostNotice } from './mark-posted';
 import type { ZernioConnectionRow } from './types';
 
 export async function handlePublishResponse(
@@ -178,6 +179,20 @@ export async function handlePublishResponse(
     const isOrphanRetry = isOrphanMarker(response.posting_error);
 
     if (hasPostedSibling || isOrphanRetry) {
+      // Invariant (Codex R2 #2): auto-approval is `live_ingest_new` v1 only, so
+      // an `approval_method='auto_policy'` response can NEVER reach the
+      // owner-edit / orphan publish writers (edit-publish.ts /
+      // edit-publish-errors.ts) — which therefore do NOT carry the auto-post FYI
+      // logic. Assert HERE, only when actually entering the edit path, so a
+      // first-time auto-approved publish (no posted sibling, no orphan marker)
+      // still falls through to the fresh POST path below. Fail loudly if the
+      // invariant ever breaks; the fix would be to route those writers through
+      // markPostedAndMaybeEnqueueAutoPostNotice too.
+      if (response.approval_method === APPROVAL_METHOD.AUTO_POLICY) {
+        throw new Error(
+          `Invariant violation: auto_policy response ${response_id} reached the edit-publish path`,
+        );
+      }
       const result = await runEditPublishIfApplicable({
         responseId: response_id,
         businessId,
@@ -223,14 +238,20 @@ export async function handlePublishResponse(
   });
   if (postOutcome === 'completed') return;
 
-  // ── Success: mark posted ────────────────────────────────────────────────
-  await sql`
-    UPDATE responses
-    SET status = 'posted', posted_at = NOW(), updated_at = NOW()
-    WHERE id = ${response_id}
-      AND business_id = ${businessId}
-      AND status IN ('approved', 'edited', 'awaiting_owner_connect')
-  `;
+  // ── Success: mark posted (+ enqueue the auto-post FYI for auto_policy) ─────
+  // Wrapped in one tx so the status flip + FYI enqueue are atomic (invariant
+  // #2). Safe under retry: a retry-after-rollback re-posts → Zernio 409 →
+  // verify409AndDispose recovers via the same shared helper, and the
+  // status-guarded UPDATE no-ops once already posted (Codex R1 #1).
+  await sql.begin(async (tx) => {
+    await markPostedAndMaybeEnqueueAutoPostNotice({
+      tx,
+      responseId: response_id,
+      businessId,
+      correlationId: job.data.correlation_id,
+      logger,
+    });
+  });
 
   logger.log(
     `Response ${response_id} posted via Zernio for business ${businessId}`,

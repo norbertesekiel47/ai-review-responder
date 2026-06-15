@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **066** — next migration is **067**
+Current head: **067** — next migration is **068**
 All tables use UUIDv7 (time-ordered primary keys).
 
 ## Data retention policy
@@ -590,6 +590,24 @@ Revisit triggers:
   Supabase projects in lockstep. Verification after apply:
   `SELECT relname, relrowsecurity FROM pg_class WHERE relname IN
   ('inbound_events','prospect_demos','google_connections');` → all `t`.
+
+- **067** — Auto-approved post FYI backing indexes (channels-rollout Workstream B).
+  Two PARTIAL UNIQUE indexes, both transactional (each predicate matches ZERO
+  existing rows — `auto_post_notice` is a brand-new outbox topic AND a brand-new
+  notification template, so the builds are instant; no CONCURRENTLY):
+  - `idx_jo_auto_post_notice_inflight ON job_outbox (topic, aggregate_id) WHERE
+    topic = 'auto_post_notice' AND status IN ('pending','dispatching','dispatched')`
+    — in-flight dedup mirroring `idx_jo_publish_response_inflight` (026). The
+    predicate matches `enqueueAutoPostNotice`'s `ON CONFLICT` byte-for-byte
+    (`src/lib/shared/job-outbox-helpers.ts`) — the documented gotcha; a full
+    `(topic, aggregate_id)` unique index would over-constrain other topics.
+  - `notification_deliveries_auto_post_notice_claim ON notification_deliveries
+    (response_id, channel, recipient) WHERE response_id IS NOT NULL AND template
+    = 'auto_post_notice'` — claim-before-send dedup. Keyed on channel+recipient
+    (not just `(response_id, template)` like 024/026) because the FYI fans out to
+    multiple channels per response. Backs the dispatcher's claim `ON CONFLICT`
+    byte-for-byte. No table/column/data/RLS change. Apply staging-first, then
+    production, both Supabase projects in lockstep.
 
 ## Key Tables Reference
 

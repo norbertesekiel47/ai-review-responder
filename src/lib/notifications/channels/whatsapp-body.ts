@@ -92,3 +92,35 @@ export function formatApprovalWhatsApp(
     },
   };
 }
+
+export interface AutoPostNoticeWhatsAppParams {
+  businessName: string;
+  reviewerName: string;
+  starRating: number;
+  /** responseId — the URL button suffix for `/r/google/{{4}}`. */
+  responseId: string;
+}
+
+/**
+ * Format the auto-approved post FYI into Twilio Content variables for the
+ * repworth_autopost_notice_v1 template (docs/runbooks/whatsapp-templates.md).
+ * The template's single URL button is `<APP_URL>/r/google/{{4}}` — a fixed
+ * prefix + dynamic responseId suffix (same shape as the approved approval
+ * template's `/approve/{{9}}` button). Second param `contentSid` lets tests
+ * pass a deterministic SID; production callers omit it to fall back to
+ * process.env.WHATSAPP_AUTOPOST_TEMPLATE_SID.
+ */
+export function formatAutoPostNoticeWhatsApp(
+  params: AutoPostNoticeWhatsAppParams,
+  contentSid: string = process.env.WHATSAPP_AUTOPOST_TEMPLATE_SID ?? '',
+): WhatsAppSendContent {
+  return {
+    contentSid,
+    contentVariables: {
+      '1': params.businessName,
+      '2': params.reviewerName || 'Reviewer',
+      '3': String(params.starRating),
+      '4': params.responseId,
+    },
+  };
+}

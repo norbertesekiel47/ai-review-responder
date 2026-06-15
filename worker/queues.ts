@@ -65,6 +65,7 @@ export const queues = {
   accountOffboardingReactivation: new Queue(QUEUE_NAMES.ACCOUNT_OFFBOARDING_REACTIVATION, { connection: opts, defaultJobOptions }),
   accountOffboardingTeardown: new Queue(QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN, { connection: opts, defaultJobOptions }),
   accountOffboardingPurge: new Queue(QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE, { connection: opts, defaultJobOptions }),
+  autoPostNotice: new Queue(QUEUE_NAMES.AUTO_POST_NOTICE, { connection: opts, defaultJobOptions }),
 } as const;
 
 // Lookup table: outbox topic string → Queue instance
@@ -98,4 +99,5 @@ export const topicToQueue: Record<string, Queue> = {
   [QUEUE_NAMES.ACCOUNT_OFFBOARDING_REACTIVATION]: queues.accountOffboardingReactivation,
   [QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN]: queues.accountOffboardingTeardown,
   [QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE]: queues.accountOffboardingPurge,
+  [QUEUE_NAMES.AUTO_POST_NOTICE]: queues.autoPostNotice,
 };

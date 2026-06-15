@@ -33,6 +33,7 @@ export const QUEUE_NAMES = {
   ACCOUNT_OFFBOARDING_REACTIVATION: 'account_offboarding_reactivation',
   ACCOUNT_OFFBOARDING_TEARDOWN: 'account_offboarding_teardown',
   ACCOUNT_OFFBOARDING_PURGE: 'account_offboarding_purge',
+  AUTO_POST_NOTICE: 'auto_post_notice',
 } as const;
 
 type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

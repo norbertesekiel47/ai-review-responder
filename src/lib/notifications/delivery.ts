@@ -59,3 +59,78 @@ export async function insertFailedDelivery(
     )
   `;
 }
+
+// ── Claim-before-send (auto-approved post FYI, Workstream B) ─────────────────
+//
+// The FYI dispatcher claims a delivery row BEFORE sending so a crash-after-accept
+// retry can't double-send (Codex R1 #3 / R2 #4). These four helpers own every
+// notification_deliveries write the claim lifecycle needs, so the dispatcher
+// reads as orchestration (claim → send → finalize|fail|release) and the table's
+// write-shape lives in one place.
+
+/**
+ * Insert a pending claim keyed by (response_id, channel, recipient) for
+ * template='auto_post_notice'. Returns the new delivery id, or null when a live
+ * claim already exists — a prior SENT row (external_message_id set) or
+ * TERMINAL-failed row (failed_at set) conflicts; a released (deleted) retryable
+ * claim does not, so it re-sends.
+ *
+ * The ON CONFLICT predicate matches the partial index
+ * `notification_deliveries_auto_post_notice_claim` (migration 067) BYTE-FOR-BYTE
+ * — the 'auto_post_notice' literal must stay a literal, never a bound param, or
+ * Postgres won't recognise the constraint.
+ */
+export async function claimAutoPostNoticeDelivery(params: {
+  accountId: string;
+  businessId: string;
+  responseId: string;
+  channel: ChannelId;
+  recipient: string;
+}): Promise<string | null> {
+  const id = uuidv7();
+  const claimed = await sql<{ id: string }[]>`
+    INSERT INTO notification_deliveries
+      (id, account_id, business_id, response_id, channel, recipient, template)
+    VALUES
+      (${id}, ${params.accountId}, ${params.businessId}, ${params.responseId},
+       ${params.channel}, ${params.recipient}, 'auto_post_notice')
+    ON CONFLICT (response_id, channel, recipient)
+      WHERE response_id IS NOT NULL AND template = 'auto_post_notice'
+      DO NOTHING
+    RETURNING id
+  `;
+  return claimed.length === 1 ? id : null;
+}
+
+/** Finalize a claimed delivery as SENT with the provider message id. */
+export async function finalizeDeliverySent(
+  deliveryId: string,
+  externalMessageId: string,
+): Promise<void> {
+  await sql`
+    UPDATE notification_deliveries
+    SET external_message_id = ${externalMessageId}, sent_at = NOW()
+    WHERE id = ${deliveryId}
+  `;
+}
+
+/** Record a claimed delivery as TERMINALLY failed (kept as the observability row). */
+export async function failDelivery(deliveryId: string, failureReason: string): Promise<void> {
+  await sql`
+    UPDATE notification_deliveries
+    SET failed_at = NOW(), failure_reason = ${failureReason}
+    WHERE id = ${deliveryId}
+  `;
+}
+
+/**
+ * Release an un-finalized claim (no provider id, not yet failed) so a retry can
+ * re-acquire. The external_message_id/failed_at guards ensure a concurrent
+ * finalize is never clobbered.
+ */
+export async function releaseDeliveryClaim(deliveryId: string): Promise<void> {
+  await sql`
+    DELETE FROM notification_deliveries
+    WHERE id = ${deliveryId} AND external_message_id IS NULL AND failed_at IS NULL
+  `;
+}
