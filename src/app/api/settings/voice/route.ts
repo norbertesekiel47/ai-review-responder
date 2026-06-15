@@ -114,12 +114,14 @@ const VoiceConfigSchema = z
     message: 'At least one voice config field must be provided',
   });
 
-const VOICE_FIELD_TO_COLUMN: Record<string, string> = {
+const VOICE_FIELD_TO_COLUMN = {
   tone: 'tone',
   productsServices: 'products_services',
   avoidFacts: 'avoid_facts',
   sampleResponses: 'sample_responses',
-};
+} as const;
+
+type VoiceField = keyof typeof VOICE_FIELD_TO_COLUMN;
 
 async function putVoiceConfig(request: NextRequest): Promise<NextResponse> {
   const owner = await requireWritableOwner(request);
@@ -156,30 +158,30 @@ async function putVoiceConfig(request: NextRequest): Promise<NextResponse> {
     return jsonResponse({ error: 'Location not found or not accessible' }, 404);
   }
 
-  const fields = Object.keys(voiceFields) as (keyof typeof voiceFields)[];
+  const fields = Object.keys(voiceFields).filter(
+    (f): f is VoiceField => f in VOICE_FIELD_TO_COLUMN,
+  );
 
   if (fields.length === 0) {
     return jsonResponse({ error: 'No fields to update' }, 400);
   }
 
-  // Build dynamic UPDATE query
-  const setClauses: string[] = [];
-  const values: unknown[] = [locationId];
-
+  // Map validated fields → columns and let Postgres.js parameterize both the
+  // identifiers and values via the dynamic-column helper. No string
+  // interpolation — mirrors runScopedUpdate in ../route.ts.
+  const updates: Record<string, string | string[] | null> = {};
   for (const field of fields) {
-    const column = VOICE_FIELD_TO_COLUMN[field];
-    const value = voiceFields[field] ?? null;
-    values.push(value);
-    setClauses.push(`${column} = $${values.length}`);
+    updates[VOICE_FIELD_TO_COLUMN[field]] = voiceFields[field] ?? null;
   }
-  setClauses.push('updated_at = NOW()');
-
-  const setClause = setClauses.join(', ');
-  const query = `UPDATE businesses SET ${setClause} WHERE id = $1 AND account_id = $${values.length + 1} AND archived_at IS NULL`;
-  values.push(user.accountId);
 
   try {
-    const result = await sql.unsafe(query, values as (string | string[] | boolean | null)[]);
+    const result = await sql`
+      UPDATE businesses
+      SET ${sql(updates)}, updated_at = NOW()
+      WHERE id = ${locationId}::uuid
+        AND account_id = ${user.accountId}::uuid
+        AND archived_at IS NULL
+    `;
 
     if (result.count === 0) {
       return jsonResponse({ error: 'Location not found or not updated' }, 404);
