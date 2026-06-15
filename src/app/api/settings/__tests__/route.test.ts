@@ -215,6 +215,20 @@ describe('PUT /api/settings', () => {
     expect(queryText(call)).toContain('updated_at = NOW()');
   });
 
+  it('scopes the businesses UPDATE by account_id (defense-in-depth)', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const res = await PUT(makeRequest({ tone: 'professional' }));
+    expect(res.status).toBe(200);
+
+    const call = txQueryCall(0);
+    expect(tableOf(call)).toBe('businesses');
+    expect(queryText(call)).toContain('account_id');
+    // accountId is bound as a value alongside the locationId
+    expect(call).toContain(ACCOUNT_ID);
+    expect(idOf(call)).toBe(BUSINESS_ID);
+  });
+
   it('returns 200 for toggling weeklySummaryEnabled to false (account-only, issues only the accounts UPDATE)', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
 

@@ -61,23 +61,35 @@ async function runScopedUpdate<Field extends string>(
   options: {
     table: 'businesses' | 'accounts';
     idValue: string;
+    accountScope?: string;
     fieldMap: Record<Field, string>;
     fields: Field[];
     data: Partial<Record<Field, unknown>>;
   },
 ): Promise<number> {
-  const { table, idValue, fieldMap, fields, data } = options;
+  const { table, idValue, accountScope, fieldMap, fields, data } = options;
 
   const updates: Record<string, ColumnValue> = {};
   for (const field of fields) {
     updates[fieldMap[field]] = (data[field] ?? null) as ColumnValue;
   }
 
-  const result = await tx`
-    UPDATE ${tx(table)}
-    SET ${tx(updates)}, updated_at = NOW()
-    WHERE id = ${idValue}
-  `;
+  // Defense-in-depth: businesses rows are account-scoped, so constrain by
+  // account_id too. accounts rows are keyed by their own PK (idValue IS the
+  // account id), so they need no extra scope. Branch the whole statement
+  // rather than splicing a conditional fragment — a nested tagged template
+  // would be a second query call.
+  const result = accountScope
+    ? await tx`
+        UPDATE ${tx(table)}
+        SET ${tx(updates)}, updated_at = NOW()
+        WHERE id = ${idValue} AND account_id = ${accountScope}
+      `
+    : await tx`
+        UPDATE ${tx(table)}
+        SET ${tx(updates)}, updated_at = NOW()
+        WHERE id = ${idValue}
+      `;
   return result.count;
 }
 
@@ -135,6 +147,7 @@ async function putSettings(request: NextRequest): Promise<NextResponse> {
         const matched = await runScopedUpdate(tx, {
           table: 'businesses',
           idValue: locationId,
+          accountScope: accountId,
           fieldMap: BUSINESS_FIELD_TO_COLUMN,
           fields: businessFields,
           data,
