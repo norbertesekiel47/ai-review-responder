@@ -2,7 +2,35 @@
 
 This file explains what is actually built in the repository today, how it maps to the implementation plan, and what is left to build.
 
-Last updated: 2026-06-11 (Multi-location launch hardening — PRs A–F #262–#265/#270/#271 + #272/#273: made running more than one location per account safe to launch, then ran the whole pipeline end-to-end for two locations to prove it. See the simple-words summary directly below. Earlier: Rate-limiting & abuse hardening 2026-06-09 #254–#257; Launch readiness sweep 2026-05-29 #152–#186; Wave 3 #93–#96; Wave 2 #87.)
+Last updated: 2026-06-15 (Channels go live + auto-approved post FYI — PRs #319/#320/#322 (merged): audited the already-built Telegram + WhatsApp channels, added a brand-new "we auto-posted your reply" notification, and left a tiny placeholder for a future chat-bot. See the simple-words summary directly below. Earlier: Multi-location launch hardening 2026-06-11 #262–#273; Rate-limiting & abuse hardening 2026-06-09 #254–#257; Launch readiness sweep 2026-05-29 #152–#186; Wave 3 #93–#96; Wave 2 #87.)
+
+## Quick summary — Channels go live + auto-approved post FYI (2026-06-14 → 2026-06-15, PRs #319 / #320 / #322)
+
+In simple words: the **Telegram and WhatsApp** notification channels were already fully built but switched **OFF**. We (1) double-checked they actually work end-to-end and added the missing tests, (2) built a **new "✅ we auto-posted your reply to Google" heads-up** that goes to the owner whenever the AI auto-approves and posts a reply (no action needed — just so they know), and (3) left a small, do-nothing "hook" so a future RepWorth **chat-bot** can plug into these channels later without a rewrite. Then a quality clean-up pass and CI fixes. The channels stay OFF until the production rollout; nothing about the normal owner-approval flow changed.
+
+### What we changed (plain English)
+
+- **A (#319) — prove the channels work.** Added the missing tests for the Telegram/WhatsApp approve/edit/regenerate flow, the "only one mobile channel at a time" rule, and the parallel-channel race (approve on one → the other says "already handled", never double-posts). Also fixed a **silently-swallowed** WhatsApp confirmation failure so it gets logged instead of disappearing.
+- **B (#320) — the new auto-approved FYI.** When auto-approval is ON and the AI approves + posts a reply by itself, the owner now gets a one-way **"we posted this"** message on email + Telegram (+ WhatsApp once its template clears) with a **View on Google** button. It is **best-effort** (the reply is already live, so a failed FYI never breaks anything) and only fires for auto-posts — owner-approved posts get nothing (the owner already knows).
+- **C/D (#322) — room for a future chat-bot.** Free-text the owner sends to the bot now routes to one clearly-named handler that today politely does **nothing** (and only ever responds to a verified, enrolled owner). Plus an ADR and the rollout/test runbooks. This is the "don't paint ourselves into a corner" step — we are **not** building the chat-bot now.
+- **Quality clean-up.** Removed duplicated knowledge: one place now decides which channel errors are worth retrying, one shared email "shell" instead of two copies, and all the new database writes live behind named helpers in one file.
+
+### What got added — the new shape (where the new code lives)
+
+- `worker/jobs/auto-post-notice/` — the new FYI worker (`AutoPostNoticeWorker.ts` orchestrates; `context.ts` loads the posted-auto-policy response; `dispatch.ts` sends per channel; `errors.ts` decides retry-vs-give-up). Mirrors the existing `notification/` worker shape.
+- `src/app/r/google/[responseId]/route.ts` — the **View on Google** redirect. A short, hardened page: it checks the reply is really `posted`, only ever redirects to a Google Maps URL, and shows a friendly "link unavailable" page otherwise (it never blindly redirects).
+- `src/lib/notifications/channels/transient-send-error.ts` — the single answer to "is this channel error worth retrying?" (used by the FYI sender).
+- `src/lib/notifications/delivery.ts` — gained the **claim-before-send** helpers (`claimAutoPostNoticeDelivery` / `finalizeDeliverySent` / `failDelivery` / `releaseDeliveryClaim`) so a crash can't double-send the same FYI.
+- `src/lib/notifications/email/templates/shared.ts` — `buildEmailShell()` (the shared email frame, used by both the approval email and the new FYI email) + `src/lib/notifications/email/templates/auto-post-notice.ts` (the FYI email itself).
+- New `sendAutoPostNotice` method on each channel (`{email,telegram,whatsapp}-channel.ts` + the `*-body.ts` builders).
+- `supabase/migrations/067_*` — two tiny database indexes that make the new outbox topic + the claim-before-send dedup safe.
+- `worker/ingress/conversational-seam.ts` — the future-chat-bot no-op handler + its redaction/auth boundaries; `docs/adr/0003-conversational-channel-seams.md` records why.
+- `docs/runbooks/channels-rollout.md` (how to flip it on in prod — Telegram first), `docs/runbooks/channels-staging-smoke-test.md` (step-by-step staging test), `docs/runbooks/whatsapp-templates.md` (the WhatsApp template content).
+- `.fallowrc.jsonc` — small config so the Fallow code-quality check doesn't false-flag the interface-dispatched send methods or the deliberately-parallel-but-divergent worker code.
+
+### One thing to remember
+
+The normal flow is unchanged: a review comes in, the AI drafts a reply, the **owner approves**, then it posts. The FYI is a *new* notification on a *different* path — it only appears when **auto-approval is enabled** and a reply **auto-posts**. The channels themselves are still **flag-OFF** until the rollout in `channels-rollout.md`.
 
 ## Quick summary — Multi-location launch hardening (2026-06-09 → 2026-06-11, PRs A–F + follow-ups)
 
