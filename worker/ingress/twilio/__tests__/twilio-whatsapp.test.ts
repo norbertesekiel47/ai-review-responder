@@ -67,13 +67,22 @@ vi.mock('../../../../src/lib/db/server', () => {
   return { sql, jsonb: (v: unknown) => v };
 });
 
-vi.mock('../../../../src/lib/notifications/channels/whatsapp-client', () => ({
-  // Use a regular function so `new WhatsAppClient()` works (arrow functions
-  // cannot be constructors). Same pattern as MockTelegramClient in telegram.test.ts.
-  WhatsAppClient: function MockWhatsAppClient() {
-    return { sendFreeform: mockSendFreeform };
-  },
-}));
+vi.mock('../../../../src/lib/notifications/channels/whatsapp-client', async (importOriginal) => {
+  // Spread the real module so the typed error classes (e.g.
+  // WhatsAppSessionWindowError) stay importable for the swallowed-failure
+  // tests; only WhatsAppClient is replaced with a constructible stub.
+  const actual = await importOriginal<
+    typeof import('../../../../src/lib/notifications/channels/whatsapp-client')
+  >();
+  return {
+    ...actual,
+    // Use a regular function so `new WhatsAppClient()` works (arrow functions
+    // cannot be constructors). Same pattern as MockTelegramClient in telegram.test.ts.
+    WhatsAppClient: function MockWhatsAppClient() {
+      return { sendFreeform: mockSendFreeform };
+    },
+  };
+});
 
 vi.mock('../../../../src/lib/approval/service', () => ({
   approveViaCallback: mockApproveViaCallback,
@@ -106,6 +115,7 @@ import {
   ArchivedLocationError,
 } from '../../../../src/lib/approval/errors';
 import { SubscriptionReadOnlyError } from '../../../../src/lib/shared/writable-subscription';
+import { WhatsAppSessionWindowError } from '../../../../src/lib/notifications/channels/whatsapp-client';
 
 function buildRequest(body: Record<string, string>, url = '/ingress/twilio/whatsapp-inbound'): FastifyRequest {
   const raw = new URLSearchParams(body).toString();
@@ -598,5 +608,78 @@ describe('handleTwilioWhatsAppInbound — post-claim safety net', () => {
       c.sql.includes('inbound_events') && c.sql.includes('failed')
     );
     expect(failCall).toBeDefined();
+  });
+});
+
+// ─── Inbound handler: confirmation-send failure (swallowed-failure path) ──────
+// Codex R1 #7. The post-button-tap confirmation reply is a best-effort freeform
+// send. The button tap opens WhatsApp's 24h session window, so this reply is
+// normally legal — but an edge/transient 63016 (session-window) must be
+// CLASSIFIED + LOGGED, never silently swallowed, and must never poison the
+// already-committed approval (the action runs and COMMITS before the
+// confirmation send).
+describe('handleTwilioWhatsAppInbound — confirmation-send failure (swallowed-failure path)', () => {
+  it('logs a 63016 session-window failure on the approve confirmation without poisoning the committed approval', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      sqlQueue.push([{ id: '019db8c1-c3f4-7668-b353-2b8b718ec603', business_id: 'biz-1' }]); // link lookup
+      sqlQueue.push([{ handle: '+15551234567' }]);                                            // enrollment lookup
+      mockApproveViaCallback.mockResolvedValueOnce(undefined);                                // approval COMMITS first
+      mockSendFreeform.mockRejectedValueOnce(new WhatsAppSessionWindowError(63016));          // confirmation send fails
+      sqlQueue.push([]); // markProcessed
+
+      const req = buildRequest({
+        MessageSid: 'SM_confirm_sw',
+        From: 'whatsapp:+15551234567',
+        ButtonPayload: 'a:019db8c1-c3f4-7668-b353-2b8b718ec603',
+      });
+      const reply = buildReply();
+      await handleTwilioWhatsAppInbound(req, reply);
+
+      // Approval committed exactly once — the confirmation failure must NOT
+      // re-run or roll back the action.
+      expect(mockApproveViaCallback).toHaveBeenCalledTimes(1);
+      // Not poisoned: the event is marked processed and a 200 is returned —
+      // NOT markFailed/503.
+      expect(reply.status).toHaveBeenCalledWith(200);
+      const failCall = sqlCalls.find(
+        (c) => c.sql.includes('inbound_events') && c.sql.includes('failed'),
+      );
+      expect(
+        failCall,
+        'a confirmation-send failure must not mark the inbound event failed',
+      ).toBeUndefined();
+      // THE GAP (Codex R1 #7): the 63016 must be surfaced, not silently dropped.
+      const logged = warnSpy.mock.calls.some(
+        ([m]) => typeof m === 'string' && /freeform/i.test(m) && m.includes('63016'),
+      );
+      expect(
+        logged,
+        'the 63016 confirmation failure must be classified + logged, not silently swallowed',
+      ).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('regenerate button tap sends the "Regenerating" confirmation (re-send path lands) and acks 200', async () => {
+    sqlQueue.push([{ id: '019db8c1-c3f4-7668-b353-2b8b718ec603', business_id: 'biz-1' }]); // link lookup
+    sqlQueue.push([{ handle: '+15551234567' }]);                                            // enrollment lookup
+    mockRegenerateViaCallback.mockResolvedValueOnce(undefined);
+    sqlQueue.push([]); // markProcessed
+
+    const req = buildRequest({
+      MessageSid: 'SM_regen_ok',
+      From: 'whatsapp:+15551234567',
+      ButtonPayload: 'r:019db8c1-c3f4-7668-b353-2b8b718ec603',
+    });
+    const reply = buildReply();
+    await handleTwilioWhatsAppInbound(req, reply);
+
+    expect(mockRegenerateViaCallback).toHaveBeenCalledTimes(1);
+    expect(mockSendFreeform).toHaveBeenCalledWith(
+      expect.objectContaining({ body: expect.stringMatching(/regenerat/i) }),
+    );
+    expect(reply.status).toHaveBeenCalledWith(200);
   });
 });
