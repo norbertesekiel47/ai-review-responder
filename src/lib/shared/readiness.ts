@@ -9,6 +9,8 @@
  * configured") marks the dependency failed instead of throwing.
  */
 
+import { withTimeout } from './with-timeout';
+
 const READINESS_PROBE_TIMEOUT_MS = 2_000;
 
 export interface DependencyProbe {
@@ -20,18 +22,6 @@ export interface DependencyProbe {
 export interface ReadinessResult {
   ready: boolean;
   checks: Record<string, 'ok' | 'failed'>;
-}
-
-async function withTimeout(work: Promise<unknown>, ms: number): Promise<unknown> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`probe timed out after ${ms}ms`)), ms);
-  });
-  try {
-    return await Promise.race([work, timeout]);
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 export async function runReadinessProbes(
