@@ -117,16 +117,14 @@ accountId` on the **businesses** call only — the `accounts` call's `idValue`
 *is* the account PK, so it's already account-scoped and has no `account_id`
 column.
 
-```ts
-const result = await tx`
-  UPDATE ${tx(table)}
-  SET ${tx(updates)}, updated_at = NOW()
-  WHERE id = ${idValue}
-    ${accountScope ? tx`AND account_id = ${accountScope}` : tx``}
-`;
-```
 No behavior change for legitimate requests (the businesses row already belongs
 to the account).
+
+**Implementation note (corrected at plan time):** branch the *whole* statement
+on `accountScope` rather than splicing a conditional `tx`…`` fragment into the
+`WHERE` clause. A nested tagged template is a second query call, which both
+complicates the real query and breaks the settings test's call-counting/mock
+dispatch. See the plan's Task 5 for the exact two-branch form.
 
 ### F-22 — Broaden `.gitignore` env coverage
 **Current (line 32):** `.env*.local`. **Verified tracked env files:** only
