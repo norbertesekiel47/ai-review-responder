@@ -91,16 +91,17 @@ the pattern recurring (repworth rule: test tenant-scoped queries).
 `0.28.0` transitively (`@sentry/nextjs → @sentry/webpack-plugin → webpack →
 terser-webpack-plugin → esbuild`). `GHSA-gv7w-rqvm-qjhr` affects `<0.28.1`.
 
-**Fix:** add to `package.json`:
-```json
-"pnpm": {
-  "overrides": {
-    "esbuild": ">=0.28.1"
-  }
-}
-```
-Then `pnpm install` (re-locks `pnpm-lock.yaml`). Build-time only (not in the
-Vercel-function runtime bundle).
+**Corrected + DEFERRED to 2026-06-18 (discovered at implementation time):**
+overrides live in `pnpm-workspace.yaml` (next to `postcss: 8.5.15`), not
+`package.json`. That file also enforces `minimumReleaseAge: 10080` (7-day
+supply-chain gate), and esbuild `0.28.1` was published ~2026-06-11, so it cannot
+resolve until 2026-06-18 without a `minimumReleaseAgeExclude` that weakens the
+gate. We chose not to weaken the control; F-3 ships as a standalone follow-up
+on/after 2026-06-18.
+
+**Fix (on/after 2026-06-18):** add `esbuild: ">=0.28.1"` to the existing
+`overrides:` block in `pnpm-workspace.yaml`, then `pnpm install` (re-locks
+`pnpm-lock.yaml`). Build-time only (not in the Vercel-function runtime bundle).
 
 **Verify:** `pnpm audit --prod` reports **0 high**; `pnpm build` still succeeds
 (confirms the Sentry/webpack/terser chain tolerates the bump).

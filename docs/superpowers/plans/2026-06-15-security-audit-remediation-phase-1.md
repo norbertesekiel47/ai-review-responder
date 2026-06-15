@@ -37,19 +37,29 @@
 
 ## Task 1: F-3 — Pin esbuild ≥ 0.28.1 (config-only)
 
-**Files:**
-- Modify: `package.json`
+> **DEFERRED to 2026-06-18 — NOT in this PR.** Two corrections discovered at
+> implementation time: (1) overrides live in `pnpm-workspace.yaml` (next to the
+> existing `postcss: 8.5.15`), **not** `package.json`; (2) `pnpm-workspace.yaml`
+> enforces `minimumReleaseAge: 10080` (7-day supply-chain gate). esbuild `0.28.1`
+> (the first fixed version) was published ~2026-06-11, so it cannot resolve until
+> **2026-06-18** without adding a `minimumReleaseAgeExclude` for esbuild — i.e.
+> weakening a security control. We chose NOT to weaken the gate; F-3 lands as a
+> standalone follow-up on/after 2026-06-18 using the corrected steps below.
+> (Alternative, if you want it today: add `minimumReleaseAgeExclude: [esbuild,
+> "@esbuild/*"]`, install, ship, then remove the exclude once 0.28.1 has aged
+> past the threshold.)
 
-- [ ] **Step 1: Add the pnpm override**
+**Files (corrected):**
+- Modify: `pnpm-workspace.yaml`
 
-In `package.json`, add a top-level `"pnpm"` block (place it after the `"devDependencies"` block, before the closing brace):
+- [ ] **Step 1: Add the pnpm override (on/after 2026-06-18)**
 
-```json
-  "pnpm": {
-    "overrides": {
-      "esbuild": ">=0.28.1"
-    }
-  }
+In `pnpm-workspace.yaml`, add `esbuild` to the existing `overrides:` block:
+
+```yaml
+overrides:
+  postcss: 8.5.15
+  esbuild: ">=0.28.1"
 ```
 
 - [ ] **Step 2: Re-lock**
@@ -1008,8 +1018,11 @@ Expected: PASS.
 
 - [ ] **Step 4: Dependency + build re-confirm**
 
-Run: `pnpm audit --prod && pnpm build`
-Expected: 0 high vulnerabilities; build succeeds.
+Run: `pnpm audit --prod; pnpm build`
+Expected: build succeeds. NOTE: `pnpm audit --prod` will still report the
+single esbuild high (`GHSA-gv7w-rqvm-qjhr`) because **F-3 is deferred to
+2026-06-18** (age-gate, see Task 1) — that one known high is expected and is
+NOT a blocker for this PR. No other highs should appear.
 
 - [ ] **Step 5: Confirm the working tree is clean and the branch is ready**
 
