@@ -199,4 +199,55 @@ describe('OutboxPoller.pollOutbox', () => {
     // …and must NOT also reset the row to pending.
     expect(findSql(mockSql.mock.calls, "status = 'pending'", 'last_error')).toBeUndefined();
   });
+
+  // ── Dispatch timeout (a hung BullMQ enqueue must not wedge the cycle) ──
+  it('re-pends a row when the BullMQ enqueue exceeds the dispatch timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      // queue.add never settles — without the dispatch timeout this would hang
+      // the whole cycle forever (ioredis offline queue, maxRetriesPerRequest:null).
+      mockQueueAdd.mockReturnValueOnce(new Promise(() => {}));
+      sqlReturnQueue.push([outboxEntry({ attempts: 1, max_attempts: 5 })]); // claim
+
+      const p = pollOutbox();
+      await vi.advanceTimersByTimeAsync(10_000 + 50); // default OUTBOX_DISPATCH_TIMEOUT_MS
+      await p;
+
+      const pendingReset = findSql(mockSql.mock.calls, "status = 'pending'", 'last_error');
+      expect(pendingReset).toBeDefined();
+      expect(String((pendingReset as unknown[])[1])).toContain('timed out');
+      // attempts remain → must NOT dead-letter.
+      expect(findSql(mockSql.mock.calls, "status = 'failed'", 'last_error')).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // ── Cycle self-recovery (a stalled cycle must not silence the poller) ──
+  it('supersedes a cycle stalled past the max duration and starts a fresh one', async () => {
+    vi.useFakeTimers();
+    try {
+      // First cycle wedges: the watchdog transaction never settles.
+      mockSql.begin.mockReturnValueOnce(new Promise(() => {}));
+      void pollOutbox(); // enters, hangs in Phase 1, never resolves
+
+      // Before the deadline, a fresh tick is a no-op (overlap guard holds).
+      await pollOutbox();
+      expect(mockQueueAdd).not.toHaveBeenCalled();
+
+      // Past the deadline (default max cycle = 4× 30s interval = 120s), a new
+      // cycle supersedes the wedged one and dispatches normally.
+      await vi.advanceTimersByTimeAsync(120_000 + 1_000);
+      sqlReturnQueue.push([outboxEntry()]); // fresh cycle's claim
+      await pollOutbox();
+
+      expect(mockQueueAdd).toHaveBeenCalledOnce();
+      const stallLog = errorSpy.mock.calls.find(
+        (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('exceeded max duration'),
+      );
+      expect(stallLog).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
