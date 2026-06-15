@@ -23,21 +23,25 @@ const PROTECTED_MIXED_ROLE_API_PATHS = new Set([
   '/api/zernio/disconnect',
 ]);
 
-function normalizePath(pathname: string): string {
-  // Normalize trailing slash before any comparison.
+export function normalizePath(pathname: string): string {
+  // Normalize case AND trailing slash before any comparison.
   //
-  // Next.js's default `trailingSlash: false` setting redirects `/x/` → `/x`,
-  // but that redirect runs AFTER proxy. Proxy sees the original
-  // request path. Without normalization here, `/admin/login/` would fail the
-  // exact-match exemption check (`'/admin/login/' === '/admin/login'` is
-  // false) AND match the protected `startsWith('/admin/')` branch, locking
+  // Case: App Router routes are case-sensitive (so /ADMIN/x would 404), but
+  // the proxy's protection check must not be bypassable by casing — lowercase
+  // here so /ADMIN, /Api/Admin, etc. still match the protected prefixes.
+  //
+  // Trailing slash: Next.js's default `trailingSlash: false` redirects
+  // `/x/` → `/x`, but that redirect runs AFTER proxy sees the path. Without
+  // normalization here, `/admin/login/` would fail the exact-match exemption
+  // AND match the protected `startsWith('/admin/')` branch, locking
   // legitimate users out of the public login surface.
   //
-  // Preserve `/` (the root) — it's both the public landing page and the
-  // only path where the trailing slash IS the path.
-  return pathname.length > 1 && pathname.endsWith('/')
-    ? pathname.replace(/\/+$/, '')
-    : pathname;
+  // Preserve `/` (the root) — it's both the public landing page and the only
+  // path where the trailing slash IS the path.
+  const lowered = pathname.toLowerCase();
+  return lowered.length > 1 && lowered.endsWith('/')
+    ? lowered.replace(/\/+$/, '')
+    : lowered;
 }
 
 export function isProtectedOwnerApiRoute(pathname: string): boolean {
