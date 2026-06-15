@@ -11,6 +11,7 @@ Pipeline: Zernio webhook ingest → AI draft → moderation → owner notificati
 - `pnpm dev` — Next.js (port 3000)
 - `pnpm worker` — Railway worker via tsx (port 3001)
 - `pnpm dev:all` — full stack (Next.js + worker)
+- `pnpm worktree:new <branch> [base-ref]` — create an **isolated sibling worktree** outside the repo (own `node_modules`, copied `.env*.local`), then `cd` into the printed path. Use this for parallel feature branches; see "CI & repo" for why sibling not nested.
 - `pnpm test` — Vitest unit + integration
 - `pnpm test:watch` — Vitest watch
 - `pnpm test:e2e` — Playwright E2E (skips gracefully without TEST_DATABASE_POOL_URL)
@@ -27,7 +28,7 @@ Pipeline: Zernio webhook ingest → AI draft → moderation → owner notificati
 - Repo **`RepWorth/ai-review-responder`**; `main` is protected — **land changes via PR**, direct pushes rejected.
 - CI (`.github/workflows/ci.yml`): `lint` (also runs tenant-scope + analytics-events + static-policy audits), `typecheck`, `test`, `build` on every PR + push to `main`. `MOCK_EXTERNAL_APIS=false` in CI — `true` short-circuits Zernio transport and breaks real-path tests. Third-party actions pinned to commit SHAs.
 - **Local pre-push hook (`lefthook.yml`)** runs the cheap CI subset before code leaves the machine — lint, typecheck, the four audits, and affected tests (`vitest --changed`), in parallel. Same commands as CI; CI stays the full-suite gate. Installed via the `prepare` script on `pnpm install`. Escape hatch for WIP: `git push --no-verify`.
-- **Worktrees are footguns here.** Validating CI from a nested worktree poisons lint/test (parent `node_modules`/eslintrc leakage) — push and read the runner instead. And Write/Edit given a parent-absolute path silently edits `main`'s checkout, not the worktree — always include the `.claude/worktrees/<name>/` segment in paths.
+- **Worktrees: sibling (blessed) vs nested (footgun).** Use `pnpm worktree:new <branch>` (→ `scripts/new-worktree.sh`) — it creates the worktree *outside* the repo at `../RepWorth-worktrees/<branch>/` with its own `node_modules` + copied `.env*.local`, so local lint/test/typecheck and the pre-push hook give a trustworthy signal. Do NOT use a *nested* worktree (`.claude/worktrees/`, `.worktrees/`): Node's upward `node_modules` resolution and ESLint's upward config cascade leak the parent's deps/config in, poisoning local CI — if you're stuck in one, push and read the runner instead. The harness `EnterWorktree` tool and Agent `isolation:'worktree'` both create *nested* worktrees, so they inherit that caveat (fine for edit+typecheck agents, not for trustworthy full CI). Either way, every Write/Edit path must point at the worktree root (`…-worktrees/<branch>/…` or `.claude/worktrees/<name>/…`), never the parent checkout, or the edit silently lands in `main`'s tree.
 
 ## Environments & branches
 
@@ -83,6 +84,7 @@ Detailed inventories load on demand — read the matching file before the work:
 | touch review ingestion / add a ReviewSource | `.claude/reference/review-ingestion.md` |
 | build or debug owner offboarding (cancel_only / delete_data / purge) | spec `docs/superpowers/specs/2026-06-05-owner-offboarding-design.md` + runbook `docs/runbooks/owner-offboarding-staging-dry-run.md` |
 | build or debug multi-location (locations lifecycle, per-location overage billing, account-level digests, channel overrides) or run the two-location full-loop | spec `docs/superpowers/specs/2026-06-09-multi-location-hardening-design.md` + plan `docs/superpowers/plans/2026-06-09-multi-location-hardening.md` + runbook `docs/runbooks/multi-location-e2e-full-loop.md` |
+| roll out / test the Telegram + WhatsApp channels, the auto-approved post FYI (`auto_post_notice` topic, `worker/jobs/auto-post-notice/`), or its `/r/google/<id>` redirect | runbooks `docs/runbooks/channels-rollout.md` (prod flip) + `docs/runbooks/channels-staging-smoke-test.md` (staging test) + `docs/runbooks/whatsapp-templates.md` (template content) + ADR `docs/adr/0003-conversational-channel-seams.md` (future-agent seam) |
 | touch a named library/subsystem (Postgres.js, Zernio, Stripe, Supabase auth, Vercel BotID/WAF, …) | `.claude/reference/lab-notes.md` |
 | deploy, promote, or reason about the preview/staging/prod split | `docs/runbooks/deployment-guide.md` |
 | harden bot-protection / edge rate-limiting / WAF / Attack Mode | runbook `docs/runbooks/vercel-waf-rate-limiting.md` + `src/lib/security/botid*` + ADR `docs/adr/0002-botid-server-check-carveout.md` |
@@ -114,8 +116,8 @@ decide *where new worker code goes*:
 
 - **Job handlers** in `worker/jobs/`: one top-level `*.ts` per worker, plus a
   per-domain subfolder when a worker has helpers (`response-generation/`,
-  `notification/`, `publisher/`, `zernio/`, `billing/`, `onboarding-demo/`,
-  `account-offboarding/`).
+  `notification/`, `auto-post-notice/`, `publisher/`, `zernio/`, `billing/`,
+  `onboarding-demo/`, `account-offboarding/`).
 - **`'failed'` exhaustion hooks** colocate with their worker
   (`worker/jobs/{publisher/failed-hook,zernio/ingest-failed-hook}.ts`).
 - **Background loops** split by trigger: `background/pollers/` (Postgres-state-driven)

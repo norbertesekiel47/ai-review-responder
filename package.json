@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:all": "bash scripts/dev-stack.sh",
+    "worktree:new": "bash scripts/new-worktree.sh",
     "build": "next build",
     "start": "next start",
     "lint": "eslint src",
