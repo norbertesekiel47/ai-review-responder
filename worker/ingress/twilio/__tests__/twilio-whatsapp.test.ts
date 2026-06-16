@@ -102,7 +102,12 @@ vi.mock('../../../../src/lib/shared/ids', () => ({
   asAccountId: vi.fn((id: string) => id),
 }));
 
-import { handleTwilioWhatsAppStatus, handleTwilioWhatsAppInbound, redactWhatsAppPayload } from '../twilio-whatsapp';
+import {
+  handleTwilioWhatsAppStatus,
+  handleTwilioWhatsAppInbound,
+  redactWhatsAppPayload,
+  redactDeliveryStatusPayload,
+} from '../twilio-whatsapp';
 import { verifyTwilioSignature } from '../twilio-verify';
 import { claimInboundEvent } from '../../shared';
 import { createHash } from 'node:crypto';
@@ -217,6 +222,30 @@ describe('redactWhatsAppPayload', () => {
     expect(out.WaId).toBeUndefined();
     expect(out.From).toBe('whatsapp:+15551234567');
     expect(out.MessageSid).toBe('SMabc');
+  });
+});
+
+describe('redactDeliveryStatusPayload', () => {
+  it('drops To/From phone numbers and keeps delivery-status fields', () => {
+    const input = {
+      MessageSid: 'SM1',
+      MessageStatus: 'delivered',
+      ErrorCode: '',
+      To: 'whatsapp:+15550000000',
+      From: 'whatsapp:+15551234567',
+    };
+    const out = redactDeliveryStatusPayload(input);
+    expect(out.To).toBeUndefined();
+    expect(out.From).toBeUndefined();
+    expect(out.MessageSid).toBe('SM1');
+    expect(out.MessageStatus).toBe('delivered');
+    expect(out.ErrorCode).toBe('');
+  });
+
+  it('still applies the base redaction (Body) if present', () => {
+    const out = redactDeliveryStatusPayload({ MessageSid: 'SM1', Body: 'leak', From: 'whatsapp:+1' });
+    expect(out.Body).toBe('[redacted]');
+    expect(out.From).toBeUndefined();
   });
 });
 
