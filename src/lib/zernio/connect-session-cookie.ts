@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { NextRequest, NextResponse } from 'next/server';
+import { getSessionCookieSecret } from '@/lib/shared/session-cookie-secret';
 
 /**
  * HMAC-signed cookie for the Zernio connect session.
@@ -19,11 +20,6 @@ import type { NextRequest, NextResponse } from 'next/server';
 export const ZERNIO_CONNECT_COOKIE_NAME = 'zernio_connect_session';
 const COOKIE_MAX_AGE_SECONDS = 900; // 15 min
 
-function getSessionSecret(): string {
-  const secret = process.env.SESSION_COOKIE_SECRET;
-  if (!secret) throw new Error('SESSION_COOKIE_SECRET is not set');
-  return secret;
-}
 
 function safeHexCompare(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -41,7 +37,7 @@ export function setConnectSessionCookie(
   response: NextResponse,
   sessionId: string,
 ): void {
-  const hmac = createHmac('sha256', getSessionSecret())
+  const hmac = createHmac('sha256', getSessionCookieSecret())
     .update(sessionId)
     .digest('hex');
   const signed = `${sessionId}.${hmac}`;
@@ -83,7 +79,7 @@ export function verifySignedConnectSessionValue(
   const [sessionId, providedHmac] = parts;
   if (!sessionId || !providedHmac) return null;
 
-  const expectedHmac = createHmac('sha256', getSessionSecret())
+  const expectedHmac = createHmac('sha256', getSessionCookieSecret())
     .update(sessionId)
     .digest('hex');
 

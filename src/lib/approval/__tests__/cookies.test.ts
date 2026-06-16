@@ -105,6 +105,25 @@ describe('verifyDeviceCookie', () => {
   });
 });
 
+// ── getSessionSecret length guard ────────────────────────────────────────
+
+describe('getSessionSecret (via setDeviceCookie)', () => {
+  it('throws when SESSION_COOKIE_SECRET is shorter than 32 bytes', () => {
+    const prev = process.env.SESSION_COOKIE_SECRET;
+    process.env.SESSION_COOKIE_SECRET = 'short';
+    try {
+      const response = NextResponse.json({});
+      expect(() => setDeviceCookie(response)).toThrow(/SESSION_COOKIE_SECRET/);
+    } finally {
+      if (prev === undefined) {
+        delete process.env.SESSION_COOKIE_SECRET;
+      } else {
+        process.env.SESSION_COOKIE_SECRET = prev;
+      }
+    }
+  });
+});
+
 // ── validateCsrf ─────────────────────────────────────────────────────────
 
 describe('validateCsrf', () => {

@@ -66,8 +66,8 @@ d('approval audit content snapshot integration', () => {
         VALUES (${ids.reviewId}::uuid, ${ids.businessId}::uuid, 'zernio', ${`audit-${ids.reviewId}`}, ${`zernio://audit/reviews/${ids.reviewId}`}, 'zernio://audit/locations/1', 'Reviewer', 5, 'Great visit', 'responded')
       `;
       await tx`
-        INSERT INTO responses (id, review_id, business_id, response_text, original_draft_text, approved_text, response_language, version, status, approved_at)
-        VALUES (${ids.responseId}::uuid, ${ids.reviewId}::uuid, ${ids.businessId}::uuid, ${approvedAtDecision}, ${approvedAtDecision}, ${approvedAtDecision}, 'en', 1, 'approved', NOW())
+        INSERT INTO responses (id, review_id, business_id, response_text, original_draft_text, approved_text, response_language, version, status, approved_at, approval_method)
+        VALUES (${ids.responseId}::uuid, ${ids.reviewId}::uuid, ${ids.businessId}::uuid, ${approvedAtDecision}, ${approvedAtDecision}, ${approvedAtDecision}, 'en', 1, 'approved', NOW(), 'owner')
       `;
       await tx`
         INSERT INTO approval_audit_log (

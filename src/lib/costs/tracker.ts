@@ -219,8 +219,11 @@ export async function reserveCost(
 // undershoot-topup paths.
 const ADJUST_COST_LUA = `
 local adjustment = tonumber(ARGV[1])
+local ttl = tonumber(ARGV[2])
 redis.call('INCRBY', KEYS[1], adjustment)
 redis.call('INCRBY', KEYS[2], adjustment)
+redis.call('EXPIRE', KEYS[1], ttl)
+redis.call('EXPIRE', KEYS[2], ttl)
 return 'ok'
 `;
 
@@ -238,6 +241,7 @@ export async function finalizeCost(
     dailyBusinessKey(businessId, reservationDate),
     dailyGlobalKey(reservationDate),
     String(adjustment),
+    String(CACHE_TTL_SECONDS),
   );
 }
 
@@ -278,6 +282,7 @@ export async function releaseCost(
     dailyBusinessKey(businessId, reservationDate),
     dailyGlobalKey(reservationDate),
     String(-PESSIMISTIC_ESTIMATE_CENTS),
+    String(CACHE_TTL_SECONDS),
   );
 }
 

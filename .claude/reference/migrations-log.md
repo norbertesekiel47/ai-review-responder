@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **067** — next migration is **068**
+Current head: **068** — next migration is **069**
 All tables use UUIDv7 (time-ordered primary keys).
 
 ## Data retention policy
@@ -608,6 +608,24 @@ Revisit triggers:
     multiple channels per response. Backs the dispatcher's claim `ON CONFLICT`
     byte-for-byte. No table/column/data/RLS change. Apply staging-first, then
     production, both Supabase projects in lockstep.
+
+- **068** — `responses_approval_method_required` CHECK constraint (security audit
+  F-4, 2026-06-15). Schema backstop for invariant #3 ("no unapproved posting").
+  `responses.approval_method` was nullable with only a value-check
+  (`responses_approval_method_check`: NULL or in `('owner','auto_policy')`); no
+  constraint tied an *approved* status to a non-null method. Adds:
+  `CHECK (status NOT IN ('approved','edited','awaiting_owner_connect') OR
+  approval_method IS NOT NULL)`. `'posted'` is intentionally OMITTED: migration
+  055 left some legacy `'posted'` rows with NULL `approval_method`, and a row can
+  only reach `'posted'` THROUGH `approved`/`edited` (now guarded by this
+  constraint), so the invariant holds without rejecting grandfathered rows. Safety:
+  migration 055 exhaustively backfilled `approved`/`edited`/`awaiting_owner_connect`
+  rows to `'owner'`, so the constraint applies cleanly. Transactional (no
+  CONCURRENTLY). Apply staging-first, then production, both Supabase projects in
+  lockstep. **Preflight BEFORE applying (run on each project; expect 0 rows):**
+  `SELECT status, count(*) FROM responses WHERE status IN
+  ('approved','edited','awaiting_owner_connect') AND approval_method IS NULL GROUP
+  BY status;`
 
 ## Key Tables Reference
 

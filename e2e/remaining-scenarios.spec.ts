@@ -624,7 +624,7 @@ test.describe('§8b — Queued / reconnect states (no Resume/Discard)', () => {
     const res = psqlRaw(`
       INSERT INTO responses (
         id, review_id, business_id, status, response_text, approved_text,
-        original_draft_text, version, created_at, updated_at
+        original_draft_text, approval_method, version, created_at, updated_at
       ) VALUES (
         gen_random_uuid(),
         '${REVIEW_GAP}',
@@ -633,6 +633,7 @@ test.describe('§8b — Queued / reconnect states (no Resume/Discard)', () => {
         '__TEST__ queued response',
         '__TEST__ queued response',
         '__TEST__ queued response',
+        'owner',
         (SELECT COALESCE(MAX(version),0)+1 FROM responses WHERE review_id='${REVIEW_GAP}'),
         NOW(), NOW()
       )

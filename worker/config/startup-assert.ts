@@ -161,6 +161,33 @@ export function assertSelfServeSignupEnv(): void {
 }
 
 /**
+ * Validates the format of WORKER_PUBLIC_URL when it is set. Presence is enforced
+ * by the caller's required-list check; this only checks format. In production,
+ * requires https. In non-production, http or https are both accepted (e.g.
+ * http://localhost:3001). In all cases the value must be an origin-only URL —
+ * no path, query string, fragment, trailing slash, or userinfo. (F-13/P3)
+ */
+function assertWorkerPublicUrlFormat(): void {
+  const raw = process.env.WORKER_PUBLIC_URL;
+  if (!raw) return; // presence is enforced by the caller's required-list check
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`WORKER_PUBLIC_URL must be a valid origin URL (got: ${raw})`);
+  }
+  const isProd = process.env.NODE_ENV === 'production';
+  const protocolOk = isProd ? url.protocol === 'https:' : url.protocol === 'https:' || url.protocol === 'http:';
+  // raw === url.origin rejects path/query/fragment/trailing-slash/userinfo in one shot.
+  if (!protocolOk || raw !== url.origin) {
+    throw new Error(
+      `WORKER_PUBLIC_URL must be an origin-only URL (${isProd ? 'https://<host>' : 'http(s)://<host>'}, ` +
+        `no path/query/fragment/trailing slash; got: ${raw})`,
+    );
+  }
+}
+
+/**
  * Boot-time assertion. When CHANNELS_TELEGRAM_ENABLED=true, verifies all required
  * Telegram env vars are set. Fail fast at startup rather than on first webhook.
  * No-op when the flag is off or MOCK_EXTERNAL_APIS=true.
@@ -212,6 +239,7 @@ export function assertChannelsWhatsAppEnv(): void {
       `WHATSAPP_APPROVAL_URL_BASE must equal NEXT_PUBLIC_APP_URL + '/approve/' (expected ${expected})`,
     );
   }
+  assertWorkerPublicUrlFormat();
 }
 
 /**
@@ -236,6 +264,7 @@ export function assertZernioPublishingEnv(): void {
   if (missing.length > 0) {
     throw new Error(`ZERNIO_PUBLISHING_ENABLED=true but missing required env vars: ${missing.join(', ')}`);
   }
+  assertWorkerPublicUrlFormat();
 }
 
 /**
@@ -254,5 +283,10 @@ export function assertAccountOffboardingEnv(): void {
   const missing = required.filter((k) => !process.env[k] || process.env[k]!.trim().length === 0);
   if (missing.length > 0) {
     throw new Error(`ACCOUNT_OFFBOARDING_ENABLED=true but missing required env vars: ${missing.join(', ')}`);
+  }
+  // SESSION_COOKIE_SECRET is guaranteed present here by the missing-vars check above.
+  const secret = process.env.SESSION_COOKIE_SECRET!;
+  if (Buffer.byteLength(secret, 'utf8') < 32) {
+    throw new Error('SESSION_COOKIE_SECRET must be at least 32 bytes (256-bit HMAC key)');
   }
 }

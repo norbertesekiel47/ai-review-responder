@@ -6,9 +6,10 @@
 // without duplicating these helpers.
 
 import type { FastifyRequest } from 'fastify';
+import { getWorkerPublicUrl } from '@/lib/shared/worker-public-url';
 
 export function fullUrl(request: FastifyRequest): string {
-  return `${process.env.WORKER_PUBLIC_URL}${request.url}`;
+  return `${getWorkerPublicUrl()}${request.url}`;
 }
 
 // Redaction helper used by both status callback and inbound handlers, and

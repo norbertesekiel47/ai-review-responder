@@ -218,12 +218,17 @@ async function insertCandidate(
 ): Promise<string> {
   const id = uuidv7();
   const approvedText = opts.approvedText ?? 'Edited reply text';
+  // approval_method is required by migration 068 CHECK when status is approved/edited/awaiting_owner_connect.
+  // These fixtures represent owner-approved candidates.
+  const needsApprovalMethod =
+    opts.status === 'approved' || opts.status === 'edited' || opts.status === 'awaiting_owner_connect';
   await sql`
-    INSERT INTO responses (id, review_id, business_id, response_text, original_draft_text, approved_text, response_language, version, status, posting_error)
+    INSERT INTO responses (id, review_id, business_id, response_text, original_draft_text, approved_text, response_language, version, status, posting_error, approval_method)
     VALUES (
       ${id}, ${seed.reviewId}, ${seed.businessId},
       ${approvedText}, ${approvedText}, ${approvedText}, 'en',
-      ${opts.version}, ${opts.status}, ${opts.postingError ?? null}
+      ${opts.version}, ${opts.status}, ${opts.postingError ?? null},
+      ${needsApprovalMethod ? 'owner' : null}
     )
   `;
   return id;

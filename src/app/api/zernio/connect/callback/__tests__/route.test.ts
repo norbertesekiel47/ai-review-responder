@@ -104,7 +104,7 @@ describe('GET /api/zernio/connect/callback', () => {
       return Promise.resolve([]);
     });
     process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
-    process.env.SESSION_COOKIE_SECRET = 'test-session-cookie-secret';
+    process.env.SESSION_COOKIE_SECRET = 'test-session-cookie-secret-32chars!!';
   });
 
   it('accepts pendingDataToken from Zernio headless OAuth redirects', async () => {

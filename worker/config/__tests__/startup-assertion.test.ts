@@ -426,6 +426,71 @@ describe('assertChannelsWhatsAppEnv', () => {
     process.env.NEXT_PUBLIC_APP_URL = 'https://app.repworth.com';
     expect(() => assertChannelsWhatsAppEnv()).not.toThrow();
   });
+
+  it('rejects a WORKER_PUBLIC_URL with a trailing slash', () => {
+    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
+    process.env.TWILIO_ACCOUNT_SID = 'AC';
+    process.env.TWILIO_AUTH_TOKEN = 'tok';
+    process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+15551234567';
+    process.env.WHATSAPP_APPROVAL_TEMPLATE_SID = 'HX';
+    process.env.WHATSAPP_APPROVAL_URL_BASE = 'https://app.repworth.com/approve/';
+    process.env.WORKER_PUBLIC_URL = 'https://worker.example.com/';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.repworth.com';
+    expect(() => assertChannelsWhatsAppEnv()).toThrow(/WORKER_PUBLIC_URL/);
+  });
+
+  it('rejects a WORKER_PUBLIC_URL with a query string', () => {
+    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
+    process.env.TWILIO_ACCOUNT_SID = 'AC';
+    process.env.TWILIO_AUTH_TOKEN = 'tok';
+    process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+15551234567';
+    process.env.WHATSAPP_APPROVAL_TEMPLATE_SID = 'HX';
+    process.env.WHATSAPP_APPROVAL_URL_BASE = 'https://app.repworth.com/approve/';
+    process.env.WORKER_PUBLIC_URL = 'https://worker.example.com?x=1';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.repworth.com';
+    expect(() => assertChannelsWhatsAppEnv()).toThrow(/WORKER_PUBLIC_URL/);
+  });
+
+  it('accepts a clean https WORKER_PUBLIC_URL', () => {
+    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
+    process.env.TWILIO_ACCOUNT_SID = 'AC';
+    process.env.TWILIO_AUTH_TOKEN = 'tok';
+    process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+15551234567';
+    process.env.WHATSAPP_APPROVAL_TEMPLATE_SID = 'HX';
+    process.env.WHATSAPP_APPROVAL_URL_BASE = 'https://app.repworth.com/approve/';
+    process.env.WORKER_PUBLIC_URL = 'https://worker.example.com';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.repworth.com';
+    expect(() => assertChannelsWhatsAppEnv()).not.toThrow();
+  });
+});
+
+import { assertZernioPublishingEnv } from '../startup-assert';
+
+describe('assertZernioPublishingEnv', () => {
+  const SNAP: Record<string, string | undefined> = {};
+  const KEYS = [
+    'ZERNIO_PUBLISHING_ENABLED', 'MOCK_EXTERNAL_APIS',
+    'ZERNIO_API_KEY', 'ZERNIO_WEBHOOK_SECRET',
+    'WORKER_PUBLIC_URL', 'NEXT_PUBLIC_APP_URL',
+  ];
+
+  beforeEach(() => {
+    for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
+  });
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (SNAP[k] === undefined) delete process.env[k]; else process.env[k] = SNAP[k];
+    }
+  });
+
+  it('rejects a WORKER_PUBLIC_URL with a trailing slash', () => {
+    process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
+    process.env.ZERNIO_API_KEY = 'api-key';
+    process.env.ZERNIO_WEBHOOK_SECRET = 'webhook-secret';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.repworth.com';
+    process.env.WORKER_PUBLIC_URL = 'https://worker.example.com/';
+    expect(() => assertZernioPublishingEnv()).toThrow(/WORKER_PUBLIC_URL/);
+  });
 });
 
 // ── assertSelfServeSignupEnv ──────────────────────────────────────────────
@@ -629,7 +694,28 @@ describe('assertAccountOffboardingEnv', () => {
 
   it('does not throw when the flag is on and both required vars are present', () => {
     process.env.ACCOUNT_OFFBOARDING_ENABLED = 'true';
-    process.env.SESSION_COOKIE_SECRET = 'secret-value';
+    process.env.SESSION_COOKIE_SECRET = 'a'.repeat(32);
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+    expect(() => assertAccountOffboardingEnv()).not.toThrow();
+  });
+
+  it('throws when SESSION_COOKIE_SECRET is shorter than 32 bytes', () => {
+    process.env.ACCOUNT_OFFBOARDING_ENABLED = 'true';
+    process.env.SESSION_COOKIE_SECRET = 'short';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+    expect(() => assertAccountOffboardingEnv()).toThrow(/SESSION_COOKIE_SECRET/);
+  });
+
+  it('accepts a SESSION_COOKIE_SECRET of at least 32 bytes', () => {
+    process.env.ACCOUNT_OFFBOARDING_ENABLED = 'true';
+    process.env.SESSION_COOKIE_SECRET = 'a'.repeat(32);
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+    expect(() => assertAccountOffboardingEnv()).not.toThrow();
+  });
+
+  it('accepts a multibyte secret that is >=32 bytes even though its .length is < 32', () => {
+    process.env.ACCOUNT_OFFBOARDING_ENABLED = 'true';
+    process.env.SESSION_COOKIE_SECRET = '€'.repeat(11); // 33 bytes, .length 11
     process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
     expect(() => assertAccountOffboardingEnv()).not.toThrow();
   });
