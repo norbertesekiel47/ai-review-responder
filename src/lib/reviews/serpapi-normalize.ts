@@ -1,5 +1,6 @@
 import type { NormalizedReview } from './types';
 import { detectLanguage } from './detect-language';
+import { sanitizeMultilineText, sanitizeReviewerName } from '../shared/sanitize';
 
 /**
  * Normalizes a raw SerpAPI review object into the NormalizedReview DTO.
@@ -37,13 +38,13 @@ export function normalizeSerpApiReview(
   };
 
   // Prefer original text over the (possibly machine-translated) snippet
-  const reviewText =
-    extractString(extractedSnippet?.original) ??
-    extractString(raw.snippet) ??
-    null;
+  const rawText =
+    extractString(extractedSnippet?.original) ?? extractString(raw.snippet) ?? null;
+  const cleanedText = rawText ? sanitizeMultilineText(rawText) : null;
+  const reviewText = cleanedText && cleanedText.length > 0 ? cleanedText : null;
 
   return {
-    reviewerName: extractString(user.name) ?? 'Anonymous',
+    reviewerName: sanitizeReviewerName(extractString(user.name) ?? 'Anonymous'),
     starRating: rating,
     reviewText,
     reviewDate: isoDate,
