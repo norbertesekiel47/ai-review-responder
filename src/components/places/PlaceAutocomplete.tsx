@@ -121,7 +121,7 @@ export function PlaceAutocomplete({
 
         element.addEventListener('gmp-select', handleSelect);
 
-        containerRef.current.innerHTML = '';
+        containerRef.current.replaceChildren();
         containerRef.current.appendChild(element);
       })
       .catch((err: unknown) => {

@@ -3,6 +3,7 @@ import {
   isProtectedMixedRoleApiRoute,
   isProtectedOwnerApiRoute,
   isProtectedRoute,
+  normalizePath,
 } from '../protected-routes';
 
 const PUBLIC: string[] = [
@@ -120,6 +121,28 @@ describe('isProtectedRoute', () => {
       // /\/+$/ regex strips ALL trailing slashes so the match still works.
       expect(isProtectedRoute('/admin/login//')).toBe(false);
     });
+  });
+});
+
+describe('case-insensitive path normalization (F-26)', () => {
+  it('normalizePath lowercases and strips trailing slashes', () => {
+    expect(normalizePath('/ADMIN/')).toBe('/admin');
+    expect(normalizePath('/API/Dashboard')).toBe('/api/dashboard');
+    expect(normalizePath('/')).toBe('/');
+  });
+
+  it('protects uppercase variants of protected prefixes', () => {
+    expect(isProtectedRoute('/ADMIN/secret')).toBe(true);
+    expect(isProtectedRoute('/API/ADMIN/businesses')).toBe(true);
+    expect(isProtectedRoute('/Dashboard')).toBe(true);
+    expect(isProtectedOwnerApiRoute('/API/Dashboard')).toBe(true);
+    expect(isProtectedRoute('/MFA/Challenge')).toBe(true);
+  });
+
+  it('still exempts the public auth surfaces case-insensitively', () => {
+    expect(isProtectedRoute('/ADMIN/LOGIN')).toBe(false);
+    expect(isProtectedRoute('/Admin/Forgot-Password')).toBe(false);
+    expect(isProtectedRoute('/Admin/Reset-Password')).toBe(false);
   });
 });
 

@@ -2,20 +2,30 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state ────────────────────────────────────────────
+//
+// The route builds its UPDATE with the Postgres.js dynamic-column helper:
+//   sql`UPDATE businesses SET ${sql(updates)}, updated_at = NOW() WHERE ...`
+// The mock sql mirrors the real dispatch: a tagged-template call routes to
+// mockSqlQuery(strings, ...values); a helper call (the column-value object
+// from sql(updates)) returns a { __helper } marker that shows up among the
+// bound values — so tests assert bound values + the updates object instead of
+// assembled SQL strings. (Same dialect as the settings route test.)
 
 const {
   mockRequireRole,
-  mockSql,
-  mockSqlUnsafe,
+  mockSqlQuery,
   mockGetLocationsForAccount,
   mockAssertWritableSubscriptionForAccount,
 } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
-  mockSql: vi.fn(),
-  mockSqlUnsafe: vi.fn(),
+  mockSqlQuery: vi.fn(),
   mockGetLocationsForAccount: vi.fn(),
   mockAssertWritableSubscriptionForAccount: vi.fn(),
 }));
+
+function isTemplate(arg: unknown): arg is TemplateStringsArray {
+  return Array.isArray(arg) && Object.prototype.hasOwnProperty.call(arg, 'raw');
+}
 
 // ── Mock Auth ───────────────────────────────────────────────────────
 
@@ -38,10 +48,14 @@ vi.mock('@/lib/db/auth', () => {
 // ── Mock DB ─────────────────────────────────────────────────────────
 
 vi.mock('@/lib/db/server', () => {
-  const sqlProxy = Object.assign((...args: unknown[]) => mockSql(...args), {
-    unsafe: (...args: unknown[]) => mockSqlUnsafe(...args),
-  });
-  return { sql: sqlProxy };
+  const sql = (...args: unknown[]) => {
+    if (isTemplate(args[0])) {
+      return mockSqlQuery(args[0], ...args.slice(1));
+    }
+    // sql(updates) dynamic-column helper → opaque marker
+    return { __helper: args[0] };
+  };
+  return { sql };
 });
 
 // ── Mock locations repo ─────────────────────────────────────────────
@@ -95,6 +109,20 @@ function makePutRequest(body: unknown): NextRequest {
   });
 }
 
+// Returns the UPDATE template call (and its bound args), or undefined.
+function updateCall(): unknown[] | undefined {
+  return mockSqlQuery.mock.calls.find(
+    (c) => isTemplate(c[0]) && (c[0] as unknown as string[]).join(' ').includes('UPDATE businesses'),
+  ) as unknown[] | undefined;
+}
+
+function updatesMarkerOf(call: unknown[] | undefined): Record<string, unknown> | undefined {
+  const marker = call?.find(
+    (a) => a !== null && typeof a === 'object' && '__helper' in (a as object),
+  ) as { __helper: Record<string, unknown> } | undefined;
+  return marker?.__helper;
+}
+
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe('GET /api/settings/voice', () => {
@@ -106,7 +134,7 @@ describe('GET /api/settings/voice', () => {
   });
 
   it('returns voice config for a specific location', async () => {
-    mockSql.mockResolvedValueOnce([{
+    mockSqlQuery.mockResolvedValueOnce([{
       id: LOCATION_ID_1,
       name: 'Downtown Cafe',
       display_label: 'Downtown Cafe',
@@ -134,7 +162,7 @@ describe('GET /api/settings/voice', () => {
       { id: LOCATION_ID_2, name: 'Westside Bakery', display_label: 'Westside Bakery', is_primary: false, archived_at: null, google_place_id: null, created_at: new Date(), account_id: ACCOUNT_ID },
     ]);
 
-    mockSql.mockResolvedValueOnce([{
+    mockSqlQuery.mockResolvedValueOnce([{
       id: LOCATION_ID_1,
       name: 'Downtown Cafe',
       display_label: 'Downtown Cafe',
@@ -165,7 +193,7 @@ describe('GET /api/settings/voice', () => {
   });
 
   it('returns 404 when location not found', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    mockSqlQuery.mockResolvedValueOnce([]);
 
     const res = await GET(makeGetRequest({ locationId: '99999999-0000-4000-8000-000000000001' }));
     expect(res.status).toBe(404);
@@ -179,7 +207,7 @@ describe('GET /api/settings/voice', () => {
   });
 
   it('returns defaults for null voice fields', async () => {
-    mockSql.mockResolvedValueOnce([{
+    mockSqlQuery.mockResolvedValueOnce([{
       id: LOCATION_ID_1,
       name: 'Test',
       display_label: null,
@@ -205,26 +233,25 @@ describe('PUT /api/settings/voice', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue(ownerUser());
+    mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
   it('updates tone for a specific location', async () => {
-    // Mock location validation
-    mockSql.mockResolvedValueOnce([{ id: LOCATION_ID_1 }]);
-    mockSqlUnsafe.mockResolvedValue({ count: 1 });
+    mockSqlQuery
+      .mockResolvedValueOnce([{ id: LOCATION_ID_1 }]) // location-validation SELECT
+      .mockResolvedValueOnce({ count: 1 });           // UPDATE
 
     const res = await PUT(makePutRequest({
       locationId: LOCATION_ID_1,
       tone: 'warm, friendly',
     }));
     expect(res.status).toBe(200);
-
-    const body = await res.json();
-    expect(body.success).toBe(true);
+    expect((await res.json()).success).toBe(true);
   });
 
   it('returns 404 when location not found or not accessible', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    mockSqlQuery.mockResolvedValueOnce([]); // SELECT finds nothing
 
     const res = await PUT(makePutRequest({
       locationId: '99999999-0000-4000-8000-000000000001',
@@ -234,22 +261,14 @@ describe('PUT /api/settings/voice', () => {
   });
 
   it('returns 400 when no voice fields provided', async () => {
-    const res = await PUT(makePutRequest({
-      locationId: LOCATION_ID_1,
-    }));
+    const res = await PUT(makePutRequest({ locationId: LOCATION_ID_1 }));
     expect(res.status).toBe(400);
   });
 
   it('returns 403 when user has no account', async () => {
-    mockRequireRole.mockResolvedValue({
-      ...ownerUser(),
-      accountId: null,
-    });
+    mockRequireRole.mockResolvedValue({ ...ownerUser(), accountId: null });
 
-    const res = await PUT(makePutRequest({
-      locationId: LOCATION_ID_1,
-      tone: 'warm',
-    }));
+    const res = await PUT(makePutRequest({ locationId: LOCATION_ID_1, tone: 'warm' }));
     expect(res.status).toBe(403);
   });
 
@@ -260,15 +279,12 @@ describe('PUT /api/settings/voice', () => {
       error: 'past_due_read_only',
     });
 
-    const res = await PUT(makePutRequest({
-      locationId: LOCATION_ID_1,
-      tone: 'warm',
-    }));
+    const res = await PUT(makePutRequest({ locationId: LOCATION_ID_1, tone: 'warm' }));
 
     expect(res.status).toBe(402);
     expect(await res.json()).toEqual({ error: 'past_due_read_only' });
     expect(mockAssertWritableSubscriptionForAccount).toHaveBeenCalledWith(ACCOUNT_ID);
-    expect(mockSqlUnsafe).not.toHaveBeenCalled();
+    expect(mockSqlQuery).not.toHaveBeenCalled();
   });
 
   it('validates avoidFacts max length (500 chars)', async () => {
@@ -287,17 +303,35 @@ describe('PUT /api/settings/voice', () => {
     expect(res.status).toBe(400);
   });
 
-  it('includes account_id in WHERE clause for security', async () => {
-    mockSql.mockResolvedValueOnce([{ id: LOCATION_ID_1 }]);
-    mockSqlUnsafe.mockResolvedValue({ count: 1 });
+  it('binds account_id as a parameterized value in the UPDATE WHERE clause (not interpolated)', async () => {
+    mockSqlQuery
+      .mockResolvedValueOnce([{ id: LOCATION_ID_1 }])
+      .mockResolvedValueOnce({ count: 1 });
 
-    await PUT(makePutRequest({
-      locationId: LOCATION_ID_1,
-      tone: 'professional',
-    }));
+    await PUT(makePutRequest({ locationId: LOCATION_ID_1, tone: 'professional' }));
 
-    const [query, values] = mockSqlUnsafe.mock.calls[0] as [string, unknown[]];
-    expect(query).toContain('account_id');
-    expect(values).toContain(ACCOUNT_ID);
+    const call = updateCall();
+    expect(call).toBeDefined();
+    const templateText = (call![0] as unknown as string[]).join(' ');
+    expect(templateText).toContain('account_id');     // column is referenced in SQL
+    expect(templateText).not.toContain(ACCOUNT_ID);    // value is NOT interpolated into SQL text
+    const boundValues = call!.slice(1).filter((a) => typeof a === 'string');
+    expect(boundValues).toContain(ACCOUNT_ID);         // value IS passed as a bound parameter
+  });
+
+  it.each([
+    ['tone', 'tone', 'casual'],
+    ['productsServices', 'products_services', 'Coffee'],
+    ['productsServices', 'products_services', null],
+    ['avoidFacts', 'avoid_facts', ['no refunds']],
+    ['sampleResponses', 'sample_responses', ['Thanks!']],
+  ] as const)('maps schema field %s → column %s', async (field, column, value) => {
+    mockSqlQuery
+      .mockResolvedValueOnce([{ id: LOCATION_ID_1 }])
+      .mockResolvedValueOnce({ count: 1 });
+
+    await PUT(makePutRequest({ locationId: LOCATION_ID_1, [field]: value }));
+
+    expect(updatesMarkerOf(updateCall())).toEqual({ [column]: value });
   });
 });

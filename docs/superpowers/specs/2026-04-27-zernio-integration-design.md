@@ -1323,13 +1323,18 @@ Per CLAUDE.md `feedback_supabase_migrations.md` rule: ship `supabase/migrations/
 
    Critical correction from spec review: sales_partner role is intentionally
    EXCLUDED from this endpoint. Per the documented latent issue in
-   docs/security-audit/round-1-auth-authz.md (admin business-detail routes
-   don't scope by businesses.onboarded_by = user.id, so any sales_partner
-   gets cross-partner read+write to all businesses), adding a new destructive
-   per-business write endpoint reachable by sales_partner would expand the
-   blast radius of that bug. Owner remains scoped to their own business.
-   Sales-partner-initiated disconnect can be added later, AFTER the audit
-   issue is fixed by adding onboarded_by scoping to admin business routes.
+   docs/security-audit/2026-06-15-refresh-delta.md §2 (consolidates the former
+   round-1-auth-authz.md; R1 H-1 — admin business-detail routes don't scope by
+   businesses.onboarded_by = user.id, so any sales_partner gets cross-partner
+   read+write to all businesses), adding a new destructive per-business write
+   endpoint reachable by sales_partner would expand the blast radius of that
+   bug. Owner remains scoped to their own business. Sales-partner-initiated
+   disconnect can be added later, AFTER the audit issue is fixed by adding
+   onboarded_by scoping to admin business routes.
+
+   UPDATE 2026-06-15: RESOLVED — sales_partner was removed (migration 053) and
+   R1 H-1 is closed at the root (cross-partner IDOR class eliminated); only
+   owner/admin remain, with admin an intentional global role.
 
    Resolve accountId for Zernio cleanup BEFORE the tx:
      SELECT zernio_account_id FROM zernio_connections

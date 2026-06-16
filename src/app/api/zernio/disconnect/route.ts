@@ -33,11 +33,12 @@ interface DisconnectBody {
  * connection (or admin-initiated). Marks the connection 'disconnected' and
  * best-effort deletes the Zernio account.
  *
- * Auth is owner OR admin only (requireRole below). Note the documented latent
- * issue in docs/security-audit/round-1-auth-authz.md: admin business-detail
- * routes don't scope by `businesses.onboarded_by = user.id`, so an admin can
- * disconnect any business — keep this route's write surface minimal. Owner
- * remains scoped to their own business.
+ * Auth is owner OR admin only (requireRole below). `admin` is an intentional
+ * global super-role (docs/security-audit/2026-06-15-refresh-delta.md §4), so an
+ * admin can disconnect any business by design; the prior sales_partner
+ * cross-partner IDOR (R1 H-1) was closed at the root by migration 053. Keep
+ * this route's write surface minimal regardless. Owner remains scoped to their
+ * own business.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // Feature flag — subsystem A is gated by ZERNIO_PUBLISHING_ENABLED (§1.1).

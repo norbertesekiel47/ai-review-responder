@@ -4,6 +4,7 @@ import {
   isProtectedMixedRoleApiRoute,
   isProtectedOwnerApiRoute,
   isProtectedRoute,
+  normalizePath,
 } from '@/lib/shared/protected-routes';
 import { REQUEST_PATHNAME_HEADER } from '@/lib/shared/request-path-header';
 
@@ -20,6 +21,10 @@ import { REQUEST_PATHNAME_HEADER } from '@/lib/shared/request-path-header';
 export async function proxy(request: NextRequest) {
   // ── Public paths: skip Supabase work ──────────────────────────────
   const { pathname } = request.nextUrl;
+  // Case/slash-normalized copy used ONLY for protection + branch decisions.
+  // The raw `pathname` is still forwarded downstream (REQUEST_PATHNAME_HEADER)
+  // and used for redirect `next=`/`from=` params, preserving original casing.
+  const routePath = normalizePath(pathname);
 
   function createDownstreamRequest(): { headers: Headers } {
     const downstreamHeaders = new Headers(request.headers);
@@ -34,7 +39,7 @@ export async function proxy(request: NextRequest) {
     return { headers: downstreamHeaders };
   }
 
-  if (!isProtectedRoute(pathname)) {
+  if (!isProtectedRoute(routePath)) {
     return NextResponse.next({ request: createDownstreamRequest() });
   }
 
@@ -111,10 +116,10 @@ export async function proxy(request: NextRequest) {
 
   // 3. Admin pages (except /admin/login, /admin/forgot-password, /admin/reset-password)
   if (
-    pathname.startsWith('/admin') &&
-    pathname !== '/admin/login' &&
-    pathname !== '/admin/forgot-password' &&
-    pathname !== '/admin/reset-password'
+    routePath.startsWith('/admin') &&
+    routePath !== '/admin/login' &&
+    routePath !== '/admin/forgot-password' &&
+    routePath !== '/admin/reset-password'
   ) {
     if (!authUser) {
       return redirectToLogin(request);
@@ -130,7 +135,7 @@ export async function proxy(request: NextRequest) {
   }
 
   // 4. Admin API routes
-  if (pathname.startsWith('/api/admin')) {
+  if (routePath.startsWith('/api/admin')) {
     if (!authUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -145,7 +150,7 @@ export async function proxy(request: NextRequest) {
   }
 
   // 5. Mixed-role owner/admin API routes
-  if (isProtectedMixedRoleApiRoute(pathname)) {
+  if (isProtectedMixedRoleApiRoute(routePath)) {
     const noStoreHeaders = { 'Cache-Control': 'no-store, private' };
     if (!authUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noStoreHeaders });
@@ -167,7 +172,7 @@ export async function proxy(request: NextRequest) {
   }
 
   // 6. Owner API routes
-  if (isProtectedOwnerApiRoute(pathname)) {
+  if (isProtectedOwnerApiRoute(routePath)) {
     const noStoreHeaders = { 'Cache-Control': 'no-store, private' };
     if (!authUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noStoreHeaders });
@@ -186,9 +191,9 @@ export async function proxy(request: NextRequest) {
 
   // 7. Owner pages
   if (
-    pathname.startsWith('/dashboard') ||
-    pathname.startsWith('/settings') ||
-    pathname.startsWith('/account')
+    routePath.startsWith('/dashboard') ||
+    routePath.startsWith('/settings') ||
+    routePath.startsWith('/account')
   ) {
     if (!authUser) {
       return redirectToLogin(request, 'owner');
@@ -206,7 +211,7 @@ export async function proxy(request: NextRequest) {
   // 7b. MFA challenge pages require a first-factor session. Owners and admins
   // both use this surface after password login when Supabase reports
   // currentLevel=aal1 and nextLevel=aal2.
-  if (pathname === '/mfa' || pathname.startsWith('/mfa/')) {
+  if (routePath === '/mfa' || routePath.startsWith('/mfa/')) {
     const next = request.nextUrl.searchParams.get('next') ?? '';
     const flow = next.startsWith('/admin') ? 'admin' : 'owner';
     if (!authUser) {
@@ -231,7 +236,7 @@ export async function proxy(request: NextRequest) {
   //      re-authenticate).
   //   c. Authenticated as owner without account_id → owner login with
   //      `from=` (signup-not-finished provisioning state).
-  if (pathname === '/onboarding' || pathname.startsWith('/onboarding/')) {
+  if (routePath === '/onboarding' || routePath.startsWith('/onboarding/')) {
     if (!authUser) {
       return redirectToLogin(request, 'owner');
     }
