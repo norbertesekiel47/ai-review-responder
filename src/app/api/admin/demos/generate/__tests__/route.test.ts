@@ -140,6 +140,7 @@ describe('POST /api/admin/demos/generate', () => {
       'demo:generate:daily:admin:admin-1',
       20,
       86400,
+      { strict: true },
     );
   });
 
@@ -150,6 +151,24 @@ describe('POST /api/admin/demos/generate', () => {
       .mockResolvedValueOnce({ allowed: false, remaining: 0 }); // per-IP exhausted
     const res = await POST(makeRequest(VALID_BODY));
     expect(res.status).toBe(429);
+  });
+
+  it('uses strict (fail-closed) mode on every demo-generation rate-limit check', async () => {
+    await POST(makeRequest(VALID_BODY));
+    expect(mockCheckRateLimit.mock.calls.length).toBeGreaterThanOrEqual(3);
+    for (const call of mockCheckRateLimit.mock.calls) {
+      expect(call[3]).toEqual({ strict: true });
+    }
+  });
+
+  it('returns 503 (not uncapped) when a Redis runtime error propagates from the limiter', async () => {
+    // Strict mode makes checkRateLimit re-throw on a Redis failure; the route must
+    // map that to 503 rather than allowing uncapped, cost-sensitive generation.
+    mockCheckRateLimit.mockReset();
+    mockCheckRateLimit.mockRejectedValueOnce(new Error('redis connection lost'));
+    const res = await POST(makeRequest(VALID_BODY));
+    expect(res.status).toBe(503);
+    expect(mockSql.begin).not.toHaveBeenCalled();
   });
 
   it('returns 400 for missing required fields', async () => {

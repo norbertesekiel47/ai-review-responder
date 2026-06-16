@@ -39,8 +39,15 @@ async function enforceDemoGenerationRateLimits(
     );
   }
 
+  // strict:true → a Redis runtime error propagates and is mapped to 503 below,
+  // instead of fail-OPEN-allowing uncapped, cost-sensitive demo generation. This
+  // route is a deliberate fail-CLOSED exception (the general API limiters fail open
+  // because a worker reservation guards spend — see CLAUDE.md); the per-admin cap
+  // would otherwise be silently bypassed during an Upstash outage.
+  const STRICT = { strict: true } as const;
+
   try {
-    const dailyLimit = await checkRateLimit('demo:generate:daily', 50, 86400);
+    const dailyLimit = await checkRateLimit('demo:generate:daily', 50, 86400, STRICT);
     if (!dailyLimit.allowed) {
       return NextResponse.json(
         { error: 'Daily demo generation limit reached (50/day)' },
@@ -48,7 +55,7 @@ async function enforceDemoGenerationRateLimits(
       );
     }
 
-    const adminDailyLimit = await checkRateLimit(`demo:generate:daily:admin:${adminId}`, 20, 86400);
+    const adminDailyLimit = await checkRateLimit(`demo:generate:daily:admin:${adminId}`, 20, 86400, STRICT);
     if (!adminDailyLimit.allowed) {
       return NextResponse.json(
         { error: 'Per-admin daily demo limit reached (20/day)' },
@@ -57,7 +64,7 @@ async function enforceDemoGenerationRateLimits(
     }
 
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
-    const minuteLimit = await checkRateLimit(`demo:generate:minute:${ip}`, 5, 60);
+    const minuteLimit = await checkRateLimit(`demo:generate:minute:${ip}`, 5, 60, STRICT);
     if (!minuteLimit.allowed) {
       return NextResponse.json(
         { error: 'Too many demo generations. Try again in a minute.' },
