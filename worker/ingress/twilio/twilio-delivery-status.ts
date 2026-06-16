@@ -21,6 +21,13 @@ interface DeliveryStatusOptions {
   invalidSignatureMessage: string;
   logPrefix: string;
   logUnknownNonTerminal?: boolean;
+  /**
+   * Optional redactor applied to the parsed params before they are persisted to
+   * inbound_events.payload. The live state machine keeps reading the raw params
+   * (MessageSid/MessageStatus/ErrorCode); only the audit copy is redacted.
+   * Defaults to identity (no redaction) when omitted.
+   */
+  redactPayload?: (params: Record<string, string>) => Record<string, string>;
 }
 
 const TERMINAL_STATUSES = new Set(['delivered', 'undelivered', 'failed']);
@@ -55,7 +62,8 @@ export async function handleTwilioDeliveryStatus(
   }
 
   const dedupKey = `${MessageSid}:${MessageStatus}`;
-  const claim = await claimInboundEvent('twilio', dedupKey, `status:${MessageStatus}`, params);
+  const auditPayload = options.redactPayload ? options.redactPayload(params) : params;
+  const claim = await claimInboundEvent('twilio', dedupKey, `status:${MessageStatus}`, auditPayload);
   if (claim === 'duplicate') {
     reply.status(200).send({ received: true, duplicate: true });
     return;

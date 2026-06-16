@@ -8,7 +8,7 @@
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { handleTwilioDeliveryStatus } from './twilio-delivery-status';
-import { fullUrl } from './whatsapp-shared';
+import { fullUrl, redactDeliveryStatusPayload } from './whatsapp-shared';
 
 const LOG_PREFIX = '[ingress/twilio-whatsapp]';
 
@@ -21,5 +21,6 @@ export async function handleTwilioWhatsAppStatus(
     fullUrl,
     invalidSignatureMessage: 'invalid signature on status callback',
     logPrefix: LOG_PREFIX,
+    redactPayload: redactDeliveryStatusPayload,
   });
 }

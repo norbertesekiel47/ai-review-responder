@@ -201,6 +201,25 @@ describe('handleTwilioWhatsAppStatus', () => {
       'twilio', 'SM1:queued', expect.stringMatching(/^status:/), expect.any(Object),
     );
   });
+
+  it('persists the inbound_event payload with To/From dropped', async () => {
+    // Non-terminal status short-circuits after markProcessed (one sql call).
+    const req = buildStatusRequest({
+      MessageSid: 'SM1',
+      MessageStatus: 'queued',
+      To: 'whatsapp:+15550000000',
+      From: 'whatsapp:+15551234567',
+    });
+    const reply = buildReply();
+    await handleTwilioWhatsAppStatus(req, reply);
+
+    expect(mockClaimInboundEvent).toHaveBeenCalledTimes(1);
+    const payloadArg = (mockClaimInboundEvent.mock.calls[0] as unknown as unknown[])[3] as Record<string, string>;
+    expect(payloadArg.To).toBeUndefined();
+    expect(payloadArg.From).toBeUndefined();
+    expect(payloadArg.MessageSid).toBe('SM1');
+    expect(payloadArg.MessageStatus).toBe('queued');
+  });
 });
 
 // ─── Inbound handler: redaction ──────────────────────────────────────────────
