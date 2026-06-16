@@ -277,4 +277,9 @@ export function assertAccountOffboardingEnv(): void {
   if (missing.length > 0) {
     throw new Error(`ACCOUNT_OFFBOARDING_ENABLED=true but missing required env vars: ${missing.join(', ')}`);
   }
+  // SESSION_COOKIE_SECRET is guaranteed present here by the missing-vars check above.
+  const secret = process.env.SESSION_COOKIE_SECRET!;
+  if (Buffer.byteLength(secret, 'utf8') < 32) {
+    throw new Error('SESSION_COOKIE_SECRET must be at least 32 bytes (256-bit HMAC key)');
+  }
 }

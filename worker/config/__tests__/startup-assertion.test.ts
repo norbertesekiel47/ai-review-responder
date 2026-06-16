@@ -682,7 +682,28 @@ describe('assertAccountOffboardingEnv', () => {
 
   it('does not throw when the flag is on and both required vars are present', () => {
     process.env.ACCOUNT_OFFBOARDING_ENABLED = 'true';
-    process.env.SESSION_COOKIE_SECRET = 'secret-value';
+    process.env.SESSION_COOKIE_SECRET = 'a'.repeat(32);
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+    expect(() => assertAccountOffboardingEnv()).not.toThrow();
+  });
+
+  it('throws when SESSION_COOKIE_SECRET is shorter than 32 bytes', () => {
+    process.env.ACCOUNT_OFFBOARDING_ENABLED = 'true';
+    process.env.SESSION_COOKIE_SECRET = 'short';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+    expect(() => assertAccountOffboardingEnv()).toThrow(/SESSION_COOKIE_SECRET/);
+  });
+
+  it('accepts a SESSION_COOKIE_SECRET of at least 32 bytes', () => {
+    process.env.ACCOUNT_OFFBOARDING_ENABLED = 'true';
+    process.env.SESSION_COOKIE_SECRET = 'a'.repeat(32);
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+    expect(() => assertAccountOffboardingEnv()).not.toThrow();
+  });
+
+  it('accepts a multibyte secret that is >=32 bytes even though its .length is < 32', () => {
+    process.env.ACCOUNT_OFFBOARDING_ENABLED = 'true';
+    process.env.SESSION_COOKIE_SECRET = '€'.repeat(11); // 33 bytes, .length 11
     process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
     expect(() => assertAccountOffboardingEnv()).not.toThrow();
   });

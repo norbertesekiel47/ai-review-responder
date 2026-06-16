@@ -33,6 +33,9 @@ const DEVICE_COOKIE_MAX_AGE = 172800; // 48 hours in seconds
 function getSessionSecret(): string {
   const secret = process.env.SESSION_COOKIE_SECRET;
   if (!secret) throw new Error('SESSION_COOKIE_SECRET is not set');
+  if (Buffer.byteLength(secret, 'utf8') < 32) {
+    throw new Error('SESSION_COOKIE_SECRET must be at least 32 bytes (256-bit HMAC key)');
+  }
   return secret;
 }
 
