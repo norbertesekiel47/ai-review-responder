@@ -9,6 +9,7 @@ import {
   updateBusiness,
 } from '@/lib/admin/business-detail-service';
 import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
@@ -50,8 +51,8 @@ async function patchBusiness(
   const { id: rawBusinessId } = await params;
   const businessId: LocationId = asLocationId(rawBusinessId);
 
-  const auth = await requireRoleOr401(request, 'admin');
-  if (!auth.ok) return auth.response;
+  const gate = await requireAdminWithAal2(request);
+  if (!gate.ok) return gate.response;
 
   let body: unknown;
   try {

@@ -5,6 +5,7 @@ import { NextRequest } from 'next/server';
 
 const {
   mockRequireRole,
+  mockRequireCurrentAal2FromSupabase,
   mockTxCalls,
   mockInviteUserByEmail,
   mockDeleteUser,
@@ -12,6 +13,7 @@ const {
   linkUpdateState,
 } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
+  mockRequireCurrentAal2FromSupabase: vi.fn(),
   mockTxCalls: [] as unknown[][],
   mockInviteUserByEmail: vi.fn(),
   mockDeleteUser: vi.fn(() => Promise.resolve({ data: null, error: null })),
@@ -37,6 +39,7 @@ vi.mock('@/lib/db/auth', () => {
   }
   return {
     requireRole: (...args: unknown[]) => mockRequireRole(...args),
+    cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
     AuthError,
   };
 });
@@ -91,9 +94,18 @@ vi.mock('@/lib/db/server', () => {
   };
 });
 
+vi.mock('@supabase/ssr', () => ({
+  createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),
+}));
+vi.mock('@/lib/auth/mfa', () => ({
+  requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase,
+}));
+
 const APP_URL = 'https://app.example.com';
 // inviteUserByEmail success path needs APP_URL to build redirectTo.
 process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com';
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 
 // Import AFTER mocks + env
 import { POST } from '../route';
@@ -126,6 +138,7 @@ function makePostRequest(body: Record<string, unknown>): NextRequest {
 describe('POST /api/admin/businesses — channel enrollment insert', () => {
   beforeEach(() => {
     mockRequireRole.mockReset();
+    mockRequireCurrentAal2FromSupabase.mockReset();
     mockTxCalls.length = 0;
     mockTopLevelSqlCalls.length = 0;
     linkUpdateState.mode = 'success';
@@ -137,6 +150,7 @@ describe('POST /api/admin/businesses — channel enrollment insert', () => {
       accountId: null,
       locationId: null,
     });
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
     mockInviteUserByEmail.mockReset();
     mockInviteUserByEmail.mockResolvedValue({
       data: { user: { id: 'invited-auth-uuid-123' } },
@@ -145,6 +159,12 @@ describe('POST /api/admin/businesses — channel enrollment insert', () => {
     mockDeleteUser.mockReset();
     mockDeleteUser.mockResolvedValue({ data: null, error: null });
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+  });
+
+  it('returns 403 when MFA step-up is not satisfied (AAL2)', async () => {
+    mockRequireCurrentAal2FromSupabase.mockResolvedValueOnce({ ok: false, reason: 'aal2_required' });
+    const res = await POST(makePostRequest(makeBody()));
+    expect(res.status).toBe(403);
   });
 
   it('inserts business + email enrollment inside a single sql.begin transaction', async () => {
