@@ -161,6 +161,26 @@ export function assertSelfServeSignupEnv(): void {
 }
 
 /**
+ * Validates the format of WORKER_PUBLIC_URL when it is set. Presence is enforced
+ * by the caller's required-list check; this only checks format. In production,
+ * requires https with no trailing slash or path segment. In non-production,
+ * http or https are both accepted (e.g. http://localhost:3001), but no trailing
+ * slash or path is allowed.
+ */
+function assertWorkerPublicUrlFormat(): void {
+  const url = process.env.WORKER_PUBLIC_URL;
+  if (!url) return; // presence is enforced by the caller's required-list check
+  const isProd = process.env.NODE_ENV === 'production';
+  const pattern = isProd ? /^https:\/\/[^/@]+$/ : /^https?:\/\/[^/@]+$/;
+  if (!pattern.test(url)) {
+    throw new Error(
+      `WORKER_PUBLIC_URL must be ${isProd ? 'https://<host>' : 'http(s)://<host>'} ` +
+        `with no trailing slash or path (got: ${url})`,
+    );
+  }
+}
+
+/**
  * Boot-time assertion. When CHANNELS_TELEGRAM_ENABLED=true, verifies all required
  * Telegram env vars are set. Fail fast at startup rather than on first webhook.
  * No-op when the flag is off or MOCK_EXTERNAL_APIS=true.
@@ -212,6 +232,7 @@ export function assertChannelsWhatsAppEnv(): void {
       `WHATSAPP_APPROVAL_URL_BASE must equal NEXT_PUBLIC_APP_URL + '/approve/' (expected ${expected})`,
     );
   }
+  assertWorkerPublicUrlFormat();
 }
 
 /**
@@ -236,6 +257,7 @@ export function assertZernioPublishingEnv(): void {
   if (missing.length > 0) {
     throw new Error(`ZERNIO_PUBLISHING_ENABLED=true but missing required env vars: ${missing.join(', ')}`);
   }
+  assertWorkerPublicUrlFormat();
 }
 
 /**

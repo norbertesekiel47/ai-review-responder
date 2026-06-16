@@ -11,6 +11,7 @@
 
 import { formatApprovalWhatsApp, formatAutoPostNoticeWhatsApp, toWaRecipient } from './whatsapp-body';
 import { WhatsAppClient } from './whatsapp-client';
+import { getWorkerPublicUrl } from '@/lib/shared/worker-public-url';
 import type {
   NotificationChannel,
   ChannelId,
@@ -32,7 +33,7 @@ export class WhatsAppChannel implements NotificationChannel {
       to: toWaRecipient(p.handle),
       contentSid,
       contentVariables,
-      statusCallback: `${process.env.WORKER_PUBLIC_URL}/ingress/twilio/whatsapp-status`,
+      statusCallback: `${getWorkerPublicUrl()}/ingress/twilio/whatsapp-status`,
     });
     return { externalMessageId: result.externalMessageId };
   }
@@ -61,7 +62,7 @@ export class WhatsAppChannel implements NotificationChannel {
       to: toWaRecipient(p.handle),
       contentSid,
       contentVariables,
-      statusCallback: `${process.env.WORKER_PUBLIC_URL}/ingress/twilio/whatsapp-status`,
+      statusCallback: `${getWorkerPublicUrl()}/ingress/twilio/whatsapp-status`,
     });
     return { status: 'sent', externalMessageId: result.externalMessageId };
   }
