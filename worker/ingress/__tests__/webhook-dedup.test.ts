@@ -257,19 +257,20 @@ describe('Resend webhook dedup — handleResendWebhook', () => {
     // Verify the reclaim UPDATE includes both the failed AND stale-received
     // takeover conditions — this is the core guarantee that prevents a
     // crashed handler from permanently stranding the event in 'received'.
+    // Window widened from 2min → 10min (F-15); SQL now uses make_interval.
     const reclaimCall = sqlCalls.find(
       (c) =>
         c.text.includes('inbound_events') &&
         c.text.includes("SET received_at = NOW()") &&
         c.text.includes("status = 'failed'") &&
         c.text.includes("received_at < NOW()") &&
-        c.text.includes("INTERVAL '2 minutes'"),
+        c.text.includes("make_interval"),
     );
     expect(reclaimCall).toBeDefined();
   });
 
   // Regression for the specific bug the reviewer flagged: a row stuck in
-  // 'received' beyond the 2-minute lease MUST be reclaimable. Before the
+  // 'received' beyond the reclaim lease MUST be reclaimable. Before the
   // lease fix, every future webhook retry would have returned in_flight
   // indefinitely and the bounce/delivery update would have been lost.
   it('reclaims a STALE received prior event (crashed handler scenario)', async () => {
