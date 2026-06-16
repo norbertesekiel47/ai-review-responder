@@ -7,6 +7,13 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
 
+// A 'received' row is reclaimable after this long — covers worker crashes +
+// transient retry windows. Widened from 2min (F-15): if an ingress handler runs
+// longer than the window, a concurrent provider retry could reclaim the row and
+// double-process. Providers retry on non-200 regardless, so the slower
+// crash-recovery is harmless; idempotency backstops any residual double-process.
+const RECLAIM_AFTER_MINUTES = 10;
+
 /**
  * Claim an inbound webhook event for exactly-once processing.
  *
@@ -14,7 +21,7 @@ import { sql, jsonb } from '../../src/lib/db/server';
  *   'claimed'   — caller owns processing; proceed with business logic.
  *   'duplicate' — another worker/request already handled this event; return 200 no-op.
  *
- * Reclaim semantics: a row stuck in status='received' for > 2min, or status='failed',
+ * Reclaim semantics: a row stuck in status='received' for > 10min, or status='failed',
  * is reclaimable — covers worker crashes + transient retry windows.
  */
 export async function claimInboundEvent(
@@ -36,7 +43,8 @@ export async function claimInboundEvent(
     UPDATE inbound_events
     SET received_at = NOW(), status = 'received', error_message = NULL
     WHERE external_event_key = ${dedupKey}
-      AND (status = 'failed' OR (status = 'received' AND received_at < NOW() - INTERVAL '2 minutes'))
+      AND (status = 'failed' OR (status = 'received'
+            AND received_at < NOW() - make_interval(mins => ${RECLAIM_AFTER_MINUTES})))
     RETURNING id
   `;
   return reclaimed.length > 0 ? 'claimed' : 'duplicate';

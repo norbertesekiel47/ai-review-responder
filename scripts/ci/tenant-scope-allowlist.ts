@@ -2652,7 +2652,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/shared.ts",
     table: "inbound_events",
-    sqlSnippet: "UPDATE inbound_events SET received_at = NOW(), status = 'received', error_message = NULL WHERE external_event_key = ${dedupKey} AND (status = 'failed' OR (status = 'received' AND received_at < NOW() - INTERVAL '2 minutes')) RETURNING id",
+    sqlSnippet: "UPDATE inbound_events SET received_at = NOW(), status = 'received', error_message = NULL WHERE external_event_key = ${dedupKey} AND (status = 'failed' OR (status = 'received' AND received_at < NOW() - make_interval(mins => ${RECLAIM_AFTER_MINUTES}))) RETURNING id",
     category: 'provider-ingress',
     reason: "Webhook ingress claims/reclaims the dedup row by provider event id (external_event_key) before tenant scope is available; inbound_events holds raw provider payloads (deny-all RLS, migration 066).",
   },

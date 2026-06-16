@@ -37,6 +37,7 @@ import { handleStripeWebhook } from './ingress/stripe';
 import { handleTwilioWhatsAppInbound, handleTwilioWhatsAppStatus } from './ingress/twilio/twilio-whatsapp';
 import { handleTelegramWebhook } from './ingress/telegram/telegram';
 import { handleZernioWebhook } from './ingress/zernio/zernio';
+import { enforceIngressRateLimit } from './ingress/rate-limit';
 import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertSingleConcurrencyWorker, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './background/pollers/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './background/schedulers/WeeklySummaryScheduler';
@@ -277,6 +278,14 @@ async function main(): Promise<void> {
     global: false,
     encoding: 'utf8',
     runFirst: true,
+  });
+
+  // Per-IP DoS/abuse backstop on every /ingress/* route (F-21). onRequest runs
+  // before body parsing + signature verification; a 429 short-circuits the
+  // lifecycle so the handler never runs. checkRateLimit fails open.
+  app.addHook('onRequest', async (request, reply) => {
+    if (!request.url.startsWith('/ingress/')) return;
+    await enforceIngressRateLimit(request, reply);
   });
 
   // Fail fast on missing env vars when feature flags are enabled.
