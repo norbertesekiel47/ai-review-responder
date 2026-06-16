@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizePublicResponseText, sanitizeText } from '../sanitize';
+import {
+  sanitizePublicResponseText,
+  sanitizeText,
+  sanitizeMultilineText,
+  sanitizeReviewerName,
+} from '../sanitize';
 
 describe('sanitizeText', () => {
   it('strips null bytes', () => {
@@ -101,5 +106,37 @@ describe('sanitizePublicResponseText', () => {
     const once = sanitizePublicResponseText(input);
 
     expect(sanitizePublicResponseText(once)).toBe(once);
+  });
+});
+
+describe('sanitizeReviewerName', () => {
+  it('strips a bidi override and zero-width char and collapses to one line', () => {
+    expect(sanitizeReviewerName('Jane\u202EDoe\u200B')).toBe('JaneDoe');
+  });
+  it('strips control chars and collapses internal whitespace', () => {
+    expect(sanitizeReviewerName('  Jane\x00\tQ.\nDoe  ')).toBe('Jane Q. Doe');
+  });
+  it('leaves a clean name unchanged', () => {
+    expect(sanitizeReviewerName('Mar\u00EDa Jos\u00E9')).toBe('Mar\u00EDa Jos\u00E9');
+  });
+  it('preserves emoji ZWJ sequences (U+200D)', () => {
+    expect(sanitizeReviewerName('\u{1F469}\u200D\u{1F680}')).toBe('\u{1F469}\u200D\u{1F680}');
+  });
+});
+
+describe('sanitizeMultilineText', () => {
+  it('strips bidi/zero-width/BOM chars', () => {
+    expect(sanitizeMultilineText('Hello\u200B\u200E \u200F\u202Eworld\u2066!\uFEFF')).toBe('Hello world!');
+  });
+  it('preserves paragraph breaks and collapses intra-line whitespace', () => {
+    expect(sanitizeMultilineText('  First\t\tline \nSecond   line\n\n Third  ')).toBe(
+      'First line\nSecond line\n\nThird',
+    );
+  });
+  it('caps blank lines to one', () => {
+    expect(sanitizeMultilineText('One\n\n\n\nTwo')).toBe('One\n\nTwo');
+  });
+  it('leaves clean multi-line text intact', () => {
+    expect(sanitizeMultilineText('Great stay.\n\nWould return.')).toBe('Great stay.\n\nWould return.');
   });
 });

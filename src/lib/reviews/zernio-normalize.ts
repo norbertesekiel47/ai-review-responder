@@ -17,6 +17,7 @@ import { detectLanguage } from './detect-language';
 import { computeContentHash } from './types';
 import type { MonitoredReview, NormalizedReview } from './types';
 import type { ZernioReview } from '@/lib/zernio/types';
+import { sanitizeMultilineText, sanitizeReviewerName } from '@/lib/shared/sanitize';
 
 const LOG_PREFIX = '[zernio-normalize]';
 
@@ -38,8 +39,13 @@ export function zernioReviewToNormalized(z: ZernioReview): NormalizedReview {
     throw new ZernioReviewNormalizationError(`unparseable createTime: ${z.createTime}`, z);
   }
 
-  const reviewerName = (z.reviewer?.displayName ?? '').trim() || 'Anonymous';
-  const reviewText = (z.comment ?? '').trim() || null;
+  // Sanitize the name BEFORE the Anonymous fallback: a name of only stripped
+  // chars (bidi/zero-width) is non-empty pre-sanitize but empty after, so the
+  // fallback must run on the sanitized value to honor the empty-name contract.
+  const cleanedName = sanitizeReviewerName(z.reviewer?.displayName ?? '');
+  const reviewerName = cleanedName.length > 0 ? cleanedName : 'Anonymous';
+  const cleanedComment = sanitizeMultilineText(z.comment ?? '');
+  const reviewText = cleanedComment.length > 0 ? cleanedComment : null;
 
   const review: NormalizedReview = {
     reviewerName,

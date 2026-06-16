@@ -1,5 +1,6 @@
 import type { NormalizedReview } from './types';
 import { detectLanguage } from './detect-language';
+import { sanitizeMultilineText, sanitizeReviewerName } from '../shared/sanitize';
 
 /**
  * Normalizes a raw SerpAPI review object into the NormalizedReview DTO.
@@ -37,13 +38,19 @@ export function normalizeSerpApiReview(
   };
 
   // Prefer original text over the (possibly machine-translated) snippet
-  const reviewText =
-    extractString(extractedSnippet?.original) ??
-    extractString(raw.snippet) ??
-    null;
+  const rawText =
+    extractString(extractedSnippet?.original) ?? extractString(raw.snippet) ?? null;
+  const cleanedText = rawText ? sanitizeMultilineText(rawText) : null;
+  const reviewText = cleanedText && cleanedText.length > 0 ? cleanedText : null;
+
+  // Sanitize the name BEFORE the Anonymous fallback: a name of only stripped
+  // chars (bidi/zero-width) is non-empty pre-sanitize but empty after, so the
+  // fallback must run on the sanitized value to honor the empty-name contract.
+  const cleanedName = sanitizeReviewerName(extractString(user.name) ?? '');
+  const reviewerName = cleanedName.length > 0 ? cleanedName : 'Anonymous';
 
   return {
-    reviewerName: extractString(user.name) ?? 'Anonymous',
+    reviewerName,
     starRating: rating,
     reviewText,
     reviewDate: isoDate,

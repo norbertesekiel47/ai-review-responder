@@ -1,3 +1,7 @@
+// Bidi overrides/isolates, zero-width chars, and BOM that can spoof how text
+// renders in dashboards/CSV/PDF. Preserves U+200C/U+200D (emoji shaping/joins).
+const FORMATTING_CONTROL_RE = /[\u061C\u180E\u200B\u200E\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g;
+
 /**
  * Sanitizes user-supplied text before it reaches the LLM prompt.
  *
@@ -23,12 +27,20 @@ export function sanitizeText(input: string): string {
 }
 
 /**
- * Sanitizes owner-edited public response text before persistence.
- *
- * Unlike sanitizeText(), this preserves intentional line and paragraph breaks
- * for customer-visible replies while removing non-printing controls.
+ * Sanitizes a reviewer display name at the ingestion boundary. Names are never
+ * multi-line: drop bidi/zero-width format chars, then strip controls + collapse
+ * whitespace via sanitizeText.
  */
-export function sanitizePublicResponseText(input: string): string {
+export function sanitizeReviewerName(input: string): string {
+  return sanitizeText(input.replace(FORMATTING_CONTROL_RE, ''));
+}
+
+/**
+ * Sanitizes multi-line human-authored text (owner responses, review bodies)
+ * before persistence/rendering. Preserves intentional line + paragraph breaks
+ * while stripping non-printing controls and render-spoofing format chars.
+ */
+export function sanitizeMultilineText(input: string): string {
   return input
     // Normalize line endings before stripping the remaining controls.
     .replace(/\r\n?/g, '\n')
@@ -41,11 +53,21 @@ export function sanitizePublicResponseText(input: string): string {
     .replace(/[\x80-\x9F]/g, '')
     // Strip common zero-width, bidi formatting/isolate controls, and BOM.
     // Preserve U+200C/U+200D because they affect visible shaping and emoji joins.
-    .replace(/[\u061C\u180E\u200B\u200E\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, '')
+    .replace(FORMATTING_CONTROL_RE, '')
     .split('\n')
     .map((line) => line.replace(/[ \t]+/g, ' ').trim())
     .join('\n')
     // Keep at most one blank line between paragraphs.
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+/**
+ * Sanitizes owner-edited public response text before persistence.
+ *
+ * Unlike sanitizeText(), this preserves intentional line and paragraph breaks
+ * for customer-visible replies while removing non-printing controls.
+ */
+export function sanitizePublicResponseText(input: string): string {
+  return sanitizeMultilineText(input);
 }
