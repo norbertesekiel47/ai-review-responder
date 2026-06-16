@@ -5,4 +5,4 @@
 
 export { handleTwilioWhatsAppStatus } from './twilio-whatsapp-status';
 export { handleTwilioWhatsAppInbound } from './twilio-whatsapp-inbound';
-export { redactWhatsAppPayload } from './whatsapp-shared';
+export { redactWhatsAppPayload, redactDeliveryStatusPayload } from './whatsapp-shared';
