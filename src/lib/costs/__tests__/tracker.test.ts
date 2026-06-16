@@ -165,6 +165,7 @@ describe('finalizeCost', () => {
     expect(evalArgs[3]).toBe('cost:global:2025-06-15');
     // Adjustment argv is the stringified delta.
     expect(evalArgs[4]).toBe('-10');
+    expect(evalArgs[5]).toBe('86400'); // ARGV[2] TTL — mirrors RESERVE
     // No pipeline fallback was issued.
     expect(mockPipeline.incrby).not.toHaveBeenCalled();
   });
@@ -187,6 +188,7 @@ describe('releaseCost', () => {
     expect(evalArgs[3]).toBe('cost:global:2025-06-15');
     // Release = negative pessimistic estimate, routed through the same Lua.
     expect(evalArgs[4]).toBe('-15');
+    expect(evalArgs[5]).toBe('86400'); // ARGV[2] TTL — mirrors RESERVE
     expect(mockPipeline.decrby).not.toHaveBeenCalled();
   });
 });
