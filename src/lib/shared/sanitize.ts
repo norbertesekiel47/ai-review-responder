@@ -7,8 +7,8 @@ const FORMATTING_CONTROL_RE = /[\u061C\u180E\u200B\u200E\u200F\u202A-\u202E\u206
  *
  * Strips:
  * - Null bytes (\x00)
- * - ASCII control characters U+0000\u2013U+001F EXCEPT \n (0x0A), \r (0x0D), \t (0x09)
- * - DEL and C1 control characters U+007F\u2013U+009F
+ * - ASCII control characters U+0000–U+001F EXCEPT \n (0x0A), \r (0x0D), \t (0x09)
+ * - DEL and C1 control characters U+007F–U+009F
  *
  * Then collapses runs of whitespace to a single space and trims.
  */
