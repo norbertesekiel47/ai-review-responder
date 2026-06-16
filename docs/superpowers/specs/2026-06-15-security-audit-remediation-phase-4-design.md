@@ -69,9 +69,10 @@ untouched).
 A pure string transform (exported for unit testing) that:
 
 1. **Path:** masks the path segment immediately after `/approve/` —
-   `/(\/approve\/)[^/?#]+/gi` → `$1[REDACTED]`. Covers the owner approval page
+   `/(\/approve\/)[^/?#\s]+/gi` → `$1[REDACTED]`. Covers the owner approval page
    `/approve/<token>`, the API route `/api/approve/<token>/edit`, and any future
-   `/approve/<token>/…`.
+   `/approve/<token>/…`. (`\s` is excluded so the redaction stops at the token
+   boundary inside a console-message breadcrumb like `GET /approve/<token> 200`.)
 2. **Query:** masks the **value** of any query parameter whose key matches
    `SENSITIVE_QUERY_KEY_RE = /token|secret|key|password|authorization|code|otp|signature|access_token/i`.
    (Generous by decision: Supabase PKCE/OTP flows surface `?code=`/`?token=` in
@@ -102,7 +103,7 @@ export function redactSensitivePathsAndQueries(url: string): string {
   const path = qIdx === -1 ? beforeHash : beforeHash.slice(0, qIdx);
   const query = qIdx === -1 ? '' : beforeHash.slice(qIdx + 1);
 
-  const redactedPath = path.replace(/(\/approve\/)[^/?#]+/gi, '$1[REDACTED]');
+  const redactedPath = path.replace(/(\/approve\/)[^/?#\s]+/gi, '$1[REDACTED]');
 
   let redactedQuery = '';
   if (query) {
