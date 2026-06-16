@@ -11,7 +11,10 @@ function buildReq(headers: Record<string, string | string[]>, ip = '9.9.9.9'): F
 }
 function buildReply() {
   const reply = { status: vi.fn(() => reply), send: vi.fn(() => reply) };
-  return reply as unknown as FastifyReply & { status: any; send: any };
+  return reply as unknown as FastifyReply & {
+    status: ReturnType<typeof vi.fn>;
+    send: ReturnType<typeof vi.fn>;
+  };
 }
 
 beforeEach(() => mockCheckRateLimit.mockReset());
@@ -34,6 +37,7 @@ describe('enforceIngressRateLimit', () => {
     const reply = buildReply();
     await enforceIngressRateLimit(buildReq({ 'x-forwarded-for': '1.2.3.4' }), reply);
     expect(reply.status).toHaveBeenCalledWith(429);
+    expect(reply.send).toHaveBeenCalledWith({ error: 'rate_limited' });
     expect(mockCheckRateLimit).toHaveBeenCalledWith('ingress:1.2.3.4', 120, 60);
   });
   it('does not respond when the limiter allows', async () => {
