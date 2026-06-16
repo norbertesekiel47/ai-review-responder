@@ -4,7 +4,8 @@ import { sql, jsonb } from '@/lib/db/server';
 import { asLocationId } from '@/lib/shared/ids';
 import type { LocationId } from '@/lib/shared/ids';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
-import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
@@ -18,11 +19,11 @@ async function updateKeywords(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
+  const gate = await requireAdminWithAal2(request);
+  if (!gate.ok) return gate.response;
+
   const { id: rawBusinessId } = await params;
   const businessId: LocationId = asLocationId(rawBusinessId);
-
-  const auth = await requireRoleOr401(request, 'admin');
-  if (!auth.ok) return auth.response;
 
   let parsed: z.infer<typeof KeywordsSchema>;
   try {
