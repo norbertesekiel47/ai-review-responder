@@ -111,4 +111,8 @@ describe('zernioReviewToNormalized — sanitization (F-10)', () => {
     const r = zernioReviewToNormalized({ ...base, comment: '\u200B\u202E\uFEFF' } as never);
     expect(r.reviewText).toBeNull();
   });
+  it('falls back to Anonymous when the display name is only formatting chars', () => {
+    const r = zernioReviewToNormalized({ ...base, reviewer: { displayName: '\u200B\u202E\uFEFF' }, comment: 'ok' } as never);
+    expect(r.reviewerName).toBe('Anonymous');
+  });
 });

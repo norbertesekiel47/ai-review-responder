@@ -43,8 +43,14 @@ export function normalizeSerpApiReview(
   const cleanedText = rawText ? sanitizeMultilineText(rawText) : null;
   const reviewText = cleanedText && cleanedText.length > 0 ? cleanedText : null;
 
+  // Sanitize the name BEFORE the Anonymous fallback: a name of only stripped
+  // chars (bidi/zero-width) is non-empty pre-sanitize but empty after, so the
+  // fallback must run on the sanitized value to honor the empty-name contract.
+  const cleanedName = sanitizeReviewerName(extractString(user.name) ?? '');
+  const reviewerName = cleanedName.length > 0 ? cleanedName : 'Anonymous';
+
   return {
-    reviewerName: sanitizeReviewerName(extractString(user.name) ?? 'Anonymous'),
+    reviewerName,
     starRating: rating,
     reviewText,
     reviewDate: isoDate,

@@ -21,4 +21,8 @@ describe('normalizeSerpApiReview — sanitization (F-10)', () => {
     expect(r.reviewerName).toBe('María');
     expect(r.reviewText).toBe('Lovely!');
   });
+  it('falls back to Anonymous when the name is only formatting chars', () => {
+    const r = normalizeSerpApiReview({ ...base, user: { name: '​‮﻿' }, snippet: 'ok' });
+    expect(r.reviewerName).toBe('Anonymous');
+  });
 });

@@ -39,7 +39,11 @@ export function zernioReviewToNormalized(z: ZernioReview): NormalizedReview {
     throw new ZernioReviewNormalizationError(`unparseable createTime: ${z.createTime}`, z);
   }
 
-  const reviewerName = sanitizeReviewerName((z.reviewer?.displayName ?? '').trim() || 'Anonymous');
+  // Sanitize the name BEFORE the Anonymous fallback: a name of only stripped
+  // chars (bidi/zero-width) is non-empty pre-sanitize but empty after, so the
+  // fallback must run on the sanitized value to honor the empty-name contract.
+  const cleanedName = sanitizeReviewerName(z.reviewer?.displayName ?? '');
+  const reviewerName = cleanedName.length > 0 ? cleanedName : 'Anonymous';
   const cleanedComment = sanitizeMultilineText(z.comment ?? '');
   const reviewText = cleanedComment.length > 0 ? cleanedComment : null;
 
