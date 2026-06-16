@@ -54,6 +54,8 @@ jobs:
         run: pnpm ci:analytics-events
       - name: Run static policy audit
         run: pnpm ci:static-policy
+      - name: Run admin AAL2 mutation gate audit
+        run: pnpm ci:admin-aal2
       - name: Run RLS coverage audit
         run: pnpm ci:rls-audit
       # Informational only: Dependabot owns dependency updates; this surfaces
