@@ -45,4 +45,12 @@ describe('next.config.mjs global security headers', () => {
     const headers = await globalHeaderMap();
     expect(headers.get('Strict-Transport-Security')).not.toContain('preload');
   });
+
+  it('does NOT emit a static Content-Security-Policy (F-11: nonce CSP comes from middleware)', async () => {
+    // CSP carries a per-request nonce and is set in src/proxy.ts. A second static
+    // CSP here would be enforced as the intersection and block Next's inline
+    // bootstrap scripts — so it must stay out of next.config.mjs.
+    const headers = await globalHeaderMap();
+    expect(headers.has('Content-Security-Policy')).toBe(false);
+  });
 });

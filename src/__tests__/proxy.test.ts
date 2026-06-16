@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { proxy } from '../proxy';
@@ -274,5 +274,80 @@ describe('proxy public launch host behavior', () => {
 
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: 'mfa_required' });
+  });
+});
+
+describe('proxy CSP nonce (F-11)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getUser.mockResolvedValue({ data: { user: null } });
+    getAuthenticatorAssuranceLevel.mockResolvedValue({
+      data: { currentLevel: 'aal1', nextLevel: 'aal1' },
+      error: null,
+    });
+    selfRow.value = { role: 'owner', account_id: 'acct-1' };
+    setSupabaseCookies.value = false;
+    process.env.MFA_ENFORCEMENT_ENABLED = 'false';
+    vi.stubEnv('NODE_ENV', 'production');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('emits a per-request nonce CSP response header on a public page', async () => {
+    const response = await proxy(request('https://repworth.net/'));
+    const csp = response.headers.get('content-security-policy');
+
+    expect(csp).toBeTruthy();
+    expect(csp).toMatch(/script-src[^;]*'nonce-/);
+    expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+    // style-src still permits inline (346 inline style attrs can't be nonced).
+    expect(csp).toMatch(/style-src[^;]*'unsafe-inline'/);
+    // Public route does no Supabase work.
+    expect(createServerClient).not.toHaveBeenCalled();
+  });
+
+  it('forwards the nonce to the renderer via x-nonce + CSP request headers', async () => {
+    const response = await proxy(request('https://repworth.net/'));
+
+    expect(response.headers.get('x-middleware-override-headers')).toContain('x-nonce');
+    expect(response.headers.get('x-middleware-request-x-nonce')).toBeTruthy();
+    // The forwarded request CSP must equal the response CSP so the nonce Next
+    // reads from the request matches the one the browser enforces from the response.
+    const requestCsp = response.headers.get('x-middleware-request-content-security-policy');
+    expect(requestCsp).toBe(response.headers.get('content-security-policy'));
+  });
+
+  it('applies the nonce CSP on authenticated protected pages too', async () => {
+    getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-owner' } } });
+    selfRow.value = { role: 'owner', account_id: 'acct-1' };
+
+    const response = await proxy(request('https://repworth.net/dashboard'));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-security-policy')).toMatch(/script-src[^;]*'nonce-/);
+  });
+
+  it('applies the nonce CSP on auth-failure responses (redirects, JSON 401)', async () => {
+    const redirect = await proxy(request('https://repworth.net/dashboard'));
+    expect(redirect.headers.get('location')).toContain('/login');
+    expect(redirect.headers.get('content-security-policy')).toMatch(/script-src[^;]*'nonce-/);
+
+    const unauthorized = await proxy(request('https://repworth.net/api/billing/checkout'));
+    expect(unauthorized.status).toBe(401);
+    expect(unauthorized.headers.get('content-security-policy')).toMatch(/script-src[^;]*'nonce-/);
+  });
+
+  it('emits a fresh nonce per request', async () => {
+    const a = await proxy(request('https://repworth.net/'));
+    const b = await proxy(request('https://repworth.net/'));
+    expect(a.headers.get('content-security-policy')).not.toBe(b.headers.get('content-security-policy'));
+  });
+
+  it('does not emit CSP outside production (dev/test HMR preserved)', async () => {
+    vi.unstubAllEnvs();
+    const response = await proxy(request('https://repworth.net/'));
+    expect(response.headers.get('content-security-policy')).toBeNull();
   });
 });

@@ -1,6 +1,5 @@
 import { withSentryConfig } from '@sentry/nextjs';
 import { withBotId } from 'botid/next/config';
-import { buildContentSecurityPolicy } from './src/lib/security/csp.mjs';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -39,10 +38,10 @@ const nextConfig = {
             key: 'Cross-Origin-Resource-Policy',
             value: 'same-origin',
           },
-          {
-            key: 'Content-Security-Policy',
-            value: buildContentSecurityPolicy(process.env.NODE_ENV),
-          },
+          // Content-Security-Policy is intentionally NOT here: it carries a
+          // per-request nonce (F-11) and is emitted from src/proxy.ts middleware.
+          // A second static CSP header would be enforced as the INTERSECTION with
+          // the nonce'd one and block Next's inline bootstrap scripts.
         ].filter((h) => h.value !== ''),
       },
     ];

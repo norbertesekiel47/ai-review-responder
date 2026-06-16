@@ -1,11 +1,49 @@
 import { describe, it, expect } from 'vitest';
-import { buildContentSecurityPolicy } from '../csp.mjs';
+import { buildContentSecurityPolicy, generateCspNonce } from '../csp.mjs';
 
 describe('buildContentSecurityPolicy', () => {
   it('returns an empty policy outside production (so dev HMR is not blocked)', () => {
     expect(buildContentSecurityPolicy('development')).toBe('');
     expect(buildContentSecurityPolicy('test')).toBe('');
     expect(buildContentSecurityPolicy(undefined)).toBe('');
+    // Nonce is irrelevant outside production — still empty (HMR needs inline eval).
+    expect(buildContentSecurityPolicy('development', 'NONCEABC')).toBe('');
+  });
+
+  describe('script-src nonce (F-11)', () => {
+    const directive = (csp: string, name: string): string =>
+      csp.split('; ').find((d) => d === name || d.startsWith(name + ' ')) ?? '';
+
+    it('uses a per-request nonce and drops script-src unsafe-inline when a nonce is given', () => {
+      const csp = buildContentSecurityPolicy('production', 'NONCEABC123');
+      expect(directive(csp, 'script-src')).toContain("'nonce-NONCEABC123'");
+      expect(directive(csp, 'script-src')).not.toContain("'unsafe-inline'");
+      // Maps loader stays host-allowlisted (no 'strict-dynamic').
+      expect(directive(csp, 'script-src')).toContain('https://maps.googleapis.com');
+    });
+
+    it('keeps style-src unsafe-inline (346 inline style attributes; nonces cannot cover style attrs)', () => {
+      const csp = buildContentSecurityPolicy('production', 'NONCEABC123');
+      expect(directive(csp, 'style-src')).toContain("'unsafe-inline'");
+    });
+
+    it('fails CLOSED with no nonce in production (no nonce AND no unsafe-inline)', () => {
+      const csp = buildContentSecurityPolicy('production');
+      expect(directive(csp, 'script-src')).not.toContain("'unsafe-inline'");
+      expect(directive(csp, 'script-src')).not.toContain("'nonce-");
+      expect(directive(csp, 'script-src')).toContain('https://maps.googleapis.com');
+    });
+  });
+
+  describe('generateCspNonce', () => {
+    it('returns a non-empty base64 string', () => {
+      const nonce = generateCspNonce();
+      expect(nonce).toMatch(/^[A-Za-z0-9+/]+=*$/);
+      expect(nonce.length).toBeGreaterThan(16);
+    });
+    it('produces a fresh value each call (per-request unguessable)', () => {
+      expect(generateCspNonce()).not.toBe(generateCspNonce());
+    });
   });
 
   describe('production policy', () => {

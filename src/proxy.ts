@@ -7,6 +7,7 @@ import {
   normalizePath,
 } from '@/lib/shared/protected-routes';
 import { REQUEST_PATHNAME_HEADER } from '@/lib/shared/request-path-header';
+import { buildContentSecurityPolicy, generateCspNonce } from '@/lib/security/csp.mjs';
 
 // Role lookups use the cookie-bound anon client below, relying on the
 // users_self_select RLS policy (migration 006) that lets any authenticated
@@ -19,6 +20,31 @@ import { REQUEST_PATHNAME_HEADER } from '@/lib/shared/request-path-header';
 // of business_id. Validation contract: VAL-AUTH-029.
 
 export async function proxy(request: NextRequest) {
+  // Per-request CSP nonce (production only). Dev/test get an empty policy so HMR
+  // and React Refresh — which rely on inline eval the production policy forbids —
+  // keep working unchanged. Computed once and reused for BOTH the forwarded
+  // request headers (so Next applies the nonce to its own bootstrap scripts) and
+  // the response header (so the browser enforces the same nonce). F-11.
+  const nonce = process.env.NODE_ENV === 'production' ? generateCspNonce() : undefined;
+  const cspValue = buildContentSecurityPolicy(process.env.NODE_ENV, nonce);
+
+  const response = await routeRequest(request, nonce, cspValue);
+
+  // Emit CSP on every response (pages, redirects, JSON) — defense-in-depth parity
+  // with the prior static next.config `/(.*)` coverage. Setting it once here is
+  // why none of routeRequest's ~12 return points has to remember to. Inert on
+  // bodiless responses; the nonce only matters for rendered HTML.
+  if (cspValue) {
+    response.headers.set('Content-Security-Policy', cspValue);
+  }
+  return response;
+}
+
+async function routeRequest(
+  request: NextRequest,
+  nonce: string | undefined,
+  cspValue: string,
+): Promise<NextResponse> {
   // ── Public paths: skip Supabase work ──────────────────────────────
   const { pathname } = request.nextUrl;
   // Case/slash-normalized copy used ONLY for protection + branch decisions.
@@ -36,6 +62,15 @@ export async function proxy(request: NextRequest) {
       downstreamHeaders.set('cookie', cookieHeader);
     }
     downstreamHeaders.set(REQUEST_PATHNAME_HEADER, pathname);
+    if (nonce) {
+      // x-nonce is a convenience seam for Server Components that need to nonce
+      // their own inline content via headers() (none today) — Next does NOT read
+      // it. The load-bearing header is the forwarded Content-Security-Policy
+      // below: Next parses the nonce out of the REQUEST CSP header and applies it
+      // to its <script> bootstrap/hydration tags. Only set on rendered requests.
+      downstreamHeaders.set('x-nonce', nonce);
+      downstreamHeaders.set('content-security-policy', cspValue);
+    }
     return { headers: downstreamHeaders };
   }
 
