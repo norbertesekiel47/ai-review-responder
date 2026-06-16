@@ -79,35 +79,37 @@ export function redactSensitivePathsAndQueries(url: string): string {
   return `${redactedPath}${redactedQuery}${fragment}`;
 }
 
-// Array-of-[key,value]-pairs form of query_string: mask the value where the key
-// looks sensitive. Mutates pairs in place.
+// Array-of-[key,value]-pairs form of query_string: rebuild with the value masked
+// where the key looks sensitive. Non-mutating on purpose — a frozen input from
+// the SDK would make in-place assignment throw inside beforeSend (dropping the
+// whole event) or, if swallowed, leak the unredacted value.
 function redactQueryPairs(pairs: unknown[]): unknown[] {
-  for (const pair of pairs) {
-    if (
-      Array.isArray(pair) &&
-      pair.length >= 2 &&
-      typeof pair[0] === 'string' &&
-      SENSITIVE_QUERY_KEY_RE.test(pair[0])
-    ) {
-      pair[1] = '[REDACTED]';
-    }
-  }
-  return pairs;
+  return pairs.map((pair) =>
+    Array.isArray(pair) &&
+    pair.length >= 2 &&
+    typeof pair[0] === 'string' &&
+    SENSITIVE_QUERY_KEY_RE.test(pair[0])
+      ? [pair[0], '[REDACTED]', ...pair.slice(2)]
+      : pair,
+  );
 }
 
-// Object-map form of query_string: mask values whose key looks sensitive.
+// Object-map form of query_string: rebuild with values masked where the key
+// looks sensitive. Non-mutating for the same frozen-input safety as above.
 function redactQueryObject(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
   for (const key of Object.keys(obj)) {
-    if (SENSITIVE_QUERY_KEY_RE.test(key)) obj[key] = '[REDACTED]';
+    result[key] = SENSITIVE_QUERY_KEY_RE.test(key) ? '[REDACTED]' : obj[key];
   }
-  return obj;
+  return result;
 }
 
 /**
  * Scrub Sentry's request.query_string, which carries the query SEPARATELY from
  * request.url and varies by SDK/runtime: a raw string, an object map, or an
  * array of [key, value] pairs. All three can leak ?code=/?token= even after the
- * URL is scrubbed. Mutates structured forms in place; total (never throws).
+ * URL is scrubbed. Returns a redacted copy (never mutates the input); total
+ * (never throws), so it is safe in beforeSend even on a frozen event.
  */
 function redactRequestQueryString(value: unknown): unknown {
   if (typeof value === 'string') return redactQueryString(value);

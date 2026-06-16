@@ -139,18 +139,31 @@ describe('scrubSentryEvent', () => {
     expect(event.request.query_string[1]).toEqual(['page', '2']);
   });
 
-  it('masks a token in breadcrumb http.url + http.query (otel/http integration)', () => {
+  it('masks a token in breadcrumb http.url (path + query) + http.query (otel/http integration)', () => {
     const event = {
       breadcrumbs: [
         {
           category: 'http',
-          data: { 'http.url': '/api/approve/TOK/edit', 'http.query': 'token=abc&page=1' },
+          data: { 'http.url': '/api/approve/TOK/edit?code=secret', 'http.query': 'token=abc&page=1' },
         },
       ],
     };
     scrubSentryEvent(event);
-    expect(event.breadcrumbs[0]!.data['http.url']).toBe('/api/approve/[REDACTED]/edit');
+    expect(event.breadcrumbs[0]!.data['http.url']).toBe('/api/approve/[REDACTED]/edit?code=[REDACTED]');
     expect(event.breadcrumbs[0]!.data['http.query']).toBe('token=[REDACTED]&page=1');
+  });
+
+  it('does not throw and still redacts a frozen request.query_string (object form)', () => {
+    const event = { request: { query_string: Object.freeze({ code: 'xyz', page: '2' }) } };
+    expect(() => scrubSentryEvent(event)).not.toThrow();
+    expect((event.request.query_string as Record<string, string>).code).toBe('[REDACTED]');
+    expect((event.request.query_string as Record<string, string>).page).toBe('2');
+  });
+
+  it('does not throw and still redacts a frozen request.query_string (array of frozen pairs)', () => {
+    const event = { request: { query_string: Object.freeze([Object.freeze(['code', 'xyz'])]) } };
+    expect(() => scrubSentryEvent(event)).not.toThrow();
+    expect((event.request.query_string as string[][])[0]).toEqual(['code', '[REDACTED]']);
   });
 });
 
