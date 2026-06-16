@@ -32,6 +32,14 @@ const nextConfig = {
             value: 'camera=(), microphone=(), geolocation=(), browsing-topics=(), usb=()',
           },
           {
+            key: 'Cross-Origin-Opener-Policy',
+            value: 'same-origin',
+          },
+          {
+            key: 'Cross-Origin-Resource-Policy',
+            value: 'same-origin',
+          },
+          {
             key: 'Content-Security-Policy',
             value: buildContentSecurityPolicy(process.env.NODE_ENV),
           },
