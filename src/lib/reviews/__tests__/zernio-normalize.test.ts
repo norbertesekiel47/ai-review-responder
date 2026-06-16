@@ -95,3 +95,20 @@ describe('extractLocationFromReviewName', () => {
     expect(extractLocationFromReviewName('')).toBeNull();
   });
 });
+
+describe('zernioReviewToNormalized — sanitization (F-10)', () => {
+  const base = { id: 'r1', rating: 5, createTime: '2026-06-01T00:00:00Z' };
+
+  it('strips bidi/zero-width/control chars from reviewer name', () => {
+    const r = zernioReviewToNormalized({ ...base, reviewer: { displayName: 'Jane\u202EDoe\u200B' }, comment: 'ok' } as never);
+    expect(r.reviewerName).toBe('JaneDoe');
+  });
+  it('strips dangerous chars from comment but preserves line breaks', () => {
+    const r = zernioReviewToNormalized({ ...base, comment: 'Great\u202E stay.\n\nWould\u200B return.' } as never);
+    expect(r.reviewText).toBe('Great stay.\n\nWould return.');
+  });
+  it('normalizes a comment of only formatting chars to null', () => {
+    const r = zernioReviewToNormalized({ ...base, comment: '\u200B\u202E\uFEFF' } as never);
+    expect(r.reviewText).toBeNull();
+  });
+});

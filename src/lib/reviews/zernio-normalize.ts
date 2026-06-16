@@ -17,6 +17,7 @@ import { detectLanguage } from './detect-language';
 import { computeContentHash } from './types';
 import type { MonitoredReview, NormalizedReview } from './types';
 import type { ZernioReview } from '@/lib/zernio/types';
+import { sanitizeMultilineText, sanitizeReviewerName } from '@/lib/shared/sanitize';
 
 const LOG_PREFIX = '[zernio-normalize]';
 
@@ -38,8 +39,9 @@ export function zernioReviewToNormalized(z: ZernioReview): NormalizedReview {
     throw new ZernioReviewNormalizationError(`unparseable createTime: ${z.createTime}`, z);
   }
 
-  const reviewerName = (z.reviewer?.displayName ?? '').trim() || 'Anonymous';
-  const reviewText = (z.comment ?? '').trim() || null;
+  const reviewerName = sanitizeReviewerName((z.reviewer?.displayName ?? '').trim() || 'Anonymous');
+  const cleanedComment = sanitizeMultilineText(z.comment ?? '');
+  const reviewText = cleanedComment.length > 0 ? cleanedComment : null;
 
   const review: NormalizedReview = {
     reviewerName,
