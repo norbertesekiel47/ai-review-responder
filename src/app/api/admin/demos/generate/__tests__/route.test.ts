@@ -129,9 +129,24 @@ describe('POST /api/admin/demos/generate', () => {
     expect(res.status).toBe(429);
   });
 
+  it('returns 429 when the per-admin daily quota is exhausted (F-20)', async () => {
+    mockCheckRateLimit
+      .mockResolvedValueOnce({ allowed: true, remaining: 49 }) // global daily OK
+      .mockResolvedValueOnce({ allowed: false, remaining: 0 }); // per-admin exhausted
+    const res = await POST(makeRequest(VALID_BODY));
+    expect(res.status).toBe(429);
+    // The per-admin cap is keyed on the authenticated admin's user id.
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      'demo:generate:daily:admin:admin-1',
+      20,
+      86400,
+    );
+  });
+
   it('returns 429 when the per-IP minute rate limit is exhausted', async () => {
     mockCheckRateLimit
-      .mockResolvedValueOnce({ allowed: true, remaining: 49 }) // daily OK
+      .mockResolvedValueOnce({ allowed: true, remaining: 49 }) // global daily OK
+      .mockResolvedValueOnce({ allowed: true, remaining: 19 }) // per-admin OK
       .mockResolvedValueOnce({ allowed: false, remaining: 0 }); // per-IP exhausted
     const res = await POST(makeRequest(VALID_BODY));
     expect(res.status).toBe(429);

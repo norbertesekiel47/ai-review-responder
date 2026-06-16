@@ -25,6 +25,7 @@ const {
   mockListAllReviews,
   mockRunEditPublishIfApplicable,
   mockMaybeCaptureActivationCompleted,
+  mockIsHeldForModerationReview,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
 
@@ -49,6 +50,8 @@ const {
     // even when the edit dispatch predicate happens to open the module.
     mockRunEditPublishIfApplicable: vi.fn().mockResolvedValue({ outcome: 'continue_to_fresh' }),
     mockMaybeCaptureActivationCompleted: vi.fn().mockResolvedValue(undefined),
+    // F-5 hold gate: default "not held" so existing tests keep the post path.
+    mockIsHeldForModerationReview: vi.fn().mockResolvedValue(false),
   };
 });
 
@@ -75,6 +78,9 @@ vi.mock('../edit-publish', () => ({
 }));
 vi.mock('../activation', () => ({
   maybeCaptureActivationCompleted: mockMaybeCaptureActivationCompleted,
+}));
+vi.mock('../held-flag-gate', () => ({
+  isHeldForModerationReview: mockIsHeldForModerationReview,
 }));
 
 import { handlePublishResponse } from '../ResponsePublisherWorker';
@@ -167,6 +173,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     // clearAllMocks wipes the queued/persistent return; re-establish the safe default.
     mockRunEditPublishIfApplicable.mockResolvedValue({ outcome: 'continue_to_fresh' });
     mockMaybeCaptureActivationCompleted.mockResolvedValue(undefined);
+    mockIsHeldForModerationReview.mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -226,6 +233,25 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  // F-5 belt-and-suspenders: even with an approved, active, connected response,
+  // an OPEN moderation flag must block the Google post. Non-exploitable today
+  // (flagged drafts stay pending_approval and never get a publish outbox row),
+  // but this makes the moderation veto binding on the publish path too.
+  it('completes outbox without posting when an open moderation flag holds the draft', async () => {
+    mockIsHeldForModerationReview.mockResolvedValue(true);
+    sqlReturnQueue.push([mockResponseRow()]);  // response (load-context)
+    sqlReturnQueue.push([mockBusinessRow()]);   // business (load-context)
+
+    await handlePublishResponse(makeJob());
+
+    expect(mockIsHeldForModerationReview).toHaveBeenCalledWith('resp-1', 'biz-1');
+    expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
+    expect(mockPostReply).not.toHaveBeenCalled();
+    expect(mockMaybeCaptureActivationCompleted).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
