@@ -78,9 +78,34 @@ export async function handleTwilioDeliveryStatus(
     return;
   }
 
+  await finalizeTerminalDeliveryStatus(reply, {
+    channel: options.channel,
+    dedupKey,
+    messageSid: MessageSid,
+    messageStatus: MessageStatus,
+    errorCode: ErrorCode,
+  });
+}
+
+interface TerminalDeliveryArgs {
+  channel: DeliveryChannel;
+  dedupKey: string;
+  messageSid: string;
+  messageStatus: string;
+  errorCode?: string;
+}
+
+// First-terminal-wins update of the notification_deliveries row for a terminal
+// Twilio status. Owns the not-yet-present (503 reclaim), already-terminal (no-op
+// 200), and delivered/failed transitions, plus inbound_event finalization — so
+// the handler above stays a thin orchestrator (invariant #12).
+async function finalizeTerminalDeliveryStatus(
+  reply: FastifyReply,
+  { channel, dedupKey, messageSid, messageStatus, errorCode }: TerminalDeliveryArgs,
+): Promise<void> {
   const [row] = await sql<{ id: string; delivered_at: Date | null; failed_at: Date | null }[]>`
     SELECT id, delivered_at, failed_at FROM notification_deliveries
-    WHERE external_message_id = ${MessageSid} AND channel = ${options.channel}
+    WHERE external_message_id = ${messageSid} AND channel = ${channel}
     LIMIT 1
   `;
 
@@ -96,17 +121,17 @@ export async function handleTwilioDeliveryStatus(
     return;
   }
 
-  if (MessageStatus === 'delivered') {
+  if (messageStatus === 'delivered') {
     await sql`
       UPDATE notification_deliveries
       SET delivered_at = NOW()
-      WHERE id = ${row.id} AND channel = ${options.channel} AND delivered_at IS NULL AND failed_at IS NULL
+      WHERE id = ${row.id} AND channel = ${channel} AND delivered_at IS NULL AND failed_at IS NULL
     `;
   } else {
     await sql`
       UPDATE notification_deliveries
-      SET failed_at = NOW(), failure_reason = ${`twilio:${ErrorCode ?? 'unknown'}`}
-      WHERE id = ${row.id} AND channel = ${options.channel} AND delivered_at IS NULL AND failed_at IS NULL
+      SET failed_at = NOW(), failure_reason = ${`twilio:${errorCode ?? 'unknown'}`}
+      WHERE id = ${row.id} AND channel = ${channel} AND delivered_at IS NULL AND failed_at IS NULL
     `;
   }
 
