@@ -163,19 +163,26 @@ export function assertSelfServeSignupEnv(): void {
 /**
  * Validates the format of WORKER_PUBLIC_URL when it is set. Presence is enforced
  * by the caller's required-list check; this only checks format. In production,
- * requires https with no trailing slash or path segment. In non-production,
- * http or https are both accepted (e.g. http://localhost:3001), but no trailing
- * slash or path is allowed.
+ * requires https. In non-production, http or https are both accepted (e.g.
+ * http://localhost:3001). In all cases the value must be an origin-only URL —
+ * no path, query string, fragment, trailing slash, or userinfo. (F-13/P3)
  */
 function assertWorkerPublicUrlFormat(): void {
-  const url = process.env.WORKER_PUBLIC_URL;
-  if (!url) return; // presence is enforced by the caller's required-list check
+  const raw = process.env.WORKER_PUBLIC_URL;
+  if (!raw) return; // presence is enforced by the caller's required-list check
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`WORKER_PUBLIC_URL must be a valid origin URL (got: ${raw})`);
+  }
   const isProd = process.env.NODE_ENV === 'production';
-  const pattern = isProd ? /^https:\/\/[^/@]+$/ : /^https?:\/\/[^/@]+$/;
-  if (!pattern.test(url)) {
+  const protocolOk = isProd ? url.protocol === 'https:' : url.protocol === 'https:' || url.protocol === 'http:';
+  // raw === url.origin rejects path/query/fragment/trailing-slash/userinfo in one shot.
+  if (!protocolOk || raw !== url.origin) {
     throw new Error(
-      `WORKER_PUBLIC_URL must be ${isProd ? 'https://<host>' : 'http(s)://<host>'} ` +
-        `with no trailing slash or path (got: ${url})`,
+      `WORKER_PUBLIC_URL must be an origin-only URL (${isProd ? 'https://<host>' : 'http(s)://<host>'}, ` +
+        `no path/query/fragment/trailing slash; got: ${raw})`,
     );
   }
 }

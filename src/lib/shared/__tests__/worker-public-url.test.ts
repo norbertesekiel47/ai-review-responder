@@ -28,4 +28,14 @@ describe('getWorkerPublicUrl', () => {
     delete process.env.WORKER_PUBLIC_URL;
     expect(() => getWorkerPublicUrl()).toThrow(/WORKER_PUBLIC_URL/);
   });
+
+  it('strips a path, query, and fragment to the origin', () => {
+    process.env.WORKER_PUBLIC_URL = 'https://worker.example.com/api?x=1#frag';
+    expect(getWorkerPublicUrl()).toBe('https://worker.example.com');
+  });
+
+  it('preserves an explicit non-default port', () => {
+    process.env.WORKER_PUBLIC_URL = 'http://localhost:3001';
+    expect(getWorkerPublicUrl()).toBe('http://localhost:3001');
+  });
 });

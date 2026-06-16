@@ -439,6 +439,18 @@ describe('assertChannelsWhatsAppEnv', () => {
     expect(() => assertChannelsWhatsAppEnv()).toThrow(/WORKER_PUBLIC_URL/);
   });
 
+  it('rejects a WORKER_PUBLIC_URL with a query string', () => {
+    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
+    process.env.TWILIO_ACCOUNT_SID = 'AC';
+    process.env.TWILIO_AUTH_TOKEN = 'tok';
+    process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+15551234567';
+    process.env.WHATSAPP_APPROVAL_TEMPLATE_SID = 'HX';
+    process.env.WHATSAPP_APPROVAL_URL_BASE = 'https://app.repworth.com/approve/';
+    process.env.WORKER_PUBLIC_URL = 'https://worker.example.com?x=1';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.repworth.com';
+    expect(() => assertChannelsWhatsAppEnv()).toThrow(/WORKER_PUBLIC_URL/);
+  });
+
   it('accepts a clean https WORKER_PUBLIC_URL', () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
     process.env.TWILIO_ACCOUNT_SID = 'AC';
