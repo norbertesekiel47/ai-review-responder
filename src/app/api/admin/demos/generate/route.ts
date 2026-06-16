@@ -22,14 +22,16 @@ const GenerateDemoSchema = z
     { message: 'Either a Place ID or Google Maps URL is required', path: ['googlePlaceId'] },
   );
 
-async function generateDemo(request: NextRequest): Promise<NextResponse> {
-  // Auth-before-spend: gate must be first — non-AAL2 callers are rejected
-  // before any rate-limit budget is consumed or LLM/outbox path is entered.
-  const gate = await requireAdminWithAal2(request);
-  if (!gate.ok) return gate.response;
-
-  // Rate limits: fail CLOSED for cost-sensitive demo generation.
-  // If Redis is unavailable, return 503 instead of allowing uncapped generation.
+/**
+ * Cost-sensitive rate limits for demo generation, fail-CLOSED (Redis down → 503,
+ * never uncapped). Three tiers: global daily (50), per-admin daily (20, F-20 — so
+ * one admin can't drain the global budget), per-IP minute (5). Returns a response
+ * to short-circuit on limit-hit/unavailable, or null when the caller may proceed.
+ */
+async function enforceDemoGenerationRateLimits(
+  request: NextRequest,
+  adminId: string,
+): Promise<NextResponse | null> {
   if (!process.env.REDIS_CACHE_URL) {
     return NextResponse.json(
       { error: 'Rate limiting unavailable — try again later' },
@@ -37,8 +39,15 @@ async function generateDemo(request: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // strict:true → a Redis runtime error propagates and is mapped to 503 below,
+  // instead of fail-OPEN-allowing uncapped, cost-sensitive demo generation. This
+  // route is a deliberate fail-CLOSED exception (the general API limiters fail open
+  // because a worker reservation guards spend — see CLAUDE.md); the per-admin cap
+  // would otherwise be silently bypassed during an Upstash outage.
+  const STRICT = { strict: true } as const;
+
   try {
-    const dailyLimit = await checkRateLimit('demo:generate:daily', 50, 86400);
+    const dailyLimit = await checkRateLimit('demo:generate:daily', 50, 86400, STRICT);
     if (!dailyLimit.allowed) {
       return NextResponse.json(
         { error: 'Daily demo generation limit reached (50/day)' },
@@ -46,8 +55,16 @@ async function generateDemo(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    const adminDailyLimit = await checkRateLimit(`demo:generate:daily:admin:${adminId}`, 20, 86400, STRICT);
+    if (!adminDailyLimit.allowed) {
+      return NextResponse.json(
+        { error: 'Per-admin daily demo limit reached (20/day)' },
+        { status: 429 },
+      );
+    }
+
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
-    const minuteLimit = await checkRateLimit(`demo:generate:minute:${ip}`, 5, 60);
+    const minuteLimit = await checkRateLimit(`demo:generate:minute:${ip}`, 5, 60, STRICT);
     if (!minuteLimit.allowed) {
       return NextResponse.json(
         { error: 'Too many demo generations. Try again in a minute.' },
@@ -60,6 +77,18 @@ async function generateDemo(request: NextRequest): Promise<NextResponse> {
       { status: 503 },
     );
   }
+
+  return null;
+}
+
+async function generateDemo(request: NextRequest): Promise<NextResponse> {
+  // Auth-before-spend: gate must be first — non-AAL2 callers are rejected
+  // before any rate-limit budget is consumed or LLM/outbox path is entered.
+  const gate = await requireAdminWithAal2(request);
+  if (!gate.ok) return gate.response;
+
+  const limited = await enforceDemoGenerationRateLimits(request, gate.admin.id);
+  if (limited) return limited;
 
   let body: unknown;
   try {

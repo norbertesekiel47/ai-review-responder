@@ -129,12 +129,46 @@ describe('POST /api/admin/demos/generate', () => {
     expect(res.status).toBe(429);
   });
 
+  it('returns 429 when the per-admin daily quota is exhausted (F-20)', async () => {
+    mockCheckRateLimit
+      .mockResolvedValueOnce({ allowed: true, remaining: 49 }) // global daily OK
+      .mockResolvedValueOnce({ allowed: false, remaining: 0 }); // per-admin exhausted
+    const res = await POST(makeRequest(VALID_BODY));
+    expect(res.status).toBe(429);
+    // The per-admin cap is keyed on the authenticated admin's user id.
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      'demo:generate:daily:admin:admin-1',
+      20,
+      86400,
+      { strict: true },
+    );
+  });
+
   it('returns 429 when the per-IP minute rate limit is exhausted', async () => {
     mockCheckRateLimit
-      .mockResolvedValueOnce({ allowed: true, remaining: 49 }) // daily OK
+      .mockResolvedValueOnce({ allowed: true, remaining: 49 }) // global daily OK
+      .mockResolvedValueOnce({ allowed: true, remaining: 19 }) // per-admin OK
       .mockResolvedValueOnce({ allowed: false, remaining: 0 }); // per-IP exhausted
     const res = await POST(makeRequest(VALID_BODY));
     expect(res.status).toBe(429);
+  });
+
+  it('uses strict (fail-closed) mode on every demo-generation rate-limit check', async () => {
+    await POST(makeRequest(VALID_BODY));
+    expect(mockCheckRateLimit.mock.calls.length).toBeGreaterThanOrEqual(3);
+    for (const call of mockCheckRateLimit.mock.calls) {
+      expect(call[3]).toEqual({ strict: true });
+    }
+  });
+
+  it('returns 503 (not uncapped) when a Redis runtime error propagates from the limiter', async () => {
+    // Strict mode makes checkRateLimit re-throw on a Redis failure; the route must
+    // map that to 503 rather than allowing uncapped, cost-sensitive generation.
+    mockCheckRateLimit.mockReset();
+    mockCheckRateLimit.mockRejectedValueOnce(new Error('redis connection lost'));
+    const res = await POST(makeRequest(VALID_BODY));
+    expect(res.status).toBe(503);
+    expect(mockSql.begin).not.toHaveBeenCalled();
   });
 
   it('returns 400 for missing required fields', async () => {

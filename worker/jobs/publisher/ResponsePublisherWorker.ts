@@ -21,6 +21,7 @@ import { isOrphanMarker } from '../../../src/lib/publishing/orphan-markers';
 import { maybeCaptureActivationCompleted } from './activation';
 import { downgradeAutoApprovedResponseForManualReview } from './auto-policy-downgrade';
 import { markPostedAndMaybeEnqueueAutoPostNotice } from './mark-posted';
+import { isHeldForModerationReview } from './held-flag-gate';
 import type { ZernioConnectionRow } from './types';
 
 export async function handlePublishResponse(
@@ -108,6 +109,18 @@ export async function handlePublishResponse(
   if (!subCheck.allowed) {
     logger.warn(
       `Business ${businessId} subscription blocked: ${subCheck.reason}`,
+    );
+    await markOutboxCompleted(outboxId, outboxAttempt);
+    return;
+  }
+
+  // ── Moderation hold gate (F-5 belt-and-suspenders) ─────────
+  // Refuse to post when an open moderation flag holds the draft. Non-exploitable
+  // today (flagged drafts stay `pending_approval` and never reach here), but this
+  // makes the moderation veto binding on the publish path, not just the owner UI.
+  if (await isHeldForModerationReview(response_id, businessId)) {
+    logger.warn(
+      `Response ${response_id} has an open moderation flag; refusing to publish (F-5).`,
     );
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
