@@ -134,11 +134,12 @@ RESERVE.
 - New/updated tests: F-13 accessor strips trailing slash + throws when unset;
   F-16 rejects a <32-byte secret and accepts ≥32; F-17 `ADJUST_COST_LUA` sets a
   TTL on both keys (assert the `EXPIRE`/`ttl` arg is passed by both callers).
-- F-4: the migration's value is the constraint itself; verification is the
-  preflight (expect 0) + the staging apply. If a DB integration harness is
-  available (`TEST_DATABASE_POOL_URL`), add an integration test asserting an
-  `approved` row with `NULL approval_method` is rejected; otherwise document the
-  preflight + staging check as the verification.
+- F-4: CI applies migrations to its test DB and runs the integration suite, so
+  the constraint is exercised in CI — existing `responses` seed fixtures (in the
+  publisher integration test, `audit-snapshot.integration`, and an e2e seed)
+  that create `approved`/`edited`/`awaiting_owner_connect` rows must seed
+  `approval_method='owner'` to satisfy it. The remaining operator-gated
+  verification is the staging preflight (expect 0) + the staging/prod apply.
 
 ## 5. Lane & rollout (operator-gated steps)
 

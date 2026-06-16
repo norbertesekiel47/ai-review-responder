@@ -342,7 +342,7 @@ git commit -m "fix(auth): require SESSION_COOKIE_SECRET >=32 bytes at read + boo
 
 ## Task 4: F-4 — `approval_method` CHECK constraint (migration 068)
 
-No CI test (no constraint-integration harness; CI lacks `TEST_DATABASE_POOL_URL`). Deliverable = the migration file + migrations-log entry. Verification = the in-file preflight + the operator's staging apply.
+Deliverable = the migration file + migrations-log entry. **CI applies migrations to its test DB and runs the integration suite**, so the constraint IS exercised in CI — existing `responses` seed fixtures in integration/e2e tests that create `approved`/`edited`/`awaiting_owner_connect` rows must seed `approval_method='owner'` to satisfy it (see the follow-up fix). The operator-gated part is the **staging/prod apply** (preflight + staging-first, both projects in lockstep).
 
 **Files:**
 - Create: `supabase/migrations/068_approval_method_required.sql`
