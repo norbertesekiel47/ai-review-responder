@@ -6,7 +6,8 @@ import { sql, jsonb } from '@/lib/db/server';
 import { isPlaceId, extractPlaceId } from '@/lib/reviews/url-parser';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import type { DemoJobPayload } from '@/lib/demos/types';
-import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 const GenerateDemoSchema = z
@@ -22,8 +23,10 @@ const GenerateDemoSchema = z
   );
 
 async function generateDemo(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireRoleOr401(request, 'admin');
-  if (!auth.ok) return auth.response;
+  // Auth-before-spend: gate must be first — non-AAL2 callers are rejected
+  // before any rate-limit budget is consumed or LLM/outbox path is entered.
+  const gate = await requireAdminWithAal2(request);
+  if (!gate.ok) return gate.response;
 
   // Rate limits: fail CLOSED for cost-sensitive demo generation.
   // If Redis is unavailable, return 503 instead of allowing uncapped generation.
