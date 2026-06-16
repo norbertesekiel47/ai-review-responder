@@ -1,4 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
+import { getSessionCookieSecret } from '@/lib/shared/session-cookie-secret';
 
 const KEEP_MY_DATA_TOKEN_CONTEXT = 'repworth:account-offboarding-keep-my-data-token:v1';
 
@@ -30,7 +31,5 @@ export function assertKeepMyDataTokenSecretConfigured(): void {
 }
 
 function getKeepMyDataTokenSecret(): string {
-  const secret = process.env.SESSION_COOKIE_SECRET;
-  if (!secret) throw new Error('SESSION_COOKIE_SECRET not configured');
-  return secret;
+  return getSessionCookieSecret();
 }

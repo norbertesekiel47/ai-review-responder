@@ -1,5 +1,6 @@
 import { randomUUID, createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import { getSessionCookieSecret } from '@/lib/shared/session-cookie-secret';
 
 /**
  * Constant-time hex-string compare. Returns false for mismatched lengths
@@ -30,14 +31,6 @@ const DEVICE_COOKIE_NAME = '__device';
 const CSRF_COOKIE_NAME = '__csrf';
 const DEVICE_COOKIE_MAX_AGE = 172800; // 48 hours in seconds
 
-function getSessionSecret(): string {
-  const secret = process.env.SESSION_COOKIE_SECRET;
-  if (!secret) throw new Error('SESSION_COOKIE_SECRET is not set');
-  if (Buffer.byteLength(secret, 'utf8') < 32) {
-    throw new Error('SESSION_COOKIE_SECRET must be at least 32 bytes (256-bit HMAC key)');
-  }
-  return secret;
-}
 
 // ── Device Cookie (HMAC-signed, HttpOnly) ─────────────────────────────
 
@@ -48,7 +41,7 @@ function getSessionSecret(): string {
  */
 export function setDeviceCookie(response: NextResponse): string {
   const value = randomUUID();
-  const hmac = createHmac('sha256', getSessionSecret())
+  const hmac = createHmac('sha256', getSessionCookieSecret())
     .update(value)
     .digest('hex');
   const signed = `${value}.${hmac}`;
@@ -91,7 +84,7 @@ export function verifyDeviceCookie(request: NextRequest): boolean {
   const [value, providedHmac] = parts;
   if (!value || !providedHmac) return false;
 
-  const expectedHmac = createHmac('sha256', getSessionSecret())
+  const expectedHmac = createHmac('sha256', getSessionCookieSecret())
     .update(value)
     .digest('hex');
 

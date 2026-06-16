@@ -5,6 +5,7 @@ import { requireOwnerWithAccount } from '@/lib/auth/route-helpers';
 import { cookieBackedServerClient, type AppUser } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
+import { getSessionCookieSecret } from '@/lib/shared/session-cookie-secret';
 
 export const FRESH_AUTH_COOKIE_NAME = 'rw_delete_data_fresh_auth';
 export const FRESH_AUTH_WINDOW_MS = 10 * 60 * 1000;
@@ -138,16 +139,11 @@ function freshAuthSignature(input: {
   accountId: string;
   issuedAtMs: number;
 }): string {
-  return createHmac('sha256', getSessionSecret())
+  return createHmac('sha256', getSessionCookieSecret())
     .update(`${SIGNING_CONTEXT}:${input.userId}:${input.accountId}:${input.issuedAtMs}`)
     .digest('hex');
 }
 
-function getSessionSecret(): string {
-  const secret = process.env.SESSION_COOKIE_SECRET;
-  if (!secret) throw new Error('SESSION_COOKIE_SECRET is not set');
-  return secret;
-}
 
 function safeHexCompare(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
