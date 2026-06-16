@@ -9,7 +9,7 @@
 // Validation contract: VAL-ADMIN-008 through VAL-ADMIN-014.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
+import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import {
   parseCsv,
   importCsvRows,
@@ -50,21 +50,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  */
 async function importLocationsCsv(req: NextRequest): Promise<NextResponse> {
   // ── Step 1: Auth gate (VAL-ADMIN-011) ──────────────────────────────
-  let authUser;
-  try {
-    authUser = await requireRole(req, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json(
-        { error: err.message },
-        { status: err.statusCode, headers: NO_STORE },
-      );
-    }
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401, headers: NO_STORE },
-    );
-  }
+  const gate = await requireAdminWithAal2(req);
+  if (!gate.ok) return gate.response;
+  const authUser = gate.admin;
 
   // ── Step 2: Parse multipart form data ───────────────────────────────
   const formData = await req.formData();
