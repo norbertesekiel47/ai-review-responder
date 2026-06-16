@@ -29,6 +29,15 @@ describe('ingressClientIp', () => {
   it('returns "unknown" when neither is present', () => {
     expect(ingressClientIp(buildReq({}, ''))).toBe('unknown');
   });
+  // Documents the deliberate F-21 limitation: XFF is attacker-controlled, so the
+  // first hop is the CLAIMED client and can be spoofed/rotated. The limiter is a
+  // best-effort volume backstop, not a hard per-IP control (signature verify is
+  // the real gate). This test pins that behavior so it isn't "fixed" by accident.
+  it('keys on the first XFF hop even when it is a spoofed/forged value', () => {
+    expect(ingressClientIp(buildReq({ 'x-forwarded-for': 'totally-spoofed, 203.0.113.9' }, '10.0.0.1'))).toBe(
+      'totally-spoofed',
+    );
+  });
 });
 
 describe('enforceIngressRateLimit', () => {

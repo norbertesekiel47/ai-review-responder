@@ -133,6 +133,16 @@ constant change beyond confirming the existing claim/dedup tests stay green
 
 ### 4.1 Design
 
+> **F-21 is closed as a BEST-EFFORT volume backstop, not a hard per-IP control.**
+> Fastify runs without `trustProxy` and Railway does not document a non-spoofable
+> client-IP header, so the limiter keys on the *claimed* `X-Forwarded-For` first
+> hop — which a determined abuser can rotate to evade the per-IP cap. This is
+> acceptable for a Low/defense-in-depth item: signature verification is the real
+> forgery gate, and the limiter still throttles honest/unsophisticated flood
+> volume + the unauthenticated work (sig-verify + dedup claim) it triggers. A
+> reliable per-IP close (a trusted CDN header such as `CF-Connecting-IP`, or a
+> verified fixed trusted-hop count) is deferred — see §7.
+
 Reuse the existing `checkRateLimit` (`src/lib/shared/rate-limit.ts`) — a
 fixed-window Redis (Upstash cache) limiter with a fail-open default. **No new
 dependency** (repworth bias). The worker already uses the Upstash cache instance
@@ -155,7 +165,7 @@ const INGRESS_MAX_PER_MINUTE = 120;
 const INGRESS_WINDOW_SECONDS = 60;
 
 // Fastify runs without trustProxy, so request.ip is the Railway edge proxy.
-// Read the X-Forwarded-For first hop (the real client) for keying, scoped to
+// Read the X-Forwarded-For first hop (the CLAIMED client; spoofable — best-effort) for keying, scoped to
 // this limiter — avoids a global trustProxy change. Falls back to request.ip.
 export function ingressClientIp(request: FastifyRequest): string {
   const xff = request.headers['x-forwarded-for'];
@@ -224,3 +234,10 @@ fold-ins), plus the deferred F-3 + transitive CVEs (2026-06-18 follow-up). F-15
 uses window-widening, not a lease/heartbeat (owner decision — YAGNI for a
 defense-in-depth item). F-14 adds a runtime guard (not doc-only), at a generous
 threshold that cannot drop legitimate retries.
+
+**F-21 reliable per-IP close — deferred (owner decision).** The limiter ships as
+a best-effort volume backstop (§4.1). A spoof-resistant per-IP control needs a
+trusted client-IP source Railway doesn't document today — e.g. a CDN
+(Cloudflare) in front keyed on `CF-Connecting-IP`, or a verified fixed
+trusted-hop count for `trustProxy`. That is an infra change (DNS/CDN setup, new
+header trust), separate operator-gated work, and is out of scope for this phase.
