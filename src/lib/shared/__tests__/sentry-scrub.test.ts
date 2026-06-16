@@ -112,6 +112,46 @@ describe('scrubSentryEvent', () => {
     const event = { breadcrumbs: [null, { category: 'navigation' }] };
     expect(() => scrubSentryEvent(event)).not.toThrow();
   });
+
+  it('masks sensitive values in request.query_string (string form)', () => {
+    const event = { request: { query_string: 'code=xyz&token=t&page=2' } };
+    scrubSentryEvent(event, { scrubRequestData: true });
+    expect(event.request.query_string).toBe('code=[REDACTED]&token=[REDACTED]&page=2');
+  });
+
+  it('masks request.query_string even without scrubRequestData (URL-equivalent)', () => {
+    const event = { request: { query_string: '?code=xyz' } };
+    scrubSentryEvent(event);
+    expect(event.request.query_string).toBe('?code=[REDACTED]');
+  });
+
+  it('masks sensitive values in request.query_string (object form)', () => {
+    const event = { request: { query_string: { code: 'xyz', page: '2' } } };
+    scrubSentryEvent(event);
+    expect(event.request.query_string.code).toBe('[REDACTED]');
+    expect(event.request.query_string.page).toBe('2');
+  });
+
+  it('masks sensitive values in request.query_string (array-of-pairs form)', () => {
+    const event = { request: { query_string: [['code', 'xyz'], ['page', '2']] } };
+    scrubSentryEvent(event);
+    expect(event.request.query_string[0]).toEqual(['code', '[REDACTED]']);
+    expect(event.request.query_string[1]).toEqual(['page', '2']);
+  });
+
+  it('masks a token in breadcrumb http.url + http.query (otel/http integration)', () => {
+    const event = {
+      breadcrumbs: [
+        {
+          category: 'http',
+          data: { 'http.url': '/api/approve/TOK/edit', 'http.query': 'token=abc&page=1' },
+        },
+      ],
+    };
+    scrubSentryEvent(event);
+    expect(event.breadcrumbs[0]!.data['http.url']).toBe('/api/approve/[REDACTED]/edit');
+    expect(event.breadcrumbs[0]!.data['http.query']).toBe('token=[REDACTED]&page=1');
+  });
 });
 
 describe('redactSensitivePathsAndQueries', () => {

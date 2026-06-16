@@ -127,22 +127,34 @@ export function redactSensitivePathsAndQueries(url: string): string {
 
 ### 2.4 Extend `scrubSentryEvent`
 
-After the existing key-scrub passes, add URL-value + breadcrumb scrubbing:
+After the existing key-scrub passes, add URL-value + breadcrumb scrubbing
+(the request passes are factored into a `scrubRequest` helper to keep
+`scrubSentryEvent` thin):
 
 - `event.request.url` (string) → `redactSensitivePathsAndQueries(...)`.
+- `event.request.query_string` → Sentry carries the query **separately** from
+  `url`, in three SDK/runtime-dependent shapes — a raw string, an object map, or
+  an array of `[key, value]` pairs. Scrub all three (`redactRequestQueryString`):
+  a string via the shared `redactQueryString`, an object/array by masking values
+  whose key matches `SENSITIVE_QUERY_KEY_RE`. **Ungated** (URL-equivalent;
+  `scrubRequestData` gates only the request *body*, `request.data`), so a
+  `?code=`/`?token=` can't leak via `query_string` even after `url` is masked.
 - `event.transaction` (string) → `redactSensitivePathsAndQueries(...)`.
 - `event.breadcrumbs` (array) → for each breadcrumb:
   - run the existing `scrubObject` over `breadcrumb.data` (catches a sensitive
     **key** like `token` in fetch/xhr breadcrumb data), then
   - redact the URL-bearing string fields via the helper:
-    `breadcrumb.data.url`, `breadcrumb.data.from`, `breadcrumb.data.to`
-    (navigation breadcrumbs use `from`/`to`; fetch/xhr use `url`), and
+    `breadcrumb.data.url`, `.from`, `.to`, and `data["http.url"]` (navigation
+    breadcrumbs use `from`/`to`; fetch/xhr use `url`; otel/http instrumentation
+    uses `http.url`), plus `data["http.query"]` (a bare query string) via
+    `redactQueryString`, and
   - `breadcrumb.message` (console breadcrumbs / generic messages).
 
 Extend `ScrubbableSentryEvent` with `transaction?: unknown`,
-`breadcrumbs?: unknown`, and `request.url?: unknown`. All field reads stay
-defensive (`typeof === 'string'` / `Array.isArray` / `typeof === 'object'`
-guards) — Sentry event shapes vary by SDK and runtime.
+`breadcrumbs?: unknown`, `request.url?: unknown`, and
+`request.query_string?: unknown`. All field reads stay defensive
+(`typeof === 'string'` / `Array.isArray` / `typeof === 'object'` guards) — Sentry
+event shapes vary by SDK and runtime.
 
 ### 2.5 Tests (extend `src/lib/shared/__tests__/sentry-scrub.test.ts`)
 
@@ -160,6 +172,9 @@ New `scrubSentryEvent` cases:
 - a **fetch** breadcrumb (`data:{ url:'/api/approve/T/edit' }`) has `url` masked.
 - a **console** breadcrumb (`message:'GET /approve/T 200'`) has `message` masked.
 - the **audit's required assertion**: a breadcrumb carrying `/approve/<token>` is masked.
+- `event.request.query_string` is masked in all three shapes (string, object,
+  array-of-pairs) and even without `scrubRequestData`.
+- a breadcrumb's `data["http.url"]` + `data["http.query"]` are masked.
 - existing key-scrub behavior (extra/headers/data/arrays/null-safety) still passes.
 
 ## 3. F-8 — Twilio delivery-status payload redaction
