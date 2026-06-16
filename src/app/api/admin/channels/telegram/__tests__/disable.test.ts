@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockSql, sqlReturnQueue, resetMockSql } = await vi.hoisted(async () => {
+const { mockSql, sqlReturnQueue, resetMockSql, mockRequireRole, mockRequireCurrentAal2FromSupabase } = await vi.hoisted(async () => {
   const { createMockSql } = await import('../../../../../../../worker/__tests__/helpers/mock-sql');
-  return { ...createMockSql() };
+  return {
+    ...createMockSql(),
+    mockRequireRole: vi.fn(),
+    mockRequireCurrentAal2FromSupabase: vi.fn(),
+  };
 });
 // The route delegates to disconnectChannel, which opens sql.begin; the mock tx
 // shares the same tagged-template fn so every UPDATE/audit INSERT pulls from
@@ -10,8 +14,21 @@ const { mockSql, sqlReturnQueue, resetMockSql } = await vi.hoisted(async () => {
 vi.mock('@/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 
 vi.mock('@/lib/db/auth', () => ({
-  requireRole: vi.fn(async () => ({ id: 'admin-1', role: 'admin' })),
-  AuthError: class extends Error {},
+  requireRole: mockRequireRole,
+  cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
+  AuthError: class AuthError extends Error {
+    constructor(message: string, public readonly statusCode: number) {
+      super(message);
+    }
+  },
+}));
+
+vi.mock('@supabase/ssr', () => ({
+  createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),
+}));
+
+vi.mock('@/lib/auth/mfa', () => ({
+  requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase,
 }));
 
 vi.mock('@/lib/db/redis-cache', () => ({
@@ -24,6 +41,10 @@ vi.mock('@/lib/db/redis-cache', () => ({
 import { POST } from '../disable/route';
 
 const APP_URL = 'http://localhost';
+
+process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com';
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 
 function mkReq(body: unknown) {
   return new Request('http://localhost/api/admin/channels/telegram/disable', {
@@ -40,12 +61,21 @@ beforeEach(() => {
   delete process.env.TELEGRAM_BOT_TOKEN;
   delete process.env.TELEGRAM_WEBHOOK_SECRET;
   process.env.MOCK_EXTERNAL_APIS = 'true';
+  mockRequireRole.mockResolvedValue({ id: 'admin-1', role: 'admin' });
+  mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
 });
 
 describe('POST /api/admin/channels/telegram/disable', () => {
   it('returns 404 when flag is off', async () => {
     const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
     expect(res.status).toBe(404);
+  });
+
+  it('returns 403 when MFA step-up is not satisfied (AAL2)', async () => {
+    process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+    mockRequireCurrentAal2FromSupabase.mockResolvedValueOnce({ ok: false, reason: 'aal2_required' });
+    const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
+    expect(res.status).toBe(403);
   });
 
   it('flips verified → disabled and returns 200', async () => {

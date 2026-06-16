@@ -2,13 +2,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Hoisted so vi.mock factory can reference the shared queue + consumer.
-const { sqlQueue, consume } = vi.hoisted(() => {
+const { sqlQueue, consume, mockRequireRole, mockRequireCurrentAal2FromSupabase } = vi.hoisted(() => {
   const q: unknown[] = [];
   const c = async () => {
     const next = q.shift();
     return Array.isArray(next) ? next : [];
   };
-  return { sqlQueue: q, consume: c };
+  return {
+    sqlQueue: q,
+    consume: c,
+    mockRequireRole: vi.fn(),
+    mockRequireCurrentAal2FromSupabase: vi.fn(),
+  };
 });
 
 vi.mock('@/lib/db/server', () => ({
@@ -21,8 +26,21 @@ vi.mock('@/lib/db/server', () => ({
 }));
 
 vi.mock('@/lib/db/auth', () => ({
-  requireRole: vi.fn(async () => ({ userId: 'admin-1', role: 'admin' })),
-  AuthError: class extends Error {},
+  requireRole: mockRequireRole,
+  cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
+  AuthError: class AuthError extends Error {
+    constructor(message: string, public readonly statusCode: number) {
+      super(message);
+    }
+  },
+}));
+
+vi.mock('@supabase/ssr', () => ({
+  createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),
+}));
+
+vi.mock('@/lib/auth/mfa', () => ({
+  requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase,
 }));
 
 vi.mock('qrcode', () => ({
@@ -32,6 +50,10 @@ vi.mock('qrcode', () => ({
 import { POST } from '../start/route';
 
 const APP_URL = 'http://localhost';
+
+process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com';
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 
 function mkReq(body: unknown) {
   return new Request('http://localhost/api/admin/channels/whatsapp/start', {
@@ -51,6 +73,8 @@ beforeEach(() => {
   delete process.env.WHATSAPP_APPROVAL_TEMPLATE_SID;
   delete process.env.WHATSAPP_APPROVAL_URL_BASE;
   process.env.MOCK_EXTERNAL_APIS = 'true'; // skip env readiness check in unit tests
+  mockRequireRole.mockResolvedValue({ id: 'admin-1', role: 'admin' });
+  mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
 });
 
 describe('POST /api/admin/channels/whatsapp/start', () => {
@@ -66,11 +90,18 @@ describe('POST /api/admin/channels/whatsapp/start', () => {
     expect(res.status).toBe(503);
   });
 
+  it('returns 403 when MFA step-up is not satisfied (AAL2)', async () => {
+    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
+    mockRequireCurrentAal2FromSupabase.mockResolvedValueOnce({ ok: false, reason: 'aal2_required' });
+    const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
+    expect(res.status).toBe(403);
+  });
+
   it('returns 401 when auth fails', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
-    const { requireRole, AuthError } = await import('@/lib/db/auth');
+    const { AuthError } = await import('@/lib/db/auth');
     const AuthErrorClass = AuthError as unknown as new (msg: string, status: number) => Error & { statusCode: number };
-    vi.mocked(requireRole).mockRejectedValueOnce(
+    mockRequireRole.mockRejectedValueOnce(
       Object.assign(new AuthErrorClass('Unauthorized', 401), { statusCode: 401 }),
     );
     const res = await POST(mkReq({ businessId: 'biz-1' }) as any);

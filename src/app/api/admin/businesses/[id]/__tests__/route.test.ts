@@ -3,8 +3,15 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 
-const { mockRequireRole, mockTxCalls, mockTxReturns, mockInvalidateChannelCache } = vi.hoisted(() => ({
+const {
+  mockRequireRole,
+  mockRequireCurrentAal2FromSupabase,
+  mockTxCalls,
+  mockTxReturns,
+  mockInvalidateChannelCache,
+} = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
+  mockRequireCurrentAal2FromSupabase: vi.fn(),
   mockTxCalls: [] as unknown[][],
   mockTxReturns: [] as unknown[],
   mockInvalidateChannelCache: vi.fn(),
@@ -21,6 +28,7 @@ vi.mock('@/lib/db/auth', () => {
   }
   return {
     requireRole: (...args: unknown[]) => mockRequireRole(...args),
+    cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
     AuthError,
   };
 });
@@ -68,12 +76,23 @@ vi.mock('uuid', () => ({
   v7: () => '00000000-0000-0000-0000-000000000001',
 }));
 
+vi.mock('@supabase/ssr', () => ({
+  createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),
+}));
+vi.mock('@/lib/auth/mfa', () => ({
+  requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase,
+}));
+
 // Import AFTER mocks
 import { PATCH } from '../route';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
 const APP_URL = 'http://localhost';
+
+process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com';
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 
 function makePatchRequest(body: Record<string, unknown>): NextRequest {
   return new NextRequest('http://localhost/api/admin/businesses/biz-1', {
@@ -92,14 +111,22 @@ function paramsFor(id: string) {
 describe('PATCH /api/admin/businesses/[id] — ownerEmail enrollment sync', () => {
   beforeEach(() => {
     mockRequireRole.mockReset();
+    mockRequireCurrentAal2FromSupabase.mockReset();
     mockTxCalls.length = 0;
     mockTxReturns.length = 0;
     mockInvalidateChannelCache.mockReset().mockResolvedValue(undefined);
+    mockRequireRole.mockResolvedValue({ role: 'admin' });
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
+  it('returns 403 when MFA step-up is not satisfied (AAL2)', async () => {
+    mockRequireCurrentAal2FromSupabase.mockResolvedValueOnce({ ok: false, reason: 'aal2_required' });
+    const res = await PATCH(makePatchRequest({ tone: 'formal' }), paramsFor('biz-1'));
+    expect(res.status).toBe(403);
+  });
+
   it('PATCH with ownerEmail upserts channel_enrollments inside same txn', async () => {
-    mockRequireRole.mockResolvedValue({ role: 'admin' });
     // tx calls inside the transaction callback (in order):
     // 1. tx.unsafe (UPDATE businesses) — return { count: 1 }
     // 2. tx`SELECT account_id FROM businesses` — return account_id row
@@ -125,7 +152,6 @@ describe('PATCH /api/admin/businesses/[id] — ownerEmail enrollment sync', () =
 
   it('PATCH with ownerEmail delegates cache invalidation to safe helper', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    mockRequireRole.mockResolvedValue({ role: 'admin' });
     mockTxReturns.push({ count: 1 });
     mockTxReturns.push([{ account_id: 'acct-1' }]);
     mockTxReturns.push([]);
@@ -145,7 +171,6 @@ describe('PATCH /api/admin/businesses/[id] — ownerEmail enrollment sync', () =
   });
 
   it('PATCH without ownerEmail does NOT touch channel_enrollments', async () => {
-    mockRequireRole.mockResolvedValue({ role: 'admin' });
     mockTxReturns.push({ count: 1 });  // UPDATE businesses
 
     const res = await PATCH(
@@ -163,7 +188,6 @@ describe('PATCH /api/admin/businesses/[id] — ownerEmail enrollment sync', () =
   });
 
   it('PATCH on unknown id returns 404 and rolls back (no enrollment upsert)', async () => {
-    mockRequireRole.mockResolvedValue({ role: 'admin' });
     mockTxReturns.push({ count: 0 });  // UPDATE businesses — zero rows affected
 
     const res = await PATCH(

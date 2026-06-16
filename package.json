@@ -24,6 +24,7 @@
     "ci:rls-audit": "tsx scripts/ci/rls-audit.ts",
     "ci:analytics-events": "tsx scripts/ci/analytics-events-audit.ts",
     "ci:static-policy": "tsx scripts/ci/static-policy-audit.ts",
+    "ci:admin-aal2": "tsx scripts/ci/admin-aal2-audit.ts",
     "ci:fallow": "fallow audit --gate new-only --fail-on-issues --base origin/main",
     "worker": "tsx worker/index.ts",
     "redis": "tsx scripts/redis.ts",

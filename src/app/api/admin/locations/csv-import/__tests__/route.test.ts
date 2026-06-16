@@ -8,10 +8,14 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────
 
-const { mockSql } = vi.hoisted(() => {
+const { mockSql, mockRequireRole, mockRequireCurrentAal2FromSupabase } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
   sqlFn.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(sqlFn));
-  return { mockSql: sqlFn };
+  return {
+    mockSql: sqlFn,
+    mockRequireRole: vi.fn(),
+    mockRequireCurrentAal2FromSupabase: vi.fn(),
+  };
 });
 
 vi.mock('@/lib/db/server', () => ({
@@ -19,18 +23,21 @@ vi.mock('@/lib/db/server', () => ({
   jsonb: (v: unknown) => v,
 }));
 
-// Mock auth — admin and owner roles
-const { mockRequireRole } = vi.hoisted(() => ({
-  mockRequireRole: vi.fn(),
-}));
-
 vi.mock('@/lib/db/auth', () => ({
   requireRole: mockRequireRole,
+  cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
   AuthError: class AuthError extends Error {
     constructor(message: string, public readonly statusCode: number) {
       super(message);
     }
   },
+}));
+
+vi.mock('@supabase/ssr', () => ({
+  createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),
+}));
+vi.mock('@/lib/auth/mfa', () => ({
+  requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase,
 }));
 
 // Mock quota check
@@ -143,10 +150,14 @@ function setupHappyPathRow() {
   });
 }
 
+process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com';
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockSql.mockResolvedValue([]);
   mockRequireRole.mockResolvedValue(mockAdminUser());
+  mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
 });
 
@@ -174,6 +185,15 @@ describe('POST /api/admin/locations/csv-import', () => {
     const res = await POST(req);
 
     expect(res.status).toBe(401);
+  });
+
+  it('returns 403 when MFA step-up is not satisfied (AAL2)', async () => {
+    mockRequireCurrentAal2FromSupabase.mockResolvedValueOnce({ ok: false, reason: 'aal2_required' });
+    const req = mkCsvRequest('name,placeId\nTest,ChIJ1234');
+    const res = await POST(req);
+    expect(res.status).toBe(403);
+    // The formData/bulk path must not be reached when AAL2 fails.
+    expect(mockGetAccountById).not.toHaveBeenCalled();
   });
 
   // ── VAL-ADMIN-013: Rejects oversized files ─────────────────────────────

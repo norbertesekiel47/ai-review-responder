@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
+import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 
 export type AdminChannelAccount =
   | { ok: true; businessId: string; accountId: string; actorUserId: string | null }
@@ -21,16 +21,9 @@ export type AdminChannelAccount =
  * failure (auth error, missing businessId → 400, unknown business → 404).
  */
 export async function resolveAdminChannelAccount(req: NextRequest): Promise<AdminChannelAccount> {
-  let actorUserId: string | null = null;
-  try {
-    const admin = await requireRole(req, 'admin');
-    actorUserId = admin.id;
-  } catch (e) {
-    if (e instanceof AuthError) {
-      return { ok: false, response: NextResponse.json({ error: e.message }, { status: e.statusCode }) };
-    }
-    throw e;
-  }
+  const gate = await requireAdminWithAal2(req);
+  if (!gate.ok) return { ok: false, response: gate.response };
+  const actorUserId = gate.admin.id;
 
   const body = (await req.json().catch(() => null)) as { businessId?: string } | null;
   const businessId = body?.businessId;

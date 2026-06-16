@@ -3,8 +3,9 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted mocks ───────────────────────────────────────────────────
 
-const { mockRequireRole, mockSqlReturn } = vi.hoisted(() => ({
+const { mockRequireRole, mockRequireCurrentAal2FromSupabase, mockSqlReturn } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
+  mockRequireCurrentAal2FromSupabase: vi.fn(),
   mockSqlReturn: { value: [] as unknown[] },
 }));
 
@@ -20,9 +21,17 @@ vi.mock('@/lib/db/auth', () => {
   }
   return {
     requireRole: (...args: unknown[]) => mockRequireRole(...args),
+    cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
     AuthError,
   };
 });
+
+vi.mock('@supabase/ssr', () => ({
+  createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),
+}));
+vi.mock('@/lib/auth/mfa', () => ({
+  requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase,
+}));
 
 vi.mock('@/lib/db/server', () => ({
   sql: new Proxy(() => {}, {
@@ -41,6 +50,10 @@ import { POST } from '../route';
 
 const APP_URL = 'http://localhost:3000';
 
+process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com';
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
+
 function makeRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost:3000/api/admin/businesses/biz-1/ranking', {
     method: 'POST',
@@ -57,8 +70,18 @@ describe('POST /api/admin/businesses/[id]/ranking', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue({ id: 'u1', role: 'admin', accountId: null, locationId: null });
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
     mockSqlReturn.value = [{ id: 'mock-uuid-v7' }];
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+  });
+
+  it('returns 403 when MFA step-up is not satisfied (AAL2)', async () => {
+    mockRequireCurrentAal2FromSupabase.mockResolvedValueOnce({ ok: false, reason: 'aal2_required' });
+    const res = await POST(
+      makeRequest({ keyword: 'pizza', rankPosition: 3 }),
+      { params: makeParams() },
+    );
+    expect(res.status).toBe(403);
   });
 
   it('returns 400 for missing keyword', async () => {
