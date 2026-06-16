@@ -11,7 +11,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import QRCode from 'qrcode';
 import { sql } from '@/lib/db/server';
 import { startMobileEnrollment, type MobileChannel } from '@/lib/channels/mobile-enrollment';
-import { requireRole, AuthError } from '@/lib/db/auth';
+import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
 import { TOKEN_TTL_MS } from '@/lib/notifications/channels/constants';
@@ -43,14 +43,8 @@ export async function runAdminChannelStart(
   const envErr = config.assertEnvReady();
   if (envErr) return envErr;
 
-  try {
-    await requireRole(req, 'admin');
-  } catch (e) {
-    if (e instanceof AuthError) {
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    }
-    throw e;
-  }
+  const gate = await requireAdminWithAal2(req);
+  if (!gate.ok) return gate.response;
 
   const body = (await req.json().catch(() => null)) as { businessId?: string } | null;
   const businessId = body?.businessId;

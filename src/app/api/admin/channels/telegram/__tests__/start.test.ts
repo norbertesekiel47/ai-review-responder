@@ -2,13 +2,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Hoisted so vi.mock factory can reference the shared queue + consumer.
-const { sqlQueue, consume } = vi.hoisted(() => {
+const { sqlQueue, consume, mockRequireRole, mockRequireCurrentAal2FromSupabase } = vi.hoisted(() => {
   const q: unknown[] = [];
   const c = async () => {
     const next = q.shift();
     return Array.isArray(next) ? next : [];
   };
-  return { sqlQueue: q, consume: c };
+  return {
+    sqlQueue: q,
+    consume: c,
+    mockRequireRole: vi.fn(),
+    mockRequireCurrentAal2FromSupabase: vi.fn(),
+  };
 });
 
 vi.mock('@/lib/db/server', () => ({
@@ -21,13 +26,30 @@ vi.mock('@/lib/db/server', () => ({
 }));
 
 vi.mock('@/lib/db/auth', () => ({
-  requireRole: vi.fn(async () => ({ userId: 'admin-1', role: 'admin' })),
-  AuthError: class extends Error {},
+  requireRole: mockRequireRole,
+  cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
+  AuthError: class AuthError extends Error {
+    constructor(message: string, public readonly statusCode: number) {
+      super(message);
+    }
+  },
+}));
+
+vi.mock('@supabase/ssr', () => ({
+  createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),
+}));
+
+vi.mock('@/lib/auth/mfa', () => ({
+  requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase,
 }));
 
 import { POST } from '../start/route';
 
 const APP_URL = 'http://localhost';
+
+process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com';
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 
 function mkReq(body: unknown, opts: { origin?: string | null } = {}) {
   const headers: Record<string, string> = {
@@ -51,6 +73,8 @@ beforeEach(() => {
   delete process.env.TELEGRAM_WEBHOOK_SECRET;
   delete process.env.TELEGRAM_BOT_USERNAME;
   process.env.MOCK_EXTERNAL_APIS = 'true'; // skip env readiness check in unit tests
+  mockRequireRole.mockResolvedValue({ id: 'admin-1', role: 'admin' });
+  mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
 });
 
 describe('POST /api/admin/channels/telegram/start', () => {
@@ -65,6 +89,13 @@ describe('POST /api/admin/channels/telegram/start', () => {
     process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
 
     const res = await POST(mkReq({ businessId: 'biz-1' }, { origin: 'https://evil.example.com' }) as any);
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 403 when MFA step-up is not satisfied (AAL2)', async () => {
+    process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+    mockRequireCurrentAal2FromSupabase.mockResolvedValueOnce({ ok: false, reason: 'aal2_required' });
+    const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
     expect(res.status).toBe(403);
   });
 

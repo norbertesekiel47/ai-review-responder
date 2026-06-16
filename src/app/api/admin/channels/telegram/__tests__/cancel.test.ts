@@ -1,24 +1,47 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { sqlQueue, mockSql } = vi.hoisted(() => {
+const { sqlQueue, mockSql, mockRequireRole, mockRequireCurrentAal2FromSupabase } = vi.hoisted(() => {
   const sqlQueue: unknown[] = [];
   const mockSql: any = vi.fn(async () => {
     const next = sqlQueue.shift();
     return Array.isArray(next) ? next : [];
   });
   mockSql.begin = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(mockSql));
-  return { sqlQueue, mockSql };
+  return {
+    sqlQueue,
+    mockSql,
+    mockRequireRole: vi.fn(),
+    mockRequireCurrentAal2FromSupabase: vi.fn(),
+  };
 });
+
 vi.mock('@/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 
 vi.mock('@/lib/db/auth', () => ({
-  requireRole: vi.fn(async () => ({ userId: 'admin-1', role: 'admin' })),
-  AuthError: class extends Error {},
+  requireRole: mockRequireRole,
+  cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
+  AuthError: class AuthError extends Error {
+    constructor(message: string, public readonly statusCode: number) {
+      super(message);
+    }
+  },
+}));
+
+vi.mock('@supabase/ssr', () => ({
+  createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),
+}));
+
+vi.mock('@/lib/auth/mfa', () => ({
+  requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase,
 }));
 
 import { POST } from '../cancel/route';
 
 const APP_URL = 'http://localhost';
+
+process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com';
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 
 function mkReq(body: unknown) {
   return new Request('http://localhost/api/admin/channels/telegram/cancel', {
@@ -35,12 +58,21 @@ beforeEach(() => {
   delete process.env.TELEGRAM_BOT_TOKEN;
   delete process.env.TELEGRAM_WEBHOOK_SECRET;
   process.env.MOCK_EXTERNAL_APIS = 'true';
+  mockRequireRole.mockResolvedValue({ id: 'admin-1', role: 'admin' });
+  mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
 });
 
 describe('POST /api/admin/channels/telegram/cancel', () => {
   it('returns 404 when flag is off', async () => {
     const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
     expect(res.status).toBe(404);
+  });
+
+  it('returns 403 when MFA step-up is not satisfied (AAL2)', async () => {
+    process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+    mockRequireCurrentAal2FromSupabase.mockResolvedValueOnce({ ok: false, reason: 'aal2_required' });
+    const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
+    expect(res.status).toBe(403);
   });
 
   it('clears verification hash + expiry on pending row and returns 200', async () => {
