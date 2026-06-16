@@ -347,4 +347,31 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     // we short-circuit before the dispatch).
     expect(mockSql).not.toHaveBeenCalled();
   });
+
+  it('rejects an event whose created is older than the stale threshold', async () => {
+    const eightDaysAgo = Math.floor(Date.now() / 1000) - 8 * 24 * 60 * 60;
+    mockConstructEvent.mockReturnValue({ id: 'evt_stale', type: 'invoice.paid', created: eightDaysAgo, data: { object: {} } });
+    const { reply, status, send } = mkReply();
+    await handleStripeWebhook(mkRequest('invoice.paid'), reply);
+    expect(status).toHaveBeenCalledWith(200);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ stale: true }));
+    expect(mockClaimInboundEvent).not.toHaveBeenCalled();
+  });
+
+  it('processes a recent event (created = now)', async () => {
+    mockConstructEvent.mockReturnValue({ id: 'evt_fresh', type: 'charge.updated', created: Math.floor(Date.now() / 1000), data: { object: {} } });
+    mockClaimInboundEvent.mockResolvedValue('claimed');
+    const { reply, status } = mkReply();
+    await handleStripeWebhook(mkRequest('charge.updated'), reply);
+    expect(mockClaimInboundEvent).toHaveBeenCalledTimes(1);
+    expect(status).toHaveBeenCalledWith(200);
+  });
+
+  it('processes a legitimately-retried event within the retry window (~2 days old)', async () => {
+    mockConstructEvent.mockReturnValue({ id: 'evt_retry', type: 'charge.updated', created: Math.floor(Date.now() / 1000) - 2 * 24 * 60 * 60, data: { object: {} } });
+    mockClaimInboundEvent.mockResolvedValue('claimed');
+    const { reply } = mkReply();
+    await handleStripeWebhook(mkRequest('charge.updated'), reply);
+    expect(mockClaimInboundEvent).toHaveBeenCalledTimes(1);
+  });
 });

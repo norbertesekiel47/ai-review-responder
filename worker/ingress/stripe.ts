@@ -9,6 +9,13 @@ import { processInvoicePaid } from './stripe/invoice-paid';
 import { processSubscriptionDeleted } from './stripe/subscription-deleted';
 import { processSubscriptionUpdated } from './stripe/subscription-updated';
 
+// Stripe retries a failed webhook for up to ~3 days (fresh signature each time,
+// but the original event.created). Reject only events far beyond that window —
+// a generous anomaly guard that never drops a legitimate retry. Replay within
+// the window is already blocked by constructEvent's 5-min signature tolerance +
+// idempotency (claimInboundEvent).
+const STALE_EVENT_THRESHOLD_SECONDS = 7 * 24 * 60 * 60; // 7 days
+
 export async function handleStripeWebhook(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const rawBody = (request as unknown as { rawBody?: string }).rawBody ?? '';
   const sig = request.headers['stripe-signature'] as string | undefined;
@@ -32,6 +39,15 @@ export async function handleStripeWebhook(request: FastifyRequest, reply: Fastif
   } catch (err) {
     console.warn(`${LOG_PREFIX} Signature verification failed: ${err instanceof Error ? err.message : err}`);
     reply.status(401).send({ error: 'invalid_signature' });
+    return;
+  }
+
+  const eventAgeSeconds = Math.floor(Date.now() / 1000) - event.created;
+  if (eventAgeSeconds > STALE_EVENT_THRESHOLD_SECONDS) {
+    console.warn(
+      `${LOG_PREFIX} Rejecting stale event ${event.id} (${event.type}) — age ${eventAgeSeconds}s exceeds ${STALE_EVENT_THRESHOLD_SECONDS}s`,
+    );
+    reply.status(200).send({ received: true, stale: true });
     return;
   }
 
