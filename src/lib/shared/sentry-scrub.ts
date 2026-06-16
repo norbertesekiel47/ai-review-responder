@@ -13,8 +13,13 @@ interface ScrubSentryEventOptions {
   scrubRequestData?: boolean;
 }
 
+// Object-key scrubber: matches the NAME of a property in extra/headers/data.
 const SENSITIVE_KEY_RE = /key|secret|token|password|authorization/i;
 
+// Query-param-name scrubber: a deliberate SUPERSET of SENSITIVE_KEY_RE — URLs
+// also carry OAuth/OTP secrets as query values (?code=, ?otp=, ?signature=,
+// ?access_token=). Keep it broader than the object-key set; edit both if the
+// shared terms (token/secret/key/password/authorization) ever change.
 const SENSITIVE_QUERY_KEY_RE =
   /token|secret|key|password|authorization|code|otp|signature|access_token/i;
 

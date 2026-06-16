@@ -153,4 +153,10 @@ describe('redactSensitivePathsAndQueries', () => {
     expect(redactSensitivePathsAndQueries('')).toBe('');
     expect(redactSensitivePathsAndQueries(undefined as unknown as string)).toBe(undefined);
   });
+
+  it('is idempotent — re-redacting an already-masked URL is a no-op', () => {
+    const once = redactSensitivePathsAndQueries('/approve/tok?code=secret');
+    expect(once).toBe('/approve/[REDACTED]?code=[REDACTED]');
+    expect(redactSensitivePathsAndQueries(once)).toBe(once);
+  });
 });
