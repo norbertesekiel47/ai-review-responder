@@ -1,6 +1,9 @@
 type ScrubbableSentryEvent = {
   extra?: unknown;
+  transaction?: unknown;
+  breadcrumbs?: unknown;
   request?: {
+    url?: unknown;
     headers?: unknown;
     data?: unknown;
   };
@@ -80,6 +83,26 @@ function scrubObject(obj: Record<string, unknown>): void {
   }
 }
 
+// Navigation breadcrumbs carry URLs in data.from / data.to; fetch/xhr in data.url.
+const BREADCRUMB_URL_FIELDS = ['url', 'from', 'to'] as const;
+
+function scrubBreadcrumb(breadcrumb: Record<string, unknown>): void {
+  const data = breadcrumb.data;
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const dataObj = data as Record<string, unknown>;
+    scrubObject(dataObj); // key-based redaction (e.g. an `authorization` field)
+    for (const field of BREADCRUMB_URL_FIELDS) {
+      const value = dataObj[field];
+      if (typeof value === 'string') {
+        dataObj[field] = redactSensitivePathsAndQueries(value);
+      }
+    }
+  }
+  if (typeof breadcrumb.message === 'string') {
+    breadcrumb.message = redactSensitivePathsAndQueries(breadcrumb.message);
+  }
+}
+
 export function scrubSentryEvent<T extends ScrubbableSentryEvent>(
   event: T,
   options: ScrubSentryEventOptions = {},
@@ -97,5 +120,22 @@ export function scrubSentryEvent<T extends ScrubbableSentryEvent>(
   ) {
     scrubObject(event.request.data as Record<string, unknown>);
   }
+
+  // F-7: redact sensitive VALUES the key-scrub can't reach. Sentry omits these
+  // on many events, so every read is defensive.
+  if (event.request && typeof event.request.url === 'string') {
+    event.request.url = redactSensitivePathsAndQueries(event.request.url);
+  }
+  if (typeof event.transaction === 'string') {
+    event.transaction = redactSensitivePathsAndQueries(event.transaction);
+  }
+  if (Array.isArray(event.breadcrumbs)) {
+    for (const crumb of event.breadcrumbs) {
+      if (crumb && typeof crumb === 'object') {
+        scrubBreadcrumb(crumb as Record<string, unknown>);
+      }
+    }
+  }
+
   return event;
 }

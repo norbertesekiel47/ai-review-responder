@@ -63,6 +63,55 @@ describe('scrubSentryEvent', () => {
     expect(() => scrubSentryEvent(event)).not.toThrow();
     expect((event.extra.items[1] as Record<string, unknown>).secret).toBe('[REDACTED]');
   });
+
+  it('masks an approval token in event.request.url', () => {
+    const event = { request: { url: 'https://app.example.com/approve/SECRETTOKEN?foo=bar' } };
+    scrubSentryEvent(event, { scrubRequestData: true });
+    expect(event.request.url).toBe('https://app.example.com/approve/[REDACTED]?foo=bar');
+  });
+
+  it('masks an approval token in event.transaction', () => {
+    const event = { transaction: 'GET /approve/SECRETTOKEN' };
+    scrubSentryEvent(event);
+    expect(event.transaction).toBe('GET /approve/[REDACTED]');
+  });
+
+  it('masks a navigation breadcrumb (data.from / data.to)', () => {
+    const event = {
+      breadcrumbs: [
+        { category: 'navigation', data: { from: '/approve/TOKENA', to: '/dashboard' } },
+      ],
+    };
+    scrubSentryEvent(event);
+    expect(event.breadcrumbs[0]!.data.from).toBe('/approve/[REDACTED]');
+    expect(event.breadcrumbs[0]!.data.to).toBe('/dashboard');
+  });
+
+  it('masks an approval token in a fetch breadcrumb (data.url)', () => {
+    const event = {
+      breadcrumbs: [{ category: 'fetch', data: { url: '/api/approve/TOKENB/edit', method: 'POST' } }],
+    };
+    scrubSentryEvent(event);
+    expect(event.breadcrumbs[0]!.data.url).toBe('/api/approve/[REDACTED]/edit');
+    expect(event.breadcrumbs[0]!.data.method).toBe('POST');
+  });
+
+  it('masks an approval token in a console breadcrumb message', () => {
+    const event = { breadcrumbs: [{ category: 'console', message: 'GET /approve/TOKENC 200' }] };
+    scrubSentryEvent(event);
+    expect(event.breadcrumbs[0]!.message).toBe('GET /approve/[REDACTED] 200');
+  });
+
+  it('redacts a sensitive KEY inside breadcrumb data (not just URLs)', () => {
+    const event = { breadcrumbs: [{ category: 'fetch', data: { authorization: 'Bearer x' } }] };
+    scrubSentryEvent(event);
+    expect(event.breadcrumbs[0]!.data.authorization).toBe('[REDACTED]');
+  });
+
+  it('does not crash on null / non-object breadcrumbs', () => {
+    const event = { breadcrumbs: [null, { category: 'navigation' }] };
+    expect(() => scrubSentryEvent(event)).not.toThrow();
+  });
 });
 
 describe('redactSensitivePathsAndQueries', () => {
