@@ -317,3 +317,28 @@ export async function checkRegenBudget(reviewId: string): Promise<void> {
     throw new RegenBudgetExceededError(reviewId);
   }
 }
+
+export interface RegenBudgetStatus {
+  /** Regenerations already consumed for this review today (UTC). */
+  used: number;
+  /** Per-review daily cap (MAX_REGEN_PER_REVIEW_PER_DAY). */
+  limit: number;
+  /** Regenerations still available today; 0 once the cap is reached. */
+  remaining: number;
+}
+
+/**
+ * Read-only snapshot of the per-review regeneration budget. Unlike
+ * checkRegenBudget it does NOT increment the counter — it is a pure `GET`, so
+ * surfacing "limit reached" to the owner consumes no budget and triggers no LLM
+ * spend (issue #335). The authoritative gate stays worker-side in
+ * checkRegenBudget; this is only for synchronous UX feedback before enqueueing.
+ */
+export async function peekRegenBudget(reviewId: string): Promise<RegenBudgetStatus> {
+  const redis = getCacheRedis();
+  const raw = await redis.get(regenBudgetKey(reviewId));
+  const parsed = raw === null ? 0 : Number.parseInt(raw, 10);
+  const used = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  const limit = MAX_REGEN_PER_REVIEW_PER_DAY;
+  return { used, limit, remaining: Math.max(0, limit - used) };
+}

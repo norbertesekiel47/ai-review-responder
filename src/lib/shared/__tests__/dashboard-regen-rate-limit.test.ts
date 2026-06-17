@@ -15,7 +15,18 @@ vi.mock('@/lib/shared/logger', () => ({
   createWorkerLogger: () => ({ log: vi.fn(), warn: mockWarn, error: vi.fn() }),
 }));
 
-import { enforceDashboardRegenRateLimit } from '../dashboard-regen-rate-limit';
+// The per-review budget peek is exercised in isolation here — its Redis math is
+// covered by tracker.test.ts. We drive the enforcer's threshold + fail-open
+// behavior directly.
+const mockPeekRegenBudget = vi.fn();
+vi.mock('@/lib/costs/tracker', () => ({
+  peekRegenBudget: (...args: unknown[]) => mockPeekRegenBudget(...args),
+}));
+
+import {
+  enforceDashboardRegenRateLimit,
+  enforceRegenBudgetForReview,
+} from '../dashboard-regen-rate-limit';
 
 const ACCOUNT_ID = 'a0000000-0000-7000-8000-000000000001';
 
@@ -120,5 +131,48 @@ describe('enforceDashboardRegenRateLimit', () => {
     await enforceDashboardRegenRateLimit(ACCOUNT_ID);
 
     expect(mockWarn).not.toHaveBeenCalled();
+  });
+});
+
+describe('enforceRegenBudgetForReview', () => {
+  const REVIEW_ID = 'rev-001';
+
+  it('returns null (allows) when regenerations remain', async () => {
+    mockPeekRegenBudget.mockResolvedValue({ used: 1, limit: 3, remaining: 2 });
+
+    expect(await enforceRegenBudgetForReview(REVIEW_ID)).toBeNull();
+  });
+
+  it('returns a 429 regen_limit_reached no-store response when the daily cap is reached', async () => {
+    mockPeekRegenBudget.mockResolvedValue({ used: 3, limit: 3, remaining: 0 });
+
+    const result = await enforceRegenBudgetForReview(REVIEW_ID);
+
+    expect(result).toBeInstanceOf(NextResponse);
+    expect(result?.status).toBe(429);
+    expect(result?.headers.get('Cache-Control')).toBe('no-store, private');
+    const body = await result?.json();
+    expect(body.error).toBe('regen_limit_reached');
+    expect(typeof body.message).toBe('string');
+    expect(body.message.length).toBeGreaterThan(0);
+    expect(body.remaining).toBe(0);
+    expect(body.limit).toBe(3);
+  });
+
+  it('FAILS OPEN: returns null when the budget peek throws (worker stays the gate)', async () => {
+    mockPeekRegenBudget.mockRejectedValue(new Error('ECONNREFUSED'));
+
+    expect(await enforceRegenBudgetForReview(REVIEW_ID)).toBeNull();
+  });
+
+  it('never leaks the raw review id into the fail-open log', async () => {
+    mockPeekRegenBudget.mockRejectedValue(new Error('ECONNREFUSED'));
+
+    await enforceRegenBudgetForReview(REVIEW_ID);
+
+    if (mockWarn.mock.calls.length > 0) {
+      const logged = mockWarn.mock.calls[0]?.[0];
+      expect(JSON.stringify(logged)).not.toContain(REVIEW_ID);
+    }
   });
 });
