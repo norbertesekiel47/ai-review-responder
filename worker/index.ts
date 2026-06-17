@@ -4,6 +4,7 @@ import { Sentry } from './sentry';
 
 import Fastify from 'fastify';
 import rawBody from 'fastify-raw-body';
+import { registerIngressContentTypeParsers } from './config/content-type-parsers';
 import { Worker } from 'bullmq';
 import Redis from 'ioredis';
 import { getRedisOptions, QUEUE_NAMES, queues } from './queues';
@@ -279,6 +280,11 @@ async function main(): Promise<void> {
     encoding: 'utf8',
     runFirst: true,
   });
+
+  // Accept Twilio's application/x-www-form-urlencoded webhooks. Without a parser
+  // for this content type Fastify 415s the Twilio ingress routes at the
+  // content-type gate, before the handler (and its rawBody) ever run.
+  registerIngressContentTypeParsers(app);
 
   // Per-IP DoS/abuse backstop on every /ingress/* route (F-21). onRequest runs
   // before body parsing + signature verification; a 429 short-circuits the
