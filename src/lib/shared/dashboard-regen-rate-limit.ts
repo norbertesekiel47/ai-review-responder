@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { peekRegenBudget } from '@/lib/costs/tracker';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { createWorkerLogger } from '@/lib/shared/logger';
 
@@ -59,6 +60,53 @@ export async function enforceDashboardRegenRateLimit(
 
   return NextResponse.json(
     { error: 'rate_limited' },
+    { status: 429, headers: NO_STORE_HEADERS },
+  );
+}
+
+// User-facing copy for the per-review daily regenerate cap. Kept here next to the
+// enforcer so the message is owned in one place; the client renders it verbatim.
+const REGEN_LIMIT_MESSAGE =
+  'Daily regenerate limit reached for this review — you can try again tomorrow.';
+
+/**
+ * Returns a 429 `regen_limit_reached` NextResponse when this review has used its
+ * per-day regeneration cap, or null when a regenerate may proceed. Call BEFORE
+ * enqueueing the regenerate so the owner gets synchronous feedback instead of a
+ * silent worker-side failure (issue #335).
+ *
+ * The peek is a read-only counter GET — it does NOT consume budget or trigger
+ * LLM spend. FAILS OPEN by design: a Redis outage returns null so a legitimate
+ * regenerate is never blocked here. The authoritative gate is the worker's
+ * checkRegenBudget (itself retryable on Redis transport failure), so over-budget
+ * work is still rejected before any spend even when this peek is bypassed.
+ */
+export async function enforceRegenBudgetForReview(
+  reviewId: string,
+): Promise<NextResponse | null> {
+  let status;
+  try {
+    status = await peekRegenBudget(reviewId);
+  } catch (err) {
+    createWorkerLogger('[DashboardRegenBudget]').warn({
+      event: 'regen_budget_peek_failed',
+      route: 'dashboard_regenerate',
+      reason: err instanceof Error ? err.message : 'unknown',
+    });
+    return null;
+  }
+
+  if (status.remaining > 0) {
+    return null;
+  }
+
+  return NextResponse.json(
+    {
+      error: 'regen_limit_reached',
+      message: REGEN_LIMIT_MESSAGE,
+      remaining: 0,
+      limit: status.limit,
+    },
     { status: 429, headers: NO_STORE_HEADERS },
   );
 }

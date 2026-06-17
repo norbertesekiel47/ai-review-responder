@@ -7,6 +7,7 @@ type ActionState =
   | { kind: 'loading'; action: 'approve' | 'edit' | 'regenerate' }
   | { kind: 'editing' }
   | { kind: 'success'; message: string }
+  | { kind: 'limit'; message: string }
   | { kind: 'error'; message: string };
 
 export function ReviewActions({
@@ -65,6 +66,15 @@ export function ReviewActions({
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
+        // The per-review daily cap is an expected outcome, not an error — show
+        // the server's friendly message instead of a red failure (issue #335).
+        if (res.status === 429 && body.error === 'regen_limit_reached') {
+          setState({
+            kind: 'limit',
+            message: body.message ?? 'Daily regenerate limit reached — you can try again tomorrow.',
+          });
+          return;
+        }
         throw new Error(body.error ?? `Failed (${res.status})`);
       }
       setState({ kind: 'success', message: 'New draft requested — check your email' });
@@ -76,6 +86,21 @@ export function ReviewActions({
 
   if (state.kind === 'success') {
     return <p className="text-green-600 text-xs mt-1">{state.message}</p>;
+  }
+
+  if (state.kind === 'limit') {
+    return (
+      <div className="mt-1">
+        <p className="text-amber-600 text-xs" role="status">{state.message}</p>
+        <button
+          type="button"
+          onClick={() => setState({ kind: 'idle' })}
+          className="text-xs text-blue-600 hover:text-blue-800 mt-0.5"
+        >
+          Back
+        </button>
+      </div>
+    );
   }
 
   if (state.kind === 'error') {

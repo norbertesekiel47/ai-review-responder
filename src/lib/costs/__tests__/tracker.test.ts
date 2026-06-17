@@ -218,6 +218,40 @@ describe('checkRegenBudget', () => {
   });
 });
 
+describe('peekRegenBudget', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('reports remaining budget from the read-only counter without spending', async () => {
+    mockRedis.get.mockResolvedValueOnce('2');
+
+    const { peekRegenBudget } = await import('../tracker');
+    const status = await peekRegenBudget('rev-001');
+
+    expect(status).toEqual({ used: 2, limit: 3, remaining: 1 });
+    expect(mockRedis.get).toHaveBeenCalledTimes(1);
+    // Read-only: must NOT increment the counter or run the budget Lua — surfacing
+    // the message can't consume budget or trigger LLM spend (issue #335 AC).
+    expect(mockRedis.incr).not.toHaveBeenCalled();
+    expect(mockRedis.eval).not.toHaveBeenCalled();
+  });
+
+  it('treats a missing counter as zero used (full budget remaining)', async () => {
+    mockRedis.get.mockResolvedValueOnce(null);
+
+    const { peekRegenBudget } = await import('../tracker');
+    expect(await peekRegenBudget('rev-001')).toEqual({ used: 0, limit: 3, remaining: 3 });
+  });
+
+  it('reports zero remaining once the daily cap is reached', async () => {
+    mockRedis.get.mockResolvedValueOnce('3');
+
+    const { peekRegenBudget } = await import('../tracker');
+    expect(await peekRegenBudget('rev-001')).toEqual({ used: 3, limit: 3, remaining: 0 });
+  });
+});
+
 describe('recordApiCost', () => {
   beforeEach(() => {
     vi.clearAllMocks();

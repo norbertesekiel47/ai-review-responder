@@ -13,6 +13,7 @@ const {
   mockRegenerateBySession,
   mockBeginCallback,
   mockEnforceRegenLimit,
+  mockEnforceRegenBudget,
 } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockSqlResults: [] as unknown[][],
@@ -23,12 +24,15 @@ const {
   mockRegenerateBySession: vi.fn(),
   mockBeginCallback: { fn: null as ((tx: unknown) => Promise<void>) | null },
   mockEnforceRegenLimit: vi.fn(),
+  mockEnforceRegenBudget: vi.fn(),
 }));
 
-// The shared per-owner regenerate limiter. Default: allow (null). Individual
-// tests override with a 429 NextResponse to exercise the blocked path.
+// The shared regenerate gates. Defaults: allow (null). Individual tests override
+// with a 429 NextResponse to exercise the blocked paths — the per-owner rate
+// limiter and the per-review daily budget cap.
 vi.mock('@/lib/shared/dashboard-regen-rate-limit', () => ({
   enforceDashboardRegenRateLimit: (...args: unknown[]) => mockEnforceRegenLimit(...args),
+  enforceRegenBudgetForReview: (...args: unknown[]) => mockEnforceRegenBudget(...args),
 }));
 
 // ── Mock Auth ───────────────────────────────────────────────────────
@@ -596,7 +600,30 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
     sqlQueryTexts.length = 0;
     mockBeginCallback.fn = null;
     mockEnforceRegenLimit.mockResolvedValue(null); // default: allow
+    mockEnforceRegenBudget.mockResolvedValue(null); // default: budget remaining
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+  });
+
+  it('returns 429 regen_limit_reached and skips the action when the per-review daily cap is reached', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockEnforceRegenBudget.mockResolvedValueOnce(
+      NextResponse.json(
+        { error: 'regen_limit_reached', message: 'Daily regenerate limit reached for this review — you can try again tomorrow.', remaining: 0, limit: 3 },
+        { status: 429, headers: { 'Cache-Control': 'no-store, private' } },
+      ),
+    );
+
+    const { POST } = await import('../[reviewId]/regenerate/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/regenerate`),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(429);
+    expect((await res.json()).error).toBe('regen_limit_reached');
+    expect(mockEnforceRegenBudget).toHaveBeenCalledWith(REVIEW_ID);
+    // Capped before any enqueue — no regenerate work, no LLM spend.
+    expect(mockRegenerateBySession).not.toHaveBeenCalled();
   });
 
   it('returns 429 and skips the action when the per-owner regenerate limit is exceeded', async () => {

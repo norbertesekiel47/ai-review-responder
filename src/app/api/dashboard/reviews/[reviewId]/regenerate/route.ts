@@ -5,7 +5,10 @@ import {
 } from '@/lib/approval/http-routes';
 import { regenerateBySession } from '@/lib/approval/service';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
-import { enforceDashboardRegenRateLimit } from '@/lib/shared/dashboard-regen-rate-limit';
+import {
+  enforceDashboardRegenRateLimit,
+  enforceRegenBudgetForReview,
+} from '@/lib/shared/dashboard-regen-rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +23,13 @@ async function regenerateReview(
   if (limited) return limited;
 
   const { reviewId } = await params;
+
+  // Per-review daily cap: surface "limit reached" synchronously instead of
+  // enqueueing work the worker would silently reject (issue #335). Read-only
+  // peek — no budget consumed, fails open.
+  const capped = await enforceRegenBudgetForReview(reviewId);
+  if (capped) return capped;
+
   return runDashboardReviewAction(
     request,
     reviewId,
