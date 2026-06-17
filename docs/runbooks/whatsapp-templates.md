@@ -259,3 +259,24 @@ against `formatAutoPostNoticeWhatsApp` — `"1"`=businessName, `"2"`=reviewerNam
 
 **What triggers a resubmission:** body wording, the button label/URL base, the
 category, or the variable count/order — same rules as the approval template.
+
+### Environment SIDs
+
+The formatter (`formatAutoPostNoticeWhatsApp`) is URL-agnostic — it only passes
+the responseId as `{{4}}`; the URL base lives in the Meta-approved template. So
+each environment needs its **own** approved template whose button base matches
+that env's `NEXT_PUBLIC_APP_URL`, selected via `WHATSAPP_AUTOPOST_TEMPLATE_SID`.
+
+| Env | Template name | URL button base | SID | Meta status |
+|-----|---------------|-----------------|-----|-------------|
+| Prod | `repworth_template_auto_notification_v1` | `https://app.repworth.com/r/google/{{4}}` | `HX2b3687d27c34e5d7cfca5c015c0f8069` | approved |
+| Staging | `repworth_autopost_notice_staging_v1` | `https://staging.repworth.net/r/google/{{4}}` | `HXef1d6b4db0697ef817eba0deac1c45df` | submitted 2026-06-17 (awaiting Meta) |
+
+> **Staging repoint — do AFTER Meta approves the staging SID.** Poll
+> `GET https://content.twilio.com/v1/Content/HXef1d6b4db0697ef817eba0deac1c45df/ApprovalRequests`
+> until `status: approved`, then set `WHATSAPP_AUTOPOST_TEMPLATE_SID=HXef1d6b4db0697ef817eba0deac1c45df`
+> on **staging** (Railway worker + Vercel), and **git push to `staging`** to
+> restart the worker so it picks up the new var (`railway variables --set` does
+> NOT restart; `railway redeploy` reuses the stale env snapshot). Staging-only —
+> prod keeps its own SID. Only matters when testing the auto-approval lane
+> (`AUTO_APPROVAL_ENABLED=true`); the owner-approval card is unaffected.
