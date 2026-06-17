@@ -650,9 +650,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/jobs/notification/dispatch.ts",
     table: "notification_deliveries",
-    sqlSnippet: "SELECT id FROM notification_deliveries WHERE response_id = ${ctx.responseId} AND channel = ${channelId} AND template = 'approval_request' AND sent_at IS NOT NULL AND failed_at IS NULL LIMIT 1",
+    sqlSnippet: "SELECT id FROM notification_deliveries WHERE response_id = ${ctx.responseId} AND channel = ${channelId} AND template = 'approval_request' AND failed_at IS NULL LIMIT 1",
     category: 'background-global-scan',
-    reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
+    reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement. Claim-before-send dedup: 'failed_at IS NULL' catches both sent rows and in-flight pending claims (closes the crash-after-send double-send window).",
   },
   {
     file: "worker/jobs/publisher/load-context.ts",

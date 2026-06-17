@@ -23,8 +23,9 @@ const {
   mockEmailSend,
   mockTelegramSend,
   mockCreateApprovalLink,
-  mockRecordDelivery,
-  mockInsertFailedDelivery,
+  mockInsertPendingApprovalDelivery,
+  mockFinalizeDeliverySent,
+  mockFailDelivery,
   TelegramRecipientBlockedError,
   TelegramChatNotFoundError,
 } = vi.hoisted(() => {
@@ -60,8 +61,9 @@ const {
     mockEmailSend: vi.fn(),
     mockTelegramSend: vi.fn(),
     mockCreateApprovalLink: vi.fn(),
-    mockRecordDelivery: vi.fn(),
-    mockInsertFailedDelivery: vi.fn(),
+    mockInsertPendingApprovalDelivery: vi.fn(),
+    mockFinalizeDeliverySent: vi.fn(),
+    mockFailDelivery: vi.fn(),
     TelegramRecipientBlockedError,
     TelegramChatNotFoundError,
   };
@@ -100,8 +102,9 @@ vi.mock('../../../../src/lib/notifications/channels', () => ({
 }));
 
 vi.mock('../../../../src/lib/notifications/delivery', () => ({
-  recordNotificationDelivery: mockRecordDelivery,
-  insertFailedDelivery: mockInsertFailedDelivery,
+  insertPendingApprovalDelivery: mockInsertPendingApprovalDelivery,
+  finalizeDeliverySent: mockFinalizeDeliverySent,
+  failDelivery: mockFailDelivery,
 }));
 
 vi.mock('../../../../src/lib/approval/create-link', () => ({
@@ -182,8 +185,9 @@ function resetAll() {
     tokenHash: 'hash-fixture',
     approvalLinkId: 'link-id-fixture',
   });
-  mockRecordDelivery.mockReset().mockResolvedValue(undefined);
-  mockInsertFailedDelivery.mockReset().mockResolvedValue(undefined);
+  mockInsertPendingApprovalDelivery.mockReset().mockResolvedValue('pending-delivery-1');
+  mockFinalizeDeliverySent.mockReset().mockResolvedValue(undefined);
+  mockFailDelivery.mockReset().mockResolvedValue(undefined);
   process.env.NEXT_PUBLIC_APP_URL = 'https://repworth.example.com';
   delete process.env.CHANNELS_TELEGRAM_ENABLED;
 }
@@ -263,19 +267,12 @@ describe('NotificationWorker — Telegram blocked recipient', () => {
     expect(updateValues).toContain('acct-1');
     expect(updateValues).not.toContain('biz-1');
 
-    // Failed delivery recorded for telegram
-    expect(mockInsertFailedDelivery).toHaveBeenCalledWith(
-      'acct-1',
-      'biz-1',
-      'resp-1',
-      'telegram',
-      '123456789',
-      'telegram_blocked',
-    );
+    // Claimed delivery flipped to failed for telegram
+    expect(mockFailDelivery).toHaveBeenCalledWith('pending-delivery-1', 'telegram_blocked');
 
     // Email must still succeed after telegram failure
     expect(mockEmailSend).toHaveBeenCalledTimes(1);
-    expect(mockRecordDelivery).toHaveBeenCalledTimes(1);
+    expect(mockFinalizeDeliverySent).toHaveBeenCalledTimes(1);
 
     // Dispatcher must NOT throw — outbox completed
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
@@ -328,19 +325,12 @@ describe('NotificationWorker — Telegram chat not found', () => {
     expect(updateValues).toContain('acct-1');
     expect(updateValues).not.toContain('biz-1');
 
-    // Failed delivery recorded for telegram
-    expect(mockInsertFailedDelivery).toHaveBeenCalledWith(
-      'acct-1',
-      'biz-1',
-      'resp-1',
-      'telegram',
-      '123456789',
-      'telegram_chat_not_found',
-    );
+    // Claimed delivery flipped to failed for telegram
+    expect(mockFailDelivery).toHaveBeenCalledWith('pending-delivery-1', 'telegram_chat_not_found');
 
     // Email must still succeed after telegram failure
     expect(mockEmailSend).toHaveBeenCalledTimes(1);
-    expect(mockRecordDelivery).toHaveBeenCalledTimes(1);
+    expect(mockFinalizeDeliverySent).toHaveBeenCalledTimes(1);
 
     // Dispatcher must NOT throw — outbox completed
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);

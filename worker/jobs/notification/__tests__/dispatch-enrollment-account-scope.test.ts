@@ -67,6 +67,9 @@ vi.mock('@/lib/db/server', () => ({
 vi.mock('@/lib/notifications/delivery', () => ({
   insertFailedDelivery: mockInsertFailedDelivery,
   recordNotificationDelivery: mockRecordNotificationDelivery,
+  insertPendingApprovalDelivery: vi.fn(() => Promise.resolve('pending-delivery-1')),
+  finalizeDeliverySent: vi.fn(() => Promise.resolve()),
+  failDelivery: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('@/lib/shared/outbox', () => ({

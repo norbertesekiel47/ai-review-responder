@@ -7,6 +7,11 @@ const MATCH_RADIUS_M = 200;
 const DAILY_LIMIT = 75;
 const DAILY_WINDOW_S = 86400;
 
+// Bounded outbound timeout for SerpAPI (the client defaults to 60s). Kept under
+// the 25s worker shutdown grace window so a stuck request fails fast inside the
+// concurrency-1 queue slot instead of stalling the queue and blocking drain.
+const SERPAPI_TIMEOUT_MS = 12_000;
+
 interface SerpApiLocalResult {
   place_id?: string;
   title?: string;
@@ -54,6 +59,10 @@ export async function resolvePlaceId(data: GoogleMapsUrlData): Promise<string> {
     ll: `@${data.coordinates.lat},${data.coordinates.lng},15z`,
     type: 'search',
     api_key: process.env.SERPAPI_API_KEY,
+    // Explicit bounded timeout — the serpapi client defaults to 60s, which
+    // exceeds the 25s shutdown grace window and stalls the only slot on a
+    // concurrency-1 worker. Fail fast so BullMQ retry/backoff handles it.
+    timeout: SERPAPI_TIMEOUT_MS,
   };
 
   const response = await getJson(params);

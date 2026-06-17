@@ -180,8 +180,12 @@ export function formatAutoPostNoticeWhatsApp(
   return {
     contentSid,
     contentVariables: {
-      '1': oneLine(params.businessName),
-      '2': oneLine(params.reviewerName || 'Reviewer'),
+      // Same clamp as formatApprovalWhatsApp ({{1}}/{{2}}): oneLine() alone
+      // strips newlines but leaves length unbounded — a pathological business
+      // or reviewer name can still overflow the card body and trip Twilio
+      // 21656, silently dropping the FYI. Cap both at the documented max.
+      '1': truncate(oneLine(params.businessName), BUSINESS_NAME_MAX),
+      '2': truncate(oneLine(params.reviewerName || 'Reviewer'), REVIEWER_NAME_MAX),
       '3': String(params.starRating),
       '4': params.responseId,
     },
