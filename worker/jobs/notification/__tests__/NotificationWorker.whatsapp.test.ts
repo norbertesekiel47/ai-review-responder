@@ -19,9 +19,10 @@ const {
   sqlQueue,
   consume,
   sqlCalls,
-  insertFailedDeliveryCalls,
-  mockInsertFailedDelivery,
-  mockRecordNotificationDelivery,
+  failDeliveryCalls,
+  mockInsertPendingApprovalDelivery,
+  mockFinalizeDeliverySent,
+  mockFailDelivery,
   mockMarkOutboxCompleted,
   mockMarkOutboxFailed,
   mockCheckSubscription,
@@ -39,13 +40,13 @@ const {
     return Promise.resolve(Array.isArray(next) ? next : []);
   });
 
-  const insertFailedDeliveryCalls: Array<Parameters<typeof mockInsertFailedDelivery>> = [];
-  const mockInsertFailedDelivery = vi.fn((...args: unknown[]) => {
-    insertFailedDeliveryCalls.push(args as any);
+  const failDeliveryCalls: Array<[string, string]> = [];
+  const mockInsertPendingApprovalDelivery = vi.fn(() => Promise.resolve('pending-delivery-1'));
+  const mockFinalizeDeliverySent = vi.fn(() => Promise.resolve());
+  const mockFailDelivery = vi.fn((deliveryId: string, reason: string) => {
+    failDeliveryCalls.push([deliveryId, reason]);
     return Promise.resolve();
   });
-
-  const mockRecordNotificationDelivery = vi.fn(() => Promise.resolve());
   const mockMarkOutboxCompleted = vi.fn(() => Promise.resolve());
   const mockMarkOutboxFailed = vi.fn(() => Promise.resolve());
   const mockCheckSubscription = vi.fn(() => ({ allowed: true, reason: '' }));
@@ -61,9 +62,10 @@ const {
     sqlQueue,
     consume,
     sqlCalls,
-    insertFailedDeliveryCalls,
-    mockInsertFailedDelivery,
-    mockRecordNotificationDelivery,
+    failDeliveryCalls,
+    mockInsertPendingApprovalDelivery,
+    mockFinalizeDeliverySent,
+    mockFailDelivery,
     mockMarkOutboxCompleted,
     mockMarkOutboxFailed,
     mockCheckSubscription,
@@ -87,8 +89,9 @@ vi.mock('@/lib/db/server', () => ({
 }));
 
 vi.mock('@/lib/notifications/delivery', () => ({
-  insertFailedDelivery: mockInsertFailedDelivery,
-  recordNotificationDelivery: mockRecordNotificationDelivery,
+  insertPendingApprovalDelivery: mockInsertPendingApprovalDelivery,
+  finalizeDeliverySent: mockFinalizeDeliverySent,
+  failDelivery: mockFailDelivery,
 }));
 
 vi.mock('@/lib/shared/outbox', () => ({
@@ -202,11 +205,12 @@ beforeEach(() => {
   // Reset all state between tests.
   sqlQueue.length = 0;
   sqlCalls.length = 0;
-  insertFailedDeliveryCalls.length = 0;
+  failDeliveryCalls.length = 0;
 
   consume.mockClear();
-  mockInsertFailedDelivery.mockClear();
-  mockRecordNotificationDelivery.mockClear();
+  mockInsertPendingApprovalDelivery.mockClear();
+  mockFinalizeDeliverySent.mockClear();
+  mockFailDelivery.mockClear();
   mockMarkOutboxCompleted.mockClear();
   mockMarkOutboxFailed.mockClear();
   mockGetVerifiedEnrollments.mockClear();
@@ -263,11 +267,10 @@ describe('NotificationWorker — WhatsApp error branches', () => {
     expect(enrollmentUpdate!.template).toMatch(/location_id IS NULL/);
     expect(enrollmentUpdate!.template).not.toMatch(/business_id/);
 
-    // Failed delivery must be recorded with reason 'whatsapp_blocked'
-    expect(mockInsertFailedDelivery).toHaveBeenCalledOnce();
-    const [_acct, _biz, _resp, channel, handle, reason] = mockInsertFailedDelivery.mock.calls[0]!;
-    expect(channel).toBe('whatsapp');
-    expect(handle).toBe('+15550000001');
+    // Failed delivery must be recorded (claim flipped to failed) with reason 'whatsapp_blocked'
+    expect(mockFailDelivery).toHaveBeenCalledOnce();
+    const [deliveryId, reason] = mockFailDelivery.mock.calls[0]!;
+    expect(deliveryId).toBe('pending-delivery-1');
     expect(reason).toBe('whatsapp_blocked');
   });
 
@@ -302,10 +305,9 @@ describe('NotificationWorker — WhatsApp error branches', () => {
     expect(enrollmentUpdate!.template).toMatch(/location_id IS NULL/);
     expect(enrollmentUpdate!.template).not.toMatch(/business_id/);
 
-    expect(mockInsertFailedDelivery).toHaveBeenCalledOnce();
-    const [, , , channel, handle, reason] = mockInsertFailedDelivery.mock.calls[0]!;
-    expect(channel).toBe('whatsapp');
-    expect(handle).toBe('+15550000001');
+    expect(mockFailDelivery).toHaveBeenCalledOnce();
+    const [deliveryId, reason] = mockFailDelivery.mock.calls[0]!;
+    expect(deliveryId).toBe('pending-delivery-1');
     expect(reason).toBe('whatsapp_invalid_recipient');
   });
 
@@ -344,10 +346,9 @@ describe('NotificationWorker — WhatsApp error branches', () => {
     ).toHaveLength(0);
 
     // Failed delivery MUST be recorded with a reason prefixed whatsapp_template_config:
-    expect(mockInsertFailedDelivery).toHaveBeenCalledOnce();
-    const [, , , channel, handle, reason] = mockInsertFailedDelivery.mock.calls[0]!;
-    expect(channel).toBe('whatsapp');
-    expect(handle).toBe('+15550000001');
+    expect(mockFailDelivery).toHaveBeenCalledOnce();
+    const [deliveryId, reason] = mockFailDelivery.mock.calls[0]!;
+    expect(deliveryId).toBe('pending-delivery-1');
     expect(reason).toMatch(/^whatsapp_template_config:/);
   });
 
@@ -376,10 +377,9 @@ describe('NotificationWorker — WhatsApp error branches', () => {
       'CONFIG-ERROR regression: channel_enrollments must NOT be updated for WhatsAppSessionWindowError',
     ).toHaveLength(0);
 
-    expect(mockInsertFailedDelivery).toHaveBeenCalledOnce();
-    const [, , , channel, handle, reason] = mockInsertFailedDelivery.mock.calls[0]!;
-    expect(channel).toBe('whatsapp');
-    expect(handle).toBe('+15550000001');
+    expect(mockFailDelivery).toHaveBeenCalledOnce();
+    const [deliveryId, reason] = mockFailDelivery.mock.calls[0]!;
+    expect(deliveryId).toBe('pending-delivery-1');
     expect(reason).toMatch(/^whatsapp_session_window:/);
   });
 
@@ -405,10 +405,9 @@ describe('NotificationWorker — WhatsApp error branches', () => {
     );
     expect(enrollmentUpdates, 'TRANSIENT: channel_enrollments must NOT be updated for rate limit').toHaveLength(0);
 
-    expect(mockInsertFailedDelivery).toHaveBeenCalledOnce();
-    const [, , , channel, handle, reason] = mockInsertFailedDelivery.mock.calls[0]!;
-    expect(channel).toBe('whatsapp');
-    expect(handle).toBe('+15550000001');
+    expect(mockFailDelivery).toHaveBeenCalledOnce();
+    const [deliveryId, reason] = mockFailDelivery.mock.calls[0]!;
+    expect(deliveryId).toBe('pending-delivery-1');
     expect(reason).toMatch(/^whatsapp_rate_limit:/);
   });
 
@@ -428,11 +427,12 @@ describe('NotificationWorker — WhatsApp error branches', () => {
     // getChannel / sendApprovalRequest must NEVER have been called.
     expect(mockGetChannel).not.toHaveBeenCalled();
 
-    // No failed delivery row.
-    expect(mockInsertFailedDelivery).not.toHaveBeenCalled();
+    // No claim and no failed delivery row.
+    expect(mockInsertPendingApprovalDelivery).not.toHaveBeenCalled();
+    expect(mockFailDelivery).not.toHaveBeenCalled();
 
     // No successful delivery row either.
-    expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
+    expect(mockFinalizeDeliverySent).not.toHaveBeenCalled();
 
     // Outbox must be completed (0 attempted → no throw path).
     expect(mockMarkOutboxCompleted).toHaveBeenCalled();

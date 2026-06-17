@@ -156,7 +156,7 @@ vi.mock('../../../../src/lib/approval/create-link', () => ({
 // Do NOT mock subscription-guard — use the real implementation
 
 // Import after mocks are wired
-import { handleSendNotification } from '../NotificationWorker';
+import { handleSendNotification, formatReviewDate } from '../NotificationWorker';
 import { dispatchAll } from '../dispatch';
 import type { DispatchContext } from '../dispatch';
 
@@ -342,6 +342,42 @@ describe('NotificationWorker – handleSendNotification', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
     expect(mockChannelSend).not.toHaveBeenCalled();
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
+  });
+
+  // 3b. Crash-after-send double-send guard (claim-before-send fix).
+  // A prior attempt that crashed after the provider accepted but before the
+  // delivery record committed leaves a PENDING claim (sent_at NULL, failed_at
+  // NULL). The retry's normal-mode dedup must catch it and SKIP — the predicate
+  // is `failed_at IS NULL` (was `sent_at IS NOT NULL AND failed_at IS NULL`,
+  // which missed the un-finalized claim and re-sent, double-notifying the owner).
+  it('skips re-send when a prior pending claim exists, and dedups on failed_at IS NULL', async () => {
+    stubEmailChannel();
+    mockGetVerifiedEnrollments.mockResolvedValue([
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
+    ]);
+
+    sqlReturnQueue.push(
+      [mockResponseRow()],
+      [mockBusinessRow()],
+      [{ id: 'pending-claim-1' }], // dedup SELECT → a prior (pending) delivery exists
+    );
+
+    await handleSendNotification(makeJob());
+
+    // No re-send, no second link, outbox completed.
+    expect(mockChannelSend).not.toHaveBeenCalled();
+    expect(mockCreateApprovalLink).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
+
+    // The approval_request dedup SELECT must catch pending claims.
+    const dedupSelect = mockSql.mock.calls.find((c: unknown[]) => {
+      const tpl = Array.isArray(c[0]) ? (c[0] as string[]).join('?') : '';
+      return tpl.includes('FROM notification_deliveries') && tpl.includes("template = 'approval_request'");
+    });
+    expect(dedupSelect, 'expected an approval_request dedup SELECT').toBeDefined();
+    const tpl = (dedupSelect![0] as string[]).join('?');
+    expect(tpl).toMatch(/failed_at IS NULL/);
+    expect(tpl).not.toMatch(/sent_at IS NOT NULL/);
   });
 
   // 4. Email send failure — throws for BullMQ retry (all channels fail)
@@ -671,5 +707,26 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
     expect(mockChannelSend).not.toHaveBeenCalled();
     expect(telegramSend).toHaveBeenCalledTimes(1);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('formatReviewDate', () => {
+  it('formats a Date (Postgres.js timestamptz) as a UTC en-US string', () => {
+    expect(formatReviewDate(new Date('2026-04-20T12:00:00Z'))).toBe('Apr 20, 2026');
+  });
+
+  it('formats an ISO string identically', () => {
+    expect(formatReviewDate('2026-04-20')).toBe('Apr 20, 2026');
+  });
+
+  it('degrades a malformed date to empty string, never the literal "Invalid Date"', () => {
+    expect(formatReviewDate('not-a-date')).toBe('');
+    expect(formatReviewDate(new Date('nope'))).toBe('');
+  });
+
+  it('degrades null/undefined/empty to empty string', () => {
+    expect(formatReviewDate(null)).toBe('');
+    expect(formatReviewDate(undefined)).toBe('');
+    expect(formatReviewDate('')).toBe('');
   });
 });

@@ -102,6 +102,41 @@ export async function claimAutoPostNoticeDelivery(params: {
   return claimed.length === 1 ? id : null;
 }
 
+/**
+ * Insert a PENDING approval-request delivery claim (sent_at NULL, failed_at
+ * NULL) and return its id. The approval dispatcher claims this row BEFORE the
+ * provider send so a crash between provider-accept and the delivery record
+ * can't double-send on the BullMQ retry — the retry's dedup SELECT sees the
+ * pending row and skips, and an orphaned claim that was never delivered is
+ * re-sent by the failover poller's stale branch.
+ *
+ * Unlike claimAutoPostNoticeDelivery this is NOT backed by a partial-unique
+ * index: approval_request has historical rows that legitimately duplicate
+ * (response_id, channel, recipient) — every failover re-send inserts another
+ * row by design — so a unique claim index cannot be built over existing data.
+ * Atomicity is instead provided by dispatch being single-flight per response
+ * (OutboxPoller FOR UPDATE SKIP LOCKED claim + BullMQ jobId dedup + the
+ * failover poller's in-flight outbox guard), so the dispatcher's
+ * select-then-insert claim is race-safe in practice.
+ */
+export async function insertPendingApprovalDelivery(params: {
+  accountId: string;
+  businessId: string;
+  responseId: string;
+  channel: ChannelId;
+  recipient: string;
+}): Promise<string> {
+  const id = uuidv7();
+  await sql`
+    INSERT INTO notification_deliveries
+      (id, account_id, business_id, response_id, channel, recipient, template)
+    VALUES
+      (${id}, ${params.accountId}, ${params.businessId}, ${params.responseId},
+       ${params.channel}, ${params.recipient}, 'approval_request')
+  `;
+  return id;
+}
+
 /** Finalize a claimed delivery as SENT with the provider message id. */
 export async function finalizeDeliverySent(
   deliveryId: string,

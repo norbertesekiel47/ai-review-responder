@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   formatApprovalWhatsApp,
+  formatAutoPostNoticeWhatsApp,
   renderApprovalCardBody,
   extractTokenFromApprovalUrl,
   stripWaPrefix,
@@ -181,5 +182,38 @@ describe('formatApprovalWhatsApp', () => {
     );
     expect(contentVariables['1']!.length).toBeLessThanOrEqual(100);
     expect(contentVariables['2']!.length).toBeLessThanOrEqual(100);
+  });
+});
+
+describe('formatAutoPostNoticeWhatsApp', () => {
+  const baseParams = {
+    businessName: 'Acme Coffee',
+    reviewerName: 'Jane Doe',
+    starRating: 5,
+    responseId: '0190b0c0-0000-7000-8000-000000000abc',
+  };
+
+  it('collapses whitespace and clamps over-long names (mirrors the approval template fix for 21656)', () => {
+    const { contentVariables } = formatAutoPostNoticeWhatsApp(
+      {
+        ...baseParams,
+        businessName: 'B'.repeat(300),
+        reviewerName: 'R\n\nlong\t\tname'.padEnd(300, 'x'),
+      },
+      'HX_autopost_test',
+    );
+    expect(contentVariables['1']!.length).toBeLessThanOrEqual(100);
+    expect(contentVariables['2']!.length).toBeLessThanOrEqual(100);
+    // oneLine() must strip every newline/tab/4+ space run (Meta policy / 21656).
+    expect(contentVariables['1']).not.toMatch(/[\n\t]|\s{4,}/);
+    expect(contentVariables['2']).not.toMatch(/[\n\t]|\s{4,}/);
+  });
+
+  it('falls back to "Reviewer" for an empty reviewer name', () => {
+    const { contentVariables } = formatAutoPostNoticeWhatsApp(
+      { ...baseParams, reviewerName: '' },
+      'HX_autopost_test',
+    );
+    expect(contentVariables['2']).toBe('Reviewer');
   });
 });

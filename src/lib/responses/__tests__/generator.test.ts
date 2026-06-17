@@ -342,7 +342,7 @@ describe('generateResponse', () => {
     expect(result.responseText).toBe('Good response');
   });
 
-  it('finalizeCost error propagates, no releaseCost, audit not called, slot released', async () => {
+  it('finalizeCost error is logged and the draft is still returned (no terminal draft loss); reservation ages out via TTL, slot released, cache + audit reached', async () => {
     openaiCreate.mockResolvedValueOnce(openAIResponse('Thanks!'));
 
     const tracker = await import('@/lib/costs/tracker');
@@ -351,21 +351,27 @@ describe('generateResponse', () => {
     const finalizeErr = new Error('Redis timeout during finalize');
     vi.mocked(tracker.finalizeCost).mockRejectedValueOnce(finalizeErr);
 
+    // The LLM already succeeded and the draft was cached inside the wrapper, so a
+    // finalize-time Redis flake must NOT discard the paid-for draft (that would
+    // lose the owner's notification while the spend already happened). The
+    // generation path uses onFinalizeError:'log-and-return-value', so the error
+    // is logged and the draft is returned. (Was: propagated → terminal draft loss.)
     const { generateResponse } = await import('../generator');
-    await expect(
-      generateResponse(review, businessContext, [], productionOptions),
-    ).rejects.toThrow(finalizeErr);
+    const result = await generateResponse(review, businessContext, [], productionOptions);
+    expect(result.responseText).toBe('Thanks!');
 
+    // releaseCost only fires when !finalized; the finalize attempt sets
+    // finalized=true, so the reservation is intentionally left to age out via
+    // the 24h Redis TTL rather than double-adjusted.
     expect(tracker.releaseCost).not.toHaveBeenCalled();
     expect(concurrencyGuard.releaseConcurrencySlot).toHaveBeenCalledWith('biz-001');
-    expect(audit.recordApiCost).not.toHaveBeenCalled();
-    // Cache write happens INSIDE the wrapper closure (before finalize) per M3,
-    // so it succeeded before finalize threw. Audit happens AFTER the wrapper
-    // returns; the wrapper threw, so audit was not reached.
+    // Cache write happens INSIDE the wrapper closure (before finalize) per M3.
     expect(tracker.setCachedGeneration).toHaveBeenCalled();
+    // The wrapper now RETURNS the value, so the post-wrapper audit path runs.
+    expect(audit.recordApiCost).toHaveBeenCalled();
   });
 
-  it('finalizeCost error with transient-shaped error propagates as plain Error, not TransientLLMError', async () => {
+  it('finalizeCost transient-shaped error does not propagate — draft still returned', async () => {
     openaiCreate.mockResolvedValueOnce(openAIResponse('Thanks!'));
 
     const tracker = await import('@/lib/costs/tracker');
@@ -374,9 +380,10 @@ describe('generateResponse', () => {
 
     const { generateResponse } = await import('../generator');
 
-    await expect(
-      generateResponse(review, businessContext, [], productionOptions),
-    ).rejects.toThrow(finalizeErr);
+    // Regardless of the finalize error's shape, the paid-for draft is returned,
+    // not lost. (Was: asserted propagation as a plain Error.)
+    const result = await generateResponse(review, businessContext, [], productionOptions);
+    expect(result.responseText).toBe('Thanks!');
   });
 
   // M4 regression: when only ONE provider's failure is transient, the

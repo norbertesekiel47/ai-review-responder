@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   assertAdminNotificationEmail,
+  assertCoreInfraEnv,
   assertProductionMockModeEnv,
   assertServerOnlyFeatureOptionalBooleansEnv,
   assertSelfServeSignupEnv,
@@ -21,6 +22,13 @@ const STRIPE_WORKER_REQUIRED = [
   'STRIPE_PRICE_STANDARD_OVERAGE',
   'STRIPE_PRICE_PREMIUM_OVERAGE',
   'STRIPE_PRICE_FOUNDERS_OVERAGE',
+];
+
+const CORE_INFRA_REQUIRED = [
+  'DATABASE_POOL_URL',
+  'SUPABASE_URL',
+  'SUPABASE_SERVICE_KEY',
+  'REDIS_QUEUE_URL',
 ];
 
 function restoreEnv(snapshot: Record<string, string | undefined>): void {
@@ -238,6 +246,41 @@ describe('warnMissingProductionEnv', () => {
   });
 });
 
+describe('assertCoreInfraEnv', () => {
+  const SNAP: Record<string, string | undefined> = {};
+  const KEYS = ['NODE_ENV', 'MOCK_EXTERNAL_APIS', ...CORE_INFRA_REQUIRED];
+
+  beforeEach(() => {
+    for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
+  });
+  afterEach(() => {
+    restoreEnv(SNAP);
+  });
+
+  it('is a no-op in non-production MOCK_EXTERNAL_APIS mode', () => {
+    setEnv('NODE_ENV', 'test');
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    expect(() => assertCoreInfraEnv()).not.toThrow();
+  });
+
+  it('throws naming the missing core-infra var in non-mock mode', () => {
+    setEnv('NODE_ENV', 'test');
+    process.env.MOCK_EXTERNAL_APIS = 'false';
+    process.env.SUPABASE_URL = 'https://x.supabase.co';
+    process.env.SUPABASE_SERVICE_KEY = 'svc';
+    process.env.REDIS_QUEUE_URL = 'redis://localhost:6379';
+    // DATABASE_POOL_URL intentionally unset.
+    expect(() => assertCoreInfraEnv()).toThrow(/DATABASE_POOL_URL/);
+  });
+
+  it('passes when every core-infra var is present', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'false';
+    for (const k of CORE_INFRA_REQUIRED) process.env[k] = 'x';
+    expect(() => assertCoreInfraEnv()).not.toThrow();
+  });
+});
+
 describe('assertWorkerStartupEnv', () => {
   const SNAP: Record<string, string | undefined> = {};
   const KEYS = [
@@ -248,6 +291,7 @@ describe('assertWorkerStartupEnv', () => {
     'AUTO_APPROVAL_ENABLED',
     'AUTO_APPROVAL_PROVIDER_MODERATION_READY',
     ...STRIPE_WORKER_REQUIRED,
+    ...CORE_INFRA_REQUIRED,
   ];
 
   beforeEach(() => {
@@ -270,12 +314,23 @@ describe('assertWorkerStartupEnv', () => {
     expect(() => assertWorkerStartupEnv()).not.toThrow();
   });
 
-  it('passes when production mock mode is off and Stripe env vars are present', () => {
+  it('passes when production mock mode is off and Stripe + core-infra env vars are present', () => {
     setEnv('NODE_ENV', 'production');
     process.env.MOCK_EXTERNAL_APIS = 'false';
     for (const k of STRIPE_WORKER_REQUIRED) process.env[k] = 'x';
+    for (const k of CORE_INFRA_REQUIRED) process.env[k] = 'x';
     process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@repworth.com';
     expect(() => assertWorkerStartupEnv()).not.toThrow();
+  });
+
+  it('fails fast when a core-infra var is missing in production', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'false';
+    for (const k of STRIPE_WORKER_REQUIRED) process.env[k] = 'x';
+    for (const k of CORE_INFRA_REQUIRED) process.env[k] = 'x';
+    process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@repworth.com';
+    delete process.env.DATABASE_POOL_URL;
+    expect(() => assertWorkerStartupEnv()).toThrow(/DATABASE_POOL_URL/);
   });
 
   it('runs optional server-only feature boolean validation', () => {

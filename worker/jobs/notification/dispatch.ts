@@ -6,8 +6,9 @@
 
 import { sql } from '../../../src/lib/db/server';
 import {
-  recordNotificationDelivery,
-  insertFailedDelivery,
+  insertPendingApprovalDelivery,
+  finalizeDeliverySent,
+  failDelivery,
 } from '../../../src/lib/notifications/delivery';
 import { getChannel } from '../../../src/lib/notifications/channels';
 import { createApprovalLink } from '../../../src/lib/approval/create-link';
@@ -251,13 +252,20 @@ export async function dispatchAll(
         LIMIT 1
       `;
     } else {
-      // Normal mode: skip if any successful delivery record exists for this channel.
+      // Normal mode: skip if any non-failed delivery exists for this channel —
+      // a SENT row (sent_at set) OR an in-flight PENDING claim (sent_at NULL,
+      // failed_at NULL) written by a prior attempt that crashed after the
+      // provider accepted but before the record committed. Catching the pending
+      // claim is what closes the crash-after-send double-send window; the
+      // orphaned claim is re-sent by the failover poller's stale branch if it
+      // was never actually delivered. (Was `sent_at IS NOT NULL AND failed_at
+      // IS NULL`, which missed the pending claim and re-sent on retry.)
       [existing] = await sql<{ id: string }[]>`
         SELECT id FROM notification_deliveries
         WHERE response_id = ${ctx.responseId}
           AND channel = ${channelId}
           AND template = 'approval_request'
-          AND sent_at IS NOT NULL AND failed_at IS NULL
+          AND failed_at IS NULL
         LIMIT 1
       `;
     }
@@ -265,6 +273,19 @@ export async function dispatchAll(
       logger.log(`${channelId} channel already has a prior delivery for response ${ctx.responseId}, skipping`);
       continue;
     }
+
+    // Claim a PENDING delivery row BEFORE sending (claim-before-send). A retry
+    // after a crash-during-send dedups on this row above and skips, instead of
+    // re-sending. On send failure the claim is flipped to failed; on success it
+    // is finalized with the provider message id.
+    const deliveryId = await insertPendingApprovalDelivery({
+      accountId: ctx.accountId,
+      businessId: ctx.businessId,
+      responseId: ctx.responseId,
+      channel: channelId,
+      recipient: enrollment.handle,
+    });
+    attempted++;
 
     // Approval-link creation is per-channel — a failure here must NOT
     // abort the whole dispatch loop (other channels may still succeed).
@@ -281,19 +302,10 @@ export async function dispatchAll(
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       logger.error(`createApprovalLink failed for ${channelId} response ${ctx.responseId}: ${reason}`);
-      attempted++;
-      await insertFailedDelivery(
-        ctx.accountId,
-        ctx.businessId,
-        ctx.responseId,
-        channelId,
-        enrollment.handle,
-        `approval_link_error:${reason}`,
-      );
+      await failDelivery(deliveryId, `approval_link_error:${reason}`);
       continue;
     }
     const approvalUrl = `${ctx.appUrl}/approve/${rawToken}`;
-    attempted++;
 
     let externalMessageId: string;
     try {
@@ -358,26 +370,11 @@ export async function dispatchAll(
         logger[directive.extraLog.level](directive.extraLog.message);
       }
 
-      await insertFailedDelivery(
-        ctx.accountId,
-        ctx.businessId,
-        ctx.responseId,
-        channelId,
-        enrollment.handle,
-        directive.failureReason,
-      );
+      await failDelivery(deliveryId, directive.failureReason);
       continue;
     }
 
-    await recordNotificationDelivery({
-      accountId: ctx.accountId,
-      businessId: ctx.businessId,
-      responseId: ctx.responseId,
-      channel: channelId,
-      recipient: enrollment.handle,
-      template: 'approval_request',
-      externalMessageId,
-    });
+    await finalizeDeliverySent(deliveryId, externalMessageId);
     succeeded++;
     logger.log(`${channelId} approval notification sent for response ${ctx.responseId} (business ${ctx.businessId})`);
   }

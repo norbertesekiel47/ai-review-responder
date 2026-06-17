@@ -169,7 +169,15 @@ async function runProductionMode(
   // held for the cache write (~1 Redis RTT) closes the race; the audit
   // write stays outside because it's pure observability with no race risk.
   const { llmResult, responseLanguage, costUsd, latencyMs } = await withCostGuard(
-    { businessId, subscriptionTier, withConcurrency: true },
+    // onFinalizeError: 'log-and-return-value' — the LLM call already succeeded
+    // and the draft was cached inside this closure (M3 below). A post-LLM Redis
+    // (Upstash) flake in finalizeCost must NOT discard the paid-for draft: the
+    // raw transport error matches none of the retryable classes in
+    // generate-draft.ts, so 'propagate' (the default) would fall through to a
+    // terminal generation_failed and silently lose the draft (owner never
+    // notified) while the spend already happened. Return the value instead; the
+    // reservation ages out via the 24h Redis TTL. Mirrors review-summary.ts.
+    { businessId, subscriptionTier, withConcurrency: true, onFinalizeError: 'log-and-return-value' },
     async () => {
       const prompt = buildProductionPrompt(review, business, voiceExamples);
       const startedAt = Date.now();

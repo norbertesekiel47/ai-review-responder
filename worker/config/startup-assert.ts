@@ -13,6 +13,20 @@ const STRIPE_WORKER_REQUIRED_ENV = [
   ...STRIPE_PRICE_ENV_VARS,
 ];
 
+// The pillars every worker job and poller depends on. They are consumed via
+// non-null assertions deep in the data layer (postgres(DATABASE_POOL_URL!),
+// createClient(SUPABASE_URL!, SUPABASE_SERVICE_KEY!)), so a missing/typo'd value
+// otherwise boots "successfully", passes the dependency-light health check, and
+// then fails on the FIRST query — jobs crash-loop and burn retries with an
+// opaque error instead of a clear boot failure. (REDIS_QUEUE_URL already throws
+// at module load via new URL(undefined), so it is covered by construction.)
+const CORE_INFRA_REQUIRED_ENV = [
+  'DATABASE_POOL_URL',
+  'SUPABASE_URL',
+  'SUPABASE_SERVICE_KEY',
+  'REDIS_QUEUE_URL',
+];
+
 const SERVER_ONLY_FEATURE_OPTIONAL_BOOLEAN_ENV = [
   'ACCOUNT_OFFBOARDING_ENABLED',
   'AUTO_APPROVAL_ENABLED',
@@ -50,6 +64,21 @@ export function assertStripeWorkerEnv(): void {
   if (process.env.NODE_ENV !== 'production' && process.env.MOCK_EXTERNAL_APIS === 'true') return;
 
   const missing = missingEnvVars(STRIPE_WORKER_REQUIRED_ENV);
+  if (missing.length > 0) {
+    throw new Error(`[startup] Worker requires ${missing.join(', ')}`);
+  }
+}
+
+/**
+ * Fail fast at boot when a core-infrastructure connection string is missing,
+ * rather than crash-looping on the first DB/Redis op. Gated identically to
+ * assertStripeWorkerEnv: a no-op only in non-production MOCK_EXTERNAL_APIS mode
+ * (local dev / unit tests), enforced everywhere else.
+ */
+export function assertCoreInfraEnv(): void {
+  if (process.env.NODE_ENV !== 'production' && process.env.MOCK_EXTERNAL_APIS === 'true') return;
+
+  const missing = missingEnvVars(CORE_INFRA_REQUIRED_ENV);
   if (missing.length > 0) {
     throw new Error(`[startup] Worker requires ${missing.join(', ')}`);
   }
@@ -132,6 +161,7 @@ export function warnMissingProductionEnv(): void {
 
 export function assertWorkerStartupEnv(): void {
   assertProductionMockModeEnv();
+  assertCoreInfraEnv();
   assertStripeWorkerEnv();
   assertAdminNotificationEmail();
   assertServerOnlyFeatureOptionalBooleansEnv();

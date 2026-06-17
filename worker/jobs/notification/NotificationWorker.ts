@@ -21,6 +21,24 @@ import { getEligibleChannels } from './eligibility';
 import { dispatchAll } from './dispatch';
 import { loadNotificationContext } from './context';
 
+// review_date is a Postgres timestamptz (Postgres.js returns a Date despite the
+// `string` type). Render a deterministic UTC string for channel templates.
+// A null/empty/malformed value would make `new Date(...)` NaN, and
+// `toLocaleDateString` on a NaN date returns the literal "Invalid Date" — which
+// would ship verbatim to the owner across every channel (and on WhatsApp it is
+// content variable {{4}}). Guard the NaN epoch and degrade to an empty string.
+export function formatReviewDate(value: string | Date | null | undefined): string {
+  if (value === null || value === undefined || value === '') return '';
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 export async function handleSendNotification(
   job: Job<SendNotificationPayload>,
 ): Promise<void> {
@@ -83,17 +101,11 @@ export async function handleSendNotification(
         reviewerName: ctx.response.reviewer_name,
         starRating: ctx.response.star_rating,
         reviewText: ctx.response.review_text,
-        // review_date is a Postgres timestamptz → Postgres.js returns a Date
-        // object at runtime despite the `string` type. Coerce to a clean string:
-        // channel templates need a string, and Twilio ContentVariables reject
-        // non-string values (WhatsApp 21656). UTC + fixed format keeps it
-        // deterministic. Other channels also get a tidy date instead of a raw Date.
-        reviewDate: new Date(ctx.response.review_date).toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'short',
-          day: 'numeric',
-          timeZone: 'UTC',
-        }),
+        // formatReviewDate coerces the timestamptz to a deterministic UTC string
+        // (channels need a string; Twilio ContentVariables reject non-strings →
+        // WhatsApp 21656) and degrades a null/malformed date to '' instead of the
+        // literal "Invalid Date" that new Date(bad).toLocaleDateString() returns.
+        reviewDate: formatReviewDate(ctx.response.review_date),
         responsePreview: ctx.response.response_text,
       },
     },
