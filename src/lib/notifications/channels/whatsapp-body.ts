@@ -67,6 +67,15 @@ export function extractTokenFromApprovalUrl(url: string): string {
   return token;
 }
 
+// WhatsApp template parameters reject newlines, tabs, and 4+ consecutive
+// spaces (Meta policy → Twilio error 21656). Collapse every whitespace run to a
+// single space so free-text values (review text, AI-generated draft) are valid
+// as card-body variables. Only the WhatsApp *preview* copy is flattened — the
+// stored response keeps its formatting for the Edit page and Google posting.
+function oneLine(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
 /**
  * Format a SendApprovalParams into Twilio Content variables for the
  * repworth_approval_request_v1 template. Second param `contentSid` allows
@@ -80,12 +89,12 @@ export function formatApprovalWhatsApp(
   return {
     contentSid,
     contentVariables: {
-      '1': params.businessName,
-      '2': params.reviewerName || 'Reviewer',
+      '1': oneLine(params.businessName),
+      '2': oneLine(params.reviewerName || 'Reviewer'),
       '3': String(params.starRating),
-      '4': params.reviewDate,
-      '5': truncate(params.reviewText ?? '(no comment)', REVIEW_TEXT_MAX),
-      '6': truncate(params.responsePreview, RESPONSE_PREVIEW_MAX),
+      '4': oneLine(params.reviewDate),
+      '5': truncate(oneLine(params.reviewText ?? '(no comment)'), REVIEW_TEXT_MAX),
+      '6': truncate(oneLine(params.responsePreview), RESPONSE_PREVIEW_MAX),
       '7': `a:${params.approvalLinkId}`,
       '8': `r:${params.approvalLinkId}`,
       '9': extractTokenFromApprovalUrl(params.approvalUrl),
@@ -117,8 +126,8 @@ export function formatAutoPostNoticeWhatsApp(
   return {
     contentSid,
     contentVariables: {
-      '1': params.businessName,
-      '2': params.reviewerName || 'Reviewer',
+      '1': oneLine(params.businessName),
+      '2': oneLine(params.reviewerName || 'Reviewer'),
       '3': String(params.starRating),
       '4': params.responseId,
     },

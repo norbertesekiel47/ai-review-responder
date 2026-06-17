@@ -83,7 +83,17 @@ export async function handleSendNotification(
         reviewerName: ctx.response.reviewer_name,
         starRating: ctx.response.star_rating,
         reviewText: ctx.response.review_text,
-        reviewDate: ctx.response.review_date,
+        // review_date is a Postgres timestamptz → Postgres.js returns a Date
+        // object at runtime despite the `string` type. Coerce to a clean string:
+        // channel templates need a string, and Twilio ContentVariables reject
+        // non-string values (WhatsApp 21656). UTC + fixed format keeps it
+        // deterministic. Other channels also get a tidy date instead of a raw Date.
+        reviewDate: new Date(ctx.response.review_date).toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          timeZone: 'UTC',
+        }),
         responsePreview: ctx.response.response_text,
       },
     },
