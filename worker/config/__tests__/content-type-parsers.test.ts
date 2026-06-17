@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import Fastify from 'fastify';
+import rawBody from 'fastify-raw-body';
 import { registerIngressContentTypeParsers } from '../content-type-parsers';
 
 // Regression for the Twilio WhatsApp 415: Fastify rejects unparseable content
@@ -38,6 +39,30 @@ describe('registerIngressContentTypeParsers', () => {
     });
 
     expect(res.statusCode).toBe(200); // not 415
+    await app.close();
+  });
+
+  // The Twilio handlers validate the request signature over request.rawBody, so
+  // the parser must NOT break rawBody capture by fastify-raw-body. Mirrors the
+  // production registration order (raw-body plugin runFirst, then the parser).
+  it('preserves rawBody capture for form-urlencoded (Twilio signature depends on it)', async () => {
+    const app = Fastify();
+    await app.register(rawBody, { field: 'rawBody', global: false, encoding: 'utf8', runFirst: true });
+    registerIngressContentTypeParsers(app);
+    app.post('/t', { config: { rawBody: true } }, async (req) => ({
+      rawBody: (req as unknown as { rawBody?: string }).rawBody ?? null,
+    }));
+
+    const payload = 'MessageSid=SMx&From=whatsapp%3A%2B1&Body=start-abc';
+    const res = await app.inject({
+      method: 'POST',
+      url: '/t',
+      headers: { 'content-type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+      payload,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).rawBody).toBe(payload);
     await app.close();
   });
 });
