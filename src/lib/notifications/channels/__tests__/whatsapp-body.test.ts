@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   formatApprovalWhatsApp,
+  renderApprovalCardBody,
   extractTokenFromApprovalUrl,
   stripWaPrefix,
   toWaRecipient,
@@ -153,5 +154,32 @@ describe('formatApprovalWhatsApp', () => {
   it('uses "Reviewer" fallback when reviewerName is empty', () => {
     const { contentVariables } = formatApprovalWhatsApp({ ...baseParams, reviewerName: '' }, 'HX_test');
     expect(contentVariables['2']).toBe('Reviewer');
+  });
+
+  it('keeps the rendered card body within the 1024-char WhatsApp limit for worst-case inputs', () => {
+    // Worst case: every variable far exceeds its budget. The rendered body
+    // (fixed template text + all substituted variables) must still fit the
+    // whatsapp/card 1024-char ceiling — a longer body trips Twilio 21656.
+    const worstCase = {
+      ...baseParams,
+      businessName: 'B'.repeat(500),
+      reviewerName: 'R'.repeat(500),
+      reviewDate: 'D'.repeat(80),
+      starRating: 5,
+      reviewText: 'x'.repeat(5000),
+      responsePreview: 'y'.repeat(5000),
+    };
+    const { contentVariables } = formatApprovalWhatsApp(worstCase, 'HX_test');
+    const rendered = renderApprovalCardBody(contentVariables);
+    expect(rendered.length).toBeLessThanOrEqual(1024);
+  });
+
+  it('clamps over-long business and reviewer names to keep the body budget provable', () => {
+    const { contentVariables } = formatApprovalWhatsApp(
+      { ...baseParams, businessName: 'B'.repeat(300), reviewerName: 'R'.repeat(300) },
+      'HX_test',
+    );
+    expect(contentVariables['1']!.length).toBeLessThanOrEqual(100);
+    expect(contentVariables['2']!.length).toBeLessThanOrEqual(100);
   });
 });

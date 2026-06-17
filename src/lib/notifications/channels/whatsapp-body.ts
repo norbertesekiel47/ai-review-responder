@@ -15,13 +15,67 @@ export interface WhatsAppSendContent {
   contentVariables: Record<string, string>;
 }
 
-const REVIEW_TEXT_MAX = 400;
-const RESPONSE_PREVIEW_MAX = 400;
+// Body of the Meta-approved repworth_approval_request_v1 whatsapp/card template.
+// Authoritative copy lives in docs/runbooks/whatsapp-templates.md; this constant
+// must stay byte-identical to the submitted template so the truncation budget
+// below is computed against the REAL rendered length. A wording/whitespace/emoji
+// change here requires a matching template edit and a fresh Meta review cycle.
+const APPROVAL_CARD_BODY_TEMPLATE =
+  'New ⭐{{3}} review for {{1}}\n\n' +
+  'From: {{2}} · {{4}}\n\n' +
+  '"{{5}}"\n\n' +
+  'Draft reply:\n{{6}}';
+
+const PLACEHOLDER_RE = /\{\{(\d+)\}\}/g;
+
+// whatsapp/card body hard limit after variable substitution (Twilio 21656 on
+// overflow). The safety margin absorbs any difference between JS `.length`
+// (UTF-16 code units) and Meta's own character accounting for emoji/graphemes.
+const WHATSAPP_CARD_BODY_LIMIT = 1024;
+const BODY_SAFETY_MARGIN = 64;
+
+// Fixed (non-variable) character count of the rendered body — computed from the
+// template itself so it can never drift from the literal above.
+const FIXED_BODY_OVERHEAD = APPROVAL_CARD_BODY_TEMPLATE.replace(PLACEHOLDER_RE, '').length;
+
+// Bounded variables whose worst case we reserve against (docs maxes). The
+// formatter clamps each so the free-text budget below is a provable upper bound.
+const BUSINESS_NAME_MAX = 100;
+const REVIEWER_NAME_MAX = 100;
+const REVIEW_DATE_MAX = 12;
+const STAR_RATING_MAX = 1;
+
+// Whatever remains after the fixed text, the safety margin, and the bounded
+// variables is shared between the two free-text variables ({{5}} review text,
+// {{6}} draft reply). Derived as one budget then split so the two halves can
+// never sum past the ceiling.
+const FREE_TEXT_BUDGET =
+  WHATSAPP_CARD_BODY_LIMIT -
+  BODY_SAFETY_MARGIN -
+  FIXED_BODY_OVERHEAD -
+  STAR_RATING_MAX -
+  BUSINESS_NAME_MAX -
+  REVIEWER_NAME_MAX -
+  REVIEW_DATE_MAX;
+const RESPONSE_PREVIEW_MAX = Math.ceil(FREE_TEXT_BUDGET / 2);
+const REVIEW_TEXT_MAX = FREE_TEXT_BUDGET - RESPONSE_PREVIEW_MAX;
 
 export function truncate(text: string | null, limit: number): string {
   if (text === null) return '';
   if (text.length <= limit) return text;
   return text.slice(0, limit - 1) + '…';
+}
+
+/**
+ * Render the approval card body exactly as Twilio/WhatsApp will after variable
+ * substitution. Substitution is server-side at send time (we only pass the
+ * `contentVariables` map), so this is not used to send — it is the single
+ * authoritative reference for the template body, consumed by the length-budget
+ * test that guards the 1024-char ceiling. Missing keys render as empty strings,
+ * mirroring Twilio's behavior for unset variables.
+ */
+export function renderApprovalCardBody(vars: Record<string, string>): string {
+  return APPROVAL_CARD_BODY_TEMPLATE.replace(PLACEHOLDER_RE, (_match, index: string) => vars[index] ?? '');
 }
 
 export function stripWaPrefix(from: string): string {
@@ -89,10 +143,10 @@ export function formatApprovalWhatsApp(
   return {
     contentSid,
     contentVariables: {
-      '1': oneLine(params.businessName),
-      '2': oneLine(params.reviewerName || 'Reviewer'),
+      '1': truncate(oneLine(params.businessName), BUSINESS_NAME_MAX),
+      '2': truncate(oneLine(params.reviewerName || 'Reviewer'), REVIEWER_NAME_MAX),
       '3': String(params.starRating),
-      '4': oneLine(params.reviewDate),
+      '4': truncate(oneLine(params.reviewDate), REVIEW_DATE_MAX),
       '5': truncate(oneLine(params.reviewText ?? '(no comment)'), REVIEW_TEXT_MAX),
       '6': truncate(oneLine(params.responsePreview), RESPONSE_PREVIEW_MAX),
       '7': `a:${params.approvalLinkId}`,
