@@ -101,9 +101,10 @@ function DeltaRow({
   decimals: number;
 }) {
   // Per-metric suppression: hide the arrow entirely (not greyed) when there is
-  // no prior-window sample to compare against.
+  // no prior-window sample to compare against. The dash is a decorative
+  // placeholder — there is nothing to compare, so AT skips it (aria-hidden).
   if (metric.delta === null) {
-    return <div className="rep-stat-delta rep-stat-delta--none">—</div>;
+    return <div className="rep-stat-delta rep-stat-delta--none" aria-hidden="true">—</div>;
   }
   if (metric.delta === 0) {
     return (
@@ -116,7 +117,11 @@ function DeltaRow({
   const magnitude = formatDeltaMagnitude(Math.abs(metric.delta), unit, decimals);
   return (
     <div className={`rep-stat-delta ${up ? 'rep-stat-delta--up' : 'rep-stat-delta--down'}`}>
-      <span aria-hidden="true">{up ? '▲' : '▼'}</span> {magnitude}
+      {/* Arrow is decorative; direction is carried for AT by the sr-only word,
+          since colour + glyph alone don't convey up/down to screen readers. */}
+      <span aria-hidden="true">{up ? '▲' : '▼'}</span>
+      <span className="sr-only">{up ? 'up' : 'down'}</span>
+      {magnitude}
       <span className="rep-stat-delta-cmp">vs last 30d</span>
     </div>
   );

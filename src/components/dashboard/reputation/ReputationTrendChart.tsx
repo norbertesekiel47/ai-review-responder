@@ -76,7 +76,7 @@ export function ReputationTrendChart({ trend }: Props) {
                 y={yFor(star) + 3}
                 textAnchor="end"
                 fontSize="10"
-                fill="var(--rw-app-text-soft)"
+                fill="var(--rw-app-text-muted)"
                 fontFamily="var(--rw-font-body)"
               >
                 {star}
@@ -110,7 +110,7 @@ export function ReputationTrendChart({ trend }: Props) {
                 y={H - 8}
                 textAnchor="middle"
                 fontSize="10"
-                fill="var(--rw-app-text-soft)"
+                fill="var(--rw-app-text-muted)"
                 fontFamily="var(--rw-font-body)"
               >
                 {p.label}

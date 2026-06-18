@@ -1119,8 +1119,11 @@
   font-variant-numeric: tabular-nums;
   margin-top: 4px;
 }
-.rep-stat--anchor .rep-stat-value { font-size: 40px; }
-.rep-stat-sub { font-size: 11px; color: var(--rw-app-text-soft); }
+/* Anchor stat = metric-lg (36px), the locked hero ceiling — still the largest
+   value on the band (others are 30px / metric) without going off-scale. */
+.rep-stat--anchor .rep-stat-value { font-size: 36px; }
+/* --rw-app-text-muted (not -soft) clears 4.5:1 at this size; matches .kpi-foot. */
+.rep-stat-sub { font-size: 11px; color: var(--rw-app-text-muted); }
 .rep-stat-delta {
   display: inline-flex;
   align-items: baseline;
@@ -1189,7 +1192,6 @@
 
 @media (max-width: 768px) {
   .rep-hero { grid-template-columns: 1fr; gap: 16px; }
-  .rep-stat--anchor .rep-stat-value { font-size: 36px; }
 }
 
 /* selection */
