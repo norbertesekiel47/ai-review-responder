@@ -3,6 +3,7 @@ import { accountOffboardingEnabled } from '../../../src/lib/account-offboarding/
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { sql } from '../../../src/lib/db/server';
 import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import { maybeLogPollerHeartbeat, notePollerActivity } from '../poller-heartbeat';
 
 // Autonomous recovery for stale cancel_only reactivation claims (M1). A claim is
 // stale when its originating reactivation process died mid-reversal — the row sits
@@ -84,7 +85,14 @@ async function runAccountOffboardingReactivationResetInner(
     if (didReset) resetCount++;
   }
 
-  logger.log('Run complete', { reset: resetCount, candidates: candidates.length });
+  // Any stale candidate this cycle is real work (Stripe compensation runs even
+  // when a reset later defers), so log it; a truly empty cycle stays silent.
+  if (candidates.length > 0) {
+    logger.log('Run complete', { reset: resetCount, candidates: candidates.length });
+    notePollerActivity(LOG_PREFIX);
+  } else {
+    maybeLogPollerHeartbeat(logger, LOG_PREFIX);
+  }
 }
 
 async function resetStaleReactivationClaim(

@@ -3,6 +3,7 @@ import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { sql } from '../../../src/lib/db/server';
 import { enqueueAccountOffboardingPurge } from '../../../src/lib/shared/job-outbox-helpers';
 import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import { maybeLogPollerHeartbeat, notePollerActivity } from '../poller-heartbeat';
 
 const LOG_PREFIX = '[AccountOffboardingPurgePoller]';
 const DEFAULT_INTERVAL_MS = 60_000;
@@ -216,7 +217,12 @@ async function runAccountOffboardingPurgeInner(
     }
   }
 
-  logger.log('Run complete', { claimed: claimedCount });
+  if (claimedCount > 0) {
+    logger.log('Run complete', { claimed: claimedCount });
+    notePollerActivity(LOG_PREFIX);
+  } else {
+    maybeLogPollerHeartbeat(logger, LOG_PREFIX);
+  }
 }
 
 function formatTimestamp(value: Date | string): string {

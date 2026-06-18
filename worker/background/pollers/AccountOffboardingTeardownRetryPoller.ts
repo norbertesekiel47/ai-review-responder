@@ -3,6 +3,7 @@ import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { sql } from '../../../src/lib/db/server';
 import { enqueueAccountOffboardingTeardown } from '../../../src/lib/shared/job-outbox-helpers';
 import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import { maybeLogPollerHeartbeat, notePollerActivity } from '../poller-heartbeat';
 
 // Autonomous re-drive for teardowns that exhausted their BullMQ attempts and
 // landed status='failed', failed_step='teardown' (both modes). Without this a
@@ -140,7 +141,12 @@ async function runAccountOffboardingTeardownRetryInner(
     if (result.kind === 'redriven') redrivenCount++;
   }
 
-  logger.log('Run complete', { redriven: redrivenCount });
+  if (redrivenCount > 0) {
+    logger.log('Run complete', { redriven: redrivenCount });
+    notePollerActivity(LOG_PREFIX);
+  } else {
+    maybeLogPollerHeartbeat(logger, LOG_PREFIX);
+  }
 }
 
 export function startAccountOffboardingTeardownRetryPoller(): void {
