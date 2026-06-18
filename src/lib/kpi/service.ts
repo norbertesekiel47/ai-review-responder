@@ -6,6 +6,7 @@
 
 import { sql } from '@/lib/db/server';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
+import { mapSentimentTrend } from './trend';
 import {
   DashboardKpiSummary,
   KPI_WINDOW_DAYS,
@@ -26,16 +27,6 @@ function ratePct(handled: number, received: number): number | null {
 
 function deltaPct(current: number, prior: number): number | null {
   return prior > 0 ? Math.round(((current - prior) / prior) * 100) : null;
-}
-
-function mapTrend(
-  rows: Array<{ week_start: unknown; avg_score: unknown; cnt: unknown }>,
-): DashboardKpiSummary['sentimentTrend'] {
-  return rows.map((r) => ({
-    weekStart: String(r.week_start),
-    averageScore: r.avg_score == null ? null : round(Number(r.avg_score), 2),
-    reviewCount: Number(r.cnt ?? 0),
-  }));
 }
 
 type RateRow = { received: number; handled: number };
@@ -63,7 +54,7 @@ function assembleSummary(
     averageStarRating: round(starRows[0]?.avg ?? null, 2),
     reviewVolume: { currentMonth: current, priorMonth: prior, deltaPct: deltaPct(current, prior) },
     averageTimeToRespondHours: round(ttrRows[0]?.avg_hours ?? null, 1),
-    sentimentTrend: mapTrend(trendRows),
+    sentimentTrend: mapSentimentTrend(trendRows),
   };
 }
 

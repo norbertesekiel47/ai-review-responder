@@ -46,6 +46,36 @@ async function getPrimaryLocationId(accountId: string): Promise<string | null> {
 }
 
 /**
+ * Cancelled-account read-access payload. Grace period = 30 days from the
+ * cancellation event (migration 037 `cancelled_at`), falling back to
+ * `subscription_activated_at` for legacy rows where it is null. Shared by the
+ * per-location and aggregate cancelled branches — only the businessName label
+ * differs (the location name vs "Account").
+ */
+async function buildCancelledResponse(
+  accountId: string,
+  businessName: string,
+): Promise<NextResponse> {
+  const [cancelledRow] = await sql<{
+    cancelled_at: Date | null;
+    subscription_activated_at: Date | null;
+  }[]>`
+    SELECT cancelled_at, subscription_activated_at FROM accounts WHERE id = ${accountId}::uuid
+  `;
+  const cancellationDate = cancelledRow?.cancelled_at ?? cancelledRow?.subscription_activated_at;
+  const gracePeriodEnd = cancellationDate
+    ? new Date(new Date(cancellationDate).getTime() + 30 * 86_400_000)
+    : null;
+  const readAccess = gracePeriodEnd ? gracePeriodEnd > new Date() : true;
+  return jsonResponse({
+    subscriptionStatus: SubscriptionStatus.CANCELLED,
+    businessName,
+    gracePeriodEndDate: gracePeriodEnd?.toISOString() ?? null,
+    readAccess,
+  });
+}
+
+/**
  * Fetches per-location dashboard data for a given location ID.
  * Handles subscription status checks, onboarding state, and returns
  * the appropriate response shape.
@@ -120,31 +150,9 @@ async function fetchPerLocationData(
     });
   }
 
-  // VAL-CROSS-011: Cancelled account — 30-day grace period for read access
+  // VAL-CROSS-011: Cancelled account — 30-day grace period for read access.
   if (subRow.subscription_status === SubscriptionStatus.CANCELLED) {
-    // Grace period: 30 days from the cancellation event.
-    // Migration 037 added cancelled_at, which the Stripe webhook sets on
-    // customer.subscription.deleted. Prefer cancelled_at; fall back to
-    // subscription_activated_at only for legacy rows where cancelled_at is null.
-    const [cancelledRow] = await sql<{
-      cancelled_at: Date | null;
-      subscription_activated_at: Date | null;
-    }[]>`
-      SELECT cancelled_at, subscription_activated_at FROM accounts WHERE id = ${accountId}::uuid
-    `;
-    const cancellationDate = cancelledRow?.cancelled_at ?? cancelledRow?.subscription_activated_at;
-    const gracePeriodEnd = cancellationDate
-      ? new Date(new Date(cancellationDate).getTime() + 30 * 86_400_000)
-      : null;
-    const readAccess = gracePeriodEnd
-      ? gracePeriodEnd > new Date()
-      : true; // default to read access if we can't determine
-    return jsonResponse({
-      subscriptionStatus: SubscriptionStatus.CANCELLED,
-      businessName: subRow.name,
-      gracePeriodEndDate: gracePeriodEnd?.toISOString() ?? null,
-      readAccess,
-    });
+    return buildCancelledResponse(accountId, subRow.name);
   }
 
   // VAL-CROSS-012: Past-due account — payment warning, features continue during grace
@@ -219,25 +227,7 @@ async function aggregateSubscriptionResponse(
 
   // VAL-CROSS-011: Cancelled account in aggregate mode
   if (accountRow.subscription_status === SubscriptionStatus.CANCELLED) {
-    const [cancelledRow] = await sql<{
-      cancelled_at: Date | null;
-      subscription_activated_at: Date | null;
-    }[]>`
-      SELECT cancelled_at, subscription_activated_at FROM accounts WHERE id = ${accountId}::uuid
-    `;
-    const cancellationDate = cancelledRow?.cancelled_at ?? cancelledRow?.subscription_activated_at;
-    const gracePeriodEnd = cancellationDate
-      ? new Date(new Date(cancellationDate).getTime() + 30 * 86_400_000)
-      : null;
-    const readAccess = gracePeriodEnd
-      ? gracePeriodEnd > new Date()
-      : true;
-    return jsonResponse({
-      subscriptionStatus: SubscriptionStatus.CANCELLED,
-      businessName: 'Account',
-      gracePeriodEndDate: gracePeriodEnd?.toISOString() ?? null,
-      readAccess,
-    });
+    return buildCancelledResponse(accountId, 'Account');
   }
 
   // VAL-CROSS-012: Past-due account in aggregate mode

@@ -2,6 +2,7 @@
 
 import type { SentimentTrendPoint } from '@/lib/kpi/types';
 import { sentimentToStarEquivalent } from '@/components/dashboard/reputation/star-equivalent';
+import { weekTickLabel } from '@/components/dashboard/kpi/chart-labels';
 
 interface Props {
   trend: SentimentTrendPoint[];
@@ -23,7 +24,7 @@ export function ReputationTrendChart({ trend }: Props) {
   const points = trend.map((week, i) => ({
     x: PAD.l + (i * (W - PAD.l - PAD.r)) / Math.max(1, trend.length - 1),
     star: week.averageScore == null ? null : sentimentToStarEquivalent(week.averageScore),
-    label: shortLabel(week.weekStart, i, trend.length),
+    label: weekTickLabel(week.weekStart, i, trend.length),
   }));
 
   const hasData = points.some((p) => p.star != null);
@@ -125,12 +126,4 @@ export function ReputationTrendChart({ trend }: Props) {
       )}
     </div>
   );
-}
-
-function shortLabel(weekStartIso: string, idx: number, total: number): string {
-  // Show ~half the labels (every other tick) to avoid crowding.
-  if (idx % 2 !== 0 && idx !== total - 1) return '';
-  const d = new Date(weekStartIso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }

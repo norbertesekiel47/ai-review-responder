@@ -22,7 +22,7 @@
 
 import { sql } from '@/lib/db/server';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
-import type { SentimentTrendPoint } from '@/lib/kpi/types';
+import { mapSentimentTrend, type SentimentTrendRow } from '@/lib/kpi/trend';
 import { MINUTES_SAVED_PER_RESPONSE } from './time-saved';
 import { getPendingApprovalCount } from './pending-count';
 import type { ReputationDelta, ReputationSummary } from './types';
@@ -51,21 +51,6 @@ interface ReviewsBucketRow {
 interface TimeBucketRow {
   cur_handled_count: number;
   prior_handled_count: number;
-}
-
-interface TrendRow {
-  week_start: unknown;
-  avg_score: unknown;
-  cnt: unknown;
-}
-
-/** Map the 8-week sentiment trend rows (parallels kpi/service.ts mapTrend). */
-function mapTrend(rows: TrendRow[]): SentimentTrendPoint[] {
-  return rows.map((r) => ({
-    weekStart: String(r.week_start),
-    averageScore: r.avg_score == null ? null : round(Number(r.avg_score), 2),
-    reviewCount: Number(r.cnt ?? 0),
-  }));
 }
 
 function round(value: number, decimals: number): number {
@@ -152,7 +137,7 @@ export async function getReputationMetrics(
     // dashboard renders the chart from this ONE response, no /api/dashboard/kpis
     // second fetch. AVG(sentiment_score) is on a -1..1 scale; the UI maps it to
     // a star-equivalent for display (never shown as a raw score).
-    sql<TrendRow[]>`
+    sql<SentimentTrendRow[]>`
       SELECT gs::date AS week_start,
              agg.avg_score::float AS avg_score,
              COALESCE(agg.cnt, 0)::int AS cnt
@@ -217,7 +202,7 @@ export async function getReputationMetrics(
     timeSavedMinutes,
     ramping: isRamping(locationCreatedAt),
     pendingApprovalCount,
-    sentimentTrend: mapTrend(trendRows),
+    sentimentTrend: mapSentimentTrend(trendRows),
   };
 }
 
