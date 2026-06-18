@@ -2,9 +2,8 @@ import { parseDbArray } from '@/lib/shared/db-array';
 import { CONNECT_PENDING_STATUSES, type ConnectPendingMarker } from '@/lib/zernio/types';
 import { mapRecentReviews, mapReviewVelocity } from './active-mappers';
 import type { DashboardDataActive } from './types';
+import { MINUTES_SAVED_PER_RESPONSE } from './time-saved';
 import { resolveZernioConnectionState } from './zernio-banner';
-
-const MINUTES_SAVED_PER_RESPONSE = 7;
 
 export interface DashboardBusinessRow {
   name: string;

@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 367;
+export const ALLOWLIST_BASELINE = 370;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -2209,6 +2209,33 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT gs::date AS week_start, agg.avg_score::float AS avg_score, COALESCE(agg.cnt, 0)::int AS cnt FROM generate_series( DATE_TRUNC('week', NOW() - INTERVAL '7 weeks'), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', r.detected_at)::date AS wk, AVG(r.sentiment_score) AS avg_score, COUNT(*) AS cnt FROM reviews r JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId} AND b.archived_at IS NULL AND r.status <> 'deleted' AND r.detected_at >= NOW() - INTERVAL '8 weeks' GROUP BY DATE_TRUNC('week', r.detected_at) ) agg ON agg.wk = gs::date ORDER BY week_start ASC",
     category: 'tenant-root-lookup',
     reason: "Account-aggregate KPI; reviews accessed inside a LEFT JOIN subquery scoped by JOIN businesses b WHERE b.account_id = ${accountId} AND b.archived_at IS NULL. Scanner strips SELECT subqueries before predicate analysis.",
+  },
+  // --- Dashboard reputation/hero metrics (src/lib/dashboard/reputation-metrics.ts) ---
+  // Per-location queries scoped by `r.business_id = ${businessId}` on the reviews
+  // scan; responses correlated via EXISTS(review_id = r.id, business_id) or
+  // JOIN ON r.id = resp.review_id. Same heuristic blind spot as the KPI service:
+  // the scanner strips SELECT subqueries before predicate analysis. businessId is
+  // IDOR-checked in the /api/dashboard route before this service is invoked.
+  {
+    file: "src/lib/dashboard/reputation-metrics.ts",
+    table: "responses",
+    sqlSnippet: "SELECT COUNT(*) FILTER ( WHERE r.detected_at >= NOW() - INTERVAL '30 days' )::int AS cur_received, COUNT(*) FILTER ( WHERE r.detected_at >= NOW() - INTERVAL '30 days' AND EXISTS ( SELECT 1 FROM responses resp WHERE resp.review_id = r.id AND resp.business_id = ${businessId} AND resp.status = ANY(${HANDLED}::text[]) AND resp.approved_at IS NOT NULL ) )::int AS cur_handled, AVG(r.star_rating) FILTER ( WHERE r.detected_at >= NOW() - INTERVAL '30 days' AND r.star_rating IS NOT NULL )::float AS cur_avg_star, COUNT(*) FILTER ( WHERE r.detected_at >= NOW() - INTERVAL '60 days' AND r.detected_at < NOW() - INTERVAL '30 days' )::int AS prior_received, COUNT(*) FILTER ( WHERE r.detected_at >= NOW() - INTERVAL '60 days' AND r.detected_at < NOW() - INTERVAL '30 days' AND EXISTS ( SELECT 1 FROM responses resp WHERE resp.review_id = r.id AND resp.business_id = ${businessId} AND resp.status = ANY(${HANDLED}::text[]) AND resp.approved_at IS NOT NULL AND resp.approved_at <= NOW() - INTERVAL '30 days' ) )::int AS prior_handled, AVG(r.star_rating) FILTER ( WHERE r.detected_at >= NOW() - INTERVAL '60 days' AND r.detected_at < NOW() - INTERVAL '30 days' AND r.star_rating IS NOT NULL )::float AS prior_avg_star, COUNT(*) FILTER ( WHERE r.detected_at >= NOW() - INTERVAL '60 days' AND r.detected_at < NOW() - INTERVAL '30 days' AND r.star_rating IS NOT NULL )::int AS prior_star_count FROM reviews r WHERE r.business_id = ${businessId} AND r.status <> 'deleted' AND r.detected_at >= NOW() - INTERVAL '60 days'",
+    category: 'tenant-root-lookup',
+    reason: "Per-location dashboard hero metrics; responses accessed via correlated EXISTS (resp.review_id = r.id AND resp.business_id = ${businessId}) inside the reviews scan scoped by r.business_id = ${businessId}. businessId is IDOR-checked in the /api/dashboard route.",
+  },
+  {
+    file: "src/lib/dashboard/reputation-metrics.ts",
+    table: "responses",
+    sqlSnippet: "SELECT COUNT(*) FILTER ( WHERE resp.approved_at >= NOW() - INTERVAL '30 days' )::int AS cur_handled_count, COUNT(*) FILTER ( WHERE resp.approved_at >= NOW() - INTERVAL '60 days' AND resp.approved_at < NOW() - INTERVAL '30 days' )::int AS prior_handled_count FROM responses resp JOIN reviews r ON r.id = resp.review_id WHERE r.business_id = ${businessId} AND r.status <> 'deleted' AND resp.status = ANY(${HANDLED}::text[]) AND resp.approved_at IS NOT NULL AND resp.approved_at >= NOW() - INTERVAL '60 days'",
+    category: 'tenant-root-lookup',
+    reason: "Per-location dashboard time-saved metric; responses scoped via JOIN reviews r ON r.id = resp.review_id WHERE r.business_id = ${businessId}. businessId is IDOR-checked in the /api/dashboard route.",
+  },
+  {
+    file: "src/lib/dashboard/reputation-metrics.ts",
+    table: "reviews",
+    sqlSnippet: "SELECT gs::date AS week_start, agg.avg_score::float AS avg_score, COALESCE(agg.cnt, 0)::int AS cnt FROM generate_series( DATE_TRUNC('week', NOW() - INTERVAL '7 weeks'), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', detected_at)::date AS wk, AVG(sentiment_score) AS avg_score, COUNT(*) AS cnt FROM reviews WHERE business_id = ${businessId} AND status <> 'deleted' AND detected_at >= NOW() - INTERVAL '8 weeks' GROUP BY DATE_TRUNC('week', detected_at) ) agg ON agg.wk = gs::date ORDER BY week_start ASC",
+    category: 'tenant-root-lookup',
+    reason: "Per-location dashboard sentiment trend; reviews accessed inside a LEFT JOIN subquery scoped by business_id = ${businessId}. Scanner strips SELECT subqueries before predicate analysis. businessId is IDOR-checked in the /api/dashboard route.",
   },
   {
     // force_drain connection lookup — businesses is joined only for account_id;

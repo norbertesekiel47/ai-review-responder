@@ -10,6 +10,7 @@ import { AuthenticatedProviders } from '@/app/(authenticated)/_components/Authen
 import { asAccountId, asLocationId } from '@/lib/shared/ids';
 import { getRequestScope } from '@/lib/auth/get-request-scope';
 import { getLocationsForAccount } from '@/lib/locations/repo';
+import { getPendingApprovalCount } from '@/lib/dashboard/pending-count';
 import { getDisplayLabel } from '@/lib/locations/display-label';
 import type { LocationScope } from '@/contexts/LocationContext';
 import type { LocationId } from '@/lib/shared/ids';
@@ -132,23 +133,21 @@ export default async function AuthenticatedLayout({
   let businessName = '';
   let initialPendingCount = 0;
 
-  const [bizRows, pendingRows, allLocations] = await Promise.all([
+  const [bizRows, pendingCount, allLocations] = await Promise.all([
     sql<{ name: string; display_label: string | null }[]>`
       SELECT name, display_label FROM businesses WHERE id = ${currentLocationId} LIMIT 1
     `,
-    sql<{ count: number }[]>`
-      SELECT COUNT(*)::int AS count
-      FROM responses
-      WHERE business_id = ${currentLocationId}
-        AND status = 'pending_approval'
-    `,
+    // Shared owner-visible pending count (open-flagged excluded) — same helper
+    // the /api/dashboard reputation summary uses, so the seed and the strip
+    // can never disagree, and held drafts no longer over-count the badge.
+    getPendingApprovalCount(currentLocationId),
     multiLocationEnabled
       ? getLocationsForAccount(accountId)
       : Promise.resolve([]),
   ]);
 
   businessName = bizRows[0] ? getDisplayLabel(bizRows[0]) : '';
-  initialPendingCount = pendingRows[0]?.count ?? 0;
+  initialPendingCount = pendingCount;
 
   // Build the locations list for the client-side LocationContext
   const locationInfos = allLocations.map((loc) => ({
@@ -188,7 +187,7 @@ export default async function AuthenticatedLayout({
             />
             <div className="main">{children}</div>
           </div>
-          <MobileTabBar pastRepliesEnabled={pastRepliesEnabled} editRepliesEnabled={editRepliesEnabled} />
+          <MobileTabBar />
         </PendingCountProvider>
       </AuthenticatedProviders>
     </div>

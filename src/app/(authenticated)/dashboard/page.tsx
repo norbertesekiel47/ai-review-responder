@@ -14,5 +14,8 @@ import { DashboardContent } from '@/components/dashboard/DashboardContent';
 export const dynamic = 'force-dynamic';
 
 export default function DashboardPage() {
-  return <DashboardContent />;
+  // Server-authoritative flag (invariant #13): the reviews zone's "View all
+  // replies" link only points to past-replies when the feature is enabled.
+  const pastRepliesEnabled = process.env.PAST_REPLIES_VIEW_ENABLED === 'true';
+  return <DashboardContent pastRepliesEnabled={pastRepliesEnabled} />;
 }

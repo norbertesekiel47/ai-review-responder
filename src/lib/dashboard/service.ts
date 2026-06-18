@@ -14,6 +14,7 @@ import {
 } from '@/lib/shared/response-status';
 import { pendingKey } from '@/lib/zernio/connect-state';
 import type { DashboardDataActive } from './types';
+import { getReputationMetrics } from './reputation-metrics';
 import {
   buildActiveDashboardResponse,
   type DashboardBriefRow,
@@ -21,6 +22,17 @@ import {
   type DashboardRankingRow,
   type DashboardZernioConnectionRow,
 } from './service-mappers';
+
+/**
+ * Opt-in flags for getActiveDashboardData. The reputation/hero metric batch is
+ * EXPENSIVE relative to the base dashboard, so it is off by default: only the
+ * single-location dashboard landing path passes includeReputationMetrics, while
+ * the aggregate path (which calls this once per location) and other per-location
+ * consumers (e.g. /dashboard/connect) keep the lighter path.
+ */
+export interface ActiveDashboardOptions {
+  includeReputationMetrics?: boolean;
+}
 
 /**
  * Thrown when the businesses row vanishes between the route's preflight
@@ -38,6 +50,7 @@ export class BusinessNotFoundError extends Error {
 
 export async function getActiveDashboardData(
   businessId: string,
+  options: ActiveDashboardOptions = {},
 ): Promise<DashboardDataActive> {
   const [
     businessRows,
@@ -209,7 +222,7 @@ export async function getActiveDashboardData(
   // Zernio banner precedence (finalize-incident > active > pending marker >
   // connection status > none) is owned by resolveZernioConnectionState in
   // zernio-banner.ts — see there for the authoritative rules.
-  return buildActiveDashboardResponse({
+  const response = buildActiveDashboardResponse({
     business,
     totalReviews,
     totalResponded,
@@ -223,6 +236,20 @@ export async function getActiveDashboardData(
     hasUnresolvedIncident: (unresolvedIncidentRows[0]?.count ?? 0) > 0,
     pendingRaw,
   });
+
+  // Hero metrics run as a second, opt-in batch (3 parallel queries) only for the
+  // dashboard landing. Kept after the base batch because the ramping flag needs
+  // the location's created_at, which the base batch resolves. If the Phase F
+  // EXPLAIN gate shows this round-trip matters, fold the buckets into the base
+  // Promise.all keyed off a pre-fetched created_at.
+  if (options.includeReputationMetrics) {
+    response.reputationSummary = await getReputationMetrics(
+      businessId,
+      business.created_at,
+    );
+  }
+
+  return response;
 }
 
 async function readPendingMarker(businessId: string): Promise<string | null> {

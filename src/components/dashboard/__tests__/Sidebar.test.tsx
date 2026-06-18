@@ -54,6 +54,7 @@ describe('Sidebar', () => {
     expect(screen.getByText('RepWorth')).toBeInTheDocument();
     expect(screen.getByText('Bristol Bay Coffee')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /dashboard/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /insights/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /past replies/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /settings/i })).toBeInTheDocument();
     expect(screen.getByText('Maya Chen')).toBeInTheDocument();

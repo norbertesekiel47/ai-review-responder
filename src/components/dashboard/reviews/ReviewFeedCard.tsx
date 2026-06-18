@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type Ref } from 'react';
+import Link from 'next/link';
 import { AutoApprovedBadge } from '@/components/dashboard/reviews/AutoApprovedBadge';
 import { ReviewActions } from '@/components/dashboard/reviews/ReviewActions';
 import { Icon } from '@/components/dashboard/shell/Icon';
@@ -36,6 +37,14 @@ interface ReviewFeedCardProps {
   emptyText: string;
   initialTab?: 'needs' | 'all';
   readOnly?: boolean;
+  /**
+   * Single-location dashboard variant: demote "All Recent" from an in-card tab
+   * to a "View all replies →" link pointing here (the past-replies page). The
+   * card then shows only the Needs-Action list, keeping the redesigned reviews
+   * zone focused. Omitted by the aggregate feed (AggregateReviewsCard), which
+   * keeps the original two-tab behaviour.
+   */
+  viewAllHref?: string;
   ref?: Ref<HTMLDivElement>;
 }
 
@@ -45,11 +54,14 @@ export function ReviewFeedCard({
   emptyText,
   initialTab = 'needs',
   readOnly = false,
+  viewAllHref,
   ref: scrollRef,
 }: ReviewFeedCardProps) {
   const [tab, setTab] = useState<'needs' | 'all'>(initialTab);
   const pending = recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval');
-  const list = tab === 'needs' ? pending : recentReviews;
+  // Single-location variant always shows the Needs-Action (pending) list; the
+  // "all recent" view lives behind the view-all link.
+  const list = viewAllHref ? pending : tab === 'needs' ? pending : recentReviews;
 
   return (
     <div className="card" id="needs-action" ref={scrollRef}>
@@ -59,27 +71,29 @@ export function ReviewFeedCard({
         <span style={{ fontSize: 12, color: '#6B7280' }}>{pending.length} awaiting your approval</span>
       </div>
 
-      <div className="tabs" role="tablist">
-        <button
-          type="button"
-          className={`tab ${tab === 'needs' ? 'active' : ''}`}
-          onClick={() => setTab('needs')}
-          role="tab"
-          aria-selected={tab === 'needs'}
-        >
-          Needs Action
-          {pending.length > 0 && <span className="tab-badge">{pending.length}</span>}
-        </button>
-        <button
-          type="button"
-          className={`tab ${tab === 'all' ? 'active' : ''}`}
-          onClick={() => setTab('all')}
-          role="tab"
-          aria-selected={tab === 'all'}
-        >
-          All Recent
-        </button>
-      </div>
+      {!viewAllHref && (
+        <div className="tabs" role="tablist">
+          <button
+            type="button"
+            className={`tab ${tab === 'needs' ? 'active' : ''}`}
+            onClick={() => setTab('needs')}
+            role="tab"
+            aria-selected={tab === 'needs'}
+          >
+            Needs Action
+            {pending.length > 0 && <span className="tab-badge">{pending.length}</span>}
+          </button>
+          <button
+            type="button"
+            className={`tab ${tab === 'all' ? 'active' : ''}`}
+            onClick={() => setTab('all')}
+            role="tab"
+            aria-selected={tab === 'all'}
+          >
+            All Recent
+          </button>
+        </div>
+      )}
 
       {list.length === 0 ? (
         <div className="empty-caught-up">
@@ -93,6 +107,12 @@ export function ReviewFeedCard({
             <ReviewFeedRow key={r.id} r={r} onSuccess={onActionSuccess} readOnly={readOnly} />
           ))}
         </div>
+      )}
+
+      {viewAllHref && (
+        <Link href={viewAllHref} className="reviews-view-all">
+          View all replies →
+        </Link>
       )}
     </div>
   );

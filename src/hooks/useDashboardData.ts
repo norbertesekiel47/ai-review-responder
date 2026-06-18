@@ -26,6 +26,10 @@ export interface UseDashboardDataOptions {
   /** Called when the API returns a scopeFallback indicator (VAL-DASH-029).
    *  The consumer can use this to update the LocationContext switcher. */
   onScopeFallback?: (fallback: ScopeFallbackInfo) => void;
+  /** When true, request the reputation/hero metric batch (?metrics=reputation).
+   *  Only the dashboard landing opts in; other consumers (e.g. /dashboard/connect)
+   *  must not, to avoid paying for metrics they never render. */
+  includeReputationMetrics?: boolean;
 }
 
 /**
@@ -63,13 +67,17 @@ export function useDashboardData(
   const scopeRef = useRef(scope);
   // Stable ref to options.onScopeFallback to avoid re-triggering effects
   const onFallbackRef = useRef(options.onScopeFallback);
-  // Keep both refs current so the stable refresh() (deps []) reads the latest
+  // Stable ref to the reputation-metrics opt-in so the deps-[] refresh() reads
+  // the latest value when it builds the URL.
+  const includeReputationRef = useRef(options.includeReputationMetrics);
+  // Keep refs current so the stable refresh() (deps []) reads the latest
   // values. Assigned in an effect (not during render) per react-hooks/refs, and
   // declared before the fetch effect below so the refs are fresh when a scope
   // change triggers refresh().
   useEffect(() => {
     scopeRef.current = scope;
     onFallbackRef.current = options.onScopeFallback;
+    includeReputationRef.current = options.includeReputationMetrics;
   });
 
   const refresh = useCallback(async () => {
@@ -78,12 +86,16 @@ export function useDashboardData(
     setError(null);
     setLoading(true);
     try {
-      // Build URL with scope query parameter
-      let url = '/api/dashboard';
+      // Build URL with scope + optional reputation-metrics query parameters.
+      const params = new URLSearchParams();
       if (fetchScope !== null) {
-        const param = fetchScope === 'all' ? 'all' : fetchScope;
-        url = `/api/dashboard?scope=${encodeURIComponent(param)}`;
+        params.set('scope', fetchScope === 'all' ? 'all' : fetchScope);
       }
+      if (includeReputationRef.current) {
+        params.set('metrics', 'reputation');
+      }
+      const query = params.toString();
+      const url = query ? `/api/dashboard?${query}` : '/api/dashboard';
       const res = await fetch(url);
       if (myReqId !== reqIdRef.current || unmountedRef.current) return;
       if (!res.ok) {

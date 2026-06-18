@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, useSyncExternalStore } from 'react';
-import { Icon } from '@/components/dashboard/shell/Icon';
+import { Icon, type IconName } from '@/components/dashboard/shell/Icon';
+import { NAV_ITEMS, resolveActiveNavId, type NavId } from '@/components/dashboard/shell/nav-items';
 import { usePendingCount } from '@/contexts/PendingCountContext';
 
 const NEEDS_ACTION_HASH = '#needs-action';
@@ -27,13 +28,24 @@ const getHashSnapshot = () => window.location.hash;
 // browser read is not an SSR hydration mismatch.
 const getHashServerSnapshot = () => '';
 
-interface Props {
-  pastRepliesEnabled: boolean;
-  /** Server-authoritative — requires pastRepliesEnabled. Read at layout level. */
-  editRepliesEnabled?: boolean;
+/** Look up a NAV_ITEMS entry's href/icon by id (active state comes from resolveActiveNavId). */
+function navHref(id: NavId): string {
+  return NAV_ITEMS.find((item) => item.id === id)!.href;
+}
+function navIcon(id: NavId): IconName {
+  return NAV_ITEMS.find((item) => item.id === id)!.icon;
 }
 
-export function MobileTabBar({ pastRepliesEnabled, editRepliesEnabled = false }: Props) {
+// Mobile primary tabs are a curated subset of NAV_ITEMS + one action tab, kept
+// to four for thumb reach (IMPLEMENTATION-PROMPT §2.3):
+//   Home · Needs Action (badge) · Insights · Settings
+// "Past Replies" is deliberately NOT a mobile tab — it stays a desktop-primary
+// destination, reachable on mobile via the dashboard's "view all replies" link.
+// Active state is computed by the SAME resolveActiveNavId as the desktop
+// Sidebar, so the two navs can never disagree. Because past-replies has no
+// mobile tab, when the owner is on /dashboard/past-replies the nearest primary
+// ancestor — Home — stays lit (the home cluster), so a tab is never blank.
+export function MobileTabBar() {
   const pathname = usePathname() ?? '';
   const pendingCount = usePendingCount();
 
@@ -54,24 +66,29 @@ export function MobileTabBar({ pastRepliesEnabled, editRepliesEnabled = false }:
   const hash = optimistic && optimistic.base === storeHash ? optimistic.value : storeHash;
   const setHash = (value: string) => setOptimistic({ base: storeHash, value });
 
-  const onDashboard = pathname === '/dashboard';
-  const isNeedsAction = onDashboard && hash === NEEDS_ACTION_HASH;
-  const isHome = onDashboard && !isNeedsAction;
-  const isHistory = pathname === '/dashboard/past-replies';
-  const isSettings = pathname.startsWith('/settings');
+  const navId = resolveActiveNavId(pathname);
+  // The Home cluster owns /dashboard + its wizards AND /dashboard/past-replies
+  // (which has no mobile tab of its own).
+  const inHomeCluster = navId === 'dashboard' || navId === 'past-replies';
+  // The hash split only applies to the bare landing page.
+  const onDashboardLanding = pathname === '/dashboard';
+  const isNeedsAction = onDashboardLanding && hash === NEEDS_ACTION_HASH;
+  const isHome = inHomeCluster && !isNeedsAction;
+  const isInsights = navId === 'insights';
+  const isSettings = navId === 'settings';
 
   return (
     <nav className="mobile-tabbar" aria-label="Dashboard">
       <Link
-        href="/dashboard"
+        href={navHref('dashboard')}
         className={`mtab ${isHome ? 'active' : ''}`}
         aria-current={isHome ? 'page' : undefined}
         onClick={() => setHash('')}
       >
-        <Icon name="home" size={22} /> Home
+        <Icon name={navIcon('dashboard')} size={22} /> Home
       </Link>
       <Link
-        href={`/dashboard${NEEDS_ACTION_HASH}`}
+        href={`${navHref('dashboard')}${NEEDS_ACTION_HASH}`}
         className={`mtab ${isNeedsAction ? 'active' : ''}`}
         aria-current={isNeedsAction ? 'page' : undefined}
         onClick={() => setHash(NEEDS_ACTION_HASH)}
@@ -79,21 +96,19 @@ export function MobileTabBar({ pastRepliesEnabled, editRepliesEnabled = false }:
         <Icon name="inbox" size={22} /> Needs Action
         {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
       </Link>
-      {pastRepliesEnabled && (
-        <Link
-          href="/dashboard/past-replies"
-          className={`mtab ${isHistory ? 'active' : ''}`}
-          aria-current={isHistory ? 'page' : undefined}
-        >
-          <Icon name="history" size={22} /> History
-        </Link>
-      )}
       <Link
-        href="/settings"
+        href={navHref('insights')}
+        className={`mtab ${isInsights ? 'active' : ''}`}
+        aria-current={isInsights ? 'page' : undefined}
+      >
+        <Icon name={navIcon('insights')} size={22} /> Insights
+      </Link>
+      <Link
+        href={navHref('settings')}
         className={`mtab ${isSettings ? 'active' : ''}`}
         aria-current={isSettings ? 'page' : undefined}
       >
-        <Icon name="cog" size={22} /> Settings
+        <Icon name={navIcon('settings')} size={22} /> Settings
       </Link>
     </nav>
   );

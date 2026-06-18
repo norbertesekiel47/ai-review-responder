@@ -1,4 +1,44 @@
 import type { ApprovalMethod } from '@/lib/auto-approval/types';
+import type { SentimentTrendPoint } from '@/lib/kpi/types';
+
+/**
+ * One hero metric with its current value and a typed, unit-correct change vs the
+ * prior 30-day window. `delta` is expressed in the metric's NATURAL unit
+ * (rating points / percentage points / minutes), never a generic percent. It is
+ * null when `priorSample === 0` so the UI can suppress that arrow entirely
+ * (per-metric suppression — a mature low-volume business still shows the deltas
+ * it has, rather than hiding all of them forever).
+ */
+export interface ReputationDelta<T> {
+  value: T;
+  delta: number | null;
+  /** Size of the prior-window sample the delta is based on (reviews / handled). */
+  priorSample: number;
+}
+
+/**
+ * Reputation/ROI hero metrics for the single-location dashboard landing.
+ * OPTIONAL on DashboardDataActive: only populated when the dashboard landing
+ * path opts in via getActiveDashboardData(id, { includeReputationMetrics: true }).
+ * The aggregate path and other per-location consumers (e.g. /dashboard/connect)
+ * leave it unset and fall back to the lifetime valueSummary.
+ */
+export interface ReputationSummary {
+  /** AVG(star_rating) last 30d; delta in rating points. value null when no rated reviews. */
+  averageStarRating: ReputationDelta<number | null>;
+  /** Response rate (0–100) last 30d; value + delta in percentage points. value null when no reviews. */
+  responseRate: ReputationDelta<number | null>;
+  /** Owner-approved responses × per-response minutes, last 30d; delta in minutes. */
+  timeSavedMinutes: ReputationDelta<number>;
+  /** True when the location is younger than the trust threshold — render the
+   *  hero compact (current values, no arrows, "still building baseline" copy). */
+  ramping: boolean;
+  /** SQL count of owner-visible drafts awaiting approval (open-flagged excluded). */
+  pendingApprovalCount: number;
+  /** 8-week ascending sentiment series (−1..1 AVG); the UI maps it to a
+   *  star-equivalent for the reputation trend chart, never showing the raw score. */
+  sentimentTrend: SentimentTrendPoint[];
+}
 
 export interface DashboardSettings {
   tone: string;
@@ -44,6 +84,9 @@ export interface DashboardDataActive {
     periodLabel: string;
   } | null;
   settings: DashboardSettings;
+  /** Reputation/ROI hero metrics — present only on the opted-in dashboard
+   *  landing path; absent on aggregate and other per-location consumers. */
+  reputationSummary?: ReputationSummary;
   zernioConnection: {
     status: 'none' | 'pending' | 'active' | 'disconnected' | 'finalize_unknown';
     pendingFlow?: {

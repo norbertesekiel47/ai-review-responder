@@ -9,6 +9,9 @@ interface Props {
   onActionSuccess: () => void;
   initialTab?: 'needs' | 'all';
   readOnly?: boolean;
+  /** Single-location variant: demote "All Recent" to a "View all replies →"
+   *  link pointing here (past-replies). Omit to keep the two-tab behaviour. */
+  viewAllHref?: string;
   ref?: Ref<HTMLDivElement>;
 }
 
@@ -17,6 +20,7 @@ export function ReviewsCard({
   onActionSuccess,
   initialTab = 'needs',
   readOnly = false,
+  viewAllHref,
   ref: scrollRef,
 }: Props) {
   return (
@@ -26,6 +30,7 @@ export function ReviewsCard({
       emptyText="No replies waiting on you. We'll email when a new draft is ready, usually within an hour of a new review."
       initialTab={initialTab}
       readOnly={readOnly}
+      viewAllHref={viewAllHref}
       ref={scrollRef}
     />
   );

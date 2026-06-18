@@ -482,6 +482,45 @@ describe('GET /api/dashboard', () => {
     expect(res.headers.get('Cache-Control')).toBe('no-store, private');
   });
 
+  it('omits reputationSummary on the default per-location load (no opt-in)', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setDbResults();
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    const body: DashboardDataActive = await res.json();
+    expect(body.reputationSummary).toBeUndefined();
+  });
+
+  it('includes reputationSummary with typed deltas only when ?metrics=reputation', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setDbResults();
+    // Reputation opt-in batch runs after the 11 base queries:
+    // reviews buckets → time-saved buckets → sentiment trend → pending count.
+    mockSqlResults.push(
+      [{
+        cur_received: 10, cur_handled: 9, cur_avg_star: 4.6,
+        prior_received: 8, prior_handled: 6, prior_avg_star: 4.4, prior_star_count: 8,
+      }],
+      [{ cur_handled_count: 9, prior_handled_count: 6 }],
+      [{ week_start: '2026-05-18', avg_score: 0.5, cnt: 3 }],
+      [{ count: 2 }],
+    );
+
+    const res = await GET(makeRequest('/api/dashboard?metrics=reputation'));
+    expect(res.status).toBe(200);
+
+    const body: DashboardDataActive = await res.json();
+    expect(body.reputationSummary).toBeDefined();
+    expect(body.reputationSummary!.responseRate.value).toBe(90); // 9/10
+    expect(body.reputationSummary!.responseRate.delta).toBe(15); // 90 - 75 pts
+    expect(body.reputationSummary!.timeSavedMinutes.value).toBe(63); // 9 × 7
+    expect(body.reputationSummary!.pendingApprovalCount).toBe(2);
+    // Default businessRows created_at (2025-01-15) is well past the threshold.
+    expect(body.reputationSummary!.ramping).toBe(false);
+  });
+
   it('returns null ranking when no snapshots exist', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setDbResults({ rankingRows: [] });

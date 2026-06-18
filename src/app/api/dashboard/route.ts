@@ -52,11 +52,13 @@ async function getPrimaryLocationId(accountId: string): Promise<string | null> {
  *
  * @param locationId  The location to fetch data for.
  * @param accountId   The owner's account ID (for fallback resolution).
+ * @param includeReputationMetrics  Compute the hero/reputation batch (landing only).
  * @param fallback    If provided, a scopeFallback indicator to include in the response.
  */
 async function fetchPerLocationData(
   locationId: string,
   accountId: string,
+  includeReputationMetrics: boolean,
   fallback?: { scopeFallback: { reason: string; fallbackLocationId: string } },
 ): Promise<NextResponse> {
   const [subRow] = await sql<{
@@ -155,7 +157,7 @@ async function fetchPerLocationData(
       pastDueAt: subRow.past_due_at,
       accountFlags: subRow.flags,
     });
-    const data = await getActiveDashboardData(locationId);
+    const data = await getActiveDashboardData(locationId, { includeReputationMetrics });
     return jsonResponse({
       ...data,
       subscriptionStatus: SubscriptionStatus.PAST_DUE,
@@ -183,7 +185,7 @@ async function fetchPerLocationData(
     });
   }
 
-  const data = await getActiveDashboardData(locationId);
+  const data = await getActiveDashboardData(locationId, { includeReputationMetrics });
 
   // VAL-DASH-029: Attach scopeFallback indicator if a fallback occurred
   if (fallback) {
@@ -296,6 +298,7 @@ async function handleAggregateDashboard(accountId: string): Promise<NextResponse
 async function handlePerLocationDashboard(
   locationId: string,
   accountId: string,
+  includeReputationMetrics: boolean,
 ): Promise<NextResponse> {
   // Validate the scope/location id BEFORE the DB read so a malformed
   // client-supplied `?scope=` value produces a controlled 400, not a
@@ -314,7 +317,7 @@ async function handlePerLocationDashboard(
       // Location not found — fall back to primary
       const primary = await getPrimaryLocationId(accountId);
       if (primary) {
-        return fetchPerLocationData(primary, accountId, {
+        return fetchPerLocationData(primary, accountId, includeReputationMetrics, {
           scopeFallback: { reason: 'location_not_found', fallbackLocationId: primary },
         });
       }
@@ -330,7 +333,7 @@ async function handlePerLocationDashboard(
       // Location is archived — fall back to primary
       const primary = await getPrimaryLocationId(accountId);
       if (primary && primary !== locationId) {
-        return fetchPerLocationData(primary, accountId, {
+        return fetchPerLocationData(primary, accountId, includeReputationMetrics, {
           scopeFallback: { reason: 'location_archived', fallbackLocationId: primary },
         });
       }
@@ -339,7 +342,7 @@ async function handlePerLocationDashboard(
     }
 
     // Location is active and owned — fetch its data normally
-    return fetchPerLocationData(locationId, accountId);
+    return fetchPerLocationData(locationId, accountId, includeReputationMetrics);
   } catch (error) {
     if (error instanceof BusinessNotFoundError) {
       return errorResponse('Business not found', 404);
@@ -360,6 +363,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // per-location; absent → the user's current location from session/cookie.
   const scopeParam = request.nextUrl.searchParams.get('scope');
   const multiLocationEnabled = process.env.MULTI_LOCATION_ENABLED === 'true';
+  // Reputation/hero metrics are opt-in: only the dashboard landing requests
+  // them (?metrics=reputation). Aggregate ignores the param to stay light.
+  const includeReputationMetrics =
+    request.nextUrl.searchParams.get('metrics') === 'reputation';
   const scopePolicy = resolveDashboardScopePolicy({
     scopeParam,
     userLocationId: user.locationId,
@@ -375,5 +382,5 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return errorResponse('No business associated with this account', 403);
   }
 
-  return handlePerLocationDashboard(locationId, accountId);
+  return handlePerLocationDashboard(locationId, accountId, includeReputationMetrics);
 }

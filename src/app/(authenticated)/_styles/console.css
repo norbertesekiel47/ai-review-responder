@@ -240,14 +240,12 @@
   font-weight: 600;
 }
 .nav-item.active .ni-icon { color: var(--rw-blue-600); }
-.nav-item.active::before {
-  content: "";
-  position: absolute;
-  left: -14px;
-  top: 6px; bottom: 6px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--rw-blue-600);
+/* Active state is carried by fill + text/icon color alone — no left bar
+   (calmer, per DESIGN_LANGUAGE §7 SidebarNav). */
+.nav-item:focus-visible,
+.signout-btn:focus-visible {
+  outline: 2px solid var(--rw-blue-500);
+  outline-offset: 2px;
 }
 .nav-badge {
   margin-left: auto;
@@ -392,6 +390,7 @@
   transition: all 160ms var(--rw-ease);
 }
 .refresh-btn:hover { background: #F9FAFB; border-color: #D1D5DB; }
+.refresh-btn:focus-visible { outline: 2px solid var(--rw-blue-500); outline-offset: 2px; }
 .refresh-btn.spinning .refresh-icon { animation: spin 0.8s linear; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -1024,6 +1023,8 @@
   }
   .mtab .ni-icon { width: 22px; height: 22px; }
   .mtab.active { color: var(--rw-blue-600); }
+  /* Inset ring so the bottom-bar tab focus never clips at the viewport edge. */
+  .mtab:focus-visible { outline: 2px solid var(--rw-blue-500); outline-offset: -2px; border-radius: 6px; }
   .mtab .nav-badge {
     position: absolute;
     top: 2px;
@@ -1080,6 +1081,115 @@
 @keyframes sectionUp {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------- Reputation hero band (single-location dashboard) ---------- */
+/* Flat: 1px border + surface, no shadow, no gradient (DESIGN.md). The star
+   rating is the visual anchor (largest type, left). On mobile the three stats
+   stack in DOM order: reputation (anchor) → response rate → time saved. */
+.rep-hero {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 8px 28px;
+  background: #fff;
+  border: 1px solid var(--rw-app-border);
+  border-radius: var(--rw-radius-md);
+  padding: 24px 26px;
+}
+.rep-hero-baseline {
+  grid-column: 1 / -1;
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--rw-app-text-muted);
+}
+.rep-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rep-stat-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--rw-app-text-muted);
+  letter-spacing: 0.01em;
+}
+.rep-stat-value {
+  font-family: var(--rw-font-display);
+  font-weight: 700;
+  font-size: 30px;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--rw-app-text);
+  font-variant-numeric: tabular-nums;
+  margin-top: 4px;
+}
+.rep-stat--anchor .rep-stat-value { font-size: 40px; }
+.rep-stat-sub { font-size: 11px; color: var(--rw-app-text-soft); }
+.rep-stat-delta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.rep-stat-delta--up { color: var(--rw-green-600); }
+.rep-stat-delta--down { color: var(--rw-red-600); }
+.rep-stat-delta--flat { color: var(--rw-app-text-muted); }
+.rep-stat-delta--none { color: var(--rw-app-text-soft); }
+.rep-stat-delta-cmp { color: var(--rw-app-text-muted); font-weight: 400; font-size: 12px; }
+
+/* ---------- Pending approvals strip ---------- */
+/* Amber action variant matches the existing pending convention (.kpi.pending). */
+.pending-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-radius: var(--rw-radius-md);
+  border: 1px solid var(--rw-app-border);
+  font-size: 14px;
+}
+.pending-strip--action {
+  background: #FFFBEB;
+  border-color: #FDE68A;
+  color: #78350F;
+}
+.pending-strip--calm {
+  background: #fff;
+  color: var(--rw-app-text-muted);
+  font-size: 13px;
+}
+.pending-strip-text { flex: 1; min-width: 0; }
+.pending-strip-text strong { font-weight: 700; }
+.pending-strip-cta {
+  flex-shrink: 0;
+  background: var(--rw-blue-600);
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: var(--rw-radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--rw-font-body);
+  transition: background 160ms var(--rw-ease);
+}
+.pending-strip-cta:hover { background: var(--rw-blue-700); }
+
+/* ---------- Demoted "view all replies" link (single-location reviews zone) ---------- */
+.reviews-view-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rw-blue-600);
+  text-decoration: none;
+}
+.reviews-view-all:hover { color: var(--rw-blue-700); text-decoration: underline; }
+
+@media (max-width: 768px) {
+  .rep-hero { grid-template-columns: 1fr; gap: 16px; }
+  .rep-stat--anchor .rep-stat-value { font-size: 36px; }
 }
 
 /* selection */

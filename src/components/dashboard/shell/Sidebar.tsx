@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
 import { Icon } from '@/components/dashboard/shell/Icon';
+import { NAV_ITEMS, resolveActiveNavId } from '@/components/dashboard/shell/nav-items';
 import { LocationPicker } from '@/components/dashboard/location/LocationPicker';
 import { useLocationScope } from '@/contexts/LocationContext';
 
@@ -59,11 +60,12 @@ export function Sidebar({
     }
   }
 
-  const isDashboard =
-    pathname === '/dashboard' ||
-    (pathname.startsWith('/dashboard/') && !pathname.startsWith('/dashboard/past-replies'));
-  const isPastReplies = pathname.startsWith('/dashboard/past-replies');
-  const isSettings = pathname.startsWith('/settings');
+  // Single active-state source shared with MobileTabBar (see nav-items.ts).
+  const activeId = resolveActiveNavId(pathname);
+  // Flag-off items are absent, not present-but-dead.
+  const visibleItems = NAV_ITEMS.filter((item) => !item.flagged || pastRepliesEnabled);
+  const primaryItems = visibleItems.filter((item) => item.id !== 'settings');
+  const settingsItem = visibleItems.find((item) => item.id === 'settings');
 
   const initials = deriveInitials(ownerName, ownerEmail);
   const displayOwner = ownerName.trim() || (ownerEmail.split('@')[0] ?? '');
@@ -82,24 +84,34 @@ export function Sidebar({
         </div>
       </div>
 
-      <div className="nav-section">
-        <Link href="/dashboard" className={`nav-item ${isDashboard ? 'active' : ''}`}>
-          <Icon name="home" /> Dashboard
-        </Link>
-        {pastRepliesEnabled && (
-          <Link href="/dashboard/past-replies" className={`nav-item ${isPastReplies ? 'active' : ''}`}>
-            <Icon name="history" /> Past Replies
-          </Link>
-        )}
-      </div>
+      <nav aria-label="Primary">
+        <div className="nav-section">
+          {primaryItems.map((item) => (
+            <Link
+              key={item.id}
+              href={item.href}
+              className={`nav-item ${activeId === item.id ? 'active' : ''}`}
+              aria-current={activeId === item.id ? 'page' : undefined}
+            >
+              <Icon name={item.icon} /> {item.label}
+            </Link>
+          ))}
+        </div>
 
-      <div className="nav-divider" />
+        <div className="nav-divider" />
 
-      <div className="nav-section">
-        <Link href="/settings" className={`nav-item ${isSettings ? 'active' : ''}`}>
-          <Icon name="cog" /> Settings
-        </Link>
-      </div>
+        <div className="nav-section">
+          {settingsItem && (
+            <Link
+              href={settingsItem.href}
+              className={`nav-item ${activeId === settingsItem.id ? 'active' : ''}`}
+              aria-current={activeId === settingsItem.id ? 'page' : undefined}
+            >
+              <Icon name={settingsItem.icon} /> {settingsItem.label}
+            </Link>
+          )}
+        </div>
+      </nav>
 
       <div className="sidebar-spacer" />
 
@@ -112,7 +124,7 @@ export function Sidebar({
       </div>
 
       {signOutError && (
-        <p style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>Sign out failed</p>
+        <p style={{ fontSize: 12, color: 'var(--rw-red-600)', marginTop: 4 }}>Sign out failed</p>
       )}
       <button
         type="button"

@@ -19,18 +19,17 @@ import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal'
 import { ConnectGoogleBanner } from '@/components/dashboard/account-state/ConnectGoogleBanner';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
-import { KpiCards } from '@/components/dashboard/kpi/KpiCards';
 import { ReviewsCard } from '@/components/dashboard/reviews/ReviewsCard';
-import { VelocityCard } from '@/components/dashboard/kpi/VelocityCard';
-import { RankingCard } from '@/components/dashboard/kpi/RankingCard';
-import { IntelligenceBriefCard } from '@/components/dashboard/kpi/IntelligenceBriefCard';
+import { ReputationHeroBand } from '@/components/dashboard/reputation/ReputationHeroBand';
+import { PendingApprovalsStrip } from '@/components/dashboard/reputation/PendingApprovalsStrip';
+import { ReputationTrendChart } from '@/components/dashboard/reputation/ReputationTrendChart';
 import { AggregateDashboardContent } from '@/components/dashboard/aggregate/AggregateDashboardContent';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useSetPendingCount } from '@/contexts/PendingCountContext';
 import { useLocationScope } from '@/contexts/LocationContext';
 import { useNeedsActionHashScroll } from '@/hooks/useNeedsActionHashScroll';
 
-export function DashboardContent() {
+export function DashboardContent({ pastRepliesEnabled = false }: { pastRepliesEnabled?: boolean }) {
   const setPendingCount = useSetPendingCount();
   const {
     data: offboardingStatus,
@@ -113,7 +112,7 @@ export function DashboardContent() {
     );
   }
 
-  return <DashboardOperationalContent />;
+  return <DashboardOperationalContent pastRepliesEnabled={pastRepliesEnabled} />;
 }
 
 type OffboardingStatusResponse = {
@@ -122,11 +121,14 @@ type OffboardingStatusResponse = {
   activeOffboarding: OffboardingStatusView | null;
 };
 
-function DashboardOperationalContent() {
+function DashboardOperationalContent({ pastRepliesEnabled }: { pastRepliesEnabled: boolean }) {
   const { currentScope, setLocationScope } = useLocationScope();
   const { data, error, loading, refresh, scopeFallback } = useDashboardData(
     currentScope,
     {
+      // The dashboard landing is the only consumer that opts into the
+      // reputation/hero metric batch (?metrics=reputation).
+      includeReputationMetrics: true,
       // VAL-DASH-029: When the API detects the selected location is archived,
       // fall back to primary and update the LocationContext switcher.
       onScopeFallback: (fallback) => {
@@ -258,12 +260,17 @@ function DashboardOperationalContent() {
     );
   }
 
-  // Active per-location view (same as before redesign)
+  // Active per-location view — redesigned 4-zone layout (single-location).
+  // The demoted analytics (Velocity/Ranking/Brief) now live on /dashboard/insights.
   const pastDueData: DashboardDataPastDue | null =
     data.subscriptionStatus === SubscriptionStatus.PAST_DUE ? data : null;
   const activeData: DashboardDataActive = data as DashboardDataActive;
-  const { valueSummary, reviewVelocity, ranking, recentReviews, latestBrief, zernioConnection, business } = activeData;
-  const pending = recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval').length;
+  const { recentReviews, zernioConnection, business, reputationSummary } = activeData;
+  // Authoritative pending count: the SQL reputation count when present (same
+  // source as the tabbar badge), else the recentReviews-derived fallback.
+  const pendingCount =
+    reputationSummary?.pendingApprovalCount ??
+    recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval').length;
 
   function scrollToReviews() {
     if (reviewsRef.current) {
@@ -278,6 +285,7 @@ function DashboardOperationalContent() {
   const subtitle = pastDueData
     ? 'Payment overdue — please update your payment method'
     : activeSubtitle;
+  const readOnly = pastDueData?.isReadOnly ?? false;
 
   return (
     <>
@@ -301,34 +309,39 @@ function DashboardOperationalContent() {
           </div>
         )}
         <div className="section-enter section-enter-1">
-          <ConnectGoogleBanner
-            zernio={zernioConnection}
-            readOnly={pastDueData?.isReadOnly ?? false}
-          />
+          <ConnectGoogleBanner zernio={zernioConnection} readOnly={readOnly} />
         </div>
-        <div className="section-enter section-enter-2">
-          <KpiCards valueSummary={valueSummary} pendingCount={pending} onScrollToReviews={scrollToReviews} />
-        </div>
+        {/* Zone 1 — reputation/ROI hero (the single dominant zone). */}
+        {reputationSummary && (
+          <div className="section-enter section-enter-2">
+            <ReputationHeroBand summary={reputationSummary} />
+          </div>
+        )}
+        {/* Zone 2 — pending-approvals action strip (strong secondary). */}
         <div className="section-enter section-enter-3">
+          <PendingApprovalsStrip pendingCount={pendingCount} onReview={scrollToReviews} />
+        </div>
+        {/* Zone 3 — Needs-Action reviews ("All Recent" demoted to a link). */}
+        <div className="section-enter section-enter-4">
           <ReviewsCard
             recentReviews={recentReviews}
             onActionSuccess={() => { void refresh(); }}
             ref={reviewsRef}
             initialTab={initialTab}
-            readOnly={pastDueData?.isReadOnly ?? false}
+            readOnly={readOnly}
+            viewAllHref={pastRepliesEnabled ? '/dashboard/past-replies' : undefined}
           />
         </div>
-        <div className="section-enter section-enter-4">
-          <VelocityCard reviewVelocity={reviewVelocity} />
-        </div>
-        <div className="section-enter section-enter-5">
-          <RankingCard ranking={ranking} />
-        </div>
-        {latestBrief && (
-          <div className="section-enter section-enter-6">
-            <IntelligenceBriefCard brief={latestBrief} />
+        {/* Zone 4 — reputation trend (star-equivalent). */}
+        {reputationSummary && (
+          <div className="section-enter section-enter-5">
+            <ReputationTrendChart trend={reputationSummary.sentimentTrend} />
           </div>
         )}
+        {/* Contextual entry to the demoted analytics. */}
+        <Link href="/dashboard/insights" className="reviews-view-all">
+          View insights →
+        </Link>
       </div>
     </>
   );
@@ -359,6 +372,11 @@ function computePendingCount(data: DashboardOrAggregate | null): number {
     ).length;
   }
   if (data.subscriptionStatus === undefined || data.subscriptionStatus === SubscriptionStatus.PAST_DUE) {
+    // Prefer the authoritative SQL count (flagged-excluded) when the landing
+    // opted into reputation metrics; fall back to the recentReviews-derived count.
+    if ('reputationSummary' in data && data.reputationSummary) {
+      return data.reputationSummary.pendingApprovalCount;
+    }
     return data.recentReviews.filter(
       (r) => (r.responseStatus ?? r.status) === 'pending_approval',
     ).length;

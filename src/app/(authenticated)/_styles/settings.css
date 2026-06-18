@@ -42,6 +42,7 @@
 }
 .stab:hover { color: var(--rw-app-text); }
 .stab.active { color: var(--rw-blue-700); font-weight: 600; }
+.stab:focus-visible { outline: 2px solid var(--rw-blue-500); outline-offset: -2px; border-radius: 6px; }
 .stab .ni-icon { width: 16px; height: 16px; }
 .stab-underline {
   position: absolute;
