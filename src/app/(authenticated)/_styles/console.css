@@ -408,6 +408,38 @@
   gap: 30px;
 }
 
+/* ---------- Reviews surface (Needs Action + History tabs) ----------
+   Both routed Reviews tabs share ONE reading-column geometry (the archive's
+   1024px) so the routed tab bar stays put when switching tabs instead of
+   jumping width. `.content--reviews` narrows the queue body to match the
+   archive; `.reviews-subnav` is the shared tab-bar row used by BOTH routes
+   (queue: ReviewsContent; history: reviews/history/page). */
+.content--reviews {
+  max-width: 1024px;
+  padding: 30px 32px 80px;
+}
+.reviews-subnav {
+  max-width: 1024px;
+  margin: 0 auto;
+  padding: 20px 32px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.reviews-subnav .tabs { margin-bottom: 0; }
+.reviews-showing {
+  font-size: 12px;
+  color: var(--rw-app-text-muted);
+  white-space: nowrap;
+}
+.reviews-showing strong { color: var(--rw-app-text); font-weight: 600; }
+@media (max-width: 768px) {
+  .content--reviews { padding: 16px 16px 96px; }
+  .reviews-subnav { padding: 14px 16px 0; }
+}
+
 /* ---------- Film-grain overlay (Warm Editorial paper warmth) ----------
    Fixed, pointer-events-none, whisper-faint. z-index:1 sits above the static
    card field but below sticky chrome (topbar z40) and modals (z100), so it

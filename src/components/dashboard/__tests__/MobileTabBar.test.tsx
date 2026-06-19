@@ -22,40 +22,40 @@ vi.mock('@/contexts/PendingCountContext', () => ({
 const linkByName = (name: RegExp) => screen.getByRole('link', { name });
 
 describe('MobileTabBar', () => {
-  it('renders Home, Reviews, History, Settings (no Insights/Needs Action)', () => {
+  it('renders Home, Reviews, Settings (no History/Insights/Needs Action)', () => {
     pathnameMock.mockReturnValue('/dashboard');
-    render(<MobileTabBar pastRepliesEnabled />);
+    render(<MobileTabBar />);
     expect(linkByName(/home/i)).toHaveAttribute('href', '/dashboard');
     expect(linkByName(/reviews/i)).toHaveAttribute('href', '/dashboard/reviews');
-    expect(linkByName(/history/i)).toBeInTheDocument();
     expect(linkByName(/settings/i)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /history/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /insights/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /needs action/i })).not.toBeInTheDocument();
   });
 
   it('marks Home active on /dashboard', () => {
     pathnameMock.mockReturnValue('/dashboard');
-    render(<MobileTabBar pastRepliesEnabled />);
+    render(<MobileTabBar />);
     expect(linkByName(/home/i)).toHaveClass('active');
     expect(linkByName(/reviews/i)).not.toHaveClass('active');
   });
 
   it('marks Reviews active on /dashboard/reviews', () => {
     pathnameMock.mockReturnValue('/dashboard/reviews');
-    render(<MobileTabBar pastRepliesEnabled />);
+    render(<MobileTabBar />);
     expect(linkByName(/reviews/i)).toHaveClass('active');
     expect(linkByName(/home/i)).not.toHaveClass('active');
   });
 
-  it('marks History active on /dashboard/past-replies', () => {
-    pathnameMock.mockReturnValue('/dashboard/past-replies');
-    render(<MobileTabBar pastRepliesEnabled />);
-    expect(linkByName(/history/i)).toHaveClass('active');
+  it('marks Reviews active on /dashboard/reviews/history', () => {
+    pathnameMock.mockReturnValue('/dashboard/reviews/history');
+    render(<MobileTabBar />);
+    expect(linkByName(/reviews/i)).toHaveClass('active');
   });
 
   it('labels the nav and marks the active tab aria-current=page', () => {
     pathnameMock.mockReturnValue('/dashboard/reviews');
-    render(<MobileTabBar pastRepliesEnabled />);
+    render(<MobileTabBar />);
     expect(screen.getByRole('navigation', { name: /dashboard/i })).toBeInTheDocument();
     expect(linkByName(/reviews/i)).toHaveAttribute('aria-current', 'page');
     expect(linkByName(/settings/i)).not.toHaveAttribute('aria-current');

@@ -12,6 +12,9 @@
   .pr-content { padding: 16px 16px 96px; }
 }
 
+/* The routed Reviews sub-nav (.reviews-subnav / .reviews-showing) is shared
+   across both Reviews tabs and lives in console.css, not here. */
+
 /* Filter bar */
 .pr-toolbar {
   display: flex;

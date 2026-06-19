@@ -50,8 +50,6 @@ describe('Sidebar', () => {
           businessName="Bristol Bay Coffee"
           ownerName="Maya Chen"
           ownerEmail="maya@bristolbay.co"
-          pastRepliesEnabled
-          editRepliesEnabled={false}
         />,
       ),
     );
@@ -59,23 +57,16 @@ describe('Sidebar', () => {
     expect(screen.getByText('Bristol Bay Coffee')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /dashboard/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /reviews/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /past replies/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /settings/i })).toBeInTheDocument();
     expect(screen.getByText('Maya Chen')).toBeInTheDocument();
     expect(screen.getByText('maya@bristolbay.co')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /sign out/i })).toBeInTheDocument();
   });
 
-  it('hides Past Replies when pastRepliesEnabled is false', () => {
+  it('never renders a standalone Past Replies nav item (folded into Reviews → History)', () => {
     render(
       wrapWithProvider(
-        <Sidebar
-          businessName="Coffee Co"
-          ownerName=""
-          ownerEmail="a@b.co"
-          pastRepliesEnabled={false}
-          editRepliesEnabled={false}
-        />,
+        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" />,
       ),
     );
     expect(screen.queryByRole('link', { name: /past replies/i })).not.toBeInTheDocument();
@@ -84,46 +75,29 @@ describe('Sidebar', () => {
   it('marks active nav item based on usePathname', () => {
     render(
       wrapWithProvider(
-        <Sidebar
-          businessName="Coffee Co"
-          ownerName=""
-          ownerEmail="a@b.co"
-          pastRepliesEnabled
-          editRepliesEnabled={false}
-        />,
+        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" />,
       ),
     );
     const dash = screen.getByRole('link', { name: /dashboard/i });
     expect(dash.className).toContain('active');
   });
 
-  it('renders the Reviews nav item (Insights removed)', () => {
+  it('renders the Reviews nav item (Insights/Past Replies removed)', () => {
     render(
       wrapWithProvider(
-        <Sidebar
-          businessName="Coffee Co"
-          ownerName=""
-          ownerEmail="a@b.co"
-          pastRepliesEnabled
-          editRepliesEnabled={false}
-        />,
+        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" />,
       ),
     );
     expect(screen.getByRole('link', { name: /reviews/i })).toHaveAttribute('href', '/dashboard/reviews');
     expect(screen.queryByRole('link', { name: /insights/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /past replies/i })).not.toBeInTheDocument();
   });
 
   it('calls supabase signOut on click', async () => {
     const user = userEvent.setup();
     render(
       wrapWithProvider(
-        <Sidebar
-          businessName="Coffee Co"
-          ownerName=""
-          ownerEmail="a@b.co"
-          pastRepliesEnabled
-          editRepliesEnabled={false}
-        />,
+        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" />,
       ),
     );
     await user.click(screen.getByRole('button', { name: /sign out/i }));
@@ -134,13 +108,7 @@ describe('Sidebar', () => {
     const LOC_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' as LocationId;
     render(
       wrapWithProvider(
-        <Sidebar
-          businessName="Bristol Bay Coffee"
-          ownerName="Maya"
-          ownerEmail="maya@test.co"
-          pastRepliesEnabled
-          editRepliesEnabled={false}
-        />,
+        <Sidebar businessName="Bristol Bay Coffee" ownerName="Maya" ownerEmail="maya@test.co" />,
         {
           locations: [
             { id: LOC_A, name: 'Bristol Bay Coffee', displayLabel: null, isPrimary: true },

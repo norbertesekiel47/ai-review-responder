@@ -20,6 +20,7 @@ import { sql } from '@/lib/db/server';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
 import { assertCanEditReply } from '@/lib/responses/edit-existing';
+import { editRepliesEnabled } from '@/lib/past-replies/flags';
 import { mapEditReplyError } from './edit-reply-errors';
 import type { SessionAuditContext } from '@/lib/approval/audit';
 
@@ -51,10 +52,7 @@ export interface EditReplyContext {
 export async function resolveEditReplyScope(
   request: NextRequest,
 ): Promise<EditReplyGuard<{ accountId: string; locationId: string; userId: string }>> {
-  if (
-    process.env.PAST_REPLIES_VIEW_ENABLED !== 'true' ||
-    process.env.EDIT_REPLIES_ENABLED !== 'true'
-  ) {
+  if (!editRepliesEnabled()) {
     return {
       ok: false,
       response: NextResponse.json({ error: 'feature_disabled' }, { status: 503 }),
@@ -120,10 +118,7 @@ export async function resolveEditReplyContext(
   request: NextRequest,
   paramsPromise: Promise<{ responseId: string }>,
 ): Promise<EditReplyGuard<EditReplyContext>> {
-  if (
-    process.env.PAST_REPLIES_VIEW_ENABLED !== 'true' ||
-    process.env.EDIT_REPLIES_ENABLED !== 'true'
-  ) {
+  if (!editRepliesEnabled()) {
     return {
       ok: false,
       response: NextResponse.json({ error: 'feature_disabled' }, { status: 503 }),

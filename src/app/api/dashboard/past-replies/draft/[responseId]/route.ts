@@ -41,6 +41,7 @@ import {
 import { authorizeEditReplyResponse } from '@/app/api/dashboard/past-replies/_shared/edit-reply-request';
 import { snapshotSchema } from '@/app/api/dashboard/past-replies/_shared/schemas';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { editRepliesEnabled } from '@/lib/past-replies/flags';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,10 +58,7 @@ export async function PATCH(
   request: NextRequest,
   context: RouteParams,
 ): Promise<Response> {
-  if (
-    process.env.PAST_REPLIES_VIEW_ENABLED !== 'true' ||
-    process.env.EDIT_REPLIES_ENABLED !== 'true'
-  ) {
+  if (!editRepliesEnabled()) {
     return NextResponse.json({ error: 'feature_disabled' }, { status: 503 });
   }
 
@@ -177,10 +175,7 @@ export async function DELETE(
   request: NextRequest,
   context: RouteParams,
 ): Promise<Response> {
-  if (
-    process.env.PAST_REPLIES_VIEW_ENABLED !== 'true' ||
-    process.env.EDIT_REPLIES_ENABLED !== 'true'
-  ) {
+  if (!editRepliesEnabled()) {
     return NextResponse.json({ error: 'feature_disabled' }, { status: 503 });
   }
 

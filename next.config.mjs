@@ -51,6 +51,13 @@ const nextConfig = {
     return [
       { source: '/terms', destination: '/legal/terms', permanent: true },
       { source: '/privacy', destination: '/legal/privacy', permanent: true },
+      // Past Replies folded into Reviews → History (2026-06-19). Hygiene for
+      // staging bookmarks; the sidebar/mobile links already point at the new path.
+      {
+        source: '/dashboard/past-replies',
+        destination: '/dashboard/reviews/history',
+        permanent: true,
+      },
     ];
   },
 };

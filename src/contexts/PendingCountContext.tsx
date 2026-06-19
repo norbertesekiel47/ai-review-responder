@@ -10,7 +10,7 @@ import { createContext, use, useMemo, useState, type Dispatch, type SetStateActi
  * Population:
  *   - The authenticated layout seeds the provider with a server-side count
  *     when it resolves the owner's business_id. This makes the badge
- *     accurate on cold loads of /settings and /dashboard/past-replies.
+ *     accurate on cold loads of /settings and /dashboard/reviews/history.
  *   - DashboardContent calls useSetPendingCount() inside a useEffect that
  *     fires when its `data` resolves, keeping the count fresh across
  *     refresh ticks and approve actions. The count survives across

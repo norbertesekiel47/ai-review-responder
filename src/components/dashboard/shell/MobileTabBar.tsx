@@ -5,19 +5,13 @@ import { usePathname } from 'next/navigation';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { usePendingCount } from '@/contexts/PendingCountContext';
 
-interface Props {
-  pastRepliesEnabled: boolean;
-  /** Server-authoritative — requires pastRepliesEnabled. Read at layout level. */
-  editRepliesEnabled?: boolean;
-}
-
-export function MobileTabBar({ pastRepliesEnabled }: Props) {
+export function MobileTabBar() {
   const pathname = usePathname() ?? '';
   const pendingCount = usePendingCount();
 
   const isHome = pathname === '/dashboard';
+  // /dashboard/reviews and /dashboard/reviews/history both highlight Reviews.
   const isReviews = pathname.startsWith('/dashboard/reviews');
-  const isHistory = pathname === '/dashboard/past-replies';
   const isSettings = pathname.startsWith('/settings');
 
   return (
@@ -37,15 +31,6 @@ export function MobileTabBar({ pastRepliesEnabled }: Props) {
         <Icon name="inbox" size={22} /> Reviews
         {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
       </Link>
-      {pastRepliesEnabled && (
-        <Link
-          href="/dashboard/past-replies"
-          className={`mtab ${isHistory ? 'active' : ''}`}
-          aria-current={isHistory ? 'page' : undefined}
-        >
-          <Icon name="history" size={22} /> History
-        </Link>
-      )}
       <Link
         href="/settings"
         className={`mtab ${isSettings ? 'active' : ''}`}
