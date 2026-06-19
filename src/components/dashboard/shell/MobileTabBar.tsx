@@ -57,6 +57,7 @@ export function MobileTabBar({ pastRepliesEnabled, editRepliesEnabled = false }:
   const onDashboard = pathname === '/dashboard';
   const isNeedsAction = onDashboard && hash === NEEDS_ACTION_HASH;
   const isHome = onDashboard && !isNeedsAction;
+  const isInsights = pathname.startsWith('/dashboard/insights');
   const isHistory = pathname === '/dashboard/past-replies';
   const isSettings = pathname.startsWith('/settings');
 
@@ -69,6 +70,13 @@ export function MobileTabBar({ pastRepliesEnabled, editRepliesEnabled = false }:
         onClick={() => setHash('')}
       >
         <Icon name="home" size={22} /> Home
+      </Link>
+      <Link
+        href="/dashboard/insights"
+        className={`mtab ${isInsights ? 'active' : ''}`}
+        aria-current={isInsights ? 'page' : undefined}
+      >
+        <Icon name="chart" size={22} /> Insights
       </Link>
       <Link
         href={`/dashboard${NEEDS_ACTION_HASH}`}

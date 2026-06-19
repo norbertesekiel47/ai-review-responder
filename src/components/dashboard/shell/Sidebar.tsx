@@ -59,9 +59,12 @@ export function Sidebar({
     }
   }
 
+  const isInsights = pathname.startsWith('/dashboard/insights');
   const isDashboard =
     pathname === '/dashboard' ||
-    (pathname.startsWith('/dashboard/') && !pathname.startsWith('/dashboard/past-replies'));
+    (pathname.startsWith('/dashboard/') &&
+      !pathname.startsWith('/dashboard/past-replies') &&
+      !pathname.startsWith('/dashboard/insights'));
   const isPastReplies = pathname.startsWith('/dashboard/past-replies');
   const isSettings = pathname.startsWith('/settings');
 
@@ -85,6 +88,9 @@ export function Sidebar({
       <div className="nav-section">
         <Link href="/dashboard" className={`nav-item ${isDashboard ? 'active' : ''}`}>
           <Icon name="home" /> Dashboard
+        </Link>
+        <Link href="/dashboard/insights" className={`nav-item ${isInsights ? 'active' : ''}`}>
+          <Icon name="chart" /> Insights
         </Link>
         {pastRepliesEnabled && (
           <Link href="/dashboard/past-replies" className={`nav-item ${isPastReplies ? 'active' : ''}`}>
