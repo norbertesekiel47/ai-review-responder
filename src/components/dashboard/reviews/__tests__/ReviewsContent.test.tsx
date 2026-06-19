@@ -56,4 +56,27 @@ describe('ReviewsContent', () => {
     expect(screen.getByTestId('aggregate-reviews-card')).toBeInTheDocument();
     expect(screen.queryByTestId('reviews-card')).not.toBeInTheDocument();
   });
+
+  it('renders neither card for a non-active subscription (e.g. cancelled)', () => {
+    useDashboardDataMock.mockReturnValue({
+      data: {
+        subscriptionStatus: 'cancelled',
+        business: { name: 'Biz', createdAt: '2026-01-01' },
+        valueSummary: { totalReviewsHandled: 0, totalTimeSavedMinutes: 0, currentResponseRate: 0, baselineResponseRate: null },
+        recentReviews: [],
+        reviewVelocity: [],
+        ranking: null,
+        latestBrief: null,
+        settings: {},
+        zernioConnection: { status: 'active', queuedReconnectCount: 0, hasUnresolvedIncident: false },
+      },
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+    });
+    render(<ReviewsContent />);
+    expect(screen.queryByTestId('reviews-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('aggregate-reviews-card')).not.toBeInTheDocument();
+    expect(screen.getByText(/reviews aren't available right now/i)).toBeInTheDocument();
+  });
 });
