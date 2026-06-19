@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 367;
+export const ALLOWLIST_BASELINE = 369;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -387,6 +387,25 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: DASHBOARD_SETTINGS_SELECT_SQL,
     category: 'tenant-root-lookup',
     reason: "Account is joined on the already-scoped business/location id (b.id = ${businessId}) only to read the account-level digest opt-in toggles (migration 063); no cross-account fan-out.",
+  },
+  // Reputation summary (PR2): windowed metrics folded into the per-location
+  // dashboard response. Scoped by business_id; the scanner strips SELECT
+  // subqueries so it cannot see the scope inside the rate query's
+  // EXISTS(responses) or the trend query's LEFT JOIN(reviews). businessId is
+  // IDOR-checked in the dashboard route before the service runs.
+  {
+    file: "src/lib/dashboard/service.ts",
+    table: "responses",
+    sqlSnippet: "SELECT COUNT(*) FILTER ( WHERE r.detected_at >= NOW() - INTERVAL '30 days' )::int AS received_current, COUNT(*) FILTER ( WHERE r.detected_at >= NOW() - INTERVAL '30 days' AND EXISTS ( SELECT 1 FROM responses resp WHERE resp.review_id = r.id AND resp.business_id = ${businessId} AND resp.status = ANY(${HANDLED}::text[]) ) )::int AS handled_current, COUNT(*) FILTER ( WHERE r.detected_at >= NOW() - INTERVAL '60 days' AND r.detected_at < NOW() - INTERVAL '30 days' )::int AS received_prior, COUNT(*) FILTER ( WHERE r.detected_at >= NOW() - INTERVAL '60 days' AND r.detected_at < NOW() - INTERVAL '30 days' AND EXISTS ( SELECT 1 FROM responses resp WHERE resp.review_id = r.id AND resp.business_id = ${businessId} AND resp.status = ANY(${HANDLED}::text[]) AND resp.approved_at IS NOT NULL AND resp.approved_at <= NOW() - INTERVAL '30 days' ) )::int AS handled_prior FROM reviews r WHERE r.business_id = ${businessId} AND r.status <> 'deleted' AND r.detected_at >= NOW() - INTERVAL '60 days'",
+    category: 'tenant-root-lookup',
+    reason: "Reputation rate metric; responses accessed via correlated EXISTS (resp.review_id = r.id AND resp.business_id = ${businessId}) inside the reviews scan scoped by r.business_id = ${businessId}. businessId is IDOR-checked in the route.",
+  },
+  {
+    file: "src/lib/dashboard/service.ts",
+    table: "reviews",
+    sqlSnippet: "SELECT gs::date AS week_start, agg.avg_score::float AS avg_score, COALESCE(agg.cnt, 0)::int AS cnt FROM generate_series( DATE_TRUNC('week', NOW() - INTERVAL '7 weeks'), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', detected_at)::date AS wk, AVG(sentiment_score) AS avg_score, COUNT(*) AS cnt FROM reviews WHERE business_id = ${businessId} AND status <> 'deleted' AND detected_at >= NOW() - INTERVAL '8 weeks' GROUP BY DATE_TRUNC('week', detected_at) ) agg ON agg.wk = gs::date ORDER BY week_start ASC",
+    category: 'tenant-root-lookup',
+    reason: "Reputation trend metric; reviews accessed inside a LEFT JOIN subquery scoped by business_id = ${businessId}. Scanner strips SELECT subqueries before predicate analysis. businessId is IDOR-checked in the route.",
   },
   {
     file: "src/lib/db/account-guard.ts",
