@@ -54,6 +54,7 @@ describe('Sidebar', () => {
     expect(screen.getByText('RepWorth')).toBeInTheDocument();
     expect(screen.getByText('Bristol Bay Coffee')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /dashboard/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /reviews/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /past replies/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /settings/i })).toBeInTheDocument();
     expect(screen.getByText('Maya Chen')).toBeInTheDocument();
@@ -90,6 +91,22 @@ describe('Sidebar', () => {
     );
     const dash = screen.getByRole('link', { name: /dashboard/i });
     expect(dash.className).toContain('active');
+  });
+
+  it('renders the Reviews nav item (Insights removed)', () => {
+    render(
+      wrapWithProvider(
+        <Sidebar
+          businessName="Coffee Co"
+          ownerName=""
+          ownerEmail="a@b.co"
+          pastRepliesEnabled
+          editRepliesEnabled={false}
+        />,
+      ),
+    );
+    expect(screen.getByRole('link', { name: /reviews/i })).toHaveAttribute('href', '/dashboard/reviews');
+    expect(screen.queryByRole('link', { name: /insights/i })).not.toBeInTheDocument();
   });
 
   it('calls supabase signOut on click', async () => {
