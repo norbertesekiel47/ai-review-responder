@@ -16,27 +16,27 @@ export function OffboardingStatusScreen({
   accountTimeZone,
 }: OffboardingStatusScreenProps) {
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-10">
-      <div className="max-w-2xl w-full bg-white rounded-lg border border-gray-200 p-8">
+    <div className="min-h-screen flex items-center justify-center px-4 py-10" style={{ background: 'var(--rw-app-bg)' }}>
+      <div className="max-w-2xl w-full rounded-lg p-8" style={{ background: 'var(--rw-card)', border: '1px solid var(--rw-hair)' }}>
         <OffboardingStatusBanner
           activeOffboarding={activeOffboarding}
           accountTimeZone={accountTimeZone}
         />
         <div style={{ display: 'grid', gap: 12, marginTop: 18 }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--rw-app-text-muted)', textTransform: 'uppercase' }}>
               Current state
             </div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginTop: 4 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--rw-app-text)', marginTop: 4 }}>
               {humanOffboardingState(activeOffboarding)}
             </div>
           </div>
           {activeOffboarding.status === 'failed' ? (
-            <p style={{ margin: 0, color: '#7F1D1D', fontSize: 14, lineHeight: 1.5 }}>
+            <p style={{ margin: 0, color: 'var(--rw-danger)', fontSize: 14, lineHeight: 1.5 }}>
               Support has been notified and will review the failed step before processing continues.
             </p>
           ) : (
-            <p style={{ margin: 0, color: '#4B5563', fontSize: 14, lineHeight: 1.5 }}>
+            <p style={{ margin: 0, color: 'var(--rw-app-text-muted)', fontSize: 14, lineHeight: 1.5 }}>
               RepWorth keeps this page limited to account lifecycle status. Review text,
               response drafts, provider identifiers, and business content are not shown here.
             </p>

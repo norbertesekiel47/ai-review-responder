@@ -122,7 +122,7 @@ function ConnectPageInner() {
           </div>
         </div>
         <div>
-          <Link href="/dashboard" className="text-sm text-blue-600 hover:underline">
+          <Link href="/dashboard" className="text-sm hover:underline" style={{ color: 'var(--rw-sage-deep)' }}>
             ← Back to dashboard
           </Link>
         </div>
@@ -150,8 +150,8 @@ function ConnectPageInner() {
           </p>
           <Link
             href="/dashboard"
-            className="text-sm text-blue-600 hover:underline"
-            style={{ display: 'inline-block', marginTop: 16 }}
+            className="text-sm hover:underline"
+            style={{ display: 'inline-block', marginTop: 16, color: 'var(--rw-sage-deep)' }}
           >
             Back to dashboard
           </Link>
@@ -281,17 +281,17 @@ function ConnectPageInner() {
 
       {!isReadOnly && redirectUrl ? (
         <div>
-          <a className="text-sm text-blue-600 hover:underline" href={redirectUrl}>
+          <a className="text-sm hover:underline" href={redirectUrl} style={{ color: 'var(--rw-sage-deep)' }}>
             Open connection manually
           </a>
         </div>
       ) : null}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <Link href="/dashboard" className="text-sm text-blue-600 hover:underline">
+        <Link href="/dashboard" className="text-sm hover:underline" style={{ color: 'var(--rw-sage-deep)' }}>
           ← Back to dashboard
         </Link>
-        <Link href="/help/contact" className="text-sm text-blue-600 hover:underline">
+        <Link href="/help/contact" className="text-sm hover:underline" style={{ color: 'var(--rw-sage-deep)' }}>
           Get help connecting Google Business
         </Link>
       </div>

@@ -90,24 +90,24 @@ export function PastDueModal({
         style={{
           width: 'min(420px, 100%)',
           borderRadius: 8,
-          border: '1px solid #FCD34D',
-          background: '#FFFBEB',
+          border: '1px solid var(--rw-blush)',
+          background: 'var(--rw-blush-soft)',
           boxShadow: '0 20px 45px rgba(17, 24, 39, 0.18)',
           padding: 20,
         }}
       >
         <h2
           id="past-due-modal-title"
-          style={{ margin: 0, fontSize: 18, lineHeight: 1.3, color: '#92400E' }}
+          style={{ margin: 0, fontSize: 18, lineHeight: 1.3, color: 'var(--rw-blush-deep)' }}
         >
           Payment update needed{deadlineCopy ? ` by ${deadlineCopy}` : ''}
         </h2>
-        <p style={{ margin: '10px 0 18px', fontSize: 14, lineHeight: 1.5, color: '#78350F' }}>
+        <p style={{ margin: '10px 0 18px', fontSize: 14, lineHeight: 1.5, color: 'var(--rw-app-text)' }}>
           Update your payment method to keep approvals, edits, and publishing available.
         </p>
         <Link
           href="/help/contact"
-          style={{ display: 'inline-block', marginBottom: 16, fontSize: 14, color: '#1D4ED8' }}
+          style={{ display: 'inline-block', marginBottom: 16, fontSize: 14, color: 'var(--rw-sage-deep)' }}
         >
           Contact support
         </Link>

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RepWorth · Dashboard Redesign — Warm Editorial</title>
+<link rel="stylesheet" href="assets/warm-editorial.css" />
+<style>
+  .launch { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; margin-top: 34px; }
+  @media (max-width: 720px) { .launch { grid-template-columns: 1fr; } }
+  a.launch-card { display: block; }
+  a.launch-card .core { transition: transform 420ms var(--ease-spring), box-shadow 420ms var(--ease-out); }
+  a.launch-card:hover { }
+  a.launch-card:hover .core { transform: translateY(-3px); box-shadow: var(--sh-pop); }
+  .launch-card .lc-top { display: flex; align-items: center; gap: 13px; }
+  .launch-ic { width: 44px; height: 44px; border-radius: 13px; flex: none; display: grid; place-items: center; background: var(--sage-soft); color: var(--sage-deep); }
+  .launch-ic svg { width: 22px; height: 22px; }
+  .launch-card h3 { font-family: var(--display); font-size: 20px; letter-spacing: -0.01em; }
+  .launch-card p { font-size: 13px; color: var(--muted); line-height: 1.55; margin: 13px 0 0; }
+  .launch-card .go { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--sage-deep); margin-top: 14px; }
+  .launch-card .go svg { width: 14px; height: 14px; }
+  .lc-tag { margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+</style>
+</head>
+<body class="field-page">
+<div class="grain"></div>
+
+<div class="field-content">
+  <span class="eyebrow">RepWorth · Warm Editorial</span>
+  <h1 class="page-h" style="margin-top:12px">Dashboard redesign preview</h1>
+  <p class="page-sub">Young Serif + DM Sans · warm field · double-bezel cards. Structure follows PLAN.md. Click into any screen below.</p>
+
+  <div class="launch">
+    <a class="launch-card bezel" href="dashboard.html"><div class="core">
+      <div class="lc-top">
+        <div class="launch-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11 12 4l8 7"/><path d="M6 10v9h12v-9"/></svg></div>
+        <h3>Dashboard</h3>
+        <span class="lc-tag">4 zones</span>
+      </div>
+      <p>The landing view: reputation hero band, pending-approvals strip, needs-action queue, and the reputation trend line.</p>
+      <span class="go">Open <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+    </div></a>
+
+    <a class="launch-card bezel" href="insights.html"><div class="core">
+      <div class="lc-top">
+        <div class="launch-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M4 19h16"/><path d="M8 16v-5M12 16V8M16 16v-3"/></svg></div>
+        <h3>Insights</h3>
+        <span class="lc-tag">drill-down</span>
+      </div>
+      <p>The secondary analytics relocated off the landing: review velocity, local ranking, and the weekly intelligence brief.</p>
+      <span class="go">Open <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+    </div></a>
+
+    <a class="launch-card bezel" href="settings.html"><div class="core">
+      <div class="lc-top">
+        <div class="launch-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg></div>
+        <h3>Settings</h3>
+        <span class="lc-tag">brand voice</span>
+      </div>
+      <p>The tabbed settings shell with the Brand Voice panel: tone chips, products and services, things to avoid, sample replies, plus the sticky save bar.</p>
+      <span class="go">Open <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+    </div></a>
+
+    <a class="launch-card bezel" href="states.html"><div class="core">
+      <div class="lc-top">
+        <div class="launch-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 4 3.4 7.4 8 9 4.6-1.6 8-5 8-9V6Z"/><path d="m9 12 2 2 4-4"/></svg></div>
+        <h3>States</h3>
+        <span class="lc-tag">adaptive</span>
+      </div>
+      <p>How the dashboard adapts: connect-Google + past-due banners, the calm "all caught up" strip, and the compact ramping hero.</p>
+      <span class="go">Open <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+    </div></a>
+
+    <a class="launch-card bezel" href="style-comparison.html"><div class="core">
+      <div class="lc-top">
+        <div class="launch-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="13.5" r="2.5"/><circle cx="17" cy="17" r="2.5"/></svg></div>
+        <h3>Direction comparison</h3>
+        <span class="lc-tag">archive</span>
+      </div>
+      <p>The original A/B/C exploration (Luminous Light / Midnight Console / Warm Editorial) that led to this direction.</p>
+      <span class="go">Open <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+    </div></a>
+
+    <a class="launch-card bezel" href="type-specimen.html"><div class="core">
+      <div class="lc-top">
+        <div class="launch-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V5h16v2M9 19h6M12 5v14"/></svg></div>
+        <h3>Display faces</h3>
+        <span class="lc-tag">archive</span>
+      </div>
+      <p>The typeface specimen that chose Young Serif over Newsreader, Bricolage Grotesque, and Bodoni Moda.</p>
+      <span class="go">Open <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+    </div></a>
+  </div>
+</div>
+</body>
+</html>

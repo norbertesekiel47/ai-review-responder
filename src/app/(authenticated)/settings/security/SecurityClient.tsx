@@ -246,27 +246,27 @@ export function SecurityClient() {
   return (
     <div className="set-section">
       <div className="set-section-title">Multi-factor authentication</div>
-      <p style={{ fontSize: 13, color: '#4B5563', marginTop: 4 }}>
+      <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', marginTop: 4 }}>
         Add a second factor as a backup.
       </p>
-      <p style={{ fontSize: 13, color: '#6B7280', marginTop: 6 }}>
+      <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', marginTop: 6 }}>
         Lost access to your authenticator?{' '}
-        <Link href="/help/contact" style={{ color: '#2563EB', textDecoration: 'underline' }}>
+        <Link href="/help/contact" style={{ color: 'var(--rw-sage-deep)', textDecoration: 'underline' }}>
           Contact support
         </Link>
         .
       </p>
 
       {error ? (
-        <p style={{ fontSize: 13, color: '#DC2626', marginTop: 12 }}>{error}</p>
+        <p style={{ fontSize: 13, color: 'var(--rw-danger)', marginTop: 12 }}>{error}</p>
       ) : null}
       {notice ? (
-        <p style={{ fontSize: 13, color: '#047857', marginTop: 12 }}>{notice}</p>
+        <p style={{ fontSize: 13, color: 'var(--rw-sage-deep)', marginTop: 12 }}>{notice}</p>
       ) : null}
 
       <div style={{ marginTop: 18 }}>
         {loading ? (
-          <p style={{ fontSize: 13, color: '#6B7280' }}>Loading security settings…</p>
+          <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)' }}>Loading security settings…</p>
         ) : verifiedFactors.length > 0 ? (
           <div style={{ display: 'grid', gap: 10 }}>
             {verifiedFactors.map((factor) => (
@@ -277,16 +277,16 @@ export function SecurityClient() {
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   gap: 12,
-                  border: '1px solid #E5E7EB',
+                  border: '1px solid var(--rw-hair)',
                   borderRadius: 8,
                   padding: 12,
                 }}
               >
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--rw-app-text)' }}>
                     {factor.friendlyName ?? 'Authenticator app'}
                   </div>
-                  <div style={{ fontSize: 12, color: '#6B7280' }}>
+                  <div style={{ fontSize: 12, color: 'var(--rw-app-text-muted)' }}>
                     {factor.factorType.toUpperCase()} · {factor.status}
                   </div>
                 </div>
@@ -302,7 +302,7 @@ export function SecurityClient() {
             ))}
           </div>
         ) : (
-          <p style={{ fontSize: 13, color: '#6B7280' }}>No MFA factor is enrolled.</p>
+          <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)' }}>No MFA factor is enrolled.</p>
         )}
       </div>
 
@@ -327,11 +327,11 @@ export function SecurityClient() {
               width={180}
               height={180}
               unoptimized
-              style={{ border: '1px solid #E5E7EB' }}
+              style={{ border: '1px solid var(--rw-hair)' }}
             />
           ) : null}
           {enrollment.secret ? (
-            <p style={{ fontSize: 13, color: '#374151', marginTop: 10 }}>
+            <p style={{ fontSize: 13, color: 'var(--rw-app-text)', marginTop: 10 }}>
               Manual key: <code>{enrollment.secret}</code>
             </p>
           ) : null}

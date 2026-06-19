@@ -43,12 +43,12 @@ export function OffboardingStatusClient() {
     return (
       <div className="content">
         <LiveRegion message={message} level="assertive" />
-        <div className="card" style={{ borderColor: '#FCA5A5', background: '#FEF2F2' }}>
-          <h2 className="card-h2" style={{ color: '#991B1B' }}>Unable to load account status</h2>
-          <p style={{ fontSize: 14, color: '#B91C1C', marginTop: 4 }}>{message}</p>
+        <div className="card" style={{ borderColor: 'var(--rw-danger)', background: 'var(--rw-danger-soft)' }}>
+          <h2 className="card-h2" style={{ color: 'var(--rw-danger)' }}>Unable to load account status</h2>
+          <p style={{ fontSize: 14, color: 'var(--rw-danger)', marginTop: 4 }}>{message}</p>
           <Link
             href="/help/contact"
-            style={{ display: 'inline-block', fontSize: 14, marginTop: 10, color: '#1D4ED8' }}
+            style={{ display: 'inline-block', fontSize: 14, marginTop: 10, color: 'var(--rw-sage-deep)' }}
           >
             Contact support
           </Link>
@@ -68,10 +68,10 @@ export function OffboardingStatusClient() {
           accountTimeZone={accountTimeZone}
         />
       ) : (
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-10">
-          <div className="max-w-md w-full bg-white rounded-lg border border-gray-200 p-8 text-center">
+        <div className="min-h-screen flex items-center justify-center px-4 py-10" style={{ background: 'var(--rw-app-bg)' }}>
+          <div className="max-w-md w-full rounded-lg p-8 text-center" style={{ background: 'var(--rw-card)', border: '1px solid var(--rw-hair)' }}>
             <h1 className="text-2xl font-bold mb-4">No account teardown in progress</h1>
-            <p className="text-gray-700 mb-6">
+            <p className="mb-6" style={{ color: 'var(--rw-app-text-muted)' }}>
               Your account does not have an active deletion or teardown status to show.
             </p>
             <Link className="btn btn-primary" href="/dashboard">

@@ -91,11 +91,12 @@ export function EditReplyDrawer({
       />
 
       {/* Panel */}
-      <aside ref={panelRef} tabIndex={-1} className="flex h-full w-full max-w-xl flex-col overflow-y-auto bg-white shadow-2xl">
-        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-100 bg-white px-6 py-4">
+      <aside ref={panelRef} tabIndex={-1} className="flex h-full w-full max-w-xl flex-col overflow-y-auto shadow-2xl" style={{ background: 'var(--rw-card)' }}>
+        <header className="sticky top-0 z-10 flex items-center justify-between px-6 py-4" style={{ borderBottom: '1px solid var(--rw-hair)', background: 'var(--rw-card)' }}>
           <h2
             id="edit-reply-drawer-title"
-            className="text-lg font-semibold text-[#2a2a2a]"
+            className="text-lg font-semibold"
+            style={{ color: 'var(--rw-app-text)' }}
           >
             Edit reply
           </h2>
@@ -103,7 +104,8 @@ export function EditReplyDrawer({
             type="button"
             onClick={tryClose}
             disabled={isClosePending}
-            className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-sm text-[#6a6a6a] hover:bg-gray-50 hover:text-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-sm hover:bg-[var(--rw-recess)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+            style={{ color: 'var(--rw-app-text-muted)' }}
             aria-label={
               isClosePending
                 ? 'Close (disabled while draft is being created)'
@@ -125,54 +127,54 @@ export function EditReplyDrawer({
 
         <div className="flex-1 space-y-5 px-6 py-5">
           {/* Review snapshot — always shown */}
-          <section className="rounded-lg border border-gray-100 bg-[#F0EEEA]/40 p-3">
-            <div className="mb-1 text-xs uppercase tracking-wider text-[#97B3AE]">
+          <section className="rounded-lg p-3" style={{ border: '1px solid var(--rw-hair)', background: 'var(--rw-recess)' }}>
+            <div className="mb-1 text-xs uppercase tracking-wider" style={{ color: 'var(--rw-sage-deep)' }}>
               Customer review
             </div>
             <div className="flex items-center gap-2">
               {row.star_rating != null && (
-                <span className="text-sm text-[#97B3AE]" aria-label={`${row.star_rating} stars`}>
+                <span className="text-sm" style={{ color: 'var(--rw-star)' }} aria-label={`${row.star_rating} stars`}>
                   {'★'.repeat(Math.round(row.star_rating))}
                   {'☆'.repeat(Math.max(0, 5 - Math.round(row.star_rating)))}
                 </span>
               )}
-              <span className="text-sm font-medium text-[#2a2a2a]">
+              <span className="text-sm font-medium" style={{ color: 'var(--rw-app-text)' }}>
                 {row.reviewer_name ?? 'Anonymous'}
               </span>
             </div>
-            <p className="mt-1 text-sm text-[#2a2a2a]">
-              {row.review_text ?? <em className="text-[#6a6a6a]">No review text, rating only.</em>}
+            <p className="mt-1 text-sm" style={{ color: 'var(--rw-app-text)' }}>
+              {row.review_text ?? <em style={{ color: 'var(--rw-app-text-muted)' }}>No review text, rating only.</em>}
             </p>
           </section>
 
           {/* Current Google reply — always shown */}
           <section>
-            <div className="mb-1 text-xs uppercase tracking-wider text-[#97B3AE]">
+            <div className="mb-1 text-xs uppercase tracking-wider" style={{ color: 'var(--rw-sage-deep)' }}>
               Current Google reply
             </div>
-            <p className="rounded-md bg-[#F0EEEA]/60 p-3 text-sm text-[#2a2a2a]">
-              {(row.approved_text ?? '') || <em className="text-[#6a6a6a]">(empty)</em>}
+            <p className="rounded-md p-3 text-sm" style={{ background: 'var(--rw-recess)', color: 'var(--rw-app-text)' }}>
+              {(row.approved_text ?? '') || <em style={{ color: 'var(--rw-app-text-muted)' }}>(empty)</em>}
             </p>
           </section>
 
           {/* State-specific UI */}
           {state.kind === 'initial' && canEdit && (
             <div className="space-y-3">
-              <div className="rounded-md border border-[#97B3AE]/30 bg-[#F0EEEA]/60 px-3 py-2 text-xs text-[#6a6a6a]">
+              <div className="rounded-md px-3 py-2 text-xs" style={{ border: '1px solid var(--rw-sage-line)', background: 'var(--rw-sage-soft)', color: 'var(--rw-app-text-muted)' }}>
                 {AI_DRAFT_DISCLOSURE}
               </div>
               <div className="flex flex-wrap gap-3">
                 <button
                   type="button"
                   onClick={actions.startManualEdit}
-                  className="rounded-full bg-[#97B3AE] px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#7c9994]"
+                  className="btn btn-primary"
                 >
                   Edit manually
                 </button>
                 <button
                   type="button"
                   onClick={actions.startRegenerate}
-                  className="rounded-full border border-[#97B3AE]/40 bg-white px-5 py-2 text-sm font-medium text-[#97B3AE] hover:bg-[#F0EEEA]/40"
+                  className="btn btn-secondary"
                 >
                   Regenerate with AI
                 </button>
@@ -189,7 +191,7 @@ export function EditReplyDrawer({
           )}
 
           {(state.kind === 'creating_draft' || state.kind === 'regenerating') && (
-            <div className="rounded-lg border border-gray-100 bg-[#F0EEEA]/30 p-4 text-sm text-[#6a6a6a]">
+            <div className="rounded-lg p-4 text-sm" style={{ border: '1px solid var(--rw-hair)', background: 'var(--rw-recess)', color: 'var(--rw-app-text-muted)' }}>
               <div className="flex items-center gap-3">
                 <Spinner />
                 <span>Generating a fresh draft using your current brand voice…</span>
@@ -202,9 +204,9 @@ export function EditReplyDrawer({
             // close is blocked (Round-4 M). Resume polling re-enters
             // 'regenerating' with the same outboxId so the polling effect
             // reattaches and the 60s window restarts.
-            <div className="space-y-3 rounded-lg border border-[#97B3AE]/40 shadow-[inset_4px_0_0_#F2C3B9] bg-[#F0EEEA]/40 p-4">
-              <p className="text-sm text-[#6a6a6a]">{state.message}</p>
-              <p className="text-xs text-[#6a6a6a]">
+            <div className="space-y-3 rounded-lg p-4" style={{ border: '1px solid var(--rw-sage-line)', boxShadow: 'inset 4px 0 0 var(--rw-blush)', background: 'var(--rw-recess)' }}>
+              <p className="text-sm" style={{ color: 'var(--rw-app-text-muted)' }}>{state.message}</p>
+              <p className="text-xs" style={{ color: 'var(--rw-app-text-muted)' }}>
                 Close is paused until the draft arrives or the worker reports failure; otherwise the
                 draft would be created in the background and block your next attempt.
               </p>
@@ -212,7 +214,7 @@ export function EditReplyDrawer({
                 <button
                   type="button"
                   onClick={actions.resumePolling}
-                  className="rounded-full bg-[#97B3AE] px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#7c9994]"
+                  className="btn btn-primary"
                 >
                   Resume polling
                 </button>
@@ -234,7 +236,7 @@ export function EditReplyDrawer({
           )}
 
           {state.kind === 'publishing' && (
-            <div className="rounded-lg border border-gray-100 bg-[#F0EEEA]/30 p-4 text-sm text-[#6a6a6a]">
+            <div className="rounded-lg p-4 text-sm" style={{ border: '1px solid var(--rw-hair)', background: 'var(--rw-recess)', color: 'var(--rw-app-text-muted)' }}>
               <div className="flex items-center gap-3">
                 <Spinner />
                 <span>Posting to Google…</span>
@@ -279,20 +281,22 @@ export function EditReplyDrawer({
           )}
 
           {state.kind === 'error' && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-              <p className="text-sm text-red-800">{state.message}</p>
+            <div className="rounded-lg p-4" style={{ border: '1px solid var(--rw-danger)', background: 'var(--rw-danger-soft)' }}>
+              <p className="text-sm" style={{ color: 'var(--rw-danger)' }}>{state.message}</p>
               <div className="mt-3 flex gap-2">
                 <button
                   type="button"
                   onClick={actions.reset}
-                  className="rounded-md border border-red-200 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
+                  className="rounded-md px-3 py-1 text-xs font-medium"
+                  style={{ border: '1px solid var(--rw-danger)', color: 'var(--rw-danger)' }}
                 >
                   Try again
                 </button>
                 <button
                   type="button"
                   onClick={onClose}
-                  className="rounded-md px-3 py-1 text-xs font-medium text-[#6a6a6a] hover:bg-gray-50"
+                  className="rounded-md px-3 py-1 text-xs font-medium hover:bg-[var(--rw-recess)]"
+                  style={{ color: 'var(--rw-app-text-muted)' }}
                 >
                   Close
                 </button>
@@ -301,13 +305,13 @@ export function EditReplyDrawer({
           )}
 
           {state.kind === 'success' && (
-            <div className="rounded-lg border border-green-200 bg-green-50 p-4">
-              <p className="text-sm text-green-800">{state.message}</p>
+            <div className="rounded-lg p-4" style={{ border: '1px solid var(--rw-sage-line)', background: 'var(--rw-sage-soft)' }}>
+              <p className="text-sm" style={{ color: 'var(--rw-sage-deep)' }}>{state.message}</p>
               <div className="mt-3">
                 <button
                   type="button"
                   onClick={onClose}
-                  className="rounded-full bg-[#97B3AE] px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#7c9994]"
+                  className="btn btn-primary"
                 >
                   Close editor
                 </button>
@@ -328,7 +332,8 @@ function Spinner() {
   return (
     <span
       aria-hidden="true"
-      className="inline-block size-4 animate-spin rounded-full border-2 border-[#97B3AE]/30 border-t-[#97B3AE]"
+      className="inline-block size-4 animate-spin rounded-full border-2"
+      style={{ borderColor: 'var(--rw-sage-line)', borderTopColor: 'var(--rw-sage-deep)' }}
     />
   );
 }

@@ -32,10 +32,10 @@ const PENDING_APPROVAL_WARNING_STYLE: CSSProperties = {
   marginBottom: 16,
   padding: '10px 12px',
   borderRadius: 8,
-  background: '#FEF3C7',
-  border: '1px solid #F59E0B',
+  background: 'var(--rw-blush-soft)',
+  border: '1px solid var(--rw-blush)',
   fontSize: 13,
-  color: '#92400E',
+  color: 'var(--rw-blush-deep)',
   lineHeight: 1.5,
 };
 
@@ -63,7 +63,7 @@ const ARCHIVED_TOGGLE_STYLE: CSSProperties = {
   background: 'none',
   cursor: 'pointer',
   padding: '8px 0',
-  color: '#6B7280',
+  color: 'var(--rw-app-text-muted)',
   fontSize: 13,
   fontWeight: 600,
   textAlign: 'left',
@@ -137,7 +137,7 @@ function ArchiveConfirmModal({
       <div className="set-section-title" style={{ marginBottom: 8 }}>
         Archive &ldquo;{locationName}&rdquo;?
       </div>
-      <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 16 }}>
+      <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, marginBottom: 16 }}>
         This location will be archived and its data will become read-only.
         You can restore it later by contacting support.
       </p>
@@ -180,7 +180,7 @@ function PromoteFirstModal({
       <div className="set-section-title" style={{ marginBottom: 8 }}>
         Promote first
       </div>
-      <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 16 }}>
+      <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, marginBottom: 16 }}>
         &ldquo;{locationName}&rdquo; is your primary location. You must promote
         another location to primary before archiving this one.
       </p>
@@ -214,7 +214,7 @@ function PromotePrimaryConfirmModal({
       <div className="set-section-title" style={{ marginBottom: 8 }}>
         Make &quot;{locationName}&quot; primary?
       </div>
-      <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 16 }}>
+      <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, marginBottom: 16 }}>
         This changes the primary marker for the account. Existing reviews,
         Google connections, and billing stay attached to their locations.
       </p>
@@ -528,7 +528,7 @@ function LocationRow({
         </button>
       </div>
       {error && (
-        <div style={{ fontSize: 12, color: '#DC2626', marginTop: 4, gridColumn: '1 / -1' }}>
+        <div style={{ fontSize: 12, color: 'var(--rw-danger)', marginTop: 4, gridColumn: '1 / -1' }}>
           {error}
         </div>
       )}
@@ -596,12 +596,12 @@ function ArchivedLocationRow({
     <div className="loc-row archived">
       <div className="loc-row-info">
         <div className="loc-row-name-wrap">
-          <span className="loc-row-name" style={{ color: '#9CA3AF' }}>{displayName}</span>
+          <span className="loc-row-name" style={{ color: 'var(--rw-app-text-soft)' }}>{displayName}</span>
           <span style={{
             fontSize: 12,
             fontWeight: 500,
-            color: '#9CA3AF',
-            background: '#F3F4F6',
+            color: 'var(--rw-app-text-soft)',
+            background: 'var(--rw-recess)',
             padding: '1px 6px',
             borderRadius: 4,
           }}>
@@ -610,13 +610,13 @@ function ArchivedLocationRow({
         </div>
         <div className="loc-row-meta">
           {archivedDate && (
-            <span style={{ fontSize: 12, color: '#9CA3AF' }}>
+            <span style={{ fontSize: 12, color: 'var(--rw-app-text-soft)' }}>
               Archived {archivedDate}
             </span>
           )}
         </div>
         {location.address && (
-          <div className="loc-row-address" style={{ color: '#9CA3AF' }}>{location.address}</div>
+          <div className="loc-row-address" style={{ color: 'var(--rw-app-text-soft)' }}>{location.address}</div>
         )}
       </div>
       <div className="loc-row-actions">
@@ -631,7 +631,7 @@ function ArchivedLocationRow({
         </button>
       </div>
       {error && (
-        <div style={{ fontSize: 12, color: '#DC2626', marginTop: 4, gridColumn: '1 / -1' }}>
+        <div style={{ fontSize: 12, color: 'var(--rw-danger)', marginTop: 4, gridColumn: '1 / -1' }}>
           {error}
         </div>
       )}
@@ -667,7 +667,7 @@ export function LocationsPanel({
 
       <div className="loc-list">
         {locations.length === 0 && (
-          <p style={{ textAlign: 'center', color: '#6B7280', padding: '24px 0' }}>
+          <p style={{ textAlign: 'center', color: 'var(--rw-app-text-muted)', padding: '24px 0' }}>
             No active locations.
           </p>
         )}
@@ -699,13 +699,13 @@ export function LocationsPanel({
             padding: '12px 14px',
             border: '1px solid var(--rw-app-border)',
             borderRadius: 8,
-            background: '#F9FAFB',
+            background: 'var(--rw-recess)',
           }}
         >
           <div className="set-section-title" style={{ fontSize: 14 }}>
             {addLocationState.title}
           </div>
-          <p style={{ margin: '4px 0 0', color: '#6B7280', fontSize: 13, lineHeight: 1.5 }}>
+          <p style={{ margin: '4px 0 0', color: 'var(--rw-app-text-muted)', fontSize: 13, lineHeight: 1.5 }}>
             {addLocationState.description}
           </p>
           {addLocationState.ctaHref && addLocationState.ctaLabel && (

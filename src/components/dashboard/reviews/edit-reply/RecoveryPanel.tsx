@@ -10,8 +10,8 @@ export function RecoveryPanel({
   restoreAvailable: boolean;
 }) {
   return (
-    <div className="space-y-3 rounded-lg border border-[#97B3AE]/40 bg-[#F0EEEA]/40 p-4">
-      <p className="text-sm text-[#6a6a6a]">
+    <div className="space-y-3 rounded-lg p-4" style={{ border: '1px solid var(--rw-sage-line)', background: 'var(--rw-recess)' }}>
+      <p className="text-sm" style={{ color: 'var(--rw-app-text-muted)' }}>
         {restoreAvailable
           ? 'The previous edit didn’t complete and your old reply is no longer on Google. Retry the edit, or restore the original reply.'
           : 'The previous edit didn’t complete. The original reply is still live on Google. Retry to re-attempt the edit.'}
@@ -20,7 +20,7 @@ export function RecoveryPanel({
         <button
           type="button"
           onClick={onRetry}
-          className="rounded-full bg-[#97B3AE] px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#7c9994]"
+          className="btn btn-primary"
         >
           Retry posting
         </button>
@@ -28,7 +28,7 @@ export function RecoveryPanel({
           <button
             type="button"
             onClick={onRestore}
-            className="rounded-full border border-[#97B3AE]/40 bg-white px-5 py-2 text-sm font-medium text-[#97B3AE] hover:bg-[#F0EEEA]/40"
+            className="btn btn-secondary"
           >
             Restore original
           </button>

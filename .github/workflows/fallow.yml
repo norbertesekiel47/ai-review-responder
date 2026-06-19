@@ -26,7 +26,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
-          # Full history so `--base origin/main` resolves the PR base.
+          # Full history (all branches) so the PR's base branch — origin/<base> —
+          # is available to fallow as the diff base.
           fetch-depth: 0
           persist-credentials: false
       - name: Setup Node + pnpm
@@ -34,4 +35,9 @@ jobs:
       - name: Install fallow
         run: npm install -g fallow@2.88.2
       - name: Fallow audit (new findings only)
+        env:
+          # Stacked PRs target a non-main base. Compare against the PR's actual
+          # base branch so we never re-count the parent branch's findings as new.
+          # Normal PRs (base = main) resolve to origin/main, the prior behaviour.
+          FALLOW_BASE: origin/${{ github.event.pull_request.base.ref }}
         run: pnpm ci:fallow

@@ -85,12 +85,12 @@ export function DashboardContent() {
         <TopBar title="Dashboard" />
         <div className="content">
           <LiveRegion message={message} level="assertive" />
-          <div className="card" style={{ borderColor: '#FCA5A5', background: '#FEF2F2' }}>
-            <h2 className="card-h2" style={{ color: '#991B1B' }}>Unable to verify account status</h2>
-            <p style={{ fontSize: 14, color: '#B91C1C', marginTop: 4 }}>{message}</p>
+          <div className="card" style={{ borderColor: 'var(--rw-danger)', background: 'var(--rw-danger-soft)' }}>
+            <h2 className="card-h2" style={{ color: 'var(--rw-danger)' }}>Unable to verify account status</h2>
+            <p style={{ fontSize: 14, color: 'var(--rw-danger)', marginTop: 4 }}>{message}</p>
             <Link
               href="/help/contact"
-              style={{ display: 'inline-block', fontSize: 14, marginTop: 10, color: '#1D4ED8' }}
+              style={{ display: 'inline-block', fontSize: 14, marginTop: 10, color: 'var(--rw-sage-deep)' }}
             >
               Contact support
             </Link>
@@ -153,12 +153,12 @@ function DashboardOperationalContent() {
         <TopBar title="Dashboard" />
         <div className="content">
           <LiveRegion message={error} level="assertive" />
-          <div className="card" style={{ borderColor: '#FCA5A5', background: '#FEF2F2' }}>
-            <h2 className="card-h2" style={{ color: '#991B1B' }}>Error</h2>
-            <p style={{ fontSize: 14, color: '#B91C1C', marginTop: 4 }}>{error}</p>
+          <div className="card" style={{ borderColor: 'var(--rw-danger)', background: 'var(--rw-danger-soft)' }}>
+            <h2 className="card-h2" style={{ color: 'var(--rw-danger)' }}>Error</h2>
+            <p style={{ fontSize: 14, color: 'var(--rw-danger)', marginTop: 4 }}>{error}</p>
             <Link
               href="/help/contact"
-              style={{ display: 'inline-block', fontSize: 14, marginTop: 10, color: '#1D4ED8' }}
+              style={{ display: 'inline-block', fontSize: 14, marginTop: 10, color: 'var(--rw-sage-deep)' }}
             >
               Contact support
             </Link>
@@ -244,11 +244,11 @@ function DashboardOperationalContent() {
             <div className="sub-status-banner__readonly-notice" style={{
               padding: '10px 16px',
               borderRadius: 8,
-              border: '1px solid #E5E7EB',
-              background: '#F9FAFB',
+              border: '1px solid var(--rw-hair)',
+              background: 'var(--rw-recess)',
               marginBottom: 14,
               fontSize: 13,
-              color: '#6B7280',
+              color: 'var(--rw-app-text-muted)',
             }}>
               You can still view your reviews and past replies, but all write actions are disabled.
             </div>

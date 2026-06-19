@@ -1,7 +1,7 @@
 import { cookies, headers } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import { redirect } from 'next/navigation';
-import { Plus_Jakarta_Sans, DM_Sans } from 'next/font/google';
+import { Young_Serif, DM_Sans } from 'next/font/google';
 import { sql } from '@/lib/db/server';
 import { Sidebar } from '@/components/dashboard/shell/Sidebar';
 import { MobileTabBar } from '@/components/dashboard/shell/MobileTabBar';
@@ -25,9 +25,11 @@ import './_styles/past-replies.css';
 import './_styles/settings.css';
 import './_styles/wizard.css';
 
-const plusJakarta = Plus_Jakarta_Sans({
+// Warm Editorial: Young Serif is display-only (single weight 400) — page titles,
+// stat numerals, section/card headings. DM Sans carries all body/UI text.
+const youngSerif = Young_Serif({
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
+  weight: ['400'],
   variable: '--rw-font-display',
   display: 'swap',
 });
@@ -96,7 +98,7 @@ export default async function AuthenticatedLayout({
       }
 
       return (
-        <div className={`rw-console ${plusJakarta.variable} ${dmSans.variable}`}>
+        <div className={`rw-console ${youngSerif.variable} ${dmSans.variable}`}>
           <AuthenticatedProviders
             locations={[]}
             initialScope="all"
@@ -171,7 +173,7 @@ export default async function AuthenticatedLayout({
     process.env.EDIT_REPLIES_ENABLED === 'true';
 
   return (
-    <div className={`rw-console ${plusJakarta.variable} ${dmSans.variable}`}>
+    <div className={`rw-console ${youngSerif.variable} ${dmSans.variable}`}>
       <AuthenticatedProviders
         locations={locationInfos}
         initialScope={initialScope}
