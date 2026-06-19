@@ -3,8 +3,7 @@ import { CONNECT_PENDING_STATUSES, type ConnectPendingMarker } from '@/lib/zerni
 import { mapRecentReviews, mapReviewVelocity } from './active-mappers';
 import type { DashboardDataActive } from './types';
 import { resolveZernioConnectionState } from './zernio-banner';
-
-const MINUTES_SAVED_PER_RESPONSE = 7;
+import { MINUTES_SAVED_PER_RESPONSE } from './constants';
 
 export interface DashboardBusinessRow {
   name: string;

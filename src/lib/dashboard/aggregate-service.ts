@@ -23,8 +23,6 @@ import type {
 } from './types';
 import type { DashboardDataActive } from './types';
 
-/** Heuristic minutes saved per response — must match service.ts. */
-const MINUTES_SAVED_PER_RESPONSE = 7;
 const AGGREGATE_LOCATION_CONCURRENCY = 5;
 
 /**
