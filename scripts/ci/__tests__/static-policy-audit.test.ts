@@ -230,8 +230,8 @@ describe('scanFile — subscription-status bare literal (deep-scan §7.1; repwor
 
   it('honors the allowlist line-precisely (allowlisted line passes; same file, other line fails)', () => {
     const literal = "  subscriptionStatus: 'past_due';";
-    // dashboard/types.ts:67 is an allowlisted type-discriminant — land the literal on line 67.
-    const onAllowlistedLine = Array(66).fill('').join('\n') + '\n' + literal;
+    // dashboard/types.ts:105 is an allowlisted type-discriminant — land the literal on line 105.
+    const onAllowlistedLine = Array(104).fill('').join('\n') + '\n' + literal;
     expect(scanFile('src/lib/dashboard/types.ts', onAllowlistedLine)).toHaveLength(0);
     // Same file, line 1 (NOT allowlisted) — the carve-out is line-precise, not file-wide.
     expect(scanFile('src/lib/dashboard/types.ts', literal)).toHaveLength(1);
@@ -240,7 +240,7 @@ describe('scanFile — subscription-status bare literal (deep-scan §7.1; repwor
   it('exposes a non-empty, reviewed carve-out allowlist', () => {
     expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.size).toBeGreaterThan(0);
     expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('worker/ingress/stripe/shared.ts:88')).toBe(true);
-    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('src/lib/dashboard/types.ts:67')).toBe(true);
+    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('src/lib/dashboard/types.ts:105')).toBe(true);
   });
 });
 
