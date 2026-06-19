@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { redirect } from 'next/navigation';
@@ -19,15 +19,16 @@ import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal'
 import { ConnectGoogleBanner } from '@/components/dashboard/account-state/ConnectGoogleBanner';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
-import { ReviewsCard } from '@/components/dashboard/reviews/ReviewsCard';
 import { ReputationHeroBand } from '@/components/dashboard/kpi/ReputationHeroBand';
 import { PendingApprovalsStrip } from '@/components/dashboard/kpi/PendingApprovalsStrip';
 import { ReputationTrendChart } from '@/components/dashboard/kpi/ReputationTrendChart';
+import { VelocityCard } from '@/components/dashboard/kpi/VelocityCard';
+import { RankingCard } from '@/components/dashboard/kpi/RankingCard';
+import { IntelligenceBriefCard } from '@/components/dashboard/kpi/IntelligenceBriefCard';
 import { AggregateDashboardContent } from '@/components/dashboard/aggregate/AggregateDashboardContent';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useSetPendingCount } from '@/contexts/PendingCountContext';
 import { useLocationScope } from '@/contexts/LocationContext';
-import { useNeedsActionHashScroll } from '@/hooks/useNeedsActionHashScroll';
 
 export function DashboardContent() {
   const setPendingCount = useSetPendingCount();
@@ -134,10 +135,6 @@ function DashboardOperationalContent() {
     },
   );
   const setPendingCount = useSetPendingCount();
-  const reviewsRef = useRef<HTMLDivElement | null>(null);
-  const [initialTab, setInitialTab] = useState<'needs' | 'all'>('needs');
-
-  useNeedsActionHashScroll(reviewsRef, () => setInitialTab('needs'));
 
   // Push pending count to the layout-scoped context so MobileTabBar's "Needs
   // Action" tab can show a red badge on every authenticated route.
@@ -262,7 +259,6 @@ function DashboardOperationalContent() {
     data.subscriptionStatus === SubscriptionStatus.PAST_DUE ? data : null;
   const activeData: DashboardDataActive = data as DashboardDataActive;
   const { valueSummary, recentReviews, zernioConnection, business } = activeData;
-  const isReadOnly = pastDueData?.isReadOnly ?? false;
 
   // The dashboard has exactly ONE layout: the 4-zone reputation landing. The
   // per-location route always requests reputation metrics, so reputationSummary
@@ -280,13 +276,6 @@ function DashboardOperationalContent() {
     trend: [],
     isRamping: true,
   };
-
-  function scrollToReviews() {
-    if (reviewsRef.current) {
-      const top = reviewsRef.current.getBoundingClientRect().top + window.scrollY - 80;
-      window.scrollTo({ top, behavior: 'smooth' });
-    }
-  }
 
   const activeSubtitle = business.name
     ? `Welcome back — here's what's new for ${business.name}.`
@@ -331,26 +320,24 @@ function DashboardOperationalContent() {
             connected={zernioConnection.status === 'active'}
           />
         </div>
-        {/* Zone 2 — pending approvals strip */}
+        {/* Action strip → Reviews page */}
         <div className="section-enter section-enter-3">
-          <PendingApprovalsStrip
-            count={reputation.pendingApprovalCount}
-            onReview={isReadOnly ? undefined : scrollToReviews}
-          />
+          <PendingApprovalsStrip count={reputation.pendingApprovalCount} />
         </div>
-        {/* Zone 3 — needs-action reviews */}
-        <div className="section-enter section-enter-4">
-          <ReviewsCard
-            recentReviews={recentReviews}
-            onActionSuccess={() => { void refresh(); }}
-            ref={reviewsRef}
-            initialTab={initialTab}
-            readOnly={isReadOnly}
-          />
-        </div>
-        {/* Zone 4 — reputation trend */}
+        {/* Intelligence brief */}
+        {activeData.latestBrief && (
+          <div className="section-enter section-enter-4">
+            <IntelligenceBriefCard brief={activeData.latestBrief} />
+          </div>
+        )}
+        {/* Reputation trend */}
         <div className="section-enter section-enter-5">
           <ReputationTrendChart trend={reputation.trend} />
+        </div>
+        {/* Insights — review velocity + local ranking */}
+        <div className="chart-row section-enter section-enter-6">
+          <VelocityCard reviewVelocity={activeData.reviewVelocity} />
+          <RankingCard ranking={activeData.ranking} />
         </div>
       </div>
     </>
