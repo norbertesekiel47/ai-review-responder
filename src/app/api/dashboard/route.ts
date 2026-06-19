@@ -183,7 +183,11 @@ async function fetchPerLocationData(
     });
   }
 
-  const data = await getActiveDashboardData(locationId);
+  // Single-location landing requests reputation metrics so DashboardContent
+  // renders the 4-zone reputation hero (PLAN.md PR2) instead of the legacy KPI
+  // fallback. The past-due path above already opts in; this is the normal
+  // active path.
+  const data = await getActiveDashboardData(locationId, { includeReputationMetrics: true });
 
   // VAL-DASH-029: Attach scopeFallback indicator if a fallback occurred
   if (fallback) {
