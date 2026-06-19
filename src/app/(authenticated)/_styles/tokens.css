@@ -22,7 +22,7 @@
   --rw-sage-soft:   #D2E0D380;
   --rw-teal:        #97B3AE; /* primary accent — CTAs, nav links, step dots */
   --rw-teal-soft:   #97B3AE33;
-  --rw-star:        #97B3AE;       /* review star glyph — intentionally teal, not yellow */
+  --rw-star:        #D4A24C;       /* review star glyph — Warm Editorial muted gold (redesign), recognizable, never garish #eab308 yellow */
   --rw-peach:       #F2C3B9; /* secondary accent — step 3, "dots" highlights */
   --rw-peach-soft:  #F2C3B940;
   --rw-pink:        #F0DDD6; /* tertiary — step 2 */

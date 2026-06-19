@@ -100,6 +100,7 @@ export default async function AuthenticatedLayout({
 
       return (
         <div className={`rw-console ${youngSerif.variable} ${dmSans.variable}`}>
+          <div className="rw-grain" aria-hidden="true" />
           <AuthenticatedProviders
             locations={[]}
             initialScope="all"
@@ -172,6 +173,7 @@ export default async function AuthenticatedLayout({
 
   return (
     <div className={`rw-console ${youngSerif.variable} ${dmSans.variable}`}>
+      <div className="rw-grain" aria-hidden="true" />
       <AuthenticatedProviders
         locations={locationInfos}
         initialScope={initialScope}
