@@ -1,9 +1,7 @@
 'use client';
 
-import Link from 'next/link';
 import { useRef, useSyncExternalStore } from 'react';
-import { MarqueeBackground } from '@/components/ui/MarqueeBackground';
-import { SiteNav } from '@/components/ui/SiteNav';
+import { SiteShell } from '@/components/ui/SiteShell';
 import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
 import { Hero } from './Hero';
 import { TickerBar } from './TickerBar';
@@ -65,25 +63,25 @@ export function LandingContent({
   const ctaRef = useRef<HTMLElement>(null);
 
   return (
-    <div className="rw-landing">
-      <MarqueeBackground />
-
-      <div className="rw-dot-nav" aria-label="Section navigation">
-        {SECTIONS.map(({ id, label }) => (
-          <button
-            key={id}
-            type="button"
-            className={active === id ? 'active' : ''}
-            onClick={() => scrollToSection(id)}
-            aria-label={label}
-            title={label}
-          />
-        ))}
-      </div>
-
-      <div className="rw-island-wrap">
-        <div className="rw-island">
-          <SiteNav comingSoon={comingSoon} selfServeEnabled={selfServeEnabled} />
+    <SiteShell
+      scope="rw-landing"
+      comingSoon={comingSoon}
+      selfServeEnabled={selfServeEnabled}
+      overlay={
+        <div className="rw-dot-nav" aria-label="Section navigation">
+          {SECTIONS.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              className={active === id ? 'active' : ''}
+              onClick={() => scrollToSection(id)}
+              aria-label={label}
+              title={label}
+            />
+          ))}
+        </div>
+      }
+    >
 
           <Hero
             onBook={() => scrollToSection('rw-cta')}
@@ -110,16 +108,6 @@ export function LandingContent({
               <LeadIntakeForm intent="waitlist" source="landing" tone="onTeal" />
             </section>
           )}
-
-          <footer className="rw-foot">
-            <span suppressHydrationWarning>© {new Date().getFullYear()} RepWorth. All rights reserved.</span>
-            <span>
-              <Link href="/legal/privacy">Privacy</Link>
-              <Link href="/legal/terms">Terms &amp; Conditions</Link>
-            </span>
-          </footer>
-        </div>
-      </div>
-    </div>
+    </SiteShell>
   );
 }
