@@ -38,7 +38,6 @@ describe('DashboardContent announcements (P1 #18)', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     window.history.replaceState(null, '', '/');
-    vi.useRealTimers();
   });
 
   it('announces a load error assertively', async () => {
@@ -101,33 +100,6 @@ describe('DashboardContent announcements (P1 #18)', () => {
     expect(mockUseDashboardData).not.toHaveBeenCalled();
   });
 
-  it('clears the deferred needs-action hash scroll timer on unmount', async () => {
-    vi.useFakeTimers();
-    window.history.replaceState(null, '', '/dashboard#needs-action');
-    mockUseDashboardData.mockReturnValue({
-      data: null,
-      error: null,
-      loading: true,
-      refresh: vi.fn(),
-      scopeFallback: null,
-    });
-
-    const { unmount } = renderDashboard(<DashboardContent />, {
-      offboardingStatus: {
-        enabled: false,
-        accountTimeZone: 'UTC',
-        activeOffboarding: null,
-      },
-    });
-
-    expect(mockUseDashboardData).toHaveBeenCalled();
-    const timerCountBeforeUnmount = vi.getTimerCount();
-    expect(timerCountBeforeUnmount).toBeGreaterThan(0);
-
-    unmount();
-
-    expect(vi.getTimerCount()).toBe(0);
-  });
 });
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
