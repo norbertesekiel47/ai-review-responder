@@ -10,6 +10,8 @@ describe('HowItWorksContent', () => {
     expect(html).toContain('Join waitlist');
     expect(html).toContain('value="how-it-works"');
     expect(html).toContain('value="waitlist"');
+    expect(html).toContain('class="rw-foot"');
+    expect(html).toContain('href="/legal/privacy"');
     expect(html).not.toContain('Book a Demo');
   });
 });
