@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { redirect } from 'next/navigation';
-import type { DashboardDataActive, DashboardDataPastDue, AggregateDashboardData } from '@/lib/dashboard/types';
+import type { DashboardDataActive, DashboardDataPastDue, AggregateDashboardData, ReputationSummary } from '@/lib/dashboard/types';
 import type { DashboardOrAggregate } from '@/hooks/useDashboardData';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
@@ -19,7 +19,6 @@ import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal'
 import { ConnectGoogleBanner } from '@/components/dashboard/account-state/ConnectGoogleBanner';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
-import { KpiCards } from '@/components/dashboard/kpi/KpiCards';
 import { ReviewsCard } from '@/components/dashboard/reviews/ReviewsCard';
 import { ReputationHeroBand } from '@/components/dashboard/kpi/ReputationHeroBand';
 import { PendingApprovalsStrip } from '@/components/dashboard/kpi/PendingApprovalsStrip';
@@ -262,11 +261,25 @@ function DashboardOperationalContent() {
   const pastDueData: DashboardDataPastDue | null =
     data.subscriptionStatus === SubscriptionStatus.PAST_DUE ? data : null;
   const activeData: DashboardDataActive = data as DashboardDataActive;
-  const { valueSummary, recentReviews, zernioConnection, business, reputationSummary } = activeData;
+  const { valueSummary, recentReviews, zernioConnection, business } = activeData;
   const isReadOnly = pastDueData?.isReadOnly ?? false;
-  // Fallback pending (from the recent slice) only used when reputationSummary is
-  // absent — the redesigned landing uses the authoritative SQL count instead.
-  const fallbackPending = recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval').length;
+
+  // The dashboard has exactly ONE layout: the 4-zone reputation landing. The
+  // per-location route always requests reputation metrics, so reputationSummary
+  // is present. This `??` synthesizes a safe ramping/empty summary purely as a
+  // defensive guard (e.g. a future caller that forgets the flag) — so the page
+  // can never fall back to a *different* layout; it just renders the same 4 zones
+  // in their empty state.
+  const reputation: ReputationSummary = activeData.reputationSummary ?? {
+    averageStar: { current: null, delta: null, priorSampleSize: 0 },
+    responseRate: { current: valueSummary.currentResponseRate, delta: null, priorSampleSize: 0 },
+    timeSavedMinutes: { current: valueSummary.totalTimeSavedMinutes, delta: null, priorSampleSize: 0 },
+    pendingApprovalCount: recentReviews.filter(
+      (r) => (r.responseStatus ?? r.status) === 'pending_approval',
+    ).length,
+    trend: [],
+    isRamping: true,
+  };
 
   function scrollToReviews() {
     if (reviewsRef.current) {
@@ -309,55 +322,36 @@ function DashboardOperationalContent() {
             readOnly={pastDueData?.isReadOnly ?? false}
           />
         </div>
-        {reputationSummary ? (
-          <>
-            {/* Zone 1 — reputation hero band */}
-            <div className="section-enter section-enter-2">
-              <ReputationHeroBand
-                summary={reputationSummary}
-                lifetimeReviewsHandled={valueSummary.totalReviewsHandled}
-                lifetimeTimeSavedMinutes={valueSummary.totalTimeSavedMinutes}
-                connected={zernioConnection.status === 'active'}
-              />
-            </div>
-            {/* Zone 2 — pending approvals strip */}
-            <div className="section-enter section-enter-3">
-              <PendingApprovalsStrip
-                count={reputationSummary.pendingApprovalCount}
-                onReview={isReadOnly ? undefined : scrollToReviews}
-              />
-            </div>
-            {/* Zone 3 — needs-action reviews */}
-            <div className="section-enter section-enter-4">
-              <ReviewsCard
-                recentReviews={recentReviews}
-                onActionSuccess={() => { void refresh(); }}
-                ref={reviewsRef}
-                initialTab={initialTab}
-                readOnly={isReadOnly}
-              />
-            </div>
-            {/* Zone 4 — reputation trend */}
-            <div className="section-enter section-enter-5">
-              <ReputationTrendChart trend={reputationSummary.trend} />
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="section-enter section-enter-2">
-              <KpiCards valueSummary={valueSummary} pendingCount={fallbackPending} onScrollToReviews={scrollToReviews} />
-            </div>
-            <div className="section-enter section-enter-3">
-              <ReviewsCard
-                recentReviews={recentReviews}
-                onActionSuccess={() => { void refresh(); }}
-                ref={reviewsRef}
-                initialTab={initialTab}
-                readOnly={isReadOnly}
-              />
-            </div>
-          </>
-        )}
+        {/* Zone 1 — reputation hero band */}
+        <div className="section-enter section-enter-2">
+          <ReputationHeroBand
+            summary={reputation}
+            lifetimeReviewsHandled={valueSummary.totalReviewsHandled}
+            lifetimeTimeSavedMinutes={valueSummary.totalTimeSavedMinutes}
+            connected={zernioConnection.status === 'active'}
+          />
+        </div>
+        {/* Zone 2 — pending approvals strip */}
+        <div className="section-enter section-enter-3">
+          <PendingApprovalsStrip
+            count={reputation.pendingApprovalCount}
+            onReview={isReadOnly ? undefined : scrollToReviews}
+          />
+        </div>
+        {/* Zone 3 — needs-action reviews */}
+        <div className="section-enter section-enter-4">
+          <ReviewsCard
+            recentReviews={recentReviews}
+            onActionSuccess={() => { void refresh(); }}
+            ref={reviewsRef}
+            initialTab={initialTab}
+            readOnly={isReadOnly}
+          />
+        </div>
+        {/* Zone 4 — reputation trend */}
+        <div className="section-enter section-enter-5">
+          <ReputationTrendChart trend={reputation.trend} />
+        </div>
       </div>
     </>
   );
