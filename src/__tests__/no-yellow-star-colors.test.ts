@@ -2,16 +2,21 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-// 2026-05 launch audit P2 #28 (doc retired): review-star GLYPHS use brand teal #97B3AE, never
-// yellow. Scoped to star call-sites so it never trips on legit yellow STATUS
-// badges (e.g. admin past_due `bg-yellow-100 text-yellow-800`).
+// 2026-05 launch audit P2 #28 (doc retired): review-star GLYPHS must never use
+// garish #eab308 yellow / text-yellow-*. Originally locked to brand teal #97B3AE
+// everywhere. 2026-06 dashboard redesign (high-end-visual-design): the
+// AUTHENTICATED dashboard token --rw-star moved to Warm Editorial muted gold
+// #D4A24C — a recognizable, non-garish gold that matches the approved mockup.
+// Marketing (globals.css), auth island, and admin glyphs stay brand teal
+// #97B3AE (out of the redesign scope). The garish-yellow ban below is global.
+// Scoped to star call-sites so it never trips on legit yellow STATUS badges
+// (e.g. admin past_due `bg-yellow-100 text-yellow-800`).
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf-8');
-const STAR = '#97B3AE';
 
-describe('review stars are brand teal, never yellow (P2 #28)', () => {
-  it('token is renamed --rw-star and no --rw-yellow-500 remains', () => {
+describe('review stars use the brand glyph color, never garish yellow (P2 #28)', () => {
+  it('--rw-star is Warm Editorial gold (redesign) and no --rw-yellow-500 remains', () => {
     const tokens = read('src/app/(authenticated)/_styles/tokens.css');
-    expect(tokens).toMatch(/--rw-star:\s*#97B3AE/);
+    expect(tokens).toMatch(/--rw-star:\s*#D4A24C/);
     expect(tokens).not.toMatch(/--rw-yellow-500/);
   });
 
