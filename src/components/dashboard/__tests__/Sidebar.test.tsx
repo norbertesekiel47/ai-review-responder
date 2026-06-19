@@ -18,6 +18,10 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/dashboard',
 }));
 
+vi.mock('@/contexts/PendingCountContext', () => ({
+  usePendingCount: () => 0,
+}));
+
 const LOC_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' as LocationId;
 
 function wrapWithProvider(
