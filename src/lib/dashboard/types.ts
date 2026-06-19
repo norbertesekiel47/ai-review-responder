@@ -13,6 +13,40 @@ export interface DashboardSettings {
   googlePlaceId: string;
 }
 
+/** A windowed metric with an honest prior-period comparison (PLAN.md PR2). */
+export interface ReputationMetric {
+  /** Current 30-day value; null when the current window has no qualifying sample. */
+  current: number | null;
+  /** current − prior, in the metric's own unit. null when the prior window has
+   *  zero sample (per-metric delta suppression — PLAN.md C.13). */
+  delta: number | null;
+  /** Size of the prior window's sample; drives the delta suppression above. */
+  priorSampleSize: number;
+}
+
+/** Reputation-health summary for the redesigned single-location landing.
+ *  Opt-in (route passes includeReputationMetrics) so the aggregate path stays light. */
+export interface ReputationSummary {
+  /** Average star rating (1–5); delta in rating points. */
+  averageStar: ReputationMetric;
+  /** Response rate (0–100); delta in percentage points. */
+  responseRate: ReputationMetric;
+  /** Time saved in the window, in MINUTES; delta in minutes. */
+  timeSavedMinutes: ReputationMetric;
+  /** Owner drafts awaiting approval (excludes held/flagged) — authoritative SQL count. */
+  pendingApprovalCount: number;
+  /** 8-week star-equivalent reputation trend derived from sentiment_score. */
+  trend: Array<{
+    weekStart: string;
+    /** clamp(3 + 2·avgScore, 1, 5); null for weeks with no reviews. */
+    starEquivalent: number | null;
+    reviewCount: number;
+  }>;
+  /** True while the location is too young for trustworthy deltas; the hero
+   *  renders compact (current values, no delta arrows) — PLAN.md C.14. */
+  isRamping: boolean;
+}
+
 export interface DashboardDataActive {
   subscriptionStatus?: never;
   business: { name: string; createdAt: string };
@@ -22,6 +56,10 @@ export interface DashboardDataActive {
     currentResponseRate: number;
     baselineResponseRate: number | null;
   };
+  /** Reputation-health metrics for the redesigned landing. Only populated when
+   *  the route requests includeReputationMetrics (single-location landing);
+   *  absent on the aggregate / lighter paths. */
+  reputationSummary?: ReputationSummary;
   reviewVelocity: Array<{ weekStart: string; count: number }>;
   ranking: Array<{
     keyword: string;

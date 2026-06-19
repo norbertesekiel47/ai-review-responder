@@ -155,7 +155,7 @@ async function fetchPerLocationData(
       pastDueAt: subRow.past_due_at,
       accountFlags: subRow.flags,
     });
-    const data = await getActiveDashboardData(locationId);
+    const data = await getActiveDashboardData(locationId, { includeReputationMetrics: true });
     return jsonResponse({
       ...data,
       subscriptionStatus: SubscriptionStatus.PAST_DUE,
