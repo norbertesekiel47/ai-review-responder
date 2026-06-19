@@ -2,34 +2,37 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { PendingApprovalsStrip } from '@/components/dashboard/kpi/PendingApprovalsStrip';
 
+vi.mock('next/link', () => ({
+  default: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...props}>{children}</a>
+  ),
+}));
+
 describe('PendingApprovalsStrip', () => {
-  it('shows the pending count and a Review now CTA that scrolls', async () => {
-    const onReview = vi.fn();
-    render(<PendingApprovalsStrip count={3} onReview={onReview} />);
+  it('shows the pending count and a Review now link to the Reviews page', () => {
+    render(<PendingApprovalsStrip count={3} />);
     expect(screen.getByText(/need your approval/)).toBeInTheDocument();
     expect(screen.getByText('3 drafts')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /review now/i }));
-    expect(onReview).toHaveBeenCalledOnce();
+    expect(screen.getByRole('link', { name: /review now/i })).toHaveAttribute(
+      'href',
+      '/dashboard/reviews',
+    );
   });
 
   it('uses singular copy for a single pending draft', () => {
-    render(<PendingApprovalsStrip count={1} onReview={() => {}} />);
+    render(<PendingApprovalsStrip count={1} />);
     expect(screen.getByText('1 draft')).toBeInTheDocument();
     expect(screen.getByText(/needs your approval/)).toBeInTheDocument();
   });
 
-  it('shows the calm all-caught-up state with no CTA when count is 0', () => {
-    render(<PendingApprovalsStrip count={0} onReview={() => {}} />);
+  it('shows the calm state with a View all reviews link when count is 0', () => {
+    render(<PendingApprovalsStrip count={0} />);
     expect(screen.getByText(/all caught up/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /review now/i })).not.toBeInTheDocument();
-  });
-
-  it('hides the CTA when no onReview handler is provided (read-only)', () => {
-    render(<PendingApprovalsStrip count={2} />);
-    expect(screen.getByText('2 drafts')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /review now/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /view all reviews/i })).toHaveAttribute(
+      'href',
+      '/dashboard/reviews',
+    );
   });
 });

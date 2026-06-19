@@ -1,19 +1,41 @@
 'use client';
 
+import Link from 'next/link';
 import { Icon } from '@/components/dashboard/shell/Icon';
 
 interface Props {
   count: number;
-  /** Scrolls to the needs-action reviews zone. Omitted in read-only states. */
-  onReview?: () => void;
+}
+
+const REVIEWS_HREF = '/dashboard/reviews';
+
+function ReviewsCta({ label, variant }: { label: string; variant: 'primary' | 'ghost' }) {
+  return (
+    <Link href={REVIEWS_HREF} className={`btn btn-${variant}`}>
+      {label}
+      <svg
+        viewBox="0 0 24 24"
+        width={16}
+        height={16}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.7}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M5 12h14M13 6l6 6-6 6" />
+      </svg>
+    </Link>
+  );
 }
 
 /**
- * Zone 2 (PLAN.md): a full-width strip under the hero. Shows the pending count
- * with a "Review now" CTA when there's work, or a quiet "all caught up" state
- * otherwise. Secondary to the reputation hero, never the primary focus.
+ * Action strip under the dashboard hero. Always a doorway to the Reviews page —
+ * "Review now" when drafts are waiting, "View all reviews" when caught up. The
+ * arrow link is present in BOTH states (PLAN.md 2026-06-19 restructure).
  */
-export function PendingApprovalsStrip({ count, onReview }: Props) {
+export function PendingApprovalsStrip({ count }: Props) {
   if (count <= 0) {
     return (
       <div className="approvals calm">
@@ -26,6 +48,7 @@ export function PendingApprovalsStrip({ count, onReview }: Props) {
             No drafts waiting. We&apos;ll let you know the moment a new review needs you.
           </div>
         </div>
+        <ReviewsCta label="View all reviews" variant="ghost" />
       </div>
     );
   }
@@ -41,17 +64,10 @@ export function PendingApprovalsStrip({ count, onReview }: Props) {
           <strong>{count} draft{plural}</strong> need{count === 1 ? 's' : ''} your approval
         </div>
         <div className="approvals-sub">
-          Approve or edit {count === 1 ? 'it' : 'them'} below. Usually under a minute.
+          Approve or edit {count === 1 ? 'it' : 'them'} on the Reviews page. Usually under a minute.
         </div>
       </div>
-      {onReview && (
-        <button type="button" className="btn btn-primary" onClick={onReview}>
-          Review now
-          <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M5 12h14M13 6l6 6-6 6" />
-          </svg>
-        </button>
-      )}
+      <ReviewsCta label="Review now" variant="primary" />
     </div>
   );
 }
