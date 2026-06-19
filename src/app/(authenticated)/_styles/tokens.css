@@ -42,27 +42,52 @@
   --rw-accent-2:    var(--rw-peach);
   --rw-hairline:    #97B3AE1a;  /* border-[#97B3AE]/10 */
 
-  /* ---------- App palette ("Console") ---------- */
-  /* Tailwind defaults used literally in DashboardContent/SettingsPage. */
-  --rw-app-bg:          #F9FAFB;  /* gray-50 */
-  --rw-app-surface:     #FFFFFF;
-  --rw-app-border:      #E5E7EB;  /* gray-200 */
-  --rw-app-border-soft: #F3F4F6;  /* gray-100 */
-  --rw-app-text:        #111827;  /* gray-900 */
-  --rw-app-text-muted:  #6B7280;  /* gray-500 */
-  --rw-app-text-soft:   #9CA3AF;  /* gray-400 */
+  /* ---------- App palette ("Console") — Warm Editorial redesign ----------
+     The owner dashboard moved from neutral-blue Console to a warm, editorial
+     surface (Young Serif display + DM Sans). Marketing "Island" palette above
+     is untouched. See docs/design/dashboard-redesign/design-spec.md. */
+  --rw-app-bg:          #FDFBF7;  /* warm off-white field */
+  --rw-app-field:       radial-gradient(140% 120% at 12% -8%, #ffffff 0%, #fdfbf7 46%, #f6f1e9 100%);
+  --rw-app-surface:     #FFFDF9;  /* card core */
+  --rw-tray:            #F4EEE4;  /* double-bezel outer tray */
+  --rw-card:            #FFFDF9;  /* double-bezel inner core */
+  --rw-recess:          #F7F3EC;  /* recessed panels — inputs, AI-reply */
+  --rw-app-border:      rgba(80, 60, 40, 0.10);
+  --rw-app-border-soft: rgba(80, 60, 40, 0.06);
+  --rw-hair:            rgba(80, 60, 40, 0.08);
+  --rw-hair-2:          rgba(80, 60, 40, 0.14);
+  --rw-app-text:        #2A2118;  /* espresso ink */
+  --rw-app-text-muted:  #6B5E50;  /* warm muted */
+  --rw-app-text-soft:   #9C8E7E;  /* warm faint */
+
+  /* Warm Editorial accents */
+  --rw-sage:            #97B3AE;
+  --rw-sage-deep:       #5E7C76;
+  --rw-sage-soft:       rgba(151, 179, 174, 0.16);
+  --rw-sage-line:       rgba(151, 179, 174, 0.34);
+  --rw-blush:           #F2C3B9;
+  --rw-blush-deep:      #A85F4E;
+  --rw-blush-soft:      #FBEDE9;
+  --rw-gold:            #D4A24C;  /* app star rating — recognizable warm gold */
+  --rw-danger:          #B4493A;  /* terracotta, never pure red */
+  --rw-violet:          #8A76B8;  /* auto-approved provenance */
 
   /* App layout — sidebar width. The sticky save-bar's `left` offset derives
      from this token so the two can never drift (M6). */
   --rw-sidebar-width:   240px;
 
-  --rw-blue-600:   #2563EB;  /* primary CTA, chart bars, active links */
-  --rw-blue-700:   #1D4ED8;  /* hover */
-  --rw-blue-500:   #3B82F6;  /* focus ring, accent border */
-  --rw-blue-100:   #DBEAFE;  /* badge bg */
-  --rw-blue-50:    #EFF6FF;  /* brief panel bg */
-  --rw-blue-800:   #1E40AF;  /* badge text */
-  --rw-blue-fg:    #1D4ED8;
+  /* Primary accent — repurposed from Console blue to Warm Editorial SAGE.
+     Names kept to avoid a repo-wide token rename in the visual PR; a follow-up
+     cleanup renames --rw-blue-* → --rw-accent-*. Values are sage, not blue. */
+  --rw-blue-600:   #5E7C76;  /* primary accent — active nav, links, CTAs */
+  --rw-blue-700:   #527069;  /* hover */
+  --rw-blue-500:   #97B3AE;  /* focus ring, accent border */
+  --rw-blue-100:   #E4ECEA;  /* accent badge bg */
+  --rw-blue-50:    rgba(151, 179, 174, 0.16);  /* accent panel bg */
+  --rw-blue-800:   #4A615C;  /* accent badge text */
+  --rw-blue-fg:    #5E7C76;
+  --rw-accent:     var(--rw-blue-600);
+  --rw-accent-soft: var(--rw-blue-50);
 
   --rw-green-600:  #16A34A;  /* approve action */
   --rw-green-700:  #15803D;
@@ -102,11 +127,10 @@
   --rw-chart-6: #0891b2;
 
   /* ---------- Type ----------
-     Plus Jakarta Sans for headings (warm, geometric, humanist curves)
-     DM Sans for body (neutral, highly legible at small sizes).
-     Premium without being cold — matches the blush/sage palette.
-     Import in <head>:
-       <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"> */
+     GLOBAL default = Plus Jakarta Sans (marketing "Island" surfaces).
+     The authenticated app overrides --rw-font-display to YOUNG SERIF inside
+     .rw-console (console.css) — display-only, single weight, warm/editorial.
+     DM Sans is the body face everywhere. */
   --rw-font-display: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system,
                     'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --rw-font-body:    'DM Sans', ui-sans-serif, system-ui, -apple-system,
@@ -142,16 +166,20 @@
   --rw-radius-sm:  0.375rem; /* 6px — app buttons/inputs */
   --rw-radius-md:  0.5rem;   /* 8px — app cards */
   --rw-radius-lg:  0.75rem;  /* 12px — app stat tiles */
+  --rw-radius-card: 1.25rem; /* 20px — Warm Editorial double-bezel outer */
+  --rw-radius-core: 0.875rem;/* 14px — inner core (concentric) */
   --rw-radius-xl:  1rem;     /* 16px — marketing cards */
   --rw-radius-2xl: 1.5rem;   /* 24px — marketing mockup frame */
   --rw-radius-3xl: 3rem;     /* 48px — THE ISLAND corner */
   --rw-radius-pill: 9999px;  /* pill buttons, dot nav, badges */
 
   /* ---------- Elevation ---------- */
-  /* App shadows: terse Tailwind shadow-sm / shadow / shadow-lg */
-  --rw-shadow-sm:  0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --rw-shadow:     0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
-  --rw-shadow-lg:  0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  /* App shadows: warm, diffused (never harsh black) for the Console redesign. */
+  --rw-shadow-sm:  0 1px 2px rgba(80, 60, 40, 0.05), 0 8px 20px -16px rgba(80, 60, 40, 0.18);
+  --rw-shadow:     0 1px 2px rgba(80, 60, 40, 0.05), 0 14px 30px -22px rgba(80, 60, 40, 0.22);
+  --rw-shadow-lg:  0 1px 2px rgba(80, 60, 40, 0.05), 0 24px 46px -30px rgba(80, 60, 40, 0.30);
+  --rw-shadow-pop: 0 18px 40px -18px rgba(80, 60, 40, 0.34);
+  --rw-inset-hi:   inset 0 1px 0 rgba(255, 255, 255, 0.7);
   /* Marketing — the island is shadow-2xl, cards are shadow-xl, features shadow-lg */
   --rw-shadow-xl:  0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
   --rw-shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
@@ -161,6 +189,7 @@
   /* ---------- Motion ---------- */
   --rw-ease:        cubic-bezier(0.25, 0.46, 0.45, 0.94); /* easeOut */
   --rw-ease-inout:  cubic-bezier(0.42, 0, 0.58, 1);       /* easeInOut */
+  --rw-ease-spring: cubic-bezier(0.32, 0.72, 0, 1);       /* warm spring */
   --rw-dur-fast:    200ms;
   --rw-dur-base:    500ms;  /* carousel, card flips */
   --rw-dur-slow:    800ms;  /* hero intro */
