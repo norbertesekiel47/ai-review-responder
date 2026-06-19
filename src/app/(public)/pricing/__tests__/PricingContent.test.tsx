@@ -4,6 +4,17 @@ import { describe, expect, it } from 'vitest';
 import { PricingContent } from '../PricingContent';
 
 describe('PricingContent', () => {
+  it('renders the pricing page with the site-wide footer', () => {
+    const html = renderToStaticMarkup(createElement(PricingContent));
+
+    // page content sanity
+    expect(html).toContain('value="pricing"');
+    // site-wide footer now present
+    expect(html).toContain('class="rw-foot"');
+    expect(html).toContain('href="/legal/privacy"');
+    expect(html).toContain('href="/legal/terms"');
+  });
+
   it('renders pre-launch public tiers as disabled coming soon cards', () => {
     const html = renderToStaticMarkup(createElement(PricingContent));
 

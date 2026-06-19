@@ -13,8 +13,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
-import { MarqueeBackground } from '@/components/ui/MarqueeBackground';
-import { SiteNav } from '@/components/ui/SiteNav';
+import { SiteShell } from '@/components/ui/SiteShell';
 import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
 
 const FEATURES = [
@@ -417,15 +416,13 @@ export function FeaturesContent({
   };
 
   return (
-    <div className="rw-feat-page">
-      <MarqueeBackground />
-
-      <DotNav activeSection={activeSection} onJump={scrollTo} />
-
-      {/* Island */}
-      <div className="rw-island-wrap">
-        <main className="rw-island">
-          <SiteNav comingSoon={comingSoon} selfServeEnabled={selfServeEnabled} />
+    <SiteShell
+      scope="rw-feat-page"
+      islandAs="main"
+      comingSoon={comingSoon}
+      selfServeEnabled={selfServeEnabled}
+      overlay={<DotNav activeSection={activeSection} onJump={scrollTo} />}
+    >
 
           <HeroSection heroIn={heroIn} m1={m1} m2={m2} m3={m3} />
 
@@ -492,9 +489,7 @@ export function FeaturesContent({
               </Link>
             </div>
           </section>
-        </main>
-      </div>
-    </div>
+    </SiteShell>
   );
 }
 

@@ -3,8 +3,7 @@
 import Link from 'next/link';
 import { useMemo, useReducer, useState, type ReactNode } from 'react';
 import { LeadIntakeForm } from '@/components/sections/lead-intake/LeadIntakeForm';
-import { MarqueeBackground } from '@/components/ui/MarqueeBackground';
-import { SiteNav } from '@/components/ui/SiteNav';
+import { SiteShell } from '@/components/ui/SiteShell';
 
 type Billing = 'monthly' | 'annual';
 type TierId = 'founders' | 'basic' | 'standard' | 'premium';
@@ -357,12 +356,7 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
   const headerFeatured = (id: TierId) => id === featured;
 
   return (
-    <div className="pr-page">
-      <MarqueeBackground />
-
-      <div className="rw-island-wrap">
-        <div className="rw-island">
-          <SiteNav selfServeEnabled={selfServeEnabled} />
+    <SiteShell scope="pr-page" selfServeEnabled={selfServeEnabled}>
 
           {/* Hero */}
           <section className="pr-hero">
@@ -541,9 +535,7 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
               <LeadIntakeForm intent="waitlist" source="pricing" tone="onTeal" />
             </div>
           </section>
-        </div>
-      </div>
-    </div>
+    </SiteShell>
   );
 }
 

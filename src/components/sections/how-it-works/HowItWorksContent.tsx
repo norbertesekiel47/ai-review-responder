@@ -7,8 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { MarqueeBackground } from '@/components/ui/MarqueeBackground';
-import { SiteNav } from '@/components/ui/SiteNav';
+import { SiteShell } from '@/components/ui/SiteShell';
 import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
 
 interface HowItWorksContentProps {
@@ -514,25 +513,25 @@ export function HowItWorksContent({
   }, []);
 
   return (
-    <div className="hiw-page">
-      <MarqueeBackground />
-
-      <nav className="hiw-dotnav" aria-label="Section navigation">
-        {SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            onClick={() => jumpTo(s.id)}
-            aria-label={s.label}
-            title={s.label}
-            className={`hiw-dotnav-btn ${active === s.id ? 'is-active' : ''}`}
-          />
-        ))}
-      </nav>
-
-      <div className="rw-island-wrap">
-        <div className="rw-island">
-          <SiteNav comingSoon={comingSoon} selfServeEnabled={selfServeEnabled} />
+    <SiteShell
+      scope="hiw-page"
+      comingSoon={comingSoon}
+      selfServeEnabled={selfServeEnabled}
+      overlay={
+        <nav className="hiw-dotnav" aria-label="Section navigation">
+          {SECTIONS.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => jumpTo(s.id)}
+              aria-label={s.label}
+              title={s.label}
+              className={`hiw-dotnav-btn ${active === s.id ? 'is-active' : ''}`}
+            />
+          ))}
+        </nav>
+      }
+    >
 
           {/* Hero */}
           <section id="hiw-hero" className="hiw-hero">
@@ -708,8 +707,6 @@ export function HowItWorksContent({
               </Link>
             </div>
           </section>
-        </div>
-      </div>
-    </div>
+    </SiteShell>
   );
 }
