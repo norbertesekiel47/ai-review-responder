@@ -2,7 +2,6 @@
 
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { ReviewsCard } from '@/components/dashboard/reviews/ReviewsCard';
 
 const REVIEWS = [
@@ -31,30 +30,19 @@ const REVIEWS = [
 ];
 
 describe('ReviewsCard', () => {
-  it('shows only pending reviews under Needs Action and toggles to all', async () => {
-    const user = userEvent.setup();
+  it('renders only the pending queue, with no in-card tabs (All Recent dropped)', () => {
     render(<ReviewsCard recentReviews={REVIEWS} onActionSuccess={() => {}} />);
     expect(screen.getByText('Daniel')).toBeInTheDocument();
+    // Posted reviews live on the Reviews → History tab now, never in the queue.
     expect(screen.queryByText('Sarah')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: /all recent/i }));
-    expect(screen.getByText('Sarah')).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /all recent/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /needs action/i })).not.toBeInTheDocument();
   });
 
   it('renders the empty state when no pending reviews', () => {
     const onlyPosted = [REVIEWS[1]!];
     render(<ReviewsCard recentReviews={onlyPosted} onActionSuccess={() => {}} />);
     expect(screen.getByText('All caught up!')).toBeInTheDocument();
-  });
-
-  it('respects initialTab="all"', () => {
-    render(<ReviewsCard recentReviews={REVIEWS} onActionSuccess={() => {}} initialTab="all" />);
-    expect(screen.getByText('Sarah')).toBeInTheDocument();
-  });
-
-  it('badges auto-approved replies from approvalMethod', () => {
-    render(<ReviewsCard recentReviews={REVIEWS} onActionSuccess={() => {}} initialTab="all" />);
-
-    expect(screen.getByText('Auto')).toBeInTheDocument();
   });
 
   it('hides pending review action buttons in read-only mode', () => {

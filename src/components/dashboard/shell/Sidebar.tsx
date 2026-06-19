@@ -13,10 +13,6 @@ interface Props {
   businessName: string;
   ownerName: string;
   ownerEmail: string;
-  /** Server-authoritative — read at layout level. */
-  pastRepliesEnabled: boolean;
-  /** Server-authoritative — requires pastRepliesEnabled. Read at layout level. */
-  editRepliesEnabled?: boolean;
 }
 
 function deriveInitials(name: string, email: string): string {
@@ -31,8 +27,6 @@ export function Sidebar({
   businessName,
   ownerName,
   ownerEmail,
-  pastRepliesEnabled,
-  editRepliesEnabled = false,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname() ?? '';
@@ -61,13 +55,11 @@ export function Sidebar({
     }
   }
 
+  // /dashboard/reviews and /dashboard/reviews/history both highlight Reviews.
   const isReviews = pathname.startsWith('/dashboard/reviews');
   const isDashboard =
     pathname === '/dashboard' ||
-    (pathname.startsWith('/dashboard/') &&
-      !pathname.startsWith('/dashboard/past-replies') &&
-      !pathname.startsWith('/dashboard/reviews'));
-  const isPastReplies = pathname.startsWith('/dashboard/past-replies');
+    (pathname.startsWith('/dashboard/') && !pathname.startsWith('/dashboard/reviews'));
   const isSettings = pathname.startsWith('/settings');
 
   const initials = deriveInitials(ownerName, ownerEmail);
@@ -95,11 +87,6 @@ export function Sidebar({
           <Icon name="inbox" /> Reviews
           {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
         </Link>
-        {pastRepliesEnabled && (
-          <Link href="/dashboard/past-replies" className={`nav-item ${isPastReplies ? 'active' : ''}`}>
-            <Icon name="history" /> Past Replies
-          </Link>
-        )}
       </div>
 
       <div className="nav-divider" />

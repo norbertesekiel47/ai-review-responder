@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
+import { ReviewsTabs } from '@/components/dashboard/reviews/ReviewsTabs';
 import { PastRepliesClient } from './PastRepliesClient';
 import { getDisplayLabel } from '@/lib/locations/display-label';
 import {
@@ -367,8 +368,16 @@ export default async function PastRepliesPage({
       <TopBar
         title="Past Replies"
         subtitle={`Every reply posted to Google for ${locationDisplayName} — including replies you made before connecting RepWorth.`}
-        rightLink={{ href: '/dashboard', label: 'Back to dashboard' }}
       />
+      <div className="pr-subnav">
+        <ReviewsTabs active="history" historyEnabled />
+        {/* History is single-location by construction (every query is
+            business_id-scoped). In aggregate scope this shows the current/primary
+            location only; switch it via the sidebar LocationPicker. */}
+        <span className="pr-showing" title="Switch locations from the picker in the sidebar.">
+          Showing: <strong>{locationDisplayName}</strong> <span aria-hidden="true">▾</span>
+        </span>
+      </div>
       <PastRepliesClient
         gapRows={gapRows}
         histRows={histRows}

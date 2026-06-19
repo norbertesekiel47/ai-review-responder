@@ -24,7 +24,7 @@ describe('review stars use the brand glyph color, never garish yellow (P2 #28)',
     for (const p of [
       'src/app/(authenticated)/_styles/console.css',
       'src/app/(authenticated)/_styles/past-replies.css',
-      'src/app/(authenticated)/dashboard/past-replies/PastRepliesClient.tsx',
+      'src/app/(authenticated)/dashboard/reviews/history/PastRepliesClient.tsx',
     ]) {
       expect(read(p), `${p} still references --rw-yellow-500`).not.toMatch(/--rw-yellow-500/);
     }
@@ -49,7 +49,7 @@ describe('review stars use the brand glyph color, never garish yellow (P2 #28)',
     for (const p of [
       'src/components/sections/features/FeaturesContent.tsx',
       'src/components/sections/how-it-works/HowItWorksContent.tsx',
-      'src/app/(authenticated)/dashboard/past-replies/PastRepliesClient.tsx',
+      'src/app/(authenticated)/dashboard/reviews/history/PastRepliesClient.tsx',
       'src/components/dashboard/reviews/EditReplyDrawer.tsx',
       'src/components/approval/approval-client.tsx',
     ]) {

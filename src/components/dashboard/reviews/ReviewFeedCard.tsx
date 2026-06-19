@@ -34,7 +34,6 @@ interface ReviewFeedCardProps {
   recentReviews: readonly ReviewFeedItem[];
   onActionSuccess: () => void;
   emptyText: string;
-  initialTab?: 'needs' | 'all';
   readOnly?: boolean;
 }
 
@@ -42,12 +41,11 @@ export function ReviewFeedCard({
   recentReviews,
   onActionSuccess,
   emptyText,
-  initialTab = 'needs',
   readOnly = false,
 }: ReviewFeedCardProps) {
-  const [tab, setTab] = useState<'needs' | 'all'>(initialTab);
+  // The full archive lives on the Reviews → History tab; this card renders only
+  // the action queue (pending-approval drafts).
   const pending = recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval');
-  const list = tab === 'needs' ? pending : recentReviews;
 
   return (
     <div className="card">
@@ -57,29 +55,7 @@ export function ReviewFeedCard({
         <span style={{ fontSize: 12, color: 'var(--rw-app-text-muted)' }}>{pending.length} awaiting your approval</span>
       </div>
 
-      <div className="tabs" role="tablist">
-        <button
-          type="button"
-          className={`tab ${tab === 'needs' ? 'active' : ''}`}
-          onClick={() => setTab('needs')}
-          role="tab"
-          aria-selected={tab === 'needs'}
-        >
-          Needs Action
-          {pending.length > 0 && <span className="tab-badge">{pending.length}</span>}
-        </button>
-        <button
-          type="button"
-          className={`tab ${tab === 'all' ? 'active' : ''}`}
-          onClick={() => setTab('all')}
-          role="tab"
-          aria-selected={tab === 'all'}
-        >
-          All Recent
-        </button>
-      </div>
-
-      {list.length === 0 ? (
+      {pending.length === 0 ? (
         <div className="empty-caught-up">
           <div className="empty-emoji">🎉</div>
           <div className="empty-title">All caught up!</div>
@@ -87,7 +63,7 @@ export function ReviewFeedCard({
         </div>
       ) : (
         <div className="review-list">
-          {list.map((r) => (
+          {pending.map((r) => (
             <ReviewFeedRow key={r.id} r={r} onSuccess={onActionSuccess} readOnly={readOnly} />
           ))}
         </div>

@@ -14,6 +14,7 @@ import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { ReviewsCard } from '@/components/dashboard/reviews/ReviewsCard';
 import { AggregateReviewsCard } from '@/components/dashboard/aggregate/AggregateReviewsCard';
+import { ReviewsTabs } from '@/components/dashboard/reviews/ReviewsTabs';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useLocationScope } from '@/contexts/LocationContext';
 import { useSetPendingCount } from '@/contexts/PendingCountContext';
@@ -35,7 +36,12 @@ function perLocationActive(data: DashboardOrAggregate): DashboardDataActive | nu
  * (PLAN.md 2026-06-19). Per-location -> ReviewsCard; aggregate -> the combined
  * AggregateReviewsCard. Shares the cached /api/dashboard payload.
  */
-export function ReviewsContent() {
+interface ReviewsContentProps {
+  /** Server-authoritative (PAST_REPLIES_VIEW_ENABLED) — gates the History tab. */
+  historyEnabled: boolean;
+}
+
+export function ReviewsContent({ historyEnabled }: ReviewsContentProps) {
   const { currentScope } = useLocationScope();
   const { data, error, loading, refresh } = useDashboardData(currentScope);
   const setPendingCount = useSetPendingCount();
@@ -91,6 +97,7 @@ export function ReviewsContent() {
           refresh={refresh}
         />
         <div className="content">
+          <ReviewsTabs active="needs" historyEnabled={historyEnabled} />
           <div className="section-enter section-enter-1">
             <AggregateReviewsCard
               recentReviews={data.recentReviews}
@@ -137,11 +144,11 @@ export function ReviewsContent() {
         refresh={refresh}
       />
       <div className="content">
+        <ReviewsTabs active="needs" historyEnabled={historyEnabled} />
         <div className="section-enter section-enter-1">
           <ReviewsCard
             recentReviews={active.recentReviews}
             onActionSuccess={() => { void refresh(); }}
-            initialTab="needs"
             readOnly={isReadOnly}
           />
         </div>

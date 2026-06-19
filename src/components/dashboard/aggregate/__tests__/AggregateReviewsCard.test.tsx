@@ -2,7 +2,6 @@
 
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { AggregateReviewsCard } from '@/components/dashboard/aggregate/AggregateReviewsCard';
 
 const REVIEWS = [
@@ -35,6 +34,14 @@ const REVIEWS = [
 ];
 
 describe('AggregateReviewsCard', () => {
+  it('renders only the pending queue, with no in-card tabs (All Recent dropped)', () => {
+    render(<AggregateReviewsCard recentReviews={REVIEWS} onActionSuccess={() => {}} />);
+    expect(screen.getByText('Daniel')).toBeInTheDocument();
+    // Posted reviews live on the Reviews → History tab now, never in the queue.
+    expect(screen.queryByText('Sarah')).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /all recent/i })).not.toBeInTheDocument();
+  });
+
   it('hides pending review action buttons in read-only mode', () => {
     render(<AggregateReviewsCard recentReviews={REVIEWS} onActionSuccess={() => {}} readOnly />);
 
@@ -42,13 +49,5 @@ describe('AggregateReviewsCard', () => {
     expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^regenerate$/i })).not.toBeInTheDocument();
     expect(screen.getByText(/update billing to approve/i)).toBeInTheDocument();
-  });
-
-  it('badges auto-approved aggregate reviews from approvalMethod', async () => {
-    const user = userEvent.setup();
-    render(<AggregateReviewsCard recentReviews={REVIEWS} onActionSuccess={() => {}} readOnly />);
-
-    await user.click(screen.getByRole('tab', { name: /all recent/i }));
-    expect(screen.getByText('Auto')).toBeInTheDocument();
   });
 });
