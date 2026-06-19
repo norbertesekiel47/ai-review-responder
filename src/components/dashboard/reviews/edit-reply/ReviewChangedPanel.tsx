@@ -10,31 +10,31 @@ export function ReviewChangedPanel({
   onClose: () => void;
 }) {
   return (
-    <div className="space-y-3 rounded-lg border border-[#97B3AE]/40 bg-[#F0EEEA]/40 p-4">
-      <p className="text-sm text-[#6a6a6a]">
+    <div className="space-y-3 rounded-lg p-4" style={{ border: '1px solid var(--rw-sage-line)', background: 'var(--rw-recess)' }}>
+      <p className="text-sm" style={{ color: 'var(--rw-app-text-muted)' }}>
         The customer updated this review. Refresh to see the latest version
         before editing again.
       </p>
       {currentText && (
         <div>
-          <div className="mb-1 text-xs uppercase tracking-wider text-[#97B3AE]">
+          <div className="mb-1 text-xs uppercase tracking-wider" style={{ color: 'var(--rw-sage-deep)' }}>
             Updated review text
           </div>
-          <p className="rounded-md bg-white p-3 text-sm text-[#2a2a2a]">{currentText}</p>
+          <p className="rounded-md p-3 text-sm" style={{ background: 'var(--rw-card)', color: 'var(--rw-app-text)' }}>{currentText}</p>
         </div>
       )}
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
           onClick={onRefresh}
-          className="rounded-full bg-[#97B3AE] px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#7c9994]"
+          className="btn btn-primary"
         >
           Refresh
         </button>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-md border border-gray-200 px-4 py-2 text-sm font-medium text-[#2a2a2a] hover:bg-gray-50"
+          className="btn btn-secondary"
         >
           Close
         </button>

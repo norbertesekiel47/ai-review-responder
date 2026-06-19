@@ -56,7 +56,7 @@ export function ReviewFeedCard({
       <div className="card-h2-row">
         <h2>Reviews</h2>
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 12, color: '#6B7280' }}>{pending.length} awaiting your approval</span>
+        <span style={{ fontSize: 12, color: 'var(--rw-app-text-muted)' }}>{pending.length} awaiting your approval</span>
       </div>
 
       <div className="tabs" role="tablist">
@@ -182,7 +182,7 @@ function PendingDraft({
       </div>
       <div className="draft-text">{responseText}</div>
       {readOnly ? (
-        <p className="text-xs text-gray-600 mt-2">
+        <p className="text-xs mt-2" style={{ color: 'var(--rw-app-text-muted)' }}>
           Update billing to approve, edit, or regenerate this reply.
         </p>
       ) : (

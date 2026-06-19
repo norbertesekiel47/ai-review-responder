@@ -85,17 +85,18 @@ export function ReviewActions({
   }
 
   if (state.kind === 'success') {
-    return <p className="text-green-600 text-xs mt-1">{state.message}</p>;
+    return <p className="text-xs mt-1" style={{ color: 'var(--rw-sage-deep)' }}>{state.message}</p>;
   }
 
   if (state.kind === 'limit') {
     return (
       <div className="mt-1">
-        <p className="text-amber-600 text-xs" role="status">{state.message}</p>
+        <p className="text-xs" role="status" style={{ color: 'var(--rw-blush-deep)' }}>{state.message}</p>
         <button
           type="button"
           onClick={() => setState({ kind: 'idle' })}
-          className="text-xs text-blue-600 hover:text-blue-800 mt-0.5"
+          className="text-xs mt-0.5"
+          style={{ color: 'var(--rw-sage-deep)' }}
         >
           Back
         </button>
@@ -106,11 +107,12 @@ export function ReviewActions({
   if (state.kind === 'error') {
     return (
       <div className="mt-1">
-        <p className="text-red-600 text-xs">{state.message}</p>
+        <p className="text-xs" style={{ color: 'var(--rw-danger)' }}>{state.message}</p>
         <button
           type="button"
           onClick={() => setState({ kind: 'idle' })}
-          className="text-xs text-blue-600 hover:text-blue-800 mt-0.5"
+          className="text-xs mt-0.5"
+          style={{ color: 'var(--rw-sage-deep)' }}
         >
           Try again
         </button>
@@ -129,20 +131,20 @@ export function ReviewActions({
           onChange={(e) => setEditText(e.target.value)}
           maxLength={2000}
           rows={4}
-          className="w-full rounded border border-gray-300 p-2 text-sm text-gray-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="textarea"
         />
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={handleSaveEdit}
-            className="rounded px-3 py-1 text-sm font-medium bg-blue-600 text-white hover:bg-blue-700"
+            className="btn btn-primary"
           >
             Save &amp; Approve
           </button>
           <button
             type="button"
             onClick={() => { setState({ kind: 'idle' }); setEditText(responseText ?? ''); }}
-            className="rounded px-3 py-1 text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50"
+            className="btn btn-secondary"
           >
             Cancel
           </button>
@@ -157,7 +159,7 @@ export function ReviewActions({
         type="button"
         onClick={handleApprove}
         disabled={isLoading}
-        className="rounded px-3 py-1 text-sm font-medium bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+        className="btn btn-primary"
       >
         {isLoading && state.action === 'approve' ? 'Approve...' : 'Approve'}
       </button>
@@ -165,7 +167,7 @@ export function ReviewActions({
         type="button"
         onClick={() => setState({ kind: 'editing' })}
         disabled={isLoading}
-        className="rounded px-3 py-1 text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+        className="btn btn-secondary"
       >
         Edit
       </button>
@@ -173,7 +175,7 @@ export function ReviewActions({
         type="button"
         onClick={handleRegenerate}
         disabled={isLoading}
-        className="rounded px-3 py-1 text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        className="btn btn-tertiary"
       >
         {isLoading && state.action === 'regenerate' ? 'Regenerate...' : 'Regenerate'}
       </button>

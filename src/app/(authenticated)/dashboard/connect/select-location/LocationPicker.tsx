@@ -48,10 +48,10 @@ export function LocationPicker({ locations }: Props) {
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">
-      <h1 className="text-2xl font-semibold text-gray-900">
+      <h1 className="text-2xl font-semibold" style={{ color: 'var(--rw-app-text)' }}>
         Pick a Google Business location
       </h1>
-      <p className="mt-2 text-sm text-gray-600">
+      <p className="mt-2 text-sm" style={{ color: 'var(--rw-app-text-muted)' }}>
         Select the location RepWorth should publish responses for. You can
         change this later by reconnecting.
       </p>
@@ -61,11 +61,12 @@ export function LocationPicker({ locations }: Props) {
           {locations.map((loc) => (
             <label
               key={loc.id}
-              className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition ${
+              className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition"
+              style={
                 selected === loc.id
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-gray-200 bg-white hover:bg-gray-50'
-              }`}
+                  ? { borderColor: 'var(--rw-blue-500)', background: 'var(--rw-sage-soft)' }
+                  : { borderColor: 'var(--rw-hair)', background: 'var(--rw-card)' }
+              }
             >
               <input
                 type="radio"
@@ -77,15 +78,18 @@ export function LocationPicker({ locations }: Props) {
                 className="mt-1"
               />
               <div>
-                <div className="font-medium text-gray-900">{loc.name}</div>
-                <div className="text-sm text-gray-500">{loc.address}</div>
+                <div className="font-medium" style={{ color: 'var(--rw-app-text)' }}>{loc.name}</div>
+                <div className="text-sm" style={{ color: 'var(--rw-app-text-muted)' }}>{loc.address}</div>
               </div>
             </label>
           ))}
         </div>
 
         {error && (
-          <p className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+          <p
+            className="rounded border p-3 text-sm"
+            style={{ borderColor: 'var(--rw-danger)', background: 'var(--rw-danger-soft)', color: 'var(--rw-danger)' }}
+          >
             {error}
           </p>
         )}
@@ -94,13 +98,14 @@ export function LocationPicker({ locations }: Props) {
           <button
             type="submit"
             disabled={!selected || busy}
-            className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="btn btn-primary disabled:opacity-50"
           >
             {busy ? 'Connecting…' : 'Connect this location'}
           </button>
           <Link
             href="/dashboard/connect"
-            className="text-sm text-gray-600 hover:underline"
+            className="text-sm hover:underline"
+            style={{ color: 'var(--rw-app-text-muted)' }}
           >
             Cancel
           </Link>

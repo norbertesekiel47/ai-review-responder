@@ -11,7 +11,7 @@ interface Props {
 
 function ReadOnlyNotice() {
   return (
-    <p className="text-xs text-gray-600 mt-1">
+    <p className="text-xs mt-1" style={{ color: 'var(--rw-app-text-muted)' }}>
       Update billing to connect or reconnect Google Business.
     </p>
   );

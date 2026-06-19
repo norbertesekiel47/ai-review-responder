@@ -117,7 +117,7 @@ export function TierChangeModal({
         <div className="set-section-title" style={{ marginBottom: 8 }}>
           {isDowngrade ? 'Downgrade' : 'Upgrade'} to {newTier.charAt(0).toUpperCase() + newTier.slice(1)}?
         </div>
-        <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 12 }}>
+        <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
           {isDowngrade
             ? 'Downgrading will reduce your plan. Your billing will be prorated.'
             : 'Upgrading will give you more features. Your billing will be prorated.'}
@@ -125,27 +125,27 @@ export function TierChangeModal({
 
         {/* Billing preview */}
         {previewLoading && (
-          <p style={{ fontSize: 13, color: '#6B7280', textAlign: 'center', padding: 8 }}>
+          <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', textAlign: 'center', padding: 8 }}>
             Calculating new billing…
           </p>
         )}
         {previewError && (
-          <div style={{ fontSize: 13, color: '#DC2626', padding: 8 }}>
+          <div style={{ fontSize: 13, color: 'var(--rw-danger)', padding: 8 }}>
             {previewError}
           </div>
         )}
         {billingPreview && !previewLoading && (
           <div style={{
-            background: '#F9FAFB',
-            border: '1px solid #E5E7EB',
+            background: 'var(--rw-recess)',
+            border: '1px solid var(--rw-hair)',
             borderRadius: 8,
             padding: 12,
             marginBottom: 12,
           }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--rw-app-text)', marginBottom: 8 }}>
               New monthly estimate
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: '#4B5563' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: 'var(--rw-app-text-muted)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Base ({newTier.charAt(0).toUpperCase() + newTier.slice(1)})</span>
                 <span>${(billingPreview.basePriceCents / 100).toFixed(2)}/mo</span>
@@ -159,11 +159,11 @@ export function TierChangeModal({
               <div style={{
                 display: 'flex',
                 justifyContent: 'space-between',
-                borderTop: '1px solid #E5E7EB',
+                borderTop: '1px solid var(--rw-hair)',
                 paddingTop: 4,
                 marginTop: 4,
                 fontWeight: 600,
-                color: '#111827',
+                color: 'var(--rw-app-text)',
               }}>
                 <span>Total</span>
                 <span>${(billingPreview.totalCents / 100).toFixed(2)}/mo</span>
@@ -172,7 +172,7 @@ export function TierChangeModal({
           </div>
         )}
         {billingPreview && !previewLoading && (
-          <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 12, textAlign: 'center' }}>
+          <p style={{ fontSize: 12, color: 'var(--rw-app-text-muted)', marginBottom: 12, textAlign: 'center' }}>
             Estimate shown before any applicable taxes. Subscription continues
             monthly until cancelled.
           </p>
@@ -180,13 +180,13 @@ export function TierChangeModal({
 
         {isDowngrade && newTier === 'basic' && (
           <div style={{
-            background: '#FEF3C7',
-            border: '1px solid #F59E0B',
+            background: 'var(--rw-blush-soft)',
+            border: '1px solid var(--rw-blush)',
             borderRadius: 8,
             padding: 8,
             marginBottom: 12,
             fontSize: 12,
-            color: '#92400E',
+            color: 'var(--rw-blush-deep)',
           }}>
             Basic plan supports only 1 location. Archive extra locations before downgrading.
           </div>
@@ -306,7 +306,7 @@ function PlanCard({ subscription, billing, accountId }: {
         </button>
       )}
       {portalError && (
-        <div style={{ gridColumn: '1 / -1', fontSize: 12, color: '#DC2626', marginTop: 4 }}>
+        <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--rw-danger)', marginTop: 4 }}>
           {portalError}
         </div>
       )}
@@ -478,10 +478,10 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
         </div>
 
         {accountLoading && (
-          <p style={{ textAlign: 'center', color: '#6B7280', padding: '24px 0' }}>Loading account data…</p>
+          <p style={{ textAlign: 'center', color: 'var(--rw-app-text-muted)', padding: '24px 0' }}>Loading account data…</p>
         )}
         {accountError && (
-          <div style={{ fontSize: 13, color: '#DC2626', padding: '8px 0' }}>
+          <div style={{ fontSize: 13, color: 'var(--rw-danger)', padding: '8px 0' }}>
             {accountError}
           </div>
         )}
@@ -491,7 +491,7 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
 
             {/* Locations quota */}
             <div style={{ marginTop: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--rw-app-text)', marginBottom: 8 }}>
                 Locations quota
               </div>
               <QuotaBar
@@ -503,7 +503,7 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
 
             {/* VAL-BILLING-073: Tier change buttons with confirmation modal */}
             <div style={{ marginTop: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--rw-app-text)', marginBottom: 8 }}>
                 Change plan
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -537,7 +537,7 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
                 })}
               </div>
               {tierChangeError && (
-                <div style={{ fontSize: 12, color: '#DC2626', marginTop: 4 }}>
+                <div style={{ fontSize: 12, color: 'var(--rw-danger)', marginTop: 4 }}>
                   {tierChangeError}
                 </div>
               )}

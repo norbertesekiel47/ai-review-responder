@@ -21,11 +21,12 @@ export function ManualEditor({
     <div className="space-y-2">
       <label
         htmlFor="reply-textarea"
-        className="text-xs uppercase tracking-wider text-[#97B3AE]"
+        className="text-xs uppercase tracking-wider"
+        style={{ color: 'var(--rw-sage-deep)' }}
       >
         New reply
       </label>
-      <div className="rounded-md border border-[#97B3AE]/30 bg-[#F0EEEA]/60 px-3 py-2 text-xs text-[#6a6a6a]">
+      <div className="rounded-md px-3 py-2 text-xs" style={{ border: '1px solid var(--rw-sage-line)', background: 'var(--rw-sage-soft)', color: 'var(--rw-app-text-muted)' }}>
         {AI_DRAFT_DISCLOSURE}
       </div>
       <textarea
@@ -34,13 +35,12 @@ export function ManualEditor({
         onChange={(e) => setText(e.target.value)}
         maxLength={MAX_REPLY_CHARS}
         rows={8}
-        className="w-full rounded-md border border-gray-300 p-3 text-sm text-[#2a2a2a] focus:border-[#97B3AE] focus:outline-none focus:ring-1 focus:ring-[#97B3AE]"
+        className="textarea"
       />
       <div className="flex items-center justify-between">
         <span
-          className={`text-xs ${
-            overLimit ? 'text-red-600' : 'text-[#6a6a6a]'
-          }`}
+          className="text-xs"
+          style={{ color: overLimit ? 'var(--rw-danger)' : 'var(--rw-app-text-muted)' }}
         >
           {text.length} / {MAX_REPLY_CHARS}
         </span>
@@ -48,7 +48,7 @@ export function ManualEditor({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-md border border-gray-200 px-4 py-2 text-sm font-medium text-[#2a2a2a] hover:bg-gray-50"
+            className="btn btn-secondary"
           >
             Cancel
           </button>
@@ -56,7 +56,7 @@ export function ManualEditor({
             type="button"
             onClick={() => onSubmit(text)}
             disabled={!text.trim() || overLimit}
-            className="rounded-full bg-[#97B3AE] px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#7c9994] disabled:cursor-not-allowed disabled:opacity-50"
+            className="btn btn-primary"
           >
             Update on Google
           </button>

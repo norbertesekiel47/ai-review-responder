@@ -68,9 +68,10 @@
   --rw-blush:           #F2C3B9;
   --rw-blush-deep:      #A85F4E;
   --rw-blush-soft:      #FBEDE9;
-  --rw-gold:            #D4A24C;  /* app star rating — recognizable warm gold */
   --rw-danger:          #B4493A;  /* terracotta, never pure red */
+  --rw-danger-soft:     #F7E6E2;  /* danger wash */
   --rw-violet:          #8A76B8;  /* auto-approved provenance */
+  --rw-violet-soft:     #EFEAF6;
 
   /* App layout — sidebar width. The sticky save-bar's `left` offset derives
      from this token so the two can never drift (M6). */

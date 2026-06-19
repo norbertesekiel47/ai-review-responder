@@ -99,7 +99,7 @@ function OverrideRow({
         <div className="channel-name">
           {CHANNEL_LABELS[override.channel] ?? override.channel}
         </div>
-        <div className="channel-handle" style={{ fontSize: 12, color: '#6B7280' }}>
+        <div className="channel-handle" style={{ fontSize: 12, color: 'var(--rw-app-text-muted)' }}>
           {formatOverrideLocationLabel(override)}
           {isConnected && override.handle && ` · ${override.handle}`}
         </div>
@@ -219,7 +219,7 @@ export function PerLocationOverridePanel({
           <div className="set-section-title">
             Per-location overrides
             {overrideCount > 0 && (
-              <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 400, color: '#6B7280' }}>
+              <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 400, color: 'var(--rw-app-text-muted)' }}>
                 ({overrideCount})
               </span>
             )}
@@ -247,11 +247,11 @@ export function PerLocationOverridePanel({
 
             return (
               <div key={loc.id} style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--rw-app-text)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                   <Icon name="location" size={14} />
                   {loc.displayName}
                   {loc.isPrimary && (
-                    <span style={{ fontSize: 12, fontWeight: 500, color: '#059669', background: '#ECFDF5', padding: '1px 6px', borderRadius: 4 }}>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--rw-sage-deep)', background: 'var(--rw-sage-soft)', padding: '1px 6px', borderRadius: 4 }}>
                       Primary
                     </span>
                   )}
@@ -290,7 +290,7 @@ export function PerLocationOverridePanel({
 
                 {/* No overrides and no org-defaults to clone */}
                 {availableChannels.length === 0 && locOverrides.length === 0 && (
-                  <div style={{ fontSize: 12, color: '#9CA3AF', padding: '4px 0' }}>
+                  <div style={{ fontSize: 12, color: 'var(--rw-app-text-soft)', padding: '4px 0' }}>
                     No overrides, uses default channels
                   </div>
                 )}
@@ -307,7 +307,7 @@ export function PerLocationOverridePanel({
             const label = firstOverride ? formatOverrideLocationLabel(firstOverride) : locId;
             return (
               <div key={locId} style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--rw-app-text)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                   <Icon name="location" size={14} />
                   {label}
                 </div>
@@ -324,7 +324,7 @@ export function PerLocationOverridePanel({
           })}
 
           {addError && (
-            <p style={{ fontSize: 13, color: '#DC2626', marginTop: 4 }}>{addError}</p>
+            <p style={{ fontSize: 13, color: 'var(--rw-danger)', marginTop: 4 }}>{addError}</p>
           )}
         </div>
       )}
