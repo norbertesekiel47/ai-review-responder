@@ -14,18 +14,14 @@ interface ValueSummary {
 
 interface ValueKpiGridProps {
   valueSummary: ValueSummary;
-  pendingCount: number;
   reviewsHandledFoot: string;
   timeSavedFoot: string;
-  onScrollToReviews: () => void;
 }
 
 export function ValueKpiGrid({
   valueSummary,
-  pendingCount,
   reviewsHandledFoot,
   timeSavedFoot,
-  onScrollToReviews,
 }: ValueKpiGridProps) {
   const reviewsHandled = valueSummary.totalReviewsHandled;
   const timeSavedH = Math.round((valueSummary.totalTimeSavedMinutes / 60) * 10) / 10;
@@ -38,13 +34,12 @@ export function ValueKpiGrid({
   const v3 = useCountUp(responseRate, { duration: 1100 });
 
   const rateClass = clampedResponseRate >= 80 ? 'green' : clampedResponseRate >= 50 ? 'amber' : 'red';
-  const showPending = pendingCount > 0;
 
   const sparkHandled = synthesizeSpark(reviewsHandled, 8);
   const sparkSaved = synthesizeSpark(timeSavedH, 8);
 
   return (
-    <div className={cn('kpi-grid', showPending && 'has-pending')}>
+    <div className="kpi-grid">
       <div className="kpi">
         <div className="kpi-eyebrow">
           <Icon name="inbox" size={14} /> Reviews handled
@@ -79,18 +74,6 @@ export function ValueKpiGrid({
         </div>
         {baseline != null && <div className="kpi-foot">was {baseline}% before RepWorth</div>}
       </div>
-
-      {showPending && (
-        <div className="kpi pending">
-          <div className="kpi-eyebrow">
-            <Icon name="alert" size={14} /> Pending approvals
-          </div>
-          <div className="kpi-value">{pendingCount}</div>
-          <button type="button" className="scroll-link" onClick={onScrollToReviews}>
-            Review now <Icon name="scroll-down" size={12} />
-          </button>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type Ref } from 'react';
+import { useState } from 'react';
 import { AutoApprovedBadge } from '@/components/dashboard/reviews/AutoApprovedBadge';
 import { ReviewActions } from '@/components/dashboard/reviews/ReviewActions';
 import { Icon } from '@/components/dashboard/shell/Icon';
@@ -36,7 +36,6 @@ interface ReviewFeedCardProps {
   emptyText: string;
   initialTab?: 'needs' | 'all';
   readOnly?: boolean;
-  ref?: Ref<HTMLDivElement>;
 }
 
 export function ReviewFeedCard({
@@ -45,14 +44,13 @@ export function ReviewFeedCard({
   emptyText,
   initialTab = 'needs',
   readOnly = false,
-  ref: scrollRef,
 }: ReviewFeedCardProps) {
   const [tab, setTab] = useState<'needs' | 'all'>(initialTab);
   const pending = recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval');
   const list = tab === 'needs' ? pending : recentReviews;
 
   return (
-    <div className="card" id="needs-action" ref={scrollRef}>
+    <div className="card">
       <div className="card-h2-row">
         <h2>Reviews</h2>
         <div style={{ flex: 1 }} />

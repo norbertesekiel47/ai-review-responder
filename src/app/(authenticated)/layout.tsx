@@ -10,6 +10,7 @@ import { AuthenticatedProviders } from '@/app/(authenticated)/_components/Authen
 import { asAccountId, asLocationId } from '@/lib/shared/ids';
 import { getRequestScope } from '@/lib/auth/get-request-scope';
 import { getLocationsForAccount } from '@/lib/locations/repo';
+import { getPendingApprovalCount } from '@/lib/dashboard/pending-count';
 import { getDisplayLabel } from '@/lib/locations/display-label';
 import type { LocationScope } from '@/contexts/LocationContext';
 import type { LocationId } from '@/lib/shared/ids';
@@ -99,6 +100,7 @@ export default async function AuthenticatedLayout({
 
       return (
         <div className={`rw-console ${youngSerif.variable} ${dmSans.variable}`}>
+          <div className="rw-grain" aria-hidden="true" />
           <AuthenticatedProviders
             locations={[]}
             initialScope="all"
@@ -134,23 +136,20 @@ export default async function AuthenticatedLayout({
   let businessName = '';
   let initialPendingCount = 0;
 
-  const [bizRows, pendingRows, allLocations] = await Promise.all([
+  const [bizRows, pendingCount, allLocations] = await Promise.all([
     sql<{ name: string; display_label: string | null }[]>`
       SELECT name, display_label FROM businesses WHERE id = ${currentLocationId} LIMIT 1
     `,
-    sql<{ count: number }[]>`
-      SELECT COUNT(*)::int AS count
-      FROM responses
-      WHERE business_id = ${currentLocationId}
-        AND status = 'pending_approval'
-    `,
+    // Shared authoritative pending count (excludes held/flagged) — same helper
+    // the dashboard response uses, so the tab badge and approvals strip agree.
+    getPendingApprovalCount(currentLocationId),
     multiLocationEnabled
       ? getLocationsForAccount(accountId)
       : Promise.resolve([]),
   ]);
 
   businessName = bizRows[0] ? getDisplayLabel(bizRows[0]) : '';
-  initialPendingCount = pendingRows[0]?.count ?? 0;
+  initialPendingCount = pendingCount;
 
   // Build the locations list for the client-side LocationContext
   const locationInfos = allLocations.map((loc) => ({
@@ -174,6 +173,7 @@ export default async function AuthenticatedLayout({
 
   return (
     <div className={`rw-console ${youngSerif.variable} ${dmSans.variable}`}>
+      <div className="rw-grain" aria-hidden="true" />
       <AuthenticatedProviders
         locations={locationInfos}
         initialScope={initialScope}

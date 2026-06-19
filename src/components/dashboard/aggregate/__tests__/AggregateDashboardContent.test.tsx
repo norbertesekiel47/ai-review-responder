@@ -1,22 +1,36 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render } from '@testing-library/react';
+
+import { describe, expect, it, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
 import type { AggregateDashboardData } from '@/lib/dashboard/types';
-import { AggregateDashboardContent } from '@/components/dashboard/aggregate/AggregateDashboardContent';
 
 vi.mock('@/components/dashboard/shell/TopBar', () => ({ TopBar: () => null }));
 vi.mock('@/contexts/PendingCountContext', () => ({
-  useSetPendingCount: () => vi.fn(),
+  useSetPendingCount: () => () => {},
+}));
+vi.mock('@/components/dashboard/aggregate/LocationKpiStrip', () => ({
+  LocationKpiStrip: () => null,
+}));
+vi.mock('@/components/dashboard/aggregate/AggregateVelocityCard', () => ({
+  AggregateVelocityCard: () => null,
+}));
+vi.mock('@/components/dashboard/aggregate/AggregateRankingCard', () => ({
+  AggregateRankingCard: () => null,
+}));
+vi.mock('@/components/dashboard/aggregate/AggregateIntelligenceBriefCard', () => ({
+  AggregateIntelligenceBriefCard: () => null,
+}));
+vi.mock('next/link', () => ({
+  default: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...props}>{children}</a>
+  ),
 }));
 
-const aggregateData: AggregateDashboardData = {
+import { AggregateDashboardContent } from '@/components/dashboard/aggregate/AggregateDashboardContent';
+
+const data: AggregateDashboardData = {
   scope: 'aggregate',
-  valueSummary: {
-    totalReviewsHandled: 0,
-    totalTimeSavedMinutes: 0,
-    currentResponseRate: 0,
-    baselineResponseRate: null,
-  },
+  valueSummary: { totalReviewsHandled: 12, totalTimeSavedMinutes: 84, currentResponseRate: 90, baselineResponseRate: null },
   reviewVelocity: [],
   perLocationVelocity: [],
   ranking: null,
@@ -27,24 +41,15 @@ const aggregateData: AggregateDashboardData = {
   activeLocationCount: 2,
 };
 
-afterEach(() => {
-  window.history.replaceState(null, '', '/');
-  vi.useRealTimers();
-});
-
 describe('AggregateDashboardContent', () => {
-  it('clears the deferred needs-action hash scroll timer on unmount', () => {
-    vi.useFakeTimers();
-    window.history.replaceState(null, '', '/dashboard#needs-action');
-
-    const { unmount } = render(
-      <AggregateDashboardContent data={aggregateData} refresh={vi.fn()} />,
+  it('renders the action strip linking to the Reviews page and no review feed', () => {
+    render(<AggregateDashboardContent data={data} refresh={vi.fn()} />);
+    // Caught up (0 pending) -> "View all reviews" link to the Reviews page.
+    expect(screen.getByRole('link', { name: /view all reviews/i })).toHaveAttribute(
+      'href',
+      '/dashboard/reviews',
     );
-
-    expect(vi.getTimerCount()).toBe(1);
-
-    unmount();
-
-    expect(vi.getTimerCount()).toBe(0);
+    // The combined review feed no longer lives on the dashboard.
+    expect(screen.queryByText(/needs action/i)).not.toBeInTheDocument();
   });
 });

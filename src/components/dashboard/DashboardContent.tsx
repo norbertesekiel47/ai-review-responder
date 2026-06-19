@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { redirect } from 'next/navigation';
-import type { DashboardDataActive, DashboardDataPastDue, AggregateDashboardData } from '@/lib/dashboard/types';
+import type { DashboardDataActive, DashboardDataPastDue, AggregateDashboardData, ReputationSummary } from '@/lib/dashboard/types';
 import type { DashboardOrAggregate } from '@/hooks/useDashboardData';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
@@ -19,8 +19,9 @@ import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal'
 import { ConnectGoogleBanner } from '@/components/dashboard/account-state/ConnectGoogleBanner';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
-import { KpiCards } from '@/components/dashboard/kpi/KpiCards';
-import { ReviewsCard } from '@/components/dashboard/reviews/ReviewsCard';
+import { ReputationHeroBand } from '@/components/dashboard/kpi/ReputationHeroBand';
+import { PendingApprovalsStrip } from '@/components/dashboard/kpi/PendingApprovalsStrip';
+import { ReputationTrendChart } from '@/components/dashboard/kpi/ReputationTrendChart';
 import { VelocityCard } from '@/components/dashboard/kpi/VelocityCard';
 import { RankingCard } from '@/components/dashboard/kpi/RankingCard';
 import { IntelligenceBriefCard } from '@/components/dashboard/kpi/IntelligenceBriefCard';
@@ -28,7 +29,6 @@ import { AggregateDashboardContent } from '@/components/dashboard/aggregate/Aggr
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useSetPendingCount } from '@/contexts/PendingCountContext';
 import { useLocationScope } from '@/contexts/LocationContext';
-import { useNeedsActionHashScroll } from '@/hooks/useNeedsActionHashScroll';
 
 export function DashboardContent() {
   const setPendingCount = useSetPendingCount();
@@ -135,10 +135,6 @@ function DashboardOperationalContent() {
     },
   );
   const setPendingCount = useSetPendingCount();
-  const reviewsRef = useRef<HTMLDivElement | null>(null);
-  const [initialTab, setInitialTab] = useState<'needs' | 'all'>('needs');
-
-  useNeedsActionHashScroll(reviewsRef, () => setInitialTab('needs'));
 
   // Push pending count to the layout-scoped context so MobileTabBar's "Needs
   // Action" tab can show a red badge on every authenticated route.
@@ -262,15 +258,24 @@ function DashboardOperationalContent() {
   const pastDueData: DashboardDataPastDue | null =
     data.subscriptionStatus === SubscriptionStatus.PAST_DUE ? data : null;
   const activeData: DashboardDataActive = data as DashboardDataActive;
-  const { valueSummary, reviewVelocity, ranking, recentReviews, latestBrief, zernioConnection, business } = activeData;
-  const pending = recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval').length;
+  const { valueSummary, recentReviews, zernioConnection, business } = activeData;
 
-  function scrollToReviews() {
-    if (reviewsRef.current) {
-      const top = reviewsRef.current.getBoundingClientRect().top + window.scrollY - 80;
-      window.scrollTo({ top, behavior: 'smooth' });
-    }
-  }
+  // The dashboard has exactly ONE layout: the 4-zone reputation landing. The
+  // per-location route always requests reputation metrics, so reputationSummary
+  // is present. This `??` synthesizes a safe ramping/empty summary purely as a
+  // defensive guard (e.g. a future caller that forgets the flag) — so the page
+  // can never fall back to a *different* layout; it just renders the same 4 zones
+  // in their empty state.
+  const reputation: ReputationSummary = activeData.reputationSummary ?? {
+    averageStar: { current: null, delta: null, priorSampleSize: 0 },
+    responseRate: { current: valueSummary.currentResponseRate, delta: null, priorSampleSize: 0 },
+    timeSavedMinutes: { current: valueSummary.totalTimeSavedMinutes, delta: null, priorSampleSize: 0 },
+    pendingApprovalCount: recentReviews.filter(
+      (r) => (r.responseStatus ?? r.status) === 'pending_approval',
+    ).length,
+    trend: [],
+    isRamping: true,
+  };
 
   const activeSubtitle = business.name
     ? `Welcome back — here's what's new for ${business.name}.`
@@ -306,29 +311,34 @@ function DashboardOperationalContent() {
             readOnly={pastDueData?.isReadOnly ?? false}
           />
         </div>
+        {/* Zone 1 — reputation hero band */}
         <div className="section-enter section-enter-2">
-          <KpiCards valueSummary={valueSummary} pendingCount={pending} onScrollToReviews={scrollToReviews} />
-        </div>
-        <div className="section-enter section-enter-3">
-          <ReviewsCard
-            recentReviews={recentReviews}
-            onActionSuccess={() => { void refresh(); }}
-            ref={reviewsRef}
-            initialTab={initialTab}
-            readOnly={pastDueData?.isReadOnly ?? false}
+          <ReputationHeroBand
+            summary={reputation}
+            lifetimeReviewsHandled={valueSummary.totalReviewsHandled}
+            lifetimeTimeSavedMinutes={valueSummary.totalTimeSavedMinutes}
+            connected={zernioConnection.status === 'active'}
           />
         </div>
-        <div className="section-enter section-enter-4">
-          <VelocityCard reviewVelocity={reviewVelocity} />
+        {/* Action strip → Reviews page */}
+        <div className="section-enter section-enter-3">
+          <PendingApprovalsStrip count={reputation.pendingApprovalCount} />
         </div>
-        <div className="section-enter section-enter-5">
-          <RankingCard ranking={ranking} />
-        </div>
-        {latestBrief && (
-          <div className="section-enter section-enter-6">
-            <IntelligenceBriefCard brief={latestBrief} />
+        {/* Intelligence brief */}
+        {activeData.latestBrief && (
+          <div className="section-enter section-enter-4">
+            <IntelligenceBriefCard brief={activeData.latestBrief} />
           </div>
         )}
+        {/* Reputation trend */}
+        <div className="section-enter section-enter-5">
+          <ReputationTrendChart trend={reputation.trend} />
+        </div>
+        {/* Insights — review velocity + local ranking */}
+        <div className="chart-row section-enter section-enter-6">
+          <VelocityCard reviewVelocity={activeData.reviewVelocity} />
+          <RankingCard ranking={activeData.ranking} />
+        </div>
       </div>
     </>
   );

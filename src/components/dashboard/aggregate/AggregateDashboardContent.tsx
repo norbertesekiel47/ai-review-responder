@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import type { AggregateDashboardData } from '@/lib/dashboard/types';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { AggregateKpiCards } from '@/components/dashboard/aggregate/AggregateKpiCards';
-import { AggregateReviewsCard } from '@/components/dashboard/aggregate/AggregateReviewsCard';
+import { PendingApprovalsStrip } from '@/components/dashboard/kpi/PendingApprovalsStrip';
 import { AggregateVelocityCard } from '@/components/dashboard/aggregate/AggregateVelocityCard';
 import { AggregateRankingCard } from '@/components/dashboard/aggregate/AggregateRankingCard';
 import { AggregateIntelligenceBriefCard } from '@/components/dashboard/aggregate/AggregateIntelligenceBriefCard';
@@ -13,7 +13,6 @@ import { LocationKpiStrip } from '@/components/dashboard/aggregate/LocationKpiSt
 import { PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
 import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal';
 import { useSetPendingCount } from '@/contexts/PendingCountContext';
-import { useNeedsActionHashScroll } from '@/hooks/useNeedsActionHashScroll';
 
 interface Props {
   data: AggregateDashboardData;
@@ -26,21 +25,14 @@ interface Props {
  * Layout:
  *  1. TopBar with aggregate title
  *  2. Aggregate KpiCards (summed values)
- *  3. Location KPI strip (clickable per-location cards)
- *  4. ReviewsCard (combined feed with location chips)
+ *  3. PendingApprovalsStrip (links to /dashboard/reviews)
+ *  4. Location KPI strip (clickable per-location cards)
  *  5. VelocityCard (stacked-by-location toggle)
  *  6. RankingCard (per-location ranking lines)
  *  7. IntelligenceBriefCard (per-location prefix bullets)
  */
 export function AggregateDashboardContent({ data, refresh }: Props) {
   const setPendingCount = useSetPendingCount();
-  const reviewsRef = useRef<HTMLDivElement | null>(null);
-  // The "needs" tab intent is recorded but never read on the render path, so a
-  // ref avoids the no-op re-render a state setter would queue when the hash
-  // scroll fires.
-  const initialTabRef = useRef<'needs' | 'all'>('needs');
-
-  useNeedsActionHashScroll(reviewsRef, () => { initialTabRef.current = 'needs'; });
 
   // Compute pending count across all locations
   const pendingCount = data.recentReviews.filter(
@@ -50,13 +42,6 @@ export function AggregateDashboardContent({ data, refresh }: Props) {
   useEffect(() => {
     setPendingCount(pendingCount);
   }, [pendingCount, setPendingCount]);
-
-  function scrollToReviews() {
-    if (reviewsRef.current) {
-      const top = reviewsRef.current.getBoundingClientRect().top + window.scrollY - 80;
-      window.scrollTo({ top, behavior: 'smooth' });
-    }
-  }
 
   // VAL-DASH-026: Empty state when no reviews at any location
   const hasNoData =
@@ -105,21 +90,14 @@ export function AggregateDashboardContent({ data, refresh }: Props) {
             <div className="section-enter section-enter-1">
               <AggregateKpiCards
                 valueSummary={data.valueSummary}
-                pendingCount={pendingCount}
                 activeLocationCount={data.activeLocationCount}
-                onScrollToReviews={scrollToReviews}
               />
             </div>
             <div className="section-enter section-enter-2">
-              <LocationKpiStrip locationKpis={data.locationKpis} />
+              <PendingApprovalsStrip count={pendingCount} />
             </div>
             <div className="section-enter section-enter-3">
-              <AggregateReviewsCard
-                recentReviews={data.recentReviews}
-                onActionSuccess={() => { void refresh(); }}
-                ref={reviewsRef}
-                readOnly={data.isReadOnly ?? false}
-              />
+              <LocationKpiStrip locationKpis={data.locationKpis} />
             </div>
             <div className="section-enter section-enter-4">
               <AggregateVelocityCard

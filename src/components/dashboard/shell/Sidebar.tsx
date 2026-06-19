@@ -7,6 +7,7 @@ import { createBrowserSupabaseClient } from '@/lib/db/browser';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { LocationPicker } from '@/components/dashboard/location/LocationPicker';
 import { useLocationScope } from '@/contexts/LocationContext';
+import { usePendingCount } from '@/contexts/PendingCountContext';
 
 interface Props {
   businessName: string;
@@ -39,6 +40,7 @@ export function Sidebar({
   const [signOutError, setSignOutError] = useState(false);
 
   const { isMultiLocation } = useLocationScope();
+  const pendingCount = usePendingCount();
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -59,9 +61,12 @@ export function Sidebar({
     }
   }
 
+  const isReviews = pathname.startsWith('/dashboard/reviews');
   const isDashboard =
     pathname === '/dashboard' ||
-    (pathname.startsWith('/dashboard/') && !pathname.startsWith('/dashboard/past-replies'));
+    (pathname.startsWith('/dashboard/') &&
+      !pathname.startsWith('/dashboard/past-replies') &&
+      !pathname.startsWith('/dashboard/reviews'));
   const isPastReplies = pathname.startsWith('/dashboard/past-replies');
   const isSettings = pathname.startsWith('/settings');
 
@@ -85,6 +90,10 @@ export function Sidebar({
       <div className="nav-section">
         <Link href="/dashboard" className={`nav-item ${isDashboard ? 'active' : ''}`}>
           <Icon name="home" /> Dashboard
+        </Link>
+        <Link href="/dashboard/reviews" className={`nav-item ${isReviews ? 'active' : ''}`}>
+          <Icon name="inbox" /> Reviews
+          {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
         </Link>
         {pastRepliesEnabled && (
           <Link href="/dashboard/past-replies" className={`nav-item ${isPastReplies ? 'active' : ''}`}>

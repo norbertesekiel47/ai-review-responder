@@ -399,20 +399,43 @@
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .content {
-  max-width: 1024px;
+  max-width: 1140px;
   margin: 0 auto;
-  padding: 24px 32px 64px;
+  padding: 30px clamp(20px, 4vw, 52px) 80px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  /* 30px between sections leaves ~16px between adjacent tray rings (7px each) */
+  gap: 30px;
 }
 
-/* ---------- Card primitive ---------- */
+/* ---------- Film-grain overlay (Warm Editorial paper warmth) ----------
+   Fixed, pointer-events-none, whisper-faint. z-index:1 sits above the static
+   card field but below sticky chrome (topbar z40) and modals (z100), so it
+   never grains interactive surfaces. */
+.rw-grain {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---------- Card primitive — Warm Editorial double-bezel ----------
+   The mockup's signature "machined hardware" depth: a glass core cradled in an
+   aluminium tray. Reproduced on a SINGLE element (no wrapper) via a layered
+   box-shadow stack, so every existing `.card` gains the treatment with zero JSX
+   churn. Concentric math: core radius (14px) + tray spread (6px) = 20px outer,
+   matching the old --rw-radius-card silhouette exactly. */
 .card {
   background: var(--rw-card);
   border: 1px solid var(--rw-hair);
-  border-radius: var(--rw-radius-card);
-  box-shadow: var(--rw-shadow), var(--rw-inset-hi);
+  border-radius: var(--rw-radius-core);
+  box-shadow:
+    var(--rw-inset-hi),               /* inner top highlight (glass) */
+    0 0 0 6px var(--rw-tray),         /* the tray ring */
+    0 0 0 7px var(--rw-hair-2),       /* hairline at the tray's outer edge */
+    var(--rw-shadow-lg);              /* deep diffused shadow under the tray */
   padding: 22px 24px;
 }
 .card-h2 {
@@ -538,20 +561,20 @@
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
+  gap: 20px;
 }
 .kpi-grid.has-pending { grid-template-columns: repeat(4, 1fr); }
 .kpi {
   background: var(--rw-card);
   border: 1px solid var(--rw-hair);
-  border-radius: var(--rw-radius-card);
-  box-shadow: var(--rw-shadow-sm), var(--rw-inset-hi);
+  border-radius: var(--rw-radius-core);
+  box-shadow: var(--rw-inset-hi), 0 0 0 6px var(--rw-tray), 0 0 0 7px var(--rw-hair-2), var(--rw-shadow-sm);
   padding: 18px 18px 16px;
   position: relative;
   overflow: hidden;
   transition: transform 200ms var(--rw-ease), box-shadow 200ms var(--rw-ease);
 }
-.kpi:hover { transform: translateY(-2px); box-shadow: var(--rw-shadow); }
+.kpi:hover { transform: translateY(-2px); box-shadow: var(--rw-inset-hi), 0 0 0 6px var(--rw-tray), 0 0 0 7px var(--rw-hair-2), var(--rw-shadow-lg); }
 .kpi-eyebrow {
   display: flex; align-items: center; gap: 8px;
   font-size: 12px;
@@ -899,7 +922,7 @@
 .chart-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  gap: 20px;
 }
 @media (max-width: 900px) {
   .chart-row { grid-template-columns: 1fr; }
@@ -991,6 +1014,58 @@
   font-family: var(--rw-font-display);
 }
 
+/* ==========================================================================
+   Reputation landing — 4 zones (PLAN.md PR2)
+   ========================================================================== */
+
+/* Zone 1 — reputation hero band */
+.rep-hero { padding: 26px 28px; }
+.rep-hero-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.rep-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--rw-sage-deep); }
+.rep-connected { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--rw-sage-deep); padding: 6px 11px; border-radius: 9999px; background: var(--rw-sage-soft); white-space: nowrap; }
+.rep-connected svg { width: 14px; height: 14px; }
+.rep-stats { display: grid; grid-template-columns: 1.25fr 1fr 1fr; margin-top: 22px; }
+.rep-stat { display: flex; flex-direction: column; padding-right: 24px; }
+.rep-stats .rep-stat + .rep-stat { border-left: 1px solid var(--rw-hair); padding-left: 26px; padding-right: 0; }
+.rep-stat-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rep-stat-num { font-family: var(--rw-font-display); font-size: 42px; line-height: 0.95; letter-spacing: -0.02em; color: var(--rw-app-text); font-variant-numeric: tabular-nums; }
+.rep-stat-num small { font-family: var(--rw-font-body); font-size: 15px; font-weight: 600; color: var(--rw-app-text-muted); margin-left: 5px; }
+.rep-stat.anchor .rep-stat-num { font-size: 66px; }
+.rep-stat-label { font-size: 12.5px; font-weight: 600; color: var(--rw-app-text-muted); margin-top: 8px; }
+.rep-stat-stars { display: inline-flex; gap: 1px; color: var(--rw-star); font-size: 15px; }
+.rep-delta { display: inline-flex; align-items: center; gap: 5px; width: max-content; margin-top: 9px; font-size: 11.5px; font-weight: 600; padding: 4px 9px; border-radius: 9999px; }
+.rep-delta svg { width: 12px; height: 12px; }
+.rep-delta.up { color: var(--rw-sage-deep); background: var(--rw-sage-soft); }
+.rep-delta.down { color: var(--rw-blush-deep); background: var(--rw-blush-soft); }
+.rep-delta.flat { color: var(--rw-app-text-soft); background: var(--rw-recess); }
+.rep-foot { display: flex; align-items: center; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--rw-hair); font-size: 12.5px; color: var(--rw-app-text-muted); }
+.rep-foot svg { width: 15px; height: 15px; color: var(--rw-sage-deep); flex: none; }
+.rep-hero.ramping .rep-delta { display: none; }
+.rep-hero.ramping .rep-stat.anchor .rep-stat-num { font-size: 48px; }
+
+/* Zone 2 — pending approvals strip */
+.approvals { display: flex; align-items: center; gap: 16px; padding: 17px 22px; border-radius: var(--rw-radius-core);
+  background: linear-gradient(180deg, #fdf4f1, var(--rw-card)); border: 1px solid var(--rw-blush);
+  box-shadow: var(--rw-inset-hi), 0 0 0 6px var(--rw-tray), 0 0 0 7px var(--rw-hair-2), var(--rw-shadow); }
+.approvals.calm { background: var(--rw-card); border-color: var(--rw-hair); }
+.approvals-ic { width: 44px; height: 44px; border-radius: 13px; flex: none; display: grid; place-items: center; background: #fff; color: var(--rw-blush-deep); box-shadow: var(--rw-shadow-sm); }
+.approvals.calm .approvals-ic { color: var(--rw-sage-deep); }
+.approvals-ic svg { width: 22px; height: 22px; }
+.approvals-txt { flex: 1; min-width: 0; }
+.approvals-title { font-size: 15px; font-weight: 600; color: var(--rw-app-text); }
+.approvals-title strong { font-weight: 700; }
+.approvals-sub { font-size: 12.5px; color: var(--rw-app-text-muted); margin-top: 2px; }
+
+/* Zone 4 — reputation trend (clean line, star-equivalent) */
+.rep-trend-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.rep-trend-sub { font-size: 12px; color: var(--rw-app-text-soft); }
+.rep-trend-svg { width: 100%; height: 200px; display: block; margin-top: 14px; }
+.rep-trend-grid { stroke: var(--rw-hair); stroke-width: 1; }
+.rep-trend-line { fill: none; stroke: var(--rw-sage-deep); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.rep-trend-axis { fill: var(--rw-app-text-soft); font-family: var(--rw-font-body); font-size: 11px; }
+.rep-trend-dot { fill: var(--rw-sage-deep); }
+.rep-trend-empty { padding: 28px 0 8px; text-align: center; font-size: 13px; color: var(--rw-app-text-muted); }
+
 /* ---------- Mobile bottom tab bar ---------- */
 .mobile-tabbar { display: none; }
 @media (max-width: 768px) {
@@ -1000,6 +1075,12 @@
   .kpi-grid { grid-template-columns: 1fr 1fr; }
   .kpi-grid.has-pending { grid-template-columns: 1fr 1fr; }
   .chart-row { grid-template-columns: 1fr; }
+  .rep-stats { grid-template-columns: 1fr; margin-top: 6px; }
+  .rep-stat { padding: 14px 0; padding-right: 0; }
+  .rep-stats .rep-stat + .rep-stat { border-left: none; border-top: 1px solid var(--rw-hair); padding-left: 0; }
+  .rep-stat.anchor .rep-stat-num { font-size: 54px; }
+  .approvals { flex-wrap: wrap; }
+  .approvals .btn { width: 100%; justify-content: center; }
   .mobile-tabbar {
     display: flex;
     position: fixed;
