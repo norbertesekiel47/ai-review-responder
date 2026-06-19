@@ -3,6 +3,7 @@ import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { ReviewsTabs } from '@/components/dashboard/reviews/ReviewsTabs';
+import { editRepliesEnabled, pastRepliesViewEnabled } from '@/lib/past-replies/flags';
 import { PastRepliesClient } from './PastRepliesClient';
 import { getDisplayLabel } from '@/lib/locations/display-label';
 import {
@@ -92,14 +93,7 @@ export default async function PastRepliesPage({
 }: {
   searchParams: Promise<{ page?: string }>;
 }) {
-  if (process.env.PAST_REPLIES_VIEW_ENABLED !== 'true') notFound();
-
-  // Flag: edit affordances are only shown when both flags are on.
-  // Computed server-side (same formula as layout.tsx nav-only plumbing) and
-  // passed to the client so the page itself is the canonical gate.
-  const editRepliesEnabled =
-    process.env.PAST_REPLIES_VIEW_ENABLED === 'true' &&
-    process.env.EDIT_REPLIES_ENABLED === 'true';
+  if (!pastRepliesViewEnabled()) notFound();
 
   const owner = await requireOwnerAccess();
   const sp = await searchParams;
@@ -369,12 +363,12 @@ export default async function PastRepliesPage({
         title="Past Replies"
         subtitle={`Every reply posted to Google for ${locationDisplayName} — including replies you made before connecting RepWorth.`}
       />
-      <div className="pr-subnav">
+      <div className="reviews-subnav">
         <ReviewsTabs active="history" historyEnabled />
         {/* History is single-location by construction (every query is
             business_id-scoped). In aggregate scope this shows the current/primary
             location only; switch it via the sidebar LocationPicker. */}
-        <span className="pr-showing" title="Switch locations from the picker in the sidebar.">
+        <span className="reviews-showing" title="Switch locations from the picker in the sidebar.">
           Showing: <strong>{locationDisplayName}</strong> <span aria-hidden="true">▾</span>
         </span>
       </div>
@@ -392,7 +386,7 @@ export default async function PastRepliesPage({
         isPremium={isPremium}
         page={page}
         totalPages={totalPages}
-        editRepliesEnabled={editRepliesEnabled}
+        editRepliesEnabled={editRepliesEnabled()}
       />
     </>
   );

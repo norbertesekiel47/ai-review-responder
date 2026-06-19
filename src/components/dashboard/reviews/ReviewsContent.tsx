@@ -96,8 +96,10 @@ export function ReviewsContent({ historyEnabled }: ReviewsContentProps) {
           showLive
           refresh={refresh}
         />
-        <div className="content">
+        <div className="reviews-subnav">
           <ReviewsTabs active="needs" historyEnabled={historyEnabled} />
+        </div>
+        <div className="content content--reviews">
           <div className="section-enter section-enter-1">
             <AggregateReviewsCard
               recentReviews={data.recentReviews}
@@ -143,8 +145,10 @@ export function ReviewsContent({ historyEnabled }: ReviewsContentProps) {
         showLive
         refresh={refresh}
       />
-      <div className="content">
+      <div className="reviews-subnav">
         <ReviewsTabs active="needs" historyEnabled={historyEnabled} />
+      </div>
+      <div className="content content--reviews">
         <div className="section-enter section-enter-1">
           <ReviewsCard
             recentReviews={active.recentReviews}

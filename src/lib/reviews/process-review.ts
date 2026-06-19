@@ -11,6 +11,7 @@ import { enqueueGenerateResponse } from '@/lib/shared/job-outbox-helpers';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 import { classifySentiment } from '@/lib/reviews/sentiment';
+import { replyEditingFlagEnabled } from '@/lib/past-replies/flags';
 import {
   STALE_AFTER_REVIEW_CHANGED,
   DELETE_FAILED_PREFIX,
@@ -220,8 +221,9 @@ async function processExistingReview(
   // (no recoverable orphan exists — no-op).
   //
   // Gated behind EDIT_REPLIES_ENABLED so Phase A is fully inert when the flag
-  // is off — no new behavior until the flag is on.
-  if (process.env.EDIT_REPLIES_ENABLED === 'true') {
+  // is off — no new behavior until the flag is on. The worker keys on the raw
+  // edit flag alone (the view flag is a UI concern); see past-replies/flags.ts.
+  if (replyEditingFlagEnabled()) {
     await tx`
       UPDATE responses
       SET posting_error = ${STALE_AFTER_REVIEW_CHANGED}, updated_at = NOW()

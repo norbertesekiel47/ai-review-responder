@@ -33,14 +33,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { editRepliesEnabled } from '@/lib/past-replies/flags';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest): Promise<Response> {
-  if (
-    process.env.PAST_REPLIES_VIEW_ENABLED !== 'true' ||
-    process.env.EDIT_REPLIES_ENABLED !== 'true'
-  ) {
+  if (!editRepliesEnabled()) {
     return NextResponse.json({ error: 'feature_disabled' }, { status: 503 });
   }
 
