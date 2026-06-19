@@ -246,6 +246,13 @@ describe('GET /api/dashboard scope parameter', () => {
     expect(body.business).toBeDefined();
     expect(body.scope).toBeUndefined();
 
+    // Regression guard: the active landing MUST request reputation metrics so
+    // DashboardContent renders the 4-zone hero, not the legacy KPI fallback.
+    // (A missing flag here is invisible to the CSS/component tests.)
+    expect(mockGetActiveDashboardData).toHaveBeenCalledWith(LOCATION_ID, {
+      includeReputationMetrics: true,
+    });
+
     process.env.MULTI_LOCATION_ENABLED = originalEnv;
   });
 
