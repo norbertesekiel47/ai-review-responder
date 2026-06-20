@@ -110,8 +110,11 @@ Next.js App Router pages, grouped by access level.
 | `dashboard/connect/select-location/LocationPicker.tsx` | Client component displaying the location list; POSTs selected location to `/api/zernio/connect/select-location`. |
 | `dashboard/past-replies/page.tsx` | "Past Replies" tab — read-only paginated list of every review with a `posted` response, bucketed into "From your active period" (review_date >= subscription_activated_at) and "From before you joined" (review_date < activated_at, or all rows when activated_at IS NULL). Renders `PastReplyCard` rows + `HistoricalUpgradeBanner` above the historical section for non-premium owners. Gated by `PAST_REPLIES_VIEW_ENABLED`; companion ingest path gated by `EXTERNAL_REPLY_IMPORT_ENABLED`. The full edit/regenerate/recovery feature is parked on tag `wip/edit-existing-replies-zernio-v1` pending direct GBP API. |
 | `dashboard/add-location/` | 4-step "add location" wizard (gated by `MULTI_LOCATION_ENABLED`). `AddLocationWizard.tsx` is a composing shell; `wizard/reducer.ts` is the pure state machine; `wizard/useAddLocationWizard.ts` owns the two fetch effects + submit/navigation; `wizard/steps/Step{1..4}*.tsx` are presentational; `wizard/billing.ts` + `wizard/payload.ts` hold the pure proration/payload helpers. |
-| `settings/page.tsx` | Owner settings shell — renders `SettingsTabs` + `SettingsGeneralForm` (tone, products/services, avoid-facts). |
-| `settings/SettingsGeneralForm.tsx` | Client form for general business settings. |
+| `settings/layout.tsx` | Settings shell — renders the grouped `SettingsSidebar` (Responses: Brand Voice, Auto-approval, Notifications · Account: Locations, Profile, Billing, Security) as a persistent left rail; each child route renders its own panel + `TopBar`. |
+| `settings/page.tsx` | Index — server `redirect('/settings/voice')` (Brand Voice is the first tab). |
+| `settings/voice/` | Brand Voice route (`VoiceClient` + `useLocationVoiceForm`): one panel for a single location, per-location selector when >1. Un-gated — renders for every account. |
+| `settings/profile/` | Profile route — locked business-profile fields (`ProfilePanel`) + `DeleteDataPanel` danger zone. |
+| `settings/billing/` | Billing route — plan, location quota, tier change, Manage-billing portal (`BillingPanel`) + `CancelSubscriptionPanel`. |
 | `settings/channels/page.tsx` | Server shell for the owner channel-management page. Auth + subscription guard run server-side; fetches enrollment state for SSR hydration. |
 | `settings/channels/ChannelsClient.tsx` | Client component. Renders `OwnerTelegramWidget` for Telegram (live enrollment UI) and `ComingSoonChannelRow` for WhatsApp. |
 
@@ -324,7 +327,7 @@ Reusable React components imported by multiple pages.
 | `dashboard/OwnerTelegramWidget.tsx` | Owner-facing Telegram enrollment widget. Uses `useEnrollment` + `enrollmentReducer`; SSR-hydrated from server-loaded enrollment row. |
 | `dashboard/ReviewActions.tsx` | Approve / Edit / Regenerate action buttons for a single review. |
 | `dashboard/ReviewsList.tsx` | List of reviews with inline response drafts and action buttons. |
-| `dashboard/SettingsTabs.tsx` | Tab strip for owner settings pages ("General" and "Channels" tabs). |
+| `dashboard/settings/SettingsSidebar.tsx` | Grouped settings nav — vertical sidebar (desktop) / native `<select>` with `<optgroup>` (mobile ≤768px); active item from `usePathname()`. Rendered once by `settings/layout.tsx`. |
 | `dashboard/ValueSummary.tsx` | Value-at-a-glance metrics strip (e.g. responses sent, approval rate). |
 | `legal/LegalPage.tsx` | **(Wave 1)** Shared renderer for every `/legal/*` page. Takes a `LegalDoc` from `src/lib/legal/content.ts` and renders its title, version + effective date, and sections (prose / bullets / table). |
 

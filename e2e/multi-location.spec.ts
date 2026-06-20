@@ -152,19 +152,21 @@ test.describe('Multi-location — authenticated owner (seeded)', () => {
     await expect(page.getByText('PRIMARY-REVIEW-MARKER', { exact: false })).toHaveCount(0);
   });
 
-  // ── Scenario 3: settings tabs render the multi-location set ───────────────
-  // Needs auth: SettingsTabs picks TABS_MULTI when the account has >1 active
-  // location (shouldUseMultiLocationSettings, mode: count > 1 — invariant #9b).
-  test.fixme('settings shows the multi-location tab set incl. Locations', async ({ page }) => {
+  // ── Scenario 3: settings sidebar renders the canonical nav set ────────────
+  // Needs auth: the settings layout renders one grouped SettingsSidebar for
+  // every account (the per-flag tab layouts were retired; the sidebar always
+  // exposes Locations because MULTI_LOCATION_ENABLED is on).
+  test.fixme('settings sidebar shows the canonical nav incl. Locations', async ({ page }) => {
     // HARNESS: authed session for the seeded owner.
     await page.goto('/settings/locations');
 
-    // TABS_MULTI: Account, Locations, Voice, Auto-approval, Notifications, Security.
-    const tabs = page.locator('.settings-tabs');
-    await expect(tabs.getByRole('link', { name: 'Account' })).toBeVisible();
-    await expect(tabs.getByRole('link', { name: 'Locations' })).toBeVisible();
-    await expect(tabs.getByRole('link', { name: 'Voice' })).toBeVisible();
-    await expect(tabs.getByRole('link', { name: 'Notifications' })).toBeVisible();
+    // Canonical sidebar: Brand Voice, Auto-approval, Notifications, Locations,
+    // Profile, Billing, Security.
+    const nav = page.locator('.settings-sidebar');
+    await expect(nav.getByRole('link', { name: 'Brand Voice' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Locations' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Billing' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Notifications' })).toBeVisible();
 
     // The Locations panel header is the multi-location surface.
     await expect(page.getByText('Manage your locations', { exact: false })).toBeVisible();
