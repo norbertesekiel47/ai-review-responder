@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 369;
+export const ALLOWLIST_BASELINE = 372;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -89,6 +89,9 @@ const RANKING_TRACKING_CANDIDATES_SQL =
 
 const DASHBOARD_SETTINGS_SELECT_SQL =
   "SELECT b.name, b.created_at, b.initial_review_count, b.initial_responded_count, b.baseline_captured_at, b.tone, b.products_services, b.avoid_facts, b.sample_responses, b.owner_phone, b.owner_email, a.weekly_summary_enabled, a.monthly_impact_enabled, b.category, b.google_place_id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE b.id = ${businessId} LIMIT 1";
+
+const HEALTH_ZERO_DELIVERY_SQL =
+  "SELECT COUNT(*)::int AS count FROM job_outbox jo JOIN responses r ON r.id = (jo.payload->>'response_id')::uuid JOIN businesses b ON b.id = r.business_id WHERE jo.topic = 'send_notification' AND jo.status = 'completed' AND COALESCE(jo.completed_at, jo.dispatched_at, jo.available_at) > NOW() - make_interval(secs => ${cfg.zeroDeliveryWindowS}) AND r.status = 'pending_approval' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.response_id = r.id )";
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
@@ -427,6 +430,27 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT id, account_id, name, display_label, is_primary, archived_at, google_place_id, google_place_address, created_at FROM businesses WHERE id = ${locationId}::uuid",
     category: 'tenant-root-lookup',
     reason: "Authenticated flow uses business/location id as the lookup key after owner scope has been established.",
+  },
+  {
+    file: "worker/background/pollers/health-alert/checks.ts",
+    table: "notification_deliveries",
+    sqlSnippet: HEALTH_ZERO_DELIVERY_SQL,
+    category: 'background-global-scan',
+    reason: "HealthAlertPoller is a read-only platform health probe: it counts completed send_notification outbox rows that produced zero deliveries across all tenants (for responses still pending_approval on a live business) to detect owners who were never notified. Intentionally cross-tenant (beta-launch gate A3).",
+  },
+  {
+    file: "worker/background/pollers/health-alert/checks.ts",
+    table: "responses",
+    sqlSnippet: HEALTH_ZERO_DELIVERY_SQL,
+    category: 'background-global-scan',
+    reason: "HealthAlertPoller zero-delivery probe joins responses only to exclude by-design skips (response no longer pending_approval). Read-only platform health probe, intentionally cross-tenant (beta-launch gate A3).",
+  },
+  {
+    file: "worker/background/pollers/health-alert/checks.ts",
+    table: "businesses",
+    sqlSnippet: HEALTH_ZERO_DELIVERY_SQL,
+    category: 'background-global-scan',
+    reason: "HealthAlertPoller zero-delivery probe joins businesses only to exclude archived/offboarded locations. Read-only platform health probe, intentionally cross-tenant (beta-launch gate A3).",
   },
   {
     file: "worker/background/pollers/ArchivalPoller.ts",

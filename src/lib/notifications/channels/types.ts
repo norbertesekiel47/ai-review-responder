@@ -42,6 +42,13 @@ export interface SendApprovalParams {
    * violating the "approval tokens NEVER stored raw" invariant.
    */
   approvalLinkId: string;
+  /**
+   * Stable provider idempotency key for this logical approval send (per response +
+   * channel). Channels backed by a provider that supports it (email/Resend) pass
+   * it through so a timeout-retry or failover re-send of the SAME approval dedupes
+   * instead of double-sending. Channels without provider idempotency ignore it.
+   */
+  idempotencyKey?: string;
 }
 
 export interface SendApprovalResult {

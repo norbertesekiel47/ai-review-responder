@@ -337,6 +337,24 @@ Confirmed unused by the 2026-05-29 codebase scan (PR #186) and **commented out /
 
 ---
 
+## Cost Ceilings (all optional; defaults in code)
+
+Daily LLM/external spend caps enforced by the cost-guard (`src/lib/costs/tracker.ts`).
+A reservation precedes every LLM call, so these caps are spend-safe; **exceeding a
+cap is TERMINAL** (the draft is dropped) and now also emits a Sentry alert
+(`cost_event:limit_exceeded`, from `generate-draft.ts`) so dropped paid work is
+never silent (beta-launch gate B3). Set explicit **production** values — the
+in-code defaults are dev-scale.
+
+| Var | Default | Notes |
+|---|---|---|
+| `GLOBAL_DAILY_COST_LIMIT_CENTS` | `10000` ($100/day) | Platform-wide shared daily ceiling, checked against the 15¢ pessimistic reserve. A single fairness-free counter — size it well above plausible concurrent fleet reserves (re-dimensioning / non-terminal redesign tracked in the worker-scaling backlog). |
+| `DAILY_COST_LIMIT_CENTS_FOUNDING` | `500` | Per-business daily ceiling, founding/founders tier. |
+| `DAILY_COST_LIMIT_CENTS_STANDARD` | `1000` | Per-business daily ceiling, standard tier. |
+| `DAILY_COST_LIMIT_CENTS_PREMIUM` | `2000` | Per-business daily ceiling, premium tier. |
+
+(The onboarding-demo lane has its own separate ceiling — see `ONBOARDING_DEMO_DAILY_CENTS` below.)
+
 ## Poller Tuning (all optional)
 
 | Var | Default | Notes |
@@ -358,6 +376,10 @@ Confirmed unused by the 2026-05-29 codebase scan (PR #186) and **commented out /
 | `ZERNIO_RECENT_REVIEW_POLL_DEADLINE_MS` | 240000 (4min) | Per-cycle deadline: past it no new connection is dispatched (in-flight finish); deferred count is warn-logged and those connections lead the next cycle. Keep below `ZERNIO_RECENT_REVIEW_POLL_INTERVAL_MS` (5min default). |
 | `OUTBOX_DISPATCH_TIMEOUT_MS` | 10000 (10s) | Per-row deadline on the BullMQ enqueue in `OutboxPoller` (`withTimeout` around `queue.add`). The queue connection uses `maxRetriesPerRequest: null`, so an unreachable **Railway Redis** otherwise parks `queue.add` forever in ioredis' offline command queue — the exact failure that silently stalled the staging outbox (2026-06-15). On timeout the row follows the normal dispatch-failure path (re-pended if attempts remain, dead-lettered once exhausted). Values `<1000` fall back to the default. |
 | `OUTBOX_POLL_MAX_CYCLE_MS` | `max(4× OUTBOX_POLL_INTERVAL_MS, 60000)` (120s default) | Self-recovery backstop for the `OutboxPoller` overlap guard. A cycle in flight longer than this is assumed wedged: it is logged at **error** (`exceeded max duration`) and a fresh cycle supersedes it, so no single hung `await` can kill the dispatcher until a process restart. Concurrent cycles are safe (claims use `FOR UPDATE SKIP LOCKED`; every dispatch UPDATE is attempt-scoped). Values `<1000` fall back to the default. |
+| `HEALTH_ALERT_POLL_INTERVAL_MS` | 300000 (5min) | `HealthAlertPoller` cadence (beta-launch gate A). Read-only probe for silent pipeline failure / dropped paid work → Sentry (non-email). **Requires `SENTRY_DSN` in production** (`assertAlertSinkEnv` — boot fails without it). |
+| `HEALTH_ALERT_PENDING_AGE_S` · `_STALE_DISPATCHING_S` · `_FAILED_WINDOW_S` · `_FAILED_THRESHOLD` · `_FLAGGED_OPEN_THRESHOLD` · `_ZERO_DELIVERY_WINDOW_S` | 900 · 600 · 3600 · 0 · 5 · 3600 | Per-signal thresholds — see `docs/runbooks/beta-launch-alerting.md` §5. |
+| `HEALTH_ALERT_MONITOR_SLUG` | `health-alert-poller` | Sentry Cron monitor slug for the probe's dead-man heartbeat (alerts if the probe stops checking in). |
+| `EMAIL_SEND_TIMEOUT_MS` | 10000 (10s) | Per-send Resend timeout enforced by the `sendEmail` chokepoint (`src/lib/notifications/email/send-email.ts`). A hung send must not head-of-line-block the concurrency-1 notification worker. |
 
 > **Wave 1 launch-risk controls are unconditional — no kill-switch (since 2026-05-25, PR #85):**
 > the **PHI scanner** on Zernio ingest (`src/lib/security/phi-scanner.ts` →

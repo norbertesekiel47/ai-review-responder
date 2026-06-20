@@ -67,6 +67,7 @@ import { startCancellationGracePoller, stopCancellationGracePoller } from './bac
 import { startStripeLocationsReconcilePoller, stopStripeLocationsReconcilePoller } from './background/pollers/StripeLocationsReconcilePoller';
 import { startZernioRecentReviewPoller, stopZernioRecentReviewPoller } from './background/pollers/ZernioRecentReviewPoller';
 import { startAnalyticsDispatchPoller, stopAnalyticsDispatchPoller } from './background/pollers/AnalyticsDispatchPoller';
+import { startHealthAlertPoller, stopHealthAlertPoller } from './background/pollers/HealthAlertPoller';
 import { startAccountOffboardingAccessEndPoller, stopAccountOffboardingAccessEndPoller } from './background/pollers/AccountOffboardingAccessEndPoller';
 import { startAccountOffboardingPurgePoller, stopAccountOffboardingPurgePoller } from './background/pollers/AccountOffboardingPurgePoller';
 import { startAccountOffboardingPurgeReminderPoller, stopAccountOffboardingPurgeReminderPoller } from './background/pollers/AccountOffboardingPurgeReminderPoller';
@@ -398,6 +399,7 @@ async function main(): Promise<void> {
   startAccountOffboardingPurgeReminderPoller();
   startAccountOffboardingReactivationResetPoller();
   startAccountOffboardingTeardownRetryPoller();
+  startHealthAlertPoller();
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -442,6 +444,7 @@ const shutdown = createGracefulShutdown({
     stopAccountOffboardingPurgeReminderPoller();
     stopAccountOffboardingReactivationResetPoller();
     stopAccountOffboardingTeardownRetryPoller();
+    stopHealthAlertPoller();
   },
   // Drain the DB-backed analytics dispatch before the DB pool closes, so we
   // never mark rows completed (or call PostHog) after sql.end().

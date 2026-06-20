@@ -12,7 +12,7 @@
 import { randomUUID } from 'node:crypto';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { escapeHtml } from '@/lib/shared/html';
-import { getResend } from '../client';
+import { sendEmail } from '../send-email';
 import { getEmailTags, type EmailCategory } from '../headers';
 import { LOG_PREFIX, renderStars, truncate, escapeHrefUrl, buildEmailShell } from './shared';
 import { sanitizeLocationLabelForPrefix } from '@/lib/notifications/channels/template-prefix';
@@ -30,6 +30,13 @@ export interface ApprovalEmailParams {
   reviewDate: string;
   responsePreview: string;
   approvalUrl: string;
+  /**
+   * Stable Resend idempotency key for this logical approval send (per response +
+   * channel). A send that times out client-side but was accepted by Resend, or a
+   * later failover re-send, dedupes on this key (Resend's 24h window > the 2h
+   * failover window) — so neither a BullMQ retry nor failover double-sends.
+   */
+  idempotencyKey?: string;
 }
 
 function formatDate(isoDate: string): string {
@@ -97,7 +104,6 @@ export async function sendApprovalEmail(
     return { messageId: mockId };
   }
 
-  const resend = getResend();
   const html = buildApprovalEmailHtml(params);
 
   // Approval emails are transactional: no List-Unsubscribe header. They are
@@ -105,13 +111,16 @@ export async function sendApprovalEmail(
   // don't require (and shouldn't include) an unsubscribe link.
   const category: EmailCategory = 'transactional';
   // VAL-NOTIF-012: Subject includes [locationLabel] prefix with star rating.
-  const { data, error } = await resend.emails.send({
-    from: params.from,
-    to: params.to,
-    subject: `[${safeLabel}] New ${params.starRating}★ review needs approval`,
-    html,
-    tags: getEmailTags(category),
-  });
+  const { data, error } = await sendEmail(
+    {
+      from: params.from,
+      to: params.to,
+      subject: `[${safeLabel}] New ${params.starRating}★ review needs approval`,
+      html,
+      tags: getEmailTags(category),
+    },
+    { idempotencyKey: params.idempotencyKey },
+  );
 
   if (error) {
     throw new Error(`Resend API error: ${error.message}`);

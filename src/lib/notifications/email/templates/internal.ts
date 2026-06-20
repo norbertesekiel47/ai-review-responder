@@ -6,7 +6,7 @@
 // handles only the Resend send + headers.
 import { randomUUID } from 'node:crypto';
 import { isMockMode } from '@/lib/shared/mock-mode';
-import { getResend } from '../client';
+import { sendEmail } from '../send-email';
 import { getEmailHeaders, getEmailTags, type EmailCategory } from '../headers';
 import { LOG_PREFIX } from './shared';
 
@@ -50,8 +50,7 @@ export async function sendInternalEmail(
   const category: EmailCategory = params.category ?? 'internal';
   const headers = getEmailHeaders(category);
 
-  const resend = getResend();
-  const { data, error } = await resend.emails.send(
+  const { data, error } = await sendEmail(
     {
       from,
       to: params.to,
@@ -62,7 +61,7 @@ export async function sendInternalEmail(
       // but avoids passing an unused property to Resend's JSON body.
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
     },
-    params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : undefined,
+    { idempotencyKey: params.idempotencyKey },
   );
 
   if (error) {

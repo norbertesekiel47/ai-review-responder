@@ -35,6 +35,7 @@ export class EmailChannel implements NotificationChannel {
       reviewDate: p.reviewDate,
       responsePreview: p.responsePreview,
       approvalUrl: p.approvalUrl,
+      idempotencyKey: p.idempotencyKey,
     });
 
     return { externalMessageId: messageId };
@@ -55,6 +56,7 @@ export class EmailChannel implements NotificationChannel {
       starRating: p.starRating,
       googleMapsUrl: p.googleMapsUrl,
       viewUrl: p.viewUrl,
+      idempotencyKey: `auto_post_notice:${p.responseId}`,
     });
 
     return { status: 'sent', externalMessageId: messageId };

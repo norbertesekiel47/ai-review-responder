@@ -485,7 +485,25 @@
       // would add a pass-through the design rules reject. Ignoring the FYI side drops each
       // 2-instance group below minOccurrences.
       "worker/jobs/auto-post-notice/AutoPostNoticeWorker.ts",
-      "worker/jobs/auto-post-notice/context.ts"
+      "worker/jobs/auto-post-notice/context.ts",
+
+      // ── Beta-launch alerting gate (this PR) ──
+      // SerpAPI call blocks: serpapi-source (reviews) and RankingTrackingWorker
+      // (local-pack ranking) both bound getJson with SERPAPI_TIMEOUT_MS and throw
+      // on response.error, but parse divergent shapes (response.reviews vs
+      // local_results + place_id match). The only shared sliver is the timeout +
+      // error-throw guard; extracting it would be a thin wrapper over getJson the
+      // design rules reject. This PR's ranking-timeout fix brought the pre-existing
+      // pair into changed-file scope. Ignoring the ranking side drops the group.
+      "worker/jobs/RankingTrackingWorker.ts",
+      // Redis option assembly: the Upstash cache client (src/lib/db/redis-cache)
+      // and the BullMQ queue connection (worker/redis-connection) are DELIBERATELY
+      // separate (CLAUDE.md: "two Redis instances, different providers — do not
+      // collapse them"). The parallel URL->{host,port,password,db,tls} parse is
+      // intentional; this PR's commandTimeout addition shifted lines and brought
+      // the pre-existing clone into changed-file scope. Ignoring the queue side
+      // drops the group.
+      "worker/redis-connection.ts"
     ]
   }
 }

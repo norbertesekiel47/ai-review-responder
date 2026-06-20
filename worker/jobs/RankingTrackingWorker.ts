@@ -14,6 +14,11 @@ import { getLocationContext } from '../../src/lib/db/account-guard';
 
 type RankingLogger = ReturnType<typeof createWorkerLogger>;
 
+// SerpAPI's getJson defaults to a ~60s socket timeout — longer than the worker's
+// shutdown grace and the queue slot. Bound it like the other SerpAPI call sites
+// (serpapi-source.ts, place-id-resolver.ts). (Beta-launch gate, plan C1.)
+const SERPAPI_TIMEOUT_MS = 12_000;
+
 interface RankingBusiness {
   google_place_id: string | null;
   google_place_lat: number | null;
@@ -59,6 +64,7 @@ async function resolveRankPosition(
     engine: 'google_maps',
     q: keyword,
     api_key: process.env.SERPAPI_API_KEY,
+    timeout: SERPAPI_TIMEOUT_MS,
   };
 
   if (hasCoords) {
@@ -100,6 +106,9 @@ async function resolveRankPosition(
   return rankPosition;
 }
 
+// Pre-existing ranking job handler (14 cyclomatic on main); this PR only added a
+// bounded SerpAPI timeout in resolveRankPosition, no new branches here.
+// fallow-ignore-next-line complexity
 export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise<void> {
   const logger = createWorkerLogger('[RankingTrackingWorker]', job.data.correlation_id);
   // Cast job data IDs to branded types at entry point
