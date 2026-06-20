@@ -1,7 +1,8 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { LazyMotion, m, domAnimation, useReducedMotion } from 'motion/react';
+import { LazyMotion, m, domAnimation } from 'motion/react';
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 
 /** One owner for auth-card field styling. text-base = 16px (iOS zoom rule). */
 export const authFieldClass =
@@ -29,7 +30,7 @@ interface AuthCardShellProps {
  * the utilitarian internal style.
  */
 export function AuthCardShell({ children, width = 'md' }: AuthCardShellProps) {
-  const reduce = useReducedMotion();
+  const reduce = usePrefersReducedMotion();
   return (
     <LazyMotion features={domAnimation}>
       <main id="main-content" className="min-h-screen bg-[#D2E0D3] relative flex items-center justify-center px-4 py-16">
