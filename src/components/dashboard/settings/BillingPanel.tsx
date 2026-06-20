@@ -104,7 +104,6 @@ export function TierChangeModal({
   onCancel,
   changing,
 }: TierChangeModalProps) {
-  const newConfig = TIER_CONFIG[newTier];
   const isDowngrade = TIER_CONFIG[newTier].baseCents < TIER_CONFIG[currentTier].baseCents;
 
   return (
@@ -274,7 +273,6 @@ function PlanCard({ subscription, billing, accountId }: {
 
   const basePrice = (billing.basePriceCents / 100).toFixed(2);
   const overagePrice = billing.overagePriceCents > 0 ? (billing.overagePriceCents / 100).toFixed(2) : null;
-  const totalPrice = (billing.totalCents / 100).toFixed(2);
 
   return (
     <div className="plan-card">
