@@ -12,6 +12,7 @@ export function MobileTabBar() {
   const isHome = pathname === '/dashboard';
   // /dashboard/reviews and /dashboard/reviews/history both highlight Reviews.
   const isReviews = pathname.startsWith('/dashboard/reviews');
+  const isAnalytics = pathname.startsWith('/dashboard/analytics');
   const isSettings = pathname.startsWith('/settings');
 
   return (
@@ -30,6 +31,13 @@ export function MobileTabBar() {
       >
         <Icon name="inbox" size={22} /> Reviews
         {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
+      </Link>
+      <Link
+        href="/dashboard/analytics"
+        className={`mtab ${isAnalytics ? 'active' : ''}`}
+        aria-current={isAnalytics ? 'page' : undefined}
+      >
+        <Icon name="chart" size={22} /> Analytics
       </Link>
       <Link
         href="/settings"

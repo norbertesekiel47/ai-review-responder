@@ -6,8 +6,6 @@ import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { AggregateKpiCards } from '@/components/dashboard/aggregate/AggregateKpiCards';
 import { PendingApprovalsStrip } from '@/components/dashboard/kpi/PendingApprovalsStrip';
-import { AggregateVelocityCard } from '@/components/dashboard/aggregate/AggregateVelocityCard';
-import { AggregateRankingCard } from '@/components/dashboard/aggregate/AggregateRankingCard';
 import { AggregateIntelligenceBriefCard } from '@/components/dashboard/aggregate/AggregateIntelligenceBriefCard';
 import { LocationKpiStrip } from '@/components/dashboard/aggregate/LocationKpiStrip';
 import { PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
@@ -20,16 +18,16 @@ interface Props {
 }
 
 /**
- * Renders the "All Locations" aggregate dashboard view.
+ * Renders the "All Locations" aggregate dashboard glance. Velocity + ranking
+ * charts moved to /dashboard/analytics (design spec 2026-06-19); the dashboard
+ * keeps only the glanceable zones.
  *
  * Layout:
  *  1. TopBar with aggregate title
  *  2. Aggregate KpiCards (summed values)
  *  3. PendingApprovalsStrip (links to /dashboard/reviews)
  *  4. Location KPI strip (clickable per-location cards)
- *  5. VelocityCard (stacked-by-location toggle)
- *  6. RankingCard (per-location ranking lines)
- *  7. IntelligenceBriefCard (per-location prefix bullets)
+ *  5. IntelligenceBriefCard (per-location prefix bullets)
  */
 export function AggregateDashboardContent({ data, refresh }: Props) {
   const setPendingCount = useSetPendingCount();
@@ -99,20 +97,8 @@ export function AggregateDashboardContent({ data, refresh }: Props) {
             <div className="section-enter section-enter-3">
               <LocationKpiStrip locationKpis={data.locationKpis} />
             </div>
-            <div className="section-enter section-enter-4">
-              <AggregateVelocityCard
-                reviewVelocity={data.reviewVelocity}
-                perLocationVelocity={data.perLocationVelocity}
-              />
-            </div>
-            <div className="section-enter section-enter-5">
-              <AggregateRankingCard
-                ranking={data.ranking}
-                perLocationRanking={data.perLocationRanking}
-              />
-            </div>
             {data.perLocationBriefs.length > 0 && (
-              <div className="section-enter section-enter-6">
+              <div className="section-enter section-enter-4">
                 <AggregateIntelligenceBriefCard perLocationBriefs={data.perLocationBriefs} />
               </div>
             )}

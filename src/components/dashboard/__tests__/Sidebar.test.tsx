@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createElement as h } from 'react';
@@ -13,9 +13,13 @@ vi.mock('@/lib/db/browser', () => ({
   }),
 }));
 
+const { pathnameMock } = vi.hoisted(() => ({
+  pathnameMock: vi.fn<() => string>(() => '/dashboard'),
+}));
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
-  usePathname: () => '/dashboard',
+  usePathname: () => pathnameMock(),
 }));
 
 vi.mock('@/contexts/PendingCountContext', () => ({
@@ -43,6 +47,10 @@ function wrapWithProvider(
 }
 
 describe('Sidebar', () => {
+  beforeEach(() => {
+    pathnameMock.mockReturnValue('/dashboard');
+  });
+
   it('renders brand, nav items, user chip, and sign-out', () => {
     render(
       wrapWithProvider(
@@ -91,6 +99,26 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: /reviews/i })).toHaveAttribute('href', '/dashboard/reviews');
     expect(screen.queryByRole('link', { name: /insights/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /past replies/i })).not.toBeInTheDocument();
+  });
+
+  it('renders the Analytics nav item (final order: Dashboard · Reviews · Analytics · Settings)', () => {
+    render(
+      wrapWithProvider(
+        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" />,
+      ),
+    );
+    expect(screen.getByRole('link', { name: /analytics/i })).toHaveAttribute('href', '/dashboard/analytics');
+  });
+
+  it('marks Analytics active on /dashboard/analytics without lighting up Dashboard', () => {
+    pathnameMock.mockReturnValue('/dashboard/analytics');
+    render(
+      wrapWithProvider(
+        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" />,
+      ),
+    );
+    expect(screen.getByRole('link', { name: /analytics/i }).className).toContain('active');
+    expect(screen.getByRole('link', { name: /^dashboard$/i }).className).not.toContain('active');
   });
 
   it('calls supabase signOut on click', async () => {
