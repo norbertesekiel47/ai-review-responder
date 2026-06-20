@@ -11,6 +11,23 @@ process.env.DATABASE_POOL_URL =
 // doesn't exist there — but the module itself is safe to import regardless.
 import '@testing-library/jest-dom';
 
+// jsdom does not implement window.matchMedia. Components using
+// usePrefersReducedMotion (and useCountUp via it) call it on mount; provide a
+// minimal stub reporting "no preference" (matches: false) so motion is not
+// suppressed in tests and renders don't throw.
+if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+  window.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })) as typeof window.matchMedia;
+}
+
 // jsdom does not implement the native <dialog> modal API (showModal/close/show).
 // Provide a minimal polyfill so components using <dialog> can be rendered/tested.
 // It mirrors the spec's observable surface: `open` reflects state and `close`
