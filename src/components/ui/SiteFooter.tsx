@@ -7,9 +7,9 @@ import Link from 'next/link';
  *
  * The global `.rw-foot` rule is a two-item `space-between` flex row, so this
  * component overrides that container to a stacked column (link grid + a bottom
- * copyright bar) via Tailwind. Each link resets the global `.rw-foot a`
- * left-margin (`ml-0`) so columns stack cleanly instead of inheriting the
- * inline-row spacing.
+ * copyright bar) via Tailwind. The legacy link rule is scoped to direct-child
+ * anchors (`.rw-foot > a`), so the column links here — nested in `ul > li > a` —
+ * keep their own Tailwind color/spacing utilities instead of the inline-row look.
  */
 
 interface FooterColumn {

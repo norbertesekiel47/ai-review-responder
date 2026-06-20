@@ -1010,9 +1010,13 @@
   font: 400 12px/1.4 var(--rw-font-body);
   color: var(--rw-ink-soft);
 }
-.rw-foot a { color: inherit; text-decoration: none; margin-left: 24px; }
-.rw-foot a:first-of-type { margin-left: 0; }
-.rw-foot a:hover { color: var(--rw-teal-strong); }
+/* Scoped to DIRECT-child anchors so it styles only the legacy inline usage
+   (the auth island's `<p class="rw-foot">…<a>` mode-switch link). The redesigned
+   SiteFooter nests its links in `ul > li > a`, so this rule no longer overrides
+   their Tailwind utilities (column layout + --rw-teal-strong color). */
+.rw-foot > a { color: inherit; text-decoration: none; margin-left: 24px; }
+.rw-foot > a:first-of-type { margin-left: 0; }
+.rw-foot > a:hover { color: var(--rw-teal-strong); }
 
 /* ---------- Dot nav ---------- */
 .rw-dot-nav {

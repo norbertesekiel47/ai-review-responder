@@ -3,14 +3,17 @@ import type {
   LeadIntakeFieldErrors,
   LeadIntakePayload,
 } from './LeadIntakeForm';
+import { LEAD_INTAKE_HONEYPOT_FIELD } from '@/lib/shared/schemas';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function submitLeadIntake(payload: LeadIntakePayload): Promise<Response> {
+export function submitLeadIntake({ honeypot, ...payload }: LeadIntakePayload): Promise<Response> {
   return fetch('/api/lead-intake', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    // Re-key the honeypot to the canonical server field name so the server-side
+    // bot check (data[LEAD_INTAKE_HONEYPOT_FIELD]) actually receives it.
+    body: JSON.stringify({ ...payload, [LEAD_INTAKE_HONEYPOT_FIELD]: honeypot }),
   });
 }
 

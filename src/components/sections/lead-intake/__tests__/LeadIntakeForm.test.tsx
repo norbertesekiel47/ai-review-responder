@@ -59,32 +59,45 @@ describe('LeadIntakeForm', () => {
       googleMapsUrl: 'https://maps.google.com/?cid=123',
       intent: 'waitlist',
       source: 'landing',
+      honeypot: '',
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith('/api/lead-intake', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: 'Nora Reed',
-        email: 'nora@example.com',
-        businessName: 'Juniper Lodge',
-        googleMapsUrl: 'https://maps.google.com/?cid=123',
-        intent: 'waitlist',
-        source: 'landing',
-      }),
-    });
-
-    const [, init] = fetchMock.mock.calls[0] ?? [];
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe('/api/lead-intake');
     if (!init) throw new Error('Expected fetch init payload');
-    expect(JSON.parse(init?.body as string)).toEqual({
+    expect(init.method).toBe('POST');
+    // The honeypot must travel to the server under its canonical field name
+    // (regression guard for the dropped-honeypot bug) — empty for a real user.
+    expect(JSON.parse(init.body as string)).toEqual({
       name: 'Nora Reed',
       email: 'nora@example.com',
       businessName: 'Juniper Lodge',
       googleMapsUrl: 'https://maps.google.com/?cid=123',
       intent: 'waitlist',
       source: 'landing',
+      company_website: '',
     });
+  });
+
+  it('sends a bot-filled honeypot to the server as company_website', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 204 }));
+
+    await submitLeadIntake({
+      name: 'Bot',
+      email: 'bot@example.com',
+      businessName: 'Spam Co',
+      googleMapsUrl: '',
+      intent: 'waitlist',
+      source: 'landing',
+      honeypot: 'http://spam.example.com',
+    });
+
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    if (!init) throw new Error('Expected fetch init payload');
+    expect(JSON.parse(init.body as string).company_website).toBe('http://spam.example.com');
   });
 
   it('renders accessible labels, required markers, and the optional url field', () => {

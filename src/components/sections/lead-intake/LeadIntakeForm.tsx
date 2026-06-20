@@ -35,6 +35,9 @@ export interface LeadIntakePayload {
   googleMapsUrl: string;
   intent: LeadIntent;
   source: LeadSource;
+  // Hidden honeypot value — sent under its canonical server field name by
+  // submitLeadIntake so the server-side bot check can actually fire.
+  honeypot: string;
 }
 
 type LeadIntakeCopy = Partial<{
@@ -219,6 +222,7 @@ export function LeadIntakeForm({
         googleMapsUrl: googleMapsUrl.trim(),
         intent,
         source,
+        honeypot,
       });
 
       if (res.ok) {
