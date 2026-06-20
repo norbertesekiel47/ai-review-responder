@@ -40,6 +40,20 @@ describe('MobileTabBar', () => {
     expect(linkByName(/reviews/i)).not.toHaveClass('active');
   });
 
+  it('renders the Analytics tab (final set: Home · Reviews · Analytics · Settings)', () => {
+    pathnameMock.mockReturnValue('/dashboard');
+    render(<MobileTabBar />);
+    expect(linkByName(/analytics/i)).toHaveAttribute('href', '/dashboard/analytics');
+  });
+
+  it('marks Analytics active on /dashboard/analytics', () => {
+    pathnameMock.mockReturnValue('/dashboard/analytics');
+    render(<MobileTabBar />);
+    expect(linkByName(/analytics/i)).toHaveClass('active');
+    expect(linkByName(/home/i)).not.toHaveClass('active');
+    expect(linkByName(/reviews/i)).not.toHaveClass('active');
+  });
+
   it('marks Reviews active on /dashboard/reviews', () => {
     pathnameMock.mockReturnValue('/dashboard/reviews');
     render(<MobileTabBar />);

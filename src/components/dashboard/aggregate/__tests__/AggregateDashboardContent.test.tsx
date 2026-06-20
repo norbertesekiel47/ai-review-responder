@@ -11,11 +11,13 @@ vi.mock('@/contexts/PendingCountContext', () => ({
 vi.mock('@/components/dashboard/aggregate/LocationKpiStrip', () => ({
   LocationKpiStrip: () => null,
 }));
+// Markers (not null) so the composition test fails loudly if either aggregate
+// chart is re-added to the dashboard after their move to Analytics.
 vi.mock('@/components/dashboard/aggregate/AggregateVelocityCard', () => ({
-  AggregateVelocityCard: () => null,
+  AggregateVelocityCard: () => <div data-testid="aggregate-velocity" />,
 }));
 vi.mock('@/components/dashboard/aggregate/AggregateRankingCard', () => ({
-  AggregateRankingCard: () => null,
+  AggregateRankingCard: () => <div data-testid="aggregate-ranking" />,
 }));
 vi.mock('@/components/dashboard/aggregate/AggregateIntelligenceBriefCard', () => ({
   AggregateIntelligenceBriefCard: () => null,
@@ -51,5 +53,15 @@ describe('AggregateDashboardContent', () => {
     );
     // The combined review feed no longer lives on the dashboard.
     expect(screen.queryByText(/needs action/i)).not.toBeInTheDocument();
+  });
+
+  it('drops the aggregate velocity/ranking charts (relocated to Analytics)', () => {
+    const populated: AggregateDashboardData = {
+      ...data,
+      valueSummary: { ...data.valueSummary, totalReviewsHandled: 12 },
+    };
+    render(<AggregateDashboardContent data={populated} refresh={vi.fn()} />);
+    expect(screen.queryByTestId('aggregate-velocity')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('aggregate-ranking')).not.toBeInTheDocument();
   });
 });

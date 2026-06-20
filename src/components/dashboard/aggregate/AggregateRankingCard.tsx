@@ -42,11 +42,11 @@ export function AggregateRankingCard({ ranking, perLocationRanking }: Props) {
     <div className="card">
       <div className="card-h2-row">
         <h2>Search Ranking</h2>
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: '#6B7280' }}>local pack</span>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--rw-app-text-soft)' }}>local pack</span>
       </div>
 
       {/* VAL-DASH-015: per-location ranking toggle */}
-      <div style={{ display: 'flex', gap: 4, padding: 4, background: '#F3F4F6', borderRadius: 9999, width: 'fit-content', marginBottom: 14 }}>
+      <div style={{ display: 'flex', gap: 4, padding: 4, background: 'var(--rw-recess)', borderRadius: 9999, width: 'fit-content', marginBottom: 14 }}>
         <button
           type="button"
           className={`tab ${mode === 'aggregate' ? 'active' : ''}`}
@@ -71,6 +71,7 @@ export function AggregateRankingCard({ ranking, perLocationRanking }: Props) {
           formatSeriesLabel={formatAggregateSeriesLabel}
           labelFontSize="9"
           labelFontWeight="500"
+          emphasis="series"
         />
       ) : (
         <>
@@ -83,6 +84,7 @@ export function AggregateRankingCard({ ranking, perLocationRanking }: Props) {
             formatSeriesLabel={formatAggregateSeriesLabel}
             labelFontSize="9"
             labelFontWeight="500"
+            emphasis="series"
           />
           <div className="chart-legend">
             {perLocationRanking.map((loc, i) => (

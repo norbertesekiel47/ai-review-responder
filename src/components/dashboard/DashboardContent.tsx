@@ -21,9 +21,6 @@ import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { ReputationHeroBand } from '@/components/dashboard/kpi/ReputationHeroBand';
 import { PendingApprovalsStrip } from '@/components/dashboard/kpi/PendingApprovalsStrip';
-import { ReputationTrendChart } from '@/components/dashboard/kpi/ReputationTrendChart';
-import { VelocityCard } from '@/components/dashboard/kpi/VelocityCard';
-import { RankingCard } from '@/components/dashboard/kpi/RankingCard';
 import { IntelligenceBriefCard } from '@/components/dashboard/kpi/IntelligenceBriefCard';
 import { AggregateDashboardContent } from '@/components/dashboard/aggregate/AggregateDashboardContent';
 import { useDashboardData } from '@/hooks/useDashboardData';
@@ -324,21 +321,12 @@ function DashboardOperationalContent() {
         <div className="section-enter section-enter-3">
           <PendingApprovalsStrip count={reputation.pendingApprovalCount} />
         </div>
-        {/* Intelligence brief */}
+        {/* Intelligence brief — the glance centerpiece (charts moved to Analytics) */}
         {activeData.latestBrief && (
           <div className="section-enter section-enter-4">
             <IntelligenceBriefCard brief={activeData.latestBrief} />
           </div>
         )}
-        {/* Reputation trend */}
-        <div className="section-enter section-enter-5">
-          <ReputationTrendChart trend={reputation.trend} />
-        </div>
-        {/* Insights — review velocity + local ranking */}
-        <div className="chart-row section-enter section-enter-6">
-          <VelocityCard reviewVelocity={activeData.reviewVelocity} />
-          <RankingCard ranking={activeData.ranking} />
-        </div>
       </div>
     </>
   );

@@ -23,6 +23,31 @@ vi.mock('next/navigation', () => ({
   redirect: (...args: unknown[]) => mockRedirect(...args),
 }));
 
+// Glance-stack zones (kept) vs relocated charts (must be absent). Each is mocked
+// with an identifiable marker so the composition test fails loudly if a chart is
+// ever re-added to the dashboard.
+vi.mock('@/components/dashboard/kpi/ReputationHeroBand', () => ({
+  ReputationHeroBand: () => <div data-testid="hero" />,
+}));
+vi.mock('@/components/dashboard/kpi/IntelligenceBriefCard', () => ({
+  IntelligenceBriefCard: () => <div data-testid="brief" />,
+}));
+vi.mock('@/components/dashboard/kpi/PendingApprovalsStrip', () => ({
+  PendingApprovalsStrip: () => <div data-testid="strip" />,
+}));
+vi.mock('@/components/dashboard/account-state/ConnectGoogleBanner', () => ({
+  ConnectGoogleBanner: () => null,
+}));
+vi.mock('@/components/dashboard/kpi/ReputationTrendChart', () => ({
+  ReputationTrendChart: () => <div data-testid="trend" />,
+}));
+vi.mock('@/components/dashboard/kpi/VelocityCard', () => ({
+  VelocityCard: () => <div data-testid="velocity" />,
+}));
+vi.mock('@/components/dashboard/kpi/RankingCard', () => ({
+  RankingCard: () => <div data-testid="ranking" />,
+}));
+
 import { DashboardContent } from '@/components/dashboard/DashboardContent';
 
 describe('DashboardContent announcements (P1 #18)', () => {
@@ -100,6 +125,59 @@ describe('DashboardContent announcements (P1 #18)', () => {
     expect(mockUseDashboardData).not.toHaveBeenCalled();
   });
 
+});
+
+describe('DashboardContent glance composition (charts relocated to Analytics)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      enabled: false,
+      accountTimeZone: 'UTC',
+      activeOffboarding: null,
+    })));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.history.replaceState(null, '', '/');
+  });
+
+  const activeData = {
+    business: { name: 'Bristol Bay Coffee', createdAt: '2026-01-01' },
+    valueSummary: { totalReviewsHandled: 10, totalTimeSavedMinutes: 60, currentResponseRate: 90, baselineResponseRate: null },
+    reputationSummary: {
+      averageStar: { current: 4.5, delta: 0.1, priorSampleSize: 5 },
+      responseRate: { current: 90, delta: 5, priorSampleSize: 5 },
+      timeSavedMinutes: { current: 60, delta: 10, priorSampleSize: 5 },
+      pendingApprovalCount: 2,
+      trend: [{ weekStart: '2026-04-01', starEquivalent: 4.5, reviewCount: 4 }],
+      isRamping: false,
+    },
+    reviewVelocity: [{ weekStart: '2026-04-01', count: 3 }],
+    ranking: [{ keyword: 'cafe', snapshots: [{ date: '2026-05-01', position: 3 }] }],
+    recentReviews: [],
+    latestBrief: { text: 'Monthly brief', type: 'monthly', periodLabel: 'April' },
+    zernioConnection: { status: 'active', queuedReconnectCount: 0, hasUnresolvedIncident: false },
+  };
+
+  it('keeps hero · brief · strip and drops the trend/velocity/ranking charts', async () => {
+    mockUseDashboardData.mockReturnValue({
+      data: activeData,
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+      scopeFallback: null,
+    });
+
+    renderDashboard(<DashboardContent />);
+
+    expect(await screen.findByTestId('hero')).toBeInTheDocument();
+    expect(screen.getByTestId('brief')).toBeInTheDocument();
+    expect(screen.getByTestId('strip')).toBeInTheDocument();
+    expect(screen.queryByTestId('trend')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('velocity')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('ranking')).not.toBeInTheDocument();
+  });
 });
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {

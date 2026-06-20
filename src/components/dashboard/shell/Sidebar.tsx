@@ -55,11 +55,14 @@ export function Sidebar({
     }
   }
 
-  // /dashboard/reviews and /dashboard/reviews/history both highlight Reviews.
+  // /dashboard/reviews and /dashboard/reviews/history both highlight Reviews;
+  // /dashboard/analytics highlights Analytics; everything else under /dashboard
+  // highlights Dashboard.
   const isReviews = pathname.startsWith('/dashboard/reviews');
+  const isAnalytics = pathname.startsWith('/dashboard/analytics');
   const isDashboard =
     pathname === '/dashboard' ||
-    (pathname.startsWith('/dashboard/') && !pathname.startsWith('/dashboard/reviews'));
+    (pathname.startsWith('/dashboard/') && !isReviews && !isAnalytics);
   const isSettings = pathname.startsWith('/settings');
 
   const initials = deriveInitials(ownerName, ownerEmail);
@@ -86,6 +89,9 @@ export function Sidebar({
         <Link href="/dashboard/reviews" className={`nav-item ${isReviews ? 'active' : ''}`}>
           <Icon name="inbox" /> Reviews
           {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
+        </Link>
+        <Link href="/dashboard/analytics" className={`nav-item ${isAnalytics ? 'active' : ''}`}>
+          <Icon name="chart" /> Analytics
         </Link>
       </div>
 

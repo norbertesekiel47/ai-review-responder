@@ -980,6 +980,31 @@
   vertical-align: middle;
 }
 
+/* Tokenized ranking-chart chrome (warm surface; was Console-era #E5E7EB/#9CA3AF). */
+.rank-grid { stroke: var(--rw-hair); }
+.rank-axis { fill: var(--rw-app-text-soft); font-family: var(--rw-font-body); }
+
+/* ---------- Analytics headline-first chart cards ---------- */
+/* Each chart leads with a deterministic plain-English takeaway; the chart below
+   is evidence, not the message (design spec 2026-06-19). */
+.chart-headline-block { margin-bottom: 16px; }
+.chart-headline {
+  display: flex; align-items: baseline; gap: 8px;
+  font-family: var(--rw-font-display);
+  font-size: 19px; font-weight: 600; line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--rw-app-text);
+}
+.chart-headline-arrow { font-size: 15px; line-height: 1; }
+.chart-headline--up { color: var(--rw-sage-deep); }
+.chart-headline--down { color: var(--rw-danger); }
+.chart-headline--flat { color: var(--rw-app-text); }
+.chart-headline-detail {
+  margin-top: 4px;
+  font-size: 13.5px;
+  color: var(--rw-app-text-muted);
+}
+
 /* ---------- Intelligence brief ---------- */
 .brief-head {
   display: flex; align-items: flex-start; gap: 12px;
