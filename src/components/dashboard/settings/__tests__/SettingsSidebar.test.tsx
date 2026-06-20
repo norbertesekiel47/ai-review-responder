@@ -39,6 +39,12 @@ describe('SettingsSidebar', () => {
     expect(screen.getByRole('link', { name: /billing/i })).toHaveAttribute('aria-current', 'page');
   });
 
+  it('falls back to Brand Voice active on an unknown settings path', () => {
+    mockPath = '/settings/nope';
+    render(<SettingsSidebar />);
+    expect(screen.getByRole('link', { name: /brand voice/i })).toHaveAttribute('aria-current', 'page');
+  });
+
   it('mobile select navigates on change', () => {
     render(<SettingsSidebar />);
     fireEvent.change(screen.getByRole('combobox', { name: /settings section/i }), {

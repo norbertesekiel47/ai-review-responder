@@ -36,7 +36,7 @@ const NAV_GROUPS: NavGroup[] = [
 
 const ALL_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
 
-/** `/settings` redirects to `/settings/voice`, so treat the bare index as Brand Voice. */
+/** Treat the bare `/settings` index as Brand Voice (it will redirect to `/settings/voice`). */
 function resolveActiveHref(pathname: string): string {
   if (pathname === '/settings' || pathname === '/settings/voice') return '/settings/voice';
   const match = ALL_ITEMS.find((i) => pathname === i.href || pathname.startsWith(`${i.href}/`));
