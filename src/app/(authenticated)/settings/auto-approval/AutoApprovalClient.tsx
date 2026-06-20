@@ -76,11 +76,7 @@ function clientReducer(state: ClientState, action: ClientAction): ClientState {
   }
 }
 
-export function AutoApprovalClient({
-  initialState,
-  multiLocationEnabled,
-  locationsSettingsEnabled,
-}: Props) {
+export function AutoApprovalClient({ initialState }: Props) {
   const [state, dispatch] = useReducer(clientReducer, {
     data: initialState,
     saveError: null,
@@ -161,9 +157,6 @@ export function AutoApprovalClient({
 
   return (
     <SettingsShell
-      activeTab="autoApproval"
-      multiLocationEnabled={multiLocationEnabled}
-      locationsSettingsEnabled={locationsSettingsEnabled}
       savedFlash={savedFlash}
       saveError={saveError ?? undefined}
     >

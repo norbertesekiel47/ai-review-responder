@@ -24,7 +24,7 @@ export function VoiceClient() {
   // Error state
   if (f.fetchError) {
     return (
-      <SettingsShell activeTab="voice" multiLocationEnabled>
+      <SettingsShell>
         <div className="set-section" style={{ borderColor: '#FCA5A5' }}>
           <div className="set-section-title" style={{ color: '#991B1B' }}>Error</div>
           <p style={{ fontSize: 13, color: '#B91C1C' }}>{f.fetchError}</p>
@@ -36,7 +36,7 @@ export function VoiceClient() {
   // Loading state
   if (f.loading || !f.form) {
     return (
-      <SettingsShell activeTab="voice" multiLocationEnabled>
+      <SettingsShell>
         <SettingsSkeleton />
       </SettingsShell>
     );
@@ -44,8 +44,6 @@ export function VoiceClient() {
 
   return (
     <SettingsShell
-      activeTab="voice"
-      multiLocationEnabled
       savedFlash={f.savedFlash}
       saveBar={{
         visible: f.dirty,
