@@ -10,13 +10,13 @@ export default function SignupError({ reset }: { error: Error; reset: () => void
         </p>
         <button type="button"
           onClick={reset}
-          className="bg-[#97B3AE] text-white px-6 py-2 rounded-full hover:bg-[#7ea098] transition-colors"
+          className="bg-[#557069] text-white px-6 py-2 rounded-full hover:bg-[#46645d] transition-colors"
         >
           Retry
         </button>
         <p className="text-sm text-[#6a6a6a] mt-4">
           Still having trouble?{' '}
-          <a href="mailto:support@repworth.net" className="text-[#97B3AE] underline">
+          <a href="mailto:support@repworth.net" className="text-[#557069] underline">
             Contact support
           </a>
         </p>

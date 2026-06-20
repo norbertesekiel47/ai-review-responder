@@ -2,7 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useCountUp } from '@/hooks/useCountUp';
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { cn } from '@/lib/ui/cn';
+
+// Static frame shown under reduced motion — mid-afternoon, when both review and
+// owner-reply layers are populated, so the still image still reads as the insight.
+const REDUCED_MOTION_HOUR = 14.5;
 
 const CLOCK_REVIEWS = [
   { h: 7.5, stars: 5 },
@@ -22,6 +27,10 @@ const CLOCK_REVIEWS = [
 ];
 
 const ang = (h: number) => (h / 24) * Math.PI * 2 - Math.PI / 2;
+// Round trig-derived SVG coordinates to a stable precision so the SSR output
+// matches the client's — Math.cos/sin can differ in the last ULP between Node
+// and browser V8, which otherwise trips a hydration mismatch on the clock.
+const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
 // Polar→cartesian projection onto the clock face, and elapsed-hours-since
 // helpers. They close over the face center / current time in HourClock, so the
@@ -35,10 +44,10 @@ function ClockTicks({ c, rOuter }: { c: number; rOuter: number }) {
       {Array.from({ length: 24 }).map((_, i) => {
         const a = ang(i);
         const major = i % 6 === 0;
-        const x1 = c + Math.cos(a) * (rOuter - 4);
-        const y1 = c + Math.sin(a) * (rOuter - 4);
-        const x2 = c + Math.cos(a) * (rOuter - (major ? 16 : 8));
-        const y2 = c + Math.sin(a) * (rOuter - (major ? 16 : 8));
+        const x1 = round3(c + Math.cos(a) * (rOuter - 4));
+        const y1 = round3(c + Math.sin(a) * (rOuter - 4));
+        const x2 = round3(c + Math.cos(a) * (rOuter - (major ? 16 : 8)));
+        const y2 = round3(c + Math.sin(a) * (rOuter - (major ? 16 : 8)));
         return (
           <line
             key={i}
@@ -108,6 +117,8 @@ function OwnerReplyDots({ pt, since, rOwn }: { pt: PointAt; since: HoursSince; r
 function ReviewTendrils({ pt, since, rRev, rRep }: { pt: PointAt; since: HoursSince; rRev: number; rRep: number }) {
   return (
     <>
+      {/* Per-review clock-mark geometry; branches are independent visual cases. */}
+      {/* fallow-ignore-next-line complexity */}
       {CLOCK_REVIEWS.map((r, i) => {
         const s = since(r.h);
         const reviewActive = s < 24;
@@ -182,23 +193,29 @@ function ReviewTendrils({ pt, since, rRev, rRep }: { pt: PointAt; since: HoursSi
 }
 
 function HourClock({ speed = 1.5 }: { speed?: number }) {
-  const [now, setNow] = useState(0);
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const [animatedNow, setAnimatedNow] = useState(0);
   const rafRef = useRef<number | null>(null);
   const startRef = useRef<number | null>(null);
 
   useEffect(() => {
+    // Reduced motion: skip the rAF clock entirely; `now` is frozen on a static
+    // representative frame via the pure derivation below (no setState here).
+    if (prefersReducedMotion) return;
     const period = 18000 / Math.max(0.1, speed);
     const tick = (t: number) => {
       if (startRef.current == null) startRef.current = t;
       const elapsed = (t - startRef.current) % period;
-      setNow((elapsed / period) * 24);
+      setAnimatedNow((elapsed / period) * 24);
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [speed]);
+  }, [speed, prefersReducedMotion]);
+
+  const now = prefersReducedMotion ? REDUCED_MOTION_HOUR : animatedNow;
 
   const size = 380;
   const c = size / 2;
@@ -208,8 +225,8 @@ function HourClock({ speed = 1.5 }: { speed?: number }) {
   const rOwn = c - 128;
 
   const pt = (h: number, r: number) => ({
-    x: c + Math.cos(ang(h)) * r,
-    y: c + Math.sin(ang(h)) * r,
+    x: round3(c + Math.cos(ang(h)) * r),
+    y: round3(c + Math.sin(ang(h)) * r),
   });
 
   const since = (h: number) => {
@@ -238,7 +255,12 @@ function HourClock({ speed = 1.5 }: { speed?: number }) {
 
   return (
     <div className="rw-clock-wrap">
-      <svg className="rw-clock-svg" viewBox={`0 0 ${size} ${size}`}>
+      <svg
+        className="rw-clock-svg"
+        viewBox={`0 0 ${size} ${size}`}
+        role="img"
+        aria-label="A 24-hour clock showing reviews arriving around the clock — including late at night and at lunchtime — each answered by RepWorth within minutes, while an unaided owner only replies the next morning."
+      >
         <defs>
           <radialGradient id="rw-face" cx="50%" cy="42%">
             <stop offset="0%" stopColor="#FFFFFF" />
@@ -334,7 +356,7 @@ function HourClock({ speed = 1.5 }: { speed?: number }) {
           x={c}
           y={c - 38}
           textAnchor="middle"
-          style={{ font: '500 9px/1 var(--rw-font-body)', fill: '#97B3AE', letterSpacing: '0.14em', textTransform: 'uppercase' }}
+          style={{ font: '500 9px/1 var(--rw-font-body)', fill: '#557069', letterSpacing: '0.14em', textTransform: 'uppercase' }}
         >
           {periodLabel}
         </text>

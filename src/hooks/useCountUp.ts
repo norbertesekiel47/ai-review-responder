@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { usePrefersReducedMotion } from './usePrefersReducedMotion';
 
 export interface CountUpOptions {
   /** While false, the value stays at 0; the animation (re)starts when it flips true. Default true. */
@@ -26,9 +27,12 @@ export function useCountUp(target: number, options: CountUpOptions = {}): number
   const { active = true, duration = 900, delayMs = 0, round = false } = options;
   const [value, setValue] = useState(0);
   const startRef = useRef<number | null>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   useEffect(() => {
-    if (!active) return;
+    // Reduced motion: no rAF loop — the final value is derived in the return
+    // below, so there's no setState here (avoids set-state-in-effect).
+    if (!active || prefersReducedMotion) return;
     let raf = 0;
     startRef.current = null;
     const step = (t: number) => {
@@ -41,7 +45,9 @@ export function useCountUp(target: number, options: CountUpOptions = {}): number
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [target, duration, active, delayMs, round]);
+  }, [target, duration, active, delayMs, round, prefersReducedMotion]);
 
+  // Reduced motion → show the final value immediately (derived, not animated).
+  if (prefersReducedMotion) return round ? Math.round(target) : target;
   return value;
 }

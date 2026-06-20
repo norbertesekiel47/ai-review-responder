@@ -59,68 +59,122 @@ describe('LeadIntakeForm', () => {
       googleMapsUrl: 'https://maps.google.com/?cid=123',
       intent: 'waitlist',
       source: 'landing',
+      honeypot: '',
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith('/api/lead-intake', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: 'Nora Reed',
-        email: 'nora@example.com',
-        businessName: 'Juniper Lodge',
-        googleMapsUrl: 'https://maps.google.com/?cid=123',
-        intent: 'waitlist',
-        source: 'landing',
-      }),
-    });
-
-    const [, init] = fetchMock.mock.calls[0] ?? [];
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe('/api/lead-intake');
     if (!init) throw new Error('Expected fetch init payload');
-    expect(JSON.parse(init?.body as string)).toEqual({
+    expect(init.method).toBe('POST');
+    // The honeypot must travel to the server under its canonical field name
+    // (regression guard for the dropped-honeypot bug) — empty for a real user.
+    expect(JSON.parse(init.body as string)).toEqual({
       name: 'Nora Reed',
       email: 'nora@example.com',
       businessName: 'Juniper Lodge',
       googleMapsUrl: 'https://maps.google.com/?cid=123',
       intent: 'waitlist',
       source: 'landing',
+      company_website: '',
     });
   });
 
-  it('scopes validation ARIA props to the invalid client field', () => {
+  it('sends a bot-filled honeypot to the server as company_website', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 204 }));
+
+    await submitLeadIntake({
+      name: 'Bot',
+      email: 'bot@example.com',
+      businessName: 'Spam Co',
+      googleMapsUrl: '',
+      intent: 'waitlist',
+      source: 'landing',
+      honeypot: 'http://spam.example.com',
+    });
+
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    if (!init) throw new Error('Expected fetch init payload');
+    expect(JSON.parse(init.body as string).company_website).toBe('http://spam.example.com');
+  });
+
+  it('renders accessible labels, required markers, and the optional url field', () => {
+    const html = renderToStaticMarkup(
+      createElement(LeadIntakeForm, { intent: 'waitlist', source: 'landing' }),
+    );
+
+    // Real <label> elements associated to each input via htmlFor/id.
+    expect(html).toContain('for="lead-intake-waitlist-landing-name"');
+    expect(html).toContain('id="lead-intake-waitlist-landing-name"');
+    expect(html).toContain('for="lead-intake-waitlist-landing-email"');
+    expect(html).toContain('for="lead-intake-waitlist-landing-businessName"');
+    expect(html).toContain('for="lead-intake-waitlist-landing-googleMapsUrl"');
+
+    // Required fields marked; url field typed for url entry.
+    expect(html).toContain('aria-required="true"');
+    expect(html).toContain('type="url"');
+    expect(html).toContain('inputMode="url"');
+
+    // Privacy consent microcopy near submit.
+    expect(html).toContain('Privacy Policy');
+    expect(html).toContain('href="/legal/privacy"');
+
+    // Honeypot field present but hidden from assistive tech.
+    expect(html).toContain('name="company_website"');
+    expect(html).toContain('tabindex="-1"');
+  });
+
+  it('validates all fields at once with a per-field error map', () => {
     expect(
       validateLeadIntakeFields({
         name: '',
-        email: 'nora@example.com',
-        businessName: 'Juniper Lodge',
+        email: 'not-an-email',
+        businessName: '',
+        googleMapsUrl: '',
       }),
     ).toEqual({
-      message: 'Please enter your name.',
-      invalidField: 'name',
+      name: 'Please enter your name.',
+      email: 'Please enter a valid email address.',
+      businessName: 'Please enter your business name.',
     });
 
     expect(
       validateLeadIntakeFields({
         name: 'Nora Reed',
-        email: 'not-an-email',
+        email: 'nora@example.com',
         businessName: 'Juniper Lodge',
+        googleMapsUrl: 'http://maps.google.com/?cid=123',
       }),
     ).toEqual({
-      message: 'Please enter a valid email address.',
-      invalidField: 'email',
+      googleMapsUrl: 'Please enter a valid https link.',
     });
 
     expect(
-      getLeadIntakeFieldErrorProps('email', 'email', 'lead-intake-test-error'),
+      validateLeadIntakeFields({
+        name: 'Nora Reed',
+        email: 'nora@example.com',
+        businessName: 'Juniper Lodge',
+        googleMapsUrl: 'https://maps.google.com/?cid=123',
+      }),
+    ).toEqual({});
+  });
+
+  it('scopes validation ARIA props to fields with errors', () => {
+    const errors = { email: 'Please enter a valid email address.' };
+
+    expect(
+      getLeadIntakeFieldErrorProps('email', errors, 'lead-intake-test-error'),
     ).toEqual({
       'aria-invalid': true,
       'aria-describedby': 'lead-intake-test-error',
     });
     expect(
-      getLeadIntakeFieldErrorProps('googleMapsUrl', 'email', 'lead-intake-test-error'),
+      getLeadIntakeFieldErrorProps('googleMapsUrl', errors, 'lead-intake-test-error'),
     ).toEqual({});
     expect(
-      getLeadIntakeFieldErrorProps('email', null, 'lead-intake-test-error'),
+      getLeadIntakeFieldErrorProps('email', {}, 'lead-intake-test-error'),
     ).toEqual({});
   });
 });

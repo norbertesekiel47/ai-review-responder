@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import type { AuthFlow } from '@/lib/shared/auth-flow';
+import Link from 'next/link';
+import { type AuthFlow, loginUrlForFlow } from '@/lib/shared/auth-flow';
 import {
   AuthCardShell,
   authFieldClass,
@@ -9,6 +10,7 @@ import {
   authPrimaryButtonClass,
 } from './AuthCardShell';
 import { LiveRegion } from '@/components/ui/LiveRegion';
+import { fetchWithTimeout } from '@/components/auth/shared/fetchWithTimeout';
 
 // Single owner for the sent-state copy: used by both variants and the
 // LiveRegion so the text can never drift between them.
@@ -99,12 +101,12 @@ export function ForgotPasswordFormClient({
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
+  // Short cooldown after a (re)send so the "Resend" affordance can't be hammered.
+  const [resendCoolingDown, setResendCoolingDown] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
+  async function sendResetEmail() {
     try {
-      await fetch('/api/auth/forgot-password', {
+      await fetchWithTimeout('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -119,9 +121,26 @@ export function ForgotPasswordFormClient({
       // hard failure still surfaces as the generic "if an account exists"
       // message. Logging could go here in the future.
       setSent(true);
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await sendResetEmail();
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleResend() {
+    if (resendCoolingDown) return;
+    setResendCoolingDown(true);
+    await sendResetEmail();
+    // Re-enable after a short window. The success copy never changes, so this
+    // resend leaks nothing the first send didn't (no-enumeration preserved).
+    window.setTimeout(() => setResendCoolingDown(false), 20_000);
   }
 
   if (portal === 'admin') {
@@ -141,7 +160,30 @@ export function ForgotPasswordFormClient({
     <AuthCardShell width="sm">
       <LiveRegion message={sent ? SENT_MESSAGE : ''} />
       {sent ? (
-        <p className="text-base text-[#2a2a2a] text-center">{SENT_MESSAGE}</p>
+        <div className="space-y-6 text-center">
+          <p className="text-base text-[#2a2a2a]">{SENT_MESSAGE}</p>
+          <div className="space-y-2 text-sm">
+            <p className="text-[#6a6a6a]">
+              Didn&apos;t get it?{' '}
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={resendCoolingDown}
+                className="font-medium text-[#557069] hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
+              >
+                {resendCoolingDown ? 'Sent — check again shortly' : 'Resend'}
+              </button>
+            </p>
+            <p>
+              <Link
+                href={loginUrlForFlow(portal)}
+                className="font-medium text-[#557069] hover:underline"
+              >
+                ← Back to sign in
+              </Link>
+            </p>
+          </div>
+        </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           <h1 className="text-2xl font-semibold text-[#2a2a2a]">Reset your password</h1>

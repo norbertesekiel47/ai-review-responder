@@ -36,5 +36,24 @@ describe('Field', () => {
     );
     expect(html).toContain('aria-label="Show password"');
     expect(html).toContain('class="rw-toggle-pwd"');
+    expect(html).toContain('aria-pressed="false"');
+  });
+  it('programmatically associates a visible error with the input', () => {
+    const html = renderToStaticMarkup(
+      createElement(Field, {
+        label: 'Email',
+        name: 'email',
+        type: 'email',
+        value: 'bad',
+        onChange: () => {},
+        icon: createElement(MailIcon),
+        error: 'That email looks off.',
+      }),
+    );
+    expect(html).toContain('aria-invalid="true"');
+    expect(html).toContain('id="email-error"');
+    expect(html).toContain('aria-describedby="email-error"');
+    expect(html).toContain('That email looks off.');
+    expect(html).toContain('has-error');
   });
 });

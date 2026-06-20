@@ -5,11 +5,16 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { notifyContactSubmission } from '@/lib/notifications/contact-notify';
 import { botIdBlockResponse } from '@/lib/security/botid';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { LEAD_INTAKE_HONEYPOT_FIELD } from '@/lib/shared/schemas';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Hidden honeypot field name (shared with the client form via schemas.ts). A
+// non-empty value signals an automated submission. Defense-in-depth alongside
+// BotID + rate limit.
+const HONEYPOT_FIELD = LEAD_INTAKE_HONEYPOT_FIELD;
 const MAX_NAME_LEN = 200;
 const MAX_BUSINESS_NAME_LEN = 300;
 const MAX_URL_LEN = 2048;
@@ -81,6 +86,8 @@ type ValidateResult =
 
 // Validate + normalize the lead intake body. All field rules and their exact
 // error responses are unchanged from the inline version.
+// Cyclomatic count tracks the field count (one check per field), not tangled logic.
+// fallow-ignore-next-line complexity
 function validateLeadInput(data: Record<string, unknown>): ValidateResult {
   const name = readString(data, 'name', 'name', MAX_NAME_LEN);
   if (!name.ok) return { ok: false, response: name.response };
@@ -186,7 +193,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return jsonError('Invalid JSON', 400);
   }
 
-  const validated = validateLeadInput(body as Record<string, unknown>);
+  const data = body as Record<string, unknown>;
+
+  // Honeypot: a real user never sees or fills this field. Reject silently with a
+  // 200 so bots get no signal that they were caught, before any real processing.
+  const honeypot = data[HONEYPOT_FIELD];
+  if (typeof honeypot === 'string' && honeypot.trim() !== '') {
+    return NextResponse.json({ success: true });
+  }
+
+  const validated = validateLeadInput(data);
   if (!validated.ok) return validated.response;
   const lead = validated.value;
 

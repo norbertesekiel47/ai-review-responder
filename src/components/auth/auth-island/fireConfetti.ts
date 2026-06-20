@@ -1,4 +1,4 @@
-const COLORS = ['#97B3AE', '#F2C3B9', '#F0DDD6', '#D6CBBF', '#EAB308'];
+const COLORS = ['#97B3AE', '#F2C3B9', '#F0DDD6', '#D6CBBF'];
 
 export function fireConfetti(): void {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;

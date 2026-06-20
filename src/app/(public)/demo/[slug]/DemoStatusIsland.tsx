@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion } from 'motion/react';
 import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 
 type DemoStatusVariant = 'loading' | 'error' | 'expired';
 
@@ -17,7 +18,21 @@ interface DemoStatusIslandProps {
   selfServeEnabled: boolean;
 }
 
-const REFRESH_INTERVAL_MS = 5000;
+// Poll the route on a backoff schedule so a stuck demo can't refresh forever.
+// 5s base, +20% growth, ±15% jitter, capped at 20s per gap. The schedule is
+// drained in ~3.5 min over POLL_ATTEMPTS attempts; after that we surface a
+// "taking longer than usual" recovery state instead of polling indefinitely.
+const POLL_BASE_MS = 5000;
+const POLL_MAX_MS = 20000;
+const POLL_GROWTH = 1.2;
+const POLL_JITTER = 0.15;
+const POLL_ATTEMPTS = 24;
+
+function nextPollDelay(attempt: number): number {
+  const grown = Math.min(POLL_BASE_MS * POLL_GROWTH ** attempt, POLL_MAX_MS);
+  const jitter = grown * POLL_JITTER * (Math.random() * 2 - 1);
+  return Math.round(grown + jitter);
+}
 
 const MESSAGES: Record<'error' | 'expired', { title: string; body: (name?: string) => string }> = {
   error: {
@@ -33,57 +48,177 @@ const MESSAGES: Record<'error' | 'expired', { title: string; body: (name?: strin
 };
 
 export function DemoStatusIsland({ variant, businessName, selfServeEnabled }: DemoStatusIslandProps) {
-  const router = useRouter();
-
-  useEffect(() => {
-    if (variant !== 'loading') return;
-    const id = setInterval(() => router.refresh(), REFRESH_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [variant, router]);
-
   return (
     <PageShell sections={[]}>
       <SiteNav selfServeEnabled={selfServeEnabled} />
-      <div
-        role={variant === 'loading' ? 'status' : undefined}
-        aria-label={variant === 'loading' ? 'Demo generation status' : undefined}
-        className="px-8 py-20 md:py-28 flex flex-col items-center text-center"
-      >
+      <main id="main-content">
         {variant === 'loading' ? (
-          <LoadingBody businessName={businessName} />
+          <LoadingIsland businessName={businessName} />
         ) : (
-          <MessageBody variant={variant} businessName={businessName} />
+          <div className="px-8 py-20 md:py-28 flex flex-col items-center text-center">
+            <MessageBody variant={variant} businessName={businessName} />
+          </div>
         )}
-      </div>
+      </main>
     </PageShell>
   );
 }
 
-function LoadingBody({ businessName }: { businessName?: string }) {
+function LoadingIsland({ businessName }: { businessName?: string }) {
+  const router = useRouter();
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [timedOut, setTimedOut] = useState(false);
+  const startedAtRef = useRef(0);
+
+  // Hold router in a ref so the poll schedule runs exactly once on mount.
+  // `useRouter()` returns a fresh object each render, so depending on its
+  // identity would restart the bounded schedule every elapsed-tick re-render.
+  // The ref is synced in an effect (not during render) to satisfy react-hooks/refs.
+  const refreshRef = useRef(router.refresh);
+  useEffect(() => {
+    refreshRef.current = router.refresh;
+  }, [router]);
+
+  useEffect(() => {
+    startedAtRef.current = Date.now();
+    let attempt = 0;
+    let pollTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const tick = setInterval(() => {
+      setElapsedMs(Date.now() - startedAtRef.current);
+    }, 1000);
+
+    const scheduleNext = () => {
+      if (attempt >= POLL_ATTEMPTS) {
+        setTimedOut(true);
+        return;
+      }
+      pollTimer = setTimeout(() => {
+        refreshRef.current();
+        attempt += 1;
+        scheduleNext();
+      }, nextPollDelay(attempt));
+    };
+    scheduleNext();
+
+    return () => {
+      clearInterval(tick);
+      if (pollTimer) clearTimeout(pollTimer);
+    };
+  }, []);
+
+  if (timedOut) {
+    return (
+      <div className="px-8 py-20 md:py-28 flex flex-col items-center text-center">
+        <TimedOutBody businessName={businessName} />
+      </div>
+    );
+  }
+
+  const elapsedSeconds = Math.floor(elapsedMs / 1000);
+  const showElapsed = elapsedSeconds >= 75;
+
+  return (
+    <div
+      role="status"
+      aria-label="Demo generation status"
+      className="px-8 py-20 md:py-28 flex flex-col items-center text-center"
+    >
+      <LoadingBody businessName={businessName} showElapsed={showElapsed} elapsedSeconds={elapsedSeconds} />
+    </div>
+  );
+}
+
+function LoadingBody({
+  businessName,
+  showElapsed,
+  elapsedSeconds,
+}: {
+  businessName?: string;
+  showElapsed: boolean;
+  elapsedSeconds: number;
+}) {
+  const prefersReducedMotion = usePrefersReducedMotion();
   return (
     <>
       <div
         aria-hidden="true"
-        className="w-12 h-12 rounded-full border-4 border-[#97B3AE]/20 border-t-[#97B3AE] animate-spin mb-6"
+        className={`w-12 h-12 rounded-full border-4 border-[#557069]/20 border-t-[#557069] mb-6 ${
+          prefersReducedMotion ? '' : 'animate-spin'
+        }`}
       />
       {businessName && (
         <h1 className="text-2xl md:text-3xl font-medium text-[#2a2a2a] mb-2">{businessName}</h1>
       )}
       <p className="text-lg text-[#6a6a6a]">Your demo is being generated…</p>
-      <p className="text-sm text-[#97B3AE] italic mt-2">This usually takes about 30–60 seconds.</p>
+      <p className="text-sm text-[#557069] italic mt-2">This usually takes under a minute.</p>
+      {showElapsed && (
+        <p className="text-sm text-[#557069] mt-1">Still working… {elapsedSeconds}s elapsed.</p>
+      )}
+    </>
+  );
+}
+
+function TimedOutBody({ businessName }: { businessName?: string }) {
+  const router = useRouter();
+  const prefersReducedMotion = usePrefersReducedMotion();
+  return (
+    <>
+      <div
+        aria-hidden="true"
+        className="w-16 h-16 rounded-full bg-[#557069]/15 flex items-center justify-center mb-6"
+      >
+        <svg className="w-7 h-7 text-[#557069]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M12 8v4l3 2m6-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"
+          />
+        </svg>
+      </div>
+      <h1 className="text-2xl md:text-3xl font-medium text-[#2a2a2a] mb-3">
+        This is taking longer than usual
+      </h1>
+      <p className="text-lg text-[#6a6a6a] max-w-md mb-8">
+        Your demo{businessName ? ` for ${businessName}` : ''} is still generating. You can keep waiting,
+        try again, or book a demo and we&apos;ll walk you through it.
+      </p>
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <motion.button
+          type="button"
+          onClick={() => router.refresh()}
+          whileHover={prefersReducedMotion ? undefined : { scale: 1.05, y: -2 }}
+          whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
+          className="inline-block px-8 py-4 bg-[#557069] text-white rounded-full shadow-lg font-medium"
+        >
+          Try again
+        </motion.button>
+        <Link
+          href="/book-a-demo"
+          className="inline-block px-8 py-4 border border-[#557069] text-[#557069] rounded-full font-medium"
+        >
+          Book a demo
+        </Link>
+      </div>
+      <Link href="/" className="text-sm text-[#557069] underline mt-6">
+        Back to RepWorth
+      </Link>
     </>
   );
 }
 
 function MessageBody({ variant, businessName }: { variant: 'error' | 'expired'; businessName?: string }) {
+  const router = useRouter();
+  const prefersReducedMotion = usePrefersReducedMotion();
   const { title, body } = MESSAGES[variant];
   return (
     <>
       <div
         aria-hidden="true"
-        className="w-16 h-16 rounded-full bg-[#97B3AE]/15 flex items-center justify-center mb-6"
+        className="w-16 h-16 rounded-full bg-[#557069]/15 flex items-center justify-center mb-6"
       >
-        <svg className="w-7 h-7 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-7 h-7 text-[#557069]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           {variant === 'error' ? (
             <path
               strokeLinecap="round"
@@ -103,12 +238,36 @@ function MessageBody({ variant, businessName }: { variant: 'error' | 'expired'; 
       </div>
       <h1 className="text-2xl md:text-3xl font-medium text-[#2a2a2a] mb-3">{title}</h1>
       <p className="text-lg text-[#6a6a6a] max-w-md mb-8">{body(businessName)}</p>
-      <motion.div whileHover={{ scale: 1.05, y: -2 }} whileTap={{ scale: 0.98 }} className="inline-block">
-        <Link href="/book-a-demo" className="inline-block px-8 py-4 bg-[#97B3AE] text-white rounded-full shadow-lg font-medium">
-          Book a demo
-        </Link>
-      </motion.div>
-      <Link href="/" className="text-sm text-[#97B3AE] underline mt-6">
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        {variant === 'error' && (
+          <motion.button
+            type="button"
+            onClick={() => router.refresh()}
+            whileHover={prefersReducedMotion ? undefined : { scale: 1.05, y: -2 }}
+            whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
+            className="inline-block px-8 py-4 bg-[#557069] text-white rounded-full shadow-lg font-medium"
+          >
+            Try again
+          </motion.button>
+        )}
+        <motion.div
+          whileHover={prefersReducedMotion ? undefined : { scale: 1.05, y: -2 }}
+          whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
+          className="inline-block"
+        >
+          <Link
+            href="/book-a-demo"
+            className={
+              variant === 'error'
+                ? 'inline-block px-8 py-4 border border-[#557069] text-[#557069] rounded-full font-medium'
+                : 'inline-block px-8 py-4 bg-[#557069] text-white rounded-full shadow-lg font-medium'
+            }
+          >
+            Book a demo
+          </Link>
+        </motion.div>
+      </div>
+      <Link href="/" className="text-sm text-[#557069] underline mt-6">
         Back to RepWorth
       </Link>
     </>

@@ -455,6 +455,16 @@
       "worker/jobs/response-generation/load-context.ts",
       "worker/jobs/response-generation/persist.ts",
 
+      // ── Public-pages UX polish (acknowledged) ──
+      // login/error.tsx + signup/error.tsx are Next.js error-boundary convention
+      // files — minimal '({ error, reset })' boilerplate, same framework category
+      // as the page.tsx glob ignored above. OnboardingFunnelShell + PageShell share
+      // the decorative parallax glass-card block; merging would couple the
+      // onboarding funnel to PageShell (two intentionally-separate island shells).
+      "src/app/**/error.tsx",
+      "src/app/onboarding/_shared/OnboardingFunnelShell.tsx",
+      "src/components/ui/PageShell.tsx",
+
       // ── Multi-location billing-recovery hardening (PR D) ──
       // The error-inspection VOCABULARY (type sets, network codes, property
       // readers) formerly cloned between stripe-overage-error.ts and

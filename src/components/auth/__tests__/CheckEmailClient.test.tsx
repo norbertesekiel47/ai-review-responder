@@ -3,6 +3,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { redirectAfterServerSessionCookie } from '../CheckEmailClient.helpers';
 import { CheckEmailClient } from '../CheckEmailClient';
+import { EMAIL_OTP_LENGTH, EMAIL_OTP_PATTERN } from '@/lib/shared/schemas';
 
 // Mock next/navigation's useSearchParams
 vi.mock('next/navigation', () => ({
@@ -53,7 +54,7 @@ describe('CheckEmailClient branding + a11y', () => {
     expect(container.innerHTML).not.toContain('bg-blue-600');
   });
 
-  it('keeps the OTP input contract (8-digit, numeric, 16px)', () => {
+  it('drives the OTP input contract from EMAIL_OTP_LENGTH (numeric, 16px)', () => {
     (useSearchParams as ReturnType<typeof vi.fn>).mockReturnValue({
       get: (key: string) => (key === 'email' ? 'a@b.co' : null),
     });
@@ -61,7 +62,13 @@ describe('CheckEmailClient branding + a11y', () => {
     const { container } = render(<CheckEmailClient />);
     const input = container.querySelector('input#verify-code');
     expect(input).not.toBeNull();
-    expect(input!.getAttribute('pattern')).toBe('\\d{8}');
+    // Length is the single source of truth — assert against the constant, not a
+    // hardcoded literal, so the input can never silently drift from it.
+    expect(input!.getAttribute('pattern')).toBe(EMAIL_OTP_PATTERN);
+    expect(input!.getAttribute('pattern')).toBe(`\\d{${EMAIL_OTP_LENGTH}}`);
+    expect(input!.getAttribute('minlength')).toBe(String(EMAIL_OTP_LENGTH));
+    expect(input!.getAttribute('maxlength')).toBe(String(EMAIL_OTP_LENGTH));
+    expect(EMAIL_OTP_LENGTH).toBe(6);
     expect(input!.getAttribute('inputmode')).toBe('numeric');
     expect(input!.className).toContain('text-base');
   });

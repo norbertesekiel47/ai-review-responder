@@ -150,6 +150,36 @@ describe('POST /api/lead-intake', () => {
     expect(dbState.calls).toHaveLength(0);
   });
 
+  it('silently accepts and drops a submission when the honeypot is filled', async () => {
+    const { POST } = await import('../route');
+    const res = await POST(makeRequest({
+      name: 'Alice Owner',
+      email: 'owner@example.com',
+      businessName: 'Alice Bakery',
+      company_website: 'http://spam.example.com',
+    }));
+
+    // Returns a benign 200 so the bot gets no signal it was caught...
+    expect(res.status).toBe(200);
+    expect((await res.json()).success).toBe(true);
+    // ...but no real processing happens: no DB write, no notification.
+    expect(dbState.calls).toHaveLength(0);
+    expect(mockNotify).not.toHaveBeenCalled();
+  });
+
+  it('ignores an empty honeypot and processes the lead normally', async () => {
+    const { POST } = await import('../route');
+    const res = await POST(makeRequest({
+      name: 'Alice Owner',
+      email: 'owner@example.com',
+      businessName: 'Alice Bakery',
+      company_website: '   ',
+    }));
+
+    expect(res.status).toBe(200);
+    expect(dbState.calls).toHaveLength(1);
+  });
+
   it('returns 400 for invalid JSON and does not write to the database', async () => {
     const { POST } = await import('../route');
     const res = await POST(makeRawRequest('{'));

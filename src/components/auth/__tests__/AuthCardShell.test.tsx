@@ -24,7 +24,7 @@ describe('AuthCardShell', () => {
     expect(container.innerHTML).toContain('max-w-sm');
   });
 
-  it('exports 16px field styling (iOS zoom rule) and a teal primary button', () => {
+  it('exports 16px field styling (iOS zoom rule) and an accessible teal primary button', () => {
     render(
       <form>
         <input aria-label="probe" className={authFieldClass} />
@@ -32,6 +32,8 @@ describe('AuthCardShell', () => {
       </form>,
     );
     expect(screen.getByLabelText('probe').className).toContain('text-base');
-    expect(screen.getByRole('button', { name: 'go' }).className).toContain('#97B3AE');
+    // Accessible teal token (#557069, ADR 0004) — white text clears WCAG AA.
+    expect(screen.getByRole('button', { name: 'go' }).className).toContain('#557069');
+    expect(screen.getByRole('button', { name: 'go' }).className).not.toContain('#97B3AE');
   });
 });

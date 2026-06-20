@@ -18,19 +18,24 @@ describe('SiteShell', () => {
     expect(html).toContain('<div class="rw-island">');
     expect(html).toContain('<nav');
     expect(html).toContain('INNER_CONTENT');
-    expect(html).toContain('class="rw-foot"');
+    // SiteFooter keeps the `rw-foot` base class but now adds Tailwind layout
+    // utilities, so match the class prefix rather than the exact attribute.
+    expect(html).toContain('class="rw-foot');
   });
 
-  it('renders the island as <main> when islandAs="main"', () => {
+  it('wraps children in a single <main id="main-content"> landmark (nav/footer stay outside it)', () => {
     const html = renderToStaticMarkup(
       createElement(
         SiteShell,
-        { scope: 'rw-test-scope', islandAs: 'main' },
+        { scope: 'rw-test-scope' },
         createElement('p', null, 'INNER_CONTENT'),
       ),
     );
 
-    expect(html).toContain('<main class="rw-island">');
+    expect(html).toContain('<main id="main-content">');
+    // Exactly one <main>, and the footer is a sibling (not nested inside main).
+    expect(html.match(/<main\b/g)?.length).toBe(1);
+    expect(html).toContain('INNER_CONTENT');
   });
 
   it('renders the overlay between the marquee and the island', () => {

@@ -28,35 +28,10 @@ function useInView(ref: RefObject<HTMLElement | null>, threshold = 0.05) {
   return seen;
 }
 
-function useAnimatedNumber(
-  to: number,
-  active: boolean,
-  duration = 1800,
-  from = 0,
-): number {
-  const [val, setVal] = useState(from);
-  useEffect(() => {
-    if (!active) return;
-    const t0 = performance.now();
-    let raf: number;
-    const tick = (t: number) => {
-      const k = Math.min(1, (t - t0) / duration);
-      const eased = 1 - Math.pow(1 - k, 3);
-      setVal(from + (to - from) * eased);
-      if (k < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [to, from, duration, active]);
-  return val;
-}
-
-const HOURS_BARS_SEED = [38, 42, 51, 47, 58, 63, 71, 68, 79, 86, 92, 100];
-
 function HoursBars({ active }: { active: boolean }) {
-  const seed = HOURS_BARS_SEED;
+  const seed = [38, 42, 51, 47, 58, 63, 71, 68, 79, 86, 92, 100];
   return (
-    <svg viewBox="0 0 120 36" width="120" height="36" aria-hidden>
+    <svg viewBox="0 0 120 36" width="120" height="36" aria-hidden="true">
       {seed.map((h, i) => (
         <rect
           key={i}
@@ -77,7 +52,7 @@ function HoursBars({ active }: { active: boolean }) {
 
 function PulseRing({ active }: { active: boolean }) {
   return (
-    <div className={`rw-tk-pulse ${active ? 'on' : ''}`} aria-hidden>
+    <div className={`rw-tk-pulse ${active ? 'on' : ''}`} aria-hidden="true">
       <span className="p1" />
       <span className="p2" />
       <span className="p3" />
@@ -88,12 +63,12 @@ function PulseRing({ active }: { active: boolean }) {
   );
 }
 
-function ApprovalArc({ active, pct = 96.3 }: { active: boolean; pct?: number }) {
+function ApprovalArc({ active, pct = 96 }: { active: boolean; pct?: number }) {
   const r = 16;
   const c = 2 * Math.PI * r;
   const offset = active ? c * (1 - pct / 100) : c;
   return (
-    <svg viewBox="0 0 40 40" width="44" height="44" aria-hidden>
+    <svg viewBox="0 0 40 40" width="44" height="44" aria-hidden="true">
       <circle cx="20" cy="20" r={r} fill="none" stroke="rgba(58,74,72,0.12)" strokeWidth="3" />
       <circle
         cx="20"
@@ -115,7 +90,7 @@ function ApprovalArc({ active, pct = 96.3 }: { active: boolean; pct?: number }) 
 function BizOrbit({ active }: { active: boolean }) {
   const dots = Array.from({ length: 14 });
   return (
-    <svg className={`rw-tk-orbit ${active ? 'on' : ''}`} viewBox="0 0 44 44" width="44" height="44" aria-hidden>
+    <svg className={`rw-tk-orbit ${active ? 'on' : ''}`} viewBox="0 0 44 44" width="44" height="44" aria-hidden="true">
       <circle cx="22" cy="22" r="16" fill="none" stroke="rgba(58,74,72,0.12)" strokeDasharray="1.5 2.5" />
       <circle cx="22" cy="22" r="3" fill="var(--rw-sage)" />
       <g className="rw-tk-orbit-ring">
@@ -137,81 +112,64 @@ function BizOrbit({ active }: { active: boolean }) {
   );
 }
 
-function fmtInt(v: number) {
-  return Math.floor(v).toLocaleString();
-}
+// Illustrative "what RepWorth does" tiles. These describe how the product is
+// designed to work — not live, fabricated aggregate counts. The eyebrow labels
+// each as an example so nothing reads as the visitor's real account data.
+const ITEMS = [
+  {
+    tone: 'teal' as const,
+    vis: (active: boolean) => <HoursBars active={active} />,
+    headline: 'About 15 hours a week',
+    lbl: 'The review work RepWorth takes off your plate',
+  },
+  {
+    tone: 'sage' as const,
+    vis: (active: boolean) => <PulseRing active={active} />,
+    headline: 'Minutes, not days',
+    lbl: 'From new review to a draft waiting for your approval',
+  },
+  {
+    tone: 'peach' as const,
+    vis: (active: boolean) => <ApprovalArc active={active} pct={96} />,
+    headline: 'One tap to approve',
+    lbl: 'Drafts arrive in your voice, ready to post',
+  },
+  {
+    tone: 'beige' as const,
+    vis: (active: boolean) => <BizOrbit active={active} />,
+    headline: 'Every review covered',
+    lbl: 'Across every location, every hour of the day',
+  },
+];
 
 export function TickerBar() {
   const barRef = useRef<HTMLDivElement>(null);
   const seen = useInView(barRef);
-  const [secs, setSecs] = useState(494);
-
-  useEffect(() => {
-    const iv = setInterval(() => setSecs((s) => 490 + ((s + 1) % 12)), 1000);
-    return () => clearInterval(iv);
-  }, []);
-
-  const m = Math.floor(secs / 60);
-  const s = secs % 60;
-
-  const hours = useAnimatedNumber(84213, seen, 2200, 70000);
-  const pct = useAnimatedNumber(96.3, seen, 1600, 80);
-  const biz = useAnimatedNumber(1240, seen, 2000, 1100);
-
-  const items = [
-    {
-      vis: <HoursBars active={seen} />,
-      num: fmtInt(hours),
-      lbl: 'Owner hours saved this year',
-      trend: '+312 today',
-      tone: 'teal' as const,
-    },
-    {
-      vis: <PulseRing active={seen} />,
-      num: (
-        <span className="rw-tk-time">
-          <span>{m}</span>
-          <i>m</i> <span>{String(s).padStart(2, '0')}</span>
-          <i>s</i>
-        </span>
-      ),
-      lbl: 'Median time to a live reply',
-      trend: 'live · updating',
-      tone: 'sage' as const,
-      live: true,
-    },
-    {
-      vis: <ApprovalArc active={seen} />,
-      num: `${pct.toFixed(1)}%`,
-      lbl: 'Of drafts approved without edits',
-      trend: '↑ 2.1 pts vs. last quarter',
-      tone: 'peach' as const,
-    },
-    {
-      vis: <BizOrbit active={seen} />,
-      num: `${fmtInt(biz)}+`,
-      lbl: 'Local businesses replying smarter',
-      trend: '14 joined this week',
-      tone: 'beige' as const,
-    },
-  ];
 
   return (
     <div className={`rw-ticker-bar ${seen ? 'in' : ''}`} ref={barRef}>
-      {items.map((it, i) => (
+      <p
+        className="rw-tk-lbl"
+        style={{
+          gridColumn: '1 / -1',
+          margin: 0,
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+          fontWeight: 500,
+        }}
+      >
+        How RepWorth works — an illustration, not live account data
+      </p>
+      {ITEMS.map((it, i) => (
         <div
           key={it.tone}
           className={`rw-tk-tile tone-${it.tone}`}
           style={{ transitionDelay: `${i * 90}ms` }}
         >
-          <div className="rw-tk-vis-wrap">{it.vis}</div>
+          <div className="rw-tk-vis-wrap">{it.vis(seen)}</div>
           <div className="rw-tk-body">
-            <div className="rw-tk-num">{it.num}</div>
+            <div className="rw-tk-num" style={{ fontSize: 20 }}>{it.headline}</div>
             <div className="rw-tk-lbl">{it.lbl}</div>
-            <div className={`rw-tk-trend ${it.live ? 'live' : ''}`}>
-              {it.live && <span className="rw-tk-dot" />}
-              {it.trend}
-            </div>
           </div>
         </div>
       ))}

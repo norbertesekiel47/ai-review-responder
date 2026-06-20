@@ -1,16 +1,23 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 
 const REVIEW = {
-  name: 'Rachel K.',
-  initial: 'R',
+  name: 'A recent reviewer',
+  initial: 'A',
   stars: 5,
   text: 'Came in for a last-minute birthday cake and they completely pulled through. The cake was beautiful, tasted amazing, and my 7-year-old still talks about it. Thank you!',
 };
-const REPLY = "Rachel, you made our week! We are so glad the cake landed and that your 7 year old loved it. Tell her happy belated birthday from the team, and come by anytime.\n\n— Claire, owner";
+const REPLY = "You made our week! We are so glad the cake landed and that your 7 year old loved it. Tell her happy belated birthday from the team, and come by anytime.\n\n— The owner";
 
-function useTyped(text: string, speed = 16, startDelay = 600): [string, boolean] {
+function useTyped(
+  text: string,
+  speed = 16,
+  startDelay = 600,
+  reduced = false,
+): [string, boolean] {
   // State is tagged with the text it belongs to. When `text` changes we don't
   // reset state in the effect; instead the output reads as empty/not-done until
   // the typing run for the new text starts producing values.
@@ -18,7 +25,9 @@ function useTyped(text: string, speed = 16, startDelay = 600): [string, boolean]
     { forText: text, out: '', done: false },
   );
   useEffect(() => {
-    if (!text) return;
+    // Reduced motion: the animation is skipped; the final text is derived below
+    // without driving the timer, so this effect has nothing to schedule.
+    if (!text || reduced) return;
     let i = 0;
     let waited = 0;
     const iv = setInterval(() => {
@@ -33,7 +42,10 @@ function useTyped(text: string, speed = 16, startDelay = 600): [string, boolean]
       if (i >= text.length) clearInterval(iv);
     }, speed);
     return () => clearInterval(iv);
-  }, [text, speed, startDelay]);
+  }, [text, speed, startDelay, reduced]);
+  // Under reduced motion, render the final text immediately (pure derivation,
+  // no setState). Otherwise read the typed state tagged to the current text.
+  if (reduced) return [text, true];
   const out = typed.forText === text ? typed.out : '';
   const done = typed.forText === text ? typed.done : false;
   return [out, done];
@@ -41,14 +53,14 @@ function useTyped(text: string, speed = 16, startDelay = 600): [string, boolean]
 
 interface HeroProps {
   onBook: () => void;
-  onTry: () => void;
   primaryCtaLabel: string;
   primaryCtaDisabled?: boolean;
 }
 
-export function Hero({ onBook, onTry, primaryCtaLabel, primaryCtaDisabled }: HeroProps) {
-  const [reviewText, reviewDone] = useTyped(REVIEW.text, 16, 700);
-  const [replyText, replyDone] = useTyped(reviewDone ? REPLY : '', 14, 500);
+export function Hero({ onBook, primaryCtaLabel, primaryCtaDisabled }: HeroProps) {
+  const reduced = usePrefersReducedMotion();
+  const [reviewText, reviewDone] = useTyped(REVIEW.text, 16, 700, reduced);
+  const [replyText, replyDone] = useTyped(reviewDone ? REPLY : '', 14, 500, reduced);
   const [approved, setApproved] = useState(false);
 
   return (
@@ -72,9 +84,9 @@ export function Hero({ onBook, onTry, primaryCtaLabel, primaryCtaDisabled }: Her
             >
               {primaryCtaLabel}
             </button>
-            {/* <button type="button" className="rw-btn-ghost" onClick={onTry}>
-              Or see how it works →
-            </button> */}
+            <Link href="/how-it-works" className="rw-btn-ghost">
+              See how it works →
+            </Link>
           </div>
         </div>
 
@@ -86,7 +98,7 @@ export function Hero({ onBook, onTry, primaryCtaLabel, primaryCtaDisabled }: Her
           <div className="rw-hero-demo">
             <div className="rw-demo-chip">
               <span className="rw-demo-chip-dot" />
-              Live, right now
+              Example
             </div>
             <div className="rw-demo-review">
               <div className="rw-demo-avatar">{REVIEW.initial}</div>
@@ -94,7 +106,7 @@ export function Hero({ onBook, onTry, primaryCtaLabel, primaryCtaDisabled }: Her
                 <div className="rw-demo-name">{REVIEW.name}</div>
                 <div className="rw-demo-stars" aria-label={`${REVIEW.stars} out of 5 stars`}>
                   {Array.from({ length: 5 }).map((_, i) => (
-                    <span key={i}>{i < REVIEW.stars ? '★' : '☆'}</span>
+                    <span key={i} aria-hidden="true">{i < REVIEW.stars ? '★' : '☆'}</span>
                   ))}
                 </div>
                 <div className="rw-demo-text">
@@ -132,8 +144,8 @@ export function Hero({ onBook, onTry, primaryCtaLabel, primaryCtaDisabled }: Her
             </div>
           </div>
           <div className="rw-float-stat b">
-            This week
-            <b>+127 replies</b>
+            Example draft
+            <b>One tap to post</b>
           </div>
         </div>
       </div>

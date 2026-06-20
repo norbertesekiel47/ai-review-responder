@@ -18,7 +18,7 @@ export async function POST(
     request,
     token,
     'edit',
-    { success: true, message: "Response approved with your edits! We'll post it to Google shortly." },
+    { success: true, message: 'Approved with your edits — posting to Google has started.' },
     ({ tx, link, deviceCookieHash, audit, correlationId, prepared }) => (
       edit(tx, link, prepared, deviceCookieHash, audit, correlationId)
     ),

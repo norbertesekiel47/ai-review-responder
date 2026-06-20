@@ -6,6 +6,13 @@ import { LazyMotion, domAnimation, m } from 'motion/react';
 import { AI_DRAFT_DISCLOSURE } from '@/lib/ui/disclosures';
 import { ApprovalErrorState } from './ApprovalErrorState';
 
+// Client mirror of the server's authoritative edit cap
+// (`MAX_EDIT_LENGTH` in app/api/approve/[token]/edit/validation.ts). The route
+// rejects anything longer, so this is purely a UX guard (textarea maxLength +
+// counter); the server validation is the real contract. Lint forbids importing
+// from app/** into components, so the value is restated here, not imported.
+const MAX_EDIT_LENGTH = 2000;
+
 interface ReviewData {
   review: {
     reviewerName: string;
@@ -36,6 +43,14 @@ interface ActionResponse {
 // flow, and the action lifecycle all read or mutate. Kept in one reducer so the
 // "inline alert vs full error island" branch (error set while data is still
 // present) and the success view stay a single coherent transition.
+// A snapshot of the publishing action the owner is one tap away from confirming.
+// Captured when the first tap arms the confirm step so the second tap posts
+// exactly what was shown — even if `editedText` were to change in between.
+interface PendingPublish {
+  action: Extract<ApprovalAction, 'approve' | 'edit'>;
+  editedText: string;
+}
+
 interface State {
   loading: boolean;
   data: ReviewData | null;
@@ -45,6 +60,10 @@ interface State {
   actionLoading: boolean;
   successMessage: string | null;
   successAction: ApprovalAction | null;
+  // Non-null only while a publishing action is armed and awaiting its second
+  // (confirm) tap. Posting to a public Google profile is irreversible, so both
+  // "Approve" and "Save & Approve" gate behind this two-step confirm.
+  pendingPublish: PendingPublish | null;
 }
 
 const initialState: State = {
@@ -56,6 +75,7 @@ const initialState: State = {
   actionLoading: false,
   successMessage: null,
   successAction: null,
+  pendingPublish: null,
 };
 
 type Action =
@@ -71,11 +91,18 @@ type Action =
   | { type: 'editTextChanged'; value: string }
   | { type: 'editStarted' }
   | { type: 'editCancelled' }
+  // Arms the two-step confirm for a publishing action (snapshots what will post).
+  | { type: 'publishArmed'; pending: PendingPublish }
+  // Backs out of the armed confirm without posting.
+  | { type: 'publishCancelled' }
   | { type: 'actionStarted' }
   | { type: 'actionSucceeded'; action: ApprovalAction; message: string }
   | { type: 'actionFailed'; message: string };
 
-// fallow-ignore-next-line complexity — flat one-case-per-action switch; cyclomatic count is the action vocabulary, not tangled logic. Pre-existing; not touched by PR B.
+// Flat one-case-per-action switch; cyclomatic count is the action vocabulary,
+// not tangled logic. (Justification kept off the directive line so fallow does
+// not parse the prose as bogus issue kinds.)
+// fallow-ignore-next-line complexity
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'loadSucceeded':
@@ -97,7 +124,12 @@ function reducer(state: State, action: Action): State {
         ...state,
         isEditing: false,
         editedText: state.data?.response.responseText ?? state.editedText,
+        pendingPublish: null,
       };
+    case 'publishArmed':
+      return { ...state, pendingPublish: action.pending, error: null };
+    case 'publishCancelled':
+      return { ...state, pendingPublish: null };
     case 'actionStarted':
       return { ...state, actionLoading: true, error: null };
     case 'actionSucceeded':
@@ -106,9 +138,10 @@ function reducer(state: State, action: Action): State {
         actionLoading: false,
         successAction: action.action,
         successMessage: action.message,
+        pendingPublish: null,
       };
     case 'actionFailed':
-      return { ...state, actionLoading: false, error: action.message };
+      return { ...state, actionLoading: false, error: action.message, pendingPublish: null };
     default:
       return state;
   }
@@ -139,6 +172,49 @@ function formatDate(iso: string): string {
   }
 }
 
+// Maps an HTTP failure to copy a logged-out small-business owner can act on.
+// The raw `json.error`/`HTTP <status>` strings (and "Session binding failed")
+// leak server internals and never tell the owner what to do next — so we map by
+// status family and only fall back to the server message for the unmapped 4xx
+// "bad request" case (e.g. validation), never for a bare 5xx.
+function friendlyErrorForStatus(status: number, serverMessage?: string): string {
+  if (status === 401 || status === 403) {
+    return 'There is a problem with this link or your session. Open the most recent link from your email and try again.';
+  }
+  if (status === 409) {
+    return 'This draft has changed since the page loaded. Refresh to see the latest version before approving.';
+  }
+  if (status === 410) {
+    return 'This link has already been used or has expired. Check your email for a newer one.';
+  }
+  if (status === 429) {
+    return 'Too many attempts. Please wait a minute and try again.';
+  }
+  if (status >= 500) {
+    return 'Something went wrong on our end. Please try again shortly.';
+  }
+  // Other 4xx (e.g. 400 validation): the server message is owner-safe and
+  // specific; fall back to it, then to a neutral default.
+  return serverMessage?.trim() || 'Something went wrong. Please try again.';
+}
+
+// Human expiry copy. Rounding to whole hours rendered "0 hours" for any link
+// with <30 min left — alarming and wrong. Under an hour, fall back to minutes
+// (or "less than a minute" / "less than an hour") so the count never reads zero.
+function formatExpiry(msLeft: number): string {
+  if (msLeft <= 0) return 'less than a minute';
+  const totalMinutes = Math.floor(msLeft / 60_000);
+  if (totalMinutes < 60) {
+    if (totalMinutes < 1) return 'less than a minute';
+    if (totalMinutes < 30) {
+      return `${totalMinutes} minute${totalMinutes === 1 ? '' : 's'}`;
+    }
+    return 'less than an hour';
+  }
+  const hours = Math.round(msLeft / 3_600_000);
+  return `${hours} hour${hours === 1 ? '' : 's'}`;
+}
+
 function LocationPin() {
   return (
     <svg
@@ -159,14 +235,18 @@ function LocationPin() {
 }
 
 const PRIMARY_BTN =
-  'flex-1 rounded-full bg-[#97B3AE] px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-[#97B3AE]/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#97B3AE] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+  'flex-1 rounded-full bg-[#557069] px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-[#557069]/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#557069] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
 const GHOST_BTN =
-  'flex-1 rounded-full border border-[#97B3AE]/30 bg-white px-4 py-3 text-sm font-semibold text-[#97B3AE] transition hover:bg-[#F0EEEA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#97B3AE] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+  'flex-1 rounded-full border border-[#557069]/40 bg-white px-4 py-3 text-sm font-semibold text-[#557069] transition hover:bg-[#F0EEEA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#557069] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+// The armed confirm step darkens further so the irreversible second tap reads
+// as a deliberate, distinct action — white label stays AA on the darker fill.
+const CONFIRM_BTN =
+  'flex-1 rounded-full bg-[#3f544f] px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-[#3f544f]/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3f544f] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
 
 function LoadingSpinner() {
   return (
     <div className="flex items-center justify-center py-12">
-      <div className="size-8 animate-spin rounded-full border-4 border-[#97B3AE] border-t-transparent" />
+      <div className="size-8 animate-spin rounded-full border-4 border-[#557069] border-t-transparent" />
     </div>
   );
 }
@@ -180,6 +260,9 @@ function SuccessView({
 }) {
   const heading =
     successAction === 'regenerate' ? 'New draft on the way' : 'Response approved!';
+  // A regenerate doesn't publish; only approve/edit start a Google post. Keep
+  // the reassurance line publish-specific so it stays truthful.
+  const isPublish = successAction === 'approve' || successAction === 'edit';
   return (
     <LazyMotion features={domAnimation}>
       <m.div
@@ -191,9 +274,9 @@ function SuccessView({
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
       >
-        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[#97B3AE]/15">
+        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[#557069]/15">
           <svg
-            className="size-7 text-[#97B3AE]"
+            className="size-7 text-[#557069]"
             fill="none"
             viewBox="0 0 24 24"
             strokeWidth={2.5}
@@ -211,11 +294,19 @@ function SuccessView({
         <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[#6a6a6a]">
           {successMessage}
         </p>
+        {/* Primary affordance is a confirmation, NOT a dashboard link: most
+            recipients are logged out, so /dashboard would hit a login wall. */}
+        {isPublish && (
+          <p className="mx-auto mt-4 max-w-sm text-sm leading-relaxed text-[#557069]">
+            You can safely close this page now.
+          </p>
+        )}
+        {/* Dashboard is demoted to a quiet secondary link for signed-in owners. */}
         <Link
           href="/dashboard"
-          className="mt-6 inline-block rounded-sm text-sm font-semibold text-[#97B3AE] underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#97B3AE] focus-visible:ring-offset-2"
+          className="mt-6 inline-block rounded-sm text-xs font-semibold text-[#557069] underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#557069] focus-visible:ring-offset-2"
         >
-          View your reviews →
+          Manage reviews in your dashboard →
         </Link>
       </m.div>
     </LazyMotion>
@@ -271,18 +362,22 @@ function ResponseCard({
   response,
   isEditing,
   editedText,
+  editLocked = false,
   onEditTextChange,
 }: {
   response: ReviewData['response'];
   isEditing: boolean;
   editedText: string;
+  // Once an edit-publish is armed, lock the textarea so what's shown is exactly
+  // what gets posted (the confirm posts the arm-time snapshot).
+  editLocked?: boolean;
   onEditTextChange: (value: string) => void;
 }) {
   return (
     <div className="rounded-2xl border border-[#97B3AE]/30 bg-white p-4">
       <div className="mb-3 flex items-start gap-2 rounded-lg border border-[#97B3AE]/30 bg-[#D2E0D3]/40 px-3 py-2 text-xs leading-relaxed text-[#6a6a6a]">
         <svg
-          className="mt-0.5 size-3.5 flex-shrink-0 text-[#97B3AE]"
+          className="mt-0.5 size-3.5 flex-shrink-0 text-[#557069]"
           fill="none"
           viewBox="0 0 24 24"
           strokeWidth={2}
@@ -294,7 +389,7 @@ function ResponseCard({
         </svg>
         <span>{AI_DRAFT_DISCLOSURE}</span>
       </div>
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[#97B3AE]">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[#557069]">
         Draft response (v{response.version})
       </p>
       {isEditing ? (
@@ -309,9 +404,20 @@ function ResponseCard({
             id="approval-edit"
             value={editedText}
             onChange={(e) => onEditTextChange(e.target.value)}
-            className="w-full rounded-lg border border-[#97B3AE]/30 p-3 text-sm leading-relaxed text-[#2a2a2a] focus:border-[#97B3AE] focus:outline-none focus:ring-2 focus:ring-[#97B3AE]/30"
+            readOnly={editLocked}
+            aria-describedby={editLocked ? 'approval-edit-locked' : undefined}
+            maxLength={MAX_EDIT_LENGTH}
+            className={`w-full rounded-lg border border-[#557069]/40 p-3 text-sm leading-relaxed text-[#2a2a2a] focus:border-[#557069] focus:outline-none focus:ring-2 focus:ring-[#557069]/30 ${editLocked ? 'cursor-not-allowed bg-[#F0EEEA]/60' : ''}`}
             rows={5}
           />
+          {editLocked && (
+            <p id="approval-edit-locked" className="mt-1 text-[11px] text-[#557069]">
+              Locked while confirming — tap “Cancel” to keep editing.
+            </p>
+          )}
+          <p className="mt-1 text-right text-[11px] text-[#557069]" aria-hidden="true">
+            {editedText.length} / {MAX_EDIT_LENGTH}
+          </p>
         </div>
       ) : (
         <p className="text-sm leading-relaxed text-[#2a2a2a]">
@@ -322,12 +428,81 @@ function ResponseCard({
   );
 }
 
+// The publishing pill that gates behind a two-step confirm. First tap arms
+// (label morphs to "Tap again to post to Google"); second tap posts. Posting to
+// a public Google profile is irreversible, so this guard wraps BOTH "Approve"
+// and "Save & Approve".
+function PublishButton({
+  action,
+  editedText,
+  armed,
+  actionLoading,
+  disabled,
+  onArm,
+  onConfirm,
+}: {
+  action: Extract<ApprovalAction, 'approve' | 'edit'>;
+  editedText: string;
+  armed: boolean;
+  actionLoading: boolean;
+  disabled: boolean;
+  onArm: (pending: PendingPublish) => void;
+  onConfirm: () => void;
+}) {
+  const restingLabel =
+    action === 'edit' ? 'Save & post to Google' : 'Approve & post to Google';
+  const loadingLabel = action === 'edit' ? 'Saving…' : 'Approving…';
+
+  if (actionLoading) {
+    return (
+      <m.button disabled aria-busy="true" className={PRIMARY_BTN}>
+        {loadingLabel}
+      </m.button>
+    );
+  }
+
+  if (armed) {
+    return (
+      <m.button
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        onClick={onConfirm}
+        disabled={disabled}
+        aria-busy="false"
+        className={CONFIRM_BTN}
+      >
+        Tap again to post to Google
+      </m.button>
+    );
+  }
+
+  return (
+    <m.button
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+      onClick={() => onArm({ action, editedText })}
+      disabled={disabled}
+      aria-busy="false"
+      className={PRIMARY_BTN}
+    >
+      {restingLabel}
+    </m.button>
+  );
+}
+
+// Render-only: branches are independent UI states (edit / confirm-publish /
+// resting / loading), not tangled logic.
+// fallow-ignore-next-line complexity
 function ActionBar({
   isEditing,
   editedText,
   actionLoading,
   isArchived,
+  pendingPublish,
   onAction,
+  onArmPublish,
+  onConfirmPublish,
+  onCancelPublish,
   onStartEdit,
   onCancelEdit,
 }: {
@@ -335,7 +510,11 @@ function ActionBar({
   editedText: string;
   actionLoading: boolean;
   isArchived: boolean;
+  pendingPublish: PendingPublish | null;
   onAction: (action: ApprovalAction) => void;
+  onArmPublish: (pending: PendingPublish) => void;
+  onConfirmPublish: () => void;
+  onCancelPublish: () => void;
   onStartEdit: () => void;
   onCancelEdit: () => void;
 }) {
@@ -343,74 +522,109 @@ function ActionBar({
     // Server rejects every mutating action for archived locations (409) —
     // don't render buttons that can only fail on submit.
     return (
-      <p className="rounded-xl border border-[#97B3AE]/40 bg-[#97B3AE]/10 p-3 text-center text-sm text-[#5B7470]">
+      <p className="rounded-xl border border-[#97B3AE]/40 bg-[#97B3AE]/10 p-3 text-center text-sm text-[#3f544f]">
         This location has been archived — approval actions are no longer
         available for this draft.
       </p>
     );
   }
+
+  const publishAction: Extract<ApprovalAction, 'approve' | 'edit'> = isEditing
+    ? 'edit'
+    : 'approve';
+  const armed = pendingPublish?.action === publishAction;
+  const publishDisabled =
+    actionLoading || (isEditing && editedText.trim().length === 0);
+
   return (
-    <div className="flex flex-col gap-2 sm:flex-row">
-      {isEditing ? (
-        <>
-          <m.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => onAction('edit')}
-            disabled={actionLoading || editedText.trim().length === 0}
-            className={PRIMARY_BTN}
-          >
-            {actionLoading ? 'Saving…' : 'Save & Approve'}
-          </m.button>
-          <m.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={onCancelEdit}
-            disabled={actionLoading}
-            className={GHOST_BTN}
-          >
-            Cancel
-          </m.button>
-        </>
+    <div className="space-y-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
+        {isEditing ? (
+          <>
+            <PublishButton
+              action="edit"
+              editedText={editedText}
+              armed={armed}
+              actionLoading={actionLoading}
+              disabled={publishDisabled}
+              onArm={onArmPublish}
+              onConfirm={onConfirmPublish}
+            />
+            <m.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={armed ? onCancelPublish : onCancelEdit}
+              disabled={actionLoading}
+              className={GHOST_BTN}
+            >
+              Cancel
+            </m.button>
+          </>
+        ) : (
+          <>
+            <PublishButton
+              action="approve"
+              editedText={editedText}
+              armed={armed}
+              actionLoading={actionLoading}
+              disabled={publishDisabled}
+              onArm={onArmPublish}
+              onConfirm={onConfirmPublish}
+            />
+            <m.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={armed ? onCancelPublish : onStartEdit}
+              disabled={actionLoading}
+              className={GHOST_BTN}
+            >
+              {armed ? 'Cancel' : 'Edit'}
+            </m.button>
+            {!armed && (
+              <m.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => onAction('regenerate')}
+                disabled={actionLoading}
+                aria-busy={actionLoading}
+                className={GHOST_BTN}
+              >
+                {actionLoading ? 'Requesting…' : 'Regenerate'}
+              </m.button>
+            )}
+          </>
+        )}
+      </div>
+      {armed ? (
+        <p className="text-center text-xs leading-relaxed text-[#557069]">
+          This posts your reply to your public Google profile. Tap the button
+          again to confirm.
+        </p>
       ) : (
-        <>
-          <m.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => onAction('approve')}
-            disabled={actionLoading}
-            className={PRIMARY_BTN}
-          >
-            {actionLoading ? 'Approving…' : 'Approve'}
-          </m.button>
-          <m.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={onStartEdit}
-            disabled={actionLoading}
-            className={GHOST_BTN}
-          >
-            Edit
-          </m.button>
-          <m.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => onAction('regenerate')}
-            disabled={actionLoading}
-            className={GHOST_BTN}
-          >
-            {actionLoading ? 'Requesting…' : 'Regenerate'}
-          </m.button>
-        </>
+        <p className="text-center text-xs leading-relaxed text-[#557069]">
+          Close this page — nothing posts unless you approve.
+        </p>
       )}
     </div>
   );
 }
 
+// Top-level approval screen: branches are independent UI states (loading /
+// error island / success / edit / confirm-publish), not tangled logic.
+// fallow-ignore-next-line complexity
 export default function ApprovalClient({ token }: { token: string }) {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const { loading, data, error, editedText, isEditing, actionLoading, successMessage, successAction } =
-    state;
+  const {
+    loading,
+    data,
+    error,
+    editedText,
+    isEditing,
+    actionLoading,
+    successMessage,
+    successAction,
+    pendingPublish,
+  } = state;
 
   // Snapshot "now" once at mount so the hoursLeft display below is a pure render
   // (Date.now() during render is impure). The approval page is short-lived, so a
@@ -433,13 +647,17 @@ export default function ApprovalClient({ token }: { token: string }) {
   // full-island) branch. A GET failure leaves `data` null → full error island.
   useEffect(() => {
     let cancelled = false;
-    // fallow-ignore-next-line complexity — idiomatic load-then-bind effect: sequential fetch + cancellation guard branches. Pre-existing; not touched by PR B.
+    // Idiomatic load-then-bind effect: sequential fetch + cancellation guard
+    // branches. (Prose kept off the directive line so fallow does not parse it.)
+    // fallow-ignore-next-line complexity
     void (async () => {
       try {
         const res = await fetch(`/api/approve/${token}`);
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
-          throw new Error(body.error ?? `HTTP ${res.status}`);
+          // Map the raw server status to owner-friendly copy — never surface
+          // "HTTP 500" or a leaked internal error string.
+          throw new Error(friendlyErrorForStatus(res.status, body.error));
         }
         const json: ReviewData = await res.json();
         if (cancelled) return;
@@ -452,13 +670,17 @@ export default function ApprovalClient({ token }: { token: string }) {
         });
         if (!sessionRes.ok) {
           const sessionBody = await sessionRes.json().catch(() => ({}));
-          throw new Error(sessionBody.error ?? 'Session binding failed');
+          // "Session binding failed" is an internal phrase — map by status too.
+          throw new Error(friendlyErrorForStatus(sessionRes.status, sessionBody.error));
         }
       } catch (err) {
         if (cancelled) return;
         dispatch({
           type: 'loadFailed',
-          message: err instanceof Error ? err.message : 'Failed to load',
+          message:
+            err instanceof Error
+              ? err.message
+              : 'Something went wrong. Please try again shortly.',
         });
       } finally {
         if (!cancelled) dispatch({ type: 'loadSettled' });
@@ -469,8 +691,10 @@ export default function ApprovalClient({ token }: { token: string }) {
     };
   }, [token]);
 
+  // `editTextOverride` lets the confirm step post the exact text snapshotted
+  // when the action was armed, not whatever `editedText` is at confirm time.
   const handleAction = useCallback(
-    async (action: ApprovalAction) => {
+    async (action: ApprovalAction, editTextOverride?: string) => {
       if (actionLockRef.current) return;
       actionLockRef.current = true;
       dispatch({ type: 'actionStarted' });
@@ -479,7 +703,9 @@ export default function ApprovalClient({ token }: { token: string }) {
         const csrf = getCsrfToken();
         const url = `/api/approve/${token}/${action}`;
         const body =
-          action === 'edit' ? JSON.stringify({ editedText }) : undefined;
+          action === 'edit'
+            ? JSON.stringify({ editedText: editTextOverride ?? editedText })
+            : undefined;
 
         const res = await fetch(url, {
           method: 'POST',
@@ -493,7 +719,8 @@ export default function ApprovalClient({ token }: { token: string }) {
         const json: ActionResponse = await res.json().catch(() => ({}));
 
         if (!res.ok) {
-          throw new Error(json.error ?? `HTTP ${res.status}`);
+          // Map status → owner-friendly copy; never surface "HTTP 500".
+          throw new Error(friendlyErrorForStatus(res.status, json.error));
         }
 
         // Treat empty/whitespace messages as missing — the success view gates on
@@ -517,6 +744,11 @@ export default function ApprovalClient({ token }: { token: string }) {
     [token, editedText],
   );
 
+  const handleConfirmPublish = useCallback(() => {
+    if (!pendingPublish) return;
+    void handleAction(pendingPublish.action, pendingPublish.editedText);
+  }, [handleAction, pendingPublish]);
+
   if (loading) {
     return <LoadingSpinner />;
   }
@@ -535,11 +767,23 @@ export default function ApprovalClient({ token }: { token: string }) {
 
   const { review, response } = data;
   const timeLeft = new Date(data.expiresAt).getTime() - nowMs;
-  const hoursLeft = Math.max(0, Math.round(timeLeft / 3_600_000));
+  const expiryLabel = formatExpiry(timeLeft);
+  // Drives the polite status region while an action is in flight — screen
+  // readers announce "Approving…/Saving…" without moving focus.
+  const busyLabel = actionLoading
+    ? isEditing
+      ? 'Saving your response…'
+      : 'Approving your response…'
+    : '';
 
   return (
     <LazyMotion features={domAnimation}>
       <div className="space-y-4">
+        {/* Polite live region: announces in-flight progress for assistive tech. */}
+        <div className="sr-only" role="status" aria-live="polite">
+          {busyLabel}
+        </div>
+
         {error && (
           <div
             role="alert"
@@ -561,6 +805,7 @@ export default function ApprovalClient({ token }: { token: string }) {
           response={response}
           isEditing={isEditing}
           editedText={editedText}
+          editLocked={pendingPublish?.action === 'edit'}
           onEditTextChange={(value) =>
             dispatch({ type: 'editTextChanged', value })
           }
@@ -571,13 +816,19 @@ export default function ApprovalClient({ token }: { token: string }) {
           editedText={editedText}
           actionLoading={actionLoading}
           isArchived={data.isArchived}
+          pendingPublish={pendingPublish}
           onAction={handleAction}
+          onArmPublish={(pending) =>
+            dispatch({ type: 'publishArmed', pending })
+          }
+          onConfirmPublish={handleConfirmPublish}
+          onCancelPublish={() => dispatch({ type: 'publishCancelled' })}
           onStartEdit={() => dispatch({ type: 'editStarted' })}
           onCancelEdit={() => dispatch({ type: 'editCancelled' })}
         />
 
-        <p className="text-center text-xs italic text-[#97B3AE]">
-          This link expires in {hoursLeft} hour{hoursLeft !== 1 ? 's' : ''}
+        <p className="text-center text-xs italic text-[#557069]">
+          This link expires in {expiryLabel}
         </p>
       </div>
     </LazyMotion>

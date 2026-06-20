@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { isPlaceId, parseGoogleMapsUrl } from '@/lib/reviews/url-parser';
 
+/**
+ * Hidden honeypot field name — single source of truth shared by the lead-intake
+ * form (renders the hidden input) and its API route (rejects non-empty values).
+ * If these drift, the honeypot silently stops matching and every bot passes.
+ */
+export const LEAD_INTAKE_HONEYPOT_FIELD = 'company_website';
+
 // ── Reusable field schemas ──────────────────────────────────────────
 
 const businessNameSchema = z.string().min(1, 'Business name is required').max(255);
@@ -225,7 +232,9 @@ const normalizedEmailSchema = z.preprocess(
   z.email().max(254),
 );
 
-const passwordSchema = z.string().min(8).max(128);
+/** Minimum password length — single source of truth for the schema + UI hints. */
+export const MIN_PASSWORD_LENGTH = 8;
+const passwordSchema = z.string().min(MIN_PASSWORD_LENGTH).max(128);
 
 // Identity-only signup. Business details are collected later via
 // BusinessOnboardingSchema (POST /api/onboarding/business) after Stripe payment.
@@ -305,11 +314,29 @@ export const ResendConfirmationSchema = z.object({
 });
 type ResendConfirmationInput = z.infer<typeof ResendConfirmationSchema>;
 
-// Email OTP entry — owner enters the 6-digit token Supabase sends in the
-// confirmation email. We accept 4–10 digit/alphanumeric tokens defensively
-// (Supabase has historically used 6-digit numeric, but format isn't
-// contractually frozen). Token validation is ultimately enforced by
-// `supabase.auth.verifyOtp` — this schema just keeps obvious junk out.
+/**
+ * Canonical email OTP length — the SINGLE source of truth shared by the UI
+ * input attributes and the confirmation copy.
+ *
+ * Supabase email OTP is FIXED at 6 digits — unlike SMS, there is NO "Email OTP
+ * Length" setting to configure (Supabase docs: the email OTP is "a six digit
+ * code"). So no dashboard / Management-API change is required; this constant
+ * simply keeps the UI input + copy aligned with Supabase's fixed 6-digit code.
+ * The only email-side requirement is that the confirmation template render
+ * `{{ .Token }}` (the 6-digit code), not `{{ .ConfirmationURL }}`.
+ *
+ * The server schema below stays defensively permissive (Supabase's `verifyOtp`
+ * is the real validator); every user-facing constraint derives from this
+ * constant so the UI can never silently drift from the code length.
+ */
+export const EMAIL_OTP_LENGTH = 6;
+export const EMAIL_OTP_PATTERN = `\\d{${EMAIL_OTP_LENGTH}}`;
+
+// Email OTP entry — owner enters the numeric token Supabase sends in the
+// confirmation email (canonical length: EMAIL_OTP_LENGTH). We accept 4–10
+// digit/alphanumeric tokens defensively here (format isn't contractually
+// frozen and Supabase consumes/validates the real token) — this schema just
+// keeps obvious junk out before the round-trip.
 export const VerifyEmailOtpSchema = z.object({
   email: normalizedEmailSchema,
   token: z

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { mapSignupError, type MappedSignupError } from '@/components/auth/shared/mapSignupError';
 import { safeSignupRedirect } from '@/components/auth/shared/safeSignupRedirect';
+import { fetchWithTimeout } from '@/components/auth/shared/fetchWithTimeout';
 
 export interface UseSignupSubmitReturn {
   submit: (input: SignupInput) => Promise<{ ok: boolean }>;
@@ -31,7 +32,7 @@ export function useSignupSubmit(): UseSignupSubmitReturn {
     setErrorKind(null);
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/signup', {
+      const res = await fetchWithTimeout('/api/auth/signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({

@@ -25,7 +25,7 @@ export function AuthIslandClient(props: AuthIslandClientProps) {
 // Inner component split out so the public export can wrap it in Suspense for useSearchParams().
 function AuthIslandInner({ initialMode }: AuthIslandClientProps) {
   return (
-    <div className="rw-auth">
+    <main id="main-content" className="rw-auth">
       <ParallaxField />
       <div className="rw-page">
         <div className="rw-island">
@@ -60,6 +60,6 @@ function AuthIslandInner({ initialMode }: AuthIslandClientProps) {
           </div>
         </div>
       </div>
-    </div>
+    </main>
   );
 }

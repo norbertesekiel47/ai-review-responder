@@ -21,8 +21,13 @@ describe('mapSupabaseAuthError', () => {
   it('maps invalid credentials', () => {
     expect(mapSupabaseAuthError('Invalid login credentials')).toMatch(/Email or password is incorrect/);
   });
-  it('passes through other messages verbatim (Supabase is the source of truth)', () => {
-    expect(mapSupabaseAuthError('Something else')).toBe('Something else');
+  it('maps rate-limit messages to curated copy', () => {
+    expect(mapSupabaseAuthError('Request rate limit reached')).toMatch(/Too many attempts/);
+  });
+  it('never surfaces raw Supabase text; falls back to generic copy', () => {
+    expect(mapSupabaseAuthError('Database connection refused at 10.0.0.4')).toBe(
+      "Couldn't sign you in. Please try again.",
+    );
   });
 });
 

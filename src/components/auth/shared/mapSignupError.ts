@@ -30,14 +30,17 @@ const KNOWN_MESSAGES: Record<Exclude<SignupErrorKind, 'unknown'>, string> = {
     'Something went wrong on our side. Please try again shortly.',
 };
 
+const GENERIC_SIGNUP_FAILURE = "Couldn't create your account. Please try again.";
+
 export function mapSignupError(
   body: { error?: unknown; message?: unknown },
   _status: number,
 ): MappedSignupError {
   const code = typeof body?.error === 'string' ? body.error : undefined;
-  const serverMessage = typeof body?.message === 'string' ? body.message : undefined;
   const kind: SignupErrorKind =
     code && code in KNOWN_MESSAGES ? (code as SignupErrorKind) : 'unknown';
-  const fallback = kind === 'unknown' ? KNOWN_MESSAGES.internal : KNOWN_MESSAGES[kind];
-  return { kind, message: serverMessage ?? fallback };
+  // Always show curated copy. Never echo the raw server `message` back to the
+  // owner — it can leak internal detail and we can't guarantee its tone/shape.
+  const message = kind === 'unknown' ? GENERIC_SIGNUP_FAILURE : KNOWN_MESSAGES[kind];
+  return { kind, message };
 }

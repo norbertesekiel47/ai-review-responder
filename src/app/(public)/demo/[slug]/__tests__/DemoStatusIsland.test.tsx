@@ -34,8 +34,10 @@ describe('DemoStatusIsland', () => {
     vi.useRealTimers();
   });
 
-  it('loading variant refreshes the route on an interval and clears it on unmount', () => {
+  it('loading variant polls the route on a backoff schedule and clears it on unmount', () => {
     vi.useFakeTimers();
+    // Pin jitter to 0 so the backoff delays are deterministic (5s, 6s, …).
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const { unmount } = render(
       createElement(DemoStatusIsland, {
         variant: 'loading',
@@ -44,19 +46,51 @@ describe('DemoStatusIsland', () => {
       }),
     );
     expect(mockRefresh).not.toHaveBeenCalled();
+    // First poll fires at the 5s base delay.
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
+    // Next gap grows (~6s), so 5s more is not yet enough for a second poll.
     act(() => {
       vi.advanceTimersByTime(5000);
     });
     expect(mockRefresh).toHaveBeenCalledTimes(1);
     act(() => {
-      vi.advanceTimersByTime(5000);
+      vi.advanceTimersByTime(2000);
     });
     expect(mockRefresh).toHaveBeenCalledTimes(2);
     unmount();
     act(() => {
-      vi.advanceTimersByTime(15000);
+      vi.advanceTimersByTime(60000);
     });
     expect(mockRefresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('loading variant stops polling after the attempt cap and shows a recovery state', () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    render(
+      createElement(DemoStatusIsland, {
+        variant: 'loading',
+        businessName: "Joe's Coffee",
+        selfServeEnabled: false,
+      }),
+    );
+    // Drain well past the bounded schedule (cap is ~3.5 min of attempts).
+    act(() => {
+      vi.advanceTimersByTime(10 * 60 * 1000);
+    });
+    const cappedCalls = mockRefresh.mock.calls.length;
+    expect(cappedCalls).toBeGreaterThan(0);
+    expect(cappedCalls).toBeLessThanOrEqual(24);
+    // Once capped, advancing further must not poll again.
+    act(() => {
+      vi.advanceTimersByTime(10 * 60 * 1000);
+    });
+    expect(mockRefresh).toHaveBeenCalledTimes(cappedCalls);
+    expect(screen.getByText(/taking longer than usual/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
   });
 
   it('loading variant shows the business name and generating copy', () => {
@@ -71,7 +105,7 @@ describe('DemoStatusIsland', () => {
     expect(screen.getByText(/being generated/i)).toBeInTheDocument();
   });
 
-  it('error variant renders a recovery CTA to /book-a-demo and does not poll', () => {
+  it('error variant offers both a retry and a recovery CTA, and does not poll', () => {
     vi.useFakeTimers();
     render(
       createElement(DemoStatusIsland, {
@@ -80,6 +114,7 @@ describe('DemoStatusIsland', () => {
         selfServeEnabled: false,
       }),
     );
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /book a demo/i })).toHaveAttribute('href', '/book-a-demo');
     expect(screen.getByRole('link', { name: /back to repworth/i })).toHaveAttribute('href', '/');
     act(() => {

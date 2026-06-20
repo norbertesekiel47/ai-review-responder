@@ -1,11 +1,15 @@
 'use client';
 
-import { useMemo, useReducer } from 'react';
+import { useEffect, useId, useMemo, useReducer, useState } from 'react';
 import Link from 'next/link';
 import { PREFILL_EMAIL_KEY } from '@/components/auth/shared/prefillEmail';
 import { useSignupSubmit } from '@/components/auth/hooks/useSignupSubmit';
 import { useGoogleOAuth } from '@/components/auth/hooks/useGoogleOAuth';
-import { strengthOf, STRENGTH_LABELS } from '@/components/auth/shared/strength';
+import {
+  passwordRequirements,
+  strengthOf,
+  STRENGTH_LABELS,
+} from '@/components/auth/shared/strength';
 import { fireConfetti } from './fireConfetti';
 import { Field } from './Field';
 import {
@@ -60,16 +64,50 @@ function signupFormReducer(state: SignupFormState, action: SignupFormAction): Si
 export function SignupForm() {
   const [form, dispatch] = useReducer(signupFormReducer, initialSignupFormState);
   const { name, phone, email, pwd, agree } = form;
+  // Hint shown only after the owner tries to submit without accepting Terms,
+  // so the disabled CTA isn't a silent dead end.
+  const [termsHint, setTermsHint] = useState(false);
+
+  const reqListId = useId();
+  const strengthMsgId = useId();
+  const termsHintId = useId();
+
+  // Carry an email typed on the sibling (login) screen across the tab switch,
+  // via sessionStorage so it never rides in the URL. Cleared on read.
+  useEffect(() => {
+    if (typeof sessionStorage === 'undefined') return;
+    const stored = sessionStorage.getItem(PREFILL_EMAIL_KEY);
+    if (stored) {
+      dispatch({ type: 'setEmail', email: stored });
+      sessionStorage.removeItem(PREFILL_EMAIL_KEY);
+    }
+  }, []);
 
   const { submit, loading, error, errorKind } = useSignupSubmit();
   const oauth = useGoogleOAuth({ flow: 'owner', next: '/signup/finish' });
   const displayError = error || oauth.error;
 
   const strength = useMemo(() => strengthOf(pwd), [pwd]);
+  const requirements = useMemo(() => passwordRequirements(pwd), [pwd]);
+
+  // De-noise the screen-reader strength announcement: instead of firing on every
+  // keystroke, settle on the latest label after the owner pauses typing. The
+  // setState lives inside the (async) timeout callback, never the effect body.
+  const [announcedStrength, setAnnouncedStrength] = useState('');
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setAnnouncedStrength(pwd ? STRENGTH_LABELS[Math.min(strength, 4)] ?? '' : '');
+    }, 600);
+    return () => clearTimeout(id);
+  }, [pwd, strength]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!agree || loading) return;
+    if (loading) return;
+    if (!agree) {
+      setTermsHint(true);
+      return;
+    }
     void captureSignupStarted('email');
     const result = await submit({
       ownerEmail: email,
@@ -151,7 +189,17 @@ export function SignupForm() {
         onChange={(e) => dispatch({ type: 'setPwd', pwd: e.target.value })}
         required
         minLength={8}
+        describedById={`${reqListId} ${strengthMsgId}`}
       />
+
+      <ul className="rw-req-list" id={reqListId} aria-label="Password requirements">
+        {requirements.map((req) => (
+          <li key={req.label} className={req.met ? 'met' : ''}>
+            {req.label}
+            <span className="rw-sr-only">{req.met ? ' (met)' : ' (not yet met)'}</span>
+          </li>
+        ))}
+      </ul>
 
       <div className="rw-strength" aria-hidden="true">
         {[1, 2, 3, 4].map((i) => (
@@ -161,8 +209,13 @@ export function SignupForm() {
           />
         ))}
       </div>
-      <div className="rw-strength-label" aria-live="polite">
+      <div className="rw-strength-label" aria-hidden="true">
         {pwd ? STRENGTH_LABELS[Math.min(strength, 4)] : 'Pick something memorable but tough.'}
+      </div>
+      {/* Single debounced live region so SRs hear strength once typing settles,
+          not on every keystroke. The visible label above is decorative. */}
+      <div id={strengthMsgId} className="rw-sr-only" aria-live="polite">
+        {announcedStrength ? `Password strength: ${announcedStrength}` : ''}
       </div>
 
       {displayError && (
@@ -187,31 +240,44 @@ export function SignupForm() {
         </p>
       )}
 
-      <div className="rw-row-between" style={{ marginTop: 18, marginBottom: 18 }}>
+      <div className="rw-agree" style={{ marginTop: 18, marginBottom: termsHint ? 6 : 18 }}>
+        {/* Links live OUTSIDE the <label> so they aren't nested interactive
+            content (clicking a link must not toggle the checkbox). The label
+            text wraps only the checkbox + its caption. */}
         <label className="rw-check">
           <input
             type="checkbox"
             checked={agree}
-            onChange={(e) => dispatch({ type: 'setAgree', agree: e.target.checked })}
+            onChange={(e) => {
+              dispatch({ type: 'setAgree', agree: e.target.checked });
+              if (e.target.checked) setTermsHint(false);
+            }}
+            aria-describedby={termsHint ? termsHintId : undefined}
           />
           <span className="box">
             <CheckIcon />
           </span>
-          I agree to the{' '}
-          <Link className="rw-link" style={{ marginLeft: 4 }} href="/legal/terms">
-            Terms
-          </Link>
-          &nbsp;&amp;&nbsp;
-          <Link className="rw-link" href="/legal/privacy">
-            Privacy
-          </Link>
-        </label>
+          <span className="rw-agree-text">I agree to the</span>
+        </label>{' '}
+        <Link className="rw-link" href="/legal/terms">
+          Terms
+        </Link>
+        <span className="rw-agree-sep">&nbsp;&amp;&nbsp;</span>
+        <Link className="rw-link" href="/legal/privacy">
+          Privacy
+        </Link>
       </div>
+      {termsHint && !agree && (
+        <p id={termsHintId} className="rw-form-hint" role="alert">
+          Please accept the Terms &amp; Privacy to continue.
+        </p>
+      )}
 
       <button
         type="submit"
         className={`rw-submit ${loading ? 'is-loading' : ''}`}
-        disabled={loading || !agree}
+        disabled={loading}
+        aria-disabled={!agree || undefined}
       >
         <span className="label">
           {loading ? (

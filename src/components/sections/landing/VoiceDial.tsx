@@ -1,18 +1,29 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
 
 const LABELS = ['Warm', 'Friendly', 'Balanced', 'Polished', 'Crisp'] as const;
 const SAMPLES = [
-  `Hey Rachel! Ohhh this message made our whole day. So so glad the cake made your little one smile — honestly that's the whole reason we do this. Tell her we said happy birthday from all of us, and come say hi anytime.\n\n— Claire`,
-  `Rachel, thank you so much. We were thrilled to pull that one together on short notice — and knowing your 7-year-old loved it is the best possible feedback. Happy belated birthday to her from all of us at the bakery.\n\n— Claire, owner`,
-  `Rachel, thank you — you made our week. So glad the cake landed and that your 7-year-old loved it. Tell her happy belated birthday from the team, and come by anytime.\n\n— Claire, owner`,
-  `Thank you for sharing this, Rachel. We always aim to make last-minute orders feel considered, and we're delighted the cake met the moment. Please pass along our belated birthday wishes to your daughter.\n\n— Claire, owner, Rose & Rye Bakery`,
-  `Thank you for the kind note, Rachel. We appreciate you choosing us for your daughter's birthday and are pleased the cake met your expectations. We look forward to welcoming you back.\n\n— Rose & Rye Bakery`,
+  `Ohhh this message made our whole day. So so glad the cake made your little one smile — honestly that's the whole reason we do this. Tell her we said happy birthday from all of us, and come say hi anytime.\n\n— The owner`,
+  `Thank you so much. We were thrilled to pull that one together on short notice — and knowing your 7-year-old loved it is the best possible feedback. Happy belated birthday to her from all of us at the bakery.\n\n— The owner`,
+  `Thank you — you made our week. So glad the cake landed and that your 7-year-old loved it. Tell her happy belated birthday from the team, and come by anytime.\n\n— The owner`,
+  `Thank you for sharing this. We always aim to make last-minute orders feel considered, and we're delighted the cake met the moment. Please pass along our belated birthday wishes to your daughter.\n\n— The owner, Rose & Rye Bakery`,
+  `Thank you for the kind note. We appreciate you choosing us for your daughter's birthday and are pleased the cake met your expectations. We look forward to welcoming you back.\n\n— Rose & Rye Bakery`,
 ];
 
 const SOURCE_TEXT =
   'Came in for a last-minute birthday cake and they completely pulled through. The cake was beautiful, tasted amazing, and my 7-year-old still talks about it. Thank you!';
+
+const MIN = 0;
+const MAX = 4;
 
 export function VoiceDial() {
   const [value, setValue] = useState(2);
@@ -48,7 +59,33 @@ export function VoiceDial() {
     };
   }, [dragging]);
 
+  const onKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
+    switch (e.key) {
+      case 'ArrowRight':
+      case 'ArrowUp':
+        e.preventDefault();
+        setValue((v) => Math.min(MAX, v + 1));
+        break;
+      case 'ArrowLeft':
+      case 'ArrowDown':
+        e.preventDefault();
+        setValue((v) => Math.max(MIN, v - 1));
+        break;
+      case 'Home':
+        e.preventDefault();
+        setValue(MIN);
+        break;
+      case 'End':
+        e.preventDefault();
+        setValue(MAX);
+        break;
+      default:
+        break;
+    }
+  }, []);
+
   const angle = -135 + (value / 4) * 270;
+  const toneLabel = LABELS[value] ?? 'Balanced';
 
   return (
     <section className="rw-voice-section" id="rw-voice">
@@ -57,12 +94,19 @@ export function VoiceDial() {
           <div className="rw-voice-dial-wrap">
             <div
               ref={dialRef}
-              className={`rw-voice-dial ${dragging ? 'dragging' : ''}`}
+              className={`rw-voice-dial ${dragging ? 'dragging' : ''} outline-none focus-visible:ring-4 focus-visible:ring-[#557069]/60 focus-visible:ring-offset-2`}
+              role="slider"
+              tabIndex={0}
+              aria-label="Voice dial — adjust tone"
+              aria-valuemin={MIN}
+              aria-valuemax={MAX}
+              aria-valuenow={value}
+              aria-valuetext={toneLabel}
+              onKeyDown={onKeyDown}
               onPointerDown={(e) => {
                 setDragging(true);
                 onPointer(e);
               }}
-              aria-hidden="true"
             >
               <div className="rw-voice-ticks">
                 {Array.from({ length: 5 }).map((_, i) => {
@@ -84,19 +128,10 @@ export function VoiceDial() {
                 style={{ transform: `translateX(-50%) rotate(${angle}deg)` }}
               />
               <div className="rw-voice-dial-inner">
-                <div className="rw-voice-dial-value">{LABELS[value] ?? 'Balanced'}</div>
+                <div className="rw-voice-dial-value">{toneLabel}</div>
                 <div className="rw-voice-dial-value-label">Tone</div>
               </div>
             </div>
-            <input
-              className="sr-only"
-              type="range"
-              min={0}
-              max={4}
-              value={value}
-              aria-label="Voice dial — adjust tone"
-              onChange={(e) => setValue(Number(e.target.value))}
-            />
             <div className="rw-voice-labels">
               {LABELS.map((l, i) => (
                 <Fragment key={l}>
@@ -118,11 +153,19 @@ export function VoiceDial() {
               review, forever. Try a few settings.
             </p>
             <div className="rw-voice-preview">
+              <div className="mb-3 inline-block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#557069]">
+                Example
+              </div>
               <div className="rw-src">
-                <div className="rw-src-name">Rachel K. · ★★★★★</div>
+                <div className="rw-src-name">
+                  A recent reviewer ·{' '}
+                  <span aria-label="5 out of 5 stars">
+                    <span aria-hidden="true">★★★★★</span>
+                  </span>
+                </div>
                 {SOURCE_TEXT}
               </div>
-              <div className="rw-reply-label">Reply · {(LABELS[value] ?? 'Balanced').toLowerCase()}</div>
+              <div className="rw-reply-label">Reply · {toneLabel.toLowerCase()}</div>
               <div className="rw-reply">{SAMPLES[value] ?? ''}</div>
             </div>
           </div>

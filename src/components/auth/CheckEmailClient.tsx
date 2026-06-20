@@ -1,11 +1,14 @@
 'use client';
 
-import { Suspense, useReducer } from 'react';
+import { Suspense, useEffect, useReducer, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { redirectAfterServerSessionCookie } from './CheckEmailClient.helpers';
 import { AuthCardShell, authFieldClass, authPrimaryButtonClass } from './AuthCardShell';
+import { CHECK_EMAIL_EMAIL_KEY } from './shared/prefillEmail';
+import { fetchWithTimeout } from './shared/fetchWithTimeout';
 import { LiveRegion } from '@/components/ui/LiveRegion';
+import { EMAIL_OTP_LENGTH, EMAIL_OTP_PATTERN } from '@/lib/shared/schemas';
 
 interface CheckEmailState {
   code: string;
@@ -14,6 +17,10 @@ interface CheckEmailState {
   resendLoading: boolean;
   resendSent: boolean;
   resendError: string;
+  // True for a short window after a successful resend. Keeps the resend button
+  // visible (just disabled) so a SECOND resend is possible — instead of
+  // permanently swapping the button out for static text.
+  resendCooldown: boolean;
 }
 
 const initialCheckEmailState: CheckEmailState = {
@@ -23,6 +30,7 @@ const initialCheckEmailState: CheckEmailState = {
   resendLoading: false,
   resendSent: false,
   resendError: '',
+  resendCooldown: false,
 };
 
 type CheckEmailAction =
@@ -33,8 +41,11 @@ type CheckEmailAction =
   | { type: 'resendStart' }
   | { type: 'setResendError'; resendError: string }
   | { type: 'resendSuccess' }
+  | { type: 'resendCooldownEnd' }
   | { type: 'resendFinish' };
 
+// Flat one-case-per-action switch; cyclomatic count is the action vocabulary.
+// fallow-ignore-next-line complexity
 function checkEmailReducer(state: CheckEmailState, action: CheckEmailAction): CheckEmailState {
   switch (action.type) {
     case 'setCode':
@@ -50,7 +61,9 @@ function checkEmailReducer(state: CheckEmailState, action: CheckEmailAction): Ch
     case 'setResendError':
       return { ...state, resendError: action.resendError };
     case 'resendSuccess':
-      return { ...state, resendSent: true };
+      return { ...state, resendSent: true, resendCooldown: true };
+    case 'resendCooldownEnd':
+      return { ...state, resendCooldown: false };
     case 'resendFinish':
       return { ...state, resendLoading: false };
   }
@@ -64,13 +77,48 @@ export function CheckEmailClient() {
   );
 }
 
+// Single-screen OTP form: branches are independent UI states (verify/resend/
+// cooldown/error), not nested logic.
+// fallow-ignore-next-line complexity
 function CheckEmailInner() {
   const searchParams = useSearchParams();
   const fromLogin = searchParams.get('from') === 'login';
-  const email = (searchParams.get('email') ?? '').trim().toLowerCase();
+  // Email source precedence: an explicit ?email= param (server signup/pay
+  // redirects, which can't write sessionStorage) wins; otherwise fall back to
+  // sessionStorage, which the client login path uses so the email never leaks
+  // into the URL/history/referrer/logs.
+  const paramEmail = (searchParams.get('email') ?? '').trim().toLowerCase();
+  const [email, setEmail] = useState(paramEmail);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (paramEmail) {
+      sessionStorage.removeItem(CHECK_EMAIL_EMAIL_KEY);
+      return;
+    }
+    const stored = sessionStorage.getItem(CHECK_EMAIL_EMAIL_KEY);
+    if (stored) {
+      // sessionStorage is browser-only (undefined during SSR), so this read
+      // can't be a lazy initializer — it must happen in an effect (same pattern
+      // as LoginForm's PREFILL_EMAIL_KEY handoff).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setEmail(stored.trim().toLowerCase());
+      sessionStorage.removeItem(CHECK_EMAIL_EMAIL_KEY);
+    }
+  }, [paramEmail]);
 
   const [state, dispatch] = useReducer(checkEmailReducer, initialCheckEmailState);
-  const { code, verifying, verifyError, resendLoading, resendSent, resendError } = state;
+  const { code, verifying, verifyError, resendLoading, resendSent, resendError, resendCooldown } =
+    state;
+
+  // Track the resend-cooldown timer so it can be cleared on unmount (and before
+  // re-arming) — otherwise a pending dispatch can fire after the component leaves.
+  const cooldownTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(
+    () => () => {
+      if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
+    },
+    [],
+  );
 
   async function handleVerify(e: React.FormEvent) {
     e.preventDefault();
@@ -90,7 +138,7 @@ function CheckEmailInner() {
     }
     dispatch({ type: 'setVerifying', verifying: true });
     try {
-      const res = await fetch('/api/auth/verify-otp', {
+      const res = await fetchWithTimeout('/api/auth/verify-otp', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email, token: code.trim() }),
@@ -120,7 +168,7 @@ function CheckEmailInner() {
   }
 
   async function handleResend() {
-    if (resendLoading) return;
+    if (resendLoading || resendCooldown) return;
     // Same guard as handleVerify — but this branch ALSO reports the error
     // visibly. The button's `disabled` attr usually keeps users from
     // clicking when email is empty, but a programmatic call (devtools,
@@ -136,7 +184,7 @@ function CheckEmailInner() {
     }
     dispatch({ type: 'resendStart' });
     try {
-      const res = await fetch('/api/auth/resend-confirmation', {
+      const res = await fetchWithTimeout('/api/auth/resend-confirmation', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email, flow: 'owner' }),
@@ -152,15 +200,18 @@ function CheckEmailInner() {
     } finally {
       dispatch({ type: 'resendFinish' });
     }
+    // Lift the cooldown after a short window so a second resend stays possible.
+    if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
+    cooldownTimerRef.current = setTimeout(() => dispatch({ type: 'resendCooldownEnd' }), 20_000);
   }
 
   const heading = fromLogin ? 'Almost there' : 'Check your email';
-  // Supabase Auth → Settings → "Email OTP Length" controls this — production
-  // is configured to 8. If you change it there, also update this copy +
-  // the `placeholder` below.
+  // OTP length is driven by EMAIL_OTP_LENGTH (single source of truth). The
+  // Supabase Auth → "Email OTP Length" setting MUST match it (6). Change the
+  // constant + the Supabase setting in lockstep; nothing here is hardcoded.
   const subtext = fromLogin
-    ? 'Confirm your email to log in. We sent an 8-digit code to your inbox.'
-    : 'We sent an 8-digit code to your inbox. Enter it below to activate your account.';
+    ? `Confirm your email to log in. We sent a ${EMAIL_OTP_LENGTH}-digit code to your inbox.`
+    : `We sent a ${EMAIL_OTP_LENGTH}-digit code to your inbox. Enter it below to activate your account.`;
 
   return (
     <AuthCardShell>
@@ -178,17 +229,12 @@ function CheckEmailInner() {
             Confirmation code
           </label>
           {/*
-            Input contract matches Supabase prod's "Email OTP Length = 8".
-            minLength + maxLength + numeric pattern enforce the format
-            client-side so the user gets browser-native validation feedback
-            before submitting.
-
-            Server-side `VerifyEmailOtpSchema` deliberately stays at 4–10
-            alphanumeric (defense-in-depth — if Supabase config flips to
-            6-digit or alphanumeric, the API survives without a redeploy).
-            When the source-of-truth Supabase setting changes, update the
-            minLength + maxLength + pattern + placeholder + the subtext
-            copy above in lockstep.
+            All length constraints derive from EMAIL_OTP_LENGTH (single source
+            of truth; keep it in lockstep with the Supabase "Email OTP Length"
+            setting). minLength + maxLength + numeric pattern give browser-native
+            validation feedback before submit. Server-side `VerifyEmailOtpSchema`
+            stays defensively at 4–10 (Supabase's verifyOtp is the real
+            validator).
           */}
           <input
             id="verify-code"
@@ -196,18 +242,22 @@ function CheckEmailInner() {
             inputMode="numeric"
             autoComplete="one-time-code"
             required
-            minLength={8}
-            maxLength={8}
-            pattern="\d{8}"
-            title="Enter the 8-digit code from your email"
-            placeholder="8-digit code"
+            minLength={EMAIL_OTP_LENGTH}
+            maxLength={EMAIL_OTP_LENGTH}
+            pattern={EMAIL_OTP_PATTERN}
+            title={`Enter the ${EMAIL_OTP_LENGTH}-digit code from your email`}
+            placeholder={`${EMAIL_OTP_LENGTH}-digit code`}
             value={code}
             onChange={(e) => dispatch({ type: 'setCode', code: e.target.value })}
             className={`${authFieldClass} text-center tracking-[0.5em] font-mono`}
           />
         </div>
+        {/* aria-hidden — the assertive LiveRegion below is the sole announcer,
+            so AT hears the verify error exactly once. */}
         {verifyError && (
-          <p className="text-sm text-red-600">{verifyError}</p>
+          <p className="text-sm text-[#b3261e]" aria-hidden="true">
+            {verifyError}
+          </p>
         )}
         <button
           type="submit"
@@ -227,20 +277,32 @@ function CheckEmailInner() {
           Didn&apos;t get a code? Check your spam folder. Codes expire in 24
           hours.
         </p>
-        {resendSent ? (
-          <p className="text-sm text-[#2a2a2a]">A new code is on its way.</p>
-        ) : resendError ? (
-          <p className="text-sm text-red-600">{resendError}</p>
-        ) : (
-          <button
-            type="button"
-            onClick={handleResend}
-            disabled={resendLoading || !email}
-            className="text-sm text-[#97B3AE] hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {resendLoading ? 'Sending…' : 'Resend code'}
-          </button>
+        {/* Confirmation + error copy are aria-hidden — the two LiveRegions above
+            own announcements. The resend button is ALWAYS rendered (just
+            disabled during load/cooldown) so a second resend stays possible
+            instead of the button being permanently swapped out. */}
+        {resendSent && !resendCooldown && (
+          <p className="text-sm text-[#1d6b4f]" aria-hidden="true">
+            A new code is on its way.
+          </p>
         )}
+        {resendError && (
+          <p className="text-sm text-[#b3261e]" aria-hidden="true">
+            {resendError}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={handleResend}
+          disabled={resendLoading || resendCooldown || !email}
+          className="text-sm text-[#557069] hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {resendLoading
+            ? 'Sending…'
+            : resendCooldown
+              ? 'Code sent — resend shortly'
+              : 'Resend code'}
+        </button>
         <div>
           <Link
             href="/signup"

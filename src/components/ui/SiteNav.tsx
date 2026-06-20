@@ -2,7 +2,8 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, LazyMotion, m, domAnimation } from 'motion/react';
 
 interface SiteNavProps {
@@ -20,146 +21,192 @@ const NAV_LINKS = [
 
 const MOBILE_MENU_ID = 'site-nav-mobile-menu';
 
+/** True when `pathname` is the link target or one of its descendants. */
+function isActivePath(pathname: string | null, href: string): boolean {
+  if (!pathname) return false;
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNavProps) {
   const showOwnerAuth = selfServeEnabled && !comingSoon;
+  const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const firstMobileLinkRef = useRef<HTMLAnchorElement>(null);
+
+  const closeMenu = () => {
+    setMobileOpen(false);
+    // Restore focus to the toggle so keyboard users keep their place.
+    toggleRef.current?.focus();
+  };
+
+  // Escape closes the menu and restores focus. This is a disclosure, NOT a
+  // focus trap: Tab is left to flow naturally through the page; we only manage
+  // open/close focus.
   useEffect(() => {
     if (!mobileOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMobileOpen(false);
+      if (event.key === 'Escape') closeMenu();
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
+    // closeMenu only touches refs + the state setter (both stable); gating on
+    // mobileOpen is enough to re-bind the listener correctly.
   }, [mobileOpen]);
 
-  const closeMenu = () => setMobileOpen(false);
+  // Move focus to the first link when the menu opens.
+  useEffect(() => {
+    if (mobileOpen) firstMobileLinkRef.current?.focus();
+  }, [mobileOpen]);
 
   return (
     <LazyMotion features={domAnimation}>
-    <nav className="border-b border-[#97B3AE]/10">
-      <div className="px-8 py-4 flex items-center justify-between gap-4">
-        <Link href="/" className="flex items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2">
-          <Image
-            src="/logo.svg"
-            alt="RepWorth"
-            width={32}
-            height={32}
-            className="size-8 object-contain"
-            unoptimized
-          />
-          <span className="text-sm tracking-wider uppercase text-[#97B3AE]">RepWorth</span>
-        </Link>
-
-        {/* Desktop nav links (unchanged at >=640px) */}
-        <div className="hidden sm:flex items-center gap-6">
-          {NAV_LINKS.map(({ label, href }) => (
+      <header aria-label="Primary">
+        <nav className="border-b border-[#97B3AE]/10">
+          <div className="px-8 py-4 flex items-center justify-between gap-4">
             <Link
-              key={label}
-              href={href}
-              className="text-sm text-[#6a6a6a] hover:text-[#97B3AE] transition-colors rounded focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
+              href="/"
+              aria-current={isActivePath(pathname, '/') ? 'page' : undefined}
+              className="flex items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
             >
-              {label}
-            </Link>
-          ))}
-        </div>
-
-        {/* Desktop auth cluster (now sm-gated so it does not duplicate on mobile) */}
-        {showOwnerAuth && (
-          <div className="hidden sm:flex items-center gap-3">
-            <Link
-              href="/login"
-              className="text-sm text-[#6a6a6a] hover:text-[#97B3AE] transition-colors rounded focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
-            >
-              Log in
-            </Link>
-            <Link
-              href="/signup"
-              className="text-sm bg-[#97B3AE] text-white px-4 py-2 rounded-full hover:bg-[#97B3AE]/90 transition-colors focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
-            >
-              Sign up
-            </Link>
-          </div>
-        )}
-
-        {/* Mobile hamburger toggle */}
-        <button
-          type="button"
-          onClick={() => setMobileOpen((open) => !open)}
-          aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
-          aria-expanded={mobileOpen}
-          aria-controls={MOBILE_MENU_ID}
-          className="sm:hidden inline-flex items-center justify-center rounded-md p-2 text-[#97B3AE] hover:bg-[#97B3AE]/10 transition-colors focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
-        >
-          <svg
-            className="size-6"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={2}
-            stroke="currentColor"
-            aria-hidden="true"
-          >
-            {mobileOpen ? (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            ) : (
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+              <Image
+                src="/logo.svg"
+                alt="RepWorth"
+                width={32}
+                height={32}
+                className="size-8 object-contain"
+                unoptimized
               />
-            )}
-          </svg>
-        </button>
-      </div>
+              <span className="text-sm tracking-wider uppercase text-[#557069]">RepWorth</span>
+            </Link>
 
-      {/* Mobile dropdown panel */}
-      <AnimatePresence initial={false}>
-        {mobileOpen && (
-          <m.div
-            key="mobile-menu"
-            id={MOBILE_MENU_ID}
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2, ease: 'easeOut' }}
-            className="sm:hidden overflow-hidden border-t border-[#97B3AE]/10"
-          >
-            <div className="px-8 py-4 flex flex-col gap-1">
-              {NAV_LINKS.map(({ label, href }) => (
-                <Link
-                  key={label}
-                  href={href}
-                  onClick={closeMenu}
-                  className="py-2 text-sm text-[#6a6a6a] hover:text-[#97B3AE] transition-colors rounded focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
-                >
-                  {label}
-                </Link>
-              ))}
-
-              {showOwnerAuth && (
-                <>
-                  <div className="my-2 border-t border-[#97B3AE]/10" aria-hidden="true" />
+            {/* Desktop nav links (>=640px) */}
+            <div className="hidden sm:flex items-center gap-6">
+              {NAV_LINKS.map(({ label, href }) => {
+                const active = isActivePath(pathname, href);
+                return (
                   <Link
-                    href="/login"
-                    onClick={closeMenu}
-                    className="py-2 text-sm text-[#6a6a6a] hover:text-[#97B3AE] transition-colors rounded focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
+                    key={label}
+                    href={href}
+                    aria-current={active ? 'page' : undefined}
+                    className={`text-sm transition-colors rounded focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2 ${
+                      active
+                        ? 'text-[#557069] font-semibold underline decoration-2 underline-offset-8'
+                        : 'text-[#557069]/80 hover:text-[#557069]'
+                    }`}
                   >
-                    Log in
+                    {label}
                   </Link>
-                  <Link
-                    href="/signup"
-                    onClick={closeMenu}
-                    className="mt-1 inline-flex w-full justify-center text-sm bg-[#97B3AE] text-white px-4 py-2 rounded-full hover:bg-[#97B3AE]/90 transition-colors focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
-                  >
-                    Sign up
-                  </Link>
-                </>
-              )}
+                );
+              })}
             </div>
-          </m.div>
-        )}
-      </AnimatePresence>
-    </nav>
+
+            {/* Desktop auth cluster (sm-gated so it does not duplicate on mobile) */}
+            {showOwnerAuth && (
+              <div className="hidden sm:flex items-center gap-3">
+                <Link
+                  href="/login"
+                  className="inline-flex min-h-[44px] items-center text-sm text-[#557069]/80 hover:text-[#557069] transition-colors rounded focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
+                >
+                  Log in
+                </Link>
+                <Link
+                  href="/signup"
+                  className="inline-flex min-h-[44px] items-center text-sm bg-[#557069] text-white px-4 py-2 rounded-full hover:bg-[#557069]/90 transition-colors focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
+                >
+                  Sign up
+                </Link>
+              </div>
+            )}
+
+            {/* Mobile hamburger toggle (>=44px touch target) */}
+            <button
+              ref={toggleRef}
+              type="button"
+              onClick={() => setMobileOpen((open) => !open)}
+              aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={mobileOpen}
+              aria-controls={MOBILE_MENU_ID}
+              className="sm:hidden inline-flex size-11 items-center justify-center rounded-md p-2 text-[#557069] hover:bg-[#97B3AE]/10 transition-colors focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
+            >
+              <svg
+                className="size-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+                stroke="currentColor"
+                aria-hidden="true"
+              >
+                {mobileOpen ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                ) : (
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+                  />
+                )}
+              </svg>
+            </button>
+          </div>
+
+          {/* Mobile dropdown panel — disclosure, not a focus trap */}
+          <AnimatePresence initial={false}>
+            {mobileOpen && (
+              <m.div
+                key="mobile-menu"
+                id={MOBILE_MENU_ID}
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.2, ease: 'easeOut' }}
+                className="sm:hidden overflow-hidden border-t border-[#97B3AE]/10"
+              >
+                <div className="px-8 py-4 flex flex-col gap-1">
+                  {NAV_LINKS.map(({ label, href }, index) => {
+                    const active = isActivePath(pathname, href);
+                    return (
+                      <Link
+                        key={label}
+                        ref={index === 0 ? firstMobileLinkRef : undefined}
+                        href={href}
+                        onClick={closeMenu}
+                        aria-current={active ? 'page' : undefined}
+                        className={`inline-flex min-h-[44px] items-center text-sm transition-colors rounded focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2 ${
+                          active ? 'text-[#557069] font-semibold' : 'text-[#557069]/80 hover:text-[#557069]'
+                        }`}
+                      >
+                        {label}
+                      </Link>
+                    );
+                  })}
+
+                  {showOwnerAuth && (
+                    <>
+                      <div className="my-2 border-t border-[#97B3AE]/10" aria-hidden="true" />
+                      <Link
+                        href="/login"
+                        onClick={closeMenu}
+                        className="inline-flex min-h-[44px] items-center text-sm text-[#557069]/80 hover:text-[#557069] transition-colors rounded focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
+                      >
+                        Log in
+                      </Link>
+                      <Link
+                        href="/signup"
+                        onClick={closeMenu}
+                        className="mt-1 inline-flex min-h-[44px] w-full items-center justify-center text-sm bg-[#557069] text-white px-4 py-2 rounded-full hover:bg-[#557069]/90 transition-colors focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
+                      >
+                        Sign up
+                      </Link>
+                    </>
+                  )}
+                </div>
+              </m.div>
+            )}
+          </AnimatePresence>
+        </nav>
+      </header>
     </LazyMotion>
   );
 }

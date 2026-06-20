@@ -2,6 +2,7 @@
 
 import { useRef, type RefObject } from 'react';
 import { LazyMotion, domAnimation, m, useScroll, useTransform } from 'motion/react';
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 
 interface PageSection {
   ref: RefObject<HTMLDivElement | null>;
@@ -17,12 +18,15 @@ interface PageShellProps {
 
 export function PageShell({ sections, children, maxWidthClassName = 'max-w-5xl' }: PageShellProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const { scrollYProgress } = useScroll({
     target: containerRef,
     offset: ['start start', 'end end'],
   });
 
+  // Hooks must run unconditionally; we choose whether to *apply* the parallax
+  // transform below so reduced-motion users get a static background.
   const bgY1 = useTransform(scrollYProgress, [0, 1], [0, -300]);
   const bgY2 = useTransform(scrollYProgress, [0, 1], [0, -500]);
   const bgY3 = useTransform(scrollYProgress, [0, 1], [0, -200]);
@@ -42,7 +46,7 @@ export function PageShell({ sections, children, maxWidthClassName = 'max-w-5xl' 
         ].map((card) => (
           <m.div
             key={card.className}
-            style={card.style}
+            style={prefersReducedMotion ? undefined : card.style}
             className={`${card.className} bg-white/40 backdrop-blur-md rounded-3xl shadow-xl p-6 border border-white/60`}
           >
             <div className="flex gap-1 mb-3">
@@ -78,9 +82,9 @@ export function PageShell({ sections, children, maxWidthClassName = 'max-w-5xl' 
       <div className="relative z-10 min-h-screen py-20 px-4 flex items-center justify-center">
         <m.div
           className={`w-full ${maxWidthClassName} bg-white rounded-[3rem] shadow-2xl`}
-          initial={{ opacity: 0, y: 40, scale: 0.95 }}
+          initial={prefersReducedMotion ? false : { opacity: 0, y: 40, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.8, ease: 'easeOut' }}
+          transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.8, ease: 'easeOut' }}
         >
           {children}
         </m.div>

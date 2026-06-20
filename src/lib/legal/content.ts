@@ -90,7 +90,7 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
         body: [
           'RepWorth may send service notifications when new reviews arrive, when drafts are ready for approval, when approval links are used, or when account action is required.',
           'If you provide a mobile phone number and opt in to WhatsApp notifications, you consent to receive recurring automated service messages from RepWorth. Consent is not a condition of purchase. Message frequency varies based on review volume. Message and data rates may apply.',
-          'To opt out of WhatsApp, reply STOP. For help, reply HELP or contact info@repworth.net. RepWorth does not share, sell, or rent mobile opt-in data or mobile numbers to third parties or affiliates for marketing or promotional purposes.',
+          'To opt out of WhatsApp, reply STOP. For help, reply HELP or contact support@repworth.net. RepWorth does not share, sell, or rent mobile opt-in data or mobile numbers to third parties or affiliates for marketing or promotional purposes.',
         ],
       },
       {
@@ -103,7 +103,7 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
         heading: 'Data and Sub-processors',
         body: [
           'RepWorth uses sub-processors to operate the Service. Current sub-processors are OpenAI, Anthropic, Stripe, Supabase, Vercel, Railway, Upstash, Resend, Twilio, Telegram when enabled, Zernio, Sentry, SerpAPI, and Google Maps Platform.',
-          'The current sub-processor list is mirrored in docs/legal/sub-processors.md and published at /legal/sub-processors.',
+          'The current sub-processor list is published at /legal/sub-processors.',
         ],
       },
       {
@@ -145,7 +145,7 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
       },
       {
         heading: 'Contact',
-        body: ['RepWorth', 'Email: info@repworth.net', 'Website: repworth.net'],
+        body: ['RepWorth', 'Email: support@repworth.net', 'Website: repworth.net'],
       },
     ],
   },
@@ -227,7 +227,7 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
       {
         heading: 'Your Rights',
         body: [
-          'You may request access to, correction of, or deletion of your personal data, including mobile number and notification opt-in status, by emailing info@repworth.net.',
+          'You may request access to, correction of, or deletion of your personal data, including mobile number and notification opt-in status, by emailing support@repworth.net.',
         ],
       },
       {
@@ -238,7 +238,7 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
       },
       {
         heading: 'Contact',
-        body: ['RepWorth', 'Email: info@repworth.net', 'Website: repworth.net'],
+        body: ['RepWorth', 'Email: support@repworth.net', 'Website: repworth.net'],
       },
     ],
   },

@@ -16,7 +16,7 @@ export async function POST(
     request,
     token,
     'approve',
-    { success: true, message: "Response approved! We'll post it to Google shortly." },
+    { success: true, message: 'Approved — posting to Google has started.' },
     ({ tx, link, deviceCookieHash, audit, correlationId }) => (
       approve(tx, link, deviceCookieHash, audit, correlationId)
     ),

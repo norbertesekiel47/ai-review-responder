@@ -42,13 +42,14 @@ describe('FinishSignupClient', () => {
     expect(name!.className).toContain('text-base');
   });
 
-  it('announces a submission error via an assertive live region', async () => {
+  it('maps a server error code to curated copy and announces it once (assertive live region)', async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({
         ok: false,
-        json: async () => ({ message: 'Submission failed' }),
+        // Raw machine code from the route — must NOT reach the UI verbatim.
+        json: async () => ({ error: 'invalid_body' }),
       })) as unknown as typeof fetch,
     );
 
@@ -56,7 +57,31 @@ describe('FinishSignupClient', () => {
     await user.click(screen.getByRole('button', { name: /continue/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent('Submission failed');
+      // Exactly one announcing region (the assertive LiveRegion); the visible
+      // copy is aria-hidden, so no double announcement.
+      const alert = screen.getByRole('alert');
+      expect(alert).toHaveTextContent(/some details don't look right/i);
+      expect(alert.textContent).not.toContain('invalid_body');
+    });
+  });
+
+  it('never renders a raw machine error code, even for an unknown code', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        json: async () => ({ error: 'token_expired' }),
+      })) as unknown as typeof fetch,
+    );
+
+    render(<FinishSignupClient defaultEmail="owner@example.com" defaultName="Owner" />);
+    await user.click(screen.getByRole('button', { name: /continue/i }));
+
+    await waitFor(() => {
+      const alert = screen.getByRole('alert');
+      expect(alert.textContent).not.toContain('token_expired');
+      expect(alert).toHaveTextContent(/something went wrong/i);
     });
   });
 });
