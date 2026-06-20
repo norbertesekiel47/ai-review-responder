@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
+import { SiteFooter } from '@/components/ui/SiteFooter';
 import type { LegalDoc } from '@/lib/legal/content';
 
 const CROSS_LINKS: ReadonlyArray<{ label: string; href: string }> = [
@@ -163,6 +164,7 @@ export function LegalPage({ doc }: { doc: LegalDoc }) {
           </div>
         </article>
       </main>
+      <SiteFooter />
     </PageShell>
   );
 }

@@ -9,6 +9,7 @@ import {
   authLabelClass,
   authPrimaryButtonClass,
 } from './AuthCardShell';
+import { fetchWithTimeout } from './shared/fetchWithTimeout';
 
 type FormState = {
   ownerName: string;
@@ -66,7 +67,7 @@ export function FinishSignupClient({
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/finish-signup', {
+      const res = await fetchWithTimeout('/api/auth/finish-signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({

@@ -8,6 +8,8 @@ import {
   isEmailNotConfirmedError,
   mapSupabaseAuthError,
 } from '@/components/auth/shared/mapLoginError';
+import { CHECK_EMAIL_EMAIL_KEY } from '@/components/auth/shared/prefillEmail';
+import { fetchWithTimeout } from '@/components/auth/shared/fetchWithTimeout';
 import {
   applySubscriptionGuard,
   resolvePostLoginDestination,
@@ -45,7 +47,7 @@ export function useLoginSubmit({
     setError('');
     setLoading(true);
     try {
-      const attemptLimit = await fetch('/api/auth/login-attempt', {
+      const attemptLimit = await fetchWithTimeout('/api/auth/login-attempt', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email }),
@@ -67,11 +69,14 @@ export function useLoginSubmit({
 
       if (authError) {
         if (isEmailNotConfirmedError(authError.message)) {
-          // The check-email page (CheckEmailClient) reads the email from the
-          // ?email= query param to POST verify/resend, so it must travel in the
-          // URL here. Routing it via sessionStorage would require teaching that
-          // page to read PREFILL_EMAIL_KEY first — out of scope for this island.
-          router.push(`/signup/check-email?from=login&email=${encodeURIComponent(email)}`);
+          // Hand the email to the check-email page via sessionStorage, NOT the
+          // URL, so it never lands in browser history, the Referer header, or
+          // server access logs. CheckEmailClient reads CHECK_EMAIL_EMAIL_KEY
+          // when no ?email= param is present.
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem(CHECK_EMAIL_EMAIL_KEY, email);
+          }
+          router.push('/signup/check-email?from=login');
           return;
         }
         setError(mapSupabaseAuthError(authError.message));
@@ -117,7 +122,7 @@ export function useLoginSubmit({
       let destinationOverride: string | null = null;
       if (portal === 'owner') {
         try {
-          const statusRes = await fetch('/api/auth/signup-status');
+          const statusRes = await fetchWithTimeout('/api/auth/signup-status');
           if (statusRes.ok) {
             const status = (await statusRes.json()) as SignupStatusPayload;
             destinationOverride = applySubscriptionGuard(portal, status, from);

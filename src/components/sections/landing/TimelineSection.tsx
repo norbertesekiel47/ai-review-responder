@@ -27,6 +27,10 @@ const CLOCK_REVIEWS = [
 ];
 
 const ang = (h: number) => (h / 24) * Math.PI * 2 - Math.PI / 2;
+// Round trig-derived SVG coordinates to a stable precision so the SSR output
+// matches the client's — Math.cos/sin can differ in the last ULP between Node
+// and browser V8, which otherwise trips a hydration mismatch on the clock.
+const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
 // Polar→cartesian projection onto the clock face, and elapsed-hours-since
 // helpers. They close over the face center / current time in HourClock, so the
@@ -40,10 +44,10 @@ function ClockTicks({ c, rOuter }: { c: number; rOuter: number }) {
       {Array.from({ length: 24 }).map((_, i) => {
         const a = ang(i);
         const major = i % 6 === 0;
-        const x1 = c + Math.cos(a) * (rOuter - 4);
-        const y1 = c + Math.sin(a) * (rOuter - 4);
-        const x2 = c + Math.cos(a) * (rOuter - (major ? 16 : 8));
-        const y2 = c + Math.sin(a) * (rOuter - (major ? 16 : 8));
+        const x1 = round3(c + Math.cos(a) * (rOuter - 4));
+        const y1 = round3(c + Math.sin(a) * (rOuter - 4));
+        const x2 = round3(c + Math.cos(a) * (rOuter - (major ? 16 : 8)));
+        const y2 = round3(c + Math.sin(a) * (rOuter - (major ? 16 : 8)));
         return (
           <line
             key={i}
@@ -221,8 +225,8 @@ function HourClock({ speed = 1.5 }: { speed?: number }) {
   const rOwn = c - 128;
 
   const pt = (h: number, r: number) => ({
-    x: c + Math.cos(ang(h)) * r,
-    y: c + Math.sin(ang(h)) * r,
+    x: round3(c + Math.cos(ang(h)) * r),
+    y: round3(c + Math.sin(ang(h)) * r),
   });
 
   const since = (h: number) => {

@@ -284,6 +284,9 @@ function HeroSection({
               {i < 2 && <span className="rw-hero-metric-underline" />}
             </div>
           ))}
+          <p className="text-[10px] italic text-[#6a6a6a] pt-1">
+            Illustrative targets, not live performance data.
+          </p>
         </div>
       </div>
 
@@ -463,7 +466,7 @@ export function FeaturesContent({
           <section
             aria-label="Call to action"
             className="px-8 md:px-16 py-24 text-center relative overflow-hidden"
-            style={{ background: 'linear-gradient(135deg, #97B3AE, rgba(151,179,174,0.82))' }}
+            style={{ background: 'linear-gradient(135deg, #557069, #46645d)' }}
           >
             <svg
               className="absolute -top-20 -left-20 size-80 opacity-20"

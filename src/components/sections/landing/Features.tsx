@@ -99,11 +99,17 @@ function BrandRingsVis() {
         <g className="rw-br-marks">
           {[0, 1, 2, 3, 4, 5].map((i) => {
             const a = (i / 6) * Math.PI * 2;
+            // Round to 3 decimals so the SSR-serialized coordinate matches the
+            // client's: Math.cos/sin can differ in the last ULP between the
+            // server (Node) and browser V8, which otherwise trips a hydration
+            // mismatch on these decorative ring marks.
+            const cx = Math.round(Math.cos(a) * 32 * 1000) / 1000;
+            const cy = Math.round(Math.sin(a) * 32 * 1000) / 1000;
             return (
               <circle
                 key={i}
-                cx={Math.cos(a) * 32}
-                cy={Math.sin(a) * 32}
+                cx={cx}
+                cy={cy}
                 r="1.6"
                 fill="var(--card-accent)"
               />

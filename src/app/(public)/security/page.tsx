@@ -49,8 +49,8 @@ export default function SecurityPage() {
               <li>Customer-facing posting requires explicit owner approval.</li>
               <li>
                 Tenant access is enforced in application code — every owner read and write is
-                scoped to your account and location. Row-level security additionally guards
-                specific admin-only tables.
+                scoped to your account and location. Row-level security policies are additionally
+                enabled on protected database tables as a defense-in-depth backstop.
               </li>
               <li>
                 Likely protected health information (PHI) in imported review text is blocked

@@ -10,6 +10,7 @@ import {
   authPrimaryButtonClass,
 } from './AuthCardShell';
 import { LiveRegion } from '@/components/ui/LiveRegion';
+import { fetchWithTimeout } from '@/components/auth/shared/fetchWithTimeout';
 
 // Single owner for the sent-state copy: used by both variants and the
 // LiveRegion so the text can never drift between them.
@@ -105,7 +106,7 @@ export function ForgotPasswordFormClient({
 
   async function sendResetEmail() {
     try {
-      await fetch('/api/auth/forgot-password', {
+      await fetchWithTimeout('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({

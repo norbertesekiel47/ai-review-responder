@@ -12,6 +12,7 @@ import {
   authPrimaryButtonClass,
 } from './AuthCardShell';
 import { LiveRegion } from '@/components/ui/LiveRegion';
+import { fetchWithTimeout } from '@/components/auth/shared/fetchWithTimeout';
 import { MIN_PASSWORD_LENGTH } from '@/lib/shared/schemas';
 
 export interface ResetPasswordFormProps {
@@ -195,7 +196,7 @@ export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordForm
     }
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/reset-password', {
+      const res = await fetchWithTimeout('/api/auth/reset-password', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ password }),

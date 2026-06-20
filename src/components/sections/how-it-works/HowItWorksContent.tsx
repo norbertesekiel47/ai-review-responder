@@ -392,9 +392,9 @@ const STEPS = [
     tick: 'T + 0:00',
     kicker: 'Monitor',
     title: "We watch your reviews so you don't have to.",
-    sub: "A worker checks your Google Business Profile every ~60 minutes. New reviews are detected, deduplicated against what we've seen, and queued for drafting right away.",
+    sub: "We're notified the moment a new review is posted via a provider webhook, with a safety-net check every ~5 minutes as backup. New reviews are deduplicated against what we've seen and queued for drafting right away.",
     bullets: [
-      'Polls your profile and reacts the moment a new review appears',
+      'Reacts in near-real-time via webhook, with a ~5-minute safety-net poll',
       'Multi-location businesses handled out of the box',
       'Star rating, reviewer name, and full text captured',
     ],
@@ -445,7 +445,7 @@ const STEPS = [
 ];
 
 const HOOD = [
-  { color: '#D2E0D3', title: 'Poll worker', sub: 'Checks your Google Business Profile every ~60 minutes.', tech: 'BullMQ · cron', glyph: '⏱' },
+  { color: '#D2E0D3', title: 'Review ingest', sub: 'Reacts to a provider webhook in near-real-time; a safety-net poll runs every ~5 minutes.', tech: 'webhook · BullMQ', glyph: '⏱' },
   { color: '#F0DDD6', title: 'Voice model', sub: 'Drafts a reply in your voice, sourced from past replies.', tech: 'LLM · tuned', glyph: '✎' },
   { color: '#F2C3B9', title: 'Approval email', sub: 'One-tap signed link, no password needed.', tech: 'Resend · HMAC', glyph: '✉' },
   { color: '#D6CBBF', title: 'Post back', sub: 'Submits the approved reply to Google on your behalf.', tech: 'Business API', glyph: '↗' },
@@ -493,7 +493,7 @@ const FAQ_ITEMS = [
 
 const OVERVIEW = [
   {
-    n: '01', title: 'Monitor', time: 'every ~60 min', color: '#D2E0D3',
+    n: '01', title: 'Monitor', time: 'near real-time', color: '#D2E0D3',
     glyph: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <circle cx="12" cy="12" r="9" />
@@ -597,8 +597,8 @@ export function HowItWorksContent({
             </p>
             <div className="hiw-hero-meta">
               <div className="hiw-hero-meta-item">
-                <span className="hiw-hero-meta-val">~60 min</span>
-                <span className="hiw-hero-meta-lbl">poll interval</span>
+                <span className="hiw-hero-meta-val">~5 min</span>
+                <span className="hiw-hero-meta-lbl">safety-net poll</span>
               </div>
               <div className="hiw-hero-meta-item">
                 <span className="hiw-hero-meta-val">30 sec</span>
@@ -642,6 +642,9 @@ export function HowItWorksContent({
             <div className="hiw-section-head">
               <p className="hiw-eyebrow">The four steps</p>
               <h2 className="hiw-h2">From new review to posted reply.</h2>
+              <p style={{ marginTop: 8, fontSize: 14, fontStyle: 'italic', color: '#6a6a6a' }}>
+                Sample walkthrough — illustrative reviews and business, not real customers.
+              </p>
             </div>
             {STEPS.map((s) => (
               <Reveal key={s.num}>

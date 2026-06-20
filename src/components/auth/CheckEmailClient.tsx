@@ -1,10 +1,12 @@
 'use client';
 
-import { Suspense, useEffect, useReducer, useRef } from 'react';
+import { Suspense, useEffect, useReducer, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { redirectAfterServerSessionCookie } from './CheckEmailClient.helpers';
 import { AuthCardShell, authFieldClass, authPrimaryButtonClass } from './AuthCardShell';
+import { CHECK_EMAIL_EMAIL_KEY } from './shared/prefillEmail';
+import { fetchWithTimeout } from './shared/fetchWithTimeout';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { EMAIL_OTP_LENGTH, EMAIL_OTP_PATTERN } from '@/lib/shared/schemas';
 
@@ -81,7 +83,28 @@ export function CheckEmailClient() {
 function CheckEmailInner() {
   const searchParams = useSearchParams();
   const fromLogin = searchParams.get('from') === 'login';
-  const email = (searchParams.get('email') ?? '').trim().toLowerCase();
+  // Email source precedence: an explicit ?email= param (server signup/pay
+  // redirects, which can't write sessionStorage) wins; otherwise fall back to
+  // sessionStorage, which the client login path uses so the email never leaks
+  // into the URL/history/referrer/logs.
+  const paramEmail = (searchParams.get('email') ?? '').trim().toLowerCase();
+  const [email, setEmail] = useState(paramEmail);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (paramEmail) {
+      sessionStorage.removeItem(CHECK_EMAIL_EMAIL_KEY);
+      return;
+    }
+    const stored = sessionStorage.getItem(CHECK_EMAIL_EMAIL_KEY);
+    if (stored) {
+      // sessionStorage is browser-only (undefined during SSR), so this read
+      // can't be a lazy initializer — it must happen in an effect (same pattern
+      // as LoginForm's PREFILL_EMAIL_KEY handoff).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setEmail(stored.trim().toLowerCase());
+      sessionStorage.removeItem(CHECK_EMAIL_EMAIL_KEY);
+    }
+  }, [paramEmail]);
 
   const [state, dispatch] = useReducer(checkEmailReducer, initialCheckEmailState);
   const { code, verifying, verifyError, resendLoading, resendSent, resendError, resendCooldown } =
@@ -115,7 +138,7 @@ function CheckEmailInner() {
     }
     dispatch({ type: 'setVerifying', verifying: true });
     try {
-      const res = await fetch('/api/auth/verify-otp', {
+      const res = await fetchWithTimeout('/api/auth/verify-otp', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email, token: code.trim() }),
@@ -161,7 +184,7 @@ function CheckEmailInner() {
     }
     dispatch({ type: 'resendStart' });
     try {
-      const res = await fetch('/api/auth/resend-confirmation', {
+      const res = await fetchWithTimeout('/api/auth/resend-confirmation', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email, flow: 'owner' }),
