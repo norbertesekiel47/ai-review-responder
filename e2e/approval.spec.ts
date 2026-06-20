@@ -21,11 +21,15 @@ test.describe('Approval flow E2E', () => {
 
       await page.goto(`/approve/${data.rawToken}`);
 
-      // Wait for the approval client to load and render buttons
-      const approveBtn = page.getByRole('button', { name: 'Approve' });
+      // Two-step confirm guard (posting to Google is irreversible): first tap
+      // arms, the morphed button posts.
+      const approveBtn = page.getByRole('button', { name: 'Approve & post to Google' });
       await expect(approveBtn).toBeVisible({ timeout: 10_000 });
-
       await approveBtn.click();
+
+      const confirmBtn = page.getByRole('button', { name: 'Tap again to post to Google' });
+      await expect(confirmBtn).toBeVisible({ timeout: 5_000 });
+      await confirmBtn.click();
 
       // Success message appears
       await expect(page.getByRole('heading', { name: 'Response approved!' })).toBeVisible({ timeout: 5_000 });
@@ -43,7 +47,7 @@ test.describe('Approval flow E2E', () => {
   });
 
   // ── b. Edit flow ────────────────────────────────────────────────────
-  test('edit: modify text → Save & Approve → edited_text stored with edit_distance', async ({ page }) => {
+  test('edit: modify text → Save & post to Google → edited_text stored with edit_distance', async ({ page }) => {
     let data: SeedData | undefined;
     try {
       data = await seedApprovalFlow();
@@ -62,9 +66,13 @@ test.describe('Approval flow E2E', () => {
       await expect(textarea).toBeVisible();
       await textarea.fill('Modified response text for E2E test');
 
-      // Click Save & Approve
-      const saveBtn = page.getByRole('button', { name: 'Save & Approve' });
+      // Two-step confirm guard also wraps the edit path (Save & post → arm → post).
+      const saveBtn = page.getByRole('button', { name: 'Save & post to Google' });
       await saveBtn.click();
+
+      const confirmBtn = page.getByRole('button', { name: 'Tap again to post to Google' });
+      await expect(confirmBtn).toBeVisible({ timeout: 5_000 });
+      await confirmBtn.click();
 
       // Success message
       await expect(page.getByRole('heading', { name: 'Response approved!' })).toBeVisible({ timeout: 5_000 });
@@ -142,9 +150,10 @@ test.describe('Approval flow E2E', () => {
 
       await page.goto(`/approve/${data.rawToken}`);
 
-      // Server renders error page for consumed links
+      // Server renders error page for consumed links. Consumed can come from
+      // approve/edit/regenerate, so the copy is the neutral "already been used".
       await expect(
-        page.getByText('already been approved', { exact: false }),
+        page.getByText('already been used', { exact: false }),
       ).toBeVisible({ timeout: 5_000 });
     } finally {
       if (data) await cleanupApprovalFlow(data);
