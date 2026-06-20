@@ -135,7 +135,7 @@ async function createBillingPortal(req: NextRequest): Promise<NextResponse> {
     const session = await stripe.billingPortal.sessions.create({
       customer: account.stripe_customer_id,
       configuration: configurationId,
-      return_url: `${baseUrl}/settings`,
+      return_url: `${baseUrl}/settings/billing`,
     });
 
     return NextResponse.json(

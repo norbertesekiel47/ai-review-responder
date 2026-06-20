@@ -1,11 +1,9 @@
 'use client';
 
 import { Icon } from '@/components/dashboard/shell/Icon';
-import { SettingsTabs, type SettingsTab } from '@/components/dashboard/shell/SettingsTabs';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 
 interface Props {
-  activeTab: SettingsTab;
   children: React.ReactNode;
   saveBar?: {
     visible: boolean;
@@ -17,28 +15,11 @@ interface Props {
   savedFlash?: boolean;
   /** Latest save-error message; announced assertively to screen readers. */
   saveError?: string;
-  /** When true, exposes the Locations tab without switching to true multi-location content mode. */
-  locationsSettingsEnabled?: boolean;
-  /** When true, shows 4-tab layout (Account, Locations, Voice, Notifications). */
-  multiLocationEnabled?: boolean;
 }
 
-export function SettingsShell({
-  activeTab,
-  children,
-  saveBar,
-  savedFlash,
-  saveError,
-  locationsSettingsEnabled,
-  multiLocationEnabled,
-}: Props) {
+export function SettingsShell({ children, saveBar, savedFlash, saveError }: Props) {
   return (
     <div className="settings-content">
-      <SettingsTabs
-        activeTab={activeTab}
-        locationsSettingsEnabled={locationsSettingsEnabled}
-        multiLocationEnabled={multiLocationEnabled}
-      />
       {children}
 
       {/* Conditional render rather than CSS-toggle — keeps a clean DOM

@@ -92,7 +92,6 @@
       "src/app/api/account/offboarding/retry-billing/route.ts",
       "src/app/admin/offboardings/OffboardingsClient.tsx",
       "src/app/api/admin/offboardings/*/provider-disposition/route.ts",
-      "src/components/dashboard/settings/AccountOffboardingPanel.tsx",
       "src/components/dashboard/settings/DeleteDataOffboardingModal.tsx",
       "src/components/dashboard/DashboardContent.tsx",
       "src/app/(authenticated)/account/offboarding/status/OffboardingStatusClient.tsx",
@@ -123,7 +122,6 @@
       "src/app/api/admin/impersonation/start/route.ts",
       "src/app/api/admin/businesses/*/zernio-queue/route.ts",
       "src/components/admin/AdminNav.tsx",
-      "src/components/dashboard/settings/AccountPanel.tsx",
       "src/hooks/useAccountData.ts",
       "src/lib/admin/business-detail/mappers.ts",
       "worker/ingress/telegram/telegram-shared.ts",
@@ -217,7 +215,40 @@
       // entry here, so future complexity growth in that production file is
       // NOT masked.)
       "e2e/seed.ts",
-      "e2e/fixtures/zernio-fixture-server.ts"
+      "e2e/fixtures/zernio-fixture-server.ts",
+
+      // ── Settings IA optimization (sidebar nav + Brand Voice/Profile/Billing
+      //    routes; offboarding split by category) ──
+      // NEW components that are faithful splits/relocations of code already
+      // acknowledged on main: CancelSubscriptionPanel + DeleteDataPanel are the
+      // two halves of the (previously-acknowledged) AccountOffboardingPanel,
+      // BillingPanel is the subscription/tier-change section relocated VERBATIM
+      // from the (previously-acknowledged) AccountPanel, and ProfilePanel is the
+      // locked-field markup lifted from GeneralPanel. The split REDUCED per-file
+      // size vs the ~340-line combined panel; the residual length is
+      // presentational JSX (TierChangeModal) + the inherent one-active-mode
+      // offboarding state machine. useOffboardingStatus.load is a 15-line fetch
+      // whose cyclomatic count is `??` fallback chains, not real branches.
+      // Acknowledged as separate refactor work; cleanup candidates post-launch.
+      "src/components/dashboard/settings/CancelSubscriptionPanel.tsx",
+      "src/components/dashboard/settings/DeleteDataPanel.tsx",
+      "src/components/dashboard/settings/BillingPanel.tsx",
+      "src/components/dashboard/settings/ProfilePanel.tsx",
+      "src/hooks/useOffboardingStatus.ts",
+      // Pre-existing complexity swept into changed-file scope by this PR's
+      // mechanical touches — the flagged functions predate the branch and were
+      // NOT grown by it: AutoApprovalClient (208) / ChannelsTabClient (170) /
+      // VoiceClient (82) / channels page (85) only had the dead SettingsShell
+      // tab-props removed; locations page (111) only had voiceHref + the two
+      // stale-anchor ctaHrefs repointed; the account/settings GET (80) was a
+      // comment-only edit. Refactoring these live flows for a prop/anchor/comment
+      // change is unjustified risk; cleanup candidates post-launch.
+      "src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx",
+      "src/app/(authenticated)/settings/channels/ChannelsTabClient.tsx",
+      "src/app/(authenticated)/settings/channels/page.tsx",
+      "src/app/(authenticated)/settings/locations/page.tsx",
+      "src/app/(authenticated)/settings/voice/VoiceClient.tsx",
+      "src/app/api/account/settings/route.ts"
     ]
   },
   "duplicates": {
@@ -329,13 +360,16 @@
       "src/app/api/auth/reset-password/route.ts",
       "src/components/auth/auth-island/SignupForm.tsx",
 
-      // Settings page client vs channels-tab client: both render the
-      // standardized fetchError fallback (SettingsShell + error set-section),
-      // but the shells take different tab wiring and children (the channels
-      // tab keeps the org-default ChannelsClient above the error card) and the
-      // copy differs per surface. The only truly shared piece is a 4-line
-      // styled div — extracting it would be a thin pass-through component.
-      "src/app/(authenticated)/settings/SettingsClient.tsx",
+      // Settings danger-zone panels (CancelSubscription on Billing, DeleteData on
+      // Profile) + the channels-tab client: all render the standardized loadError /
+      // disabled-guard fallback (a ~4-line styled set-section div) off the shared
+      // useOffboardingStatus hook. The Cancel/Delete pair are the deliberately-
+      // parallel halves of the former AccountOffboardingPanel, split across the
+      // Billing vs Profile routes; the copy + surrounding surface differ per panel,
+      // and extracting the shared scaffold would be the thin pass-through component
+      // the design rules reject. Acknowledged; cleanup candidates post-launch.
+      "src/components/dashboard/settings/CancelSubscriptionPanel.tsx",
+      "src/components/dashboard/settings/DeleteDataPanel.tsx",
       "src/app/(authenticated)/settings/channels/ChannelsTabClient.tsx",
 
       // Dashboard data hooks + approval client: SWR/fetch boilerplate; forcing a
@@ -410,8 +444,6 @@
       "src/app/api/locations/add/route.ts",
       "src/app/api/locations/reactivate/route.ts",
       "src/components/dashboard/DashboardContent.tsx",
-      "src/components/dashboard/settings/AccountPanel.tsx",
-      "src/components/dashboard/settings/GeneralPanel.tsx",
       "src/lib/account-offboarding/confirm.ts",
       "src/lib/account-offboarding/email-dedup.ts",
       "src/lib/auth/require-owner-access.ts",
@@ -447,7 +479,6 @@
       "src/lib/zernio/connect-session-cookie.ts",
       "src/app/api/billing/checkout/route.ts",
       "src/app/api/billing/tier-change/route.ts",
-      "src/components/dashboard/settings/AccountOffboardingPanel.tsx",
       "src/components/dashboard/settings/DeleteDataOffboardingModal.tsx",
       "src/app/(authenticated)/layout.tsx",
       "src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx",

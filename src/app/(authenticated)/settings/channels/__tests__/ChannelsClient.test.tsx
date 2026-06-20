@@ -5,7 +5,6 @@ import { ChannelsClient, type InitialEnrollment } from '../ChannelsClient';
 
 // The owner Telegram/WhatsApp widgets fetch status on mount. Stub them so we
 // can freely flip telegram/whatsapp availability without network activity.
-// (Same vi.mock-with-JSX pattern as SettingsClient.test.tsx.)
 vi.mock('@/components/dashboard/channels/OwnerTelegramWidget', () => ({
   OwnerTelegramWidget: () => <div data-testid="telegram-widget" />,
 }));

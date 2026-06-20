@@ -2,11 +2,10 @@
 
 import { useReducer, useState } from 'react';
 import { Icon } from '@/components/dashboard/shell/Icon';
-import { useAccountData, type AccountSettingsData } from '@/hooks/useAccountData';
-import type { DashboardDataActive } from '@/lib/dashboard/types';
-import { SubscriptionTier, type SubscriptionTierValue, TIER_CONFIG } from '@/lib/accounts/tier-config';
+import type { AccountSettingsData } from '@/hooks/useAccountData';
+import { type SubscriptionTierValue, TIER_CONFIG } from '@/lib/accounts/tier-config';
 import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
-import { AccountOffboardingPanel } from '@/components/dashboard/settings/AccountOffboardingPanel';
+import { CancelSubscriptionPanel } from '@/components/dashboard/settings/CancelSubscriptionPanel';
 
 const TIER_OPTIONS: SubscriptionTierValue[] = ['basic', 'standard', 'premium', 'founders'];
 
@@ -105,7 +104,6 @@ export function TierChangeModal({
   onCancel,
   changing,
 }: TierChangeModalProps) {
-  const newConfig = TIER_CONFIG[newTier];
   const isDowngrade = TIER_CONFIG[newTier].baseCents < TIER_CONFIG[currentTier].baseCents;
 
   return (
@@ -275,7 +273,6 @@ function PlanCard({ subscription, billing, accountId }: {
 
   const basePrice = (billing.basePriceCents / 100).toFixed(2);
   const overagePrice = billing.overagePriceCents > 0 ? (billing.overagePriceCents / 100).toFixed(2) : null;
-  const totalPrice = (billing.totalCents / 100).toFixed(2);
 
   return (
     <div className="plan-card">
@@ -314,56 +311,35 @@ function PlanCard({ subscription, billing, accountId }: {
   );
 }
 
-// ── AccountPanel ──────────────────────────────────────────────────────
+// ── BillingPanel ──────────────────────────────────────────────────────
 
 interface Props {
-  data: DashboardDataActive;
   accountData: AccountSettingsData | null;
   accountLoading: boolean;
   accountError: string | null;
   onAccountRefetch: () => void;
 }
 
-export function AccountPanel({ data, accountData, accountLoading, accountError, onAccountRefetch }: Props) {
-  const [copied, setCopied] = useState(false);
-
-  // Tier change modal state
+export function BillingPanel({ accountData, accountLoading, accountError, onAccountRefetch }: Props) {
   const [tierChange, dispatch] = useReducer(tierChangeReducer, initialTierChangeState);
   const { selectedTier, billingPreview, previewLoading, previewError, changing, tierChangeError } = tierChange;
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(data.settings.googlePlaceId);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // ignore
-    }
-  };
 
   async function openTierChangeModal(newTier: SubscriptionTierValue) {
     if (!accountData) return;
     dispatch({ type: 'previewStart', selectedTier: newTier });
-
     try {
       const res = await fetch('/api/billing/tier-change', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accountId: accountData.accountId, newTier, preview: true }),
       });
-
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        // If validation fails (e.g., same_tier, subscription_inactive), still open modal to show error
         dispatch({ type: 'previewError', previewError: body.error ?? body.detail ?? `Tier change not allowed (${res.status})` });
         dispatch({ type: 'previewFinish' });
         return;
       }
-
       const result = await res.json();
-      // The validation endpoint returns the preview but doesn't actually change the tier
-      // We need to call a separate validate endpoint — but for simplicity,
-      // we use the validation result from tier-change to preview
       dispatch({ type: 'previewSuccess', billingPreview: result.newBilling ?? null });
     } catch (err) {
       dispatch({ type: 'previewError', previewError: err instanceof Error ? err.message : 'Failed to preview tier change' });
@@ -375,23 +351,16 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
   async function confirmTierChange() {
     if (!accountData || !selectedTier) return;
     dispatch({ type: 'confirmStart' });
-
     try {
       const res = await fetch('/api/billing/tier-change', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Idempotency-Key': crypto.randomUUID(),
-        },
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
         body: JSON.stringify({ accountId: accountData.accountId, newTier: selectedTier }),
       });
-
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? body.detail ?? 'Tier change failed');
       }
-
-      // Success — close modal and refetch
       dispatch({ type: 'confirmSuccess' });
       onAccountRefetch();
     } catch (err) {
@@ -401,7 +370,6 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
     }
   }
 
-  // Available tier options for the current account
   const currentTier = (accountData?.subscription?.tier ?? 'standard') as SubscriptionTierValue;
   const otherTiers = TIER_OPTIONS.filter((t) => t !== currentTier);
   const upgradableTiers = otherTiers.filter((t) => TIER_CONFIG[t].baseCents > TIER_CONFIG[currentTier].baseCents);
@@ -409,61 +377,6 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
 
   return (
     <>
-      {/* Business profile — reused from GeneralPanel */}
-      <div className="set-section">
-        <div className="set-section-head">
-          <div className="set-section-icon blue">
-            <Icon name="home" size={18} />
-          </div>
-          <div>
-            <div className="set-section-title">Business profile</div>
-            <div className="set-section-sub">
-              Identity details from your Google listing. Reach out to support to update locked fields.
-            </div>
-          </div>
-        </div>
-
-        <div className="two-col">
-          <div className="field">
-            <label className="field-label" htmlFor="account-business-name">
-              Business name <span className="locked-pill">Locked</span>
-            </label>
-            <input id="account-business-name" className="input locked" value={data.business.name} disabled readOnly />
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="account-business-category">
-              Category <span className="locked-pill">Locked</span>
-            </label>
-            <input id="account-business-category" className="input locked" value={data.settings.category} disabled readOnly />
-          </div>
-        </div>
-        <div className="field">
-          <label className="field-label" htmlFor="account-google-place-id">
-            Google Place ID <span className="locked-pill">Locked</span>
-          </label>
-          <div className="copy-row">
-            <input
-              id="account-google-place-id"
-              className="input locked"
-              value={data.settings.googlePlaceId}
-              disabled
-              readOnly
-              style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12 }}
-            />
-            <button type="button" className={`copy-btn ${copied ? 'copied' : ''}`} onClick={copy}>
-              {copied ? (
-                <>
-                  <Icon name="check" size={12} /> Copied
-                </>
-              ) : (
-                <>📋 Copy</>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Subscription & Billing section */}
       <div id="subscription-billing" className="set-section">
         <div className="set-section-head">
           <div className="set-section-icon violet">
@@ -471,87 +384,45 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
           </div>
           <div>
             <div className="set-section-title">Subscription &amp; billing</div>
-            <div className="set-section-sub">
-              Your plan, billing details, and location quota.
-            </div>
+            <div className="set-section-sub">Your plan, billing details, and location quota.</div>
           </div>
         </div>
 
         {accountLoading && (
           <p style={{ textAlign: 'center', color: 'var(--rw-app-text-muted)', padding: '24px 0' }}>Loading account data…</p>
         )}
-        {accountError && (
-          <div style={{ fontSize: 13, color: 'var(--rw-danger)', padding: '8px 0' }}>
-            {accountError}
-          </div>
-        )}
+        {accountError && <div style={{ fontSize: 13, color: 'var(--rw-danger)', padding: '8px 0' }}>{accountError}</div>}
         {accountData && (
           <>
             <PlanCard subscription={accountData.subscription} billing={accountData.billing} accountId={accountData.accountId} />
 
-            {/* Locations quota */}
             <div style={{ marginTop: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--rw-app-text)', marginBottom: 8 }}>
-                Locations quota
-              </div>
-              <QuotaBar
-                activeLocations={accountData.quota.activeLocations}
-                included={accountData.quota.included}
-                overage={accountData.quota.overage}
-              />
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--rw-app-text)', marginBottom: 8 }}>Locations quota</div>
+              <QuotaBar activeLocations={accountData.quota.activeLocations} included={accountData.quota.included} overage={accountData.quota.overage} />
             </div>
 
-            {/* VAL-BILLING-073: Tier change buttons with confirmation modal */}
             <div style={{ marginTop: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--rw-app-text)', marginBottom: 8 }}>
-                Change plan
-              </div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--rw-app-text)', marginBottom: 8 }}>Change plan</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {downgradableTiers.map((tier) => {
-                  const cfg = TIER_CONFIG[tier];
-                  return (
-                    <button
-                      key={tier}
-                      type="button"
-                      className="btn btn-secondary"
-                      style={{ fontSize: 12, padding: '6px 12px' }}
-                      onClick={() => openTierChangeModal(tier)}
-                    >
-                      Downgrade to {tier.charAt(0).toUpperCase() + tier.slice(1)} (${(cfg.baseCents / 100).toFixed(0)}/mo)
-                    </button>
-                  );
-                })}
-                {upgradableTiers.map((tier) => {
-                  const cfg = TIER_CONFIG[tier];
-                  return (
-                    <button
-                      key={tier}
-                      type="button"
-                      className="btn btn-primary"
-                      style={{ fontSize: 12, padding: '6px 12px' }}
-                      onClick={() => openTierChangeModal(tier)}
-                    >
-                      Upgrade to {tier.charAt(0).toUpperCase() + tier.slice(1)} (${(cfg.baseCents / 100).toFixed(0)}/mo)
-                    </button>
-                  );
-                })}
+                {downgradableTiers.map((tier) => (
+                  <button key={tier} type="button" className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => openTierChangeModal(tier)}>
+                    Downgrade to {tier.charAt(0).toUpperCase() + tier.slice(1)} (${(TIER_CONFIG[tier].baseCents / 100).toFixed(0)}/mo)
+                  </button>
+                ))}
+                {upgradableTiers.map((tier) => (
+                  <button key={tier} type="button" className="btn btn-primary" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => openTierChangeModal(tier)}>
+                    Upgrade to {tier.charAt(0).toUpperCase() + tier.slice(1)} (${(TIER_CONFIG[tier].baseCents / 100).toFixed(0)}/mo)
+                  </button>
+                ))}
               </div>
-              {tierChangeError && (
-                <div style={{ fontSize: 12, color: 'var(--rw-danger)', marginTop: 4 }}>
-                  {tierChangeError}
-                </div>
-              )}
+              {tierChangeError && <div style={{ fontSize: 12, color: 'var(--rw-danger)', marginTop: 4 }}>{tierChangeError}</div>}
             </div>
           </>
         )}
       </div>
 
-      <AccountOffboardingPanel
-        accountTimeZone={accountData?.timeZone ?? 'UTC'}
-        onAccountRefetch={onAccountRefetch}
-      />
+      <CancelSubscriptionPanel accountTimeZone={accountData?.timeZone ?? 'UTC'} onAccountRefetch={onAccountRefetch} />
 
-      {/* Tier change confirmation modal */}
       {selectedTier && accountData && (
         <TierChangeModal
           currentTier={currentTier}

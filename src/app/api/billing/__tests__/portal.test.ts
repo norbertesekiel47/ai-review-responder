@@ -229,7 +229,7 @@ describe('POST /api/billing/portal', () => {
     expect(mockPortalCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         customer: 'cus_test_123',
-        return_url: expect.stringContaining('/settings'),
+        return_url: expect.stringContaining('/settings/billing'),
       }),
     );
     // Verify it used the existing configuration
