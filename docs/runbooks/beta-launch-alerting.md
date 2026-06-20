@@ -26,25 +26,38 @@ worker will refuse to start without it. Alerts must reach a **non-email** channe
 because admin email shares the Resend provider with the product.
 
 - [ ] **`SENTRY_DSN` set** in the Railway worker env.
-- [ ] **Sentry alert rule → Slack (or PagerDuty)** for issues tagged
-  `subsystem:health_alert` at level `error` (P0/P1) and `warning` (P1/P2). The
+- [ ] **Install the Sentry → Discord integration** — Sentry → Settings →
+  Integrations → Discord → Add Installation → authorize → pick your server. Make
+  sure the Sentry bot can **View Channel + Send Messages** in the alert channel
+  (e.g. `#repworth-alerts`); copy the channel ID (Discord Developer Mode →
+  right-click the channel → Copy Channel ID — the Discord action targets a channel
+  by ID). _Native Discord integration needs a paid Sentry plan (Team+); on the
+  free tier, route via a Discord channel webhook instead._
+- [ ] **Sentry alert rule → Discord** for issues tagged `subsystem:health_alert`
+  at level `error` (P0/P1) and `warning` (P1/P2): _Then_ action → **Send a
+  notification to the Discord integration** → your server + channel. The
   HealthAlertPoller emits `captureMessage` with `tags.subsystem=health_alert` and
   `tags.finding=<key>`; the publisher failed-hook and crash net already
   `captureException` with tags.
-- [ ] **Cost-cap alert routed** — issues tagged `cost_event:limit_exceeded`
-  (emitted from `generate-draft.ts`) page the same channel.
+- [ ] **Cost-cap alert routed to Discord** — issues tagged
+  `cost_event:limit_exceeded` (emitted from `generate-draft.ts`) page the same
+  Discord channel.
 
 ## 2. External liveness — the probe cannot watch its own death
 
-- [ ] **Sentry Cron Monitor** with slug `health-alert-poller` (override via
-  `HEALTH_ALERT_MONITOR_SLUG`). The poller `captureCheckIn`s every cycle
-  (default 5 min, `HEALTH_ALERT_POLL_INTERVAL_MS`); configure the monitor's
-  expected interval + grace so a **missed** check-in pages (dead-man switch for
-  the probe / worker death).
+- [ ] **Sentry Cron Monitor** with slug `health-alert-poller` (must equal
+  `HEALTH_ALERT_MONITOR_SLUG`), schedule `*/5 * * * *` UTC, grace ~3–5 min. The
+  poller `captureCheckIn`s every cycle (default 5 min,
+  `HEALTH_ALERT_POLL_INTERVAL_MS`); route **missed/error** check-ins to the
+  **Discord** integration so a missed check-in pages (dead-man switch for the
+  probe / worker death).
 - [ ] **External synthetic check** (Better Stack / Checkly) hitting the deep
   `/ready` endpoint on **both** runtimes (worker `WORKER_PUBLIC_URL/ready`,
-  Next.js `/api/health/ready`), paging after 3 consecutive failures. Railway's
-  own healthcheck only hits the dependency-light `/api/health`.
+  Next.js `/api/health/ready`), paging after 3 consecutive failures **to the same
+  Discord channel** (Better Stack has a native Discord integration, or paste a
+  Discord channel webhook URL: Discord → channel → Edit → Integrations → Webhooks
+  → New Webhook → Copy URL). Railway's own healthcheck only hits the
+  dependency-light `/api/health`.
 
 ## 3. Monitored admin inbox
 
@@ -54,7 +67,8 @@ because admin email shares the Resend provider with the product.
 
 ## 4. Acceptance drills (run on staging before launch)
 
-Each must produce a page on the **non-email** route within one poll interval:
+Each must produce a page on the **Discord** route (the non-email sink) within one
+poll interval (the cost-cap drill fires immediately at the throw site):
 
 - [ ] **Stuck outbox** — insert a `job_outbox` row `status='pending',
   available_at = NOW() - INTERVAL '20 minutes'`; expect `outbox_pending_age`.
