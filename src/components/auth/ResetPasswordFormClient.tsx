@@ -12,6 +12,7 @@ import {
   authPrimaryButtonClass,
 } from './AuthCardShell';
 import { LiveRegion } from '@/components/ui/LiveRegion';
+import { MIN_PASSWORD_LENGTH } from '@/lib/shared/schemas';
 
 export interface ResetPasswordFormProps {
   portal: AuthFlow;
@@ -101,7 +102,7 @@ function AdminResetPassword({
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="8+ characters"
+              placeholder={`${MIN_PASSWORD_LENGTH}+ characters`}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
@@ -188,8 +189,8 @@ export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordForm
       setError('Passwords do not match');
       return;
     }
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters');
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
       return;
     }
     setLoading(true);
@@ -268,7 +269,7 @@ export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordForm
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="8+ characters"
+            placeholder={`${MIN_PASSWORD_LENGTH}+ characters`}
             className={authFieldClass}
           />
         </div>

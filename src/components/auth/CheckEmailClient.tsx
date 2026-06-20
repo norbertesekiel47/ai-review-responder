@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useReducer } from 'react';
+import { Suspense, useEffect, useReducer, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { redirectAfterServerSessionCookie } from './CheckEmailClient.helpers';
@@ -87,6 +87,16 @@ function CheckEmailInner() {
   const { code, verifying, verifyError, resendLoading, resendSent, resendError, resendCooldown } =
     state;
 
+  // Track the resend-cooldown timer so it can be cleared on unmount (and before
+  // re-arming) — otherwise a pending dispatch can fire after the component leaves.
+  const cooldownTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(
+    () => () => {
+      if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
+    },
+    [],
+  );
+
   async function handleVerify(e: React.FormEvent) {
     e.preventDefault();
     dispatch({ type: 'clearVerifyError' });
@@ -168,7 +178,8 @@ function CheckEmailInner() {
       dispatch({ type: 'resendFinish' });
     }
     // Lift the cooldown after a short window so a second resend stays possible.
-    window.setTimeout(() => dispatch({ type: 'resendCooldownEnd' }), 20_000);
+    if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
+    cooldownTimerRef.current = setTimeout(() => dispatch({ type: 'resendCooldownEnd' }), 20_000);
   }
 
   const heading = fromLogin ? 'Almost there' : 'Check your email';

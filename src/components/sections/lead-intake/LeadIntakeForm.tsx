@@ -5,6 +5,7 @@ import { useReducer, useRef } from 'react';
 import { LazyMotion, domAnimation, m } from 'motion/react';
 import Link from 'next/link';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
+import { LEAD_INTAKE_HONEYPOT_FIELD } from '@/lib/shared/schemas';
 import {
   firstInvalidField,
   getLeadIntakeFieldErrorProps,
@@ -57,7 +58,7 @@ const DEFAULT_COPY = {
   successBody: "We'll reach out when early access opens for your area.",
 };
 
-const HONEYPOT_FIELD_NAME = 'company_website';
+const HONEYPOT_FIELD_NAME = LEAD_INTAKE_HONEYPOT_FIELD;
 
 const TONE_STYLES = {
   onTeal: {

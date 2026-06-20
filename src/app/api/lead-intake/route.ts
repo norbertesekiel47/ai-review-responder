@@ -5,14 +5,16 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { notifyContactSubmission } from '@/lib/notifications/contact-notify';
 import { botIdBlockResponse } from '@/lib/security/botid';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { LEAD_INTAKE_HONEYPOT_FIELD } from '@/lib/shared/schemas';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-// Hidden honeypot field name (must match the client form). A non-empty value
-// signals an automated submission. Defense-in-depth alongside BotID + rate limit.
-const HONEYPOT_FIELD = 'company_website';
+// Hidden honeypot field name (shared with the client form via schemas.ts). A
+// non-empty value signals an automated submission. Defense-in-depth alongside
+// BotID + rate limit.
+const HONEYPOT_FIELD = LEAD_INTAKE_HONEYPOT_FIELD;
 const MAX_NAME_LEN = 200;
 const MAX_BUSINESS_NAME_LEN = 300;
 const MAX_URL_LEN = 2048;

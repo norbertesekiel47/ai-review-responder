@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { isPlaceId, parseGoogleMapsUrl } from '@/lib/reviews/url-parser';
 
+/**
+ * Hidden honeypot field name — single source of truth shared by the lead-intake
+ * form (renders the hidden input) and its API route (rejects non-empty values).
+ * If these drift, the honeypot silently stops matching and every bot passes.
+ */
+export const LEAD_INTAKE_HONEYPOT_FIELD = 'company_website';
+
 // ── Reusable field schemas ──────────────────────────────────────────
 
 const businessNameSchema = z.string().min(1, 'Business name is required').max(255);
@@ -225,7 +232,9 @@ const normalizedEmailSchema = z.preprocess(
   z.email().max(254),
 );
 
-const passwordSchema = z.string().min(8).max(128);
+/** Minimum password length — single source of truth for the schema + UI hints. */
+export const MIN_PASSWORD_LENGTH = 8;
+const passwordSchema = z.string().min(MIN_PASSWORD_LENGTH).max(128);
 
 // Identity-only signup. Business details are collected later via
 // BusinessOnboardingSchema (POST /api/onboarding/business) after Stripe payment.

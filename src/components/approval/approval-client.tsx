@@ -362,11 +362,15 @@ function ResponseCard({
   response,
   isEditing,
   editedText,
+  editLocked = false,
   onEditTextChange,
 }: {
   response: ReviewData['response'];
   isEditing: boolean;
   editedText: string;
+  // Once an edit-publish is armed, lock the textarea so what's shown is exactly
+  // what gets posted (the confirm posts the arm-time snapshot).
+  editLocked?: boolean;
   onEditTextChange: (value: string) => void;
 }) {
   return (
@@ -400,10 +404,17 @@ function ResponseCard({
             id="approval-edit"
             value={editedText}
             onChange={(e) => onEditTextChange(e.target.value)}
+            readOnly={editLocked}
+            aria-describedby={editLocked ? 'approval-edit-locked' : undefined}
             maxLength={MAX_EDIT_LENGTH}
-            className="w-full rounded-lg border border-[#557069]/40 p-3 text-sm leading-relaxed text-[#2a2a2a] focus:border-[#557069] focus:outline-none focus:ring-2 focus:ring-[#557069]/30"
+            className={`w-full rounded-lg border border-[#557069]/40 p-3 text-sm leading-relaxed text-[#2a2a2a] focus:border-[#557069] focus:outline-none focus:ring-2 focus:ring-[#557069]/30 ${editLocked ? 'cursor-not-allowed bg-[#F0EEEA]/60' : ''}`}
             rows={5}
           />
+          {editLocked && (
+            <p id="approval-edit-locked" className="mt-1 text-[11px] text-[#557069]">
+              Locked while confirming — tap “Cancel” to keep editing.
+            </p>
+          )}
           <p className="mt-1 text-right text-[11px] text-[#557069]" aria-hidden="true">
             {editedText.length} / {MAX_EDIT_LENGTH}
           </p>
@@ -598,6 +609,9 @@ function ActionBar({
   );
 }
 
+// Top-level approval screen: branches are independent UI states (loading /
+// error island / success / edit / confirm-publish), not tangled logic.
+// fallow-ignore-next-line complexity
 export default function ApprovalClient({ token }: { token: string }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const {
@@ -791,6 +805,7 @@ export default function ApprovalClient({ token }: { token: string }) {
           response={response}
           isEditing={isEditing}
           editedText={editedText}
+          editLocked={pendingPublish?.action === 'edit'}
           onEditTextChange={(value) =>
             dispatch({ type: 'editTextChanged', value })
           }
