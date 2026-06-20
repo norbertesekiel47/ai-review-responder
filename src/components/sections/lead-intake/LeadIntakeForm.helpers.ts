@@ -1,8 +1,7 @@
 import type {
-  InvalidLeadIntakeField,
   LeadIntakeField,
+  LeadIntakeFieldErrors,
   LeadIntakePayload,
-  LeadIntakeValidationResult,
 } from './LeadIntakeForm';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -15,38 +14,78 @@ export function submitLeadIntake(payload: LeadIntakePayload): Promise<Response> 
   });
 }
 
+/**
+ * Validates every field at once and returns a per-field error map. An empty map
+ * means the form is valid. The Maps URL is optional, but when present it must be
+ * a syntactically valid https URL — mirroring the server's https-only check so
+ * the user gets inline feedback before submitting.
+ */
 export function validateLeadIntakeFields({
   name,
   email,
   businessName,
-}: Pick<LeadIntakePayload, 'name' | 'email' | 'businessName'>): LeadIntakeValidationResult {
+  googleMapsUrl,
+}: Pick<
+  LeadIntakePayload,
+  'name' | 'email' | 'businessName' | 'googleMapsUrl'
+>): LeadIntakeFieldErrors {
+  const errors: LeadIntakeFieldErrors = {};
+
   if (!name.trim()) {
-    return { message: 'Please enter your name.', invalidField: 'name' };
+    errors.name = 'Please enter your name.';
   }
 
   if (!EMAIL_RE.test(email.trim())) {
-    return {
-      message: 'Please enter a valid email address.',
-      invalidField: 'email',
-    };
+    errors.email = 'Please enter a valid email address.';
   }
 
   if (!businessName.trim()) {
-    return { message: 'Please enter your business name.', invalidField: 'businessName' };
+    errors.businessName = 'Please enter your business name.';
   }
 
-  return null;
+  const url = googleMapsUrl.trim();
+  if (url && !isHttpsUrl(url)) {
+    errors.googleMapsUrl = 'Please enter a valid https link.';
+  }
+
+  return errors;
+}
+
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+export function hasFieldErrors(errors: LeadIntakeFieldErrors): boolean {
+  return Object.keys(errors).length > 0;
+}
+
+const FIELD_ORDER: readonly LeadIntakeField[] = [
+  'name',
+  'email',
+  'businessName',
+  'googleMapsUrl',
+];
+
+/** First invalid field in DOM order, so submit-failure focus is predictable. */
+export function firstInvalidField(
+  errors: LeadIntakeFieldErrors,
+): LeadIntakeField | null {
+  return FIELD_ORDER.find((field) => errors[field]) ?? null;
 }
 
 export function getLeadIntakeFieldErrorProps(
   field: LeadIntakeField,
-  invalidField: InvalidLeadIntakeField | null,
+  errors: LeadIntakeFieldErrors,
   errorId: string,
 ) {
-  if (field !== invalidField) return {};
+  if (!errors[field]) return {};
 
   return {
-    'aria-invalid': true,
+    'aria-invalid': true as const,
     'aria-describedby': errorId,
   };
 }

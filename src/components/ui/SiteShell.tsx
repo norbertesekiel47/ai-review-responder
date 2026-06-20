@@ -20,11 +20,6 @@ interface SiteShellProps {
    * features `<DotNav>`). Omitted on pages without one (pricing).
    */
   overlay?: ReactNode;
-  /**
-   * Island root element. Defaults to 'div'; features passes 'main' to keep the
-   * page's single <main> landmark.
-   */
-  islandAs?: 'main' | 'div';
   children?: ReactNode;
 }
 
@@ -39,20 +34,21 @@ export function SiteShell({
   selfServeEnabled = false,
   comingSoon = false,
   overlay,
-  islandAs = 'div',
   children,
 }: SiteShellProps) {
-  const Island = islandAs;
   return (
     <div className={scope}>
       <MarqueeBackground />
       {overlay}
       <div className="rw-island-wrap">
-        <Island className="rw-island">
+        <div className="rw-island">
+          {/* Header / main / footer are siblings so each keeps its landmark role
+              (a <footer>/<header> nested inside <main> is NOT a landmark). The
+              skip link in (public)/layout.tsx targets #main-content. */}
           <SiteNav comingSoon={comingSoon} selfServeEnabled={selfServeEnabled} />
-          {children}
+          <main id="main-content">{children}</main>
           <SiteFooter />
-        </Island>
+        </div>
       </div>
     </div>
   );

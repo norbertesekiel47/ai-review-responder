@@ -15,6 +15,35 @@ type FormState = {
   ownerPhone: string;
 };
 
+// Curated, human-facing copy for the finish-signup server error codes. The
+// route returns machine codes (`invalid_body`, `account_incomplete`, …) plus a
+// few already-human `message` fields (`already_complete`, `account_exists`).
+// Map codes to copy here so a raw code can never reach the UI; only fall back
+// to a server `message` when it is one of those curated human strings.
+const FINISH_SIGNUP_FALLBACK =
+  'Something went wrong on our side. Please try again shortly.';
+
+const FINISH_SIGNUP_ERROR_COPY: Record<string, string> = {
+  account_exists:
+    'An account with this email already exists. Try logging in or use forgot password.',
+  already_complete: 'Your signup is already complete — try logging in.',
+  invalid_body: "Some details don't look right. Please review and resubmit.",
+  invalid_json: 'Could not read your submission. Please try again.',
+  rate_limited: 'Too many attempts. Please wait a few minutes and try again.',
+  rate_limit_unavailable:
+    'Signup is temporarily unavailable. Please try again in a moment.',
+  unauthorized: 'Your session has expired. Please sign in again.',
+  account_incomplete: 'Your session has expired. Please sign in again.',
+  forbidden: 'We could not verify this request. Please reload and try again.',
+  not_found: 'This page is not available right now.',
+  internal: FINISH_SIGNUP_FALLBACK,
+};
+
+function mapFinishSignupError(body: { error?: unknown }): string {
+  const code = typeof body?.error === 'string' ? body.error : undefined;
+  return (code && FINISH_SIGNUP_ERROR_COPY[code]) || FINISH_SIGNUP_FALLBACK;
+}
+
 interface FinishSignupClientProps {
   defaultEmail: string;
   defaultName: string;
@@ -47,7 +76,7 @@ export function FinishSignupClient({
       });
       const body = await res.json();
       if (!res.ok) {
-        setError(body.message ?? body.error ?? 'Submission failed');
+        setError(mapFinishSignupError(body));
         return;
       }
       router.push(body.redirectTo ?? '/onboarding/pay');
@@ -121,7 +150,15 @@ export function FinishSignupClient({
           />
         </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {/*
+          Visible error is aria-hidden so assistive tech announces it exactly
+          once — via the assertive LiveRegion below, not twice.
+        */}
+        {error && (
+          <p className="text-sm text-[#b3261e]" aria-hidden="true">
+            {error}
+          </p>
+        )}
         <LiveRegion level="assertive" message={error} />
 
         <button

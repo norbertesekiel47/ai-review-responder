@@ -30,12 +30,9 @@ export function useCountUp(target: number, options: CountUpOptions = {}): number
   const prefersReducedMotion = usePrefersReducedMotion();
 
   useEffect(() => {
-    if (!active) return;
-    // Honor reduced-motion: jump straight to the final value, no rAF loop.
-    if (prefersReducedMotion) {
-      setValue(round ? Math.round(target) : target);
-      return;
-    }
+    // Reduced motion: no rAF loop — the final value is derived in the return
+    // below, so there's no setState here (avoids set-state-in-effect).
+    if (!active || prefersReducedMotion) return;
     let raf = 0;
     startRef.current = null;
     const step = (t: number) => {
@@ -50,5 +47,7 @@ export function useCountUp(target: number, options: CountUpOptions = {}): number
     return () => cancelAnimationFrame(raf);
   }, [target, duration, active, delayMs, round, prefersReducedMotion]);
 
+  // Reduced motion → show the final value immediately (derived, not animated).
+  if (prefersReducedMotion) return round ? Math.round(target) : target;
   return value;
 }

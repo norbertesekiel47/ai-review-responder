@@ -54,7 +54,7 @@ describe('ApprovalPage', () => {
     [
       'consumed link',
       [{ response_id: 'r', business_id: 'b', expires_at: new Date(Date.now() + 3_600_000), consumed_at: new Date(), revoked_at: null }],
-      /already been approved/i,
+      /already been used/i,
     ],
     [
       'revoked link',

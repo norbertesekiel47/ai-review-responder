@@ -85,7 +85,6 @@ export function LandingContent({
 
           <Hero
             onBook={() => scrollToSection('rw-cta')}
-            onTry={() => scrollToSection('rw-timeline')}
             primaryCtaLabel={comingSoon ? 'Coming soon' : 'Join waitlist'}
             primaryCtaDisabled={comingSoon}
           />

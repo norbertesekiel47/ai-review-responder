@@ -2,7 +2,11 @@ import { createHash } from 'node:crypto';
 import type { Metadata } from 'next';
 import { sql } from '@/lib/db/server';
 import { PageShell } from '@/components/ui/PageShell';
-import { ApprovalErrorState } from '@/components/approval/ApprovalErrorState';
+import {
+  ApprovalErrorState,
+  USED_LINK_MESSAGE,
+  type ApprovalErrorVariant,
+} from '@/components/approval/ApprovalErrorState';
 import ApprovalClient from '@/components/approval/approval-client';
 
 export const dynamic = 'force-dynamic';
@@ -23,7 +27,7 @@ function BrandHeaderRow() {
         aria-hidden="true"
         className="size-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80"
       />
-      <span className="text-sm uppercase tracking-wider text-[#97B3AE]">
+      <span className="text-sm uppercase tracking-wider text-[#557069]">
         RepWorth
       </span>
     </div>
@@ -49,10 +53,15 @@ export default async function ApprovalPage({ params }: PageProps) {
   `;
 
   let errorMessage: string | null = null;
+  // A consumed link is a neutral "already used" state, not a failure. The link
+  // could have been spent by approve, edit, OR regenerate — so the copy stays
+  // neutral rather than asserting "already approved".
+  let errorVariant: ApprovalErrorVariant = 'error';
   if (!link) {
     errorMessage = 'This approval link is invalid or has expired.';
   } else if (link.consumed_at) {
-    errorMessage = 'This response has already been approved.';
+    errorMessage = USED_LINK_MESSAGE;
+    errorVariant = 'used';
   } else if (link.revoked_at) {
     errorMessage =
       'This approval link has been revoked. A new link may have been sent to your email.';
@@ -63,11 +72,11 @@ export default async function ApprovalPage({ params }: PageProps) {
 
   return (
     <PageShell sections={[]}>
-      <div className="px-6 py-8 sm:px-10 sm:py-12">
+      <main id="main-content" className="px-6 py-8 sm:px-10 sm:py-12">
         <BrandHeaderRow />
         <div className="mx-auto mt-8 max-w-xl">
           {errorMessage ? (
-            <ApprovalErrorState message={errorMessage} />
+            <ApprovalErrorState message={errorMessage} variant={errorVariant} />
           ) : (
             <>
               <h1 className="text-3xl font-medium leading-tight text-[#2a2a2a]">
@@ -81,7 +90,7 @@ export default async function ApprovalPage({ params }: PageProps) {
             </>
           )}
         </div>
-      </div>
+      </main>
     </PageShell>
   );
 }

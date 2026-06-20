@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useReducer, useState, type ReactNode } from 'react';
+import { useId, useMemo, useReducer, useState, type CSSProperties, type ReactNode } from 'react';
 import { LeadIntakeForm } from '@/components/sections/lead-intake/LeadIntakeForm';
 import { SiteShell } from '@/components/ui/SiteShell';
 
@@ -21,8 +21,6 @@ interface Tier {
   ctaStyle: 'primary' | 'ghost';
   ctaDisabled?: boolean;
   ribbon?: string;
-  slotsLeft?: number;
-  slotsTotal?: number;
   features: { text: string; hl?: boolean }[];
 }
 
@@ -35,8 +33,6 @@ const TIERS: Tier[] = [
     icon: 'spark',
     monthly: 19,
     annual: 15,
-    slotsLeft: 7,
-    slotsTotal: 100,
     cta: 'Claim a spot',
     ctaStyle: 'primary',
     features: [
@@ -148,6 +144,29 @@ const MATRIX: MatrixRow[] = [
   { label: 'Dedicated success manager', values: [false, false, false, true] },
 ];
 
+// Sticky positioning for the horizontally-scrollable comparison matrix. The
+// first column pins on the X axis (the real scroll axis under 720px), the
+// header row pins on the Y axis; the corner cell pins on both. Opaque
+// backgrounds keep scrolling cells from showing through the pinned column.
+const MATRIX_STICKY_FIRST_COL: CSSProperties = {
+  position: 'sticky',
+  left: 0,
+  zIndex: 1,
+  background: '#fff',
+};
+const MATRIX_STICKY_HEADER: CSSProperties = {
+  position: 'sticky',
+  top: 0,
+  zIndex: 2,
+};
+const MATRIX_STICKY_CORNER: CSSProperties = {
+  position: 'sticky',
+  left: 0,
+  top: 0,
+  zIndex: 3,
+  background: '#f4f2ee',
+};
+
 const FAQ_ITEMS = [
   { q: 'How does the 14-day trial work?', a: 'Connect your Google Business Profile in under two minutes. We start drafting replies immediately — you approve each one by email. No charge until day 15, and you can cancel anytime with one click.' },
   { q: 'Can I change plans later?', a: 'Yes. Upgrade, downgrade, or cancel any time from the settings page. Upgrades apply instantly; downgrades take effect at the end of your current billing cycle.' },
@@ -225,23 +244,6 @@ function PlanCard({ tier, billing, isFeatured, onSelect }: { tier: Tier; billing
       </div>
       <p className="pr-plan-name">{tier.name}</p>
       <p className="pr-plan-tag">{tier.tag}</p>
-
-      {tier.slotsLeft != null && tier.slotsTotal != null && (
-        <div className="pr-slots">
-          <div className="pr-slots-top">
-            <span className="pr-slots-lbl">Spots remaining</span>
-            <span className="pr-slots-val">
-              {tier.slotsLeft} of {tier.slotsTotal}
-            </span>
-          </div>
-          <div className="pr-slots-bar">
-            <div
-              className="pr-slots-fill"
-              style={{ width: `${Math.round((tier.slotsLeft / tier.slotsTotal) * 100)}%` }}
-            />
-          </div>
-        </div>
-      )}
 
       <div className="pr-price">
         <span className="pr-price-currency">$</span>
@@ -351,6 +353,7 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
   const yearlyValue = monthlyValue * 12;
 
   const [openFaq, setOpenFaq] = useState(0);
+  const faqBaseId = useId();
 
   const isAnnual = billing === 'annual';
   const headerFeatured = (id: TierId) => id === featured;
@@ -390,6 +393,18 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
                 Annual <span className="pr-save-badge">Save 20%</span>
               </button>
             </div>
+            <p
+              className="pr-toggle-note"
+              style={{
+                marginTop: 10,
+                textAlign: 'center',
+                font: '500 12px var(--rw-font-body)',
+                letterSpacing: '0.04em',
+                color: '#557069',
+              }}
+            >
+              All prices in USD
+            </p>
           </div>
 
           {/* Plan grid */}
@@ -425,9 +440,9 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
               </div>
               <div className="pr-calc-grid">
                 <div>
-                  <SliderRow label="Reviews per month" value={reviews} display={String(reviews)} min={10} max={500} step={10} onChange={(value) => dispatchRoi({ type: 'setReviews', value })} />
-                  <SliderRow label="Minutes to craft each reply" value={minutes} display={`${minutes} min`} min={2} max={20} step={1} onChange={(value) => dispatchRoi({ type: 'setMinutes', value })} />
-                  <SliderRow label="Your hourly rate" value={rate} display={`$${rate}/hr`} min={20} max={150} step={5} onChange={(value) => dispatchRoi({ type: 'setRate', value })} />
+                  <SliderRow label="Reviews per month" value={reviews} display={String(reviews)} valueText={`${reviews} reviews`} min={10} max={500} step={10} onChange={(value) => dispatchRoi({ type: 'setReviews', value })} />
+                  <SliderRow label="Minutes to craft each reply" value={minutes} display={`${minutes} min`} valueText={`${minutes} minutes`} min={2} max={20} step={1} onChange={(value) => dispatchRoi({ type: 'setMinutes', value })} />
+                  <SliderRow label="Your hourly rate" value={rate} display={`$${rate}/hr`} valueText={`$${rate} per hour`} min={20} max={150} step={5} onChange={(value) => dispatchRoi({ type: 'setRate', value })} />
                 </div>
                 <div className="pr-calc-readout">
                   <div className="pr-readout-row">
@@ -465,11 +480,11 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
             >
               <div className="pr-matrix-grid">
                 <div className="pr-matrix-row">
-                  <div className="pr-matrix-cell hdr first">Feature</div>
-                  <div className={`pr-matrix-cell hdr ${headerFeatured('founders') ? 'featured' : ''}`}>Founders</div>
-                  <div className={`pr-matrix-cell hdr ${headerFeatured('basic') ? 'featured' : ''}`}>Basic</div>
-                  <div className={`pr-matrix-cell hdr ${headerFeatured('standard') ? 'featured' : ''}`}>Standard</div>
-                  <div className={`pr-matrix-cell hdr ${headerFeatured('premium') ? 'featured' : ''}`}>Premium</div>
+                  <div className="pr-matrix-cell hdr first" style={MATRIX_STICKY_CORNER}>Feature</div>
+                  <div className={`pr-matrix-cell hdr ${headerFeatured('founders') ? 'featured' : ''}`} style={MATRIX_STICKY_HEADER}>Founders</div>
+                  <div className={`pr-matrix-cell hdr ${headerFeatured('basic') ? 'featured' : ''}`} style={MATRIX_STICKY_HEADER}>Basic</div>
+                  <div className={`pr-matrix-cell hdr ${headerFeatured('standard') ? 'featured' : ''}`} style={MATRIX_STICKY_HEADER}>Standard</div>
+                  <div className={`pr-matrix-cell hdr ${headerFeatured('premium') ? 'featured' : ''}`} style={MATRIX_STICKY_HEADER}>Premium</div>
                 </div>
                 {MATRIX.map((row) => {
                   if ('section' in row) {
@@ -481,7 +496,7 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
                   }
                   return (
                     <div key={`feature-${row.label}`} className="pr-matrix-row">
-                      <div className="pr-matrix-cell first">{row.label}</div>
+                      <div className="pr-matrix-cell first" style={MATRIX_STICKY_FIRST_COL}>{row.label}</div>
                       <MatrixCell v={row.values[0] ?? ''} featured={headerFeatured('founders')} />
                       <MatrixCell v={row.values[1] ?? ''} featured={headerFeatured('basic')} />
                       <MatrixCell v={row.values[2] ?? ''} featured={headerFeatured('standard')} />
@@ -501,13 +516,17 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
             </div>
             {FAQ_ITEMS.map((item, i) => {
               const isOpen = openFaq === i;
+              const panelId = `${faqBaseId}-faq-panel-${i}`;
+              const buttonId = `${faqBaseId}-faq-button-${i}`;
               return (
                 <div key={item.q} className={`pr-faq-item ${isOpen ? 'is-open' : ''}`}>
                   <button
                     type="button"
+                    id={buttonId}
                     className="pr-faq-q"
                     onClick={() => setOpenFaq(isOpen ? -1 : i)}
                     aria-expanded={isOpen}
+                    aria-controls={panelId}
                   >
                     <span>{item.q}</span>
                     <span className="pr-faq-icon" aria-hidden>
@@ -516,7 +535,12 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
                       </svg>
                     </span>
                   </button>
-                  <div className="pr-faq-a">
+                  <div
+                    className="pr-faq-a"
+                    id={panelId}
+                    role="region"
+                    aria-labelledby={buttonId}
+                  >
                     <div className="pr-faq-a-inner">{item.a}</div>
                   </div>
                 </div>
@@ -543,6 +567,7 @@ function SliderRow({
   label,
   value,
   display,
+  valueText,
   min,
   max,
   step,
@@ -551,6 +576,7 @@ function SliderRow({
   label: ReactNode;
   value: number;
   display: string;
+  valueText: string;
   min: number;
   max: number;
   step: number;
@@ -563,12 +589,13 @@ function SliderRow({
         <span className="pr-slider-val">{display}</span>
       </div>
       <input
-        className="pr-slider"
+        className="pr-slider focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#557069]"
         type="range"
         min={min}
         max={max}
         step={step}
         value={value}
+        aria-valuetext={valueText}
         onChange={(e) => onChange(Number(e.target.value))}
         aria-label={typeof label === 'string' ? label : undefined}
       />

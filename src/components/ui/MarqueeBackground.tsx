@@ -1,5 +1,7 @@
 'use client';
 
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
+
 /**
  * Reusable drifting-reviews background.
  *
@@ -37,14 +39,25 @@ interface MarqueeBackgroundProps {
 }
 
 export function MarqueeBackground({ speed = 1 }: MarqueeBackgroundProps) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  // Freeze the drift when the user prefers reduced motion or the caller pauses
+  // it (speed === 0). Setting `animation: none` per row avoids dividing the CSS
+  // duration by an epsilon, which would otherwise produce an absurdly long but
+  // still-running animation.
+  const frozen = prefersReducedMotion || speed <= 0;
+
   return (
     <div
       className="rw-marquee-field"
       aria-hidden="true"
-      style={{ ['--rw-marquee-speed' as string]: String(speed || 0.001) }}
+      style={{ ['--rw-marquee-speed' as string]: String(frozen ? 1 : speed) }}
     >
       {ROWS.map((row) => (
-        <div key={row.cls} className={`rw-marquee-row ${row.cls}`}>
+        <div
+          key={row.cls}
+          className={`rw-marquee-row ${row.cls}`}
+          style={frozen ? { animation: 'none' } : undefined}
+        >
           {[...row.revs, ...row.revs].map((r, j) => (
             <div key={`${row.cls}-${j}`} className={`rw-bg-review ${r.tone ?? ''}`}>
               <div className="rw-bg-stars">

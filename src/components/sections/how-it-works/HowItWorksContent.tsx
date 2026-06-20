@@ -3,10 +3,12 @@
 import Link from 'next/link';
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { SiteShell } from '@/components/ui/SiteShell';
 import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
 
@@ -70,11 +72,13 @@ const STEP1_ROWS = [
 const STEP1_COLORS = ['#F2C3B9', '#D6CBBF', '#D2E0D3', '#F0DDD6'];
 
 function Step1Artifact() {
+  const reducedMotion = usePrefersReducedMotion();
   const [tick, setTick] = useState(0);
   useEffect(() => {
+    if (reducedMotion) return;
     const i = setInterval(() => setTick((t) => t + 1), 4200);
     return () => clearInterval(i);
-  }, []);
+  }, [reducedMotion]);
   const rows = STEP1_ROWS;
   const colors = STEP1_COLORS;
   const mins = String(59 - (tick % 60)).padStart(2, '0');
@@ -93,9 +97,9 @@ function Step1Artifact() {
             <div>
               <div className="hiw-feed-line1">
                 <span className="hiw-feed-name">{r.name}</span>
-                <span className="hiw-feed-stars">
-                  {'★'.repeat(r.stars)}
-                  <span style={{ color: '#e5e5e5' }}>{'★'.repeat(5 - r.stars)}</span>
+                <span className="hiw-feed-stars" aria-label={`${r.stars} out of 5 stars`}>
+                  <span aria-hidden="true">{'★'.repeat(r.stars)}</span>
+                  <span aria-hidden="true" style={{ color: '#e5e5e5' }}>{'★'.repeat(5 - r.stars)}</span>
                 </span>
               </div>
               <div className="hiw-feed-excerpt">{r.excerpt}</div>
@@ -114,8 +118,13 @@ function Step1Artifact() {
 function Step2Artifact() {
   const full =
     "Sarah, thank you — that's genuinely wonderful to hear. We take punctuality seriously because we know your schedule doesn't wait for ours. See you again soon.";
+  const reducedMotion = usePrefersReducedMotion();
   const [typed, setTyped] = useState('');
   useEffect(() => {
+    // Reduced motion: skip the looping typewriter. The completed draft is
+    // rendered statically at render time (`displayedDraft`), so no in-effect
+    // setState is needed here.
+    if (reducedMotion) return;
     // Single timer drives lead-in → type → hold → loop, so the effect has one
     // state setter (avoids a chain of setState calls across nested timers).
     let i = 0;
@@ -137,7 +146,8 @@ function Step2Artifact() {
       }
     }, 22);
     return () => clearInterval(iv);
-  }, [full]);
+  }, [full, reducedMotion]);
+  const displayedDraft = reducedMotion ? full : typed;
   return (
     <div className="hiw-artifact">
       <div className="hiw-artifact-cap">
@@ -163,7 +173,7 @@ function Step2Artifact() {
         <div className="hiw-draft-out">
           <span className="hiw-draft-badge">Draft · in your voice</span>
           <p>
-            {typed}
+            {displayedDraft}
             <span className="hiw-draft-typing" />
           </p>
         </div>
@@ -187,15 +197,32 @@ function Step2Artifact() {
 }
 
 function Step3Artifact() {
+  const reducedMotion = usePrefersReducedMotion();
   const [state, setState] = useState<'pending' | 'approving' | 'approved' | 'regenerating'>('pending');
   const onApprove = () => {
+    if (reducedMotion) {
+      setState('approved');
+      return;
+    }
     setState('approving');
     setTimeout(() => setState('approved'), 700);
   };
   const onRegen = () => {
+    if (reducedMotion) {
+      setState('pending');
+      return;
+    }
     setState('regenerating');
     setTimeout(() => setState('pending'), 1100);
   };
+  const statusMessage =
+    state === 'approving'
+      ? 'Approving the reply.'
+      : state === 'approved'
+        ? 'Approved. Posting the reply to Google.'
+        : state === 'regenerating'
+          ? 'Regenerating the draft reply.'
+          : '';
   return (
     <div className="hiw-artifact">
       <div className="hiw-artifact-cap">
@@ -221,7 +248,12 @@ function Step3Artifact() {
         </p>
 
         <div className="hiw-email-quote">
-          <div className="hiw-email-quote-meta">SARAH L. · ★★★★★</div>
+          <div className="hiw-email-quote-meta">
+            SARAH L. ·{' '}
+            <span aria-label="5 out of 5 stars">
+              <span aria-hidden="true">★★★★★</span>
+            </span>
+          </div>
           Best dry cleaners in town. Picked up my suits on time and they came back looking sharp.
           I&apos;ll be back!
         </div>
@@ -267,6 +299,23 @@ function Step3Artifact() {
             </>
           )}
         </div>
+        <div
+          aria-live="polite"
+          className="sr-only"
+          style={{
+            position: 'absolute',
+            width: 1,
+            height: 1,
+            padding: 0,
+            margin: -1,
+            overflow: 'hidden',
+            clip: 'rect(0, 0, 0, 0)',
+            whiteSpace: 'nowrap',
+            border: 0,
+          }}
+        >
+          {statusMessage}
+        </div>
         <div className="hiw-email-foot">
           <span>Responds from owner@brightlinen.com</span>
           <span>One-tap · no login</span>
@@ -290,7 +339,10 @@ function Step4Artifact() {
             <div className="hiw-avatar">SL</div>
             <div>
               <span className="hiw-posted-name">
-                Sarah L. · <span style={{ color: '#97B3AE' }}>★★★★★</span>
+                Sarah L. ·{' '}
+                <span aria-label="5 out of 5 stars">
+                  <span aria-hidden="true" style={{ color: '#97B3AE' }}>★★★★★</span>
+                </span>
               </span>
               <span className="hiw-posted-when">Bright Linen Dry Cleaning · 1 hour ago</span>
             </div>
@@ -340,9 +392,9 @@ const STEPS = [
     tick: 'T + 0:00',
     kicker: 'Monitor',
     title: "We watch your reviews so you don't have to.",
-    sub: "A worker polls your Google Business Profile and reacts as soon as a review appears. New reviews are detected, deduplicated against what we've seen, and queued for drafting within seconds.",
+    sub: "A worker checks your Google Business Profile every ~60 minutes. New reviews are detected, deduplicated against what we've seen, and queued for drafting right away.",
     bullets: [
-      'Polls sleeps and reacts and detecting a new review',
+      'Polls your profile and reacts the moment a new review appears',
       'Multi-location businesses handled out of the box',
       'Star rating, reviewer name, and full text captured',
     ],
@@ -393,7 +445,7 @@ const STEPS = [
 ];
 
 const HOOD = [
-  { color: '#D2E0D3', title: 'Poll worker', sub: 'Checks your Google Business Profile every 60 minutes.', tech: 'BullMQ · cron', glyph: '⏱' },
+  { color: '#D2E0D3', title: 'Poll worker', sub: 'Checks your Google Business Profile every ~60 minutes.', tech: 'BullMQ · cron', glyph: '⏱' },
   { color: '#F0DDD6', title: 'Voice model', sub: 'Drafts a reply in your voice, sourced from past replies.', tech: 'LLM · tuned', glyph: '✎' },
   { color: '#F2C3B9', title: 'Approval email', sub: 'One-tap signed link, no password needed.', tech: 'Resend · HMAC', glyph: '✉' },
   { color: '#D6CBBF', title: 'Post back', sub: 'Submits the approved reply to Google on your behalf.', tech: 'Business API', glyph: '↗' },
@@ -441,7 +493,7 @@ const FAQ_ITEMS = [
 
 const OVERVIEW = [
   {
-    n: '01', title: 'Monitor', time: 'every 60 min', color: '#D2E0D3',
+    n: '01', title: 'Monitor', time: 'every ~60 min', color: '#D2E0D3',
     glyph: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <circle cx="12" cy="12" r="9" />
@@ -494,6 +546,7 @@ export function HowItWorksContent({
 }: HowItWorksContentProps) {
   const [active, setActive] = useState('hiw-hero');
   const [openFaq, setOpenFaq] = useState(0);
+  const faqBaseId = useId();
 
   useEffect(() => {
     const els = SECTIONS.map((s) => document.getElementById(s.id)).filter(
@@ -544,7 +597,7 @@ export function HowItWorksContent({
             </p>
             <div className="hiw-hero-meta">
               <div className="hiw-hero-meta-item">
-                <span className="hiw-hero-meta-val">reactive</span>
+                <span className="hiw-hero-meta-val">~60 min</span>
                 <span className="hiw-hero-meta-lbl">poll interval</span>
               </div>
               <div className="hiw-hero-meta-item">
@@ -586,6 +639,10 @@ export function HowItWorksContent({
 
           {/* Steps */}
           <section id="hiw-steps" className="hiw-steps">
+            <div className="hiw-section-head">
+              <p className="hiw-eyebrow">The four steps</p>
+              <h2 className="hiw-h2">From new review to posted reply.</h2>
+            </div>
             {STEPS.map((s) => (
               <Reveal key={s.num}>
                 <div className="hiw-step">
@@ -668,22 +725,34 @@ export function HowItWorksContent({
               <h2 className="hiw-h2">What owners ask first.</h2>
             </div>
             <div className="hiw-faq">
-              {FAQ_ITEMS.map((it, i) => (
-                <div key={it.q} className={`hiw-faq-item ${openFaq === i ? 'is-open' : ''}`}>
-                  <button
-                    type="button"
-                    className="hiw-faq-q"
-                    onClick={() => setOpenFaq(openFaq === i ? -1 : i)}
-                    aria-expanded={openFaq === i}
-                  >
-                    <span>{it.q}</span>
-                    <span className="hiw-faq-toggle" aria-hidden>+</span>
-                  </button>
-                  <div className="hiw-faq-a">
-                    <div className="hiw-faq-a-inner">{it.a}</div>
+              {FAQ_ITEMS.map((it, i) => {
+                const isOpen = openFaq === i;
+                const panelId = `${faqBaseId}-faq-panel-${i}`;
+                const buttonId = `${faqBaseId}-faq-button-${i}`;
+                return (
+                  <div key={it.q} className={`hiw-faq-item ${isOpen ? 'is-open' : ''}`}>
+                    <button
+                      type="button"
+                      id={buttonId}
+                      className="hiw-faq-q"
+                      onClick={() => setOpenFaq(isOpen ? -1 : i)}
+                      aria-expanded={isOpen}
+                      aria-controls={panelId}
+                    >
+                      <span>{it.q}</span>
+                      <span className="hiw-faq-toggle" aria-hidden>+</span>
+                    </button>
+                    <div
+                      className="hiw-faq-a"
+                      id={panelId}
+                      role="region"
+                      aria-labelledby={buttonId}
+                    >
+                      <div className="hiw-faq-a-inner">{it.a}</div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
 

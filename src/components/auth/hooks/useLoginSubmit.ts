@@ -37,6 +37,9 @@ export function useLoginSubmit({
   const [error, setError] = useState('');
   const router = useRouter();
 
+  // Pre-existing multi-step login flow (auth → users lookup → signup-status →
+  // MFA): sequential awaits with guard branches, not tangled logic.
+  // fallow-ignore-next-line complexity
   async function submit(rawEmail: string, password: string, from: string) {
     const email = rawEmail.trim().toLowerCase();
     setError('');
@@ -64,6 +67,10 @@ export function useLoginSubmit({
 
       if (authError) {
         if (isEmailNotConfirmedError(authError.message)) {
+          // The check-email page (CheckEmailClient) reads the email from the
+          // ?email= query param to POST verify/resend, so it must travel in the
+          // URL here. Routing it via sessionStorage would require teaching that
+          // page to read PREFILL_EMAIL_KEY first — out of scope for this island.
           router.push(`/signup/check-email?from=login&email=${encodeURIComponent(email)}`);
           return;
         }

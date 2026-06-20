@@ -3,7 +3,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SiteNav } from '../SiteNav';
 
 // Render Next's Link as a plain anchor so these tests don't need an App Router
@@ -12,6 +12,17 @@ vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: { href: string; children: React.ReactNode }) =>
     createElement('a', { href, ...props }, children),
 }));
+
+// usePathname needs an App Router context; mock it so the active-link logic is
+// deterministic. mockPathname is reassigned per-test.
+let mockPathname: string | null = '/';
+vi.mock('next/navigation', () => ({
+  usePathname: () => mockPathname,
+}));
+
+afterEach(() => {
+  mockPathname = '/';
+});
 
 const MENU_ID = 'site-nav-mobile-menu';
 
@@ -42,6 +53,30 @@ describe('SiteNav', () => {
     });
   });
 
+  describe('landmark + active page', () => {
+    it('wraps the nav in a header labelled "Primary"', () => {
+      const html = renderToStaticMarkup(createElement(SiteNav));
+      expect(html).toContain('<header aria-label="Primary">');
+      expect(html).toContain('<nav');
+    });
+
+    it('marks the matching nav link with aria-current="page" and an active style', () => {
+      mockPathname = '/features';
+      const html = renderToStaticMarkup(createElement(SiteNav));
+      // The Features link is active.
+      expect(html).toMatch(/href="\/features"[^>]*aria-current="page"/);
+      expect(html).toContain('underline');
+      // Pricing is not active.
+      expect(html).not.toMatch(/href="\/pricing"[^>]*aria-current="page"/);
+    });
+
+    it('treats descendant routes as active (e.g. /features/x)', () => {
+      mockPathname = '/how-it-works/detail';
+      const html = renderToStaticMarkup(createElement(SiteNav));
+      expect(html).toMatch(/href="\/how-it-works"[^>]*aria-current="page"/);
+    });
+  });
+
   describe('mobile hamburger', () => {
     it('renders a closed, accessible toggle button by default', () => {
       const html = renderToStaticMarkup(createElement(SiteNav));
@@ -51,6 +86,11 @@ describe('SiteNav', () => {
       expect(html).toContain('aria-label="Open menu"');
       // Panel is not rendered while closed.
       expect(html).not.toContain(`id="${MENU_ID}"`);
+    });
+
+    it('gives the toggle a >=44px touch target', () => {
+      const html = renderToStaticMarkup(createElement(SiteNav));
+      expect(html).toContain('size-11');
     });
 
     it('opens the menu and reveals the nav links on click', async () => {
@@ -71,6 +111,31 @@ describe('SiteNav', () => {
       expect(menu.getByRole('link', { name: 'Features' })).toBeInTheDocument();
       expect(menu.getByRole('link', { name: 'How it works' })).toBeInTheDocument();
       expect(menu.getByRole('link', { name: 'Pricing' })).toBeInTheDocument();
+    });
+
+    it('moves focus to the first menu link on open', async () => {
+      const user = userEvent.setup();
+      const { container } = render(createElement(SiteNav));
+
+      await user.click(screen.getByRole('button', { name: 'Open menu' }));
+
+      const panel = container.querySelector(`#${MENU_ID}`) as HTMLElement;
+      const firstLink = within(panel).getByRole('link', { name: 'Features' });
+      expect(firstLink).toHaveFocus();
+    });
+
+    it('restores focus to the toggle when closed via Escape', async () => {
+      const user = userEvent.setup();
+      render(createElement(SiteNav));
+
+      const toggle = screen.getByRole('button', { name: 'Open menu' });
+      await user.click(toggle);
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+      await user.keyboard('{Escape}');
+
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect(toggle).toHaveFocus();
     });
 
     it('includes auth links in the menu when self-serve is enabled', async () => {
@@ -95,7 +160,7 @@ describe('SiteNav', () => {
       expect(within(panel).queryByRole('link', { name: 'Sign up' })).toBeNull();
     });
 
-    it('closes the menu when a nav link is clicked', async () => {
+    it('closes the menu and restores focus when a nav link is clicked', async () => {
       const user = userEvent.setup();
       const { container } = render(createElement(SiteNav));
 
@@ -107,6 +172,7 @@ describe('SiteNav', () => {
       await user.click(within(panel).getByRole('link', { name: 'Pricing' }));
 
       expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect(toggle).toHaveFocus();
     });
 
     it('closes the menu on Escape', async () => {
@@ -151,5 +217,12 @@ describe('SiteNav', () => {
     const ringCount = html.split('focus-visible:outline-[#97B3AE]').length - 1;
     // 3 nav links + Log in + Sign up = 5 ring occurrences.
     expect(ringCount).toBeGreaterThanOrEqual(5);
+  });
+
+  it('uses the accessible-contrast text token, not the low-contrast teal, for text', () => {
+    const html = renderToStaticMarkup(createElement(SiteNav, { selfServeEnabled: true }));
+    expect(html).toContain('text-[#557069]');
+    // The only #97B3AE references left are focus rings / borders, never text-.
+    expect(html).not.toContain('text-[#97B3AE]');
   });
 });

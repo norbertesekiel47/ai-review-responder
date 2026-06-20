@@ -1,9 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { LazyMotion, m, domAnimation } from 'motion/react';
 import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
+import { SiteFooter } from '@/components/ui/SiteFooter';
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 
 type IconKey = 'mail' | 'card' | 'shield';
 
@@ -46,9 +49,9 @@ const ICON_PATHS: Record<IconKey, string> = {
 };
 
 const RESPONSE_TARGETS = [
-  'Basic and Founders: 24 business hours',
-  'Standard: 8 business hours',
-  'Premium: 2 business hours',
+  'Basic and Founders: we aim to respond within 24 business hours',
+  'Standard: we aim to respond within 8 business hours',
+  'Premium: we aim to respond within 2 business hours',
 ];
 
 const HELP_TOPICS = [
@@ -57,19 +60,56 @@ const HELP_TOPICS = [
   'Importing locations by CSV',
 ];
 
+const CLIPBOARD_PATH =
+  'M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z';
+const CHECK_PATH = 'M5 13l4 4L19 7';
+
+function CopyEmailButton({ email }: { email: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(email);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard can be unavailable (insecure context / denied permission).
+      // The adjacent mailto link remains the reliable fallback, so do nothing.
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      aria-label={copied ? `${email} copied to clipboard` : `Copy ${email} to clipboard`}
+      className="inline-flex items-center justify-center gap-1.5 rounded-full border border-[#557069]/30 px-4 py-2 text-sm font-medium text-[#557069] transition-colors hover:bg-[#557069]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#557069] focus-visible:ring-offset-2"
+    >
+      <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={copied ? CHECK_PATH : CLIPBOARD_PATH} />
+      </svg>
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  );
+}
+
 export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?: boolean }) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const whileInView = prefersReducedMotion ? undefined : { opacity: 1, y: 0 };
+  const cardInitial = prefersReducedMotion ? false : { opacity: 0, y: 20 };
+
   return (
     <LazyMotion features={domAnimation}>
     <PageShell sections={[]}>
       <SiteNav selfServeEnabled={selfServeEnabled} />
 
-      <div className="px-8 py-16 md:py-20">
+      <main id="main-content" className="px-8 py-16 md:py-20">
         <m.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.2 }}
         >
-          <p className="mb-4 text-sm uppercase tracking-wider text-[#97B3AE]">Support</p>
+          <p className="mb-4 text-sm uppercase tracking-wider text-[#557069]">Support</p>
           <h1 className="mb-4 text-4xl font-medium leading-tight text-[#2a2a2a] md:text-5xl">
             How can we help?
           </h1>
@@ -83,8 +123,8 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
             <m.div
               key={channel.email}
               className="flex flex-col rounded-2xl border border-[#97B3AE]/10 bg-white p-6 shadow-lg"
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
+              initial={cardInitial}
+              whileInView={whileInView}
               viewport={{ once: true, margin: '-80px' }}
               transition={{ duration: 0.6, delay: i * 0.1 }}
             >
@@ -92,20 +132,23 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
                 className={`mb-4 flex size-12 items-center justify-center rounded-full bg-gradient-to-br shadow-md ${channel.circle}`}
                 aria-hidden="true"
               >
-                <svg className="size-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="size-6 text-[#2a2a2a]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={ICON_PATHS[channel.icon]} />
                 </svg>
               </div>
               <h2 className="mb-2 text-xl font-medium text-[#2a2a2a]">{channel.title}</h2>
               <p className="mb-6 flex-1 text-[#6a6a6a]">{channel.purpose}</p>
-              <m.a
-                href={`mailto:${channel.email}`}
-                className="inline-block rounded-full border border-[#97B3AE]/20 bg-[#97B3AE]/10 px-5 py-3 text-center font-medium text-[#97B3AE] transition-colors hover:bg-[#97B3AE]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#97B3AE] focus-visible:ring-offset-2"
-                whileHover={{ scale: 1.04, y: -2 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                {channel.email}
-              </m.a>
+              <div className="flex flex-wrap items-center gap-2">
+                <m.a
+                  href={`mailto:${channel.email}`}
+                  className="inline-block flex-1 rounded-full border border-[#557069]/30 bg-[#557069]/10 px-5 py-3 text-center font-medium text-[#557069] transition-colors hover:bg-[#557069]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#557069] focus-visible:ring-offset-2"
+                  whileHover={prefersReducedMotion ? undefined : { scale: 1.04, y: -2 }}
+                  whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
+                >
+                  {channel.email}
+                </m.a>
+                <CopyEmailButton email={channel.email} />
+              </div>
             </m.div>
           ))}
         </div>
@@ -113,8 +156,8 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
         <div className="mt-10 grid gap-6 md:grid-cols-2">
           <m.div
             className="rounded-2xl border border-[#97B3AE]/10 bg-[#F0EEEA]/60 p-6"
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
+            initial={cardInitial}
+            whileInView={whileInView}
             viewport={{ once: true, margin: '-80px' }}
             transition={{ duration: 0.6 }}
           >
@@ -128,8 +171,8 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
 
           <m.div
             className="rounded-2xl border border-[#97B3AE]/10 bg-[#F0EEEA]/60 p-6"
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
+            initial={cardInitial}
+            whileInView={whileInView}
             viewport={{ once: true, margin: '-80px' }}
             transition={{ duration: 0.6, delay: 0.1 }}
           >
@@ -141,24 +184,25 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
             </ul>
           </m.div>
         </div>
-      </div>
+      </main>
 
-      <div className="rounded-b-[3rem] bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80 px-8 py-12 text-center text-white">
+      <div className="rounded-b-[3rem] bg-gradient-to-br from-[#557069] to-[#557069]/90 px-8 py-12 text-center text-white">
         <m.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
+          initial={cardInitial}
+          whileInView={whileInView}
           viewport={{ once: true }}
           transition={{ duration: 0.6 }}
         >
-          <p className="mb-6 text-lg text-white/90">Looking for something else?</p>
+          <p className="mb-6 text-lg text-white">Looking for something else?</p>
           <Link
             href="/"
-            className="inline-block rounded-full bg-white px-8 py-4 font-medium text-[#97B3AE] shadow-lg transition-all duration-200 hover:-translate-y-0.5 hover:scale-105 hover:shadow-xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#97B3AE]"
+            className="inline-block rounded-full bg-white px-8 py-4 font-medium text-[#557069] shadow-lg transition-all duration-200 hover:-translate-y-0.5 hover:scale-105 hover:shadow-xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#557069]"
           >
             Back to RepWorth →
           </Link>
         </m.div>
       </div>
+      <SiteFooter />
     </PageShell>
     </LazyMotion>
   );

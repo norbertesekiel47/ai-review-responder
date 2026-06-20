@@ -14,11 +14,19 @@ export function mapInitialQueryError(errorParam: string | null | undefined): str
   return '';
 }
 
+const GENERIC_LOGIN_FAILURE = "Couldn't sign you in. Please try again.";
+
 export function mapSupabaseAuthError(message: string): string {
-  if (message === 'Invalid login credentials') {
+  const normalized = message.toLowerCase();
+  if (normalized.includes('invalid login credentials')) {
     return 'Email or password is incorrect.';
   }
-  return message;
+  if (normalized.includes('too many requests') || normalized.includes('rate limit')) {
+    return 'Too many attempts. Please wait a few minutes and try again.';
+  }
+  // Never surface raw Supabase/server text to the owner — fall back to curated,
+  // non-leaky copy for anything we don't explicitly recognise.
+  return GENERIC_LOGIN_FAILURE;
 }
 
 export function isEmailNotConfirmedError(message: string): boolean {

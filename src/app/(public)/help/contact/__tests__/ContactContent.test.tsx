@@ -21,8 +21,8 @@ describe('ContactContent', () => {
 
   it('preserves the response targets and help topics copy', () => {
     const html = renderToStaticMarkup(createElement(ContactContent));
-    expect(html).toContain('Basic and Founders: 24 business hours');
-    expect(html).toContain('Premium: 2 business hours');
+    expect(html).toContain('Basic and Founders: we aim to respond within 24 business hours');
+    expect(html).toContain('Premium: we aim to respond within 2 business hours');
     expect(html).toContain('Importing locations by CSV');
   });
 

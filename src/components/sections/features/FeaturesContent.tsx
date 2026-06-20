@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useCountUp } from '@/hooks/useCountUp';
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { cn } from '@/lib/ui/cn';
 import {
   useEffect,
@@ -23,22 +24,24 @@ const FEATURES = [
   { id: 'f-voice',   n: '04', label: 'Voice',        sub: 'Over time' },
   { id: 'f-brief',   n: '05', label: 'Weekly brief', sub: 'Monday 7am' },
   { id: 'f-roi',     n: '06', label: 'ROI',          sub: 'Proof' },
-  { id: 'f-comp',    n: '07', label: 'Competitor',   sub: 'Coming Q3' },
+  { id: 'f-comp',    n: '07', label: 'Competitor',   sub: 'Coming soon' },
 ];
 
 const HERO_WORDS_LINE_1 = ['Everything', 'your', 'reviews', 'need,'];
 const HERO_WORDS_LINE_2 = ['nothing', 'you', "don't."];
 
-const MARQUEE_REVIEWS: Array<{ lang: string; stars: string; text: string }> = [
-  { lang: 'EN', stars: '★★★★★', text: '"Best al pastor tacos in the city — Sarah K."' },
-  { lang: 'ES', stars: '★★★★★', text: '"El mole es auténtico — Carlos M."' },
-  { lang: 'EN', stars: '★★★★☆', text: '"Always remember my order — Daniel T."' },
-  { lang: 'VI', stars: '★★★★★', text: '"Phở ngon nhất khu này — Linh N."' },
-  { lang: 'EN', stars: '★★★★★', text: '"They saved my anniversary dinner — Em B."' },
-  { lang: 'ZH', stars: '★★★★☆', text: '"汤底很赞 — 张先生"' },
-  { lang: 'EN', stars: '★★★★★', text: '"Worth the drive across town — Marcus O."' },
-  { lang: 'KO', stars: '★★★★★', text: '"불고기 정말 맛있어요 — Min J."' },
-  { lang: 'EN', stars: '★★★★☆', text: '"Made my Monday — David K."' },
+// Illustrative sample reviews — not real customer testimonials. Multilingual to
+// show the language-detection feature; no invented names or business claims.
+const MARQUEE_REVIEWS: Array<{ lang: string; stars: string; ratingValue: number; text: string }> = [
+  { lang: 'EN', stars: '★★★★★', ratingValue: 5, text: 'Sample review · "Best in the city"' },
+  { lang: 'ES', stars: '★★★★★', ratingValue: 5, text: 'Sample review · "Auténtico"' },
+  { lang: 'EN', stars: '★★★★☆', ratingValue: 4, text: 'Sample review · "They remembered my order"' },
+  { lang: 'VI', stars: '★★★★★', ratingValue: 5, text: 'Sample review · "Ngon nhất khu này"' },
+  { lang: 'EN', stars: '★★★★★', ratingValue: 5, text: 'Sample review · "Saved my dinner"' },
+  { lang: 'ZH', stars: '★★★★☆', ratingValue: 4, text: 'Sample review · "汤底很赞"' },
+  { lang: 'EN', stars: '★★★★★', ratingValue: 5, text: 'Sample review · "Worth the drive"' },
+  { lang: 'KO', stars: '★★★★★', ratingValue: 5, text: 'Sample review · "정말 맛있어요"' },
+  { lang: 'EN', stars: '★★★★☆', ratingValue: 4, text: 'Sample review · "Made my Monday"' },
 ];
 
 const AI_REPLIES = {
@@ -57,9 +60,9 @@ const AI_REPLIES = {
     label: 'Your response',
     meta: 'Personalized · in your voice',
     borderColor: 'rgba(151,179,174,0.35)',
-    text: `"Sarah, thank you so much! We're thrilled the al pastor tacos hit the spot — our team makes the achiote marinade from scratch every morning. Looking forward to your next visit!"`,
+    text: `"Thank you so much! We're thrilled the al pastor tacos hit the spot — our team makes the achiote marinade from scratch every morning. Looking forward to your next visit!"`,
     diag: [
-      ['Named customer', 'Sarah'],
+      ['Named customer', 'Yes'],
       ['References detail', 'Al pastor · achiote'],
       ['Invites return', 'Next visit'],
     ],
@@ -100,18 +103,30 @@ const BRIEF_MENTIONS = [
   { topic: 'parking', count: '2×', width: 25, tone: 'peach' as const },
 ];
 
+// Illustrative scorecard for an unreleased feature ("Coming soon" / preview).
+// Competitors are anonymized placeholders, not real businesses.
 const COMPETITOR_ROWS = [
-  { rank: '#1', name: 'You — Mama Rosa’s', stars: '4.8', resp: '100% responded', highlighted: true },
-  { rank: '#2', name: 'El Farolito', stars: '4.4', resp: '28% responded' },
-  { rank: '#3', name: 'La Taqueria', stars: '4.2', resp: '8% responded' },
-  { rank: '#4', name: 'Tacos El Primo', stars: '4.0', resp: '0% responded' },
+  { rank: '#1', name: 'You', stars: '4.8', resp: '96% responded', highlighted: true },
+  { rank: '#2', name: 'Competitor A', stars: '4.4', resp: 'Sample data' },
+  { rank: '#3', name: 'Competitor B', stars: '4.2', resp: 'Sample data' },
+  { rank: '#4', name: 'Competitor C', stars: '4.0', resp: 'Sample data' },
 ];
 
 function useReveal<T extends HTMLElement>() {
   const ref = useRef<T>(null);
   const [seen, setSeen] = useState(false);
+  const prefersReducedMotion = usePrefersReducedMotion();
   useEffect(() => {
-    if (!ref.current || seen) return;
+    if (seen) return;
+    // Reduced motion: skip the IntersectionObserver entrance entirely and render
+    // the final (revealed) frame on the next tick. This also guarantees children
+    // gated on `.rw-reveal.in` (lang chips, voice bars, comp rows, etc.) become
+    // visible. Deferred via setTimeout to avoid a synchronous setState in-effect.
+    if (prefersReducedMotion) {
+      const id = window.setTimeout(() => setSeen(true), 0);
+      return () => window.clearTimeout(id);
+    }
+    if (!ref.current) return;
     const r = ref.current.getBoundingClientRect();
     if (r.top < window.innerHeight && r.bottom > 0) {
       setSeen(true);
@@ -123,7 +138,7 @@ function useReveal<T extends HTMLElement>() {
     );
     io.observe(ref.current);
     return () => io.disconnect();
-  }, [seen]);
+  }, [seen, prefersReducedMotion]);
   return [ref, seen] as const;
 }
 
@@ -200,7 +215,7 @@ function HeroSection({
       <div className="grid md:grid-cols-12 gap-8 items-end">
         <div className="md:col-span-8">
           <p
-            className={cn('rw-hero-kicker rw-label-mono text-xs uppercase text-[#97B3AE] mb-8 flex items-center gap-3', heroIn && 'in')}
+            className={cn('rw-hero-kicker rw-label-mono text-xs uppercase text-[#557069] mb-8 flex items-center gap-3', heroIn && 'in')}
           >
             <span className="line" />
             <span>Features · 2026 Edition</span>
@@ -219,7 +234,7 @@ function HeroSection({
             </span>
             <span className="rw-hero-line">
               <span
-                className={cn('rw-hero-word rw-display-serif text-[#97B3AE]', heroIn && 'in')}
+                className={cn('rw-hero-word rw-display-serif text-[#557069]', heroIn && 'in')}
                 style={{ ['--word-delay' as string]: `${80 + HERO_WORDS_LINE_1.length * 80}ms` }}
               >
                 nothing
@@ -239,14 +254,14 @@ function HeroSection({
           </h1>
           <p className={cn('rw-hero-lede text-lg text-[#6a6a6a] max-w-md leading-relaxed', heroIn && 'in')}>
             RepWorth is a done-for-you service and not another dashboard to learn.
-            Seven pieces, one weekly rhythm, zero late-night copywriting.
+            Six features today, one in testing, one weekly rhythm, zero late-night copywriting.
           </p>
         </div>
 
         <div className="md:col-span-4 space-y-4">
           {[
             { val: m1, target: 58, suffix: 'min', label: 'Avg time from review\nposted to response', delay: '0.9s' },
-            { val: m2, target: 100, suffix: '%', label: 'Response rate\nacross all reviews', delay: '1.15s' },
+            { val: m2, target: 96, suffix: '%', label: 'Response rate\nacross all reviews', delay: '1.15s' },
             { val: m3, target: 30, suffix: 'sec', label: 'Owner time per\napproval, after week 4', delay: '1.4s' },
           ].map((m, i) => (
             <div
@@ -283,8 +298,10 @@ function HeroSection({
               key={k}
               className="flex items-center gap-3 px-4 py-2.5 rounded-full bg-[#F0EEEA]/70 border border-[#97B3AE]/15"
             >
-              <span className="rw-label-mono text-[10px] uppercase text-[#97B3AE]">{r.lang}</span>
-              <span className="text-[#97B3AE] text-xs">{r.stars}</span>
+              <span className="rw-label-mono text-[10px] uppercase text-[#557069]">{r.lang}</span>
+              <span className="text-xs" aria-label={`${r.ratingValue} out of 5 stars`}>
+                <span className="text-[#97B3AE]" aria-hidden="true">{r.stars}</span>
+              </span>
               <span className="text-sm text-[#2a2a2a]">{r.text}</span>
             </div>
           ))}
@@ -309,9 +326,9 @@ function FeatureTOC({
       className="px-8 md:px-16 py-10 border-y border-[#97B3AE]/10 bg-[#F0EEEA]/40"
     >
       <div className="flex items-center gap-4 mb-6">
-        <span className="rw-label-mono text-xs uppercase text-[#97B3AE]">Index</span>
+        <span className="rw-label-mono text-xs uppercase text-[#557069]">Index</span>
         <div className="flex-1 h-px bg-[#97B3AE]/20" />
-        <span className="rw-label-mono text-xs uppercase text-[#6a6a6a]">07 features</span>
+        <span className="rw-label-mono text-xs uppercase text-[#6a6a6a]">6 live · 1 in testing</span>
       </div>
       <div ref={tocRef} className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
         {FEATURES.map((f, i) => (
@@ -323,9 +340,9 @@ function FeatureTOC({
             style={{ ['--chip-delay' as string]: `${i * 70}ms` }}
           >
             <div className="flex items-center justify-between">
-              <span className="rw-num-tag text-lg text-[#97B3AE]">{f.n}</span>
+              <span className="rw-num-tag text-lg text-[#557069]">{f.n}</span>
               <svg
-                className="size-3 text-[#6a6a6a] group-hover:text-[#97B3AE] transition-colors"
+                className="size-3 text-[#6a6a6a] group-hover:text-[#557069] transition-colors"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -396,29 +413,35 @@ export function FeaturesContent({
     return () => observers.forEach((o) => o.disconnect());
   }, [refMap]);
 
-  // Hero entry — trigger immediately on mount.
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  // Hero entry — trigger on mount via a deferred tick (avoids a synchronous
+  // setState in the effect body). Under reduced motion, skip the staged delay
+  // so the final frame appears immediately.
   const [heroIn, setHeroIn] = useState(false);
   useEffect(() => {
-    const id = window.setTimeout(() => setHeroIn(true), 50);
+    const id = window.setTimeout(() => setHeroIn(true), prefersReducedMotion ? 0 : 50);
     return () => window.clearTimeout(id);
-  }, []);
+  }, [prefersReducedMotion]);
 
   // Metrics count-up — fire after hero is in.
   const m1 = useCountUp(58, { active: heroIn, duration: 1600, delayMs: 400, round: true });
-  const m2 = useCountUp(100, { active: heroIn, duration: 1600, delayMs: 400, round: true });
+  const m2 = useCountUp(96, { active: heroIn, duration: 1600, delayMs: 400, round: true });
   const m3 = useCountUp(30, { active: heroIn, duration: 1600, delayMs: 400, round: true });
 
   // TOC reveal trigger.
   const [tocRef, tocSeen] = useReveal<HTMLDivElement>();
 
   const scrollTo = (id: string) => {
-    refMap[id]?.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    refMap[id]?.current?.scrollIntoView({
+      behavior: prefersReducedMotion ? 'auto' : 'smooth',
+      block: 'start',
+    });
   };
 
   return (
     <SiteShell
       scope="rw-feat-page"
-      islandAs="main"
       comingSoon={comingSoon}
       selfServeEnabled={selfServeEnabled}
       overlay={<DotNav activeSection={activeSection} onJump={scrollTo} />}
@@ -473,7 +496,7 @@ export function FeaturesContent({
             </p>
             <div className="relative w-full max-w-md mx-auto">
               {comingSoon ? (
-                <span className="inline-block px-8 py-4 bg-white text-[#97B3AE] rounded-full font-medium shadow-xl opacity-60 cursor-default select-none">
+                <span className="inline-block px-8 py-4 bg-white text-[#557069] rounded-full font-medium shadow-xl opacity-60 cursor-default select-none">
                   Coming soon
                 </span>
               ) : (
@@ -483,9 +506,12 @@ export function FeaturesContent({
             <div className="relative mt-6">
               <Link
                 href="/how-it-works"
-                className="inline-block px-8 py-4 text-white rounded-full font-medium border border-white/40 hover:bg-white/10 transition-colors"
+                className="inline-flex items-center gap-1 text-sm text-white/80 underline underline-offset-4 decoration-white/40 hover:text-white hover:decoration-white transition-colors"
               >
                 See how it works
+                <svg className="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
+                </svg>
               </Link>
             </div>
           </section>
@@ -504,11 +530,11 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   return (
     <FeatureSection innerRef={innerRef} id="f-ai" label="AI drafting" className="px-8 md:px-16 py-20 relative">
       <div ref={headRef} className={`rw-reveal flex items-start gap-6 mb-10 ${headSeen ? 'in' : ''}`}>
-        <span className="rw-num-tag text-7xl leading-none text-[#97B3AE]/40">01</span>
+        <span className="rw-num-tag text-7xl leading-none text-[#97B3AE]/40" aria-hidden="true">01</span>
         <div className="flex-1">
-          <p className="rw-label-mono text-xs uppercase text-[#97B3AE] mb-3">The engine</p>
+          <p className="rw-label-mono text-xs uppercase text-[#557069] mb-3">The engine</p>
           <h2 className="text-4xl md:text-5xl font-medium text-[#2a2a2a] leading-tight max-w-xl">
-            Every reply written from scratch, <span className="rw-display-serif text-[#97B3AE]">never</span> from a template.
+            Every reply written from scratch, <span className="rw-display-serif text-[#557069]">never</span> from a template.
           </h2>
           <p className="text-[#6a6a6a] mt-4 max-w-xl leading-relaxed">
             Our AI reads the actual review, references specifics the customer mentioned, and writes in
@@ -522,18 +548,20 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           <button
             type="button"
             onClick={() => setTab('before')}
+            aria-pressed={tab === 'before'}
             className={`rw-label-mono text-xs uppercase tracking-wider px-3 py-1.5 rounded-full border border-[#2a2a2a]/20 transition-all ${
               tab === 'before' ? 'bg-[#2a2a2a] text-white shadow-md -translate-y-0.5' : 'text-[#6a6a6a] hover:text-[#2a2a2a]'
             }`}
           >
             Generic reply
           </button>
-          <svg className="size-4 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+          <svg className="size-4 text-[#557069]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
           </svg>
           <button
             type="button"
             onClick={() => setTab('after')}
+            aria-pressed={tab === 'after'}
             className={`rw-label-mono text-xs uppercase tracking-wider px-3 py-1.5 rounded-full border border-[#2a2a2a]/20 transition-all ${
               tab === 'after' ? 'bg-[#2a2a2a] text-white shadow-md -translate-y-0.5' : 'text-[#6a6a6a] hover:text-[#2a2a2a]'
             }`}
@@ -552,8 +580,10 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
                 aria-hidden
               />
               <div>
-                <p className="text-sm font-medium text-[#2a2a2a]">Sarah K.</p>
-                <div className="flex gap-0.5 text-[#97B3AE]">★★★★★</div>
+                <p className="text-sm font-medium text-[#2a2a2a]">Sample reviewer</p>
+                <div className="flex gap-0.5" aria-label="5 out of 5 stars">
+                  <span className="text-[#97B3AE]" aria-hidden="true">★★★★★</span>
+                </div>
               </div>
               <span className="ml-auto text-xs rw-label-mono text-[#6a6a6a]">2h ago · Google</span>
             </div>
@@ -569,7 +599,7 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
             style={{ borderColor: r.borderColor, transition: 'border-color 0.5s ease' }}
           >
             <div className="flex items-center justify-between mb-4">
-              <p className="rw-label-mono text-xs uppercase text-[#97B3AE]">{r.label}</p>
+              <p className="rw-label-mono text-xs uppercase text-[#557069]">{r.label}</p>
               <p className="text-xs rw-label-mono text-[#6a6a6a]">{r.meta}</p>
             </div>
             <p className="text-[15px] text-[#2a2a2a] leading-relaxed">{r.text}</p>
@@ -592,6 +622,7 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
 function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   const [leftRef, leftSeen] = useReveal<HTMLDivElement>();
   const [rightRef, rightSeen] = useReveal<HTMLDivElement>();
+  const prefersReducedMotion = usePrefersReducedMotion();
   return (
     <FeatureSection
       innerRef={innerRef}
@@ -604,9 +635,9 @@ function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           <div className="flex items-start gap-6 mb-8">
             <span className="rw-num-tag text-7xl leading-none text-[#F2C3B9]/80">02</span>
             <div>
-              <p className="rw-label-mono text-xs uppercase text-[#97B3AE] mb-3">Reach</p>
+              <p className="rw-label-mono text-xs uppercase text-[#557069] mb-3">Reach</p>
               <h2 className="text-4xl md:text-[2.75rem] font-medium text-[#2a2a2a] leading-tight">
-                Multilingual, <span className="rw-display-serif text-[#97B3AE]">automatically</span>.
+                Multilingual, <span className="rw-display-serif text-[#557069]">automatically</span>.
               </h2>
             </div>
           </div>
@@ -619,10 +650,17 @@ function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
               <div
                 key={l.code}
                 className="rw-lang-chip bg-white rounded-2xl p-3 border border-[#97B3AE]/15 text-center"
-                style={{ ['--chip-d' as string]: `${80 + i * 90}ms` }}
+                style={{
+                  ['--chip-d' as string]: `${80 + i * 90}ms`,
+                  // The `.rw-lang-chip` base rule sets opacity:0 and relies on the
+                  // `rw-chip-pop` reveal animation to fade in. That animation is not
+                  // disabled under reduced motion in globals.css, so force the chip
+                  // visible here to avoid invisible chips when motion is reduced.
+                  ...(prefersReducedMotion ? { opacity: 1 } : {}),
+                }}
               >
                 <p className="rw-label-mono text-[10px] text-[#6a6a6a] mb-0.5">{l.code}</p>
-                <p className={`text-sm font-medium ${l.name === 'more' ? 'text-[#97B3AE]' : ''}`}>
+                <p className={`text-sm font-medium ${l.name === 'more' ? 'text-[#557069]' : ''}`}>
                   {l.name}
                 </p>
               </div>
@@ -639,8 +677,10 @@ function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
                 aria-hidden
               />
               <div>
-                <p className="text-xs font-medium text-[#2a2a2a]">Carlos M.</p>
-                <div className="flex gap-0.5 text-[#97B3AE] text-[10px]">★★★★★</div>
+                <p className="text-xs font-medium text-[#2a2a2a]">Sample reviewer</p>
+                <div className="flex gap-0.5 text-[10px]" aria-label="5 out of 5 stars">
+                  <span className="text-[#97B3AE]" aria-hidden="true">★★★★★</span>
+                </div>
               </div>
               <span className="ml-auto rw-label-mono text-[10px] text-[#6a6a6a]">detected: ES</span>
             </div>
@@ -665,11 +705,11 @@ function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
             style={{ background: 'rgba(151,179,174,0.08)' }}
           >
             <div className="flex items-center gap-2 mb-3">
-              <span className="rw-label-mono text-[10px] uppercase text-[#97B3AE]">Your reply · ES</span>
+              <span className="rw-label-mono text-[10px] uppercase text-[#557069]">Your reply · ES</span>
               <span className="ml-auto rw-label-mono text-[10px] text-[#6a6a6a]">auto-generated</span>
             </div>
             <p className="text-sm text-[#2a2a2a] leading-relaxed">
-              &ldquo;Carlos, ¡muchísimas gracias! El mole es la receta de mi abuela; tardan tres días
+              &ldquo;¡Muchísimas gracias! El mole es la receta de mi abuela; tardan tres días
               en prepararlo. Nos alegra mucho que lo hayas disfrutado. ¡Hasta pronto!&rdquo;
             </p>
           </div>
@@ -690,9 +730,9 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
       <div ref={headRef} className={`rw-reveal flex items-start gap-6 mb-12 ${headSeen ? 'in' : ''}`}>
         <span className="rw-num-tag text-7xl leading-none text-[#D6CBBF]">03</span>
         <div className="flex-1">
-          <p className="rw-label-mono text-xs uppercase text-[#97B3AE] mb-3">Your control</p>
+          <p className="rw-label-mono text-xs uppercase text-[#557069] mb-3">Your control</p>
           <h2 className="text-4xl md:text-5xl font-medium text-[#2a2a2a] leading-tight max-w-2xl">
-            Every reply needs your <span className="rw-display-serif text-[#97B3AE]">sign-off</span>.
+            Every reply needs your <span className="rw-display-serif text-[#557069]">sign-off</span>.
           </h2>
           <p className="text-[#6a6a6a] mt-4 max-w-xl leading-relaxed">
             You get an email with the customer&apos;s review and the AI draft side-by-side. Tap
@@ -713,7 +753,7 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
               >
                 <div
                   className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center rw-label-mono text-sm ${
-                    s.dark ? 'bg-[#2a2a2a] text-white' : 'bg-[#97B3AE]/15 text-[#97B3AE]'
+                    s.dark ? 'bg-[#2a2a2a] text-white' : 'bg-[#97B3AE]/15 text-[#557069]'
                   }`}
                 >
                   {s.n}
@@ -745,8 +785,13 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
                 </div>
                 <div className="p-4 space-y-3">
                   <div className="rw-phone-item bg-white rounded-xl p-3 shadow-sm" style={{ ['--pi-d' as string]: '400ms' }}>
-                    <p className="rw-label-mono text-[10px] uppercase text-[#97B3AE] mb-1">New review</p>
-                    <p className="text-[11px] text-[#6a6a6a]">★★★★★ · Sarah K.</p>
+                    <p className="rw-label-mono text-[10px] uppercase text-[#557069] mb-1">New review</p>
+                    <p className="text-[11px] text-[#6a6a6a]">
+                      <span aria-label="5 out of 5 stars">
+                        <span aria-hidden="true">★★★★★</span>
+                      </span>
+                      {' · Sample reviewer'}
+                    </p>
                     <p className="text-[12px] text-[#2a2a2a] mt-1 leading-snug">
                       &ldquo;Al pastor tacos were incredible, the achiote marinade…&rdquo;
                     </p>
@@ -755,9 +800,9 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
                     className="rw-phone-item rounded-xl p-3 border border-[#97B3AE]/25"
                     style={{ ['--pi-d' as string]: '650ms', background: 'rgba(151,179,174,0.10)' }}
                   >
-                    <p className="rw-label-mono text-[10px] uppercase text-[#97B3AE] mb-1">Draft reply</p>
+                    <p className="rw-label-mono text-[10px] uppercase text-[#557069] mb-1">Draft reply</p>
                     <p className="text-[12px] text-[#2a2a2a] leading-snug">
-                      &ldquo;Sarah, thank you so much! We&apos;re thrilled the al pastor…&rdquo;
+                      &ldquo;Thank you so much! We&apos;re thrilled the al pastor…&rdquo;
                     </p>
                   </div>
                   <div
@@ -870,10 +915,10 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
     <FeatureSection innerRef={innerRef} id="f-brief" label="Weekly brief" className="px-8 md:px-16 py-20 relative">
       <div className="grid md:grid-cols-12 gap-10 items-start">
         <div ref={leftRef} className={`rw-reveal from-left md:col-span-5 ${leftSeen ? 'in' : ''}`}>
-          <span className="rw-num-tag text-7xl leading-none text-[#97B3AE]/40 block mb-4">05</span>
-          <p className="rw-label-mono text-xs uppercase text-[#97B3AE] mb-3">Every Monday · 7am</p>
+          <span className="rw-num-tag text-7xl leading-none text-[#97B3AE]/40 block mb-4" aria-hidden="true">05</span>
+          <p className="rw-label-mono text-xs uppercase text-[#557069] mb-3">Every Monday · 7am</p>
           <h2 className="text-4xl md:text-5xl font-medium text-[#2a2a2a] leading-tight mb-5">
-            A brief you&apos;ll <span className="rw-display-serif text-[#97B3AE]">actually</span> read.
+            A brief you&apos;ll <span className="rw-display-serif text-[#557069]">actually</span> read.
           </h2>
           <p className="text-[#6a6a6a] max-w-md leading-relaxed mb-6">
             Not a dashboard. Not a chart dump. A short, plain-language summary of what customers said
@@ -897,8 +942,8 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           <article className="bg-[#F0EEEA] rounded-3xl p-8 md:p-10 border border-[#97B3AE]/15 shadow-xl">
             <div className="flex items-start justify-between mb-6 pb-4 border-b border-[#97B3AE]/20">
               <div>
-                <p className="rw-label-mono text-xs uppercase text-[#97B3AE]">Weekly brief</p>
-                <p className="rw-display-serif text-2xl text-[#2a2a2a] mt-1">Mama Rosa&apos;s Taqueria</p>
+                <p className="rw-label-mono text-xs uppercase text-[#557069]">Weekly brief · sample</p>
+                <p className="rw-display-serif text-2xl text-[#2a2a2a] mt-1">Your Business</p>
               </div>
               <div className="text-right">
                 <p className="rw-label-mono text-[10px] text-[#6a6a6a]">ISSUE</p>
@@ -909,15 +954,15 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
             <div className="grid grid-cols-3 gap-4 mb-6">
               <div>
                 <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-1">Reviews</p>
-                <p className="rw-num-tag text-3xl text-[#2a2a2a]">14 <span className="text-xs text-[#97B3AE]">↑3</span></p>
+                <p className="rw-num-tag text-3xl text-[#2a2a2a]">14 <span className="text-xs text-[#557069]">↑3</span></p>
               </div>
               <div>
                 <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-1">Avg stars</p>
-                <p className="rw-num-tag text-3xl text-[#2a2a2a]">4.6 <span className="text-xs text-[#97B3AE]">↑0.2</span></p>
+                <p className="rw-num-tag text-3xl text-[#2a2a2a]">4.6 <span className="text-xs text-[#557069]">↑0.2</span></p>
               </div>
               <div>
                 <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-1">Responded</p>
-                <p className="rw-num-tag text-3xl text-[#2a2a2a]">100<span className="text-lg">%</span></p>
+                <p className="rw-num-tag text-3xl text-[#2a2a2a]">96<span className="text-lg">%</span></p>
               </div>
             </div>
 
@@ -949,7 +994,7 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
             </div>
 
             <div className="border-t border-[#97B3AE]/20 pt-5">
-              <p className="rw-label-mono text-[10px] uppercase text-[#97B3AE] mb-2">One thing to look at</p>
+              <p className="rw-label-mono text-[10px] uppercase text-[#557069] mb-2">One thing to look at</p>
               <p className="text-[#2a2a2a] rw-display-serif text-lg leading-snug">
                 &ldquo;Wait time came up in 4 reviews this week; all on Saturday nights. Worth looking at
                 7–9pm staffing.&rdquo;
@@ -977,9 +1022,9 @@ function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
       <div ref={headRef} className={`rw-reveal flex items-start gap-6 mb-10 ${headSeen ? 'in' : ''}`}>
         <span className="rw-num-tag text-7xl leading-none text-[#D6CBBF]">06</span>
         <div className="flex-1 max-w-2xl">
-          <p className="rw-label-mono text-xs uppercase text-[#97B3AE] mb-3">Proof</p>
+          <p className="rw-label-mono text-xs uppercase text-[#557069] mb-3">Proof</p>
           <h2 className="text-4xl md:text-5xl font-medium text-[#2a2a2a] leading-tight">
-            Numbers to show your <span className="rw-display-serif text-[#97B3AE]">accountant</span>.
+            Numbers to show your <span className="rw-display-serif text-[#557069]">accountant</span>.
           </h2>
           <p className="text-[#6a6a6a] mt-4 leading-relaxed">
             Response rate before and after. Average time to respond. Where you sit in local search over
@@ -993,14 +1038,14 @@ function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-4">Response rate</p>
           <div className="flex items-baseline gap-3">
             <span className="rw-num-tag text-lg line-through text-[#6a6a6a]/60">12%</span>
-            <svg className="size-4 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+            <svg className="size-4 text-[#557069]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
             </svg>
-            <span className="rw-num-tag text-4xl text-[#2a2a2a]">100<span className="text-lg">%</span></span>
+            <span className="rw-num-tag text-4xl text-[#2a2a2a]">96<span className="text-lg">%</span></span>
           </div>
           <div className="mt-4 h-8 relative">
-            <div className="absolute inset-0 bg-[#97B3AE]/15 rounded-full" />
-            <div className="absolute inset-y-0 left-0 right-0 bg-[#97B3AE] rounded-full" />
+            <div className="absolute inset-0 bg-[#557069]/15 rounded-full" />
+            <div className="absolute inset-y-0 left-0 right-[4%] bg-[#557069] rounded-full" />
           </div>
         </div>
 
@@ -1008,7 +1053,7 @@ function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-4">Avg response time</p>
           <div className="flex items-baseline gap-3">
             <span className="rw-num-tag text-lg line-through text-[#6a6a6a]/60">4 days</span>
-            <svg className="size-4 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+            <svg className="size-4 text-[#557069]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
             </svg>
             <span className="rw-num-tag text-4xl text-[#2a2a2a]">58<span className="text-lg">min</span></span>
@@ -1030,7 +1075,7 @@ function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-4">Local map rank</p>
           <div className="flex items-baseline gap-3">
             <span className="rw-num-tag text-lg line-through text-[#6a6a6a]/60">#14</span>
-            <svg className="size-4 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+            <svg className="size-4 text-[#557069]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
             </svg>
             <span className="rw-num-tag text-4xl text-[#2a2a2a]">#3</span>
@@ -1102,15 +1147,15 @@ function FeatComp({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
       <div className="grid md:grid-cols-12 gap-10 items-center">
         <div ref={leftRef} className={`rw-reveal from-left md:col-span-6 ${leftSeen ? 'in' : ''}`}>
           <div className="flex items-start gap-6 mb-6">
-            <span className="rw-num-tag text-7xl leading-none text-[#97B3AE]/40">07</span>
+            <span className="rw-num-tag text-7xl leading-none text-[#97B3AE]/40" aria-hidden="true">07</span>
             <div>
               <div className="flex items-center gap-3 mb-3 flex-wrap">
-                <p className="rw-label-mono text-xs uppercase text-[#97B3AE]">Coming Soon</p>
+                <p className="rw-label-mono text-xs uppercase text-[#557069]">Coming Soon</p>
                 <span className="inline-block w-px h-4 bg-[#97B3AE]/30" />
                 <p className="rw-label-mono text-xs uppercase text-[#6a6a6a]">In private testing</p>
               </div>
               <h2 className="text-4xl md:text-5xl font-medium text-[#2a2a2a] leading-tight">
-                Know where you <span className="rw-display-serif text-[#97B3AE]">stand</span> on the block.
+                Know where you <span className="rw-display-serif text-[#557069]">stand</span> on the block.
               </h2>
             </div>
           </div>
@@ -1126,7 +1171,7 @@ function FeatComp({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
               preview
             </span>
             <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-4">
-              Neighborhood scorecard · Mission District
+              Neighborhood scorecard · sample data
             </p>
             <div className="space-y-3">
               {COMPETITOR_ROWS.map((r, i) => (
@@ -1145,13 +1190,15 @@ function FeatComp({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
                       {r.name}
                     </p>
                     <div className="flex items-center gap-3 mt-0.5 text-xs text-[#6a6a6a]">
-                      <span>★ {r.stars}</span>
+                      <span aria-label={`${r.stars} out of 5 stars`}>
+                        <span aria-hidden="true">★</span> {r.stars}
+                      </span>
                       <span>·</span>
                       <span>{r.resp}</span>
                     </div>
                   </div>
                   {r.highlighted && (
-                    <svg className="size-4 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                    <svg className="size-4 text-[#557069]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
                     </svg>
                   )}

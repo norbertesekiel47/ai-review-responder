@@ -9,8 +9,9 @@ describe('PricingContent', () => {
 
     // page content sanity
     expect(html).toContain('value="pricing"');
-    // site-wide footer now present
-    expect(html).toContain('class="rw-foot"');
+    // site-wide footer now present (SiteFooter renders
+    // `class="rw-foot flex-col items-stretch"`).
+    expect(html).toContain('class="rw-foot');
     expect(html).toContain('href="/legal/privacy"');
     expect(html).toContain('href="/legal/terms"');
   });
@@ -20,8 +21,10 @@ describe('PricingContent', () => {
 
     expect(html).not.toContain('Most popular');
     expect(html).toContain('Recommended');
-    expect(html).toContain('7 of 100');
-    expect(html).toContain('width:7%');
+    // Fabricated scarcity widget removed (UX polish): no fake "spots remaining".
+    expect(html).not.toContain('Spots remaining');
+    expect(html).not.toContain('7 of 100');
+    expect(html).not.toContain('pr-slots');
     expect(html).toContain('Billed annually ($1908/yr) - 20% off $199/mo');
     expect(html).not.toContain('Start 14-day trial');
     expect(html.match(/Coming soon/g)).toHaveLength(3);
@@ -46,7 +49,10 @@ describe('PricingContent', () => {
     expect(html).toContain('class="pr-toggle is-annual"');
     expect(html).toContain('aria-pressed="false">Monthly</button>');
     expect(html).toContain('aria-pressed="true">Annual');
-    expect(html).not.toContain('left:');
+    // The thumb is positioned purely in CSS — it carries no inline style at all.
+    // (Scoped to the thumb: the comparison matrix legitimately uses inline
+    // `left:0` for its sticky first column, so a page-wide `left:` ban is wrong.)
+    expect(html).toContain('<div class="pr-toggle-thumb"></div>');
     expect(html).not.toContain('width:calc(50% - 3px)');
   });
 
@@ -67,5 +73,27 @@ describe('PricingContent', () => {
       'aria-label="Plan comparison, scroll horizontally to compare all plans"',
     );
     expect(html).toMatch(/class="pr-matrix"[^>]*tabindex="0"/);
+  });
+
+  it('pins the matrix header row and first column with sticky positioning', () => {
+    const html = renderToStaticMarkup(createElement(PricingContent));
+
+    // Header cells pin to the top; the first column pins to the left.
+    expect(html).toMatch(/position:sticky;top:0/);
+    expect(html).toMatch(/position:sticky;left:0/);
+  });
+
+  it('notes the billing currency near the toggle', () => {
+    const html = renderToStaticMarkup(createElement(PricingContent));
+
+    expect(html).toContain('All prices in USD');
+  });
+
+  it('links FAQ triggers to their panels and exposes slider value text', () => {
+    const html = renderToStaticMarkup(createElement(PricingContent));
+
+    expect(html).toContain('aria-controls=');
+    expect(html).toContain('role="region"');
+    expect(html).toContain('aria-valuetext="80 reviews"');
   });
 });

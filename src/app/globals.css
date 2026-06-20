@@ -1273,10 +1273,19 @@
   .rw-hero-kicker,
   .rw-hero-lede,
   .rw-hero-metric,
-  .rw-toc-chip {
+  .rw-toc-chip,
+  /* These are revealed only via a keyframe/animation (not a transition), so the
+     blanket .rw-reveal reset above does not cover them — list them explicitly or
+     they stay invisible under reduced motion (content loss). */
+  .rw-lang-chip,
+  .rw-voice-bar,
+  .rw-brief-bar-fill,
+  .rw-comp-row,
+  .rw-sparkline-path {
     opacity: 1 !important;
     transform: none !important;
     filter: none !important;
+    animation: none !important;
   }
 }
 
@@ -2052,28 +2061,8 @@
   font: 400 14px var(--rw-font-body);
   color: var(--rw-ink-soft); margin: 0 0 22px; min-height: 20px;
 }
-.pr-slots {
-  margin: 0 0 18px; padding: 12px 14px;
-  background: rgba(242,195,185,0.18);
-  border: 1px solid rgba(242,195,185,0.45);
-  border-radius: 12px;
-}
-.pr-slots-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
-.pr-slots-lbl {
-  font: 500 11px var(--rw-font-body);
-  letter-spacing: 0.06em; text-transform: uppercase;
-  color: var(--rw-ink-soft);
-}
-.pr-slots-val { font: 600 13px var(--rw-font-display); color: var(--rw-ink); }
-.pr-slots-bar {
-  height: 5px; background: rgba(255,255,255,0.6);
-  border-radius: 9999px; overflow: hidden;
-}
-.pr-slots-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #F2C3B9, #F0DDD6);
-  border-radius: 9999px; transition: width 0.5s ease;
-}
+/* (.pr-slots* removed — the fabricated "spots remaining" scarcity widget was
+   deleted from PricingContent per ADR/audit; these rules are now dead.) */
 .pr-price { display: flex; align-items: baseline; gap: 6px; margin: 0 0 4px; }
 .pr-price-currency { font: 500 22px var(--rw-font-display); color: var(--rw-ink); }
 .pr-price-amt {
