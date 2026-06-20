@@ -2634,7 +2634,7 @@ The headline issue was a **"could-have-deleted-a-paid-customer" bug** in the cle
 
 11. **Cleanup poller binds candidate auth_id to the row's auth_id.** A stale candidate whose users.auth_id had been re-linked to a NEW Supabase identity could let `deleteUser(<old auth_id>)` destroy the wrong identity. Now requires equality + DELETE WHERE predicate also pins it.
 
-12. **OTP UI copy says "8-digit code"** (Supabase production is configured for 8, not 6). Inline comment in CheckEmailClient documents the source of truth.
+12. **OTP length is a single source of truth (`EMAIL_OTP_LENGTH = 6` in `src/lib/shared/schemas.ts`).** The CheckEmailClient input attributes + copy all derive from it; the Supabase Auth "Email OTP Length" setting must be set to 6 to match (deploy ordering: flip Supabase before/with shipping a UI that requires exactly 6). The server `VerifyEmailOtpSchema` stays defensively 4–10 (Supabase's `verifyOtp` is the real validator).
 
 13. **Rate-limit error responses now have human-readable `message` fields.** Was leaking machine codes (`rate_limited`, `rate_limit_unavailable`) directly into the form's error display. Server provides messages, client also has a fallback `KNOWN_MESSAGES` map for defense-in-depth.
 
@@ -2659,7 +2659,7 @@ MODIFIED:
   src/app/api/admin/businesses/route.ts                         ← APP_URL pre-check + RETURNING id + rollback
 
   src/app/(public)/signup/SignupFormClient.tsx                  ← KNOWN_MESSAGES fallback map
-  src/app/(public)/signup/check-email/CheckEmailClient.tsx      ← 8-digit copy
+  src/components/auth/CheckEmailClient.tsx                      ← OTP length from EMAIL_OTP_LENGTH (6)
   src/app/onboarding/pay/page.tsx                               ← active+not-onboarded → /onboarding/business
 
   src/lib/shared/schemas.ts                                      ← googleMapsUrlSchema + isPlaceId alignment + admin XOR

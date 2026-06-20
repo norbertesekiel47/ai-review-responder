@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { redirectAfterServerSessionCookie } from './CheckEmailClient.helpers';
 import { AuthCardShell, authFieldClass, authPrimaryButtonClass } from './AuthCardShell';
 import { LiveRegion } from '@/components/ui/LiveRegion';
+import { EMAIL_OTP_LENGTH, EMAIL_OTP_PATTERN } from '@/lib/shared/schemas';
 
 interface CheckEmailState {
   code: string;
@@ -155,12 +156,12 @@ function CheckEmailInner() {
   }
 
   const heading = fromLogin ? 'Almost there' : 'Check your email';
-  // Supabase Auth → Settings → "Email OTP Length" controls this — production
-  // is configured to 8. If you change it there, also update this copy +
-  // the `placeholder` below.
+  // OTP length is driven by EMAIL_OTP_LENGTH (single source of truth). The
+  // Supabase Auth → "Email OTP Length" setting MUST match it (6). Change the
+  // constant + the Supabase setting in lockstep; nothing here is hardcoded.
   const subtext = fromLogin
-    ? 'Confirm your email to log in. We sent an 8-digit code to your inbox.'
-    : 'We sent an 8-digit code to your inbox. Enter it below to activate your account.';
+    ? `Confirm your email to log in. We sent a ${EMAIL_OTP_LENGTH}-digit code to your inbox.`
+    : `We sent a ${EMAIL_OTP_LENGTH}-digit code to your inbox. Enter it below to activate your account.`;
 
   return (
     <AuthCardShell>
@@ -178,17 +179,12 @@ function CheckEmailInner() {
             Confirmation code
           </label>
           {/*
-            Input contract matches Supabase prod's "Email OTP Length = 8".
-            minLength + maxLength + numeric pattern enforce the format
-            client-side so the user gets browser-native validation feedback
-            before submitting.
-
-            Server-side `VerifyEmailOtpSchema` deliberately stays at 4–10
-            alphanumeric (defense-in-depth — if Supabase config flips to
-            6-digit or alphanumeric, the API survives without a redeploy).
-            When the source-of-truth Supabase setting changes, update the
-            minLength + maxLength + pattern + placeholder + the subtext
-            copy above in lockstep.
+            All length constraints derive from EMAIL_OTP_LENGTH (single source
+            of truth; keep it in lockstep with the Supabase "Email OTP Length"
+            setting). minLength + maxLength + numeric pattern give browser-native
+            validation feedback before submit. Server-side `VerifyEmailOtpSchema`
+            stays defensively at 4–10 (Supabase's verifyOtp is the real
+            validator).
           */}
           <input
             id="verify-code"
@@ -196,11 +192,11 @@ function CheckEmailInner() {
             inputMode="numeric"
             autoComplete="one-time-code"
             required
-            minLength={8}
-            maxLength={8}
-            pattern="\d{8}"
-            title="Enter the 8-digit code from your email"
-            placeholder="8-digit code"
+            minLength={EMAIL_OTP_LENGTH}
+            maxLength={EMAIL_OTP_LENGTH}
+            pattern={EMAIL_OTP_PATTERN}
+            title={`Enter the ${EMAIL_OTP_LENGTH}-digit code from your email`}
+            placeholder={`${EMAIL_OTP_LENGTH}-digit code`}
             value={code}
             onChange={(e) => dispatch({ type: 'setCode', code: e.target.value })}
             className={`${authFieldClass} text-center tracking-[0.5em] font-mono`}

@@ -305,11 +305,26 @@ export const ResendConfirmationSchema = z.object({
 });
 type ResendConfirmationInput = z.infer<typeof ResendConfirmationSchema>;
 
-// Email OTP entry — owner enters the 6-digit token Supabase sends in the
-// confirmation email. We accept 4–10 digit/alphanumeric tokens defensively
-// (Supabase has historically used 6-digit numeric, but format isn't
-// contractually frozen). Token validation is ultimately enforced by
-// `supabase.auth.verifyOtp` — this schema just keeps obvious junk out.
+/**
+ * Canonical email OTP length — the SINGLE source of truth shared by the UI
+ * input attributes and the confirmation copy. Supabase Auth → "Email OTP
+ * Length" MUST be set to match this value (6). The server schema below stays
+ * defensively permissive (Supabase's `verifyOtp` is the real validator), but
+ * every user-facing constraint derives from this constant so the UI can never
+ * silently drift from the configured length again.
+ *
+ * DEPLOY ORDERING: flip the Supabase "Email OTP Length" setting to 6 BEFORE (or
+ * with) shipping a UI that requires exactly 6 — otherwise a UI requiring 6 will
+ * reject a still-8-digit code during the transition window.
+ */
+export const EMAIL_OTP_LENGTH = 6;
+export const EMAIL_OTP_PATTERN = `\\d{${EMAIL_OTP_LENGTH}}`;
+
+// Email OTP entry — owner enters the numeric token Supabase sends in the
+// confirmation email (canonical length: EMAIL_OTP_LENGTH). We accept 4–10
+// digit/alphanumeric tokens defensively here (format isn't contractually
+// frozen and Supabase consumes/validates the real token) — this schema just
+// keeps obvious junk out before the round-trip.
 export const VerifyEmailOtpSchema = z.object({
   email: normalizedEmailSchema,
   token: z
