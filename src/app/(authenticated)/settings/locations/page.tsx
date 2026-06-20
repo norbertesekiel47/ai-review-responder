@@ -15,7 +15,6 @@ import type { AddLocationState } from '@/components/dashboard/settings/Locations
 import { getLocationsForAccount, getActiveLocationCount, getArchivedLocationsForAccount } from '@/lib/locations/repo';
 import {
   canAddLocationForAccount,
-  shouldUseMultiLocationSettings,
   shouldShowLocationsSettings,
 } from '@/lib/locations/multi-location-mode';
 import { SubscriptionTier } from '@/lib/accounts/tier-config';
@@ -44,8 +43,7 @@ export default async function LocationsPage() {
     `.then((rows) => rows[0] ?? null),
   ]);
 
-  const multiLocationEnabled = shouldUseMultiLocationSettings(featureEnabled, activeCount);
-  const voiceHref = multiLocationEnabled ? '/settings/voice' : '/settings#brand-voice';
+  const voiceHref = '/settings/voice';
 
   const addLocationState: AddLocationState = canAddLocationForAccount(
     featureEnabled,
@@ -59,14 +57,14 @@ export default async function LocationsPage() {
           kind: 'locked',
           title: 'Upgrade to add locations',
           description: 'Basic includes one location. Upgrade to Standard or Premium to add more.',
-          ctaHref: '/settings#subscription-billing',
+          ctaHref: '/settings/billing',
           ctaLabel: 'View plan options',
         }
       : {
           kind: 'locked',
           title: 'Location additions unavailable',
           description: 'Your subscription must be active before adding another location.',
-          ctaHref: '/settings#subscription-billing',
+          ctaHref: '/settings/billing',
           ctaLabel: 'Review billing',
         };
 
@@ -130,7 +128,6 @@ export default async function LocationsPage() {
         activeCount={activeCount}
         accountId={access.accountId}
         addLocationState={addLocationState}
-        multiLocationEnabled={multiLocationEnabled}
         voiceHref={voiceHref}
       />
     </>

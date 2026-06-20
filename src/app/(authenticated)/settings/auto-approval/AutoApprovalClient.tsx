@@ -34,8 +34,6 @@ const BLOCK_REASON_COPY: Record<AutoApprovalReadinessBlockReason, string> = {
 
 interface Props {
   initialState: AutoApprovalSettingsResponse;
-  multiLocationEnabled?: boolean;
-  locationsSettingsEnabled?: boolean;
 }
 
 interface PendingConfirmation {

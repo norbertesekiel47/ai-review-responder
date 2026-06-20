@@ -21,10 +21,7 @@ import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/chann
 import { whatsappEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
 import { getChannelOverridesView } from '@/lib/channels/overrides-view';
 import { CHANNEL_IDS } from '@/lib/notifications/channels/types';
-import {
-  shouldShowLocationsSettings,
-  shouldUseMultiLocationSettings,
-} from '@/lib/locations/multi-location-mode';
+import { shouldUseMultiLocationSettings } from '@/lib/locations/multi-location-mode';
 
 function isoOrNull(value: Date | null): string | null {
   return value ? value.toISOString() : null;
@@ -50,7 +47,6 @@ export default async function ChannelsPage() {
 
   const featureEnabled = process.env.MULTI_LOCATION_ENABLED === 'true';
   const multiLocationEnabled = shouldUseMultiLocationSettings(featureEnabled, activeLocations.length);
-  const locationsSettingsEnabled = shouldShowLocationsSettings(featureEnabled);
   const canAddOverrides = multiLocationEnabled && activeLocations.length > 1;
 
   // Get the owner's email for the email enrollment fallback.
@@ -118,8 +114,6 @@ export default async function ChannelsPage() {
           whatsapp: whatsappAvailable(),
         }}
         ownerEmailFallback={ownerEmail}
-        multiLocationEnabled={multiLocationEnabled}
-        locationsSettingsEnabled={locationsSettingsEnabled}
         canAddOverrides={canAddOverrides}
         perLocationOverrides={overridesView.overrides}
         locationOptions={activeLocations}

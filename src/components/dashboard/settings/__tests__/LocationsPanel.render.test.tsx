@@ -35,21 +35,21 @@ function location(overrides: Partial<LocationEntry>): LocationEntry {
 }
 
 describe('LocationsPanel connection action', () => {
-  it('uses the configured brand voice anchor for single-location accounts', () => {
+  it('honors an explicit voiceHref override', () => {
     render(
       <LocationsPanel
         locations={[location({})]}
         archivedLocations={[]}
         activeCount={1}
         accountId={ACCOUNT_ID}
-        voiceHref="/settings#brand-voice"
+        voiceHref="/settings/voice?from=locations"
         onLocationChange={() => {}}
       />,
     );
 
     expect(screen.getByRole('link', { name: /^voice$/i })).toHaveAttribute(
       'href',
-      '/settings#brand-voice',
+      '/settings/voice?from=locations',
     );
   });
 
@@ -254,7 +254,7 @@ describe('LocationsPanel add-location state', () => {
           kind: 'locked',
           title: 'Upgrade to add locations',
           description: 'Basic includes one location. Upgrade to Standard or Premium to add more.',
-          ctaHref: '/settings#subscription-billing',
+          ctaHref: '/settings/billing',
           ctaLabel: 'View plan options',
         }}
         onLocationChange={() => {}}
@@ -265,7 +265,7 @@ describe('LocationsPanel add-location state', () => {
     expect(screen.getByText('Upgrade to add locations')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /view plan options/i })).toHaveAttribute(
       'href',
-      '/settings#subscription-billing',
+      '/settings/billing',
     );
   });
 });

@@ -31,8 +31,6 @@ import type { ChannelOverridesView } from '@/lib/channels/overrides-view';
 import type { ChannelId } from '@/lib/notifications/channels/types';
 
 interface Props extends ChannelsClientProps {
-  multiLocationEnabled: boolean;
-  locationsSettingsEnabled: boolean;
   /** Computed once by the page: multi-location mode AND >1 active location. */
   canAddOverrides: boolean;
   perLocationOverrides: PerLocationOverride[];

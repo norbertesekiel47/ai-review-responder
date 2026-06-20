@@ -14,7 +14,6 @@ interface Props {
   activeCount: number;
   accountId: string;
   addLocationState: AddLocationState;
-  multiLocationEnabled: boolean;
   voiceHref: string;
 }
 
