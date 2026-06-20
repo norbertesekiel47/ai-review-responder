@@ -129,10 +129,17 @@
       "worker/ingress/telegram/telegram-shared.ts",
       "scripts/ci/tenant-scope-audit.ts",
       "scripts/ci/static-policy-audit.ts",
-      // Authenticated layout + past-replies page: the offboarding status banner /
-      // gate-aware screens were threaded in mechanically.
+      // Authenticated layout: the offboarding status banner / gate-aware screens
+      // were threaded in mechanically.
       "src/app/(authenticated)/layout.tsx",
-      "src/app/(authenticated)/dashboard/past-replies/page.tsx",
+      // Past Replies data loader: loadPastRepliesPageView is entry-level data
+      // orchestration — 5 tenant-scoped SQL queries via Promise.all, low cognitive
+      // complexity (7). The C-2 gating / bucketing / row mapping were EXTRACTED into
+      // the pure, unit-tested replies-view.ts; the residual length is inherent SQL,
+      // and splitting per-query would add the pass-through indirection design.md
+      // rejects (invariant #12). Replaces the old dashboard/past-replies/page.tsx
+      // entry, which moved to reviews/history/page.tsx and is now a 58-line shell.
+      "src/lib/past-replies/load-replies.ts",
 
       // ── Multi-location duplicate-place_id hardening (PR C, touched mechanically) ──
       // addLocationTransaction is a large single-tx orchestration (businesses INSERT +
