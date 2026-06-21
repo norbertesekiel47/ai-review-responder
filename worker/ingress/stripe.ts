@@ -5,6 +5,7 @@ import { claimInboundEvent } from './shared';
 import { LOG_PREFIX, getStripe } from './stripe/shared';
 import { processCheckoutSessionCompleted } from './stripe/checkout-completed';
 import { processInvoicePaymentFailed } from './stripe/invoice-payment-failed';
+import { processInvoicePaymentActionRequired } from './stripe/invoice-payment-action-required';
 import { processInvoicePaid } from './stripe/invoice-paid';
 import { processSubscriptionDeleted } from './stripe/subscription-deleted';
 import { processSubscriptionUpdated } from './stripe/subscription-updated';
@@ -70,6 +71,10 @@ export async function handleStripeWebhook(request: FastifyRequest, reply: Fastif
 
       case 'invoice.payment_failed':
         await processInvoicePaymentFailed(event.data.object as Stripe.Invoice);
+        break;
+
+      case 'invoice.payment_action_required':
+        await processInvoicePaymentActionRequired(event.data.object as Stripe.Invoice);
         break;
 
       case 'invoice.paid':

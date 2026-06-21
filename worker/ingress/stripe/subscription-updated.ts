@@ -6,6 +6,8 @@ import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { tierForBasePriceId } from '../../../src/lib/payments/price-tier-map';
 import { resolveOverageItem } from '../../../src/lib/payments/overage-item';
 import { LOG_PREFIX, extractCustomerId, AccountNotProvisionedYetError } from './shared';
+import { applyStripeSubscriptionState } from './apply-subscription-state';
+import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 
 export async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<void> {
   const subscriptionId = sub.id;
@@ -101,6 +103,24 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
     }
 
     await tx`SELECT pg_advisory_xact_lock(hashtext(${acctRow.id + ':subscription_update'}))`;
+
+    // Trial conversion: Stripe emits customer.subscription.updated with
+    // status='active' when a trial converts. Convert trialing→active through the
+    // SINGLE applier (subscription mode), in THIS tx, ONLY when the event's
+    // subscription status is 'active' (plan §4.12 — the $0 trial-start invoice
+    // can't flip the status early). The applier's transition table makes this a
+    // no-op for any other source status, so it is safe to call whenever the
+    // account is trialing. The tier/locations sync below then runs as usual.
+    if (
+      acctRow.subscription_status === SubscriptionStatus.TRIALING
+      && sub.status === 'active'
+    ) {
+      await applyStripeSubscriptionState(
+        tx,
+        { mode: 'subscription', stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId },
+        sub,
+      );
+    }
 
     // VAL-BILLING-010: overage item quantity -> accounts.locations_paid.
     // VAL-BILLING-011: tolerate legacy single-item subscriptions (quantity 0).

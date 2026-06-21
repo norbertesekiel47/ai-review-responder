@@ -2,7 +2,19 @@ import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
-import { LOG_PREFIX, extractCustomerId } from './shared';
+import { LOG_PREFIX, extractCustomerId, extractSubscriptionId } from './shared';
+import { applyStripeSubscriptionState } from './apply-subscription-state';
+
+/** Pull the subscription id off an invoice across Stripe API-version shapes. */
+function invoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
+  const raw = (invoice as unknown as {
+    subscription?: string | Stripe.Subscription | null;
+    parent?: { subscription_details?: { subscription?: string | Stripe.Subscription | null } };
+  });
+  return extractSubscriptionId(
+    raw.subscription ?? raw.parent?.subscription_details?.subscription ?? null,
+  );
+}
 
 export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
   const customerId = extractCustomerId(invoice.customer);
@@ -29,6 +41,25 @@ export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Prom
     }
 
     await tx`SELECT pg_advisory_xact_lock(hashtext(${acctRow.id + ':status_change'}))`;
+
+    // Trial card-fail (trialing → past_due): route through the SINGLE applier
+    // (subscription mode) so trial_ends_at is cleared and trial_payment_failed
+    // is emitted, in THIS tx. Requires the subscription id off the invoice; the
+    // applier resolves the account by (customer, subscription) and is a no-op if
+    // they don't match the account's current subscription.
+    if (acctRow.subscription_status === SubscriptionStatus.TRIALING) {
+      const subscriptionId = invoiceSubscriptionId(invoice);
+      if (subscriptionId) {
+        await applyStripeSubscriptionState(
+          tx,
+          { mode: 'subscription', stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId },
+          { id: subscriptionId, status: 'past_due', trial_end: null, customer: customerId },
+        );
+      } else {
+        console.warn(`${LOG_PREFIX} invoice.payment_failed trialing account ${acctRow.id} but no subscription id on invoice — skipping`);
+      }
+      return;
+    }
 
     // Idempotent: only flip active → past_due (skip if already past_due or other status)
     if (acctRow.subscription_status === SubscriptionStatus.ACTIVE) {
