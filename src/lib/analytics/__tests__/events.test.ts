@@ -24,6 +24,10 @@ describe('analytics events', () => {
       'offboarding_reactivated',
       'offboarding_teardown_completed',
       'offboarding_purged',
+      'trial_started',
+      'trial_converted',
+      'trial_payment_failed',
+      'trial_cancelled',
     ]);
   });
 

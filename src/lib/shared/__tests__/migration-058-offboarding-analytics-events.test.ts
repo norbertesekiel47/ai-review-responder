@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ANALYTICS_EVENT_NAMES } from '@/lib/analytics/events';
 
 const sql = readFileSync(
   join(process.cwd(), 'supabase/migrations/058_offboarding_analytics_events.sql'),
@@ -38,10 +37,7 @@ describe('migration 058 - owner offboarding analytics events', () => {
     expect(sql).not.toMatch(/posthog-js/i);
   });
 
-  it('keeps the effective event_name CHECK list in sync with ANALYTICS_EVENT_NAMES', () => {
-    const checkMatch = sql.match(/event_name IN\s*\(([^)]*)\)/i);
-    expect(checkMatch).not.toBeNull();
-    const namesInCheck = [...checkMatch![1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
-    expect(namesInCheck).toEqual([...ANALYTICS_EVENT_NAMES].sort());
-  });
+  // The "effective CHECK list ⟺ ANALYTICS_EVENT_NAMES" drift-guard moved to
+  // migration-069 (the LATEST migration that replaces the constraint, adding the
+  // trial lifecycle events). 058 is no longer the head of this constraint.
 });

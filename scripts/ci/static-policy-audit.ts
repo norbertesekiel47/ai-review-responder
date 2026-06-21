@@ -171,10 +171,10 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   'worker/ingress/stripe/subscription-deleted.ts:119',
   // ── dashboard view-model discriminant union (type-level literals; the union
   //    mixes enum statuses with synthetic states like 'active_pending_business') ──
-  'src/lib/dashboard/types.ts:105',
-  'src/lib/dashboard/types.ts:124',
-  'src/lib/dashboard/types.ts:133',
-  'src/lib/dashboard/types.ts:252',
+  'src/lib/dashboard/types.ts:112',
+  'src/lib/dashboard/types.ts:131',
+  'src/lib/dashboard/types.ts:140',
+  'src/lib/dashboard/types.ts:259',
 ]);
 
 /** True when the trimmed line begins a line/block comment (so a status literal
