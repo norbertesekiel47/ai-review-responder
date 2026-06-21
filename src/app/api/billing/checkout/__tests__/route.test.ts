@@ -112,7 +112,26 @@ describe('POST /api/billing/checkout', () => {
       ACCOUNT_ID,
       'standard',
       'owner@test.com',
+      { trial: false },
     );
+  });
+
+  it('passes trial:true to createCheckoutSession when TRIAL_ENABLED=true', async () => {
+    const prev = process.env.TRIAL_ENABLED;
+    process.env.TRIAL_ENABLED = 'true';
+    try {
+      const res = await POST(mkRequest({ accountId: ACCOUNT_ID }));
+      expect(res.status).toBe(200);
+      expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+        ACCOUNT_ID,
+        'standard',
+        'owner@test.com',
+        { trial: true },
+      );
+    } finally {
+      if (prev === undefined) delete process.env.TRIAL_ENABLED;
+      else process.env.TRIAL_ENABLED = prev;
+    }
   });
 
   it('rejects past_due accounts without creating a duplicate checkout subscription', async () => {
@@ -125,6 +144,20 @@ describe('POST /api/billing/checkout', () => {
     expect(body).toEqual({
       error: 'account_already_active',
       subscriptionStatus: SubscriptionStatus.PAST_DUE,
+    });
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects trialing accounts without creating a duplicate subscription', async () => {
+    mockSql.mockResolvedValueOnce([accountRow(SubscriptionStatus.TRIALING)]);
+
+    const res = await POST(mkRequest({ accountId: ACCOUNT_ID }));
+    const body = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(body).toEqual({
+      error: 'account_already_active',
+      subscriptionStatus: SubscriptionStatus.TRIALING,
     });
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });

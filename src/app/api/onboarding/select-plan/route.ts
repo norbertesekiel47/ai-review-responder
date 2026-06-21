@@ -266,7 +266,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const result = await createCheckoutSession(accountRow.account_id, tier, ownerEmail);
+    // Trial eligibility (PLAN.md §0.2): TRIAL_ENABLED on AND a self-serve
+    // pending_payment account (gated above). This is the default self-serve
+    // onboarding checkout path. Server-authoritative flag; no NEXT_PUBLIC_*.
+    const trialEligible = process.env.TRIAL_ENABLED === 'true';
+    const result = await createCheckoutSession(accountRow.account_id, tier, ownerEmail, {
+      trial: trialEligible,
+    });
     checkoutUrl = result.url;
   } catch (err) {
     if (err instanceof CheckoutUnavailableError) {

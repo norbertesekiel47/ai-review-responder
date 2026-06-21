@@ -23,6 +23,27 @@ export interface CheckoutSessionResult {
   sessionId: string;
 }
 
+export interface CheckoutSessionOptions {
+  /**
+   * When true, the Checkout Session carries
+   * `subscription_data.trial_period_days` so Stripe creates a card-up-front
+   * trial ($0 charged now). The caller (the billing-checkout route) owns the
+   * eligibility decision (TRIAL_ENABLED on AND the account is a self-serve
+   * pending_payment account). The trial length comes from TRIAL_PERIOD_DAYS
+   * (default 30).
+   */
+  trial?: boolean;
+}
+
+const DEFAULT_TRIAL_PERIOD_DAYS = 30;
+
+function resolveTrialPeriodDays(): number {
+  const raw = process.env.TRIAL_PERIOD_DAYS;
+  if (!raw) return DEFAULT_TRIAL_PERIOD_DAYS;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TRIAL_PERIOD_DAYS;
+}
+
 export class CheckoutUnavailableError extends Error {
   constructor(message: string) {
     super(message);
@@ -49,6 +70,7 @@ export async function createCheckoutSession(
   accountId: string,
   tier: SubscriptionTierValue,
   ownerEmail: string,
+  options: CheckoutSessionOptions = {},
 ): Promise<CheckoutSessionResult> {
   // Resolve price IDs
   const basePriceId = basePriceIdForTier(tier);
@@ -107,6 +129,13 @@ export async function createCheckoutSession(
       }
     : {};
 
+  // Card-up-front trial: Stripe charges $0 now and auto-charges the captured
+  // card at trial end. The resulting subscription comes back status='trialing',
+  // which the checkout webhook projects to the 'trialing' account status.
+  const trialParams = options.trial
+    ? { subscription_data: { trial_period_days: resolveTrialPeriodDays() } }
+    : {};
+
   // Create the Checkout Session
   const session = await getStripe().checkout.sessions.create({
     mode: 'subscription',
@@ -117,6 +146,7 @@ export async function createCheckoutSession(
     cancel_url: cancelUrl,
     allow_promotion_codes: true,
     ...taxParams,
+    ...trialParams,
   });
 
   return { url: session.url!, sessionId: session.id };

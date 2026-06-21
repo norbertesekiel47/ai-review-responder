@@ -184,6 +184,7 @@ describe('POST /api/onboarding/select-plan', () => {
       expect.any(String), // accountId
       'premium',
       'owner@example.com',
+      { trial: false },
     );
   });
 
@@ -202,6 +203,7 @@ describe('POST /api/onboarding/select-plan', () => {
       expect.any(String),
       'basic',
       'owner@example.com',
+      { trial: false },
     );
   });
 
@@ -330,6 +332,7 @@ describe('POST /api/onboarding/select-plan', () => {
       expect.any(String), // accountId
       'founders',
       'owner@example.com',
+      { trial: false },
     );
     // UPDATE template fired with 'founders' tier bound
     const updateCall = mockSql.mock.calls.find((c: unknown[]) =>
@@ -361,6 +364,7 @@ describe('POST /api/onboarding/select-plan', () => {
       expect.any(String), // accountId
       'standard',
       'owner@example.com',
+      { trial: false },
     );
   });
 

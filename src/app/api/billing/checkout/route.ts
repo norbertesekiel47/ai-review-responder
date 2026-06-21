@@ -103,10 +103,14 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // VAL-BILLING-006: reject already-active or past-due accounts.
-  // Past-due recovery must use the billing portal, not a new checkout session.
+  // VAL-BILLING-006: reject accounts that ALREADY have a subscription — only a
+  // pending_payment account may create a new Checkout Session. A trialing
+  // account already has a (trialing) subscription, so a second checkout would
+  // create a duplicate subscription (PLAN.md §18a). Past-due recovery + trial
+  // card updates go through the billing portal, not a new checkout session.
   if (
     account.subscription_status === SubscriptionStatus.ACTIVE ||
+    account.subscription_status === SubscriptionStatus.TRIALING ||
     account.subscription_status === SubscriptionStatus.PAST_DUE
   ) {
     return NextResponse.json(
@@ -125,11 +129,18 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
 
   const tier = account.subscription_tier as SubscriptionTierValue;
 
+  // Trial eligibility (PLAN.md §0.2): TRIAL_ENABLED on AND a self-serve
+  // pending_payment account (already guaranteed — every other status was
+  // rejected above). Server-authoritative flag; no NEXT_PUBLIC_* companion.
+  const trialEligible = process.env.TRIAL_ENABLED === 'true';
+
   // Create the Checkout Session via the shared module
   // VAL-BILLING-066: Returns 502 with user-facing error when Stripe API fails
   // (network timeout, rate limit, invalid key, Stripe 500).
   try {
-    const result = await createCheckoutSession(accountId, tier, account.owner_email);
+    const result = await createCheckoutSession(accountId, tier, account.owner_email, {
+      trial: trialEligible,
+    });
     return NextResponse.json(
       { url: result.url, sessionId: result.sessionId },
       { headers: NO_STORE },

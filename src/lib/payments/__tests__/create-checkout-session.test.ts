@@ -38,3 +38,38 @@ describe('createCheckoutSession tax handling', () => {
     expect(params.tax_id_collection).toEqual({ enabled: true });
   });
 });
+
+describe('createCheckoutSession trial handling', () => {
+  beforeEach(() => {
+    createMock.mockReset();
+    createMock.mockResolvedValue({ url: 'https://checkout.stripe', id: 'cs_123' });
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('omits subscription_data when trial option is not set', async () => {
+    await createCheckoutSession('acct_1', 'basic', 'owner@example.com');
+    const params = createMock.mock.calls[0]![0];
+    expect(params.subscription_data).toBeUndefined();
+  });
+
+  it('adds subscription_data.trial_period_days = TRIAL_PERIOD_DAYS when trial=true', async () => {
+    vi.stubEnv('TRIAL_PERIOD_DAYS', '30');
+    await createCheckoutSession('acct_1', 'basic', 'owner@example.com', { trial: true });
+    const params = createMock.mock.calls[0]![0];
+    expect(params.subscription_data).toEqual({ trial_period_days: 30 });
+  });
+
+  it('defaults trial_period_days to 30 when TRIAL_PERIOD_DAYS unset', async () => {
+    vi.stubEnv('TRIAL_PERIOD_DAYS', '');
+    await createCheckoutSession('acct_1', 'basic', 'owner@example.com', { trial: true });
+    const params = createMock.mock.calls[0]![0];
+    expect(params.subscription_data).toEqual({ trial_period_days: 30 });
+  });
+
+  it('respects a custom TRIAL_PERIOD_DAYS', async () => {
+    vi.stubEnv('TRIAL_PERIOD_DAYS', '14');
+    await createCheckoutSession('acct_1', 'basic', 'owner@example.com', { trial: true });
+    const params = createMock.mock.calls[0]![0];
+    expect(params.subscription_data).toEqual({ trial_period_days: 14 });
+  });
+});
