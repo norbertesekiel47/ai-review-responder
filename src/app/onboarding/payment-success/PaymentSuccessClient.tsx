@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { LazyMotion, m, domAnimation } from 'motion/react';
 import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
 import { primaryButtonClass, buttonMotion } from '../_shared/field-styles';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 
 // Single source of truth for the polling cap. Used by both the poll loop
 // (to stop scheduling new ticks) and the UI branch that switches to the
@@ -72,10 +72,7 @@ export function PaymentSuccessClient({
             subscriptionStatus: string;
             businessOnboarded: boolean;
           };
-          if (
-            body.subscriptionStatus === SubscriptionStatus.ACTIVE
-            || body.subscriptionStatus === SubscriptionStatus.TRIALING
-          ) {
+          if (subscriptionGrantsFullAccess(body.subscriptionStatus)) {
             // Checkout confirmed (paid OR trial started — a $0 trial completes
             // checkout the same way). Acknowledge it on THIS page before the
             // user moves on. Not-yet-onboarded owners get an explicit "Continue

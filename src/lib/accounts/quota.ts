@@ -9,7 +9,7 @@
 
 import { sql } from '@/lib/db/server';
 import type { AccountId } from '@/lib/shared/ids';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import {
   TIER_CONFIG,
   type SubscriptionTierValue,
@@ -186,10 +186,7 @@ export async function assertCanAddLocation(
   }
 
   // 2. Check subscription is entitled (active or trialing)
-  if (
-    account.subscription_status !== SubscriptionStatus.ACTIVE
-    && account.subscription_status !== SubscriptionStatus.TRIALING
-  ) {
+  if (!subscriptionGrantsFullAccess(account.subscription_status)) {
     return { allowed: false, reason: 'subscription_inactive' };
   }
 

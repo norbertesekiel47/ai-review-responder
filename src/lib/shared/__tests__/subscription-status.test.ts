@@ -9,6 +9,7 @@ import {
   type SubscriptionStatusValue,
   isSubscriptionStatus,
   subscriptionAllowsDashboardRead,
+  subscriptionGrantsFullAccess,
 } from '../subscription-status';
 
 describe('SubscriptionStatus', () => {
@@ -49,6 +50,19 @@ describe('SubscriptionStatus', () => {
     // At runtime we just confirm the values are present.
     const s: SubscriptionStatusValue = 'active';
     expect(typeof s).toBe('string');
+  });
+});
+
+describe('subscriptionGrantsFullAccess', () => {
+  it('grants full access to active and trialing', () => {
+    expect(subscriptionGrantsFullAccess('active')).toBe(true);
+    expect(subscriptionGrantsFullAccess('trialing')).toBe(true);
+  });
+
+  it('denies pending_payment, past_due, and cancelled', () => {
+    expect(subscriptionGrantsFullAccess('pending_payment')).toBe(false);
+    expect(subscriptionGrantsFullAccess('past_due')).toBe(false);
+    expect(subscriptionGrantsFullAccess('cancelled')).toBe(false);
   });
 });
 

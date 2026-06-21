@@ -3,7 +3,10 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { redirect, notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import {
+  SubscriptionStatus,
+  subscriptionGrantsFullAccess,
+} from '@/lib/shared/subscription-status';
 import { PlanPickerClient } from './PlanPickerClient';
 import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
 
@@ -71,10 +74,7 @@ export default async function OnboardingPayPage({
     const emailParam = encodeURIComponent(user.email ?? '');
     redirect(`/signup/check-email?from=pay&email=${emailParam}`);
   }
-  if (
-    row.subscription_status === SubscriptionStatus.ACTIVE
-    || row.subscription_status === SubscriptionStatus.TRIALING
-  ) {
+  if (subscriptionGrantsFullAccess(row.subscription_status)) {
     // Active/trialing but wizard not yet completed → push to wizard, not
     // dashboard. The dashboard has a "Set up your business" CTA fallback, but
     // routing entitled-but-not-onboarded owners straight to the wizard matches

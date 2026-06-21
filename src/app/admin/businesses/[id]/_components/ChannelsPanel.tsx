@@ -2,7 +2,7 @@
 
 import { TelegramEnrollmentWidget } from '@/components/admin/TelegramEnrollmentWidget';
 import { WhatsAppEnrollmentWidget } from '@/components/admin/WhatsAppEnrollmentWidget';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import type { BusinessDetail, ChannelEnrollmentRow } from '../types';
 
 const STATUS_BADGE_STYLES: Record<ChannelEnrollmentRow['status'], string> = {
@@ -16,18 +16,10 @@ function StatusBadge({ status }: { status: ChannelEnrollmentRow['status'] }) {
   return <span className={`px-2 py-0.5 rounded text-xs ${STATUS_BADGE_STYLES[status]}`}>{status}</span>;
 }
 
-/**
- * Channel enrollment is available to ENTITLED accounts — active or trialing.
- * A trial account gets full product access, including channel management
- * (approval delivery is core), so admins must be able to enroll trialing
- * businesses. Mirrors the API gate at admin/channels/_shared/start.ts.
- */
-function isChannelEnrollmentEntitled(subscriptionStatus: string): boolean {
-  return (
-    subscriptionStatus === SubscriptionStatus.ACTIVE
-    || subscriptionStatus === SubscriptionStatus.TRIALING
-  );
-}
+// Channel enrollment is available to entitled accounts (active or trialing) —
+// approval delivery is core to the trial. Gated with the shared
+// `subscriptionGrantsFullAccess` predicate, mirroring the API gate at
+// admin/channels/_shared/start.ts.
 
 interface ChannelsPanelProps {
   business: BusinessDetail;
@@ -85,7 +77,7 @@ export function ChannelsPanel({ business, businessId, enrollments }: ChannelsPan
       {business.telegramEnabled && (
         <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
           <h2 className="text-lg font-semibold text-gray-800 mb-3">Telegram enrollment</h2>
-          {!isChannelEnrollmentEntitled(business.subscriptionStatus) ? (
+          {!subscriptionGrantsFullAccess(business.subscriptionStatus) ? (
             <p className="text-sm text-gray-500">
               Subscription not active. Telegram enrollment unlocks once the business&apos;s subscription is active or trialing.
             </p>
@@ -99,7 +91,7 @@ export function ChannelsPanel({ business, businessId, enrollments }: ChannelsPan
       {business.whatsappEnabled && (
         <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
           <h2 className="text-lg font-semibold text-gray-800 mb-3">WhatsApp enrollment</h2>
-          {!isChannelEnrollmentEntitled(business.subscriptionStatus) ? (
+          {!subscriptionGrantsFullAccess(business.subscriptionStatus) ? (
             <p className="text-sm text-gray-500">
               Subscription not active. WhatsApp enrollment unlocks once the business&apos;s subscription is active or trialing.
             </p>

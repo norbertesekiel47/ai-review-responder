@@ -4,7 +4,10 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import {
+  SubscriptionStatus,
+  subscriptionGrantsFullAccess,
+} from '@/lib/shared/subscription-status';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 
 export const dynamic = 'force-dynamic';
@@ -181,8 +184,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   //    call, plain row return) stay simple — and the branch logic is easier
   //    to reason about co-located with the comment above.
   const businessOnboarded = demoFlowEnabled
-    ? (subscriptionStatus === SubscriptionStatus.ACTIVE
-        || subscriptionStatus === SubscriptionStatus.TRIALING)
+    ? subscriptionGrantsFullAccess(subscriptionStatus)
       && row.onboarding_wizard_completed_at !== null
     : row.place_id_verified || row.google_maps_url !== null;
 

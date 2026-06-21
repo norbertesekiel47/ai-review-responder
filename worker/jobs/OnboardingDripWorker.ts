@@ -19,7 +19,7 @@ import { createWorkerLogger } from '../../src/lib/shared/logger';
 import { HANDLED_STATUSES } from '../../src/lib/shared/response-status';
 import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
-import { SubscriptionStatus } from '../../src/lib/shared/subscription-status';
+import { subscriptionGrantsFullAccess } from '../../src/lib/shared/subscription-status';
 
 export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Promise<void> {
   const logger = createWorkerLogger('[OnboardingDripWorker]', job.data.correlation_id);
@@ -59,10 +59,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   }
 
   // ── 2. Only entitled (active or trialing) subscriptions get drip emails ──
-  if (
-    business.subscription_status !== SubscriptionStatus.ACTIVE
-    && business.subscription_status !== SubscriptionStatus.TRIALING
-  ) {
+  if (!subscriptionGrantsFullAccess(business.subscription_status)) {
     logger.log(`Business ${businessId} not entitled (${business.subscription_status}) — skipping ${drip_type}`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;

@@ -9,7 +9,7 @@
 
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import {
   TIER_CONFIG,
   type SubscriptionTierValue,
@@ -77,10 +77,7 @@ export async function validateTierChange(
   // mutates the base item with create_prorations, but Stripe does not invoice
   // prorations on a trialing subscription — they accumulate and bill at trial
   // end (PLAN.md §6, verified trial-safe via test-clock acceptance test).
-  if (
-    account.subscription_status !== SubscriptionStatus.ACTIVE
-    && account.subscription_status !== SubscriptionStatus.TRIALING
-  ) {
+  if (!subscriptionGrantsFullAccess(account.subscription_status)) {
     return { allowed: false, reason: 'subscription_inactive' };
   }
 

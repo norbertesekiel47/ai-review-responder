@@ -2,7 +2,10 @@ import { notFound, redirect } from 'next/navigation';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { sql } from '@/lib/db/server';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import {
+  SubscriptionStatus,
+  subscriptionGrantsFullAccess,
+} from '@/lib/shared/subscription-status';
 import { PaywallWithDemoClient } from './PaywallWithDemoClient';
 
 export const dynamic = 'force-dynamic';
@@ -58,10 +61,7 @@ export default async function OnboardingDemoPage() {
   if (!row) redirect('/signup');
   if (row.role === 'admin') redirect('/admin/overview');
   if (row.role !== 'owner') redirect('/login');
-  if (
-    row.subscription_status === SubscriptionStatus.ACTIVE
-    || row.subscription_status === SubscriptionStatus.TRIALING
-  ) redirect('/dashboard');
+  if (subscriptionGrantsFullAccess(row.subscription_status)) redirect('/dashboard');
   if (row.subscription_status === SubscriptionStatus.CANCELLED) redirect('/dashboard');
 
   // Exclude 'archived' rows: the 23505 race-loser recovery path archives the

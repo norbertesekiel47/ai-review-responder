@@ -9,7 +9,10 @@
 
 import { sql } from '@/lib/db/server';
 import type { AccountId } from '@/lib/shared/ids';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import {
+  SubscriptionStatus,
+  subscriptionGrantsFullAccess,
+} from '@/lib/shared/subscription-status';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -49,10 +52,7 @@ export async function isAccountActive(
     return { active: false, reason: 'not_found' };
   }
 
-  if (
-    row.subscription_status === SubscriptionStatus.ACTIVE
-    || row.subscription_status === SubscriptionStatus.TRIALING
-  ) {
+  if (subscriptionGrantsFullAccess(row.subscription_status)) {
     return { active: true };
   }
 

@@ -1,5 +1,8 @@
 import type { AuthFlow } from '@/lib/shared/auth-flow';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import {
+  SubscriptionStatus,
+  subscriptionGrantsFullAccess,
+} from '@/lib/shared/subscription-status';
 
 const OWNER_ALLOWED_PREFIXES = ['/dashboard', '/settings', '/onboarding'] as const;
 const ADMIN_AUTH_PAGES = ['/admin/login', '/admin/forgot-password', '/admin/reset-password'] as const;
@@ -39,8 +42,7 @@ export function applySubscriptionGuard(
   if (from.startsWith('/onboarding') && !from.startsWith('//')) return null;
   if (status.subscriptionStatus === SubscriptionStatus.PENDING_PAYMENT) return '/onboarding/pay';
   if (
-    (status.subscriptionStatus === SubscriptionStatus.ACTIVE
-      || status.subscriptionStatus === SubscriptionStatus.TRIALING)
+    subscriptionGrantsFullAccess(status.subscriptionStatus)
     && status.businessOnboarded === false
   ) {
     return '/onboarding/business';

@@ -37,20 +37,39 @@ export function isSubscriptionStatus(value: string): value is SubscriptionStatus
   return ALL_STATUSES.includes(value);
 }
 
-// ── Dashboard / KPI read entitlement ─────────────────────────────────────────
+// ── Entitlement predicates ───────────────────────────────────────────────────
+
+/**
+ * Whether a subscription status grants full product entitlement: AI drafts,
+ * notifications, approval, posting, channel enrollment, multi-location, tier
+ * changes, etc. This is the single owner of the rule "`trialing` is treated like
+ * `active`" — the card-up-front trial gets the full product for 30 days, with
+ * the one exception that recurring paid ranking (SerpAPI) is excluded (handled
+ * by the ranking scheduler/worker keeping their own `active`-only gate).
+ *
+ * `past_due` is deliberately NOT full access: it gets a grace window with its
+ * own recovery rules (see `computePastDueRecoveryState`), so call sites that
+ * special-case `past_due` must branch on it BEFORE consulting this predicate.
+ */
+export function subscriptionGrantsFullAccess(
+  status: string | undefined,
+): boolean {
+  return (
+    status === SubscriptionStatus.ACTIVE ||
+    status === SubscriptionStatus.TRIALING
+  );
+}
 
 /**
  * Whether an account's subscription status grants read access to customer
  * dashboard / KPI data. Mirrors the entitlement `/api/dashboard` enforces:
- * `active`, `trialing`, and `past_due` (features continue through the trial and
- * the past-due grace window) return data; `pending_payment` and `cancelled` do
- * not. Any owner read of customer KPI data must gate on this before returning
- * data.
+ * full-access statuses (`active`, `trialing`) plus `past_due` (features continue
+ * through the past-due grace window); `pending_payment` and `cancelled` do not.
+ * Any owner read of customer KPI data must gate on this before returning data.
  */
 export function subscriptionAllowsDashboardRead(status: string): boolean {
   return (
-    status === SubscriptionStatus.ACTIVE ||
-    status === SubscriptionStatus.TRIALING ||
+    subscriptionGrantsFullAccess(status) ||
     status === SubscriptionStatus.PAST_DUE
   );
 }

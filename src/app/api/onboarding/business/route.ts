@@ -12,7 +12,7 @@ import {
 } from '@/lib/shared/schemas';
 import { extractPlaceId } from '@/lib/reviews/url-parser';
 import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import { PLACEHOLDER_BUSINESS_NAME } from '@/lib/onboarding/create-business';
 import { enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
@@ -131,10 +131,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // 5. Subscription gate — wizard requires `active` or `trialing`. The dashboard
   //    pending-payment banner steers the owner to /onboarding/pay if they reach
   //    this flow before Stripe confirms.
-  if (
-    bizRow.subscription_status !== SubscriptionStatus.ACTIVE
-    && bizRow.subscription_status !== SubscriptionStatus.TRIALING
-  ) {
+  if (!subscriptionGrantsFullAccess(bizRow.subscription_status)) {
     return NextResponse.json(
       { error: 'subscription_inactive', subscriptionStatus: bizRow.subscription_status },
       { status: 409, headers: NO_STORE },

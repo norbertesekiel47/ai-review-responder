@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { jsonResponse, errorResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import {
+  SubscriptionStatus,
+  subscriptionGrantsFullAccess,
+} from '@/lib/shared/subscription-status';
 import {
   getActiveDashboardData,
   BusinessNotFoundError,
@@ -173,8 +176,7 @@ async function fetchPerLocationData(
   // CTA-only screen instead of the empty-state dashboard so they have
   // an obvious next action.
   if (
-    (subRow.subscription_status === SubscriptionStatus.ACTIVE ||
-      subRow.subscription_status === SubscriptionStatus.TRIALING) &&
+    subscriptionGrantsFullAccess(subRow.subscription_status) &&
     !subRow.place_id_verified &&
     subRow.google_maps_url === null
   ) {
@@ -279,10 +281,7 @@ async function aggregateSubscriptionResponse(
     });
   }
 
-  if (
-    accountRow.subscription_status !== SubscriptionStatus.ACTIVE
-    && accountRow.subscription_status !== SubscriptionStatus.TRIALING
-  ) {
+  if (!subscriptionGrantsFullAccess(accountRow.subscription_status)) {
     return jsonResponse({
       subscriptionStatus: accountRow.subscription_status,
     });
