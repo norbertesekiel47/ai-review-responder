@@ -14,7 +14,6 @@ interface Props {
   activeCount: number;
   accountId: string;
   addLocationState: AddLocationState;
-  multiLocationEnabled: boolean;
   voiceHref: string;
 }
 
@@ -29,15 +28,10 @@ export function LocationsClient({
   activeCount,
   accountId,
   addLocationState,
-  multiLocationEnabled,
   voiceHref,
 }: Props) {
   return (
-    <SettingsShell
-      activeTab="locations"
-      multiLocationEnabled={multiLocationEnabled}
-      locationsSettingsEnabled
-    >
+    <SettingsShell>
       <LocationsPanel
         locations={locations}
         archivedLocations={archivedLocations}

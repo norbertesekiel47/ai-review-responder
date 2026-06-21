@@ -31,8 +31,6 @@ import type { ChannelOverridesView } from '@/lib/channels/overrides-view';
 import type { ChannelId } from '@/lib/notifications/channels/types';
 
 interface Props extends ChannelsClientProps {
-  multiLocationEnabled: boolean;
-  locationsSettingsEnabled: boolean;
   /** Computed once by the page: multi-location mode AND >1 active location. */
   canAddOverrides: boolean;
   perLocationOverrides: PerLocationOverride[];
@@ -81,11 +79,7 @@ export function ChannelsTabClient(props: Props) {
 
   if (f.fetchError) {
     return (
-      <SettingsShell
-        activeTab="channels"
-        multiLocationEnabled={props.multiLocationEnabled}
-        locationsSettingsEnabled={props.locationsSettingsEnabled}
-      >
+      <SettingsShell>
         <ChannelsClient {...props} />
         <div className="set-section" style={{ borderColor: '#FCA5A5' }}>
           <div className="set-section-title" style={{ color: '#991B1B' }}>Couldn&apos;t load notification preferences</div>
@@ -97,11 +91,7 @@ export function ChannelsTabClient(props: Props) {
 
   if (!f.form || !f.data) {
     return (
-      <SettingsShell
-        activeTab="channels"
-        multiLocationEnabled={props.multiLocationEnabled}
-        locationsSettingsEnabled={props.locationsSettingsEnabled}
-      >
+      <SettingsShell>
         <ChannelsClient {...props} />
         <div className="set-section">
           <SettingsSkeleton />
@@ -112,9 +102,6 @@ export function ChannelsTabClient(props: Props) {
 
   return (
     <SettingsShell
-      activeTab="channels"
-      multiLocationEnabled={props.multiLocationEnabled}
-      locationsSettingsEnabled={props.locationsSettingsEnabled}
       savedFlash={f.savedFlash}
       saveBar={{
         visible: f.dirty,

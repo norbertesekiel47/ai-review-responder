@@ -1,10 +1,10 @@
 // src/app/api/account/settings/route.ts
 //
 // GET /api/account/settings — Returns account-level data for the Settings
-// Account tab: subscription summary, billing snapshot, quota usage,
+// Billing tab: subscription summary, billing snapshot, quota usage,
 // and owner profile information.
 //
-// Used by AccountPanel via useAccountData hook.
+// Used by BillingPanel via the useAccountData hook.
 //
 // Validation contract: VAL-SETTINGS-003 through VAL-SETTINGS-007.
 

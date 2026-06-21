@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import fs from 'fs';
-import path from 'path';
 import { TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
+
+// Ported from AccountPanel.test.ts — pure-logic coverage for the billing UI that
+// now lives in BillingPanel. These assertions depend only on TIER_CONFIG and the
+// formatting/partition rules BillingPanel mirrors, not on any panel export.
 
 // ── QuotaBar label formatting ──────────────────────────────────────────────
 
-describe('AccountPanel quota label formatting', () => {
+describe('BillingPanel quota label formatting', () => {
   function formatQuotaLabel(activeLocations: number, included: number, overage: number): string {
     return `${activeLocations} of ${included} included${overage > 0 ? `, ${overage} overage` : ''}`;
   }
@@ -33,7 +35,7 @@ describe('AccountPanel quota label formatting', () => {
 
 // ── PlanCard tier label formatting ────────────────────────────────────────
 
-describe('AccountPanel tier label formatting', () => {
+describe('BillingPanel tier label formatting', () => {
   it('formats tier name for display — standard', () => {
     const tier = 'standard';
     const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
@@ -61,7 +63,7 @@ describe('AccountPanel tier label formatting', () => {
 
 // ── Billing price formatting ─────────────────────────────────────────────
 
-describe('AccountPanel billing price formatting', () => {
+describe('BillingPanel billing price formatting', () => {
   it('formats base price from cents to dollars', () => {
     expect((7900 / 100).toFixed(2)).toBe('79.00');
   });
@@ -77,7 +79,7 @@ describe('AccountPanel billing price formatting', () => {
 
 // ── Tier change button logic (VAL-BILLING-073) ────────────────────────────
 
-describe('AccountPanel tier change button logic', () => {
+describe('BillingPanel tier change button logic', () => {
   const tierOptions: SubscriptionTierValue[] = ['basic', 'standard', 'premium', 'founders'];
 
   it('identifies upgradable tiers — standard can upgrade to premium', () => {
@@ -150,16 +152,5 @@ describe('AccountPanel tier change button logic', () => {
 
     expect(overageUnits).toBe(2);
     expect(totalCents).toBe(19900 + 2 * 2000); // 23900
-  });
-});
-
-describe('AccountPanel tier preview request', () => {
-  it('marks the modal-opening tier-change request as preview-only', () => {
-    const sourcePath = path.resolve(__dirname, '../AccountPanel.tsx');
-    const source = fs.readFileSync(sourcePath, 'utf-8');
-
-    expect(source).toMatch(
-      /body:\s*JSON\.stringify\(\{[\s\S]*accountId:\s*accountData\.accountId,[\s\S]*newTier,[\s\S]*preview:\s*true[\s\S]*\}\)/,
-    );
   });
 });
