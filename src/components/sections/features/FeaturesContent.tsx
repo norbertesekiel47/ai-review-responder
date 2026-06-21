@@ -79,7 +79,7 @@ const FEATURE_LANGS = [
 ];
 
 const APPROVAL_STEPS = [
-  { n: '01', title: 'New review lands', sub: 'Webhook from Google · detected in < 60 seconds', t: '0:00', dark: false, d: '100ms' },
+  { n: '01', title: 'New review lands', sub: 'New review detected via webhook', t: '0:00', dark: false, d: '100ms' },
   { n: '02', title: 'AI drafts a reply in your voice', sub: 'Uses past approvals as style reference', t: '+0:12', dark: false, d: '300ms' },
   { n: '03', title: 'You get a text or email', sub: 'Review + draft + three big buttons', t: '+0:15', dark: false, d: '500ms' },
   { n: '04', title: 'You tap approve · we post it', sub: 'Median owner time: 28 seconds · No login required', t: '+0:58', dark: true, d: '700ms' },
@@ -739,8 +739,8 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
           </h2>
           <p className="text-[#6a6a6a] mt-4 max-w-xl leading-relaxed">
             You get an email with the customer&apos;s review and the AI draft side-by-side. Tap
-            approve, edit inline, or ask for a fresh draft. Nothing is ever posted without your
-            explicit go-ahead.
+            approve, edit inline, or ask for a fresh draft. By default, nothing is posted without your
+            go-ahead.
           </p>
         </div>
       </div>
@@ -929,8 +929,7 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           </p>
           <ul className="space-y-3 text-sm">
             {[
-              'Top mentions, scored by sentiment',
-              'Week-over-week review volume & stars',
+              'Week-over-week review volume',
               'One concrete operational suggestion',
             ].map((t) => (
               <li key={t} className="flex items-start gap-3">
@@ -1030,8 +1029,8 @@ function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
             Numbers to show your <span className="rw-display-serif text-[#557069]">accountant</span>.
           </h2>
           <p className="text-[#6a6a6a] mt-4 leading-relaxed">
-            Response rate before and after. Average time to respond. Where you sit in local search over
-            90 days. The kind of numbers that justify the line item.
+            Response rate before and after. Average time to respond. Where you sit in local search.
+            The kind of numbers that justify the line item.
           </p>
         </div>
       </div>

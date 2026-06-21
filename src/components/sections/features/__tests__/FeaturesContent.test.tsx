@@ -93,4 +93,15 @@ describe('FeaturesContent', () => {
     // The old equal-weight bordered-pill styling is gone.
     expect(html).not.toContain('px-8 py-4 text-white rounded-full font-medium border border-white/40');
   });
+
+  it('states only feature claims true to the system', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+
+    expect(html).not.toContain('Top mentions, scored by sentiment');
+    expect(html).not.toContain('over 90 days');
+    expect(html).not.toContain('Webhook from Google');
+    expect(html).not.toContain('ever posted without your explicit go-ahead');
+
+    expect(html).toContain('By default, nothing is posted without your go-ahead');
+  });
 });
