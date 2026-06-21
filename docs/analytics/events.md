@@ -173,3 +173,47 @@ CSV content.
 - **Required properties:** none
 - **Optional properties:** none
 - **Privacy notes:** no account, user, business, provider, or raw offboarding identifier is retained.
+
+### `trial_started`
+- **Status:** live
+- **Description:** A card-up-front free trial began (account entered `trialing`).
+- **Owner:** `applyStripeSubscriptionState` (Stripe webhook ingress)
+- **Source:** worker-side, in the subscription-status applier transaction (durable; not client-postable)
+- **Distinct ID:** account ID
+- **Event key:** `trial_started:<account_id>` (one per account — lean-abuse posture)
+- **Required properties:** `status` (`trialing`)
+- **Optional properties:** none
+- **Privacy notes:** IDs only; no Stripe customer/subscription identifiers in properties.
+
+### `trial_converted`
+- **Status:** live
+- **Description:** A trial converted to a paid subscription (`trialing` → `active`).
+- **Owner:** `applyStripeSubscriptionState` (Stripe webhook ingress)
+- **Source:** worker-side, in the subscription-status applier transaction (durable; not client-postable)
+- **Distinct ID:** account ID
+- **Event key:** `trial_converted:<account_id>:<stripe_subscription_id>`
+- **Required properties:** `status` (`active`)
+- **Optional properties:** none
+- **Privacy notes:** the Stripe subscription id appears only in the dedup event key, never in properties.
+
+### `trial_payment_failed`
+- **Status:** live
+- **Description:** A trial's first charge failed at trial end (`trialing` → `past_due`).
+- **Owner:** `applyStripeSubscriptionState` (Stripe webhook ingress)
+- **Source:** worker-side, in the subscription-status applier transaction (durable; not client-postable)
+- **Distinct ID:** account ID
+- **Event key:** `trial_payment_failed:<account_id>:<stripe_subscription_id>`
+- **Required properties:** `status` (`past_due`)
+- **Optional properties:** none
+- **Privacy notes:** the Stripe subscription id appears only in the dedup event key, never in properties.
+
+### `trial_cancelled`
+- **Status:** live
+- **Description:** A trial was cancelled before converting (`trialing` → `cancelled`).
+- **Owner:** `applyStripeSubscriptionState` (Stripe webhook ingress)
+- **Source:** worker-side, in the subscription-status applier transaction (durable; not client-postable)
+- **Distinct ID:** account ID
+- **Event key:** `trial_cancelled:<account_id>:<stripe_subscription_id>`
+- **Required properties:** `status` (`cancelled`)
+- **Optional properties:** none
+- **Privacy notes:** the Stripe subscription id appears only in the dedup event key, never in properties.

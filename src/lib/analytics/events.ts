@@ -16,6 +16,10 @@ export const ANALYTICS_EVENT_NAMES = [
   'offboarding_reactivated',
   'offboarding_teardown_completed',
   'offboarding_purged',
+  'trial_started',
+  'trial_converted',
+  'trial_payment_failed',
+  'trial_cancelled',
 ] as const;
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENT_NAMES)[number];
