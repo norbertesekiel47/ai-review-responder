@@ -4,6 +4,16 @@ Base schema: `supabase/migrations/001_initial_schema.sql`
 Current head: **068** — next migration is **069**
 All tables use UUIDv7 (time-ordered primary keys).
 
+> **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
+> `list_migrations` MCP (reads `supabase_migrations.schema_migrations`) does **not**
+> track RepWorth's `0xx` migrations — they're applied outside the Supabase CLI. It
+> returned a single timestamped row on prod and **zero** on staging despite head
+> being 068. → **Always verify against the actual schema** (introspect
+> `information_schema.columns` / `pg_indexes` for the objects the migration created),
+> never the migration ledger. Example: migration 031 = presence of
+> `reviews.external_reply_ingested_at`, `zernio_backfill_runs.external_reply_ingested_count`,
+> and the `responses_one_posted_per_review` partial index.
+
 ## Data retention policy
 
 One authoritative statement of what gets deleted, what is kept, and why.
