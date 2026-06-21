@@ -12,6 +12,12 @@ describe('checkSubscription', () => {
     });
   });
 
+  describe('trialing', () => {
+    it.each(WORKER_TYPES)('allows %s worker (trial treated like active)', (workerType) => {
+      expect(checkSubscription({ status: 'trialing', workerType, now: NOW })).toEqual({ allowed: true });
+    });
+  });
+
   describe('cancelled', () => {
     it.each(WORKER_TYPES)('denies %s worker', (workerType) => {
       const result = checkSubscription({ status: 'cancelled', workerType, now: NOW });

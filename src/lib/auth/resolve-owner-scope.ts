@@ -97,7 +97,10 @@ export async function resolveOwnerScope(
     if (recovery.isReadOnly && !options.allowReadOnly) {
       throw new ScopeError('past_due_read_only', 402);
     }
-  } else if (account.subscription_status !== SubscriptionStatus.ACTIVE) {
+  } else if (
+    account.subscription_status !== SubscriptionStatus.ACTIVE
+    && account.subscription_status !== SubscriptionStatus.TRIALING
+  ) {
     throw new ScopeError('subscription_inactive', 403);
   }
 

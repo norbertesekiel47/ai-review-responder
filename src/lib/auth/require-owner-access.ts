@@ -75,6 +75,7 @@ export async function requireOwnerAccess(): Promise<OwnerAccess> {
   if (row.role !== 'owner') redirect('/login');
   if (
     row.subscription_status !== SubscriptionStatus.ACTIVE
+    && row.subscription_status !== SubscriptionStatus.TRIALING
     && row.subscription_status !== SubscriptionStatus.PAST_DUE
   ) {
     redirect('/onboarding/pay');

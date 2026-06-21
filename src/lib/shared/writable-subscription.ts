@@ -48,7 +48,10 @@ export function assertWritableSubscription(
 export function assertWritableSubscriptionStatus(
   input: WritableSubscriptionStatusInput,
 ): WritableSubscriptionResult {
-  if (input.subscriptionStatus === SubscriptionStatus.ACTIVE) {
+  if (
+    input.subscriptionStatus === SubscriptionStatus.ACTIVE
+    || input.subscriptionStatus === SubscriptionStatus.TRIALING
+  ) {
     return { ok: true };
   }
 
@@ -254,7 +257,10 @@ export async function resolveWritableAccountForLocation(
       accountFlags: accountRow.flags,
     }));
     if (!writable.ok) return { kind: 'blocked', status: writable.status, error: writable.error };
-  } else if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
+  } else if (
+    accountRow.subscription_status !== SubscriptionStatus.ACTIVE
+    && accountRow.subscription_status !== SubscriptionStatus.TRIALING
+  ) {
     return { kind: 'blocked', status: 403, error: 'subscription_not_active' };
   }
 

@@ -30,10 +30,14 @@ export interface SubscriptionGuardInput {
  * - past_due  → 7-day grace, then skip
  * - pending_payment → only generator allowed (admin-visible demo drafts)
  * - active → allowed
+ * - trialing → allowed (treated like active; trial expiry is enforced by Stripe
+ *   converting/cancelling the subscription and the reconcile poller correcting
+ *   the projection, NOT by a per-request clock here)
  */
 export function checkSubscription(input: SubscriptionGuardInput): SubscriptionCheckResult {
   switch (input.status) {
     case SubscriptionStatus.ACTIVE:
+    case SubscriptionStatus.TRIALING:
       return { allowed: true };
 
     case SubscriptionStatus.CANCELLED:
