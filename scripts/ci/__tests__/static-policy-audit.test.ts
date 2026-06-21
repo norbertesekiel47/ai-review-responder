@@ -199,6 +199,15 @@ describe('scanFile — subscription-status bare literal (deep-scan §7.1; repwor
     expect(findings.some((f) => f.rule === 'subscription-status-literal')).toBe(true);
   });
 
+  it("flags the new 'trialing' status literal (enum invariant covers trialing too)", () => {
+    // Regression: the trial feature added 'trialing' to SubscriptionStatus, so a
+    // bare 'trialing' literal on a subscription_status line must be flagged just
+    // like the other four canonical statuses — otherwise CI silently stops
+    // enforcing the enum invariant for the new status.
+    const findings = scanFile('worker/jobs/x.ts', "if (row.subscription_status === 'trialing') {}");
+    expect(findings.some((f) => f.rule === 'subscription-status-literal')).toBe(true);
+  });
+
   it('does NOT flag another status domain on a line without a subscription field', () => {
     // The trap: connection / review status literals must never be migrated.
     expect(scanFile('src/x.ts', "if (conn.status === 'active') return null;")).toHaveLength(0);

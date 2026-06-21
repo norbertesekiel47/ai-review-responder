@@ -97,6 +97,10 @@ export function LandingContent({
                   : 'Join waitlist'
             }
             primaryCtaDisabled={comingSoon}
+            // When the trial is live (which requires self-serve signup to also be
+            // on — see (public)/page.tsx), the CTA goes to /signup to actually
+            // start a trial, instead of scrolling to the early-access waitlist.
+            primaryCtaHref={trialEnabled ? '/signup' : undefined}
           />
           <TickerBar />
           <Features />

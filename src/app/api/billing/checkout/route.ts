@@ -129,10 +129,17 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
 
   const tier = account.subscription_tier as SubscriptionTierValue;
 
-  // Trial eligibility (PLAN.md §0.2): TRIAL_ENABLED on AND a self-serve
-  // pending_payment account (already guaranteed — every other status was
-  // rejected above). Server-authoritative flag; no NEXT_PUBLIC_* companion.
-  const trialEligible = process.env.TRIAL_ENABLED === 'true';
+  // Trial eligibility (PLAN.md §0.2): trials are the SELF-SERVE pending_payment
+  // onboarding path only. The status reject above eliminates active/trialing/
+  // past_due, but NOT cancelled — so check pending_payment explicitly here
+  // rather than rely on "everything else was rejected". Also require
+  // SELF_SERVE_SIGNUP_ENABLED so an admin-onboarded pending_payment account
+  // (not part of the self-serve trial funnel) gets a normal paid checkout, not
+  // a free trial. Both flags are server-authoritative; no NEXT_PUBLIC_* companion.
+  const trialEligible =
+    process.env.TRIAL_ENABLED === 'true' &&
+    process.env.SELF_SERVE_SIGNUP_ENABLED === 'true' &&
+    account.subscription_status === SubscriptionStatus.PENDING_PAYMENT;
 
   // Create the Checkout Session via the shared module
   // VAL-BILLING-066: Returns 502 with user-facing error when Stripe API fails

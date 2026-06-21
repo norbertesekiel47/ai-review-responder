@@ -9,6 +9,7 @@
 import { sql } from '@/lib/db/server';
 import { computeOverageQuantity } from '@/lib/accounts/quota';
 import { TIER_CONFIG, isSubscriptionTier } from '@/lib/accounts/tier-config';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 // Module-local thresholds. Surfaced to callers via MarginData.thresholds (see
 // getMarginReport), so no standalone exports are needed — keeps the public
@@ -162,13 +163,21 @@ export async function getMarginReport(
   const rows: AccountMarginRow[] = [];
 
   for (const acct of accountRows) {
-    const mrrCents = monthlyMrrCents({
-      tier: acct.subscription_tier,
-      basePriceCents: acct.base_price_cents,
-      includedLocations: acct.locations_included,
-      overagePriceCents: acct.locations_overage_price_cents,
-      activeLocations: acct.active_locations,
-    });
+    // Trialing accounts are a DISTINCT $0-revenue cohort (PLAN.md §6.16): they
+    // are charged nothing yet, so they must contribute $0 to platform revenue
+    // and gross margin — but their api_costs DO count (their cost risk is the
+    // whole point of showing them). Blending their plan price into revenue would
+    // inflate totalRevenueUsd/grossMarginPct and hide trial cost exposure.
+    const isTrialing = acct.subscription_status === SubscriptionStatus.TRIALING;
+    const mrrCents = isTrialing
+      ? 0
+      : monthlyMrrCents({
+          tier: acct.subscription_tier,
+          basePriceCents: acct.base_price_cents,
+          includedLocations: acct.locations_included,
+          overagePriceCents: acct.locations_overage_price_cents,
+          activeLocations: acct.active_locations,
+        });
     const mrrUsd = mrrCents / 100;
     totalRevenueUsd += mrrUsd;
 

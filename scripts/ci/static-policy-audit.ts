@@ -130,7 +130,7 @@ function stripLeadingWhitespaceAndComments(text: string): string {
 // view-model discriminant union are the explicit, reviewed allowlist below; the
 // carve-out count is printed so growth stays visible.
 const SUBSCRIPTION_STATUS_FIELD = /subscription[_]?[Ss]tatus/;
-const SUBSCRIPTION_STATUS_LITERAL = /['"](?:active|past_due|cancelled|pending_payment)['"]/;
+const SUBSCRIPTION_STATUS_LITERAL = /['"](?:active|trialing|past_due|cancelled|pending_payment)['"]/;
 
 // file:line sites that legitimately keep a bare literal. Each is either a SQL
 // predicate inside a postgres.js sql`` template (annotated with a `-- enum:`
@@ -142,7 +142,7 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   //    each keeps the literal + a trailing `-- enum: SubscriptionStatus.X` comment) ──
   'src/app/api/admin/billing/grant-extension/route.ts:70',
   'src/app/api/admin/billing/grant-extension/route.ts:108',
-  'src/lib/admin/margin-service.ts:135',
+  'src/lib/admin/margin-service.ts:136',
   'worker/background/pollers/CancellationGracePoller.ts:46',
   'worker/background/pollers/EmailChannelReconcilePoller.ts:113',
   'worker/background/pollers/EngagementMonitorPoller.ts:90',
@@ -150,12 +150,14 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   'worker/background/schedulers/OnboardingDripScheduler.ts:39',
   'worker/background/schedulers/RankingTrackingScheduler.ts:59',
   'worker/background/schedulers/WeeklySummaryScheduler.ts:58',
-  'worker/ingress/stripe/apply-subscription-state.ts:223',
-  'worker/ingress/stripe/apply-subscription-state.ts:234',
-  'worker/ingress/stripe/apply-subscription-state.ts:244',
-  'worker/ingress/stripe/apply-subscription-state.ts:269',
-  'worker/ingress/stripe/apply-subscription-state.ts:272',
-  'worker/ingress/stripe/apply-subscription-state.ts:275',
+  'worker/ingress/stripe/apply-subscription-state.ts:240',
+  'worker/ingress/stripe/apply-subscription-state.ts:253',
+  'worker/ingress/stripe/apply-subscription-state.ts:266',
+  'worker/ingress/stripe/apply-subscription-state.ts:276',
+  'worker/ingress/stripe/apply-subscription-state.ts:298',
+  'worker/ingress/stripe/apply-subscription-state.ts:301',
+  'worker/ingress/stripe/apply-subscription-state.ts:304',
+  'worker/ingress/stripe/apply-subscription-state.ts:307',
   'worker/ingress/stripe/checkout-completed.ts:114',
   'worker/ingress/stripe/checkout-completed.ts:120',
   'worker/ingress/stripe/checkout-completed.ts:154',

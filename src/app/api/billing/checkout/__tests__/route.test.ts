@@ -116,9 +116,11 @@ describe('POST /api/billing/checkout', () => {
     );
   });
 
-  it('passes trial:true to createCheckoutSession when TRIAL_ENABLED=true', async () => {
-    const prev = process.env.TRIAL_ENABLED;
+  it('passes trial:true to createCheckoutSession when TRIAL_ENABLED + SELF_SERVE_SIGNUP_ENABLED on and pending_payment', async () => {
+    const prevTrial = process.env.TRIAL_ENABLED;
+    const prevSelfServe = process.env.SELF_SERVE_SIGNUP_ENABLED;
     process.env.TRIAL_ENABLED = 'true';
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
     try {
       const res = await POST(mkRequest({ accountId: ACCOUNT_ID }));
       expect(res.status).toBe(200);
@@ -129,8 +131,32 @@ describe('POST /api/billing/checkout', () => {
         { trial: true },
       );
     } finally {
-      if (prev === undefined) delete process.env.TRIAL_ENABLED;
-      else process.env.TRIAL_ENABLED = prev;
+      if (prevTrial === undefined) delete process.env.TRIAL_ENABLED;
+      else process.env.TRIAL_ENABLED = prevTrial;
+      if (prevSelfServe === undefined) delete process.env.SELF_SERVE_SIGNUP_ENABLED;
+      else process.env.SELF_SERVE_SIGNUP_ENABLED = prevSelfServe;
+    }
+  });
+
+  it('does NOT grant a trial when SELF_SERVE_SIGNUP_ENABLED is off (non-self-serve pending_payment gets paid checkout)', async () => {
+    const prevTrial = process.env.TRIAL_ENABLED;
+    const prevSelfServe = process.env.SELF_SERVE_SIGNUP_ENABLED;
+    process.env.TRIAL_ENABLED = 'true';
+    delete process.env.SELF_SERVE_SIGNUP_ENABLED;
+    try {
+      const res = await POST(mkRequest({ accountId: ACCOUNT_ID }));
+      expect(res.status).toBe(200);
+      expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+        ACCOUNT_ID,
+        'standard',
+        'owner@test.com',
+        { trial: false },
+      );
+    } finally {
+      if (prevTrial === undefined) delete process.env.TRIAL_ENABLED;
+      else process.env.TRIAL_ENABLED = prevTrial;
+      if (prevSelfServe === undefined) delete process.env.SELF_SERVE_SIGNUP_ENABLED;
+      else process.env.SELF_SERVE_SIGNUP_ENABLED = prevSelfServe;
     }
   });
 
