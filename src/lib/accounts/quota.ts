@@ -185,8 +185,11 @@ export async function assertCanAddLocation(
     return { allowed: false, reason: 'account_not_found' };
   }
 
-  // 2. Check subscription is active
-  if (account.subscription_status !== SubscriptionStatus.ACTIVE) {
+  // 2. Check subscription is entitled (active or trialing)
+  if (
+    account.subscription_status !== SubscriptionStatus.ACTIVE
+    && account.subscription_status !== SubscriptionStatus.TRIALING
+  ) {
     return { allowed: false, reason: 'subscription_inactive' };
   }
 

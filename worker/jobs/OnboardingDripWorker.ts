@@ -58,9 +58,12 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     return;
   }
 
-  // ── 2. Only active subscriptions get drip emails ──────────────────
-  if (business.subscription_status !== SubscriptionStatus.ACTIVE) {
-    logger.log(`Business ${businessId} not active (${business.subscription_status}) — skipping ${drip_type}`);
+  // ── 2. Only entitled (active or trialing) subscriptions get drip emails ──
+  if (
+    business.subscription_status !== SubscriptionStatus.ACTIVE
+    && business.subscription_status !== SubscriptionStatus.TRIALING
+  ) {
+    logger.log(`Business ${businessId} not entitled (${business.subscription_status}) — skipping ${drip_type}`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }

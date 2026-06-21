@@ -128,10 +128,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 5. Subscription gate — wizard requires `active`. The dashboard pending-
-  //    payment banner steers the owner to /onboarding/pay if they reach this
-  //    flow before Stripe confirms.
-  if (bizRow.subscription_status !== SubscriptionStatus.ACTIVE) {
+  // 5. Subscription gate — wizard requires `active` or `trialing`. The dashboard
+  //    pending-payment banner steers the owner to /onboarding/pay if they reach
+  //    this flow before Stripe confirms.
+  if (
+    bizRow.subscription_status !== SubscriptionStatus.ACTIVE
+    && bizRow.subscription_status !== SubscriptionStatus.TRIALING
+  ) {
     return NextResponse.json(
       { error: 'subscription_inactive', subscriptionStatus: bizRow.subscription_status },
       { status: 409, headers: NO_STORE },

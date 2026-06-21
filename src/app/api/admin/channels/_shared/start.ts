@@ -58,7 +58,10 @@ export async function runAdminChannelStart(
     WHERE b.id = ${businessId}
   `;
   if (!accountRow) return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
+  if (
+    accountRow.subscription_status !== SubscriptionStatus.ACTIVE
+    && accountRow.subscription_status !== SubscriptionStatus.TRIALING
+  ) {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
   const accountId = accountRow.id;

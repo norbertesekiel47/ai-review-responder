@@ -36,7 +36,7 @@ export async function checkAndSchedule(): Promise<void> {
       FROM businesses b
       JOIN accounts a ON a.id = b.account_id
       CROSS JOIN (VALUES ('day_1', 1), ('day_7', 7), ('day_30', 30)) AS d(drip_type, days)
-      WHERE a.subscription_status = 'active'  -- enum: SubscriptionStatus.ACTIVE
+      WHERE a.subscription_status IN ('active', 'trialing')  -- enum: SubscriptionStatus.ACTIVE / .TRIALING
         AND b.subscription_activated_at IS NOT NULL
         AND b.subscription_activated_at <= NOW() - (d.days || ' days')::interval
         AND NOT EXISTS (

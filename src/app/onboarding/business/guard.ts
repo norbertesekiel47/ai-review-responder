@@ -42,7 +42,10 @@ export function resolveWizardDestination(
   if (!row) return { kind: 'redirect', path: '/signup' };
   if (row.role === 'admin') return { kind: 'redirect', path: '/admin/overview' };
   if (row.role !== 'owner') return { kind: 'redirect', path: '/login' };
-  if (row.subscription_status !== SubscriptionStatus.ACTIVE) {
+  if (
+    row.subscription_status !== SubscriptionStatus.ACTIVE
+    && row.subscription_status !== SubscriptionStatus.TRIALING
+  ) {
     return { kind: 'redirect', path: '/onboarding/pay' };
   }
   if (options.demoFlowEnabled) {

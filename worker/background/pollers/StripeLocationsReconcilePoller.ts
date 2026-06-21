@@ -74,7 +74,7 @@ export async function runOnce(): Promise<ReconcileResult> {
         COUNT(b.id) AS active_location_count
       FROM accounts a
       LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL
-      WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE})
+      WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}, ${SubscriptionStatus.TRIALING})
       GROUP BY
         a.id,
         a.subscription_tier,

@@ -50,6 +50,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!accountRow) return errorResponse('not_found', 404);
   if (
     accountRow.subscription_status !== SubscriptionStatus.ACTIVE
+    && accountRow.subscription_status !== SubscriptionStatus.TRIALING
     && accountRow.subscription_status !== SubscriptionStatus.PAST_DUE
   ) {
     return errorResponse('subscription_not_active', 403);

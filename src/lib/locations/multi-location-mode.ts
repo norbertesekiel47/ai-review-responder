@@ -18,6 +18,11 @@ export function canAddLocationForAccount(
   subscriptionStatus: string,
 ): boolean {
   if (!featureEnabled) return false;
-  if (subscriptionStatus !== SubscriptionStatus.ACTIVE) return false;
+  if (
+    subscriptionStatus !== SubscriptionStatus.ACTIVE
+    && subscriptionStatus !== SubscriptionStatus.TRIALING
+  ) {
+    return false;
+  }
   return lookupTierConfig(subscriptionTier)?.multiLocAllowed === true;
 }

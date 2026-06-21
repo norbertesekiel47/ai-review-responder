@@ -110,7 +110,7 @@ async function runOnceInner(
     FROM businesses b
     JOIN users u ON u.account_id = b.account_id AND u.role = 'owner'
     JOIN accounts a ON a.id = b.account_id
-    WHERE a.subscription_status = 'active'  -- enum: SubscriptionStatus.ACTIVE
+    WHERE a.subscription_status IN ('active', 'trialing')  -- enum: SubscriptionStatus.ACTIVE / .TRIALING
       AND u.auth_id IS NOT NULL
       AND b.owner_email IS NOT NULL
       AND NOT EXISTS (

@@ -76,8 +76,14 @@ export async function handleUpdateStripeOverage(
     return;
   }
 
-  // Skip if subscription is not active (cancelled, pending, etc.)
-  if (account.subscription_status !== SubscriptionStatus.ACTIVE) {
+  // Skip if subscription is not entitled (cancelled, pending, etc.). Trialing is
+  // allowed: a mid-trial add-location must sync the Stripe quantity now, and
+  // Stripe does not invoice the proration until trial end (PLAN.md §6 —
+  // verified trial-safe, $0 until trial_end).
+  if (
+    account.subscription_status !== SubscriptionStatus.ACTIVE
+    && account.subscription_status !== SubscriptionStatus.TRIALING
+  ) {
     logger.log(`Account ${account_id} subscription status is ${account.subscription_status} — skipping overage update`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;

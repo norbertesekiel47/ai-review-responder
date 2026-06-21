@@ -172,7 +172,8 @@ async function fetchPerLocationData(
   // CTA-only screen instead of the empty-state dashboard so they have
   // an obvious next action.
   if (
-    subRow.subscription_status === SubscriptionStatus.ACTIVE &&
+    (subRow.subscription_status === SubscriptionStatus.ACTIVE ||
+      subRow.subscription_status === SubscriptionStatus.TRIALING) &&
     !subRow.place_id_verified &&
     subRow.google_maps_url === null
   ) {
@@ -263,7 +264,10 @@ async function aggregateSubscriptionResponse(
     });
   }
 
-  if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
+  if (
+    accountRow.subscription_status !== SubscriptionStatus.ACTIVE
+    && accountRow.subscription_status !== SubscriptionStatus.TRIALING
+  ) {
     return jsonResponse({
       subscriptionStatus: accountRow.subscription_status,
     });

@@ -87,7 +87,7 @@ async function runEngagementCheck(): Promise<void> {
         SELECT b.id, b.owner_email_bounced
         FROM businesses b
         JOIN accounts a ON a.id = b.account_id
-        WHERE a.subscription_status = 'active'  -- enum: SubscriptionStatus.ACTIVE
+        WHERE a.subscription_status IN ('active', 'trialing')  -- enum: SubscriptionStatus.ACTIVE / .TRIALING
       ),
       response_metrics AS (
         SELECT
