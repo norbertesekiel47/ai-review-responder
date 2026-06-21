@@ -135,6 +135,27 @@ describe('transition: → trialing', () => {
     expect(mockEnqueueTrialStarted).toHaveBeenCalledWith(mockSql, expect.objectContaining({ accountId: ACCOUNT_ID }));
   });
 
+  it('trial-start (checkout mode) persists stripe_customer_id + stripe_subscription_id so later webhooks/portal can resolve the account', async () => {
+    // Regression: the trial-start path resolves the account by client_reference_id,
+    // NOT by Stripe ids, so the applier must copy customer/subscription ids off the
+    // retrieved subscription. Without this, subscription.updated/.deleted +
+    // invoice.payment_failed (subscription mode) and the Billing Portal can never
+    // find the trialing account.
+    queueAccountRow('pending_payment');
+    await applyStripeSubscriptionState(mockSql, checkoutRef, trialingSub());
+
+    const updateAcct = sqlCalls.find(
+      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'trialing'"),
+    );
+    expect(updateAcct).toBeDefined();
+    expect(updateAcct!.text).toMatch(/stripe_customer_id\s*=\s*COALESCE/i);
+    expect(updateAcct!.text).toMatch(/stripe_subscription_id\s*=\s*COALESCE/i);
+    // The customer id (from the subscription object) and subscription id are the
+    // COALESCE fallback values, in declaration order.
+    expect(updateAcct!.values).toContain(CUSTOMER_ID);
+    expect(updateAcct!.values).toContain(SUB_ID);
+  });
+
   it('already active → trialing is a no-op (ignored)', async () => {
     queueAccountRow('active');
     const r = await applyStripeSubscriptionState(mockSql, subRef, trialingSub());

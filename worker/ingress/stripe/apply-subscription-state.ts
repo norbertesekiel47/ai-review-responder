@@ -18,6 +18,7 @@
 
 import type postgres from 'postgres';
 import type Stripe from 'stripe';
+import { extractCustomerId } from './shared';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { enqueueStripeOverageRecompute } from '../../../src/lib/shared/job-outbox-helpers';
 import {
@@ -163,12 +164,13 @@ export async function applyStripeSubscriptionState(
   if (!isAllowedTransition(current, target)) return NO_CHANGE(account);
 
   const stripeSubscriptionId = stripeSub.id;
+  const stripeCustomerId = extractStripeCustomerId(stripeSub.customer, ref);
   const trialEndIso =
     typeof stripeSub.trial_end === 'number' && stripeSub.trial_end > 0
       ? new Date(stripeSub.trial_end * 1000).toISOString()
       : null;
 
-  await writeStatusColumns(tx, account.id, target, trialEndIso);
+  await writeStatusColumns(tx, account.id, target, trialEndIso, stripeCustomerId, stripeSubscriptionId);
   await writeBusinessesMirror(tx, account.id, target);
 
   await writeAccountAuditLog(
@@ -199,19 +201,47 @@ export async function applyStripeSubscriptionState(
   };
 }
 
+/**
+ * Resolve the Stripe customer id to persist alongside the status write.
+ *
+ * In `checkout` mode the account was found by `client_reference_id`, so the
+ * customer/subscription identifiers it needs for every LATER webhook
+ * (subscription.updated/.deleted, invoice.payment_failed) and for the Billing
+ * Portal must be copied off the retrieved subscription here — they are NOT yet
+ * on the account row. In `subscription` mode the account was resolved BY those
+ * identifiers, so the ref already carries the authoritative customer id; prefer
+ * it and fall back to the subscription object.
+ */
+function extractStripeCustomerId(
+  subscriptionCustomer: unknown,
+  ref: ApplyStripeRef,
+): string | null {
+  if (ref.mode === 'subscription') return ref.stripeCustomerId;
+  return extractCustomerId(
+    subscriptionCustomer as Stripe.Subscription['customer'] | null,
+  );
+}
+
 async function writeStatusColumns(
   tx: TxSql,
   accountId: string,
   target: SubscriptionStatusValue,
   trialEndIso: string | null,
+  stripeCustomerId: string | null,
+  stripeSubscriptionId: string,
 ): Promise<void> {
   switch (target) {
     case SubscriptionStatus.TRIALING:
+      // First-writer-wins on the Stripe identifiers (COALESCE): trial-start
+      // (checkout mode) persists them so the trialing account is resolvable by
+      // every later subscription-mode webhook and by the Billing Portal.
       await tx`
         UPDATE accounts
         SET subscription_status = 'trialing',
             trial_ends_at = ${trialEndIso},
             past_due_at = NULL,
+            stripe_customer_id = COALESCE(stripe_customer_id, ${stripeCustomerId}),
+            stripe_subscription_id = COALESCE(stripe_subscription_id, ${stripeSubscriptionId}),
             subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
             updated_at = NOW()
         WHERE id = ${accountId}::uuid
@@ -223,6 +253,8 @@ async function writeStatusColumns(
         SET subscription_status = 'active',
             trial_ends_at = NULL,
             past_due_at = NULL,
+            stripe_customer_id = COALESCE(stripe_customer_id, ${stripeCustomerId}),
+            stripe_subscription_id = COALESCE(stripe_subscription_id, ${stripeSubscriptionId}),
             subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
             updated_at = NOW()
         WHERE id = ${accountId}::uuid
