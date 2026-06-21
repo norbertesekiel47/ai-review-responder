@@ -126,3 +126,9 @@ tests/llm-eval/reports/
 
 # understand-anything knowledge graph (local analysis artifacts)
 .understand-anything/
+
+# Sentry Config File
+.env.sentry-build-plugin
+
+# impeccable design-hook local output (re-materialized by the hook)
+.impeccable/
