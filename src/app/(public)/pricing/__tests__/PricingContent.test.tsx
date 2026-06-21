@@ -35,10 +35,10 @@ describe('PricingContent', () => {
     const html = renderToStaticMarkup(createElement(PricingContent));
 
     expect(html).toContain('Everything in Standard');
-    expect(html).toContain('Best for up to ~50 review responses/month');
+    expect(html).toContain('1 Google Business Profile location');
+    expect(html).toContain('Multi-location setup available');
     expect(html).toContain('AI-drafted replies in your business voice');
     expect(html).toContain('Responds in the reviewer');
-    expect(html).toContain('High-volume or fair-use unlimited review responses');
     expect(html).toContain('Historical unanswered review backfill');
     expect(html).not.toContain('SLA-backed response time');
   });
@@ -95,5 +95,23 @@ describe('PricingContent', () => {
     expect(html).toContain('aria-controls=');
     expect(html).toContain('role="region"');
     expect(html).toContain('aria-valuetext="80 reviews"');
+  });
+
+  it('states only billing claims true to the system', () => {
+    const html = renderToStaticMarkup(createElement(PricingContent));
+
+    // removed false / metering claims
+    expect(html).not.toContain('refund the unused months');
+    expect(html).not.toContain('review responses/month');
+    expect(html).not.toContain('What counts as a');
+    expect(html).not.toContain('go over my monthly limit');
+    expect(html).not.toContain('Multiple approval notification channels');
+    expect(html).not.toContain('3-year price lock');
+
+    // corrected claims present
+    expect(html).toContain('not refunded for unused time');
+    expect(html).toContain('apply immediately and are prorated');
+    expect(html).toContain('Locked-in founder pricing');
+    expect(html).toContain('Billed annually ($756/yr) - 20% off $79/mo');
   });
 });
