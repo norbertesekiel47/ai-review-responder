@@ -101,7 +101,9 @@ describe('FeaturesContent', () => {
     expect(html).not.toContain('over 90 days');
     expect(html).not.toContain('Webhook from Google');
     expect(html).not.toContain('ever posted without your explicit go-ahead');
+    expect(html).not.toContain('7am');
 
     expect(html).toContain('By default, nothing is posted without your go-ahead');
+    expect(html).toContain('Every Monday morning');
   });
 });

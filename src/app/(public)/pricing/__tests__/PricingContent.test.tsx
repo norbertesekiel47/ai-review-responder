@@ -107,6 +107,7 @@ describe('PricingContent', () => {
     expect(html).not.toContain('go over my monthly limit');
     expect(html).not.toContain('Multiple approval notification channels');
     expect(html).not.toContain('3-year price lock');
+    expect(html).not.toContain('Pay for what you actually use');
 
     // corrected claims present
     expect(html).toContain('not refunded for unused time');

@@ -359,7 +359,7 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
             <p className="pr-eyebrow">Pricing</p>
             <h1>Every reply handled. One honest price.</h1>
             <p className="sub">
-              Pay for what you actually use. Switch plans anytime. Cancel whenever.
+              Simple flat-rate plans. Switch anytime. Cancel whenever.
             </p>
           </section>
 

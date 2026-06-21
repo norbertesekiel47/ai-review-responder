@@ -22,7 +22,7 @@ const FEATURES = [
   { id: 'f-lang',    n: '02', label: 'Languages',    sub: 'Reach' },
   { id: 'f-approve', n: '03', label: 'Approval',     sub: 'Your control' },
   { id: 'f-voice',   n: '04', label: 'Voice',        sub: 'Over time' },
-  { id: 'f-brief',   n: '05', label: 'Weekly brief', sub: 'Monday 7am' },
+  { id: 'f-brief',   n: '05', label: 'Weekly brief', sub: 'Mondays' },
   { id: 'f-roi',     n: '06', label: 'ROI',          sub: 'Proof' },
   { id: 'f-comp',    n: '07', label: 'Competitor',   sub: 'Coming soon' },
 ];
@@ -919,7 +919,7 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
       <div className="grid md:grid-cols-12 gap-10 items-start">
         <div ref={leftRef} className={`rw-reveal from-left md:col-span-5 ${leftSeen ? 'in' : ''}`}>
           <span className="rw-num-tag text-7xl leading-none text-[#97B3AE]/40 block mb-4" aria-hidden="true">05</span>
-          <p className="rw-label-mono text-xs uppercase text-[#557069] mb-3">Every Monday · 7am</p>
+          <p className="rw-label-mono text-xs uppercase text-[#557069] mb-3">Every Monday morning</p>
           <h2 className="text-4xl md:text-5xl font-medium text-[#2a2a2a] leading-tight mb-5">
             A brief you&apos;ll <span className="rw-display-serif text-[#557069]">actually</span> read.
           </h2>
@@ -929,7 +929,7 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           </p>
           <ul className="space-y-3 text-sm">
             {[
-              'Week-over-week review volume',
+              'Review volume and trend',
               'One concrete operational suggestion',
             ].map((t) => (
               <li key={t} className="flex items-start gap-3">
