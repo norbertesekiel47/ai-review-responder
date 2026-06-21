@@ -295,21 +295,7 @@ function Step3Artifact() {
             </>
           )}
         </div>
-        <div
-          aria-live="polite"
-          className="sr-only"
-          style={{
-            position: 'absolute',
-            width: 1,
-            height: 1,
-            padding: 0,
-            margin: -1,
-            overflow: 'hidden',
-            clip: 'rect(0, 0, 0, 0)',
-            whiteSpace: 'nowrap',
-            border: 0,
-          }}
-        >
+        <div aria-live="polite" className="sr-only">
           {statusMessage}
         </div>
         <div className="hiw-email-foot">
@@ -744,14 +730,13 @@ export function HowItWorksContent({
                       <span>{it.q}</span>
                       <span className="hiw-faq-toggle" aria-hidden>+</span>
                     </button>
-                    <div
+                    <section
                       className="hiw-faq-a"
                       id={panelId}
-                      role="region"
                       aria-labelledby={buttonId}
                     >
                       <div className="hiw-faq-a-inner">{it.a}</div>
-                    </div>
+                    </section>
                   </div>
                 );
               })}

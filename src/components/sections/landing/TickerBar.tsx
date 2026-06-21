@@ -28,11 +28,12 @@ function useInView(ref: RefObject<HTMLElement | null>, threshold = 0.05) {
   return seen;
 }
 
+const HOURS_BARS_SEED = [38, 42, 51, 47, 58, 63, 71, 68, 79, 86, 92, 100];
+
 function HoursBars({ active }: { active: boolean }) {
-  const seed = [38, 42, 51, 47, 58, 63, 71, 68, 79, 86, 92, 100];
   return (
     <svg viewBox="0 0 120 36" width="120" height="36" aria-hidden="true">
-      {seed.map((h, i) => (
+      {HOURS_BARS_SEED.map((h, i) => (
         <rect
           key={i}
           x={i * 10 + 1}
@@ -40,7 +41,7 @@ function HoursBars({ active }: { active: boolean }) {
           width={7}
           height={active ? h * 0.32 : 0}
           rx={1.5}
-          fill={i === seed.length - 1 ? 'var(--rw-teal)' : 'rgba(58,74,72,0.35)'}
+          fill={i === HOURS_BARS_SEED.length - 1 ? 'var(--rw-teal)' : 'rgba(58,74,72,0.35)'}
           style={{
             transition: `y 900ms cubic-bezier(.2,.7,.2,1) ${i * 60}ms, height 900ms cubic-bezier(.2,.7,.2,1) ${i * 60}ms`,
           }}

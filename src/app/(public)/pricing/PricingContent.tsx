@@ -528,14 +528,13 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
                       </svg>
                     </span>
                   </button>
-                  <div
+                  <section
                     className="pr-faq-a"
                     id={panelId}
-                    role="region"
                     aria-labelledby={buttonId}
                   >
                     <div className="pr-faq-a-inner">{item.a}</div>
-                  </div>
+                  </section>
                 </div>
               );
             })}

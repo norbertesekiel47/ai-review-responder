@@ -93,7 +93,8 @@ describe('PricingContent', () => {
     const html = renderToStaticMarkup(createElement(PricingContent));
 
     expect(html).toContain('aria-controls=');
-    expect(html).toContain('role="region"');
+    // FAQ answer panels are labelled <section> landmarks (native region, no role= needed)
+    expect(html).toMatch(/<section[^>]*aria-labelledby=/);
     expect(html).toContain('aria-valuetext="80 reviews"');
   });
 
