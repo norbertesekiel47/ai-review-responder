@@ -186,7 +186,6 @@ function Step2Artifact() {
             <span className="hiw-voice-chip-lbl">Length</span>
             <span className="hiw-voice-chip-val">28 words</span>
           </div>
-
         </div>
       </div>
     </div>
