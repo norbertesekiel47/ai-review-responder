@@ -99,4 +99,17 @@ describe('reconcileAccount — trial correction', () => {
     await reconcileAccount(stripe, makeAccount({ subscription_status: 'active' }));
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
   });
+
+  it('DB active + Stripe trialing → surfaces status_mismatch drift (PLAN §15, not silently hidden)', async () => {
+    const stripe = makeStripe('trialing');
+    const outcome = await reconcileAccount(stripe, makeAccount({ subscription_status: 'active' }));
+    // Not a DB-`trialing` row → the corrective applier must NOT run.
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    // The anomaly (DB active vs Stripe trialing) must be SURFACED, not suppressed
+    // by the old `&& !stripeTrialing` clause.
+    const drift = outcome.drifts.find((d) => d.driftType === 'status_mismatch');
+    expect(drift).toBeDefined();
+    expect(drift?.dbStatus).toBe('active');
+    expect(drift?.stripeStatus).toBe('trialing');
+  });
 });

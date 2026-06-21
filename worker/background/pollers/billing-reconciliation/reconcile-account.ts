@@ -172,9 +172,15 @@ export async function reconcileAccount(
     return { accountsChecked: 1, drifts, errors };
   }
 
+  // PLAN.md §5/§15: a DB-`trialing` row whose Stripe status moved is auto-corrected
+  // above (early return). The remaining Stripe-`trialing` case here is DB-NON-trialing
+  // vs Stripe-`trialing` (e.g. DB `active`/`past_due`/`pending_payment`), which is a
+  // genuine anomaly the plan requires SURFACED — not silently hidden. The old
+  // `&& !stripeTrialing` blanket suppression hid it; it is intentionally gone. (The
+  // benign DB-`trialing`↔Stripe-`trialing` steady state never reaches here as a
+  // mismatch because the statuses are equal.)
   if (
     subscription.status !== account.subscription_status
-    && !stripeTrialing
     && !isExpectedStatusWindow(expectedAccount, subscription.status)
   ) {
     drifts.push({

@@ -719,9 +719,12 @@ describe('StripeLocationsReconcilePoller', () => {
     vi.useRealTimers();
   });
 
-  it('does not alert status_mismatch when Stripe status is trialing (deep-scan §6.5)', async () => {
-    // No trial product today, but if a Price ever carries a trial, a Stripe
-    // 'trialing' status (vs our 'active' DB status) must not false-alert hourly.
+  it('alerts status_mismatch when DB is active but Stripe is trialing (PLAN §15)', async () => {
+    // Trials are now a real feature. The steady state is DB-`trialing` ↔
+    // Stripe-`trialing` (handled with scoped correction in reconcile-account).
+    // DB `active` while Stripe says `trialing` is a genuine anomaly (e.g. a missed
+    // or incorrect conversion) and MUST surface — the old no-trials-era blanket
+    // suppression of Stripe-`trialing` drift was removed (deep-scan §6.5 revisited).
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-trialing',
@@ -738,8 +741,10 @@ describe('StripeLocationsReconcilePoller', () => {
 
     const result = await runOnce();
 
-    expect(result.driftsFound).toBe(0);
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(result.driftsFound).toBe(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('acct-trialing'),
+    );
   });
 
   // ── Drift detected ──────────────────────────────────────────────
