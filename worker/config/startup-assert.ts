@@ -129,11 +129,32 @@ export function assertAdminNotificationEmail(): void {
 }
 
 /**
+ * Boot-time assertion. SENTRY_DSN is the mandatory non-email paging route for
+ * P0/P1 alerts: HealthAlertPoller findings, cost-cap exhaustion, and the poller's
+ * Sentry Cron-monitor heartbeat all route through Sentry → Slack/PagerDuty. Email
+ * alerts share the Resend provider with the product, so a Resend outage would
+ * blind both product and alerting; Sentry must be present so paging cannot be
+ * silently inert in production. Production-only (and non-mock), mirroring
+ * assertAdminNotificationEmail. (Beta-launch gate, plan A1.)
+ */
+export function assertAlertSinkEnv(): void {
+  if (process.env.NODE_ENV !== 'production') return;
+  if (process.env.MOCK_EXTERNAL_APIS === 'true') return;
+  const value = process.env.SENTRY_DSN;
+  if (!value || value.trim().length === 0) {
+    throw new Error(
+      '[startup] Worker requires SENTRY_DSN in production (mandatory non-email alert sink for P0/P1 paging)',
+    );
+  }
+}
+
+/**
  * Boot-time warnings (non-fatal) for vars that degrade silently in production but
  * are not strictly required to boot:
  *   - LIST_UNSUBSCRIBE_EMAIL: marketing emails fall back to a non-functional
  *     mailbox and may fail Gmail/Outlook bulk-sender compliance.
- *   - SENTRY_DSN: Sentry no-ops, so production errors go untracked.
+ *
+ * (SENTRY_DSN moved to assertAlertSinkEnv — it is now a hard production gate.)
  *
  * Only warns in production (and non-mock) so dev / CI / tests stay quiet.
  */
@@ -145,10 +166,6 @@ export function warnMissingProductionEnv(): void {
       key: 'LIST_UNSUBSCRIBE_EMAIL',
       message:
         'marketing emails will use a non-functional unsubscribe mailbox and may fail Gmail/Outlook bulk-sender compliance',
-    },
-    {
-      key: 'SENTRY_DSN',
-      message: 'Sentry is inert — production errors will not be tracked',
     },
   ];
   for (const { key, message } of checks) {
@@ -164,6 +181,7 @@ export function assertWorkerStartupEnv(): void {
   assertCoreInfraEnv();
   assertStripeWorkerEnv();
   assertAdminNotificationEmail();
+  assertAlertSinkEnv();
   assertServerOnlyFeatureOptionalBooleansEnv();
 }
 

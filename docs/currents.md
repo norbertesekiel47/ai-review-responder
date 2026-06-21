@@ -2,7 +2,35 @@
 
 This file explains what is actually built in the repository today, how it maps to the implementation plan, and what is left to build.
 
-Last updated: 2026-06-15 (Channels go live + auto-approved post FYI — PRs #319/#320/#322 (merged): audited the already-built Telegram + WhatsApp channels, added a brand-new "we auto-posted your reply" notification, and left a tiny placeholder for a future chat-bot. See the simple-words summary directly below. Earlier: Multi-location launch hardening 2026-06-11 #262–#273; Rate-limiting & abuse hardening 2026-06-09 #254–#257; Launch readiness sweep 2026-05-29 #152–#186; Wave 3 #93–#96; Wave 2 #87.)
+Last updated: 2026-06-20 (Beta-launch alerting gate + worker hardening — PR #354 (merged to staging): added an alarm system so we find out when the background pipeline silently breaks, plus a few small safety timeouts. See the simple-words summary directly below. Earlier: Channels go live + auto-approved post FYI 2026-06-14→15 #319/#320/#322; Multi-location launch hardening 2026-06-11 #262–#273; Rate-limiting & abuse hardening 2026-06-09 #254–#257; Launch readiness sweep 2026-05-29 #152–#186; Wave 3 #93–#96; Wave 2 #87.)
+
+## Quick summary — Beta-launch alerting gate + worker hardening (2026-06-19 → 2026-06-20, PR #354, merged to staging)
+
+In simple words: before this, if something in the background pipeline quietly broke at 2am — drafts not generating, approval emails never sending, replies stuck unposted — **nobody would find out** until they happened to look. This PR adds an **alarm system**: a small background "health probe" watches for those silent failures and pings **Discord** (via Sentry) when it sees one, with a "dead-man" heartbeat that also alerts if the probe itself (or the whole worker) dies. We also added a couple of small **safety timeouts** so one slow call (email, ranking lookup, cache) can't freeze the line, and made the worker **refuse to start in production without an alarm sink configured** (so alerting can never be silently switched off). The product behaviour is unchanged — owners still approve every reply by hand; this is purely "so we notice when things go wrong."
+
+This is the action half of a bigger **"is this ready for 1000 businesses?"** audit. The honest answer was *"not 1000 yet, but fine for a small 10–50 paid beta if we add alarms"* — so we built only the small beta-gate part now and wrote everything else (making the worker faster/parallel, etc.) into a future to-do list with clear "fix this when you grow to X" triggers. Nothing here builds 1000-scale plumbing for a 50-customer reality.
+
+### What we changed (plain English)
+
+- **An alarm for silent failures.** A new health probe checks every few minutes for: jobs stuck or failed (especially posting replies and sending approvals), owners who *should* have been notified but weren't, and a backlog of held drafts nobody reviewed. Each finding pings Discord. It deliberately **ignores the cases that are silent on purpose** (e.g. a draft held back by the safety filter, or a bulk backfill) so it doesn't cry wolf.
+- **A "did the alarm itself die?" check.** The probe sends a heartbeat to a Sentry cron monitor every run; if it stops (probe crashed, or the whole worker is down), Discord gets pinged. A separate outside check pings the worker's `/ready` URL for the same reason.
+- **The worker won't boot in production without an alarm sink.** `SENTRY_DSN` is now required at startup — you can't accidentally run prod with alerting switched off.
+- **Money-loss isn't silent either.** If a daily spend cap is hit and a draft gets dropped, that now pings Discord instead of vanishing.
+- **Small safety timeouts.** Sending an email, the ranking lookup, and the cache now all have time limits, so one slow call can't jam the single-file worker. Emails also got a dedupe key so a timeout-then-retry can't send the same approval twice.
+
+### What got added — the new shape (where the new code lives)
+
+- `worker/background/pollers/HealthAlertPoller.ts` + `worker/background/pollers/health-alert/` — the new health probe. `checks.ts` runs the read-only database checks (returns "findings"); `emit.ts` sends each finding to Discord via Sentry and does the heartbeat check-in. Registered next to the other background pollers.
+- `src/lib/notifications/email/send-email.ts` — the **one** place every email now goes through. It adds the send timeout + the dedupe key. All three email templates were pointed at it.
+- `worker/config/startup-assert.ts` — gained `assertAlertSinkEnv` (the "no `SENTRY_DSN`, no boot in prod" rule).
+- `docs/runbooks/beta-launch-alerting.md` — the human checklist for wiring the alarms (Sentry → Discord, the cron monitor, the outside `/ready` check) and the test drills to prove each alarm fires.
+- `docs/adr/0005-beta-launch-posture.md` — why we launch the small beta this way (owner-approval-only; scale work deferred).
+- Tiny edits (no new files): `src/lib/db/redis-cache.ts` (cache timeout), `worker/jobs/RankingTrackingWorker.ts` (ranking timeout), `worker/jobs/response-generation/generate-draft.ts` (the cost-cap alarm).
+- `docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md` — the "fix when you grow" to-do list (absorbed the 1000-business audit's findings); `docs/future-plans/2026-06-18-1000-business-readiness-audit.md` is now a short verdict pointing at it.
+
+### One thing to remember
+
+This was **planned and stress-tested by a second AI model (Codex) across 4 rounds before any code**, reviewed again afterwards (Codex + a code-quality pass), and is **green on every CI check including fallow and react-doctor**. It's **on `staging` only** — production isn't set up yet. The alarms only actually reach Discord once someone does the dashboard wiring in the runbook (Sentry → Discord, the cron monitor, the `/ready` check) and runs the test drills; until then the probe's findings just collect in the Sentry feed.
 
 ## Quick summary — Channels go live + auto-approved post FYI (2026-06-14 → 2026-06-15, PRs #319 / #320 / #322)
 

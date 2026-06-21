@@ -12,6 +12,7 @@ const {
   mockCheckRegenBudget,
   mockSetCachedGeneration,
   mockIsMockMode,
+  mockCaptureMessage,
   TransientLLMError,
 } = vi.hoisted(() => {
   class TransientLLMError extends Error {
@@ -24,9 +25,16 @@ const {
     mockCheckRegenBudget: vi.fn(),
     mockSetCachedGeneration: vi.fn(),
     mockIsMockMode: vi.fn(() => false),
+    mockCaptureMessage: vi.fn(),
     TransientLLMError,
   };
 });
+
+vi.mock('@sentry/node', () => ({
+  captureMessage: mockCaptureMessage,
+  captureException: vi.fn(),
+  addBreadcrumb: vi.fn(),
+}));
 
 vi.mock('../../../../src/lib/responses/generator', () => ({
   generateResponse: mockGenerateResponse,
@@ -129,6 +137,40 @@ describe('generateDraft', () => {
     const outcome = await generateDraft(ctx(), IDS, makeLogger());
     expect(outcome.kind).toBe('failed');
     if (outcome.kind === 'failed') expect(outcome.reason).toContain('cost limit exceeded');
+  });
+
+  it('emits a Sentry alert when a cost cap is exhausted (dropped paid work must not be silent)', async () => {
+    mockGenerateResponse.mockRejectedValueOnce(new GlobalCostLimitExceededError());
+    await generateDraft(ctx(), IDS, makeLogger());
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+    const callArgs = mockCaptureMessage.mock.calls[0] as unknown[];
+    const opts = callArgs[1] as { level?: string; tags?: Record<string, string> };
+    expect(opts.tags?.cost_event).toBe('limit_exceeded');
+    expect(opts.tags?.business_id).toBe('biz-1');
+  });
+
+  it('does NOT emit a cost alert on a clean generation', async () => {
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+    await generateDraft(ctx(), IDS, makeLogger());
+    expect(mockCaptureMessage).not.toHaveBeenCalled();
+  });
+
+  it('emits a cost alert when a cost cap is hit during the avoid-facts guardrail retry', async () => {
+    // First draft violates avoid_facts → triggers the guardrail retry; the retry
+    // then exhausts the global cost cap. That must still alert + fail (not be
+    // silently wrapped as guardrail_failed).
+    const violating: GenerationResult = { ...MOCK_RESULT, responseText: 'has bad word', apiCostId: 'cost-1' };
+    mockGenerateResponse
+      .mockResolvedValueOnce(violating)
+      .mockRejectedValueOnce(new GlobalCostLimitExceededError());
+
+    const outcome = await generateDraft(ctx({ avoidFacts: ['bad word'] }), IDS, makeLogger());
+
+    expect(outcome.kind).toBe('failed');
+    if (outcome.kind === 'failed') expect(outcome.reason).toContain('Global');
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+    const opts = mockCaptureMessage.mock.calls[0]?.[1] as { tags?: Record<string, string> };
+    expect(opts.tags?.cost_event).toBe('limit_exceeded');
   });
 
   it('classifies GlobalCostLimitExceededError as failed', async () => {

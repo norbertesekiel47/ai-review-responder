@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   assertAdminNotificationEmail,
+  assertAlertSinkEnv,
   assertCoreInfraEnv,
   assertProductionMockModeEnv,
   assertServerOnlyFeatureOptionalBooleansEnv,
@@ -200,6 +201,49 @@ describe('assertAdminNotificationEmail', () => {
   });
 });
 
+describe('assertAlertSinkEnv', () => {
+  const SNAP: Record<string, string | undefined> = {};
+  const KEYS = ['NODE_ENV', 'MOCK_EXTERNAL_APIS', 'SENTRY_DSN'];
+
+  beforeEach(() => {
+    for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
+  });
+  afterEach(() => {
+    restoreEnv(SNAP);
+  });
+
+  it('throws in production non-mock mode when SENTRY_DSN is unset', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'false';
+    expect(() => assertAlertSinkEnv()).toThrow(/SENTRY_DSN/);
+  });
+
+  it('treats whitespace-only as missing in production', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'false';
+    process.env.SENTRY_DSN = '   ';
+    expect(() => assertAlertSinkEnv()).toThrow(/SENTRY_DSN/);
+  });
+
+  it('passes in production when SENTRY_DSN is set', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'false';
+    process.env.SENTRY_DSN = 'https://x@sentry.io/1';
+    expect(() => assertAlertSinkEnv()).not.toThrow();
+  });
+
+  it('is a no-op outside production even when unset', () => {
+    setEnv('NODE_ENV', 'test');
+    expect(() => assertAlertSinkEnv()).not.toThrow();
+  });
+
+  it('is a no-op in production mock mode even when unset', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    expect(() => assertAlertSinkEnv()).not.toThrow();
+  });
+});
+
 describe('warnMissingProductionEnv', () => {
   const SNAP: Record<string, string | undefined> = {};
   const KEYS = ['NODE_ENV', 'MOCK_EXTERNAL_APIS', 'LIST_UNSUBSCRIBE_EMAIL', 'SENTRY_DSN'];
@@ -220,7 +264,8 @@ describe('warnMissingProductionEnv', () => {
     warnMissingProductionEnv();
     const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(messages.some((m: string) => m.includes('LIST_UNSUBSCRIBE_EMAIL'))).toBe(true);
-    expect(messages.some((m: string) => m.includes('SENTRY_DSN'))).toBe(true);
+    // SENTRY_DSN is now a hard assertion (assertAlertSinkEnv), not a warning.
+    expect(messages.some((m: string) => m.includes('SENTRY_DSN'))).toBe(false);
   });
 
   it('is silent outside production', () => {
@@ -287,6 +332,7 @@ describe('assertWorkerStartupEnv', () => {
     'NODE_ENV',
     'MOCK_EXTERNAL_APIS',
     'ADMIN_NOTIFICATION_EMAIL',
+    'SENTRY_DSN',
     'ACCOUNT_OFFBOARDING_ENABLED',
     'AUTO_APPROVAL_ENABLED',
     'AUTO_APPROVAL_PROVIDER_MODERATION_READY',
@@ -320,6 +366,7 @@ describe('assertWorkerStartupEnv', () => {
     for (const k of STRIPE_WORKER_REQUIRED) process.env[k] = 'x';
     for (const k of CORE_INFRA_REQUIRED) process.env[k] = 'x';
     process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@repworth.com';
+    process.env.SENTRY_DSN = 'https://x@sentry.io/1';
     expect(() => assertWorkerStartupEnv()).not.toThrow();
   });
 

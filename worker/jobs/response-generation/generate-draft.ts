@@ -8,6 +8,7 @@
 // caller lets BullMQ retry; permanent failures return { kind: 'failed' } with a
 // reason the caller writes to the outbox.
 
+import * as Sentry from '@sentry/node';
 import { generateResponse, TransientLLMError } from '../../../src/lib/responses/generator';
 import { generateMockResponse } from '../../../src/lib/responses/mock-generator';
 import { getApprovedResponsePairs } from '../../../src/lib/responses/voice-learning';
@@ -37,6 +38,36 @@ interface DraftIds {
   businessId: LocationId;
 }
 
+function isCostCapError(err: unknown): err is CostLimitExceededError | GlobalCostLimitExceededError {
+  return err instanceof CostLimitExceededError || err instanceof GlobalCostLimitExceededError;
+}
+
+// Dropped paid work must not be silent: a cap exhaustion terminally drops a draft
+// the owner is paying for. Surface to the non-email alert sink (Sentry →
+// Slack/PagerDuty) even though the failure stays terminal. (Beta-launch gate B3.)
+function alertCostCapExhausted(
+  err: CostLimitExceededError | GlobalCostLimitExceededError,
+  businessId: LocationId,
+  reviewId: string,
+  version: number,
+): void {
+  Sentry.captureMessage(`Cost cap exhausted — draft dropped for business ${businessId}`, {
+    level: 'warning',
+    tags: {
+      cost_event: 'limit_exceeded',
+      cost_scope: err instanceof GlobalCostLimitExceededError ? 'global' : 'business',
+      business_id: String(businessId),
+    },
+    extra: { review_id: reviewId, version },
+  });
+}
+
+// Entry-point failure-classification orchestration (invariant #12): the catch
+// ladder maps each generation error to a distinct outcome (cost-cap -> alert +
+// terminal; concurrency/infra/transient -> retry; else -> terminal). Deep logic
+// is extracted (isCostCapError, alertCostCapExhausted, applyAvoidFactsGuardrail);
+// the residual is the distinct-outcome vocabulary, not tangled logic.
+// fallow-ignore-next-line complexity
 export async function generateDraft(
   ctx: GenerationContext,
   ids: DraftIds,
@@ -77,8 +108,9 @@ export async function generateDraft(
       ? await generateMockResponse(normalizedReview, businessContext, voiceExamples, genOpts)
       : await generateResponse(normalizedReview, businessContext, voiceExamples, genOpts);
   } catch (err) {
-    if (err instanceof CostLimitExceededError || err instanceof GlobalCostLimitExceededError) {
+    if (isCostCapError(err)) {
       logger.warn(`Cost limit exceeded for business ${businessId}: ${err.message}`);
+      alertCostCapExhausted(err, businessId, reviewId, version);
       return { kind: 'failed', reason: err.message };
     }
     if (err instanceof ConcurrencyLimitExceededError) {
@@ -123,6 +155,13 @@ export async function generateDraft(
     );
     return { kind: 'ok', result: guarded.result, retryCostId: guarded.retryCostId };
   } catch (err) {
+    // A cost-cap (budget) exhaustion during the guardrail retry must alert and
+    // fail like the primary cost path — not be swallowed as guardrail_failed.
+    if (isCostCapError(err)) {
+      logger.warn(`Cost limit exceeded for business ${businessId} during avoid-facts guardrail retry: ${err.message}`);
+      alertCostCapExhausted(err, businessId, reviewId, version);
+      return { kind: 'failed', reason: err.message };
+    }
     const message = err instanceof Error ? err.message : String(err);
     logger.error(`Avoid-facts guardrail failed for review ${reviewId}: ${message}`);
     return { kind: 'failed', reason: `guardrail_failed: ${message}` };
@@ -131,6 +170,11 @@ export async function generateDraft(
 
 // ── Avoid-facts guardrail ───────────────────────────────────────────────
 
+// Bounded regenerate-once-and-recheck helper; the branches are the distinct
+// guardrail outcomes (no avoid-facts, no violation, retry still violates,
+// best-effort cache overwrite, cost-cap rethrow). Inherent to the single
+// retry+recheck pass, not tangled logic.
+// fallow-ignore-next-line complexity
 async function applyAvoidFactsGuardrail(
   result: GenerationResult,
   businessContext: BusinessContext,
@@ -191,6 +235,11 @@ async function applyAvoidFactsGuardrail(
 
     return { result: merged, retryCostId: retryResult.apiCostId ?? undefined };
   } catch (err) {
+    // Cost-cap (budget) exhaustion during the retry must propagate UNCHANGED so
+    // the caller's cost-cap handler alerts + fails it (not wrap as a generic
+    // guardrail failure). CostInfraUnavailableError intentionally stays wrapped/
+    // terminal here per the anti-respend note in CLAUDE.md.
+    if (isCostCapError(err)) throw err;
     // Retry failed or still violates — do NOT fall back to the violating draft.
     // Throw so the worker marks this as failed and creates a review exception.
     const message = err instanceof Error ? err.message : String(err);

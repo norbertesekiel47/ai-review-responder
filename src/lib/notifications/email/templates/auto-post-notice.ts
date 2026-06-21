@@ -15,7 +15,7 @@
 import { randomUUID } from 'node:crypto';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { escapeHtml } from '@/lib/shared/html';
-import { getResend } from '../client';
+import { sendEmail } from '../send-email';
 import { getEmailTags, type EmailCategory } from '../headers';
 import { LOG_PREFIX, renderStars, escapeHrefUrl, buildEmailShell } from './shared';
 import { sanitizeLocationLabelForPrefix } from '@/lib/notifications/channels/template-prefix';
@@ -32,6 +32,9 @@ export interface AutoPostNoticeEmailParams {
   googleMapsUrl: string | null;
   /** Stable redirect CTA target: `${APP_URL}/r/google/${responseId}`. */
   viewUrl: string;
+  /** Stable Resend idempotency key (per response) so a timeout-retry or failover
+   *  re-send of the same FYI dedupes at the provider instead of double-sending. */
+  idempotencyKey?: string;
 }
 
 function buildAutoPostNoticeEmailHtml(params: AutoPostNoticeEmailParams): string {
@@ -74,18 +77,20 @@ export async function sendAutoPostNoticeEmail(
     return { messageId: mockId };
   }
 
-  const resend = getResend();
   const html = buildAutoPostNoticeEmailHtml(params);
 
   // Transactional FYI: no List-Unsubscribe header (operational, not marketing).
   const category: EmailCategory = 'transactional';
-  const { data, error } = await resend.emails.send({
-    from: params.from,
-    to: params.to,
-    subject,
-    html,
-    tags: getEmailTags(category),
-  });
+  const { data, error } = await sendEmail(
+    {
+      from: params.from,
+      to: params.to,
+      subject,
+      html,
+      tags: getEmailTags(category),
+    },
+    { idempotencyKey: params.idempotencyKey },
+  );
 
   if (error) {
     throw new Error(`Resend API error: ${error.message}`);
