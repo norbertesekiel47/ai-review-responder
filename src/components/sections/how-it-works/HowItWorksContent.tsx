@@ -155,7 +155,7 @@ function Step2Artifact() {
           className="hiw-artifact-cap-dot"
           style={{ background: '#F2C3B9', boxShadow: '0 0 0 4px rgba(242,195,185,0.2)' }}
         />
-        <span>Draft generation · voice model v3</span>
+        <span>Draft generation · voice model</span>
         <span className="hiw-artifact-cap-tail">~4 sec</span>
       </div>
       <div className="hiw-draft">
@@ -186,10 +186,7 @@ function Step2Artifact() {
             <span className="hiw-voice-chip-lbl">Length</span>
             <span className="hiw-voice-chip-val">28 words</span>
           </div>
-          <div className="hiw-voice-chip">
-            <span className="hiw-voice-chip-lbl">Matches you</span>
-            <span className="hiw-voice-chip-val">96%</span>
-          </div>
+
         </div>
       </div>
     </div>
@@ -395,7 +392,7 @@ const STEPS = [
     sub: "We're notified the moment a new review is posted via a provider webhook, with a safety-net check every ~5 minutes as backup. New reviews are deduplicated against what we've seen and queued for drafting right away.",
     bullets: [
       'Reacts in near-real-time via webhook, with a ~5-minute safety-net poll',
-      'Multi-location businesses handled out of the box',
+      'Multi-location supported on Premium',
       'Star rating, reviewer name, and full text captured',
     ],
     Artifact: Step1Artifact,
@@ -406,9 +403,9 @@ const STEPS = [
     tick: 'T + 0:12',
     kicker: 'Generate',
     title: 'AI drafts a reply — in your voice.',
-    sub: 'We trained on your past 30 owner responses. The model picks up your phrasing, your rhythm, how you handle thanks and how you handle complaints. Each draft renders in under five seconds.',
+    sub: 'RepWorth learns from the replies you approve and edit. The model picks up your phrasing, your rhythm, how you handle thanks and how you handle complaints. Each draft renders in seconds.',
     bullets: [
-      'Trained on your existing owner responses',
+      'Learns from the replies you approve and edit',
       'Separate handling for 1–3★ vs 4–5★ reviews',
       'Regenerate button if the first pass misses',
     ],
@@ -434,7 +431,7 @@ const STEPS = [
     tick: 'T + 1:04',
     kicker: 'Post',
     title: 'Posted to Google, on your behalf.',
-    sub: 'Once you approve, we post the reply back via the Google Business API. It shows up on your listing within seconds, attributed to the business owner, exactly as it would if you\'d typed it yourself.',
+    sub: 'Once you approve, we post the reply back to your Google listing. It shows up within seconds, attributed to the business owner, exactly as it would if you\'d typed it yourself.',
     bullets: [
       'Posts within seconds of approval',
       'Shows as "Response from the owner" on Google',
@@ -447,14 +444,14 @@ const STEPS = [
 const HOOD = [
   { color: '#D2E0D3', title: 'Review ingest', sub: 'Reacts to a provider webhook in near-real-time; a safety-net poll runs every ~5 minutes.', tech: 'webhook · BullMQ', glyph: '⏱' },
   { color: '#F0DDD6', title: 'Voice model', sub: 'Drafts a reply in your voice, sourced from past replies.', tech: 'LLM · tuned', glyph: '✎' },
-  { color: '#F2C3B9', title: 'Approval email', sub: 'One-tap signed link, no password needed.', tech: 'Resend · HMAC', glyph: '✉' },
-  { color: '#D6CBBF', title: 'Post back', sub: 'Submits the approved reply to Google on your behalf.', tech: 'Business API', glyph: '↗' },
+  { color: '#F2C3B9', title: 'Approval email', sub: 'One-tap signed link, no password needed.', tech: 'Resend · signed link', glyph: '✉' },
+  { color: '#D6CBBF', title: 'Post back', sub: 'Submits the approved reply to Google on your behalf.', tech: 'Google', glyph: '↗' },
 ];
 
 const GUARANTEES = [
   {
     title: 'Nothing posts without you',
-    desc: 'Every reply needs your tap. No auto-post, ever. No surprise posts on your behalf.',
+    desc: 'Every reply waits for your approval by default. You can optionally turn on auto-approval (off by default), which only posts after passing automated safety checks.',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -484,10 +481,10 @@ const GUARANTEES = [
 ];
 
 const FAQ_ITEMS = [
-  { q: "What happens if I don't approve a draft?", a: 'Nothing. Drafts sit and wait. After 48 hours we send a gentle nudge. If you never approve, we never post — the review simply stays unanswered on your end.' },
-  { q: 'Can RepWorth post without asking me?', a: 'No. Approval is a hard gate. Every reply requires your one-tap confirmation from the email. We built the whole flow around that.' },
-  { q: 'How does it learn my voice?', a: 'On setup we import your last 30 owner responses from Google and build a voice profile — tone, length, phrasing quirks. You can correct it on the first few drafts; it updates within a day.' },
-  { q: 'What about negative reviews?', a: "Drafts for 1–3★ reviews are flagged for extra review and routed to you with a longer deadline. We'll never auto-suggest a defensive or dismissive reply — the tone defaults to acknowledging and offering a path forward." },
+  { q: "What happens if I don't approve a draft?", a: 'Nothing. Drafts sit and wait, and we send you a reminder. If you never approve, we never post — the review simply stays unanswered on your end.' },
+  { q: 'Can RepWorth post without asking me?', a: 'By default, no — every reply waits for your one-tap confirmation from the email. If you want hands-off posting, you can optionally enable auto-approval (off by default), which only posts after passing automated safety checks.' },
+  { q: 'How does it learn my voice?', a: 'RepWorth learns your voice from the replies you approve and edit. As you tweak drafts it picks up your tone, length, and phrasing — the more you use it, the more it sounds like you.' },
+  { q: 'What about negative reviews?', a: "Drafts for 1–3★ reviews get extra care: we'll never auto-suggest a defensive or dismissive reply — the tone defaults to acknowledging the issue and offering a path forward, and high-risk drafts are held for your review." },
   { q: 'Which review platforms do you support?', a: "Today, Google only — that's where most of the volume sits. Yelp, Tripadvisor and Facebook are on the roadmap." },
 ];
 
@@ -613,6 +610,9 @@ export function HowItWorksContent({
                 <span className="hiw-hero-meta-lbl">saved weekly</span>
               </div>
             </div>
+            <p className="hiw-hero-meta-note" style={{ marginTop: 12, fontSize: 12, fontStyle: 'italic', color: '#6a6a6a' }}>
+              Typical figures shown for illustration, not live performance data.
+            </p>
           </section>
 
           {/* Overview strip */}
