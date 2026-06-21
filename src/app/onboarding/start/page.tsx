@@ -48,7 +48,10 @@ export default async function OnboardingStartPage() {
   if (!row) redirect('/signup');
   if (row.role === 'admin') redirect('/admin/overview');
   if (row.role !== 'owner') redirect('/login');
-  if (row.subscription_status === SubscriptionStatus.ACTIVE) redirect('/dashboard');
+  if (
+    row.subscription_status === SubscriptionStatus.ACTIVE
+    || row.subscription_status === SubscriptionStatus.TRIALING
+  ) redirect('/dashboard');
   if (row.subscription_status === SubscriptionStatus.CANCELLED) redirect('/dashboard');
   if (row.place_id_verified || row.google_maps_url) redirect('/onboarding/demo');
 

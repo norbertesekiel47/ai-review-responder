@@ -38,7 +38,11 @@ export function applySubscriptionGuard(
   if (portal !== 'owner' || !status) return null;
   if (from.startsWith('/onboarding') && !from.startsWith('//')) return null;
   if (status.subscriptionStatus === SubscriptionStatus.PENDING_PAYMENT) return '/onboarding/pay';
-  if (status.subscriptionStatus === SubscriptionStatus.ACTIVE && status.businessOnboarded === false) {
+  if (
+    (status.subscriptionStatus === SubscriptionStatus.ACTIVE
+      || status.subscriptionStatus === SubscriptionStatus.TRIALING)
+    && status.businessOnboarded === false
+  ) {
     return '/onboarding/business';
   }
   return null;

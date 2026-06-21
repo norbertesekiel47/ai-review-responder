@@ -14,7 +14,7 @@ import type { OffboardingStatusView } from '@/components/dashboard/account-state
 import { ACCOUNT_OFFBOARDING_STATUS_PATH } from '@/lib/shared/request-path-header';
 import { PendingAdminHandoffScreen } from '@/components/dashboard/account-state/PendingAdminHandoffScreen';
 import { PendingPaymentScreen } from '@/components/dashboard/account-state/PendingPaymentScreen';
-import { CancelledBanner, PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
+import { CancelledBanner, PastDueBanner, TrialBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
 import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal';
 import { ConnectGoogleBanner } from '@/components/dashboard/account-state/ConnectGoogleBanner';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
@@ -285,6 +285,11 @@ function DashboardOperationalContent() {
     <>
       <TopBar title="Dashboard" subtitle={subtitle} showLive refresh={refresh} />
       <div className="content">
+        {activeData.trialEndsAt && (
+          <div className="section-enter section-enter-1">
+            <TrialBanner trialEndsAt={activeData.trialEndsAt} />
+          </div>
+        )}
         {pastDueData && (
           <div className="section-enter section-enter-1">
             <PastDueBanner

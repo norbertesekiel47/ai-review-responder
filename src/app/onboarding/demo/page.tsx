@@ -58,7 +58,10 @@ export default async function OnboardingDemoPage() {
   if (!row) redirect('/signup');
   if (row.role === 'admin') redirect('/admin/overview');
   if (row.role !== 'owner') redirect('/login');
-  if (row.subscription_status === SubscriptionStatus.ACTIVE) redirect('/dashboard');
+  if (
+    row.subscription_status === SubscriptionStatus.ACTIVE
+    || row.subscription_status === SubscriptionStatus.TRIALING
+  ) redirect('/dashboard');
   if (row.subscription_status === SubscriptionStatus.CANCELLED) redirect('/dashboard');
 
   // Exclude 'archived' rows: the 23505 race-loser recovery path archives the

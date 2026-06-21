@@ -8,7 +8,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { openBillingPortal } from '@/components/dashboard/account-state/billing-portal';
-import { CancelledBanner, PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
+import { CancelledBanner, PastDueBanner, TrialBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
 
 describe('CancelledBanner (VAL-CROSS-011)', () => {
   it('renders read-only banner with grace period date', () => {
@@ -204,5 +204,23 @@ describe('PastDueBanner (VAL-CROSS-012)', () => {
 
     expect(screen.getByText(/Payment overdue — account is read-only/)).toBeDefined();
     expect(screen.getByText(/Actions are paused until payment is updated/)).toBeDefined();
+  });
+});
+
+describe('TrialBanner', () => {
+  it('shows days left and the auto-charge date', () => {
+    const fiveDaysOut = new Date(Date.now() + 5 * 86_400_000).toISOString();
+    render(<TrialBanner trialEndsAt={fiveDaysOut} />);
+
+    expect(screen.getByText(/days left in your free trial/)).toBeDefined();
+    expect(screen.getByText(/charged automatically on/)).toBeDefined();
+    const manageLink = screen.getByRole('link', { name: /Manage billing/ });
+    expect(manageLink.getAttribute('href')).toBe('/settings/billing');
+  });
+
+  it('handles a same-day trial end without negative days', () => {
+    const almostNow = new Date(Date.now() + 1000).toISOString();
+    render(<TrialBanner trialEndsAt={almostNow} />);
+    expect(screen.getByText(/Your trial ends today|1 day left/)).toBeDefined();
   });
 });

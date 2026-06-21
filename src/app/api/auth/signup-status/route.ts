@@ -181,7 +181,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   //    call, plain row return) stay simple — and the branch logic is easier
   //    to reason about co-located with the comment above.
   const businessOnboarded = demoFlowEnabled
-    ? subscriptionStatus === SubscriptionStatus.ACTIVE
+    ? (subscriptionStatus === SubscriptionStatus.ACTIVE
+        || subscriptionStatus === SubscriptionStatus.TRIALING)
       && row.onboarding_wizard_completed_at !== null
     : row.place_id_verified || row.google_maps_url !== null;
 

@@ -49,6 +49,13 @@ export interface ReputationSummary {
 
 export interface DashboardDataActive {
   subscriptionStatus?: never;
+  /**
+   * ISO timestamp when a card-up-front trial ends. Non-null only while the
+   * account is `trialing` (trial_ends_at IS NOT NULL ⟺ status='trialing').
+   * Drives the "Trial — N days left" dashboard banner. `null`/absent for paid
+   * active accounts, which render no trial banner.
+   */
+  trialEndsAt?: string | null;
   business: { name: string; createdAt: string };
   valueSummary: {
     totalReviewsHandled: number;

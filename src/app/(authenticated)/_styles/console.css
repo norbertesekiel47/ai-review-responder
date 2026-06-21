@@ -557,6 +557,10 @@
   border-color: #FDE68A;
   background: #FFFBEB;
 }
+.sub-status-banner--trial {
+  border-color: #97B3AE66;
+  background: #D2E0D34d;
+}
 .sub-status-banner__icon {
   width: 36px; height: 36px;
   border-radius: 8px;
@@ -569,17 +573,22 @@
 .sub-status-banner--past-due .sub-status-banner__icon {
   background: #FDE68A; color: #92400E;
 }
+.sub-status-banner--trial .sub-status-banner__icon {
+  background: #97B3AE33; color: #5a726d;
+}
 .sub-status-banner__content { flex: 1; min-width: 0; }
 .sub-status-banner__title {
   font-weight: 600; font-size: 14px;
 }
 .sub-status-banner--cancelled .sub-status-banner__title { color: #991B1B; }
 .sub-status-banner--past-due .sub-status-banner__title { color: #92400E; }
+.sub-status-banner--trial .sub-status-banner__title { color: #2a2a2a; }
 .sub-status-banner__body {
   font-size: 13px; margin-top: 4px;
 }
 .sub-status-banner--cancelled .sub-status-banner__body { color: #991B1Bcc; }
 .sub-status-banner--past-due .sub-status-banner__body { color: #92400Ecc; }
+.sub-status-banner--trial .sub-status-banner__body { color: #6a6a6a; }
 .sub-status-banner__link {
   background: none; border: 0; padding: 0; color: #1D4ED8; cursor: pointer;
   font: inherit; text-decoration: underline; font-weight: 500;

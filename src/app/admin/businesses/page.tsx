@@ -25,6 +25,7 @@ interface BusinessListData {
 
 const STATUS_STYLES: Record<string, { bg: string; text: string }> = {
   active: { bg: 'bg-green-100', text: 'text-green-800' },
+  trialing: { bg: 'bg-teal-100', text: 'text-teal-800' },
   pending_payment: { bg: 'bg-gray-100', text: 'text-gray-700' },
   past_due: { bg: 'bg-yellow-100', text: 'text-yellow-800' },
   cancelled: { bg: 'bg-red-100', text: 'text-red-700' },

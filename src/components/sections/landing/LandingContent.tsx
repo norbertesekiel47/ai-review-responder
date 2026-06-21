@@ -12,6 +12,8 @@ import { TimelineSection } from './TimelineSection';
 interface LandingContentProps {
   comingSoon?: boolean;
   selfServeEnabled?: boolean;
+  trialEnabled?: boolean;
+  trialDays?: number;
 }
 
 const SECTIONS = [
@@ -54,6 +56,8 @@ const ACTIVE_SECTION_SERVER_SNAPSHOT = 'rw-hero';
 export function LandingContent({
   comingSoon = false,
   selfServeEnabled = false,
+  trialEnabled = false,
+  trialDays = 30,
 }: LandingContentProps) {
   const active = useSyncExternalStore(
     subscribeToScroll,
@@ -85,7 +89,13 @@ export function LandingContent({
 
           <Hero
             onBook={() => scrollToSection('rw-cta')}
-            primaryCtaLabel={comingSoon ? 'Coming soon' : 'Join waitlist'}
+            primaryCtaLabel={
+              comingSoon
+                ? 'Coming soon'
+                : trialEnabled
+                  ? `Start your ${trialDays}-day free trial`
+                  : 'Join waitlist'
+            }
             primaryCtaDisabled={comingSoon}
           />
           <TickerBar />

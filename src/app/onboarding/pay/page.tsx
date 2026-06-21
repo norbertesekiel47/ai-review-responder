@@ -71,11 +71,14 @@ export default async function OnboardingPayPage({
     const emailParam = encodeURIComponent(user.email ?? '');
     redirect(`/signup/check-email?from=pay&email=${emailParam}`);
   }
-  if (row.subscription_status === SubscriptionStatus.ACTIVE) {
-    // Active but wizard not yet completed → push to wizard, not dashboard.
-    // The dashboard has a "Set up your business" CTA fallback, but routing
-    // active-but-not-onboarded owners straight to the wizard matches the
-    // documented happy-path flow (PaymentSuccessClient also pushes here).
+  if (
+    row.subscription_status === SubscriptionStatus.ACTIVE
+    || row.subscription_status === SubscriptionStatus.TRIALING
+  ) {
+    // Active/trialing but wizard not yet completed → push to wizard, not
+    // dashboard. The dashboard has a "Set up your business" CTA fallback, but
+    // routing entitled-but-not-onboarded owners straight to the wizard matches
+    // the documented happy-path flow (PaymentSuccessClient also pushes here).
     // Treat NULL google_maps_url + place_id_verified=false as "not onboarded".
     const businessOnboarded =
       row.place_id_verified || row.google_maps_url !== null;

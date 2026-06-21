@@ -16,6 +16,19 @@ function StatusBadge({ status }: { status: ChannelEnrollmentRow['status'] }) {
   return <span className={`px-2 py-0.5 rounded text-xs ${STATUS_BADGE_STYLES[status]}`}>{status}</span>;
 }
 
+/**
+ * Channel enrollment is available to ENTITLED accounts — active or trialing.
+ * A trial account gets full product access, including channel management
+ * (approval delivery is core), so admins must be able to enroll trialing
+ * businesses. Mirrors the API gate at admin/channels/_shared/start.ts.
+ */
+function isChannelEnrollmentEntitled(subscriptionStatus: string): boolean {
+  return (
+    subscriptionStatus === SubscriptionStatus.ACTIVE
+    || subscriptionStatus === SubscriptionStatus.TRIALING
+  );
+}
+
 interface ChannelsPanelProps {
   business: BusinessDetail;
   businessId: string;
@@ -72,9 +85,9 @@ export function ChannelsPanel({ business, businessId, enrollments }: ChannelsPan
       {business.telegramEnabled && (
         <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
           <h2 className="text-lg font-semibold text-gray-800 mb-3">Telegram enrollment</h2>
-          {business.subscriptionStatus !== SubscriptionStatus.ACTIVE ? (
+          {!isChannelEnrollmentEntitled(business.subscriptionStatus) ? (
             <p className="text-sm text-gray-500">
-              Complete payment first. Telegram enrollment unlocks once the business&apos;s subscription transitions to active.
+              Subscription not active. Telegram enrollment unlocks once the business&apos;s subscription is active or trialing.
             </p>
           ) : (
             <TelegramEnrollmentWidget businessId={businessId} />
@@ -86,9 +99,9 @@ export function ChannelsPanel({ business, businessId, enrollments }: ChannelsPan
       {business.whatsappEnabled && (
         <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
           <h2 className="text-lg font-semibold text-gray-800 mb-3">WhatsApp enrollment</h2>
-          {business.subscriptionStatus !== SubscriptionStatus.ACTIVE ? (
+          {!isChannelEnrollmentEntitled(business.subscriptionStatus) ? (
             <p className="text-sm text-gray-500">
-              Complete payment first. WhatsApp enrollment unlocks once the business&apos;s subscription transitions to active.
+              Subscription not active. WhatsApp enrollment unlocks once the business&apos;s subscription is active or trialing.
             </p>
           ) : (
             <WhatsAppEnrollmentWidget businessId={businessId} />
