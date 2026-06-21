@@ -206,6 +206,10 @@ async function flipEnrollmentStatus(
  * loop. The function returns the attempted/succeeded counters so the
  * orchestrator can decide whether to throw for a BullMQ retry.
  */
+// Pre-existing per-channel fan-out (16 cyclomatic on main); this PR only added
+// the idempotencyKey property to the send call, no new branches. Deep claim/send
+// logic lives in the delivery.ts helpers.
+// fallow-ignore-next-line complexity
 export async function dispatchAll(
   ctx: DispatchContext,
   enrollments: ResolvedChannel[],
@@ -325,6 +329,9 @@ export async function dispatchAll(
         responsePreview: ctx.review.responsePreview,
         approvalUrl,
         approvalLinkId,
+        // Stable per (response, channel) so a timeout-retry or failover re-send of
+        // the same approval dedupes at the provider instead of double-sending.
+        idempotencyKey: `approval_request:${ctx.responseId}:${channelId}`,
       });
       externalMessageId = result.externalMessageId;
     } catch (err) {

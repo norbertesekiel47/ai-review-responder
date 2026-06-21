@@ -22,6 +22,13 @@ export function getCacheRedisOptions(): RedisOptions {
   const sharedOpts: Partial<RedisOptions> = {
     maxRetriesPerRequest: 1,
     connectTimeout: 3_000,
+    // Bound each command, not just the connect: a slow-but-CONNECTED Upstash
+    // (latency spike under load) sits on the pre-LLM hot path (idempotency check,
+    // cost reserve, concurrency slot). Without this, a degraded-but-up Upstash
+    // hangs each command up to the LLM's 30s budget instead of failing fast into
+    // the existing retryable (CostInfraUnavailableError) / fail-open (rate-limit)
+    // paths. 3s is ~60× normal Upstash latency, so it never trips in steady state.
+    commandTimeout: 3_000,
     retryStrategy: (times) => (times > 2 ? null : Math.min(times * 200, 1_000)),
   };
 

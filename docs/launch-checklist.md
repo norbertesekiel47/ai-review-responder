@@ -31,6 +31,29 @@
 
 ---
 
+## 🔴 Beta-launch gate (added 2026-06-19) — see `docs/runbooks/beta-launch-alerting.md`
+
+Gates the **first paying customer** per ADR 0005. The code half ships in
+`harden/beta-launch-gate`; these are the operating constraints + dashboard wiring.
+
+- [ ] **`AUTO_APPROVAL_ENABLED=false`** confirmed in prod — owner approval is the
+  content-safety control for irreversible public posting. Auto-approval go-live is
+  a separate gate (prod moderation validation + canary + kill-switch drill).
+- [ ] **`SENTRY_DSN` set in prod** — now a hard boot gate (`assertAlertSinkEnv`);
+  the worker refuses to start without the non-email alert sink.
+- [ ] **Sentry alert routing → Slack/PagerDuty** for `subsystem:health_alert` and
+  `cost_event:limit_exceeded`.
+- [ ] **Sentry Cron monitor `health-alert-poller`** + **external `/ready`
+  synthetic check** (worker + Next.js) configured.
+- [ ] **Alerting acceptance drills** run on staging (runbook §4).
+- [ ] **Operating constraint — subscription invoices only.** During beta, do NOT
+  create one-off/manual Stripe invoices for live accounts: `invoice.payment_failed`
+  is not yet scoped to the current subscription (worker-scaling backlog P4 #11), so
+  an unrelated invoice for the same Stripe customer could wrongly flip a paying
+  account to `past_due`. The `invoice.subscription` scoping fix lands later.
+
+---
+
 ## 🟠 Production env / vendor gates — shipped features are inert without these
 
 - [ ] **`POSTHOG_API_KEY` in prod** — the first-party analytics queue +

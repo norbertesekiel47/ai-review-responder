@@ -113,3 +113,32 @@ These were fixed inline on branch `fix/pre-beta-worker-hardening` in the same pa
 4. **`formatAutoPostNoticeWhatsApp` missing length cap** → now `truncate(oneLine(...), MAX)` for business/reviewer names (mirrors the approval formatter; closes the same 21656 class).
 5. **`reviewDate` rendered "Invalid Date"** → `NotificationWorker.formatReviewDate` guards `NaN`/null and degrades to empty string.
 6. **Core infra env vars not asserted at boot** → `assertCoreInfraEnv` (in `worker/config/startup-assert.ts`) now fails fast on missing `DATABASE_POOL_URL` / `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` / `REDIS_QUEUE_URL`.
+
+---
+
+## Folded in from the 2026-06-18 1000-business audit (2026-06-19)
+
+This is now the **single action list** for deferred scale work — the 1000-business
+audit was slimmed to a verdict (`docs/future-plans/2026-06-18-1000-business-readiness-audit.md`)
+pointing here. Items below were caught by that broader audit and are NOT yet
+represented above. The beta-launch gate (ADR 0005, branch `harden/beta-launch-gate`)
+shipped the small subset that gates a paid beta; everything here stays deferred to
+the trigger noted.
+
+### Shipped on `harden/beta-launch-gate` (no longer deferred)
+- Resend send **timeout** (the timeout half of P1 #2 — `sendEmail` chokepoint, `EMAIL_SEND_TIMEOUT_MS`). *Still deferred: the concurrency-raise + Resend token-bucket half of #2.*
+- Ranking `getJson` timeout — the **third** SerpAPI call site (`RankingTrackingWorker.ts`) that "Fixed before beta #3" missed.
+- Upstash **`commandTimeout`** (pre-LLM hot-path fast-fail). *Still deferred: `KEYS`→`SCAN` for `invalidateChannelCache` (below).*
+- `SENTRY_DSN` promoted to a hard prod boot gate (`assertAlertSinkEnv`); `HealthAlertPoller` for silent-failure signals; cost-cap exhaustion now emits a Sentry alert.
+
+### New deferred items (with triggers)
+- **P1 — ArchivalPoller cannot drain at scale.** Once-daily single `LIMIT 5000`/table pass < arrival rate (~5–10k/day `api_costs` at 1000 businesses) → retention tables grow unbounded despite the 90/30-day policy. Fix: drain-until-`<LIMIT` loop or shorter cadence. **Trigger:** daily `api_costs` insert rate approaching 5000.
+- **P1 — Global cost ceiling is a fairness-free cross-tenant kill-switch.** `GLOBAL_DAILY_COST_LIMIT_CENTS` is one shared counter checked against the 15¢ reserve; exhaustion terminally drops drafts for ALL tenants (now at least *visible* via the gate's cost-cap Sentry alert). Fix: re-dimension for the fleet + make non-terminal/deferrable + 50/80% threshold alerts. **Trigger:** before fleet daily reserves can plausibly approach the ceiling.
+- **P2 — Upstash `KEYS`→`SCAN`.** `invalidateChannelCache` (`resolve-channels.ts`) uses blocking `KEYS` over the whole keyspace on every enrollment change. **Trigger:** Upstash keyspace into the tens of thousands.
+- **P2 — No automated *scale* alerting.** Queue-depth, Railway-Redis-memory (`noeviction`!), and cost-% alerts are still absent — the beta `HealthAlertPoller` covers only the public-path Postgres-state subset. **Trigger:** before horizontal scale / hundreds of businesses.
+- **P3 — No circuit breakers / per-provider isolation.** A provider outage = BullMQ retries + 1h watchdog re-drive indefinitely with no fast-fail. **Trigger:** first sustained provider outage felt across many tenants.
+- **P3 — DB/Supabase capacity unplanned.** No documented PgBouncer `max_client_conn` ceiling vs Vercel concurrency, nor a table-growth projection. **Trigger:** before hundreds of concurrent dashboard users.
+
+### Corrections to earlier audit claims
+- **Double-send is mitigated, NOT eliminated.** The claim-before-send (`dispatch.ts`, "Fixed before beta #2") is *not* DB-unique (`delivery.ts` — `approval_request` has no partial-unique index); it holds only under the single-worker + single-flight-per-response assumption. **Deploy-overlap (the brief 2-replica window on a zero-downtime redeploy) or duplicate outbox rows can reopen the race.** Add an advisory lock or durable unique claim **before ANY worker-concurrency raise or replica add** (ties to P2 #5/#6 multi-replica items).
+- **"Billing is solid" is narrowed.** Money math / idempotency / grandfathering are sound, but `invoice.payment_failed` is not subscription-scoped (P4 #11) — an unrelated invoice can flip a paying account to `past_due`. Beta mitigates by an operating constraint (subscription invoices only; see `launch-checklist.md`); the code fix (gate on `invoice.subscription` + `billing_reason`) remains deferred.
