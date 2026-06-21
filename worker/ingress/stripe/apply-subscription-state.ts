@@ -74,29 +74,38 @@ function mapStripeStatus(stripeStatus: Stripe.Subscription.Status | string): Sub
 }
 
 /**
+ * Allowed source statuses per target, as a monotonic transition table.
+ * `cancelled` is reachable from any non-terminal status; every other target is
+ * reachable only from the listed sources. `cancelled` itself is terminal and is
+ * the (deliberately absent) common source filtered out by the guard below.
+ */
+const ALLOWED_TRANSITION_SOURCES: Readonly<
+  Record<SubscriptionStatusValue, readonly SubscriptionStatusValue[]>
+> = {
+  [SubscriptionStatus.TRIALING]: [SubscriptionStatus.PENDING_PAYMENT],
+  [SubscriptionStatus.ACTIVE]: [
+    SubscriptionStatus.PENDING_PAYMENT,
+    SubscriptionStatus.TRIALING,
+    SubscriptionStatus.PAST_DUE,
+  ],
+  [SubscriptionStatus.PAST_DUE]: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING],
+  [SubscriptionStatus.CANCELLED]: [
+    SubscriptionStatus.PENDING_PAYMENT,
+    SubscriptionStatus.ACTIVE,
+    SubscriptionStatus.TRIALING,
+    SubscriptionStatus.PAST_DUE,
+  ],
+  [SubscriptionStatus.PENDING_PAYMENT]: [],
+};
+
+/**
  * Is the transition from `current` → `target` allowed by the monotonic table?
  * `cancelled` is terminal (nothing leaves it). Same target as current = no-op.
  */
 function isAllowedTransition(current: string, target: SubscriptionStatusValue): boolean {
   if (current === target) return false;
   if (current === SubscriptionStatus.CANCELLED) return false;
-
-  switch (target) {
-    case SubscriptionStatus.TRIALING:
-      return current === SubscriptionStatus.PENDING_PAYMENT;
-    case SubscriptionStatus.ACTIVE:
-      return (
-        current === SubscriptionStatus.PENDING_PAYMENT
-        || current === SubscriptionStatus.TRIALING
-        || current === SubscriptionStatus.PAST_DUE
-      );
-    case SubscriptionStatus.PAST_DUE:
-      return current === SubscriptionStatus.ACTIVE || current === SubscriptionStatus.TRIALING;
-    case SubscriptionStatus.CANCELLED:
-      return true;
-    default:
-      return false;
-  }
+  return ALLOWED_TRANSITION_SOURCES[target].includes(current as SubscriptionStatusValue);
 }
 
 interface ResolvedAccount {
