@@ -51,6 +51,12 @@ describe('LandingContent', () => {
     expect(html).not.toContain('96.3%');
   });
 
+  it('uses a consistent, non-overpromised latency phrase', () => {
+    const html = renderToStaticMarkup(createElement(LandingContent));
+    expect(html).not.toContain('Draft ready in 8 seconds');
+    expect(html).toContain('Draft ready in seconds');
+  });
+
   it('exposes the voice dial as a keyboard-operable slider', () => {
     const html = renderToStaticMarkup(createElement(LandingContent));
 

@@ -22,7 +22,7 @@ const FEATURES = [
   { id: 'f-lang',    n: '02', label: 'Languages',    sub: 'Reach' },
   { id: 'f-approve', n: '03', label: 'Approval',     sub: 'Your control' },
   { id: 'f-voice',   n: '04', label: 'Voice',        sub: 'Over time' },
-  { id: 'f-brief',   n: '05', label: 'Weekly brief', sub: 'Monday 7am' },
+  { id: 'f-brief',   n: '05', label: 'Weekly brief', sub: 'Mondays' },
   { id: 'f-roi',     n: '06', label: 'ROI',          sub: 'Proof' },
   { id: 'f-comp',    n: '07', label: 'Competitor',   sub: 'Coming soon' },
 ];
@@ -79,7 +79,7 @@ const FEATURE_LANGS = [
 ];
 
 const APPROVAL_STEPS = [
-  { n: '01', title: 'New review lands', sub: 'Webhook from Google · detected in < 60 seconds', t: '0:00', dark: false, d: '100ms' },
+  { n: '01', title: 'New review lands', sub: 'New review detected via webhook', t: '0:00', dark: false, d: '100ms' },
   { n: '02', title: 'AI drafts a reply in your voice', sub: 'Uses past approvals as style reference', t: '+0:12', dark: false, d: '300ms' },
   { n: '03', title: 'You get a text or email', sub: 'Review + draft + three big buttons', t: '+0:15', dark: false, d: '500ms' },
   { n: '04', title: 'You tap approve · we post it', sub: 'Median owner time: 28 seconds · No login required', t: '+0:58', dark: true, d: '700ms' },
@@ -739,8 +739,8 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
           </h2>
           <p className="text-[#6a6a6a] mt-4 max-w-xl leading-relaxed">
             You get an email with the customer&apos;s review and the AI draft side-by-side. Tap
-            approve, edit inline, or ask for a fresh draft. Nothing is ever posted without your
-            explicit go-ahead.
+            approve, edit inline, or ask for a fresh draft. By default, nothing is posted without your
+            go-ahead.
           </p>
         </div>
       </div>
@@ -919,7 +919,7 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
       <div className="grid md:grid-cols-12 gap-10 items-start">
         <div ref={leftRef} className={`rw-reveal from-left md:col-span-5 ${leftSeen ? 'in' : ''}`}>
           <span className="rw-num-tag text-7xl leading-none text-[#97B3AE]/40 block mb-4" aria-hidden="true">05</span>
-          <p className="rw-label-mono text-xs uppercase text-[#557069] mb-3">Every Monday · 7am</p>
+          <p className="rw-label-mono text-xs uppercase text-[#557069] mb-3">Every Monday morning</p>
           <h2 className="text-4xl md:text-5xl font-medium text-[#2a2a2a] leading-tight mb-5">
             A brief you&apos;ll <span className="rw-display-serif text-[#557069]">actually</span> read.
           </h2>
@@ -929,8 +929,7 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           </p>
           <ul className="space-y-3 text-sm">
             {[
-              'Top mentions, scored by sentiment',
-              'Week-over-week review volume & stars',
+              'Review volume and trend',
               'One concrete operational suggestion',
             ].map((t) => (
               <li key={t} className="flex items-start gap-3">
@@ -1030,8 +1029,8 @@ function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
             Numbers to show your <span className="rw-display-serif text-[#557069]">accountant</span>.
           </h2>
           <p className="text-[#6a6a6a] mt-4 leading-relaxed">
-            Response rate before and after. Average time to respond. Where you sit in local search over
-            90 days. The kind of numbers that justify the line item.
+            Response rate before and after. Average time to respond. Where you sit in local search.
+            The kind of numbers that justify the line item.
           </p>
         </div>
       </div>

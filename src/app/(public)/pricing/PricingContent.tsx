@@ -37,7 +37,7 @@ const TIERS: Tier[] = [
     ctaStyle: 'primary',
     features: [
       { text: 'Everything in Standard', hl: true },
-      { text: '3-year price lock', hl: true },
+      { text: 'Locked-in founder pricing', hl: true },
       { text: 'Limited founder spots' },
       { text: 'Direct line to founders' },
       { text: 'Vote on the roadmap' },
@@ -50,13 +50,12 @@ const TIERS: Tier[] = [
     swatch: 'linear-gradient(135deg, #D2E0D3, #F0EEEA)',
     icon: 'solo',
     monthly: 29,
-    annual: 24,
+    annual: 23,
     cta: 'Coming soon',
     ctaStyle: 'ghost',
     ctaDisabled: true,
     features: [
-      { text: 'Best for up to ~50 review responses/month', hl: true },
-      { text: '1 Google Business Profile location' },
+      { text: '1 Google Business Profile location', hl: true },
       { text: 'AI-drafted replies in your business voice' },
       { text: 'Email approval flow' },
       { text: "Responds in the reviewer's language" },
@@ -71,16 +70,15 @@ const TIERS: Tier[] = [
     swatch: 'linear-gradient(135deg, #97B3AE, #D2E0D3)',
     icon: 'growth',
     monthly: 79,
-    annual: 64,
+    annual: 63,
     cta: 'Coming soon',
     ctaStyle: 'ghost',
     ctaDisabled: true,
     ribbon: 'Recommended',
     features: [
-      { text: 'Best for up to ~300 review responses/month', hl: true },
       { text: '1 Google Business Profile location' },
       { text: 'Everything in Basic' },
-      { text: 'Weekly and monthly review digest' },
+      { text: 'Weekly and monthly review digest', hl: true },
       { text: 'Response analytics' },
       { text: 'Email approval plus 1 extra notification channel' },
       { text: 'Priority email support within 4 hours' },
@@ -98,9 +96,8 @@ const TIERS: Tier[] = [
     ctaStyle: 'ghost',
     ctaDisabled: true,
     features: [
-      { text: 'High-volume or fair-use unlimited review responses', hl: true },
-      { text: 'Multi-location setup available' },
-      { text: 'Multiple approval notification channels' },
+      { text: 'Multi-location setup available', hl: true },
+      { text: 'Email plus one mobile channel (SMS, Telegram, or WhatsApp)' },
       { text: 'Weekly and monthly review digest' },
       { text: 'Historical unanswered review backfill, up to 50 reviews before activation' },
       { text: 'Ranking tracking / search visibility reporting' },
@@ -116,26 +113,24 @@ type MatrixRow =
 
 const MATRIX: MatrixRow[] = [
   { section: 'Responses & locations' },
-  { label: 'Best-fit monthly review volume', values: ['~300', '~50', '~300', 'High-volume fair use'] },
   { label: 'Google Business Profile locations', values: ['1', '1', '1', 'Multi-location setup available'] },
-  { label: 'Price lock', values: ['3 years', false, false, false] },
+  { label: 'Price lock', values: ['Locked in', false, false, false] },
 
   { section: 'AI & brand voice' },
   { label: 'AI-drafted replies in your business voice', values: [true, true, true, true] },
   { label: "Responds in the reviewer's language", values: [true, true, true, true] },
   { label: 'Brand voice setup', values: ['Standard', 'Standard', 'Expanded', 'Priority setup'] },
-  { label: 'Regenerate with feedback', values: [true, true, true, true] },
+  { label: 'Regenerate drafts', values: [true, true, true, true] },
 
   { section: 'Team & workflow' },
   { label: 'Dashboard access', values: ['Standard', 'Basic', 'Standard', 'Advanced'] },
   { label: 'Email approval flow', values: [true, true, true, true] },
   { label: 'Extra notification channel', values: [true, false, true, true] },
-  { label: 'Multiple approval notification channels', values: [false, false, false, true] },
 
   { section: 'Insights & integrations' },
   { label: 'Response analytics', values: [true, false, true, true] },
   { label: 'Weekly and monthly review digest', values: [true, false, true, true] },
-  { label: 'Historical unanswered review backfill', values: [false, false, true, true] },
+  { label: 'Historical unanswered review backfill', values: [false, false, false, true] },
   { label: 'Ranking / search visibility reporting', values: [false, false, false, true] },
 
   { section: 'Support' },
@@ -169,11 +164,9 @@ const MATRIX_STICKY_CORNER: CSSProperties = {
 
 const FAQ_ITEMS = [
   { q: 'How does the 14-day trial work?', a: 'Connect your Google Business Profile in under two minutes. We start drafting replies immediately — you approve each one by email. No charge until day 15, and you can cancel anytime with one click.' },
-  { q: 'Can I change plans later?', a: 'Yes. Upgrade, downgrade, or cancel any time from the settings page. Upgrades apply instantly; downgrades take effect at the end of your current billing cycle.' },
-  { q: 'What counts as a "review response"?', a: 'Any reply we draft, whether you approve, edit, or regenerate it. If you regenerate a draft three times, that counts as one response — not three.' },
-  { q: 'Do I have to approve every reply?', a: "Yes. That's the whole point — you stay in control of your brand voice. Approval takes one tap on your phone. Owners typically clear a week's worth of reviews in under five minutes." },
-  { q: 'What happens if I go over my monthly limit?', a: "We'll keep drafting so nothing falls through the cracks, and nudge you to upgrade. We never block responses without warning." },
-  { q: 'Is there a contract?', a: 'No. Monthly plans are month-to-month. Annual plans lock in a 20% discount but can still be cancelled — we refund the unused months, pro-rated.' },
+  { q: 'Can I change plans later?', a: 'Yes. Upgrade, downgrade, or cancel any time from the settings page. Plan changes apply immediately and are prorated.' },
+  { q: 'Do I have to approve every reply?', a: "By default, yes — every reply waits for your one-tap approval, so you stay in control of your brand voice. You can optionally enable auto-approval (off by default) if you later want hands-off posting. Approval takes one tap on your phone." },
+  { q: 'Is there a contract?', a: 'No. Monthly plans are month-to-month; annual plans are paid upfront for the year. Cancel any time — your access continues through the end of the paid period and you are not charged again. Annual plans are not refunded for unused time.' },
 ];
 
 const CheckIcon = () => (
@@ -366,7 +359,7 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
             <p className="pr-eyebrow">Pricing</p>
             <h1>Every reply handled. One honest price.</h1>
             <p className="sub">
-              Pay for what you actually use. Switch plans anytime. Cancel whenever.
+              Simple flat-rate plans. Switch anytime. Cancel whenever.
             </p>
           </section>
 
@@ -535,14 +528,13 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
                       </svg>
                     </span>
                   </button>
-                  <div
+                  <section
                     className="pr-faq-a"
                     id={panelId}
-                    role="region"
                     aria-labelledby={buttonId}
                   >
                     <div className="pr-faq-a-inner">{item.a}</div>
-                  </div>
+                  </section>
                 </div>
               );
             })}

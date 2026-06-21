@@ -123,7 +123,7 @@ export function Hero({ onBook, primaryCtaLabel, primaryCtaDisabled }: HeroProps)
             <div className="rw-demo-reply">
               <div className="rw-demo-reply-label">
                 <span className="rw-demo-chip-dot" />
-                Draft ready in 8 seconds
+                Draft ready in seconds
               </div>
               <div className="rw-demo-reply-text">
                 {replyText}
