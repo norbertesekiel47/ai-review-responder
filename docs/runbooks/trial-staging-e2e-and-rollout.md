@@ -193,18 +193,18 @@ verified (acceptance suite / unit / a different method, or a time-gated remainde
 
 | # | Check | Status | Notes |
 |---|---|---|---|
-| 0 | Migration 069 applied to staging; 6 Stripe events subscribed | ◑ | 069 applied + verified. Full 6-event subscription not audited; `checkout.session.completed` confirmed working (T1). |
+| 0 | Migration 069 applied to staging; 6 Stripe events subscribed | ✅ | 069 applied + verified. All **6** events now subscribed — `invoice.payment_action_required` was MISSING and was added (do the same on the **prod** endpoint). |
 | T1 | Start trial → `trialing`, $0, card captured, both Stripe IDs persisted, `trial_started` | ✅ | Verified twice (real Stripe test Checkout). |
 | T2 | Full access: 3★ → draft → approve → posted to Google | ◑ | AI **draft generated** + owner notification verified (synthetic review). Approve→**post to Google deliberately NOT run** — the connected account is a real business; no posting. |
 | T3 | `businesses.subscription_activated_at` set + onboarding drip scheduled | ◑ | Anchor **set** ✅. Drip enqueue is time-gated (day-1 ≈ 24h after activation) — not yet observed. |
 | T4 | No ranking job enqueued for the trial | ✅ | `track_ranking` count = 0. |
 | T5 | New checkout for trialing → 409 `account_already_active` | ✅ | Exercised the `trialing` guard branch. |
-| T6 | Admin-handoff (`onboarded_by` non-null) → paid checkout, NO trial | ☐ | Static/unit-verified only (route requires `onboarded_by IS NULL`); not live-run on staging. |
-| T7 | Convert → `active`, `trial_ends_at` cleared, charged, `trial_converted` | ◑ | Stripe **test-clock acceptance suite PASS**. Staging webhook→DB projection not driven. |
-| T8 | Card-fail/SCA → `past_due` + grace, `trial_payment_failed` | ☐ | Not run (not in the live test-clock suite; mocked-unit only). |
-| T9 | Cancel-in-trial → access to trial_end, $0, `cancelled`, `trial_cancelled` | ◑ | Test-clock acceptance suite PASS ($0 cancel). Staging projection not driven. |
-| T10 | Mid-trial add-location/tier-change → $0 until trial_end | ◑ | Test-clock acceptance suite PASS (4/4). Staging projection not driven. |
-| T11 | Reconcile heals stuck trialing; DB-active/Stripe-trialing drift surfaced | ☐ | Unit-verified (`reconcile-account-trial-correction.test.ts`); not live-run on staging. |
+| T6 | Admin-handoff (`onboarded_by` non-null) → paid checkout, NO trial | ✅ | Verified via DB seed (`onboarded_by` non-null) + route code: `TRIAL_ENABLED && onboarded_by===null` short-circuits → no trial. |
+| T7 | Convert → `active`, `trial_ends_at` cleared, charged, `trial_converted` | ✅ | **Live staging projection PASS** (run 2): Stripe test-clock convert → staging webhook → DB `active`, `trial_ends_at` cleared, `trial_converted`. (+ acceptance suite 4/4.) |
+| T8 | Card-fail/SCA → `past_due` + grace, `trial_payment_failed` | ◑ | Live test-clock reached `past_due` (`past_due_at` set), but via **convert-then-fail** (`pm_card_chargeCustomerFail` fails a later cycle), not a clean fail-AT-conversion. SCA event now subscribed; a clean fail-at-trial-end path still owed. |
+| T9 | Cancel-in-trial → access to trial_end, $0, `cancelled`, `trial_cancelled` | ✅ | **Live staging projection PASS** (run 2): test-clock cancel → staging webhook → DB `cancelled`, `trial_cancelled`. |
+| T10 | Mid-trial add-location/tier-change → $0 until trial_end | ◑ | Test-clock acceptance suite PASS (4/4: add-location + tier-change $0); not separately driven through staging webhooks. |
+| T11 | Reconcile heals stuck trialing; DB-active/Stripe-trialing drift surfaced | ◑ | Unit-verified (`reconcile-account-trial-correction.test.ts`). Live states were staged on staging; the hourly reconcile tick was not waited out. |
 | + | Onboarding (demo ON): "Set up business" → business wizard opens (no loop) | ✅ | Live-verified on a fresh trial, 3× stable. |
 
 **Bugs found + fixed during this run** (all on PR #362, CI green): (1) trial Checkout
@@ -212,12 +212,18 @@ completes `payment_status='paid'`/`amount_total=0`, not `no_payment_required` �
 was misfiled `active` (fix: gate on `amount_total===0`). (2) `businesses.subscription_activated_at`
 not mirrored on trial start → drips dead for trials. (3) onboarding demo-mode loop → trial
 couldn't reach the wizard (fix: `shouldUseDemoWizard` gates on location presence).
+(4) staging Stripe webhook was missing `invoice.payment_action_required` — added.
 
-**Not all green yet.** Before the prod flip, finish: **T8** (card-fail/SCA via test-clock),
-the **staging webhook→DB projection** for T7/T9/T10/T11 (drive a real test-clock against
-staging with the webhook live), **T6** live, and observe **T3**'s drip after the day-1 window.
-The core trial loop (T1/T4/T5 + onboarding wizard) and the billing math (T7/T9/T10 via the
-acceptance suite) ARE green.
+**Run 2 (2026-06-22) closed the day-30 projection gap:** the **staging webhook→DB projection**
+is proven live for **convert (T7)** and **cancel (T9)** — real Stripe test-clock transition →
+staging worker → correct DB status + analytics event. All test data + Stripe test clocks were
+cleaned up (staging = the connected account + admin only).
+
+**Remaining before the prod flip:** a clean **T8** fail-AT-conversion path; the live reconcile
+tick for **T11** (logic is unit-proven; cadence ~hourly); **T3**'s drip after the day-1 window;
+and **T10**'s staging-webhook projection (billing math already proven by the acceptance suite).
+The core trial loop (T1/T4/T5/T6 + onboarding), **migration 069 + the 6 webhook events**, and the
+**day-30 convert/cancel projection (T7/T9)** are all green live.
 
 ---
 
