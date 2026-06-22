@@ -255,9 +255,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // The session includes the correct base + overage line items.
   let checkoutUrl: string;
   try {
-    // Resolve the account_id for this owner
-    const [accountRow] = await sql<{ account_id: string }[]>`
-      SELECT account_id FROM businesses WHERE id = ${businessId}::uuid
+    // Resolve the account_id for this owner, plus onboarded_by (the self-serve
+    // discriminator: NULL = self-serve, non-null = admin/partner handoff).
+    const [accountRow] = await sql<{ account_id: string; onboarded_by: string | null }[]>`
+      SELECT account_id, onboarded_by FROM businesses WHERE id = ${businessId}::uuid
     `;
     if (!accountRow) {
       return NextResponse.json(
@@ -267,9 +268,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // Trial eligibility (PLAN.md §0.2): TRIAL_ENABLED on AND a self-serve
-    // pending_payment account (gated above). This is the default self-serve
-    // onboarding checkout path. Server-authoritative flag; no NEXT_PUBLIC_*.
-    const trialEligible = process.env.TRIAL_ENABLED === 'true';
+    // pending_payment account (status gated above). This is the default
+    // self-serve onboarding checkout path. Server-authoritative flag; no
+    // NEXT_PUBLIC_*.
+    //
+    // FIX 2: per-account self-serve gate. An admin/partner-onboarded business
+    // (onboarded_by non-null) must NOT receive a $0 trial via direct POST — it
+    // falls back to a normal paid checkout. Only self-serve businesses
+    // (onboarded_by IS NULL) are trial-eligible.
+    const trialEligible =
+      process.env.TRIAL_ENABLED === 'true' && accountRow.onboarded_by === null;
     const result = await createCheckoutSession(accountRow.account_id, tier, ownerEmail, {
       trial: trialEligible,
     });

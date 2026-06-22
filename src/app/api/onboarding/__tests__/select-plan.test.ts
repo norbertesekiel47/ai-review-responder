@@ -105,8 +105,9 @@ beforeEach(() => {
     if (/SELECT\s+b\.id,\s*b\.owner_email/i.test(text)) {
       return pgResult([{ id: 'biz-1', owner_email: 'owner@example.com' }]);
     }
-    if (/SELECT\s+account_id\s+FROM\s+businesses/i.test(text)) {
-      return pgResult([{ account_id: 'acct-1' }]);
+    if (/SELECT\s+account_id[\s\S]*FROM\s+businesses/i.test(text)) {
+      // Default: self-serve account (onboarded_by null).
+      return pgResult([{ account_id: 'acct-1', onboarded_by: null }]);
     }
     if (text.includes('pg_advisory_xact_lock')) {
       return pgResult([{}]);
@@ -366,6 +367,53 @@ describe('POST /api/onboarding/select-plan', () => {
       'owner@example.com',
       { trial: false },
     );
+  });
+
+  it('FIX 2: self-serve (onboarded_by null) account + TRIAL_ENABLED → trial:true', async () => {
+    const prev = process.env.TRIAL_ENABLED;
+    process.env.TRIAL_ENABLED = 'true';
+    try {
+      const res = await POST(mkReq({ tier: 'standard' }));
+      expect(res.status).toBe(200);
+      expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+        expect.any(String),
+        'standard',
+        'owner@example.com',
+        { trial: true },
+      );
+    } finally {
+      if (prev === undefined) delete process.env.TRIAL_ENABLED;
+      else process.env.TRIAL_ENABLED = prev;
+    }
+  });
+
+  it('FIX 2: admin-onboarded (onboarded_by non-null) account → trial:false even with TRIAL_ENABLED', async () => {
+    const prev = process.env.TRIAL_ENABLED;
+    process.env.TRIAL_ENABLED = 'true';
+    // Override the account_id resolution to return an admin-onboarded business.
+    const originalImpl = mockSql.getMockImplementation()!;
+    mockSql.mockImplementation((tpl: TemplateStringsArray, ...rest: unknown[]) => {
+      const text = tpl.join('?');
+      if (/SELECT\s+account_id[\s\S]*FROM\s+businesses/i.test(text)) {
+        const arr = [{ account_id: 'acct-1', onboarded_by: 'admin-user-id-1' }] as unknown[] & { count?: number };
+        Object.defineProperty(arr, 'count', { value: 1, enumerable: false });
+        return Promise.resolve(arr);
+      }
+      return originalImpl(tpl, ...rest);
+    });
+    try {
+      const res = await POST(mkReq({ tier: 'standard' }));
+      expect(res.status).toBe(200);
+      expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+        expect.any(String),
+        'standard',
+        'owner@example.com',
+        { trial: false },
+      );
+    } finally {
+      if (prev === undefined) delete process.env.TRIAL_ENABLED;
+      else process.env.TRIAL_ENABLED = prev;
+    }
   });
 
   it('writes Cache-Control: no-store, private on every response', async () => {

@@ -77,12 +77,14 @@ function ownerUser() {
   };
 }
 
-function accountRow(status: string) {
+function accountRow(status: string, onboardedBy: string | null = null) {
   return {
     id: ACCOUNT_ID,
     subscription_tier: 'standard',
     subscription_status: status,
     owner_email: 'owner@test.com',
+    // Self-serve discriminator (FIX 2): NULL = self-serve, non-null = admin handoff.
+    onboarded_by: onboardedBy,
   };
 }
 
@@ -121,6 +123,57 @@ describe('POST /api/billing/checkout', () => {
     const prevSelfServe = process.env.SELF_SERVE_SIGNUP_ENABLED;
     process.env.TRIAL_ENABLED = 'true';
     process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+    try {
+      const res = await POST(mkRequest({ accountId: ACCOUNT_ID }));
+      expect(res.status).toBe(200);
+      expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+        ACCOUNT_ID,
+        'standard',
+        'owner@test.com',
+        { trial: true },
+      );
+    } finally {
+      if (prevTrial === undefined) delete process.env.TRIAL_ENABLED;
+      else process.env.TRIAL_ENABLED = prevTrial;
+      if (prevSelfServe === undefined) delete process.env.SELF_SERVE_SIGNUP_ENABLED;
+      else process.env.SELF_SERVE_SIGNUP_ENABLED = prevSelfServe;
+    }
+  });
+
+  it('FIX 2: admin-onboarded (onboarded_by non-null) pending_payment account gets a NORMAL paid checkout, not a trial', async () => {
+    const prevTrial = process.env.TRIAL_ENABLED;
+    const prevSelfServe = process.env.SELF_SERVE_SIGNUP_ENABLED;
+    process.env.TRIAL_ENABLED = 'true';
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+    // Admin/partner-onboarded account: onboarded_by is a user id, not null.
+    mockSql.mockResolvedValueOnce([
+      accountRow(SubscriptionStatus.PENDING_PAYMENT, 'admin-user-id-1'),
+    ]);
+    try {
+      const res = await POST(mkRequest({ accountId: ACCOUNT_ID }));
+      expect(res.status).toBe(200);
+      expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+        ACCOUNT_ID,
+        'standard',
+        'owner@test.com',
+        { trial: false },
+      );
+    } finally {
+      if (prevTrial === undefined) delete process.env.TRIAL_ENABLED;
+      else process.env.TRIAL_ENABLED = prevTrial;
+      if (prevSelfServe === undefined) delete process.env.SELF_SERVE_SIGNUP_ENABLED;
+      else process.env.SELF_SERVE_SIGNUP_ENABLED = prevSelfServe;
+    }
+  });
+
+  it('FIX 2: self-serve (onboarded_by null) pending_payment account WITH flags on gets a trial', async () => {
+    const prevTrial = process.env.TRIAL_ENABLED;
+    const prevSelfServe = process.env.SELF_SERVE_SIGNUP_ENABLED;
+    process.env.TRIAL_ENABLED = 'true';
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+    mockSql.mockResolvedValueOnce([
+      accountRow(SubscriptionStatus.PENDING_PAYMENT, null),
+    ]);
     try {
       const res = await POST(mkRequest({ accountId: ACCOUNT_ID }));
       expect(res.status).toBe(200);

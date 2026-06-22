@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 376;
+export const ALLOWLIST_BASELINE = 377;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -195,9 +195,16 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/billing/checkout/route.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, u.email AS owner_email FROM accounts a JOIN users u ON u.id = a.owner_user_id WHERE a.id = ${accountId}::uuid",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, u.email AS owner_email, (SELECT b.onboarded_by FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS onboarded_by FROM accounts a JOIN users u ON u.id = a.owner_user_id WHERE a.id = ${accountId}::uuid",
     category: 'tenant-root-lookup',
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
+  },
+  {
+    file: "src/app/api/billing/checkout/route.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, u.email AS owner_email, (SELECT b.onboarded_by FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS onboarded_by FROM accounts a JOIN users u ON u.id = a.owner_user_id WHERE a.id = ${accountId}::uuid",
+    category: 'tenant-root-lookup',
+    reason: "onboarded_by subquery is tenant-scoped: b.account_id = a.id where a.id = ${accountId} (the owner-verified tenant root).",
   },
   {
     file: "src/app/api/billing/portal/route.ts",
@@ -230,7 +237,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/onboarding/select-plan/route.ts",
     table: "businesses",
-    sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}::uuid",
+    sqlSnippet: "SELECT account_id, onboarded_by FROM businesses WHERE id = ${businessId}::uuid",
     category: 'tenant-root-lookup',
     reason: "Authenticated flow uses business/location id as the lookup key after owner scope has been established.",
   },

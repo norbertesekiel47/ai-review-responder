@@ -75,14 +75,20 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Look up the account
+  // Look up the account. onboarded_by from the primary business is the self-serve
+  // discriminator (FIX 2): NULL = self-serve, non-null = admin/partner handoff —
+  // same discriminator dashboard/route.ts uses to suppress the self-serve CTA.
   const [account] = await sql<{
     id: string;
     subscription_tier: string;
     subscription_status: string;
     owner_email: string;
+    onboarded_by: string | null;
   }[]>`
-    SELECT a.id, a.subscription_tier, a.subscription_status, u.email AS owner_email
+    SELECT a.id, a.subscription_tier, a.subscription_status, u.email AS owner_email,
+      (SELECT b.onboarded_by FROM businesses b
+        WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL
+        LIMIT 1) AS onboarded_by
     FROM accounts a
     JOIN users u ON u.id = a.owner_user_id
     WHERE a.id = ${accountId}::uuid
@@ -136,10 +142,16 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
   // SELF_SERVE_SIGNUP_ENABLED so an admin-onboarded pending_payment account
   // (not part of the self-serve trial funnel) gets a normal paid checkout, not
   // a free trial. Both flags are server-authoritative; no NEXT_PUBLIC_* companion.
+  //
+  // FIX 2: per-account self-serve gate. Even with both flags on, an
+  // admin/partner-onboarded account (onboarded_by non-null) must fall back to a
+  // NORMAL paid checkout — never a $0 trial it could obtain by direct POST. Only
+  // self-serve accounts (onboarded_by IS NULL) are trial-eligible.
   const trialEligible =
     process.env.TRIAL_ENABLED === 'true' &&
     process.env.SELF_SERVE_SIGNUP_ENABLED === 'true' &&
-    account.subscription_status === SubscriptionStatus.PENDING_PAYMENT;
+    account.subscription_status === SubscriptionStatus.PENDING_PAYMENT &&
+    account.onboarded_by === null;
 
   // Create the Checkout Session via the shared module
   // VAL-BILLING-066: Returns 502 with user-facing error when Stripe API fails
