@@ -22,6 +22,15 @@ hash comparison). These are separate concerns — never mix them.
 > So if you change what counts as "new" vs "update/import" here, you are also changing
 > what can auto-post to Google. See the auto-approval design spec §5 (origin lanes).
 
+> **Trial note (since migration 069 / PR #362):** the new `'trialing'` subscription
+> status is treated like `'active'` for ingestion — `trialing` accounts ARE included in
+> the backfill-resume enqueue (`worker/ingress/stripe/shared.ts`) and the per-cadence
+> review pollers. The **service-start anchor** that splits a backfill into *gap* (answer
+> these) vs *historical* — `accounts.subscription_activated_at`, mirrored to
+> `businesses.subscription_activated_at` — is set at **trial start** for trials (not at
+> first payment), so a trial's backfill buckets reviews from the day the trial began.
+> Don't re-gate ingestion on "paying" status; gate on `subscriptionGrantsFullAccess`.
+
 ## Stable Identity Construction (SerpAPI mode)
 
 Identity must NOT include mutable text (review body, star rating can be

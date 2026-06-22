@@ -2,7 +2,39 @@
 
 This file explains what is actually built in the repository today, how it maps to the implementation plan, and what is left to build.
 
-Last updated: 2026-06-20 (Beta-launch alerting gate + worker hardening — PR #354 (merged to staging): added an alarm system so we find out when the background pipeline silently breaks, plus a few small safety timeouts. See the simple-words summary directly below. Earlier: Channels go live + auto-approved post FYI 2026-06-14→15 #319/#320/#322; Multi-location launch hardening 2026-06-11 #262–#273; Rate-limiting & abuse hardening 2026-06-09 #254–#257; Launch readiness sweep 2026-05-29 #152–#186; Wave 3 #93–#96; Wave 2 #87.)
+Last updated: 2026-06-22 (1-Month Free Trial — PR #362, on staging, flag OFF: card-up-front 30-day trial. See the simple-words summary directly below. Earlier: Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15 #319/#320/#322; Multi-location launch hardening 2026-06-11 #262–#273; Rate-limiting & abuse hardening 2026-06-09 #254–#257; Launch readiness sweep 2026-05-29 #152–#186; Wave 3 #93–#96; Wave 2 #87.)
+
+## Quick summary — 1-Month Free Trial (2026-06-21 → 2026-06-22, PR #362, on staging — flag OFF)
+
+In simple words: a new business can now **try RepWorth free for 30 days**. They sign up, enter a card, are charged **$0 today**, and get the full product for a month; Stripe automatically charges them when the trial ends. It's **off by default** (a switch, `TRIAL_ENABLED`) and turns on staging→prod when ready.
+
+Behind the scenes we added a new account state called **`trialing`** that the whole app treats like a paying customer — they can generate AI replies, get notified, approve, and post to their real Google profile — with **one exception**: keyword-ranking tracking (which costs us money on every check) stays off until they actually pay. Stripe is the single source of truth: one piece of code (the "applier") turns every Stripe change — trial started, converted to paid, payment failed, cancelled — into the account's status, and a background reconciler fixes any account that drifts (so no customer is ever stuck because one webhook went missing).
+
+How it was built: **grilled + stress-tested by a second AI model (Codex) over 6 rounds before any code**, then a 5-agent heavy review, then — crucially — a **live end-to-end test on staging** with real Stripe. That E2E caught **three real bugs that every code-review layer missed** (all now fixed): Stripe reports a $0 trial checkout as "paid" not "no payment required" (so trials were being recorded as already-paid); the onboarding setup screen looped forever; and trial accounts silently got no nurture emails. Nothing was ever posted to a real Google profile during testing.
+
+### The new shape — what got added
+
+```text
+worker/ingress/stripe/apply-subscription-state.ts        ← NEW: the ONE brain that turns a Stripe subscription change into the account's status (trial → paid → past-due → cancelled). Single applier; everything routes through it.
+worker/ingress/stripe/invoice-payment-action-required.ts ← NEW: handles "card needs extra verification at the first real charge" (SCA) → past-due + grace.
+supabase/migrations/069_trial_subscription.sql           ← NEW migration: a column comment + lets us record the 4 trial events. NO new columns, no data backfill.
+src/lib/analytics/trial-events.ts                        ← NEW: the 4 trial facts (started / converted / payment-failed / cancelled), recorded in the same DB transaction as the status change.
+docs/runbooks/trial-staging-e2e-and-rollout.md           ← NEW: the step-by-step staging test + production go-live + rollback guide (with a dated sign-off of what's verified).
+
+# Key shared helpers (no new files — added to existing ones):
+subscriptionGrantsFullAccess(status)   ← src/lib/shared/subscription-status.ts — the ONE rule for "does this account get the product?" (yes for active + trialing). Replaced ~18 scattered "=== active" checks.
+shouldUseDemoWizard(envEnabled, row)   ← src/app/onboarding/business/guard.ts — fixed the onboarding loop (a trial with no location yet gets the wizard that captures it, not the demo).
+
+# Reversible switches (server-only):
+TRIAL_ENABLED       ← default OFF — the master switch (in .env.example + env-vars.md)
+TRIAL_PERIOD_DAYS   ← default 30  — trial length
+```
+
+### One thing to remember
+
+It is **dark by default** (`TRIAL_ENABLED` off). Before the flag flips in prod: apply migration 069 to the prod database, add the same 6 Stripe webhook events (incl. `invoice.payment_action_required`) to the prod endpoint, and finish the last staging checks listed in the runbook's sign-off (the day-30 convert/fail/cancel were proven by a Stripe "test clock" suite; a few staging-projection + admin-handoff checks remain). The trial deliberately does NOT change how owners approve replies — every reply still needs approval (or the owner's own auto-approval policy), exactly as before.
+
+---
 
 ## Quick summary — Beta-launch alerting gate + worker hardening (2026-06-19 → 2026-06-20, PR #354, merged to staging)
 
