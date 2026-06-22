@@ -57,12 +57,12 @@ const ACCOUNT_ID = '019dc366-29ce-7000-a000-000000000001';
 const CUSTOMER_ID = 'cus_test_123';
 const SUB_ID = 'sub_test_456';
 
-function updatedSub(status: string): any {
+function updatedSub(status: string, basePriceId = 'price_standard_test'): any {
   return {
     id: SUB_ID,
     customer: CUSTOMER_ID,
     status,
-    items: { data: [{ price: { id: 'price_standard_test' }, quantity: 1 }] },
+    items: { data: [{ price: { id: basePriceId }, quantity: 1 }] },
   };
 }
 
@@ -108,6 +108,32 @@ describe('subscription.updated — trial conversion', () => {
   it('active account + active sub → NO conversion (already active)', async () => {
     queueAccount('active');
     await processSubscriptionUpdated(updatedSub('active'));
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+  });
+
+  it('FIX 3: trialing account + active sub whose base price is UNMAPPED still converts', async () => {
+    // A rotated/grandfathered base price is not in tierForBasePriceId. The trial
+    // conversion must NOT be blocked by the tier-resolution early-returns —
+    // the applier is still called so the account converts to active via webhook
+    // (not just via the hourly reconcile poller).
+    queueAccount('trialing');
+    await processSubscriptionUpdated(updatedSub('active', 'price_unmapped_rotated'));
+
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
+    const [, ref, sub] = mockApplyStripeSubscriptionState.mock.calls[0]!;
+    expect(ref).toEqual({
+      mode: 'subscription',
+      stripeCustomerId: CUSTOMER_ID,
+      stripeSubscriptionId: SUB_ID,
+    });
+    expect(sub).toMatchObject({ status: 'active' });
+  });
+
+  it('FIX 3: non-trialing account + unmapped base price → still a clean no-op (no conversion, no tier sync)', async () => {
+    // Regression guard: moving the conversion earlier must not make an unmapped
+    // base price convert a non-trialing account or crash the tier sync.
+    queueAccount('active');
+    await processSubscriptionUpdated(updatedSub('active', 'price_unmapped_rotated'));
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
   });
 });
