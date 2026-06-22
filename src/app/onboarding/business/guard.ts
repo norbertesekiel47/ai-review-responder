@@ -25,14 +25,37 @@ export type WizardGuardOutcome =
 
 export interface WizardGuardOptions {
   /**
-   * When true, the post-pay flow is active: location was captured at
-   * /onboarding/start BEFORE Stripe, so place_id_verified/google_maps_url
-   * are EXPECTED to be set by the time the user reaches this page. We must
-   * NOT treat that as "already onboarded" — the wizard still has to collect
-   * profile + voice. Instead, we enforce the inverse precondition: redirect
-   * to /onboarding/start if location somehow isn't set yet.
+   * True only when the location was ALREADY captured at /onboarding/start (the
+   * pre-pay demo flow), so the wizard runs its Profile/Voice/Connect steps. The
+   * caller MUST gate this on the location actually being present — see
+   * `shouldUseDemoWizard`. A card-up-front trial skips the pre-pay demo and
+   * arrives subscribed with NO location; the caller passes demoFlowEnabled=false
+   * for it so it gets the non-demo wizard (Location/Profile/Voice), which
+   * captures the location itself. (Passing demoFlowEnabled=true without a
+   * location previously bounced trials to /onboarding/start, which redirects
+   * subscribed accounts back to /dashboard → infinite loop.)
    */
   demoFlowEnabled?: boolean;
+}
+
+/**
+ * Whether the /onboarding/business wizard should run in demo mode
+ * (Profile/Voice/Connect — location pre-captured at /onboarding/start) vs the
+ * non-demo mode (Location/Profile/Voice — captures the location itself).
+ *
+ * Demo mode is ONLY valid when the location is already present. A card-up-front
+ * trial subscribes WITHOUT going through the pre-pay demo, so it has no location
+ * yet and must use the non-demo wizard — otherwise it ping-pongs
+ * /onboarding/business → /onboarding/start → /dashboard. Gating on `hasLocation`
+ * is what prevents that loop.
+ */
+export function shouldUseDemoWizard(
+  envEnabled: boolean,
+  row: Pick<WizardGuardRow, 'place_id_verified' | 'google_maps_url'> | null | undefined,
+): boolean {
+  if (!envEnabled || !row) return false;
+  const hasLocation = row.place_id_verified || row.google_maps_url !== null;
+  return hasLocation;
 }
 
 export function resolveWizardDestination(

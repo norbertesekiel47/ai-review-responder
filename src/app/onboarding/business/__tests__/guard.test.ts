@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveWizardDestination } from '../guard';
+import { resolveWizardDestination, shouldUseDemoWizard } from '../guard';
 
 // These tests cover Scenario K step 5 + Scenario L from
 // docs/signup-test-runbook.md — the four redirect cases the
@@ -132,5 +132,38 @@ describe('resolveWizardDestination — Scenario L wizard guards', () => {
         google_maps_url: null,
       }),
     ).toEqual({ kind: 'redirect', path: '/onboarding/pay' });
+  });
+});
+
+describe('shouldUseDemoWizard — demo mode requires a pre-captured location', () => {
+  const loc = (over: Partial<{ place_id_verified: boolean; google_maps_url: string | null }> = {}) => ({
+    place_id_verified: false,
+    google_maps_url: null,
+    ...over,
+  });
+
+  it('demo env ON + location verified → demo wizard (Profile/Voice/Connect)', () => {
+    expect(shouldUseDemoWizard(true, loc({ place_id_verified: true }))).toBe(true);
+  });
+
+  it('demo env ON + google_maps_url set → demo wizard', () => {
+    expect(shouldUseDemoWizard(true, loc({ google_maps_url: 'https://maps.google.com/?cid=1' }))).toBe(true);
+  });
+
+  // The card-up-front trial: subscribed but NO location captured (it skipped the
+  // pre-pay demo). Must be FALSE so the non-demo wizard captures the location —
+  // returning true here is exactly the bug that ping-ponged trials
+  // /onboarding/business → /onboarding/start → /dashboard.
+  it('demo env ON + NO location → non-demo wizard (the trial loop fix)', () => {
+    expect(shouldUseDemoWizard(true, loc())).toBe(false);
+  });
+
+  it('demo env OFF → never demo wizard', () => {
+    expect(shouldUseDemoWizard(false, loc({ place_id_verified: true }))).toBe(false);
+  });
+
+  it('null/undefined row → false', () => {
+    expect(shouldUseDemoWizard(true, null)).toBe(false);
+    expect(shouldUseDemoWizard(true, undefined)).toBe(false);
   });
 });

@@ -4,7 +4,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { sql } from '@/lib/db/server';
 import { BusinessWizardClient } from './BusinessWizardClient';
-import { resolveWizardDestination, type WizardGuardRow } from './guard';
+import { resolveWizardDestination, shouldUseDemoWizard, type WizardGuardRow } from './guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,7 +50,14 @@ export default async function OnboardingBusinessPage() {
     LIMIT 1
   `;
 
-  const demoFlowEnabled = process.env.ONBOARDING_DEMO_ENABLED === 'true';
+  // demoFlowEnabled is true ONLY when the demo is enabled AND the location was
+  // already captured (pre-pay demo flow). A card-up-front trial arrives subscribed
+  // with no location → demoFlowEnabled=false → non-demo wizard (which captures the
+  // location), instead of being bounced to /onboarding/start (→ infinite loop).
+  const demoFlowEnabled = shouldUseDemoWizard(
+    process.env.ONBOARDING_DEMO_ENABLED === 'true',
+    row,
+  );
   const decision = resolveWizardDestination(row, { demoFlowEnabled });
   if (decision.kind === 'redirect') redirect(decision.path);
 
