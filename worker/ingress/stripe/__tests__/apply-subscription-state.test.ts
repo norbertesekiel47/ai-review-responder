@@ -122,6 +122,13 @@ describe('transition: → trialing', () => {
       (c) => /\bUPDATE\s+businesses\b/.test(c.text) && c.text.includes("'trialing'"),
     );
     expect(updateBiz).toBeDefined();
+    // FIX 1: the businesses mirror must ALSO set subscription_activated_at on
+    // trial-start (scoped to the primary, non-archived business) — the onboarding
+    // drip scheduler gates on businesses.subscription_activated_at IS NOT NULL, so
+    // without this trial accounts never receive drips.
+    expect(updateBiz!.text).toMatch(/subscription_activated_at\s*=\s*COALESCE/i);
+    expect(updateBiz!.text).toMatch(/is_primary\s*=\s*TRUE/i);
+    expect(updateBiz!.text).toMatch(/archived_at\s+IS\s+NULL/i);
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -190,6 +197,17 @@ describe('transition: → active (convert)', () => {
       expect.objectContaining({ accountId: ACCOUNT_ID, stripeSubscriptionId: SUB_ID }),
     );
     expect(mockEnqueueStripeOverageRecompute).toHaveBeenCalledWith(mockSql, ACCOUNT_ID);
+
+    // FIX 1: the businesses mirror on convert→active also COALESCE-anchors
+    // subscription_activated_at (first-writer-wins; trial-start already set it),
+    // scoped to the primary, non-archived business.
+    const updateBiz = sqlCalls.find(
+      (c) => /\bUPDATE\s+businesses\b/.test(c.text) && c.text.includes("'active'"),
+    );
+    expect(updateBiz).toBeDefined();
+    expect(updateBiz!.text).toMatch(/subscription_activated_at\s*=\s*COALESCE/i);
+    expect(updateBiz!.text).toMatch(/is_primary\s*=\s*TRUE/i);
+    expect(updateBiz!.text).toMatch(/archived_at\s+IS\s+NULL/i);
   });
 
   it('pending_payment → active (pay-now, no trial) activates, no trial_converted event', async () => {
@@ -235,6 +253,16 @@ describe('transition: → past_due', () => {
     queueAccountRow('trialing');
     const r = await applyStripeSubscriptionState(mockSql, subRef, { id: SUB_ID, customer: CUSTOMER_ID, status: 'unpaid', trial_end: null });
     expect(r).toMatchObject({ toStatus: 'past_due', changed: true });
+  });
+
+  it('FIX 1: past_due businesses mirror does NOT set subscription_activated_at (anchor only on entitled states)', async () => {
+    queueAccountRow('trialing');
+    await applyStripeSubscriptionState(mockSql, subRef, { id: SUB_ID, customer: CUSTOMER_ID, status: 'past_due', trial_end: null });
+    const updateBiz = sqlCalls.find(
+      (c) => /\bUPDATE\s+businesses\b/.test(c.text) && c.text.includes("'past_due'"),
+    );
+    expect(updateBiz).toBeDefined();
+    expect(updateBiz!.text).not.toMatch(/subscription_activated_at/i);
   });
 
   it('cancelled → past_due is a no-op (terminal)', async () => {

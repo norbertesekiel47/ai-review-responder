@@ -302,12 +302,37 @@ async function writeBusinessesMirror(
 ): Promise<void> {
   // Deprecated businesses.subscription_status mirror (retained per VAL-SCHEMA-037).
   // Mirror the SAME status the accounts row now carries (including 'trialing').
+  //
+  // On entering an entitled state (trialing OR active), ALSO mirror the
+  // service-start anchor onto businesses.subscription_activated_at — first-writer
+  // wins via COALESCE, matching the accounts column. The OnboardingDripScheduler
+  // gates on businesses.subscription_activated_at IS NOT NULL (and the drip
+  // worker hard-fails day_7/day_30 when it is null), so without this mirror trial
+  // accounts would never receive onboarding drips. Scoped to the primary,
+  // non-archived business — same target row as checkout-completed's paid path.
+  // The anchor is NOT touched on past_due/cancelled (those are exits, not starts).
   switch (target) {
     case SubscriptionStatus.TRIALING:
-      await tx`UPDATE businesses SET subscription_status = 'trialing', updated_at = NOW() WHERE account_id = ${accountId}::uuid`;
+      await tx`
+        UPDATE businesses
+        SET subscription_status = 'trialing',
+            subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
+            updated_at = NOW()
+        WHERE account_id = ${accountId}::uuid
+          AND is_primary = TRUE
+          AND archived_at IS NULL
+      `;
       return;
     case SubscriptionStatus.ACTIVE:
-      await tx`UPDATE businesses SET subscription_status = 'active', updated_at = NOW() WHERE account_id = ${accountId}::uuid`;
+      await tx`
+        UPDATE businesses
+        SET subscription_status = 'active',
+            subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
+            updated_at = NOW()
+        WHERE account_id = ${accountId}::uuid
+          AND is_primary = TRUE
+          AND archived_at IS NULL
+      `;
       return;
     case SubscriptionStatus.PAST_DUE:
       await tx`UPDATE businesses SET subscription_status = 'past_due', updated_at = NOW() WHERE account_id = ${accountId}::uuid`;
