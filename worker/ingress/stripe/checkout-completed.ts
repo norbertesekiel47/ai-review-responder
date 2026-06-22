@@ -69,16 +69,19 @@ export async function processCheckoutSessionCompleted(session: Stripe.Checkout.S
   }
 
   // ── Trial-start path ──────────────────────────────────────────────────────
-  // A card-up-front trial completes Checkout with payment_status
-  // 'no_payment_required' ($0 now) and a status='trialing' subscription. Only
-  // that payment_status can be a trial-start — a 'paid' session is never a trial,
-  // so we skip the extra Stripe retrieve on the hot paid path. Retrieve the
-  // subscription (pinned client + bounded timeout via getStripe()) and, if it is
-  // a genuine trial (trialing + future trial_end + matching customer), project
-  // trial-start through the SINGLE applier in checkout mode, then return. Anything
-  // else falls through to the unchanged inline paid path (plan §4.11). Worker-side
-  // Stripe call is allowed (inv #1 — Railway worker).
-  if (subscriptionId && session.payment_status === 'no_payment_required') {
+  // A card-up-front trial completes Checkout charging $0 NOW (amount_total === 0)
+  // with a status='trialing' subscription. Stripe reports the session's
+  // payment_status as EITHER 'paid' OR 'no_payment_required': with
+  // payment_method_collection:'always' the $0 subscription_create invoice is
+  // auto-finalized 'paid', so we must NOT gate on payment_status — doing so misfiled
+  // every real trial as a paid 'active' account (caught by staging E2E, 2026-06-22).
+  // Gate on the $0 subscription-mode signal, then retrieve the subscription and
+  // project trial-start ONLY if it is genuinely 'trialing' (future trial_end,
+  // matching customer). A $0 non-trial session (e.g. a 100%-off coupon → status
+  // 'active') retrieves, finds status!='trialing', and falls through to the
+  // unchanged inline paid path (plan §4.11). A normal paid session (amount_total>0)
+  // skips the retrieve entirely. Worker-side Stripe call is allowed (inv #1).
+  if (subscriptionId && (session.amount_total === 0 || session.payment_status === 'no_payment_required')) {
     const trialStarted = await maybeStartTrial(accountId, businessId, customerId, subscriptionId);
     if (trialStarted) return;
   }
@@ -208,7 +211,8 @@ async function maybeStartTrial(
   customerId: string | null,
   subscriptionId: string,
 ): Promise<boolean> {
-  // Only called for payment_status='no_payment_required' sessions. A retrieve
+  // Only called for $0 subscription-mode sessions (trial candidates — amount_total
+  // === 0 or payment_status 'no_payment_required'). A retrieve
   // failure here means we cannot confirm the (probable) trial — throw so the
   // ingress wrapper replies 500 and Stripe redelivers (idempotent via the
   // applier's status-guarded write).

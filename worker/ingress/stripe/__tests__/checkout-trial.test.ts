@@ -4,11 +4,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * checkout.session.completed — TRIAL start path.
  *
  * When a Checkout Session was created with subscription_data.trial_period_days,
- * Stripe completes it with payment_status='no_payment_required' and the
- * retrieved subscription is status='trialing' with a future trial_end. The
- * handler retrieves the subscription (pinned client + timeout), verifies it, and
- * routes the trial-start through applyStripeSubscriptionState in checkout mode.
- * The paid (non-trial) path is unchanged.
+ * it charges $0 now (amount_total === 0) and the retrieved subscription is
+ * status='trialing' with a future trial_end. Stripe reports payment_status as
+ * EITHER 'paid' (the real card-up-front case with payment_method_collection
+ * 'always' — the $0 subscription_create invoice auto-finalizes 'paid') OR
+ * 'no_payment_required'. The handler gates on the $0 signal (NOT payment_status —
+ * gating on 'no_payment_required' misfiled every real trial as 'active'; caught by
+ * staging E2E 2026-06-22), retrieves + verifies the subscription, and routes the
+ * trial-start through applyStripeSubscriptionState in checkout mode. The normal
+ * paid (amount_total>0) path is unchanged and takes no extra retrieve.
  */
 
 const {
@@ -63,11 +67,15 @@ const CUSTOMER_ID = 'cus_test_123';
 const SUB_ID = 'sub_test_456';
 const FUTURE_TRIAL_END = Math.floor(Date.now() / 1000) + 30 * 86400;
 
+// Default mirrors the REAL card-up-front trial session: $0 charged now, but
+// payment_status='paid' (payment_method_collection:'always' finalizes the $0
+// subscription_create invoice as paid). This is the shape that broke production.
 function trialSession(overrides: Record<string, unknown> = {}): any {
   return {
     id: 'cs_trial',
     mode: 'subscription',
-    payment_status: 'no_payment_required',
+    payment_status: 'paid',
+    amount_total: 0,
     client_reference_id: ACCOUNT_ID,
     customer: CUSTOMER_ID,
     subscription: SUB_ID,
@@ -90,7 +98,9 @@ beforeEach(() => {
 });
 
 describe('checkout.session.completed — trial start', () => {
-  it('no_payment_required + trialing sub → applier called in checkout mode', async () => {
+  it('paid + amount_total=0 + trialing sub → applier called (REAL card-up-front case)', async () => {
+    // The exact shape that misfiled every prod trial as 'active': payment_status
+    // 'paid', amount_total 0. Must still route to the trial applier.
     mockRetrieve.mockResolvedValue({
       id: SUB_ID,
       customer: CUSTOMER_ID,
@@ -107,6 +117,36 @@ describe('checkout.session.completed — trial start', () => {
     expect(sub).toMatchObject({ status: 'trialing', trial_end: FUTURE_TRIAL_END });
   });
 
+  it('no_payment_required + amount_total=0 + trialing sub → applier called (Stripe variant)', async () => {
+    mockRetrieve.mockResolvedValue({
+      id: SUB_ID,
+      customer: CUSTOMER_ID,
+      status: 'trialing',
+      trial_end: FUTURE_TRIAL_END,
+    });
+
+    await processCheckoutSessionCompleted(
+      trialSession({ payment_status: 'no_payment_required' }),
+    );
+
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
+    expect(mockApplyStripeSubscriptionState.mock.calls[0]![1]).toEqual({
+      mode: 'checkout',
+      accountId: ACCOUNT_ID,
+    });
+  });
+
+  it('normal paid sub (amount_total>0) → NO retrieve, NO trial applier (hot path unchanged)', async () => {
+    // A real paying signup must NOT incur the trial Stripe retrieve, and must NOT
+    // route through the trial applier — it takes the inline paid-activation path.
+    await processCheckoutSessionCompleted(
+      trialSession({ payment_status: 'paid', amount_total: 7900 }),
+    );
+
+    expect(mockRetrieve).not.toHaveBeenCalled();
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+  });
+
   it('runs post-commit backfill resume when applier activated the account', async () => {
     mockRetrieve.mockResolvedValue({
       id: SUB_ID,
@@ -121,7 +161,7 @@ describe('checkout.session.completed — trial start', () => {
   });
 
   it('skips applier when retrieved sub is not trialing (falls through to inline paid path)', async () => {
-    // no_payment_required but the sub came back active (e.g. 100%-off coupon) —
+    // $0 session ($0 now) but the sub came back active (e.g. 100%-off coupon) —
     // NOT a trial. The trial applier must NOT fire; the existing inline paid
     // activation (status-guarded UPDATE accounts ... 'active') owns this case,
     // and it is the same inline path the paid branch uses (plan §4.11: paid
