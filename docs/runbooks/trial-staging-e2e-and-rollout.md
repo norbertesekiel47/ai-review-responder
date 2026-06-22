@@ -188,22 +188,36 @@ SELECT subscription_status FROM accounts WHERE id='<account_id>';  -- expect: co
 
 ## Sign-off checklist (staging)
 
-| # | Check | Pass |
-|---|---|---|
-| 0 | Migration 069 applied to staging; 6 Stripe events subscribed | ☐ |
-| T1 | Start trial → `trialing`, $0, card captured, both Stripe IDs persisted, `trial_started` | ☐ |
-| T2 | Full access: 3★ → draft → approve → posted to Google | ☐ |
-| T3 | `businesses.subscription_activated_at` set + onboarding drip scheduled | ☐ |
-| T4 | No ranking job enqueued for the trial | ☐ |
-| T5 | New checkout for trialing → 409 `account_already_active` | ☐ |
-| T6 | Admin-handoff (`onboarded_by` non-null) → paid checkout, NO trial | ☐ |
-| T7 | Convert → `active`, `trial_ends_at` cleared, charged, `trial_converted` | ☐ |
-| T8 | Card-fail/SCA → `past_due` + grace, `trial_payment_failed` | ☐ |
-| T9 | Cancel-in-trial → access to trial_end, $0, `cancelled`, `trial_cancelled` | ☐ |
-| T10 | Mid-trial add-location/tier-change → $0 until trial_end | ☐ |
-| T11 | Reconcile heals stuck trialing; DB-active/Stripe-trialing drift surfaced | ☐ |
+**Test run — 2026-06-22 (PR #362).** Legend: ✅ verified live on staging · ◑ partially
+verified (acceptance suite / unit / a different method, or a time-gated remainder) · ☐ not run.
 
-All green on staging ⇒ proceed to the production flip below.
+| # | Check | Status | Notes |
+|---|---|---|---|
+| 0 | Migration 069 applied to staging; 6 Stripe events subscribed | ◑ | 069 applied + verified. Full 6-event subscription not audited; `checkout.session.completed` confirmed working (T1). |
+| T1 | Start trial → `trialing`, $0, card captured, both Stripe IDs persisted, `trial_started` | ✅ | Verified twice (real Stripe test Checkout). |
+| T2 | Full access: 3★ → draft → approve → posted to Google | ◑ | AI **draft generated** + owner notification verified (synthetic review). Approve→**post to Google deliberately NOT run** — the connected account is a real business; no posting. |
+| T3 | `businesses.subscription_activated_at` set + onboarding drip scheduled | ◑ | Anchor **set** ✅. Drip enqueue is time-gated (day-1 ≈ 24h after activation) — not yet observed. |
+| T4 | No ranking job enqueued for the trial | ✅ | `track_ranking` count = 0. |
+| T5 | New checkout for trialing → 409 `account_already_active` | ✅ | Exercised the `trialing` guard branch. |
+| T6 | Admin-handoff (`onboarded_by` non-null) → paid checkout, NO trial | ☐ | Static/unit-verified only (route requires `onboarded_by IS NULL`); not live-run on staging. |
+| T7 | Convert → `active`, `trial_ends_at` cleared, charged, `trial_converted` | ◑ | Stripe **test-clock acceptance suite PASS**. Staging webhook→DB projection not driven. |
+| T8 | Card-fail/SCA → `past_due` + grace, `trial_payment_failed` | ☐ | Not run (not in the live test-clock suite; mocked-unit only). |
+| T9 | Cancel-in-trial → access to trial_end, $0, `cancelled`, `trial_cancelled` | ◑ | Test-clock acceptance suite PASS ($0 cancel). Staging projection not driven. |
+| T10 | Mid-trial add-location/tier-change → $0 until trial_end | ◑ | Test-clock acceptance suite PASS (4/4). Staging projection not driven. |
+| T11 | Reconcile heals stuck trialing; DB-active/Stripe-trialing drift surfaced | ☐ | Unit-verified (`reconcile-account-trial-correction.test.ts`); not live-run on staging. |
+| + | Onboarding (demo ON): "Set up business" → business wizard opens (no loop) | ✅ | Live-verified on a fresh trial, 3× stable. |
+
+**Bugs found + fixed during this run** (all on PR #362, CI green): (1) trial Checkout
+completes `payment_status='paid'`/`amount_total=0`, not `no_payment_required` → every trial
+was misfiled `active` (fix: gate on `amount_total===0`). (2) `businesses.subscription_activated_at`
+not mirrored on trial start → drips dead for trials. (3) onboarding demo-mode loop → trial
+couldn't reach the wizard (fix: `shouldUseDemoWizard` gates on location presence).
+
+**Not all green yet.** Before the prod flip, finish: **T8** (card-fail/SCA via test-clock),
+the **staging webhook→DB projection** for T7/T9/T10/T11 (drive a real test-clock against
+staging with the webhook live), **T6** live, and observe **T3**'s drip after the day-1 window.
+The core trial loop (T1/T4/T5 + onboarding wizard) and the billing math (T7/T9/T10 via the
+acceptance suite) ARE green.
 
 ---
 
