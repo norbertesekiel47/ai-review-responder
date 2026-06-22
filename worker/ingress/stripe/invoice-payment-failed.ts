@@ -2,19 +2,8 @@ import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
-import { LOG_PREFIX, extractCustomerId, extractSubscriptionId } from './shared';
+import { LOG_PREFIX, extractCustomerId, invoiceSubscriptionId } from './shared';
 import { applyStripeSubscriptionState } from './apply-subscription-state';
-
-/** Pull the subscription id off an invoice across Stripe API-version shapes. */
-function invoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
-  const raw = (invoice as unknown as {
-    subscription?: string | Stripe.Subscription | null;
-    parent?: { subscription_details?: { subscription?: string | Stripe.Subscription | null } };
-  });
-  return extractSubscriptionId(
-    raw.subscription ?? raw.parent?.subscription_details?.subscription ?? null,
-  );
-}
 
 export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
   const customerId = extractCustomerId(invoice.customer);
