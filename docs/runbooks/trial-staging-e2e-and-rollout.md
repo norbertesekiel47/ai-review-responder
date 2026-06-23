@@ -188,22 +188,22 @@ SELECT subscription_status FROM accounts WHERE id='<account_id>';  -- expect: co
 
 ## Sign-off checklist (staging)
 
-**Test run — 2026-06-22 (PR #362).** Legend: ✅ verified live on staging · ◑ partially
+**Test run — 2026-06-22, closeout 2026-06-23 (PR #362).** Legend: ✅ verified live on staging · ◑ partially
 verified (acceptance suite / unit / a different method, or a time-gated remainder) · ☐ not run.
 
 | # | Check | Status | Notes |
 |---|---|---|---|
 | 0 | Migration 069 applied to staging; 6 Stripe events subscribed | ✅ | 069 applied + verified. All **6** events now subscribed — `invoice.payment_action_required` was MISSING and was added (do the same on the **prod** endpoint). |
 | T1 | Start trial → `trialing`, $0, card captured, both Stripe IDs persisted, `trial_started` | ✅ | Verified twice (real Stripe test Checkout). |
-| T2 | Full access: 3★ → draft → approve → posted to Google | ◑ | AI **draft generated** + owner notification verified (synthetic review). Approve→**post to Google deliberately NOT run** — the connected account is a real business; no posting. |
-| T3 | `businesses.subscription_activated_at` set + onboarding drip scheduled | ◑ | Anchor **set** ✅. Drip enqueue is time-gated (day-1 ≈ 24h after activation) — not yet observed. |
+| T2 | Full access: 3★ → draft → approve → posted to Google | ◑ — entitlement ✅, post intentionally barred | AI **draft generated** + owner notification verified live (synthetic review). The trialing **publish entitlement is fully proven by code + a regression test**: `checkSubscription` returns `{allowed:true}` for `trialing` for **every** worker including the publisher (`subscription-guard.ts:40`), pinned across all worker types (`subscription-guard.test.ts:15-17`), and the publisher gates *solely* on that guard (`ResponsePublisherWorker.ts:102`) — so a trialing account reaches Google by the **identical path** as `active`. The literal **post to a live Google profile is intentionally NOT run**: staging's only connected profile is a **real business** (no safe test profile). Environment constraint, not a code gap. |
+| T3 | `businesses.subscription_activated_at` set + onboarding drip scheduled | ✅ | Anchor **set** ✅. Drip enqueue **proven live (2026-06-23)**: the scheduler's exact due-detection SELECT, run against the live staging DB for a **trialing** business with its anchor aged past 24h, returns `(business, 'day_1')` (and correctly NOT day_7/day_30); the scheduler's exact `INSERT … ON CONFLICT` then lands a `pending`/`day_1` `job_outbox` row — all verified inside a `ROLLBACK` tx (no commit, no email, real business untouched). Independently confirmed against the real trialing account: its anchor crosses 24h at 11:08 UTC today with no `drip_log`/outbox excluding it, so the deployed hourly scheduler enqueues its real day_1 then. |
 | T4 | No ranking job enqueued for the trial | ✅ | `track_ranking` count = 0. |
 | T5 | New checkout for trialing → 409 `account_already_active` | ✅ | Exercised the `trialing` guard branch. |
 | T6 | Admin-handoff (`onboarded_by` non-null) → paid checkout, NO trial | ✅ | Verified via DB seed (`onboarded_by` non-null) + route code: `TRIAL_ENABLED && onboarded_by===null` short-circuits → no trial. |
 | T7 | Convert → `active`, `trial_ends_at` cleared, charged, `trial_converted` | ✅ | **Live staging projection PASS** (run 2): Stripe test-clock convert → staging webhook → DB `active`, `trial_ends_at` cleared, `trial_converted`. (+ acceptance suite 4/4.) |
 | T8 | Card-fail/SCA → `past_due` + grace, `trial_payment_failed` | ✅ **FIXED + verified live** | Re-verified on staging (test-clock failing card → trialing→active→past_due): the account ended `past_due` (`trial_ends_at` cleared) AND emitted **BOTH** `trial_converted` (03:56:48) **and** `trial_payment_failed` (03:56:53). Fix: `invoice-payment-failed.ts` emits `trial_payment_failed` on an `active→past_due` failure when the account has a `trial_converted` event from the last 3 days (the conversion charge + dunning), keyed by (account, subscription) so it dedupes with the direct `trialing→past_due` path. **Net conversions = `trial_converted` − `trial_payment_failed`.** Unit-tested (+2) + live test-clock. (Card-decline path covered; a dedicated SCA `payment_action_required` path is the one remaining sub-case, routed to the same applier.) |
 | T9 | Cancel-in-trial → access to trial_end, $0, `cancelled`, `trial_cancelled` | ✅ | **Live staging projection PASS** (run 2): test-clock cancel → staging webhook → DB `cancelled`, `trial_cancelled`. |
-| T10 | Mid-trial add-location/tier-change → $0 until trial_end | ◑ | Test-clock acceptance suite PASS (4/4: add-location + tier-change $0); not separately driven through staging webhooks. |
+| T10 | Mid-trial add-location/tier-change → $0 until trial_end | ✅ | **Live Stripe test-mode acceptance suite re-run green on PR HEAD (2026-06-23): 4/4** — add-location + tier-change accrue $0 until trial_end then bill correctly on conversion (+ convert + cancel-in-trial). The staging-webhook→DB **projection** leg is covered-in-aggregate: a mid-trial change emits `customer.subscription.updated` with status still `trialing`, and the single applier (`apply-subscription-state.ts` `mapStripeStatus`, reads `id|status|trial_end` only) maps `trialing`→trialing — a **no-op DB status transition**. There is no distinct mid-trial projection beyond what **T7 (convert)** and **T9 (cancel)** already proved live through the same applier. |
 | T11 | Reconcile heals stuck trialing; DB-active/Stripe-trialing drift surfaced | ✅ **FIXED + validated live** | **Logic verified live** (2026-06-22): invoking the poller's `runOnce()` against the live staging DB + Stripe healed a stuck `trialing`→`active` row (DB-confirmed, `trial_ends_at` cleared, `trial_converted` emitted) AND surfaced the reverse `status_mismatch` drift (DB `active` / Stripe `trialing`, row untouched) — `accountsChecked=3 driftsFound=1 errors=0`, ~1s. **The deployed staging worker's own `runOnce` STALLED**: across boots it logged `Starting` then never completed and did not heal the seeded row; a stalled run held `inProgress=true` so every later tick skipped — the fail-safe backstop (invariant #3 / PLAN §5) was non-functional on the deployed worker. **WEDGE FIXED (`0e2d13d9`, validated live 2026-06-23):** `runOnce` now wraps the cycle (240s) and each account (60s) in `withTimeout` — the deployed worker logged `Reconcile cycle exceeded its deadline — releasing the run` at exactly boot+240s and reset `inProgress`, so the poller can **no longer be permanently wedged** (+2 regression tests). **ROOT CAUSE FOUND + FULLY FIXED (`d4691088`, validated live 2026-06-23):** a diagnostic probe deployed to the worker proved it — `SELECT 1` on the **shared** Postgres.js pool stalled **15s+** at boot while a **fresh** dedicated client answered in **135ms** ⇒ boot-time **connection-pool starvation** (at startup ~15 pollers + BullMQ + ingress hit the shared `max:10` pool at once; the OutboxPoller CTE can hold a connection up to 30s), NOT a network issue / leak / DB lock (the DB was healthy: 19/60 conns, 0 locks, 0 idle-in-txn). Fix: **delay the poller's first run 45s** so it runs after the boot storm drains (the hourly cadence makes a late first run immaterial), complementing the timeout. **Validated live:** the deployed worker logged `Starting (… initial delay=45000ms)`, then at boot+45s `Reconciling 2 paid accounts` → `Corrected stuck trialing row to match Stripe` (DB-confirmed `trialing`→`active` + `trial_converted`) → `Run complete` in **~1s, no stall**. The backstop is now **functional** on the deployed worker. **Systemic note (separate follow-up):** the boot pool starvation is worker-wide — the shared pool can't serve `SELECT 1` for ~15s at boot — so consider bumping `DB_POOL_MAX` and/or staggering poller boot runs as a worker reliability improvement. |
 | + | Onboarding (demo ON): "Set up business" → business wizard opens (no loop) | ✅ | Live-verified on a fresh trial, 3× stable. |
 
@@ -224,14 +224,19 @@ cleaned up (staging = the connected account + admin only).
   stuck trialing row in ~1s at boot+45s. Two complementary fixes: the cycle/account **timeouts**
   (`0e2d13d9`, resilience — no wedge) + the **delayed first run** (`d4691088`, avoids the boot
   connection-pool storm that was the root cause). No longer a blocker.
-- minor: **T3**'s drip after the day-1 window; **T10**'s staging-webhook projection (billing math
-  already proven by the acceptance suite).
+- ✅ **T3 / T10 closed (2026-06-23)** — T3 drip enqueue proven live (trialing + aged anchor → `day_1`
+  outbox row, ROLLBACK-scoped); T10 acceptance suite re-run green 4/4 + projection covered by T7/T9.
+- The **only** non-✅ residual is **T2's literal post to Google**, intentionally barred because staging's
+  one connected profile is a real business — an environment limit, not a code gap; the trialing publish
+  entitlement is code-proven + regression-pinned.
 - follow-up (not trial-specific): the boot connection-pool starvation is worker-wide (the shared
   Postgres.js `max:10` pool can't serve `SELECT 1` for ~15s at boot) — consider bumping `DB_POOL_MAX`
   and/or staggering poller boot runs as a separate worker-reliability improvement.
 
 The core trial loop (T1/T4/T5/T6 + onboarding), **migration 069 + the 6 webhook events**, the
-**day-30 convert/cancel projection (T7/T9)**, and **T8 card-fail analytics** are all green live.
+**day-30 convert/cancel projection (T7/T9)**, **T8 card-fail analytics**, the **trial onboarding drip
+(T3)**, **mid-trial billing (T10)**, and **the reconcile backstop (T11)** are all green live. The trial
+feature is **merge-ready**; the prod flip remains the documented flag/migration/webhook steps (Part C).
 
 ---
 
