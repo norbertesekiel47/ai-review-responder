@@ -116,8 +116,20 @@ export async function markOutboxFailed(
 export async function recordOutboxTransientError(
   outboxId: string,
   error: string,
+  attempt?: number,
 ): Promise<void> {
   try {
+    if (typeof attempt === 'number' && Number.isFinite(attempt)) {
+      await sql`
+        UPDATE job_outbox
+        SET last_error = ${error}
+        WHERE id = ${outboxId}
+          AND status = 'dispatched'
+          AND attempts = ${attempt}
+      `;
+      return;
+    }
+    // Legacy path: attempt unknown. Still guard on status.
     await sql`
       UPDATE job_outbox
       SET last_error = ${error}

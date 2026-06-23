@@ -137,7 +137,7 @@ export async function handleUpdateStripeOverage(
       // watchdog re-dispatches. Do NOT markOutboxFailed — that forfeits the
       // watchdog. Best-effort: surface the real error on the row for ops
       // visibility during a sustained outage (status untouched).
-      await recordOutboxTransientError(outboxId, message);
+      await recordOutboxTransientError(outboxId, message, outboxAttempt);
       logger.error(`Transient Stripe overage error for account ${account_id} (will retry): ${message}`);
       throw err;
     }

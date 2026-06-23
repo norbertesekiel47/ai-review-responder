@@ -514,6 +514,7 @@ describe('UpdateStripeOverageWorker', () => {
     expect(mockRecordOutboxTransientError).toHaveBeenCalledWith(
       'outbox-1',
       expect.stringContaining('Too many requests'),
+      1,
     );
   });
 
