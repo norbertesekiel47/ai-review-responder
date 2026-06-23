@@ -3,6 +3,7 @@ import { sql } from '../../../src/lib/db/server';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { LOG_PREFIX, extractCustomerId, AccountNotProvisionedYetError } from './shared';
+import { applyStripeSubscriptionState } from './apply-subscription-state';
 
 export async function processSubscriptionDeleted(sub: Stripe.Subscription): Promise<void> {
   const subscriptionId = sub.id;
@@ -71,6 +72,19 @@ export async function processSubscriptionDeleted(sub: Stripe.Subscription): Prom
     }
 
     await tx`SELECT pg_advisory_xact_lock(hashtext(${acctRow.id + ':status_change'}))`;
+
+    // Cancel during trial (trialing → cancelled): route through the SINGLE
+    // applier (subscription mode) so trial_ends_at is cleared and trial_cancelled
+    // is emitted, in THIS tx. (Non-trial cancellations keep the unchanged inline
+    // path below — they must NOT emit a trial event.)
+    if (acctRow.subscription_status === SubscriptionStatus.TRIALING) {
+      await applyStripeSubscriptionState(
+        tx,
+        { mode: 'subscription', stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId },
+        sub,
+      );
+      return;
+    }
 
     // Idempotent: when the account is already cancelled we intentionally skip
     // the write (and log the skip in the else branch); re-applying 'cancelled'

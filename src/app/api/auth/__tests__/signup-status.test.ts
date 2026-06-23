@@ -287,6 +287,22 @@ describe('GET /api/auth/signup-status', () => {
     delete process.env.ONBOARDING_DEMO_ENABLED;
   });
 
+  it('demo flow: businessOnboarded=true when trialing + wizard stamp is set (trial treated like active)', async () => {
+    process.env.ONBOARDING_DEMO_ENABLED = 'true';
+    mockSql.mockResolvedValueOnce([
+      rowFor({
+        subscription_status: 'trialing',
+        place_id_verified: true,
+        onboarding_wizard_completed_at: new Date('2026-05-04T12:05:00Z'),
+      }),
+    ]);
+    const res = await GET(mkReq());
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.businessOnboarded).toBe(true);
+    delete process.env.ONBOARDING_DEMO_ENABLED;
+  });
+
   it('demo flow: businessOnboarded=false when the stamp is set but subscription is not active', async () => {
     process.env.ONBOARDING_DEMO_ENABLED = 'true';
     mockSql.mockResolvedValueOnce([

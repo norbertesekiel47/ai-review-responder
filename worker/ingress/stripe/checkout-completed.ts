@@ -1,8 +1,9 @@
 import Stripe from 'stripe';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
-import { LOG_PREFIX, extractCustomerId, extractSubscriptionId, UUID_RE, maybeEnqueueBackfillResume } from './shared';
+import { LOG_PREFIX, extractCustomerId, extractSubscriptionId, UUID_RE, maybeEnqueueBackfillResume, getStripe } from './shared';
 import { enqueueStripeOverageRecompute } from '../../../src/lib/shared/job-outbox-helpers';
+import { applyStripeSubscriptionState, type TransitionResult } from './apply-subscription-state';
 
 export async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
   // The client_reference_id is set by /api/billing/checkout to the account ID.
@@ -33,8 +34,11 @@ export async function processCheckoutSessionCompleted(session: Stripe.Checkout.S
     return;
   }
 
-  if (session.payment_status !== 'paid') {
-    console.warn(`${LOG_PREFIX} checkout.session.completed payment_status=${session.payment_status} (not paid) — skipping activation for ref ${refId}`);
+  // A card-up-front trial completes Checkout with payment_status
+  // 'no_payment_required' ($0 charged now). Accept it alongside 'paid' so the
+  // trial-start path below can run; any other payment_status is still a no-op.
+  if (session.payment_status !== 'paid' && session.payment_status !== 'no_payment_required') {
+    console.warn(`${LOG_PREFIX} checkout.session.completed payment_status=${session.payment_status} (not paid/no_payment_required) — skipping activation for ref ${refId}`);
     return;
   }
 
@@ -62,6 +66,24 @@ export async function processCheckoutSessionCompleted(session: Stripe.Checkout.S
   if (!accountId) {
     console.warn(`${LOG_PREFIX} checkout.session.completed ref_id=${refId} matches neither account nor business — skipping`);
     return;
+  }
+
+  // ── Trial-start path ──────────────────────────────────────────────────────
+  // A card-up-front trial completes Checkout charging $0 NOW (amount_total === 0)
+  // with a status='trialing' subscription. Stripe reports the session's
+  // payment_status as EITHER 'paid' OR 'no_payment_required': with
+  // payment_method_collection:'always' the $0 subscription_create invoice is
+  // auto-finalized 'paid', so we must NOT gate on payment_status — doing so misfiled
+  // every real trial as a paid 'active' account (caught by staging E2E, 2026-06-22).
+  // Gate on the $0 subscription-mode signal, then retrieve the subscription and
+  // project trial-start ONLY if it is genuinely 'trialing' (future trial_end,
+  // matching customer). A $0 non-trial session (e.g. a 100%-off coupon → status
+  // 'active') retrieves, finds status!='trialing', and falls through to the
+  // unchanged inline paid path (plan §4.11). A normal paid session (amount_total>0)
+  // skips the retrieve entirely. Worker-side Stripe call is allowed (inv #1).
+  if (subscriptionId && (session.amount_total === 0 || session.payment_status === 'no_payment_required')) {
+    const trialStarted = await maybeStartTrial(accountId, businessId, customerId, subscriptionId);
+    if (trialStarted) return;
   }
 
   // The ':activation' advisory lock serializes concurrent
@@ -163,4 +185,72 @@ export async function processCheckoutSessionCompleted(session: Stripe.Checkout.S
       });
     }
   }
+}
+
+/**
+ * Trial-start sub-path for checkout.session.completed.
+ *
+ * Retrieves the Checkout Session's subscription and, when it is a genuine
+ * card-up-front trial (status='trialing', future trial_end, customer matches the
+ * session), projects trial-start onto the account via the single applier in
+ * checkout mode (in a tx, behind the same ':activation' advisory lock as the
+ * paid path), then runs best-effort post-commit backfill resume.
+ *
+ * Returns:
+ *   - true  → the retrieved subscription is `trialing` (handled here; the caller
+ *             MUST NOT fall through to the inline paid activation, which would
+ *             mis-flip a trialing sub to 'active'). This holds even for an
+ *             invalid trial (past trial_end / customer mismatch), which is a
+ *             logged no-op.
+ *   - false → not a trial (e.g. retrieved status 'active'); the caller proceeds
+ *             with the unchanged inline paid activation.
+ */
+async function maybeStartTrial(
+  accountId: string,
+  knownBusinessId: string | null,
+  customerId: string | null,
+  subscriptionId: string,
+): Promise<boolean> {
+  // Only called for $0 subscription-mode sessions (trial candidates — amount_total
+  // === 0 or payment_status 'no_payment_required'). A retrieve
+  // failure here means we cannot confirm the (probable) trial — throw so the
+  // ingress wrapper replies 500 and Stripe redelivers (idempotent via the
+  // applier's status-guarded write).
+  const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
+
+  if (subscription.status !== 'trialing') {
+    return false; // not a trial → caller proceeds with inline paid activation
+  }
+
+  // From here the subscription IS trialing — never fall through to paid path.
+  const subCustomerId = extractCustomerId(subscription.customer);
+  if (customerId && subCustomerId && subCustomerId !== customerId) {
+    console.warn(`${LOG_PREFIX} checkout.session.completed trialing subscription=${subscriptionId} customer ${subCustomerId} != session customer ${customerId} — skipping`);
+    return true;
+  }
+
+  const trialEnd = subscription.trial_end;
+  if (typeof trialEnd !== 'number' || trialEnd <= Math.floor(Date.now() / 1000)) {
+    console.warn(`${LOG_PREFIX} checkout.session.completed trialing subscription=${subscriptionId} has no future trial_end (${trialEnd}) — skipping`);
+    return true;
+  }
+
+  const transition: TransitionResult = await sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${accountId + ':activation'}))`;
+    return applyStripeSubscriptionState(
+      tx,
+      { mode: 'checkout', accountId },
+      subscription,
+    );
+  });
+
+  if (transition.changed && transition.activated) {
+    const businessId = knownBusinessId ?? transition.primaryBusinessId;
+    if (businessId) {
+      await maybeEnqueueBackfillResume(businessId).catch((err) => {
+        console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${businessId}: ${err instanceof Error ? err.message : err}`);
+      });
+    }
+  }
+  return true;
 }

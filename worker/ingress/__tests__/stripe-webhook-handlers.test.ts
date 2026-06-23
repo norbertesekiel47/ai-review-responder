@@ -493,7 +493,12 @@ describe('customer.subscription.updated — two-item subscription', () => {
     expect(updateAcct!.values).toContain(0);
   });
 
-  it('unknown base price ID → warns and skips tier update', async () => {
+  it('unknown base price ID (account exists, non-trialing) → warns and skips tier update', async () => {
+    // FIX 3: tier resolution is no longer an early-return gate BEFORE the account
+    // lookup. An unmapped base price for an existing, non-trialing account still
+    // loads + matches the account (so a trial COULD convert), then skips only the
+    // tier/locations sync. Provide the account row + lock so the realistic path
+    // runs; the contract (no tier UPDATE, 200) is unchanged.
     mockConstructEvent.mockReturnValue({
       id: 'evt_sub_updated_unknown',
       type: 'customer.subscription.updated',
@@ -501,6 +506,7 @@ describe('customer.subscription.updated — two-item subscription', () => {
         object: {
           id: TEST_SUBSCRIPTION_ID,
           customer: TEST_CUSTOMER_ID,
+          status: 'active',
           items: {
             data: [
               { price: { id: 'price_unknown_tier' }, quantity: 1 },
@@ -510,20 +516,33 @@ describe('customer.subscription.updated — two-item subscription', () => {
       },
     });
 
+    // 1. account SELECT FOR UPDATE (active, not trialing → no conversion)
+    sqlReturnQueue.push([{
+      id: TEST_ACCOUNT_ID,
+      subscription_tier: 'standard',
+      subscription_status: 'active',
+      locations_paid: 0,
+      locations_overage_price_cents: 2500,
+      stripe_subscription_id: TEST_SUBSCRIPTION_ID,
+      active_offboarding_subscription_id: null,
+    }]);
+    // 2. pg_advisory_xact_lock — then the handler hits the unmapped-tier skip.
+    sqlReturnQueue.push([]);
+
     const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const { status, send } = mkReply();
     await handleStripeWebhook(mkRequest(), { status, send } as any);
 
     expect(status).toHaveBeenCalledWith(200);
-    // No accounts UPDATE should fire for unknown price
+    // No accounts tier UPDATE should fire for unknown price
     const updateAcct = sqlCalls.filter(
       (c) => /\bUPDATE\s+accounts\b/.test(c.text) && !c.text.includes('inbound_events'),
     );
     expect(updateAcct).toEqual([]);
 
     const warnedText = consoleSpy.mock.calls.flat().join(' ');
-    expect(warnedText).toMatch(/missing base price ID/);
+    expect(warnedText).toMatch(/unmapped base price/);
 
     consoleSpy.mockRestore();
   });

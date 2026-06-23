@@ -130,7 +130,7 @@ function stripLeadingWhitespaceAndComments(text: string): string {
 // view-model discriminant union are the explicit, reviewed allowlist below; the
 // carve-out count is printed so growth stays visible.
 const SUBSCRIPTION_STATUS_FIELD = /subscription[_]?[Ss]tatus/;
-const SUBSCRIPTION_STATUS_LITERAL = /['"](?:active|past_due|cancelled|pending_payment)['"]/;
+const SUBSCRIPTION_STATUS_LITERAL = /['"](?:active|trialing|past_due|cancelled|pending_payment)['"]/;
 
 // file:line sites that legitimately keep a bare literal. Each is either a SQL
 // predicate inside a postgres.js sql`` template (annotated with a `-- enum:`
@@ -142,7 +142,7 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   //    each keeps the literal + a trailing `-- enum: SubscriptionStatus.X` comment) ──
   'src/app/api/admin/billing/grant-extension/route.ts:70',
   'src/app/api/admin/billing/grant-extension/route.ts:108',
-  'src/lib/admin/margin-service.ts:135',
+  'src/lib/admin/margin-service.ts:136',
   'worker/background/pollers/CancellationGracePoller.ts:46',
   'worker/background/pollers/EmailChannelReconcilePoller.ts:113',
   'worker/background/pollers/EngagementMonitorPoller.ts:90',
@@ -150,25 +150,33 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   'worker/background/schedulers/OnboardingDripScheduler.ts:39',
   'worker/background/schedulers/RankingTrackingScheduler.ts:59',
   'worker/background/schedulers/WeeklySummaryScheduler.ts:58',
-  'worker/ingress/stripe/checkout-completed.ts:95',
-  'worker/ingress/stripe/checkout-completed.ts:101',
-  'worker/ingress/stripe/checkout-completed.ts:135',
-  'worker/ingress/stripe/checkout-completed.ts:143',
-  'worker/ingress/stripe/invoice-paid.ts:36',
-  'worker/ingress/stripe/invoice-paid.ts:57',
-  'worker/ingress/stripe/invoice-paid.ts:59',
-  'worker/ingress/stripe/invoice-payment-failed.ts:37',
+  'worker/ingress/stripe/apply-subscription-state.ts:249',
+  'worker/ingress/stripe/apply-subscription-state.ts:262',
+  'worker/ingress/stripe/apply-subscription-state.ts:275',
+  'worker/ingress/stripe/apply-subscription-state.ts:285',
+  'worker/ingress/stripe/apply-subscription-state.ts:318',
+  'worker/ingress/stripe/apply-subscription-state.ts:329',
+  'worker/ingress/stripe/apply-subscription-state.ts:338',
+  'worker/ingress/stripe/apply-subscription-state.ts:341',
+  'worker/ingress/stripe/checkout-completed.ts:117',
+  'worker/ingress/stripe/checkout-completed.ts:123',
+  'worker/ingress/stripe/checkout-completed.ts:157',
+  'worker/ingress/stripe/checkout-completed.ts:165',
+  'worker/ingress/stripe/invoice-paid.ts:46',
+  'worker/ingress/stripe/invoice-paid.ts:67',
+  'worker/ingress/stripe/invoice-paid.ts:69',
   'worker/ingress/stripe/invoice-payment-failed.ts:58',
-  'worker/ingress/stripe/invoice-payment-failed.ts:60',
-  'worker/ingress/stripe/shared.ts:88',
-  'worker/ingress/stripe/subscription-deleted.ts:83',
-  'worker/ingress/stripe/subscription-deleted.ts:105',
+  'worker/ingress/stripe/invoice-payment-failed.ts:79',
+  'worker/ingress/stripe/invoice-payment-failed.ts:81',
+  'worker/ingress/stripe/shared.ts:104',
+  'worker/ingress/stripe/subscription-deleted.ts:97',
+  'worker/ingress/stripe/subscription-deleted.ts:119',
   // ── dashboard view-model discriminant union (type-level literals; the union
   //    mixes enum statuses with synthetic states like 'active_pending_business') ──
-  'src/lib/dashboard/types.ts:105',
-  'src/lib/dashboard/types.ts:124',
-  'src/lib/dashboard/types.ts:133',
-  'src/lib/dashboard/types.ts:252',
+  'src/lib/dashboard/types.ts:112',
+  'src/lib/dashboard/types.ts:131',
+  'src/lib/dashboard/types.ts:140',
+  'src/lib/dashboard/types.ts:259',
 ]);
 
 /** True when the trimmed line begins a line/block comment (so a status literal

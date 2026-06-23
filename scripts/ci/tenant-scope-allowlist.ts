@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 372;
+export const ALLOWLIST_BASELINE = 377;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -76,13 +76,13 @@ export const CATEGORY_PATH_RULES: Partial<
 // per entry.
 
 const MONTHLY_IMPACT_CANDIDATES_SQL =
-  "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND b.archived_at IS NULL AND a.monthly_impact_enabled = TRUE AND NOT EXISTS ( SELECT 1 FROM monthly_impact_emails mie WHERE mie.business_id = b.id AND mie.month_start_date = ${monthStartDate}::date AND mie.sent_at IS NOT NULL )";
+  "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due', 'trialing') AND b.archived_at IS NULL AND a.monthly_impact_enabled = TRUE AND NOT EXISTS ( SELECT 1 FROM monthly_impact_emails mie WHERE mie.business_id = b.id AND mie.month_start_date = ${monthStartDate}::date AND mie.sent_at IS NOT NULL )";
 
 const ONBOARDING_DRIP_CANDIDATES_SQL =
-  "SELECT b.id AS business_id, d.drip_type FROM businesses b JOIN accounts a ON a.id = b.account_id CROSS JOIN (VALUES ('day_1', 1), ('day_7', 7), ('day_30', 30)) AS d(drip_type, days) WHERE a.subscription_status = 'active' AND b.subscription_activated_at IS NOT NULL AND b.subscription_activated_at <= NOW() - (d.days || ' days')::interval AND NOT EXISTS ( SELECT 1 FROM onboarding_drip_log dl WHERE dl.business_id = b.id AND dl.drip_type = d.drip_type AND dl.sent_at IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = 'onboarding_drip' AND jo.aggregate_id = b.id AND jo.status <> 'failed' AND jo.payload->>'drip_type' = d.drip_type )";
+  "SELECT b.id AS business_id, d.drip_type FROM businesses b JOIN accounts a ON a.id = b.account_id CROSS JOIN (VALUES ('day_1', 1), ('day_7', 7), ('day_30', 30)) AS d(drip_type, days) WHERE a.subscription_status IN ('active', 'trialing') AND b.subscription_activated_at IS NOT NULL AND b.subscription_activated_at <= NOW() - (d.days || ' days')::interval AND NOT EXISTS ( SELECT 1 FROM onboarding_drip_log dl WHERE dl.business_id = b.id AND dl.drip_type = d.drip_type AND dl.sent_at IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = 'onboarding_drip' AND jo.aggregate_id = b.id AND jo.status <> 'failed' AND jo.payload->>'drip_type' = d.drip_type )";
 
 const WEEKLY_SUMMARY_CANDIDATES_SQL =
-  "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due') AND b.archived_at IS NULL AND a.weekly_summary_enabled = TRUE AND NOT EXISTS ( SELECT 1 FROM weekly_summaries ws WHERE ws.business_id = b.id AND ws.week_start_date = ${weekStartDate}::date AND ws.sent_at IS NOT NULL )";
+  "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due', 'trialing') AND b.archived_at IS NULL AND a.weekly_summary_enabled = TRUE AND NOT EXISTS ( SELECT 1 FROM weekly_summaries ws WHERE ws.business_id = b.id AND ws.week_start_date = ${weekStartDate}::date AND ws.sent_at IS NOT NULL )";
 
 const RANKING_TRACKING_CANDIDATES_SQL =
   "SELECT b.id, b.google_place_id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status = 'active' AND b.place_id_verified = TRUE AND b.google_place_id IS NOT NULL AND b.tracked_keywords <> '[]'::jsonb AND ( (b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL) OR b.ranking_search_location IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = 'track_ranking' AND jo.aggregate_id = b.id AND jo.status IN ('pending', 'dispatching', 'dispatched') )";
@@ -195,9 +195,16 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/billing/checkout/route.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, u.email AS owner_email FROM accounts a JOIN users u ON u.id = a.owner_user_id WHERE a.id = ${accountId}::uuid",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, u.email AS owner_email, (SELECT b.onboarded_by FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS onboarded_by FROM accounts a JOIN users u ON u.id = a.owner_user_id WHERE a.id = ${accountId}::uuid",
     category: 'tenant-root-lookup',
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
+  },
+  {
+    file: "src/app/api/billing/checkout/route.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, u.email AS owner_email, (SELECT b.onboarded_by FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS onboarded_by FROM accounts a JOIN users u ON u.id = a.owner_user_id WHERE a.id = ${accountId}::uuid",
+    category: 'tenant-root-lookup',
+    reason: "onboarded_by subquery is tenant-scoped: b.account_id = a.id where a.id = ${accountId} (the owner-verified tenant root).",
   },
   {
     file: "src/app/api/billing/portal/route.ts",
@@ -230,7 +237,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/onboarding/select-plan/route.ts",
     table: "businesses",
-    sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}::uuid",
+    sqlSnippet: "SELECT account_id, onboarded_by FROM businesses WHERE id = ${businessId}::uuid",
     category: 'tenant-root-lookup',
     reason: "Authenticated flow uses business/location id as the lookup key after owner scope has been established.",
   },
@@ -326,7 +333,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
              COUNT(b.id) FILTER (WHERE b.archived_at IS NULL)::int AS active_locations
       FROM accounts a
       LEFT JOIN businesses b ON b.account_id = a.id
-      WHERE a.subscription_status IN ('active', 'past_due')
+      WHERE a.subscription_status IN ('active', 'past_due', 'trialing')
       GROUP BY a.id`,
     category: 'platform-cross-account',
     reason: "Admin-only platform/account margin aggregate (Spec 26); intentionally cross-account with no tenant filter. Gated by requireRole('admin') at the /api/admin/costs route. Mirrors the admin flagged-queue allowlisting.",
@@ -339,7 +346,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
              COUNT(b.id) FILTER (WHERE b.archived_at IS NULL)::int AS active_locations
       FROM accounts a
       LEFT JOIN businesses b ON b.account_id = a.id
-      WHERE a.subscription_status IN ('active', 'past_due')
+      WHERE a.subscription_status IN ('active', 'past_due', 'trialing')
       GROUP BY a.id`,
     category: 'platform-cross-account',
     reason: "Admin-only platform/account margin aggregate (Spec 26); intentionally cross-account with no tenant filter. Gated by requireRole('admin') at the /api/admin/costs route. Mirrors the admin flagged-queue allowlisting.",
@@ -847,28 +854,28 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/pollers/EngagementMonitorPoller.ts",
     table: "accounts",
-    sqlSnippet: "WITH active_biz AS ( SELECT b.id, b.owner_email_bounced FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status = 'active' ), response_metrics AS ( SELECT resp.business_id, MAX(resp.approved_at) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])) AS last_approval, COUNT(*) FILTER (WHERE resp.status = 'pending_approval')::int AS pending_count, MIN(resp.created_at) FILTER (WHERE resp.status = 'pending_approval') AS oldest_pending_at FROM responses resp WHERE resp.business_id IN (SELECT id FROM active_biz) GROUP BY resp.business_id ), notif_metrics AS ( SELECT nd.business_id, COUNT(DISTINCT nd.response_id)::int AS notified_count, COUNT(DISTINCT nd.response_id) FILTER ( WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) )::int AS approved_count FROM notification_deliveries nd JOIN responses r ON r.id = nd.response_id WHERE nd.business_id IN (SELECT id FROM active_biz) AND nd.template = 'approval_request' AND nd.sent_at IS NOT NULL AND nd.sent_at >= CURRENT_DATE - 30 GROUP BY nd.business_id ) SELECT ab.id AS business_id, ab.owner_email_bounced, EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.last_approval)::int AS days_since_approval, COALESCE(rm.pending_count, 0) AS pending_count, EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.oldest_pending_at)::int AS oldest_pending_age_days, COALESCE(nm.notified_count, 0) AS notified_count, COALESCE(nm.approved_count, 0) AS approved_count FROM active_biz ab LEFT JOIN response_metrics rm ON rm.business_id = ab.id LEFT JOIN notif_metrics nm ON nm.business_id = ab.id",
+    sqlSnippet: "WITH active_biz AS ( SELECT b.id, b.owner_email_bounced FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'trialing') ), response_metrics AS ( SELECT resp.business_id, MAX(resp.approved_at) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])) AS last_approval, COUNT(*) FILTER (WHERE resp.status = 'pending_approval')::int AS pending_count, MIN(resp.created_at) FILTER (WHERE resp.status = 'pending_approval') AS oldest_pending_at FROM responses resp WHERE resp.business_id IN (SELECT id FROM active_biz) GROUP BY resp.business_id ), notif_metrics AS ( SELECT nd.business_id, COUNT(DISTINCT nd.response_id)::int AS notified_count, COUNT(DISTINCT nd.response_id) FILTER ( WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) )::int AS approved_count FROM notification_deliveries nd JOIN responses r ON r.id = nd.response_id WHERE nd.business_id IN (SELECT id FROM active_biz) AND nd.template = 'approval_request' AND nd.sent_at IS NOT NULL AND nd.sent_at >= CURRENT_DATE - 30 GROUP BY nd.business_id ) SELECT ab.id AS business_id, ab.owner_email_bounced, EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.last_approval)::int AS days_since_approval, COALESCE(rm.pending_count, 0) AS pending_count, EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.oldest_pending_at)::int AS oldest_pending_age_days, COALESCE(nm.notified_count, 0) AS notified_count, COALESCE(nm.approved_count, 0) AS approved_count FROM active_biz ab LEFT JOIN response_metrics rm ON rm.business_id = ab.id LEFT JOIN notif_metrics nm ON nm.business_id = ab.id",
     category: 'background-global-scan',
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/pollers/EngagementMonitorPoller.ts",
     table: "businesses",
-    sqlSnippet: "WITH active_biz AS ( SELECT b.id, b.owner_email_bounced FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status = 'active' ), response_metrics AS ( SELECT resp.business_id, MAX(resp.approved_at) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])) AS last_approval, COUNT(*) FILTER (WHERE resp.status = 'pending_approval')::int AS pending_count, MIN(resp.created_at) FILTER (WHERE resp.status = 'pending_approval') AS oldest_pending_at FROM responses resp WHERE resp.business_id IN (SELECT id FROM active_biz) GROUP BY resp.business_id ), notif_metrics AS ( SELECT nd.business_id, COUNT(DISTINCT nd.response_id)::int AS notified_count, COUNT(DISTINCT nd.response_id) FILTER ( WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) )::int AS approved_count FROM notification_deliveries nd JOIN responses r ON r.id = nd.response_id WHERE nd.business_id IN (SELECT id FROM active_biz) AND nd.template = 'approval_request' AND nd.sent_at IS NOT NULL AND nd.sent_at >= CURRENT_DATE - 30 GROUP BY nd.business_id ) SELECT ab.id AS business_id, ab.owner_email_bounced, EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.last_approval)::int AS days_since_approval, COALESCE(rm.pending_count, 0) AS pending_count, EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.oldest_pending_at)::int AS oldest_pending_age_days, COALESCE(nm.notified_count, 0) AS notified_count, COALESCE(nm.approved_count, 0) AS approved_count FROM active_biz ab LEFT JOIN response_metrics rm ON rm.business_id = ab.id LEFT JOIN notif_metrics nm ON nm.business_id = ab.id",
+    sqlSnippet: "WITH active_biz AS ( SELECT b.id, b.owner_email_bounced FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'trialing') ), response_metrics AS ( SELECT resp.business_id, MAX(resp.approved_at) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])) AS last_approval, COUNT(*) FILTER (WHERE resp.status = 'pending_approval')::int AS pending_count, MIN(resp.created_at) FILTER (WHERE resp.status = 'pending_approval') AS oldest_pending_at FROM responses resp WHERE resp.business_id IN (SELECT id FROM active_biz) GROUP BY resp.business_id ), notif_metrics AS ( SELECT nd.business_id, COUNT(DISTINCT nd.response_id)::int AS notified_count, COUNT(DISTINCT nd.response_id) FILTER ( WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) )::int AS approved_count FROM notification_deliveries nd JOIN responses r ON r.id = nd.response_id WHERE nd.business_id IN (SELECT id FROM active_biz) AND nd.template = 'approval_request' AND nd.sent_at IS NOT NULL AND nd.sent_at >= CURRENT_DATE - 30 GROUP BY nd.business_id ) SELECT ab.id AS business_id, ab.owner_email_bounced, EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.last_approval)::int AS days_since_approval, COALESCE(rm.pending_count, 0) AS pending_count, EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.oldest_pending_at)::int AS oldest_pending_age_days, COALESCE(nm.notified_count, 0) AS notified_count, COALESCE(nm.approved_count, 0) AS approved_count FROM active_biz ab LEFT JOIN response_metrics rm ON rm.business_id = ab.id LEFT JOIN notif_metrics nm ON nm.business_id = ab.id",
     category: 'background-global-scan',
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/pollers/EngagementMonitorPoller.ts",
     table: "responses",
-    sqlSnippet: "WITH active_biz AS ( SELECT b.id, b.owner_email_bounced FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status = 'active' ), response_metrics AS ( SELECT resp.business_id, MAX(resp.approved_at) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])) AS last_approval, COUNT(*) FILTER (WHERE resp.status = 'pending_approval')::int AS pending_count, MIN(resp.created_at) FILTER (WHERE resp.status = 'pending_approval') AS oldest_pending_at FROM responses resp WHERE resp.business_id IN (SELECT id FROM active_biz) GROUP BY resp.business_id ), notif_metrics AS ( SELECT nd.business_id, COUNT(DISTINCT nd.response_id)::int AS notified_count, COUNT(DISTINCT nd.response_id) FILTER ( WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) )::int AS approved_count FROM notification_deliveries nd JOIN responses r ON r.id = nd.response_id WHERE nd.business_id IN (SELECT id FROM active_biz) AND nd.template = 'approval_request' AND nd.sent_at IS NOT NULL AND nd.sent_at >= CURRENT_DATE - 30 GROUP BY nd.business_id ) SELECT ab.id AS business_id, ab.owner_email_bounced, EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.last_approval)::int AS days_since_approval, COALESCE(rm.pending_count, 0) AS pending_count, EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.oldest_pending_at)::int AS oldest_pending_age_days, COALESCE(nm.notified_count, 0) AS notified_count, COALESCE(nm.approved_count, 0) AS approved_count FROM active_biz ab LEFT JOIN response_metrics rm ON rm.business_id = ab.id LEFT JOIN notif_metrics nm ON nm.business_id = ab.id",
+    sqlSnippet: "WITH active_biz AS ( SELECT b.id, b.owner_email_bounced FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'trialing') ), response_metrics AS ( SELECT resp.business_id, MAX(resp.approved_at) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])) AS last_approval, COUNT(*) FILTER (WHERE resp.status = 'pending_approval')::int AS pending_count, MIN(resp.created_at) FILTER (WHERE resp.status = 'pending_approval') AS oldest_pending_at FROM responses resp WHERE resp.business_id IN (SELECT id FROM active_biz) GROUP BY resp.business_id ), notif_metrics AS ( SELECT nd.business_id, COUNT(DISTINCT nd.response_id)::int AS notified_count, COUNT(DISTINCT nd.response_id) FILTER ( WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) )::int AS approved_count FROM notification_deliveries nd JOIN responses r ON r.id = nd.response_id WHERE nd.business_id IN (SELECT id FROM active_biz) AND nd.template = 'approval_request' AND nd.sent_at IS NOT NULL AND nd.sent_at >= CURRENT_DATE - 30 GROUP BY nd.business_id ) SELECT ab.id AS business_id, ab.owner_email_bounced, EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.last_approval)::int AS days_since_approval, COALESCE(rm.pending_count, 0) AS pending_count, EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.oldest_pending_at)::int AS oldest_pending_age_days, COALESCE(nm.notified_count, 0) AS notified_count, COALESCE(nm.approved_count, 0) AS approved_count FROM active_biz ab LEFT JOIN response_metrics rm ON rm.business_id = ab.id LEFT JOIN notif_metrics nm ON nm.business_id = ab.id",
     category: 'background-global-scan',
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/pollers/EngagementMonitorPoller.ts",
     table: "notification_deliveries",
-    sqlSnippet: "WITH active_biz AS ( SELECT b.id, b.owner_email_bounced FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status = 'active' ), response_metrics AS ( SELECT resp.business_id, MAX(resp.approved_at) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])) AS last_approval, COUNT(*) FILTER (WHERE resp.status = 'pending_approval')::int AS pending_count, MIN(resp.created_at) FILTER (WHERE resp.status = 'pending_approval') AS oldest_pending_at FROM responses resp WHERE resp.business_id IN (SELECT id FROM active_biz) GROUP BY resp.business_id ), notif_metrics AS ( SELECT nd.business_id, COUNT(DISTINCT nd.response_id)::int AS notified_count, COUNT(DISTINCT nd.response_id) FILTER ( WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) )::int AS approved_count FROM notification_deliveries nd JOIN responses r ON r.id = nd.response_id WHERE nd.business_id IN (SELECT id FROM active_biz) AND nd.template = 'approval_request' AND nd.sent_at IS NOT NULL AND nd.sent_at >= CURRENT_DATE - 30 GROUP BY nd.business_id ) SELECT ab.id AS business_id, ab.owner_email_bounced, EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.last_approval)::int AS days_since_approval, COALESCE(rm.pending_count, 0) AS pending_count, EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.oldest_pending_at)::int AS oldest_pending_age_days, COALESCE(nm.notified_count, 0) AS notified_count, COALESCE(nm.approved_count, 0) AS approved_count FROM active_biz ab LEFT JOIN response_metrics rm ON rm.business_id = ab.id LEFT JOIN notif_metrics nm ON nm.business_id = ab.id",
+    sqlSnippet: "WITH active_biz AS ( SELECT b.id, b.owner_email_bounced FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'trialing') ), response_metrics AS ( SELECT resp.business_id, MAX(resp.approved_at) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])) AS last_approval, COUNT(*) FILTER (WHERE resp.status = 'pending_approval')::int AS pending_count, MIN(resp.created_at) FILTER (WHERE resp.status = 'pending_approval') AS oldest_pending_at FROM responses resp WHERE resp.business_id IN (SELECT id FROM active_biz) GROUP BY resp.business_id ), notif_metrics AS ( SELECT nd.business_id, COUNT(DISTINCT nd.response_id)::int AS notified_count, COUNT(DISTINCT nd.response_id) FILTER ( WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) )::int AS approved_count FROM notification_deliveries nd JOIN responses r ON r.id = nd.response_id WHERE nd.business_id IN (SELECT id FROM active_biz) AND nd.template = 'approval_request' AND nd.sent_at IS NOT NULL AND nd.sent_at >= CURRENT_DATE - 30 GROUP BY nd.business_id ) SELECT ab.id AS business_id, ab.owner_email_bounced, EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.last_approval)::int AS days_since_approval, COALESCE(rm.pending_count, 0) AS pending_count, EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.oldest_pending_at)::int AS oldest_pending_age_days, COALESCE(nm.notified_count, 0) AS notified_count, COALESCE(nm.approved_count, 0) AS approved_count FROM active_biz ab LEFT JOIN response_metrics rm ON rm.business_id = ab.id LEFT JOIN notif_metrics nm ON nm.business_id = ab.id",
     category: 'background-global-scan',
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
@@ -931,14 +938,14 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/pollers/StripeLocationsReconcilePoller.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}, ${SubscriptionStatus.TRIALING}) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags",
     category: 'background-global-scan',
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/pollers/StripeLocationsReconcilePoller.ts",
     table: "businesses",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}, ${SubscriptionStatus.TRIALING}) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags",
     category: 'background-global-scan',
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
@@ -1316,14 +1323,14 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/stripe/shared.ts",
     table: "accounts",
-    sqlSnippet: "SELECT zc.zernio_account_id, zc.zernio_location_id, a.subscription_tier, a.subscription_activated_at FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.business_id = ${businessId}::uuid AND zc.status = 'active' AND b.archived_at IS NULL AND a.subscription_status = 'active' AND a.subscription_activated_at IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM zernio_backfill_runs br WHERE br.business_id = ${businessId}::uuid AND br.completed_at IS NOT NULL ) LIMIT 1",
+    sqlSnippet: "SELECT zc.zernio_account_id, zc.zernio_location_id, a.subscription_tier, a.subscription_activated_at FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.business_id = ${businessId}::uuid AND zc.status = 'active' AND b.archived_at IS NULL AND a.subscription_status IN ('active', 'trialing') AND a.subscription_activated_at IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM zernio_backfill_runs br WHERE br.business_id = ${businessId}::uuid AND br.completed_at IS NOT NULL ) LIMIT 1",
     category: 'provider-ingress',
     reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available.",
   },
   {
     file: "worker/ingress/stripe/shared.ts",
     table: "businesses",
-    sqlSnippet: "SELECT zc.zernio_account_id, zc.zernio_location_id, a.subscription_tier, a.subscription_activated_at FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.business_id = ${businessId}::uuid AND zc.status = 'active' AND b.archived_at IS NULL AND a.subscription_status = 'active' AND a.subscription_activated_at IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM zernio_backfill_runs br WHERE br.business_id = ${businessId}::uuid AND br.completed_at IS NOT NULL ) LIMIT 1",
+    sqlSnippet: "SELECT zc.zernio_account_id, zc.zernio_location_id, a.subscription_tier, a.subscription_activated_at FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.business_id = ${businessId}::uuid AND zc.status = 'active' AND b.archived_at IS NULL AND a.subscription_status IN ('active', 'trialing') AND a.subscription_activated_at IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM zernio_backfill_runs br WHERE br.business_id = ${businessId}::uuid AND br.completed_at IS NOT NULL ) LIMIT 1",
     category: 'provider-ingress',
     reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available.",
   },
@@ -1883,7 +1890,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/stripe/shared.ts",
     table: "zernio_connections",
-    sqlSnippet: "SELECT zc.zernio_account_id, zc.zernio_location_id, a.subscription_tier, a.subscription_activated_at FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.business_id = ${businessId}::uuid AND zc.status = 'active' AND b.archived_at IS NULL AND a.subscription_status = 'active' AND a.subscription_activated_at IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM zernio_backfill_runs br WHERE br.business_id = ${businessId}::uuid AND br.completed_at IS NOT NULL ) LIMIT 1",
+    sqlSnippet: "SELECT zc.zernio_account_id, zc.zernio_location_id, a.subscription_tier, a.subscription_activated_at FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.business_id = ${businessId}::uuid AND zc.status = 'active' AND b.archived_at IS NULL AND a.subscription_status IN ('active', 'trialing') AND a.subscription_activated_at IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM zernio_backfill_runs br WHERE br.business_id = ${businessId}::uuid AND br.completed_at IS NOT NULL ) LIMIT 1",
     category: 'provider-ingress',
     reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available.",
   },
@@ -2002,14 +2009,14 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/pollers/EmailChannelReconcilePoller.ts",
     table: "accounts",
-    sqlSnippet: "SELECT b.id AS business_id, b.account_id, b.owner_email FROM businesses b JOIN users u ON u.account_id = b.account_id AND u.role = 'owner' JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status = 'active' AND u.auth_id IS NOT NULL AND b.owner_email IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM channel_enrollments ce WHERE ce.business_id = b.id AND ce.channel = 'email' ) LIMIT ${batchSize}",
+    sqlSnippet: "SELECT b.id AS business_id, b.account_id, b.owner_email FROM businesses b JOIN users u ON u.account_id = b.account_id AND u.role = 'owner' JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'trialing') AND u.auth_id IS NOT NULL AND b.owner_email IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM channel_enrollments ce WHERE ce.business_id = b.id AND ce.channel = 'email' ) LIMIT ${batchSize}",
     category: 'background-global-scan',
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/pollers/EmailChannelReconcilePoller.ts",
     table: "businesses",
-    sqlSnippet: "SELECT b.id AS business_id, b.account_id, b.owner_email FROM businesses b JOIN users u ON u.account_id = b.account_id AND u.role = 'owner' JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status = 'active' AND u.auth_id IS NOT NULL AND b.owner_email IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM channel_enrollments ce WHERE ce.business_id = b.id AND ce.channel = 'email' ) LIMIT ${batchSize}",
+    sqlSnippet: "SELECT b.id AS business_id, b.account_id, b.owner_email FROM businesses b JOIN users u ON u.account_id = b.account_id AND u.role = 'owner' JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'trialing') AND u.auth_id IS NOT NULL AND b.owner_email IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM channel_enrollments ce WHERE ce.business_id = b.id AND ce.channel = 'email' ) LIMIT ${batchSize}",
     category: 'background-global-scan',
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
@@ -2121,7 +2128,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/stripe/shared.ts",
     table: "zernio_backfill_runs",
-    sqlSnippet: "SELECT zc.zernio_account_id, zc.zernio_location_id, a.subscription_tier, a.subscription_activated_at FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.business_id = ${businessId}::uuid AND zc.status = 'active' AND b.archived_at IS NULL AND a.subscription_status = 'active' AND a.subscription_activated_at IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM zernio_backfill_runs br WHERE br.business_id = ${businessId}::uuid AND br.completed_at IS NOT NULL ) LIMIT 1",
+    sqlSnippet: "SELECT zc.zernio_account_id, zc.zernio_location_id, a.subscription_tier, a.subscription_activated_at FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.business_id = ${businessId}::uuid AND zc.status = 'active' AND b.archived_at IS NULL AND a.subscription_status IN ('active', 'trialing') AND a.subscription_activated_at IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM zernio_backfill_runs br WHERE br.business_id = ${businessId}::uuid AND br.completed_at IS NOT NULL ) LIMIT 1",
     category: 'worker-job-scoped',
     reason: "Stripe activation flow checks Zernio backfill completion for the already scoped business id before enqueueing backfill work.",
   },
@@ -2156,7 +2163,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/pollers/EmailChannelReconcilePoller.ts",
     table: "channel_enrollments",
-    sqlSnippet: "SELECT b.id AS business_id, b.account_id, b.owner_email FROM businesses b JOIN users u ON u.account_id = b.account_id AND u.role = 'owner' JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status = 'active' AND u.auth_id IS NOT NULL AND b.owner_email IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM channel_enrollments ce WHERE ce.business_id = b.id AND ce.channel = 'email' ) LIMIT ${batchSize}",
+    sqlSnippet: "SELECT b.id AS business_id, b.account_id, b.owner_email FROM businesses b JOIN users u ON u.account_id = b.account_id AND u.role = 'owner' JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'trialing') AND u.auth_id IS NOT NULL AND b.owner_email IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM channel_enrollments ce WHERE ce.business_id = b.id AND ce.channel = 'email' ) LIMIT ${batchSize}",
     category: 'tenant-root-lookup',
     reason: "Background reconciliation intentionally scans active owner locations and checks channel_enrollments by the candidate business id before inserting the missing scoped email row.",
   },
@@ -2484,6 +2491,34 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.locations_paid, a.locations_overage_price_cents, a.stripe_subscription_id, CASE WHEN EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) THEN ${subscriptionId} ELSE NULL END AS active_offboarding_subscription_id FROM accounts a WHERE a.stripe_customer_id = ${customerId} FOR UPDATE",
     category: 'provider-ingress',
     reason: "Stripe webhook resolves account and offboarding state from signed provider identifiers before tenant ids are available.",
+  },
+  {
+    file: "worker/ingress/stripe/apply-subscription-state.ts",
+    table: "accounts",
+    sqlSnippet: "SELECT a.id, a.subscription_status, (SELECT b.id FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS primary_business_id FROM accounts a WHERE a.id = ${ref.accountId}::uuid FOR UPDATE",
+    category: 'provider-ingress',
+    reason: "Stripe trial applier resolves the account by signed checkout client_reference_id (account id) before projecting Stripe subscription status. No tenant id is available except the one being resolved.",
+  },
+  {
+    file: "worker/ingress/stripe/apply-subscription-state.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT a.id, a.subscription_status, (SELECT b.id FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS primary_business_id FROM accounts a WHERE a.id = ${ref.accountId}::uuid FOR UPDATE",
+    category: 'provider-ingress',
+    reason: "Stripe trial applier resolves the account's primary business while resolving the account from signed checkout client_reference_id. Subquery is scoped to the resolved account.",
+  },
+  {
+    file: "worker/ingress/stripe/apply-subscription-state.ts",
+    table: "accounts",
+    sqlSnippet: "SELECT a.id, a.subscription_status, (SELECT b.id FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS primary_business_id FROM accounts a WHERE a.stripe_customer_id = ${ref.stripeCustomerId} AND a.stripe_subscription_id = ${ref.stripeSubscriptionId} FOR UPDATE",
+    category: 'provider-ingress',
+    reason: "Stripe trial applier resolves the account by signed provider identifiers (customer + subscription) before projecting Stripe subscription status. No tenant id is available except the one being resolved.",
+  },
+  {
+    file: "worker/ingress/stripe/apply-subscription-state.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT a.id, a.subscription_status, (SELECT b.id FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS primary_business_id FROM accounts a WHERE a.stripe_customer_id = ${ref.stripeCustomerId} AND a.stripe_subscription_id = ${ref.stripeSubscriptionId} FOR UPDATE",
+    category: 'provider-ingress',
+    reason: "Stripe trial applier resolves the account's primary business while resolving the account from signed provider identifiers. Subquery is scoped to the resolved account.",
   },
   {
     file: "worker/ingress/zernio/zernio.ts",

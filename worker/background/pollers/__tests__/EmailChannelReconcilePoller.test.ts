@@ -127,8 +127,10 @@ describe('EmailChannelReconcilePoller — runOnce', () => {
     expect(notExistsBlock).not.toBeNull();
     expect(notExistsBlock![0]).not.toMatch(/archived_at/);
 
-    // Defense-in-depth: confirm we DO join accounts and filter on subscription_status='active'.
-    expect(text).toMatch(/subscription_status\s*=\s*'active'/);
+    // Defense-in-depth: confirm we DO join accounts and filter on entitled
+    // statuses (active or trialing — trial accounts must get their approval
+    // email channel repaired too).
+    expect(text).toMatch(/subscription_status\s+IN\s*\(\s*'active',\s*'trialing'\s*\)/);
     expect(text).toMatch(/role\s*=\s*'owner'/);
     expect(text).toMatch(/auth_id\s+IS\s+NOT\s+NULL/);
     // After migration 034: candidate query joins via users.account_id and accounts

@@ -9,7 +9,7 @@
 
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import {
   TIER_CONFIG,
   type SubscriptionTierValue,
@@ -73,8 +73,11 @@ export async function validateTierChange(
     return { allowed: false, reason: 'same_tier' };
   }
 
-  // Only active subscriptions can change tiers
-  if (account.subscription_status !== SubscriptionStatus.ACTIVE) {
+  // Active or trialing subscriptions can change tiers. A mid-trial tier change
+  // mutates the base item with create_prorations, but Stripe does not invoice
+  // prorations on a trialing subscription — they accumulate and bill at trial
+  // end (PLAN.md §6, verified trial-safe via test-clock acceptance test).
+  if (!subscriptionGrantsFullAccess(account.subscription_status)) {
     return { allowed: false, reason: 'subscription_inactive' };
   }
 

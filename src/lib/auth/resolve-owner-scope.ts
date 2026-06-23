@@ -19,7 +19,10 @@ import { getRequestScope } from '@/lib/auth/get-request-scope';
 import { sql } from '@/lib/db/server';
 import { asAccountId, asLocationId, isValidUuid } from '@/lib/shared/ids';
 import type { AccountId, LocationId } from '@/lib/shared/ids';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import {
+  SubscriptionStatus,
+  subscriptionGrantsFullAccess,
+} from '@/lib/shared/subscription-status';
 import { computePastDueRecoveryState, type AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 
 export class ScopeError extends Error {
@@ -97,7 +100,7 @@ export async function resolveOwnerScope(
     if (recovery.isReadOnly && !options.allowReadOnly) {
       throw new ScopeError('past_due_read_only', 402);
     }
-  } else if (account.subscription_status !== SubscriptionStatus.ACTIVE) {
+  } else if (!subscriptionGrantsFullAccess(account.subscription_status)) {
     throw new ScopeError('subscription_inactive', 403);
   }
 

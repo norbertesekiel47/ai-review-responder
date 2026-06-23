@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRoleOr401, errorResponse } from '@/lib/auth/route-helpers';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { subscriptionAllowsDashboardRead } from '@/lib/shared/subscription-status';
 import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 import { whatsappEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
 import { CHANNEL_IDS } from '@/lib/notifications/channels/types';
@@ -48,10 +48,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     WHERE b.id = ${user.locationId}
   `;
   if (!accountRow) return errorResponse('not_found', 404);
-  if (
-    accountRow.subscription_status !== SubscriptionStatus.ACTIVE
-    && accountRow.subscription_status !== SubscriptionStatus.PAST_DUE
-  ) {
+  if (!subscriptionAllowsDashboardRead(accountRow.subscription_status)) {
     return errorResponse('subscription_not_active', 403);
   }
   const accountId = accountRow.id;

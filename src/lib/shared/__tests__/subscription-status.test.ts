@@ -8,6 +8,8 @@ import {
   SubscriptionStatus,
   type SubscriptionStatusValue,
   isSubscriptionStatus,
+  subscriptionAllowsDashboardRead,
+  subscriptionGrantsFullAccess,
 } from '../subscription-status';
 
 describe('SubscriptionStatus', () => {
@@ -19,6 +21,10 @@ describe('SubscriptionStatus', () => {
     expect(SubscriptionStatus.ACTIVE).toBe('active');
   });
 
+  it('contains trialing', () => {
+    expect(SubscriptionStatus.TRIALING).toBe('trialing');
+  });
+
   it('contains past_due', () => {
     expect(SubscriptionStatus.PAST_DUE).toBe('past_due');
   });
@@ -27,9 +33,9 @@ describe('SubscriptionStatus', () => {
     expect(SubscriptionStatus.CANCELLED).toBe('cancelled');
   });
 
-  it('has exactly 4 status values', () => {
+  it('has exactly 5 status values', () => {
     const values = Object.values(SubscriptionStatus);
-    expect(values).toHaveLength(4);
+    expect(values).toHaveLength(5);
   });
 
   it('all values are strings', () => {
@@ -47,10 +53,37 @@ describe('SubscriptionStatus', () => {
   });
 });
 
+describe('subscriptionGrantsFullAccess', () => {
+  it('grants full access to active and trialing', () => {
+    expect(subscriptionGrantsFullAccess('active')).toBe(true);
+    expect(subscriptionGrantsFullAccess('trialing')).toBe(true);
+  });
+
+  it('denies pending_payment, past_due, and cancelled', () => {
+    expect(subscriptionGrantsFullAccess('pending_payment')).toBe(false);
+    expect(subscriptionGrantsFullAccess('past_due')).toBe(false);
+    expect(subscriptionGrantsFullAccess('cancelled')).toBe(false);
+  });
+});
+
+describe('subscriptionAllowsDashboardRead', () => {
+  it('allows active and past_due and trialing', () => {
+    expect(subscriptionAllowsDashboardRead('active')).toBe(true);
+    expect(subscriptionAllowsDashboardRead('past_due')).toBe(true);
+    expect(subscriptionAllowsDashboardRead('trialing')).toBe(true);
+  });
+
+  it('denies pending_payment and cancelled', () => {
+    expect(subscriptionAllowsDashboardRead('pending_payment')).toBe(false);
+    expect(subscriptionAllowsDashboardRead('cancelled')).toBe(false);
+  });
+});
+
 describe('isSubscriptionStatus', () => {
-  it('returns true for all four canonical statuses', () => {
+  it('returns true for all five canonical statuses', () => {
     expect(isSubscriptionStatus('pending_payment')).toBe(true);
     expect(isSubscriptionStatus('active')).toBe(true);
+    expect(isSubscriptionStatus('trialing')).toBe(true);
     expect(isSubscriptionStatus('past_due')).toBe(true);
     expect(isSubscriptionStatus('cancelled')).toBe(true);
   });

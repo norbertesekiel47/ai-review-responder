@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { jsonResponse, errorResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import {
+  SubscriptionStatus,
+  subscriptionGrantsFullAccess,
+} from '@/lib/shared/subscription-status';
 import {
   getActiveDashboardData,
   BusinessNotFoundError,
@@ -69,6 +72,7 @@ async function fetchPerLocationData(
     google_maps_url: string | null;
     archived_at: Date | null;
     past_due_at: Date | string | null;
+    trial_ends_at: Date | string | null;
     flags: AccountFlagsInput;
     stripe_customer_id: string | null;
   }[]>`
@@ -76,7 +80,7 @@ async function fetchPerLocationData(
            b.owner_email, b.onboarded_by,
            b.place_id_verified, b.google_maps_url,
            b.archived_at,
-           a.past_due_at, a.flags, a.stripe_customer_id
+           a.past_due_at, a.trial_ends_at, a.flags, a.stripe_customer_id
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${locationId}
@@ -172,7 +176,7 @@ async function fetchPerLocationData(
   // CTA-only screen instead of the empty-state dashboard so they have
   // an obvious next action.
   if (
-    subRow.subscription_status === SubscriptionStatus.ACTIVE &&
+    subscriptionGrantsFullAccess(subRow.subscription_status) &&
     !subRow.place_id_verified &&
     subRow.google_maps_url === null
   ) {
@@ -189,17 +193,31 @@ async function fetchPerLocationData(
   // active path.
   const data = await getActiveDashboardData(locationId, { includeReputationMetrics: true });
 
+  // Surface the trial end (ISO) so DashboardContent can render the
+  // "Trial — N days left" banner. Non-null only while trialing
+  // (trial_ends_at IS NOT NULL ⟺ status='trialing').
+  const trialEndsAt = subRow.subscription_status === SubscriptionStatus.TRIALING
+    ? toIsoOrNull(subRow.trial_ends_at)
+    : null;
+
   // VAL-DASH-029: Attach scopeFallback indicator if a fallback occurred
   if (fallback) {
-    return jsonResponse({ ...data, ...fallback });
+    return jsonResponse({ ...data, trialEndsAt, ...fallback });
   }
 
-  return jsonResponse(data);
+  return jsonResponse({ ...data, trialEndsAt });
+}
+
+/** Normalize a Postgres.js timestamp (Date or string) to an ISO string or null. */
+function toIsoOrNull(value: Date | string | null): string | null {
+  if (value === null) return null;
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
 interface AggregateAccountRow {
   subscription_status: string;
   past_due_at: Date | string | null;
+  trial_ends_at: Date | string | null;
   flags: AccountFlagsInput;
   stripe_customer_id: string | null;
 }
@@ -263,7 +281,7 @@ async function aggregateSubscriptionResponse(
     });
   }
 
-  if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
+  if (!subscriptionGrantsFullAccess(accountRow.subscription_status)) {
     return jsonResponse({
       subscriptionStatus: accountRow.subscription_status,
     });
@@ -276,7 +294,7 @@ async function aggregateSubscriptionResponse(
 async function handleAggregateDashboard(accountId: string): Promise<NextResponse> {
   try {
     const [accountRow] = await sql<AggregateAccountRow[]>`
-      SELECT subscription_status, past_due_at, flags, stripe_customer_id
+      SELECT subscription_status, past_due_at, trial_ends_at, flags, stripe_customer_id
       FROM accounts
       WHERE id = ${accountId}::uuid
     `;
@@ -287,8 +305,11 @@ async function handleAggregateDashboard(accountId: string): Promise<NextResponse
     const gated = await aggregateSubscriptionResponse(accountRow, accountId);
     if (gated) return gated;
 
+    const trialEndsAt = accountRow.subscription_status === SubscriptionStatus.TRIALING
+      ? toIsoOrNull(accountRow.trial_ends_at)
+      : null;
     const data = await getAggregateDashboardData(accountId);
-    return jsonResponse(data);
+    return jsonResponse({ ...data, trialEndsAt });
   } catch (error) {
     reportCaughtError('api/dashboard', error, { accountId, scope: 'aggregate' });
     return errorResponse('Failed to fetch aggregate dashboard data', 500);

@@ -130,6 +130,37 @@ describe('getMarginReport', () => {
     expect(data.platform.riskLevel).toBe('none');
   });
 
+  it('treats trialing accounts as a $0-revenue cohort: their cost shows but contributes $0 to revenue/margin', async () => {
+    // A trialing account on a standard plan ($79) with real LLM cost. It must NOT
+    // add $79 to totalRevenueUsd (it is charged $0 during the trial), and its
+    // costPctOfMrr must be null (no revenue to compare against) — but its cost
+    // still appears in the row and in platform COGS.
+    mockSqlResults[0] = [
+      { id: 'acct-paid', display_name: 'Paid', subscription_tier: 'standard', subscription_status: 'active', locations_included: 1, locations_overage_price_cents: 2500, base_price_cents: 7900, active_locations: 1 },
+      { id: 'acct-trial', display_name: 'Trial', subscription_tier: 'standard', subscription_status: 'trialing', locations_included: 1, locations_overage_price_cents: 2500, base_price_cents: 7900, active_locations: 1 },
+    ];
+    mockSqlResults[1] = [
+      { account_id: 'acct-paid', api_cost_usd: 10, generation_count: 50, openai_count: 50, anthropic_count: 0, generation_cost_usd: 10, flagged_count: 0 },
+      { account_id: 'acct-trial', api_cost_usd: 8, generation_count: 40, openai_count: 40, anthropic_count: 0, generation_cost_usd: 8, flagged_count: 0 },
+    ];
+    mockSqlResults[2] = [{ total_cost_usd: 18 }];
+
+    const data = await getMarginReport({ limit: 10 });
+
+    // Only the paid account's $79 counts toward revenue.
+    expect(data.platform.totalRevenueUsd).toBe(79);
+
+    const trialRow = data.topAccountsByCost.find((r) => r.accountId === 'acct-trial')!;
+    expect(trialRow.subscriptionStatus).toBe('trialing');
+    expect(trialRow.mrrUsd).toBe(0);
+    expect(trialRow.costPctOfMrr).toBeNull();
+    expect(trialRow.riskLevel).toBe('none');
+    // Trial cost is still visible (the point of showing the cohort).
+    expect(trialRow.variableApiCostUsd).toBe(8);
+    // Platform COGS includes the trial's cost.
+    expect(data.platform.variableApiCogsUsd).toBe(18);
+  });
+
   it('handles an account with cost but zero MRR (costPct null, risk none)', async () => {
     mockSqlResults[0] = [
       { id: 'acct-x', display_name: 'X', subscription_tier: 'mystery', subscription_status: 'active', locations_included: 1, locations_overage_price_cents: 0, base_price_cents: 7900, active_locations: 1 },

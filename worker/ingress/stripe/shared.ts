@@ -38,6 +38,22 @@ export function extractSubscriptionId(subscription: string | Stripe.Subscription
   return typeof subscription === 'string' ? subscription : subscription.id;
 }
 
+/**
+ * Pull the subscription id off an invoice across Stripe API-version shapes.
+ * Newer endpoint versions move it under `parent.subscription_details`; older
+ * ones keep a flat `subscription`. Single owner for both invoice handlers
+ * (invoice.paid trial-convert + invoice.payment_failed trial card-fail).
+ */
+export function invoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
+  const raw = invoice as unknown as {
+    subscription?: string | Stripe.Subscription | null;
+    parent?: { subscription_details?: { subscription?: string | Stripe.Subscription | null } };
+  };
+  return extractSubscriptionId(
+    raw.subscription ?? raw.parent?.subscription_details?.subscription ?? null,
+  );
+}
+
 // Canonical UUID 8-4-4-4-12 hex shape — accepts all version digits (we use
 // v7 from the `uuid` package, but legacy admin rows may be v4). Same regex
 // + reasoning as worker/ingress/twilio/twilio-whatsapp.ts:154.
@@ -85,7 +101,7 @@ export async function maybeEnqueueBackfillResume(businessId: string): Promise<vo
     WHERE zc.business_id = ${businessId}::uuid
       AND zc.status = 'active'
       AND b.archived_at IS NULL
-      AND a.subscription_status = 'active'  -- enum: SubscriptionStatus.ACTIVE
+      AND a.subscription_status IN ('active', 'trialing')  -- enum: SubscriptionStatus.ACTIVE / .TRIALING
       AND a.subscription_activated_at IS NOT NULL
       AND NOT EXISTS (
         SELECT 1 FROM zernio_backfill_runs br

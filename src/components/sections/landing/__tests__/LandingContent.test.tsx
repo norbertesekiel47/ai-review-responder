@@ -24,6 +24,32 @@ describe('LandingContent', () => {
     expect(html).toContain('href="/how-it-works"');
   });
 
+  it('when trial is enabled, the hero CTA links to /signup (not the waitlist)', () => {
+    const html = renderToStaticMarkup(
+      createElement(LandingContent, { trialEnabled: true, selfServeEnabled: true, trialDays: 30 }),
+    );
+
+    // Trial CTA copy is shown...
+    expect(html).toContain('Start your 30-day free trial');
+    // ...and it is a navigation to self-serve signup, rendered as the pill CTA
+    // (an <a>), NOT a scroll-to-waitlist <button>. The trial label sits inside an
+    // anchor that points at /signup.
+    const trialAnchor = html.match(
+      /<a[^>]*>Start your 30-day free trial<\/a>/,
+    )?.[0];
+    expect(trialAnchor).toBeDefined();
+    expect(trialAnchor!).toContain('href="/signup"');
+    expect(trialAnchor!).toContain('rw-btn-pill');
+  });
+
+  it('without trial, the hero CTA is the waitlist scroll button (no /signup link)', () => {
+    const html = renderToStaticMarkup(createElement(LandingContent));
+
+    expect(html).toContain('Join waitlist');
+    // No anchor pill CTA pointing at /signup in waitlist mode.
+    expect(html).not.toMatch(/<a[^>]*href="\/signup"[^>]*>/);
+  });
+
   it('does not present fabricated live metrics or named reviewers', () => {
     const html = renderToStaticMarkup(createElement(LandingContent));
 

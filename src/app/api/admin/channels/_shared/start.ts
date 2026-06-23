@@ -12,7 +12,7 @@ import QRCode from 'qrcode';
 import { sql } from '@/lib/db/server';
 import { startMobileEnrollment, type MobileChannel } from '@/lib/channels/mobile-enrollment';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
 import { TOKEN_TTL_MS } from '@/lib/notifications/channels/constants';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
@@ -58,7 +58,7 @@ export async function runAdminChannelStart(
     WHERE b.id = ${businessId}
   `;
   if (!accountRow) return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
+  if (!subscriptionGrantsFullAccess(accountRow.subscription_status)) {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
   const accountId = accountRow.id;

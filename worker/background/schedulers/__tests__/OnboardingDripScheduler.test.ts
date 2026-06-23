@@ -82,6 +82,54 @@ describe('OnboardingDripScheduler', () => {
     expect(mockLogger.log).toHaveBeenCalledWith(expect.stringContaining('Queued 1 onboarding_drip outbox entries'));
   });
 
+  it('FIX 1: selects trialing accounts whose businesses.subscription_activated_at is set (and gates on the anchor)', async () => {
+    // The due-drips query is the gate: a trialing account with the businesses
+    // anchor set must be eligible for drip scheduling. Pin the query shape — the
+    // scheduler selects status IN (active, trialing) AND the businesses anchor is
+    // non-null — so a trialing account with a set anchor is selected and a null
+    // anchor is excluded.
+    const now = new Date('2026-04-16T12:00:00Z');
+    vi.setSystemTime(now);
+
+    // The mock returns whatever the query "found" — here, a due trialing biz.
+    sqlReturnQueue.push([{ business_id: 'trial-biz-1', drip_type: 'day_1' }]);
+    sqlReturnQueue.push(Object.assign([], { count: 1 }));
+
+    const mod = await import('../OnboardingDripScheduler');
+    await mod.checkAndSchedule();
+
+    const dueQueryCall = mockSql.mock.calls[0]!;
+    const dueQueryText = Array.from(dueQueryCall[0] as TemplateStringsArray).join('');
+    // Trialing accounts are in scope alongside active.
+    expect(dueQueryText).toMatch(/subscription_status\s+IN\s*\(\s*'active',\s*'trialing'\s*\)/i);
+    // The businesses-mirror anchor (FIX 1) is the gate — null anchor is excluded.
+    expect(dueQueryText).toMatch(/b\.subscription_activated_at\s+IS\s+NOT\s+NULL/i);
+
+    // A trialing account WITH a set anchor was selected → it gets queued.
+    expect(mockLogger.log).toHaveBeenCalledWith(
+      expect.stringContaining('Queued 1 onboarding_drip outbox entries'),
+    );
+  });
+
+  it('FIX 1: a trialing account with a NULL businesses anchor is NOT scheduled', async () => {
+    // The query's `b.subscription_activated_at IS NOT NULL` predicate means a
+    // trialing account whose anchor never got mirrored returns no rows → nothing
+    // queued. Model the empty result the predicate produces.
+    const now = new Date('2026-04-16T12:00:00Z');
+    vi.setSystemTime(now);
+
+    sqlReturnQueue.push([]); // anchor null → predicate excludes it
+
+    const mod = await import('../OnboardingDripScheduler');
+    await mod.checkAndSchedule();
+
+    // Only the due-drips query ran; no INSERTs because nothing was due.
+    expect(mockSql).toHaveBeenCalledTimes(1);
+    expect(mockLogger.log).not.toHaveBeenCalledWith(
+      expect.stringContaining('Queued'),
+    );
+  });
+
   it('does NOT queue day_7 when only 3 days have passed', async () => {
     // Activated 3 days ago — day_1 already sent, day_7 and day_30 not due
     const now = new Date('2026-04-16T12:00:00Z');

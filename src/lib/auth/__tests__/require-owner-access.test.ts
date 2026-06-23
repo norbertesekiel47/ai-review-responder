@@ -183,6 +183,17 @@ describe('requireOwnerAccess', () => {
     expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, null);
   });
 
+  it('allows trialing owners (treated like active)', async () => {
+    mockSql.mockImplementation(() =>
+      Promise.resolve([{ role: 'owner', account_id: ACCOUNT_ID, subscription_status: 'trialing', email: EMAIL }]),
+    );
+
+    const result = await requireOwnerAccess();
+
+    expect(result.accountId).toBe(ACCOUNT_ID);
+    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, null);
+  });
+
   it('redirects when subscription_status is neither active nor past_due', async () => {
     mockSql.mockImplementation(() =>
       Promise.resolve([{ role: 'owner', account_id: ACCOUNT_ID, subscription_status: 'pending_payment', email: EMAIL }]),

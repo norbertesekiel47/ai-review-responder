@@ -199,6 +199,15 @@ describe('scanFile — subscription-status bare literal (deep-scan §7.1; repwor
     expect(findings.some((f) => f.rule === 'subscription-status-literal')).toBe(true);
   });
 
+  it("flags the new 'trialing' status literal (enum invariant covers trialing too)", () => {
+    // Regression: the trial feature added 'trialing' to SubscriptionStatus, so a
+    // bare 'trialing' literal on a subscription_status line must be flagged just
+    // like the other four canonical statuses — otherwise CI silently stops
+    // enforcing the enum invariant for the new status.
+    const findings = scanFile('worker/jobs/x.ts', "if (row.subscription_status === 'trialing') {}");
+    expect(findings.some((f) => f.rule === 'subscription-status-literal')).toBe(true);
+  });
+
   it('does NOT flag another status domain on a line without a subscription field', () => {
     // The trap: connection / review status literals must never be migrated.
     expect(scanFile('src/x.ts', "if (conn.status === 'active') return null;")).toHaveLength(0);
@@ -230,8 +239,8 @@ describe('scanFile — subscription-status bare literal (deep-scan §7.1; repwor
 
   it('honors the allowlist line-precisely (allowlisted line passes; same file, other line fails)', () => {
     const literal = "  subscriptionStatus: 'past_due';";
-    // dashboard/types.ts:105 is an allowlisted type-discriminant — land the literal on line 105.
-    const onAllowlistedLine = Array(104).fill('').join('\n') + '\n' + literal;
+    // dashboard/types.ts:112 is an allowlisted type-discriminant — land the literal on line 112.
+    const onAllowlistedLine = Array(111).fill('').join('\n') + '\n' + literal;
     expect(scanFile('src/lib/dashboard/types.ts', onAllowlistedLine)).toHaveLength(0);
     // Same file, line 1 (NOT allowlisted) — the carve-out is line-precise, not file-wide.
     expect(scanFile('src/lib/dashboard/types.ts', literal)).toHaveLength(1);
@@ -239,8 +248,8 @@ describe('scanFile — subscription-status bare literal (deep-scan §7.1; repwor
 
   it('exposes a non-empty, reviewed carve-out allowlist', () => {
     expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.size).toBeGreaterThan(0);
-    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('worker/ingress/stripe/shared.ts:88')).toBe(true);
-    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('src/lib/dashboard/types.ts:105')).toBe(true);
+    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('worker/ingress/stripe/shared.ts:104')).toBe(true);
+    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('src/lib/dashboard/types.ts:112')).toBe(true);
   });
 });
 

@@ -155,3 +155,58 @@ export function PastDueBanner({
     </div>
   );
 }
+
+interface TrialBannerProps {
+  /** ISO timestamp when the trial ends. */
+  trialEndsAt: string;
+}
+
+const TRIAL_DEADLINE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+});
+
+/**
+ * "Trial — N days left" banner. Shown while the account is trialing. Calm and
+ * truthful: states the days left, the charge date, and where to manage billing.
+ * No urgency theatrics — the card is already captured and Stripe auto-charges
+ * at trial end.
+ */
+function computeTrialDaysRemaining(trialEndsAt: string): number {
+  const msRemaining = new Date(trialEndsAt).getTime() - Date.now();
+  return Math.max(0, Math.ceil(msRemaining / 86_400_000));
+}
+
+export function TrialBanner({ trialEndsAt }: TrialBannerProps) {
+  const endDate = new Date(trialEndsAt);
+  // Snapshot "now" once at mount via a state initializer — reading Date.now()
+  // directly in the render body is impure (react-hooks/purity). The banner does
+  // not need a live ticking countdown; a per-render value is fine and stable.
+  const [daysRemaining] = useState(() => computeTrialDaysRemaining(trialEndsAt));
+  const daysCopy =
+    daysRemaining === 0
+      ? 'Your trial ends today'
+      : daysRemaining === 1
+        ? '1 day left in your free trial'
+        : `${daysRemaining} days left in your free trial`;
+  const deadlineCopy = TRIAL_DEADLINE_FORMATTER.format(endDate);
+
+  return (
+    <div className="sub-status-banner sub-status-banner--trial">
+      <div className="sub-status-banner__icon">
+        <Icon name="sparkle" size={20} />
+      </div>
+      <div className="sub-status-banner__content">
+        <div className="sub-status-banner__title">{daysCopy}</div>
+        <div className="sub-status-banner__body">
+          You have full access to RepWorth. Your card is charged automatically on{' '}
+          <strong>{deadlineCopy}</strong> unless you cancel before then.{' '}
+          <Link className="sub-status-banner__link" href="/settings/billing">
+            Manage billing →
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}

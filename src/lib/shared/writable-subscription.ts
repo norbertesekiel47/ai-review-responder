@@ -12,7 +12,10 @@ import {
   type AccountFlagsInput,
   type PastDueRecoveryState,
 } from './past-due-recovery';
-import { SubscriptionStatus } from './subscription-status';
+import {
+  SubscriptionStatus,
+  subscriptionGrantsFullAccess,
+} from './subscription-status';
 
 export type WritableSubscriptionResult =
   | { ok: true }
@@ -48,7 +51,7 @@ export function assertWritableSubscription(
 export function assertWritableSubscriptionStatus(
   input: WritableSubscriptionStatusInput,
 ): WritableSubscriptionResult {
-  if (input.subscriptionStatus === SubscriptionStatus.ACTIVE) {
+  if (subscriptionGrantsFullAccess(input.subscriptionStatus)) {
     return { ok: true };
   }
 
@@ -254,7 +257,7 @@ export async function resolveWritableAccountForLocation(
       accountFlags: accountRow.flags,
     }));
     if (!writable.ok) return { kind: 'blocked', status: writable.status, error: writable.error };
-  } else if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
+  } else if (!subscriptionGrantsFullAccess(accountRow.subscription_status)) {
     return { kind: 'blocked', status: 403, error: 'subscription_not_active' };
   }
 

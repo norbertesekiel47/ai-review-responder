@@ -6,6 +6,8 @@ import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { tierForBasePriceId } from '../../../src/lib/payments/price-tier-map';
 import { resolveOverageItem } from '../../../src/lib/payments/overage-item';
 import { LOG_PREFIX, extractCustomerId, AccountNotProvisionedYetError } from './shared';
+import { applyStripeSubscriptionState } from './apply-subscription-state';
+import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 
 export async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<void> {
   const subscriptionId = sub.id;
@@ -27,20 +29,19 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
   // "first item not in the env overage set" — after an overage price rotation
   // a grandfathered overage item is outside the env set and, if it sorts
   // first, the old negative match would mis-pick it as the base item.
+  //
+  // FIX 3: tier resolution is computed here but is NO LONGER an early-return
+  // gate. An unmapped/rotated/grandfathered base price must NOT block trial
+  // conversion — the conversion path below runs even when `tier` is null (only
+  // the tier/locations sync is skipped). Previously this returned early, so a
+  // converting trial whose base price wasn't in the map only healed via the
+  // hourly reconcile poller.
   const baseItem = items.find(
     (item) => item.price?.id != null && tierForBasePriceId(item.price.id) !== null,
   );
-  if (!baseItem?.price?.id) {
-    console.warn(`${LOG_PREFIX} customer.subscription.updated missing base price ID for customer=${customerId} — skipping tier update`);
-    return;
-  }
-
-  const basePriceId = baseItem.price.id;
-  const tier: SubscriptionTierValue | null = tierForBasePriceId(basePriceId);
-  if (!tier) {
-    console.warn(`${LOG_PREFIX} Unknown base price ID ${basePriceId} for customer=${customerId} — skipping tier update`);
-    return;
-  }
+  const tier: SubscriptionTierValue | null = baseItem?.price?.id
+    ? tierForBasePriceId(baseItem.price.id)
+    : null;
 
   // VAL-BILLING-062: advisory lock prevents concurrent tier/overage writes.
   await sql.begin(async (tx) => {
@@ -101,6 +102,36 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
     }
 
     await tx`SELECT pg_advisory_xact_lock(hashtext(${acctRow.id + ':subscription_update'}))`;
+
+    // Trial conversion: Stripe emits customer.subscription.updated with
+    // status='active' when a trial converts. Convert trialing→active through the
+    // SINGLE applier (subscription mode), in THIS tx, ONLY when the event's
+    // subscription status is 'active' (plan §4.12 — the $0 trial-start invoice
+    // can't flip the status early). The applier's transition table makes this a
+    // no-op for any other source status, so it is safe to call whenever the
+    // account is trialing.
+    //
+    // FIX 3: this runs BEFORE the tier-resolution gate below, so conversion is
+    // independent of a successful base-price→tier mapping (an unmapped/rotated
+    // price still converts via webhook, not only via the reconcile poller).
+    if (
+      acctRow.subscription_status === SubscriptionStatus.TRIALING
+      && sub.status === 'active'
+    ) {
+      await applyStripeSubscriptionState(
+        tx,
+        { mode: 'subscription', stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId },
+        sub,
+      );
+    }
+
+    // FIX 3: tier/locations sync only when the base price maps to a known tier.
+    // An unmapped base price skips the sync (the reconcile poller / a later
+    // mapped event heals tier drift) but never blocks the conversion above.
+    if (!tier) {
+      console.warn(`${LOG_PREFIX} customer.subscription.updated unmapped base price for customer=${customerId} — skipping tier/locations sync (conversion, if any, already applied)`);
+      return;
+    }
 
     // VAL-BILLING-010: overage item quantity -> accounts.locations_paid.
     // VAL-BILLING-011: tolerate legacy single-item subscriptions (quantity 0).

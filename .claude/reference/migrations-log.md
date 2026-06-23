@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **068** — next migration is **069**
+Current head: **069** — next migration is **070**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -637,6 +637,23 @@ Revisit triggers:
   ('approved','edited','awaiting_owner_connect') AND approval_method IS NULL GROUP
   BY status;`
 
+- **069** — Card-up-front Stripe-native 30-day free trial (PLAN.md rev 6). Two
+  additive, idempotent, non-destructive changes — **NO new column, NO data
+  backfill**. (1) Clarifying `COMMENT ON COLUMN accounts.subscription_activated_at`
+  documenting it as the **service-start anchor** (set at TRIAL START for trialing
+  accounts, at first payment otherwise — NOT necessarily first-payment date; ~47
+  downstream consumers reuse it). Rev-3's separate `entitlement_started_at` column
+  was rejected (Codex round 4 concurred). The explicit `'trialing'`
+  `subscription_status` is a new VARCHAR value; `accounts.subscription_status` has
+  **no CHECK constraint** (confirmed by sweep), so nothing to alter there.
+  `accounts.trial_ends_at` already exists (migration 034). (2) Replaces
+  `analytics_events_event_name_check` (from 058) to add the four durable
+  server-side trial lifecycle events: `trial_started`, `trial_converted`,
+  `trial_payment_failed`, `trial_cancelled` — keep in lockstep with
+  `ANALYTICS_EVENT_NAMES` (drift-guard: `pnpm ci:analytics-events`). Transactional
+  (no CONCURRENTLY). Apply staging-first, then production, both Supabase projects
+  in lockstep.
+
 ## Key Tables Reference
 
 | Table | Purpose |
@@ -681,10 +698,20 @@ Revisit triggers:
 
 ## Business Subscription Lifecycle
 
-`'pending_payment'` (default) → `'active'` → `'past_due'` | `'cancelled'`
+`'pending_payment'` (default) → `'trialing'` (card-up-front trial) → `'active'`
+→ `'past_due'` | `'cancelled'`
+(or `'pending_payment'` → `'active'` directly for pay-now / non-trial.)
 
-Stripe `checkout.session.completed` transitions to `active`.
-ReconciliationPoller only polls `active` businesses.
+Stripe `checkout.session.completed` transitions to `active` (pay-now) or
+`trialing` (when the Checkout Session carried `subscription_data.trial_period_days`
+and Stripe returns the subscription `status='trialing'`). Conversion
+`trialing → active` happens via `customer.subscription.updated`/`invoice.paid`
+only when the retrieved Stripe status is `active` (the $0 trial-start invoice does
+NOT convert). DB status is a projection written by ONE applier
+(`applyStripeSubscriptionState`, `worker/ingress/stripe/apply-subscription-state.ts`)
+and backstopped by the billing reconcile poller, which has scoped corrective
+authority for stuck `trialing` rows. Invariant: `trial_ends_at IS NOT NULL ⟺
+status='trialing'`.
 
 **`pending_payment` trial scope:** ONE initial sync fires. Reviews ingested,
 responses generated (visible in admin). But `NotificationWorker` and

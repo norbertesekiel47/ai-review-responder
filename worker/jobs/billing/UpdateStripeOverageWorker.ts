@@ -24,7 +24,7 @@ import { TIER_CONFIG, type SubscriptionTierValue } from '../../../src/lib/accoun
 import { overagePriceIdForTier } from '../../../src/lib/payments/price-tier-map';
 import { computeOverageQuantity } from '../../../src/lib/accounts/quota';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
-import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
+import { subscriptionGrantsFullAccess } from '../../../src/lib/shared/subscription-status';
 import { classifyStripeOverageError } from './stripe-overage-error';
 import { syncStripeOverageItem, type OverageSyncOutcome } from './overage-sync';
 
@@ -76,8 +76,11 @@ export async function handleUpdateStripeOverage(
     return;
   }
 
-  // Skip if subscription is not active (cancelled, pending, etc.)
-  if (account.subscription_status !== SubscriptionStatus.ACTIVE) {
+  // Skip if subscription is not entitled (cancelled, pending, etc.). Trialing is
+  // allowed: a mid-trial add-location must sync the Stripe quantity now, and
+  // Stripe does not invoice the proration until trial end (PLAN.md §6 —
+  // verified trial-safe, $0 until trial_end).
+  if (!subscriptionGrantsFullAccess(account.subscription_status)) {
     logger.log(`Account ${account_id} subscription status is ${account.subscription_status} — skipping overage update`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;

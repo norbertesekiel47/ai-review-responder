@@ -164,6 +164,19 @@ describe('resolveOwnerScope', () => {
     expect(mockGetRequestScope).not.toHaveBeenCalled();
   });
 
+  it('trialing subscription resolves scope (treated like active)', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockSql.mockResolvedValueOnce([{ subscription_status: 'trialing', past_due_at: null, flags: {} }]);
+    const { resolveOwnerScope } = await importResolveOwnerScope();
+
+    await expect(resolveOwnerScope(makeRequest())).resolves.toEqual({
+      accountId: ACCOUNT_ID,
+      locationId: LOCATION_ID,
+      userId: USER_ID,
+    });
+    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, null);
+  });
+
   it('past_due subscription inside recovery window resolves scope', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     mockSql.mockResolvedValueOnce([{

@@ -77,12 +77,14 @@ function ownerUser() {
   };
 }
 
-function accountRow(status: string) {
+function accountRow(status: string, onboardedBy: string | null = null) {
   return {
     id: ACCOUNT_ID,
     subscription_tier: 'standard',
     subscription_status: status,
     owner_email: 'owner@test.com',
+    // Self-serve discriminator (FIX 2): NULL = self-serve, non-null = admin handoff.
+    onboarded_by: onboardedBy,
   };
 }
 
@@ -112,7 +114,103 @@ describe('POST /api/billing/checkout', () => {
       ACCOUNT_ID,
       'standard',
       'owner@test.com',
+      { trial: false },
     );
+  });
+
+  it('passes trial:true to createCheckoutSession when TRIAL_ENABLED + SELF_SERVE_SIGNUP_ENABLED on and pending_payment', async () => {
+    const prevTrial = process.env.TRIAL_ENABLED;
+    const prevSelfServe = process.env.SELF_SERVE_SIGNUP_ENABLED;
+    process.env.TRIAL_ENABLED = 'true';
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+    try {
+      const res = await POST(mkRequest({ accountId: ACCOUNT_ID }));
+      expect(res.status).toBe(200);
+      expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+        ACCOUNT_ID,
+        'standard',
+        'owner@test.com',
+        { trial: true },
+      );
+    } finally {
+      if (prevTrial === undefined) delete process.env.TRIAL_ENABLED;
+      else process.env.TRIAL_ENABLED = prevTrial;
+      if (prevSelfServe === undefined) delete process.env.SELF_SERVE_SIGNUP_ENABLED;
+      else process.env.SELF_SERVE_SIGNUP_ENABLED = prevSelfServe;
+    }
+  });
+
+  it('FIX 2: admin-onboarded (onboarded_by non-null) pending_payment account gets a NORMAL paid checkout, not a trial', async () => {
+    const prevTrial = process.env.TRIAL_ENABLED;
+    const prevSelfServe = process.env.SELF_SERVE_SIGNUP_ENABLED;
+    process.env.TRIAL_ENABLED = 'true';
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+    // Admin/partner-onboarded account: onboarded_by is a user id, not null.
+    mockSql.mockResolvedValueOnce([
+      accountRow(SubscriptionStatus.PENDING_PAYMENT, 'admin-user-id-1'),
+    ]);
+    try {
+      const res = await POST(mkRequest({ accountId: ACCOUNT_ID }));
+      expect(res.status).toBe(200);
+      expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+        ACCOUNT_ID,
+        'standard',
+        'owner@test.com',
+        { trial: false },
+      );
+    } finally {
+      if (prevTrial === undefined) delete process.env.TRIAL_ENABLED;
+      else process.env.TRIAL_ENABLED = prevTrial;
+      if (prevSelfServe === undefined) delete process.env.SELF_SERVE_SIGNUP_ENABLED;
+      else process.env.SELF_SERVE_SIGNUP_ENABLED = prevSelfServe;
+    }
+  });
+
+  it('FIX 2: self-serve (onboarded_by null) pending_payment account WITH flags on gets a trial', async () => {
+    const prevTrial = process.env.TRIAL_ENABLED;
+    const prevSelfServe = process.env.SELF_SERVE_SIGNUP_ENABLED;
+    process.env.TRIAL_ENABLED = 'true';
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+    mockSql.mockResolvedValueOnce([
+      accountRow(SubscriptionStatus.PENDING_PAYMENT, null),
+    ]);
+    try {
+      const res = await POST(mkRequest({ accountId: ACCOUNT_ID }));
+      expect(res.status).toBe(200);
+      expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+        ACCOUNT_ID,
+        'standard',
+        'owner@test.com',
+        { trial: true },
+      );
+    } finally {
+      if (prevTrial === undefined) delete process.env.TRIAL_ENABLED;
+      else process.env.TRIAL_ENABLED = prevTrial;
+      if (prevSelfServe === undefined) delete process.env.SELF_SERVE_SIGNUP_ENABLED;
+      else process.env.SELF_SERVE_SIGNUP_ENABLED = prevSelfServe;
+    }
+  });
+
+  it('does NOT grant a trial when SELF_SERVE_SIGNUP_ENABLED is off (non-self-serve pending_payment gets paid checkout)', async () => {
+    const prevTrial = process.env.TRIAL_ENABLED;
+    const prevSelfServe = process.env.SELF_SERVE_SIGNUP_ENABLED;
+    process.env.TRIAL_ENABLED = 'true';
+    delete process.env.SELF_SERVE_SIGNUP_ENABLED;
+    try {
+      const res = await POST(mkRequest({ accountId: ACCOUNT_ID }));
+      expect(res.status).toBe(200);
+      expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+        ACCOUNT_ID,
+        'standard',
+        'owner@test.com',
+        { trial: false },
+      );
+    } finally {
+      if (prevTrial === undefined) delete process.env.TRIAL_ENABLED;
+      else process.env.TRIAL_ENABLED = prevTrial;
+      if (prevSelfServe === undefined) delete process.env.SELF_SERVE_SIGNUP_ENABLED;
+      else process.env.SELF_SERVE_SIGNUP_ENABLED = prevSelfServe;
+    }
   });
 
   it('rejects past_due accounts without creating a duplicate checkout subscription', async () => {
@@ -125,6 +223,20 @@ describe('POST /api/billing/checkout', () => {
     expect(body).toEqual({
       error: 'account_already_active',
       subscriptionStatus: SubscriptionStatus.PAST_DUE,
+    });
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects trialing accounts without creating a duplicate subscription', async () => {
+    mockSql.mockResolvedValueOnce([accountRow(SubscriptionStatus.TRIALING)]);
+
+    const res = await POST(mkRequest({ accountId: ACCOUNT_ID }));
+    const body = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(body).toEqual({
+      error: 'account_already_active',
+      subscriptionStatus: SubscriptionStatus.TRIALING,
     });
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });

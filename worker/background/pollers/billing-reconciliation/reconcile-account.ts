@@ -8,6 +8,9 @@
 // orchestrator's per-account catch records it without marking the account checked.
 
 import Stripe from 'stripe';
+import { sql } from '../../../../src/lib/db/server';
+import { applyStripeSubscriptionState } from '../../../ingress/stripe/apply-subscription-state';
+import { SubscriptionStatus } from '../../../../src/lib/shared/subscription-status';
 import { isSubscriptionTier, TIER_CONFIG } from '../../../../src/lib/accounts/tier-config';
 import { resolveOverageItem } from '../../../../src/lib/payments/overage-item';
 import {
@@ -139,16 +142,45 @@ export async function reconcileAccount(
     }
   }
 
-  // deep-scan §6.5: RepWorth sells no trial today, so a Stripe 'trialing' status
-  // cannot occur — but if a Price ever carries a trial, 'trialing' would diverge
-  // from our 'active' DB status and false-alert status_mismatch hourly. Tolerate
-  // it explicitly HERE (not in isExpectedStatusWindow, which is gated on our
-  // status being past_due and would never see this case). Revisit when trials
-  // become a real feature.
+  // Trial reconciliation with SCOPED CORRECTIVE AUTHORITY (PLAN.md §5).
+  //   - DB trialing ↔ Stripe trialing = the expected steady state (no drift).
+  //   - A DB `trialing` row whose Stripe status has MOVED (active / canceled /
+  //     past_due — e.g. a missed conversion webhook) is the ONE drift this
+  //     poller AUTO-CORRECTS, by re-running the single applier in a tx. This
+  //     guarantees no entitlement depends on a single webhook. Read-time
+  //     `trial_ends_at>now` guards were rejected (can't tell expired-unpaid from
+  //     converted-paid); Stripe's current status is the authority.
+  const dbTrialing = account.subscription_status === SubscriptionStatus.TRIALING;
   const stripeTrialing = subscription.status === 'trialing';
+  if (dbTrialing && !stripeTrialing && account.stripe_subscription_id) {
+    await sql.begin(async (tx) => {
+      await applyStripeSubscriptionState(
+        tx,
+        {
+          mode: 'subscription',
+          stripeCustomerId: extractStripeCustomerId(subscription.customer) ?? account.stripe_customer_id ?? '',
+          stripeSubscriptionId: account.stripe_subscription_id!,
+        },
+        subscription,
+      );
+    });
+    logger.warn('Corrected stuck trialing row to match Stripe', {
+      account_id: account.id,
+      stripe_status: subscription.status,
+    });
+    // The row is now consistent; skip the remaining drift checks this cycle.
+    return { accountsChecked: 1, drifts, errors };
+  }
+
+  // PLAN.md §5/§15: a DB-`trialing` row whose Stripe status moved is auto-corrected
+  // above (early return). The remaining Stripe-`trialing` case here is DB-NON-trialing
+  // vs Stripe-`trialing` (e.g. DB `active`/`past_due`/`pending_payment`), which is a
+  // genuine anomaly the plan requires SURFACED — not silently hidden. The old
+  // `&& !stripeTrialing` blanket suppression hid it; it is intentionally gone. (The
+  // benign DB-`trialing`↔Stripe-`trialing` steady state never reaches here as a
+  // mismatch because the statuses are equal.)
   if (
     subscription.status !== account.subscription_status
-    && !stripeTrialing
     && !isExpectedStatusWindow(expectedAccount, subscription.status)
   ) {
     drifts.push({
