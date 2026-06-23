@@ -15,10 +15,9 @@ import type { AddLocationState } from '@/components/dashboard/settings/Locations
 import { getLocationsForAccount, getActiveLocationCount, getArchivedLocationsForAccount } from '@/lib/locations/repo';
 import {
   canAddLocationForAccount,
+  lockedAddLocationReason,
   shouldShowLocationsSettings,
 } from '@/lib/locations/multi-location-mode';
-import { SubscriptionTier } from '@/lib/accounts/tier-config';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,14 +44,17 @@ export default async function LocationsPage() {
 
   const voiceHref = '/settings/voice';
 
-  const addLocationState: AddLocationState = canAddLocationForAccount(
+  const canAdd = canAddLocationForAccount(
     featureEnabled,
     account?.subscription_tier ?? '',
     account?.subscription_status ?? '',
-  )
+  );
+  const addLocationState: AddLocationState = canAdd
     ? { kind: 'enabled' }
-    : account?.subscription_status === SubscriptionStatus.ACTIVE
-      && account.subscription_tier === SubscriptionTier.BASIC
+    : lockedAddLocationReason(
+          account?.subscription_tier ?? '',
+          account?.subscription_status ?? '',
+        ) === 'upgrade'
       ? {
           kind: 'locked',
           title: 'Upgrade to add locations',
