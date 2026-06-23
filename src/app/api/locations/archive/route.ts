@@ -55,6 +55,10 @@ const ArchiveLocationSchema = z.object({
  * The notification context will skip dispatch for archived locations.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  // Intentionally NOT offboarding-gated (OVERAGE-F5). The isBillingMutationBlocked
+  // gate on add/reactivate freezes billing-EXPANDING mutations during offboarding.
+  // Archive is billing-CONTRACTING (it decrements overage quantity) — gating it
+  // would trap an offboarding customer at a higher bill. Exempt by design.
   const reqCtx = await readLocationActionRequest(req, ArchiveLocationSchema);
   if (!reqCtx.ok) return reqCtx.response;
   const { locationId, accountId } = reqCtx.data;
