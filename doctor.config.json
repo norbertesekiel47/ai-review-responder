@@ -42,14 +42,6 @@
         "rules": ["react-doctor/server-sequential-independent-await"]
       },
       {
-        "files": ["src/app/admin/payment-success/page.tsx"],
-        "rules": [
-          "react-doctor/nextjs-no-client-fetch-for-server-data",
-          "react-doctor/nextjs-no-client-side-redirect",
-          "react-doctor/no-fetch-in-effect"
-        ]
-      },
-      {
         "files": ["src/app/api/admin/jobs/route.ts"],
         "rules": ["react-doctor/async-await-in-loop"]
       },

@@ -154,7 +154,6 @@ Next.js App Router pages, grouped by access level.
 | `demos/page.tsx` | Demo requests list. |
 | `notifications/page.tsx` | Notification delivery logs. |
 | `runbook/page.tsx` | Internal runbook (links to `NEXT_PUBLIC_DOCS_BASE_URL`). |
-| `payment-success/page.tsx` | Post-Stripe confirmation page. |
 | `impersonate/page.tsx` | **(Wave 2)** Admin support entry for starting an audited read-only view-as session. |
 | `impersonate/ImpersonationStartClient.tsx` | **(Wave 2)** Client form that posts account/user/ticket/reason to `/api/admin/impersonation/start` and follows the returned view URL. |
 | `impersonate/[sessionId]/view/page.tsx` | **(Wave 2)** Admin-owned read-only impersonation shell. Validates the signed cookie + active DB session; does not mount owner routes. |
@@ -170,7 +169,7 @@ Next.js App Router pages, grouped by access level.
 | `pay/page.tsx` | Stripe checkout step during owner onboarding. |
 | `pay/PlanPickerClient.tsx` | Plan tier picker; redirects to Stripe Payment Link. |
 | `payment-success/page.tsx` | Shown after payment. |
-| `payment-success/PaymentSuccessClient.tsx` | Polls `/api/admin/payment-success` until `subscription_status` flips to `active`. |
+| `payment-success/PaymentSuccessClient.tsx` | Polls `/api/auth/signup-status` until the subscription grants full access (paid or trial). |
 | `business/page.tsx` | 3-step onboarding wizard shell. |
 | `business/BusinessWizardClient.tsx` | Client orchestrator for the 3-step wizard. Tracks current step, validates each step before advancing. |
 | `business/ProgressDots.tsx` | Step progress indicator. |
@@ -270,7 +269,6 @@ POST: disconnects an active Zernio connection; marks `zernio_connections` status
 | `demos/generate/route.ts` | POST: queues a demo generation job via outbox. |
 | `jobs/route.ts` | GET queue health. |
 | `notifications/route.ts` | GET delivery logs. |
-| `payment-success/route.ts` | POST Stripe payment confirmation (writes to `job_outbox`). |
 | `billing/grant-extension/route.ts` | **(Wave 2)** Admin + current-AAL2 action that grants a short past_due extension in `accounts.flags` and writes `account_audit_log`. |
 | `impersonation/start/route.ts` | **(Wave 2)** Starts an audited one-hour admin impersonation session. Same-origin, admin, current AAL2, validates owner/account, sets a signed httpOnly cookie. |
 | `impersonation/end/route.ts` | **(Wave 2)** Ends the current signed impersonation session and clears the cookie. |

@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 377;
+export const ALLOWLIST_BASELINE = 376;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -2691,13 +2691,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT id, demo_url_slug, business_name, generation_status, generation_error, view_count, generated_at, expires_at FROM prospect_demos ORDER BY generated_at DESC",
     category: 'admin-after-require-role',
     reason: "Admin-only sales-demo list performed after requireRole(admin); prospect_demos is a cross-tenant sales surface with no account/business column (deny-all RLS, migration 066).",
-  },
-  {
-    file: "src/app/api/admin/payment-success/route.ts",
-    table: "inbound_events",
-    sqlSnippet: "SELECT payload FROM inbound_events WHERE source = 'stripe' AND event_type = 'checkout.session.completed' AND payload->'data'->'object'->>'id' = ${sessionId} LIMIT 1",
-    category: 'admin-after-require-role',
-    reason: "Admin-only post-checkout lookup performed after requireRole(admin); inbound_events is keyed by the Stripe event payload, not a tenant id (deny-all RLS, migration 066).",
   },
   {
     file: "worker/background/pollers/ArchivalPoller.ts",
