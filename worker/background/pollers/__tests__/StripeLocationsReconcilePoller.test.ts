@@ -1371,4 +1371,61 @@ describe('StripeLocationsReconcilePoller', () => {
     // Second run should have been skipped (single-flight)
     expect(second.accountsChecked).toBe(0);
   });
+
+  // ── Hard deadline: a stuck run must NOT wedge the poller ─────────
+  // Regression for the staging finding (2026-06-22): the deployed runOnce
+  // parked on Postgres pool acquisition, logged 'Starting' but never completed,
+  // and held inProgress=true forever — every later tick skipped, silently
+  // disabling the missed-webhook backstop. The cycle/account timeouts fix that.
+
+  it('cycle timeout releases inProgress so the next tick is not wedged forever', async () => {
+    vi.useFakeTimers();
+    // The accounts query parks forever (simulates pool-acquisition starvation).
+    mockSql.mockImplementationOnce(() => new Promise(() => {}));
+
+    const firstRun = runOnce();
+    await vi.advanceTimersByTimeAsync(240_000 + 1_000); // past CYCLE_TIMEOUT_MS
+    const first = await firstRun;
+
+    expect(first.errors).toBe(1);
+    const deadlineLine = errorSpy.mock.calls
+      .map((c: any[]) => c[0])
+      .find((l: unknown): l is string => typeof l === 'string' && l.includes('exceeded its deadline'));
+    expect(deadlineLine).toBeDefined();
+
+    // inProgress MUST be reset: a second tick actually RUNS (not the skip path).
+    logSpy.mockClear();
+    sqlReturnQueue.push([]); // second run sees no accounts
+    const second = await runOnce();
+
+    expect(second).toEqual({ accountsChecked: 0, driftsFound: 0, errors: 0 });
+    const skipLine = logSpy.mock.calls
+      .map((c: any[]) => c[0])
+      .find((l: unknown): l is string => typeof l === 'string' && l.includes('Previous run still in progress'));
+    expect(skipLine).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it('per-account timeout errors that account and continues the cycle', async () => {
+    vi.useFakeTimers();
+    sqlReturnQueue.push([
+      makeAccountRow({ id: 'acct-hang', subscription_tier: 'standard', locations_included: 1, active_location_count: 3 }),
+      makeAccountRow({ id: 'acct-ok', subscription_tier: 'standard', locations_included: 1, active_location_count: 3 }),
+    ]);
+    // First account parks on the Stripe retrieve; second resolves normally.
+    mockStripeRetrieve.mockReturnValueOnce(new Promise(() => {}));
+    mockStripeRetrieve.mockResolvedValue(makeStripeSubscription(2, 'price_overage_std'));
+
+    const run = runOnce();
+    await vi.advanceTimersByTimeAsync(60_000 + 1_000); // past ACCOUNT_TIMEOUT_MS
+    const result = await run;
+
+    expect(result.errors).toBe(1); // acct-hang timed out
+    expect(result.accountsChecked).toBe(1); // acct-ok still processed
+    const hangLine = errorSpy.mock.calls
+      .map((c: any[]) => c[0])
+      .find((l: unknown): l is string => typeof l === 'string' && l.includes('acct-hang'));
+    expect(hangLine).toBeDefined();
+    vi.useRealTimers();
+  });
 });

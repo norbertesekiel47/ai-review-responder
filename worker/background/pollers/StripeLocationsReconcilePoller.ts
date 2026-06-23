@@ -28,9 +28,21 @@ import { emitDriftAlert } from './billing-reconciliation/drift-alert';
 import { reconcileAccount } from './billing-reconciliation/reconcile-account';
 import { LOG_PREFIX } from './billing-reconciliation/constants';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { withTimeout, TimeoutError } from '../../../src/lib/shared/with-timeout';
 import type { AccountWithLocations } from './billing-reconciliation/types';
 
 const DEFAULT_INTERVAL_MS = 3_600_000; // 1 hour
+
+// Hard deadlines so a stuck run can NEVER wedge the poller. The Postgres.js
+// pool-queue wait is unbounded: `connect_timeout` covers only opening a socket
+// and `statement_timeout` only executing a query — NEITHER bounds waiting for a
+// free slot when the worker's shared pool is exhausted (15+ pollers + BullMQ +
+// webhook retries share `max: 10`). Without these, a run that parks on
+// connection acquisition holds `inProgress=true` forever and every later tick
+// skips — silently disabling the missed-webhook backstop (invariant #3 / PLAN
+// §5). A timed-out run logs, releases `inProgress`, and the next tick retries.
+const ACCOUNT_TIMEOUT_MS = 60_000; // one account's Stripe + DB work
+const CYCLE_TIMEOUT_MS = 240_000; // the whole cycle (accounts query + all accounts)
 const logger = createWorkerLogger(LOG_PREFIX);
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -45,9 +57,11 @@ interface ReconcileResult {
 }
 
 /**
- * Runs one reconciliation cycle. For each active account with a Stripe
- * subscription, compares the expected overage quantity (from DB) with
- * the actual overage quantity (from Stripe). Emits alert on drift.
+ * Runs one reconciliation cycle under a hard deadline. Single-flight: a tick is
+ * skipped while a previous run is still going. CRITICAL: the cycle is wrapped in
+ * `withTimeout` so a stuck run (e.g. parked on Postgres pool acquisition) can
+ * never hold `inProgress` forever and silently disable all future ticks — it
+ * aborts, releases the flag, and the next tick retries.
  */
 export async function runOnce(): Promise<ReconcileResult> {
   if (inProgress) {
@@ -57,73 +71,103 @@ export async function runOnce(): Promise<ReconcileResult> {
   inProgress = true;
 
   try {
-    // Fetch all active paid accounts and their
-    // active location counts in a single query.
-    const accounts = await sql<AccountWithLocations[]>`
-      SELECT
-        a.id,
-        a.subscription_tier,
-        a.subscription_status,
-        a.stripe_customer_id,
-        a.stripe_subscription_id,
-        a.locations_included,
-        a.locations_overage_price_cents,
-        a.base_price_cents,
-        a.past_due_at,
-        a.flags,
-        COUNT(b.id) AS active_location_count
-      FROM accounts a
-      LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL
-      WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}, ${SubscriptionStatus.TRIALING})
-      GROUP BY
-        a.id,
-        a.subscription_tier,
-        a.subscription_status,
-        a.stripe_customer_id,
-        a.stripe_subscription_id,
-        a.locations_included,
-        a.locations_overage_price_cents,
-        a.base_price_cents,
-        a.past_due_at,
-        a.flags
-    `;
-
-    if (accounts.length === 0) {
-      logger.log('No paid accounts to reconcile');
-      return { accountsChecked: 0, driftsFound: 0, errors: 0 };
-    }
-
-    const stripe = getStripe();
-
-    let accountsChecked = 0;
-    let driftsFound = 0;
-    let errors = 0;
-
-    for (const account of accounts) {
-      try {
-        const outcome = await reconcileAccount(stripe, account);
-        accountsChecked += outcome.accountsChecked;
-        errors += outcome.errors;
-        for (const payload of outcome.drifts) {
-          emitDriftAlert(account.id, payload);
-          driftsFound++;
-        }
-      } catch (err) {
-        errors++;
-        logger.error(`Error reconciling account ${account.id}`, err);
-      }
-    }
-
-    if (driftsFound > 0 || errors > 0) {
-      logger.log(`Run complete: accountsChecked=${accountsChecked} driftsFound=${driftsFound} errors=${errors}`);
-    } else {
-      logger.log(`Run complete: ${accountsChecked} accounts checked, no drift detected`);
-    }
-
-    return { accountsChecked, driftsFound, errors };
+    return await withTimeout(reconcileCycle(), CYCLE_TIMEOUT_MS, 'reconcile cycle');
+  } catch (err) {
+    // A timed-out (or otherwise fatal) cycle must not wedge the poller. The
+    // detached cycle promise may still settle later — harmless: it only writes
+    // idempotent corrections and frees its connection when the pool drains.
+    logger.error(
+      err instanceof TimeoutError
+        ? 'Reconcile cycle exceeded its deadline — releasing the run so the next tick proceeds'
+        : 'Reconcile cycle failed — releasing the run so the next tick proceeds',
+      err,
+    );
+    return { accountsChecked: 0, driftsFound: 0, errors: 1 };
   } finally {
     inProgress = false;
   }
+}
+
+/**
+ * One reconciliation pass. For each active/past_due/trialing paid account,
+ * compares the expected overage quantity (from DB) with Stripe and applies the
+ * scoped trial correction. Each per-account reconcile is itself bounded so one
+ * parked account cannot consume the whole cycle budget.
+ */
+async function reconcileCycle(): Promise<ReconcileResult> {
+  // Fetch all active paid accounts and their
+  // active location counts in a single query.
+  const accounts = await sql<AccountWithLocations[]>`
+    SELECT
+      a.id,
+      a.subscription_tier,
+      a.subscription_status,
+      a.stripe_customer_id,
+      a.stripe_subscription_id,
+      a.locations_included,
+      a.locations_overage_price_cents,
+      a.base_price_cents,
+      a.past_due_at,
+      a.flags,
+      COUNT(b.id) AS active_location_count
+    FROM accounts a
+    LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL
+    WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}, ${SubscriptionStatus.TRIALING})
+    GROUP BY
+      a.id,
+      a.subscription_tier,
+      a.subscription_status,
+      a.stripe_customer_id,
+      a.stripe_subscription_id,
+      a.locations_included,
+      a.locations_overage_price_cents,
+      a.base_price_cents,
+      a.past_due_at,
+      a.flags
+  `;
+
+  if (accounts.length === 0) {
+    logger.log('No paid accounts to reconcile');
+    return { accountsChecked: 0, driftsFound: 0, errors: 0 };
+  }
+
+  // Breadcrumb: proves the accounts query returned (vs parked on pool
+  // acquisition). If a cycle later times out WITHOUT this line, the stall is the
+  // query itself; WITH it, the per-account error logs pinpoint which account.
+  logger.log(`Reconciling ${accounts.length} paid accounts`);
+
+  const stripe = getStripe();
+
+  let accountsChecked = 0;
+  let driftsFound = 0;
+  let errors = 0;
+
+  for (const account of accounts) {
+    try {
+      const outcome = await withTimeout(
+        reconcileAccount(stripe, account),
+        ACCOUNT_TIMEOUT_MS,
+        `reconcile account ${account.id}`,
+      );
+      accountsChecked += outcome.accountsChecked;
+      errors += outcome.errors;
+      for (const payload of outcome.drifts) {
+        emitDriftAlert(account.id, payload);
+        driftsFound++;
+      }
+    } catch (err) {
+      errors++;
+      logger.error(`Error reconciling account ${account.id}`, err);
+    }
+  }
+
+  if (driftsFound > 0 || errors > 0) {
+    logger.log(`Run complete: accountsChecked=${accountsChecked} driftsFound=${driftsFound} errors=${errors}`);
+  } else {
+    logger.log(`Run complete: ${accountsChecked} accounts checked, no drift detected`);
+  }
+
+  return { accountsChecked, driftsFound, errors };
 }
 
 /**
