@@ -1317,6 +1317,22 @@ describe('StripeLocationsReconcilePoller', () => {
     stopStripeLocationsReconcilePoller();
   });
 
+  it('delays the first run past the boot-storm window (does not query immediately)', async () => {
+    vi.useFakeTimers();
+    sqlReturnQueue.push([]); // if/when it runs, no accounts to reconcile
+
+    startStripeLocationsReconcilePoller();
+    // Immediately after start, the initial run has NOT fired (no accounts query yet).
+    expect(mockSql).not.toHaveBeenCalled();
+
+    // After the boot-delay, the initial run fires.
+    await vi.advanceTimersByTimeAsync(45_000 + 100); // past INITIAL_RUN_DELAY_MS
+    expect(mockSql).toHaveBeenCalled();
+
+    stopStripeLocationsReconcilePoller();
+    vi.useRealTimers();
+  });
+
   // ── Disabled in mock mode ───────────────────────────────────────
 
   it('does not start when MOCK_EXTERNAL_APIS=true', () => {

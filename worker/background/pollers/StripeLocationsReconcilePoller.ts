@@ -43,9 +43,19 @@ const DEFAULT_INTERVAL_MS = 3_600_000; // 1 hour
 // §5). A timed-out run logs, releases `inProgress`, and the next tick retries.
 const ACCOUNT_TIMEOUT_MS = 60_000; // one account's Stripe + DB work
 const CYCLE_TIMEOUT_MS = 240_000; // the whole cycle (accounts query + all accounts)
+
+// Delay the FIRST run past the boot-time connection storm. At startup every poller
+// + BullMQ worker + ingress hits the shared Postgres pool (`max:10`) at once — a live
+// probe showed `SELECT 1` on the shared pool stalling 15s+ at boot while a fresh
+// client answered in 135ms, so the immediately-fired reconcile query queued behind it.
+// The hourly cadence makes a 45s-late first run immaterial, and the boot storm has
+// drained by then. (The cycle timeout above still covers any residual/under-load
+// contention.)
+const INITIAL_RUN_DELAY_MS = 45_000;
 const logger = createWorkerLogger(LOG_PREFIX);
 
 let timer: ReturnType<typeof setInterval> | null = null;
+let initialTimer: ReturnType<typeof setTimeout> | null = null;
 // Single-flight guard. Same pattern as EmailChannelReconcilePoller —
 // prevents two scheduled ticks from running concurrently.
 let inProgress = false;
@@ -194,8 +204,11 @@ export function startStripeLocationsReconcilePoller(): void {
   const interval =
     Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 
-  logger.log(`Starting (interval=${interval}ms)`);
-  runOnce().catch((err) => logger.error('Initial run failed', err));
+  logger.log(`Starting (interval=${interval}ms, initial delay=${INITIAL_RUN_DELAY_MS}ms)`);
+  initialTimer = setTimeout(() => {
+    initialTimer = null;
+    runOnce().catch((err) => logger.error('Initial run failed', err));
+  }, INITIAL_RUN_DELAY_MS);
   timer = setInterval(() => {
     runOnce().catch((err) => logger.error('Scheduled run failed', err));
   }, interval);
@@ -205,6 +218,10 @@ export function startStripeLocationsReconcilePoller(): void {
  * Stops the reconciliation poller.
  */
 export function stopStripeLocationsReconcilePoller(): void {
+  if (initialTimer !== null) {
+    clearTimeout(initialTimer);
+    initialTimer = null;
+  }
   if (timer !== null) {
     clearInterval(timer);
     timer = null;
