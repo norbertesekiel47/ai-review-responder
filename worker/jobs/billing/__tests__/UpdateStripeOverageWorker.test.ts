@@ -611,6 +611,7 @@ describe('UpdateStripeOverageWorker — confidence gate + outbox isolation', () 
         level: 'error',
         tags: expect.objectContaining({
           feature: 'stripe_overage',
+          account_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
           drift_type: 'ambiguous_overage_item',
         }),
       }),
