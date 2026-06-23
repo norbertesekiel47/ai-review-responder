@@ -170,6 +170,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   const { id: businessId, owner_email: ownerEmail } = lookup[0]!;
 
+  // SELECTPLAN-1: tier is validated by SelectPlanSchema, so this lookup always
+  // resolves — the guard makes the invariant explicit (and refuses to snapshot a
+  // wrong price) instead of papering over an impossible state with `?? 1/2500/7900`.
+  const tierConfig = TIER_CONFIG[tier as SubscriptionTierValue];
+  if (!tierConfig) {
+    return NextResponse.json(
+      { error: 'checkout_unavailable', detail: `Unknown tier: ${tier}` },
+      { status: 502, headers: NO_STORE },
+    );
+  }
+
   const result = await sql.begin(async (tx) => {
     // Lock first, THEN re-read state. Any pending Stripe webhook taking the
     // same key (worker/ingress/stripe.ts processCheckoutSessionCompleted)
@@ -203,13 +214,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // VAL-BILLING-065: Also snapshot locations_included,
     // locations_overage_price_cents, base_price_cents from TIER_CONFIG so the
     // account's billing snapshot is self-consistent from this point forward.
-    const tierConfig = TIER_CONFIG[tier as SubscriptionTierValue];
     const update = await tx`
       UPDATE accounts
       SET subscription_tier = ${tier},
-          locations_included = ${tierConfig?.included ?? 1},
-          locations_overage_price_cents = ${tierConfig?.overageCents ?? 2500},
-          base_price_cents = ${tierConfig?.baseCents ?? 7900},
+          locations_included = ${tierConfig.included},
+          locations_overage_price_cents = ${tierConfig.overageCents},
+          base_price_cents = ${tierConfig.baseCents},
           updated_at = NOW()
       WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid)
         AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}
