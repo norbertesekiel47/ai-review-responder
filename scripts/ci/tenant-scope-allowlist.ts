@@ -1540,7 +1540,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/onboarding/select-plan/route.ts",
     table: "accounts",
-    sqlSnippet: "UPDATE accounts SET subscription_tier = ${tier}, locations_included = ${tierConfig?.included ?? 1}, locations_overage_price_cents = ${tierConfig?.overageCents ?? 2500}, base_price_cents = ${tierConfig?.baseCents ?? 7900}, updated_at = NOW() WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid) AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}",
+    sqlSnippet: "UPDATE accounts SET subscription_tier = ${tier}, locations_included = ${tierConfig.included}, locations_overage_price_cents = ${tierConfig.overageCents}, base_price_cents = ${tierConfig.baseCents}, updated_at = NOW() WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid) AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
@@ -1834,7 +1834,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/onboarding/select-plan/route.ts",
     table: "businesses",
-    sqlSnippet: "UPDATE accounts SET subscription_tier = ${tier}, locations_included = ${tierConfig?.included ?? 1}, locations_overage_price_cents = ${tierConfig?.overageCents ?? 2500}, base_price_cents = ${tierConfig?.baseCents ?? 7900}, updated_at = NOW() WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid) AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}",
+    sqlSnippet: "UPDATE accounts SET subscription_tier = ${tier}, locations_included = ${tierConfig.included}, locations_overage_price_cents = ${tierConfig.overageCents}, base_price_cents = ${tierConfig.baseCents}, updated_at = NOW() WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid) AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
