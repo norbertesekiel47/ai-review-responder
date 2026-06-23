@@ -153,8 +153,8 @@ export async function reconcileAccount(
   const dbTrialing = account.subscription_status === SubscriptionStatus.TRIALING;
   const stripeTrialing = subscription.status === 'trialing';
   if (dbTrialing && !stripeTrialing && account.stripe_subscription_id) {
-    await sql.begin(async (tx) => {
-      await applyStripeSubscriptionState(
+    const transition = await sql.begin(async (tx) =>
+      applyStripeSubscriptionState(
         tx,
         {
           mode: 'subscription',
@@ -162,12 +162,14 @@ export async function reconcileAccount(
           stripeSubscriptionId: account.stripe_subscription_id!,
         },
         subscription,
-      );
-    });
-    logger.warn('Corrected stuck trialing row to match Stripe', {
-      account_id: account.id,
-      stripe_status: subscription.status,
-    });
+      ),
+    );
+    if (transition.changed) {
+      logger.warn('Corrected stuck trialing row to match Stripe', {
+        account_id: account.id,
+        stripe_status: subscription.status,
+      });
+    }
     // The row is now consistent; skip the remaining drift checks this cycle.
     return { accountsChecked: 1, drifts, errors };
   }
