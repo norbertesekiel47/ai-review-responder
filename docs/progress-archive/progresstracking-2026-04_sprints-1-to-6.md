@@ -1,0 +1,2430 @@
+# Progress archive — Sprint 1 → Sprint 6 (2026-04-06 → 2026-04-17)
+
+> Archived verbatim from docs/progresstracking.md to keep the live changelog readable.
+> Newest at the bottom. Continues in progresstracking-2026-04-to-05_channels-to-multiloc.md.
+
+## Sprint 1: Project Scaffolding + Infrastructure
+
+### Phase 1.1 — Project Initialization (2026-04-06)
+
+**Status:** COMPLETE
+
+**What was done:**
+
+1. **Initialized Next.js 14 project** in `C:\Users\norbe\Desktop\RepWorth\`
+   - App Router with `src/` directory structure
+   - TypeScript strict mode enabled
+   - Tailwind CSS v3 + PostCSS + Autoprefixer configured
+
+2. **Installed 22 production dependencies:**
+   - Core: `next@14.2.35`, `react@18.3.1`, `react-dom@18.3.1`
+   - State/forms: `zustand@5.0.12`, `@tanstack/react-query@5.96.2`, `react-hook-form@7.72.1`, `zod@4.3.6`
+   - LLM: `openai@6.33.0`, `@anthropic-ai/sdk@0.82.0`
+   - Reviews: `serpapi@2.2.1`
+   - Queue/cache: `bullmq@5.73.0`, `ioredis@5.10.1`
+   - Email/payments: `resend@6.10.0`, `stripe@22.0.0`
+   - Database: `@supabase/supabase-js@2.101.1`, `postgres@3.4.9`
+   - Utilities: `franc-min@6.2.0`, `nanoid@5.1.7`, `isomorphic-dompurify@3.7.1`, `uuid@13.0.0`
+   - Worker HTTP: `fastify@5.8.4`, `fastify-raw-body@5.0.0`
+
+3. **Installed 11 dev dependencies:**
+   - `typescript@5.9.3`, `@types/react@18.3.28`, `@types/react-dom@18.3.7`, `@types/node@25.5.2`
+   - `tailwindcss@3.4.19`, `postcss@8.5.8`, `autoprefixer@10.4.27`
+   - `eslint@8.57.1`, `eslint-config-next@14.2.35`
+   - `vitest@4.1.2`, `@playwright/test@1.59.1`
+
+4. **Configured tsconfig.json:**
+   - `strict: true`, `noUncheckedIndexedAccess: true`
+   - Path aliases: `@/*` -> `./src/*`, `@/lib/*` -> `./src/lib/*`, `@/types/*` -> `./src/types/*`
+   - Worker can import shared code via `@/lib/` and `@/types/`
+
+5. **Created full directory structure with placeholder files:**
+
+   **App pages (12 routes across 3 route groups):**
+   - `src/app/(public)/` — Landing page (`/`), Demo viewer (`/demo/[slug]`), Approval page (`/approve/[token]`)
+   - `src/app/(authenticated)/` — Dashboard (`/dashboard`), Settings (`/settings`)
+   - `src/app/(admin)/` — Overview (`/overview`), Businesses (`/businesses`, `/businesses/[id]`), Demos (`/demos`), Notifications (`/notifications`), Costs (`/costs`), Jobs (`/jobs`)
+
+   **Lib modules (9 modules):**
+   - `src/lib/db/`, `src/lib/reviews/`, `src/lib/responses/`, `src/lib/approval/`
+   - `src/lib/notifications/`, `src/lib/publishing/`, `src/lib/costs/`
+   - `src/lib/demos/`, `src/lib/shared/`
+
+   **Shared types:**
+   - `src/types/index.ts`
+
+   **Worker (at project root, per CLAUDE.md):**
+   - `worker/index.ts` — Entry point (Fastify + BullMQ + OutboxPoller)
+   - `worker/queues.ts` — BullMQ queue definitions
+   - `worker/jobs/` — 7 workers: ReviewSync, ResponseGenerator, Notification, ResponsePublisher, WeeklySummary, DemoGeneration, OutboxPoller
+   - `worker/ingress/` — Stripe and Resend webhook handlers
+
+6. **Created configuration files:**
+   - `next.config.mjs` — React strict mode, postgres in serverComponentsExternalPackages
+   - `tailwind.config.mjs` — Content paths for `src/app/` and `src/components/`
+   - `postcss.config.mjs` — Tailwind + Autoprefixer
+   - `.eslintrc.json` — extends `next/core-web-vitals`
+   - `.gitignore` — node_modules, .next, .env.local, etc.
+
+7. **Created `.env.local` template** with all required variables:
+   - Database: `DATABASE_URL`, `DATABASE_POOL_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
+   - Public Supabase: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - Redis: `REDIS_CACHE_URL`, `REDIS_QUEUE_URL` (two separate instances)
+   - LLM: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`
+   - Reviews: `SERPAPI_API_KEY`
+   - Email: `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`
+   - Payments: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
+   - Security: `SESSION_COOKIE_SECRET`, `CSRF_SECRET`
+   - App: `NEXT_PUBLIC_APP_URL`, `WORKER_SERVICE_URL`, `SENTRY_DSN`
+   - GBP API vars commented out as "Added in Phase 5"
+   - Server-only secrets annotated
+
+8. **Verified build passes:** `pnpm build` completes successfully — all 12 pages compile and generate.
+
+9. **Post-validation fixes (same session):**
+   - Added `tsx@4.21.0` as dev dependency — worker script was using `npx tsx` (runtime download). Changed to `tsx` (local). `pnpm worker` now exits 0 self-contained.
+   - Added `ENCRYPTION_KEY` and `ENCRYPTION_KEY_VERSION` to `.env.local` Security section — were present in `docs/Implementation_Phases_SerpAPI_First.md:223` but missed in initial template.
+   - Added bootstrap test file `src/lib/shared/index.test.ts` so `pnpm test` exits 0 instead of failing on empty test suite.
+
+**Decisions & notes:**
+- `@fastify/raw-body` does NOT exist on npm (verified 404 on registry). Used `fastify-raw-body@5.0.0` (unscoped name, same functionality, same API).
+- `@types/uuid` is deprecated (uuid v13 ships its own types). Not installed.
+- Pinned to compatible versions: React 18 types, ESLint 8, eslint-config-next@14, Tailwind v3, TypeScript 5 — all matching Next.js 14 ecosystem.
+- Package manager: pnpm 10.17.1
+
+---
+
+### Phase 1.2 — Database Migrations (2026-04-06)
+
+**Status:** COMPLETE
+
+1. **Migration file** `supabase/migrations/001_initial_schema.sql` was created with full schema (15 tables, all indexes, RLS enabled).
+2. **User ran migration** directly in Supabase SQL Editor — all tables created successfully.
+3. **Supabase project provisioned** — credentials filled into `.env.local`.
+4. **Two Upstash Redis instances provisioned** (cache + queue) — credentials filled into `.env.local`.
+5. **All API keys populated** — OpenAI, Anthropic, SerpAPI, Resend, Stripe keys added to `.env.local`.
+6. **Admin user seeded** — 1 admin row confirmed in `users` table.
+7. **Corrective migration `002_prompt2_fixes.sql` applied** (2026-04-06):
+   - Fixed `approval_audit_log` schema: added `token_hash TEXT NOT NULL` and `metadata JSONB`, removed `approval_link_id` and `user_agent` (per `docs/Final_Implementation_Plan.md:263-274`)
+   - Added missing `idx_businesses_sync` and `idx_businesses_status` indexes (per `docs/Final_Implementation_Plan.md:278-280`)
+   - Dropped `gen_random_uuid()` defaults on all 15 table PKs — app code must supply UUIDv7 via `import { v7 as uuidv7 } from 'uuid'` (per `docs/Final_Implementation_Plan.md:276`)
+
+---
+
+### Phase 1.3 — Worker Skeleton + Database Client (2026-04-06)
+
+**Status:** COMPLETE (code done, deploy pending)
+
+1. **Created `src/lib/db/client.ts`** — three exported clients:
+   - `sql` — Postgres.js with PgBouncer pooled connection (`prepare: false`), for all transactional writes (`sql.begin()`)
+   - `supabaseServer` — Supabase client with service-role key, for auth admin + storage + server reads
+   - `supabaseClient` — Supabase client with anon key, for browser-side auth + real-time
+   - Re-exported from `src/lib/db/index.ts`
+
+2. **Created `worker/queues.ts`** — BullMQ queue infrastructure:
+   - `getRedisOptions()` — handles both Upstash REST URLs (`https://`) and standard Redis URLs (`redis://`, `rediss://`). Extracts host from REST URL, constructs Redis protocol connection with TLS + `maxRetriesPerRequest: null`
+   - 7 queues defined: `sync_reviews`, `generate_response`, `send_notification`, `publish_response`, `generate_demo`, `weekly_summary`, `notify_admin_review_exception`
+   - `topicToQueue` lookup: maps `job_outbox.topic` string → Queue instance
+   - `QUEUE_NAMES` const object with type export
+
+3. **Created `worker/jobs/OutboxPoller.ts`** — functional 10-second interval poller:
+   - Queries `job_outbox WHERE status = 'pending' AND available_at <= NOW()` (batch of 50)
+   - For each entry: dispatches to matching BullMQ queue via `topicToQueue[entry.topic]`
+   - Uses outbox entry `id` as BullMQ `jobId` for idempotency
+   - On success: updates entry to `status = 'dispatched'`, increments `attempts`
+   - On failure: logs error, leaves as `pending` for retry next cycle
+   - Exports `startOutboxPoller()` / `stopOutboxPoller()`
+
+4. **Created `worker/index.ts`** — full worker entry point (three responsibilities):
+   - **Fastify HTTP server**: health check (`GET /api/health`), webhook placeholders (`POST /ingress/stripe`, `POST /ingress/resend`) with `rawBody: true` per route
+   - **BullMQ workers**: placeholder handler for each of 7 queues (logs job data)
+   - **OutboxPoller**: started after Fastify listens
+   - Graceful shutdown on SIGTERM/SIGINT: stops poller → closes workers → closes Fastify → closes DB
+
+5. **Created `worker/env.ts`** — dotenv loader imported first to avoid CJS import hoisting issue (queues.ts reads `process.env` at module scope)
+
+6. **Installed `dotenv@17.4.1`** — required for worker process to load `.env.local` (Next.js loads it automatically, standalone worker does not)
+
+7. **Verified:**
+   - `pnpm build` passes (12 pages, Next.js 14)
+   - `pnpm worker` starts: Fastify listening on :3001, health endpoint returns `{"status":"ok"}`, OutboxPoller runs, BullMQ connects to Upstash Redis
+   - Postgres connects successfully — `DATABASE_POOL_URL` password configured
+
+8. **Post-validation fixes (2026-04-06):**
+   - Split `src/lib/db/client.ts` into `server.ts` (sql + supabaseServer) and `browser.ts` (supabaseClient) — prevents Node-only `postgres` import from leaking into client component bundles
+   - Added `isPolling` re-entrancy guard to OutboxPoller — prevents overlapping poll cycles from causing duplicate dispatches
+   - Added `Queue.close()` calls in shutdown — prevents dangling Redis connections on process exit
+   - Unknown `job_outbox.topic` values now marked `status = 'failed'` with `last_error` — prevents infinite retry spam
+   - Exported `app`, `queues`, `QUEUE_NAMES`, `sql` from `worker/index.ts` for ingress handler and test access
+   - Removed barrel re-exports from `client.ts` and `index.ts` — files now contain import guidance comments only, no code paths that traverse both server and browser modules
+   - Removed unused `server-only` package (throws in raw Node.js, incompatible with worker process)
+
+9. **Deployed to production (2026-04-06):**
+   - Next.js app deployed to Vercel
+   - Worker service deployed to Railway
+   - `NEXT_PUBLIC_APP_URL` and `WORKER_SERVICE_URL` cross-linked between environments
+
+---
+
+### Prompt 4 — ReviewSource + SerpAPI (2026-04-07)
+
+**Status:** COMPLETE
+
+1. **Created `src/lib/reviews/types.ts`** — core contracts:
+   - `NormalizedReview` interface: `reviewerName`, `starRating`, `reviewText` (string | null), `reviewDate` (ISO 8601), `detectedLanguage` (ISO 639-1)
+   - `ReviewSource` interface with `fetchReviews(placeId, maxResults?)` contract — all review sources (SerpAPI, manual paste, future GBP API) implement this
+   - `ContentHashable` type + `computeContentHash()` utility: SHA-256(starRating + "|" + reviewText) for edit detection
+   - Monitor types: `ReviewIdentity`, `MonitoredReview`, `IdentityCollision`, `MonitorResult`
+   - Uses `import { createHash } from 'node:crypto'` per CLAUDE.md (not crypto-js)
+
+2. **Created `src/lib/reviews/detect-language.ts`** — franc-min wrapper:
+   - Maps all 82 franc-min ISO 639-3 codes → ISO 639-1 (2-letter codes only)
+   - Languages without ISO 639-1 (Cebuano, Iloko) fall back to `'en'`
+   - Short text (<20 words) defaults to `'en'` — franc is unreliable on short reviews, and the LLM self-corrects language anyway
+
+3. **Created `src/lib/reviews/serpapi-source.ts`** — demo-mode `SerpApiSource`:
+   - Implements `ReviewSource` interface
+   - Calls SerpAPI `google_maps_reviews` engine with `place_id`, `sort_by: 'newestFirst'`
+   - Prefers `extracted_snippet.original` over `snippet` (avoids machine-translated text)
+   - Validates SerpAPI error payloads — throws on quota/auth/rate-limit errors instead of silently returning empty
+   - Returns 10-15 most recent reviews, no deduplication
+
+4. **Created `src/lib/reviews/serpapi-monitor.ts`** — production-mode `SerpApiMonitor`:
+   - Same SerpAPI call but enriches each review with identity + content hash metadata
+   - Identity strategy cascade (per CLAUDE.md dedup spec):
+     - **PREFERRED:** SerpAPI `review_id` field → `identityStrategy: 'source_id'`
+     - **FALLBACK:** SHA-256(reviewerName + "|" + reviewDate + "|" + reviewerProfileUrl) → `'profile_hash'`
+     - **LAST RESORT:** SHA-256(reviewerName + "|" + reviewDate) → `'name_date_hash'` (warns on ambiguous names)
+   - Synthetic resource names: `serpapi://{placeId}/reviews/{id}` and `serpapi://{placeId}`
+   - Intra-batch collision detection: if two reviews share identity but differ in content, flagged in `MonitorResult.collisions` for worker to write to `review_exceptions`
+   - `NormalizedReview` DTO stays clean — identity data is separate metadata
+
+5. **Created `src/lib/reviews/serpapi-normalize.ts`** — shared normalization:
+   - Extracted from both serpapi-source.ts and serpapi-monitor.ts to prevent drift
+   - Single `normalizeSerpApiReview()` function strips all SerpAPI-specific fields
+   - Validates required fields: `rating` must be number 1-5, `iso_date` must be non-empty string — throws descriptive errors on malformed SerpAPI payloads
+
+6. **Created `src/lib/reviews/url-parser.ts`** — `extractPlaceId()`:
+   - Handles: raw Place ID (`ChIJ...`), `?q=place_id:`, `?placeid=`, `!1s` data path
+   - CID URLs return `null` (CID ≠ Place ID, SerpAPI uses different parameter)
+   - Uses optional chaining on regex match results for `noUncheckedIndexedAccess` compliance
+
+7. **Created `src/lib/reviews/__tests__/serpapi-source.test.ts`** — 32 contract tests:
+   - NormalizedReview shape validation (exactly 5 fields, no extras)
+   - Content hash determinism (same input → same hash, SHA-256 64-char hex)
+   - Content hash ignores non-content fields (reviewer name, date, language)
+   - Language detection: null → 'en', short text → 'en', Spanish/German detection, strictly 2-char codes
+   - URL parser: raw IDs, query params, data path, CID rejection, empty/unknown input
+   - Adapter normalization (mocked `getJson`): SerpApiSource field mapping, `extracted_snippet.original` preference, null text handling, Anonymous fallback
+   - SerpApiMonitor: identity strategy selection, collision detection, no SerpAPI field leakage
+
+8. **Updated `src/lib/reviews/index.ts`** — barrel re-exports for all public APIs
+
+**Post-validation fixes (same session):**
+- Fixed TypeScript errors: `match()[1]` returns `string | undefined` with `noUncheckedIndexedAccess` — used optional chaining `match()?.[1]`
+- Removed CID URL support: URL parser returned `cid:...` but both adapters only send `place_id` — mismatch would cause SerpAPI failures
+- Removed `ceb`/`ilo` from language map: these 3-letter codes violated the ISO 639-1 contract — now fall through to `'en'` default
+- Added 9 adapter normalization tests exercising actual SerpApiSource and SerpApiMonitor through mocked `getJson`
+- Extracted duplicated `normalizeReview` function to shared `serpapi-normalize.ts`
+- Added SerpAPI error payload detection: both sources throw on `response.error` instead of returning empty
+- Added field validation in `serpapi-normalize.ts`: throws on missing/invalid `rating` or `iso_date`
+
+**Verification:** `tsc --noEmit` clean, 36/36 tests pass (37 total with scaffold)
+
+---
+
+### Prompt 5 — Response Generator + Prompt Builder (2026-04-07)
+
+**Status:** COMPLETE
+
+1. **Created `src/lib/responses/types.ts`** — shared types:
+   - `DemoBusinessContext`: minimal (name + category) for demo mode callers
+   - `BusinessContext extends DemoBusinessContext`: full production context (id, tone, productsServices, staffNames, highlightFacts, avoidFacts, sampleResponses, subscriptionTier)
+   - `VoiceExample`: originalDraft, editedVersion, reviewStarRating (for tone-matched few-shot examples from owner-edited responses)
+   - `GenerationOptions`: mode ('demo' | 'production'), reviewId, version, businessId, subscriptionTier
+   - `GenerationResult`: responseText, language, provider, model, usage (promptTokens + completionTokens), costUsd, apiCostId (UUID for worker to link to response row)
+   - `BuiltPrompt`: systemPrompt + userPrompt (separate for OpenAI messages vs Anthropic system param)
+
+2. **Created `src/lib/responses/prompt-builder.ts`** — two pure functions, no I/O:
+   - `buildDemoPrompt(review, businessName, category)`:
+     - Infers tone from category via keyword matching (restaurant→"warm and appreciative", hotel→"professional and gracious", salon→"warm and personal", medical→"professional and caring", etc.)
+     - Defaults to "professional and friendly" for unknown categories
+   - `buildProductionPrompt(review, business, voiceExamples)`:
+     - Uses full BusinessContext: owner-configured tone, staffNames, productsServices, highlightFacts, avoidFacts
+     - Includes up to 3 voice examples (tone-matched: positive examples for 4-5 star reviews, negative for 1-3), showing both AI draft and owner's edited version
+   - Shared system prompt template:
+     - Word limit: 80 words for 4-5 stars, 120 words for 1-3 stars
+     - Language directive: uses human-readable name ("Respond in Spanish") for long reviews (≥20 words, confident detection), falls back to "Respond in the same language as the review" for short reviews (prevents forcing English on short non-English reviews)
+     - Rules: respond in same language, match tone, reference specific details, never use placeholders, never invent facts
+   - User prompt: `{starRating}-star review from {name} on {date}: "{text}"` or `(no written review)` for rating-only
+
+3. **Created `src/lib/responses/generator.ts`** — `generateResponse()` with dual mode:
+   - **Type safety:** Accepts `DemoBusinessContext | BusinessContext`. Runtime type guard (`'id' in ctx && 'tone' in ctx`) throws TypeError if production mode receives demo-shaped context.
+   - **Demo mode:** buildDemoPrompt → OpenAI gpt-4o-mini → Anthropic claude-3-5-haiku-latest fallback → return result. No Redis, no cost guard, no caching.
+   - **Production mode** (full cost guard per `.claude/skills/cost-guard.md`):
+     1. Validates required options (reviewId, version, businessId, subscriptionTier) — throws TypeError if missing
+     2. Checks idempotent cache `gen:{reviewId}:v{version}` — returns cached result with costUsd: 0 on hit
+     3. Reserves 15 cents pessimistic via `reserveCost(businessId, tier)` — captures `reservationDate` for consistent key targeting across midnight
+     4. Acquires concurrency slot (max 3/business) — inside try block so cost is released on failure
+     5. Builds production prompt → calls OpenAI → falls back to Anthropic on failure
+     6. Finalizes cost (adjusts Redis by actual - estimated, using `reservationDate`)
+     7. Post-finalization bookkeeping (best-effort, wrapped in try-catch — must not throw):
+        - Caches result for 24h idempotency
+        - Writes `api_costs` audit trail, returns `apiCostId` UUID for worker to link to response row
+     8. `finally` block: cleanup is best-effort (individual try-catch per operation). Releases concurrency slot only if acquired; releases cost only if not finalized. Redis TTLs (5min concurrency, 24h cost) are the safety net.
+   - **Language detection:** Detects language from the LLM response text (80-120 words, always above franc's threshold) rather than from `review.detectedLanguage` — ensures correct metadata even for short non-English reviews
+   - Re-exports error classes: `CostLimitExceededError`, `GlobalCostLimitExceededError`, `ConcurrencyLimitExceededError`, `RegenBudgetExceededError`
+
+4. **Created `src/lib/costs/tracker.ts`** — Redis-based atomic cost guard:
+   - **Redis client:** Lazy singleton via `getCacheRedis()`, mirrors `worker/queues.ts` Upstash pattern for `REDIS_CACHE_URL`/`REDIS_CACHE_TOKEN` (NOT the queue instance)
+   - **Cost reservation:** `reserveCost()` — atomic INCRBY on `cost:daily:{businessId}:{date}` + `cost:global:{date}`, checks tier limit, DECRBY rollback if exceeded. Returns `dateStr` so callers use the same date across midnight boundaries.
+   - **Finalization:** `finalizeCost(businessId, cents, reservationDate)` — adjusts by (actual - 15 cents), can be negative. Uses reservation date, not current date. Once finalized, NEVER refund.
+   - **Failure path:** `releaseCost(businessId, reservationDate)` — DECRBY 15 cents on both keys using the same date as reservation
+   - **Concurrency:** `acquireConcurrencySlot()` / `releaseConcurrencySlot()` — INCR/DECR on `gen:active:{businessId}`, max 3, 5-minute TTL safety net, floors at 0
+   - **Regeneration budget:** `checkRegenBudget()` — INCR `regen:{reviewId}:{date}`, max 3/day, 86400s TTL
+   - **Idempotent cache:** `checkIdempotentCache()` / `setCachedGeneration()` — GET/SET on `gen:{reviewId}:v{version}` with 24h TTL
+   - **Audit trail:** `recordApiCost()` — INSERT into `api_costs` table with UUIDv7 via `uuid.v7()`, returns the UUID for response linking. `linkApiCostToResponse(apiCostId, responseId)` — UPDATE to set `response_id` after worker inserts the response row.
+   - **Model pricing:** `calculateCostUsd()` with hardcoded rates — gpt-4o-mini ($0.15/$0.60 per 1M tokens), claude-3-5-haiku-latest ($0.80/$4.00 per 1M). Rounds to 6 decimal places (matches `DECIMAL(10,6)` column).
+   - **Tier limits:** founding=500, standard=1000, premium=2000 cents/day (with env overrides: `DAILY_COST_LIMIT_CENTS_FOUNDING`, etc.). Global cap via `GLOBAL_DAILY_COST_LIMIT_CENTS` (default 10000).
+   - All Redis operations use pipelines for atomicity. Cost counters stored in cents (integers) to avoid floating-point issues.
+
+5. **Created tests (55 new tests across 3 files):**
+   - `src/lib/responses/__tests__/prompt-builder.test.ts` (26 tests): category→tone inference, word limits (80 vs 120), language name lookup, user prompt formatting, null reviewText handling, production-only clauses (staff, products, avoid, highlight, voice examples), voice example tone-matching and max 3 limit
+   - `src/lib/responses/__tests__/generator.test.ts` (15 tests): OpenAI primary call, Anthropic fallback, both-fail throw, usage mapping from both SDKs, demo mode skips cost guard, production mode full lifecycle, cache hit returns costUsd:0, TypeError on missing required options, TypeError on demo-shaped context in production, finally-block cleanup on failure, concurrency failure releases cost, result survives cache write failure, result survives finally-block cleanup failure
+   - `src/lib/costs/__tests__/tracker.test.ts` (17 tests): calculateCostUsd for both models + unknown model throw, reserveCost INCRBY + limit checks + rollback + returns date, acquireConcurrencySlot + overflow throw, finalizeCost negative adjustment with reservation date, releaseCost DECRBY with reservation date, releaseConcurrencySlot floor at 0, checkRegenBudget allow 3 + throw on 4th, recordApiCost SQL insert, checkIdempotentCache hit/miss
+
+6. **Updated barrel exports:**
+   - `src/lib/responses/index.ts` — types, prompt-builder, generator, error classes
+   - `src/lib/costs/index.ts` — all tracker functions (including `linkApiCostToResponse`), error classes, Redis client
+
+7. **Created `supabase/migrations/003_fix_audit_log_rls.sql`** — restores `ENABLE ROW LEVEL SECURITY` on `approval_audit_log` table (lost when migration 002 dropped and recreated it)
+
+**Post-validation fixes (same session):**
+- Fixed Anthropic model ID: `claude-haiku-4-5-20251001` (invalid) → `claude-3-5-haiku-latest` (per Anthropic docs). Updated pricing to $0.80/$4.00 per 1M.
+- Fixed post-finalization double-spend: `setCachedGeneration` and `recordApiCost` wrapped in individual try-catch after `finalized = true`. Result always returned once cost is settled.
+- Fixed type-unsafe production context: added `DemoBusinessContext` type + runtime type guard. Production mode now throws TypeError if passed demo-shaped context.
+- Fixed short non-English review language: prompt builder uses generic "Respond in the same language as the review" for <20 word reviews. Generator detects language from response text (80-120 words) instead of review's `detectedLanguage`.
+- Fixed midnight boundary race: `reserveCost` returns date string, `finalizeCost`/`releaseCost` accept it as parameter. All operations target the same day's keys.
+- Fixed concurrency failure leaking cost: moved `acquireConcurrencySlot` inside try block with `concurrencyAcquired` flag. Cost released if concurrency fails.
+- Fixed finally-block cleanup masking results: each cleanup operation in finally wrapped in its own try-catch. Redis TTLs are the safety net.
+- Fixed dead `responseId`: `recordApiCost` returns UUID, `GenerationResult` includes `apiCostId`, added `linkApiCostToResponse()` for worker to call after inserting response row.
+- Fixed SerpAPI error payloads: both sources throw on `response.error` instead of silently returning empty.
+- Fixed SerpAPI field validation: `serpapi-normalize.ts` validates `rating` (number 1-5) and `iso_date` (non-empty string) before normalization.
+- Fixed missing RLS: created migration 003 to re-enable RLS on `approval_audit_log`.
+- Fixed response language detection for short outputs: added `detectResponseLanguage()` to `detect-language.ts` — uses `franc(text, { minLength: 3 })` without the 20-word guard. Generator uses this instead of `detectLanguage` for LLM response text. Short Spanish/French responses now correctly tagged.
+
+**Verification:** `tsc --noEmit` clean, 98/98 tests pass across 5 test files
+
+---
+
+### Prompt 6 — Demo Generation Pipeline + UI (2026-04-07)
+
+**Status:** COMPLETE
+
+1. **Created `src/lib/demos/types.ts`** — shared types:
+   - `DemoJobPayload`: demoId, googlePlaceId, businessName, category (BullMQ job shape)
+   - `DemoGeneratorInput`: placeId, businessName, category (generator input)
+   - `DemoGeneratorResult`: placeId, reviews[], responses[], metadata (generator output)
+   - `DemoMetadata`: totalReviews, successfulResponses, failedResponses, totalCostUsd, generationDurationMs
+   - `DemoListItem`: API response shape for admin list
+
+2. **Created `src/lib/demos/generator.ts`** — `generateDemo()`:
+   - Fetches 10-15 reviews via `SerpApiSource(SERPAPI_API_KEY).fetchReviews(placeId, 15)`
+   - Generates AI response for each review using `generateResponse(review, ctx, [], { mode: 'demo' })` in parallel via `Promise.allSettled` — partial failures OK (null response for that review, logged, generation continues)
+   - Computes metadata: counts, total cost, duration
+   - Pure computation — no DB writes (worker handles persistence)
+
+3. **Created `worker/jobs/DemoGenerationWorker.ts`** — `handleDemoGeneration()`:
+   - Idempotency guard: checks `generation_status === 'queued'` before processing, skips if already running/completed
+   - Race-safe transition: `UPDATE ... WHERE generation_status = 'queued'` — only one worker can claim
+   - On success: saves `reviews_snapshot` + `generated_responses` as JSONB, marks `completed`, updates job_outbox to `completed`
+   - On failure: marks `failed` with human-readable `generation_error`, updates job_outbox to `failed`, rethrows for BullMQ tracking
+   - JSONB layout: parallel arrays — `reviews_snapshot` = `NormalizedReview[]`, `generated_responses` = `(GenerationResult | null)[]`
+
+4. **Modified `worker/index.ts`** — wired real handler:
+   - `generate_demo` queue now uses `handleDemoGeneration` instead of placeholder
+   - Other 6 queues remain placeholder handlers
+
+5. **Created API routes:**
+   - `POST /api/admin/demos/generate`: Zod-validates input (googleMapsUrl, businessName, category?), extracts Place ID via `extractPlaceId`, generates UUIDv7 IDs + nanoid(10) slug, creates `prospect_demos` row + `job_outbox` entry in ONE transaction (outbox pattern). Returns 201 `{ id, slug, status: 'queued' }`.
+   - `GET /api/admin/demos`: Lists all demos ordered by `generated_at DESC`, returns `DemoListItem[]`
+   - Both routes have TODO comments for Sprint 3 auth
+
+6. **Built `src/app/(public)/demo/[slug]/page.tsx`** — SSR demo viewer:
+   - Server component, mobile-first Tailwind
+   - **States:** not found/expired → 404, queued/running → loading page with `<meta http-equiv="refresh" content="5" />` auto-reload, failed → error message, completed → full demo
+   - **Layout:** header with business name + stats, review cards (star rating, reviewer, date, text), AI response section below each card (blue-50 bg), multilingual badge, CTA with placeholder Calendly link
+   - View count: direct Postgres increment (fire-and-forget). TODO for Redis debouncing (Sprint 4)
+
+7. **Built `src/app/(admin)/demos/page.tsx`** — admin panel:
+   - Client component using `@tanstack/react-query`
+   - Generate form: Google Maps URL + Business Name + Category → POST generate
+   - Demo list with auto-polling (5s interval while any demo is queued/running)
+   - Status badges: gray (queued), yellow/animated (running), green (completed), red (failed)
+   - Copy-link button for completed demos
+   - `src/app/(admin)/providers.tsx` — QueryClientProvider wrapper
+   - `src/app/(admin)/layout.tsx` — wraps children with AdminProviders
+
+8. **Updated `src/lib/demos/index.ts`** — barrel re-exports
+
+**No migration needed:** `prospect_demos` table already has `generation_status`, `generation_error`, `started_at`, `completed_at` columns from migration 001.
+
+**Post-validation fixes (same session):**
+- Fixed view count overcounting: moved `view_count` increment AFTER the `generation_status === 'completed'` check. Loading state auto-refreshes every 5s and was inflating count before the demo was even ready.
+- Fixed outbox stuck in dispatched: all early-return paths (demo not found, already non-queued, already claimed) now call `markOutboxCompleted(outboxId)` so the outbox row reaches a terminal state.
+- Fixed non-transactional state updates: success and failure paths now wrap both `prospect_demos` and `job_outbox` updates in `sql.begin()` transactions. Prevents inconsistent state if the second write fails.
+
+**Verification:** `tsc --noEmit` clean, 98/98 tests pass, `next build` succeeds (14 pages compiled)
+
+---
+
+### Sprint 1 Audit + Fixes (2026-04-09)
+
+**Status:** COMPLETE
+
+Full codebase audit against `docs/Final_Implementation_Plan.md` (Prompts 1-6), `docs/Implementation_Phases_SerpAPI_First.md`, and `docs/04-final-plan.md`. All blockers, quality issues, minor issues, and CLAUDE.md improvements addressed. Demo pipeline verified end-to-end with mock data.
+
+**Audit findings and fixes:**
+
+1. **Mock data path (blocker):**
+   - Created `src/lib/reviews/mock-source.ts` — `MockReviewSource` implementing `ReviewSource` interface, 8 canned reviews (5-star EN, 1-star EN, 4-star ES, 3-star null-text, 5-star FR, 2-star EN, 5-star short EN, 4-star DE)
+   - Created `src/lib/responses/mock-generator.ts` — `generateMockResponse()` with sentiment-aware (positive/negative/neutral) and multilingual (EN/ES/FR/DE) template responses
+   - Modified `src/lib/demos/generator.ts` — checks `MOCK_EXTERNAL_APIS=true` env var, uses `MockReviewSource` + `generateMockResponse` instead of real SerpAPI/LLM calls
+   - Added `MOCK_EXTERNAL_APIS=true` to `.env.local`
+
+2. **OutboxPoller hardening (quality):**
+   - Added `FOR UPDATE SKIP LOCKED` to the SELECT query in `worker/jobs/OutboxPoller.ts`
+   - Wrapped entire SELECT + dispatch loop in `sql.begin()` transaction so row locks are actually held during dispatch
+   - Added `max_attempts` enforcement: entries exceeding max attempts marked `failed` (terminal) instead of retrying forever
+   - All UPDATEs now use `tx` (transaction client) instead of bare `sql`
+
+3. **DemoGenerationWorker fixes (quality):**
+   - Removed re-throw after failure transaction succeeds — BullMQ job completes cleanly, no pointless retry. Only re-throws if the failure transaction itself fails.
+   - Added stale "running" recovery: demos stuck in `running` for >5 minutes are reset to `queued` for retry. Non-stale running demos are skipped with outbox completed.
+   - Terminal states (`completed`/`failed`) now handled explicitly — outbox entry completed cleanly.
+
+4. **JSONB parsing guard (blocker — discovered during testing):**
+   - Postgres.js returns JSONB columns as strings (not parsed objects) when using PgBouncer pooled connections
+   - Fixed `worker/jobs/OutboxPoller.ts` — payload parsed before passing to BullMQ: `typeof entry.payload === 'string' ? JSON.parse(entry.payload) : entry.payload`
+   - Fixed `src/app/(public)/demo/[slug]/page.tsx` — reviews_snapshot and generated_responses parsed before use
+   - Added lab note to `.claude/CLAUDE.md` for future reference
+
+5. **Admin auth middleware (critical — from code review):**
+   - Created `src/middleware.ts` — Next.js middleware protecting all `/admin/*` pages and `/api/admin/*` API routes
+   - Behavior: `ADMIN_API_KEY` unset + dev → open access; unset + prod → all blocked (fail-closed); set → requires `__admin_key` cookie or `x-admin-key` header
+   - Created `src/app/admin/login/page.tsx` — simple login form accepting admin key
+   - Created `src/app/api/admin/auth/route.ts` — validates key, sets httpOnly cookie (7-day TTL)
+   - Removed per-route `requireAdminKey()` guards from API routes — middleware handles everything
+   - Deleted `src/lib/auth/admin-guard.ts` (unused after middleware approach)
+   - Added `ADMIN_API_KEY` to `.env.example` with documentation
+
+6. **Route group fix (blocker — discovered during testing):**
+   - `src/app/(admin)/` route group made pages accessible at `/demos` not `/admin/demos` (Next.js route groups with parentheses are invisible in URL)
+   - Renamed `(admin)` to `admin` (real route segment) — all admin pages now at `/admin/*`
+
+7. **Redis infrastructure (blocker — Upstash free tier exhausted):**
+   - Removed placeholder BullMQ Workers for unimplemented queues — reduced from 7 workers to 1 (`generate_demo` only). Placeholder workers were burning Redis requests polling for jobs that never arrive.
+   - Added `db` field parsing to Redis connection options in `worker/queues.ts` and `src/lib/costs/tracker.ts` — supports `redis://127.0.0.1:6379/1` (local Docker Redis with DB selection)
+   - Switched `.env.local` to local Docker Redis (`redis://127.0.0.1:6379/0` for cache, `redis://127.0.0.1:6379/1` for queue). Upstash URLs preserved as comments for production.
+   - Updated `.env.example` with local Redis as default
+
+8. **Minor/cosmetic fixes:**
+   - Created `.env.example` with all variable names, placeholder values, and documentation comments
+   - Replaced broken `calendly.com/PLACEHOLDER` CTA with `mailto:` link using `NEXT_PUBLIC_CONTACT_EMAIL` env var
+   - Created `vitest.config.ts` with path aliases matching tsconfig
+   - Added `console.error` to view count fire-and-forget catch block (was silently swallowing errors)
+
+9. **CLAUDE.md improvements:**
+   - Added `worker/env.ts` to directory structure
+   - Added `fastify-raw-body` package name clarification
+   - Added "Dev commands" section
+   - Added "Demo vs Production mode" and "Mock mode" pattern docs
+   - Removed phantom "Sprint 6" from status
+   - Added lab note about Postgres.js JSONB-as-string behavior
+
+**Verification:** `tsc --noEmit` clean, 97/97 tests pass across 4 test files, demo pipeline verified end-to-end with mock data (admin → outbox → worker → DB → viewer)
+
+---
+
+### Sprint 1 done when
+- [x] App live on Vercel, worker on Railway (health checks passing)
+- [x] All 15 database tables exist (confirmed via migrations 001-003)
+- [x] Pasting a Google Maps URL generates a demo (mock mode: ~2s, real SerpAPI: <90s)
+- [x] Demo page is mobile-optimized and shareable
+- [x] Non-English reviews get same-language responses (ES, FR, DE verified in mock data)
+- [x] Sales partner can generate demos independently (admin UI at /admin/demos)
+- [x] Admin routes protected by middleware auth (fail-closed in production)
+- [x] OutboxPoller hardened: FOR UPDATE SKIP LOCKED, max_attempts enforcement, transaction-wrapped
+- [x] DemoGenerationWorker crash recovery: stale running detection, terminal state handling
+
+---
+
+## Sprint 2: Production Pipeline (Days 6–13)
+
+**Status:** IN PROGRESS
+
+### Prompt 7 — Shared Worker Utilities (2026-04-10)
+
+**Status:** COMPLETE
+
+All shared utilities that Sprint 2 workers depend on are now in place. Every subsequent worker (ReviewSyncWorker, ResponseGeneratorWorker, NotificationWorker, ResponsePublisherWorker, AdminExceptionWorker) imports from these shared modules.
+
+1. **Created `src/lib/shared/subscription-guard.ts`** — `checkSubscription()`:
+   - Input: subscription status, business updatedAt timestamp, worker type (`'generator'` | `'notification'` | `'publisher'` | `'summary'`)
+   - Returns `{ allowed: true }` or `{ allowed: false; reason: string }`
+   - Rules per CLAUDE.md (authoritative): `cancelled` → denied; `past_due` → 7-day grace check; `pending_payment` → only generator allowed (admin-visible demo drafts during sales call); `active` → allowed
+   - Unknown statuses denied with descriptive reason
+
+2. **Created `src/lib/shared/outbox.ts`** — extracted from DemoGenerationWorker:
+   - `markOutboxCompleted(outboxId)` — UPDATE job_outbox SET status='completed'
+   - `markOutboxFailed(outboxId, error)` — UPDATE job_outbox SET status='failed', last_error
+   - Imports `sql` from `@/lib/db/server` (standalone client, not for use inside transactions)
+
+3. **Created `src/lib/shared/sanitize.ts`** — `sanitizeText()`:
+   - Strips null bytes, ASCII control chars (U+0001–U+001F except `\n \r \t`), DEL + C1 block (U+007F–U+009F)
+   - Collapses whitespace runs to single space, trims
+
+4. **Created `src/lib/shared/worker-types.ts`** — 5 job payload interfaces:
+   - `SyncReviewsPayload`: `{ business_id, google_place_id }`
+   - `GenerateResponsePayload`: `{ review_id, business_id, version }`
+   - `SendNotificationPayload`: `{ response_id, business_id }`
+   - `PublishResponsePayload`: `{ response_id, business_id }`
+   - `NotifyAdminExceptionPayload`: `{ review_exception_id, business_id }`
+   - `DemoJobPayload` remains in `src/lib/demos/types.ts` (unchanged)
+
+5. **Created `src/lib/shared/rate-limit.ts`** — `checkRateLimit()`:
+   - Atomic Lua script for INCR + EXPIRE in single Redis round-trip (uses cache instance via `getCacheRedis()`)
+   - Returns `{ allowed: boolean; remaining: number }`
+   - Initial implementation had a bug: separate INCR then EXPIRE calls were not failure-safe — if the process crashed between them, the key would be left without a TTL. Fixed by switching to a Lua script that runs both atomically.
+
+6. **Created `src/lib/shared/mock-mode.ts`** — mock mode helpers:
+   - `isMockMode()` — checks `MOCK_EXTERNAL_APIS === 'true'`
+   - `getReviewMonitor(apiKey)` — returns `SerpApiMonitor` or `MockSerpApiMonitor` based on mock mode
+
+7. **Created `src/lib/reviews/mock-monitor.ts`** — `MockSerpApiMonitor`:
+   - Same interface as `SerpApiMonitor`: `fetchReviews(placeId, maxResults?) → MonitorResult`
+   - Reuses canned reviews from `MockReviewSource`
+   - Enriches each with identity fields: `provider='serpapi_poll'`, SHA-256 identity hash, synthetic resource names, `identityStrategy='name_date_hash'`
+   - Computes `contentHash` via `computeContentHash()` from `reviews/types.ts`
+   - Returns `{ reviews: MonitoredReview[], collisions: [] }` (no collisions in mock data)
+
+8. **Created `src/lib/responses/voice-learning.ts`** — `getApprovedResponsePairs()`:
+   - Queries `responses` joined with `reviews` for posted + edited responses, uses `idx_responses_voice` partial index
+   - LIMIT 10 from DB, returns ≤ 5 as `VoiceExample[]`
+   - Returns `[]` if fewer than 5 edited+posted responses exist (voice learning activation threshold)
+
+9. **Modified `worker/jobs/DemoGenerationWorker.ts`**:
+   - Removed local `markOutboxCompleted()` function (lines 141-147)
+   - Now imports `markOutboxCompleted` from `@/lib/shared/outbox`
+   - Transactional outbox completions (inside `sql.begin()`) remain as inline `tx` SQL
+
+10. **Updated barrel exports:**
+    - `src/lib/shared/index.ts` — re-exports all new modules
+    - `src/lib/reviews/index.ts` — added `MockSerpApiMonitor` export
+    - `src/lib/responses/index.ts` — added `getApprovedResponsePairs` export
+
+11. **Installed `fastest-levenshtein@1.0.16`** — needed by Prompt 12 (approval edit flow, Levenshtein distance calculation)
+
+12. **Tests (3 new test files, 27 new tests):**
+    - `src/lib/shared/__tests__/subscription-guard.test.ts` (11 tests): all 4 statuses × 4 worker types, grace period boundary cases (6d23h59m allowed, 7d0m1s denied), unknown status handling
+    - `src/lib/shared/__tests__/sanitize.test.ts` (11 tests): null bytes, control chars, DEL/C1, whitespace collapse, trim, empty/whitespace-only input, unicode preservation, combined edge cases
+    - `src/lib/shared/__tests__/rate-limit.test.ts` (5 tests): first request, subsequent, exact limit, over limit, well past limit — all using mocked Redis `eval`
+
+**Verification:** `tsc --noEmit` clean, 136/136 tests pass across 7 test files, `pnpm build` succeeds
+
+---
+
+### Prompt 8 — OutboxPoller Watchdog + ReconciliationPoller (2026-04-10)
+
+**Status:** COMPLETE
+
+Added watchdog recovery to the existing OutboxPoller and created the ReconciliationPoller for 60-minute SerpAPI review sync scheduling.
+
+1. **Modified `worker/jobs/OutboxPoller.ts`** — added watchdog recovery:
+   - Two CTE queries run at the START of each poll cycle, inside the `sql.begin()` transaction, BEFORE the pending-entry SELECT
+   - **Recover retryable:** entries with `status='dispatched'` AND `dispatched_at < NOW() - INTERVAL '1 hour'` AND `attempts < max_attempts` → reset to `'pending'`, clear `dispatched_at`, set `available_at = NOW()`
+   - **Fail terminal:** entries with same stale condition AND `attempts >= max_attempts` → set `status='failed'`, `last_error='Stale dispatched entry exceeded max_attempts'`, `completed_at = NOW()`
+   - Logs recovered and failed counts only when non-zero
+   - Recovers from the scenario where a BullMQ worker crashes after dispatch but before completion
+
+2. **Created `worker/jobs/ReconciliationPoller.ts`** — 60-minute sync scheduler:
+   - Same `setInterval` + `isPolling` re-entrancy guard pattern as OutboxPoller
+   - Interval: 60 minutes (configurable via `RECONCILIATION_INTERVAL_MS` env var, default `3_600_000`)
+   - **Mock mode skip:** if `isMockMode()` returns true, logs and returns without touching DB
+   - **Query:** finds businesses with `subscription_status = 'active'`, non-null `google_place_id`, and `last_sync_at` older than 60 minutes (or NULL)
+   - **Dedup guard:** `NOT EXISTS` subquery prevents creating a new `sync_reviews` outbox entry if one is already `pending` or `dispatched` for that business
+   - For each eligible business: inserts a `job_outbox` entry with `topic='sync_reviews'`, `aggregate_type='business'`, payload typed as `SyncReviewsPayload` from `src/lib/shared/worker-types.ts`
+   - UUIDv7 for outbox entry IDs
+   - Exports `startReconciliationPoller()` / `stopReconciliationPoller()`
+
+3. **Modified `worker/index.ts`** — wired lifecycle:
+   - Import `startReconciliationPoller` / `stopReconciliationPoller`
+   - `startReconciliationPoller()` called after `startOutboxPoller()` in `main()`
+   - `stopReconciliationPoller()` called after `stopOutboxPoller()` in `shutdown()`
+
+**Verification:** `tsc --noEmit` clean, 136/136 tests pass across 7 test files, `pnpm build` succeeds
+
+---
+
+### Prompt 9 — ReviewSyncWorker (2026-04-10)
+
+**Status:** COMPLETE
+
+Built the ReviewSyncWorker that processes `sync_reviews` BullMQ jobs — fetches reviews via SerpAPI (or mock), deduplicates against the DB, triggers response generation for new reviews, handles review edits, and captures ROI baselines.
+
+1. **Created `worker/jobs/ReviewSyncWorker.ts`** — `handleReviewSync()`:
+   - Exports a single handler function consuming `Job<SyncReviewsPayload>`
+   - **Step 1 (validation):** Reads business from DB, validates existence (`markOutboxFailed` if not found), subscription status via `checkSubscription('generator')` (`markOutboxCompleted` if ineligible), and `google_place_id` presence (`markOutboxFailed` if null)
+   - **Step 2 (fetch):** Uses `getReviewMonitor()` from shared mock-mode (auto-selects real vs mock). Permanent SerpAPI errors (401/403/quota) → `markOutboxFailed`; transient errors → throws for BullMQ retry
+   - **Step 3 (collisions):** Logs identity collisions as warnings (can't insert to `review_exceptions` — `review_id` is NOT NULL in schema, collisions are pre-insert)
+   - **Step 4 (per-review processing):** Each review processed in its own `sql.begin()` transaction for partial success:
+     - `FOR UPDATE` lock on existing review by `(provider, provider_review_name)`
+     - **NEW review:** insert review row + `generate_response` outbox entry
+     - **Content changed + no active response:** queue fresh generation
+     - **Content changed + `pending_approval`:** fail old response with `'review_content_changed'`, queue regeneration with `version + 1`
+     - **Content changed + `posted`/`awaiting_manual_post`:** insert `review_exception` (`ON CONFLICT DO NOTHING` for partial unique index) + `notify_admin_review_exception` outbox entry
+     - **Content changed + `approved`/`edited`:** supersede old response, queue regeneration
+     - **Unchanged:** skip (no action)
+   - **Step 5:** Updates `businesses.last_sync_at = NOW()`
+   - **Step 6 (ROI baseline):** On first sync (`baseline_captured_at IS NULL`), captures `initial_review_count` and `initial_responded_count`. Non-fatal — caught and logged if fails.
+   - **Step 7:** `markOutboxCompleted(outboxId)`
+   - Tracks new/updated/unchanged/error counts per sync for logging
+
+2. **Modified `worker/index.ts`** — registered the worker:
+   - Imported `handleReviewSync` from `./jobs/ReviewSyncWorker`
+   - Created `reviewSyncWorker = new Worker(QUEUE_NAMES.SYNC_REVIEWS, handleReviewSync, { connection: redisOpts })`
+   - Added to `workers` array for graceful shutdown
+   - Removed commented-out placeholder
+
+3. **Created `worker/__tests__/ReviewSyncWorker.test.ts`** — 6 unit tests:
+   - Business not found → `markOutboxFailed` called
+   - Subscription cancelled → `markOutboxCompleted` called (real `checkSubscription` used, not mocked)
+   - Null `google_place_id` → `markOutboxFailed` called
+   - Permanent SerpAPI error (403/quota) → `markOutboxFailed` with `serpapi_permanent` prefix, does not throw
+   - Transient SerpAPI error (ECONNRESET) → throws for BullMQ retry, neither outbox helper called
+   - New review happy path → `sql.begin` called for per-review transaction, `markOutboxCompleted` called at end
+   - Uses `vi.hoisted()` for shared mock state between hoisted `vi.mock` factories and test code
+
+4. **Created `supabase/migrations/004_sync_reviews_dedup_constraint.sql`** — race-safe dedup for ReconciliationPoller:
+   - Collapses pre-existing duplicate in-flight `sync_reviews` outbox entries before creating constraint
+   - Partial unique index `idx_jo_sync_reviews_inflight` on `(topic, aggregate_id)` WHERE `topic = 'sync_reviews' AND status IN ('pending', 'dispatched')`
+   - ReconciliationPoller catches Postgres unique violation (error code `23505`) gracefully
+
+**Post-review fixes:**
+- Fixed env var name: `SERPAPI_KEY` → `SERPAPI_API_KEY` (matches `.env.local`)
+- ReconciliationPoller dedup made atomic: `INSERT ... SELECT ... WHERE NOT EXISTS` + DB-level unique constraint + `catch` for `23505` error code
+- ReconciliationPoller interval parsing: `getIntervalMs()` validates with `Number.isFinite(parsed) && parsed > 0`, falls back to default on invalid input
+- Migration 004 cleanup: collapses existing duplicates before creating unique index to prevent deployment failures
+
+**Verification:** `tsc --noEmit` clean, 149/149 tests pass across 9 test files, `pnpm build` succeeds
+
+---
+
+### Prompt 10 — ResponseGeneratorWorker (2026-04-10)
+
+**Status:** COMPLETE
+
+Built the ResponseGeneratorWorker — a thin orchestration wrapper around the existing `generateResponse()` / `generateMockResponse()` with subscription guards, input sanitization, voice learning, avoid-facts guardrails, and transactional response persistence.
+
+1. **Created `worker/jobs/ResponseGeneratorWorker.ts`** — `handleResponseGeneration()`:
+   - Exports a single handler consuming `Job<GenerateResponsePayload>` (`{ review_id, business_id, version }`)
+   - **Step 1 (read):** Reads review and business from DB. If either not found → `markOutboxFailed`
+   - **Step 2 (subscription):** `checkSubscription('generator')` — allows active + pending_payment (admin demo drafts). Cancelled → `markOutboxCompleted`
+   - **Step 3 (sanitize):** Applies `sanitizeText()` to review text before passing to generator
+   - **Step 4 (context):** Maps DB snake_case columns to `BusinessContext` camelCase. JSONB parsing guard on all array columns (`staff_names`, `highlight_facts`, `avoid_facts`, `sample_responses`) via `parseArray()` helper
+   - **Step 5 (voice):** Calls `getApprovedResponsePairs(businessId)` — returns `[]` until ≥ 5 edited+posted responses
+   - **Step 6 (regen budget):** For `version > 1`, calls `checkRegenBudget(reviewId)`. If exceeded → `markOutboxFailed` (terminal, no retry)
+   - **Step 7 (generate):** Mock mode → `generateMockResponse()`. Real mode → `generateResponse()` (handles cost guard lifecycle, caching, LLM fallback internally)
+   - **Step 8 (avoid-facts):** Case-insensitive substring check against `businessContext.avoidFacts`. On violation → regenerates ONCE with `skipCache: true` (so the idempotent cache doesn't return the violating first result). After successful retry, overwrites cache via `setCachedGeneration()` with the clean result. Accumulates cost from both attempts. If retry also violates or fails → uses the original (best-effort)
+   - **Step 9 (persist):** In ONE `sql.begin()` transaction: INSERT response row (status `'pending_approval'`) + `UPDATE api_costs SET response_id` (links cost to response) + INSERT `send_notification` outbox entry. All three commit or rollback together. NO approval token in payload — token generation happens in NotificationWorker
+   - **Error handling:** `CostLimitExceededError` / `GlobalCostLimitExceededError` → `markOutboxFailed` (terminal). `ConcurrencyLimitExceededError` → throw for BullMQ retry (transient). `RegenBudgetExceededError` → `markOutboxFailed`. LLM failures → `markOutboxFailed`. DB transaction failures → throw for retry
+
+2. **Modified `src/lib/responses/types.ts`** — added `skipCache?: boolean` to `GenerationOptions`:
+   - Skips idempotent cache read AND write when true
+   - Used by the avoid-facts retry path so a cached violating response doesn't short-circuit regeneration
+
+3. **Modified `src/lib/responses/generator.ts`** — `skipCache` support:
+   - `runProductionMode()` skips `checkIdempotentCache()` read when `options.skipCache` is true
+   - Skips `setCachedGeneration()` write when `options.skipCache` is true
+   - Normal (non-retry) calls still cache as before
+
+4. **Modified `worker/index.ts`** — registered the worker:
+   - Imported `handleResponseGeneration` from `./jobs/ResponseGeneratorWorker`
+   - Created `responseGenWorker = new Worker(QUEUE_NAMES.GENERATE_RESPONSE, handleResponseGeneration, { connection: redisOpts })`
+   - Added to `workers` array for graceful shutdown
+
+5. **Modified `worker/queues.ts`** — added `defaultJobOptions` to all 7 queues:
+   - `attempts: 3, backoff: { type: 'exponential', delay: 5_000 }`
+   - Ensures transient failures (network, rate limits) retry at 5s/10s/20s instead of waiting for the 1-hour OutboxPoller watchdog
+
+6. **Created `worker/__tests__/ResponseGeneratorWorker.test.ts`** — 5 unit tests:
+   - Successful generation → `generateResponse` called, `sql.begin` persists response + outbox, `mockTx` args contain cost ID `'cost-1'` (proves `UPDATE api_costs` runs inside the transaction), `markOutboxCompleted` called
+   - Subscription cancelled → `markOutboxCompleted` called, no generator invoked
+   - Cost limit exceeded → `markOutboxFailed` called with error message, does not throw
+   - Mock mode → `generateMockResponse` called instead of `generateResponse`
+   - Avoid-facts violation → generator called twice, retry uses `skipCache: true` (asserted), first call has no `skipCache`, `setCachedGeneration` called with review ID `'rev-1'`, version `1`, and JSON containing the clean retry response text, `markOutboxCompleted` still called
+
+**Post-review fixes:**
+- Fixed avoid-facts retry returning cached violating response: added `skipCache` option to `GenerationOptions`, generator respects it for both cache read and write, worker passes `skipCache: true` on retry, worker overwrites cache with accepted result via `setCachedGeneration()` after successful retry
+- Fixed `linkApiCostToResponse` being outside the transaction: moved to inline `tx` UPDATE inside `sql.begin()` so response insert, cost link, and notification outbox all commit or rollback together
+- Fixed BullMQ queues having no retry config: added `defaultJobOptions: { attempts: 3, backoff: { type: 'exponential', delay: 5_000 } }` to all 7 queues in `worker/queues.ts`
+- Added targeted test assertions: cost link inside transaction (tx args contain cost ID), skipCache on retry (asserted on second call opts), cache overwrite (setCachedGeneration called with clean response)
+
+**Verification:** `tsc --noEmit` clean, 159/159 tests pass across 10 test files, `pnpm build` succeeds
+
+---
+
+### Prompt 11 — NotificationWorker + Email + Resend Webhook (2026-04-10)
+
+**Status:** COMPLETE
+
+Built the complete notification pipeline: email sending via Resend, NotificationWorker that generates approval tokens and sends approval emails, and Resend delivery webhook handler for tracking email delivery status.
+
+1. **Created `src/lib/notifications/email.ts`** — `sendApprovalEmail()`:
+   - Lazy Resend singleton via `getResend()`
+   - `ApprovalEmailParams` interface: to, from, businessName, reviewerName, starRating, reviewText, responsePreview, approvalUrl
+   - HTML template: inline CSS, single-column, mobile-first, max-width 600px. Star rating as `★★★★☆`, reviewer name, review text (truncated to 200 chars or "Rating only — no written review"), draft response preview (100 chars), big blue "Review & Approve" CTA button, "This link expires in 48 hours" footer
+   - Subject: "New review for {businessName} — response ready"
+   - Mock mode: logs email contents, returns `{ messageId: 'mock-' + randomUUID() }` without calling Resend
+   - Returns `{ messageId }` from Resend response
+
+2. **Created `worker/jobs/NotificationWorker.ts`** — `handleSendNotification()`:
+   - Reads response+review (JOIN) and business from DB. Not found → `markOutboxFailed`
+   - Subscription guard with workerType `'notification'` — correctly skips `cancelled`, expired `past_due`, AND `pending_payment`
+   - **Corrected idempotency logic:**
+     - Check `notification_deliveries` for existing sent delivery → if exists, `markOutboxCompleted` (already sent)
+     - Check `approval_links` for existing unexpired unrevoked link → if exists but no delivery, revoke it (orphaned from previous crash — can't reconstruct raw token from hash)
+     - Create new approval link with fresh token
+   - Generates raw token via `randomUUID()`, stores ONLY `SHA-256(rawToken)` in `approval_links` with 48-hour TTL
+   - Constructs approval URL: `${NEXT_PUBLIC_APP_URL}/approve/${rawToken}`
+   - Sends email via `sendApprovalEmail()`. On failure → throws for BullMQ retry (next retry: finds orphaned link, revokes it, creates new token)
+   - Records delivery in `notification_deliveries` with Resend `messageId` as `external_message_id`
+   - Raw token ONLY exists in memory during this function — NEVER persisted, logged, or stored in outbox payloads
+
+3. **Created `worker/ingress/resend.ts`** — Resend delivery webhook handler:
+   - Replaced placeholder with real handler
+   - **Svix signature verification:** HMAC-SHA256 over `svixId.svixTimestamp.rawBody`, base64 comparison with `timingSafeEqual`, supports multiple signatures. `RESEND_WEBHOOK_SECRET` unset → skips verification (dev mode)
+   - **Dedup via `inbound_events`:** `INSERT ... ON CONFLICT (external_event_key) DO NOTHING`. Duplicate → returns 200 (Resend expects 2xx)
+   - **Event processing:** `email.delivered` → sets `delivered_at`. `email.bounced`/`email.complained` → sets `failed_at` + `failure_reason`. All match by `external_message_id`
+   - Updates `inbound_events` status to `'processed'` or `'failed'`
+   - Always returns 200 (even for processing errors — Resend should not retry)
+
+4. **Modified `worker/index.ts`** — registered worker + ingress:
+   - Imported `handleSendNotification` from `./jobs/NotificationWorker`
+   - Created `notificationWorker = new Worker(QUEUE_NAMES.SEND_NOTIFICATION, handleSendNotification, { connection: redisOpts })`
+   - Added to `workers` array for graceful shutdown
+   - Imported `handleResendWebhook` from `./ingress/resend`
+   - Replaced `/ingress/resend` placeholder with real handler (rawBody: true preserved)
+
+5. **Modified `.env.example`** — added `RESEND_FROM_EMAIL`
+
+6. **Updated `src/lib/notifications/index.ts`** — barrel exports for `sendApprovalEmail` + `ApprovalEmailParams`
+
+7. **Created `worker/__tests__/NotificationWorker.test.ts`** — 5 unit tests:
+   - Success flow → approval link created (sql.begin), email sent with correct params (to, businessName, reviewerName, approvalUrl pattern), delivery recorded, markOutboxCompleted
+   - Subscription pending_payment → markOutboxCompleted, no email sent (real checkSubscription used)
+   - Existing delivery → idempotent skip, markOutboxCompleted
+   - Orphaned link revocation → old link revoked, new link created, email sent
+   - Email send failure → throws for BullMQ retry, markOutboxCompleted NOT called
+
+**Post-review fixes:**
+- Fixed HTML injection in approval emails: all dynamic content (`businessName`, `reviewerName`, `reviewText`, `responsePreview`) now escaped via `escapeHtml()` (replaces `& < > " '`). The `approvalUrl` href attribute is also quote-escaped. Email subject uses plain text (no escaping — `R&D` stays `R&D`, not `R&amp;D`)
+- Fixed Resend webhook verification failing open in production: `verifySignature()` now only allows unsigned requests when `MOCK_EXTERNAL_APIS=true`. In production, missing `RESEND_WEBHOOK_SECRET` → returns false → 401
+- Fixed orphaned approval link on missing `RESEND_FROM_EMAIL`: moved the env var check before token generation and link creation. If missing, worker calls `markOutboxFailed` immediately without creating any DB state
+- Fixed missing review date in email template: added `reviewDate: string` to `ApprovalEmailParams`, template now shows `"Jane · Apr 1, 2026"` with `formatDate()` for human-readable output
+- Added `RESEND_FROM_EMAIL` to `.env.local` (was only in `.env.example`)
+
+**Verification:** `tsc --noEmit` clean, 164/164 tests pass across 11 test files, `pnpm build` succeeds
+
+---
+
+### Prompt 12 — Approval Flow (2026-04-10)
+
+**Status:** COMPLETE
+
+Built the complete approval system: service layer (token validation, approve/edit/regenerate), cookie utilities (device binding + CSRF), 5 API routes, approval page (server shell + client interactive), and unit tests.
+
+1. **Created `src/lib/approval/errors.ts`** — 5 typed error classes:
+   - `InvalidTokenError`, `ExpiredTokenError`, `RevokedTokenError`, `ConsumedTokenError`, `DeviceConflictError`
+   - Each has a descriptive message and unique `name` property for `instanceof` checks
+
+2. **Created `src/lib/approval/service.ts`** — core approval business logic:
+   - All methods receive a Postgres `tx` (TransactionSql) from the caller — never create their own transactions
+   - `lockValidLink(tx, rawToken)`: SHA-256 hashes raw token, SELECT FOR UPDATE, validates consumed/revoked/expired state, returns typed `ApprovalLink`
+   - `establishApprovalSession(tx, linkId, deviceCookieHash, audit)`: binds device cookie hash on first visit, no-ops on same device, throws `DeviceConflictError` on different device
+   - `approve(tx, link, deviceCookieHash, audit)`: verifies device, consumes link, updates response to `'approved'`, revokes sibling links, inserts `publish_response` outbox entry
+   - `edit(tx, link, editedText, deviceCookieHash, audit)`: same as approve + computes Levenshtein `edit_distance` via `fastest-levenshtein`, stores `edited_text`, status `'edited'`
+   - `regenerate(tx, link, deviceCookieHash, audit)`: consumes link, revokes unclosed siblings, marks old response `'superseded'`, inserts `generate_response` outbox entry with `version + 1`
+   - All methods insert into `approval_audit_log` with `token_hash`, `device_cookie_hash`, `action`, `ip_address`, `metadata`
+
+3. **Created `src/lib/approval/cookies.ts`** — device binding + CSRF utilities:
+   - **Device cookie** (`__device`): HMAC-signed with `SESSION_COOKIE_SECRET`, format `{uuid}.{hmac}`, HttpOnly, Secure, SameSite=Lax, 48h max-age. Constant-time comparison for HMAC verification
+   - `setDeviceCookie(response)`: generates + sets cookie, returns signed value
+   - `getDeviceCookieHash(request)`: reads cookie, verifies HMAC, returns SHA-256 hash for DB comparison
+   - `verifyDeviceCookie(request)`: validates HMAC signature
+   - **CSRF** (`__csrf`): double-submit cookie pattern, NOT HttpOnly (JS reads it)
+   - `setCsrfCookie(response)`: generates token, sets cookie
+   - `validateCsrf(request)`: compares `x-csrf-token` header with cookie value, constant-time
+
+4. **Updated `src/lib/approval/index.ts`** — barrel exports for service, cookies, errors
+
+5. **Created 5 API routes** under `src/app/api/approve/[token]/`:
+   - **GET `route.ts`**: read-only token lookup, rate-limited (`10/min per IP`), fetches review+response+business, sets device+CSRF cookies, returns data with Cache-Control: no-store
+   - **POST `session/route.ts`**: validates CSRF, gets device cookie hash, calls `lockValidLink` + `establishApprovalSession` in one transaction
+   - **POST `approve/route.ts`**: validates CSRF + device cookie, calls `lockValidLink` + `approve` in one transaction
+   - **POST `edit/route.ts`**: same + parses `editedText` from body (validated non-empty), calls `lockValidLink` + `edit`
+   - **POST `regenerate/route.ts`**: same pattern, calls `lockValidLink` + `regenerate`
+   - All routes return typed error responses (404/410/403/400/500) with descriptive messages, all set Cache-Control: no-store, private
+
+6. **Created approval page** at `src/app/(public)/approve/[token]/`:
+   - **Server component** (`page.tsx`): hashes token server-side, validates approval link in DB. Invalid/expired/consumed/revoked → renders error page directly. Valid → renders minimal shell (business name + "Review a draft response") with NO review text in server HTML
+   - **Client component** (`approval-client.tsx`): fetches GET `/api/approve/{token}` on mount, POSTs `/api/approve/{token}/session` for device binding. Displays: review card (stars, reviewer name, date, text), response in editable textarea, 3 action buttons (Approve, Edit, Regenerate). Edit mode toggles textarea to editable. All POSTs include `x-csrf-token` header. Shows loading spinner, success confirmation, error messages. Mobile-first Tailwind layout. Expiry countdown in hours.
+
+7. **Created unit tests** (17 new tests across 2 files):
+   - `src/lib/approval/__tests__/service.test.ts` (10 tests): lockValidLink (valid/unknown/expired/consumed/revoked), establishApprovalSession (bind + device conflict), approve (outbox payload verification), edit (real Levenshtein computation), regenerate (version increment + payload)
+   - `src/lib/approval/__tests__/cookies.test.ts` (7 tests): setDeviceCookie (format + cookie set), getDeviceCookieHash (valid hash + missing), verifyDeviceCookie (valid HMAC + tampered), validateCsrf (match + mismatch)
+
+**Post-review fixes:**
+- Fixed non-atomic approval state changes: added `lockPendingResponse()` helper that locks the response row with `FOR UPDATE` and checks `status === 'pending_approval'` BEFORE any link is consumed. `approve`, `edit`, and `regenerate` all call this first — if the response is no longer pending, `ResponseNotPendingError` is thrown and the entire transaction rolls back (no link consumed, no false success). New error type added to `errors.ts`, exported from barrel, handled with HTTP 409 in all 3 action routes.
+- Fixed device cookie regenerated on every GET: `GET /api/approve/[token]` now calls `verifyDeviceCookie(request)` first and only creates a new device cookie when one doesn't exist or has an invalid HMAC. CSRF token still refreshed every time (short-lived nonce). Client component now checks the `/session` POST response and throws if non-2xx, preventing the UI from showing action buttons when session binding fails.
+- Created `playwright.config.ts` with test dir `./e2e`, chromium + mobile-chrome projects, webServer config for local dev. Created `e2e/approval.spec.ts` with documented 5 test scenarios (skipped — see deferred item below).
+
+**Deferred: Playwright E2E tests (plan deviation)**
+Prompt 12 in `docs/Final_Implementation_Plan.md:908` specifies Playwright E2E tests for the approval flow (approve, edit, expired, regenerate, already-approved). These are **deferred to Prompt 18 (Sprint 4 hardening)** because meaningful approval-flow E2E requires: (1) seeded Postgres test state with stable tokens, (2) env isolation for test DB, (3) running worker process with Redis for the full regenerate/publish chain, and (4) ResponsePublisherWorker (Prompt 13) which does not exist yet. The `e2e/approval.spec.ts` file documents all 5 required scenarios as skipped placeholders. `pnpm test:e2e` validates the Playwright config but reports 0 passed with skipped placeholder tests (currently 2 skipped because the same skipped scenario runs across 2 Playwright projects) — this is NOT actual E2E coverage. The test infrastructure (seed scripts, server coordination, teardown) will be built in Sprint 4 and serve all E2E suites.
+
+**Verification:** `tsc --noEmit` clean, 181/181 tests pass across 13 test files, `pnpm build` succeeds (approval page at `/approve/[token]` renders as dynamic route, 1.97 kB + 89.2 kB first load JS)
+
+---
+
+### Prompt 13 — Manual Posting + AdminExceptionWorker (2026-04-10)
+
+**Status:** COMPLETE
+
+Built the SerpAPI-mode posting workflow: ResponsePublisherWorker sends manual-post instructions to the sales partner, AdminExceptionWorker alerts on review edits after posting, and a minimal admin business detail page lets the sales partner copy responses and mark them as posted.
+
+1. **Added `sendInternalEmail()` to `src/lib/notifications/email.ts`**:
+   - Simple HTML email sender for admin notifications (reuses Resend singleton + mock mode)
+   - `InternalEmailParams`: to, subject, bodyHtml
+   - Requires `RESEND_FROM_EMAIL` (throws if not set — no hardcoded fallback)
+   - Updated barrel exports in `index.ts`
+
+2. **Created `worker/jobs/ResponsePublisherWorker.ts`** — `handlePublishResponse()`:
+   - Reads response (with approved_text) + review + business from DB
+   - **Idempotency**: if response is already `awaiting_manual_post` or `posted` → markOutboxCompleted, return
+   - Subscription guard with workerType `'publisher'` — skips cancelled and pending_payment
+   - Sets response status to `awaiting_manual_post`
+   - Determines admin email: queries `users` table for admin/sales_partner role, falls back to `ADMIN_NOTIFICATION_EMAIL` env var. If neither exists → logs warning, markOutboxCompleted
+   - Sends HTML email with: business name, reviewer + star rating, approved text in copyable block, Google Maps URL (`place_id:${google_place_id}`), paste instructions
+   - All dynamic content HTML-escaped
+   - Email failure → throws for BullMQ retry (safe — idempotency check prevents double status update)
+
+3. **Created `worker/jobs/AdminExceptionWorker.ts`** — `handleAdminException()`:
+   - Reads exception from `review_exceptions` joined with `reviews` + `businesses`
+   - If exception not found or already resolved (`status != 'open'`) → markOutboxCompleted, return
+   - JSONB parsing guard on `payload` column
+   - If `ADMIN_NOTIFICATION_EMAIL` not set → markOutboxCompleted (can't send without recipient)
+   - Sends HTML email explaining: business name, exception type, reviewer + rating, current review text, what happened, response status at time of edit, action needed
+   - Email failure → throws for BullMQ retry
+
+4. **Modified `worker/index.ts`** — registered both workers:
+   - `publisherWorker` on `PUBLISH_RESPONSE` queue
+   - `adminExceptionWorker` on `NOTIFY_ADMIN` queue
+   - Both added to `workers` array for graceful shutdown
+   - All 7 queue workers now implemented: demo, reviewSync, responseGen, notification, publisher, adminException (+ weekly summary remaining for Sprint 4)
+
+5. **Replaced `src/app/admin/businesses/[id]/page.tsx`** — admin business detail:
+   - Server component: reads business + all responses with `status = 'awaiting_manual_post'`
+   - Shows: business name, subscription status, category, Google Maps link
+   - "Awaiting Manual Post" section: reviewer + rating, review text snippet, approved response text in blue block
+   - Client component (`manual-post-section.tsx`): "Copy to Clipboard" button (navigator.clipboard API), "Mark as Posted" button → POSTs to mark-posted API
+   - Success state: shows green "Marked as posted" after successful POST
+
+6. **Created `src/app/api/admin/businesses/[id]/mark-posted/route.ts`**:
+   - POST route (protected by existing admin middleware)
+   - Parses `responseId` from body, validates non-empty
+   - `UPDATE responses SET status = 'posted', posted_at = NOW() WHERE id = $responseId AND business_id = $businessId AND status = 'awaiting_manual_post'`
+   - Returns 200 on success, 404 if not found or wrong status
+
+7. **Added `ADMIN_NOTIFICATION_EMAIL`** to `.env.example` and `.env.local`
+
+8. **Created unit tests** (7 new tests across 2 files):
+   - `worker/__tests__/ResponsePublisherWorker.test.ts` (4 tests): success (sets awaiting_manual_post + sends email), cancelled subscription (skip), already posted (idempotent skip), email failure (throws for retry)
+   - `worker/__tests__/AdminExceptionWorker.test.ts` (3 tests): success (sends alert email), already resolved (skip), email failure (throws for retry)
+
+**Post-review fixes:**
+- Fixed manual-post email retries being skipped: `awaiting_manual_post` is no longer terminal in the idempotency check — only `posted` causes a skip. The worker proceeds to the email send path on retry, so a crash between the status UPDATE and sendInternalEmail doesn't silently lose the notification. Added a dedicated retry regression test (test 5) that verifies `sendInternalEmail` is called when response is already `awaiting_manual_post`.
+- Fixed stale/wrong-business job resurrecting responses: status UPDATE now guards with `WHERE status IN ('approved', 'edited') AND business_id = $businessId`. A delayed `publish_response` outbox entry for a superseded or failed response returns `count: 0` and the worker completes the outbox without changing anything. Existing `awaiting_manual_post` skips the UPDATE and goes straight to email send.
+- Fixed admin recipient lookup not business-scoped: replaced global admin query with spec-compliant chain: (1) `SELECT email FROM users WHERE role IN ('admin', 'sales_partner') AND business_id = $businessId`, (2) onboarding partner via `businesses.onboarded_by` (restricted to admin/sales_partner role), (3) `ADMIN_NOTIFICATION_EMAIL` env var. No global admin fallback — responses for business X never route to a sales partner managing business Y.
+
+**Verification:** `tsc --noEmit` clean, 189/189 tests pass across 15 test files, `pnpm build` succeeds
+
+---
+
+### Sprint 2 done when
+- [x] Shared utilities: subscription guard, outbox helpers, sanitizer, rate limiter, mock monitor, voice learning, worker types — all tested
+- [x] OutboxPoller watchdog recovers stale dispatched entries (> 1 hour)
+- [x] ReconciliationPoller creates sync_reviews outbox entries every 60 minutes for active businesses (with dedup guard)
+- [x] Reviews polled via SerpAPI (or mock) and upserted with dedup (identity + content hash)
+- [x] New reviews trigger response generation automatically
+- [x] Cost circuit breaker works (per-business + global daily limits, concurrency, regen budget)
+- [x] Avoid-facts guardrail checks generated responses and retries once if violated
+- [x] Voice learning returns few-shot examples when >= 5 edited+posted responses exist
+- [x] Email notifications sent with approval links (delivery tracked via Resend webhooks)
+- [x] Approval tokens stored as SHA-256 hashes only — raw tokens never in Postgres, outbox payloads, or logs
+- [x] Approval page works on mobile: approve, edit (with Levenshtein distance), regenerate
+- [x] Regeneration chain works: old response superseded → new generated → new email → new link
+- [x] Owner sees "we'll post it shortly" — manual posting invisible to them
+- [x] Admin business detail page shows awaiting-manual-post responses with copy + mark-as-posted buttons
+- [x] Review edit detection: edited reviews trigger regeneration (pending) or admin exception (posted)
+- [x] Mock mode works for all workers (no real API calls in local development)
+- [x] All workers register in worker/index.ts with graceful shutdown
+- [ ] E2E approval flow tests pass in Playwright — **DEFERRED to Prompt 18 (Sprint 4)**, scaffolded in `e2e/approval.spec.ts`
+
+---
+
+### Sprint 2 Post-Sprint Fixes (2026-04-11)
+
+**Status:** COMPLETE
+
+Bugs discovered during end-to-end testing with real APIs and production deployment to Vercel.
+
+1. **Fixed SerpAPI `num` parameter rejection:**
+   - SerpAPI's Google Maps Reviews endpoint rejects the `num` parameter on the initial page unless `next_page_token` is also set — always returns 8 results on the first page
+   - Removed `num` from both `src/lib/reviews/serpapi-source.ts` and `src/lib/reviews/serpapi-monitor.ts`
+   - Results are still sliced to `count` client-side after fetching
+   - Also improved error stringification: `response.error` can be a string or object from SerpAPI — now checks `typeof` and `JSON.stringify` objects instead of letting them render as `[object Object]`
+
+2. **Fixed deprecated Anthropic model (`claude-3-5-haiku-latest` → `claude-haiku-4-5-20251001`):**
+   - Model was fully removed by Anthropic, returning 404 on every call
+   - Updated model ID in `src/lib/responses/generator.ts`, `src/lib/costs/tracker.ts`, and both test files
+   - OpenAI remains primary (gpt-4o-mini), Anthropic is fallback — both now work
+
+3. **Fixed Vercel deployment 500 error on approval page:**
+   - Root cause: `checkRateLimit()` called `getCacheRedis()` which crashes when `REDIS_CACHE_URL` is not set
+   - Vercel env vars were pointing to local Docker Redis (`redis://localhost:6379/0`) — unreachable from serverless functions
+   - Fix: rate limiter now gracefully skips when `REDIS_CACHE_URL` is not set or Redis is unreachable, returning `{ allowed: true }` instead of crashing
+   - The approval service has its own idempotency guards (token hash lookup, FOR UPDATE locks, consumed_at checks) as defense-in-depth
+   - Vercel env vars updated to use Upstash Redis URLs for production
+
+4. **Fixed BullMQ `:` in custom job ID:**
+   - BullMQ throws `Custom Id cannot contain :` — the OutboxPoller was using `${entry.id}:${entry.attempts + 1}` as jobId for watchdog-recovered entries
+   - Changed separator to `_`: `${entry.id}_${entry.attempts + 1}`
+
+5. **Fixed Supabase PgBouncer statement timeout:**
+   - OutboxPoller watchdog CTE was hitting Supabase's default ~8s `statement_timeout` when updating locked rows from dead connections
+   - Added `connection: { statement_timeout: 30_000 }` to the Postgres.js client in `src/lib/db/server.ts`
+   - Also required killing stuck `idle in transaction` backends via `pg_terminate_backend()` in Supabase SQL Editor
+
+6. **End-to-end verification completed (2026-04-11):**
+   - **Mock mode (MOCK_EXTERNAL_APIS=true):** Full pipeline verified locally: ReviewSyncWorker → 8 mock reviews synced → ResponseGeneratorWorker → 8 mock responses generated → NotificationWorker → 8 mock approval emails logged → approval page renders at `/approve/{token}` → click Approve → ResponsePublisherWorker sets `awaiting_manual_post` + sends mock admin email → admin page at `/admin/businesses/{id}` shows pending responses → click "Mark as Posted" → response status `posted`
+   - **Real API mode (MOCK_EXTERNAL_APIS=false):** SerpAPI fetches real Google Maps reviews successfully (8 reviews from test business). OpenAI 429 (quota exceeded) → Anthropic fallback works with updated model. Full status chain verified: `review new → response pending_approval → approved → awaiting_manual_post → posted`
+   - **Vercel production deployment:** Approval page renders at `rep-worth.vercel.app/approve/{token}`. API routes return data correctly. Device cookie + CSRF + session binding all functional.
+
+**Verification:** `tsc --noEmit` clean, 189/189 tests pass across 15 test files, `pnpm build` succeeds, Vercel deployment live
+
+---
+
+## Post-Sprint 2: Code Checkup — Modularization + Cleanup (2026-04-11)
+
+**Status:** COMPLETE
+
+Non-functional refactoring pass. No new features, no behavior changes. All 189 tests passing before and after. Triggered by a full-repo audit that identified 3 files needing modularization and 5 code quality issues.
+
+### Modularization (3 files split)
+
+1. **Split `src/lib/costs/tracker.ts` (345 lines) into 3 focused modules:**
+   - `src/lib/db/redis-cache.ts` — Redis cache client singleton (`getCacheRedis()`, `getCacheRedisOptions()`). Previously buried inside the cost tracker; now importable by any module needing the cache Redis instance (rate limiter, future view-count debounce, etc.) without pulling in cost-guard logic.
+   - `src/lib/costs/tracker.ts` — Cost guards only: `reserveCost()`, `finalizeCost()`, `releaseCost()`, `acquireConcurrencySlot()`, `releaseConcurrencySlot()`, `checkRegenBudget()`, `checkIdempotentCache()`, `setCachedGeneration()`, plus all 4 error classes. Imports Redis client from `@/lib/db/redis-cache`.
+   - `src/lib/costs/audit.ts` — Postgres audit trail: `recordApiCost()`, `linkApiCostToResponse()`, `calculateCostUsd()` + model pricing table. Pure SQL, zero Redis coupling.
+   - Updated barrel `src/lib/costs/index.ts` to re-export from all 3 modules.
+   - Updated consumers: `src/lib/responses/generator.ts` (split import into tracker + audit), `src/lib/shared/rate-limit.ts` (now imports from `@/lib/db/redis-cache`).
+   - Updated test mocks: `src/lib/costs/__tests__/tracker.test.ts` (calculateCostUsd + recordApiCost tests now import from `../audit`), `src/lib/responses/__tests__/generator.test.ts` (separate `vi.mock` for tracker vs audit), `src/lib/shared/__tests__/rate-limit.test.ts` (mock target changed to `@/lib/db/redis-cache`).
+
+2. **Extracted HTML email template from `worker/jobs/ResponsePublisherWorker.ts` (248 → ~165 lines):**
+   - Moved `buildManualPostEmailHtml()` into `src/lib/notifications/email.ts` alongside the existing `buildApprovalEmailHtml()`. Both email template functions now live in the same module with shared helpers (`renderStars()`, `escapeHtml()`).
+   - Worker now calls `buildManualPostEmailHtml(params)` + `sendInternalEmail()` — no inline HTML.
+   - Template is independently testable and ready for GBP API Phase 5 changes (the "Open on Google Maps" button gets replaced with auto-post confirmation).
+   - Updated `worker/__tests__/ResponsePublisherWorker.test.ts` mock to use `importOriginal` pattern so the real `buildManualPostEmailHtml` runs while `sendInternalEmail` remains mocked.
+
+3. **Extracted `processReview` domain logic from `worker/jobs/ReviewSyncWorker.ts` (412 → ~170 lines):**
+   - Created `src/lib/reviews/process-review.ts` containing:
+     - `processReview(monitored, businessId)` — the 200-line review ingestion state machine: dedup by provider identity, content-hash comparison, state-machine branching (new review → generate_response outbox, unchanged → skip, content changed + pending_approval → fail old + regenerate, content changed + posted → review_exception + admin notification, other statuses → supersede + regenerate). Zero BullMQ coupling — operates on a `sql.begin()` transaction.
+     - `captureRoiBaseline(businessId)` — counts reviews and sets `initial_review_count` + `baseline_captured_at` on first sync. Non-fatal (try-catch, retried on next sync).
+     - `isPermanentSerpApiError(message)` — classifies 401/403/quota errors as non-retryable.
+     - `ProcessResult` type export: `'new' | 'updated' | 'unchanged'`.
+   - Worker keeps only orchestration: load business, validate subscription, call SerpAPI monitor, iterate results calling `processReview()`, update `last_sync_at`, capture baseline, complete outbox.
+   - **GBP API readiness:** When Pub/Sub push handler arrives (Phase 5), it can import `processReview()` from `src/lib/reviews/` instead of duplicating the logic or importing from `worker/jobs/`.
+
+### Code quality fixes (5 issues)
+
+4. **Created `src/lib/shared/constants.ts` — centralized status enums and shared utilities:**
+   - `ResponseStatus` — typed constant object with all 7 response statuses: `PENDING_APPROVAL`, `APPROVED`, `EDITED`, `SUPERSEDED`, `AWAITING_MANUAL_POST`, `POSTED`, `FAILED`. Exported as both value and type.
+   - `SubscriptionStatus` — 4 subscription statuses: `PENDING_PAYMENT`, `ACTIVE`, `PAST_DUE`, `CANCELLED`.
+   - `ExceptionType` — 2 review exception types: `REVIEW_EDITED_AFTER_POST`, `IDENTITY_COLLISION`.
+   - `NO_STORE_HEADERS` — `{ 'Cache-Control': 'no-store, private' }` as a typed constant.
+   - `buildGoogleMapsUrl(placeId)` — constructs `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(placeId)}`.
+
+5. **Deduplicated `Cache-Control` headers across 5 approval API routes (~26 occurrences):**
+   - `src/app/api/approve/[token]/route.ts` (GET) — 7 occurrences → `NO_STORE_HEADERS`
+   - `src/app/api/approve/[token]/approve/route.ts` (POST) — 5 occurrences → `NO_STORE_HEADERS`
+   - `src/app/api/approve/[token]/edit/route.ts` (POST) — 8 occurrences → `NO_STORE_HEADERS`
+   - `src/app/api/approve/[token]/regenerate/route.ts` (POST) — 5 occurrences → `NO_STORE_HEADERS`
+   - `src/app/api/approve/[token]/session/route.ts` (POST) — 4 occurrences → `NO_STORE_HEADERS`
+   - Updated `src/lib/approval/http-errors.ts` to import from shared constant instead of local `const`.
+
+6. **Extracted `recordNotificationDelivery()` into `src/lib/notifications/delivery.ts`:**
+   - Shared helper for inserting into `notification_deliveries` table.
+   - Parameters: `businessId`, `responseId`, `channel`, `recipient`, `template`, `externalMessageId`.
+   - Replaced duplicated SQL INSERT in `worker/jobs/NotificationWorker.ts` (template `'approval_request'`) and `worker/jobs/ResponsePublisherWorker.ts` (template `'admin_manual_post'`).
+   - Removed now-unused `uuidv7` import from `ResponsePublisherWorker.ts`.
+
+7. **Extracted Google Maps URL builder — replaced 2 inline URL constructions:**
+   - `worker/jobs/ResponsePublisherWorker.ts` — was `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(business.google_place_id)}`, now calls `buildGoogleMapsUrl()`.
+   - `src/app/admin/businesses/[id]/page.tsx` — was inline template literal in JSX `href`, now calls `buildGoogleMapsUrl()`.
+
+8. **Decomposed `handleResponseGeneration` in `worker/jobs/ResponseGeneratorWorker.ts` (~268 → ~185 lines main function):**
+   - Extracted `applyAvoidFactsGuardrail(result, businessContext, normalizedReview, voiceExamples, ids)` (~45 lines): checks `avoidFacts` against response text, regenerates once on violation (with `skipCache: true`), accumulates cost from both attempts, overwrites polluted cache entry. Returns original result if no violation or retry fails.
+   - Extracted `persistResponseAndNotify(result, reviewId, businessId, version)` (~35 lines): single `sql.begin()` transaction that inserts response row + links api_cost + inserts `send_notification` outbox entry. Returns `responseId`.
+   - Main function is now linear orchestration: load data → subscription guard → build context → idempotency check → voice learning → regen budget → generate → guardrail → persist → complete outbox.
+
+### Bug fixes discovered during testing
+
+9. **OutboxPoller now stores actual dispatch error in `last_error`:**
+   - Previously stored generic `'Dispatch failed after N attempts'` — useless for debugging.
+   - Now stores the actual BullMQ/Redis error message (e.g., `ECONNREFUSED`, `ENOTOPEN`, connection timeout).
+   - Applies to both terminal failures (`status = 'failed'`) and intermediate retries (stored for visibility, overwritten on next attempt).
+   - This fix was discovered when 8 `generate_response` outbox entries silently failed with the generic message during local testing — a transient Redis connection issue that was invisible without the actual error.
+
+10. **Mock email logger now includes approval URL:**
+    - `sendApprovalEmail()` in mock mode now logs `→ {approvalUrl}` on the line after the mock email summary.
+    - Previously, raw approval tokens were generated in `NotificationWorker`, passed to `sendApprovalEmail()`, but the mock logger discarded them — making local approval-flow testing impossible without manual database queries.
+
+### Files changed (complete list)
+
+| File | Change |
+|------|--------|
+| `src/lib/db/redis-cache.ts` | **NEW** — Redis cache client singleton |
+| `src/lib/costs/audit.ts` | **NEW** — Postgres audit trail + model pricing |
+| `src/lib/costs/tracker.ts` | **REWRITTEN** — cost guards only, imports from redis-cache |
+| `src/lib/costs/index.ts` | **UPDATED** — re-exports from tracker + audit + redis-cache |
+| `src/lib/reviews/process-review.ts` | **NEW** — review ingestion state machine |
+| `src/lib/notifications/delivery.ts` | **NEW** — shared notification delivery recorder |
+| `src/lib/notifications/email.ts` | **UPDATED** — added `buildManualPostEmailHtml()`, mock logger includes approval URL |
+| `src/lib/shared/constants.ts` | **NEW** — status enums, NO_STORE_HEADERS, buildGoogleMapsUrl() |
+| `src/lib/shared/rate-limit.ts` | **UPDATED** — import from `@/lib/db/redis-cache` |
+| `src/lib/approval/http-errors.ts` | **UPDATED** — import NO_STORE from shared constants |
+| `src/lib/responses/generator.ts` | **UPDATED** — split imports (tracker + audit) |
+| `worker/jobs/ReviewSyncWorker.ts` | **REWRITTEN** — orchestration only, delegates to process-review |
+| `worker/jobs/ResponsePublisherWorker.ts` | **UPDATED** — uses buildManualPostEmailHtml(), buildGoogleMapsUrl(), recordNotificationDelivery() |
+| `worker/jobs/ResponseGeneratorWorker.ts` | **UPDATED** — extracted applyAvoidFactsGuardrail() + persistResponseAndNotify() |
+| `worker/jobs/NotificationWorker.ts` | **UPDATED** — uses recordNotificationDelivery() |
+| `worker/jobs/OutboxPoller.ts` | **UPDATED** — stores actual error message in last_error |
+| `src/app/admin/businesses/[id]/page.tsx` | **UPDATED** — uses buildGoogleMapsUrl() |
+| `src/app/api/approve/[token]/route.ts` | **UPDATED** — uses NO_STORE_HEADERS |
+| `src/app/api/approve/[token]/approve/route.ts` | **UPDATED** — uses NO_STORE_HEADERS |
+| `src/app/api/approve/[token]/edit/route.ts` | **UPDATED** — uses NO_STORE_HEADERS |
+| `src/app/api/approve/[token]/regenerate/route.ts` | **UPDATED** — uses NO_STORE_HEADERS |
+| `src/app/api/approve/[token]/session/route.ts` | **UPDATED** — uses NO_STORE_HEADERS |
+| `src/lib/costs/__tests__/tracker.test.ts` | **UPDATED** — audit tests import from `../audit` |
+| `src/lib/responses/__tests__/generator.test.ts` | **UPDATED** — separate mocks for tracker + audit |
+| `src/lib/shared/__tests__/rate-limit.test.ts` | **UPDATED** — mock target changed to redis-cache |
+| `worker/__tests__/ResponsePublisherWorker.test.ts` | **UPDATED** — importOriginal pattern for email mock |
+
+**Verification:** `tsc --noEmit` clean, 189/189 tests pass across 15 test files (zero test changes needed for behavior — only mock targets updated), full pipeline re-verified in mock mode (sync → generate → notify → approve → publish → mark posted).
+
+---
+
+## Sprint 3: Admin Dashboard + Payments (Days 14–19)
+
+**Status:** IN PROGRESS
+
+### Prompt 14a — Supabase Auth + Middleware + Login (2026-04-11)
+
+**Status:** COMPLETE
+
+Replaced the stopgap `ADMIN_API_KEY` cookie auth with Supabase Auth (email/password) using `@supabase/ssr` for cookie-based session management.
+
+1. **Installed `@supabase/ssr@0.10.2`** — cookie-aware Supabase client for SSR
+
+2. **Created `src/lib/db/auth.ts`** — server-side auth helpers:
+   - `getCurrentUser(request)`: reads Supabase session from request cookies via `@supabase/ssr`, calls `getUser()` (server-validated, NOT `getSession()`), looks up app `users` table by `auth_id`, returns `AppUser | null`
+   - `requireAuth(request)`: throws `AuthError(401)` if not authenticated
+   - `requireRole(request, ...roles)`: throws `AuthError(403)` if role not in allowed list
+   - Uses Postgres.js `sql` for user lookup (Node.js runtime, not Edge)
+
+3. **Created `src/lib/db/supabase-server.ts`** — cookie-aware Supabase client for Server Components and Route Handlers (anon key, RLS-aware)
+
+4. **Updated `src/lib/db/browser.ts`** — replaced `createClient` with `createBrowserClient` from `@supabase/ssr`. New `createBrowserSupabaseClient()` factory + deprecated `supabaseClient` export for backward compat.
+
+5. **Rewrote `src/middleware.ts`** — complete replacement:
+   - Uses `createServerClient` from `@supabase/ssr` for auth cookie management
+   - Calls `supabase.auth.getUser()` on every matched request (session refresh)
+   - Role lookups via `supabaseAdmin` (service-role client, HTTP-based, Edge Runtime compatible) — Postgres.js cannot run on Edge
+   - `/admin/*` (except `/admin/login`): require `admin` or `sales_partner` role
+   - `/api/admin/*`: require `admin` or `sales_partner` role (returns 401/403 JSON)
+   - `/dashboard/*`, `/settings/*`: require `owner` role with non-null `business_id`
+   - `/api/approve/*`: NOT in matcher — remains public (token-based approval flow)
+   - Matchers: `/admin/:path((?!login).*)`, `/api/admin/:path*`, `/dashboard/:path*`, `/settings/:path*`
+
+6. **Rewrote `src/app/admin/login/page.tsx`** — email + password form using `supabase.auth.signInWithPassword()`, redirects to `/admin/overview` on success, `router.refresh()` to force middleware re-evaluation
+
+7. **Created `src/app/api/auth/callback/route.ts`** — Supabase auth code exchange for email confirmation/reset flows
+
+8. **Deleted `src/app/api/admin/auth/route.ts`** — old API key auth route
+
+9. **Added `requireRole()` defense-in-depth to all 3 admin API routes:**
+   - `POST /api/admin/demos/generate`
+   - `GET /api/admin/demos`
+   - `POST /api/admin/businesses/[id]/mark-posted`
+
+10. **Created `supabase/migrations/006_users_rls_policy.sql`:**
+    - `ALTER TABLE users ENABLE ROW LEVEL SECURITY` (was missing from migration 001)
+    - `CREATE POLICY users_self_select` — authenticated users can SELECT own row where `auth_id = auth.uid()::text`
+
+11. **Cleanup:**
+    - Removed `ADMIN_API_KEY` from `.env.example`
+    - Updated stale Sprint 3 TODO comments in admin pages
+    - Deleted unused `src/lib/db/supabase-middleware.ts` (middleware inlines the pattern)
+    - Updated admin layout comment
+
+**Post-review fixes:**
+- Added `ALTER TABLE users ENABLE ROW LEVEL SECURITY` to migration 006 — without it, the RLS policy was decorative
+- Removed stale Sprint 3 TODO comments from demos page and business detail page
+- Removed `ADMIN_API_KEY` from `.env.example`
+- Deleted unused `supabase-middleware.ts` (middleware inlines the cookie pattern directly)
+
+**Prerequisites for testing (manual):**
+- Apply migration 006 in Supabase SQL Editor
+- Create admin + sales_partner auth accounts in Supabase dashboard (Authentication → Users → Add User)
+- Run seed SQL: `UPDATE users SET auth_id = '<auth-uuid>' WHERE email = '...'`
+
+**Verification:** `tsc --noEmit` clean, 189/189 tests pass across 15 files, `pnpm build` succeeds (16 pages compiled)
+
+---
+
+### Prompt 14b — Admin Read-Only Pages (2026-04-11)
+
+**Status:** COMPLETE
+
+Built 4 admin read-only pages replacing placeholders, each with a corresponding API route. All routes use `requireRole()` defense-in-depth, `export const dynamic = 'force-dynamic'`, and follow the established pattern from demos route.
+
+1. **Created `src/app/api/admin/overview/route.ts`** + **rewrote `src/app/admin/overview/page.tsx`** — Sales partner CRM:
+   - System health bar: 4 cards (pending outbox, failed jobs, today's API cost, notification failures 24h) with red warning state
+   - Business table: name (linked to detail page), subscription status badge, pending approval count, response rate %, avg response time, last activity (relative time)
+   - Sorted by pending approval count (most urgent first)
+   - TanStack Query with 30-second polling interval
+
+2. **Created `src/app/api/admin/costs/route.ts`** + **rewrote `src/app/admin/costs/page.tsx`** — Cost monitoring:
+   - Date range filter: 7d/30d/90d toggle buttons
+   - Global daily progress bar: today's platform spend vs global limit (red when >=80%)
+   - By Provider table: provider, cost, calls
+   - By Day table: date, cost, calls
+   - By Business table: name, tier, period total, today spend, daily limit with %. Rows exceeding 80% highlighted red.
+   - Tier-aware daily limits from env vars (founding=500c, standard=1000c, premium=2000c)
+
+3. **Created `src/app/api/admin/notifications/route.ts`** + **rewrote `src/app/admin/notifications/page.tsx`** — Notification delivery log:
+   - Filters: business (dropdown populated from DB), channel (email/sms), status (delivered/failed/pending)
+   - Dynamic WHERE via `sql.unsafe()` with parameterized queries
+   - Table: business, channel, recipient, template, sent timestamp, status badge (green/red/yellow)
+   - Pagination: 20 per page with Prev/Next + "Showing X-Y of Z"
+
+4. **Created `src/app/api/admin/jobs/route.ts`** + **rewrote `src/app/admin/jobs/page.tsx`** — Job monitoring:
+   - Outbox summary: 4 colored cards (pending/dispatched/failed/completed today)
+   - BullMQ queue depth: grid of cards per queue showing waiting/active/delayed/failed counts. Creates temporary Queue instances (NOT Workers) for `getJobCounts()`, closes them after. Redis unavailable → shows warning instead of crashing.
+   - Failed jobs table: topic, error (truncated with tooltip), attempts/max, created. Paginated.
+   - 30-second polling interval
+
+**Post-build fix:**
+- Escaped apostrophe in costs page JSX (`Today's` → `Today&apos;s`) to fix ESLint `react/no-unescaped-entities` error
+
+**Verification:** `tsc --noEmit` clean, 189/189 tests pass across 15 files, `pnpm build` succeeds (all pages compiled, 4 new API routes visible)
+
+---
+
+### Prompt 14c — Business Onboarding + Detail Page Upgrade (2026-04-12)
+
+**Status:** COMPLETE
+
+Built the business onboarding form, business list page, and upgraded the business detail page with profile editing and review list.
+
+1. **Created `src/app/api/admin/businesses/route.ts`** — GET + POST:
+   - GET: business list with pagination (LEFT JOIN responses for pending count)
+   - POST: onboarding — creates business (`subscription_status='pending_payment'`) + owner user (`role='owner'`, `auth_id=NULL`) + `sync_reviews` outbox entry in ONE transaction. Zod validation, Place ID extraction via `extractPlaceId()`. Duplicate email detection (409).
+
+2. **Created `src/app/api/admin/businesses/[id]/route.ts`** — GET + PATCH:
+   - GET: business detail + all reviews with latest non-superseded response via LATERAL JOIN. JSONB array parsing guard for PgBouncer.
+   - PATCH: update business settings (name, category, tone, productsServices, staffNames, highlightFacts, avoidFacts). Dynamic SET clause via `sql.unsafe()`. Nullable fields (category, productsServices) can be cleared.
+
+3. **Created `src/app/admin/businesses/new/page.tsx`** — onboarding form:
+   - react-hook-form + Zod + @hookform/resolvers
+   - 4 sections: Business Info (name, category, Google Maps URL), Owner Info (name, email, phone, notification preference), Voice & Context (tone dropdown, products/services, staff names, highlight/avoid facts, sample responses), Subscription Tier (founding/standard radio buttons)
+   - On submit: POST /api/admin/businesses → redirect to /admin/businesses/[id]
+   - Installed `@hookform/resolvers@5.2.2`
+
+4. **Rewrote `src/app/admin/businesses/page.tsx`** — business list:
+   - Table: name, category, subscription status badge, last sync, pending count
+   - Whole row clickable → /admin/businesses/[id]
+   - "Add Business" button → /admin/businesses/new
+   - Pagination: 20 per page
+
+5. **Rewrote `src/app/admin/businesses/[id]/page.tsx`** — upgraded detail page:
+   - Converted from server component to client component (fetches via API, not direct DB)
+   - Business header: name, status badge, tier, category, Google Maps link
+   - Inline-editable profile section: read mode (dl/dd grid) → edit mode (form fields) → PATCH on save
+   - Review list: all reviews with color-coded response status badges (new=gray, pending_approval=yellow, approved/edited=blue, awaiting_manual_post=orange, posted=green, failed=red)
+   - Existing ManualPostSection component preserved unchanged
+   - `useQuery` with `queryClient.invalidateQueries` on profile save
+
+**Post-review fixes:**
+- PATCH schema: `category` and `productsServices` now accept `null` (clearing optional fields)
+- Review list: gray "new" badge renders when no response exists (was hidden)
+- Sample responses: split on double-newlines (paragraphs) not commas, preserving "Thanks, Sarah"
+- Business list GET: clamp limit to min 1 (prevent negative values)
+- Removed `@typescript-eslint/no-explicit-any` disable comment, fixed undefined type coalescing
+
+**End-to-end verified (2026-04-12):**
+- Onboarded test business via form → redirected to detail page → profile data correct
+- Worker picked up sync_reviews outbox → ReviewSyncWorker ingested 8 mock reviews → ResponseGeneratorWorker generated 8 mock responses → NotificationWorker sent mock approval emails
+- Business list shows the new business with correct pending count
+- Detail page shows all 8 reviews with color-coded status badges
+- Profile editing (Edit → modify → Save) works via PATCH API
+
+**Verification:** `tsc --noEmit` clean, 189/189 tests pass across 15 files, `pnpm build` succeeds
+
+---
+
+### Prompt 15 — Stripe Integration (2026-04-12)
+
+**Status:** COMPLETE
+
+Integrated Stripe payments connecting the business onboarding flow to the payment lifecycle that unlocks recurring review polling.
+
+1. **Rewrote `worker/ingress/stripe.ts`** — Stripe webhook handler:
+   - Signature verification via `stripe.webhooks.constructEvent(rawBody, sig, webhookSecret)` — invalid/missing → 401, no DB write
+   - Dedup via `inbound_events` table (same pattern as Resend handler): processed → 200 duplicate, received/failed → reprocess, new → INSERT
+   - **5 event types handled:**
+     - `checkout.session.completed`: extracts `client_reference_id` (= business_id), sets `subscription_status='active'`, stores `stripe_customer_id` + `stripe_subscription_id`. This is the transition from `pending_payment` that unlocks ReconciliationPoller.
+     - `invoice.payment_failed`: marks business `past_due` (only if currently `active`)
+     - `invoice.paid`: grace period recovery, `past_due` → `active`
+     - `customer.subscription.deleted`: marks business `cancelled`
+     - `customer.subscription.updated`: maps Stripe price ID to subscription_tier via `STRIPE_PRICE_FOUNDING`/`STRIPE_PRICE_STANDARD` env vars
+   - Success → mark inbound_events `processed`, return 200
+   - Failure → mark inbound_events `failed` with error_message, return 500 (Stripe retries)
+   - Lazy Stripe singleton — doesn't crash if `STRIPE_SECRET_KEY` is not set at import time
+
+2. **Modified `worker/index.ts`** — replaced Stripe placeholder route with real `handleStripeWebhook` handler
+
+3. **Modified `src/app/api/admin/businesses/route.ts`** — POST response:
+   - Added `buildPaymentLinkUrl(tier, businessId, ownerEmail)` helper
+   - Reads `STRIPE_PAYMENT_LINK_FOUNDING` / `STRIPE_PAYMENT_LINK_STANDARD` from env
+   - Appends `client_reference_id` + `prefilled_email` as query params
+   - Returns `{ id, paymentUrl }` in 201 response (paymentUrl is null if env var not set)
+
+4. **Modified `src/app/admin/businesses/new/page.tsx`** — on successful creation:
+   - Copies Payment Link URL to clipboard
+   - Shows alert with the URL before redirecting to detail page
+
+5. **Updated `.env.example`** — added 4 new Stripe env vars:
+   - `STRIPE_PAYMENT_LINK_FOUNDING`, `STRIPE_PAYMENT_LINK_STANDARD`
+   - `STRIPE_PRICE_FOUNDING`, `STRIPE_PRICE_STANDARD`
+
+**End-to-end verified (2026-04-12):**
+- Created test business "Golden Dragon Chinese Restaurant" via onboarding form
+- Payment Link URL returned in API response and copied to clipboard via alert
+- Stripe CLI (`stripe listen --forward-to localhost:3001/ingress/stripe`) forwarded webhooks to worker
+- `checkout.session.completed` webhook received and processed: business transitioned from `pending_payment` → `active`, `stripe_customer_id` + `stripe_subscription_id` stored
+- ReconciliationPoller picked up the now-active business for review syncing
+- Full payment lifecycle confirmed: onboard → Payment Link → Stripe test checkout (card 4242...) → webhook → active subscription
+
+**Verification:** `tsc --noEmit` clean, 189/189 tests pass across 15 files, `pnpm build` succeeds
+
+---
+
+### Prompt 16 — Sentry + Security Headers + Hardening (2026-04-12)
+
+**Status:** COMPLETE
+
+Added error tracking, security headers, shared validation schemas, and rate limiting for the final Sprint 3 hardening pass.
+
+1. **Installed `@sentry/nextjs@10.48.0` + `@sentry/node@10.48.0`**
+
+2. **Created Sentry config files** (project root):
+   - `sentry.client.config.ts` — browser-side init with `NEXT_PUBLIC_SENTRY_DSN`, replay disabled, `beforeSend` scrubs sensitive keys (matches `/key|secret|token|password|authorization/i` in `event.extra` and `event.request.headers`)
+   - `sentry.server.config.ts` — server-side init with `SENTRY_DSN`, same scrubbing
+   - `sentry.edge.config.ts` — minimal Edge Runtime init
+
+3. **Rewrote `next.config.mjs`** — wrapped with `withSentryConfig()`:
+   - Source map upload configured via `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` (silent when auth token not set)
+   - Security headers on all routes via `headers()`:
+     - `Strict-Transport-Security: max-age=63072000; includeSubDomains`
+     - `X-Content-Type-Options: nosniff`
+     - `X-Frame-Options: DENY`
+     - `Content-Security-Policy` — full policy in production (self + supabase + sentry), empty in dev (Next.js tooling needs eval/websockets)
+
+4. **Modified `worker/index.ts`** — Sentry + security headers for Railway:
+   - `Sentry.init()` immediately after env loading, before all other imports
+   - Same `beforeSend` scrubbing as Next.js configs
+   - Fastify `onSend` hook adds `Strict-Transport-Security` + `X-Content-Type-Options` to all worker responses
+
+5. **Created `src/lib/shared/schemas.ts`** — shared Zod validation:
+   - Reusable field schemas: `businessNameSchema`, `categorySchema`, `toneSchema`, `ownerEmailSchema`, etc.
+   - `OnboardBusinessSchema` — replaces inline schema in POST /api/admin/businesses
+   - `UpdateBusinessSchema` — replaces inline schema in PATCH /api/admin/businesses/:id
+   - Updated both route files to import from shared module, removed inline `z` imports
+
+6. **Modified `src/app/api/admin/demos/generate/route.ts`** — rate limits:
+   - Global: 50 demos per day (`demo:generate:daily`, 86400s TTL)
+   - Per-IP: 5 per minute (`demo:generate:minute:{ip}`, 60s TTL)
+   - Uses existing `checkRateLimit()` from `@/lib/shared/rate-limit` (Redis INCR+EXPIRE, graceful degradation)
+
+7. **Updated `.env.example`** — added `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`
+
+**Items confirmed already done in Sprint 2 (NOT rebuilt):**
+- Approval route rate limiting (3/token/min POST, 10/IP/min GET) ✅
+- CSRF double-submit pattern ✅
+- Approval actions audit-logged ✅
+- Input sanitization (sanitizeText + escapeHtml) ✅
+- Resend webhook signature verification ✅
+- Regeneration budget (3/review/day) ✅
+
+**Verification:** `tsc --noEmit` clean, 189/189 tests pass across 15 files, `pnpm build` succeeds with Sentry wrapping
+
+---
+
+### Sprint 3 done when
+- [x] Supabase Auth configured: admin and sales_partner roles enforced
+- [x] Stopgap API key auth removed, replaced by Supabase session-based auth
+- [x] Minimal users self-lookup RLS policy exists
+- [x] Sales partner can onboard clients via /admin/businesses/new
+- [x] Admin overview shows all businesses with health indicators + system health bar
+- [x] Admin costs page shows per-business and per-provider cost breakdown
+- [x] Admin notifications page shows delivery log with filters and pagination
+- [x] Admin jobs page shows outbox + queue health with failed job details
+- [x] Business detail page shows reviews with color-coded status + inline editable settings
+- [x] Business list page with pagination
+- [x] Stripe payments work end-to-end: onboard → Payment Link → webhook → active
+- [x] ReconciliationPoller starts polling after Stripe activates subscription
+- [x] Sentry capturing errors from both Vercel and Railway
+- [x] Security headers (HSTS, CSP, X-Frame-Options, nosniff) on all responses
+- [x] Demo generation rate-limited to 50/day
+- [x] All admin list views have pagination
+- [x] Zod validation on business onboarding and settings update inputs
+
+---
+
+## Sprint 4: Production Hardening
+
+**Status:** COMPLETE
+
+### Prompt 17 — Notification failover + weekly summaries + archival (2026-04-12)
+
+**Status:** COMPLETE
+
+**What was done:**
+
+1. **Extended `SendNotificationPayload`** with optional `failover` field:
+   - `failover?: { reason: 'stale_no_delivery' | 'all_deliveries_failed' }`
+   - Used by `NotificationFailoverPoller` when re-queuing failed notifications
+   - Added `WeeklySummaryPayload` interface: `{ business_id, week_start_date }`
+   - File: `src/lib/shared/worker-types.ts`
+
+2. **NotificationWorker failover-awareness:**
+   - Normal mode (no failover field): checks `sent_at IS NOT NULL` — skips if email was sent (existing behavior preserved)
+   - Failover mode (failover field present): checks `delivered_at IS NOT NULL` — only skips if delivery was confirmed. Re-sends when email was sent but never confirmed delivered.
+   - Steps 4-7 (validate config, generate token, revoke+create link, send email, record delivery) remain unchanged — they already do what failover needs
+   - 3 new tests: failover skip on confirmed delivery, failover re-send on unconfirmed, failover subscription guard
+   - File: `worker/jobs/NotificationWorker.ts`
+
+3. **NotificationFailoverPoller** (new, 2-hour interval):
+   - `setInterval` pattern matching `ReconciliationPoller` (NOT BullMQ repeatable jobs)
+   - Re-entrancy guard via `isPolling` flag
+   - Configurable interval via `NOTIFICATION_FAILOVER_INTERVAL_MS` env var (default: 7,200,000ms = 2 hours)
+   - **Stale detection:** Finds responses in `pending_approval` for >4 hours with no confirmed delivery (`delivered_at IS NOT NULL`) and no in-flight `send_notification` outbox entry. Creates failover outbox entry with `reason: 'stale_no_delivery'`.
+   - **All-failed detection:** Finds responses where every `approval_request` delivery has `failed_at` set (bounced/complained). Creates failover outbox entry with `reason: 'all_deliveries_failed'`.
+   - **Admin alerts:** Sends email to `ADMIN_NOTIFICATION_EMAIL` for all-failed cases. Deduplicates alerts: checks for existing `admin_notification_failover` delivery row within 24 hours before sending. Records the alert as a `notification_deliveries` row to prevent spam on subsequent polls.
+   - `WHERE NOT EXISTS` dedup guard on all outbox INSERTs + `23505` unique constraint catch
+   - 4 tests: stale failover queueing, admin alert on all-failed, 24h alert dedup, start/stop lifecycle
+   - File: `worker/jobs/NotificationFailoverPoller.ts`
+
+4. **Weekly summary email template:**
+   - `WeeklySummaryEmailParams` interface: businessName, weekStartDate, weekEndDate, totalReviews, totalResponded, notableReviews
+   - `buildWeeklySummaryEmailHtml()`: responsive HTML email with header (business name + week range), three-column stat box (reviews/responded/rate %), conditional "Reviews needing attention" section for 1-2 star reviews, green background for ≥90% rate / amber for lower
+   - Reuses existing `renderStars()`, `truncate()`, `escapeHtml()` helpers
+   - File: `src/lib/notifications/email.ts`
+
+5. **WeeklySummaryWorker** (replaced placeholder):
+   - Consumes `weekly_summary` jobs from BullMQ
+   - Subscription guard (`workerType: 'summary'`): skips `cancelled` and `pending_payment`
+   - Queries week stats: total reviews (by `detected_at`), total responded (by `created_at`, status in posted/approved/edited/awaiting_manual_post), notable reviews (star_rating ≤ 2, up to 5)
+   - Idempotent upsert: `INSERT INTO weekly_summaries ... ON CONFLICT (business_id, week_start_date) DO UPDATE ... WHERE sent_at IS NULL RETURNING sent_at`. If row already has `sent_at`, skip without sending (prevents duplicate emails from replayed outbox jobs).
+   - Sends email via `sendInternalEmail` + `buildWeeklySummaryEmailHtml`
+   - Updates `sent_at` after successful send
+   - Email send wrapped in try/catch with context logging before re-throw (for BullMQ retry)
+   - Uses `uuidv7()` for ID generation (project convention)
+   - `markOutboxCompleted` on all paths (success, subscription skip, already-sent, business-not-found)
+   - 5 tests: happy path send, cancelled skip, pending_payment skip, already-sent dedup, business-not-found
+   - File: `worker/jobs/WeeklySummaryWorker.ts`
+
+6. **WeeklySummaryScheduler** (new, hourly poller):
+   - `setInterval` pattern (same as ReconciliationPoller)
+   - Configurable interval via `WEEKLY_SUMMARY_SCHEDULER_INTERVAL_MS` (default: 3,600,000ms = 1 hour)
+   - Only acts on Monday between 8-9 AM UTC
+   - `getPreviousMonday()`: computes the Monday of the week that just ended (7 days back from current Monday)
+   - Finds businesses with `subscription_status IN ('active', 'past_due')` that don't already have a sent summary for that week
+   - `WHERE NOT EXISTS` dedup guard checks for in-flight `weekly_summary` outbox entry with matching `week_start_date` in payload
+   - File: `worker/jobs/WeeklySummaryScheduler.ts`
+
+7. **ArchivalPoller** (new, 24-hour poller):
+   - `setInterval` pattern with `isPolling` re-entrancy guard
+   - Configurable interval via `ARCHIVAL_INTERVAL_MS` (default: 86,400,000ms = 24 hours)
+   - Three batched DELETE operations (LIMIT 5000 per cycle to prevent long-running locks):
+     - `job_outbox`: completed entries older than 7 days
+     - `inbound_events`: processed entries older than 30 days
+     - `prospect_demos`: expired demos older than 30 days past expiry with `generation_status = 'completed'`
+   - CTE-based DELETE with COUNT reporting per category
+   - File: `worker/jobs/ArchivalPoller.ts`
+
+8. **Worker lifecycle registration:**
+   - `WeeklySummaryWorker`: registered as BullMQ Worker for `QUEUE_NAMES.WEEKLY_SUMMARY`, added to `workers` array (Sentry breadcrumbs + graceful shutdown)
+   - `NotificationFailoverPoller`: `startNotificationFailoverPoller()` in `main()`, `stopNotificationFailoverPoller()` in `shutdown()`
+   - `WeeklySummaryScheduler`: `startWeeklySummaryScheduler()` in `main()`, `stopWeeklySummaryScheduler()` in `shutdown()`
+   - `ArchivalPoller`: `startArchivalPoller()` in `main()`, `stopArchivalPoller()` in `shutdown()`
+   - All pollers start after server listen, stop before worker/queue close
+   - File: `worker/index.ts`
+
+**Code review fixes applied:**
+- WeeklySummaryWorker: wrapped `sendInternalEmail` in try/catch with business context logging before re-throw
+- WeeklySummaryWorker: changed `gen_random_uuid()` to `uuidv7()` per project UUIDv7 convention
+- ArchivalPoller: added `LIMIT 5000` to all three DELETE CTEs to prevent long-running locks at scale
+
+**Files created:**
+- `worker/jobs/NotificationFailoverPoller.ts`
+- `worker/jobs/WeeklySummaryScheduler.ts`
+- `worker/jobs/ArchivalPoller.ts`
+- `worker/__tests__/NotificationFailoverPoller.test.ts` (4 tests)
+- `worker/__tests__/WeeklySummaryWorker.test.ts` (5 tests)
+
+**Files modified:**
+- `src/lib/shared/worker-types.ts` — added `failover` field + `WeeklySummaryPayload`
+- `worker/jobs/NotificationWorker.ts` — failover-aware idempotency check
+- `worker/__tests__/NotificationWorker.test.ts` — 3 new failover tests
+- `src/lib/notifications/email.ts` — added `buildWeeklySummaryEmailHtml()` + `WeeklySummaryEmailParams`
+- `worker/jobs/WeeklySummaryWorker.ts` — replaced placeholder with full implementation
+- `worker/index.ts` — registered 3 pollers + WeeklySummaryWorker
+
+**Test results:** 17 files, 201 tests, all passing (12 net new tests since Sprint 3 baseline of 189).
+
+---
+
+### Prompt 18 — Security tests + E2E approval tests (2026-04-12)
+
+**Status:** COMPLETE
+
+**What was done:**
+
+1. **Security property tests** (`src/lib/shared/__tests__/security.test.ts`):
+   - Prompt injection: `sanitizeText()` strips control characters (\x00, \x01, \x7F, \x80) from text containing prompt-injection phrasing, preserves semantic text, handles `{{system}}` template-injection without crashing
+   - XSS boundary: `escapeHtml()` escapes `<script>alert(1)</script>` to `&lt;script&gt;...`, escapes `"` to `&quot;` for attribute injection prevention
+   - Cost amplification: mocked Redis `incr` returning 4 (exceeds MAX_REGEN_PER_REVIEW_PER_DAY=3), verified `checkRegenBudget()` throws `RegenBudgetExceededError` and calls `decr` to rollback
+   - Token enumeration: verified SHA-256 hash is 64 hex chars, deterministic (same input → same hash), unique (different tokens → different hashes)
+   - Expired token: verified `ExpiredTokenError` is a proper Error subclass with correct name
+   - Device hijack: verified `DeviceConflictError` is a proper Error subclass with correct name
+   - Subscription bypass: verified `cancelled` → denied for notification, `pending_payment` → denied for publisher, `pending_payment` → allowed for generator
+   - 10 assertions across 7 test groups
+
+2. **E2E seed helper** (`e2e/seed.ts`):
+   - Safety guards: fails fast without `TEST_DATABASE_POOL_URL`, requires `NODE_ENV=test` or `ALLOW_E2E_DB_WRITES=true`
+   - `seedApprovalFlow(overrides?)`: creates business + review + response + approval_link with unique UUIDs per call. Supports `expiresAt` and `consumedAt` overrides for expired/consumed test scenarios
+   - Uses `provider_review_name = 'test://review/{reviewId}'` and `provider_location_name = 'test://location/{businessId}'` — never constant values
+   - `cleanupApprovalFlow(data)`: deletes in FK-safe order (outbox → audit_log → approval_links → notification_deliveries → responses → reviews → businesses). Handles outbox entries by aggregate_id AND payload->>'business_id'
+   - `getResponse(responseId)`: reads status, approved_text, edited_text, edit_distance for assertions
+   - `getOutboxEntriesForBusiness(businessId)`: reads topic, status, payload for side-effect verification
+   - `closeSeedDb()`: closes postgres connection
+
+3. **Playwright E2E approval tests** (`e2e/approval.spec.ts`):
+   - Suite-level skip when `TEST_DATABASE_POOL_URL` is not set (graceful degradation)
+   - Per-test seed data in local scope, cleanup in `finally` block (parallel-safe, no leaked rows on failure)
+   - 5 scenarios:
+     a. **Approve**: navigate → wait for buttons → click "Approve" → verify success message → verify DB `status='approved'`, `approved_text` matches original
+     b. **Edit**: navigate → click "Edit" → fill textarea with modified text → click "Save & Approve" → verify DB `status='edited'`, `edited_text` stored, `edit_distance > 0`
+     c. **Expired**: seed with `expiresAt` 1 hour in past → navigate → verify "expired" text visible (server-rendered error page)
+     d. **Regenerate**: navigate → click "Regenerate" → verify success message → verify DB `status='superseded'` → verify `generate_response` outbox entry exists
+     e. **Consumed**: seed with `consumedAt` set → navigate → verify "already been approved" text visible (server-rendered error page)
+
+**Files created:**
+- `src/lib/shared/__tests__/security.test.ts` (10 tests)
+- `e2e/seed.ts`
+- `e2e/approval.spec.ts` (5 E2E scenarios, replaced placeholder)
+
+**Test results:** 18 files, 212 Vitest tests, all passing (11 net new since Prompt 17's 201). E2E tests skip gracefully when TEST_DATABASE_POOL_URL is not set.
+
+**Integration tests (Vitest, DB-backed):** Deferred — requires dedicated test database configuration in CI. Not blocked by this prompt.
+
+---
+
+### Sprint 4 done when
+- [x] Notification failover alerts admin when approval emails aren't delivered after 4 hours
+- [x] Weekly summaries sent Monday mornings for all active businesses
+- [x] Outbox archival deletes completed entries >7 days, processed events >30 days, expired demos >30 days
+- [x] Security tests pass for all 7 attack vectors
+- [x] Playwright E2E approval tests written (5 scenarios) — run when TEST_DATABASE_POOL_URL is configured
+- [ ] Integration tests verify idempotency + LLM failover — deferred to when test DB is in CI
+- [x] System runs 10 businesses with zero engineering intervention
+
+---
+
+## Post-Sprint 4: System Testing Improvements (2026-04-13)
+
+**Status:** COMPLETE
+
+Improvements discovered during end-to-end manual testing of the full system after Sprint 4. Not part of any sprint — these fix real issues encountered while testing with live Google Maps URLs and SerpAPI.
+
+### Place ID Resolution (2026-04-13)
+
+**Problem:** Users paste Google Maps URLs containing hex CIDs (`0x...:0x...`) instead of canonical Place IDs. These get stored and sent to SerpAPI, wasting credits when SerpAPI doesn't recognize them. No validation before storage or polling.
+
+**Solution:** Two-path input system with validation gate.
+
+**Primary path — Google Maps Place Autocomplete:**
+- [x] `PlaceAutocompleteElement` web component on onboarding and demo forms
+- [x] Returns canonical Place IDs directly from Google — zero SerpAPI waste
+- [x] Requests Essentials-tier fields only (`id`, `formattedAddress`, `location`) to avoid Pro-tier billing
+- [x] `color-scheme: light only` override for dark mode compatibility (system dark mode made the component render black)
+- [x] `includedPrimaryTypes: ['establishment']` filters to businesses only
+- [x] Server-side `isPlaceId()` validation — never trust client-submitted Place IDs
+- [x] New env var: `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`
+
+**Fallback path — URL paste with worker-side resolution:**
+- [x] `parseGoogleMapsUrl()` extracts all available data from URL: Place ID, hex CID, business name (URI-decoded), coordinates
+- [x] `PlaceIdValidationWorker` consumes `validate_place_id` outbox topic
+- [x] `resolvePlaceId()` uses SerpAPI `engine=google_maps` search with haversine distance matching (<200m)
+- [x] Fails fast without both business name + coordinates (no name-only fallback — too high false-match risk)
+- [x] Budget guard: 75 SerpAPI resolution calls/day via `checkRateLimit()`
+
+**Validation gate:**
+- [x] `place_id_verified BOOLEAN` column on `businesses` table (migration 007)
+- [x] `google_maps_url TEXT` column for re-resolution
+- [x] ReconciliationPoller filters `AND place_id_verified = TRUE`
+- [x] ReviewSyncWorker defensive guard: skips unverified businesses even if stale `sync_reviews` jobs exist
+- [x] Migration smart-grandfathers: only canonical base64url IDs verified, hex CIDs get `place_id_resolution_required` exception (idempotent with `WHERE NOT EXISTS`)
+
+**URL parser improvements:**
+- [x] Place IDs no longer restricted to `ChIJ` prefix — supports `GhIJ`, `Eic`, `Iho`, and any base64url format (20+ chars, starts with letter)
+- [x] Widened regex across `extractPlaceId()`, `isPlaceId()`, data path matching
+- [x] `isPlaceId()` and `isHexCid()` exported for server-side validation
+
+**Infrastructure:**
+- [x] `validate_place_id` queue + topic mapping in `queues.ts`
+- [x] `PlaceIdValidationWorker` registered in `worker/index.ts` (8 workers total now)
+- [x] `ValidatePlaceIdPayload` type in `worker-types.ts`
+- [x] `validate_place_id` added to admin jobs route local queue list
+- [x] `ExceptionType.PLACE_ID_RESOLUTION_REQUIRED` and `PLACE_ID_RESOLUTION_FAILED` constants
+- [x] SerpAPI `serpapi-source.ts` and `serpapi-monitor.ts` simplified to always use `place_id` parameter (no more `isHexCid` conditional)
+- [x] `DemoGenerationWorker` resolver pre-step for non-canonical IDs
+- [x] `DemoJobPayload` extended with optional `googleMapsUrl`
+- [x] Onboarding + demo API routes accept either `googlePlaceId` (autocomplete) or `googleMapsUrl` (fallback)
+- [x] Onboarding + demo forms: autocomplete primary, "Or paste a Google Maps URL" toggle for fallback
+
+**New files:**
+- `src/components/PlaceAutocomplete.tsx` — reusable Google Maps autocomplete component
+- `src/lib/reviews/place-id-resolver.ts` — SerpAPI search-based resolution with haversine matching
+- `src/lib/reviews/__tests__/place-id-resolver.test.ts` — 7 resolver tests
+- `src/lib/reviews/__tests__/url-parser.test.ts` — 16 URL parser tests
+- `worker/jobs/PlaceIdValidationWorker.ts` — outbox consumer for validate_place_id
+- `supabase/migrations/007_place_id_verification.sql` — adds columns + smart grandfathering
+
+**Spec:** `docs/superpowers/specs/2026-04-13-place-id-resolution-design.md`
+**Plan:** `docs/superpowers/plans/2026-04-13-place-id-resolution.md`
+
+**Tests:** 249/249 Vitest tests passing across 21 files (up from 212 after Sprint 4)
+
+**GBP API migration path:** When Google Business Profile API access is approved, Place Autocomplete stays as-is, resolver swaps from SerpAPI search to Google Places API (Find Place), validation worker stays, same `place_id_verified` flag and `google_maps_url` column.
+
+### Robustness Fixes — Code Review Findings (2026-04-14)
+
+10 validated findings from a system-wide code review. All surgical fixes — no new tables, no new workers, no architectural changes.
+
+**Spec:** `docs/superpowers/specs/2026-04-13-place-id-resolution-design.md`
+**Plan:** `docs/superpowers/plans/2026-04-14-robustness-fixes.md`
+
+**High priority (correctness/security):**
+- [x] H1: NotificationWorker — skip approval link revocation on retry when delivery record exists. Prevents revoking a live link sitting in the owner's inbox after crash-between-send-and-delivery-record.
+- [x] H2: ResponseGeneratorWorker — re-check `findAvoidFactViolation()` on retry result. Throw instead of falling back to the original violating draft. Worker marks outbox failed + creates review exception.
+- [x] H3: Demo generation rate limit — fail closed (503) when Redis unavailable. Prevents uncapped SerpAPI + LLM calls during Redis outages. Checks `REDIS_CACHE_URL` env var + wraps `checkRateLimit` in try/catch.
+- [x] H4: Stripe webhook — atomic INSERT dedup. Single `INSERT...ON CONFLICT DO NOTHING RETURNING id` replaces check-then-insert race. If no row returned, event already claimed — skip.
+- [x] H5: Stripe checkout — verify `session.payment_status === 'paid'` and `session.mode === 'subscription'` before setting `subscription_status = 'active'`. Rejects unpaid/non-subscription sessions.
+
+**Medium priority (reliability/security):**
+- [x] M6: OutboxPoller — two-phase claim+dispatch. Phase 2 claims rows (`status = 'dispatching'`, commit). Phase 3 dispatches to BullMQ outside transaction. Eliminates ghost jobs from DB rollback after BullMQ accept. Watchdog extended to recover stale `dispatching` rows.
+- [x] M7: WeeklySummaryWorker — set `sent_at = NOW()` BEFORE `sendInternalEmail()`. If email fails, mark outbox failed (no rethrow). Prevents duplicate weekly summaries on crash-and-retry.
+- [x] M8: Resend webhook — reject svix-timestamps older than 5 minutes or >1 minute in the future. Prevents replay attacks after archival deletes inbound_events dedup records.
+- [x] M9: Payment-success — removed fallback to "most recently activated business within 5 minutes" (wrong business on concurrent checkouts). Fixed JSON path: `payload->'data'->'object'->>'id'` instead of `payload->>'id'` (event ID vs session ID).
+
+**Low priority (test reliability):**
+- [x] L10: E2E tests — `page.goto()` uses `{ waitUntil: 'domcontentloaded' }` instead of default `load` event. More reliable when external resources are slow.
+
+**Other improvements:**
+- [x] Admin navbar — shared `AdminNav` component in admin layout with links to Overview, Businesses, Demos, Costs, Notifications, Jobs. Active page highlighted. Responsive hamburger on mobile. Hidden on login/payment-success.
+
+**Tests:** 253/253 Vitest tests passing across 21 files (up from 249 after Place ID Resolution)
+
+---
+
+## Sprint 5: Churn Killers (Retention Stack)
+
+**Status:** IN PROGRESS
+
+### Phase 5A.1 — Weekly Value Report + Monthly Impact Email (Prompt 19a) (2026-04-14)
+
+**Status:** COMPLETE
+
+**What was done:**
+
+1. **Review Summary LLM Helper** (`src/lib/responses/review-summary.ts`):
+   - Dedicated helper for generating multi-review intelligence briefs
+   - OpenAI (gpt-4o-mini) primary, Anthropic (claude-haiku-4-5-20251001) fallback
+   - Caps input to 30 reviews, truncates each review text to 200 chars
+   - Best-effort cost audit via `recordApiCost()` (swallows audit write failures)
+   - Mock mode returns canned summary with provider='mock', costUsd=0
+   - Both providers failing returns null (graceful degradation)
+   - 7 tests covering all paths
+
+2. **Notification Delivery Extended** (`src/lib/notifications/delivery.ts`):
+   - `responseId` made optional (`string | null | undefined`) to support business-level notifications
+   - Weekly value report and monthly impact emails have no specific response — pass null
+   - Backward-compatible: existing callers unaffected
+
+3. **Queue Registration** (`worker/queues.ts`, `src/lib/shared/worker-types.ts`):
+   - `SendMonthlyImpactPayload` interface: `{ business_id, month_start_date }`
+   - `SEND_MONTHLY_IMPACT` queue name, queue instance, topic-to-queue mapping
+
+4. **Weekly Value Report Email Template** (`src/lib/notifications/email.ts`):
+   - New `buildWeeklyValueReportHtml()` replacing old `buildWeeklySummaryEmailHtml()`
+   - Sections: AI Intelligence Brief (blue left border, light blue bg), Value Delivered header (reviews × 7 min), Response Rate Lift (with baseline comparison), Review Velocity (4-week average), Conditional Ranking, Notable Reviews, Conditional Dashboard Link
+   - Old template and interface removed
+
+5. **Monthly Impact Email Template** (`src/lib/notifications/email.ts`):
+   - New `buildMonthlyImpactEmailHtml()` with Monthly Intelligence Brief, value delivered in hours, response rate with baseline, ranking change, best review of the month (with approved response), dashboard link
+   - 24 tests for both email templates
+
+6. **Upgraded WeeklySummaryWorker** (`worker/jobs/WeeklySummaryWorker.ts`):
+   - Expanded business query to include ROI baseline fields
+   - New queries: reviews for LLM summary (30 max), 4-week average review count, ranking snapshots (latest + initial), dashboard eligibility (owner has auth_id)
+   - Intelligence brief: reuses existing `summary_text` from weekly_summaries if present (idempotent), otherwise calls `generateReviewSummary()` and persists
+   - Records notification delivery with `template='weekly_value_report'` after successful send
+   - Email subject changed to "Weekly Value Report"
+   - 12 tests covering all paths
+
+7. **MonthlyImpactScheduler** (`worker/jobs/MonthlyImpactScheduler.ts`):
+   - Hourly setInterval poller, fires 1st of month 9-10 AM UTC
+   - Queries active/past_due businesses without sent monthly_impact_emails for previous month
+   - Dedup guard: checks both monthly_impact_emails table and in-flight outbox entries
+   - Same patterns as WeeklySummaryScheduler
+
+8. **MonthlyImpactWorker** (`worker/jobs/MonthlyImpactWorker.ts`):
+   - Processes `send_monthly_impact` outbox entries
+   - Idempotent upsert into monthly_impact_emails (sent_at IS NULL guard)
+   - Queries month stats, best review (highest star + longest text), reviews for LLM brief
+   - Reuses existing `summary_text` if present (no re-LLM on retry)
+   - Conditional ranking snapshots (latest vs initial)
+   - Dashboard URL only when owner has auth_id
+   - Crash-safe: marks sent_at BEFORE Resend call
+   - Records notification delivery with `template='monthly_impact'`
+   - 13 tests covering all paths
+
+9. **Worker Registration** (`worker/index.ts`):
+   - MonthlyImpactWorker added to BullMQ workers array (10 workers total)
+   - MonthlyImpactScheduler added to startup/shutdown lifecycle (6 pollers total)
+
+10. **Migration 008** (`supabase/migrations/008_retention_core.sql`):
+    - `monthly_impact_emails` table (UUIDv7 PK, business_id FK, month_start_date, summary_text, sent_at)
+    - Unique constraint on (business_id, month_start_date) for idempotency
+    - Index on notification_deliveries (business_id, template, sent_at DESC) for cooldown checks
+
+**Test count:** 312/312 passing across 24 files (was 253)
+**New test files:** `review-summary.test.ts`, `email-templates.test.ts`, `WeeklySummaryWorker.test.ts`, `MonthlyImpactWorker.test.ts`
+
+### Post-19a Robustness Fixes (2026-04-14)
+
+**Status:** COMPLETE
+
+1. Cost guard in `review-summary.ts`: `reserveCost`/`finalizeCost`/`releaseCost` lifecycle, budget-exceeded degrades gracefully
+2. `claimed_at`/`sent_at` split: migration 009 adds `claimed_at` to `weekly_summaries` + `monthly_impact_emails`, atomic claim before processing, `sent_at` set just before Resend
+3. Stale claim recovery: claims older than 15 min are reclaimable, prevents permanently stuck reports from crashed workers
+4. Defensive try/finally in `generateReviewSummary`: `finalized` flag matches production generator pattern
+5. Prompt injection hardening: system prompt treats review text as raw data
+6. `subscription_tier` pass-through: workers query tier and pass to `generateReviewSummary`
+7. Response-rate fix: joined query counts period reviews with responses (not independent counts)
+8. Time-saved copy: templates use `totalResponded` consistently
+9. 4-week average: upper bound changed to `week_start_date` (previous 4 completed weeks)
+10. Nullable guards: `rank_position IS NOT NULL` on ranking queries, `star_rating IS NOT NULL` on summary queries, `NULLS LAST` on best-review ORDER BY
+11. Best review threshold removed: `star_rating >= 4` filter dropped per spec
+
+### Phase 5A.2 — Read-Only Owner Dashboard (Prompt 19c) (2026-04-14)
+
+**Status:** COMPLETE
+
+**What was done:**
+
+1. **recharts installed** (v3.8.1) for bar and line charts
+
+2. **Dashboard Data API** (`src/app/api/dashboard/route.ts`):
+   - Single `GET` endpoint returns all dashboard data in one payload
+   - Defense-in-depth: `requireRole(request, 'owner')` + `businessId` null check
+   - 8 parallel SQL queries via `Promise.all()`: business info + baseline, total reviews, total responded (joined), 8-week velocity, ranking snapshots, last 10 reviews with latest response, monthly brief, weekly brief
+   - Derived fields: response rate, baseline rate, time saved, ranking grouped by keyword, latest brief (monthly preferred)
+   - Exports `DashboardData` interface for client component typing
+
+3. **Middleware update** (`src/middleware.ts`):
+   - `/api/dashboard` paths protected for `role='owner'` with `business_id` check
+   - Added to `config.matcher`
+
+4. **OwnerNav component** (`src/components/OwnerNav.tsx`):
+   - Dashboard link + business name (hidden on mobile) + Sign out button
+   - Same styling family as AdminNav
+   - Uses `createBrowserSupabaseClient()` for sign out
+
+5. **Authenticated layout** (`src/app/(authenticated)/layout.tsx`):
+   - Async server component reads Supabase session from cookies
+   - Queries business name for OwnerNav
+   - Redirects to login if unauthenticated
+   - Wraps children in max-w-4xl container
+
+6. **DashboardContent client component** (`src/components/DashboardContent.tsx`):
+   - Fetches `GET /api/dashboard` on mount
+   - Section A: Value Summary Banner (blue gradient, reviews handled, time saved, response rate with baseline)
+   - Section B: Review Velocity BarChart (recharts, last 8 weeks, formatted dates)
+   - Section C: Ranking LineChart (conditional, Y-axis inverted, one line per keyword)
+   - Section D: Recent Reviews (status badges, expandable response text, "check email" for pending)
+   - Section E: Latest Intelligence Brief (monthly preferred, blue left border styling)
+   - Loading and error states
+
+7. **Dashboard page** (`src/app/(authenticated)/dashboard/page.tsx`):
+   - Replaced placeholder with `DashboardContent`
+
+### Post-19c Dashboard Robustness Fixes (2026-04-14)
+
+**Status:** COMPLETE
+
+1. ROI metrics: changed to explicit `IN ('posted', 'approved', 'edited', 'awaiting_manual_post')` — excludes pending_approval from "handled" count
+2. Edited response display: `COALESCE(approved_text, response_text)` in lateral join shows owner-approved text
+3. UTC date formatting: all chart date parsing uses `T00:00:00Z` suffix + `timeZone: 'UTC'`
+4. Zero-review weeks: velocity query uses `generate_series` to fill missing weeks with zero counts
+5. Brief recency: compares `sent_at` timestamps instead of period start dates
+6. Dashboard index: migration 010 adds `(business_id, detected_at DESC)` composite index
+7. Ranking limit: snapshots bounded to last 12 months
+8. Dashboard tests: 9 API route tests covering auth, scoping, empty states, brief recency, pending reviews
+9. Null review_date: returns empty string instead of current date
+10. No-store headers: all dashboard responses (success + error) use `NO_STORE_HEADERS` via `jsonResponse` helper; middleware `/api/dashboard` 401/403 also include no-store
+11. Pending reviews: lateral join includes `pending_approval` so UI shows "check your email" reminder
+12. Sign-out: only redirects on success, shows error state on failure, uses `router.refresh()`
+13. Status badges: added `edited` and `generating` to badge color map
+14. Nullable star_rating: typed as `number | null`, renders "No rating" when absent
+
+**Test count:** 322/322 passing across 25 files (was 312)
+**New test file:** `src/app/api/dashboard/__tests__/route.test.ts`
+
+### Phase 5A.3 — Engagement Detection & Re-engagement (Prompt 19d) (2026-04-14)
+
+**Status:** COMPLETE
+
+**What was done:**
+
+1. **Extracted `createApprovalLink()`** (`src/lib/approval/create-link.ts`):
+   - Shared approval link creation logic (randomUUID → SHA-256 hash stored, raw token returned)
+   - Handles orphaned link revocation (crash before email send)
+   - Used by NotificationWorker (refactored) and EngagementAlertWorker (new)
+
+2. **EngagementMonitorPoller** (`worker/jobs/EngagementMonitorPoller.ts`):
+   - Daily poller (24h default, configurable via `ENGAGEMENT_MONITOR_INTERVAL_MS`)
+   - Single grouped SQL query computes 5 metrics per active business: days_since_approval, pending_count, oldest_pending_age_days, notified_count (30d), approved_count (30d)
+   - 4 engagement rules with cooldown dedup via notification_deliveries:
+     - `owner_nudge`: activity_age >= 3d AND pending > 0 (3-day cooldown)
+     - `partner_engagement_alert`: activity_age >= 7d AND pending > 0 (7-day cooldown)
+     - `partner_escalation_alert`: activity_age >= 14d AND (pending > 0 OR notified > 0) (14-day cooldown)
+     - `partner_low_engagement`: approval_rate < 50% AND notified >= 3 (7-day cooldown)
+   - `activity_age_days = days_since_approval ?? oldest_pending_age_days`
+   - Creates `engagement_alert` outbox entries
+   - 10 tests
+
+3. **EngagementAlertWorker** (`worker/jobs/EngagementAlertWorker.ts`):
+   - Processes `engagement_alert` outbox entries
+   - `owner_nudge`: queries pending reviews, creates fresh approval links per review via `createApprovalLink()`, sends nudge email to owner with review list + approval URLs
+   - `partner_engagement_alert`: sends internal email to admin — "hasn't engaged in N days", owner contact info, suggested check-in
+   - `partner_escalation_alert`: sends escalation email — "at risk, no engagement in 2+ weeks", suggests phone call/visit
+   - `partner_low_engagement`: sends low-engagement email — "approval rate dropped to X%"
+   - Records notification delivery for all alert types
+   - 12 tests
+
+4. **4 Email Templates** (`src/lib/notifications/email.ts`):
+   - `buildOwnerNudgeEmailHtml()` — customer-facing, 600px card, lists pending reviews with stars + approval buttons
+   - `buildPartnerEngagementAlertHtml()` — internal, plain styling, metrics + contact info
+   - `buildPartnerEscalationAlertHtml()` — internal, red accent border, urgency framing
+   - `buildPartnerLowEngagementAlertHtml()` — internal, amber accent border
+   - 42 template tests
+
+5. **Queue + Payload Registration**:
+   - `EngagementAlertType` union type + `EngagementAlertPayload` interface in worker-types.ts
+   - `ENGAGEMENT_ALERT` queue name, instance, topic mapping in queues.ts
+   - Worker + poller registered in worker/index.ts (11 workers + 7 pollers total)
+
+6. **NotificationWorker Refactored**:
+   - Inline approval link creation replaced with `createApprovalLink()` call
+   - Removed unused crypto imports
+   - All existing tests still pass
+
+**Test count:** 386/386 passing across 28 files (was 322)
+**New test files:** `EngagementMonitorPoller.test.ts`, `EngagementAlertWorker.test.ts`, `engagement-email-templates.test.ts`
+
+---
+
+### Phase 5A.4 — Churn Risk Score System (Prompt 19f) (2026-04-15)
+
+**Status:** COMPLETE
+
+**What was done:**
+
+1. **Churn Risk Score Function** (`src/lib/shared/churn-score.ts`):
+   - Pure function `computeChurnRiskScore(metrics)` — no DB calls, no side effects
+   - 5 weighted signals: approval rate (30%), days since approval (25%), satisfaction pulse (20%), response time trend (15%), account age (10%)
+   - Levels: 0-30 = healthy, 31-60 = watch, 61-100 = at_risk
+   - Returns score, level, and breakdown array with signal name, value, and contribution
+   - Weights and thresholds exported as constants for tuning
+   - 39 comprehensive tests covering each signal independently, edge cases, boundary values, combined scoring
+
+2. **Admin Overview API** (`src/app/api/admin/overview/route.ts`):
+   - Added grouped metrics CTE query for all returned business IDs (one query, not N+1)
+   - Computes approval rate, notified/pending counts, days since approval, account age, response time trend
+   - Runs each through `computeChurnRiskScore()` and adds `churnScore` to response
+
+3. **Admin Overview Page** (`src/app/admin/overview/page.tsx`):
+   - Added Health column with HealthBadge (green=Healthy, amber=Watch, red=At Risk)
+   - Shows numeric score alongside level badge
+   - Default sort: risk score descending (most at-risk at top)
+
+4. **Business Detail API** (`src/app/api/admin/businesses/[id]/route.ts`):
+   - Added same metrics CTE query (scoped to single business)
+   - Computes and returns `churnScore` in GET response
+
+5. **Business Detail Page** (`src/app/admin/businesses/[id]/page.tsx`):
+   - Risk badge next to business name in header
+   - New Engagement section with score breakdown
+   - Each signal shows: name, value, contribution bar (color-coded green/amber/red), numeric contribution
+
+**Test count:** 427/427 passing across 29 files (was 388)
+**New test file:** `churn-score.test.ts` (39 tests)
+
+### Post-19f Robustness Fixes (2026-04-15)
+
+**Status:** COMPLETE
+
+1. Detail API contract: moved `churnScore` inside `business` object (was top-level — page expected `business.churnScore`, badge/engagement section never rendered)
+2. Overview API: fetch all businesses, sort by churn score server-side, then paginate (was sorting only the post-pagination page)
+3. Negative limit bypass: clamped to `[1, 100]` with `Math.max(..., 1)`
+4. Deterministic sort tie-breaker: score → pending count → name → id (prevents unstable pagination with tied scores)
+5. Migration 013: composite indexes `(business_id, status, created_at)` and `(business_id, approved_at DESC)` for churn metrics queries
+6. Email send failure recovery: WeeklySummaryWorker + MonthlyImpactWorker clear `sent_at` + `claimed_at` on send failure so retries can reclaim the report (was permanently stuck as "already sent")
+7. Owner nudge idempotency: checks for existing delivery within 1 day before creating approval links (prevents DB churn on BullMQ retries)
+8. `approvalRate` contract: documented as 0-1 fraction on `BusinessMetrics`, added defensive auto-correction guard for accidental 0-100 values
+9. Non-null assertion replaced with `?? 0` fallback on `metrics.approval_rate` in low-engagement alert
+
+---
+
+**Sprint 5A: COMPLETE** — All 4 prompts (19a Weekly Value Report + Monthly Impact Email, 19c Read-Only Owner Dashboard, 19d Engagement Detection & Re-engagement, 19f Churn Risk Score) implemented with all review findings addressed across 7 review rounds. 427 tests across 29 files.
+
+---
+
+## Sprint 5B: Retention Expansion
+
+**Status:** IN PROGRESS
+
+### Migration 014: Retention Expansion (2026-04-16)
+
+**Status:** COMPLETE (created, not yet applied to production)
+
+Created `supabase/migrations/014_retention_expansion.sql`:
+- New table: `onboarding_drip_log` (business_id, drip_type CHECK day_1/day_7/day_30, UNIQUE business+drip_type)
+- New table: `satisfaction_responses` (business_id, week_start_date, rating CHECK great/ok/not_great, comment, UNIQUE business+week)
+- ALTER businesses: `subscription_activated_at`, `tracked_keywords` (JSONB NOT NULL DEFAULT '[]'), `google_place_address`, `google_place_lat`, `google_place_lng`, `ranking_search_location`, `weekly_summary_enabled` (BOOLEAN DEFAULT TRUE), `monthly_impact_enabled` (BOOLEAN DEFAULT TRUE)
+- ALTER approval_audit_log: DROP NOT NULL on `token_hash`, ADD `actor_user_id` (FK users), ADD `auth_method` (CHECK token/owner_session, DEFAULT 'token')
+- Unique index: `uniq_ranking_snapshots_business_keyword_date`
+- Partial unique index: `uniq_outbox_track_ranking_run` (aggregate_id, payload->>'run_date') WHERE topic='track_ranking' AND status <> 'failed'
+- Partial index: `idx_businesses_ranking_ready` for ranking-eligible businesses
+- CHECK constraint: `chk_tracked_keywords_array` (jsonb_typeof = 'array', idempotent via DO $$ IF NOT EXISTS $$)
+- Backfills: `subscription_activated_at` from `updated_at` for active businesses, `tracked_keywords` NULLs → '[]'
+- RLS enabled on both new tables
+
+### Prompt 19b — Automated Ranking Tracking (2026-04-16)
+
+**Status:** COMPLETE
+
+**What was built:**
+
+1. **RankingTrackingScheduler** (`worker/jobs/RankingTrackingScheduler.ts`):
+   - setInterval poller (default 1 hour), fires biweekly on even-week Sundays at 22:xx UTC
+   - Feature-flagged: `RANKING_TRACKING_ENABLED !== 'true'` → silent return
+   - ISO 8601 week number calculation for biweekly cadence
+   - Queries eligible businesses: active + place_id_verified + non-empty tracked_keywords + has location data (coords OR ranking_search_location)
+   - Dedup guard: NOT EXISTS pending/dispatched track_ranking outbox entry + ON CONFLICT DO NOTHING
+   - `run_date` in payload for partial unique index dedup
+   - Double-start guard: `if (pollerInterval) return`
+
+2. **RankingTrackingWorker** (`worker/jobs/RankingTrackingWorker.ts`):
+   - Strict active-only subscription check (not `checkSubscription` which allows past_due grace)
+   - Re-checks google_place_id before SerpAPI call
+   - Safe tracked_keywords parser (try/catch, Array.isArray, empty string filter)
+   - 1 keyword per business limit (Sprint 5B initial rollout)
+   - Strict fail-closed SerpAPI budget: `checkRateLimit('serpapi:ranking:monthly', 100, ..., { strict: true })`
+   - SerpAPI `engine=google_maps` search with `ll=@lat,lng,15z` (coords) or `location=` (text)
+   - Uses SerpAPI `position` field when available, falls back to `index + 1`
+   - Mock mode: random rank 1-10
+   - Upsert to `ranking_snapshots` with ON CONFLICT (business_id, keyword, snapshot_date)
+
+3. **Keywords API** (`src/app/api/admin/businesses/[id]/keywords/route.ts`):
+   - PUT — Zod validated `.trim().min(1)` (whitespace-only rejected), max 5 keywords
+   - Admin/sales_partner auth, returns 404 if business not found
+
+4. **Ranking API** (`src/app/api/admin/businesses/[id]/ranking/route.ts`):
+   - POST — manual rank entry with Zod validation, calendar date validation, default today
+   - ON CONFLICT upsert with source='manual'
+   - FK violation (23503) → 404
+
+5. **Business Detail API** extended to return `trackedKeywords`, `rankingSnapshots`, location columns
+
+6. **Admin Business Detail Page** — TrackedKeywordsSection (editable keyword pills, add/remove, max 5) + ManualRankingSection (recent snapshots table + manual entry form with date/keyword/rank)
+
+7. **Rate Limiter** (`src/lib/shared/rate-limit.ts`): added `{ strict: true }` option — throws on Redis errors/missing instead of failing open. Used by ranking worker for cost-sensitive budget enforcement.
+
+8. **Queue Registration**: `TRACK_RANKING` in QUEUE_NAMES, queue instance, topicToQueue, Worker instance, scheduler start/stop in main/shutdown
+
+9. **Env**: `RANKING_TRACKING_ENABLED=false` added to `.env.example` and `.env.local`
+
+**Post-19b review fixes (14 findings across 2 review rounds):**
+- Critical: outbox dedup via `run_date` + partial unique index with ON CONFLICT DO NOTHING
+- Critical: `checkRateLimit({ strict: true })` fail-closed for paid API calls
+- Critical: widened unique index to `status <> 'failed'` (was `NOT IN ('completed','failed')` — fast-completing jobs allowed duplicate same-day entries)
+- Medium: Zod `.trim().min(1)` ordering (whitespace-only keywords rejected)
+- Medium: safe JSONB parser with try/catch + Array.isArray + empty string filter + DB CHECK constraint
+- Medium: use SerpAPI `position` field over array index
+- Medium: strict `active`-only subscription (not `checkSubscription('summary')` which allows past_due)
+- Medium: re-check google_place_id in worker before SerpAPI call
+- Medium: calendar date validation before SQL + FK violation → 404
+- Medium: render snapshot dates as YYYY-MM-DD strings (not `Date.toLocaleDateString()` which shifts timezone)
+- Low: double-start guard on scheduler
+- Low: `.env.example` updated
+- Low: rank input uses `Number()` not `parseInt`, `max=100 step=1`
+- Low: idempotent CHECK constraint via `DO $$ IF NOT EXISTS $$`
+
+**Test count:** 484/484 passing across 33 files (was 427/29)
+**New test files:** `RankingTrackingScheduler.test.ts` (19 tests), `RankingTrackingWorker.test.ts` (16 tests), `keywords/route.test.ts` (6 tests), `ranking/route.test.ts` (7 tests), + 4 new rate-limit strict mode tests
+
+---
+
+### Prompt 19c-5B — Owner Settings + Dashboard Approval Actions (2026-04-16)
+
+**Status:** COMPLETE
+
+**What was built:**
+
+1. **ApprovalService Refactor** (`src/lib/approval/service.ts`):
+   - `SessionAuditContext` interface (actorUserId, ipAddress — no token)
+   - `insertAuditLogSession()` — writes `auth_method='owner_session'`, `actor_user_id`, `token_hash=NULL`
+   - `approveBySession()` — locks pending response, sets approved, revokes open approval links, enqueues publish_response
+   - `editBySession()` — locks pending, computes Levenshtein distance, sets edited, revokes links, enqueues publish
+   - `regenerateBySession()` — locks pending, sets superseded, revokes links, enqueues generate_response with version+1
+   - `revokeOpenLinksForResponse()` — revokes ALL open/unconsumed/unexpired links for a response (session actions have no "current link" to exclude)
+   - Existing token-based methods completely untouched
+
+2. **Dashboard Approval API Routes**:
+   - `POST /api/dashboard/reviews/[reviewId]/approve` — session-auth approve
+   - `POST /api/dashboard/reviews/[reviewId]/edit` — session-auth edit (Zod: editedText 1-2000 chars)
+   - `POST /api/dashboard/reviews/[reviewId]/regenerate` — session-auth regenerate
+   - All: `requireRole('owner')`, business ownership check, 404/403/409 error handling
+
+3. **Settings API** (`src/app/api/settings/route.ts`):
+   - PUT endpoint, Zod validated (tone, productsServices, avoidFacts max 20, sampleResponses max 10, notificationPreference email/sms/both, ownerPhone, weeklySummaryEnabled, monthlyImpactEnabled)
+   - Owner-scoped via `user.businessId` — never accepts business_id from body
+   - SMS validation: checks stored phone from DB when request omits ownerPhone (partial-update safe)
+   - Dynamic SQL SET clause with `sql.unsafe()`
+
+4. **Scheduler Opt-out**:
+   - `WeeklySummaryScheduler`: added `AND (b.weekly_summary_enabled IS NULL OR b.weekly_summary_enabled = TRUE)` to business query
+   - `MonthlyImpactScheduler`: added `AND (b.monthly_impact_enabled IS NULL OR b.monthly_impact_enabled = TRUE)` to business query
+
+5. **Owner Settings Page** (`src/app/(authenticated)/settings/page.tsx`):
+   - Section A: Business Profile — read-only (name, category, placeId) + editable (tone, productsServices, avoidFacts, sampleResponses as line-separated textareas)
+   - Section B: Notification Preferences — channel radio (email/sms/both), conditional phone input, weekly/monthly report toggles
+   - Section C: Save — single button, diffs against initial state, sends only changed fields, green success banner (3s auto-dismiss)
+   - Fetches from `GET /api/dashboard`, saves to `PUT /api/settings`
+
+6. **Dashboard Approval UI** (`src/components/DashboardContent.tsx`):
+   - `ReviewActions` component with state machine (idle/loading/editing/success/error)
+   - Approve (green), Edit (blue, inline textarea), Regenerate (gray outline)
+   - Guard: only renders when `review.responseStatus === 'pending_approval' && review.responseText` (not `displayStatus` fallback)
+   - Refetches dashboard data on success
+
+7. **OwnerNav** — added Settings link next to Dashboard
+8. **Middleware** — `/api/settings` added to owner protection
+9. **Dashboard API** — extended to return `settings` object (tone, productsServices, avoidFacts, sampleResponses, notificationPreference, ownerPhone, ownerEmail, weeklySummaryEnabled, monthlyImpactEnabled, category, googlePlaceId)
+
+**Post-19c-5B review fixes (5 findings):**
+- Critical: escaped unescaped apostrophe in settings page JSX (blocked `pnpm build`)
+- Medium: session actions revoke open approval links via `revokeOpenLinksForResponse()`
+- Medium: action buttons guard on `responseStatus` not `displayStatus` (prevents 404s during regeneration gap)
+- Low: avoidFacts max 20, sampleResponses max 10, SMS-requires-phone with stored-phone DB fallback
+- Low: SMS validation checks stored phone before rejecting (partial-update safe)
+
+**Test count:** 512/512 passing across 35 files (was 484/33)
+**New test files:** `actions.test.ts` (17 tests), `settings/route.test.ts` (11 tests)
+**Build:** `pnpm build` succeeds
+
+---
+
+### Prompt 19d-5B — Partner Satisfaction Alert (2026-04-16)
+
+**Status:** COMPLETE
+
+**What was built:**
+
+1. **EngagementAlertType** (`src/lib/shared/worker-types.ts`):
+   - Added `'partner_satisfaction_alert'` to the union type
+   - Added optional `satisfaction` field to `EngagementAlertPayload`: `{ rating: 'great' | 'ok' | 'not_great'; comment: string | null; week_start_date: string }`
+
+2. **Email Template** (`src/lib/notifications/email.ts`):
+   - `buildPartnerSatisfactionAlertHtml()` — internal email to sales partner
+   - Red accent (`#dc2626`) for "not_great" rating, amber (`#d97706`) for "ok"
+   - Shows: rating label, optional owner comment in highlighted box, week start date, owner email + phone
+   - Suggested action: "Reach out to the owner to understand their concern"
+
+3. **Worker Handler** (`worker/jobs/EngagementAlertWorker.ts`):
+   - `handleSatisfactionAlert()` — validates satisfaction payload, sends email to ADMIN_NOTIFICATION_EMAIL, records delivery with `template='partner_satisfaction_alert'`
+   - Fails gracefully when satisfaction data is missing (markOutboxFailed)
+   - Routed from `handleEngagementAlert()` when `alert_type === 'partner_satisfaction_alert'`
+
+4. **Cooldown Map** (`worker/jobs/EngagementMonitorPoller.ts`):
+   - Added `partner_satisfaction_alert: 7` to COOLDOWNS record (satisfies `Record<EngagementAlertType, number>`)
+
+**Test count:** 516/516 passing across 35 files (was 512)
+**New tests:** 4 tests added to `EngagementAlertWorker.test.ts` (sends with rating+comment, sends without comment, fails on missing data, fails without admin email)
+
+### Post-19d-5B Review Fixes (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **Idempotency** (Medium): `handleSatisfactionAlert` now checks `notification_deliveries` for existing delivery with `template='partner_satisfaction_alert'` within 7 days before sending — prevents duplicate emails on BullMQ/watchdog retry after Resend accepts but before outbox completion.
+2. **JSONB validation** (Medium): Runtime validation of `satisfaction` payload — rejects invalid `rating` values (not in `['great','ok','not_great']`), malformed `week_start_date` (not `YYYY-MM-DD`), and non-string `comment`. Prevents silent fallthrough to "Great" label and `escapeHtml()` crashes on non-string input.
+3. **Dead cooldown** (Low): Removed `partner_satisfaction_alert: 7` from EngagementMonitorPoller `COOLDOWNS` — changed type to `Partial<Record<EngagementAlertType, number>>` with `?? 7` fallback at usage. Satisfaction dedup is the worker's responsibility, not the poller's.
+4. **Optional metrics** (Low): `EngagementAlertPayload.metrics` made optional — satisfaction alerts don't need to fabricate unused metric values. Non-satisfaction alert paths guard with explicit null check + `markOutboxFailed`.
+
+**Test count:** 519/519 passing across 35 files (was 516)
+**New tests:** 3 additional tests (invalid rating, invalid week_start_date, idempotency skip)
+
+### Post-19d-5B Review Round 2 (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **Week-scoped idempotency** (Medium): template tag changed from `'partner_satisfaction_alert'` with 7-day time window to `'partner_satisfaction_alert:YYYY-MM-DD'` with exact week match. Prevents suppressing legitimate alerts for adjacent weeks when timing drifts.
+2. **Crash-safe send** (Medium): outbox entry marked `completed` BEFORE calling Resend (same pattern as WeeklySummaryWorker/MonthlyImpactWorker). Tradeoff: rare missed internal partner alert vs duplicate sends on retry.
+3. **Calendar date validation**: round-trip parse via `new Date(date + 'T00:00:00Z')` + `toISOString().slice(0,10)` comparison. Rejects impossible dates like `2026-99-99` that pass the regex.
+
+**Test count:** 520/520 passing across 35 files (was 519)
+**New test:** impossible calendar date validation test
+
+---
+
+### Prompt 19e — Onboarding Drip Emails (2026-04-16)
+
+**Status:** COMPLETE
+
+**What was built:**
+
+1. **Stripe Webhook Update** (`worker/ingress/stripe.ts`):
+   - `subscription_activated_at = COALESCE(subscription_activated_at, NOW())` on checkout.session.completed
+   - `COALESCE` preserves the original activation date on re-activation from past_due → active
+
+2. **OnboardingDripScheduler** (`worker/jobs/OnboardingDripScheduler.ts`):
+   - Hourly setInterval poller (configurable via `ONBOARDING_DRIP_INTERVAL_MS`)
+   - Queries active businesses with `subscription_activated_at IS NOT NULL`
+   - Checks 3 drip offsets: day_1 (1 day), day_7 (7 days), day_30 (30 days)
+   - Double dedup: `onboarding_drip_log` table + pending outbox entries
+   - 23505 constraint handling, mock mode skip, double-start guard
+
+3. **OnboardingDripWorker** (`worker/jobs/OnboardingDripWorker.ts`):
+   - **day_1**: Welcome email — how it works (3-step list), 30-second approval, weekly report mention, conditional dashboard link (only if owner has auth mapping)
+   - **day_7**: First week recap — reviews handled + time saved + response rate, highlight review+response pair (longest text), edit acknowledgment ("learning your voice"), pending reviews with fresh approval links via `createApprovalLink({ revokeMode: 'orphaned_only' })`, zero-review graceful fallback
+   - **day_30**: Monthly impact — total reviews, response rate before → now (from baseline), time saved, ranking change (if data), sales partner sign-off
+   - Strict active-only subscription guard
+   - Crash-safe: outbox completed BEFORE email send
+   - Idempotent: `INSERT INTO onboarding_drip_log ... ON CONFLICT (business_id, drip_type) DO NOTHING`
+   - Records notification delivery with template `onboarding_drip_day_1` etc.
+
+4. **Email Templates** (appended to `src/lib/notifications/email.ts`):
+   - `buildOnboardingDay1Html()` — warm welcome, no jargon, 3-step explainer
+   - `buildOnboardingDay7Html()` — stats, highlight review, edit ack, pending CTA buttons
+   - `buildOnboardingDay30Html()` — milestone framing, response rate lift, ranking change, partner sign-off
+
+5. **Queue + Registration**: `ONBOARDING_DRIP` in QUEUE_NAMES, queue/topicToQueue, Worker instance, scheduler start/stop in main/shutdown
+
+**Test count:** 543/543 passing across 37 files (was 520/35)
+**New test files:** `OnboardingDripScheduler.test.ts` (12 tests), `OnboardingDripWorker.test.ts` (11 tests)
+
+### Post-19e Review Fixes (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **Claim-before-send idempotency** (Medium): Worker now claims drip_log entry via `INSERT ... ON CONFLICT DO NOTHING RETURNING id` before sending email. If no row returned, another job already claimed — skips without sending. Eliminates duplicate sends from BullMQ retries or manual requeue.
+2. **Scheduler outbox dedup** (Medium): Added partial unique index `uniq_outbox_onboarding_drip` on `(aggregate_id, payload->>'drip_type') WHERE topic='onboarding_drip' AND status <> 'failed'`. Scheduler uses `ON CONFLICT DO NOTHING` instead of check-then-insert race.
+3. **Window-bounded metrics** (Medium): Day 7 queries bounded to `[activatedAt, activatedAt + 7 days)`, day 30 to `[activatedAt, activatedAt + 30 days)`. Prevents claiming pre-activation or post-window data as "first week/month" results.
+4. **Business-scoped sales partner** (Medium): Lookup changed from global `WHERE role IN ('admin','sales_partner') LIMIT 1` to `JOIN businesses ON onboarded_by = users.id`. Prevents wrong partner name in customer emails.
+5. **Strict NEXT_PUBLIC_APP_URL for day_7** (Medium): Throws when pending reviews exist but app URL is not configured (matches owner-nudge strict behavior). Allows BullMQ retry after config fix.
+6. **Day 1 copy fix** (Low): Changed "We post it to Google on your behalf" to "Your approved response is queued for posting to Google" (accurate for SerpAPI manual-post mode).
+7. **Single-query scheduler** (Low): Consolidated from N+1 per-business loops into single `CROSS JOIN + NOT EXISTS` query. Eliminates per-business/per-drip SQL round trips.
+
+**Test count:** 543/543 (tests updated to match new single-query + claim patterns)
+
+### Post-19e Review Round 2 (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **Claim-before-build** (Medium): Drip_log INSERT moved before switch/build phase. No side effects (approval link creation/revocation) run before the idempotency gate. Prevents duplicate day_7 jobs from revoking each other's tokens.
+2. **Claim/sent state separation** (Medium): Migration 015 makes `sent_at` nullable with no default. INSERT claims with `sent_at=NULL`, UPDATE to `NOW()` only after `sendInternalEmail()` succeeds. If send fails, outbox stays retryable and stale claims are observable.
+3. **Business-scoped sales partner** (Medium): Uses ResponsePublisherWorker's scoped chain: business-scoped admin/sales_partner → `onboarded_by` with `role IN ('admin','sales_partner')` check → null. No global LIMIT 1.
+4. **New migration 015** (Medium): `015_drip_log_claim_state.sql` — ALTER sent_at DROP NOT NULL + DROP DEFAULT, adds `uniq_outbox_onboarding_drip` index (IF NOT EXISTS for 014 compat), adds `idx_businesses_drip_ready` performance index.
+5. **Validated subscription_activated_at** (Low): day_7 and day_30 check for null `subscription_activated_at` before build phase — `markOutboxFailed` with clear reason instead of blank email.
+6. **Scheduler performance index** (Low): `idx_businesses_drip_ready` on `(subscription_activated_at) WHERE subscription_status = 'active' AND subscription_activated_at IS NOT NULL`.
+
+**Test count:** 543/543 (tests updated for claim-first + sent_at flow)
+
+### Post-19e Review Round 3 (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **Recoverable stale claims** (Medium): Worker now checks existing drip_log row's `sent_at` — only skips when `IS NOT NULL` (actually sent). Stale claims (`sent_at IS NULL` from failed previous attempt) allow retry. Scheduler query also updated to `AND dl.sent_at IS NOT NULL`.
+2. **Migration 015 dedupe** (Medium): Added ROW_NUMBER() CTE to mark duplicate non-failed `onboarding_drip` outbox rows as `'failed'` before creating the unique index. Prevents index creation failure in environments with pre-existing duplicates.
+3. **Index-friendly predicate** (Low): Scheduler due-check rewritten from `activated_at + interval <= NOW()` to `activated_at <= NOW() - interval` for better Postgres index range scan utilization.
+
+**Test count:** 543/543
+
+### Post-19e Review Round 4 (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **Atomic claim ownership** (Medium): Added `claimed_by_outbox_id` and `claimed_at` to `onboarding_drip_log` (migration 015). INSERT sets owner. On conflict, atomic UPDATE only succeeds when `claimed_by_outbox_id` matches (same outbox retry) OR `claimed_at` > 15 min stale. Fresh claims owned by another active job are rejected — prevents concurrent duplicate sends from watchdog redispatch or pre-existing queued jobs.
+
+**Test count:** 544/544 (2 new claim tests: sent/fresh-claim skip + stale takeover retry)
+
+---
+
+### Prompt 19g — Satisfaction Pulse (2026-04-16)
+
+**Status:** COMPLETE
+
+**What was built:**
+
+1. **HMAC Helper** (`src/lib/shared/feedback-hmac.ts`):
+   - `signFeedback(businessId, rating, weekStartDate)` — HMAC-SHA256 with `CSRF_SECRET`
+   - `verifyFeedback(...)` — constant-time comparison via `timingSafeEqual`
+   - `buildFeedbackUrl(appUrl, businessId, rating, weekStartDate)` — signed URL with query params
+
+2. **Feedback API Route** (`src/app/api/feedback/route.ts`):
+   - **GET**: validates HMAC, renders lightweight HTML confirmation form (no DB write — scanner-safe). Shows optional comment textarea for `not_great`. Hidden fields: business_id, rating, week, sig.
+   - **POST**: re-validates HMAC from form data. Single `sql.begin()` transaction: upserts `satisfaction_responses` on `(business_id, week_start_date)` + conditionally inserts `engagement_alert` outbox entry for `not_great` (with per-business/week cooldown dedup via `WHERE NOT EXISTS`). Redirects 303 to `/feedback/thanks`.
+
+3. **Thank-You Page** (`src/app/(public)/feedback/thanks/page.tsx`):
+   - Static page with Tailwind styling
+
+4. **Weekly Email Template** (`src/lib/notifications/email.ts`):
+   - `WeeklyValueReportParams` extended with `feedbackUrls: { great, ok, notGreat } | null`
+   - Satisfaction pulse section added before footer: three styled buttons (green/amber/red)
+   - Conditional — only renders when `feedbackUrls` is non-null
+
+5. **WeeklySummaryWorker** (`worker/jobs/WeeklySummaryWorker.ts`):
+   - Imports `buildFeedbackUrl`, builds HMAC-signed URLs when `NEXT_PUBLIC_APP_URL` + `CSRF_SECRET` configured
+   - Passes `feedbackUrls` to template
+
+**Test count:** 569/569 passing across 39 files (was 544/37)
+**New test files:** `feedback-hmac.test.ts` (8 tests), `feedback/route.test.ts` (17 tests)
+
+---
+
+### Post-19g Review Fixes (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **Index conflict** (Medium): Catch 23505 from broad `idx_jo_engagement_alert_inflight` index (migration 011) on outbox INSERT. The satisfaction_responses upsert still commits even when a pending alert from a different week conflicts with the broad `(aggregate_id, alert_type)` index.
+2. **Stale alerts** (Medium): `handleSatisfactionAlert` in EngagementAlertWorker now re-reads `satisfaction_responses` for business + week before sending. If the owner changed their rating from `not_great` to `ok`/`great`, the alert is skipped. Uses live comment from DB, not stale outbox payload.
+3. **Sig validation** (Medium): `verifyFeedback` validates sig matches `/^[0-9a-f]{64}$/i` before `Buffer.from`. Uses `'hex'` encoding on both operands. Prevents `RangeError` from non-ASCII 64-char strings.
+4. **Date + UUID validation** (Low): Round-trip calendar date validation + UUID format check before DB writes. Rejects `2026-99-99` and malformed UUIDs with 400.
+5. **URL escaping** (Low): Feedback URLs in weekly email escaped with `&amp;`/`&quot;` for href attributes.
+
+**Test count:** 570/570 passing across 39 files (was 569 — 1 new test for rating-changed skip)
+
+### Post-19g Review Round 2 (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **Transaction-safe outbox insert** (Medium): Replaced try/catch 23505 with SELECT dedup check + `INSERT ... ON CONFLICT DO NOTHING`. Catching 23505 in JS doesn't help because Postgres has already aborted the transaction at the statement level. `ON CONFLICT DO NOTHING` prevents the statement error entirely — the satisfaction_responses upsert always commits.
+2. **Migration 016** (`016_satisfaction_alert_index.sql`): Drops broad `idx_jo_engagement_alert_inflight` and recreates it excluding `partner_satisfaction_alert`. Adds week-scoped `idx_jo_satisfaction_alert_weekly` keyed on `(aggregate_id, payload->'satisfaction'->>'week_start_date')` for satisfaction alerts specifically.
+
+**Test count:** 570/570
+
+---
+
+### Sprint 5B Final Code Review Fixes (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **IDOR enumeration** (Important/Security): Dashboard approval routes (approve/edit/regenerate) now scope the response query by `rv.business_id = ${user.businessId}`. Returns 404 for non-owned reviews instead of 403, preventing attackers from learning whether a reviewId exists in another business.
+2. **Per-keyword budget** (Important/Scalability): Ranking worker budget check moved inside the per-keyword loop. Each keyword consumes one rate-limit slot — prevents budget bypass when `MAX_KEYWORDS_PER_BUSINESS` is raised above 1.
+3. **Delivery ordering** (Important/Correctness): Drip worker records `notification_deliveries` before `markOutboxCompleted`, ensuring cooldown checks in other workers can see the delivery record.
+4. **Settings sql.unsafe** (Important/Maintainability): Accepted as-is — the `FIELD_TO_COLUMN` allowlist is static and values are parameterized. Same pattern as admin PATCH route from Sprint 3.
+
+**Test count:** 570/570 (tests updated for 404 instead of 403 on cross-business review access)
+
+---
+
+**Sprint 5B: COMPLETE** — All 5 prompts (19b Automated Ranking, 19c-5B Settings + Dashboard Actions, 19d-5B Satisfaction Alert, 19e Onboarding Drips, 19g Satisfaction Pulse) implemented with all review findings addressed across 16 review rounds. 570 tests across 39 files.
+
+---
+
+## Sprint 6: Scale to $1K MRR
+
+**Status:** IN PROGRESS
+
+### Prompt 20a — Correlation IDs + Structured Logging (2026-04-17)
+
+**Status:** COMPLETE
+
+Eight-task implementation delivered end-to-end traceability through the outbox payload JSONB field.
+
+1. **Structured logger** (`src/lib/shared/logger.ts`): `createWorkerLogger(prefix, correlationId?)` returns `{ log, warn, error }` that prepends `[WorkerName] [corr-id]` to every log line. 6 unit tests.
+2. **BasePayload types** (`src/lib/shared/worker-types.ts` + `src/lib/demos/types.ts`): All 12 payload interfaces now extend `BasePayload { correlation_id?: string }` — optional for backward compat with existing outbox rows.
+3. **Entry point generation** — 7 pollers/schedulers (ReconciliationPoller, WeeklySummaryScheduler, MonthlyImpactScheduler, EngagementMonitorPoller, RankingTrackingScheduler, OnboardingDripScheduler, NotificationFailoverPoller) generate `correlation_id: uuidv7()` per outbox entry. 3 API routes (admin/businesses onboard, admin/demos/generate, feedback for partner_satisfaction_alert) add correlation IDs at user-facing entry points.
+4. **Cross-outbox propagation** — `processReview` accepts `correlationId?` and threads it into all 5 internal outbox payloads. `ReviewSyncWorker` passes `job.data.correlation_id` into `processReview`. `ResponseGeneratorWorker` threads through `persistResponseAndNotify` into `SendNotificationPayload`. `PlaceIdValidationWorker.enqueueSyncReviews` accepts `correlationId?` from caller.
+5. **Approval service** — 6 methods (`approve`, `edit`, `regenerate` + session variants) accept optional `correlationId?` and carry into their outbox payloads. All 6 corresponding API routes pass response_id as the correlation value.
+6. **Worker log migration** — All 12 BullMQ handlers replaced `console.log(\`${LOG_PREFIX} ...\`)` with `createWorkerLogger`. Pollers/schedulers/ingress retain their `LOG_PREFIX` pattern (they don't process BullMQ jobs).
+
+**Queryability:** `SELECT * FROM job_outbox WHERE payload->>'correlation_id' = '<id>' ORDER BY created_at` returns the full chain.
+
+**Test count:** 576/576 across 40 files.
+
+### Prompt 20a Post-Implementation Review Fixes (2026-04-17)
+
+**Status:** COMPLETE
+
+User identified 5 findings after review. All validated and fixed across 7 tasks.
+
+1. **Finding 1 (Medium) — Approval/publish correlation chain break.** Approval routes were passing `link.response_id` as correlation_id, breaking the "one query traces full chain" goal. Fix: new helper `src/lib/approval/correlation.ts` `recoverCorrelationId(tx, {reviewId, responseId})` queries the most recent `generate_response` outbox row for the review and returns its correlation_id (falls back to responseId when no upstream exists). All 6 approval API routes updated. 3 new unit tests for the helper.
+
+2. **Finding 2 (Medium) — Dispatching-race in outbox dedupe guards.** OutboxPoller sets `status = 'dispatching'` during the claim window, but 9 producer dedupe checks only covered `('pending', 'dispatched')`. Migration 004's unique index had the same gap. Fix: (a) migration 017 drops and recreates `idx_jo_sync_reviews_inflight` with `'dispatching'` included; (b) 9 code sites across 6 files updated.
+
+3. **Finding 3 (Medium) — PII in correlation-tagged logs.** 4 cited log lines contained email addresses; audit found 10 total (emails + business names). All replaced with `business_id` / `response_id` operational identifiers.
+
+4. **Finding 4 (Low) — Test coverage gaps.** Service tests passed `correlationId` transparently without asserting it — added explicit assertions that parse outbox payload JSON. Dashboard tests updated to assert correlation arg index. Created `worker/__tests__/PlaceIdValidationWorker.test.ts` with 3 test cases.
+
+5. **Finding 5 (Low) — No expression index on correlation_id.** Migration 017 adds `idx_jo_correlation_id ON job_outbox ((payload->>'correlation_id')) WHERE payload ? 'correlation_id'`.
+
+**Also recovered:** One orphaned commit from Prompt 20a Task 6 — subagent claimed to commit `src/lib/approval/service.ts` correlationId parameter additions but didn't. Committed as `ce8d69e` during Fix Task 3 review.
+
+**Test count:** 582/582 across 42 files.
+
+**Commits (7):** `7064330` (migration 017), `399b217` (dispatching guards), `c2af9c7` (correlation chain), `ce8d69e` (orphaned service.ts recovery), `1540ed4` (PII removed), `f0f5d71` (correlation assertions), `6d9c255` (PlaceIdValidationWorker test).
+
+**Follow-up (2026-04-17):** Migration 017 renamed → 018 (vacate 017 for Sprint 6 main migration). Added cleanup CTE before `CREATE UNIQUE INDEX` (migration 004 pattern). Added `idx_jo_generate_response_by_review` for `recoverCorrelationId` lookup. Added 4 token approval route correlation tests, worker-chain runtime test (Part A + Part B in ResponseGeneratorWorker). Fixed pre-existing implicit-any type errors in `service.test.ts`. 590/590 tests across 44 files.
+
+---
+
+### Prompt 20b — Archival Expansion + Cost Rollups (2026-04-17)
+
+**Status:** COMPLETE
+
+**Migration 017:** `api_costs_daily_rollups` table (UUID PK, `UNIQUE NULLS NOT DISTINCT` constraint on `(business_id, provider, rollup_date)`, 3 indexes for admin costs query patterns: business/date, provider/date, date), `businesses.website`, `businesses.owner_email_bounced`, `notification_deliveries(created_at)` index for archival DELETE scans.
+
+**ArchivalPoller:** Added `api_costs` aggregate+delete via atomic CTE — single statement: candidates (LIMIT 5000) → aggregate by (business_id, provider, date) → upsert into rollups with additive `ON CONFLICT DO UPDATE` → delete candidates. Batched cycles don't double-count because UPSERT is additive. Added `notification_deliveries` straight delete (>90d). 5-target logging: `outbox, events, demos, api_costs, notifications`. Per-target saturation warning lists exactly which tables hit the 5000 batch limit.
+
+**Admin costs API:** Days cap raised 90→365 (rejects >365 with 400). When `days > 90`, queries both `api_costs` and `api_costs_daily_rollups` in parallel. Merge strategy:
+- `byProvider`: sum detail + rollup totals per provider
+- `byDay`: non-overlapping ranges by construction (rollup: `< CURRENT_DATE - 90d`, detail: `>= CURRENT_DATE - days`); defensive collision check (detail wins)
+- `byBusiness`: enriches paginated detail rows with rollup tail totals; `todayUsd` + `pctOfDailyLimit` stay detail-only
+- `todayTotalUsd`: detail-only (today is always < 90d)
+
+**Bug fix during implementation:** The existing route had `parseInt(rawDays ?? '7', 10) || 7` which treated `days=0` as falsy and silently defaulted to 7, defeating the `Math.max(·, 1)` clamp. Fixed by checking `Number.isNaN(rawParsed)` explicitly so 0 and negatives reach the clamp.
+
+**Test count:** 610/610 across 46 files (+20 new: 9 ArchivalPoller, 11 costs API; +2 extra coverage for `days=-5` and `days=abc`).
+
+**Commits (9):** `3201d35` (migration 017), `4a88a4b` (api_costs CTE), `b792d05` (notifications delete), `bafbee9` (5-target logging), `2ad9287` (ArchivalPoller tests), `30d2556` (costs API merge), `b8afb48` (type fix), `2c4bf82` (costs API tests), `4773949` (days=0 clamp fix).
+
+**Migrations ready to apply (in order):** `017_sprint6_scale.sql`, `018_correlation_and_dispatching_indexes.sql`. Neither has been applied yet.
+
+---
+
+### Prompt 20b Post-Implementation Review Fixes (2026-04-17)
+
+**Status:** COMPLETE
+
+7 findings validated and fixed.
+
+1. **Critical — Cost archival double-count race under concurrent workers.** Candidates SELECT had no row locks; two workers could both SELECT same rows, both upsert additively, only one DELETE succeeds → doubled totals. **Fix:** DELETE-first claim pattern. Candidates CTE uses `FOR UPDATE SKIP LOCKED` with deterministic `ORDER BY created_at, id`. DELETE's RETURNING feeds the aggregate — each source row claimed and counted exactly once.
+2. **Medium — Archived-only businesses disappearing from admin cost reporting.** byBusiness was paginated from detail rows, rollup only enriched already-returned rows. **Fix:** Initially combined in-memory then sort/paginate; later moved to server-side UNION CTE for scalability.
+3. **Medium — byDay undercount on dates with both detail + rollup rows.** Drop-on-collision (detail "win") was fragile during partial archival. **Fix:** Additive merge. Safe because detail/rollup never reference the same source row (archival is atomic delete-then-upsert).
+4. **Medium — Rollup numeric types too narrow.** `DECIMAL(10,6)` caps at $9,999.99 per row; INTEGER token totals/call_count can overflow at 2.1B. **Fix:** `NUMERIC(14,6)` + `BIGINT`. Migration 017 edited in place (not yet applied).
+5. **Low — Negative limit produced 500 errors.** `Math.min(-5, 100) = -5` → `LIMIT -5` Postgres error. **Fix:** Parse once, `Number.isNaN` check, `Math.max` clamp.
+6. **Medium — call_count `::int` casts narrow BIGINT storage.** Admin API used `SUM(call_count)::int` which overflows at 2.1B cumulative. **Fix:** All 6 casts changed to `::float` (JS safe integer handles 2^53).
+7. **Medium — byBusiness pagination was app-side.** Loaded all business aggregates into Node before paginating. **Fix:** Server-side UNION CTE when `needsRollup`: `api_costs` aggregate UNIONed with rollup aggregate, grouped by business_id, JOINed with businesses, `ORDER BY ... LIMIT OFFSET` in SQL. Detail-only path is direct JOIN.
+
+**Test count:** 618/618 across 46 files (+8 new regression cases).
+
+**Commits (3):** `dc99b3a` (5 findings), `7a83084` (call_count + pagination).
+
+---
+
+### Prompt 20c — Onboarding Automation + SerpAPI Pre-fill (2026-04-17)
+
+**Status:** COMPLETE
+
+**New modules:**
+- `src/lib/reviews/serpapi-prefill.ts` — wraps SerpAPI `engine=google_maps`, normalizes response into fixed `BusinessPrefill` shape (category/phone/website/hours/fullAddress). NEVER throws — returns all-null on any failure (API error, malformed payload, timeout, missing key, cache failure). 7-day Redis cache by place_id (skipped when `REDIS_CACHE_URL` unset, graceful on cache failures). Records platform-level `api_costs` row (`business_id=NULL` via widened `recordApiCost`). Mock-mode returns canned `MOCK_PREFILL`.
+- `src/app/api/admin/businesses/prefill/route.ts` — GET endpoint. Requires admin/sales_partner via `requireRole`. Validates place_id via `isPlaceId()` (400 if missing or malformed). Rate-limited `prefill:minute:{user.id}` at 10/min in strict mode (503 on Redis failure to prevent uncapped SerpAPI spend). `Cache-Control: no-store` on all responses.
+
+**Schema changes:**
+- Widened `recordApiCost.businessId` to `string | null` (backward-compatible widening).
+- Added `website` to `OnboardBusinessSchema` and `UpdateBusinessSchema` (Zod URL, max 500, nullable, optional).
+- Added `website` column to businesses INSERT in POST handler.
+- Added `website: 'website'` to `FIELD_TO_COLUMN` mapping in PATCH handler.
+
+**UI changes:**
+- Onboarding form (`/admin/businesses/new`): added `website` input (URL or empty) + auto-trigger prefill after PlaceAutocomplete selection. Uses `getValues()` at response-time (not request-time) so in-flight user typing is preserved — only fills empty fields. `setValue('field', value, { shouldDirty: false })` keeps form state clean. `prefilling` state drives "Fetching suggestions from Google Maps…" hint on category/phone/website fields. Website normalized `empty string → null` in submit payload.
+- Business detail page (`/admin/businesses/[id]`): added `website` to `BusinessDetail` interface. ProfileEditor has `website` useState, PATCH body field, `handleCancel` reset. Read-only view shows website as clickable link (opens in new tab with `rel="noopener noreferrer"`). Edit form has `type="url"` input between Category and Tone.
+- GET `/api/admin/businesses/[id]` route returns `website` in response.
+
+**Tests (21 new):**
+- 13 prefill module: full response, partial response, API error, malformed payload, `http://` preservation, bare domain `→ https://` normalization, malformed URL `→ null`, cost recording with null business_id, mock mode short-circuit, Redis cache hit (no SerpAPI call), cache write failure (still returns data), `REDIS_CACHE_URL` unset (skip cache entirely), missing `SERPAPI_API_KEY` (returns empty).
+- 8 route: 200 happy path, 400 missing place_id, 400 invalid place_id, 401 unauth, 403 wrong role, 429 rate limit exceeded, 503 Redis unavailable (strict mode rethrows), rate limit key format.
+
+**Test count:** 639/639 across 48 files (+21 new).
+
+**Commits (6):** `d30d4b2` (widen recordApiCost), `627b244` (prefill module), `f6284b5` (prefill API route), `26f26fc` (schemas + INSERT + PATCH), `e6642a5` (onboarding form + auto-prefill), `1d7b335` (business detail website).
+
+**Migration prerequisite:** `017_sprint6_scale.sql` must be applied to Supabase before running against production (adds `businesses.website` column). Not yet applied.
+
+---
+
+### Prompt 20c Post-Implementation Review Fixes (2026-04-17)
+
+**Status:** COMPLETE
+
+6 findings validated and fixed.
+
+1. **Medium — Unsafe URL schemes** (javascript:, data:, ftp:, mailto:). Fix: new shared `websiteUrlSchema` enforces `http:`/`https:` via `new URL().protocol`. `normalizeWebsite` in prefill module also blocks non-http(s) schemes. Business detail page uses `safeHttpUrl()` defensive render sanitizer — unsafe URLs display as plain text.
+2. **Medium — SerpAPI call no timeout.** Fix: `Promise.race` with 2000ms timer. Hanging SerpAPI calls reject into the existing catch → empty prefill.
+3. **Medium — Fire-and-forget cost/cache writes on Vercel.** Fix: `await Promise.allSettled([recordApiCost, writeCache])` before returning — Vercel freezes post-response work. ~20-100ms latency for durable writes.
+4. **Medium — Stale-response race on rapid place selection.** Fix: AbortController + `latestPlaceIdRef` + `dirtyFields` check (never overwrite touched fields, even if user then cleared).
+5. **Low — Cached payloads trusted without validation.** Fix: `isValidBusinessPrefill` type guard + website re-normalization on cache read + `redis.del` of invalid entries.
+6. **Medium — Clearing/switching PlaceAutocomplete did not cancel in-flight prefill.** Fix: `cancelPrefill()` helper called from `onClear` and mode-switch button.
+
+**Test count:** 660/660 across 49 files (+21 new regression tests).
+
+---
+
+### Prompt 20d — Email Deliverability + Hard Bounce Handling (2026-04-17)
+
+**Status:** COMPLETE
+
+**Email categorization:**
+- New `EmailCategory` type: `'transactional' | 'marketing' | 'internal'`.
+- `getEmailHeaders(category)`: marketing gets `List-Unsubscribe: <mailto:...>` + `List-Unsubscribe-Post: List-Unsubscribe=One-Click`. Others empty.
+- `getEmailTags(category)`: single Resend tag `[{ name: 'category', value }]`.
+- `sendApprovalEmail`: transactional (no unsubscribe header — service-necessary, not marketing).
+- `sendInternalEmail(params: { ..., category? })`: defaults to `internal`. Pass `'marketing'` for owner-directed recurring emails.
+
+**Worker call-sites:**
+- Marketing: WeeklySummaryWorker, MonthlyImpactWorker, OnboardingDripWorker, EngagementAlertWorker.handleOwnerNudge
+- Internal: EngagementAlertWorker.handlePartnerAlert + handleSatisfactionAlert, ResponsePublisherWorker, AdminExceptionWorker, NotificationFailoverPoller
+
+**Hard bounce handling (`worker/ingress/resend.ts`):**
+- Defensive bounce-type extraction from `data.bounce.type`, `data.reason`, `data.status` (lowercase, fallback `'unknown'`).
+- `isHardBounceType` matches `permanent`, `hard`, `hardbounce`, `permanent_failure`, or any string containing `permanent`. `unknown` is treated as soft.
+- Hard bounces: UPDATE `businesses.owner_email_bounced = TRUE` + send admin alert to `ADMIN_NOTIFICATION_EMAIL` with category `'internal'`.
+- `notification_deliveries.failure_reason` set to `bounced:<type>` for attribution.
+- Complaints set `failure_reason = 'complained'` but do NOT flag the business.
+
+**Skip-if-bounced guards:**
+- 5 workers SELECT `owner_email_bounced` and skip (+ markOutboxCompleted) if true: NotificationWorker, WeeklySummaryWorker, MonthlyImpactWorker, OnboardingDripWorker, EngagementAlertWorker.handleOwnerNudge.
+- EngagementMonitorPoller excludes bounced businesses from `owner_nudge` rule at query time; partner/satisfaction rules still fire.
+- Manual-post/exception/partner alerts unaffected — they go to admin.
+
+**Admin visibility:**
+- Admin overview shows Email Health card: 24h delivery rate (% + green/red), 24h sent count, 7d hard-bounce count, 7d complaint count. Red state when delivery rate <95% (with ≥5 sends) OR any complaint in 7d OR any hard bounce in 7d.
+- Business detail page shows red warning banner when `ownerEmailBounced=true` (impact explanation + "Clear bounce flag" button that PATCHes `ownerEmailBounced: false`).
+
+**Schema + API:**
+- `UpdateBusinessSchema` accepts `ownerEmailBounced: z.boolean().optional()`.
+- `FIELD_TO_COLUMN` maps `ownerEmailBounced → owner_email_bounced` for PATCH.
+- GET `/api/admin/businesses/[id]` returns `ownerEmailBounced: row.owner_email_bounced ?? false`.
+
+**Documentation:**
+- `docs/email-deliverability.md`: DNS auth (SPF/DKIM/DMARC), warmup schedule (stagger 2-3 customers/week first month), daily/weekly monitoring, troubleshooting table, hard bounce flow, env vars, List-Unsubscribe compliance rationale.
+
+**Tests:** +23 new tests across 5 files.
+- 8 `email-headers.test.ts` — marketing vs transactional/internal headers, LIST_UNSUBSCRIBE_EMAIL precedence, RESEND_FROM_EMAIL mailbox extraction (display name + bare), fallback.
+- 4 `email-send.test.ts` — transactional tags with no headers, internal default, marketing with headers, explicit internal.
+- 5 `resend-webhook-bounce.test.ts` — permanent bounce flags + alerts, transient does not, unknown treated as soft, `data.reason=permanent_failure` path, complained records status without flagging.
+- 4 `bounced-skip.test.ts` — each of 4 owner-directed workers skips when `owner_email_bounced=true`.
+- 2 `EngagementMonitorPoller.test.ts` — owner_nudge suppressed for bounced, partner rules still fire for bounced.
+
+**Test count:** 683/683 across 53 files.
+
+**Commits (10):** `daae866` (EmailCategory helpers), `bac5b31` (send functions), `41ea3ac` (worker call-sites), `d07eaf0` (hard bounce detection), `365b625` (skip guards), `b9bea94` (EngagementMonitorPoller exclusion), `833b1f8` (Email Health card), `54c4ac8` (type check fix), `9f851bc` (business detail banner), `8f1e295` (deliverability docs).
+
+**Migration prerequisite:** `017_sprint6_scale.sql` adds `businesses.owner_email_bounced` (also `businesses.website` from Prompt 20c). Not yet applied to Supabase.
+
+---
+
+## Sprint 6 — Prompt 20d Post-Review Fixes (2026-04-17)
+
+Six findings from the Prompt 20d post-implementation review.
+
+**Fixes (9 files, commit `3800247`):**
+- **#1 Critical — admin/partner template bounces incorrectly flagged owner.** Webhook now SELECTs `business_id AND template` from the delivery row and only flags `owner_email_bounced` when the template is owner-directed (`approval_request`, `weekly_value_report`, `monthly_impact`, `owner_nudge`, `onboarding_drip_*`). Bounces on admin/partner templates (`admin_manual_post`, `partner_engagement_alert`, etc.) log-and-skip.
+- **#2 Medium — duplicate admin alerts on repeated bounces.** `UPDATE businesses SET owner_email_bounced = TRUE WHERE ... AND owner_email_bounced IS DISTINCT FROM TRUE RETURNING id`. Admin alert fires only on the FALSE→TRUE transition.
+- **#3 Medium — missing indexes.** Migration `019_notification_delivery_bounce_indexes.sql` — partial indexes on `notification_deliveries(external_message_id)`, `(sent_at)`, `(failed_at, failure_reason)`.
+- **#4 Medium — bounce classification disagreement.** Centralized `classifyBounce()` normalizes raw types into `bounced:hard:<raw>` or `bounced:soft:<raw>`. Admin overview SQL filters on `bounced:hard:%` prefix.
+- **#5 Medium — bounce banner pointed nowhere useful.** `ownerEmail` added to `UpdateBusinessSchema`, `FIELD_TO_COLUMN`, and the admin Business Profile editor.
+- **#6 Low — bounced-owner + missing env marked nudge failed.** `EngagementAlertWorker.handleOwnerNudge` bounce check moved BEFORE env validation.
+
+**Tests (+6 new):** regression for `admin_manual_post` / `partner_engagement_alert` templates (must NOT flag), `onboarding_drip_day_7` (MUST flag via prefix), transition-guard duplicate-alert suppression, bounced-owner + missing env safety. 689/689 across 53 files.
+
+---
+
+## Sprint 6 — Prompt 20e (Launch Readiness Documentation) 2026-04-17
+
+Final prompt of Sprint 6. Docs + lightweight UI only — no worker, DB schema, API, or middleware changes.
+
+**Deliverables:**
+- **`docs/operational-runbook.md`** — authoritative ops reference for sales partner + oncall engineer. 5 sections:
+  - **A.** "Customer says X" troubleshooting × 5 scenarios (no approval email, tone mismatch, not posted on Google, too many emails, reviews not picked up).
+  - **B.** Daily health check (2 min): six-row table with metric, where to look, green state.
+  - **C.** Debugging SQL × 7 queries: correlation-id trace, stuck outbox, business activity, reset stuck entry, today's cost, bounced businesses, manual-post backlog.
+  - **D.** Incident response × 7 scenarios: worker crash, Redis down, Supabase down, SerpAPI quota, LLM outage, cost circuit breaker, Resend degraded. Each splits Auto vs. Manual.
+  - **E.** Weekly maintenance × 5 checkbox tasks: Resend reputation, Stripe invoices, `/admin/costs` drill-down, SerpAPI quota, outbox/archive health.
+- **`docs/smoke-test-checklist.md`** — pre-launch manual E2E gate against real services in Stripe test mode. 3 businesses: A (happy path), B (edit + concurrent onboarding), C (regenerate + correlation trace). System health across all 3, throughput sanity (200 seeded outbox entries, non-prod), mobile approval perf (<2s FCP on throttled 3G).
+- **`src/app/admin/runbook/page.tsx`** — admin-facing quick-reference page at `/admin/runbook`. Static client component, no data fetches. 4-column table populated from typed `SCENARIOS: Scenario[]` (A1–A5). Bottom "Need more?" callout links to the three markdown docs.
+- **AdminNav `Runbook` link** — one entry added to `navItems`.
+
+**Post-implementation review fixes (3 findings inline):**
+- Runbook referenced nonexistent `DAILY_COST_LIMIT_USD` — replaced with actual `GLOBAL_DAILY_COST_LIMIT_CENTS` + per-tier `DAILY_COST_LIMIT_CENTS_{FOUNDING,STANDARD,PREMIUM}`.
+- Runbook page `#` column header added `font-mono` to match mono body cells.
+- Runbook page `<th>` elements got `scope="col"` for screen-reader support.
+
+**Tests:** 689/689 passing across 53 files. No new test files (no logic changes). `pnpm tsc --noEmit` clean. `pnpm build` clean; `/admin/runbook` static-rendered (2.12 kB).
+
+**Commits:** `cfabb6e` (runbook doc), `8cdb651` (runbook env-var fix), `456c429` (smoke checklist), `1458d06` (nav link), `8ed763a` (runbook page), `705aa20` (runbook page a11y + font-mono).
+
+---
+
+## Sprint 6 — COMPLETE (2026-04-17)
+
+All five prompts shipped: 20a (correlation IDs + logging), 20b (archival + cost rollups), 20c (SerpAPI pre-fill), 20d (email deliverability + hard bounces), 20e (launch readiness docs). 689/689 tests, 53 files, clean build. Ready for the pre-launch smoke test gate and first paid customer.
+
+---
+
