@@ -17,6 +17,7 @@ const {
   mockMarkOutboxCompleted,
   mockMarkOutboxFailed,
   mockRecordOutboxTransientError,
+  mockCaptureMessage,
 } = vi.hoisted(() => ({
   mockSql: vi.fn(),
   mockStripeSubscriptionsRetrieve: vi.fn(),
@@ -26,6 +27,7 @@ const {
   mockMarkOutboxCompleted: vi.fn(),
   mockMarkOutboxFailed: vi.fn(),
   mockRecordOutboxTransientError: vi.fn(),
+  mockCaptureMessage: vi.fn(),
 }));
 
 vi.mock('../../../../src/lib/db/server', () => ({
@@ -57,6 +59,11 @@ vi.mock('stripe', () => {
     },
   };
 });
+
+vi.mock('@sentry/node', () => ({
+  captureMessage: mockCaptureMessage,
+  captureException: vi.fn(),
+}));
 
 process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
 process.env.STRIPE_PRICE_STANDARD_OVERAGE = 'price_std_overage';
@@ -103,6 +110,7 @@ beforeEach(() => {
   mockMarkOutboxCompleted.mockReset();
   mockMarkOutboxFailed.mockReset();
   mockRecordOutboxTransientError.mockReset();
+  mockCaptureMessage.mockReset();
 
   // Default: account with active subscription
   mockSql.mockResolvedValueOnce([mockAccountRow()]); // account lookup
@@ -595,6 +603,16 @@ describe('UpdateStripeOverageWorker — confidence gate + outbox isolation', () 
       'outbox-1',
       expect.stringContaining('ambiguous_overage_item'),
       1,
+    );
+    expect(mockCaptureMessage).toHaveBeenCalledWith(
+      expect.stringContaining('ambiguous'),
+      expect.objectContaining({
+        level: 'error',
+        tags: expect.objectContaining({
+          feature: 'stripe_overage',
+          drift_type: 'ambiguous_overage_item',
+        }),
+      }),
     );
   });
 

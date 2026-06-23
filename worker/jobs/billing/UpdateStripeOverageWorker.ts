@@ -12,6 +12,7 @@
 // Validation contract: VAL-BILLING-071, VAL-LOC-010, VAL-LOC-011, VAL-LOC-012.
 
 import { UnrecoverableError, type Job } from 'bullmq';
+import { captureMessage } from '@sentry/node';
 import { getStripe } from '../../../src/lib/payments/stripe-client';
 import { sql } from '../../../src/lib/db/server';
 import {
@@ -149,9 +150,23 @@ export async function handleUpdateStripeOverage(
   }
 
   if (outcome.kind === 'ambiguous') {
-    // No Stripe mutation happened. Terminal-fail the outbox row so ops sees it;
-    // the reconcile poller independently alerts on the underlying drift.
+    // No Stripe mutation happened. Terminal-fail the outbox row so ops sees it.
+    // Also page Sentry directly (OVERAGE-F2): an ambiguous match silently stops
+    // billing this account's location growth until someone notices — logger.error
+    // alone is not an alert. The reconcile poller also surfaces the underlying
+    // drift, but at warning level on an hourly cadence.
     logger.error(`${outcome.detail} (account ${account_id})`);
+    captureMessage(
+      `Overage sync ambiguous — billing halted for account ${account_id}: ${outcome.detail}`,
+      {
+        level: 'error',
+        tags: {
+          feature: 'stripe_overage',
+          account_id,
+          drift_type: 'ambiguous_overage_item',
+        },
+      },
+    );
     await markOutboxFailed(outboxId, outcome.detail, outboxAttempt);
     return;
   }
