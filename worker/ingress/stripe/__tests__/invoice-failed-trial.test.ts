@@ -14,6 +14,7 @@ const {
   sqlReturnQueue,
   sqlCalls,
   mockApplyStripeSubscriptionState,
+  mockEnqueueTrialPaymentFailed,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
   const sqlCalls: { text: string; values: unknown[] }[] = [];
@@ -32,6 +33,7 @@ const {
       accountResolved: true, fromStatus: 'trialing', toStatus: 'past_due',
       changed: true, activated: false, primaryBusinessId: null,
     }),
+    mockEnqueueTrialPaymentFailed: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -39,6 +41,9 @@ vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unkno
 vi.mock('../../../../src/lib/audit/log', () => ({ writeAccountAuditLog: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../apply-subscription-state', () => ({
   applyStripeSubscriptionState: mockApplyStripeSubscriptionState,
+}));
+vi.mock('../../../../src/lib/analytics/trial-events', () => ({
+  enqueueTrialPaymentFailed: mockEnqueueTrialPaymentFailed,
 }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 
@@ -56,6 +61,7 @@ beforeEach(() => {
   sqlReturnQueue.length = 0;
   sqlCalls.length = 0;
   mockApplyStripeSubscriptionState.mockClear();
+  mockEnqueueTrialPaymentFailed.mockClear();
 });
 
 describe('invoice.payment_failed — trial card fail', () => {
@@ -82,5 +88,35 @@ describe('invoice.payment_failed — trial card fail', () => {
       (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'past_due'"),
     );
     expect(updateAcct).toBeDefined();
+  });
+
+  // Conversion-analytics accuracy: Stripe converts trialing→active BEFORE the
+  // renewal charge, so a failed conversion lands on an 'active' account. If the
+  // account converted from a trial in the last few days, emit trial_payment_failed
+  // so net conversions = trial_converted − trial_payment_failed.
+  it('active account that just converted from a trial → also emits trial_payment_failed', async () => {
+    sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'active' }]); // SELECT account
+    sqlReturnQueue.push([]);                                                  // advisory lock
+    sqlReturnQueue.push([]);                                                  // UPDATE accounts
+    sqlReturnQueue.push([]);                                                  // UPDATE businesses
+    sqlReturnQueue.push([{ ok: true }]);                                      // EXISTS recent trial_converted
+    await processInvoicePaymentFailed(failedInvoice());
+
+    expect(mockEnqueueTrialPaymentFailed).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueTrialPaymentFailed).toHaveBeenCalledWith(
+      expect.anything(),
+      { accountId: ACCOUNT_ID, stripeSubscriptionId: SUB_ID },
+    );
+  });
+
+  it('active account on a normal renewal (no recent conversion) → does NOT emit trial_payment_failed', async () => {
+    sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'active' }]); // SELECT account
+    sqlReturnQueue.push([]);                                                  // advisory lock
+    sqlReturnQueue.push([]);                                                  // UPDATE accounts
+    sqlReturnQueue.push([]);                                                  // UPDATE businesses
+    sqlReturnQueue.push([{ ok: false }]);                                     // EXISTS → no recent conversion
+    await processInvoicePaymentFailed(failedInvoice());
+
+    expect(mockEnqueueTrialPaymentFailed).not.toHaveBeenCalled();
   });
 });

@@ -4,6 +4,7 @@ import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { LOG_PREFIX, extractCustomerId, invoiceSubscriptionId } from './shared';
 import { applyStripeSubscriptionState } from './apply-subscription-state';
+import { enqueueTrialPaymentFailed } from '../../../src/lib/analytics/trial-events';
 
 export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
   const customerId = extractCustomerId(invoice.customer);
@@ -81,6 +82,36 @@ export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Prom
       `;
 
       console.log(`${LOG_PREFIX} Account ${acctRow.id} marked past_due (customer=${customerId})`);
+
+      // Conversion-analytics accuracy: Stripe transitions a trial trialing→active
+      // (customer.subscription.updated) BEFORE attempting the first renewal charge,
+      // so a card-decline-AT-conversion lands on an already-'active' account — and
+      // `trial_converted` already fired. Without this, that failed conversion would
+      // be invisible to trial metrics (conversions overstated). If this account
+      // converted from a trial in the last few days (= the conversion charge + its
+      // dunning retries, NOT a normal renewal months later), emit
+      // `trial_payment_failed` so net conversions = trial_converted − trial_payment_failed.
+      // Idempotent (keyed by account+subscription) → dedupes with the direct
+      // trialing→past_due path if both fire for the same subscription. The advisory
+      // lock above serializes the convert vs fail webhooks, so the trial_converted
+      // row is committed and visible here when the failure arrives second.
+      const failedSubscriptionId = invoiceSubscriptionId(invoice);
+      if (failedSubscriptionId) {
+        const [recentConvert] = await tx<{ ok: boolean }[]>`
+          SELECT EXISTS (
+            SELECT 1 FROM analytics_events
+            WHERE account_id = ${acctRow.id}::uuid
+              AND event_name = 'trial_converted'
+              AND created_at > NOW() - INTERVAL '3 days'
+          ) AS ok
+        `;
+        if (recentConvert?.ok) {
+          await enqueueTrialPaymentFailed(tx, {
+            accountId: acctRow.id,
+            stripeSubscriptionId: failedSubscriptionId,
+          });
+        }
+      }
     } else {
       console.log(`${LOG_PREFIX} Account ${acctRow.id} already ${acctRow.subscription_status} — skipping past_due transition`);
     }
