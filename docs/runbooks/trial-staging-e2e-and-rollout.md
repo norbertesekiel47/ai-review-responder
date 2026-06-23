@@ -204,7 +204,7 @@ verified (acceptance suite / unit / a different method, or a time-gated remainde
 | T8 | Card-fail/SCA → `past_due` + grace, `trial_payment_failed` | ✅ **FIXED + verified live** | Re-verified on staging (test-clock failing card → trialing→active→past_due): the account ended `past_due` (`trial_ends_at` cleared) AND emitted **BOTH** `trial_converted` (03:56:48) **and** `trial_payment_failed` (03:56:53). Fix: `invoice-payment-failed.ts` emits `trial_payment_failed` on an `active→past_due` failure when the account has a `trial_converted` event from the last 3 days (the conversion charge + dunning), keyed by (account, subscription) so it dedupes with the direct `trialing→past_due` path. **Net conversions = `trial_converted` − `trial_payment_failed`.** Unit-tested (+2) + live test-clock. (Card-decline path covered; a dedicated SCA `payment_action_required` path is the one remaining sub-case, routed to the same applier.) |
 | T9 | Cancel-in-trial → access to trial_end, $0, `cancelled`, `trial_cancelled` | ✅ | **Live staging projection PASS** (run 2): test-clock cancel → staging webhook → DB `cancelled`, `trial_cancelled`. |
 | T10 | Mid-trial add-location/tier-change → $0 until trial_end | ◑ | Test-clock acceptance suite PASS (4/4: add-location + tier-change $0); not separately driven through staging webhooks. |
-| T11 | Reconcile heals stuck trialing; DB-active/Stripe-trialing drift surfaced | ◑ | Unit-verified (`reconcile-account-trial-correction.test.ts`). Live states were staged on staging; the hourly reconcile tick was not waited out. |
+| T11 | Reconcile heals stuck trialing; DB-active/Stripe-trialing drift surfaced | ⚠️ **logic ✅ / deployed poller BUG** | **Logic verified live** (2026-06-22): invoking the poller's `runOnce()` against the live staging DB + Stripe healed a stuck `trialing`→`active` row (DB-confirmed, `trial_ends_at` cleared, `trial_converted` emitted) AND surfaced the reverse `status_mismatch` drift (DB `active` / Stripe `trialing`, row untouched) — `accountsChecked=3 driftsFound=1 errors=0`, ~1s. **BUT the deployed staging worker's own `runOnce` HANGS**: across two boots it logged `Starting` then **never `Run complete`** (41 min observed) and did **not** heal the seeded stuck row (~14 min, DB-confirmed). A hung run holds `inProgress=true`, so every later hourly tick skips — the fail-safe backstop (invariant #3 / PLAN §5) is **non-functional on the deployed worker** until restart, and re-hangs. Identical code completes in ~1s as an isolated one-off → a deployed-runtime hang (blocking await under the worker's concurrent load), NOT a logic bug. **MUST fix before prod**: add a hard timeout/AbortController around `runOnce` (+ per-account work) so a stuck run can't wedge `inProgress`, and root-cause the blocking await (Stripe `createPreview`/`list` or Postgres pool starvation). Unit test (`reconcile-account-trial-correction.test.ts`) still green — it doesn't exercise the deployed runtime. |
 | + | Onboarding (demo ON): "Set up business" → business wizard opens (no loop) | ✅ | Live-verified on a fresh trial, 3× stable. |
 
 **Bugs found + fixed during this run** (all on PR #362, CI green): (1) trial Checkout
@@ -219,11 +219,17 @@ is proven live for **convert (T7)** and **cancel (T9)** — real Stripe test-clo
 staging worker → correct DB status + analytics event. All test data + Stripe test clocks were
 cleaned up (staging = the connected account + admin only).
 
-**Remaining before the prod flip:** a clean **T8** fail-AT-conversion path; the live reconcile
-tick for **T11** (logic is unit-proven; cadence ~hourly); **T3**'s drip after the day-1 window;
-and **T10**'s staging-webhook projection (billing math already proven by the acceptance suite).
-The core trial loop (T1/T4/T5/T6 + onboarding), **migration 069 + the 6 webhook events**, and the
-**day-30 convert/cancel projection (T7/T9)** are all green live.
+**Remaining before the prod flip:**
+- **BLOCKER — T11 deployed reconcile poller HANGS** (found 2026-06-22 by live testing — see the T11 row).
+  The reconcile *logic* is verified live, but the deployed worker's `runOnce` never completes,
+  wedging `inProgress` and skipping all later ticks. The fail-safe backstop for missed webhooks is
+  the safety net behind invariant #3 — **fix `runOnce` (hard timeout/abort + root-cause the blocking
+  await) before flipping `TRIAL_ENABLED` in prod.**
+- minor: **T3**'s drip after the day-1 window; **T10**'s staging-webhook projection (billing math
+  already proven by the acceptance suite).
+
+The core trial loop (T1/T4/T5/T6 + onboarding), **migration 069 + the 6 webhook events**, the
+**day-30 convert/cancel projection (T7/T9)**, and **T8 card-fail analytics** are all green live.
 
 ---
 
