@@ -178,6 +178,12 @@ environment (e.g. staging) you re-do this per project:
 
 ### 1.3 Supabase production project
 
+> **Local dev DB must never be a deployed project.** `.env.local` `DATABASE_URL`,
+> `DATABASE_POOL_URL`, and `NEXT_PUBLIC_SUPABASE_URL` must point at a local
+> Supabase stack (`supabase start`), never at the prod or staging project ref.
+> With `MOCK_EXTERNAL_APIS=false`, an unmocked `pnpm dev`/`pnpm worker`/seed
+> reads AND writes whatever DB these resolve to. (Audit FIND-ENV, 2026-06-23.)
+
 - [ ] Create a **separate** Supabase project for prod. Do not share with dev — schema diffs and test data will haunt you.
 - [ ] From Project Settings → Database, capture:
   - `DATABASE_URL` (direct, port 5432) — for transactional writes from Postgres.js
