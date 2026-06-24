@@ -79,6 +79,48 @@ These directly verify your two headline questions live — the trial lifecycle (
 
 ---
 
+## 2.7 Remediation status (updated 2026-06-24)
+
+Findings were remediated across two risk-split PRs. **PR A is merged; PR B is open, CI-green, and staging-soak-validated** — the §2.5 convert / decline / cancel / overage scenarios were re-run end-to-end against the deployed **PR-B** worker on 2026-06-24 and all passed (staging restored + cleaned afterward).
+
+**PR A — `billing: safety + quick wins + nits` ([#365](https://github.com/RepWorth/ai-review-responder/pull/365), MERGED):**
+
+| Finding | Disposition |
+|---|---|
+| FIND-ENV (P1) | ✅ Documented the "local dev DB must never be prod" rule in `deployment-guide.md` §1.3 + `env-vars.md` (`.env.local` is gitignored; repointed locally). |
+| OVERAGE-F2 | ✅ `Sentry.captureMessage` on the ambiguous overage dead-letter. |
+| STATUS-1.1 | ✅ trialing-Basic shows the "upgrade" copy via a tested `lockedAddLocationReason` helper. |
+| FIND-001 | ✅ Deleted the orphaned `/admin/payment-success` route + page + all refs. |
+| OVERAGE-F5 | ✅ Documented the intentional archive offboarding-gate exemption (billing-contracting). |
+| RECONCILE-F4 | ✅ Logs the trial correction only when the applier returns `changed:true`. |
+| OVERAGE-F4 | ✅ `recordOutboxTransientError` is attempt-guarded. |
+| SELECTPLAN-1 | ✅ Explicit tier-config guard; dead `?? 1/2500/7900` fallbacks removed. |
+| OVERAGE-F3 | ✅ Clarifying comment (the `billing_role` stamp is the primary defense). |
+
+**PR B — `billing: robustness + status-applier consolidation` ([#366](https://github.com/RepWorth/ai-review-responder/pull/366), OPEN · green · soaked):**
+
+| Finding | Disposition |
+|---|---|
+| QUALITY-OBS + PARITY-1 + PARITY-2 | ✅ Consolidated all 4 inline status transitions into the single applier — auto-resolves PARITY-1 (column clears) and PARITY-2 (id COALESCE). |
+| OVERAGE-F1 | ✅ Account-scoped `pg_advisory_xact_lock` around the overage sync, with the live count recomputed **inside** the lock; `concurrency:1` boot-assert kept. (Full horizontal scale-out remains a tracked backlog item.) |
+| RECONCILE-F5 | ✅ AbortController loop-control + bounded per-request Stripe read timeouts (Stripe SDK v22 has no request `AbortSignal`); read-before-tx invariant documented. |
+| RECONCILE-F1 | ✅ `locations_paid_mirror` drift-observability check (no auto-correct). Column retirement deferred → `docs/future-plans/2026-06-23-retire-locations-paid-mirror.md`. |
+| RECONCILE-F3 | ✅ Documented `StripeCheckoutReconcileWorker` as the `pending_payment` backstop. |
+| RECONCILE-F6 | ✅ Duplicate-subscription scan scoped to the account's own subscription lineage. |
+| CONFIG-1 | ✅ Verified Sentry routing; revenue-affecting drift now emits at `level:'error'` (benign observability types stay `warning`). |
+| NOTE-A | Preserved by design (the businesses-mirror asymmetry is intentional per NOTE-A); covered by per-transition applier tests. |
+| NOTE-B | ✅ Rationale comment folded in (`incomplete_expired → PAST_DUE` preserves the grace window). |
+| OVERAGE-F6 | ✅ Validated live in the §2.5 soak (mid-trial overage add = $0 until trial_end). |
+
+**Additional PR-B hardening — from three post-build review rounds, beyond the original register:**
+- **Adversarial (Codex):** scoped `invoice.paid` recovery and `invoice.payment_failed` to `(stripe_customer_id, stripe_subscription_id)` so one Stripe customer mapped to multiple accounts can't transition the wrong account; escalated `status_mismatch` reconcile drift to `error`.
+- **Codex review:** transient Postgres errors in the overage lock tx now retry (not terminal); overage quantity recomputed inside the lock.
+- **Thermo-nuclear quality:** `invoice.paid` trial-convert reduced to a single lineage-matched account (was a fan-out loop). Applier-contract simplification deferred → `docs/future-plans/2026-06-24-simplify-stripe-status-applier-contract.md`.
+
+**Not addressed (low-risk P3, out of remediation scope):** PORTAL-1 (`configurations.list` 100-limit), SELECTPLAN-2 (select-plan inline DB logic). **No fix needed:** RECONCILE-F2 (refuted by Phase B).
+
+---
+
 ## 3. Findings register
 
 > Severity is impact-based. Items marked *tracked* already exist in `docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md` or ADR 0005.
