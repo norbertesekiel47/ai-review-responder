@@ -1,12 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 /**
- * invoice.payment_failed — TRIAL card-fail (trialing → past_due).
+ * invoice.payment_failed — card-fail for trialing and active accounts.
  *
- * When a trial's first charge fails at trial end, the account is `trialing`.
- * The handler routes trialing→past_due through the single applier (subscription
- * mode), which sets past_due + emits trial_payment_failed. The existing
- * active→past_due path is unchanged (and does NOT call the applier).
+ * trialing → past_due: routed through the single applier (subscription mode),
+ * which sets past_due + emits trial_payment_failed.
+ *
+ * active → past_due (QUALITY-OBS/B1.3): also routed through the applier
+ * (checkout/by-accountId mode). The applier owns the status write + audit row.
+ * The handler retains the recent-convert net-logic (trial_payment_failed emit)
+ * AFTER the applier, guarded on transition.changed — the applier never emits
+ * trial_payment_failed when fromStatus=active (only fires when fromStatus=trialing).
  */
 
 const {
@@ -79,26 +83,56 @@ describe('invoice.payment_failed — trial card fail', () => {
     expect(sub).toMatchObject({ status: 'past_due' });
   });
 
-  it('active account → existing inline path, NOT the applier', async () => {
-    sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'active' }]);
-    await processInvoicePaymentFailed(failedInvoice());
+  it('active → past_due routes through the applier AND still emits trial_payment_failed for a recent convert', async () => {
+    sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // accounts FOR UPDATE
+    sqlReturnQueue.push([]);                                                 // pg_advisory_xact_lock
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'active', toStatus: 'past_due',
+      changed: true, activated: false, primaryBusinessId: null,
+    });
+    sqlReturnQueue.push([{ ok: true }]); // recentConvert EXISTS → true
 
-    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
-    const updateAcct = sqlCalls.find(
+    await processInvoicePaymentFailed({ id: 'in_1', customer: 'cus_1', subscription: 'sub_1' } as any);
+
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
+      expect.anything(),
+      { mode: 'checkout', accountId: 'acct-1' },
+      expect.objectContaining({ status: 'past_due' }),
+    );
+    expect(mockEnqueueTrialPaymentFailed).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ accountId: 'acct-1', stripeSubscriptionId: 'sub_1' }),
+    );
+    const inlinePastDue = sqlCalls.find(
       (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'past_due'"),
     );
-    expect(updateAcct).toBeDefined();
+    expect(inlinePastDue).toBeUndefined();
+  });
+
+  it('active → past_due does NOT emit trial_payment_failed when there was no recent convert', async () => {
+    sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // accounts FOR UPDATE
+    sqlReturnQueue.push([]);                                                 // pg_advisory_xact_lock
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'active', toStatus: 'past_due',
+      changed: true, activated: false, primaryBusinessId: null,
+    });
+    sqlReturnQueue.push([{ ok: false }]); // recentConvert EXISTS → false
+
+    await processInvoicePaymentFailed({ id: 'in_1', customer: 'cus_1', subscription: 'sub_1' } as any);
+    expect(mockEnqueueTrialPaymentFailed).not.toHaveBeenCalled();
   });
 
   // Conversion-analytics accuracy: Stripe converts trialing→active BEFORE the
   // renewal charge, so a failed conversion lands on an 'active' account. If the
   // account converted from a trial in the last few days, emit trial_payment_failed
   // so net conversions = trial_converted − trial_payment_failed.
+  // The applier is mocked here — the SQL queue only needs: SELECT account,
+  // advisory lock, then the EXISTS query (no inline UPDATEs now that the
+  // status write is owned by the applier).
   it('active account that just converted from a trial → also emits trial_payment_failed', async () => {
-    sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'active' }]); // SELECT account
-    sqlReturnQueue.push([]);                                                  // advisory lock
-    sqlReturnQueue.push([]);                                                  // UPDATE accounts
-    sqlReturnQueue.push([]);                                                  // UPDATE businesses
+    sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'active' }]); // SELECT account FOR UPDATE
+    sqlReturnQueue.push([]);                                                   // pg_advisory_xact_lock
+    // applier mocked (default: changed=true) — no SQL emitted by it
     sqlReturnQueue.push([{ ok: true }]);                                      // EXISTS recent trial_converted
     await processInvoicePaymentFailed(failedInvoice());
 
@@ -110,13 +144,39 @@ describe('invoice.payment_failed — trial card fail', () => {
   });
 
   it('active account on a normal renewal (no recent conversion) → does NOT emit trial_payment_failed', async () => {
-    sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'active' }]); // SELECT account
-    sqlReturnQueue.push([]);                                                  // advisory lock
-    sqlReturnQueue.push([]);                                                  // UPDATE accounts
-    sqlReturnQueue.push([]);                                                  // UPDATE businesses
+    sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'active' }]); // SELECT account FOR UPDATE
+    sqlReturnQueue.push([]);                                                   // pg_advisory_xact_lock
+    // applier mocked (default: changed=true) — no SQL emitted by it
     sqlReturnQueue.push([{ ok: false }]);                                     // EXISTS → no recent conversion
     await processInvoicePaymentFailed(failedInvoice());
 
     expect(mockEnqueueTrialPaymentFailed).not.toHaveBeenCalled();
+  });
+
+  it('does NOT mark a sibling account past_due — resolves by (customer, subscription)', async () => {
+    // Account row is resolved by (customer, subscription); a failed invoice for a
+    // subscription NOT matching any account under this customer resolves nothing.
+    sqlReturnQueue.push([]); // SELECT ... WHERE stripe_customer_id AND stripe_subscription_id → no row
+    await processInvoicePaymentFailed({ id: 'in_1', customer: 'cus_shared', subscription: 'sub_B' } as any);
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+  });
+
+  it('no-ops when the failed invoice has no subscription id (cannot attribute)', async () => {
+    sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // would be resolved + flipped in the old code
+    await processInvoicePaymentFailed({ id: 'in_1', customer: 'cus_1' } as any); // no subscription
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+  });
+
+  it('resolves the account by BOTH stripe_customer_id AND stripe_subscription_id', async () => {
+    sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // account resolve
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'active', toStatus: 'past_due',
+      changed: true, activated: false, primaryBusinessId: null,
+    });
+    sqlReturnQueue.push([{ ok: false }]); // recentConvert EXISTS
+    await processInvoicePaymentFailed({ id: 'in_1', customer: 'cus_1', subscription: 'sub_1' } as any);
+    const resolve = sqlCalls.find((c) => /\bFROM\s+accounts\b/i.test(c.text) && /stripe_customer_id/.test(c.text));
+    expect(resolve).toBeDefined();
+    expect(resolve!.text).toMatch(/stripe_subscription_id/);  // proves the lineage scoping
   });
 });

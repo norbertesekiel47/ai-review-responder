@@ -229,6 +229,31 @@ describe('transition: → active (convert)', () => {
     const r = await applyStripeSubscriptionState(mockSql, subRef, activeSub());
     expect(r).toMatchObject({ changed: false });
   });
+
+  it('active UPDATE clears past_due_at = NULL (PARITY-1: all exit columns cleared)', async () => {
+    // past_due → active is the re-activation path; the past_due_at timestamp must
+    // be cleared so the account is no longer in the grace window.
+    queueAccountRow('past_due');
+    await applyStripeSubscriptionState(mockSql, subRef, activeSub());
+    const updateAcct = sqlCalls.find(
+      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'"),
+    );
+    expect(updateAcct).toBeDefined();
+    expect(updateAcct!.text).toMatch(/past_due_at\s*=\s*NULL/i);
+  });
+
+  it('active UPDATE COALESCEs stripe_customer_id + stripe_subscription_id (PARITY-2)', async () => {
+    // Even in subscription mode the COALESCE is present so a row that somehow
+    // lost the Stripe ids gets them re-anchored on the next transition.
+    queueAccountRow('trialing');
+    await applyStripeSubscriptionState(mockSql, subRef, activeSub());
+    const updateAcct = sqlCalls.find(
+      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'"),
+    );
+    expect(updateAcct).toBeDefined();
+    expect(updateAcct!.text).toMatch(/stripe_customer_id\s*=\s*COALESCE/i);
+    expect(updateAcct!.text).toMatch(/stripe_subscription_id\s*=\s*COALESCE/i);
+  });
 });
 
 describe('transition: → past_due', () => {
@@ -263,6 +288,18 @@ describe('transition: → past_due', () => {
     );
     expect(updateBiz).toBeDefined();
     expect(updateBiz!.text).not.toMatch(/subscription_activated_at/i);
+  });
+
+  it('past_due businesses mirror updates ALL businesses — no is_primary clause (NOTE-A asymmetry)', async () => {
+    // trialing/active mirror is PRIMARY-ONLY (is_primary = TRUE); past_due must
+    // propagate to ALL businesses so every location shows the billing problem.
+    queueAccountRow('trialing');
+    await applyStripeSubscriptionState(mockSql, subRef, { id: SUB_ID, customer: CUSTOMER_ID, status: 'past_due', trial_end: null });
+    const updateBiz = sqlCalls.find(
+      (c) => /\bUPDATE\s+businesses\b/.test(c.text) && c.text.includes("'past_due'"),
+    );
+    expect(updateBiz).toBeDefined();
+    expect(updateBiz!.text).not.toMatch(/is_primary/i);
   });
 
   it('cancelled → past_due is a no-op (terminal)', async () => {
@@ -302,6 +339,18 @@ describe('transition: → cancelled', () => {
     queueAccountRow('cancelled');
     const r = await applyStripeSubscriptionState(mockSql, subRef, { id: SUB_ID, customer: CUSTOMER_ID, status: 'canceled', trial_end: null });
     expect(r).toMatchObject({ changed: false });
+  });
+
+  it('cancelled businesses mirror updates ALL businesses — no is_primary clause (NOTE-A asymmetry)', async () => {
+    // Same asymmetry as past_due: cancellation affects all locations, not just
+    // the primary, so the UPDATE must not include an is_primary filter.
+    queueAccountRow('active');
+    await applyStripeSubscriptionState(mockSql, subRef, { id: SUB_ID, customer: CUSTOMER_ID, status: 'canceled', trial_end: null });
+    const updateBiz = sqlCalls.find(
+      (c) => /\bUPDATE\s+businesses\b/.test(c.text) && c.text.includes("'cancelled'"),
+    );
+    expect(updateBiz).toBeDefined();
+    expect(updateBiz!.text).not.toMatch(/is_primary/i);
   });
 });
 

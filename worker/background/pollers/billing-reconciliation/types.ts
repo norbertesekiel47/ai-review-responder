@@ -5,6 +5,7 @@ export interface AccountWithLocations {
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   locations_included: number;
+  locations_paid: number;
   locations_overage_price_cents: number;
   base_price_cents: number;
   active_location_count: number;
@@ -43,7 +44,8 @@ export interface DriftFinding {
     | 'price_mismatch'
     | 'quantity_mismatch'
     | 'upcoming_invoice_mismatch'
-    | 'unknown_stripe_state';
+    | 'unknown_stripe_state'
+    | 'locations_paid_mirror';
   message: string;
   expectedCents?: number;
   actualCents?: number;

@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 /**
- * customer.subscription.deleted — cancel during TRIAL (trialing → cancelled).
+ * customer.subscription.deleted — ALL cancellations route through the applier.
  *
- * When an owner cancels during the trial (via offboarding cancel_at_period_end →
- * Stripe deletes at trial_end), the account is `trialing`. The handler routes
- * the cancel through the single applier (subscription mode) so trial_ends_at is
- * cleared and trial_cancelled is emitted. Cancelling a NON-trial (active)
- * account keeps the unchanged inline cancel and does NOT emit trial_cancelled.
+ * After B1.1, BOTH trial and non-trial cancellations go through
+ * applyStripeSubscriptionState (subscription mode). The applier maps Stripe
+ * `canceled` → CANCELLED, clears trial_ends_at/past_due_at, mirrors all
+ * businesses (NOTE-A), writes the audit row, and emits trial_cancelled ONLY
+ * when leaving a trialing state. No inline UPDATE accounts remains.
  */
 
 const {
@@ -83,14 +83,60 @@ describe('subscription.deleted — cancel during trial', () => {
     expect(sub).toMatchObject({ status: 'canceled' });
   });
 
-  it('active account → existing inline cancel, NOT the applier', async () => {
-    queueAccount('active');
-    await processSubscriptionDeleted(deletedSub());
+  it('non-trial cancel (active → cancelled) routes through the applier, not inline SQL', async () => {
+    sqlReturnQueue.push([{
+      id: 'acct-1',
+      subscription_status: 'active',
+      stripe_subscription_id: 'sub_1',
+      active_offboarding_subscription_id: null,
+    }]);
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'active', toStatus: 'cancelled',
+      changed: true, activated: false, primaryBusinessId: null,
+    });
 
-    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
-    const updateAcct = sqlCalls.find(
+    await processSubscriptionDeleted({ id: 'sub_1', customer: 'cus_1', status: 'canceled' } as any);
+
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
+      expect.anything(),
+      { mode: 'subscription', stripeCustomerId: 'cus_1', stripeSubscriptionId: 'sub_1' },
+      expect.objectContaining({ id: 'sub_1', status: 'canceled' }),
+    );
+    const inlineCancel = sqlCalls.find(
       (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'cancelled'"),
     );
-    expect(updateAcct).toBeDefined();
+    expect(inlineCancel).toBeUndefined();
+  });
+
+  it('multi-account customer: cancels the account whose CURRENT subscription matches, not the first row', async () => {
+    const A1 = '019dc366-29ce-7000-a000-00000000000a'; // first row — DIFFERENT subscription
+    const A2 = '019dc366-29ce-7000-a000-00000000000b'; // the account ON the deleted subscription
+    sqlReturnQueue.push([
+      { id: A1, subscription_status: 'active', stripe_subscription_id: 'sub_other', active_offboarding_subscription_id: null },
+      { id: A2, subscription_status: 'active', stripe_subscription_id: SUB_ID, active_offboarding_subscription_id: null },
+    ]);
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'active', toStatus: 'cancelled',
+      changed: true, activated: false, primaryBusinessId: null,
+    });
+
+    await processSubscriptionDeleted(deletedSub());
+
+    // The old `const [acctRow]` took A1 (mismatched) and skipped; the fix resolves A2.
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
+    const lockCall = sqlCalls.find((c) => /pg_advisory_xact_lock/.test(c.text));
+    expect(lockCall?.values).toContain(`${A2}:status_change`);
+    expect(lockCall?.values).not.toContain(`${A1}:status_change`);
+  });
+
+  it('multi-account customer: no account on the deleted subscription → skip (no applier call)', async () => {
+    sqlReturnQueue.push([
+      { id: 'acct-x', subscription_status: 'active', stripe_subscription_id: 'sub_x', active_offboarding_subscription_id: null },
+      { id: 'acct-y', subscription_status: 'active', stripe_subscription_id: 'sub_y', active_offboarding_subscription_id: null },
+    ]);
+
+    await processSubscriptionDeleted(deletedSub()); // deletes SUB_ID, owned by neither account
+
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
   });
 });

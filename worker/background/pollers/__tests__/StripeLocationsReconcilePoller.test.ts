@@ -79,9 +79,11 @@ import {
 } from '../billing-reconciliation/drift';
 import {
   runOnce,
+  reconcileCycle,
   startStripeLocationsReconcilePoller,
   stopStripeLocationsReconcilePoller,
 } from '../StripeLocationsReconcilePoller';
+import { emitDriftAlert } from '../billing-reconciliation/drift-alert';
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -208,6 +210,7 @@ interface AccountRow {
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   locations_included: number;
+  locations_paid: number;
   locations_overage_price_cents: number;
   base_price_cents: number;
   active_location_count: number;
@@ -224,6 +227,7 @@ function makeAccountRow(overrides: Partial<AccountRow> = {}): AccountRow {
     stripe_customer_id: 'cus_123',
     stripe_subscription_id: 'sub_123',
     locations_included: 1,
+    locations_paid: 2,
     locations_overage_price_cents: 2500,
     base_price_cents: TIER_CONFIG[tier as keyof typeof TIER_CONFIG]?.baseCents ?? 7900,
     active_location_count: 3,
@@ -491,6 +495,7 @@ describe('StripeLocationsReconcilePoller', () => {
         subscription_tier: 'standard',
         locations_included: 3,
         active_location_count: 3,
+        locations_paid: 0,
       }),
     ]);
 
@@ -690,7 +695,8 @@ describe('StripeLocationsReconcilePoller', () => {
     const result = await runOnce();
 
     expect(result.driftsFound).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    // upcoming_invoice_mismatch is revenue-affecting → error level (CONFIG-1)
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('Upcoming invoice drift'),
     );
   });
@@ -742,7 +748,9 @@ describe('StripeLocationsReconcilePoller', () => {
     const result = await runOnce();
 
     expect(result.driftsFound).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    // status_mismatch is a genuine entitlement drift (only emitted after the
+    // expected-status-window filter) → error level, not warning (CONFIG-1).
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('acct-trialing'),
     );
   });
@@ -751,12 +759,15 @@ describe('StripeLocationsReconcilePoller', () => {
 
   it('emits alert when Stripe overage quantity exceeds DB expectation', async () => {
     // Account: standard tier, 1 included, 3 active → expected overage = 2
+    // locations_paid=5 matches Stripe so mirror drift doesn't fire; the
+    // quantity_mismatch (DB expects 2, Stripe has 5) is the single drift under test.
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-drift-high',
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 3,
+        locations_paid: 5,
       }),
     ]);
 
@@ -769,20 +780,24 @@ describe('StripeLocationsReconcilePoller', () => {
 
     expect(result.accountsChecked).toBe(1);
     expect(result.driftsFound).toBe(1);
-    // Should emit alert via console.warn (SENTRY_DSN unset) — one JSON line
-    expect(warnSpy).toHaveBeenCalledWith(
+    // quantity_mismatch is revenue-affecting → error level (CONFIG-1); fallback
+    // path uses console.error when SENTRY_DSN is unset
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('acct-drift-high'),
     );
   });
 
   it('emits alert when DB overage exceeds Stripe quantity', async () => {
     // Account: standard tier, 1 included, 5 active → expected overage = 4
+    // locations_paid=1 matches Stripe so mirror drift doesn't fire; the
+    // quantity_mismatch (DB expects 4, Stripe has 1) is the single drift under test.
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-drift-low',
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 5,
+        locations_paid: 1,
       }),
     ]);
 
@@ -797,7 +812,8 @@ describe('StripeLocationsReconcilePoller', () => {
     const result = await runOnce();
 
     expect(result.driftsFound).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    // quantity_mismatch is revenue-affecting → error level (CONFIG-1)
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('acct-drift-low'),
     );
   });
@@ -823,13 +839,15 @@ describe('StripeLocationsReconcilePoller', () => {
     await runOnce();
 
     // The warn JSON line should carry the account_id and both quantities
-    const warnCall = warnSpy.mock.calls.find(
+    // quantity_mismatch is revenue-affecting → logger.error (CONFIG-1); the
+    // structured log line uses level 'error' in the JSON output
+    const errorCall = errorSpy.mock.calls.find(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('acct-detail'),
     );
-    expect(warnCall).toBeDefined();
-    expect(warnCall!.length).toBe(1); // one JSON line per log call
-    const record = JSON.parse(warnCall![0] as string);
-    expect(record.level).toBe('warn');
+    expect(errorCall).toBeDefined();
+    expect(errorCall!.length).toBe(1); // one JSON line per log call
+    const record = JSON.parse(errorCall![0] as string);
+    expect(record.level).toBe('error');
     expect(record.logger).toBe('StripeLocationsReconcilePoller');
     expect(record.message).toContain('Stripe billing drift detected');
     expect(record.data.account_id).toBe('acct-detail');
@@ -842,12 +860,15 @@ describe('StripeLocationsReconcilePoller', () => {
   it('uses Sentry.captureMessage when SENTRY_DSN is set', async () => {
     process.env.SENTRY_DSN = 'https://test@sentry.io/123';
 
+    // locations_paid=10 matches Stripe so mirror drift doesn't fire; quantity_mismatch
+    // (DB expects 2, Stripe has 10) is the single drift under test.
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-sentry',
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 3,
+        locations_paid: 10,
       }),
     ]);
 
@@ -858,12 +879,14 @@ describe('StripeLocationsReconcilePoller', () => {
     const result = await runOnce();
 
     expect(result.driftsFound).toBe(1);
+    // quantity_mismatch is revenue-affecting → error level (CONFIG-1)
     expect(mockCaptureMessage).toHaveBeenCalledWith(
       expect.stringContaining('acct-sentry'),
-      expect.objectContaining({ level: 'warning' }),
+      expect.objectContaining({ level: 'error' }),
     );
-    // Should NOT also emit the warn-level fallback when Sentry is active
+    // Should NOT also emit the fallback log line when Sentry is active
     expect(warnSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
   it('adds typed Sentry metadata for invoice drift alerts', async () => {
@@ -906,6 +929,76 @@ describe('StripeLocationsReconcilePoller', () => {
     );
   });
 
+  // ── CONFIG-1: drift alert level depends on drift type ───────────
+  // Revenue-affecting drifts must emit at `error` (reaches Sentry high-priority
+  // classification + any future error route). Benign/observability drifts stay
+  // at `warning`. Fail-safe: unknown/future types default to `error`.
+
+  const revenueAffectingDriftTypes = [
+    'quantity_mismatch',
+    'price_mismatch',
+    'upcoming_invoice_mismatch',
+    'missing_subscription',
+    'duplicate_subscription',
+    // status_mismatch is only pushed after the expected-status-window filter, so
+    // any that reaches emitDriftAlert is a genuine entitlement drift → error (CONFIG-1).
+    'status_mismatch',
+  ] as const;
+
+  const benignDriftTypes = [
+    // locations_paid_mirror is pure observability (RECONCILE-F1 — locations_paid
+    // is never billed; it is a denormalized mirror column). It is the ONLY benign type.
+    'locations_paid_mirror',
+  ] as const;
+
+  const basePayload = {
+    dbExpectedOverage: 2,
+    stripeOverageQuantity: 5,
+    activeLocations: 3,
+    locationsIncluded: 1,
+    tier: 'standard',
+  };
+
+  for (const driftType of revenueAffectingDriftTypes) {
+    it(`emitDriftAlert emits level 'error' for revenue-affecting drift type '${driftType}'`, () => {
+      process.env.SENTRY_DSN = 'https://test@sentry.io/123';
+      mockCaptureMessage.mockClear();
+
+      emitDriftAlert('acct-level-test', { ...basePayload, driftType });
+
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ level: 'error' }),
+      );
+    });
+  }
+
+  for (const driftType of benignDriftTypes) {
+    it(`emitDriftAlert emits level 'warning' for benign drift type '${driftType}'`, () => {
+      process.env.SENTRY_DSN = 'https://test@sentry.io/123';
+      mockCaptureMessage.mockClear();
+
+      emitDriftAlert('acct-level-test', { ...basePayload, driftType });
+
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ level: 'warning' }),
+      );
+    });
+  }
+
+  it('emitDriftAlert fails safe to error level for unknown drift type (undefined)', () => {
+    process.env.SENTRY_DSN = 'https://test@sentry.io/123';
+    mockCaptureMessage.mockClear();
+
+    emitDriftAlert('acct-level-test', { ...basePayload, driftType: undefined });
+
+    expect(mockCaptureMessage).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ level: 'error' }),
+    );
+  });
+
   // ── Subscription-level drift ────────────────────────────────────
 
   it('alerts when a paid DB account is missing stripe_subscription_id', async () => {
@@ -921,7 +1014,8 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(result.accountsChecked).toBe(1);
     expect(result.driftsFound).toBe(1);
     expect(mockStripeRetrieve).not.toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalledWith(
+    // missing_subscription is revenue-affecting → error level (CONFIG-1)
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('Missing Stripe subscription id'),
     );
   });
@@ -944,7 +1038,8 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(result.accountsChecked).toBe(1);
     expect(result.errors).toBe(0);
     expect(result.driftsFound).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    // missing_subscription is revenue-affecting → error level (CONFIG-1)
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('Stripe subscription sub_missing is missing'),
     );
   });
@@ -969,7 +1064,8 @@ describe('StripeLocationsReconcilePoller', () => {
     const result = await runOnce();
 
     expect(result.driftsFound).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    // duplicate_subscription is revenue-affecting → error level (CONFIG-1)
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('Duplicate active Stripe subscriptions'),
     );
   });
@@ -989,7 +1085,8 @@ describe('StripeLocationsReconcilePoller', () => {
     const result = await runOnce();
 
     expect(result.driftsFound).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    // price_mismatch is revenue-affecting → error level (CONFIG-1)
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('Stripe overage price 3000 differs from stored account price 2500'),
     );
   });
@@ -997,12 +1094,15 @@ describe('StripeLocationsReconcilePoller', () => {
   it('includes the pilot invoice-review flag in Sentry drift metadata', async () => {
     process.env.SENTRY_DSN = 'https://test@sentry.io/123';
 
+    // locations_paid=5 matches Stripe so mirror drift doesn't fire; quantity_mismatch
+    // (DB expects 2, Stripe has 5) is the single drift under test.
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-pilot-drift',
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 3,
+        locations_paid: 5,
         flags: { is_pilot: true },
       }),
     ]);
@@ -1030,12 +1130,15 @@ describe('StripeLocationsReconcilePoller', () => {
   it('parses JSONB string account flags for pilot drift metadata', async () => {
     process.env.SENTRY_DSN = 'https://test@sentry.io/123';
 
+    // locations_paid=5 matches Stripe so mirror drift doesn't fire; quantity_mismatch
+    // (DB expects 2, Stripe has 5) is the single drift under test.
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-pilot-jsonb-string',
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 3,
+        locations_paid: 5,
         flags: JSON.stringify({ is_pilot: true }),
       }),
     ]);
@@ -1083,6 +1186,7 @@ describe('StripeLocationsReconcilePoller', () => {
         subscription_tier: 'basic',
         locations_included: 1,
         active_location_count: 1,
+        locations_paid: 0,
       }),
     ]);
 
@@ -1102,12 +1206,15 @@ describe('StripeLocationsReconcilePoller', () => {
   });
 
   it('detects drift when overage item is missing but DB expects overage', async () => {
+    // locations_paid=0 matches Stripe (no overage item → stripeOverageQuantity=0)
+    // so mirror drift doesn't fire; quantity_mismatch is the single drift under test.
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-missing-overage',
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 4,
+        locations_paid: 0,
       }),
     ]);
 
@@ -1122,7 +1229,8 @@ describe('StripeLocationsReconcilePoller', () => {
     const result = await runOnce();
 
     expect(result.driftsFound).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    // quantity_mismatch is revenue-affecting → error level (CONFIG-1)
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('acct-missing-overage'),
     );
   });
@@ -1137,6 +1245,7 @@ describe('StripeLocationsReconcilePoller', () => {
         locations_included: 5,
         locations_overage_price_cents: 2000,
         active_location_count: 3,
+        locations_paid: 0,
       }),
     ]);
 
@@ -1201,17 +1310,20 @@ describe('StripeLocationsReconcilePoller', () => {
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 3,
+        locations_paid: 2,
       }),
       makeAccountRow({
         id: 'acct-drift',
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 5,
+        locations_paid: 1,
       }),
     ]);
 
-    // First account: no drift (3 locations - 1 included = 2 overage)
-    // Second account: drift (5 locations - 1 included = 4 overage, Stripe says 1)
+    // First account: no drift (3 locations - 1 included = 2 overage, locations_paid=2 ✓)
+    // Second account: quantity_mismatch (DB expects 4, Stripe has 1); locations_paid=1
+    // matches Stripe so mirror drift doesn't also fire → driftsFound stays at 1.
     mockStripeRetrieve
       .mockResolvedValueOnce(makeStripeSubscription(2, 'price_overage_std'))
       .mockResolvedValueOnce(makeStripeSubscription(1, 'price_overage_std'));
@@ -1257,12 +1369,15 @@ describe('StripeLocationsReconcilePoller', () => {
   });
 
   it('still reports quantity drift when invoice preview fails', async () => {
+    // locations_paid=5 matches Stripe so mirror drift doesn't fire; quantity_mismatch
+    // (DB expects 2, Stripe has 5) is the single drift under test.
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-preview-fails',
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 3,
+        locations_paid: 5,
       }),
     ]);
     mockStripeRetrieve.mockResolvedValue(
@@ -1275,16 +1390,17 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(result.accountsChecked).toBe(1);
     expect(result.driftsFound).toBe(1);
     expect(result.errors).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('acct-preview-fails'),
+    // quantity_mismatch is revenue-affecting → error level (CONFIG-1)
+    // Both the drift alert and the preview-failure error land on errorSpy
+    const errorLines = errorSpy.mock.calls.map((c: any[]) => c[0]);
+    expect(errorLines.some(
+      (line: unknown): boolean => typeof line === 'string' && line.includes('acct-preview-fails'),
+    )).toBe(true);
+    const previewErrorLine = errorLines.find(
+      (line: unknown): line is string =>
+        typeof line === 'string'
+        && line.includes('Invoice-preview reconciliation UNAVAILABLE'),
     );
-    const previewErrorLine = errorSpy.mock.calls
-      .map((c: any[]) => c[0])
-      .find(
-        (line: unknown): line is string =>
-          typeof line === 'string'
-          && line.includes('Invoice-preview reconciliation UNAVAILABLE'),
-      );
     expect(previewErrorLine).toBeDefined();
     expect(previewErrorLine).toContain('acct-preview-fails');
   });
@@ -1420,6 +1536,26 @@ describe('StripeLocationsReconcilePoller', () => {
       .find((l: unknown): l is string => typeof l === 'string' && l.includes('Previous run still in progress'));
     expect(skipLine).toBeUndefined();
     vi.useRealTimers();
+  });
+
+  it('an aborted cycle signal stops the loop before launching any per-account work', async () => {
+    // RECONCILE-F5: when runOnce's cycle deadline fires, it aborts the controller
+    // so the DETACHED cycle stops launching NEW per-account work (it cannot cancel
+    // the in-flight HTTP call — Stripe SDK v22 has no request AbortSignal). Drive
+    // reconcileCycle directly with an already-aborted signal: it must process ZERO
+    // accounts even though the query returns one.
+    sqlReturnQueue.push([
+      makeAccountRow({ id: 'acct-should-not-run', subscription_tier: 'standard', locations_included: 1, active_location_count: 3 }),
+    ]);
+
+    const result = await reconcileCycle(AbortSignal.abort());
+
+    expect(result).toEqual({ accountsChecked: 0, driftsFound: 0, errors: 0 });
+    expect(mockStripeRetrieve).not.toHaveBeenCalled();
+    const abortLine = logSpy.mock.calls
+      .map((c: any[]) => c[0])
+      .find((l: unknown): l is string => typeof l === 'string' && l.includes('Cycle aborted'));
+    expect(abortLine).toBeDefined();
   });
 
   it('per-account timeout errors that account and continues the cycle', async () => {

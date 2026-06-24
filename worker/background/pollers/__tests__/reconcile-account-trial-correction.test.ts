@@ -48,6 +48,7 @@ function makeAccount(overrides: Partial<AccountWithLocations> = {}): AccountWith
     active_location_count: 0,
     past_due_at: null,
     flags: {},
+    locations_paid: 0,
     ...overrides,
   };
 }

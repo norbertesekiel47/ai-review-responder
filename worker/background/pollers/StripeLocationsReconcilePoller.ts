@@ -79,13 +79,18 @@ export async function runOnce(): Promise<ReconcileResult> {
     return { accountsChecked: 0, driftsFound: 0, errors: 0 };
   }
   inProgress = true;
+  const controller = new AbortController();
 
   try {
-    return await withTimeout(reconcileCycle(), CYCLE_TIMEOUT_MS, 'reconcile cycle');
+    return await withTimeout(reconcileCycle(controller.signal), CYCLE_TIMEOUT_MS, 'reconcile cycle');
   } catch (err) {
-    // A timed-out (or otherwise fatal) cycle must not wedge the poller. The
-    // detached cycle promise may still settle later — harmless: it only writes
-    // idempotent corrections and frees its connection when the pool drains.
+    // The detached cycle promise may still settle later. Abort so it stops
+    // launching NEW per-account work (the in-flight account finishes under its
+    // own bounded Stripe timeout, then the cycle unwinds and frees its pool
+    // connection). Stripe SDK v22 has no request AbortSignal, so we cannot cancel
+    // the in-flight HTTP call — the per-request timeout (reconcile-account.ts)
+    // bounds it instead. Bounds a detached cycle to <=1 in-flight account.
+    controller.abort();
     logger.error(
       err instanceof TimeoutError
         ? 'Reconcile cycle exceeded its deadline — releasing the run so the next tick proceeds'
@@ -103,8 +108,15 @@ export async function runOnce(): Promise<ReconcileResult> {
  * compares the expected overage quantity (from DB) with Stripe and applies the
  * scoped trial correction. Each per-account reconcile is itself bounded so one
  * parked account cannot consume the whole cycle budget.
+ *
+ * Exported for direct unit testing of the abort-on-deadline contract: when
+ * `signal` is aborted (runOnce's cycle deadline fired), the loop stops launching
+ * NEW per-account work so a detached cycle cannot keep iterating all accounts and
+ * starve the shared Postgres pool. The in-flight account (if any) still settles
+ * under its own bounded Stripe timeout — Stripe SDK v22 has no request
+ * AbortSignal, so this only halts the loop, it cannot cancel an open HTTP call.
  */
-async function reconcileCycle(): Promise<ReconcileResult> {
+export async function reconcileCycle(signal: AbortSignal): Promise<ReconcileResult> {
   // Fetch all active paid accounts and their
   // active location counts in a single query.
   const accounts = await sql<AccountWithLocations[]>`
@@ -115,6 +127,7 @@ async function reconcileCycle(): Promise<ReconcileResult> {
       a.stripe_customer_id,
       a.stripe_subscription_id,
       a.locations_included,
+      a.locations_paid,
       a.locations_overage_price_cents,
       a.base_price_cents,
       a.past_due_at,
@@ -122,6 +135,10 @@ async function reconcileCycle(): Promise<ReconcileResult> {
       COUNT(b.id) AS active_location_count
     FROM accounts a
     LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL
+    -- RECONCILE-F3: pending_payment is intentionally excluded. Missed activation
+    -- is owned by StripeCheckoutReconcileWorker (worker/jobs/billing/), which
+    -- re-retrieves the Checkout Session and re-runs processCheckoutSessionCompleted.
+    -- This poller reconciles only entitled/billable states.
     WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}, ${SubscriptionStatus.TRIALING})
     GROUP BY
       a.id,
@@ -130,6 +147,7 @@ async function reconcileCycle(): Promise<ReconcileResult> {
       a.stripe_customer_id,
       a.stripe_subscription_id,
       a.locations_included,
+      a.locations_paid,
       a.locations_overage_price_cents,
       a.base_price_cents,
       a.past_due_at,
@@ -153,6 +171,10 @@ async function reconcileCycle(): Promise<ReconcileResult> {
   let errors = 0;
 
   for (const account of accounts) {
+    if (signal.aborted) {
+      logger.log('Cycle aborted (deadline exceeded) — stopping before remaining accounts');
+      break;
+    }
     try {
       const outcome = await withTimeout(
         reconcileAccount(stripe, account),

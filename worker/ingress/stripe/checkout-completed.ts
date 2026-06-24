@@ -1,8 +1,6 @@
 import Stripe from 'stripe';
-import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '../../../src/lib/db/server';
+import { sql } from '../../../src/lib/db/server';
 import { LOG_PREFIX, extractCustomerId, extractSubscriptionId, UUID_RE, maybeEnqueueBackfillResume, getStripe } from './shared';
-import { enqueueStripeOverageRecompute } from '../../../src/lib/shared/job-outbox-helpers';
 import { applyStripeSubscriptionState, type TransitionResult } from './apply-subscription-state';
 
 export async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
@@ -86,102 +84,34 @@ export async function processCheckoutSessionCompleted(session: Stripe.Checkout.S
     if (trialStarted) return;
   }
 
-  // The ':activation' advisory lock serializes concurrent
-  // checkout.session.completed deliveries for the same account. Cross-handler
-  // ordering against customer.subscription.updated/deleted (which take
-  // differently-keyed advisory locks) is provided by the FOR UPDATE row lock on
-  // accounts below, not by this advisory lock.
-  let activated = false;
-  await sql.begin(async (tx) => {
+  // Subscription-mode sessions always carry a subscription id; without one we
+  // cannot persist the identifiers every later webhook needs — skip safely.
+  if (!subscriptionId) {
+    console.warn(`${LOG_PREFIX} checkout.session.completed for ref ${refId} has no subscription id — skipping activation`);
+    return;
+  }
+
+  // Single writer for the paid activation (QUALITY-OBS). checkout/by-accountId
+  // mode behind the same ':activation' advisory lock. The applier flips
+  // pending_payment/past_due→active, COALESCE-fills the Stripe ids
+  // (first-writer-wins, invariant #3), clears trial_ends_at/past_due_at, sets
+  // subscription_activated_at, writes the audit row, mirrors the primary business
+  // (NOTE-A), and enqueues the overage recompute — all in one tx.
+  const transition: TransitionResult = await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${accountId! + ':activation'}))`;
-
-    // VAL-BILLING-007: Activate the account
-    const [acctRow] = await tx<{ subscription_status: string }[]>`
-      SELECT subscription_status
-      FROM accounts
-      WHERE id = ${accountId!}::uuid
-      FOR UPDATE
-    `;
-
-    if (!acctRow) {
-      console.warn(`${LOG_PREFIX} Account ${accountId!} not found during activation — skipping`);
-      return;
-    }
-
-    const oldStatus = acctRow.subscription_status;
-
-    // VAL-BILLING-008: Idempotent — only flip if not already active
-    const updateAcct = await tx`
-      UPDATE accounts
-      SET
-        subscription_status = 'active',  -- enum: SubscriptionStatus.ACTIVE
-        stripe_customer_id = ${customerId},
-        stripe_subscription_id = ${subscriptionId},
-        subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
-        updated_at = NOW()
-      WHERE id = ${accountId!}::uuid
-        AND subscription_status IN ('pending_payment', 'past_due')  -- enum: SubscriptionStatus.PENDING_PAYMENT / .PAST_DUE
-    `;
-
-    if (updateAcct.count > 0) {
-      console.log(`${LOG_PREFIX} Account ${accountId!} activated (customer=${customerId}, old_status=${oldStatus})`);
-      activated = true;
-
-      // VAL-LOC-029 / VAL-LOC-058: Audit log for subscription_status_changed
-      await tx`
-        INSERT INTO account_audit_log (id, account_id, event_type, payload)
-        VALUES (
-          ${uuidv7()}::uuid,
-          ${accountId!}::uuid,
-          'subscription_status_changed',
-          ${jsonb({ fromStatus: oldStatus, toStatus: 'active' })}
-        )
-      `;
-
-      // Recompute Stripe overage quantity after recovery from past_due or
-      // initial pending_payment activation. The worker is idempotent so a
-      // redundant enqueue is harmless convergence. Must be inside this tx
-      // (transactional outbox invariant: state change + enqueue in one
-      // Postgres transaction). Guarded by the rowcount check above so only
-      // fires when the UPDATE actually changed the row.
-      await enqueueStripeOverageRecompute(tx, accountId!);
-    } else {
-      console.warn(`${LOG_PREFIX} Account ${accountId!} not activated — current status is ${oldStatus}`);
-    }
-
-    // Also write to businesses deprecated columns (retained per VAL-SCHEMA-037).
-    // Only update the primary business for legacy compatibility.
-    await tx`
-      UPDATE businesses
-      SET
-        subscription_status = 'active',  -- enum: SubscriptionStatus.ACTIVE
-        stripe_customer_id = ${customerId},
-        stripe_subscription_id = ${subscriptionId},
-        subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
-        updated_at = NOW()
-      WHERE account_id = ${accountId!}::uuid
-        AND is_primary = TRUE
-        AND archived_at IS NULL
-        AND subscription_status IN ('pending_payment', 'past_due')  -- enum: SubscriptionStatus.PENDING_PAYMENT / .PAST_DUE
-    `;
+    return applyStripeSubscriptionState(
+      tx,
+      { mode: 'checkout', accountId: accountId! },
+      { id: subscriptionId, status: 'active', trial_end: null, customer: customerId },
+    );
   });
 
-  // Best-effort backfill resume — only after a real status transition.
-  // Use the primary business for the backfill query.
-  if (activated) {
-    if (!businessId) {
-      // Find the primary business for this account
-      const [primaryBiz] = await sql<{ id: string }[]>`
-        SELECT id FROM businesses
-        WHERE account_id = ${accountId!}::uuid
-          AND is_primary = TRUE AND archived_at IS NULL
-        LIMIT 1
-      `;
-      if (primaryBiz) businessId = primaryBiz.id;
-    }
-    if (businessId) {
-      await maybeEnqueueBackfillResume(businessId).catch((err) => {
-        console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${businessId}: ${err instanceof Error ? err.message : err}`);
+  // Best-effort backfill resume — only after a real activation.
+  if (transition.changed && transition.activated) {
+    const resumeBusinessId = businessId ?? transition.primaryBusinessId;
+    if (resumeBusinessId) {
+      await maybeEnqueueBackfillResume(resumeBusinessId).catch((err) => {
+        console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${resumeBusinessId}: ${err instanceof Error ? err.message : err}`);
       });
     }
   }

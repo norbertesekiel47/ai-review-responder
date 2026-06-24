@@ -32,6 +32,12 @@ import type { AccountWithLocations, BillingReconciliationAccount } from './types
 
 const logger = createWorkerLogger(LOG_PREFIX);
 
+// Per-request Stripe timeout — under the orchestrator's per-account budget
+// (ACCOUNT_TIMEOUT_MS=60s) so an in-flight read self-terminates and frees its
+// connection rather than hanging on the SDK default. Stripe SDK v22 has no
+// request AbortSignal, so this request timeout is the cancellation mechanism.
+const STRIPE_READ_TIMEOUT_MS = 20_000;
+
 export interface AccountReconcileOutcome {
   accountsChecked: 0 | 1;
   drifts: DriftAlertPayload[];
@@ -83,8 +89,14 @@ export async function reconcileAccount(
   // Retrieve Stripe subscription
   let subscription: Stripe.Subscription;
   try {
+    // Empty params ({}) is REQUIRED here: the SDK overload is
+    // retrieve(id, params?, options?), so the RequestOptions timeout MUST be the
+    // third arg. Do not "tidy" this to retrieve(id, { timeout }) — that binds
+    // timeout to SubscriptionRetrieveParams and silently drops it.
     subscription = await stripe.subscriptions.retrieve(
       account.stripe_subscription_id,
+      {},
+      { timeout: STRIPE_READ_TIMEOUT_MS },
     );
   } catch (err) {
     if (!isMissingStripeSubscriptionError(err)) {
@@ -110,13 +122,33 @@ export async function reconcileAccount(
 
   if (stripeCustomerId) {
     try {
-      const customerSubscriptions = await stripe.subscriptions.list({
-        customer: stripeCustomerId,
-        status: 'all',
-        limit: 100,
-      });
+      const customerSubscriptions = await stripe.subscriptions.list(
+        {
+          customer: stripeCustomerId,
+          status: 'all',
+          limit: 100,
+        },
+        { timeout: STRIPE_READ_TIMEOUT_MS },
+      );
       const activeSubscriptions = activeStripeSubscriptions(customerSubscriptions);
+
+      // RECONCILE-F6: a Stripe customer can map to MORE THAN ONE RepWorth account.
+      // Only active subs that are NOT recorded against a DIFFERENT account count
+      // toward THIS account's duplicate check.
+      let ownLineageSubs = activeSubscriptions;
       if (activeSubscriptions.length > 1) {
+        const activeIds = activeSubscriptions.map((s) => s.id);
+        const otherAccountSubs = await sql<{ stripe_subscription_id: string }[]>`
+          SELECT stripe_subscription_id
+          FROM accounts
+          WHERE stripe_customer_id = ${stripeCustomerId}
+            AND id <> ${account.id}::uuid
+            AND stripe_subscription_id = ANY(${activeIds}::text[])
+        `;
+        const otherIds = new Set(otherAccountSubs.map((r) => r.stripe_subscription_id));
+        ownLineageSubs = activeSubscriptions.filter((s) => !otherIds.has(s.id));
+      }
+      if (ownLineageSubs.length > 1) {
         drifts.push({
           driftType: 'duplicate_subscription',
           dbExpectedOverage: expectedInvoice.overageUnits,
@@ -129,7 +161,7 @@ export async function reconcileAccount(
           stripeStatus: subscription.status,
           stripeSubscriptionId: subscription.id,
           stripeCustomerId,
-          driftMessage: `Duplicate active Stripe subscriptions for account ${account.id}: ${activeSubscriptions.map((sub) => sub.id).join(',')}`,
+          driftMessage: `Duplicate active Stripe subscriptions for account ${account.id}: ${ownLineageSubs.map((sub) => sub.id).join(',')}`,
         });
       }
     } catch (err) {
@@ -153,6 +185,9 @@ export async function reconcileAccount(
   const dbTrialing = account.subscription_status === SubscriptionStatus.TRIALING;
   const stripeTrialing = subscription.status === 'trialing';
   if (dbTrialing && !stripeTrialing && account.stripe_subscription_id) {
+    // Read-before-tx invariant: all Stripe reads above have resolved before
+    // sql.begin() acquires a pool connection. This tx runs only fast DB writes —
+    // never across an open Stripe call.
     const transition = await sql.begin(async (tx) =>
       applyStripeSubscriptionState(
         tx,
@@ -208,6 +243,28 @@ export async function reconcileAccount(
   });
   const overageItem = overageResolution.kind === 'none' ? undefined : overageResolution.item;
   const stripeOverageQuantity = overageItem?.quantity ?? 0;
+
+  // RECONCILE-F1: observability-only check on the near-vestigial locations_paid
+  // mirror (written from Stripe in subscription-updated, read only for the
+  // dashboard "billing pending" badge — no billing math reads it). A mismatch
+  // vs the live Stripe overage quantity means a missed subscription.updated
+  // webhook. Surfaced at warning; NOT auto-corrected (it doesn't bill).
+  if (account.locations_paid !== stripeOverageQuantity) {
+    drifts.push({
+      driftType: 'locations_paid_mirror',
+      dbExpectedOverage: expectedInvoice.overageUnits,
+      stripeOverageQuantity,
+      activeLocations,
+      locationsIncluded: account.locations_included,
+      tier,
+      isPilot,
+      dbStatus: account.subscription_status,
+      stripeStatus: subscription.status,
+      stripeSubscriptionId: subscription.id,
+      stripeCustomerId,
+      driftMessage: `accounts.locations_paid mirror (${account.locations_paid}) differs from Stripe overage quantity (${stripeOverageQuantity}) for account ${account.id}`,
+    });
+  }
 
   const subscriptionItems = subscription.items?.data ?? [];
   const baseItem = subscriptionItems.find((item) => item.id !== overageItem?.id);
@@ -294,10 +351,13 @@ export async function reconcileAccount(
       throw new Error('Stripe subscription is missing a customer ID');
     }
 
-    const upcoming = await stripe.invoices.createPreview({
-      customer: stripeCustomerId,
-      subscription: account.stripe_subscription_id,
-    });
+    const upcoming = await stripe.invoices.createPreview(
+      {
+        customer: stripeCustomerId,
+        subscription: account.stripe_subscription_id,
+      },
+      { timeout: STRIPE_READ_TIMEOUT_MS },
+    );
     const actualRecurringCents = recurringSubscriptionLineTotalCents(upcoming);
 
     if (actualRecurringCents === null) {

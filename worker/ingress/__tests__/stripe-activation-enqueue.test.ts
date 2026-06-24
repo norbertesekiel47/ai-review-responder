@@ -104,33 +104,68 @@ function setCheckoutSessionCompletedEvent(overrides: {
   });
 }
 
-function queueHappyPath(currentStatus: string, options: { updateBusinessesCount?: number } = {}) {
-  // New flow: account lookup first (outside tx)
+// primaryBizId: set when the test also exercises backfill resume (so
+// resolveAccount returns a non-null primary_business_id, letting the
+// post-tx backfill path proceed). Leave null for tests that don't
+// need backfill (backfill short-circuits when resumeBusinessId is falsy).
+function queueHappyPath(
+  currentStatus: string,
+  options: { updateBusinessesCount?: number; primaryBizId?: string | null } = {},
+) {
+  // Pre-tx claimInboundEvent INSERT (injected by the webhook handler before
+  // processCheckoutSessionCompleted is called)
   const insertInbound: any = []; insertInbound.count = 1;
   sqlReturnQueue.push(insertInbound);
-  // Account lookup: SELECT id FROM accounts WHERE id = ${refId}::uuid
-  sqlReturnQueue.push([{ id: '019dc366-29ce-7000-a000-000000000000' }]); // account found
-  // Inside tx:
+  // Pre-tx account lookup: SELECT id FROM accounts WHERE id = ${refId}::uuid
+  sqlReturnQueue.push([{ id: '019dc366-29ce-7000-a000-000000000000' }]);
+
+  // ── After B1.4: paid activation routes through the applier (checkout mode) ──
+  // Inside sql.begin (tx = mockSql):
+  //   1. pg_advisory_xact_lock
+  //   2. Applier resolveAccount: SELECT a.id, a.subscription_status,
+  //      (SELECT b.id …) AS primary_business_id FROM accounts a WHERE a.id=? FOR UPDATE
+  //   3. writeStatusColumns: UPDATE accounts SET subscription_status='active',
+  //      trial_ends_at=NULL, past_due_at=NULL, stripe_customer_id=COALESCE(…),
+  //      stripe_subscription_id=COALESCE(…), subscription_activated_at=COALESCE(…),
+  //      updated_at=NOW() WHERE id=?
+  //   4. writeBusinessesMirror: UPDATE businesses SET subscription_status='active',
+  //      subscription_activated_at=COALESCE(…), updated_at=NOW()
+  //      WHERE account_id=? AND is_primary=TRUE AND archived_at IS NULL
+  //      (no stripe_customer_id / stripe_subscription_id — deprecated, VAL-SCHEMA-037)
+  //   5. writeAccountAuditLog → INSERT INTO account_audit_log (via mockSql — not mocked separately)
+  //   6. enqueueStripeOverageRecompute → INSERT INTO job_outbox (topic='update_stripe_overage_quantity')
+  //   7. enqueueLifecycleAnalytics: pending_payment/past_due → active, fromStatus≠trialing → no-op
+  //
+  // For already-active: isAllowedTransition(active→active)=false → NO_CHANGE,
+  // only resolveAccount SELECT fires (no UPDATEs, no audit, no overage enqueue).
+
   sqlReturnQueue.push([]); // pg_advisory_xact_lock
-  // SELECT subscription_status FROM accounts ... FOR UPDATE
-  sqlReturnQueue.push([{ subscription_status: currentStatus }]);
-  // UPDATE accounts → active (WHERE subscription_status IN ('pending_payment','past_due'))
-  // Returns count=0 when already active (status guard blocks the update).
+
   const didActivate = currentStatus !== 'active';
-  const updateAcct: any = []; updateAcct.count = didActivate ? 1 : 0;
-  sqlReturnQueue.push(updateAcct);
+  const primaryBizId = options.primaryBizId ?? null;
+
+  // resolveAccount SELECT (always runs — returns id + subscription_status + primary_business_id)
+  sqlReturnQueue.push([{
+    id: '019dc366-29ce-7000-a000-000000000000',
+    subscription_status: currentStatus,
+    primary_business_id: primaryBizId,
+  }]);
+
   if (didActivate) {
-    // INSERT account_audit_log (subscription_status_changed)
+    // writeStatusColumns: UPDATE accounts
+    const updateAcct: any = []; updateAcct.count = 1;
+    sqlReturnQueue.push(updateAcct);
+    // writeBusinessesMirror: UPDATE businesses
+    const updateBiz: any = []; updateBiz.count = options.updateBusinessesCount ?? 1;
+    sqlReturnQueue.push(updateBiz);
+    // writeAccountAuditLog: INSERT INTO account_audit_log
     const auditLog: any = []; auditLog.count = 1;
     sqlReturnQueue.push(auditLog);
-    // INSERT job_outbox (update_stripe_overage_quantity) — D3: inside the
-    // if (updateAcct.count > 0) block.
+    // enqueueStripeOverageRecompute: INSERT INTO job_outbox (topic='update_stripe_overage_quantity')
     const overageOutbox: any = []; overageOutbox.count = 1;
     sqlReturnQueue.push(overageOutbox);
   }
-  // UPDATE businesses (deprecated column compat)
-  const updateBiz: any = []; updateBiz.count = options.updateBusinessesCount ?? 1;
-  sqlReturnQueue.push(updateBiz);
+  // already-active: isAllowedTransition(active→active)=false → no UPDATEs, no audit, no overage
 }
 
 function getInsertOutboxCall() {
@@ -274,10 +309,12 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     tier?: string;
     activatedAt?: Date;
   } = {}) {
-    // After the activation tx, processCheckoutSessionCompleted needs
-    // to find the primary business for the account (new step).
-    sqlReturnQueue.push([{ id: TEST_BIZ_PENDING }]); // primary business lookup
-    // Then maybeEnqueueBackfillResume does:
+    // After B1.4: the primary business ID comes from transition.primaryBusinessId
+    // (returned by the applier's resolveAccount). queueHappyPath must be called
+    // with primaryBizId: TEST_BIZ_PENDING so the backfill path gets a non-null
+    // resumeBusinessId. No post-tx "find primary business" SQL fires.
+    //
+    // maybeEnqueueBackfillResume then does:
     //   SELECT … (predicate match → returns target row)
     //   INSERT INTO job_outbox … (conditional on no in-flight outbox row)
     sqlReturnQueue.push([{
@@ -294,7 +331,9 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
   it('flag=ON + active connection + no completed run → enqueues zernio_initial_backfill', async () => {
     process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
     setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
-    queueHappyPath('pending_payment');
+    // primaryBizId from resolveAccount so transition.primaryBusinessId is non-null
+    // and the post-tx backfill resume path can proceed without a separate DB lookup.
+    queueHappyPath('pending_payment', { primaryBizId: TEST_BIZ_PENDING });
     queueBackfillResumeMatchPath();
 
     const { handleStripeWebhook } = await import('../stripe');
@@ -330,9 +369,8 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
   it('flag=ON + predicate miss (no active connection OR completed run exists) → NO outbox INSERT', async () => {
     process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
     setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
-    queueHappyPath('pending_payment');
-    // Primary business lookup (new step)
-    sqlReturnQueue.push([{ id: TEST_BIZ_PENDING }]);
+    // primaryBizId needed so the backfill path attempts the predicate SELECT
+    queueHappyPath('pending_payment', { primaryBizId: TEST_BIZ_PENDING });
     // SELECT returns no row (no active connection OR completed run exists).
     sqlReturnQueue.push([]);
 
@@ -351,7 +389,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     // connect-pre-checkout business gets its first backfill.
     process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
     setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
-    queueHappyPath('pending_payment');
+    queueHappyPath('pending_payment', { primaryBizId: TEST_BIZ_PENDING });
     queueBackfillResumeMatchPath({ tier: 'premium' });
 
     const { handleStripeWebhook } = await import('../stripe');
@@ -364,9 +402,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
   it('flag=ON + in-flight outbox row exists → INSERT … SELECT WHERE NOT EXISTS skips (count=0)', async () => {
     process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
     setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
-    queueHappyPath('pending_payment');
-    // Primary business lookup (new step)
-    sqlReturnQueue.push([{ id: TEST_BIZ_PENDING }]);
+    queueHappyPath('pending_payment', { primaryBizId: TEST_BIZ_PENDING });
     // SELECT for predicate → returns target.
     sqlReturnQueue.push([{
       zernio_account_id: 'zacct-1',

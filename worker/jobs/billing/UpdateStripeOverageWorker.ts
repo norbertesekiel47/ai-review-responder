@@ -27,6 +27,7 @@ import { computeOverageQuantity } from '../../../src/lib/accounts/quota';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { subscriptionGrantsFullAccess } from '../../../src/lib/shared/subscription-status';
 import { classifyStripeOverageError } from './stripe-overage-error';
+import { isTransientPostgresError } from './postgres-transient-error';
 import { syncStripeOverageItem, type OverageSyncOutcome } from './overage-sync';
 
 export interface UpdateStripeOveragePayload {
@@ -87,15 +88,6 @@ export async function handleUpdateStripeOverage(
     return;
   }
 
-  // Count active locations
-  const [locationRow] = await sql<{ count: number }[]>`
-    SELECT COUNT(*) AS count
-    FROM businesses
-    WHERE account_id = ${account_id}::uuid
-      AND archived_at IS NULL
-  `;
-  const activeLocations = Number(locationRow?.count ?? 0);
-
   const tier = account.subscription_tier as SubscriptionTierValue;
   const config = TIER_CONFIG[tier];
   if (!config) {
@@ -111,7 +103,6 @@ export async function handleUpdateStripeOverage(
     return;
   }
 
-  const newQuantity = computeOverageQuantity(activeLocations, account.locations_included);
   const overagePriceId = overagePriceIdForTier(tier);
 
   if (!overagePriceId) {
@@ -122,23 +113,56 @@ export async function handleUpdateStripeOverage(
 
   let outcome: OverageSyncOutcome;
   try {
-    outcome = await syncStripeOverageItem(getStripe(), {
-      accountId: account_id,
-      subscriptionId: account.stripe_subscription_id,
-      storedOveragePriceCents: account.locations_overage_price_cents,
-      overagePriceId,
-      newQuantity,
-      operationScope,
-    }, logger);
+    // OVERAGE-F1: serialize concurrent overage syncs for THIS account. The
+    // per-outbox idempotency key (overage-sync.ts) does NOT dedup two DISTINCT
+    // recompute rows for the same account, so a second replica or redeploy
+    // overlap could double-`create` an overage item. The account-scoped
+    // advisory lock (held across the Stripe resolve→mutate) closes that window
+    // and is the hard gate before any worker scale-out. concurrency:1 +
+    // single-replica remain as defense-in-depth (boot-asserted in index.ts).
+    // The lock is held across the Stripe call; bounded by getStripe()'s request
+    // timeout (single consumer + infrequent events → ~zero contention).
+    outcome = await sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${account_id + ':overage_sync'}))`;
+      // OVERAGE-F1b: recompute the live location count INSIDE the lock so the
+      // serialized section acts on fresh state. Computing it pre-lock let two
+      // concurrent same-account syncs read different counts; the older snapshot
+      // could then update Stripe last and stale-over/under-bill. [Codex review]
+      const [lockedCountRow] = await tx<{ count: number }[]>`
+        SELECT COUNT(*) AS count
+        FROM businesses
+        WHERE account_id = ${account_id}::uuid
+          AND archived_at IS NULL
+      `;
+      const newQuantity = computeOverageQuantity(
+        Number(lockedCountRow?.count ?? 0),
+        account.locations_included,
+      );
+      return syncStripeOverageItem(getStripe(), {
+        accountId: account_id,
+        subscriptionId: account.stripe_subscription_id!,
+        storedOveragePriceCents: account.locations_overage_price_cents,
+        overagePriceId,
+        newQuantity,
+        operationScope,
+      }, logger);
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (classifyStripeOverageError(err) === 'transient') {
+    // The lock tx + Stripe call share this try. A transient Postgres error from
+    // opening the tx, taking pg_advisory_xact_lock, or the in-lock count read
+    // (connection drop, failover, statement/lock-wait timeout — codes NOT in
+    // RETRYABLE_NETWORK_ERROR_CODES) is infra, NOT a deterministic Stripe
+    // failure — retry it (BullMQ + the 1h outbox watchdog) rather than
+    // terminal-failing the overage sync. Stripe transients are still classified
+    // by classifyStripeOverageError. [Codex review]
+    if (isTransientPostgresError(err) || classifyStripeOverageError(err) === 'transient') {
       // Leave the outbox row 'dispatched' so BullMQ retries and the 1h outbox
       // watchdog re-dispatches. Do NOT markOutboxFailed — that forfeits the
       // watchdog. Best-effort: surface the real error on the row for ops
       // visibility during a sustained outage (status untouched).
       await recordOutboxTransientError(outboxId, message, outboxAttempt);
-      logger.error(`Transient Stripe overage error for account ${account_id} (will retry): ${message}`);
+      logger.error(`Transient overage sync error for account ${account_id} (will retry): ${message}`);
       throw err;
     }
     // Terminal: a deterministic failure that will never heal on retry.
