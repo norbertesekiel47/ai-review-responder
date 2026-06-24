@@ -19,6 +19,7 @@ function makeAccount(overrides: Partial<AccountWithLocations> = {}): AccountWith
     active_location_count: 3,
     past_due_at: null,
     flags: {},
+    locations_paid: 2,
     ...overrides,
   };
 }
@@ -173,6 +174,19 @@ describe('reconcileAccount', () => {
       expect.objectContaining({ customer: 'cus_123', subscription: 'sub_123' }),
       expect.objectContaining({ timeout: expect.any(Number) }),
     );
+  });
+
+  it('emits a locations_paid_mirror drift when the DB mirror disagrees with Stripe overage qty', async () => {
+    // Stripe overage quantity = 2, but the DB mirror says 5 → drift.
+    const stripe = makeStripe({ retrieve: makeSubscription(2), createPreview: makePreview(2) });
+    const outcome = await reconcileAccount(stripe, makeAccount({ locations_paid: 5, active_location_count: 3 }));
+    expect(outcome.drifts.some((d) => d.driftType === 'locations_paid_mirror')).toBe(true);
+  });
+
+  it('does NOT emit a locations_paid_mirror drift when the mirror matches Stripe overage qty', async () => {
+    const stripe = makeStripe({ retrieve: makeSubscription(2), createPreview: makePreview(2) });
+    const outcome = await reconcileAccount(stripe, makeAccount({ locations_paid: 2, active_location_count: 3 }));
+    expect(outcome.drifts.some((d) => d.driftType === 'locations_paid_mirror')).toBe(false);
   });
 
   it('reports a duplicate_subscription drift', async () => {

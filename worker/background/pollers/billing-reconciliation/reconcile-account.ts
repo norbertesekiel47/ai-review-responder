@@ -227,6 +227,28 @@ export async function reconcileAccount(
   const overageItem = overageResolution.kind === 'none' ? undefined : overageResolution.item;
   const stripeOverageQuantity = overageItem?.quantity ?? 0;
 
+  // RECONCILE-F1: observability-only check on the near-vestigial locations_paid
+  // mirror (written from Stripe in subscription-updated, read only for the
+  // dashboard "billing pending" badge — no billing math reads it). A mismatch
+  // vs the live Stripe overage quantity means a missed subscription.updated
+  // webhook. Surfaced at warning; NOT auto-corrected (it doesn't bill).
+  if (account.locations_paid !== stripeOverageQuantity) {
+    drifts.push({
+      driftType: 'locations_paid_mirror',
+      dbExpectedOverage: expectedInvoice.overageUnits,
+      stripeOverageQuantity,
+      activeLocations,
+      locationsIncluded: account.locations_included,
+      tier,
+      isPilot,
+      dbStatus: account.subscription_status,
+      stripeStatus: subscription.status,
+      stripeSubscriptionId: subscription.id,
+      stripeCustomerId,
+      driftMessage: `accounts.locations_paid mirror (${account.locations_paid}) differs from Stripe overage quantity (${stripeOverageQuantity}) for account ${account.id}`,
+    });
+  }
+
   const subscriptionItems = subscription.items?.data ?? [];
   const baseItem = subscriptionItems.find((item) => item.id !== overageItem?.id);
   const baseUnitAmount = baseItem?.price?.unit_amount;

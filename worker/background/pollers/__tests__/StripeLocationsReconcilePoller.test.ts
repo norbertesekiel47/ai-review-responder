@@ -209,6 +209,7 @@ interface AccountRow {
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   locations_included: number;
+  locations_paid: number;
   locations_overage_price_cents: number;
   base_price_cents: number;
   active_location_count: number;
@@ -225,6 +226,7 @@ function makeAccountRow(overrides: Partial<AccountRow> = {}): AccountRow {
     stripe_customer_id: 'cus_123',
     stripe_subscription_id: 'sub_123',
     locations_included: 1,
+    locations_paid: 2,
     locations_overage_price_cents: 2500,
     base_price_cents: TIER_CONFIG[tier as keyof typeof TIER_CONFIG]?.baseCents ?? 7900,
     active_location_count: 3,
@@ -492,6 +494,7 @@ describe('StripeLocationsReconcilePoller', () => {
         subscription_tier: 'standard',
         locations_included: 3,
         active_location_count: 3,
+        locations_paid: 0,
       }),
     ]);
 
@@ -752,12 +755,15 @@ describe('StripeLocationsReconcilePoller', () => {
 
   it('emits alert when Stripe overage quantity exceeds DB expectation', async () => {
     // Account: standard tier, 1 included, 3 active → expected overage = 2
+    // locations_paid=5 matches Stripe so mirror drift doesn't fire; the
+    // quantity_mismatch (DB expects 2, Stripe has 5) is the single drift under test.
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-drift-high',
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 3,
+        locations_paid: 5,
       }),
     ]);
 
@@ -778,12 +784,15 @@ describe('StripeLocationsReconcilePoller', () => {
 
   it('emits alert when DB overage exceeds Stripe quantity', async () => {
     // Account: standard tier, 1 included, 5 active → expected overage = 4
+    // locations_paid=1 matches Stripe so mirror drift doesn't fire; the
+    // quantity_mismatch (DB expects 4, Stripe has 1) is the single drift under test.
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-drift-low',
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 5,
+        locations_paid: 1,
       }),
     ]);
 
@@ -843,12 +852,15 @@ describe('StripeLocationsReconcilePoller', () => {
   it('uses Sentry.captureMessage when SENTRY_DSN is set', async () => {
     process.env.SENTRY_DSN = 'https://test@sentry.io/123';
 
+    // locations_paid=10 matches Stripe so mirror drift doesn't fire; quantity_mismatch
+    // (DB expects 2, Stripe has 10) is the single drift under test.
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-sentry',
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 3,
+        locations_paid: 10,
       }),
     ]);
 
@@ -998,12 +1010,15 @@ describe('StripeLocationsReconcilePoller', () => {
   it('includes the pilot invoice-review flag in Sentry drift metadata', async () => {
     process.env.SENTRY_DSN = 'https://test@sentry.io/123';
 
+    // locations_paid=5 matches Stripe so mirror drift doesn't fire; quantity_mismatch
+    // (DB expects 2, Stripe has 5) is the single drift under test.
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-pilot-drift',
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 3,
+        locations_paid: 5,
         flags: { is_pilot: true },
       }),
     ]);
@@ -1031,12 +1046,15 @@ describe('StripeLocationsReconcilePoller', () => {
   it('parses JSONB string account flags for pilot drift metadata', async () => {
     process.env.SENTRY_DSN = 'https://test@sentry.io/123';
 
+    // locations_paid=5 matches Stripe so mirror drift doesn't fire; quantity_mismatch
+    // (DB expects 2, Stripe has 5) is the single drift under test.
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-pilot-jsonb-string',
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 3,
+        locations_paid: 5,
         flags: JSON.stringify({ is_pilot: true }),
       }),
     ]);
@@ -1084,6 +1102,7 @@ describe('StripeLocationsReconcilePoller', () => {
         subscription_tier: 'basic',
         locations_included: 1,
         active_location_count: 1,
+        locations_paid: 0,
       }),
     ]);
 
@@ -1103,12 +1122,15 @@ describe('StripeLocationsReconcilePoller', () => {
   });
 
   it('detects drift when overage item is missing but DB expects overage', async () => {
+    // locations_paid=0 matches Stripe (no overage item → stripeOverageQuantity=0)
+    // so mirror drift doesn't fire; quantity_mismatch is the single drift under test.
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-missing-overage',
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 4,
+        locations_paid: 0,
       }),
     ]);
 
@@ -1138,6 +1160,7 @@ describe('StripeLocationsReconcilePoller', () => {
         locations_included: 5,
         locations_overage_price_cents: 2000,
         active_location_count: 3,
+        locations_paid: 0,
       }),
     ]);
 
@@ -1202,17 +1225,20 @@ describe('StripeLocationsReconcilePoller', () => {
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 3,
+        locations_paid: 2,
       }),
       makeAccountRow({
         id: 'acct-drift',
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 5,
+        locations_paid: 1,
       }),
     ]);
 
-    // First account: no drift (3 locations - 1 included = 2 overage)
-    // Second account: drift (5 locations - 1 included = 4 overage, Stripe says 1)
+    // First account: no drift (3 locations - 1 included = 2 overage, locations_paid=2 ✓)
+    // Second account: quantity_mismatch (DB expects 4, Stripe has 1); locations_paid=1
+    // matches Stripe so mirror drift doesn't also fire → driftsFound stays at 1.
     mockStripeRetrieve
       .mockResolvedValueOnce(makeStripeSubscription(2, 'price_overage_std'))
       .mockResolvedValueOnce(makeStripeSubscription(1, 'price_overage_std'));
@@ -1258,12 +1284,15 @@ describe('StripeLocationsReconcilePoller', () => {
   });
 
   it('still reports quantity drift when invoice preview fails', async () => {
+    // locations_paid=5 matches Stripe so mirror drift doesn't fire; quantity_mismatch
+    // (DB expects 2, Stripe has 5) is the single drift under test.
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-preview-fails',
         subscription_tier: 'standard',
         locations_included: 1,
         active_location_count: 3,
+        locations_paid: 5,
       }),
     ]);
     mockStripeRetrieve.mockResolvedValue(
