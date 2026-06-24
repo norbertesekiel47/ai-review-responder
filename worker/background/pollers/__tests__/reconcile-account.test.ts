@@ -155,6 +155,26 @@ describe('reconcileAccount', () => {
     );
   });
 
+  it('passes a bounded per-request timeout to subscriptions.list', async () => {
+    const stripe = makeStripe({ retrieve: makeSubscription(2), createPreview: makePreview(2) });
+    await reconcileAccount(stripe, makeAccount());
+    // SDK overload is list(params?, options?) — timeout rides the SECOND arg.
+    expect(stripe.subscriptions.list).toHaveBeenCalledWith(
+      expect.objectContaining({ customer: 'cus_123' }),
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+  });
+
+  it('passes a bounded per-request timeout to invoices.createPreview', async () => {
+    const stripe = makeStripe({ retrieve: makeSubscription(2), createPreview: makePreview(2) });
+    await reconcileAccount(stripe, makeAccount());
+    // SDK overload is createPreview(params?, options?) — timeout rides the SECOND arg.
+    expect(stripe.invoices.createPreview).toHaveBeenCalledWith(
+      expect.objectContaining({ customer: 'cus_123', subscription: 'sub_123' }),
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+  });
+
   it('reports a duplicate_subscription drift', async () => {
     const stripe = makeStripe({
       retrieve: makeSubscription(2), createPreview: makePreview(2),

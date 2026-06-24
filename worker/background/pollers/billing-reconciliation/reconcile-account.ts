@@ -89,6 +89,10 @@ export async function reconcileAccount(
   // Retrieve Stripe subscription
   let subscription: Stripe.Subscription;
   try {
+    // Empty params ({}) is REQUIRED here: the SDK overload is
+    // retrieve(id, params?, options?), so the RequestOptions timeout MUST be the
+    // third arg. Do not "tidy" this to retrieve(id, { timeout }) — that binds
+    // timeout to SubscriptionRetrieveParams and silently drops it.
     subscription = await stripe.subscriptions.retrieve(
       account.stripe_subscription_id,
       {},
@@ -164,7 +168,9 @@ export async function reconcileAccount(
   const dbTrialing = account.subscription_status === SubscriptionStatus.TRIALING;
   const stripeTrialing = subscription.status === 'trialing';
   if (dbTrialing && !stripeTrialing && account.stripe_subscription_id) {
-    // Read-before-tx invariant: all Stripe reads above have resolved; this tx holds a pool connection only for fast DB writes, never across a Stripe call.
+    // Read-before-tx invariant: all Stripe reads above have resolved before
+    // sql.begin() acquires a pool connection. This tx runs only fast DB writes —
+    // never across an open Stripe call.
     const transition = await sql.begin(async (tx) =>
       applyStripeSubscriptionState(
         tx,
