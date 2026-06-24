@@ -135,6 +135,10 @@ export async function reconcileCycle(signal: AbortSignal): Promise<ReconcileResu
       COUNT(b.id) AS active_location_count
     FROM accounts a
     LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL
+    -- RECONCILE-F3: pending_payment is intentionally excluded. Missed activation
+    -- is owned by StripeCheckoutReconcileWorker (worker/jobs/billing/), which
+    -- re-retrieves the Checkout Session and re-runs processCheckoutSessionCompleted.
+    -- This poller reconciles only entitled/billable states.
     WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}, ${SubscriptionStatus.TRIALING})
     GROUP BY
       a.id,
