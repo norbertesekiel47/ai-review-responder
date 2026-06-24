@@ -89,7 +89,7 @@ Findings were remediated across two risk-split PRs. **PR A is merged; PR B is op
 |---|---|
 | FIND-ENV (P1) | ✅ Documented the "local dev DB must never be prod" rule in `deployment-guide.md` §1.3 + `env-vars.md` (`.env.local` is gitignored; repointed locally). |
 | OVERAGE-F2 | ✅ `Sentry.captureMessage` on the ambiguous overage dead-letter. |
-| STATUS-1.1 | ✅ trialing-Basic shows the "upgrade" copy via a tested `lockedAddLocationReason` helper. |
+| STATUS-1.1 | ✅ trialing-Basic shows the "upgrade" copy via a tested `resolveAddLocationState` helper (PR-A thermo-nuclear refactor renamed the earlier `lockedAddLocationReason`). |
 | FIND-001 | ✅ Deleted the orphaned `/admin/payment-success` route + page + all refs. |
 | OVERAGE-F5 | ✅ Documented the intentional archive offboarding-gate exemption (billing-contracting). |
 | RECONCILE-F4 | ✅ Logs the trial correction only when the applier returns `changed:true`. |
