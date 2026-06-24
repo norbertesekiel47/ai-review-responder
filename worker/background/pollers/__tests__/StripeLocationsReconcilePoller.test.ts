@@ -748,7 +748,9 @@ describe('StripeLocationsReconcilePoller', () => {
     const result = await runOnce();
 
     expect(result.driftsFound).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    // status_mismatch is a genuine entitlement drift (only emitted after the
+    // expected-status-window filter) → error level, not warning (CONFIG-1).
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('acct-trialing'),
     );
   });
@@ -938,10 +940,14 @@ describe('StripeLocationsReconcilePoller', () => {
     'upcoming_invoice_mismatch',
     'missing_subscription',
     'duplicate_subscription',
+    // status_mismatch is only pushed after the expected-status-window filter, so
+    // any that reaches emitDriftAlert is a genuine entitlement drift → error (CONFIG-1).
+    'status_mismatch',
   ] as const;
 
   const benignDriftTypes = [
-    'status_mismatch',
+    // locations_paid_mirror is pure observability (RECONCILE-F1 — locations_paid
+    // is never billed; it is a denormalized mirror column). It is the ONLY benign type.
     'locations_paid_mirror',
   ] as const;
 

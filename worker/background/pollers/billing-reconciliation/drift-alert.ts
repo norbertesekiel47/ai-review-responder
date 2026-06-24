@@ -39,8 +39,16 @@ export interface DriftAlertPayload {
 // Everything NOT in this set is treated as revenue-affecting → paged at error.
 // Fail-safe: any future/unknown type defaults to error rather than silently
 // staying at warning.
+//
+// Only 'locations_paid_mirror' is benign: locations_paid is a denormalized mirror
+// column that is never billed (RECONCILE-F1 — pure observability). All other types,
+// including 'status_mismatch', are revenue/entitlement-affecting and page at error.
+//
+// 'status_mismatch' is only pushed by reconcile-account.ts AFTER the expected-status-
+// window filter (isExpectedStatusWindow) rejects it, so any status_mismatch that
+// reaches emitDriftAlert is a genuine entitlement anomaly (e.g. DB 'active' while
+// Stripe is 'canceled' — serving a non-paying customer, or cutting off a paying one).
 const BENIGN_DRIFT_TYPES: ReadonlySet<NonNullable<DriftAlertPayload['driftType']>> = new Set([
-  'status_mismatch',
   'locations_paid_mirror',
 ] satisfies Array<DriftFinding['type']>);
 
@@ -53,9 +61,11 @@ function driftAlertLevel(driftType: DriftAlertPayload['driftType']): 'error' | '
  * structured log line otherwise.
  *
  * Level is determined by drift type (CONFIG-1): revenue-affecting drifts emit
- * at `error` so they reach Sentry's high-priority classification; benign /
- * observability drifts (`status_mismatch`, `locations_paid_mirror`) stay at
- * `warning`. Unknown/future types fail safe to `error`.
+ * at `error` so they reach Sentry's high-priority classification; the only benign /
+ * observability drift type is `locations_paid_mirror` (the non-billed mirror column,
+ * RECONCILE-F1), which stays at `warning`. `status_mismatch` pages at `error` —
+ * it is only emitted after the expected-status-window filter, so it is a genuine
+ * entitlement anomaly. Unknown/future types fail safe to `error`.
  */
 export function emitDriftAlert(
   accountId: string,

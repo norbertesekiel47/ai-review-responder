@@ -55,8 +55,15 @@ because admin email shares the Resend provider with the product.
 >
 > **Action taken (CONFIG-1 option b):** `drift-alert.ts` now emits **revenue-affecting**
 > drift types (`quantity_mismatch`, `price_mismatch`, `upcoming_invoice_mismatch`,
-> `missing_subscription`, `duplicate_subscription`) at `level:'error'`; benign /
-> observability types (`status_mismatch`, `locations_paid_mirror`) stay at `warning`.
+> `missing_subscription`, `duplicate_subscription`, `status_mismatch`) at `level:'error'`.
+> Only `locations_paid_mirror` stays at `warning` — it is a denormalized mirror column
+> that is never billed (RECONCILE-F1, pure observability). `status_mismatch` was
+> reclassified to `error` because `reconcile-account.ts` only pushes it AFTER the
+> expected-status-window filter (`isExpectedStatusWindow`) rejects the combination, so
+> any status_mismatch reaching `emitDriftAlert` is a genuine entitlement anomaly (e.g.
+> DB `active` while Stripe `canceled` — serving a non-paying customer, or cutting off
+> a paying one). The self-healing DB-`trialing`↔Stripe-`trialing` case is handled by
+> an early-return in `reconcile-account.ts` and never reaches the alert sink.
 >
 > **Residual ops gap (launch checklist, not code):** configure the Sentry → Discord
 > rule to ALSO route `feature:stripe_reconciliation` (the §1 Discord rules for
