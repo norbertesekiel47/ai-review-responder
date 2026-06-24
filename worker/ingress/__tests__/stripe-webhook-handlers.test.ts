@@ -231,18 +231,41 @@ function queueSubscriptionDeleted(opts: {
   activeOffboardingSubscriptionId?: string | null;
 } = {}) {
   const status = opts.status ?? 'active';
+  const subId = opts.stripeSubscriptionId ?? TEST_SUBSCRIPTION_ID;
+  // 1. Handler's SELECT … FOR UPDATE (resolves acctRow)
   sqlReturnQueue.push([{
     id: TEST_ACCOUNT_ID,
     subscription_status: status,
-    stripe_subscription_id: opts.stripeSubscriptionId ?? TEST_SUBSCRIPTION_ID,
+    stripe_subscription_id: subId,
     active_offboarding_subscription_id: opts.activeOffboardingSubscriptionId ?? null,
   }]);
+  // 2. Advisory lock pg_advisory_xact_lock
   sqlReturnQueue.push([]);
+  // 3. Applier's resolveAccount SELECT (subscription mode, inside applyStripeSubscriptionState)
+  //    Only queued when the event subscription matches the account's current sub
+  //    (i.e. NOT the stale/mismatch paths that early-return before reaching the applier).
+  //    Stale-sub tests (stripeSubscriptionId !== TEST_SUBSCRIPTION_ID with event sub_old_*)
+  //    call queueSubscriptionDeleted with a different stripeSubscriptionId and the
+  //    event id won't match — those early-return before reaching the advisory lock,
+  //    so nothing past item 1 is consumed. When subId matches the event sub, the applier runs.
   if (status !== 'cancelled') {
+    sqlReturnQueue.push([{
+      id: TEST_ACCOUNT_ID,
+      subscription_status: status,
+      primary_business_id: null,
+    }]);
     const r1: any = []; r1.count = 1;
-    sqlReturnQueue.push(r1);
+    sqlReturnQueue.push(r1); // UPDATE accounts (applier writeStatusColumns)
     const r2: any = []; r2.count = 1;
-    sqlReturnQueue.push(r2);
+    sqlReturnQueue.push(r2); // UPDATE businesses (applier writeBusinessesMirror)
+  } else {
+    // already-cancelled: applier resolveAccount runs, but isAllowedTransition
+    // returns false (CANCELLED→CANCELLED) so no UPDATEs fire.
+    sqlReturnQueue.push([{
+      id: TEST_ACCOUNT_ID,
+      subscription_status: status,
+      primary_business_id: null,
+    }]);
   }
 }
 
@@ -1112,7 +1135,7 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_sub_deleted_1',
       type: 'customer.subscription.deleted',
-      data: { object: { id: TEST_SUBSCRIPTION_ID, customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: TEST_SUBSCRIPTION_ID, customer: TEST_CUSTOMER_ID, status: 'canceled' } },
     });
 
     queueSubscriptionDeleted({ status: 'active' });
@@ -1144,25 +1167,23 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_sub_deleted_dup',
       type: 'customer.subscription.deleted',
-      data: { object: { id: TEST_SUBSCRIPTION_ID, customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: TEST_SUBSCRIPTION_ID, customer: TEST_CUSTOMER_ID, status: 'canceled' } },
     });
 
     queueSubscriptionDeleted({ status: 'cancelled' });
-
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     const { status, send } = mkReply();
     await handleStripeWebhook(mkRequest(), { status, send } as any);
 
     expect(status).toHaveBeenCalledWith(200);
+    // The applier's isAllowedTransition(cancelled→cancelled) returns false,
+    // so no UPDATE fires. Idempotency is now enforced by the applier's
+    // transition table, not by the old inline if-guard.
     const updateAcct = sqlCalls.filter(
       (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'cancelled'") && !c.text.includes('inbound_events'),
     );
     expect(updateAcct).toEqual([]);
-    const logText = consoleSpy.mock.calls.flat().join(' ');
-    expect(logText).toMatch(/already cancelled/);
-
-    consoleSpy.mockRestore();
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });
 
   it('missing customer → warns and skips', async () => {
@@ -1188,7 +1209,7 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_sub_deleted_lock',
       type: 'customer.subscription.deleted',
-      data: { object: { id: TEST_SUBSCRIPTION_ID, customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: TEST_SUBSCRIPTION_ID, customer: TEST_CUSTOMER_ID, status: 'canceled' } },
     });
 
     queueSubscriptionDeleted({ status: 'active' });
@@ -1211,7 +1232,7 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_sub_deleted_stale_old_sub',
       type: 'customer.subscription.deleted',
-      data: { object: { id: 'sub_old_cancelled', customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: 'sub_old_cancelled', customer: TEST_CUSTOMER_ID, status: 'canceled' } },
     });
 
     queueSubscriptionDeleted({
@@ -1237,7 +1258,7 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_sub_deleted_active_offboarding_sub',
       type: 'customer.subscription.deleted',
-      data: { object: { id: 'sub_old_tearing_down', customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: 'sub_old_tearing_down', customer: TEST_CUSTOMER_ID, status: 'canceled' } },
     });
 
     queueSubscriptionDeleted({
@@ -1596,7 +1617,7 @@ describe('subscription_status_changed audit logging', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_audit_cancel',
       type: 'customer.subscription.deleted',
-      data: { object: { id: TEST_SUBSCRIPTION_ID, customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: TEST_SUBSCRIPTION_ID, customer: TEST_CUSTOMER_ID, status: 'canceled' } },
     });
 
     queueSubscriptionDeleted({ status: 'active' });
@@ -1648,7 +1669,7 @@ describe('subscription_status_changed audit logging', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_audit_noop',
       type: 'customer.subscription.deleted',
-      data: { object: { id: TEST_SUBSCRIPTION_ID, customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: TEST_SUBSCRIPTION_ID, customer: TEST_CUSTOMER_ID, status: 'canceled' } },
     });
 
     queueSubscriptionDeleted({ status: 'cancelled' });

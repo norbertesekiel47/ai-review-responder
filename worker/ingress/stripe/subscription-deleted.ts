@@ -1,7 +1,5 @@
 import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
-import { writeAccountAuditLog } from '../../../src/lib/audit/log';
-import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { LOG_PREFIX, extractCustomerId, AccountNotProvisionedYetError } from './shared';
 import { applyStripeSubscriptionState } from './apply-subscription-state';
 
@@ -73,56 +71,17 @@ export async function processSubscriptionDeleted(sub: Stripe.Subscription): Prom
 
     await tx`SELECT pg_advisory_xact_lock(hashtext(${acctRow.id + ':status_change'}))`;
 
-    // Cancel during trial (trialing → cancelled): route through the SINGLE
-    // applier (subscription mode) so trial_ends_at is cleared and trial_cancelled
-    // is emitted, in THIS tx. (Non-trial cancellations keep the unchanged inline
-    // path below — they must NOT emit a trial event.)
-    if (acctRow.subscription_status === SubscriptionStatus.TRIALING) {
-      await applyStripeSubscriptionState(
-        tx,
-        { mode: 'subscription', stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId },
-        sub,
-      );
-      return;
-    }
-
-    // Idempotent: when the account is already cancelled we intentionally skip
-    // the write (and log the skip in the else branch); re-applying 'cancelled'
-    // would be a no-op.
-    if (acctRow.subscription_status !== SubscriptionStatus.CANCELLED) {
-      const oldStatus = acctRow.subscription_status;
-
-      await tx`
-        UPDATE accounts
-        SET subscription_status = 'cancelled',  -- enum: SubscriptionStatus.CANCELLED
-            cancelled_at = NOW(),
-            past_due_at = NULL,
-            updated_at = NOW()
-        WHERE id = ${acctRow.id}::uuid
-      `;
-
-      // VAL-LOC-029 / VAL-LOC-058: Audit log for subscription_status_changed
-      await writeAccountAuditLog(
-        {
-          accountId: acctRow.id,
-          eventType: 'subscription_status_changed',
-          entityType: 'account',
-          entityId: acctRow.id,
-          payload: { fromStatus: oldStatus, toStatus: 'cancelled' },
-        },
-        tx,
-      );
-
-      // Also update businesses deprecated column
-      await tx`
-        UPDATE businesses
-        SET subscription_status = 'cancelled', updated_at = NOW()  -- enum: SubscriptionStatus.CANCELLED
-        WHERE account_id = ${acctRow.id}::uuid
-      `;
-
-      console.log(`${LOG_PREFIX} Account ${acctRow.id} cancelled (was ${oldStatus}, customer=${customerId})`);
-    } else {
-      console.log(`${LOG_PREFIX} Account ${acctRow.id} already cancelled — skipping`);
-    }
+    // Single writer for ALL cancellations (QUALITY-OBS/B1.1): route through the
+    // applier in subscription mode. subscriptionId is guaranteed here (matched
+    // against acctRow.stripe_subscription_id above). The applier maps Stripe
+    // `canceled` → CANCELLED, clears trial_ends_at/past_due_at, mirrors all
+    // businesses (NOTE-A), writes the audit row, and emits trial_cancelled ONLY
+    // when the account was leaving a trial — so the trial and non-trial cases
+    // unify. Stale events (already CANCELLED) are no-ops in the applier.
+    await applyStripeSubscriptionState(
+      tx,
+      { mode: 'subscription', stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId },
+      sub,
+    );
   });
 }

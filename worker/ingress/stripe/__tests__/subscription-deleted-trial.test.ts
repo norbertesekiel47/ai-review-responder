@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 /**
- * customer.subscription.deleted — cancel during TRIAL (trialing → cancelled).
+ * customer.subscription.deleted — ALL cancellations route through the applier.
  *
- * When an owner cancels during the trial (via offboarding cancel_at_period_end →
- * Stripe deletes at trial_end), the account is `trialing`. The handler routes
- * the cancel through the single applier (subscription mode) so trial_ends_at is
- * cleared and trial_cancelled is emitted. Cancelling a NON-trial (active)
- * account keeps the unchanged inline cancel and does NOT emit trial_cancelled.
+ * After B1.1, BOTH trial and non-trial cancellations go through
+ * applyStripeSubscriptionState (subscription mode). The applier maps Stripe
+ * `canceled` → CANCELLED, clears trial_ends_at/past_due_at, mirrors all
+ * businesses (NOTE-A), writes the audit row, and emits trial_cancelled ONLY
+ * when leaving a trialing state. No inline UPDATE accounts remains.
  */
 
 const {
@@ -83,14 +83,28 @@ describe('subscription.deleted — cancel during trial', () => {
     expect(sub).toMatchObject({ status: 'canceled' });
   });
 
-  it('active account → existing inline cancel, NOT the applier', async () => {
-    queueAccount('active');
-    await processSubscriptionDeleted(deletedSub());
+  it('non-trial cancel (active → cancelled) routes through the applier, not inline SQL', async () => {
+    sqlReturnQueue.push([{
+      id: 'acct-1',
+      subscription_status: 'active',
+      stripe_subscription_id: 'sub_1',
+      active_offboarding_subscription_id: null,
+    }]);
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'active', toStatus: 'cancelled',
+      changed: true, activated: false, primaryBusinessId: null,
+    });
 
-    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
-    const updateAcct = sqlCalls.find(
+    await processSubscriptionDeleted({ id: 'sub_1', customer: 'cus_1', status: 'canceled' } as any);
+
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
+      expect.anything(),
+      { mode: 'subscription', stripeCustomerId: 'cus_1', stripeSubscriptionId: 'sub_1' },
+      expect.objectContaining({ id: 'sub_1', status: 'canceled' }),
+    );
+    const inlineCancel = sqlCalls.find(
       (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'cancelled'"),
     );
-    expect(updateAcct).toBeDefined();
+    expect(inlineCancel).toBeUndefined();
   });
 });
