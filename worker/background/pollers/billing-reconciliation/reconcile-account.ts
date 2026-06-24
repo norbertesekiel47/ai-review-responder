@@ -133,8 +133,8 @@ export async function reconcileAccount(
       const activeSubscriptions = activeStripeSubscriptions(customerSubscriptions);
 
       // RECONCILE-F6: a Stripe customer can map to MORE THAN ONE RepWorth account.
-      // Only active subs NOT owned by a DIFFERENT account count toward THIS
-      // account's duplicate check (this account's own sub + any unmapped orphan).
+      // Only active subs that are NOT recorded against a DIFFERENT account count
+      // toward THIS account's duplicate check.
       let ownLineageSubs = activeSubscriptions;
       if (activeSubscriptions.length > 1) {
         const activeIds = activeSubscriptions.map((s) => s.id);
@@ -143,7 +143,7 @@ export async function reconcileAccount(
           FROM accounts
           WHERE stripe_customer_id = ${stripeCustomerId}
             AND id <> ${account.id}::uuid
-            AND stripe_subscription_id = ANY(${activeIds})
+            AND stripe_subscription_id = ANY(${activeIds}::text[])
         `;
         const otherIds = new Set(otherAccountSubs.map((r) => r.stripe_subscription_id));
         ownLineageSubs = activeSubscriptions.filter((s) => !otherIds.has(s.id));

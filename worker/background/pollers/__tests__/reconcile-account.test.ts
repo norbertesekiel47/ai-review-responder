@@ -229,7 +229,7 @@ describe('reconcileAccount', () => {
     expect(outcome.drifts.some((d) => d.driftType === 'duplicate_subscription')).toBe(false);
   });
 
-  it('DOES flag duplicate_subscription when 2+ active subs belong to THIS account lineage', async () => {
+  it('flags duplicate_subscription when 2+ active subs belong to THIS account lineage', async () => {
     const stripe = makeStripe({
       retrieve: makeSubscription(2),
       list: { data: [
