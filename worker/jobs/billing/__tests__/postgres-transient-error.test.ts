@@ -9,11 +9,10 @@ import { isTransientPostgresError } from '../postgres-transient-error';
 
 describe('isTransientPostgresError', () => {
   it.each([
-    // postgres.js connection-lifecycle codes
+    // postgres.js connection-lifecycle codes (exact strings postgres.js v3.4.9 raises)
     'CONNECTION_CLOSED',
     'CONNECTION_ENDED',
     'CONNECTION_DESTROYED',
-    'CONNECTION_CONNECT_TIMEOUT',
     'CONNECT_TIMEOUT',
     // transient server SQLSTATEs
     '57014', // query_canceled (statement / lock-wait timeout)

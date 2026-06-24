@@ -29,11 +29,11 @@ import { errorStringProperty } from '../../../src/lib/payments/stripe-error-insp
 //                   cannot_connect_now
 //   08xxx           connection_exception class (see CONNECTION_EXCEPTION_PREFIX)
 const TRANSIENT_POSTGRES_ERROR_CODES: ReadonlySet<string> = new Set([
-  // postgres.js client-side connection lifecycle
+  // postgres.js client-side connection lifecycle (the exact codes postgres.js
+  // v3.4.9 raises: CONNECTION_CLOSED/ENDED/DESTROYED + CONNECT_TIMEOUT)
   'CONNECTION_CLOSED',
   'CONNECTION_ENDED',
   'CONNECTION_DESTROYED',
-  'CONNECTION_CONNECT_TIMEOUT',
   'CONNECT_TIMEOUT',
   // server-side transient SQLSTATEs
   '57014',
