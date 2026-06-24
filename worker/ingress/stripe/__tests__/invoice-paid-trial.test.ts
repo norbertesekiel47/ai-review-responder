@@ -82,8 +82,8 @@ beforeEach(() => {
 
 describe('invoice.paid — trial conversion (FIX 4)', () => {
   it('trialing account whose Stripe sub is now active → converts via applier (subscription mode)', async () => {
-    // accounts SELECT FOR UPDATE returns a trialing account.
-    sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'trialing' }]);
+    // accounts SELECT FOR UPDATE returns a trialing account whose current sub matches the invoice.
+    sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'trialing', stripe_subscription_id: SUB_ID }]);
     mockRetrieve.mockResolvedValue({ id: SUB_ID, customer: CUSTOMER_ID, status: 'active', trial_end: null });
 
     await processInvoicePaid(invoice());
@@ -100,7 +100,7 @@ describe('invoice.paid — trial conversion (FIX 4)', () => {
   });
 
   it('trialing account whose Stripe sub is STILL trialing ($0 trial-start invoice) → no early conversion (applier is a no-op)', async () => {
-    sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'trialing' }]);
+    sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'trialing', stripe_subscription_id: SUB_ID }]);
     mockRetrieve.mockResolvedValue({ id: SUB_ID, customer: CUSTOMER_ID, status: 'trialing', trial_end: 9999999999 });
     // The applier returns changed:false for a still-trialing sub (transition
     // table: trialing→trialing is a no-op). Model that.
@@ -247,6 +247,29 @@ describe('invoice.paid — trial conversion (FIX 4)', () => {
   it('does NOT recover by customer alone when the invoice has no subscription id', async () => {
     sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'past_due', stripe_subscription_id: 'sub_1' }]);
     await processInvoicePaid({ id: 'in_1', customer: 'cus_1', lines: { data: [] } } as any); // no subscription
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+  });
+
+  it('converts ONLY the trialing account whose subscription matches the invoice (not a sibling under the same customer)', async () => {
+    // cus_shared has TWO trialing accounts: acct-A (sub_A) and acct-B (sub_B). Invoice is for sub_A.
+    sqlReturnQueue.push([
+      { id: 'acct-A', subscription_status: 'trialing', stripe_subscription_id: 'sub_A' },
+      { id: 'acct-B', subscription_status: 'trialing', stripe_subscription_id: 'sub_B' },
+    ]);
+    // getStripe().subscriptions.retrieve(sub_A) → active (conversion)
+    mockRetrieve.mockResolvedValueOnce({ id: 'sub_A', customer: 'cus_shared', status: 'active', trial_end: null });
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'trialing', toStatus: 'active',
+      changed: true, activated: true, primaryBusinessId: 'biz-A',
+    });
+    await processInvoicePaid({ id: 'in_1', customer: 'cus_shared', lines: { data: [] }, subscription: 'sub_A' } as any);
+    // applier called exactly ONCE (for the matching account), never for acct-B
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not attempt a trial convert when no trialing account matches the invoice subscription', async () => {
+    sqlReturnQueue.push([{ id: 'acct-B', subscription_status: 'trialing', stripe_subscription_id: 'sub_B' }]);
+    await processInvoicePaid({ id: 'in_1', customer: 'cus_shared', lines: { data: [] }, subscription: 'sub_A' } as any);
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
   });
 });

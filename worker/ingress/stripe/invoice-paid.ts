@@ -15,17 +15,15 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
   // VAL-BILLING-014: No-op for already-active accounts
   // VAL-BILLING-062: Advisory lock prevents duplicate recovery writes.
   const recovered: { id: string }[] = [];
-  // FIX 4 (PLAN §4.12): trialing accounts seen on this invoice get a SECOND
-  // convert path, independent of customer.subscription.updated. Collected here
-  // and processed AFTER this tx so the Stripe retrieve doesn't hold the tx open.
-  const trialingAccountIds: string[] = [];
+  // FIX 4 (PLAN §4.12): the trialing account whose subscription matches this
+  // invoice gets a SECOND convert path, independent of customer.subscription.updated.
+  // At most one account can match (stripe_subscription_id is 1:1 with an account).
+  // Deferred to post-tx so the Stripe retrieve doesn't hold the tx open.
+  let trialingAccountId: string | null = null;
 
-  // Resolve the invoice's subscription id once. The recovery loop requires the
-  // recovered account's CURRENT subscription to equal it (subscription-lineage
-  // scope) so a payment for subscription B never reactivates account A sharing the
-  // customer. The SELECT stays customer-scoped (not subscription-scoped) on purpose:
-  // the trialing-defer path below must collect ALL of the customer's accounts
-  // regardless of their stripe_subscription_id.
+  // Resolve the invoice's subscription id once. Both the recovery loop and the
+  // trialing-defer use it for subscription-lineage scope: a payment for subscription
+  // B never reactivates or converts an account A that merely shares the customer.
   const recoverySubscriptionId = invoiceSubscriptionId(invoice);
 
   await sql.begin(async (tx) => {
@@ -38,9 +36,15 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
     `;
 
     for (const acct of accounts) {
-      // FIX 4: defer trialing accounts to the post-tx convert path below.
+      // FIX 4: defer the matching trialing account to the post-tx convert path below.
+      // Subscription-lineage scope (mirror of the recovery guard below): a Stripe
+      // customer can map to multiple accounts. Only the account whose CURRENT
+      // subscription is the one this invoice paid is a conversion candidate — defer
+      // exactly that one. Other trialing accounts under the customer are unrelated.
       if (acct.subscription_status === SubscriptionStatus.TRIALING) {
-        trialingAccountIds.push(acct.id);
+        if (recoverySubscriptionId && acct.stripe_subscription_id === recoverySubscriptionId) {
+          trialingAccountId = acct.id;
+        }
         continue;
       }
       if (acct.subscription_status !== SubscriptionStatus.PAST_DUE) continue;
@@ -67,15 +71,16 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
     }
   });
 
-  // FIX 4 (PLAN §4.12): second convert path for trialing accounts. Retrieve the
-  // subscription (pinned getStripe() + bounded timeout — inv #1, Railway worker)
-  // OUTSIDE the recovery tx, then route through the SINGLE applier (subscription
-  // mode). The applier converts trialing→active ONLY when the retrieved Stripe
-  // status is `active`, so the $0 trial-START invoice.paid (sub still trialing)
-  // is a safe no-op, and this is idempotent with customer.subscription.updated.
-  // The retrieve is gated to trialing accounts — the active/past_due paths above
-  // never incur it.
-  await convertTrialingAccounts(invoice, customerId, trialingAccountIds);
+  // FIX 4 (PLAN §4.12): second convert path for the matching trialing account.
+  // Retrieve the subscription (pinned getStripe() + bounded timeout — inv #1,
+  // Railway worker) OUTSIDE the recovery tx, then route through the SINGLE
+  // applier (subscription mode). The applier converts trialing→active ONLY when
+  // the retrieved Stripe status is `active`, so the $0 trial-START invoice.paid
+  // (sub still trialing) is a safe no-op, and this is idempotent with
+  // customer.subscription.updated. The retrieve is gated to the one trialing
+  // account whose subscription matches the invoice — active/past_due paths and
+  // unrelated trialing siblings never incur it.
+  await convertTrialingAccount(invoice, customerId, trialingAccountId);
 
   if (recovered.length === 0) {
     return;
@@ -102,51 +107,52 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
 /**
  * Trial-conversion path for invoice.paid (PLAN §4.12 / FIX 4).
  *
- * For each trialing account on this invoice, retrieve the subscription (pinned
- * client + bounded timeout) and route through the single applier in subscription
- * mode. The applier's transition table converts trialing→active ONLY when the
- * retrieved Stripe status is `active`; a still-trialing sub (the $0 trial-start
- * invoice) is a no-op. On a real conversion, run best-effort backfill resume.
+ * Converts the single trialing account whose current subscription matches the
+ * invoice. Retrieve the subscription (pinned client + bounded timeout) and route
+ * through the single applier in subscription mode. The applier's transition table
+ * converts trialing→active ONLY when the retrieved Stripe status is `active`; a
+ * still-trialing sub (the $0 trial-start invoice) is a no-op. On a real
+ * conversion, run best-effort backfill resume.
  *
  * A retrieve failure throws so the ingress wrapper replies 500 and Stripe
  * redelivers — idempotent via the applier's status-guarded write (a redundant
  * redelivery after the account is already active is a transition-table no-op).
  */
-async function convertTrialingAccounts(
+async function convertTrialingAccount(
   invoice: Stripe.Invoice,
   customerId: string,
-  trialingAccountIds: string[],
+  trialingAccountId: string | null,
 ): Promise<void> {
-  if (trialingAccountIds.length === 0) return;
+  if (!trialingAccountId) return;
 
   const subscriptionId = invoiceSubscriptionId(invoice);
   if (!subscriptionId) {
-    console.warn(`${LOG_PREFIX} invoice.paid trialing account(s) for customer=${customerId} but no subscription id on invoice — skipping trial convert`);
+    console.warn(`${LOG_PREFIX} invoice.paid trialing account ${trialingAccountId} for customer=${customerId} but no subscription id on invoice — skipping trial convert`);
     return;
   }
 
   const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
 
-  for (const accountId of trialingAccountIds) {
-    const transition = await sql.begin((tx) =>
-      // subscription mode → applier resolves by (customer, subscription), so this
-      // is implicitly lineage-scoped.
-      applyStripeSubscriptionState(
-        tx,
-        { mode: 'subscription', stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId },
-        subscription,
-      ),
-    );
+  const transition = await sql.begin((tx) =>
+    // subscription mode → applier resolves by (customer, subscription), so this
+    // is implicitly lineage-scoped.
+    applyStripeSubscriptionState(
+      tx,
+      { mode: 'subscription', stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId },
+      subscription,
+    ),
+  );
 
-    if (!transition.changed || !transition.activated) continue;
+  if (!transition.changed || !transition.activated) return;
 
-    console.log(`${LOG_PREFIX} Account ${accountId} converted trialing→active via invoice.paid (customer=${customerId})`);
+  // trialingAccountId is guaranteed to be the account the applier resolves:
+  // we deferred only the one account whose stripe_subscription_id === subscriptionId.
+  console.log(`${LOG_PREFIX} Account ${trialingAccountId} converted trialing→active via invoice.paid (customer=${customerId})`);
 
-    const businessId = transition.primaryBusinessId;
-    if (businessId) {
-      await maybeEnqueueBackfillResume(businessId).catch((err) => {
-        console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${businessId}: ${err instanceof Error ? err.message : err}`);
-      });
-    }
+  const businessId = transition.primaryBusinessId;
+  if (businessId) {
+    await maybeEnqueueBackfillResume(businessId).catch((err) => {
+      console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${businessId}: ${err instanceof Error ? err.message : err}`);
+    });
   }
 }
