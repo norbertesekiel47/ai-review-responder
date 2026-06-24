@@ -118,61 +118,10 @@ jobs:
       - name: Run unit tests
         run: pnpm test
 
-  # Playwright e2e against the same Postgres recipe. The app boots via
-  # playwright.config.ts `webServer` (pnpm dev) — one owner for app boot.
-  # Auth-dependent specs self-skip here (no E2E_OWNER_* / harness env);
-  # only the hermetic seeded/token flows run. Mobile-chrome stays local-only
-  # (PR-gate runtime budget). Dummy Supabase/session values exist solely so
-  # server modules can construct clients — nothing authenticates in CI.
-  e2e:
-    name: e2e
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U test -d test"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      TEST_DATABASE_POOL_URL: postgres://test:test@localhost:5432/test
-      ALLOW_E2E_DB_WRITES: "true"
-      NEXT_PUBLIC_APP_URL: http://localhost:3000
-      PLAYWRIGHT_BASE_URL: http://localhost:3000
-      NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key-for-ci
-      SUPABASE_URL: http://localhost:54321
-      SUPABASE_SERVICE_KEY: dummy-service-key-for-ci
-      SESSION_COOKIE_SECRET: e2e-ci-session-cookie-secret-0123456789abcdef
-      SELF_SERVE_SIGNUP_ENABLED: "true"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-        with:
-          persist-credentials: false
-      - name: Setup Node + pnpm
-        uses: ./.github/actions/setup
-      - name: Prepare test database
-        uses: ./.github/actions/test-db
-      - name: Install Playwright chromium
-        run: pnpm exec playwright install chromium --with-deps
-      - name: Run e2e (chromium)
-        run: pnpm test:e2e --project=chromium
-      - name: Upload Playwright report
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 7
+  # NOTE: the Playwright e2e job lives in .github/workflows/e2e.yml — it is path-gated
+  # to UI-affecting changes (it is not a required check), so it no longer runs on
+  # docs-only or worker-only PRs. Keep its workflow `env` in lockstep with the block
+  # above (shared CI boot contract).
 
   build:
     name: build

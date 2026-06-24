@@ -1,0 +1,122 @@
+name: E2E
+
+# Playwright e2e, split out of ci.yml so it can be path-gated. The app boots via
+# playwright.config.ts `webServer` (pnpm dev) — one owner for app boot.
+# Auth-dependent specs self-skip here (no E2E_OWNER_* / harness env);
+# only the hermetic seeded/token flows run. Mobile-chrome stays local-only
+# (PR-gate runtime budget). Dummy Supabase/session values exist solely so
+# server modules can construct clients — nothing authenticates in CI.
+#
+# This is NOT a required status check (the ruleset requires only lint, typecheck,
+# test, build, deploy-install), so skipping it on non-UI PRs never blocks a merge.
+# It runs only when something that can change rendered behaviour is touched.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'src/**'
+      - 'e2e/**'
+      - 'playwright.config.ts'
+      - 'supabase/migrations/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/e2e.yml'
+      - '.github/actions/**'
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Keep this env block in lockstep with .github/workflows/ci.yml (shared CI boot
+# contract — server modules construct clients at import and throw without these).
+env:
+  CI: 'true'
+  MOCK_EXTERNAL_APIS: 'false'
+  NEXT_PUBLIC_APP_URL: http://localhost:3000
+  WORKER_SERVICE_URL: http://localhost:3001
+  NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key-for-ci
+  SUPABASE_URL: http://localhost:54321
+  SUPABASE_SERVICE_KEY: dummy-service-key-for-ci
+  DATABASE_URL: postgres://test:test@localhost:5432/test
+  DATABASE_POOL_URL: postgres://test:test@localhost:5432/test
+  REDIS_CACHE_URL: redis://localhost:6379/0
+  REDIS_QUEUE_URL: redis://localhost:6379/1
+  SESSION_COOKIE_SECRET: test-session-cookie-secret-32chars
+  CSRF_SECRET: test-csrf-secret-32chars-minimum
+  ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+  ENCRYPTION_KEY_VERSION: '1'
+
+jobs:
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_POOL_URL: postgres://test:test@localhost:5432/test
+      ALLOW_E2E_DB_WRITES: "true"
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      PLAYWRIGHT_BASE_URL: http://localhost:3000
+      NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key-for-ci
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_KEY: dummy-service-key-for-ci
+      SESSION_COOKIE_SECRET: e2e-ci-session-cookie-secret-0123456789abcdef
+      SELF_SERVE_SIGNUP_ENABLED: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup
+      - name: Resolve Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      # Cache the downloaded browser binaries (~/.cache/ms-playwright), keyed on the
+      # exact Playwright version. System libraries (apt) are NOT in this path, so on a
+      # cache hit we still run the cheap `install-deps`; only the browser download is saved.
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
+      - name: Install Playwright chromium (browsers + deps)
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install chromium --with-deps
+      - name: Install Playwright system deps (cache hit)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
+      - name: Prepare test database
+        uses: ./.github/actions/test-db
+      - name: Run e2e (chromium)
+        run: pnpm test:e2e --project=chromium
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
