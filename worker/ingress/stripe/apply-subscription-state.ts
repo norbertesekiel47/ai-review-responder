@@ -34,7 +34,16 @@ import { SubscriptionStatus, type SubscriptionStatusValue } from '../../../src/l
 // matches enqueueStripeOverageRecompute's strict TxClient parameter.
 type TxSql = postgres.TransactionSql;
 
-/** How the applier resolves the target account. */
+/**
+ * How the applier resolves the target account. Two resolution strategies — the
+ * caller picks whichever it can satisfy from what it already holds:
+ *   - 'checkout'     → resolve by accounts.id. Used by ANY caller that has
+ *                      already resolved (and FOR-UPDATE-locked) the account row;
+ *                      the name is historical (the checkout handler was the first
+ *                      caller). Needs no Stripe ids to resolve.
+ *   - 'subscription' → resolve by (stripe_customer_id, stripe_subscription_id);
+ *                      acts only on the account's CURRENT subscription.
+ */
 export type ApplyStripeRef =
   | { mode: 'checkout'; accountId: string }
   | { mode: 'subscription'; stripeCustomerId: string; stripeSubscriptionId: string };
@@ -63,6 +72,8 @@ function mapStripeStatus(stripeStatus: Stripe.Subscription.Status | string): Sub
       return SubscriptionStatus.ACTIVE;
     case 'canceled':
       return SubscriptionStatus.CANCELLED;
+    // NOTE-B: incomplete_expired maps to PAST_DUE (not CANCELLED) on purpose —
+    // it preserves the 7-day grace/dunning window rather than hard-cancelling.
     case 'past_due':
     case 'unpaid':
     case 'incomplete':
