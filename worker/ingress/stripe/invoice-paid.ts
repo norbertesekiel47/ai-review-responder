@@ -20,15 +20,15 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
   // and processed AFTER this tx so the Stripe retrieve doesn't hold the tx open.
   const trialingAccountIds: string[] = [];
 
-  // Resolve the subscription id once — used as a synthetic id for the applier
-  // in checkout mode (the applier COALESCEs it; accounts already have Stripe ids
-  // written by checkout.session.completed, so this id is never actually stored).
+  // Resolve the subscription id once — fallback synthetic id for the applier in
+  // checkout mode (the applier COALESCEs it onto stripe_subscription_id, so it is
+  // only ever written when the account is somehow missing one).
   const recoverySubscriptionId = invoiceSubscriptionId(invoice);
 
   await sql.begin(async (tx) => {
     // Find accounts for this customer that are past_due
-    const accounts = await tx<{ id: string; subscription_status: string }[]>`
-      SELECT id, subscription_status
+    const accounts = await tx<{ id: string; subscription_status: string; stripe_subscription_id: string | null }[]>`
+      SELECT id, subscription_status, stripe_subscription_id
       FROM accounts
       WHERE stripe_customer_id = ${customerId}
       FOR UPDATE
@@ -44,13 +44,24 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
 
       await tx`SELECT pg_advisory_xact_lock(hashtext(${acct.id + ':status_change'}))`;
 
+      // Synth id for the applier's ACTIVE-path COALESCE(stripe_subscription_id, id):
+      // prefer the account's existing id (makes the COALESCE a strict no-op in the
+      // realistic case), fall back to the invoice's real subscription id (a correct
+      // backfill if the account was somehow missing one). The trailing '' is
+      // unreachable for a real invoice.paid recovery (which always carries a
+      // subscription) — it only satisfies the applier's `string` id type and is
+      // never written, since one of the two ids is always present. (Guards against
+      // writing '' onto a null-subscription account, which would make it
+      // unresolvable by every later subscription-mode webhook.)
+      const synthSubscriptionId = acct.stripe_subscription_id ?? recoverySubscriptionId ?? '';
+
       // Single writer for the recovery transition (QUALITY-OBS): the applier
       // flips past_due→active, clears past_due_at, writes the audit row,
       // mirrors businesses, and enqueues the overage recompute — all in this tx.
       const transition = await applyStripeSubscriptionState(
         tx,
         { mode: 'checkout', accountId: acct.id },
-        { id: recoverySubscriptionId ?? '', status: 'active', trial_end: null, customer: customerId },
+        { id: synthSubscriptionId, status: 'active', trial_end: null, customer: customerId },
       );
       if (transition.changed) recovered.push(acct);
     }

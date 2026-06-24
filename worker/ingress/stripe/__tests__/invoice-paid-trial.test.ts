@@ -166,6 +166,47 @@ describe('invoice.paid — trial conversion (FIX 4)', () => {
     expect(inlineRecover).toBeUndefined();
   });
 
+  it('recovery synth id prefers the account\'s existing stripe_subscription_id (never passes empty string)', async () => {
+    // Account already has its own subscription id; the invoice carries a
+    // DIFFERENT one. Precedence must pick the account's existing id so the
+    // applier's COALESCE(stripe_subscription_id, id) stays a strict no-op.
+    sqlReturnQueue.push([
+      { id: ACCOUNT_ID, subscription_status: 'past_due', stripe_subscription_id: 'sub_existing' },
+    ]);
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'past_due', toStatus: 'active',
+      changed: true, activated: true, primaryBusinessId: null,
+    });
+
+    await processInvoicePaid({ id: 'in_1', customer: CUSTOMER_ID,
+      lines: { data: [] }, subscription: 'sub_from_invoice' } as any);
+
+    const [, ref, sub] = mockApplyStripeSubscriptionState.mock.calls[0]!;
+    expect(ref).toEqual({ mode: 'checkout', accountId: ACCOUNT_ID });
+    expect(sub).toMatchObject({ id: 'sub_existing', status: 'active' });
+    expect(sub.id).not.toBe('');
+  });
+
+  it('recovery synth id falls back to the invoice subscription id when the account has none', async () => {
+    // Pathological: account row missing stripe_subscription_id. The OLD inline
+    // recovery wrote no Stripe ids at all; the new path must NOT write '' (which
+    // would make the account unresolvable). Fall back to the invoice's real id.
+    sqlReturnQueue.push([
+      { id: ACCOUNT_ID, subscription_status: 'past_due', stripe_subscription_id: null },
+    ]);
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'past_due', toStatus: 'active',
+      changed: true, activated: true, primaryBusinessId: null,
+    });
+
+    await processInvoicePaid({ id: 'in_1', customer: CUSTOMER_ID,
+      lines: { data: [] }, subscription: 'sub_from_invoice' } as any);
+
+    const [, , sub] = mockApplyStripeSubscriptionState.mock.calls[0]!;
+    expect(sub).toMatchObject({ id: 'sub_from_invoice', status: 'active' });
+    expect(sub.id).not.toBe('');
+  });
+
   it('active account → no-op, NO Stripe retrieve', async () => {
     sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'active' }]);
 

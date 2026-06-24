@@ -209,8 +209,10 @@ function queueInvoicePaid(opts: {
   status?: string;
 } = {}) {
   const status = opts.status ?? 'past_due';
-  // 1. Handler's SELECT … FOR UPDATE (stripe_customer_id lookup)
-  sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: status }]);
+  // 1. Handler's SELECT … FOR UPDATE (stripe_customer_id lookup) — now also
+  //    reads stripe_subscription_id so the recovery synth id prefers the
+  //    account's existing id (never writes '' onto a null-subscription account).
+  sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: status, stripe_subscription_id: TEST_SUBSCRIPTION_ID }]);
   if (status === 'past_due') {
     // 2. pg_advisory_xact_lock result
     sqlReturnQueue.push([]);

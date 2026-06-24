@@ -1743,7 +1743,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/stripe/invoice-paid.ts",
     table: "accounts",
-    sqlSnippet: "SELECT id, subscription_status FROM accounts WHERE stripe_customer_id = ${customerId} FOR UPDATE",
+    sqlSnippet: "SELECT id, subscription_status, stripe_subscription_id FROM accounts WHERE stripe_customer_id = ${customerId} FOR UPDATE",
     category: 'provider-ingress',
     reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available.",
   },
