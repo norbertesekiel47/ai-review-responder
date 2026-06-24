@@ -268,27 +268,35 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
         },
       },
     });
-    // The activation tx reads the current subscription_status from accounts,
-    // then UPDATEs. Mock sql for both the account lookup (outside tx)
-    // and the in-tx operations.
+    // After B1.4: paid activation routes through the applier (checkout mode).
+    // SQL sequence:
+    //   1. Pre-tx: SELECT id FROM accounts WHERE id=? (account lookup)
+    //   2. In-tx: pg_advisory_xact_lock
+    //   3. In-tx: Applier resolveAccount — SELECT a.id, a.subscription_status,
+    //             (SELECT b.id …) AS primary_business_id FROM accounts a … FOR UPDATE
+    //   4. In-tx: Applier writeStatusColumns — UPDATE accounts SET subscription_status='active'…
+    //   5. In-tx: Applier writeBusinessesMirror — UPDATE businesses SET subscription_status='active'…
+    //   6. writeAccountAuditLog — NOT mocked in this file, but the module-level mock
+    //             of audit/log is not set up here; the real call will use the mocked sql
+    //             for its INSERT INTO account_audit_log.
+    //   7. In-tx: enqueueStripeOverageRecompute — INSERT INTO job_outbox
     mockSql.mockImplementation((tpl: TemplateStringsArray) => {
       const text = tpl.join('?');
-      // Account lookup outside tx
+      // 1. Pre-tx account lookup: SELECT id FROM accounts WHERE id = ?
       if (/SELECT\s+id\s+FROM\s+accounts/i.test(text)) {
         return Promise.resolve([{ id: '019dc366-29ce-736d-ae75-d19dc561e58f' }]);
       }
-      // Inside tx: SELECT subscription_status FROM accounts
-      if (/SELECT\s+subscription_status/i.test(text) && /FROM\s+accounts/i.test(text)) {
-        return Promise.resolve([{ subscription_status: 'pending_payment' }]);
+      // 3. Applier's resolveAccount: SELECT a.id, a.subscription_status, … FROM accounts a …
+      //    Matches the broader "SELECT … FROM accounts" that includes 'a.subscription_status'
+      if (/FROM\s+accounts/i.test(text) && /subscription_status/i.test(text)) {
+        return Promise.resolve([{
+          id: '019dc366-29ce-736d-ae75-d19dc561e58f',
+          subscription_status: 'pending_payment',
+          primary_business_id: null,
+        }]);
       }
-      // Inside tx: UPDATE accounts
-      if (/UPDATE\s+accounts/i.test(text)) {
-        const result: any[] = [];
-        (result as any).count = 1;
-        return Promise.resolve(result);
-      }
-      // Inside tx: UPDATE businesses (deprecated column compat)
-      if (/UPDATE\s+businesses/i.test(text)) {
+      // 4/5. UPDATE accounts or businesses
+      if (/UPDATE\s+(accounts|businesses)/i.test(text)) {
         const result: any[] = [];
         (result as any).count = 1;
         return Promise.resolve(result);

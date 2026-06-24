@@ -97,6 +97,86 @@ beforeEach(() => {
   mockRetrieve.mockReset();
 });
 
+describe('checkout.session.completed — paid activation', () => {
+  it('paid activation (pending_payment → active) routes through the applier in checkout mode', async () => {
+    // amount_total > 0 and payment_status = 'paid' → skips trial-start branch entirely
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true,
+      fromStatus: 'pending_payment',
+      toStatus: 'active',
+      changed: true,
+      activated: true,
+      primaryBusinessId: PRIMARY_BIZ,
+    });
+
+    await processCheckoutSessionCompleted({
+      client_reference_id: ACCOUNT_ID,
+      mode: 'subscription',
+      payment_status: 'paid',
+      amount_total: 7900,
+      customer: CUSTOMER_ID,
+      subscription: SUB_ID,
+    } as any);
+
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
+      expect.anything(),
+      { mode: 'checkout', accountId: ACCOUNT_ID },
+      expect.objectContaining({ id: SUB_ID, status: 'active' }),
+    );
+
+    // The inline UPDATE accounts SET ... 'active' must NOT appear — the applier owns it
+    // (mockSql in this file doesn't expose sqlCalls, so we verify the applier was called
+    // and mockRetrieve was NOT called — if the inline block ran, it would call sql
+    // directly, bypassing the applier mock entirely, and the expect above would fail)
+    expect(mockRetrieve).not.toHaveBeenCalled();
+  });
+
+  it('paid activation with changed=true triggers backfill resume', async () => {
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true,
+      fromStatus: 'pending_payment',
+      toStatus: 'active',
+      changed: true,
+      activated: true,
+      primaryBusinessId: PRIMARY_BIZ,
+    });
+
+    await processCheckoutSessionCompleted({
+      client_reference_id: ACCOUNT_ID,
+      mode: 'subscription',
+      payment_status: 'paid',
+      amount_total: 7900,
+      customer: CUSTOMER_ID,
+      subscription: SUB_ID,
+    } as any);
+
+    expect(mockMaybeEnqueueBackfillResume).toHaveBeenCalledWith(PRIMARY_BIZ);
+  });
+
+  it('paid activation with changed=false skips backfill resume (idempotent re-delivery)', async () => {
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true,
+      fromStatus: 'active',
+      toStatus: 'active',
+      changed: false,
+      activated: false,
+      primaryBusinessId: PRIMARY_BIZ,
+    });
+    mockMaybeEnqueueBackfillResume.mockClear();
+
+    await processCheckoutSessionCompleted({
+      client_reference_id: ACCOUNT_ID,
+      mode: 'subscription',
+      payment_status: 'paid',
+      amount_total: 7900,
+      customer: CUSTOMER_ID,
+      subscription: SUB_ID,
+    } as any);
+
+    expect(mockMaybeEnqueueBackfillResume).not.toHaveBeenCalled();
+  });
+});
+
 describe('checkout.session.completed — trial start', () => {
   it('paid + amount_total=0 + trialing sub → applier called (REAL card-up-front case)', async () => {
     // The exact shape that misfiled every prod trial as 'active': payment_status
@@ -136,15 +216,19 @@ describe('checkout.session.completed — trial start', () => {
     });
   });
 
-  it('normal paid sub (amount_total>0) → NO retrieve, NO trial applier (hot path unchanged)', async () => {
-    // A real paying signup must NOT incur the trial Stripe retrieve, and must NOT
-    // route through the trial applier — it takes the inline paid-activation path.
+  it('normal paid sub (amount_total>0) → NO retrieve, routes through applier in checkout mode (B1.4)', async () => {
+    // A real paying signup must NOT incur the trial Stripe retrieve (no extra
+    // Stripe API call). After B1.4, the paid path routes through the applier
+    // instead of the old inline UPDATE, so the applier IS called once.
     await processCheckoutSessionCompleted(
       trialSession({ payment_status: 'paid', amount_total: 7900 }),
     );
 
     expect(mockRetrieve).not.toHaveBeenCalled();
-    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
+    const [, ref, sub] = mockApplyStripeSubscriptionState.mock.calls[0]!;
+    expect(ref).toEqual({ mode: 'checkout', accountId: ACCOUNT_ID });
+    expect(sub).toMatchObject({ status: 'active' });
   });
 
   it('runs post-commit backfill resume when applier activated the account', async () => {
@@ -160,12 +244,12 @@ describe('checkout.session.completed — trial start', () => {
     expect(mockMaybeEnqueueBackfillResume).toHaveBeenCalledWith(PRIMARY_BIZ);
   });
 
-  it('skips applier when retrieved sub is not trialing (falls through to inline paid path)', async () => {
-    // $0 session ($0 now) but the sub came back active (e.g. 100%-off coupon) —
-    // NOT a trial. The trial applier must NOT fire; the existing inline paid
-    // activation (status-guarded UPDATE accounts ... 'active') owns this case,
-    // and it is the same inline path the paid branch uses (plan §4.11: paid
-    // branch unchanged).
+  it('retrieved sub is not trialing ($0 session, 100%-off coupon) → falls through to paid activation applier', async () => {
+    // $0 session but the sub came back active (e.g. 100%-off coupon) — NOT a
+    // trial. maybeStartTrial returns false so the handler falls through to the
+    // paid activation path. After B1.4, that path routes through the applier
+    // (checkout mode, status='active'), so the applier IS called once with
+    // status='active' — it was previously the inline UPDATE.
     mockRetrieve.mockResolvedValue({
       id: SUB_ID,
       customer: CUSTOMER_ID,
@@ -175,7 +259,10 @@ describe('checkout.session.completed — trial start', () => {
 
     await processCheckoutSessionCompleted(trialSession());
 
-    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
+    const [, ref, sub] = mockApplyStripeSubscriptionState.mock.calls[0]!;
+    expect(ref).toEqual({ mode: 'checkout', accountId: ACCOUNT_ID });
+    expect(sub).toMatchObject({ status: 'active' });
   });
 
   it('trialing sub with a past trial_end is rejected (no applier call)', async () => {

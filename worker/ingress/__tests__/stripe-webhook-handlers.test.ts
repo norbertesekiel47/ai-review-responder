@@ -1312,6 +1312,46 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
 // checkout.session.completed (account-scoped)
 // ───────────────────────────────────────────────────────────────────────
 
+// Queue helper for the checkout paid-activation SQL sequence (after B1.4).
+// The inline sql.begin block is replaced by the applier (checkout mode).
+// NOTE: businesses.stripe_customer_id / stripe_subscription_id are intentionally
+// NOT mirrored by the applier (deprecated columns, VAL-SCHEMA-037; the trial path
+// already never wrote them). The applier writes subscription_status + activated_at.
+// Sequence inside the tx (sql.begin → callback(mockSql)):
+//   1. pg_advisory_xact_lock
+//   2. Applier resolveAccount: SELECT a.id, a.subscription_status, (subq) AS primary_business_id … FOR UPDATE
+//   3. Applier writeStatusColumns: UPDATE accounts SET subscription_status='active', COALESCE…
+//   4. Applier writeBusinessesMirror: UPDATE businesses SET subscription_status='active', COALESCE…
+//   5. writeAccountAuditLog — MOCKED (mockWriteAccountAuditLog), no SQL consumed
+//   6. enqueueStripeOverageRecompute: INSERT INTO job_outbox …
+//   7. enqueueLifecycleAnalytics: pending_payment→active is NOT a trial exit → no-op
+// Post-tx: primaryBusinessId is null (resolveAccount row has no primary_business_id)
+//   and legacy businessId is null → no backfill resume SQL.
+function queueCheckoutActivate(opts: { accountId?: string; status?: string } = {}) {
+  const acctId = opts.accountId ?? TEST_ACCOUNT_ID;
+  const status = opts.status ?? 'pending_payment';
+  // 1. Pre-tx account lookup
+  sqlReturnQueue.push([{ id: acctId }]);
+  // Inside sql.begin:
+  // 2. pg_advisory_xact_lock
+  sqlReturnQueue.push([]);
+  // 3. Applier's resolveAccount (checkout mode, FOR UPDATE)
+  sqlReturnQueue.push([{ id: acctId, subscription_status: status, primary_business_id: null }]);
+  if (status !== 'active') {
+    // 4. Applier writeStatusColumns: UPDATE accounts SET subscription_status='active'…
+    const updateAcctR: any = []; updateAcctR.count = 1;
+    sqlReturnQueue.push(updateAcctR);
+    // 5. Applier writeBusinessesMirror: UPDATE businesses SET subscription_status='active'…
+    const updateBizR: any = []; updateBizR.count = 1;
+    sqlReturnQueue.push(updateBizR);
+    // 6. enqueueStripeOverageRecompute: INSERT INTO job_outbox
+    const outboxR: any = []; outboxR.count = 1;
+    sqlReturnQueue.push(outboxR);
+    // 7. enqueueLifecycleAnalytics: pending_payment→active, fromStatus≠trialing → no-op
+  }
+  // already-active: isAllowedTransition(active, active) = false → NO_CHANGE, no UPDATEs
+}
+
 describe('checkout.session.completed — account activation (VAL-BILLING-007, VAL-BILLING-008)', () => {
   it('activates pending_payment account with stripe_customer_id and subscription_id', async () => {
     mockConstructEvent.mockReturnValue({
@@ -1329,24 +1369,17 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
       },
     });
 
-    // Account lookup
-    sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID }]);
-    // Inside tx:
-    sqlReturnQueue.push([]);  // pg_advisory_xact_lock
-    sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
-    const updateResult: any = []; updateResult.count = 1;
-    sqlReturnQueue.push(updateResult);
-    // INSERT account_audit_log (subscription_status_changed)
-    const auditResult: any = []; auditResult.count = 1;
-    sqlReturnQueue.push(auditResult);
-    const bizResult: any = []; bizResult.count = 1;
-    sqlReturnQueue.push(bizResult);
+    queueCheckoutActivate();
 
     const { status, send } = mkReply();
     await handleStripeWebhook(mkRequest(), { status, send } as any);
 
     expect(status).toHaveBeenCalledWith(200);
 
+    // Applier writes 'active' with COALESCE'd Stripe ids — verify both appear.
+    // NOTE: stripe_customer_id / stripe_subscription_id on businesses are deprecated
+    // (VAL-SCHEMA-037); the applier does NOT write them. The accounts row gets them
+    // via the applier's COALESCE write (first-writer-wins, invariant #3).
     const updateAcct = sqlCalls.find(
       (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'"),
     );
@@ -1355,7 +1388,7 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
     expect(updateAcct!.values).toContain(TEST_SUBSCRIPTION_ID);
   });
 
-  it('VAL-BILLING-008: already active → idempotent no-op', async () => {
+  it('VAL-BILLING-008: already active → idempotent no-op (applier: isAllowedTransition returns false)', async () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_checkout_dup',
       type: 'checkout.session.completed',
@@ -1371,19 +1404,19 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
       },
     });
 
-    sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID }]);
-    sqlReturnQueue.push([]);
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
-    const noUpdate: any = []; noUpdate.count = 0;
-    sqlReturnQueue.push(noUpdate);
-    // No audit log INSERT because the status didn't change (count = 0)
-    const noBiz: any = []; noBiz.count = 0;
-    sqlReturnQueue.push(noBiz);
+    // already-active: applier's isAllowedTransition(active→active)=false → no UPDATEs
+    queueCheckoutActivate({ status: 'active' });
 
     const { status, send } = mkReply();
     await handleStripeWebhook(mkRequest(), { status, send } as any);
 
     expect(status).toHaveBeenCalledWith(200);
+
+    // No UPDATE accounts for 'active' (idempotent no-op)
+    const updateAcct = sqlCalls.find(
+      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'"),
+    );
+    expect(updateAcct).toBeUndefined();
   });
 
   it('VAL-BILLING-060: uses client_reference_id as account ID', async () => {
@@ -1403,24 +1436,14 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
       },
     });
 
-    // Account lookup
-    sqlReturnQueue.push([{ id: customAccountId }]);
-    sqlReturnQueue.push([]);
-    sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
-    const r1: any = []; r1.count = 1;
-    sqlReturnQueue.push(r1);
-    // INSERT account_audit_log (subscription_status_changed)
-    const auditR: any = []; auditR.count = 1;
-    sqlReturnQueue.push(auditR);
-    const r2: any = []; r2.count = 1;
-    sqlReturnQueue.push(r2);
+    queueCheckoutActivate({ accountId: customAccountId });
 
     const { status, send } = mkReply();
     await handleStripeWebhook(mkRequest(), { status, send } as any);
 
     expect(status).toHaveBeenCalledWith(200);
 
-    // The SELECT accounts query contains the customAccountId as a parameter value
+    // The pre-tx SELECT accounts lookup carries the customAccountId as a parameter
     const lookupCall = sqlCalls.find(
       (c) => c.text.includes('SELECT') && c.text.includes('accounts') && c.text.includes('id'),
     );
@@ -1594,6 +1617,8 @@ describe('Webhook idempotency and error handling', () => {
 
 describe('subscription_status_changed audit logging', () => {
   it('VAL-LOC-029: logs subscription_status_changed on checkout activation (pending_payment → active)', async () => {
+    // After B1.4, the audit write goes through the applier → writeAccountAuditLog
+    // (mocked as mockWriteAccountAuditLog), NOT a raw SQL INSERT. Assert via the mock.
     mockConstructEvent.mockReturnValue({
       id: 'evt_audit_activate',
       type: 'checkout.session.completed',
@@ -1609,35 +1634,25 @@ describe('subscription_status_changed audit logging', () => {
       },
     });
 
-    sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID }]);
-    sqlReturnQueue.push([]); // advisory lock
-    sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
-    const updateR: any = []; updateR.count = 1;
-    sqlReturnQueue.push(updateR);
-    const auditR: any = []; auditR.count = 1;
-    sqlReturnQueue.push(auditR);
-    const bizR: any = []; bizR.count = 1;
-    sqlReturnQueue.push(bizR);
+    queueCheckoutActivate();
 
     const { status, send } = mkReply();
     await handleStripeWebhook(mkRequest(), { status, send } as any);
 
     expect(status).toHaveBeenCalledWith(200);
 
-    const auditInsert = sqlCalls.find(
-      (c) => /\bINSERT INTO account_audit_log\b/.test(c.text),
+    // Audit goes through the mocked writeAccountAuditLog (same as subscription.deleted,
+    // invoice.paid — all other handlers already use the applier's audit path).
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: TEST_ACCOUNT_ID,
+        eventType: 'subscription_status_changed',
+        entityType: 'account',
+        entityId: TEST_ACCOUNT_ID,
+        payload: { fromStatus: 'pending_payment', toStatus: 'active' },
+      }),
+      mockSql,
     );
-    expect(auditInsert).toBeDefined();
-    // Event type is a SQL literal, not a parameter — check the text
-    expect(auditInsert!.text).toMatch(/subscription_status_changed/);
-    // Verify payload contains fromStatus and toStatus
-    const payloadIdx = auditInsert!.values.findIndex((v: unknown) =>
-      typeof v === 'object' && v !== null && 'fromStatus' in (v as Record<string, unknown>),
-    );
-    expect(payloadIdx).toBeGreaterThanOrEqual(0);
-    const payload = auditInsert!.values[payloadIdx] as Record<string, unknown>;
-    expect(payload.fromStatus).toBe('pending_payment');
-    expect(payload.toStatus).toBe('active');
   });
 
   it('VAL-LOC-058: logs subscription_status_changed on cancellation (active → cancelled)', async () => {
