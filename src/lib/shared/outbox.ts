@@ -5,6 +5,28 @@ import { sql } from '@/lib/db/server';
 /** Either the standalone `sql` client or an open `sql.begin()` transaction handle. */
 type SqlExecutor = typeof sql | postgres.TransactionSql;
 
+const hasAttempt = (attempt?: number): attempt is number =>
+  typeof attempt === 'number' && Number.isFinite(attempt);
+
+/**
+ * WHERE predicate selecting the still-`dispatched` outbox row — attempt-guarded
+ * when the dispatch attempt is known, so a stale worker that resolves AFTER the
+ * watchdog re-dispatched the entry can't stomp the newer attempt's status. Built
+ * with the caller's executor so it composes into both standalone-`sql` and
+ * `sql.begin()` UPDATEs (Postgres.js inlines the nested fragment). One owner for
+ * the guard that all three writers below share.
+ */
+const dispatchedRow = (exec: SqlExecutor, outboxId: string, attempt?: number) =>
+  hasAttempt(attempt)
+    ? exec`id = ${outboxId} AND status = 'dispatched' AND attempts = ${attempt}`
+    : exec`id = ${outboxId} AND status = 'dispatched'`;
+
+function warnOutboxNoop(label: string, outboxId: string, attempt: number): void {
+  console.warn(
+    `[outbox] ${label} no-op for ${outboxId} attempt=${attempt} — row already moved or attempt superseded`,
+  );
+}
+
 /**
  * Extracts outbox_id and outbox_attempt from a BullMQ job payload.
  * Centralizes the `(job.data as unknown as { ... }).outbox_id ?? job.id`
@@ -47,29 +69,14 @@ export async function markOutboxCompleted(
   attempt?: number,
   exec: SqlExecutor = sql,
 ): Promise<void> {
-  if (typeof attempt === 'number' && Number.isFinite(attempt)) {
-    const res = await exec`
-      UPDATE job_outbox
-      SET status = 'completed', completed_at = NOW()
-      WHERE id = ${outboxId}
-        AND status = 'dispatched'
-        AND attempts = ${attempt}
-    `;
-    if (res.count === 0) {
-      console.warn(
-        `[outbox] markOutboxCompleted no-op for ${outboxId} attempt=${attempt} — row already moved or attempt superseded`,
-      );
-    }
-    return;
-  }
-  // Legacy path: attempt unknown. Still guard on status so a stale caller
-  // can't regress a row that has already moved to 'failed' or 'completed'.
-  await exec`
+  const res = await exec`
     UPDATE job_outbox
     SET status = 'completed', completed_at = NOW()
-    WHERE id = ${outboxId}
-      AND status = 'dispatched'
+    WHERE ${dispatchedRow(exec, outboxId, attempt)}
   `;
+  if (hasAttempt(attempt) && res.count === 0) {
+    warnOutboxNoop('markOutboxCompleted', outboxId, attempt);
+  }
 }
 
 /**
@@ -82,29 +89,14 @@ export async function markOutboxFailed(
   error: string,
   attempt?: number,
 ): Promise<void> {
-  if (typeof attempt === 'number' && Number.isFinite(attempt)) {
-    const res = await sql`
-      UPDATE job_outbox
-      SET status = 'failed', last_error = ${error}, completed_at = NOW()
-      WHERE id = ${outboxId}
-        AND status = 'dispatched'
-        AND attempts = ${attempt}
-    `;
-    if (res.count === 0) {
-      console.warn(
-        `[outbox] markOutboxFailed no-op for ${outboxId} attempt=${attempt} — row already moved or attempt superseded`,
-      );
-    }
-    return;
-  }
-  // Legacy path: attempt unknown. Still guard on status so a stale caller
-  // can't regress a row that has already moved to 'failed' or 'completed'.
-  await sql`
+  const res = await sql`
     UPDATE job_outbox
     SET status = 'failed', last_error = ${error}, completed_at = NOW()
-    WHERE id = ${outboxId}
-      AND status = 'dispatched'
+    WHERE ${dispatchedRow(sql, outboxId, attempt)}
   `;
+  if (hasAttempt(attempt) && res.count === 0) {
+    warnOutboxNoop('markOutboxFailed', outboxId, attempt);
+  }
 }
 
 /**
@@ -116,13 +108,13 @@ export async function markOutboxFailed(
 export async function recordOutboxTransientError(
   outboxId: string,
   error: string,
+  attempt?: number,
 ): Promise<void> {
   try {
     await sql`
       UPDATE job_outbox
       SET last_error = ${error}
-      WHERE id = ${outboxId}
-        AND status = 'dispatched'
+      WHERE ${dispatchedRow(sql, outboxId, attempt)}
     `;
   } catch (recordErr) {
     console.warn(

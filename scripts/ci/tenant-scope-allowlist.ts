@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 377;
+export const ALLOWLIST_BASELINE = 376;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -1540,7 +1540,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/onboarding/select-plan/route.ts",
     table: "accounts",
-    sqlSnippet: "UPDATE accounts SET subscription_tier = ${tier}, locations_included = ${tierConfig?.included ?? 1}, locations_overage_price_cents = ${tierConfig?.overageCents ?? 2500}, base_price_cents = ${tierConfig?.baseCents ?? 7900}, updated_at = NOW() WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid) AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}",
+    sqlSnippet: "UPDATE accounts SET subscription_tier = ${tier}, locations_included = ${tierConfig.included}, locations_overage_price_cents = ${tierConfig.overageCents}, base_price_cents = ${tierConfig.baseCents}, updated_at = NOW() WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid) AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
@@ -1834,7 +1834,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/onboarding/select-plan/route.ts",
     table: "businesses",
-    sqlSnippet: "UPDATE accounts SET subscription_tier = ${tier}, locations_included = ${tierConfig?.included ?? 1}, locations_overage_price_cents = ${tierConfig?.overageCents ?? 2500}, base_price_cents = ${tierConfig?.baseCents ?? 7900}, updated_at = NOW() WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid) AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}",
+    sqlSnippet: "UPDATE accounts SET subscription_tier = ${tier}, locations_included = ${tierConfig.included}, locations_overage_price_cents = ${tierConfig.overageCents}, base_price_cents = ${tierConfig.baseCents}, updated_at = NOW() WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid) AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
@@ -2691,13 +2691,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT id, demo_url_slug, business_name, generation_status, generation_error, view_count, generated_at, expires_at FROM prospect_demos ORDER BY generated_at DESC",
     category: 'admin-after-require-role',
     reason: "Admin-only sales-demo list performed after requireRole(admin); prospect_demos is a cross-tenant sales surface with no account/business column (deny-all RLS, migration 066).",
-  },
-  {
-    file: "src/app/api/admin/payment-success/route.ts",
-    table: "inbound_events",
-    sqlSnippet: "SELECT payload FROM inbound_events WHERE source = 'stripe' AND event_type = 'checkout.session.completed' AND payload->'data'->'object'->>'id' = ${sessionId} LIMIT 1",
-    category: 'admin-after-require-role',
-    reason: "Admin-only post-checkout lookup performed after requireRole(admin); inbound_events is keyed by the Stripe event payload, not a tenant id (deny-all RLS, migration 066).",
   },
   {
     file: "worker/background/pollers/ArchivalPoller.ts",

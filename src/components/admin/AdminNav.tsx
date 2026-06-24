@@ -21,8 +21,8 @@ export function AdminNav() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Don't show nav on login or payment-success pages
-  if (pathname === '/admin/login' || pathname?.startsWith('/admin/payment-success')) {
+  // Don't show nav on the login page
+  if (pathname === '/admin/login') {
     return null;
   }
 

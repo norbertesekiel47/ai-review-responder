@@ -95,7 +95,10 @@ export function resolveOverageItem(
 
   // Priority 3 — unit-amount match (multi-item subscriptions only). The
   // high-confidence path for legacy/rotated-price items: the stored cents are
-  // the account's own grandfathered snapshot.
+  // the account's own grandfathered snapshot. OVERAGE-F3: the `originalCount > 1`
+  // guard means a solo-location sub whose ONLY line is the overage item can't
+  // match here — by design. The `billing_role` metadata stamp (Priority 2) is the
+  // primary defense for that case; this unit-amount pass is intentionally narrow.
   if (originalCount > 1 && storedOveragePriceCents > 0) {
     const byUnitAmount = candidates.find(
       (item) => item.price?.unit_amount === storedOveragePriceCents,

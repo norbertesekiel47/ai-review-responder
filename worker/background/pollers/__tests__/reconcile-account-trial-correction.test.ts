@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * alert-only. (PLAN.md §5.)
  */
 
-const { mockSql, mockApplyStripeSubscriptionState } = vi.hoisted(() => {
+const { mockSql, mockApplyStripeSubscriptionState, mockLoggerWarn } = vi.hoisted(() => {
   const mockSql: any = vi.fn(() => Promise.resolve(Object.assign([], { count: 0 })));
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<any>) => cb(mockSql));
   return {
@@ -19,12 +19,17 @@ const { mockSql, mockApplyStripeSubscriptionState } = vi.hoisted(() => {
       accountResolved: true, fromStatus: 'trialing', toStatus: 'active',
       changed: true, activated: true, primaryBusinessId: null,
     }),
+    mockLoggerWarn: vi.fn(),
   };
 });
 
 vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../../ingress/stripe/apply-subscription-state', () => ({
   applyStripeSubscriptionState: mockApplyStripeSubscriptionState,
+}));
+vi.mock('../../../../src/lib/shared/logger', () => ({
+  createWorkerLogger: () => ({ warn: mockLoggerWarn, error: vi.fn(), log: vi.fn() }),
+  toError: (e: unknown) => (e instanceof Error ? e : new Error(String(e))),
 }));
 
 import { reconcileAccount } from '../billing-reconciliation/reconcile-account';
@@ -63,6 +68,7 @@ function makeStripe(subStatus: string) {
 beforeEach(() => {
   mockApplyStripeSubscriptionState.mockClear();
   mockSql.begin.mockClear();
+  mockLoggerWarn.mockClear();
 });
 
 describe('reconcileAccount — trial correction', () => {
@@ -98,6 +104,30 @@ describe('reconcileAccount — trial correction', () => {
     const stripe = makeStripe('active');
     await reconcileAccount(stripe, makeAccount({ subscription_status: 'active' }));
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+  });
+
+  it('logs the correction when the applier actually changed the row', async () => {
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'trialing', toStatus: 'active',
+      changed: true, activated: true, primaryBusinessId: null,
+    });
+    await reconcileAccount(makeStripe('active'), makeAccount());
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      'Corrected stuck trialing row to match Stripe',
+      expect.objectContaining({ account_id: 'acct-1' }),
+    );
+  });
+
+  it('does NOT log a correction when the applier was a no-op (changed:false)', async () => {
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'trialing', toStatus: 'trialing',
+      changed: false, activated: false, primaryBusinessId: null,
+    });
+    await reconcileAccount(makeStripe('active'), makeAccount());
+    expect(mockLoggerWarn).not.toHaveBeenCalledWith(
+      'Corrected stuck trialing row to match Stripe',
+      expect.anything(),
+    );
   });
 
   it('DB active + Stripe trialing → surfaces status_mismatch drift (PLAN §15, not silently hidden)', async () => {
