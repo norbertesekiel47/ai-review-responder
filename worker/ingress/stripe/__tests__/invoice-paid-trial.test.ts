@@ -124,17 +124,46 @@ describe('invoice.paid — trial conversion (FIX 4)', () => {
     expect(updateAcct).toBeUndefined();
   });
 
-  it('past_due account → unchanged inline recovery, NO Stripe retrieve, NO applier', async () => {
+  it('past_due account → routes through applier (checkout/by-accountId mode), NO Stripe retrieve', async () => {
     sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'past_due' }]);
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'past_due', toStatus: 'active',
+      changed: true, activated: true, primaryBusinessId: null,
+    });
 
     await processInvoicePaid(invoice());
 
     expect(mockRetrieve).not.toHaveBeenCalled();
-    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
-    const updateAcct = sqlCalls.find(
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
+      expect.anything(),
+      { mode: 'checkout', accountId: ACCOUNT_ID },
+      expect.objectContaining({ status: 'active' }),
+    );
+    const inlineRecover = sqlCalls.find(
       (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'"),
     );
-    expect(updateAcct).toBeDefined();
+    expect(inlineRecover).toBeUndefined();
+  });
+
+  it('past_due → active recovery routes through the applier (checkout/by-accountId mode)', async () => {
+    sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'past_due' }]); // accounts FOR UPDATE
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'past_due', toStatus: 'active',
+      changed: true, activated: true, primaryBusinessId: 'biz-1',
+    });
+
+    await processInvoicePaid({ id: 'in_1', customer: 'cus_1',
+      lines: { data: [] }, subscription: 'sub_1' } as any);
+
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
+      expect.anything(),
+      { mode: 'checkout', accountId: 'acct-1' },
+      expect.objectContaining({ id: 'sub_1', status: 'active' }),
+    );
+    const inlineRecover = sqlCalls.find(
+      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'"),
+    );
+    expect(inlineRecover).toBeUndefined();
   });
 
   it('active account → no-op, NO Stripe retrieve', async () => {

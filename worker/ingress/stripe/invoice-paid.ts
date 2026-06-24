@@ -1,10 +1,8 @@
 import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
-import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { LOG_PREFIX, extractCustomerId, invoiceSubscriptionId, getStripe, maybeEnqueueBackfillResume } from './shared';
 import { applyStripeSubscriptionState } from './apply-subscription-state';
-import { enqueueStripeOverageRecompute } from '../../../src/lib/shared/job-outbox-helpers';
 
 export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
   const customerId = extractCustomerId(invoice.customer);
@@ -21,6 +19,11 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
   // convert path, independent of customer.subscription.updated. Collected here
   // and processed AFTER this tx so the Stripe retrieve doesn't hold the tx open.
   const trialingAccountIds: string[] = [];
+
+  // Resolve the subscription id once — used as a synthetic id for the applier
+  // in checkout mode (the applier COALESCEs it; accounts already have Stripe ids
+  // written by checkout.session.completed, so this id is never actually stored).
+  const recoverySubscriptionId = invoiceSubscriptionId(invoice);
 
   await sql.begin(async (tx) => {
     // Find accounts for this customer that are past_due
@@ -41,41 +44,15 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
 
       await tx`SELECT pg_advisory_xact_lock(hashtext(${acct.id + ':status_change'}))`;
 
-      await tx`
-        UPDATE accounts
-        SET subscription_status = 'active',  -- enum: SubscriptionStatus.ACTIVE
-            past_due_at = NULL,
-            updated_at = NOW()
-        WHERE id = ${acct.id}::uuid
-      `;
-
-      // VAL-LOC-029 / VAL-LOC-058: Audit log for subscription_status_changed
-      await writeAccountAuditLog(
-        {
-          accountId: acct.id,
-          eventType: 'subscription_status_changed',
-          entityType: 'account',
-          entityId: acct.id,
-          payload: { fromStatus: 'past_due', toStatus: 'active' },
-        },
+      // Single writer for the recovery transition (QUALITY-OBS): the applier
+      // flips past_due→active, clears past_due_at, writes the audit row,
+      // mirrors businesses, and enqueues the overage recompute — all in this tx.
+      const transition = await applyStripeSubscriptionState(
         tx,
+        { mode: 'checkout', accountId: acct.id },
+        { id: recoverySubscriptionId ?? '', status: 'active', trial_end: null, customer: customerId },
       );
-
-      // Also update businesses deprecated column
-      await tx`
-        UPDATE businesses
-        SET subscription_status = 'active', updated_at = NOW()  -- enum: SubscriptionStatus.ACTIVE
-        WHERE account_id = ${acct.id}::uuid
-          AND subscription_status = 'past_due'  -- enum: SubscriptionStatus.PAST_DUE
-      `;
-
-      // Recompute Stripe overage quantity after recovery — the worker is
-      // idempotent so a redundant enqueue is harmless convergence. Must be
-      // inside this tx (transactional outbox invariant: state change +
-      // enqueue in one Postgres transaction).
-      await enqueueStripeOverageRecompute(tx, acct.id);
-
-      recovered.push(acct);
+      if (transition.changed) recovered.push(acct);
     }
   });
 

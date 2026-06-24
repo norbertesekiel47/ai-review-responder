@@ -209,18 +209,27 @@ function queueInvoicePaid(opts: {
   status?: string;
 } = {}) {
   const status = opts.status ?? 'past_due';
+  // 1. Handler's SELECT … FOR UPDATE (stripe_customer_id lookup)
   sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: status }]);
   if (status === 'past_due') {
+    // 2. pg_advisory_xact_lock result
     sqlReturnQueue.push([]);
+    // 3. Applier's resolveAccount SELECT (checkout mode, by accountId FOR UPDATE)
+    //    Returns id + subscription_status + primary_business_id for the applier.
+    sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: 'past_due', primary_business_id: null }]);
+    // 4. Applier's writeStatusColumns: UPDATE accounts SET subscription_status='active' …
     const r1: any = []; r1.count = 1;
     sqlReturnQueue.push(r1);
+    // 5. Applier's writeBusinessesMirror: UPDATE businesses …
     const r2: any = []; r2.count = 1;
     sqlReturnQueue.push(r2);
-    // Overage outbox INSERT (D3: inside tx, before recovered.push)
+    // 6. Applier's enqueueStripeOverageRecompute: INSERT INTO job_outbox
     const outboxInsert: any = []; outboxInsert.count = 1;
     sqlReturnQueue.push(outboxInsert);
-    sqlReturnQueue.push([{ id: '019dc366-29ce-7000-a000-000000000099' }]); // primary business lookup
-    sqlReturnQueue.push([]); // zernio predicate (no match by default)
+    // 7. Post-tx: primary business lookup for backfill resume
+    sqlReturnQueue.push([{ id: '019dc366-29ce-7000-a000-000000000099' }]);
+    // 8. maybeEnqueueBackfillResume zernio predicate (no match by default)
+    sqlReturnQueue.push([]);
   }
 }
 
