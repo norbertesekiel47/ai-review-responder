@@ -3,7 +3,7 @@ import { SubscriptionTier } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   canAddLocationForAccount,
-  lockedAddLocationReason,
+  resolveAddLocationState,
   shouldShowLocationsSettings,
   shouldUseMultiLocationSettings,
 } from '../multi-location-mode';
@@ -87,19 +87,23 @@ describe('canAddLocationForAccount', () => {
   });
 });
 
-describe('lockedAddLocationReason', () => {
+describe('resolveAddLocationState', () => {
+  it.each([
+    [SubscriptionTier.FOUNDERS, SubscriptionStatus.ACTIVE],
+    [SubscriptionTier.STANDARD, SubscriptionStatus.ACTIVE],
+    [SubscriptionTier.STANDARD, SubscriptionStatus.TRIALING],
+  ] as const)('returns "enabled" for an entitled multi-location tier (%s, %s)', (tier, status) => {
+    expect(resolveAddLocationState(true, tier, status)).toBe('enabled');
+  });
+
   // The STATUS-1.1 bug: a trialing Basic owner is entitled (full access) but on a
-  // tier with no multi-location allowance → must see the UPGRADE copy, not "inactive".
+  // tier with no multi-location allowance → must resolve to 'upgrade', not 'inactive'.
   it('returns "upgrade" for a trialing Basic owner (entitled, no multi-loc tier)', () => {
-    expect(
-      lockedAddLocationReason(SubscriptionTier.BASIC, SubscriptionStatus.TRIALING),
-    ).toBe('upgrade');
+    expect(resolveAddLocationState(true, SubscriptionTier.BASIC, SubscriptionStatus.TRIALING)).toBe('upgrade');
   });
 
   it('returns "upgrade" for an active Basic owner', () => {
-    expect(
-      lockedAddLocationReason(SubscriptionTier.BASIC, SubscriptionStatus.ACTIVE),
-    ).toBe('upgrade');
+    expect(resolveAddLocationState(true, SubscriptionTier.BASIC, SubscriptionStatus.ACTIVE)).toBe('upgrade');
   });
 
   it.each([
@@ -107,6 +111,6 @@ describe('lockedAddLocationReason', () => {
     SubscriptionStatus.CANCELLED,
     SubscriptionStatus.PENDING_PAYMENT,
   ] as const)('returns "inactive" when the subscription does not grant access (%s)', (status) => {
-    expect(lockedAddLocationReason(SubscriptionTier.BASIC, status)).toBe('inactive');
+    expect(resolveAddLocationState(true, SubscriptionTier.BASIC, status)).toBe('inactive');
   });
 });

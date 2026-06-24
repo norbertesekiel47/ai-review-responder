@@ -23,20 +23,25 @@ export function canAddLocationForAccount(
 }
 
 /**
- * Which "locked" reason to surface when add-location is NOT available (i.e.
- * canAddLocationForAccount returned false). One tested owner for the copy
- * decision, so the page never re-derives entitlement from a raw status compare:
- *   - 'upgrade'  — the account IS entitled (full access) but its tier has no
- *                  multi-location allowance (Basic). Show the upgrade CTA.
+ * The whole add-location decision for the Locations settings page, in one tested
+ * place so the page never re-derives entitlement from a raw status compare:
+ *   - 'enabled'  — the account may add a location now.
+ *   - 'upgrade'  — entitled (full access) but on a tier with no multi-location
+ *                  allowance (Basic). Show the upgrade CTA.
  *   - 'inactive' — the subscription does not grant full access. Show the
  *                  "subscription must be active" CTA.
- * A trialing account grants full access, so trialing-Basic yields 'upgrade'
- * (fixes STATUS-1.1). Only meaningful in the locked branch.
+ * Trialing grants full access, so a trialing-Basic owner resolves to 'upgrade'
+ * (fixes STATUS-1.1), not 'inactive'. Total over its inputs — no caller
+ * precondition to remember.
  */
-export function lockedAddLocationReason(
+export function resolveAddLocationState(
+  featureEnabled: boolean,
   subscriptionTier: string,
   subscriptionStatus: string,
-): 'upgrade' | 'inactive' {
+): 'enabled' | 'upgrade' | 'inactive' {
+  if (canAddLocationForAccount(featureEnabled, subscriptionTier, subscriptionStatus)) {
+    return 'enabled';
+  }
   if (
     subscriptionGrantsFullAccess(subscriptionStatus)
     && lookupTierConfig(subscriptionTier)?.multiLocAllowed !== true

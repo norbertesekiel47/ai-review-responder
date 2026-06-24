@@ -14,8 +14,7 @@ import { LocationsClient } from './LocationsClient';
 import type { AddLocationState } from '@/components/dashboard/settings/LocationsPanel';
 import { getLocationsForAccount, getActiveLocationCount, getArchivedLocationsForAccount } from '@/lib/locations/repo';
 import {
-  canAddLocationForAccount,
-  lockedAddLocationReason,
+  resolveAddLocationState,
   shouldShowLocationsSettings,
 } from '@/lib/locations/multi-location-mode';
 
@@ -44,31 +43,29 @@ export default async function LocationsPage() {
 
   const voiceHref = '/settings/voice';
 
-  const canAdd = canAddLocationForAccount(
+  const addLocationStateKind = resolveAddLocationState(
     featureEnabled,
     account?.subscription_tier ?? '',
     account?.subscription_status ?? '',
   );
-  const addLocationState: AddLocationState = canAdd
-    ? { kind: 'enabled' }
-    : lockedAddLocationReason(
-          account?.subscription_tier ?? '',
-          account?.subscription_status ?? '',
-        ) === 'upgrade'
-      ? {
-          kind: 'locked',
-          title: 'Upgrade to add locations',
-          description: 'Basic includes one location. Upgrade to Standard or Premium to add more.',
-          ctaHref: '/settings/billing',
-          ctaLabel: 'View plan options',
-        }
-      : {
-          kind: 'locked',
-          title: 'Location additions unavailable',
-          description: 'Your subscription must be active before adding another location.',
-          ctaHref: '/settings/billing',
-          ctaLabel: 'Review billing',
-        };
+  const addLocationState: AddLocationState =
+    addLocationStateKind === 'enabled'
+      ? { kind: 'enabled' }
+      : addLocationStateKind === 'upgrade'
+        ? {
+            kind: 'locked',
+            title: 'Upgrade to add locations',
+            description: 'Basic includes one location. Upgrade to Standard or Premium to add more.',
+            ctaHref: '/settings/billing',
+            ctaLabel: 'View plan options',
+          }
+        : {
+            kind: 'locked',
+            title: 'Location additions unavailable',
+            description: 'Your subscription must be active before adding another location.',
+            ctaHref: '/settings/billing',
+            ctaLabel: 'Review billing',
+          };
 
   // Fetch Zernio connection status for each location (active + archived)
   const allLocationIds = [...locations, ...archivedLocations].map((l) => l.id);
