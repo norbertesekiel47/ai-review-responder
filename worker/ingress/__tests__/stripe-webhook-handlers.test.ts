@@ -189,16 +189,32 @@ function queueSubscriptionUpdated(opts: {
 }
 
 // Queue helper: invoice.payment_failed tx flow (active → past_due)
+// After B1.3: the active→past_due status write is owned by the real applier
+// (checkout mode), so the SQL sequence is:
+//   1. Handler's SELECT … FOR UPDATE (resolves acctRow by stripe_customer_id)
+//   2. pg_advisory_xact_lock (always)
+//   3. Applier's resolveAccount SELECT (checkout mode, by accountId FOR UPDATE)
+//   4. Applier's writeStatusColumns: UPDATE accounts SET subscription_status='past_due', past_due_at=NOW()
+//   5. Applier's writeBusinessesMirror: UPDATE businesses SET subscription_status='past_due'
+//   6. writeAccountAuditLog — mocked, no SQL consumed
+//   7. enqueueLifecycleAnalytics — PAST_DUE from ACTIVE emits nothing (guard: fromStatus !== 'trialing')
+// No recentConvert EXISTS: integration test invoices have no subscription id,
+// so failedSubscriptionId=null and the recent-convert block is skipped.
 function queueInvoicePaymentFailed(opts: {
   status?: string;
-  updateAccount?: boolean;
 } = {}) {
   const status = opts.status ?? 'active';
+  // 1. Handler's SELECT … FOR UPDATE
   sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: status }]);
+  // 2. Advisory lock
   sqlReturnQueue.push([]);
   if (status === 'active') {
+    // 3. Applier's resolveAccount SELECT (checkout mode)
+    sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: 'active', primary_business_id: null }]);
+    // 4. Applier's writeStatusColumns: UPDATE accounts SET subscription_status='past_due'
     const r1: any = []; r1.count = 1;
     sqlReturnQueue.push(r1);
+    // 5. Applier's writeBusinessesMirror: UPDATE businesses
     const r2: any = []; r2.count = 1;
     sqlReturnQueue.push(r2);
   }
