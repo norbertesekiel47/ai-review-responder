@@ -191,21 +191,26 @@ function queueSubscriptionUpdated(opts: {
 // Queue helper: invoice.payment_failed tx flow (active → past_due)
 // After B1.3: the active→past_due status write is owned by the real applier
 // (checkout mode), so the SQL sequence is:
-//   1. Handler's SELECT … FOR UPDATE (resolves acctRow by stripe_customer_id)
+//   1. Handler's SELECT … FOR UPDATE (resolves acctRow by (stripe_customer_id,
+//      stripe_subscription_id) — subscription-lineage scope, adversarial review)
 //   2. pg_advisory_xact_lock (always)
 //   3. Applier's resolveAccount SELECT (checkout mode, by accountId FOR UPDATE)
 //   4. Applier's writeStatusColumns: UPDATE accounts SET subscription_status='past_due', past_due_at=NOW()
 //   5. Applier's writeBusinessesMirror: UPDATE businesses SET subscription_status='past_due'
 //   6. writeAccountAuditLog — mocked, no SQL consumed
 //   7. enqueueLifecycleAnalytics — PAST_DUE from ACTIVE emits nothing (guard: fromStatus !== 'trialing')
-// No recentConvert EXISTS: integration test invoices have no subscription id,
-// so failedSubscriptionId=null and the recent-convert block is skipped.
+// The handler now REQUIRES the failed invoice's subscription id (scoped SELECT),
+// so the paired invoice fixture carries subscription: TEST_SUBSCRIPTION_ID and the
+// seeded account row's stripe_subscription_id matches it (faithful 1:1 state).
+// recordTrialConversionFailureIfRecent: failedSubscriptionId is now non-null, so for
+// an active→past_due transition the recent-convert EXISTS query runs — queued as
+// { ok: false } so no trial_payment_failed is emitted on a normal renewal.
 function queueInvoicePaymentFailed(opts: {
   status?: string;
 } = {}) {
   const status = opts.status ?? 'active';
-  // 1. Handler's SELECT … FOR UPDATE
-  sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: status }]);
+  // 1. Handler's SELECT … FOR UPDATE (now scoped by customer + subscription)
+  sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: status, stripe_subscription_id: TEST_SUBSCRIPTION_ID }]);
   // 2. Advisory lock
   sqlReturnQueue.push([]);
   if (status === 'active') {
@@ -217,17 +222,25 @@ function queueInvoicePaymentFailed(opts: {
     // 5. Applier's writeBusinessesMirror: UPDATE businesses
     const r2: any = []; r2.count = 1;
     sqlReturnQueue.push(r2);
+    // 6. recordTrialConversionFailureIfRecent EXISTS query (failedSubscriptionId now
+    //    non-null) → no recent trial conversion, so no trial_payment_failed emit.
+    sqlReturnQueue.push([{ ok: false }]);
   }
 }
 
 // Queue helper: invoice.paid tx flow (past_due → active)
+// Subscription-lineage scope (adversarial review): the recovery loop now recovers
+// an account ONLY when its stripe_subscription_id equals the invoice's subscription
+// id. The seeded account row carries TEST_SUBSCRIPTION_ID, so the paired invoice
+// fixture MUST also carry subscription: TEST_SUBSCRIPTION_ID (faithful 1:1 state),
+// or the recovery is correctly skipped.
 function queueInvoicePaid(opts: {
   status?: string;
 } = {}) {
   const status = opts.status ?? 'past_due';
-  // 1. Handler's SELECT … FOR UPDATE (stripe_customer_id lookup) — now also
-  //    reads stripe_subscription_id so the recovery synth id prefers the
-  //    account's existing id (never writes '' onto a null-subscription account).
+  // 1. Handler's SELECT … FOR UPDATE (stripe_customer_id lookup) — also reads
+  //    stripe_subscription_id, which the recovery loop matches against the
+  //    invoice's subscription id (lineage scope) before recovering.
   sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: status, stripe_subscription_id: TEST_SUBSCRIPTION_ID }]);
   if (status === 'past_due') {
     // 2. pg_advisory_xact_lock result
@@ -909,7 +922,7 @@ describe('invoice.payment_failed — sets account to past_due', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_inv_failed_1',
       type: 'invoice.payment_failed',
-      data: { object: { id: 'in_test_1', customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: 'in_test_1', customer: TEST_CUSTOMER_ID, subscription: TEST_SUBSCRIPTION_ID } },
     });
 
     queueInvoicePaymentFailed({ status: 'active' });
@@ -940,7 +953,7 @@ describe('invoice.payment_failed — sets account to past_due', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_inv_failed_dup',
       type: 'invoice.payment_failed',
-      data: { object: { id: 'in_test_dup', customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: 'in_test_dup', customer: TEST_CUSTOMER_ID, subscription: TEST_SUBSCRIPTION_ID } },
     });
 
     queueInvoicePaymentFailed({ status: 'past_due' });
@@ -987,7 +1000,7 @@ describe('invoice.payment_failed — sets account to past_due', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_inv_failed_lock',
       type: 'invoice.payment_failed',
-      data: { object: { id: 'in_test_lock', customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: 'in_test_lock', customer: TEST_CUSTOMER_ID, subscription: TEST_SUBSCRIPTION_ID } },
     });
 
     queueInvoicePaymentFailed({ status: 'active' });
@@ -1016,7 +1029,7 @@ describe('invoice.paid — active recovery from past_due', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_inv_paid_1',
       type: 'invoice.paid',
-      data: { object: { id: 'in_paid_1', customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: 'in_paid_1', customer: TEST_CUSTOMER_ID, subscription: TEST_SUBSCRIPTION_ID } },
     });
 
     queueInvoicePaid({ status: 'past_due' });
@@ -1047,7 +1060,7 @@ describe('invoice.paid — active recovery from past_due', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_inv_paid_active',
       type: 'invoice.paid',
-      data: { object: { id: 'in_paid_active', customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: 'in_paid_active', customer: TEST_CUSTOMER_ID, subscription: TEST_SUBSCRIPTION_ID } },
     });
 
     queueInvoicePaid({ status: 'active' });
@@ -1067,7 +1080,7 @@ describe('invoice.paid — active recovery from past_due', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_inv_paid_overage_enqueue',
       type: 'invoice.paid',
-      data: { object: { id: 'in_paid_overage', customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: 'in_paid_overage', customer: TEST_CUSTOMER_ID, subscription: TEST_SUBSCRIPTION_ID } },
     });
 
     queueInvoicePaid({ status: 'past_due' });
@@ -1093,7 +1106,7 @@ describe('invoice.paid — active recovery from past_due', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_inv_paid_noop_overage',
       type: 'invoice.paid',
-      data: { object: { id: 'in_paid_noop_overage', customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: 'in_paid_noop_overage', customer: TEST_CUSTOMER_ID, subscription: TEST_SUBSCRIPTION_ID } },
     });
 
     queueInvoicePaid({ status: 'active' });
@@ -1133,7 +1146,7 @@ describe('invoice.paid — active recovery from past_due', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_inv_paid_lock',
       type: 'invoice.paid',
-      data: { object: { id: 'in_paid_lock', customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: 'in_paid_lock', customer: TEST_CUSTOMER_ID, subscription: TEST_SUBSCRIPTION_ID } },
     });
 
     queueInvoicePaid({ status: 'past_due' });
@@ -1583,7 +1596,7 @@ describe('Webhook idempotency and error handling', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_fail_1',
       type: 'invoice.payment_failed',
-      data: { object: { id: 'in_fail_1', customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: 'in_fail_1', customer: TEST_CUSTOMER_ID, subscription: TEST_SUBSCRIPTION_ID } },
     });
 
     // Make the first SQL call inside tx throw
@@ -1599,7 +1612,7 @@ describe('Webhook idempotency and error handling', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_success_1',
       type: 'invoice.payment_failed',
-      data: { object: { id: 'in_success_1', customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: 'in_success_1', customer: TEST_CUSTOMER_ID, subscription: TEST_SUBSCRIPTION_ID } },
     });
 
     queueInvoicePaymentFailed({ status: 'active' });
@@ -1685,7 +1698,7 @@ describe('subscription_status_changed audit logging', () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_audit_recover',
       type: 'invoice.paid',
-      data: { object: { id: 'in_audit_recover', customer: TEST_CUSTOMER_ID } },
+      data: { object: { id: 'in_audit_recover', customer: TEST_CUSTOMER_ID, subscription: TEST_SUBSCRIPTION_ID } },
     });
 
     queueInvoicePaid({ status: 'past_due' });

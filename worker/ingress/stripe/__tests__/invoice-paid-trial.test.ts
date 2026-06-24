@@ -125,7 +125,7 @@ describe('invoice.paid — trial conversion (FIX 4)', () => {
   });
 
   it('past_due account → routes through applier (checkout/by-accountId mode), NO Stripe retrieve', async () => {
-    sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'past_due' }]);
+    sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'past_due', stripe_subscription_id: SUB_ID }]);
     mockApplyStripeSubscriptionState.mockResolvedValueOnce({
       accountResolved: true, fromStatus: 'past_due', toStatus: 'active',
       changed: true, activated: true, primaryBusinessId: null,
@@ -146,7 +146,7 @@ describe('invoice.paid — trial conversion (FIX 4)', () => {
   });
 
   it('past_due → active recovery routes through the applier (checkout/by-accountId mode)', async () => {
-    sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'past_due' }]); // accounts FOR UPDATE
+    sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'past_due', stripe_subscription_id: 'sub_1' }]); // accounts FOR UPDATE
     mockApplyStripeSubscriptionState.mockResolvedValueOnce({
       accountResolved: true, fromStatus: 'past_due', toStatus: 'active',
       changed: true, activated: true, primaryBusinessId: 'biz-1',
@@ -166,12 +166,12 @@ describe('invoice.paid — trial conversion (FIX 4)', () => {
     expect(inlineRecover).toBeUndefined();
   });
 
-  it('recovery synth id prefers the account\'s existing stripe_subscription_id (never passes empty string)', async () => {
-    // Account already has its own subscription id; the invoice carries a
-    // DIFFERENT one. Precedence must pick the account's existing id so the
-    // applier's COALESCE(stripe_subscription_id, id) stays a strict no-op.
+  it('recovery passes the invoice subscription id (which equals the matched account\'s) — never an empty string', async () => {
+    // Subscription-lineage scope: recovery fires only when the account's CURRENT
+    // subscription equals the invoice's. The applier therefore always receives the
+    // invoice's real subscription id (== the account's), never a synth '' fallback.
     sqlReturnQueue.push([
-      { id: ACCOUNT_ID, subscription_status: 'past_due', stripe_subscription_id: 'sub_existing' },
+      { id: ACCOUNT_ID, subscription_status: 'past_due', stripe_subscription_id: 'sub_matched' },
     ]);
     mockApplyStripeSubscriptionState.mockResolvedValueOnce({
       accountResolved: true, fromStatus: 'past_due', toStatus: 'active',
@@ -179,32 +179,41 @@ describe('invoice.paid — trial conversion (FIX 4)', () => {
     });
 
     await processInvoicePaid({ id: 'in_1', customer: CUSTOMER_ID,
-      lines: { data: [] }, subscription: 'sub_from_invoice' } as any);
+      lines: { data: [] }, subscription: 'sub_matched' } as any);
 
     const [, ref, sub] = mockApplyStripeSubscriptionState.mock.calls[0]!;
     expect(ref).toEqual({ mode: 'checkout', accountId: ACCOUNT_ID });
-    expect(sub).toMatchObject({ id: 'sub_existing', status: 'active' });
+    expect(sub).toMatchObject({ id: 'sub_matched', status: 'active' });
     expect(sub.id).not.toBe('');
   });
 
-  it('recovery synth id falls back to the invoice subscription id when the account has none', async () => {
-    // Pathological: account row missing stripe_subscription_id. The OLD inline
-    // recovery wrote no Stripe ids at all; the new path must NOT write '' (which
-    // would make the account unresolvable). Fall back to the invoice's real id.
+  it('does NOT recover a past_due account whose subscription differs from the invoice (lineage scope)', async () => {
+    // Account's current subscription is 'sub_existing'; the invoice paid is for a
+    // DIFFERENT subscription. With subscription-lineage scope this is NOT the
+    // account's lineage → no recovery, no applier call (the old ?? '' synth path
+    // would have wrongly reactivated it).
     sqlReturnQueue.push([
-      { id: ACCOUNT_ID, subscription_status: 'past_due', stripe_subscription_id: null },
+      { id: ACCOUNT_ID, subscription_status: 'past_due', stripe_subscription_id: 'sub_existing' },
     ]);
-    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
-      accountResolved: true, fromStatus: 'past_due', toStatus: 'active',
-      changed: true, activated: true, primaryBusinessId: null,
-    });
 
     await processInvoicePaid({ id: 'in_1', customer: CUSTOMER_ID,
       lines: { data: [] }, subscription: 'sub_from_invoice' } as any);
 
-    const [, , sub] = mockApplyStripeSubscriptionState.mock.calls[0]!;
-    expect(sub).toMatchObject({ id: 'sub_from_invoice', status: 'active' });
-    expect(sub.id).not.toBe('');
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+  });
+
+  it('does NOT recover a past_due account missing a stripe_subscription_id (cannot attribute lineage)', async () => {
+    // Pathological: account row missing stripe_subscription_id. A null sub can
+    // never equal the invoice's subscription, so it is not lineage-attributable
+    // and is left for the reconcile poller — never recovered by customer alone.
+    sqlReturnQueue.push([
+      { id: ACCOUNT_ID, subscription_status: 'past_due', stripe_subscription_id: null },
+    ]);
+
+    await processInvoicePaid({ id: 'in_1', customer: CUSTOMER_ID,
+      lines: { data: [] }, subscription: 'sub_from_invoice' } as any);
+
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
   });
 
   it('active account → no-op, NO Stripe retrieve', async () => {
@@ -213,6 +222,31 @@ describe('invoice.paid — trial conversion (FIX 4)', () => {
     await processInvoicePaid(invoice());
 
     expect(mockRetrieve).not.toHaveBeenCalled();
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+  });
+
+  it('does NOT recover a sibling past_due account whose subscription differs from the invoice', async () => {
+    // Customer cus_shared has TWO accounts: acct-A (sub_A, past_due) and acct-B
+    // (sub_B, past_due). The invoice paid is for sub_A → only acct-A recovers.
+    sqlReturnQueue.push([
+      { id: 'acct-A', subscription_status: 'past_due', stripe_subscription_id: 'sub_A' },
+      { id: 'acct-B', subscription_status: 'past_due', stripe_subscription_id: 'sub_B' },
+    ]);
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'past_due', toStatus: 'active',
+      changed: true, activated: true, primaryBusinessId: 'biz-A',
+    });
+    await processInvoicePaid({ id: 'in_1', customer: 'cus_shared', lines: { data: [] }, subscription: 'sub_A' } as any);
+    // Applier called exactly once, for acct-A (checkout mode, accountId acct-A), never for acct-B.
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
+      expect.anything(), { mode: 'checkout', accountId: 'acct-A' }, expect.objectContaining({ id: 'sub_A', status: 'active' }),
+    );
+  });
+
+  it('does NOT recover by customer alone when the invoice has no subscription id', async () => {
+    sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'past_due', stripe_subscription_id: 'sub_1' }]);
+    await processInvoicePaid({ id: 'in_1', customer: 'cus_1', lines: { data: [] } } as any); // no subscription
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
   });
 });

@@ -152,4 +152,17 @@ describe('invoice.payment_failed — trial card fail', () => {
 
     expect(mockEnqueueTrialPaymentFailed).not.toHaveBeenCalled();
   });
+
+  it('does NOT mark a sibling account past_due — resolves by (customer, subscription)', async () => {
+    // Account row is resolved by (customer, subscription); a failed invoice for a
+    // subscription NOT matching any account under this customer resolves nothing.
+    sqlReturnQueue.push([]); // SELECT ... WHERE stripe_customer_id AND stripe_subscription_id → no row
+    await processInvoicePaymentFailed({ id: 'in_1', customer: 'cus_shared', subscription: 'sub_B' } as any);
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+  });
+
+  it('no-ops when the failed invoice has no subscription id (cannot attribute)', async () => {
+    await processInvoicePaymentFailed({ id: 'in_1', customer: 'cus_1' } as any); // no subscription
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+  });
 });

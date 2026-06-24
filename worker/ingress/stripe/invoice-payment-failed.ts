@@ -44,58 +44,50 @@ export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Prom
     return;
   }
 
+  // Subscription-lineage scope (adversarial review): a Stripe customer can map to
+  // MULTIPLE RepWorth accounts. Resolve by BOTH customer AND the failed invoice's
+  // subscription so a failure for subscription B can never mark account A (sharing
+  // the customer) past_due. A subscription invoice always carries a subscription
+  // id; absent it we cannot attribute the failure to an account → no-op.
+  const failedSubscriptionId = invoiceSubscriptionId(invoice);
+  if (!failedSubscriptionId) {
+    console.warn(`${LOG_PREFIX} invoice.payment_failed for customer=${customerId} has no subscription id — skipping (cannot attribute to an account)`);
+    return;
+  }
+
   // VAL-BILLING-012: Set accounts.subscription_status = 'past_due'
   // VAL-BILLING-062: Advisory lock prevents duplicate past_due writes under
   // concurrent webhook deliveries for the same customer.
   await sql.begin(async (tx) => {
-    // Resolve the account from the customer ID first
     const [acctRow] = await tx<{ id: string; subscription_status: string }[]>`
       SELECT id, subscription_status
       FROM accounts
       WHERE stripe_customer_id = ${customerId}
+        AND stripe_subscription_id = ${failedSubscriptionId}
       FOR UPDATE
     `;
-
     if (!acctRow) {
-      console.warn(`${LOG_PREFIX} invoice.payment_failed no account found for customer=${customerId} — skipping`);
+      console.warn(`${LOG_PREFIX} invoice.payment_failed no account found for customer=${customerId} subscription=${failedSubscriptionId} — skipping`);
       return;
     }
-
     await tx`SELECT pg_advisory_xact_lock(hashtext(${acctRow.id + ':status_change'}))`;
 
-    // Trial card-fail (trialing → past_due): route through the SINGLE applier
-    // (subscription mode) so trial_ends_at is cleared and trial_payment_failed
-    // is emitted, in THIS tx. Requires the subscription id off the invoice; the
-    // applier resolves the account by (customer, subscription) and is a no-op if
-    // they don't match the account's current subscription.
+    // Trialing card-fail: route through the applier (subscription mode).
     if (acctRow.subscription_status === SubscriptionStatus.TRIALING) {
-      const subscriptionId = invoiceSubscriptionId(invoice);
-      if (subscriptionId) {
-        await applyStripeSubscriptionState(
-          tx,
-          { mode: 'subscription', stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId },
-          { id: subscriptionId, status: 'past_due', trial_end: null, customer: customerId },
-        );
-      } else {
-        console.warn(`${LOG_PREFIX} invoice.payment_failed trialing account ${acctRow.id} but no subscription id on invoice — skipping`);
-      }
+      await applyStripeSubscriptionState(
+        tx,
+        { mode: 'subscription', stripeCustomerId: customerId, stripeSubscriptionId: failedSubscriptionId },
+        { id: failedSubscriptionId, status: 'past_due', trial_end: null, customer: customerId },
+      );
       return;
     }
 
-    // Idempotent: only flip active → past_due. Route the status write through the
-    // applier (QUALITY-OBS) in checkout/by-accountId mode — acctRow is already
-    // resolved + FOR-UPDATE-locked, so no subscription id is needed to resolve.
-    // PAST_DUE writes no Stripe ids, so the synthesized `id` is unused for this
-    // target. The applier clears trial_ends_at, sets past_due_at, mirrors ALL
-    // businesses (NOTE-A), and writes the audit row.
     if (acctRow.subscription_status === SubscriptionStatus.ACTIVE) {
-      const failedSubscriptionId = invoiceSubscriptionId(invoice);
       const transition = await applyStripeSubscriptionState(
         tx,
         { mode: 'checkout', accountId: acctRow.id },
-        { id: failedSubscriptionId ?? '', status: 'past_due', trial_end: null, customer: customerId },
+        { id: failedSubscriptionId, status: 'past_due', trial_end: null, customer: customerId },
       );
-
       if (transition.changed) {
         console.log(`${LOG_PREFIX} Account ${acctRow.id} marked past_due (customer=${customerId})`);
         await recordTrialConversionFailureIfRecent(tx, acctRow.id, failedSubscriptionId);

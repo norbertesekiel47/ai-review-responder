@@ -1750,9 +1750,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/stripe/invoice-payment-failed.ts",
     table: "accounts",
-    sqlSnippet: "SELECT id, subscription_status FROM accounts WHERE stripe_customer_id = ${customerId} FOR UPDATE",
+    sqlSnippet: "SELECT id, subscription_status FROM accounts WHERE stripe_customer_id = ${customerId} AND stripe_subscription_id = ${failedSubscriptionId} FOR UPDATE",
     category: 'provider-ingress',
-    reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available.",
+    reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available. Scoped by (customer, subscription) — a Stripe customer can map to multiple accounts (RECONCILE-F6), so a failure for subscription B must never mark account A past_due.",
   },
   {
     file: "worker/ingress/zernio/zernio.ts",
