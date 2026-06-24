@@ -107,4 +107,36 @@ describe('subscription.deleted — cancel during trial', () => {
     );
     expect(inlineCancel).toBeUndefined();
   });
+
+  it('multi-account customer: cancels the account whose CURRENT subscription matches, not the first row', async () => {
+    const A1 = '019dc366-29ce-7000-a000-00000000000a'; // first row — DIFFERENT subscription
+    const A2 = '019dc366-29ce-7000-a000-00000000000b'; // the account ON the deleted subscription
+    sqlReturnQueue.push([
+      { id: A1, subscription_status: 'active', stripe_subscription_id: 'sub_other', active_offboarding_subscription_id: null },
+      { id: A2, subscription_status: 'active', stripe_subscription_id: SUB_ID, active_offboarding_subscription_id: null },
+    ]);
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'active', toStatus: 'cancelled',
+      changed: true, activated: false, primaryBusinessId: null,
+    });
+
+    await processSubscriptionDeleted(deletedSub());
+
+    // The old `const [acctRow]` took A1 (mismatched) and skipped; the fix resolves A2.
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
+    const lockCall = sqlCalls.find((c) => /pg_advisory_xact_lock/.test(c.text));
+    expect(lockCall?.values).toContain(`${A2}:status_change`);
+    expect(lockCall?.values).not.toContain(`${A1}:status_change`);
+  });
+
+  it('multi-account customer: no account on the deleted subscription → skip (no applier call)', async () => {
+    sqlReturnQueue.push([
+      { id: 'acct-x', subscription_status: 'active', stripe_subscription_id: 'sub_x', active_offboarding_subscription_id: null },
+      { id: 'acct-y', subscription_status: 'active', stripe_subscription_id: 'sub_y', active_offboarding_subscription_id: null },
+    ]);
+
+    await processSubscriptionDeleted(deletedSub()); // deletes SUB_ID, owned by neither account
+
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+  });
 });

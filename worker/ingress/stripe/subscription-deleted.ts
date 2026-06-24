@@ -19,7 +19,7 @@ export async function processSubscriptionDeleted(sub: Stripe.Subscription): Prom
   // VAL-BILLING-015: Set subscription_status = 'cancelled'
   // VAL-BILLING-062: Advisory lock prevents duplicate cancellation writes.
   await sql.begin(async (tx) => {
-    const [acctRow] = await tx<{
+    const acctRows = await tx<{
       id: string;
       subscription_status: string;
       stripe_subscription_id: string | null;
@@ -45,26 +45,34 @@ export async function processSubscriptionDeleted(sub: Stripe.Subscription): Prom
       FOR UPDATE
     `;
 
-    if (!acctRow) {
+    if (acctRows.length === 0) {
       // Out-of-order delivery (deep-scan §6.2): mirror subscription-updated —
       // THROW so the wrapper replies 500 and Stripe redelivers once
       // checkout-completed has written stripe_customer_id. Cancellation re-applies
       // idempotently (status-guarded UPDATE skips an already-cancelled account).
-      // The mismatch branches below stay clean returns.
       console.warn(`${LOG_PREFIX} customer.subscription.deleted no account found for customer=${customerId} — signaling retry`);
       throw new AccountNotProvisionedYetError(customerId);
     }
 
-    if (subscriptionId !== acctRow.stripe_subscription_id) {
-      if (subscriptionId === acctRow.active_offboarding_subscription_id) {
+    // Subscription-lineage scope: a Stripe customer can map to MULTIPLE accounts.
+    // Cancel the one whose CURRENT subscription is the deleted one — resolving by
+    // subscription, never the arbitrary first customer row. The SELECT stays
+    // customer-scoped on purpose: we must see every account under the customer to
+    // tell out-of-order delivery (throw → retry) from a genuine mismatch (skip)
+    // from an expected post-offboarding-snapshot delete (skip).
+    const acctRow = acctRows.find((a) => a.stripe_subscription_id === subscriptionId);
+    if (!acctRow) {
+      const offboardingMatch = acctRows.find(
+        (a) => a.active_offboarding_subscription_id === subscriptionId,
+      );
+      if (offboardingMatch) {
         console.log(
-          `${LOG_PREFIX} customer.subscription.deleted subscription=${subscriptionId} matches active offboarding snapshot for account ${acctRow.id} but not current subscription — skipping live status update`,
+          `${LOG_PREFIX} customer.subscription.deleted subscription=${subscriptionId} matches active offboarding snapshot for account ${offboardingMatch.id} but not its current subscription — skipping live status update`,
         );
         return;
       }
-
       console.warn(
-        `${LOG_PREFIX} customer.subscription.deleted subscription=${subscriptionId} does not match account ${acctRow.id} current/active-offboarding subscription — skipping`,
+        `${LOG_PREFIX} customer.subscription.deleted subscription=${subscriptionId} does not match any account's current/active-offboarding subscription for customer=${customerId} — skipping`,
       );
       return;
     }

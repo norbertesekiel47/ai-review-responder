@@ -113,9 +113,10 @@ Findings were remediated across two risk-split PRs. **PR A is merged; PR B is op
 | OVERAGE-F6 | ✅ Validated live in the §2.5 soak (mid-trial overage add = $0 until trial_end). |
 
 **Additional PR-B hardening — from three post-build review rounds, beyond the original register:**
-- **Adversarial (Codex):** scoped `invoice.paid` recovery and `invoice.payment_failed` to `(stripe_customer_id, stripe_subscription_id)` so one Stripe customer mapped to multiple accounts can't transition the wrong account; escalated `status_mismatch` reconcile drift to `error`.
+- **Adversarial (Codex):** scoped `invoice.payment_failed` (SQL `WHERE`) and `invoice.paid` recovery/convert (app-layer loop guard over the customer's accounts) to the invoice's subscription lineage, so one Stripe customer mapped to multiple accounts can't transition the wrong account; escalated `status_mismatch` reconcile drift to `error`.
 - **Codex review:** transient Postgres errors in the overage lock tx now retry (not terminal); overage quantity recomputed inside the lock.
 - **Thermo-nuclear quality:** `invoice.paid` trial-convert reduced to a single lineage-matched account (was a fan-out loop). Applier-contract simplification deferred → `docs/future-plans/2026-06-24-simplify-stripe-status-applier-contract.md`.
+- **Post-review fix:** `customer.subscription.deleted` resolves the account to cancel by matching subscription (`acctRows.find(...)`) instead of the arbitrary first customer row — closing the same multi-account exposure on the cancel path. The SELECT stays customer-scoped on purpose, to distinguish out-of-order delivery (throw → Stripe retry) from a genuine mismatch / offboarding-snapshot delete (skip).
 
 **Not addressed (low-risk P3, out of remediation scope):** PORTAL-1 (`configurations.list` 100-limit), SELECTPLAN-2 (select-plan inline DB logic). **No fix needed:** RECONCILE-F2 (refuted by Phase B).
 
