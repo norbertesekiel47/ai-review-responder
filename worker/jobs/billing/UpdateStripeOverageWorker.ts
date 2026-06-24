@@ -27,6 +27,7 @@ import { computeOverageQuantity } from '../../../src/lib/accounts/quota';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { subscriptionGrantsFullAccess } from '../../../src/lib/shared/subscription-status';
 import { classifyStripeOverageError } from './stripe-overage-error';
+import { isTransientPostgresError } from './postgres-transient-error';
 import { syncStripeOverageItem, type OverageSyncOutcome } from './overage-sync';
 
 export interface UpdateStripeOveragePayload {
@@ -87,15 +88,6 @@ export async function handleUpdateStripeOverage(
     return;
   }
 
-  // Count active locations
-  const [locationRow] = await sql<{ count: number }[]>`
-    SELECT COUNT(*) AS count
-    FROM businesses
-    WHERE account_id = ${account_id}::uuid
-      AND archived_at IS NULL
-  `;
-  const activeLocations = Number(locationRow?.count ?? 0);
-
   const tier = account.subscription_tier as SubscriptionTierValue;
   const config = TIER_CONFIG[tier];
   if (!config) {
@@ -111,7 +103,6 @@ export async function handleUpdateStripeOverage(
     return;
   }
 
-  const newQuantity = computeOverageQuantity(activeLocations, account.locations_included);
   const overagePriceId = overagePriceIdForTier(tier);
 
   if (!overagePriceId) {
@@ -133,6 +124,20 @@ export async function handleUpdateStripeOverage(
     // timeout (single consumer + infrequent events → ~zero contention).
     outcome = await sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext(${account_id + ':overage_sync'}))`;
+      // OVERAGE-F1b: recompute the live location count INSIDE the lock so the
+      // serialized section acts on fresh state. Computing it pre-lock let two
+      // concurrent same-account syncs read different counts; the older snapshot
+      // could then update Stripe last and stale-over/under-bill. [Codex review]
+      const [lockedCountRow] = await tx<{ count: number }[]>`
+        SELECT COUNT(*) AS count
+        FROM businesses
+        WHERE account_id = ${account_id}::uuid
+          AND archived_at IS NULL
+      `;
+      const newQuantity = computeOverageQuantity(
+        Number(lockedCountRow?.count ?? 0),
+        account.locations_included,
+      );
       return syncStripeOverageItem(getStripe(), {
         accountId: account_id,
         subscriptionId: account.stripe_subscription_id!,
@@ -144,18 +149,20 @@ export async function handleUpdateStripeOverage(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    // A Postgres pool/transport error from the lock tx (e.g. ECONNRESET) is
-    // classified transient too: classifyStripeOverageError matches retryable
-    // network codes (RETRYABLE_NETWORK_ERROR_CODES) with no Stripe-shape
-    // precondition, so an infra blip retries via the same branch as a Stripe
-    // transient — no separate guard needed.
-    if (classifyStripeOverageError(err) === 'transient') {
+    // The lock tx + Stripe call share this try. A transient Postgres error from
+    // opening the tx, taking pg_advisory_xact_lock, or the in-lock count read
+    // (connection drop, failover, statement/lock-wait timeout — codes NOT in
+    // RETRYABLE_NETWORK_ERROR_CODES) is infra, NOT a deterministic Stripe
+    // failure — retry it (BullMQ + the 1h outbox watchdog) rather than
+    // terminal-failing the overage sync. Stripe transients are still classified
+    // by classifyStripeOverageError. [Codex review]
+    if (isTransientPostgresError(err) || classifyStripeOverageError(err) === 'transient') {
       // Leave the outbox row 'dispatched' so BullMQ retries and the 1h outbox
       // watchdog re-dispatches. Do NOT markOutboxFailed — that forfeits the
       // watchdog. Best-effort: surface the real error on the row for ops
       // visibility during a sustained outage (status untouched).
       await recordOutboxTransientError(outboxId, message, outboxAttempt);
-      logger.error(`Transient Stripe overage error for account ${account_id} (will retry): ${message}`);
+      logger.error(`Transient overage sync error for account ${account_id} (will retry): ${message}`);
       throw err;
     }
     // Terminal: a deterministic failure that will never heal on retry.

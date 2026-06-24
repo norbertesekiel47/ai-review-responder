@@ -100,13 +100,48 @@ function mockAccountRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-beforeEach(() => {
+// The location COUNT(*) now runs INSIDE the advisory-lock tx, so the worker's
+// sql calls are no longer a fixed account→count sequence (the lock query lands
+// between them). Dispatch responses by SQL TEXT instead of call order so the
+// tests don't have to track exact call positions. Per-test overrides via the
+// setters below.
+let accountRows: unknown[] = [];
+let locationCount = 0;
+
+function sqlText(call: unknown[]): string {
+  return Array.isArray(call[0]) ? (call[0] as unknown as string[]).join('') : '';
+}
+
+function wireSqlRouter() {
   mockSql.mockReset();
-  mockSql.mockResolvedValue([]);
+  mockSql.mockImplementation((...call: unknown[]) => {
+    const text = sqlText(call);
+    if (text.includes('FROM accounts')) return Promise.resolve(accountRows);
+    if (text.includes('COUNT(*)') && text.includes('businesses')) {
+      return Promise.resolve([{ count: locationCount }]);
+    }
+    return Promise.resolve([]); // advisory lock + anything else
+  });
   // Support sql.begin(async (tx) => cb(tx)) — tx is mockSql itself so that
-  // tagged-template calls inside the callback (e.g. the advisory lock query)
-  // still register on mockSql.mock.calls.
+  // tagged-template calls inside the callback (advisory lock, in-lock count)
+  // still register on mockSql.mock.calls and route by text.
   (mockSql as any).begin = vi.fn(async (cb: (tx: typeof mockSql) => Promise<unknown>) => cb(mockSql));
+}
+
+function setAccount(overrides: Record<string, unknown> = {}) {
+  accountRows = [mockAccountRow(overrides)];
+}
+
+function setNoAccount() {
+  accountRows = [];
+}
+
+function setLocationCount(count: number) {
+  locationCount = count;
+}
+
+beforeEach(() => {
+  wireSqlRouter();
   mockStripeSubscriptionsRetrieve.mockReset();
   mockStripeSubscriptionItemsUpdate.mockReset();
   mockStripeSubscriptionItemsCreate.mockReset();
@@ -116,9 +151,9 @@ beforeEach(() => {
   mockRecordOutboxTransientError.mockReset();
   mockCaptureMessage.mockReset();
 
-  // Default: account with active subscription
-  mockSql.mockResolvedValueOnce([mockAccountRow()]); // account lookup
-  mockSql.mockResolvedValueOnce([{ count: 3 }]); // location count
+  // Default: account with active subscription, 3 active locations.
+  setAccount();
+  setLocationCount(3);
 });
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -155,9 +190,8 @@ describe('UpdateStripeOverageWorker', () => {
 
   // VAL-LOC-011: Computes overage quantity from active location count
   it('computes overage quantity from active locations minus included', async () => {
-    mockSql.mockReset();
-    mockSql.mockResolvedValueOnce([mockAccountRow({ locations_included: 5, subscription_tier: 'premium' })]);
-    mockSql.mockResolvedValueOnce([{ count: 7 }]); // 7 locations
+    setAccount({ locations_included: 5, subscription_tier: 'premium' });
+    setLocationCount(7); // 7 locations
 
     mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
       items: {
@@ -182,9 +216,8 @@ describe('UpdateStripeOverageWorker', () => {
   });
 
   it('deletes existing standard overage item when custom included quota covers active locations', async () => {
-    mockSql.mockReset();
-    mockSql.mockResolvedValueOnce([mockAccountRow({ locations_included: 3, subscription_tier: 'standard' })]);
-    mockSql.mockResolvedValueOnce([{ count: 3 }]); // 3 active, 3 included
+    setAccount({ locations_included: 3, subscription_tier: 'standard' });
+    setLocationCount(3); // 3 active, 3 included
 
     mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
       items: {
@@ -210,9 +243,8 @@ describe('UpdateStripeOverageWorker', () => {
   });
 
   it('creates standard overage quantity from active locations minus custom included quota', async () => {
-    mockSql.mockReset();
-    mockSql.mockResolvedValueOnce([mockAccountRow({ locations_included: 3, subscription_tier: 'standard' })]);
-    mockSql.mockResolvedValueOnce([{ count: 5 }]); // 5 active, 3 included
+    setAccount({ locations_included: 3, subscription_tier: 'standard' });
+    setLocationCount(5); // 5 active, 3 included
 
     mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
       items: {
@@ -243,9 +275,8 @@ describe('UpdateStripeOverageWorker', () => {
 
   // VAL-LOC-012: Deletes overage item when locations fit in included quota
   it('deletes existing overage item when all locations fit in included quota', async () => {
-    mockSql.mockReset();
-    mockSql.mockResolvedValueOnce([mockAccountRow({ locations_included: 5, subscription_tier: 'premium' })]);
-    mockSql.mockResolvedValueOnce([{ count: 3 }]); // 3 locations, 5 included
+    setAccount({ locations_included: 5, subscription_tier: 'premium' });
+    setLocationCount(3); // 3 locations, 5 included
 
     mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
       items: {
@@ -301,12 +332,11 @@ describe('UpdateStripeOverageWorker', () => {
   // Grandfathering: a legacy/rotated overage price (not in the env set) matched
   // by stored unit-amount must be UPDATED in place, never duplicated by a CREATE.
   it('updates a legacy-priced overage item (not in env set) and does not create a duplicate', async () => {
-    mockSql.mockReset();
-    mockSql.mockResolvedValueOnce([mockAccountRow({
+    setAccount({
       locations_included: 1,
       locations_overage_price_cents: 3000,
-    })]);
-    mockSql.mockResolvedValueOnce([{ count: 3 }]); // 3 active, 1 included → quantity 2
+    });
+    setLocationCount(3); // 3 active, 1 included → quantity 2
 
     mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
       items: {
@@ -332,8 +362,7 @@ describe('UpdateStripeOverageWorker', () => {
   });
 
   it('skips when account has no Stripe subscription', async () => {
-    mockSql.mockReset();
-    mockSql.mockResolvedValueOnce([mockAccountRow({ stripe_subscription_id: null })]);
+    setAccount({ stripe_subscription_id: null });
 
     await handleUpdateStripeOverage(mockJob());
 
@@ -342,8 +371,7 @@ describe('UpdateStripeOverageWorker', () => {
   });
 
   it('skips when subscription is not active', async () => {
-    mockSql.mockReset();
-    mockSql.mockResolvedValueOnce([mockAccountRow({ subscription_status: 'cancelled' })]);
+    setAccount({ subscription_status: 'cancelled' });
 
     await handleUpdateStripeOverage(mockJob());
 
@@ -352,9 +380,8 @@ describe('UpdateStripeOverageWorker', () => {
   });
 
   it('skips for basic tier (no overage allowed)', async () => {
-    mockSql.mockReset();
-    mockSql.mockResolvedValueOnce([mockAccountRow({ subscription_tier: 'basic' })]);
-    mockSql.mockResolvedValueOnce([{ count: 1 }]);
+    setAccount({ subscription_tier: 'basic' });
+    setLocationCount(1);
 
     await handleUpdateStripeOverage(mockJob());
 
@@ -363,8 +390,7 @@ describe('UpdateStripeOverageWorker', () => {
   });
 
   it('marks outbox failed when account not found', async () => {
-    mockSql.mockReset();
-    mockSql.mockResolvedValueOnce([]); // no account
+    setNoAccount(); // no account
 
     await handleUpdateStripeOverage(mockJob());
 
@@ -391,11 +417,7 @@ describe('UpdateStripeOverageWorker', () => {
   // VAL-LOC-050: Worker is retry-safe / idempotent
   it('calling worker twice with same account produces same overage quantity (idempotent)', async () => {
     const overageItemId = 'si_overage_idem';
-    mockSql.mockReset();
-
-    // First call
-    mockSql.mockResolvedValueOnce([mockAccountRow()]);
-    mockSql.mockResolvedValueOnce([{ count: 3 }]); // 3 locations
+    // Default router (beforeEach): active account, 3 locations. Same state both calls.
 
     mockStripeSubscriptionsRetrieve.mockResolvedValue({
       items: {
@@ -419,8 +441,6 @@ describe('UpdateStripeOverageWorker', () => {
     // Second call (same account, same state)
     mockStripeSubscriptionItemsUpdate.mockClear();
     mockMarkOutboxCompleted.mockClear();
-    mockSql.mockResolvedValueOnce([mockAccountRow()]);
-    mockSql.mockResolvedValueOnce([{ count: 3 }]);
 
     await handleUpdateStripeOverage(mockJob());
 
@@ -436,7 +456,7 @@ describe('UpdateStripeOverageWorker', () => {
   });
 
   it('uses different idempotency keys for different outbox jobs with the same target quantity', async () => {
-    mockSql.mockReset();
+    setLocationCount(2);
     mockStripeSubscriptionsRetrieve.mockResolvedValue({
       items: {
         data: [
@@ -446,15 +466,11 @@ describe('UpdateStripeOverageWorker', () => {
       },
     });
 
-    mockSql.mockResolvedValueOnce([mockAccountRow()]);
-    mockSql.mockResolvedValueOnce([{ count: 2 }]);
     await handleUpdateStripeOverage(mockJob({
       outbox_id: 'outbox-add-2',
       correlation_id: 'corr-add-2',
     }));
 
-    mockSql.mockResolvedValueOnce([mockAccountRow()]);
-    mockSql.mockResolvedValueOnce([{ count: 2 }]);
     await handleUpdateStripeOverage(mockJob({
       outbox_id: 'outbox-add-3',
       correlation_id: 'corr-add-3',
@@ -581,10 +597,7 @@ describe('UpdateStripeOverageWorker — confidence gate + outbox isolation', () 
   it('AMBIGUOUS: a descriptor-only (keyword) match never mutates Stripe; outbox failed with ambiguous_overage_item', async () => {
     // Quantity computes to 0 (1 active location, 1 included) — on a fuzzy match
     // this would have DELETED the add-on before the confidence gate existed.
-    mockSql.mockReset();
-    mockSql.mockResolvedValue([]);
-    mockSql.mockResolvedValueOnce([mockAccountRow()]);
-    mockSql.mockResolvedValueOnce([{ count: 1 }]);
+    setLocationCount(1);
     mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
       items: {
         data: [
@@ -716,5 +729,65 @@ describe('UpdateStripeOverageWorker — confidence gate + outbox isolation', () 
     await expect(handleUpdateStripeOverage(mockJob())).rejects.toThrow('connection terminated');
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
     expect(mockRecordOutboxTransientError).toHaveBeenCalled();
+  });
+
+  // FINDING A: a transient postgres.js error from the lock tx (connection-lifecycle
+  // code or transient server SQLSTATE) is INFRA, not a deterministic Stripe
+  // failure — it must RETRY (BullMQ + 1h watchdog), never terminal-fail the sync.
+  // These codes are NOT in the Stripe RETRYABLE_NETWORK_ERROR_CODES set, so before
+  // the fix they classified terminal (markOutboxFailed + UnrecoverableError).
+  it.each(['57014', '57P01', 'CONNECTION_CLOSED', '08006'])(
+    'a transient Postgres error (%s) during the lock tx is retried, not terminal-failed',
+    async (code) => {
+      mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+        items: {
+          data: [
+            { id: 'si_base', price: { id: 'price_standard' }, quantity: 1 },
+            { id: 'si_overage', price: { id: 'price_std_overage' }, quantity: 1 },
+          ],
+        },
+      });
+      (mockSql as any).begin = vi.fn(async () => {
+        throw Object.assign(new Error('db blip'), { code });
+      });
+
+      await expect(handleUpdateStripeOverage(mockJob({ account_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' }))).rejects.toThrow();
+      expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+      expect(mockRecordOutboxTransientError).toHaveBeenCalled();
+    },
+  );
+
+  // FINDING B: the live location count + newQuantity must be recomputed INSIDE the
+  // lock so the serialized section acts on fresh state (a pre-lock snapshot could
+  // be stale under concurrent same-account syncs and overwrite a newer quantity).
+  // Assert the businesses COUNT(*) query is issued AFTER the advisory-lock query,
+  // i.e. inside the tx (which is mockSql itself in the test harness).
+  it('recomputes the location count INSIDE the lock (count query runs after the advisory lock)', async () => {
+    // Default router (beforeEach): active account, 3 active locations.
+    setLocationCount(3);
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_standard' }, quantity: 1 },
+          { id: 'si_overage', price: { id: 'price_std_overage' }, quantity: 1 },
+        ],
+      },
+    });
+
+    await handleUpdateStripeOverage(mockJob());
+
+    const lockIdx = mockSql.mock.calls.findIndex((call) => sqlText(call).includes('pg_advisory_xact_lock'));
+    const countIdx = mockSql.mock.calls.findIndex(
+      (call) => sqlText(call).includes('FROM') && sqlText(call).includes('businesses') && sqlText(call).includes('COUNT'),
+    );
+    expect(lockIdx).toBeGreaterThanOrEqual(0);
+    expect(countIdx).toBeGreaterThan(lockIdx);
+
+    // The count read (3 active − 1 included = 2) must drive the Stripe quantity.
+    expect(mockStripeSubscriptionItemsUpdate).toHaveBeenCalledWith(
+      'si_overage',
+      expect.objectContaining({ quantity: 2 }),
+      expect.anything(),
+    );
   });
 });
