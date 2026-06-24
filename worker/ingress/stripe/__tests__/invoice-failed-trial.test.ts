@@ -162,7 +162,21 @@ describe('invoice.payment_failed — trial card fail', () => {
   });
 
   it('no-ops when the failed invoice has no subscription id (cannot attribute)', async () => {
+    sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // would be resolved + flipped in the old code
     await processInvoicePaymentFailed({ id: 'in_1', customer: 'cus_1' } as any); // no subscription
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+  });
+
+  it('resolves the account by BOTH stripe_customer_id AND stripe_subscription_id', async () => {
+    sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // account resolve
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'active', toStatus: 'past_due',
+      changed: true, activated: false, primaryBusinessId: null,
+    });
+    sqlReturnQueue.push([{ ok: false }]); // recentConvert EXISTS
+    await processInvoicePaymentFailed({ id: 'in_1', customer: 'cus_1', subscription: 'sub_1' } as any);
+    const resolve = sqlCalls.find((c) => /\bFROM\s+accounts\b/i.test(c.text) && /stripe_customer_id/.test(c.text));
+    expect(resolve).toBeDefined();
+    expect(resolve!.text).toMatch(/stripe_subscription_id/);  // proves the lineage scoping
   });
 });
