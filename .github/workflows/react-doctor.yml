@@ -3,6 +3,11 @@ name: React Doctor
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+    # Docs/markdown-only PRs touch no React code — skip them.
+    paths-ignore:
+      - 'docs/**'
+      - '.claude/**'
+      - '**/*.md'
 
 permissions:
   contents: read

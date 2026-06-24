@@ -2,13 +2,21 @@ name: Claude Code Review
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+    # Review once when the PR is ready, not on every push (`synchronize`). This
+    # was the single biggest Actions-minute + Claude-credit cost: a full 30-min
+    # review fired on every commit. Re-trigger a review on demand by commenting
+    # `@claude` on the PR (handled by claude.yml).
+    types: [opened, ready_for_review, reopened]
+    # Skip docs/markdown-only PRs — there is no code to review.
+    paths-ignore:
+      - 'docs/**'
+      - '.claude/**'
+      - '**/*.md'
+
+# Cancel an in-flight review when a newer trigger arrives for the same PR.
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   claude-review:
