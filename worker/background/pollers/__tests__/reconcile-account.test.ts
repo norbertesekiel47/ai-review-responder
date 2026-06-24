@@ -143,6 +143,18 @@ describe('reconcileAccount', () => {
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Invoice-preview reconciliation UNAVAILABLE'));
   });
 
+  it('passes a bounded per-request timeout to subscriptions.retrieve', async () => {
+    const stripe = makeStripe({ retrieve: makeSubscription(2), createPreview: makePreview(2) });
+    await reconcileAccount(stripe, makeAccount());
+    // The Stripe SDK retrieve overload is (id, params?, options?), so the
+    // RequestOptions carrying `timeout` is the THIRD positional arg.
+    expect(stripe.subscriptions.retrieve).toHaveBeenCalledWith(
+      'sub_123',
+      {},
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+  });
+
   it('reports a duplicate_subscription drift', async () => {
     const stripe = makeStripe({
       retrieve: makeSubscription(2), createPreview: makePreview(2),

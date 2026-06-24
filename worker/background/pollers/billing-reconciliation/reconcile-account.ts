@@ -32,6 +32,12 @@ import type { AccountWithLocations, BillingReconciliationAccount } from './types
 
 const logger = createWorkerLogger(LOG_PREFIX);
 
+// Per-request Stripe timeout — under the orchestrator's per-account budget
+// (ACCOUNT_TIMEOUT_MS=60s) so an in-flight read self-terminates and frees its
+// connection rather than hanging on the SDK default. Stripe SDK v22 has no
+// request AbortSignal, so this request timeout is the cancellation mechanism.
+const STRIPE_READ_TIMEOUT_MS = 20_000;
+
 export interface AccountReconcileOutcome {
   accountsChecked: 0 | 1;
   drifts: DriftAlertPayload[];
@@ -85,6 +91,8 @@ export async function reconcileAccount(
   try {
     subscription = await stripe.subscriptions.retrieve(
       account.stripe_subscription_id,
+      {},
+      { timeout: STRIPE_READ_TIMEOUT_MS },
     );
   } catch (err) {
     if (!isMissingStripeSubscriptionError(err)) {
@@ -110,11 +118,14 @@ export async function reconcileAccount(
 
   if (stripeCustomerId) {
     try {
-      const customerSubscriptions = await stripe.subscriptions.list({
-        customer: stripeCustomerId,
-        status: 'all',
-        limit: 100,
-      });
+      const customerSubscriptions = await stripe.subscriptions.list(
+        {
+          customer: stripeCustomerId,
+          status: 'all',
+          limit: 100,
+        },
+        { timeout: STRIPE_READ_TIMEOUT_MS },
+      );
       const activeSubscriptions = activeStripeSubscriptions(customerSubscriptions);
       if (activeSubscriptions.length > 1) {
         drifts.push({
@@ -153,6 +164,7 @@ export async function reconcileAccount(
   const dbTrialing = account.subscription_status === SubscriptionStatus.TRIALING;
   const stripeTrialing = subscription.status === 'trialing';
   if (dbTrialing && !stripeTrialing && account.stripe_subscription_id) {
+    // Read-before-tx invariant: all Stripe reads above have resolved; this tx holds a pool connection only for fast DB writes, never across a Stripe call.
     const transition = await sql.begin(async (tx) =>
       applyStripeSubscriptionState(
         tx,
@@ -294,10 +306,13 @@ export async function reconcileAccount(
       throw new Error('Stripe subscription is missing a customer ID');
     }
 
-    const upcoming = await stripe.invoices.createPreview({
-      customer: stripeCustomerId,
-      subscription: account.stripe_subscription_id,
-    });
+    const upcoming = await stripe.invoices.createPreview(
+      {
+        customer: stripeCustomerId,
+        subscription: account.stripe_subscription_id,
+      },
+      { timeout: STRIPE_READ_TIMEOUT_MS },
+    );
     const actualRecurringCents = recurringSubscriptionLineTotalCents(upcoming);
 
     if (actualRecurringCents === null) {

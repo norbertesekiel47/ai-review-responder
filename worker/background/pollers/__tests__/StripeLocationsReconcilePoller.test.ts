@@ -79,6 +79,7 @@ import {
 } from '../billing-reconciliation/drift';
 import {
   runOnce,
+  reconcileCycle,
   startStripeLocationsReconcilePoller,
   stopStripeLocationsReconcilePoller,
 } from '../StripeLocationsReconcilePoller';
@@ -1420,6 +1421,26 @@ describe('StripeLocationsReconcilePoller', () => {
       .find((l: unknown): l is string => typeof l === 'string' && l.includes('Previous run still in progress'));
     expect(skipLine).toBeUndefined();
     vi.useRealTimers();
+  });
+
+  it('an aborted cycle signal stops the loop before launching any per-account work', async () => {
+    // RECONCILE-F5: when runOnce's cycle deadline fires, it aborts the controller
+    // so the DETACHED cycle stops launching NEW per-account work (it cannot cancel
+    // the in-flight HTTP call — Stripe SDK v22 has no request AbortSignal). Drive
+    // reconcileCycle directly with an already-aborted signal: it must process ZERO
+    // accounts even though the query returns one.
+    sqlReturnQueue.push([
+      makeAccountRow({ id: 'acct-should-not-run', subscription_tier: 'standard', locations_included: 1, active_location_count: 3 }),
+    ]);
+
+    const result = await reconcileCycle(AbortSignal.abort());
+
+    expect(result).toEqual({ accountsChecked: 0, driftsFound: 0, errors: 0 });
+    expect(mockStripeRetrieve).not.toHaveBeenCalled();
+    const abortLine = logSpy.mock.calls
+      .map((c: any[]) => c[0])
+      .find((l: unknown): l is string => typeof l === 'string' && l.includes('Cycle aborted'));
+    expect(abortLine).toBeDefined();
   });
 
   it('per-account timeout errors that account and continues the cycle', async () => {
