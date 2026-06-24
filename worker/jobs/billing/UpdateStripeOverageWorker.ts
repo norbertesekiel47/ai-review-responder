@@ -26,7 +26,6 @@ import { overagePriceIdForTier } from '../../../src/lib/payments/price-tier-map'
 import { computeOverageQuantity } from '../../../src/lib/accounts/quota';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { subscriptionGrantsFullAccess } from '../../../src/lib/shared/subscription-status';
-import { RETRYABLE_NETWORK_ERROR_CODES } from '../../../src/lib/payments/stripe-error-inspect';
 import { classifyStripeOverageError } from './stripe-overage-error';
 import { syncStripeOverageItem, type OverageSyncOutcome } from './overage-sync';
 
@@ -145,22 +144,11 @@ export async function handleUpdateStripeOverage(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    // A Postgres pool/transport error from the lock tx (before any Stripe call
-    // is made) is infra, not a deterministic Stripe failure — retry it. We
-    // identify these by a known retryable network error code (ECONNRESET etc.)
-    // with no Stripe `type` or `statusCode`, to avoid catching plain Errors or
-    // actual Stripe errors that happen to lack those fields.
-    const hasStripeShape =
-      typeof (err as { type?: unknown }).type === 'string'
-      || typeof (err as { statusCode?: unknown }).statusCode === 'number';
-    const errorCode = typeof (err as { code?: unknown }).code === 'string'
-      ? (err as { code: string }).code
-      : undefined;
-    if (!hasStripeShape && errorCode !== undefined && RETRYABLE_NETWORK_ERROR_CODES.has(errorCode)) {
-      await recordOutboxTransientError(outboxId, message, outboxAttempt);
-      logger.error(`Transient infra error during overage sync for account ${account_id} (will retry): ${message}`);
-      throw err;
-    }
+    // A Postgres pool/transport error from the lock tx (e.g. ECONNRESET) is
+    // classified transient too: classifyStripeOverageError matches retryable
+    // network codes (RETRYABLE_NETWORK_ERROR_CODES) with no Stripe-shape
+    // precondition, so an infra blip retries via the same branch as a Stripe
+    // transient — no separate guard needed.
     if (classifyStripeOverageError(err) === 'transient') {
       // Leave the outbox row 'dispatched' so BullMQ retries and the 1h outbox
       // watchdog re-dispatches. Do NOT markOutboxFailed — that forfeits the
