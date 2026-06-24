@@ -16,14 +16,14 @@ type TxSql = postgres.TransactionSql;
  * emit trial_payment_failed so net conversions = trial_converted − trial_payment_failed.
  * Idempotent (keyed by account+subscription); the caller's :status_change advisory
  * lock serializes the convert vs fail webhooks, so the trial_converted row is visible.
- * Runs in the caller's tx. No-op when there's no failed subscription id.
+ * Runs in the caller's tx. The only caller passes a guaranteed-non-null subscription
+ * id (the handler early-returns when the invoice has none), so this takes `string`.
  */
 async function recordTrialConversionFailureIfRecent(
   tx: TxSql,
   accountId: string,
-  failedSubscriptionId: string | null,
+  failedSubscriptionId: string,
 ): Promise<void> {
-  if (!failedSubscriptionId) return;
   const [recentConvert] = await tx<{ ok: boolean }[]>`
     SELECT EXISTS (
       SELECT 1 FROM analytics_events

@@ -20,9 +20,12 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
   // and processed AFTER this tx so the Stripe retrieve doesn't hold the tx open.
   const trialingAccountIds: string[] = [];
 
-  // Resolve the subscription id once — the recovery loop requires the recovered
-  // account's CURRENT subscription to equal it (subscription-lineage scope), so a
-  // payment for subscription B never reactivates account A sharing the customer.
+  // Resolve the invoice's subscription id once. The recovery loop requires the
+  // recovered account's CURRENT subscription to equal it (subscription-lineage
+  // scope) so a payment for subscription B never reactivates account A sharing the
+  // customer. The SELECT stays customer-scoped (not subscription-scoped) on purpose:
+  // the trialing-defer path below must collect ALL of the customer's accounts
+  // regardless of their stripe_subscription_id.
   const recoverySubscriptionId = invoiceSubscriptionId(invoice);
 
   await sql.begin(async (tx) => {
@@ -53,8 +56,8 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
 
       await tx`SELECT pg_advisory_xact_lock(hashtext(${acct.id + ':status_change'}))`;
 
-      // The matched subscription id is non-null and equals the account's current
-      // subscription (the COALESCE on the applier's ACTIVE path is a strict no-op).
+      // The loop guard above guarantees acct.stripe_subscription_id === recoverySubscriptionId,
+      // so the applier's ACTIVE-path COALESCE is a strict no-op.
       const transition = await applyStripeSubscriptionState(
         tx,
         { mode: 'checkout', accountId: acct.id },
@@ -126,6 +129,8 @@ async function convertTrialingAccounts(
 
   for (const accountId of trialingAccountIds) {
     const transition = await sql.begin((tx) =>
+      // subscription mode → applier resolves by (customer, subscription), so this
+      // is implicitly lineage-scoped.
       applyStripeSubscriptionState(
         tx,
         { mode: 'subscription', stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId },
