@@ -1,9 +1,41 @@
 import Stripe from 'stripe';
+import type postgres from 'postgres';
 import { sql } from '../../../src/lib/db/server';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { LOG_PREFIX, extractCustomerId, invoiceSubscriptionId } from './shared';
 import { applyStripeSubscriptionState } from './apply-subscription-state';
 import { enqueueTrialPaymentFailed } from '../../../src/lib/analytics/trial-events';
+
+type TxSql = postgres.TransactionSql;
+
+/**
+ * Conversion-analytics accuracy: Stripe flips a trial trialing→active BEFORE the
+ * first renewal charge, so a card-decline-AT-conversion lands on an already-'active'
+ * account where trial_converted already fired. If the account converted in the last
+ * 3 days (the conversion charge + dunning retries, not a months-later renewal),
+ * emit trial_payment_failed so net conversions = trial_converted − trial_payment_failed.
+ * Idempotent (keyed by account+subscription); the caller's :status_change advisory
+ * lock serializes the convert vs fail webhooks, so the trial_converted row is visible.
+ * Runs in the caller's tx. No-op when there's no failed subscription id.
+ */
+async function recordTrialConversionFailureIfRecent(
+  tx: TxSql,
+  accountId: string,
+  failedSubscriptionId: string | null,
+): Promise<void> {
+  if (!failedSubscriptionId) return;
+  const [recentConvert] = await tx<{ ok: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1 FROM analytics_events
+      WHERE account_id = ${accountId}::uuid
+        AND event_name = 'trial_converted'
+        AND created_at > NOW() - INTERVAL '3 days'
+    ) AS ok
+  `;
+  if (recentConvert?.ok) {
+    await enqueueTrialPaymentFailed(tx, { accountId, stripeSubscriptionId: failedSubscriptionId });
+  }
+}
 
 export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
   const customerId = extractCustomerId(invoice.customer);
@@ -66,30 +98,7 @@ export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Prom
 
       if (transition.changed) {
         console.log(`${LOG_PREFIX} Account ${acctRow.id} marked past_due (customer=${customerId})`);
-
-        // Conversion-analytics accuracy (UNCHANGED net-logic, NOT owned by the
-        // applier): Stripe flips a trial trialing→active BEFORE the first renewal
-        // charge, so a card-decline-AT-conversion lands on an already-'active'
-        // account where trial_converted already fired. Emit trial_payment_failed
-        // so net conversions = trial_converted − trial_payment_failed. Idempotent
-        // (keyed by account+subscription); the :status_change advisory lock above
-        // serializes the convert vs fail webhooks.
-        if (failedSubscriptionId) {
-          const [recentConvert] = await tx<{ ok: boolean }[]>`
-            SELECT EXISTS (
-              SELECT 1 FROM analytics_events
-              WHERE account_id = ${acctRow.id}::uuid
-                AND event_name = 'trial_converted'
-                AND created_at > NOW() - INTERVAL '3 days'
-            ) AS ok
-          `;
-          if (recentConvert?.ok) {
-            await enqueueTrialPaymentFailed(tx, {
-              accountId: acctRow.id,
-              stripeSubscriptionId: failedSubscriptionId,
-            });
-          }
-        }
+        await recordTrialConversionFailureIfRecent(tx, acctRow.id, failedSubscriptionId);
       }
     } else {
       console.log(`${LOG_PREFIX} Account ${acctRow.id} already ${acctRow.subscription_status} — skipping past_due transition`);
