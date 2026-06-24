@@ -83,6 +83,7 @@ import {
   startStripeLocationsReconcilePoller,
   stopStripeLocationsReconcilePoller,
 } from '../StripeLocationsReconcilePoller';
+import { emitDriftAlert } from '../billing-reconciliation/drift-alert';
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -694,7 +695,8 @@ describe('StripeLocationsReconcilePoller', () => {
     const result = await runOnce();
 
     expect(result.driftsFound).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    // upcoming_invoice_mismatch is revenue-affecting → error level (CONFIG-1)
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('Upcoming invoice drift'),
     );
   });
@@ -776,8 +778,9 @@ describe('StripeLocationsReconcilePoller', () => {
 
     expect(result.accountsChecked).toBe(1);
     expect(result.driftsFound).toBe(1);
-    // Should emit alert via console.warn (SENTRY_DSN unset) — one JSON line
-    expect(warnSpy).toHaveBeenCalledWith(
+    // quantity_mismatch is revenue-affecting → error level (CONFIG-1); fallback
+    // path uses console.error when SENTRY_DSN is unset
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('acct-drift-high'),
     );
   });
@@ -807,7 +810,8 @@ describe('StripeLocationsReconcilePoller', () => {
     const result = await runOnce();
 
     expect(result.driftsFound).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    // quantity_mismatch is revenue-affecting → error level (CONFIG-1)
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('acct-drift-low'),
     );
   });
@@ -833,13 +837,15 @@ describe('StripeLocationsReconcilePoller', () => {
     await runOnce();
 
     // The warn JSON line should carry the account_id and both quantities
-    const warnCall = warnSpy.mock.calls.find(
+    // quantity_mismatch is revenue-affecting → logger.error (CONFIG-1); the
+    // structured log line uses level 'error' in the JSON output
+    const errorCall = errorSpy.mock.calls.find(
       (c: any[]) => typeof c[0] === 'string' && c[0].includes('acct-detail'),
     );
-    expect(warnCall).toBeDefined();
-    expect(warnCall!.length).toBe(1); // one JSON line per log call
-    const record = JSON.parse(warnCall![0] as string);
-    expect(record.level).toBe('warn');
+    expect(errorCall).toBeDefined();
+    expect(errorCall!.length).toBe(1); // one JSON line per log call
+    const record = JSON.parse(errorCall![0] as string);
+    expect(record.level).toBe('error');
     expect(record.logger).toBe('StripeLocationsReconcilePoller');
     expect(record.message).toContain('Stripe billing drift detected');
     expect(record.data.account_id).toBe('acct-detail');
@@ -871,12 +877,14 @@ describe('StripeLocationsReconcilePoller', () => {
     const result = await runOnce();
 
     expect(result.driftsFound).toBe(1);
+    // quantity_mismatch is revenue-affecting → error level (CONFIG-1)
     expect(mockCaptureMessage).toHaveBeenCalledWith(
       expect.stringContaining('acct-sentry'),
-      expect.objectContaining({ level: 'warning' }),
+      expect.objectContaining({ level: 'error' }),
     );
-    // Should NOT also emit the warn-level fallback when Sentry is active
+    // Should NOT also emit the fallback log line when Sentry is active
     expect(warnSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
   it('adds typed Sentry metadata for invoice drift alerts', async () => {
@@ -919,6 +927,72 @@ describe('StripeLocationsReconcilePoller', () => {
     );
   });
 
+  // ── CONFIG-1: drift alert level depends on drift type ───────────
+  // Revenue-affecting drifts must emit at `error` (reaches Sentry high-priority
+  // classification + any future error route). Benign/observability drifts stay
+  // at `warning`. Fail-safe: unknown/future types default to `error`.
+
+  const revenueAffectingDriftTypes = [
+    'quantity_mismatch',
+    'price_mismatch',
+    'upcoming_invoice_mismatch',
+    'missing_subscription',
+    'duplicate_subscription',
+  ] as const;
+
+  const benignDriftTypes = [
+    'status_mismatch',
+    'locations_paid_mirror',
+  ] as const;
+
+  const basePayload = {
+    dbExpectedOverage: 2,
+    stripeOverageQuantity: 5,
+    activeLocations: 3,
+    locationsIncluded: 1,
+    tier: 'standard',
+  };
+
+  for (const driftType of revenueAffectingDriftTypes) {
+    it(`emitDriftAlert emits level 'error' for revenue-affecting drift type '${driftType}'`, () => {
+      process.env.SENTRY_DSN = 'https://test@sentry.io/123';
+      mockCaptureMessage.mockClear();
+
+      emitDriftAlert('acct-level-test', { ...basePayload, driftType });
+
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ level: 'error' }),
+      );
+    });
+  }
+
+  for (const driftType of benignDriftTypes) {
+    it(`emitDriftAlert emits level 'warning' for benign drift type '${driftType}'`, () => {
+      process.env.SENTRY_DSN = 'https://test@sentry.io/123';
+      mockCaptureMessage.mockClear();
+
+      emitDriftAlert('acct-level-test', { ...basePayload, driftType });
+
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ level: 'warning' }),
+      );
+    });
+  }
+
+  it('emitDriftAlert fails safe to error level for unknown drift type (undefined)', () => {
+    process.env.SENTRY_DSN = 'https://test@sentry.io/123';
+    mockCaptureMessage.mockClear();
+
+    emitDriftAlert('acct-level-test', { ...basePayload, driftType: undefined });
+
+    expect(mockCaptureMessage).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ level: 'error' }),
+    );
+  });
+
   // ── Subscription-level drift ────────────────────────────────────
 
   it('alerts when a paid DB account is missing stripe_subscription_id', async () => {
@@ -934,7 +1008,8 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(result.accountsChecked).toBe(1);
     expect(result.driftsFound).toBe(1);
     expect(mockStripeRetrieve).not.toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalledWith(
+    // missing_subscription is revenue-affecting → error level (CONFIG-1)
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('Missing Stripe subscription id'),
     );
   });
@@ -957,7 +1032,8 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(result.accountsChecked).toBe(1);
     expect(result.errors).toBe(0);
     expect(result.driftsFound).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    // missing_subscription is revenue-affecting → error level (CONFIG-1)
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('Stripe subscription sub_missing is missing'),
     );
   });
@@ -982,7 +1058,8 @@ describe('StripeLocationsReconcilePoller', () => {
     const result = await runOnce();
 
     expect(result.driftsFound).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    // duplicate_subscription is revenue-affecting → error level (CONFIG-1)
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('Duplicate active Stripe subscriptions'),
     );
   });
@@ -1002,7 +1079,8 @@ describe('StripeLocationsReconcilePoller', () => {
     const result = await runOnce();
 
     expect(result.driftsFound).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    // price_mismatch is revenue-affecting → error level (CONFIG-1)
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('Stripe overage price 3000 differs from stored account price 2500'),
     );
   });
@@ -1145,7 +1223,8 @@ describe('StripeLocationsReconcilePoller', () => {
     const result = await runOnce();
 
     expect(result.driftsFound).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith(
+    // quantity_mismatch is revenue-affecting → error level (CONFIG-1)
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('acct-missing-overage'),
     );
   });
@@ -1305,16 +1384,17 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(result.accountsChecked).toBe(1);
     expect(result.driftsFound).toBe(1);
     expect(result.errors).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('acct-preview-fails'),
+    // quantity_mismatch is revenue-affecting → error level (CONFIG-1)
+    // Both the drift alert and the preview-failure error land on errorSpy
+    const errorLines = errorSpy.mock.calls.map((c: any[]) => c[0]);
+    expect(errorLines.some(
+      (line: unknown): boolean => typeof line === 'string' && line.includes('acct-preview-fails'),
+    )).toBe(true);
+    const previewErrorLine = errorLines.find(
+      (line: unknown): line is string =>
+        typeof line === 'string'
+        && line.includes('Invoice-preview reconciliation UNAVAILABLE'),
     );
-    const previewErrorLine = errorSpy.mock.calls
-      .map((c: any[]) => c[0])
-      .find(
-        (line: unknown): line is string =>
-          typeof line === 'string'
-          && line.includes('Invoice-preview reconciliation UNAVAILABLE'),
-      );
     expect(previewErrorLine).toBeDefined();
     expect(previewErrorLine).toContain('acct-preview-fails');
   });

@@ -43,6 +43,26 @@ because admin email shares the Resend provider with the product.
   `cost_event:limit_exceeded` (emitted from `generate-draft.ts`) page the same
   Discord channel.
 
+## 1a. Billing-reconcile drift routing (CONFIG-1)
+
+> **CONFIG-1 (billing reconcile drift routing) — verified 2026-06-24.**
+> Audited `repworth-nv/repworth-staging` issue alert rules: the only rule is the
+> default "Send a notification for high priority issues" (ID 3608329) → action is
+> **email to issue owners**; trigger is "high priority issue" (not level/tag-based).
+> No Discord route is configured yet, and a `warning`-level `captureMessage` tagged
+> `feature:stripe_reconciliation` (emitted by `drift-alert.ts`) does not reliably
+> classify as high-priority → reconcile drift would be captured-but-not-paged.
+>
+> **Action taken (CONFIG-1 option b):** `drift-alert.ts` now emits **revenue-affecting**
+> drift types (`quantity_mismatch`, `price_mismatch`, `upcoming_invoice_mismatch`,
+> `missing_subscription`, `duplicate_subscription`) at `level:'error'`; benign /
+> observability types (`status_mismatch`, `locations_paid_mirror`) stay at `warning`.
+>
+> **Residual ops gap (launch checklist, not code):** configure the Sentry → Discord
+> rule to ALSO route `feature:stripe_reconciliation` (the §1 Discord rules for
+> `subsystem:health_alert` / cost-cap are still unchecked). Until then, billing-reconcile
+> drift pages only via the high-priority → email path.
+
 ## 2. External liveness — the probe cannot watch its own death
 
 - [ ] **Sentry Cron Monitor** with slug `health-alert-poller` (must equal
