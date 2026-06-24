@@ -26,6 +26,7 @@ import { overagePriceIdForTier } from '../../../src/lib/payments/price-tier-map'
 import { computeOverageQuantity } from '../../../src/lib/accounts/quota';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { subscriptionGrantsFullAccess } from '../../../src/lib/shared/subscription-status';
+import { RETRYABLE_NETWORK_ERROR_CODES } from '../../../src/lib/payments/stripe-error-inspect';
 import { classifyStripeOverageError } from './stripe-overage-error';
 import { syncStripeOverageItem, type OverageSyncOutcome } from './overage-sync';
 
@@ -122,16 +123,44 @@ export async function handleUpdateStripeOverage(
 
   let outcome: OverageSyncOutcome;
   try {
-    outcome = await syncStripeOverageItem(getStripe(), {
-      accountId: account_id,
-      subscriptionId: account.stripe_subscription_id,
-      storedOveragePriceCents: account.locations_overage_price_cents,
-      overagePriceId,
-      newQuantity,
-      operationScope,
-    }, logger);
+    // OVERAGE-F1: serialize concurrent overage syncs for THIS account. The
+    // per-outbox idempotency key (overage-sync.ts) does NOT dedup two DISTINCT
+    // recompute rows for the same account, so a second replica or redeploy
+    // overlap could double-`create` an overage item. The account-scoped
+    // advisory lock (held across the Stripe resolve→mutate) closes that window
+    // and is the hard gate before any worker scale-out. concurrency:1 +
+    // single-replica remain as defense-in-depth (boot-asserted in index.ts).
+    // The lock is held across the Stripe call; bounded by getStripe()'s request
+    // timeout (single consumer + infrequent events → ~zero contention).
+    outcome = await sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${account_id + ':overage_sync'}))`;
+      return syncStripeOverageItem(getStripe(), {
+        accountId: account_id,
+        subscriptionId: account.stripe_subscription_id!,
+        storedOveragePriceCents: account.locations_overage_price_cents,
+        overagePriceId,
+        newQuantity,
+        operationScope,
+      }, logger);
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // A Postgres pool/transport error from the lock tx (before any Stripe call
+    // is made) is infra, not a deterministic Stripe failure — retry it. We
+    // identify these by a known retryable network error code (ECONNRESET etc.)
+    // with no Stripe `type` or `statusCode`, to avoid catching plain Errors or
+    // actual Stripe errors that happen to lack those fields.
+    const hasStripeShape =
+      typeof (err as { type?: unknown }).type === 'string'
+      || typeof (err as { statusCode?: unknown }).statusCode === 'number';
+    const errorCode = typeof (err as { code?: unknown }).code === 'string'
+      ? (err as { code: string }).code
+      : undefined;
+    if (!hasStripeShape && errorCode !== undefined && RETRYABLE_NETWORK_ERROR_CODES.has(errorCode)) {
+      await recordOutboxTransientError(outboxId, message, outboxAttempt);
+      logger.error(`Transient infra error during overage sync for account ${account_id} (will retry): ${message}`);
+      throw err;
+    }
     if (classifyStripeOverageError(err) === 'transient') {
       // Leave the outbox row 'dispatched' so BullMQ retries and the 1h outbox
       // watchdog re-dispatches. Do NOT markOutboxFailed — that forfeits the

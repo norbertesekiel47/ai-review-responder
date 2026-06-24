@@ -103,6 +103,10 @@ function mockAccountRow(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   mockSql.mockReset();
   mockSql.mockResolvedValue([]);
+  // Support sql.begin(async (tx) => cb(tx)) — tx is mockSql itself so that
+  // tagged-template calls inside the callback (e.g. the advisory lock query)
+  // still register on mockSql.mock.calls.
+  (mockSql as any).begin = vi.fn(async (cb: (tx: typeof mockSql) => Promise<unknown>) => cb(mockSql));
   mockStripeSubscriptionsRetrieve.mockReset();
   mockStripeSubscriptionItemsUpdate.mockReset();
   mockStripeSubscriptionItemsCreate.mockReset();
@@ -669,5 +673,48 @@ describe('UpdateStripeOverageWorker — confidence gate + outbox isolation', () 
     // failure (BullMQ retry → idempotent re-run), never a terminal outbox flip.
     expect(mockStripeSubscriptionItemsUpdate).toHaveBeenCalled();
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  // OVERAGE-F1: account-scoped pg_advisory_xact_lock serializes concurrent syncs
+  it('serializes the overage sync under an account-scoped advisory xact lock (OVERAGE-F1)', async () => {
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_standard' }, quantity: 1 },
+          { id: 'si_overage', price: { id: 'price_std_overage' }, quantity: 1 },
+        ],
+      },
+    });
+
+    await handleUpdateStripeOverage(mockJob({ account_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' }));
+
+    expect((mockSql as any).begin).toHaveBeenCalled();
+    // The advisory lock query must have been issued inside the tx (which is mockSql itself).
+    const lockCall = mockSql.mock.calls.find(
+      (call) => typeof call[0] === 'object' && Array.isArray(call[0]) &&
+        (call[0] as unknown as string[]).join('').includes('pg_advisory_xact_lock'),
+    );
+    expect(lockCall).toBeDefined();
+    // Must use hashtext so the string account_id fits pg_advisory_xact_lock's bigint param.
+    expect((lockCall![0] as unknown as string[]).join('')).toMatch(/hashtext/i);
+  });
+
+  it('a Postgres error during lock acquisition is transient (no markOutboxFailed)', async () => {
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_standard' }, quantity: 1 },
+          { id: 'si_overage', price: { id: 'price_std_overage' }, quantity: 1 },
+        ],
+      },
+    });
+    // Simulate a Postgres pool/transport error thrown from inside sql.begin
+    (mockSql as any).begin = vi.fn(async () => {
+      throw Object.assign(new Error('connection terminated'), { code: 'ECONNRESET' });
+    });
+
+    await expect(handleUpdateStripeOverage(mockJob())).rejects.toThrow('connection terminated');
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockRecordOutboxTransientError).toHaveBeenCalled();
   });
 });
