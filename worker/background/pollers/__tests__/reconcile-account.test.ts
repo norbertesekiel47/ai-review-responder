@@ -1,8 +1,22 @@
 // worker/background/pollers/__tests__/reconcile-account.test.ts
 //
 // Unit tests for the per-account reconcile step. The Stripe client is injected,
-// so no module mock is needed — a hand-rolled fake covers each outbound call.
+// so no module mock is needed for Stripe — a hand-rolled fake covers each
+// outbound call. The sql module IS mocked here to support the lineage query
+// (RECONCILE-F6) and the trial-correction sql.begin path.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+const { mockSql, sqlReturnQueue } = vi.hoisted(() => {
+  const sqlReturnQueue: unknown[] = [];
+  const mockSql: any = vi.fn(() => {
+    const q = sqlReturnQueue.shift();
+    return Promise.resolve(q ?? Object.assign([], { count: 0 }));
+  });
+  mockSql.begin = vi.fn(async (cb: any) => cb(mockSql));
+  return { mockSql, sqlReturnQueue };
+});
+vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql }));
+
 import { reconcileAccount } from '../billing-reconciliation/reconcile-account';
 import type { AccountWithLocations } from '../billing-reconciliation/types';
 
@@ -76,6 +90,7 @@ function makeStripe(opts: {
 describe('reconcileAccount', () => {
   let errorSpy: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
+    sqlReturnQueue.length = 0;
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
   afterEach(() => {
@@ -194,6 +209,36 @@ describe('reconcileAccount', () => {
       retrieve: makeSubscription(2), createPreview: makePreview(2),
       list: { data: [ { id: 'sub_123', status: 'active' }, { id: 'sub_dup', status: 'active' } ] },
     });
+    sqlReturnQueue.push([]); // lineage query: no subs belong to another account
+    const outcome = await reconcileAccount(stripe, makeAccount());
+    expect(outcome.drifts.some((d) => d.driftType === 'duplicate_subscription')).toBe(true);
+  });
+
+  // RECONCILE-F6: lineage-scoped duplicate detection
+  it('does NOT flag duplicate_subscription when the extra active sub belongs to another account', async () => {
+    const stripe = makeStripe({
+      retrieve: makeSubscription(2),
+      list: { data: [
+        { id: 'sub_123', status: 'active' },   // this account's
+        { id: 'sub_other', status: 'active' },  // a sibling account's
+      ] },
+      createPreview: makePreview(2),
+    });
+    sqlReturnQueue.push([{ stripe_subscription_id: 'sub_other' }]); // lineage query: sub_other belongs to a DIFFERENT account
+    const outcome = await reconcileAccount(stripe, makeAccount());
+    expect(outcome.drifts.some((d) => d.driftType === 'duplicate_subscription')).toBe(false);
+  });
+
+  it('DOES flag duplicate_subscription when 2+ active subs belong to THIS account lineage', async () => {
+    const stripe = makeStripe({
+      retrieve: makeSubscription(2),
+      list: { data: [
+        { id: 'sub_123', status: 'active' },
+        { id: 'sub_dupe', status: 'active' },
+      ] },
+      createPreview: makePreview(2),
+    });
+    sqlReturnQueue.push([]); // lineage query: neither maps to another account
     const outcome = await reconcileAccount(stripe, makeAccount());
     expect(outcome.drifts.some((d) => d.driftType === 'duplicate_subscription')).toBe(true);
   });

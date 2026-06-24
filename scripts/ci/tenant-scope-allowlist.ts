@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 376;
+export const ALLOWLIST_BASELINE = 377;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -2782,5 +2782,12 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "WITH account_businesses AS ( SELECT b.id::text AS id FROM businesses b WHERE b.account_id = ${row.account_id}::uuid ), onboarding_demo_scope AS ( SELECT od.id::text AS identifier FROM onboarding_demos od JOIN businesses b ON b.id = od.business_id WHERE b.account_id = ${row.account_id}::uuid ), offboarding_scope AS ( SELECT id::text AS identifier FROM account_businesses UNION ALL SELECT identifier FROM onboarding_demo_scope UNION ALL SELECT ${row.account_id}::text UNION ALL SELECT ${row.id}::text UNION ALL SELECT ${row.auth_user_id ?? null}::text UNION ALL SELECT ${row.stripe_customer_id ?? null}::text UNION ALL SELECT ${row.stripe_subscription_id ?? null}::text UNION ALL SELECT UNNEST(${row.zernio_account_ids ?? []}::text[]) UNION ALL SELECT UNNEST(${row.zernio_profile_ids ?? []}::text[]) UNION ALL SELECT auth_user_id FROM account_offboardings WHERE id = ${row.id}::uuid AND account_id = ${row.account_id}::uuid AND auth_user_id IS NOT NULL UNION ALL SELECT stripe_customer_id FROM account_offboardings WHERE id = ${row.id}::uuid AND account_id = ${row.account_id}::uuid AND stripe_customer_id IS NOT NULL UNION ALL SELECT stripe_subscription_id FROM account_offboardings WHERE id = ${row.id}::uuid AND account_id = ${row.account_id}::uuid AND stripe_subscription_id IS NOT NULL UNION ALL SELECT unnest(zernio_account_ids) FROM account_offboardings WHERE id = ${row.id}::uuid AND account_id = ${row.account_id}::uuid AND zernio_account_ids IS NOT NULL UNION ALL SELECT unnest(zernio_profile_ids) FROM account_offboardings WHERE id = ${row.id}::uuid AND account_id = ${row.account_id}::uuid AND zernio_profile_ids IS NOT NULL ) UPDATE inbound_events SET external_event_key = 'scrubbed:' || id::text, aggregate_key = NULL, payload = '{}'::jsonb, error_message = NULL WHERE EXISTS ( SELECT 1 FROM offboarding_scope s WHERE s.identifier IS NOT NULL AND length(btrim(s.identifier)) > 0 AND ( inbound_events.payload::text LIKE ('%' || s.identifier || '%') OR inbound_events.aggregate_key LIKE ('%' || s.identifier || '%') OR inbound_events.error_message LIKE ('%' || s.identifier || '%') ) )",
     category: 'worker-job-scoped',
     reason: "Owner-offboarding purge worker following a durable job: scrubs raw webhook payloads matching this account's identifier set (every identifier derived from account_id). inbound_events has no direct account column (deny-all RLS, migration 066).",
+  },
+  {
+    file: "worker/background/pollers/billing-reconciliation/reconcile-account.ts",
+    table: "accounts",
+    sqlSnippet: "SELECT stripe_subscription_id FROM accounts WHERE stripe_customer_id = ${stripeCustomerId} AND id <> ${account.id}::uuid AND stripe_subscription_id = ANY(${activeIds})",
+    category: 'background-global-scan',
+    reason: "RECONCILE-F6: billing reconciliation poller scans OTHER accounts sharing the same Stripe customer id to exclude their subscriptions from the duplicate-subscription alert for this account. Intentionally cross-account: the query filters by stripe_customer_id (not account_id) to identify sibling accounts — a legitimate cross-account lookup for an observability-only check with no write side-effects.",
   },
 ];

@@ -131,7 +131,24 @@ export async function reconcileAccount(
         { timeout: STRIPE_READ_TIMEOUT_MS },
       );
       const activeSubscriptions = activeStripeSubscriptions(customerSubscriptions);
+
+      // RECONCILE-F6: a Stripe customer can map to MORE THAN ONE RepWorth account.
+      // Only active subs NOT owned by a DIFFERENT account count toward THIS
+      // account's duplicate check (this account's own sub + any unmapped orphan).
+      let ownLineageSubs = activeSubscriptions;
       if (activeSubscriptions.length > 1) {
+        const activeIds = activeSubscriptions.map((s) => s.id);
+        const otherAccountSubs = await sql<{ stripe_subscription_id: string }[]>`
+          SELECT stripe_subscription_id
+          FROM accounts
+          WHERE stripe_customer_id = ${stripeCustomerId}
+            AND id <> ${account.id}::uuid
+            AND stripe_subscription_id = ANY(${activeIds})
+        `;
+        const otherIds = new Set(otherAccountSubs.map((r) => r.stripe_subscription_id));
+        ownLineageSubs = activeSubscriptions.filter((s) => !otherIds.has(s.id));
+      }
+      if (ownLineageSubs.length > 1) {
         drifts.push({
           driftType: 'duplicate_subscription',
           dbExpectedOverage: expectedInvoice.overageUnits,
@@ -144,7 +161,7 @@ export async function reconcileAccount(
           stripeStatus: subscription.status,
           stripeSubscriptionId: subscription.id,
           stripeCustomerId,
-          driftMessage: `Duplicate active Stripe subscriptions for account ${account.id}: ${activeSubscriptions.map((sub) => sub.id).join(',')}`,
+          driftMessage: `Duplicate active Stripe subscriptions for account ${account.id}: ${ownLineageSubs.map((sub) => sub.id).join(',')}`,
         });
       }
     } catch (err) {
