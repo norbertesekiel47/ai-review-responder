@@ -15,17 +15,39 @@ describe('config/server', () => {
   beforeEach(() => { process.env = { ...original }; });
   afterEach(() => { process.env = original; vi.resetModules(); });
 
-  it('assertCoreAppConfig passes with the six core-app vars', async () => {
-    Object.assign(process.env, CORE);
+  it('assertCoreAppConfig passes with only the three public core vars (no DB creds)', async () => {
+    Object.assign(process.env, {
+      NEXT_PUBLIC_SUPABASE_URL: 'http://localhost:54321',
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon',
+      NEXT_PUBLIC_APP_URL: 'http://localhost:3000',
+    });
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_KEY;
+    delete process.env.DATABASE_POOL_URL;
     const { assertCoreAppConfig } = await import('../server');
     expect(() => assertCoreAppConfig()).not.toThrow();
   });
 
   it('assertCoreAppConfig throws naming a missing core var', async () => {
     Object.assign(process.env, CORE);
-    delete process.env.SUPABASE_SERVICE_KEY;
+    delete process.env.NEXT_PUBLIC_APP_URL;
     const { assertCoreAppConfig } = await import('../server');
-    expect(() => assertCoreAppConfig()).toThrow(/SUPABASE_SERVICE_KEY/);
+    expect(() => assertCoreAppConfig()).toThrow(/NEXT_PUBLIC_APP_URL/);
+  });
+
+  it('getServerDbConfig asserts presence and returns the DB creds', async () => {
+    Object.assign(process.env, CORE);
+    const { getServerDbConfig } = await import('../server');
+    const cfg = getServerDbConfig();
+    expect(cfg.SUPABASE_SERVICE_KEY).toBe('svc');
+    expect(cfg.DATABASE_POOL_URL).toBe('postgres://t:t@localhost:5432/t');
+  });
+
+  it('getServerDbConfig throws when a DB cred is missing', async () => {
+    Object.assign(process.env, CORE);
+    delete process.env.DATABASE_POOL_URL;
+    const { getServerDbConfig } = await import('../server');
+    expect(() => getServerDbConfig()).toThrow(/DATABASE_POOL_URL/);
   });
 
   it('getStripeConfig asserts presence and returns non-null secrets', async () => {

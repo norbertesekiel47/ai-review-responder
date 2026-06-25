@@ -1,11 +1,11 @@
 // src/lib/config/server.ts
 //
-// SERVER lane — Next.js server-process env. Root schema is SHAPE-ONLY: the six
-// core-app vars (asserted at instrumentation register()) are required; every
-// subsystem secret is .optional() so an innocent getServerConfig() in a UI-only
-// preview never throws. A subsystem's secrets are asserted + narrowed to non-null
-// ONLY by that subsystem's accessor. No top-level z.parse — getServerConfig is
-// lazy + memoized.
+// SERVER lane — Next.js server-process env. Root schema is SHAPE-ONLY: the three
+// core-app vars (Supabase URL/anon, app URL — asserted at instrumentation
+// register()) are required; every subsystem secret (incl. the server DB creds) is
+// .optional() so an innocent getServerConfig() in a UI-only preview never throws.
+// A subsystem's secrets are asserted + narrowed to non-null ONLY by that
+// subsystem's accessor. No top-level z.parse — getServerConfig is lazy + memoized.
 import { z } from 'zod';
 import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
 import { optionalVar, requirePresent, requiredVar } from './schema-helpers';
@@ -24,13 +24,14 @@ const stripePriceShape = Object.fromEntries(
 ) as Record<(typeof STRIPE_PRICE_ENV_VARS)[number], typeof opt>;
 
 const serverSchema = z.object({
-  // ── core-app required ──
+  // ── core-app required (Supabase URL/anon, app URL) ──
   NEXT_PUBLIC_SUPABASE_URL: nonEmpty,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: nonEmpty,
   NEXT_PUBLIC_APP_URL: nonEmpty,
-  SUPABASE_URL: nonEmpty,
-  SUPABASE_SERVICE_KEY: nonEmpty,
-  DATABASE_POOL_URL: nonEmpty,
+  // ── server-DB subsystem (optional in root; asserted by getServerDbConfig) ──
+  SUPABASE_URL: opt,
+  SUPABASE_SERVICE_KEY: opt,
+  DATABASE_POOL_URL: opt,
   // ── subsystem secrets (optional) ──
   STRIPE_SECRET_KEY: opt,
   STRIPE_WEBHOOK_SECRET: opt,
@@ -59,6 +60,14 @@ export const CORE_APP_REQUIRED_VARS = [
   'NEXT_PUBLIC_SUPABASE_URL',
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',
   'NEXT_PUBLIC_APP_URL',
+] as const;
+
+// Server DB credentials — needed by every DB-backed route but NOT by a static /
+// marketing render, so they are a server subsystem (asserted at DB-use in Stage 3
+// via getServerDbConfig), NOT part of the global register() boot gate. A UI-only
+// preview lacking them still boots. On the worker they ARE unconditional
+// core-infra (assertWorkerConfig).
+const SERVER_DB_REQUIRED_VARS = [
   'SUPABASE_URL',
   'SUPABASE_SERVICE_KEY',
   'DATABASE_POOL_URL',
@@ -82,6 +91,27 @@ export function getServerConfig(): ServerConfig {
 /** Core-app boot assert — the minimum every Next server process needs. */
 export function assertCoreAppConfig(): void {
   requirePresent(CORE_APP_REQUIRED_VARS, 'core-app');
+}
+
+// Server-DB subsystem: asserted at the first DB-backed entry in Stage 3, not at
+// boot, so static/marketing renders and UI-only previews aren't forced to carry
+// the service key.
+// fallow-ignore-next-line unused-export
+export function assertServerDbConfig(): void {
+  requirePresent(SERVER_DB_REQUIRED_VARS, 'server-db');
+}
+export function getServerDbConfig(): {
+  SUPABASE_URL: string;
+  SUPABASE_SERVICE_KEY: string;
+  DATABASE_POOL_URL: string;
+} {
+  assertServerDbConfig();
+  const cfg = getServerConfig();
+  return {
+    SUPABASE_URL: cfg.SUPABASE_URL!,
+    SUPABASE_SERVICE_KEY: cfg.SUPABASE_SERVICE_KEY!,
+    DATABASE_POOL_URL: cfg.DATABASE_POOL_URL!,
+  };
 }
 
 // ── Subsystem accessors: assert presence, return non-null-narrowed view ──
