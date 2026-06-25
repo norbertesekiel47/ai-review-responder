@@ -31,6 +31,8 @@ import {
   isProcessingBlocked,
 } from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
+import { NON_TERMINAL_STATUSES } from '@/lib/shared/response-status';
+import { statusArraySql } from '@/lib/shared/response-status-sql';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { resolveEditReplyScope } from '../_shared/edit-reply-request';
 import {
@@ -131,7 +133,7 @@ async function handler(request: NextRequest): Promise<Response> {
                status
         FROM responses
         WHERE review_id = ${parsed.data.review_id}
-          AND status IN ('pending_approval', 'approved', 'edited', 'awaiting_owner_connect')
+          AND status = ANY(${statusArraySql(NON_TERMINAL_STATUSES)})
         ORDER BY version DESC
         LIMIT 1
       `;

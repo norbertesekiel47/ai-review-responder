@@ -78,6 +78,16 @@
       "worker/jobs/publisher/ResponsePublisherWorker.ts",
       "worker/jobs/zernio/ZernioBackfillWorker.ts",
 
+      // Existing large handlers touched mechanically by the response-status
+      // single-sourcing (audit Stage 1 src-side): one READ predicate migrated to
+      // statusArraySql(), or one inline write-guard literal pragma'd, each landing
+      // inside a pre-existing >60-line function. The complexity is pre-existing on
+      // main; splitting these is separate refactor work.
+      "src/lib/dashboard/aggregate-service.ts",
+      "src/app/api/dashboard/past-replies/draft-status/route.ts",
+      "src/lib/publishing/zernio-publisher.ts",
+      "src/lib/approval/http-routes.ts",
+
       // ── Owner-offboarding feature (acknowledged orchestration) ──
       // New offboarding orchestration handlers/components + workers, plus existing
       // route/component handlers the gate-wiring touched mechanically (the single

@@ -108,7 +108,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         SELECT id, status, response_text, business_id
         FROM responses
         WHERE review_id = ${outbox.aggregate_id}
-          AND status IN ('pending_approval', 'approved', 'edited')
+          AND status IN ('pending_approval', 'approved', 'edited') -- status-audit-ignore: 3-value poll subset (excludes awaiting_owner_connect); no exact group match, not a reusable grouping
         ORDER BY version DESC
         LIMIT 1
       `;

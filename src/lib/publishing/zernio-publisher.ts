@@ -206,7 +206,7 @@ export async function applyTransientExhaustionFallback(args: {
       SET status = 'awaiting_owner_connect', updated_at = NOW()
       WHERE id = ${responseId}
         AND business_id = ${businessId}
-        AND status IN ('approved', 'edited', 'awaiting_owner_connect')
+        AND status IN ('approved', 'edited', 'awaiting_owner_connect') -- status-audit-ignore: state-transition UPDATE guard, intentionally inline per response-status.ts header
       RETURNING 1
     `;
 

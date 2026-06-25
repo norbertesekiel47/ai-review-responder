@@ -266,7 +266,7 @@ async function processExistingReview(
     SELECT id, status, version
     FROM responses
     WHERE review_id = ${existing.id}
-      AND status NOT IN ('superseded', 'failed')
+      AND status NOT IN ('superseded', 'failed') -- status-audit-ignore: state-transition SELECT FOR UPDATE guard subset, intentionally inline per response-status.ts header
     ORDER BY version DESC
     LIMIT 1
     FOR UPDATE

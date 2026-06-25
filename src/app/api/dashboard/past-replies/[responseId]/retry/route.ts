@@ -30,6 +30,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { v7 as uuidv7 } from 'uuid';
 import { getOffboardingState, isPublishingBlocked } from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
+import { NON_TERMINAL_STATUSES } from '@/lib/shared/response-status';
+import { statusArraySql } from '@/lib/shared/response-status-sql';
 import { insertAuditLogSession } from '@/lib/approval/audit';
 import {
   resolveEditReplyContext,
@@ -104,7 +106,7 @@ export async function POST(
         SELECT 1 FROM responses
         WHERE review_id = ${reviewId}
           AND business_id = ${locationId}
-          AND status IN ('pending_approval', 'approved', 'edited', 'awaiting_owner_connect')
+          AND status = ANY(${statusArraySql(NON_TERMINAL_STATUSES)})
         LIMIT 1
       `;
       if (nonTermRows.length > 0) {

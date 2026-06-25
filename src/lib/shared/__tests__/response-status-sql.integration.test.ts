@@ -1,0 +1,50 @@
+// src/lib/shared/__tests__/response-status-sql.integration.test.ts
+//
+// DB-gated integration test for statusArraySql. Skips without
+// TEST_DATABASE_POOL_URL (mirrors archive-location-tx.integration.test.ts).
+//
+// Invariant under test: statusArraySql binds a response-status group as a
+// Postgres `text[]` array so `status = ANY(${statusArraySql(GROUP)})` matches
+// in-group values and rejects out-of-group ones against the real
+// `responses.status` (text) column domain — proving the migrated READ
+// predicates generate behavior-identical SQL.
+
+import { afterAll, describe, expect, it } from 'vitest';
+import postgres from 'postgres';
+import type postgresType from 'postgres';
+
+const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
+const RUN = Boolean(testDatabaseUrl);
+const describeOrSkip = RUN ? describe : describe.skip;
+
+let db: postgresType.Sql | undefined;
+
+afterAll(async () => {
+  await db?.end({ timeout: 5 });
+});
+
+describeOrSkip('statusArraySql (integration, real Postgres text[] binding)', () => {
+  it('ANY(statusArraySql(HANDLED_STATUSES)) matches in-group and rejects out-of-group', async () => {
+    // statusArraySql binds against the module-level `sql` client in
+    // response-status-sql.ts; that client reads DATABASE_POOL_URL, which CI
+    // points at the Postgres service. Import lazily so the local skip path
+    // never constructs it.
+    const { statusArraySql } = await import('../response-status-sql');
+    const { HANDLED_STATUSES } = await import('../response-status');
+
+    db = postgres(testDatabaseUrl!, { prepare: false });
+
+    // Use the SAME client the helper binds against so the fragment composes.
+    const { sql } = await import('@/lib/db/server');
+    const [row] = await sql<{ hit: boolean; miss: boolean; allposted: boolean }[]>`
+      SELECT
+        'approved'::text = ANY(${statusArraySql(HANDLED_STATUSES)}) AS hit,
+        'pending_approval'::text = ANY(${statusArraySql(HANDLED_STATUSES)}) AS miss,
+        'posted'::text = ANY(${statusArraySql(HANDLED_STATUSES)}) AS allposted
+    `;
+
+    expect(row?.hit).toBe(true);
+    expect(row?.miss).toBe(false);
+    expect(row?.allposted).toBe(true);
+  });
+});

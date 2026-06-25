@@ -10,6 +10,8 @@
 // writing N+1-style aggregate SQL.
 
 import { sql } from '@/lib/db/server';
+import { HANDLED_STATUSES } from '@/lib/shared/response-status';
+import { statusArraySql } from '@/lib/shared/response-status-sql';
 import { getActiveDashboardData } from './service';
 import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel } from '@/lib/locations/display-label';
@@ -310,7 +312,7 @@ async function getTotalRespondedForAccount(accountId: string): Promise<number> {
     WHERE b.account_id = ${accountId}::uuid
       AND b.archived_at IS NULL
       AND r.status <> 'deleted'
-      AND resp.status = ANY(ARRAY['approved', 'posted', 'edited', 'awaiting_owner_connect']::text[])
+      AND resp.status = ANY(${statusArraySql(HANDLED_STATUSES)})
   `;
   return row?.count ?? 0;
 }
