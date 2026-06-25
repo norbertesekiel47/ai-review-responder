@@ -42,7 +42,7 @@
   background: #F9FAFB;
   transition: all 160ms var(--rw-ease);
 }
-.pr-search:focus-within { background: #fff; border-color: var(--rw-blue-500); box-shadow: 0 0 0 3px rgba(59,130,246,0.12); }
+.pr-search:focus-within { background: #fff; border-color: var(--rw-accent-500); box-shadow: 0 0 0 3px rgba(59,130,246,0.12); }
 .pr-search input {
   flex: 1;
   border: none;
@@ -247,7 +247,7 @@
   font-family: var(--rw-font-body);
 }
 .pr-prov-imported { background: #FEF3C7; color: #92400E; }
-.pr-prov-repworth { background: var(--rw-blue-100); color: var(--rw-blue-800); }
+.pr-prov-repworth { background: var(--rw-accent-100); color: var(--rw-accent-800); }
 .pr-prov-auto { background: var(--rw-auto-bg); color: var(--rw-auto-fg); }
 .pr-prov-recovery { background: rgba(242, 195, 185, 0.15); border: 1px solid #F2C3B9; color: #7a3e2b; }
 

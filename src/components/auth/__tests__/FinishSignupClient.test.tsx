@@ -34,7 +34,7 @@ describe('FinishSignupClient', () => {
     const { container } = render(
       <FinishSignupClient defaultEmail="a@b.co" defaultName="Ada" />,
     );
-    expect(container.innerHTML).toContain('bg-[#D2E0D3]');
+    expect(container.innerHTML).toContain('bg-rw-sage');
     expect(container.innerHTML).not.toContain('bg-gray-50');
     expect(container.innerHTML).not.toContain('bg-blue-600');
     const name = container.querySelector('input#finish-name');

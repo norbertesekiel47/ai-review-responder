@@ -20,9 +20,9 @@ const USED_LINK_MESSAGE = 'This link has already been used.';
 
 function NeutralUsedIcon() {
   return (
-    <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[#557069]/12">
+    <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-rw-teal-strong/12">
       <svg
-        className="size-7 text-[#557069]"
+        className="size-7 text-rw-teal-strong"
         fill="none"
         viewBox="0 0 24 24"
         strokeWidth={2}
@@ -69,15 +69,15 @@ export function ApprovalErrorState({
     return (
       <div role="status" className="text-center">
         <NeutralUsedIcon />
-        <p className="text-lg font-medium leading-relaxed text-[#2a2a2a]">
+        <p className="text-lg font-medium leading-relaxed text-rw-ink">
           {message || USED_LINK_MESSAGE}
         </p>
-        <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-[#6a6a6a]">
+        <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-rw-ink-soft">
           No action is needed — you can safely close this page.
         </p>
         <a
           href={DASHBOARD_HREF}
-          className="mt-6 inline-block rounded-sm text-xs font-semibold text-[#557069] underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#557069] focus-visible:ring-offset-2"
+          className="mt-6 inline-block rounded-sm text-xs font-semibold text-rw-teal-strong underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong focus-visible:ring-offset-2"
         >
           Manage reviews in your dashboard →
         </a>
@@ -88,25 +88,25 @@ export function ApprovalErrorState({
   return (
     <div role="alert" className="text-center">
       <ErrorIcon />
-      <p className="text-lg font-medium leading-relaxed text-[#2a2a2a]">
+      <p className="text-lg font-medium leading-relaxed text-rw-ink">
         {message}
       </p>
-      <p className="mt-4 text-sm text-[#6a6a6a]">
+      <p className="mt-4 text-sm text-rw-ink-soft">
         Need a hand?{' '}
         <a
           href={SUPPORT_HREF}
-          className="rounded-sm font-semibold text-[#557069] underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#557069] focus-visible:ring-offset-1"
+          className="rounded-sm font-semibold text-rw-teal-strong underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong focus-visible:ring-offset-1"
         >
           Contact support
         </a>
       </p>
       {/* Dashboard is a quiet secondary path — many recipients are logged out,
           so it must not be the universal primary CTA. */}
-      <p className="mt-3 text-xs text-[#6a6a6a]">
+      <p className="mt-3 text-xs text-rw-ink-soft">
         Already signed in?{' '}
         <a
           href={DASHBOARD_HREF}
-          className="rounded-sm font-semibold text-[#557069] underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#557069] focus-visible:ring-offset-1"
+          className="rounded-sm font-semibold text-rw-teal-strong underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong focus-visible:ring-offset-1"
         >
           Go to your dashboard
         </a>

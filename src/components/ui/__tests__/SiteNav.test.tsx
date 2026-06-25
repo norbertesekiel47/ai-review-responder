@@ -193,7 +193,7 @@ describe('SiteNav', () => {
       // SSR markup (panel is client-only/closed) renders 7 controls:
       // logo + 3 desktop nav links + Log in + Sign up + hamburger.
       // Uses the canonical teal outline treatment shared with PR #174 (P1 #18).
-      const occurrences = (html.match(/focus-visible:outline-\[#97B3AE\]/g) || []).length;
+      const occurrences = (html.match(/focus-visible:outline-rw-teal(?![-\w])/g) || []).length;
       expect(occurrences).toBe(7);
     });
 
@@ -208,21 +208,22 @@ describe('SiteNav', () => {
 
   it('gives nav links a teal focus-visible ring', () => {
     const html = renderToStaticMarkup(createElement(SiteNav));
-    expect(html).toContain('focus-visible:outline-[#97B3AE]');
+    expect(html).toContain('focus-visible:outline-rw-teal');
   });
 
   it('gives the owner-auth links a focus-visible ring when shown', () => {
     const html = renderToStaticMarkup(createElement(SiteNav, { selfServeEnabled: true }));
     // Both the Log in and Sign up links carry the teal focus ring.
-    const ringCount = html.split('focus-visible:outline-[#97B3AE]').length - 1;
+    const ringCount = html.split('focus-visible:outline-rw-teal').length - 1;
     // 3 nav links + Log in + Sign up = 5 ring occurrences.
     expect(ringCount).toBeGreaterThanOrEqual(5);
   });
 
   it('uses the accessible-contrast text token, not the low-contrast teal, for text', () => {
     const html = renderToStaticMarkup(createElement(SiteNav, { selfServeEnabled: true }));
-    expect(html).toContain('text-[#557069]');
-    // The only #97B3AE references left are focus rings / borders, never text-.
-    expect(html).not.toContain('text-[#97B3AE]');
+    expect(html).toContain('text-rw-teal-strong');
+    // Teal (decoration) appears only as focus rings / borders, never as text.
+    // text-rw-teal-strong contains "text-rw-teal", so match bare teal precisely.
+    expect(html).not.toMatch(/text-rw-teal(?![-\w])/);
   });
 });

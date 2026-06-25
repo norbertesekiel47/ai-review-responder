@@ -244,11 +244,11 @@ export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordForm
     return (
       <AuthCardShell width="sm">
         <LiveRegion level="assertive" message={SESSION_EXPIRED_COPY} />
-        <h1 className="text-2xl font-semibold text-[#2a2a2a]">Reset link expired</h1>
-        <p className="mt-2 text-[#6a6a6a]">{SESSION_EXPIRED_COPY}</p>
+        <h1 className="text-2xl font-semibold text-rw-ink">Reset link expired</h1>
+        <p className="mt-2 text-rw-ink-soft">{SESSION_EXPIRED_COPY}</p>
         <Link
           href="/forgot-password"
-          className="mt-6 inline-block text-sm font-medium text-[#557069] hover:underline"
+          className="mt-6 inline-block text-sm font-medium text-rw-teal-strong hover:underline"
         >
           Request a new reset link
         </Link>
@@ -260,7 +260,7 @@ export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordForm
     <AuthCardShell width="sm">
       <LiveRegion level="assertive" message={error} />
       <form onSubmit={handleSubmit} className="space-y-4">
-        <h1 className="text-2xl font-semibold text-[#2a2a2a]">Set a new password</h1>
+        <h1 className="text-2xl font-semibold text-rw-ink">Set a new password</h1>
         <div>
           <label htmlFor="new-password" className={authLabelClass}>New password</label>
           <input
@@ -296,13 +296,13 @@ export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordForm
             className="mt-1 min-h-[1rem] text-xs"
           >
             {showMismatch ? (
-              <span className="text-[#b3261e]">Passwords don&apos;t match.</span>
+              <span className="text-rw-error">Passwords don&apos;t match.</span>
             ) : confirmTouched && passwordsMatch ? (
-              <span className="text-[#1d6b4f]">Passwords match.</span>
+              <span className="text-rw-success">Passwords match.</span>
             ) : null}
           </p>
         </div>
-        {error && <p className="text-sm text-[#b3261e]" aria-hidden="true">{error}</p>}
+        {error && <p className="text-sm text-rw-error" aria-hidden="true">{error}</p>}
         <button type="submit" disabled={loading} className={authPrimaryButtonClass}>
           {loading ? 'Updating...' : 'Update password'}
         </button>

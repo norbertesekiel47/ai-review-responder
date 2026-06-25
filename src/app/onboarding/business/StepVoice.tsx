@@ -33,8 +33,8 @@ export function StepVoice({
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-xl font-medium text-[#2a2a2a]">Voice &amp; context</h2>
-          <p className="text-sm text-[#6a6a6a]">
+          <h2 className="text-xl font-medium text-rw-ink">Voice &amp; context</h2>
+          <p className="text-sm text-rw-ink-soft">
             Help us write responses that sound like you. All optional, you can
             set this up later in Settings.
           </p>
@@ -43,7 +43,7 @@ export function StepVoice({
           type="button"
           onClick={onSkip}
           disabled={submitting}
-          className="text-sm text-[#97B3AE] hover:text-[#7e9b96] underline whitespace-nowrap disabled:opacity-50"
+          className="text-sm text-rw-teal hover:text-[#7e9b96] underline whitespace-nowrap disabled:opacity-50"
         >
           Skip for now
         </button>

@@ -34,10 +34,10 @@ export function PageShell({ sections, children, maxWidthClassName = 'max-w-5xl' 
 
   return (
     <LazyMotion features={domAnimation}>
-      <div ref={containerRef} className="min-h-screen bg-[#D2E0D3] relative">
+      <div ref={containerRef} className="min-h-screen bg-rw-sage relative">
       {/* Parallax background */}
       <div className="fixed inset-0 pointer-events-none" aria-hidden="true">
-        <div className="absolute inset-0 backdrop-blur-sm bg-[#D2E0D3]/80" />
+        <div className="absolute inset-0 backdrop-blur-sm bg-rw-sage/80" />
         {[
           { style: { y: bgY1 }, className: 'absolute top-20 left-10 w-64 h-80', dots: 5 },
           { style: { y: bgY2 }, className: 'absolute top-[500px] right-20 w-72 h-64', dots: 4 },
@@ -51,13 +51,13 @@ export function PageShell({ sections, children, maxWidthClassName = 'max-w-5xl' 
           >
             <div className="flex gap-1 mb-3">
               {Array.from({ length: card.dots }).map((_, j) => (
-                <div key={j} className="size-4 bg-[#F2C3B9]/60 rounded-full" />
+                <div key={j} className="size-4 bg-rw-peach/60 rounded-full" />
               ))}
             </div>
             <div className="space-y-2">
-              <div className="h-3 bg-[#2a2a2a]/20 rounded w-full" />
-              <div className="h-3 bg-[#2a2a2a]/20 rounded w-5/6" />
-              <div className="h-3 bg-[#2a2a2a]/20 rounded w-4/6" />
+              <div className="h-3 bg-rw-ink/20 rounded w-full" />
+              <div className="h-3 bg-rw-ink/20 rounded w-5/6" />
+              <div className="h-3 bg-rw-ink/20 rounded w-4/6" />
             </div>
           </m.div>
         ))}
@@ -65,14 +65,14 @@ export function PageShell({ sections, children, maxWidthClassName = 'max-w-5xl' 
 
       {/* Right dot navigation (desktop only) */}
       {sections.length > 0 && (
-        <div className="fixed right-8 top-1/2 -translate-y-1/2 z-50 hidden lg:flex flex-col gap-4 bg-white/80 backdrop-blur-md rounded-full py-6 px-3 shadow-xl border border-[#97B3AE]/20">
+        <div className="fixed right-8 top-1/2 -translate-y-1/2 z-50 hidden lg:flex flex-col gap-4 bg-white/80 backdrop-blur-md rounded-full py-6 px-3 shadow-xl border border-rw-teal/20">
           {sections.map(({ ref, label }) => (
             <button
               key={label}
               type="button"
               onClick={() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
               aria-label={`Go to ${label}`}
-              className="relative size-3 rounded-full bg-[#97B3AE]/30 hover:bg-[#97B3AE] transition-all hover:scale-125 focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2 after:absolute after:left-1/2 after:top-1/2 after:-translate-x-1/2 after:-translate-y-1/2 after:h-11 after:w-11 after:content-['']"
+              className="relative size-3 rounded-full bg-rw-teal/30 hover:bg-rw-teal transition-all hover:scale-125 focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2 after:absolute after:left-1/2 after:top-1/2 after:-translate-x-1/2 after:-translate-y-1/2 after:h-11 after:w-11 after:content-['']"
             />
           ))}
         </div>

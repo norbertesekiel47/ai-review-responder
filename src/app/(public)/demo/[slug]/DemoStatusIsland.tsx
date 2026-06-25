@@ -143,17 +143,17 @@ function LoadingBody({
     <>
       <div
         aria-hidden="true"
-        className={`w-12 h-12 rounded-full border-4 border-[#557069]/20 border-t-[#557069] mb-6 ${
+        className={`w-12 h-12 rounded-full border-4 border-rw-teal-strong/20 border-t-rw-teal-strong mb-6 ${
           prefersReducedMotion ? '' : 'animate-spin'
         }`}
       />
       {businessName && (
-        <h1 className="text-2xl md:text-3xl font-medium text-[#2a2a2a] mb-2">{businessName}</h1>
+        <h1 className="text-2xl md:text-3xl font-medium text-rw-ink mb-2">{businessName}</h1>
       )}
-      <p className="text-lg text-[#6a6a6a]">Your demo is being generated…</p>
-      <p className="text-sm text-[#557069] italic mt-2">This usually takes under a minute.</p>
+      <p className="text-lg text-rw-ink-soft">Your demo is being generated…</p>
+      <p className="text-sm text-rw-teal-strong italic mt-2">This usually takes under a minute.</p>
       {showElapsed && (
-        <p className="text-sm text-[#557069] mt-1">Still working… {elapsedSeconds}s elapsed.</p>
+        <p className="text-sm text-rw-teal-strong mt-1">Still working… {elapsedSeconds}s elapsed.</p>
       )}
     </>
   );
@@ -166,9 +166,9 @@ function TimedOutBody({ businessName }: { businessName?: string }) {
     <>
       <div
         aria-hidden="true"
-        className="w-16 h-16 rounded-full bg-[#557069]/15 flex items-center justify-center mb-6"
+        className="w-16 h-16 rounded-full bg-rw-teal-strong/15 flex items-center justify-center mb-6"
       >
-        <svg className="w-7 h-7 text-[#557069]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-7 h-7 text-rw-teal-strong" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -177,10 +177,10 @@ function TimedOutBody({ businessName }: { businessName?: string }) {
           />
         </svg>
       </div>
-      <h1 className="text-2xl md:text-3xl font-medium text-[#2a2a2a] mb-3">
+      <h1 className="text-2xl md:text-3xl font-medium text-rw-ink mb-3">
         This is taking longer than usual
       </h1>
-      <p className="text-lg text-[#6a6a6a] max-w-md mb-8">
+      <p className="text-lg text-rw-ink-soft max-w-md mb-8">
         Your demo{businessName ? ` for ${businessName}` : ''} is still generating. You can keep waiting,
         try again, or book a demo and we&apos;ll walk you through it.
       </p>
@@ -190,18 +190,18 @@ function TimedOutBody({ businessName }: { businessName?: string }) {
           onClick={() => router.refresh()}
           whileHover={prefersReducedMotion ? undefined : { scale: 1.05, y: -2 }}
           whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
-          className="inline-block px-8 py-4 bg-[#557069] text-white rounded-full shadow-lg font-medium"
+          className="inline-block px-8 py-4 bg-rw-teal-strong text-white rounded-full shadow-lg font-medium"
         >
           Try again
         </motion.button>
         <Link
           href="/book-a-demo"
-          className="inline-block px-8 py-4 border border-[#557069] text-[#557069] rounded-full font-medium"
+          className="inline-block px-8 py-4 border border-rw-teal-strong text-rw-teal-strong rounded-full font-medium"
         >
           Book a demo
         </Link>
       </div>
-      <Link href="/" className="text-sm text-[#557069] underline mt-6">
+      <Link href="/" className="text-sm text-rw-teal-strong underline mt-6">
         Back to RepWorth
       </Link>
     </>
@@ -216,9 +216,9 @@ function MessageBody({ variant, businessName }: { variant: 'error' | 'expired'; 
     <>
       <div
         aria-hidden="true"
-        className="w-16 h-16 rounded-full bg-[#557069]/15 flex items-center justify-center mb-6"
+        className="w-16 h-16 rounded-full bg-rw-teal-strong/15 flex items-center justify-center mb-6"
       >
-        <svg className="w-7 h-7 text-[#557069]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-7 h-7 text-rw-teal-strong" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           {variant === 'error' ? (
             <path
               strokeLinecap="round"
@@ -236,8 +236,8 @@ function MessageBody({ variant, businessName }: { variant: 'error' | 'expired'; 
           )}
         </svg>
       </div>
-      <h1 className="text-2xl md:text-3xl font-medium text-[#2a2a2a] mb-3">{title}</h1>
-      <p className="text-lg text-[#6a6a6a] max-w-md mb-8">{body(businessName)}</p>
+      <h1 className="text-2xl md:text-3xl font-medium text-rw-ink mb-3">{title}</h1>
+      <p className="text-lg text-rw-ink-soft max-w-md mb-8">{body(businessName)}</p>
       <div className="flex flex-wrap items-center justify-center gap-3">
         {variant === 'error' && (
           <motion.button
@@ -245,7 +245,7 @@ function MessageBody({ variant, businessName }: { variant: 'error' | 'expired'; 
             onClick={() => router.refresh()}
             whileHover={prefersReducedMotion ? undefined : { scale: 1.05, y: -2 }}
             whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
-            className="inline-block px-8 py-4 bg-[#557069] text-white rounded-full shadow-lg font-medium"
+            className="inline-block px-8 py-4 bg-rw-teal-strong text-white rounded-full shadow-lg font-medium"
           >
             Try again
           </motion.button>
@@ -259,15 +259,15 @@ function MessageBody({ variant, businessName }: { variant: 'error' | 'expired'; 
             href="/book-a-demo"
             className={
               variant === 'error'
-                ? 'inline-block px-8 py-4 border border-[#557069] text-[#557069] rounded-full font-medium'
-                : 'inline-block px-8 py-4 bg-[#557069] text-white rounded-full shadow-lg font-medium'
+                ? 'inline-block px-8 py-4 border border-rw-teal-strong text-rw-teal-strong rounded-full font-medium'
+                : 'inline-block px-8 py-4 bg-rw-teal-strong text-white rounded-full shadow-lg font-medium'
             }
           >
             Book a demo
           </Link>
         </motion.div>
       </div>
-      <Link href="/" className="text-sm text-[#557069] underline mt-6">
+      <Link href="/" className="text-sm text-rw-teal-strong underline mt-6">
         Back to RepWorth
       </Link>
     </>

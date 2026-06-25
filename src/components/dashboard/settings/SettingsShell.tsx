@@ -43,7 +43,7 @@ export function SettingsShell({ children, saveBar, savedFlash, saveError }: Prop
             className="btn btn-primary"
             onClick={saveBar.onSave}
             disabled={saveBar.saving}
-            style={{ background: 'var(--rw-blue-600)' }}
+            style={{ background: 'var(--rw-accent-600)' }}
           >
             {saveBar.saving ? (
               'Saving…'

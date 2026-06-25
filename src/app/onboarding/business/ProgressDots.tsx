@@ -36,9 +36,9 @@ export function ProgressDots({ current, total = 3, demoFlow = false }: ProgressD
           <div
             className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-medium ${
               s.n < current
-                ? 'bg-[#97B3AE] text-white'
+                ? 'bg-rw-teal text-white'
                 : s.n === current
-                  ? 'bg-[#97B3AE] text-white ring-4 ring-[#97B3AE]/25'
+                  ? 'bg-rw-teal text-white ring-4 ring-rw-teal/25'
                   : 'bg-[#e3ddd3] text-[#9a948a]'
             }`}
             aria-current={s.n === current ? 'step' : undefined}
@@ -47,7 +47,7 @@ export function ProgressDots({ current, total = 3, demoFlow = false }: ProgressD
           </div>
           <span
             className={`text-sm ${
-              s.n === current ? 'font-medium text-[#2a2a2a]' : 'text-[#9a948a]'
+              s.n === current ? 'font-medium text-rw-ink' : 'text-[#9a948a]'
             }`}
           >
             {s.label}
@@ -55,7 +55,7 @@ export function ProgressDots({ current, total = 3, demoFlow = false }: ProgressD
           {i < visible.length - 1 && (
             <div
               className={`mx-2 h-px w-8 ${
-                s.n < current ? 'bg-[#97B3AE]' : 'bg-[#cdd9ce]'
+                s.n < current ? 'bg-rw-teal' : 'bg-[#cdd9ce]'
               }`}
             />
           )}

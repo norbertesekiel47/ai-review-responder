@@ -159,8 +159,8 @@ export function StepLocation({
   return (
     <LazyMotion features={domAnimation}>
     <div className="space-y-4">
-      <h2 className="text-xl font-medium text-[#2a2a2a]">Find your business</h2>
-      <p className="text-sm text-[#6a6a6a]">
+      <h2 className="text-xl font-medium text-rw-ink">Find your business</h2>
+      <p className="text-sm text-rw-ink-soft">
         Search Google Maps for your business or paste its Google Maps URL.
       </p>
 
@@ -212,7 +212,7 @@ export function StepLocation({
             update({ inputMode: 'autocomplete', googleMapsUrl: '' });
           }
         }}
-        className="text-xs text-[#97B3AE] hover:text-[#7e9b96]"
+        className="text-xs text-rw-teal hover:text-[#7e9b96]"
       >
         {data.inputMode === 'autocomplete'
           ? 'Or paste a Google Maps URL'

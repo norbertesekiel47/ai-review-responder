@@ -31,8 +31,8 @@ export function StepProfile({
   return (
     <LazyMotion features={domAnimation}>
     <div className="space-y-4">
-      <h2 className="text-xl font-medium text-[#2a2a2a]">Business profile</h2>
-      <p className="text-sm text-[#6a6a6a]">
+      <h2 className="text-xl font-medium text-rw-ink">Business profile</h2>
+      <p className="text-sm text-rw-ink-soft">
         We may have pre-filled some of these from Google Maps. Feel free to
         edit.
       </p>

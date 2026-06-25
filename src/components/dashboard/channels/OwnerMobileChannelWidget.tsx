@@ -105,7 +105,7 @@ export function OwnerMobileChannelWidget({
         {snapshot.state === 'awaiting_scan' && snapshot.qrDataUrl && snapshot.deepLink && (
           <div style={{ marginTop: 12 }}>
             <Image src={snapshot.qrDataUrl} alt={presentation.qrAlt} width={160} height={160} unoptimized />
-            <p style={{ marginTop: 6, wordBreak: 'break-all', fontSize: 12, color: 'var(--rw-blue-600)' }}>
+            <p style={{ marginTop: 6, wordBreak: 'break-all', fontSize: 12, color: 'var(--rw-accent-600)' }}>
               <a href={snapshot.deepLink} target="_blank" rel="noreferrer">{snapshot.deepLink}</a>
             </p>
             {ttl.secondsRemaining !== null && (

@@ -29,6 +29,6 @@ describe('PageShell', () => {
     const html = renderToStaticMarkup(
       <PageShell sections={[{ ref: { current: null }, label: 'Top' }]}>x</PageShell>,
     );
-    expect(html).toContain('focus-visible:outline-[#97B3AE]');
+    expect(html).toContain('focus-visible:outline-rw-teal');
   });
 });

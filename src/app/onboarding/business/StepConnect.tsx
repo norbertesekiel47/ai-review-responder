@@ -52,10 +52,10 @@ export function StepConnect({ onBack, onConnect, onSkip, submitting }: StepConne
     <LazyMotion features={domAnimation}>
     <div className="space-y-5">
       <div>
-        <h2 className="text-xl font-medium text-[#2a2a2a]">
+        <h2 className="text-xl font-medium text-rw-ink">
           Connect your Google Business Profile
         </h2>
-        <p className="mt-1 text-sm text-[#6a6a6a]">
+        <p className="mt-1 text-sm text-rw-ink-soft">
           We use Zernio to securely read your reviews and post your approved
           replies on Google. You&apos;ll be redirected to Google to grant
           access, only you ever see review content, and we never auto-post
@@ -63,17 +63,17 @@ export function StepConnect({ onBack, onConnect, onSkip, submitting }: StepConne
         </p>
       </div>
 
-      <ul className="space-y-2 text-sm text-[#6a6a6a]">
+      <ul className="space-y-2 text-sm text-rw-ink-soft">
         <li className="flex items-start gap-2">
-          <span className="text-[#97B3AE] mt-0.5">✓</span>
+          <span className="text-rw-teal mt-0.5">✓</span>
           <span>Pulls in every review on the location you pick.</span>
         </li>
         <li className="flex items-start gap-2">
-          <span className="text-[#97B3AE] mt-0.5">✓</span>
+          <span className="text-rw-teal mt-0.5">✓</span>
           <span>Drafts a reply for each new review using your voice.</span>
         </li>
         <li className="flex items-start gap-2">
-          <span className="text-[#97B3AE] mt-0.5">✓</span>
+          <span className="text-rw-teal mt-0.5">✓</span>
           <span>You approve each reply before it goes live.</span>
         </li>
       </ul>

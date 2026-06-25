@@ -127,7 +127,7 @@ export function PaymentSuccessClient({
         {active ? (
           <>
             <m.div
-              className="size-16 mx-auto mb-6 rounded-full bg-[#97B3AE] flex items-center justify-center shadow-lg"
+              className="size-16 mx-auto mb-6 rounded-full bg-rw-teal flex items-center justify-center shadow-lg"
               initial={{ scale: 0.5, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               transition={{ duration: 0.5, ease: 'easeOut', delay: 0.1 }}
@@ -148,10 +148,10 @@ export function PaymentSuccessClient({
             </m.div>
             {needsSetup ? (
               <>
-                <h1 className="text-3xl font-medium text-[#2a2a2a] mb-3">
+                <h1 className="text-3xl font-medium text-rw-ink mb-3">
                   You&apos;re in. Payment confirmed
                 </h1>
-                <p className="text-[#6a6a6a] mb-8">
+                <p className="text-rw-ink-soft mb-8">
                   Let&apos;s finish setting up your business.
                 </p>
                 <m.button
@@ -164,10 +164,10 @@ export function PaymentSuccessClient({
               </>
             ) : (
               <>
-                <h1 className="text-3xl font-medium text-[#2a2a2a] mb-3">
+                <h1 className="text-3xl font-medium text-rw-ink mb-3">
                   Welcome to RepWorth!
                 </h1>
-                <p className="text-[#6a6a6a] mb-8">Your subscription is active.</p>
+                <p className="text-rw-ink-soft mb-8">Your subscription is active.</p>
                 <m.button
                   onClick={() => router.push('/dashboard')}
                   {...buttonMotion}
@@ -180,12 +180,12 @@ export function PaymentSuccessClient({
           </>
         ) : elapsed > MAX_POLL_DURATION_MS ? (
           <>
-            <h1 className="text-2xl font-medium text-[#2a2a2a] mb-3">
+            <h1 className="text-2xl font-medium text-rw-ink mb-3">
               Still processing…
             </h1>
-            <p className="text-[#6a6a6a]">
+            <p className="text-rw-ink-soft">
               This is taking longer than usual. Please{' '}
-              <a href="mailto:support@repworth.net" className="text-[#97B3AE] underline">
+              <a href="mailto:support@repworth.net" className="text-rw-teal underline">
                 contact support
               </a>{' '}
               if it persists.
@@ -193,11 +193,11 @@ export function PaymentSuccessClient({
           </>
         ) : (
           <>
-            <div className="inline-block size-12 border-4 border-[#97B3AE]/25 border-t-[#97B3AE] rounded-full animate-spin mb-6" />
-            <h1 className="text-2xl font-medium text-[#2a2a2a] mb-3">
+            <div className="inline-block size-12 border-4 border-rw-teal/25 border-t-rw-teal rounded-full animate-spin mb-6" />
+            <h1 className="text-2xl font-medium text-rw-ink mb-3">
               Processing your payment…
             </h1>
-            <p className="text-[#6a6a6a]">This usually takes a few seconds.</p>
+            <p className="text-rw-ink-soft">This usually takes a few seconds.</p>
           </>
         )}
       </div>

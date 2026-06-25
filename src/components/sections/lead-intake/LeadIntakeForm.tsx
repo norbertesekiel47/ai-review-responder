@@ -72,8 +72,8 @@ const TONE_STYLES = {
     required: 'text-white',
     error: 'mt-1.5 text-sm font-medium text-white',
     button:
-      'w-full px-10 py-4 bg-white text-[#557069] rounded-full shadow-xl font-medium disabled:opacity-60 disabled:cursor-not-allowed transition-opacity inline-flex items-center justify-center gap-2',
-    spinner: 'text-[#557069]',
+      'w-full px-10 py-4 bg-white text-rw-teal-strong rounded-full shadow-xl font-medium disabled:opacity-60 disabled:cursor-not-allowed transition-opacity inline-flex items-center justify-center gap-2',
+    spinner: 'text-rw-teal-strong',
     consent: 'mt-3 text-center text-xs text-white/90',
     consentLink: 'underline underline-offset-2 hover:text-white',
     success:
@@ -84,20 +84,20 @@ const TONE_STYLES = {
   },
   light: {
     form: 'space-y-4',
-    label: 'block text-sm font-medium text-[#2a2a2a] mb-1.5',
+    label: 'block text-sm font-medium text-rw-ink mb-1.5',
     input:
-      'w-full rounded-lg bg-[#F0EEEA]/50 border border-[#97B3AE]/30 px-4 py-3 text-[#2a2a2a] placeholder-[#6a6a6a] focus:outline-none focus:ring-2 focus:ring-[#557069]/40 transition-all text-sm aria-[invalid=true]:border-[#b3261e] aria-[invalid=true]:ring-2 aria-[invalid=true]:ring-[#b3261e]/30',
-    required: 'text-[#b3261e]',
-    error: 'mt-1.5 text-sm font-medium text-[#b3261e]',
+      'w-full rounded-lg bg-rw-cream/50 border border-rw-teal/30 px-4 py-3 text-rw-ink placeholder-rw-ink-soft focus:outline-none focus:ring-2 focus:ring-rw-teal-strong/40 transition-all text-sm aria-[invalid=true]:border-rw-error aria-[invalid=true]:ring-2 aria-[invalid=true]:ring-rw-error/30',
+    required: 'text-rw-error',
+    error: 'mt-1.5 text-sm font-medium text-rw-error',
     button:
-      'w-full px-8 py-4 bg-[#557069] text-white rounded-full shadow-lg font-medium disabled:opacity-60 disabled:cursor-not-allowed transition-opacity inline-flex items-center justify-center gap-2',
+      'w-full px-8 py-4 bg-rw-teal-strong text-white rounded-full shadow-lg font-medium disabled:opacity-60 disabled:cursor-not-allowed transition-opacity inline-flex items-center justify-center gap-2',
     spinner: 'text-white',
-    consent: 'mt-3 text-center text-xs text-[#6a6a6a]',
-    consentLink: 'underline underline-offset-2 text-[#557069] hover:text-[#557069]/80',
+    consent: 'mt-3 text-center text-xs text-rw-ink-soft',
+    consentLink: 'underline underline-offset-2 text-rw-teal-strong hover:text-rw-teal-strong/80',
     success:
-      'rounded-2xl bg-white border border-[#97B3AE]/20 shadow-lg p-8 text-center',
-    successHeading: 'text-2xl text-[#2a2a2a] font-medium mb-2',
-    successBody: 'text-[#6a6a6a]',
+      'rounded-2xl bg-white border border-rw-teal/20 shadow-lg p-8 text-center',
+    successHeading: 'text-2xl text-rw-ink font-medium mb-2',
+    successBody: 'text-rw-ink-soft',
     hoverShadow: '0 20px 40px rgba(151,179,174,0.3)',
   },
 };

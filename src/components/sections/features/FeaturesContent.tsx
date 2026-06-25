@@ -172,7 +172,7 @@ function DotNav({
   return (
     <nav
       aria-label="Section navigation"
-      className="fixed right-6 top-1/2 -translate-y-1/2 z-50 hidden lg:flex flex-col gap-1.5 bg-white/85 backdrop-blur-md rounded-3xl py-4 px-2 shadow-xl border border-[#97B3AE]/20"
+      className="fixed right-6 top-1/2 -translate-y-1/2 z-50 hidden lg:flex flex-col gap-1.5 bg-white/85 backdrop-blur-md rounded-3xl py-4 px-2 shadow-xl border border-rw-teal/20"
     >
       {FEATURES.map((f) => {
         const isActive = activeSection === f.id;
@@ -184,12 +184,12 @@ function DotNav({
             aria-label={`Jump to ${f.label}`}
             className="group flex items-center gap-2 py-1.5 pl-2 pr-1"
           >
-            <span className="rw-label-mono text-[10px] text-[#6a6a6a] opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+            <span className="rw-label-mono text-[10px] text-rw-ink-soft opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
               {f.label}
             </span>
             <span
               className={`w-2 h-2 rounded-full transition-all ${
-                isActive ? 'bg-[#97B3AE] rw-pulse-dot' : 'bg-[#97B3AE]/30 group-hover:bg-[#97B3AE]'
+                isActive ? 'bg-rw-teal rw-pulse-dot' : 'bg-rw-teal/30 group-hover:bg-rw-teal'
               }`}
             />
           </button>
@@ -215,12 +215,12 @@ function HeroSection({
       <div className="grid md:grid-cols-12 gap-8 items-end">
         <div className="md:col-span-8">
           <p
-            className={cn('rw-hero-kicker rw-label-mono text-xs uppercase text-[#557069] mb-8 flex items-center gap-3', heroIn && 'in')}
+            className={cn('rw-hero-kicker rw-label-mono text-xs uppercase text-rw-teal-strong mb-8 flex items-center gap-3', heroIn && 'in')}
           >
             <span className="line" />
             <span>Features · 2026 Edition</span>
           </p>
-          <h1 className="text-[3.25rem] md:text-[4.75rem] leading-[0.95] tracking-tight text-[#2a2a2a] font-medium mb-6">
+          <h1 className="text-[3.25rem] md:text-[4.75rem] leading-[0.95] tracking-tight text-rw-ink font-medium mb-6">
             <span className="rw-hero-line">
               {HERO_WORDS_LINE_1.map((w, i) => (
                 <span
@@ -234,7 +234,7 @@ function HeroSection({
             </span>
             <span className="rw-hero-line">
               <span
-                className={cn('rw-hero-word rw-display-serif text-[#557069]', heroIn && 'in')}
+                className={cn('rw-hero-word rw-display-serif text-rw-teal-strong', heroIn && 'in')}
                 style={{ ['--word-delay' as string]: `${80 + HERO_WORDS_LINE_1.length * 80}ms` }}
               >
                 nothing
@@ -252,7 +252,7 @@ function HeroSection({
               ))}
             </span>
           </h1>
-          <p className={cn('rw-hero-lede text-lg text-[#6a6a6a] max-w-md leading-relaxed', heroIn && 'in')}>
+          <p className={cn('rw-hero-lede text-lg text-rw-ink-soft max-w-md leading-relaxed', heroIn && 'in')}>
             RepWorth is a done-for-you service and not another dashboard to learn.
             Six features today, one in testing, one weekly rhythm, zero late-night copywriting.
           </p>
@@ -274,17 +274,17 @@ function HeroSection({
                 } as CSSProperties
               }
             >
-              <span className="rw-num-tag text-5xl text-[#2a2a2a]">
+              <span className="rw-num-tag text-5xl text-rw-ink">
                 {m.val}
-                <span className="text-lg text-[#6a6a6a] ml-1">{m.suffix}</span>
+                <span className="text-lg text-rw-ink-soft ml-1">{m.suffix}</span>
               </span>
-              <span className="text-xs text-[#6a6a6a] leading-tight whitespace-pre-line">
+              <span className="text-xs text-rw-ink-soft leading-tight whitespace-pre-line">
                 {m.label}
               </span>
               {i < 2 && <span className="rw-hero-metric-underline" />}
             </div>
           ))}
-          <p className="text-[10px] italic text-[#6a6a6a] pt-1">
+          <p className="text-[10px] italic text-rw-ink-soft pt-1">
             Illustrative targets, not live performance data.
           </p>
         </div>
@@ -299,13 +299,13 @@ function HeroSection({
           ].map(({ r, k }) => (
             <div
               key={k}
-              className="flex items-center gap-3 px-4 py-2.5 rounded-full bg-[#F0EEEA]/70 border border-[#97B3AE]/15"
+              className="flex items-center gap-3 px-4 py-2.5 rounded-full bg-rw-cream/70 border border-rw-teal/15"
             >
-              <span className="rw-label-mono text-[10px] uppercase text-[#557069]">{r.lang}</span>
+              <span className="rw-label-mono text-[10px] uppercase text-rw-teal-strong">{r.lang}</span>
               <span className="text-xs" aria-label={`${r.ratingValue} out of 5 stars`}>
-                <span className="text-[#97B3AE]" aria-hidden="true">{r.stars}</span>
+                <span className="text-rw-teal" aria-hidden="true">{r.stars}</span>
               </span>
-              <span className="text-sm text-[#2a2a2a]">{r.text}</span>
+              <span className="text-sm text-rw-ink">{r.text}</span>
             </div>
           ))}
         </div>
@@ -326,12 +326,12 @@ function FeatureTOC({
   return (
     <section
       aria-label="Feature index"
-      className="px-8 md:px-16 py-10 border-y border-[#97B3AE]/10 bg-[#F0EEEA]/40"
+      className="px-8 md:px-16 py-10 border-y border-rw-teal/10 bg-rw-cream/40"
     >
       <div className="flex items-center gap-4 mb-6">
-        <span className="rw-label-mono text-xs uppercase text-[#557069]">Index</span>
-        <div className="flex-1 h-px bg-[#97B3AE]/20" />
-        <span className="rw-label-mono text-xs uppercase text-[#6a6a6a]">6 live · 1 in testing</span>
+        <span className="rw-label-mono text-xs uppercase text-rw-teal-strong">Index</span>
+        <div className="flex-1 h-px bg-rw-teal/20" />
+        <span className="rw-label-mono text-xs uppercase text-rw-ink-soft">6 live · 1 in testing</span>
       </div>
       <div ref={tocRef} className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
         {FEATURES.map((f, i) => (
@@ -339,13 +339,13 @@ function FeatureTOC({
             key={f.id}
             type="button"
             onClick={() => onJump(f.id)}
-            className={`rw-toc-chip group flex flex-col gap-1 p-3 rounded-2xl border border-[#97B3AE]/15 bg-white hover:bg-[#97B3AE]/5 hover:border-[#97B3AE]/40 text-left ${tocSeen ? 'in' : ''}`}
+            className={`rw-toc-chip group flex flex-col gap-1 p-3 rounded-2xl border border-rw-teal/15 bg-white hover:bg-rw-teal/5 hover:border-rw-teal/40 text-left ${tocSeen ? 'in' : ''}`}
             style={{ ['--chip-delay' as string]: `${i * 70}ms` }}
           >
             <div className="flex items-center justify-between">
-              <span className="rw-num-tag text-lg text-[#557069]">{f.n}</span>
+              <span className="rw-num-tag text-lg text-rw-teal-strong">{f.n}</span>
               <svg
-                className="size-3 text-[#6a6a6a] group-hover:text-[#557069] transition-colors"
+                className="size-3 text-rw-ink-soft group-hover:text-rw-teal-strong transition-colors"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -354,8 +354,8 @@ function FeatureTOC({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
               </svg>
             </div>
-            <span className="text-sm font-medium text-[#2a2a2a]">{f.label}</span>
-            <span className="rw-label-mono text-[10px] uppercase text-[#6a6a6a]">{f.sub}</span>
+            <span className="text-sm font-medium text-rw-ink">{f.label}</span>
+            <span className="rw-label-mono text-[10px] uppercase text-rw-ink-soft">{f.sub}</span>
           </button>
         ))}
       </div>
@@ -499,7 +499,7 @@ export function FeaturesContent({
             </p>
             <div className="relative w-full max-w-md mx-auto">
               {comingSoon ? (
-                <span className="inline-block px-8 py-4 bg-white text-[#557069] rounded-full font-medium shadow-xl opacity-60 cursor-default select-none">
+                <span className="inline-block px-8 py-4 bg-white text-rw-teal-strong rounded-full font-medium shadow-xl opacity-60 cursor-default select-none">
                   Coming soon
                 </span>
               ) : (
@@ -533,40 +533,40 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   return (
     <FeatureSection innerRef={innerRef} id="f-ai" label="AI drafting" className="px-8 md:px-16 py-20 relative">
       <div ref={headRef} className={`rw-reveal flex items-start gap-6 mb-10 ${headSeen ? 'in' : ''}`}>
-        <span className="rw-num-tag text-7xl leading-none text-[#97B3AE]/40" aria-hidden="true">01</span>
+        <span className="rw-num-tag text-7xl leading-none text-rw-teal/40" aria-hidden="true">01</span>
         <div className="flex-1">
-          <p className="rw-label-mono text-xs uppercase text-[#557069] mb-3">The engine</p>
-          <h2 className="text-4xl md:text-5xl font-medium text-[#2a2a2a] leading-tight max-w-xl">
-            Every reply written from scratch, <span className="rw-display-serif text-[#557069]">never</span> from a template.
+          <p className="rw-label-mono text-xs uppercase text-rw-teal-strong mb-3">The engine</p>
+          <h2 className="text-4xl md:text-5xl font-medium text-rw-ink leading-tight max-w-xl">
+            Every reply written from scratch, <span className="rw-display-serif text-rw-teal-strong">never</span> from a template.
           </h2>
-          <p className="text-[#6a6a6a] mt-4 max-w-xl leading-relaxed">
+          <p className="text-rw-ink-soft mt-4 max-w-xl leading-relaxed">
             Our AI reads the actual review, references specifics the customer mentioned, and writes in
             a voice that sounds like you wrote it yourself. No &ldquo;thanks for your feedback&rdquo; filler.
           </p>
         </div>
       </div>
 
-      <div ref={cardRef} className={`rw-reveal bg-[#F0EEEA]/60 rounded-3xl p-6 md:p-10 border border-[#97B3AE]/10 ${cardSeen ? 'in' : ''}`}>
+      <div ref={cardRef} className={`rw-reveal bg-rw-cream/60 rounded-3xl p-6 md:p-10 border border-rw-teal/10 ${cardSeen ? 'in' : ''}`}>
         <div className="flex items-center gap-2 mb-6">
           <button
             type="button"
             onClick={() => setTab('before')}
             aria-pressed={tab === 'before'}
-            className={`rw-label-mono text-xs uppercase tracking-wider px-3 py-1.5 rounded-full border border-[#2a2a2a]/20 transition-all ${
-              tab === 'before' ? 'bg-[#2a2a2a] text-white shadow-md -translate-y-0.5' : 'text-[#6a6a6a] hover:text-[#2a2a2a]'
+            className={`rw-label-mono text-xs uppercase tracking-wider px-3 py-1.5 rounded-full border border-rw-ink/20 transition-all ${
+              tab === 'before' ? 'bg-rw-ink text-white shadow-md -translate-y-0.5' : 'text-rw-ink-soft hover:text-rw-ink'
             }`}
           >
             Generic reply
           </button>
-          <svg className="size-4 text-[#557069]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+          <svg className="size-4 text-rw-teal-strong" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
           </svg>
           <button
             type="button"
             onClick={() => setTab('after')}
             aria-pressed={tab === 'after'}
-            className={`rw-label-mono text-xs uppercase tracking-wider px-3 py-1.5 rounded-full border border-[#2a2a2a]/20 transition-all ${
-              tab === 'after' ? 'bg-[#2a2a2a] text-white shadow-md -translate-y-0.5' : 'text-[#6a6a6a] hover:text-[#2a2a2a]'
+            className={`rw-label-mono text-xs uppercase tracking-wider px-3 py-1.5 rounded-full border border-rw-ink/20 transition-all ${
+              tab === 'after' ? 'bg-rw-ink text-white shadow-md -translate-y-0.5' : 'text-rw-ink-soft hover:text-rw-ink'
             }`}
           >
             RepWorth reply
@@ -575,7 +575,7 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
 
         <div className="grid md:grid-cols-2 gap-6 items-start">
           {/* Review card */}
-          <div className="bg-white rounded-2xl p-6 border border-[#97B3AE]/10 shadow-sm">
+          <div className="bg-white rounded-2xl p-6 border border-rw-teal/10 shadow-sm">
             <div className="flex items-center gap-3 mb-3">
               <div
                 className="size-10 rounded-full"
@@ -583,14 +583,14 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
                 aria-hidden
               />
               <div>
-                <p className="text-sm font-medium text-[#2a2a2a]">Sample reviewer</p>
+                <p className="text-sm font-medium text-rw-ink">Sample reviewer</p>
                 <div className="flex gap-0.5" aria-label="5 out of 5 stars">
-                  <span className="text-[#97B3AE]" aria-hidden="true">★★★★★</span>
+                  <span className="text-rw-teal" aria-hidden="true">★★★★★</span>
                 </div>
               </div>
-              <span className="ml-auto text-xs rw-label-mono text-[#6a6a6a]">2h ago · Google</span>
+              <span className="ml-auto text-xs rw-label-mono text-rw-ink-soft">2h ago · Google</span>
             </div>
-            <p className="text-[15px] text-[#2a2a2a] leading-relaxed">
+            <p className="text-[15px] text-rw-ink leading-relaxed">
               &ldquo;The al pastor tacos were incredible; the achiote marinade had this perfect
               smoky-sweet balance. Will be back next weekend!&rdquo;
             </p>
@@ -602,15 +602,15 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
             style={{ borderColor: r.borderColor, transition: 'border-color 0.5s ease' }}
           >
             <div className="flex items-center justify-between mb-4">
-              <p className="rw-label-mono text-xs uppercase text-[#557069]">{r.label}</p>
-              <p className="text-xs rw-label-mono text-[#6a6a6a]">{r.meta}</p>
+              <p className="rw-label-mono text-xs uppercase text-rw-teal-strong">{r.label}</p>
+              <p className="text-xs rw-label-mono text-rw-ink-soft">{r.meta}</p>
             </div>
-            <p className="text-[15px] text-[#2a2a2a] leading-relaxed">{r.text}</p>
-            <div className="mt-5 pt-5 border-t border-[#97B3AE]/10 grid grid-cols-3 gap-3 text-xs">
+            <p className="text-[15px] text-rw-ink leading-relaxed">{r.text}</p>
+            <div className="mt-5 pt-5 border-t border-rw-teal/10 grid grid-cols-3 gap-3 text-xs">
               {r.diag.map(([k, v]) => (
                 <div key={k}>
-                  <p className="rw-label-mono text-[#6a6a6a] mb-1">{k}</p>
-                  <p className="text-[#2a2a2a] font-medium">{v}</p>
+                  <p className="rw-label-mono text-rw-ink-soft mb-1">{k}</p>
+                  <p className="text-rw-ink font-medium">{v}</p>
                 </div>
               ))}
             </div>
@@ -631,20 +631,20 @@ function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
       innerRef={innerRef}
       id="f-lang"
       label="Multilingual support"
-      className="px-8 md:px-16 py-20 bg-gradient-to-b from-white to-[#F0EEEA]/50 relative"
+      className="px-8 md:px-16 py-20 bg-gradient-to-b from-white to-rw-cream/50 relative"
     >
       <div className="grid md:grid-cols-12 gap-10 items-start">
         <div ref={leftRef} className={`rw-reveal from-left md:col-span-5 ${leftSeen ? 'in' : ''}`}>
           <div className="flex items-start gap-6 mb-8">
-            <span className="rw-num-tag text-7xl leading-none text-[#F2C3B9]/80">02</span>
+            <span className="rw-num-tag text-7xl leading-none text-rw-peach/80">02</span>
             <div>
-              <p className="rw-label-mono text-xs uppercase text-[#557069] mb-3">Reach</p>
-              <h2 className="text-4xl md:text-[2.75rem] font-medium text-[#2a2a2a] leading-tight">
-                Multilingual, <span className="rw-display-serif text-[#557069]">automatically</span>.
+              <p className="rw-label-mono text-xs uppercase text-rw-teal-strong mb-3">Reach</p>
+              <h2 className="text-4xl md:text-[2.75rem] font-medium text-rw-ink leading-tight">
+                Multilingual, <span className="rw-display-serif text-rw-teal-strong">automatically</span>.
               </h2>
             </div>
           </div>
-          <p className="text-[#6a6a6a] max-w-md leading-relaxed mb-8">
+          <p className="text-rw-ink-soft max-w-md leading-relaxed mb-8">
             RepWorth detects the language of every review and responds in the same language: no
             setup, no toggles. Your customers feel heard in their own words.
           </p>
@@ -652,7 +652,7 @@ function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
             {FEATURE_LANGS.map((l, i) => (
               <div
                 key={l.code}
-                className="rw-lang-chip bg-white rounded-2xl p-3 border border-[#97B3AE]/15 text-center"
+                className="rw-lang-chip bg-white rounded-2xl p-3 border border-rw-teal/15 text-center"
                 style={{
                   ['--chip-d' as string]: `${80 + i * 90}ms`,
                   // The `.rw-lang-chip` base rule sets opacity:0 and relies on the
@@ -662,8 +662,8 @@ function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
                   ...(prefersReducedMotion ? { opacity: 1 } : {}),
                 }}
               >
-                <p className="rw-label-mono text-[10px] text-[#6a6a6a] mb-0.5">{l.code}</p>
-                <p className={`text-sm font-medium ${l.name === 'more' ? 'text-[#557069]' : ''}`}>
+                <p className="rw-label-mono text-[10px] text-rw-ink-soft mb-0.5">{l.code}</p>
+                <p className={`text-sm font-medium ${l.name === 'more' ? 'text-rw-teal-strong' : ''}`}>
                   {l.name}
                 </p>
               </div>
@@ -672,7 +672,7 @@ function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
         </div>
 
         <div ref={rightRef} className={`rw-reveal from-right md:col-span-7 ${rightSeen ? 'in' : ''}`}>
-          <div className="bg-white rounded-3xl p-6 border border-[#97B3AE]/15 shadow-sm max-w-md">
+          <div className="bg-white rounded-3xl p-6 border border-rw-teal/15 shadow-sm max-w-md">
             <div className="flex items-center gap-2 mb-3">
               <div
                 className="size-8 rounded-full"
@@ -680,20 +680,20 @@ function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
                 aria-hidden
               />
               <div>
-                <p className="text-xs font-medium text-[#2a2a2a]">Sample reviewer</p>
+                <p className="text-xs font-medium text-rw-ink">Sample reviewer</p>
                 <div className="flex gap-0.5 text-[10px]" aria-label="5 out of 5 stars">
-                  <span className="text-[#97B3AE]" aria-hidden="true">★★★★★</span>
+                  <span className="text-rw-teal" aria-hidden="true">★★★★★</span>
                 </div>
               </div>
-              <span className="ml-auto rw-label-mono text-[10px] text-[#6a6a6a]">detected: ES</span>
+              <span className="ml-auto rw-label-mono text-[10px] text-rw-ink-soft">detected: ES</span>
             </div>
-            <p className="text-sm text-[#2a2a2a] leading-relaxed">
+            <p className="text-sm text-rw-ink leading-relaxed">
               &ldquo;La mejor enchilada que he comido en años. El mole es auténtico. Volvería todos los
               fines de semana si pudiera.&rdquo;
             </p>
           </div>
 
-          <svg className="ml-16 my-2 w-8 h-16 text-[#97B3AE]/40" viewBox="0 0 32 64" fill="none" aria-hidden>
+          <svg className="ml-16 my-2 w-8 h-16 text-rw-teal/40" viewBox="0 0 32 64" fill="none" aria-hidden>
             <path
               d="M16 0 V 48 M10 44 L 16 52 L 22 44"
               stroke="currentColor"
@@ -704,14 +704,14 @@ function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           </svg>
 
           <div
-            className="ml-16 md:ml-24 rounded-3xl p-6 border border-[#97B3AE]/25 max-w-md"
+            className="ml-16 md:ml-24 rounded-3xl p-6 border border-rw-teal/25 max-w-md"
             style={{ background: 'rgba(151,179,174,0.08)' }}
           >
             <div className="flex items-center gap-2 mb-3">
-              <span className="rw-label-mono text-[10px] uppercase text-[#557069]">Your reply · ES</span>
-              <span className="ml-auto rw-label-mono text-[10px] text-[#6a6a6a]">auto-generated</span>
+              <span className="rw-label-mono text-[10px] uppercase text-rw-teal-strong">Your reply · ES</span>
+              <span className="ml-auto rw-label-mono text-[10px] text-rw-ink-soft">auto-generated</span>
             </div>
-            <p className="text-sm text-[#2a2a2a] leading-relaxed">
+            <p className="text-sm text-rw-ink leading-relaxed">
               &ldquo;¡Muchísimas gracias! El mole es la receta de mi abuela; tardan tres días
               en prepararlo. Nos alegra mucho que lo hayas disfrutado. ¡Hasta pronto!&rdquo;
             </p>
@@ -731,13 +731,13 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
   return (
     <FeatureSection innerRef={innerRef} id="f-approve" label="One-tap approval" className="px-8 md:px-16 py-20 relative">
       <div ref={headRef} className={`rw-reveal flex items-start gap-6 mb-12 ${headSeen ? 'in' : ''}`}>
-        <span className="rw-num-tag text-7xl leading-none text-[#D6CBBF]">03</span>
+        <span className="rw-num-tag text-7xl leading-none text-rw-beige">03</span>
         <div className="flex-1">
-          <p className="rw-label-mono text-xs uppercase text-[#557069] mb-3">Your control</p>
-          <h2 className="text-4xl md:text-5xl font-medium text-[#2a2a2a] leading-tight max-w-2xl">
-            Every reply needs your <span className="rw-display-serif text-[#557069]">sign-off</span>.
+          <p className="rw-label-mono text-xs uppercase text-rw-teal-strong mb-3">Your control</p>
+          <h2 className="text-4xl md:text-5xl font-medium text-rw-ink leading-tight max-w-2xl">
+            Every reply needs your <span className="rw-display-serif text-rw-teal-strong">sign-off</span>.
           </h2>
-          <p className="text-[#6a6a6a] mt-4 max-w-xl leading-relaxed">
+          <p className="text-rw-ink-soft mt-4 max-w-xl leading-relaxed">
             You get an email with the customer&apos;s review and the AI draft side-by-side. Tap
             approve, edit inline, or ask for a fresh draft. By default, nothing is posted without your
             go-ahead.
@@ -756,7 +756,7 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
               >
                 <div
                   className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center rw-label-mono text-sm ${
-                    s.dark ? 'bg-[#2a2a2a] text-white' : 'bg-[#97B3AE]/15 text-[#557069]'
+                    s.dark ? 'bg-rw-ink text-white' : 'bg-rw-teal/15 text-rw-teal-strong'
                   }`}
                 >
                   {s.n}
@@ -764,14 +764,14 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
                 <div
                   className={`flex-1 rounded-2xl p-4 border ${
                     s.dark
-                      ? 'bg-[#2a2a2a] text-white border-[#2a2a2a]'
-                      : 'bg-white text-[#2a2a2a] border-[#97B3AE]/15'
+                      ? 'bg-rw-ink text-white border-rw-ink'
+                      : 'bg-white text-rw-ink border-rw-teal/15'
                   }`}
                 >
                   <p className="text-sm font-medium">{s.title}</p>
-                  <p className={`text-xs mt-0.5 ${s.dark ? 'opacity-80' : 'text-[#6a6a6a]'}`}>{s.sub}</p>
+                  <p className={`text-xs mt-0.5 ${s.dark ? 'opacity-80' : 'text-rw-ink-soft'}`}>{s.sub}</p>
                 </div>
-                <span className="rw-label-mono text-xs text-[#6a6a6a] self-center">{s.t}</span>
+                <span className="rw-label-mono text-xs text-rw-ink-soft self-center">{s.t}</span>
               </li>
             ))}
           </ol>
@@ -780,36 +780,36 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
         <div ref={phoneRef} className={`rw-reveal scale-in md:col-span-5 flex justify-center ${phoneSeen ? 'in' : ''}`}>
           <div className="rw-phone-float relative w-[260px]" style={{ transform: 'rotate(-2deg)' }}>
             <div className="relative rounded-[2.5rem] p-[3px]" style={{ background: 'linear-gradient(135deg,#222,#444)' }}>
-              <div className="rounded-[2.3rem] bg-[#F0EEEA] overflow-hidden">
-                <div className="px-5 pt-3 pb-2 flex justify-between items-center text-[11px] rw-label-mono text-[#2a2a2a]">
+              <div className="rounded-[2.3rem] bg-rw-cream overflow-hidden">
+                <div className="px-5 pt-3 pb-2 flex justify-between items-center text-[11px] rw-label-mono text-rw-ink">
                   <span>9:41</span>
-                  <div className="w-20 h-5 rounded-full bg-[#2a2a2a]" />
+                  <div className="w-20 h-5 rounded-full bg-rw-ink" />
                   <span>·</span>
                 </div>
                 <div className="p-4 space-y-3">
                   <div className="rw-phone-item bg-white rounded-xl p-3 shadow-sm" style={{ ['--pi-d' as string]: '400ms' }}>
-                    <p className="rw-label-mono text-[10px] uppercase text-[#557069] mb-1">New review</p>
-                    <p className="text-[11px] text-[#6a6a6a]">
+                    <p className="rw-label-mono text-[10px] uppercase text-rw-teal-strong mb-1">New review</p>
+                    <p className="text-[11px] text-rw-ink-soft">
                       <span aria-label="5 out of 5 stars">
                         <span aria-hidden="true">★★★★★</span>
                       </span>
                       {' · Sample reviewer'}
                     </p>
-                    <p className="text-[12px] text-[#2a2a2a] mt-1 leading-snug">
+                    <p className="text-[12px] text-rw-ink mt-1 leading-snug">
                       &ldquo;Al pastor tacos were incredible, the achiote marinade…&rdquo;
                     </p>
                   </div>
                   <div
-                    className="rw-phone-item rounded-xl p-3 border border-[#97B3AE]/25"
+                    className="rw-phone-item rounded-xl p-3 border border-rw-teal/25"
                     style={{ ['--pi-d' as string]: '650ms', background: 'rgba(151,179,174,0.10)' }}
                   >
-                    <p className="rw-label-mono text-[10px] uppercase text-[#557069] mb-1">Draft reply</p>
-                    <p className="text-[12px] text-[#2a2a2a] leading-snug">
+                    <p className="rw-label-mono text-[10px] uppercase text-rw-teal-strong mb-1">Draft reply</p>
+                    <p className="text-[12px] text-rw-ink leading-snug">
                       &ldquo;Thank you so much! We&apos;re thrilled the al pastor…&rdquo;
                     </p>
                   </div>
                   <div
-                    className="rw-phone-item w-full bg-[#2a2a2a] text-white py-2.5 rounded-full text-[12px] font-medium flex items-center justify-center gap-1.5"
+                    className="rw-phone-item w-full bg-rw-ink text-white py-2.5 rounded-full text-[12px] font-medium flex items-center justify-center gap-1.5"
                     style={{ ['--pi-d' as string]: '900ms' }}
                   >
                     <svg className="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
@@ -818,10 +818,10 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
                     Approve &amp; post
                   </div>
                   <div className="rw-phone-item grid grid-cols-2 gap-2" style={{ ['--pi-d' as string]: '1100ms' }}>
-                    <div className="py-2 rounded-full text-[11px] border border-[#97B3AE]/30 text-[#6a6a6a] text-center">
+                    <div className="py-2 rounded-full text-[11px] border border-rw-teal/30 text-rw-ink-soft text-center">
                       Edit
                     </div>
-                    <div className="py-2 rounded-full text-[11px] border border-[#97B3AE]/30 text-[#6a6a6a] text-center">
+                    <div className="py-2 rounded-full text-[11px] border border-rw-teal/30 text-rw-ink-soft text-center">
                       Redraft
                     </div>
                   </div>
@@ -844,7 +844,7 @@ function FeatVoice({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
       innerRef={innerRef}
       id="f-voice"
       label="Voice learning"
-      className="px-8 md:px-16 py-20 bg-[#2a2a2a] text-white relative overflow-hidden"
+      className="px-8 md:px-16 py-20 bg-rw-ink text-white relative overflow-hidden"
     >
       <div
         className="absolute inset-0 opacity-[0.04] pointer-events-none"
@@ -857,9 +857,9 @@ function FeatVoice({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
       <div className="relative grid md:grid-cols-12 gap-10 items-end">
         <div ref={headRef} className={`rw-reveal md:col-span-5 ${headSeen ? 'in' : ''}`}>
           <span className="rw-num-tag text-7xl leading-none text-white/20 block mb-4">04</span>
-          <p className="rw-label-mono text-xs uppercase text-[#F2C3B9] mb-3">Over time</p>
+          <p className="rw-label-mono text-xs uppercase text-rw-peach mb-3">Over time</p>
           <h2 className="text-4xl md:text-5xl font-medium leading-tight mb-4">
-            It learns your <span className="rw-display-serif text-[#F2C3B9]">voice</span>: edit by edit.
+            It learns your <span className="rw-display-serif text-rw-peach">voice</span>: edit by edit.
           </h2>
           <p className="text-white/70 max-w-md leading-relaxed">
             Every time you tweak a draft, RepWorth notices the change. Your warmth level, your phrasing,
@@ -870,7 +870,7 @@ function FeatVoice({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
         <div ref={chartRef} className={`rw-reveal md:col-span-7 ${chartSeen ? 'in' : ''}`}>
           <div className="flex items-baseline justify-between mb-5">
             <p className="rw-label-mono text-xs uppercase text-white/50">% of drafts edited by owner</p>
-            <p className="rw-label-mono text-xs text-[#F2C3B9]">↓ 86% over 8 weeks</p>
+            <p className="rw-label-mono text-xs text-rw-peach">↓ 86% over 8 weeks</p>
           </div>
           <div className="relative h-48">
             <div className="absolute inset-0 flex flex-col justify-between">
@@ -891,7 +891,7 @@ function FeatVoice({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
                   }}
                 >
                   {b.anno && (
-                    <div className="rw-voice-anno absolute -top-10 left-1/2 -translate-x-1/2 bg-[#F2C3B9] text-[#2a2a2a] rounded-lg px-2 py-1 rw-label-mono text-[10px] whitespace-nowrap">
+                    <div className="rw-voice-anno absolute -top-10 left-1/2 -translate-x-1/2 bg-rw-peach text-rw-ink rounded-lg px-2 py-1 rw-label-mono text-[10px] whitespace-nowrap">
                       most owners: hands-off
                     </div>
                   )}
@@ -918,12 +918,12 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
     <FeatureSection innerRef={innerRef} id="f-brief" label="Weekly brief" className="px-8 md:px-16 py-20 relative">
       <div className="grid md:grid-cols-12 gap-10 items-start">
         <div ref={leftRef} className={`rw-reveal from-left md:col-span-5 ${leftSeen ? 'in' : ''}`}>
-          <span className="rw-num-tag text-7xl leading-none text-[#97B3AE]/40 block mb-4" aria-hidden="true">05</span>
-          <p className="rw-label-mono text-xs uppercase text-[#557069] mb-3">Every Monday morning</p>
-          <h2 className="text-4xl md:text-5xl font-medium text-[#2a2a2a] leading-tight mb-5">
-            A brief you&apos;ll <span className="rw-display-serif text-[#557069]">actually</span> read.
+          <span className="rw-num-tag text-7xl leading-none text-rw-teal/40 block mb-4" aria-hidden="true">05</span>
+          <p className="rw-label-mono text-xs uppercase text-rw-teal-strong mb-3">Every Monday morning</p>
+          <h2 className="text-4xl md:text-5xl font-medium text-rw-ink leading-tight mb-5">
+            A brief you&apos;ll <span className="rw-display-serif text-rw-teal-strong">actually</span> read.
           </h2>
-          <p className="text-[#6a6a6a] max-w-md leading-relaxed mb-6">
+          <p className="text-rw-ink-soft max-w-md leading-relaxed mb-6">
             Not a dashboard. Not a chart dump. A short, plain-language summary of what customers said
             this week: what they loved, what they complained about, and what to look at on the ops side.
           </p>
@@ -933,51 +933,51 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
               'One concrete operational suggestion',
             ].map((t) => (
               <li key={t} className="flex items-start gap-3">
-                <span className="mt-1.5 size-1.5 rounded-full bg-[#97B3AE] shrink-0" />
-                <span className="text-[#2a2a2a]">{t}</span>
+                <span className="mt-1.5 size-1.5 rounded-full bg-rw-teal shrink-0" />
+                <span className="text-rw-ink">{t}</span>
               </li>
             ))}
           </ul>
         </div>
 
         <div ref={rightRef} className={`rw-reveal from-right md:col-span-7 ${rightSeen ? 'in' : ''}`}>
-          <article className="bg-[#F0EEEA] rounded-3xl p-8 md:p-10 border border-[#97B3AE]/15 shadow-xl">
-            <div className="flex items-start justify-between mb-6 pb-4 border-b border-[#97B3AE]/20">
+          <article className="bg-rw-cream rounded-3xl p-8 md:p-10 border border-rw-teal/15 shadow-xl">
+            <div className="flex items-start justify-between mb-6 pb-4 border-b border-rw-teal/20">
               <div>
-                <p className="rw-label-mono text-xs uppercase text-[#557069]">Weekly brief · sample</p>
-                <p className="rw-display-serif text-2xl text-[#2a2a2a] mt-1">Your Business</p>
+                <p className="rw-label-mono text-xs uppercase text-rw-teal-strong">Weekly brief · sample</p>
+                <p className="rw-display-serif text-2xl text-rw-ink mt-1">Your Business</p>
               </div>
               <div className="text-right">
-                <p className="rw-label-mono text-[10px] text-[#6a6a6a]">ISSUE</p>
-                <p className="rw-label-mono text-xs text-[#2a2a2a]">18 · Apr 14–20</p>
+                <p className="rw-label-mono text-[10px] text-rw-ink-soft">ISSUE</p>
+                <p className="rw-label-mono text-xs text-rw-ink">18 · Apr 14–20</p>
               </div>
             </div>
 
             <div className="grid grid-cols-3 gap-4 mb-6">
               <div>
-                <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-1">Reviews</p>
-                <p className="rw-num-tag text-3xl text-[#2a2a2a]">14 <span className="text-xs text-[#557069]">↑3</span></p>
+                <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-1">Reviews</p>
+                <p className="rw-num-tag text-3xl text-rw-ink">14 <span className="text-xs text-rw-teal-strong">↑3</span></p>
               </div>
               <div>
-                <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-1">Avg stars</p>
-                <p className="rw-num-tag text-3xl text-[#2a2a2a]">4.6 <span className="text-xs text-[#557069]">↑0.2</span></p>
+                <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-1">Avg stars</p>
+                <p className="rw-num-tag text-3xl text-rw-ink">4.6 <span className="text-xs text-rw-teal-strong">↑0.2</span></p>
               </div>
               <div>
-                <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-1">Responded</p>
-                <p className="rw-num-tag text-3xl text-[#2a2a2a]">96<span className="text-lg">%</span></p>
+                <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-1">Responded</p>
+                <p className="rw-num-tag text-3xl text-rw-ink">96<span className="text-lg">%</span></p>
               </div>
             </div>
 
-            <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-3">Top mentions this week</p>
+            <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-3">Top mentions this week</p>
             <div className="space-y-2 mb-6">
               {BRIEF_MENTIONS.map((m, i) => {
-                const dot = m.tone === 'sage' ? 'bg-[#97B3AE]' : 'bg-[#F2C3B9]';
-                const fill = m.tone === 'sage' ? 'bg-[#97B3AE]' : 'bg-[#F2C3B9]';
-                const track = m.tone === 'sage' ? 'bg-[#97B3AE]/15' : 'bg-[#F2C3B9]/20';
+                const dot = m.tone === 'sage' ? 'bg-rw-teal' : 'bg-rw-peach';
+                const fill = m.tone === 'sage' ? 'bg-rw-teal' : 'bg-rw-peach';
+                const track = m.tone === 'sage' ? 'bg-rw-teal/15' : 'bg-rw-peach/20';
                 return (
                   <div key={m.topic} className="flex items-center gap-3 text-sm bg-white rounded-xl px-3 py-2">
                     <span className={`w-2 h-2 rounded-full ${dot}`} />
-                    <span className="text-[#2a2a2a] flex-1">{m.topic}</span>
+                    <span className="text-rw-ink flex-1">{m.topic}</span>
                     <span className={`w-24 h-1.5 rounded-full overflow-hidden ${track}`}>
                       <span
                         className={`rw-brief-bar-fill ${fill}`}
@@ -989,15 +989,15 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
                         }
                       />
                     </span>
-                    <span className="rw-label-mono text-xs text-[#6a6a6a] w-8 text-right">{m.count}</span>
+                    <span className="rw-label-mono text-xs text-rw-ink-soft w-8 text-right">{m.count}</span>
                   </div>
                 );
               })}
             </div>
 
-            <div className="border-t border-[#97B3AE]/20 pt-5">
-              <p className="rw-label-mono text-[10px] uppercase text-[#557069] mb-2">One thing to look at</p>
-              <p className="text-[#2a2a2a] rw-display-serif text-lg leading-snug">
+            <div className="border-t border-rw-teal/20 pt-5">
+              <p className="rw-label-mono text-[10px] uppercase text-rw-teal-strong mb-2">One thing to look at</p>
+              <p className="text-rw-ink rw-display-serif text-lg leading-snug">
                 &ldquo;Wait time came up in 4 reviews this week; all on Saturday nights. Worth looking at
                 7–9pm staffing.&rdquo;
               </p>
@@ -1019,16 +1019,16 @@ function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
       innerRef={innerRef}
       id="f-roi"
       label="ROI dashboard"
-      className="px-8 md:px-16 py-20 bg-[#F0EEEA]/50 relative"
+      className="px-8 md:px-16 py-20 bg-rw-cream/50 relative"
     >
       <div ref={headRef} className={`rw-reveal flex items-start gap-6 mb-10 ${headSeen ? 'in' : ''}`}>
-        <span className="rw-num-tag text-7xl leading-none text-[#D6CBBF]">06</span>
+        <span className="rw-num-tag text-7xl leading-none text-rw-beige">06</span>
         <div className="flex-1 max-w-2xl">
-          <p className="rw-label-mono text-xs uppercase text-[#557069] mb-3">Proof</p>
-          <h2 className="text-4xl md:text-5xl font-medium text-[#2a2a2a] leading-tight">
-            Numbers to show your <span className="rw-display-serif text-[#557069]">accountant</span>.
+          <p className="rw-label-mono text-xs uppercase text-rw-teal-strong mb-3">Proof</p>
+          <h2 className="text-4xl md:text-5xl font-medium text-rw-ink leading-tight">
+            Numbers to show your <span className="rw-display-serif text-rw-teal-strong">accountant</span>.
           </h2>
-          <p className="text-[#6a6a6a] mt-4 leading-relaxed">
+          <p className="text-rw-ink-soft mt-4 leading-relaxed">
             Response rate before and after. Average time to respond. Where you sit in local search.
             The kind of numbers that justify the line item.
           </p>
@@ -1036,29 +1036,29 @@ function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
       </div>
 
       <div ref={gridRef} className={`rw-reveal grid md:grid-cols-12 gap-6 ${gridSeen ? 'in' : ''}`}>
-        <div className="md:col-span-4 bg-white rounded-3xl p-6 border border-[#97B3AE]/15">
-          <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-4">Response rate</p>
+        <div className="md:col-span-4 bg-white rounded-3xl p-6 border border-rw-teal/15">
+          <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-4">Response rate</p>
           <div className="flex items-baseline gap-3">
-            <span className="rw-num-tag text-lg line-through text-[#6a6a6a]/60">12%</span>
-            <svg className="size-4 text-[#557069]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+            <span className="rw-num-tag text-lg line-through text-rw-ink-soft/60">12%</span>
+            <svg className="size-4 text-rw-teal-strong" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
             </svg>
-            <span className="rw-num-tag text-4xl text-[#2a2a2a]">96<span className="text-lg">%</span></span>
+            <span className="rw-num-tag text-4xl text-rw-ink">96<span className="text-lg">%</span></span>
           </div>
           <div className="mt-4 h-8 relative">
-            <div className="absolute inset-0 bg-[#557069]/15 rounded-full" />
-            <div className="absolute inset-y-0 left-0 right-[4%] bg-[#557069] rounded-full" />
+            <div className="absolute inset-0 bg-rw-teal-strong/15 rounded-full" />
+            <div className="absolute inset-y-0 left-0 right-[4%] bg-rw-teal-strong rounded-full" />
           </div>
         </div>
 
-        <div className="md:col-span-4 bg-white rounded-3xl p-6 border border-[#97B3AE]/15">
-          <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-4">Avg response time</p>
+        <div className="md:col-span-4 bg-white rounded-3xl p-6 border border-rw-teal/15">
+          <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-4">Avg response time</p>
           <div className="flex items-baseline gap-3">
-            <span className="rw-num-tag text-lg line-through text-[#6a6a6a]/60">4 days</span>
-            <svg className="size-4 text-[#557069]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+            <span className="rw-num-tag text-lg line-through text-rw-ink-soft/60">4 days</span>
+            <svg className="size-4 text-rw-teal-strong" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
             </svg>
-            <span className="rw-num-tag text-4xl text-[#2a2a2a]">58<span className="text-lg">min</span></span>
+            <span className="rw-num-tag text-4xl text-rw-ink">58<span className="text-lg">min</span></span>
           </div>
           <svg className="mt-4 w-full h-8" viewBox="0 0 200 32" preserveAspectRatio="none" aria-hidden>
             <path
@@ -1073,14 +1073,14 @@ function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           </svg>
         </div>
 
-        <div className="md:col-span-4 bg-white rounded-3xl p-6 border border-[#97B3AE]/15">
-          <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-4">Local map rank</p>
+        <div className="md:col-span-4 bg-white rounded-3xl p-6 border border-rw-teal/15">
+          <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-4">Local map rank</p>
           <div className="flex items-baseline gap-3">
-            <span className="rw-num-tag text-lg line-through text-[#6a6a6a]/60">#14</span>
-            <svg className="size-4 text-[#557069]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+            <span className="rw-num-tag text-lg line-through text-rw-ink-soft/60">#14</span>
+            <svg className="size-4 text-rw-teal-strong" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
             </svg>
-            <span className="rw-num-tag text-4xl text-[#2a2a2a]">#3</span>
+            <span className="rw-num-tag text-4xl text-rw-ink">#3</span>
           </div>
           <svg className="mt-4 w-full h-8" viewBox="0 0 200 32" preserveAspectRatio="none" aria-hidden>
             <path
@@ -1095,10 +1095,10 @@ function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           </svg>
         </div>
 
-        <div className="md:col-span-12 bg-[#2a2a2a] text-white rounded-3xl p-8 relative overflow-hidden">
+        <div className="md:col-span-12 bg-rw-ink text-white rounded-3xl p-8 relative overflow-hidden">
           <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
             <div>
-              <p className="rw-label-mono text-xs uppercase text-[#F2C3B9] mb-2">Google map position: 90 days</p>
+              <p className="rw-label-mono text-xs uppercase text-rw-peach mb-2">Google map position: 90 days</p>
               <p className="rw-display-serif text-2xl">From #14 to top 3 in the neighborhood.</p>
             </div>
             <div className="text-right">
@@ -1149,30 +1149,30 @@ function FeatComp({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
       <div className="grid md:grid-cols-12 gap-10 items-center">
         <div ref={leftRef} className={`rw-reveal from-left md:col-span-6 ${leftSeen ? 'in' : ''}`}>
           <div className="flex items-start gap-6 mb-6">
-            <span className="rw-num-tag text-7xl leading-none text-[#97B3AE]/40" aria-hidden="true">07</span>
+            <span className="rw-num-tag text-7xl leading-none text-rw-teal/40" aria-hidden="true">07</span>
             <div>
               <div className="flex items-center gap-3 mb-3 flex-wrap">
-                <p className="rw-label-mono text-xs uppercase text-[#557069]">Coming Soon</p>
-                <span className="inline-block w-px h-4 bg-[#97B3AE]/30" />
-                <p className="rw-label-mono text-xs uppercase text-[#6a6a6a]">In private testing</p>
+                <p className="rw-label-mono text-xs uppercase text-rw-teal-strong">Coming Soon</p>
+                <span className="inline-block w-px h-4 bg-rw-teal/30" />
+                <p className="rw-label-mono text-xs uppercase text-rw-ink-soft">In private testing</p>
               </div>
-              <h2 className="text-4xl md:text-5xl font-medium text-[#2a2a2a] leading-tight">
-                Know where you <span className="rw-display-serif text-[#557069]">stand</span> on the block.
+              <h2 className="text-4xl md:text-5xl font-medium text-rw-ink leading-tight">
+                Know where you <span className="rw-display-serif text-rw-teal-strong">stand</span> on the block.
               </h2>
             </div>
           </div>
-          <p className="text-[#6a6a6a] max-w-md leading-relaxed">
+          <p className="text-rw-ink-soft max-w-md leading-relaxed">
             Track the shop next door. Response rates, star trends, the words showing up in their reviews
             vs. yours. A one-page local market read, refreshed weekly.
           </p>
         </div>
 
         <div ref={rightRef} className={`rw-reveal from-right md:col-span-6 ${rightSeen ? 'in' : ''}`}>
-          <div className="bg-white rounded-3xl p-6 border border-[#97B3AE]/15 shadow-lg relative overflow-hidden">
-            <span className="absolute top-4 right-4 rw-label-mono text-[10px] uppercase text-[#F2C3B9] bg-[#F2C3B9]/15 px-2 py-1 rounded-full border border-[#F2C3B9]/40">
+          <div className="bg-white rounded-3xl p-6 border border-rw-teal/15 shadow-lg relative overflow-hidden">
+            <span className="absolute top-4 right-4 rw-label-mono text-[10px] uppercase text-rw-peach bg-rw-peach/15 px-2 py-1 rounded-full border border-rw-peach/40">
               preview
             </span>
-            <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-4">
+            <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-4">
               Neighborhood scorecard · sample data
             </p>
             <div className="space-y-3">
@@ -1180,18 +1180,18 @@ function FeatComp({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
                 <div
                   key={r.name}
                   className={`rw-comp-row flex items-center gap-3 p-3 rounded-2xl ${
-                    r.highlighted ? 'bg-[#97B3AE]/10 border border-[#97B3AE]/30' : ''
+                    r.highlighted ? 'bg-rw-teal/10 border border-rw-teal/30' : ''
                   }`}
                   style={{ ['--cr-d' as string]: `${120 + i * 140}ms` }}
                 >
-                  <span className={`rw-num-tag text-2xl w-8 ${r.highlighted ? 'text-[#2a2a2a]' : 'text-[#6a6a6a]'}`}>
+                  <span className={`rw-num-tag text-2xl w-8 ${r.highlighted ? 'text-rw-ink' : 'text-rw-ink-soft'}`}>
                     {r.rank}
                   </span>
                   <div className="flex-1">
-                    <p className={`text-sm ${r.highlighted ? 'font-medium text-[#2a2a2a]' : 'text-[#2a2a2a]'}`}>
+                    <p className={`text-sm ${r.highlighted ? 'font-medium text-rw-ink' : 'text-rw-ink'}`}>
                       {r.name}
                     </p>
-                    <div className="flex items-center gap-3 mt-0.5 text-xs text-[#6a6a6a]">
+                    <div className="flex items-center gap-3 mt-0.5 text-xs text-rw-ink-soft">
                       <span aria-label={`${r.stars} out of 5 stars`}>
                         <span aria-hidden="true">★</span> {r.stars}
                       </span>
@@ -1200,7 +1200,7 @@ function FeatComp({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
                     </div>
                   </div>
                   {r.highlighted && (
-                    <svg className="size-4 text-[#557069]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                    <svg className="size-4 text-rw-teal-strong" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
                     </svg>
                   )}

@@ -55,13 +55,13 @@ function RiskBadge({ level }: { level: RiskLevel }) {
   }
   if (level === 'warning') {
     return (
-      <span className="inline-block rounded px-2 py-0.5 text-xs font-medium bg-[#F2C3B9]/50 text-[#6a4a44]">
+      <span className="inline-block rounded px-2 py-0.5 text-xs font-medium bg-rw-peach/50 text-[#6a4a44]">
         Warning
       </span>
     );
   }
   return (
-    <span className="inline-block rounded px-2 py-0.5 text-xs font-medium bg-[#97B3AE]/20 text-[#2a6a64]">
+    <span className="inline-block rounded px-2 py-0.5 text-xs font-medium bg-rw-teal/20 text-[#2a6a64]">
       OK
     </span>
   );
@@ -265,13 +265,13 @@ function MarginSection({ margin }: { margin: MarginData }) {
         <h2 className="text-lg font-semibold text-gray-900">
           Margin &amp; Gross-Margin Risk
         </h2>
-        <span className="text-xs text-[#97B3AE] font-medium tracking-wide uppercase">
+        <span className="text-xs text-rw-teal font-medium tracking-wide uppercase">
           last {margin.windowDays} days
         </span>
       </div>
 
       {/* Platform card */}
-      <div className="rounded-lg border border-[#97B3AE]/30 bg-white p-5">
+      <div className="rounded-lg border border-rw-teal/30 bg-white p-5">
         <div className="flex items-start justify-between mb-4">
           <div>
             <p className="text-sm font-semibold text-gray-700">Platform Overview</p>
@@ -315,7 +315,7 @@ function MarginSection({ margin }: { margin: MarginData }) {
           </div>
         </div>
 
-        <p className="mt-4 text-xs text-[#97B3AE] italic">
+        <p className="mt-4 text-xs text-rw-teal italic">
           {margin.platform.note}
         </p>
 
@@ -337,7 +337,7 @@ function MarginSection({ margin }: { margin: MarginData }) {
       </div>
 
       {/* Top accounts table */}
-      <div className="mt-4 rounded-lg border border-[#97B3AE]/30 bg-white">
+      <div className="mt-4 rounded-lg border border-rw-teal/30 bg-white">
         <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-700">
             Top Accounts by API Cost
@@ -377,7 +377,7 @@ function MarginSection({ margin }: { margin: MarginData }) {
                     row.riskLevel === 'action'
                       ? 'bg-red-50'
                       : row.riskLevel === 'warning'
-                        ? 'bg-[#F2C3B9]/10'
+                        ? 'bg-rw-peach/10'
                         : ''
                   }`}
                 >
