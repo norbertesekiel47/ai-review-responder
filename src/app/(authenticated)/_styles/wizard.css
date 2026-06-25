@@ -32,7 +32,7 @@
   transition: all 200ms var(--rw-ease);
 }
 .wizard-step-dot.active {
-  background: var(--rw-blue-600);
+  background: var(--rw-accent-600);
   color: #fff;
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
 }
@@ -208,7 +208,7 @@
 }
 .select:focus {
   outline: none;
-  border-color: var(--rw-blue-500);
+  border-color: var(--rw-accent-500);
   box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
 }
 
@@ -246,12 +246,12 @@
   transition: all 160ms var(--rw-ease);
 }
 .wizard-panel .tone-chip:hover {
-  border-color: var(--rw-blue-300);
+  border-color: var(--rw-accent-300);
 }
 .wizard-panel .tone-chip.active {
-  background: var(--rw-blue-600);
+  background: var(--rw-accent-600);
   color: #fff;
-  border-color: var(--rw-blue-600);
+  border-color: var(--rw-accent-600);
 }
 
 /* ── List editor (overrides for wizard context) ──────────────────────────── */
@@ -291,14 +291,14 @@
   font-size: 13px;
   font-family: var(--rw-font-body);
   font-weight: 500;
-  color: var(--rw-blue-600);
+  color: var(--rw-accent-600);
   background: none;
   border: none;
   cursor: pointer;
   padding: 4px 0;
 }
 .wizard-panel .list-add:hover {
-  color: var(--rw-blue-700);
+  color: var(--rw-accent-700);
 }
 
 /* ── Tone preview (overrides for wizard context) ─────────────────────────── */

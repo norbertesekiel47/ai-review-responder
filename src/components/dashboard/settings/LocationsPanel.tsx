@@ -47,7 +47,7 @@ const ADD_LOCATION_CTA_STYLE: CSSProperties = {
   padding: '10px 16px',
   border: `1px dashed var(--rw-app-border)`,
   borderRadius: 8,
-  color: 'var(--rw-blue-600)',
+  color: 'var(--rw-accent-600)',
   fontSize: 14,
   fontWeight: 500,
   textDecoration: 'none',
