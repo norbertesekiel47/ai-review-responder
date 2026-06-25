@@ -25,9 +25,9 @@ function BrandHeaderRow() {
     <div className="flex items-center justify-end gap-2">
       <div
         aria-hidden="true"
-        className="size-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80"
+        className="size-8 rounded-full bg-gradient-to-br from-rw-teal to-rw-teal/80"
       />
-      <span className="text-sm uppercase tracking-wider text-[#557069]">
+      <span className="text-sm uppercase tracking-wider text-rw-teal-strong">
         RepWorth
       </span>
     </div>
@@ -79,7 +79,7 @@ export default async function ApprovalPage({ params }: PageProps) {
             <ApprovalErrorState message={errorMessage} variant={errorVariant} />
           ) : (
             <>
-              <h1 className="text-3xl font-medium leading-tight text-[#2a2a2a]">
+              <h1 className="text-3xl font-medium leading-tight text-rw-ink">
                 Review a draft response
               </h1>
               {/* Location chip and archived badge render in the client after

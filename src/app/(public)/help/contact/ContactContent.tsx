@@ -23,21 +23,21 @@ const CHANNELS: SupportChannel[] = [
     title: 'Account help',
     purpose: 'Connecting Google, locations, and day-to-day questions',
     email: 'support@repworth.net',
-    circle: 'from-[#97B3AE] to-[#97B3AE]/80',
+    circle: 'from-rw-teal to-rw-teal/80',
     icon: 'mail',
   },
   {
     title: 'Billing',
     purpose: 'Invoices, plan changes, and past-due recovery',
     email: 'billing@repworth.net',
-    circle: 'from-[#F2C3B9] to-[#F2C3B9]/80',
+    circle: 'from-rw-peach to-rw-peach/80',
     icon: 'card',
   },
   {
     title: 'Security',
     purpose: 'Report a vulnerability or security incident',
     email: 'security@repworth.net',
-    circle: 'from-[#D6CBBF] to-[#D6CBBF]/80',
+    circle: 'from-rw-beige to-rw-beige/80',
     icon: 'shield',
   },
 ];
@@ -83,7 +83,7 @@ function CopyEmailButton({ email }: { email: string }) {
       type="button"
       onClick={handleCopy}
       aria-label={copied ? `${email} copied to clipboard` : `Copy ${email} to clipboard`}
-      className="inline-flex items-center justify-center gap-1.5 rounded-full border border-[#557069]/30 px-4 py-2 text-sm font-medium text-[#557069] transition-colors hover:bg-[#557069]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#557069] focus-visible:ring-offset-2"
+      className="inline-flex items-center justify-center gap-1.5 rounded-full border border-rw-teal-strong/30 px-4 py-2 text-sm font-medium text-rw-teal-strong transition-colors hover:bg-rw-teal-strong/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong focus-visible:ring-offset-2"
     >
       <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={copied ? CHECK_PATH : CLIPBOARD_PATH} />
@@ -109,11 +109,11 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.2 }}
         >
-          <p className="mb-4 text-sm uppercase tracking-wider text-[#557069]">Support</p>
-          <h1 className="mb-4 text-4xl font-medium leading-tight text-[#2a2a2a] md:text-5xl">
+          <p className="mb-4 text-sm uppercase tracking-wider text-rw-teal-strong">Support</p>
+          <h1 className="mb-4 text-4xl font-medium leading-tight text-rw-ink md:text-5xl">
             How can we help?
           </h1>
-          <p className="mb-10 text-lg leading-relaxed text-[#6a6a6a]">
+          <p className="mb-10 text-lg leading-relaxed text-rw-ink-soft">
             Pick the channel that fits. We answer fastest by email.
           </p>
         </m.div>
@@ -122,7 +122,7 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
           {CHANNELS.map((channel, i) => (
             <m.div
               key={channel.email}
-              className="flex flex-col rounded-2xl border border-[#97B3AE]/10 bg-white p-6 shadow-lg"
+              className="flex flex-col rounded-2xl border border-rw-teal/10 bg-white p-6 shadow-lg"
               initial={cardInitial}
               whileInView={whileInView}
               viewport={{ once: true, margin: '-80px' }}
@@ -132,16 +132,16 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
                 className={`mb-4 flex size-12 items-center justify-center rounded-full bg-gradient-to-br shadow-md ${channel.circle}`}
                 aria-hidden="true"
               >
-                <svg className="size-6 text-[#2a2a2a]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="size-6 text-rw-ink" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={ICON_PATHS[channel.icon]} />
                 </svg>
               </div>
-              <h2 className="mb-2 text-xl font-medium text-[#2a2a2a]">{channel.title}</h2>
-              <p className="mb-6 flex-1 text-[#6a6a6a]">{channel.purpose}</p>
+              <h2 className="mb-2 text-xl font-medium text-rw-ink">{channel.title}</h2>
+              <p className="mb-6 flex-1 text-rw-ink-soft">{channel.purpose}</p>
               <div className="flex flex-wrap items-center gap-2">
                 <m.a
                   href={`mailto:${channel.email}`}
-                  className="inline-block flex-1 rounded-full border border-[#557069]/30 bg-[#557069]/10 px-5 py-3 text-center font-medium text-[#557069] transition-colors hover:bg-[#557069]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#557069] focus-visible:ring-offset-2"
+                  className="inline-block flex-1 rounded-full border border-rw-teal-strong/30 bg-rw-teal-strong/10 px-5 py-3 text-center font-medium text-rw-teal-strong transition-colors hover:bg-rw-teal-strong/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong focus-visible:ring-offset-2"
                   whileHover={prefersReducedMotion ? undefined : { scale: 1.04, y: -2 }}
                   whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
                 >
@@ -155,14 +155,14 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
 
         <div className="mt-10 grid gap-6 md:grid-cols-2">
           <m.div
-            className="rounded-2xl border border-[#97B3AE]/10 bg-[#F0EEEA]/60 p-6"
+            className="rounded-2xl border border-rw-teal/10 bg-rw-cream/60 p-6"
             initial={cardInitial}
             whileInView={whileInView}
             viewport={{ once: true, margin: '-80px' }}
             transition={{ duration: 0.6 }}
           >
-            <h2 className="mb-4 text-xl font-medium text-[#2a2a2a]">Response targets</h2>
-            <ul className="space-y-2 text-[#6a6a6a]">
+            <h2 className="mb-4 text-xl font-medium text-rw-ink">Response targets</h2>
+            <ul className="space-y-2 text-rw-ink-soft">
               {RESPONSE_TARGETS.map((target) => (
                 <li key={target}>{target}</li>
               ))}
@@ -170,14 +170,14 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
           </m.div>
 
           <m.div
-            className="rounded-2xl border border-[#97B3AE]/10 bg-[#F0EEEA]/60 p-6"
+            className="rounded-2xl border border-rw-teal/10 bg-rw-cream/60 p-6"
             initial={cardInitial}
             whileInView={whileInView}
             viewport={{ once: true, margin: '-80px' }}
             transition={{ duration: 0.6, delay: 0.1 }}
           >
-            <h2 className="mb-4 text-xl font-medium text-[#2a2a2a]">Common help topics</h2>
-            <ul className="space-y-2 text-[#6a6a6a]">
+            <h2 className="mb-4 text-xl font-medium text-rw-ink">Common help topics</h2>
+            <ul className="space-y-2 text-rw-ink-soft">
               {HELP_TOPICS.map((topic) => (
                 <li key={topic}>{topic}</li>
               ))}
@@ -186,7 +186,7 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
         </div>
       </main>
 
-      <div className="rounded-b-[3rem] bg-gradient-to-br from-[#557069] to-[#557069]/90 px-8 py-12 text-center text-white">
+      <div className="rounded-b-[3rem] bg-gradient-to-br from-rw-teal-strong to-rw-teal-strong/90 px-8 py-12 text-center text-white">
         <m.div
           initial={cardInitial}
           whileInView={whileInView}
@@ -196,7 +196,7 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
           <p className="mb-6 text-lg text-white">Looking for something else?</p>
           <Link
             href="/"
-            className="inline-block rounded-full bg-white px-8 py-4 font-medium text-[#557069] shadow-lg transition-all duration-200 hover:-translate-y-0.5 hover:scale-105 hover:shadow-xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#557069]"
+            className="inline-block rounded-full bg-white px-8 py-4 font-medium text-rw-teal-strong shadow-lg transition-all duration-200 hover:-translate-y-0.5 hover:scale-105 hover:shadow-xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-rw-teal-strong"
           >
             Back to RepWorth →
           </Link>

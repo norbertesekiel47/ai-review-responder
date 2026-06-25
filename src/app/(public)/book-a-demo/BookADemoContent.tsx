@@ -41,16 +41,16 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
 
       <main id="main-content">
       {/* Main content */}
-      <div ref={formRef} className="px-8 py-16 md:py-24 bg-gradient-to-b from-white to-[#F0EEEA]/30">
+      <div ref={formRef} className="px-8 py-16 md:py-24 bg-gradient-to-b from-white to-rw-cream/30">
         <div className="max-w-4xl mx-auto">
           <div className="grid md:grid-cols-2 gap-12 items-start">
             {/* Left: pitch */}
             <m.div {...fadeUp(0.2)}>
-              <p className="text-sm tracking-wider uppercase text-[#557069] mb-4">Early access</p>
-              <h1 className="text-4xl md:text-5xl font-medium leading-tight text-[#2a2a2a] mb-6">
+              <p className="text-sm tracking-wider uppercase text-rw-teal-strong mb-4">Early access</p>
+              <h1 className="text-4xl md:text-5xl font-medium leading-tight text-rw-ink mb-6">
                 Join the RepWorth early access waitlist
               </h1>
-              <p className="text-base text-[#6a6a6a] mb-8">
+              <p className="text-base text-rw-ink-soft mb-8">
                 We&apos;ll reach out when your area opens — no demo is scheduled yet.
               </p>
 
@@ -67,12 +67,12 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
                           transition: { duration: 0.5, delay: 0.3 + i * 0.1 },
                         })}
                   >
-                    <div className="size-6 rounded-full bg-[#557069]/15 flex items-center justify-center shrink-0 mt-0.5">
-                      <svg className="size-3.5 text-[#557069]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <div className="size-6 rounded-full bg-rw-teal-strong/15 flex items-center justify-center shrink-0 mt-0.5">
+                      <svg className="size-3.5 text-rw-teal-strong" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                       </svg>
                     </div>
-                    <span className="text-[#557069]">{bullet}</span>
+                    <span className="text-rw-teal-strong">{bullet}</span>
                   </m.li>
                 ))}
               </ul>
@@ -80,8 +80,8 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
 
             {/* Right: form */}
             <m.div {...fadeUp(0.4)}>
-              <div className="bg-white rounded-2xl border border-[#97B3AE]/10 shadow-lg p-8">
-                <h2 className="text-xl font-medium text-[#2a2a2a] mb-6">Join waitlist</h2>
+              <div className="bg-white rounded-2xl border border-rw-teal/10 shadow-lg p-8">
+                <h2 className="text-xl font-medium text-rw-ink mb-6">Join waitlist</h2>
                 <LeadIntakeForm intent="waitlist" source="book-a-demo" tone="light" />
               </div>
             </m.div>
@@ -90,7 +90,7 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
       </div>
 
       {/* Trust signals */}
-      <section className="px-8 py-12 bg-gradient-to-br from-[#557069] to-[#557069]/90 text-white">
+      <section className="px-8 py-12 bg-gradient-to-br from-rw-teal-strong to-rw-teal-strong/90 text-white">
         <m.div
           className="max-w-3xl mx-auto flex flex-col sm:flex-row gap-6 justify-center items-center text-center sm:text-left"
           {...(prefersReducedMotion
