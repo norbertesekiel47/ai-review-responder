@@ -1,51 +1,35 @@
 /* ==========================================================================
-   RepWorth — Colors & Type
+   RepWorth Console (Warm Editorial) — design tokens
    ==========================================================================
-   Two coexisting palettes in the product:
+   SINGLE SOURCE OF TRUTH for the APP / DASHBOARD ("Console") palette: the warm
+   editorial owner surface (Young Serif display + DM Sans, espresso ink, sage /
+   blush / terracotta / gold / violet). Loads only inside the authenticated
+   `.rw-console` shell.
 
-   1. MARKETING / PUBLIC ("Island") — warm, tactile, sage+peach natural tones
-      used on the landing, features, how-it-works, pricing, demo pages.
-      The surface is always a white rounded-3xl "island" floating on a sage
-      field with parallax blurred cards.
+   This file does NOT own the MARKETING / PUBLIC ("Island") palette. Those tokens
+   (--rw-sage, --rw-teal, --rw-teal-strong, --rw-peach, --rw-pink, --rw-beige,
+   --rw-cream, --rw-ink, --rw-ink-soft, status, fonts) live in src/app/globals.css,
+   which loads on every route, so the app inherits them by fall-through. Do NOT
+   re-declare Island colors here; that reintroduces the --rw-sage collision
+   (#D2E0D3 on public vs #97B3AE in-app, decided only by CSS load order).
 
-   2. APP / DASHBOARD ("Console") — neutral, utility, Tailwind-default blues,
-      greens, reds for owner dashboard, settings, admin.
-
-   The two share type (Inter) but have different color vocabularies. When
-   designing, pick one palette per surface; do NOT mix.
+   Guard: src/__tests__/design-token-single-source.test.ts
+   Which palette when: docs/design/README.md
+   Console visual spec: docs/design/dashboard-redesign/design-spec.md
    ========================================================================== */
 
 :root {
-  /* ---------- Marketing palette ("Island") ---------- */
-  /* Natural, muted, warm. Pulled from landing LandingContent.tsx. */
-  --rw-sage:        #D2E0D3; /* page field behind the island */
-  --rw-sage-soft:   #D2E0D380;
-  --rw-teal:        #97B3AE; /* primary accent — CTAs, nav links, step dots */
-  --rw-teal-soft:   #97B3AE33;
-  --rw-star:        #D4A24C;       /* review star glyph — Warm Editorial muted gold (redesign), recognizable, never garish #eab308 yellow */
-  --rw-peach:       #F2C3B9; /* secondary accent — step 3, "dots" highlights */
-  --rw-peach-soft:  #F2C3B940;
-  --rw-pink:        #F0DDD6; /* tertiary — step 2 */
-  --rw-beige:       #D6CBBF; /* tertiary — step 4 */
-  --rw-cream:       #F0EEEA; /* section backgrounds (soft wash) */
-  --rw-white:       #FFFFFF; /* the island */
-  --rw-ink:         #2a2a2a; /* headings, body */
-  --rw-ink-soft:    #6a6a6a; /* secondary text */
+  /* ---------- App-only tokens (not part of the Island palette) ----------
+     Consumed by the Console surface; globals.css doesn't declare these, so they
+     live here. Island colors (--rw-sage/teal/peach/cream/ink/…) are NOT
+     re-declared — the app inherits them by fall-through from globals.css. */
+  --rw-star:  #D4A24C;        /* review star glyph — warm gold, never garish #eab308 */
+  --rw-white: #FFFFFF;        /* opaque white surface */
+  --rw-text:  var(--rw-ink);  /* generic text → Island --rw-ink (globals.css) = #2a2a2a */
 
-  /* Marketing semantic */
-  --rw-page-bg:     var(--rw-sage);
-  --rw-surface:     var(--rw-white);
-  --rw-surface-wash: var(--rw-cream);
-  --rw-text:        var(--rw-ink);
-  --rw-text-muted:  var(--rw-ink-soft);
-  --rw-accent:      var(--rw-teal);
-  --rw-accent-2:    var(--rw-peach);
-  --rw-hairline:    #97B3AE1a;  /* border-[#97B3AE]/10 */
-
-  /* ---------- App palette ("Console") — Warm Editorial redesign ----------
-     The owner dashboard moved from neutral-blue Console to a warm, editorial
-     surface (Young Serif display + DM Sans). Marketing "Island" palette above
-     is untouched. See docs/design/dashboard-redesign/design-spec.md. */
+  /* ---------- Console palette (Warm Editorial) ----------
+     Young Serif display + DM Sans. Full visual spec:
+     docs/design/dashboard-redesign/design-spec.md */
   --rw-app-bg:          #FDFBF7;  /* warm off-white field */
   --rw-app-field:       radial-gradient(140% 120% at 12% -8%, #ffffff 0%, #fdfbf7 46%, #f6f1e9 100%);
   --rw-app-surface:     #FFFDF9;  /* card core */
@@ -60,8 +44,8 @@
   --rw-app-text-muted:  #6B5E50;  /* warm muted */
   --rw-app-text-soft:   #9C8E7E;  /* warm faint */
 
-  /* Warm Editorial accents */
-  --rw-sage:            #97B3AE;
+  /* Warm Editorial accents. The bare sage base is the Island --rw-sage in
+     globals.css; the Console surface uses only the -deep / -soft / -line family. */
   --rw-sage-deep:       #5E7C76;
   --rw-sage-soft:       rgba(151, 179, 174, 0.16);
   --rw-sage-line:       rgba(151, 179, 174, 0.34);
@@ -204,24 +188,6 @@
 /* ==========================================================================
    Semantic element styles — drop into any page
    ========================================================================== */
-
-/* Marketing-scoped utilities. Prefix a surface with .rw-mkt to apply. */
-.rw-mkt {
-  background: var(--rw-page-bg);
-  color: var(--rw-text);
-  font: var(--rw-mkt-body);
-  -webkit-font-smoothing: antialiased;
-}
-.rw-mkt h1 { font: var(--rw-mkt-h1); color: var(--rw-ink); letter-spacing: -0.01em; }
-.rw-mkt h2 { font: var(--rw-mkt-h2); color: var(--rw-ink); letter-spacing: -0.01em; }
-.rw-mkt h3 { font: var(--rw-mkt-h3); color: var(--rw-ink); }
-.rw-mkt p  { color: var(--rw-ink-soft); }
-.rw-mkt .eyebrow {
-  font: var(--rw-mkt-eyebrow);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--rw-teal);
-}
 
 /* App-scoped utilities. Prefix a surface with .rw-app. */
 .rw-app {
