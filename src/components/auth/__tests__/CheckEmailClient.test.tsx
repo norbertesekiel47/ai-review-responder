@@ -49,7 +49,7 @@ describe('CheckEmailClient branding + a11y', () => {
     });
 
     const { container } = render(<CheckEmailClient />);
-    expect(container.innerHTML).toContain('bg-[#D2E0D3]');
+    expect(container.innerHTML).toContain('bg-rw-sage');
     expect(container.innerHTML).not.toContain('bg-gray-50');
     expect(container.innerHTML).not.toContain('bg-blue-600');
   });

@@ -10,7 +10,7 @@ describe('ForgotPasswordFormClient portal variants', () => {
     const { container } = render(
       <ForgotPasswordFormClient portal="owner" brandName="RepWorth" />,
     );
-    expect(container.innerHTML).toContain('bg-[#D2E0D3]');
+    expect(container.innerHTML).toContain('bg-rw-sage');
     expect(container.innerHTML).not.toContain('bg-gray-50');
     expect(container.innerHTML).not.toContain('bg-blue-600');
     expect(container.querySelector('input#forgot-email')?.className).toContain('text-base');
@@ -21,7 +21,7 @@ describe('ForgotPasswordFormClient portal variants', () => {
       <ForgotPasswordFormClient portal="admin" brandName="RepWorth Admin" />,
     );
     expect(container.innerHTML).toContain('bg-gray-50');
-    expect(container.innerHTML).not.toContain('bg-[#D2E0D3]');
+    expect(container.innerHTML).not.toMatch(/bg-rw-sage(?![-\w])/);
   });
 
   it('announces the sent confirmation via a polite live region (owner)', async () => {

@@ -13,7 +13,7 @@ describe('AuthCardShell', () => {
     expect(screen.getByText('card body')).toBeInTheDocument();
     expect(screen.getByText('RepWorth')).toBeInTheDocument();
     const main = screen.getByRole('main');
-    expect(main.className).toContain('bg-[#D2E0D3]');
+    expect(main.className).toContain('bg-rw-sage');
     expect(container.innerHTML).toContain('rounded-[3rem]');
   });
 
@@ -32,8 +32,9 @@ describe('AuthCardShell', () => {
       </form>,
     );
     expect(screen.getByLabelText('probe').className).toContain('text-base');
-    // Accessible teal token (#557069, ADR 0004) — white text clears WCAG AA.
-    expect(screen.getByRole('button', { name: 'go' }).className).toContain('#557069');
-    expect(screen.getByRole('button', { name: 'go' }).className).not.toContain('#97B3AE');
+    // Accessible teal token (rw-teal-strong = #557069, ADR 0004) — white text clears WCAG AA.
+    expect(screen.getByRole('button', { name: 'go' }).className).toContain('bg-rw-teal-strong');
+    // never the low-contrast decoration teal (rw-teal); boundary match avoids rw-teal-strong.
+    expect(screen.getByRole('button', { name: 'go' }).className).not.toMatch(/rw-teal(?![-\w])/);
   });
 });

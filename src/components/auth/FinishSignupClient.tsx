@@ -95,10 +95,10 @@ export function FinishSignupClient({
 
   return (
     <AuthCardShell width="sm">
-      <h1 className="text-2xl font-semibold text-[#2a2a2a] text-center mb-2">
+      <h1 className="text-2xl font-semibold text-rw-ink text-center mb-2">
         Almost there, just your name
       </h1>
-      <p className="text-center text-[#6a6a6a] mb-8">
+      <p className="text-center text-rw-ink-soft mb-8">
         We&apos;ll set up your business after payment.
       </p>
 
@@ -120,7 +120,7 @@ export function FinishSignupClient({
             // field stays `disabled` (not `readOnly`); the no-op onChange just
             // makes it a formally controlled input.
             onChange={() => undefined}
-            className={`${authFieldClass} bg-[#F0EEEA] text-[#6a6a6a]`}
+            className={`${authFieldClass} bg-rw-cream text-rw-ink-soft`}
           />
         </div>
         <div>
@@ -156,7 +156,7 @@ export function FinishSignupClient({
           once — via the assertive LiveRegion below, not twice.
         */}
         {error && (
-          <p className="text-sm text-[#b3261e]" aria-hidden="true">
+          <p className="text-sm text-rw-error" aria-hidden="true">
             {error}
           </p>
         )}

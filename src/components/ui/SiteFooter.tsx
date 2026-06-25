@@ -49,7 +49,7 @@ export function SiteFooter() {
       <div className="grid w-full grid-cols-1 gap-8 sm:grid-cols-3">
         {FOOTER_COLUMNS.map((column) => (
           <nav key={column.heading} aria-label={column.heading} className="flex flex-col gap-2">
-            <span className="text-[13px] font-semibold uppercase tracking-wider text-[#557069]">
+            <span className="text-[13px] font-semibold uppercase tracking-wider text-rw-teal-strong">
               {column.heading}
             </span>
             <ul className="flex flex-col gap-2">
@@ -57,7 +57,7 @@ export function SiteFooter() {
                 <li key={link.href}>
                   <Link
                     href={link.href}
-                    className="ml-0 text-sm text-[#557069] transition-colors hover:text-[#557069]/80 focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
+                    className="ml-0 text-sm text-rw-teal-strong transition-colors hover:text-rw-teal-strong/80 focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2"
                   >
                     {link.label}
                   </Link>
@@ -68,7 +68,7 @@ export function SiteFooter() {
         ))}
       </div>
 
-      <div className="mt-2 w-full border-t border-[#97B3AE]/15 pt-4 text-[#557069]">
+      <div className="mt-2 w-full border-t border-rw-teal/15 pt-4 text-rw-teal-strong">
         <span suppressHydrationWarning>© {new Date().getFullYear()} RepWorth. All rights reserved.</span>
       </div>
     </footer>

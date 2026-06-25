@@ -43,7 +43,8 @@ describe('SiteFooter', () => {
   it('uses the accessible-contrast text token for footer links (ADR 0004)', () => {
     const html = renderToStaticMarkup(createElement(SiteFooter));
 
-    expect(html).toContain('text-[#557069]');
-    expect(html).not.toContain('text-[#97B3AE]');
+    expect(html).toContain('text-rw-teal-strong');
+    // boundary match: text-rw-teal-strong contains "text-rw-teal".
+    expect(html).not.toMatch(/text-rw-teal(?![-\w])/);
   });
 });
