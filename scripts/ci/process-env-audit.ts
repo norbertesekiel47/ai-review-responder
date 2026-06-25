@@ -24,13 +24,26 @@ function normalize(file: string): string {
 }
 
 /**
- * True when `node` is the member-access `process.env` (the `.env` part of
- * `process.env.X`, `process.env['X']`, `const { X } = process.env`, or
- * `const e = process.env`). Catching this single node form covers every read
- * shape — static `.X`, bracket, destructuring, and aliasing — while string
- * literals and comments are never this node, so they can't false-fire.
+ * Env INDICATORS are exempt (Stage-3 convention #2): they describe WHICH
+ * environment the process runs in, not subsystem CONFIG, so they stay direct
+ * `process.env.X` reads and never route through a config accessor. A file that
+ * reads ONLY these is therefore NOT counted as a config-bearing process.env
+ * reader, letting it drop out of the migration baseline.
+ *   - NODE_ENV          — runtime mode (prod/dev/test)
+ *   - MOCK_EXTERNAL_APIS — local mock-mode switch
+ *   - VERCEL_*          — platform-injected deploy indicators (VERCEL_ENV,
+ *                          VERCEL_TARGET_ENV, VERCEL_URL, …)
  */
-function isProcessEnvAccess(node: ts.Node): boolean {
+function isExemptIndicatorName(name: string): boolean {
+  return name === 'NODE_ENV' || name === 'MOCK_EXTERNAL_APIS' || name.startsWith('VERCEL_');
+}
+
+/**
+ * True when `node` is the member-access `process.env` (the `.env` part of
+ * `process.env`). Covers `process.env.X`, `process.env['X']`,
+ * `const { X } = process.env`, and `const e = process.env`.
+ */
+function isProcessEnvMemberAccess(node: ts.Node): node is ts.PropertyAccessExpression {
   return (
     ts.isPropertyAccessExpression(node) &&
     ts.isIdentifier(node.expression) &&
@@ -40,23 +53,64 @@ function isProcessEnvAccess(node: ts.Node): boolean {
 }
 
 /**
- * True if the file's AST contains any `process.env` access. Parses with the
- * TypeScript compiler (mirrors response-status-audit / static-policy-audit) so a
- * regex can't miss `const { FOO } = process.env` / `const e = process.env`, and a
- * `"process.env.X"` string literal or comment can't false-fire. Pure — unit-tested.
+ * The single var NAME read off a `process.env` node — `X` from `process.env.X`
+ * or `process.env['X']` — else null. A destructuring (`const { X } =
+ * process.env`) or alias (`const e = process.env`) reads the whole env object;
+ * its property name isn't knowable from this node alone, so it returns null and
+ * is treated as a non-exempt (counted) read by the caller.
+ */
+function staticallyAccessedVarName(envNode: ts.PropertyAccessExpression): string | null {
+  const parent = envNode.parent;
+  if (parent && ts.isPropertyAccessExpression(parent) && parent.expression === envNode) {
+    return parent.name.text;
+  }
+  if (
+    parent &&
+    ts.isElementAccessExpression(parent) &&
+    parent.expression === envNode &&
+    ts.isStringLiteralLike(parent.argumentExpression)
+  ) {
+    return parent.argumentExpression.text;
+  }
+  return null;
+}
+
+/**
+ * True when `node` is a `process.env` access that COUNTS as a config-bearing
+ * read — i.e. any `process.env` member access EXCEPT one whose single accessed
+ * property is an exempt env indicator (convention #2). String literals and
+ * comments are never this node, so they can't false-fire. Requires parent
+ * pointers (createSourceFile setParentNodes=true) to inspect the access target.
+ */
+function isCountedProcessEnvAccess(node: ts.Node): boolean {
+  if (!isProcessEnvMemberAccess(node)) return false;
+  const varName = staticallyAccessedVarName(node);
+  // null = destructure/alias (whole-object read) → counted. A statically-known
+  // name is exempt only if it is an env indicator.
+  return varName === null || !isExemptIndicatorName(varName);
+}
+
+/**
+ * True if the file's AST contains any COUNTED `process.env` access — i.e. a read
+ * of a NON-exempt var (exempt env indicators per convention #2 are ignored).
+ * Parses with the TypeScript compiler (mirrors response-status-audit /
+ * static-policy-audit) so a regex can't miss `const { FOO } = process.env` /
+ * `const e = process.env`, and a `"process.env.X"` string literal or comment
+ * can't false-fire. Parent pointers are enabled so an access target can be
+ * inspected for the exemption. Pure — unit-tested.
  */
 export function fileReadsProcessEnv(text: string): boolean {
   const source = ts.createSourceFile(
     'scan.tsx',
     text,
     ts.ScriptTarget.Latest,
-    /* setParentNodes */ false,
+    /* setParentNodes */ true,
     ts.ScriptKind.TSX,
   );
   let found = false;
   const visit = (node: ts.Node): void => {
     if (found) return;
-    if (isProcessEnvAccess(node)) {
+    if (isCountedProcessEnvAccess(node)) {
       found = true;
       return;
     }

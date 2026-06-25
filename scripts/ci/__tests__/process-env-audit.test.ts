@@ -30,6 +30,51 @@ describe('process-env-audit (pure)', () => {
     expect(fileReadsProcessEnv('const s = `see process.env.FOO`;')).toBe(false);
   });
 
+  // ── env-indicator exemption (Stage-3 convention #2) ──
+  // NODE_ENV / MOCK_EXTERNAL_APIS / VERCEL_* are environment INDICATORS, not
+  // config — they stay direct process.env reads and the audit must not count
+  // them, so a file reading ONLY these drops out of the migration baseline.
+
+  it('does NOT count a sole process.env.NODE_ENV read (exempt indicator)', () => {
+    expect(fileReadsProcessEnv("const p = process.env.NODE_ENV === 'production';")).toBe(false);
+  });
+
+  it('does NOT count a sole process.env.MOCK_EXTERNAL_APIS read (exempt indicator)', () => {
+    expect(fileReadsProcessEnv("const m = process.env.MOCK_EXTERNAL_APIS === 'true';")).toBe(false);
+  });
+
+  it('does NOT count process.env.VERCEL_* reads (exempt indicator prefix)', () => {
+    expect(fileReadsProcessEnv('const e = process.env.VERCEL_ENV;')).toBe(false);
+    expect(fileReadsProcessEnv('const t = process.env.VERCEL_TARGET_ENV;')).toBe(false);
+  });
+
+  it('does NOT count a bracket access of an exempt indicator', () => {
+    expect(fileReadsProcessEnv("const m = process.env['MOCK_EXTERNAL_APIS'];")).toBe(false);
+  });
+
+  it('STILL counts a non-exempt read even when an exempt read is also present', () => {
+    expect(
+      fileReadsProcessEnv(
+        "const prod = process.env.NODE_ENV === 'production';\nconst key = process.env.RESEND_API_KEY;",
+      ),
+    ).toBe(true);
+  });
+
+  it('counts a non-exempt var that merely shares a non-VERCEL prefix shape', () => {
+    // NODE_ENV_OVERRIDE is NOT NODE_ENV — must still count.
+    expect(fileReadsProcessEnv('const x = process.env.NODE_ENV_OVERRIDE;')).toBe(true);
+  });
+
+  it('conservatively COUNTS a destructure of process.env (property name unknown)', () => {
+    // `const { NODE_ENV } = process.env` reads the whole env object via a node
+    // whose accessed property isn't knowable from the env node alone — counted.
+    expect(fileReadsProcessEnv('const { NODE_ENV } = process.env;')).toBe(true);
+  });
+
+  it('conservatively COUNTS an alias of process.env (could read any var)', () => {
+    expect(fileReadsProcessEnv('const e = process.env;')).toBe(true);
+  });
+
   it('allowlists the config home + worker/env.ts + startup-assert', () => {
     expect(isAllowlisted('src/lib/config/server.ts')).toBe(true);
     expect(isAllowlisted('worker/env.ts')).toBe(true);

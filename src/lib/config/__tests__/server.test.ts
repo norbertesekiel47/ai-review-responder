@@ -72,4 +72,32 @@ describe('config/server', () => {
     const { getResendConfig } = await import('../server');
     expect(() => getResendConfig()).toThrow(/RESEND_API_KEY/);
   });
+
+  it('exposes the email subsystem vars as OPTIONAL (present when set)', async () => {
+    Object.assign(process.env, CORE, {
+      RESEND_FROM_EMAIL: 'RepWorth <hi@repworth.com>',
+      EMAIL_SEND_TIMEOUT_MS: '7500',
+      LIST_UNSUBSCRIBE_URL: 'https://repworth.com/unsub',
+      LIST_UNSUBSCRIBE_EMAIL: 'unsub@repworth.com',
+    });
+    const { getServerConfig } = await import('../server');
+    const cfg = getServerConfig();
+    expect(cfg.RESEND_FROM_EMAIL).toBe('RepWorth <hi@repworth.com>');
+    expect(cfg.EMAIL_SEND_TIMEOUT_MS).toBe('7500');
+    expect(cfg.LIST_UNSUBSCRIBE_URL).toBe('https://repworth.com/unsub');
+    expect(cfg.LIST_UNSUBSCRIBE_EMAIL).toBe('unsub@repworth.com');
+  });
+
+  it('email subsystem vars are undefined (not throwing) when unset — tolerate-absent', async () => {
+    Object.assign(process.env, CORE);
+    for (const v of [
+      'RESEND_FROM_EMAIL', 'EMAIL_SEND_TIMEOUT_MS', 'LIST_UNSUBSCRIBE_URL', 'LIST_UNSUBSCRIBE_EMAIL',
+    ]) delete process.env[v];
+    const { getServerConfig } = await import('../server');
+    const cfg = getServerConfig();
+    expect(cfg.RESEND_FROM_EMAIL).toBeUndefined();
+    expect(cfg.EMAIL_SEND_TIMEOUT_MS).toBeUndefined();
+    expect(cfg.LIST_UNSUBSCRIBE_URL).toBeUndefined();
+    expect(cfg.LIST_UNSUBSCRIBE_EMAIL).toBeUndefined();
+  });
 });

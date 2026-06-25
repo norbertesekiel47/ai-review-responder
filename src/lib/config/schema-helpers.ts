@@ -21,6 +21,22 @@ export const optionalVar = z.preprocess(
 );
 
 /**
+ * Faithful RAW passthrough of `process.env.X`: preserves `''`, `'   '`, and
+ * unset→`undefined` EXACTLY as a direct `process.env.X` read would (no trimming,
+ * no empty→undefined collapse).
+ *
+ * Stage-3 convention #7 — use this for a MIGRATED existing read so call-site
+ * normalization stays behavior-identical: a site that does `value?.trim()`,
+ * `if (!value)`, `Boolean(value)`, or passes the raw value to an SDK must see the
+ * same string the old `process.env.X` gave it. The collapsing `optionalVar` would
+ * change three edge cases (whitespace `RESEND_FROM_EMAIL` → spurious throw;
+ * whitespace `RESEND_API_KEY` → dropped lead / `Resend(undefined)`), so a raw read
+ * MUST use `rawOptionalVar`. Reserve the collapsing `optionalVar` for genuinely
+ * NEW optional config that intentionally treats empty/whitespace as "unset".
+ */
+export const rawOptionalVar = z.string().optional();
+
+/**
  * Throw if any of `vars` is unset or empty/whitespace-only in `snapshot`. The
  * "required-ness at the accessor" primitive (treats present-but-empty as absent,
  * matching optionalVar's semantics). Accessors pass the SAME memoized config

@@ -8,7 +8,7 @@
 // subsystem's accessor. No top-level z.parse — getServerConfig is lazy + memoized.
 import { z } from 'zod';
 import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
-import { optionalVar, requirePresent, requirePresentIn, requiredVar } from './schema-helpers';
+import { optionalVar, rawOptionalVar, requirePresent, requirePresentIn, requiredVar } from './schema-helpers';
 import {
   STRIPE_REQUIRED_VARS,
   narrowStripeConfig,
@@ -17,6 +17,11 @@ import {
 
 const nonEmpty = requiredVar;
 const opt = optionalVar;
+// Raw passthrough for MIGRATED reads whose call site does its own normalization
+// (?.trim() / !value / Boolean / raw SDK arg). Preserves ''/'   '/unset exactly
+// like the old process.env.X (convention #7). Do NOT use the collapsing `opt` for
+// these — it would change whitespace edge cases.
+const rawOpt = rawOptionalVar;
 
 // Build the Stripe price fields (optional in the root) from the single owner list.
 const stripePriceShape = Object.fromEntries(
@@ -36,7 +41,7 @@ const serverSchema = z.object({
   STRIPE_SECRET_KEY: opt,
   STRIPE_WEBHOOK_SECRET: opt,
   ...stripePriceShape,
-  RESEND_API_KEY: opt,
+  RESEND_API_KEY: rawOpt, // migrated raw read (client.ts Resend(...), contact-notify emailConfigured) — #7
   SERPAPI_API_KEY: opt,
   OPENAI_API_KEY: opt,
   NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: opt,
@@ -49,9 +54,15 @@ const serverSchema = z.object({
   SESSION_COOKIE_SECRET: opt,
   CSRF_SECRET: opt,
   IMPERSONATION_COOKIE_SECRET: opt,
-  CONTACT_NOTIFY_TO: opt,
+  CONTACT_NOTIFY_TO: rawOpt, // migrated raw read (contact-notify resolveContactNotifyTo ?.trim()) — #7
   WORKER_PUBLIC_URL: opt,
   DB_POOL_MAX: opt,
+  // ── email subsystem (migrated raw reads — rawOptionalVar preserves ''/'   '
+  //    exactly; call sites own their own ?.trim()/!value/Boolean/SDK-arg) — #7 ──
+  RESEND_FROM_EMAIL: rawOpt,
+  EMAIL_SEND_TIMEOUT_MS: rawOpt,
+  LIST_UNSUBSCRIBE_URL: rawOpt,
+  LIST_UNSUBSCRIBE_EMAIL: rawOpt,
 });
 
 export type ServerConfig = z.infer<typeof serverSchema>;
@@ -75,14 +86,14 @@ const SERVER_DB_REQUIRED_VARS = [
 
 let memo: ServerConfig | undefined;
 
-// Stage-2 foundation: getServerConfig + the per-subsystem accessors/asserts below
-// have no production consumer YET — Stage 3 migrates the ~990 raw process.env
-// reads onto them. They are unit-tested and deliberately unwired (wiring a
-// subsystem assert before its subsystem uses getXConfig() would be premature).
-// Suppress the "unused-export" finding until Stage 3 consumes them.
+// Stage-2 foundation: the per-subsystem accessors/asserts below are still
+// deliberately unwired — Stage 3 migrates the ~990 raw process.env reads onto
+// them in batches (wiring a subsystem assert before its subsystem uses
+// getXConfig() would be premature). Suppress the "unused-export" finding on those
+// until their batch consumes them. getServerConfig itself IS now consumed (Stage-3
+// email pilot: email/client.ts, email/send-email.ts), so it carries no suppression.
 
 /** Lazy, memoized parse. NEVER at import time. */
-// fallow-ignore-next-line unused-export
 export function getServerConfig(): ServerConfig {
   if (!memo) memo = serverSchema.parse(process.env);
   return memo;
