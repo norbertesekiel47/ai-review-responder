@@ -25,8 +25,6 @@ button & card recipes, and the anti-slop final pass.
   `rw-*` Tailwind utilities (`bg-rw-sage`, `text-rw-ink`; owned by `src/app/globals.css`) —
   never raw `bg-[#hex]`. For text, links, and button fills use `rw-teal-strong` (`#557069`,
   AA-compliant), **not** the decorative `rw-teal` (`#97B3AE`). Never amber / orange / stone.
-  > The playbook still shows `bg-[#hex]` examples; read each as its `rw-*` token equivalent
-  > (the literal→utility migration).
 - **No AI slop.** No purple/blue gradients, neon glows, orb/blob/bokeh backgrounds, fake
   metrics / avatars / testimonials / logos, or hype copy ("unlock", "supercharge", "seamless").
 - **Tech rules.** Inline SVG only (no lucide-react / heroicons); import motion from
