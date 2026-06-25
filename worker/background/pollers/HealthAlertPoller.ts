@@ -32,10 +32,10 @@ export async function pollHealthAlerts(): Promise<void> {
     }
     // The probe completed a cycle — check in to the Sentry Cron monitor so a
     // missed check-in (probe/worker dead) pages. Independent of findings.
-    recordProbeCheckIn('ok');
+    recordProbeCheckIn('ok', POLL_INTERVAL_MS);
   } catch (err) {
     logger.error('Health alert poll cycle failed', toError(err));
-    recordProbeCheckIn('error');
+    recordProbeCheckIn('error', POLL_INTERVAL_MS);
   } finally {
     isPolling = false;
   }
