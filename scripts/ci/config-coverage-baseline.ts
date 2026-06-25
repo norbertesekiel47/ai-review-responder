@@ -32,4 +32,8 @@ export const REQUIRED_VAR_DECLARATIONS: readonly RequiredVarDeclaration[] = [
   { var: 'REDIS_QUEUE_URL', lanes: ['worker'] },
 ];
 
-export const CONFIG_COVERAGE_BASELINE = REQUIRED_VAR_DECLARATIONS.length;
+// LITERAL, not REQUIRED_VAR_DECLARATIONS.length — a self-referential length would
+// make the "bump the baseline" gate impossible to trip (it would always equal the
+// live count). Adding/removing a declaration must change this number in the same
+// PR, which the coverage audit enforces.
+export const CONFIG_COVERAGE_BASELINE = 7;
