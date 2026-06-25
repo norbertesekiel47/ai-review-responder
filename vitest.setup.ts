@@ -6,6 +6,18 @@ process.env.SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY ?? 'dummy-se
 process.env.DATABASE_POOL_URL =
   process.env.DATABASE_POOL_URL ?? 'postgres://test:test@localhost:5432/test';
 
+// Complete dummy-env fixture for config-accessor-exercising tests (Stage 2
+// belt-and-suspenders). `??` so an explicitly-set value (CI) wins; this only
+// fills gaps and cannot change a test that already sets these.
+process.env.NEXT_PUBLIC_SUPABASE_URL =
+  process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://localhost:54321';
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'dummy-anon-key-for-tests';
+process.env.NEXT_PUBLIC_APP_URL =
+  process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+process.env.REDIS_QUEUE_URL =
+  process.env.REDIS_QUEUE_URL ?? 'redis://localhost:6379/1';
+
 // Extend jest-dom matchers (toBeInTheDocument, etc.) for jsdom-environment tests.
 // The import is a no-op in node-environment tests because the global `document`
 // doesn't exist there — but the module itself is safe to import regardless.
