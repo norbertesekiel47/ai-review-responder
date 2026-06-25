@@ -43,13 +43,14 @@ describe('emit', () => {
     expect(mockCaptureCheckIn).toHaveBeenCalledTimes(1);
     const [arg, config] = mockCaptureCheckIn.mock.calls[0] as [
       { monitorSlug: string; status: string },
-      { schedule?: { type: string; value: number; unit: string }; checkinMargin?: number },
+      { schedule?: { type: string; value: string }; checkinMargin?: number },
     ];
     expect(arg.status).toBe('ok');
     expect(typeof arg.monitorSlug).toBe('string');
     expect(arg.monitorSlug.length).toBeGreaterThan(0);
-    // Upsert config must be present, or Sentry drops the check-in for a non-existent monitor.
-    expect(config?.schedule).toMatchObject({ type: 'interval', value: 5, unit: 'minute' });
+    // Upsert config must be present (crontab — Sentry rejects sub-hour intervals),
+    // or the check-in is dropped for a non-existent monitor.
+    expect(config?.schedule).toMatchObject({ type: 'crontab', value: '*/5 * * * *' });
   });
 
   it('forwards an error status check-in', () => {
