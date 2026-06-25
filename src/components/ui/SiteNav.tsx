@@ -63,12 +63,12 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
   return (
     <LazyMotion features={domAnimation}>
       <header aria-label="Primary">
-        <nav className="border-b border-[#97B3AE]/10">
+        <nav className="border-b border-rw-teal/10">
           <div className="px-8 py-4 flex items-center justify-between gap-4">
             <Link
               href="/"
               aria-current={isActivePath(pathname, '/') ? 'page' : undefined}
-              className="flex items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
+              className="flex items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2"
             >
               <Image
                 src="/logo.svg"
@@ -78,7 +78,7 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
                 className="size-8 object-contain"
                 unoptimized
               />
-              <span className="text-sm tracking-wider uppercase text-[#557069]">RepWorth</span>
+              <span className="text-sm tracking-wider uppercase text-rw-teal-strong">RepWorth</span>
             </Link>
 
             {/* Desktop nav links (>=640px) */}
@@ -90,10 +90,10 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
                     key={label}
                     href={href}
                     aria-current={active ? 'page' : undefined}
-                    className={`text-sm transition-colors rounded focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2 ${
+                    className={`text-sm transition-colors rounded focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2 ${
                       active
-                        ? 'text-[#557069] font-semibold underline decoration-2 underline-offset-8'
-                        : 'text-[#557069]/80 hover:text-[#557069]'
+                        ? 'text-rw-teal-strong font-semibold underline decoration-2 underline-offset-8'
+                        : 'text-rw-teal-strong/80 hover:text-rw-teal-strong'
                     }`}
                   >
                     {label}
@@ -107,13 +107,13 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
               <div className="hidden sm:flex items-center gap-3">
                 <Link
                   href="/login"
-                  className="inline-flex min-h-[44px] items-center text-sm text-[#557069]/80 hover:text-[#557069] transition-colors rounded focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
+                  className="inline-flex min-h-[44px] items-center text-sm text-rw-teal-strong/80 hover:text-rw-teal-strong transition-colors rounded focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2"
                 >
                   Log in
                 </Link>
                 <Link
                   href="/signup"
-                  className="inline-flex min-h-[44px] items-center text-sm bg-[#557069] text-white px-4 py-2 rounded-full hover:bg-[#557069]/90 transition-colors focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
+                  className="inline-flex min-h-[44px] items-center text-sm bg-rw-teal-strong text-white px-4 py-2 rounded-full hover:bg-rw-teal-strong/90 transition-colors focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2"
                 >
                   Sign up
                 </Link>
@@ -128,7 +128,7 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
               aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
               aria-expanded={mobileOpen}
               aria-controls={MOBILE_MENU_ID}
-              className="sm:hidden inline-flex size-11 items-center justify-center rounded-md p-2 text-[#557069] hover:bg-[#97B3AE]/10 transition-colors focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
+              className="sm:hidden inline-flex size-11 items-center justify-center rounded-md p-2 text-rw-teal-strong hover:bg-rw-teal/10 transition-colors focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2"
             >
               <svg
                 className="size-6"
@@ -161,7 +161,7 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
                 transition={{ duration: 0.2, ease: 'easeOut' }}
-                className="sm:hidden overflow-hidden border-t border-[#97B3AE]/10"
+                className="sm:hidden overflow-hidden border-t border-rw-teal/10"
               >
                 <div className="px-8 py-4 flex flex-col gap-1">
                   {NAV_LINKS.map(({ label, href }, index) => {
@@ -173,8 +173,8 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
                         href={href}
                         onClick={closeMenu}
                         aria-current={active ? 'page' : undefined}
-                        className={`inline-flex min-h-[44px] items-center text-sm transition-colors rounded focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2 ${
-                          active ? 'text-[#557069] font-semibold' : 'text-[#557069]/80 hover:text-[#557069]'
+                        className={`inline-flex min-h-[44px] items-center text-sm transition-colors rounded focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2 ${
+                          active ? 'text-rw-teal-strong font-semibold' : 'text-rw-teal-strong/80 hover:text-rw-teal-strong'
                         }`}
                       >
                         {label}
@@ -184,18 +184,18 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
 
                   {showOwnerAuth && (
                     <>
-                      <div className="my-2 border-t border-[#97B3AE]/10" aria-hidden="true" />
+                      <div className="my-2 border-t border-rw-teal/10" aria-hidden="true" />
                       <Link
                         href="/login"
                         onClick={closeMenu}
-                        className="inline-flex min-h-[44px] items-center text-sm text-[#557069]/80 hover:text-[#557069] transition-colors rounded focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
+                        className="inline-flex min-h-[44px] items-center text-sm text-rw-teal-strong/80 hover:text-rw-teal-strong transition-colors rounded focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2"
                       >
                         Log in
                       </Link>
                       <Link
                         href="/signup"
                         onClick={closeMenu}
-                        className="mt-1 inline-flex min-h-[44px] w-full items-center justify-center text-sm bg-[#557069] text-white px-4 py-2 rounded-full hover:bg-[#557069]/90 transition-colors focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
+                        className="mt-1 inline-flex min-h-[44px] w-full items-center justify-center text-sm bg-rw-teal-strong text-white px-4 py-2 rounded-full hover:bg-rw-teal-strong/90 transition-colors focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2"
                       >
                         Sign up
                       </Link>
