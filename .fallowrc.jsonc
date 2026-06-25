@@ -55,6 +55,18 @@
     {
       "file": "src/lib/notifications/contact-notify.ts",
       "exports": ["resolveContactNotifyTo"]
+    },
+    // Test-only seams of the Stripe client singleton, surfaced when the Stage-3
+    // Stripe config batch touched this file (fallow's new-only gate only scans
+    // changed files; these were unflagged before only because the file was
+    // unchanged). STRIPE_CLIENT_CONFIG is the pinned apiVersion/timeout/retry
+    // contract asserted by stripe-client.test.ts (the model/pinning guard);
+    // resetStripeClientForTests clears the singleton for per-case env stubbing.
+    // fallow excludes test files as consumers, so both read as unused exports —
+    // they are intentional test seams, acknowledged here the same way runOnce is.
+    {
+      "file": "src/lib/payments/stripe-client.ts",
+      "exports": ["STRIPE_CLIENT_CONFIG", "resetStripeClientForTests"]
     }
   ],
   // NotificationChannel send methods are invoked via interface dispatch through the

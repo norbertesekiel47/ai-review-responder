@@ -38,7 +38,12 @@ const serverSchema = z.object({
   SUPABASE_SERVICE_KEY: opt,
   DATABASE_POOL_URL: opt,
   // ── subsystem secrets (optional) ──
-  STRIPE_SECRET_KEY: opt,
+  // Migrated raw read: stripe-client.ts getStripe() does `if (!key) throw` on the
+  // RAW value, so rawOptionalVar (not the collapsing opt) keeps '   ' truthy →
+  // new Stripe('   ') exactly as the old process.env.STRIPE_SECRET_KEY did (#7).
+  // getStripeConfig/narrowStripeConfig still treat whitespace as absent (they
+  // assert via requirePresentIn), so the asserting accessor is unaffected.
+  STRIPE_SECRET_KEY: rawOpt,
   STRIPE_WEBHOOK_SECRET: opt,
   ...stripePriceShape,
   RESEND_API_KEY: rawOpt, // migrated raw read (client.ts Resend(...), contact-notify emailConfigured) — #7

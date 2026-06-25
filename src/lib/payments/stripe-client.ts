@@ -11,6 +11,7 @@
 // (webhook payload shapes are governed by the ENDPOINT version, not this pin).
 
 import Stripe from 'stripe';
+import { getServerConfig } from '@/lib/config/server';
 
 export const STRIPE_CLIENT_CONFIG = {
   apiVersion: '2026-05-27.dahlia',
@@ -23,7 +24,13 @@ let stripeInstance: Stripe | null = null;
 /** Lazy singleton. Throws (does not crash on import) when the key is absent. */
 export function getStripe(): Stripe {
   if (!stripeInstance) {
-    const key = process.env.STRIPE_SECRET_KEY;
+    // getServerConfig() is read at RUNTIME inside this lazy singleton (never at
+    // import), so the worker's dotenv (loaded in worker/env.ts before any job)
+    // is populated by the time this runs — same value the old raw read saw.
+    // STRIPE_SECRET_KEY is rawOptionalVar, so '   ' stays truthy and reaches
+    // new Stripe('   ') exactly as before; the narrow `if (!key)` assert below is
+    // preserved on the raw value (NOT the over-asserting getStripeConfig()).
+    const key = getServerConfig().STRIPE_SECRET_KEY;
     if (!key) throw new Error('STRIPE_SECRET_KEY is not set');
     stripeInstance = new Stripe(key, {
       apiVersion: STRIPE_CLIENT_CONFIG.apiVersion,

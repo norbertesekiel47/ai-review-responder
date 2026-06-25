@@ -67,6 +67,21 @@ describe('config/server', () => {
     expect(() => getStripeConfig()).toThrow(/STRIPE_SECRET_KEY/);
   });
 
+  it('STRIPE_SECRET_KEY is exposed RAW via getServerConfig (tolerate-absent)', async () => {
+    // rawOptionalVar passthrough: present-when-set, undefined-when-unset, and
+    // whitespace survives verbatim (the stripe-client migrated read depends on it).
+    Object.assign(process.env, CORE, { STRIPE_SECRET_KEY: '   ' });
+    const { getServerConfig } = await import('../server');
+    expect(getServerConfig().STRIPE_SECRET_KEY).toBe('   ');
+  });
+
+  it('STRIPE_SECRET_KEY is undefined (not throwing) when unset — tolerate-absent', async () => {
+    Object.assign(process.env, CORE);
+    delete process.env.STRIPE_SECRET_KEY;
+    const { getServerConfig } = await import('../server');
+    expect(getServerConfig().STRIPE_SECRET_KEY).toBeUndefined();
+  });
+
   it('getResendConfig throws when RESEND_API_KEY is missing', async () => {
     Object.assign(process.env, CORE);
     const { getResendConfig } = await import('../server');

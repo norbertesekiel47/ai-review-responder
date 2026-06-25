@@ -22,6 +22,7 @@
 // the poller lifecycle.
 
 import { getStripe } from '../../../src/lib/payments/stripe-client';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { emitDriftAlert } from './billing-reconciliation/drift-alert';
@@ -221,7 +222,10 @@ export function startStripeLocationsReconcilePoller(): void {
     return;
   }
 
-  const envInterval = process.env.STRIPE_LOCATIONS_RECONCILE_INTERVAL_MS;
+  // Worker-only poller → worker lane. The call site owns its own `envInterval ?
+  // parseInt : NaN` + `Number.isFinite && >0 ? : DEFAULT` parse/default, so the
+  // rawOptionalVar read preserves the byte-for-byte behavior of the old raw read.
+  const envInterval = getWorkerConfig().STRIPE_LOCATIONS_RECONCILE_INTERVAL_MS;
   const parsed = envInterval ? parseInt(envInterval, 10) : NaN;
   const interval =
     Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;

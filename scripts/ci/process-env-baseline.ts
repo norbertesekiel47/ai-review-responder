@@ -19,6 +19,14 @@ const ALLOWLIST_PREFIXES = ['src/lib/config/'] as const;
 const ALLOWLIST_FILES = new Set<string>([
   'worker/env.ts',
   'worker/config/startup-assert.ts',
+  // Config-adjacent: the single owner of STRIPE_PRICE_ENV_VARS, the price-var
+  // list that src/lib/config/{server,worker}.ts and config/stripe-shape.ts derive
+  // their Stripe price schema fields from. Routing its tolerate-absent
+  // process.env.STRIPE_PRICE_* reads through getServerConfig() would create a
+  // circular import (config/server → price-tier-map → config/server), so it stays
+  // a sanctioned process.env home and its reads are left exactly as-is (Stage-3
+  // Stripe batch).
+  'src/lib/payments/price-tier-map.ts',
 ]);
 
 export function isAllowlisted(file: string): boolean {
@@ -54,8 +62,6 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   'src/lib/past-replies/flags.ts',
   'src/lib/payments/create-checkout-session.ts',
   'src/lib/payments/payment-link.ts',
-  'src/lib/payments/price-tier-map.ts',
-  'src/lib/payments/stripe-client.ts',
   'src/lib/reviews/place-id-resolver.ts',
   'src/lib/reviews/serpapi-prefill.ts',
   'src/lib/shared/csrf.ts',
@@ -90,7 +96,6 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   'worker/background/schedulers/WeeklySummaryScheduler.ts',
   'worker/index.ts',
   'worker/ingress/resend.ts',
-  'worker/ingress/stripe.ts',
   'worker/ingress/stripe/shared.ts',
   'worker/ingress/telegram/telegram-verify.ts',
   'worker/ingress/twilio/twilio-delivery-status.ts',
