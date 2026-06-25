@@ -58,6 +58,10 @@ jobs:
         run: pnpm ci:response-status
       - name: Run admin AAL2 mutation gate audit
         run: pnpm ci:admin-aal2
+      - name: Run config coverage audit
+        run: pnpm ci:config-coverage
+      - name: Run process.env baseline audit
+        run: pnpm ci:process-env
       - name: Run RLS coverage audit
         run: pnpm ci:rls-audit
       # Informational only: Dependabot owns dependency updates; this surfaces
