@@ -2,6 +2,52 @@
 @config '../../tailwind.config.mjs';
 
 /* ========================================================================
+   Design-token utilities (audit #5) — expose the --rw-* source tokens as
+   Tailwind utilities so components write `bg-rw-sage` instead of `bg-[#D2E0D3]`.
+
+   `@theme inline` means each utility emits `var(--rw-*)` (a REFERENCE), not a
+   copied hex — so the --rw-* declarations in :root (Island, this file) and in
+   tokens.css (Console) stay the single source of truth, and existing
+   `var(--rw-*)` consumers are untouched. Utility names mirror the token names
+   1:1 (`--color-rw-x` → `bg-rw-x` / `text-rw-x` / `border-rw-x`).
+   ======================================================================== */
+@theme inline {
+  /* Island (marketing / public) */
+  --color-rw-sage: var(--rw-sage);
+  --color-rw-teal: var(--rw-teal);
+  --color-rw-teal-strong: var(--rw-teal-strong);
+  --color-rw-peach: var(--rw-peach);
+  --color-rw-pink: var(--rw-pink);
+  --color-rw-beige: var(--rw-beige);
+  --color-rw-cream: var(--rw-cream);
+  --color-rw-ink: var(--rw-ink);
+  --color-rw-ink-soft: var(--rw-ink-soft);
+  --color-rw-error: var(--rw-error);
+  --color-rw-success: var(--rw-success);
+
+  /* Console (authenticated app — Warm Editorial). Resolve only inside .rw-console. */
+  --color-rw-app-bg: var(--rw-app-bg);
+  --color-rw-app-surface: var(--rw-app-surface);
+  --color-rw-tray: var(--rw-tray);
+  --color-rw-card: var(--rw-card);
+  --color-rw-recess: var(--rw-recess);
+  --color-rw-app-text: var(--rw-app-text);
+  --color-rw-app-text-muted: var(--rw-app-text-muted);
+  --color-rw-app-text-soft: var(--rw-app-text-soft);
+  --color-rw-sage-deep: var(--rw-sage-deep);
+  --color-rw-sage-soft: var(--rw-sage-soft);
+  --color-rw-sage-line: var(--rw-sage-line);
+  --color-rw-blush: var(--rw-blush);
+  --color-rw-blush-deep: var(--rw-blush-deep);
+  --color-rw-danger: var(--rw-danger);
+  --color-rw-violet: var(--rw-violet);
+  --color-rw-star: var(--rw-star);
+  --color-rw-white: var(--rw-white);
+  --color-rw-red-600: var(--rw-red-600);
+  --color-rw-red-700: var(--rw-red-700);
+}
+
+/* ========================================================================
    RepWorth marketing — design tokens, marquee background, landing page.
    Scoped under `rw-` prefixes so they never collide with Tailwind utilities.
 
