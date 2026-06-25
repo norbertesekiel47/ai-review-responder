@@ -8,7 +8,7 @@
 // subsystem's accessor. No top-level z.parse — getServerConfig is lazy + memoized.
 import { z } from 'zod';
 import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
-import { optionalVar, requirePresent, requirePresentIn, requiredVar } from './schema-helpers';
+import { optionalVar, rawOptionalVar, requirePresent, requirePresentIn, requiredVar } from './schema-helpers';
 import {
   STRIPE_REQUIRED_VARS,
   narrowStripeConfig,
@@ -17,6 +17,11 @@ import {
 
 const nonEmpty = requiredVar;
 const opt = optionalVar;
+// Raw passthrough for MIGRATED reads whose call site does its own normalization
+// (?.trim() / !value / Boolean / raw SDK arg). Preserves ''/'   '/unset exactly
+// like the old process.env.X (convention #7). Do NOT use the collapsing `opt` for
+// these — it would change whitespace edge cases.
+const rawOpt = rawOptionalVar;
 
 // Build the Stripe price fields (optional in the root) from the single owner list.
 const stripePriceShape = Object.fromEntries(
@@ -36,7 +41,7 @@ const serverSchema = z.object({
   STRIPE_SECRET_KEY: opt,
   STRIPE_WEBHOOK_SECRET: opt,
   ...stripePriceShape,
-  RESEND_API_KEY: opt,
+  RESEND_API_KEY: rawOpt, // migrated raw read (client.ts Resend(...), contact-notify emailConfigured) — #7
   SERPAPI_API_KEY: opt,
   OPENAI_API_KEY: opt,
   NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: opt,
@@ -49,14 +54,15 @@ const serverSchema = z.object({
   SESSION_COOKIE_SECRET: opt,
   CSRF_SECRET: opt,
   IMPERSONATION_COOKIE_SECRET: opt,
-  CONTACT_NOTIFY_TO: opt,
+  CONTACT_NOTIFY_TO: rawOpt, // migrated raw read (contact-notify resolveContactNotifyTo ?.trim()) — #7
   WORKER_PUBLIC_URL: opt,
   DB_POOL_MAX: opt,
-  // ── email subsystem (optional; tolerate-absent, fallbacks live at call sites) ──
-  RESEND_FROM_EMAIL: opt,
-  EMAIL_SEND_TIMEOUT_MS: opt,
-  LIST_UNSUBSCRIBE_URL: opt,
-  LIST_UNSUBSCRIBE_EMAIL: opt,
+  // ── email subsystem (migrated raw reads — rawOptionalVar preserves ''/'   '
+  //    exactly; call sites own their own ?.trim()/!value/Boolean/SDK-arg) — #7 ──
+  RESEND_FROM_EMAIL: rawOpt,
+  EMAIL_SEND_TIMEOUT_MS: rawOpt,
+  LIST_UNSUBSCRIBE_URL: rawOpt,
+  LIST_UNSUBSCRIBE_EMAIL: rawOpt,
 });
 
 export type ServerConfig = z.infer<typeof serverSchema>;

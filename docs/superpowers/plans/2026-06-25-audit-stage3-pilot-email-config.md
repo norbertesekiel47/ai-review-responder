@@ -68,20 +68,33 @@ dotenv, and `serverSchema` covers the shared vars. The email modules run in both
 lanes (the worker NotificationWorker rail **and** the public contact/demo/lead
 server routes), so they use `getServerConfig()`, not `getWorkerConfig()`.
 
-**Validated empirically:** the full suite (6842 tests) — which exercises the email
+**Validated empirically:** the full suite (6857 tests) — which exercises the email
 send path from worker-job tests (`NotificationWorker`, `WeeklySummaryWorker`,
 `AccountOffboardingEmailWorker`, …) and from the server contact route — stays green
-with `send-email.ts` reading `getServerConfig().EMAIL_SEND_TIMEOUT_MS`.
+with the email modules reading `getServerConfig()`.
 
-### 5. Optional/fallback vars use the OPTIONAL schema field, not an asserting accessor
-A var the current code **tolerates absent** (has a default/fallback) is added to
-the schema as `optionalVar` and read via `getServerConfig().X` (→ `string |
-undefined`), KEEPING the existing fallback at the call site. Do **not** introduce
-an asserting `get*Config()` for a tolerate-absent var — it would throw where the
-code currently doesn't, a behavior change. (`getResendConfig()` exists and asserts
-`RESEND_API_KEY`, but the email client tolerates an absent key, so the client
-reads the **optional** `getServerConfig().RESEND_API_KEY`, not the asserting
-accessor.)
+**Runtime-invocation constraint (worker dotenv ordering).** `getServerConfig()`
+does NOT self-load dotenv (only `getWorkerConfig()` does, via `ensureWorkerDotenvLoaded`).
+So a shared `src/lib` module using `getServerConfig()` MUST call it **at runtime,
+inside a function** — never at module import / top level — or the worker memo could
+freeze an empty env (the worker loads dotenv at boot in `worker/env.ts`, which runs
+*before* any job handler but *after* module import). Verified for the email
+subsystem: all 7 call sites (`getResend`, `resolveTimeoutMs`, `getEmailHeaders`,
+`sendInternalEmail`, `resolveContactNotifyTo`, `emailConfigured`,
+`notifyContactSubmission`) invoke `getServerConfig()` inside the function body, so
+the memo first populates at send-time — always after dotenv. Worker-ONLY files (no
+server-route consumer) should use `getWorkerConfig()` instead, which self-loads
+dotenv and is safe to call earlier.
+
+### 5. Optional/fallback vars use an OPTIONAL schema field, not an asserting accessor
+A var the current code **tolerates absent** (has a default/fallback) is read via
+`getServerConfig().X` (→ `string | undefined`), KEEPING the existing fallback at the
+call site. Do **not** introduce an asserting `get*Config()` for a tolerate-absent
+var — it would throw where the code currently doesn't, a behavior change.
+(`getResendConfig()` exists and asserts `RESEND_API_KEY`, but the email client
+tolerates an absent key, so the client reads `getServerConfig().RESEND_API_KEY`, not
+the asserting accessor.) **Which optional field** (`optionalVar` vs `rawOptionalVar`)
+is governed by convention #7 below — a migrated raw read MUST use `rawOptionalVar`.
 
 ### 6. Test-isolation prerequisite (DEMONSTRATED end-to-end by this pilot)
 `getServerConfig()` **memoizes** the first `process.env` parse. A test that mutates
@@ -114,29 +127,65 @@ env vars per-test, convert those cases to the set→reset→import pattern in th
 migration PR. Budget for it — it is the main per-file cost, but it is mechanical and
 assertion-preserving.
 
+### 7. Migrated RAW reads use `rawOptionalVar`, NOT the collapsing `optionalVar`
+`optionalVar` collapses empty/whitespace-only strings to `undefined` (a *new*
+"empty = unset" contract). But a MIGRATED read that consumed the **raw**
+`process.env.X` — no `?.trim()` at the call site — depended on the raw string
+surviving. Routing such a read through `optionalVar` silently changes whitespace
+edge cases. Three real deltas this pilot's first cut introduced (caught in review):
+
+| Site | `RESEND_*='   '` OLD (raw `process.env`) | `optionalVar` (WRONG) | Fix: `rawOptionalVar` |
+|---|---|---|---|
+| `internal.ts` `from = … ?? X; if(!from) throw` | `from='   '` (truthy) → sends | `undefined` → **spurious throw** | `'   '` → sends ✓ |
+| `contact-notify.ts` `emailConfigured()` `Boolean(X)` | `true` → attempts delivery | `false` → **drops the lead** (`{sent:false}`) | `true` → attempts ✓ |
+| `client.ts` `new Resend(X)` | `Resend('   ')` / `Resend('')` | `Resend(undefined)` | raw string ✓ |
+
+**Rule:** `rawOptionalVar = z.string().optional()` is a faithful passthrough
+(preserves `''`, `'   '`, unset→`undefined`). Use it for **every migrated existing
+read**, so the call site's own normalization (`?.trim()`, `!value`, `Boolean(...)`,
+or a raw SDK arg) stays byte-for-byte. Reserve the collapsing `optionalVar` for
+genuinely-NEW optional config that intentionally treats empty/whitespace as unset.
+A site that ALREADY does `?.trim()` (e.g. `headers.ts`, `contact-notify.ts:91`,
+`send-email.ts resolveTimeoutMs` via `!raw`) is equal under either field — but use
+`rawOptionalVar` uniformly for migrated reads so the rule needs no per-site judgment.
+
+**This pilot:** `RESEND_API_KEY`, `CONTACT_NOTIFY_TO`, `RESEND_FROM_EMAIL`,
+`EMAIL_SEND_TIMEOUT_MS`, `LIST_UNSUBSCRIBE_URL`, `LIST_UNSUBSCRIBE_EMAIL` all use
+`rawOptionalVar`. The asserting accessors `getResendConfig()`/`assertResendConfig()`
+are UNAFFECTED — they assert via `requirePresent`/`requirePresentIn`, which test
+`value.trim().length === 0`, so they keep treating whitespace as absent regardless
+of the schema field. Locked by `email/__tests__/raw-passthrough.test.ts` (red under
+`optionalVar`, green under `rawOptionalVar`).
+
 ---
 
 ## Per-file before → after (email subsystem)
 
 | File | Var | Status | Before → After / why |
 |---|---|---|---|
-| `email/client.ts` | `RESEND_API_KEY` | ✅ migrated | `new Resend(process.env.RESEND_API_KEY)` → `new Resend(getServerConfig().RESEND_API_KEY)`. Optional field; still tolerates `undefined` (no assert). `getResend()` already memoizes `_resend`, so read-once semantics unchanged. |
+| `email/client.ts` | `RESEND_API_KEY` | ✅ migrated | `new Resend(process.env.RESEND_API_KEY)` → `new Resend(getServerConfig().RESEND_API_KEY)`. `rawOptionalVar` (#7) so `''`/`'   '`/undefined pass to the SDK exactly as before (no assert). `getResend()` already memoizes `_resend`, so read-once semantics unchanged. |
 | `email/send-email.ts` | `EMAIL_SEND_TIMEOUT_MS` | ✅ migrated | `const raw = process.env.EMAIL_SEND_TIMEOUT_MS` → `getServerConfig().EMAIL_SEND_TIMEOUT_MS`. Identical `if (!raw) return DEFAULT; parseInt(raw,10); Number.isFinite && >0 ? : DEFAULT` — the default + NaN/non-positive guard preserved byte-for-byte. |
 | `email/headers.ts` | `LIST_UNSUBSCRIBE_URL`, `LIST_UNSUBSCRIBE_EMAIL`, `RESEND_FROM_EMAIL` | ✅ migrated | `process.env.X?.trim()` / `extractMailbox(process.env.RESEND_FROM_EMAIL)` → `const cfg = getServerConfig(); cfg.X?.trim()` / `extractMailbox(cfg.RESEND_FROM_EMAIL)`. The `?.trim()`, the example.com non-functional fallback branch, and the HTTPS-only One-Click logic are byte-for-byte intact. Tests (`email-headers.test.ts`, `email-send.test.ts`) converted to set→reset→import (convention #6). |
 | `email/templates/internal.ts` | `RESEND_FROM_EMAIL` | ✅ migrated | `from ?? process.env.RESEND_FROM_EMAIL; if(!from) throw 'RESEND_FROM_EMAIL not configured'` → `from ?? getServerConfig().RESEND_FROM_EMAIL; if(!from) throw …`. Same throw condition. Tests converted (convention #6). |
-| `contact-notify.ts` | `CONTACT_NOTIFY_TO`, `RESEND_FROM_EMAIL`, `RESEND_API_KEY` | ✅ migrated | All three → `getServerConfig().X` (`CONTACT_NOTIFY_TO?.trim()` precedence chain, `extractMailbox(…RESEND_FROM_EMAIL)`, `RESEND_FROM_EMAIL?.trim() \|\| COMPANY_NOREPLY`, `emailConfigured()` = `isMockMode() \|\| Boolean(…RESEND_API_KEY)`). `NODE_ENV` read stays a direct exempt read (#2). Mock-mode tolerance unchanged. `contact-notify.test.ts` converted (convention #6). |
+| `contact-notify.ts` | `CONTACT_NOTIFY_TO`, `RESEND_FROM_EMAIL`, `RESEND_API_KEY` | ✅ migrated | All three → `getServerConfig().X` via `rawOptionalVar` (#7), so `emailConfigured()` = `isMockMode() \|\| Boolean(…RESEND_API_KEY)` keeps `Boolean('   ')===true` (no dropped lead). Also `CONTACT_NOTIFY_TO?.trim()` precedence chain, `extractMailbox(…RESEND_FROM_EMAIL)`, `RESEND_FROM_EMAIL?.trim() \|\| COMPANY_NOREPLY`. `NODE_ENV` stays a direct exempt read (#2). `contact-notify.test.ts` converted (convention #6). |
 
 **Net pilot result: 5 of 5 files migrated — email subsystem FULLY migrated. The
 memo/test-isolation prerequisite (convention #6) was demonstrated end-to-end: the
 3 initially-blocked files were unblocked by converting their tests' env-setup
 mechanism (set→reset→import), preserving every assertion.**
 
-### Schema additions (`src/lib/config/server.ts`)
-Added as `optionalVar` (tolerate-absent), so a UI-only preview never throws and
-call-site fallbacks stay authoritative:
-`RESEND_FROM_EMAIL`, `EMAIL_SEND_TIMEOUT_MS`, `LIST_UNSUBSCRIBE_URL`,
-`LIST_UNSUBSCRIBE_EMAIL`. (`RESEND_API_KEY` + `CONTACT_NOTIFY_TO` were already
-present.) All consumers of these vars are now migrated.
+### Schema additions / changes (`src/lib/config/server.ts` + `schema-helpers.ts`)
+- New `schema-helpers.ts` field **`rawOptionalVar = z.string().optional()`** —
+  faithful raw passthrough for migrated reads (convention #7).
+- 6 email-subsystem vars are `rawOptionalVar` (so whitespace/empty survive exactly
+  as the old raw `process.env.X`): `RESEND_API_KEY`, `CONTACT_NOTIFY_TO`,
+  `RESEND_FROM_EMAIL`, `EMAIL_SEND_TIMEOUT_MS`, `LIST_UNSUBSCRIBE_URL`,
+  `LIST_UNSUBSCRIBE_EMAIL`. (`RESEND_API_KEY` + `CONTACT_NOTIFY_TO` were already in
+  the Stage-2 schema as the collapsing `optionalVar`; switching them to
+  `rawOptionalVar` is intentional and behavior-faithful — verified
+  `getResendConfig()`/`assertResendConfig()` unaffected.) `RESEND_FROM_EMAIL`,
+  `EMAIL_SEND_TIMEOUT_MS`, `LIST_UNSUBSCRIBE_*` were added by this pilot.
+- All consumers of these vars are now migrated.
 
 ### Baseline (`scripts/ci/process-env-baseline.ts`): 100 → 88 (−12)
 - 5 migrated email files removed: `email/client.ts`, `email/send-email.ts`,
@@ -179,6 +228,12 @@ Added (this pilot):
   reads preserve semantics: `EMAIL_SEND_TIMEOUT_MS` default-on-unset,
   honors-valid, default-on-NaN; `RESEND_API_KEY` constructs-with-key and
   tolerates-undefined. Uses `vi.resetModules()` per convention #6.
+- `src/lib/notifications/email/__tests__/raw-passthrough.test.ts` — locks
+  convention #7: whitespace-only `RESEND_FROM_EMAIL` → `sendInternalEmail` does NOT
+  throw (sends with the raw `'   '`); whitespace-only `RESEND_API_KEY` →
+  `emailConfigured()` true (non-mock contact path attempts delivery, no dropped
+  lead); `getResend()` receives the raw `''`/`'   '` (not `undefined`). RED under
+  the collapsing `optionalVar`, GREEN under `rawOptionalVar`.
 
 ---
 
