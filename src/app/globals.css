@@ -4,6 +4,13 @@
 /* ========================================================================
    RepWorth marketing — design tokens, marquee background, landing page.
    Scoped under `rw-` prefixes so they never collide with Tailwind utilities.
+
+   SINGLE SOURCE OF TRUTH for the Island (marketing / public) palette. Loads on
+   every route, so the authenticated Console inherits these by fall-through. Do
+   NOT re-declare these Island tokens in the Console token file
+   (src/app/(authenticated)/_styles/tokens.css); that reintroduces the --rw-sage
+   collision. Guard: src/__tests__/design-token-single-source.test.ts
+   Which palette when: docs/design/README.md
    ======================================================================== */
 
 :root {
