@@ -53,15 +53,15 @@ Before shipping, remove one decorative element, one vague phrase, and one unnece
 
 | Role | Hex | Tailwind equivalent |
 |---|---|---|
-| Page background | `#D2E0D3` | `bg-[#D2E0D3]` |
-| Primary / CTA | `#97B3AE` | `bg-[#97B3AE]` |
-| Accent / blush | `#F2C3B9` | `bg-[#F2C3B9]` |
+| Page background | `#D2E0D3` | `bg-rw-sage` |
+| Primary / CTA | `#97B3AE` | `bg-rw-teal` |
+| Accent / blush | `#F2C3B9` | `bg-rw-peach` |
 | Secondary sage | `#D2E0D3` | same as bg |
-| Warm beige / muted | `#D6CBBF` | `bg-[#D6CBBF]` |
-| Off-white bg | `#F0EEEA` | `bg-[#F0EEEA]` |
+| Warm beige / muted | `#D6CBBF` | `bg-rw-beige` |
+| Off-white bg | `#F0EEEA` | `bg-rw-cream` |
 | Island surface | `#ffffff` | `bg-white` |
-| Heading text | `#2a2a2a` | `text-[#2a2a2a]` |
-| Body text | `#6a6a6a` | `text-[#6a6a6a]` |
+| Heading text | `#2a2a2a` | `text-rw-ink` |
+| Body text | `#6a6a6a` | `text-rw-ink-soft` |
 
 **Never use:** amber, orange, stone, or any color not in the table above.
 
@@ -71,7 +71,7 @@ Before shipping, remove one decorative element, one vague phrase, and one unnece
 
 ```tsx
 // Page root — always this structure
-<div className="min-h-screen bg-[#D2E0D3] relative">
+<div className="min-h-screen bg-rw-sage relative">
 
   {/* Parallax background — see below */}
   <div className="fixed inset-0 pointer-events-none" aria-hidden="true">
@@ -124,13 +124,13 @@ const bgY4 = useTransform(scrollYProgress, [0, 1], [0, -400]);
   >
     <div className="flex gap-1 mb-3">
       {Array.from({ length: card.dots }).map((_, j) => (
-        <div key={j} className="w-4 h-4 bg-[#F2C3B9]/60 rounded-full" />
+        <div key={j} className="w-4 h-4 bg-rw-peach/60 rounded-full" />
       ))}
     </div>
     <div className="space-y-2">
-      <div className="h-3 bg-[#2a2a2a]/20 rounded w-full" />
-      <div className="h-3 bg-[#2a2a2a]/20 rounded w-5/6" />
-      <div className="h-3 bg-[#2a2a2a]/20 rounded w-4/6" />
+      <div className="h-3 bg-rw-ink/20 rounded w-full" />
+      <div className="h-3 bg-rw-ink/20 rounded w-5/6" />
+      <div className="h-3 bg-rw-ink/20 rounded w-4/6" />
     </div>
   </motion.div>
 ))}
@@ -143,13 +143,13 @@ const bgY4 = useTransform(scrollYProgress, [0, 1], [0, -400]);
 One dot per section. `position: fixed`, `z-50`, desktop only (`hidden lg:flex`):
 
 ```tsx
-<div className="fixed right-8 top-1/2 -translate-y-1/2 z-50 hidden lg:flex flex-col gap-4 bg-white/80 backdrop-blur-md rounded-full py-6 px-3 shadow-xl border border-[#97B3AE]/20">
+<div className="fixed right-8 top-1/2 -translate-y-1/2 z-50 hidden lg:flex flex-col gap-4 bg-white/80 backdrop-blur-md rounded-full py-6 px-3 shadow-xl border border-rw-teal/20">
   {sections.map(({ ref, label }) => (
     <button
       key={label}
       onClick={() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
       aria-label={`Go to ${label}`}
-      className="w-3 h-3 rounded-full bg-[#97B3AE]/30 hover:bg-[#97B3AE] transition-all hover:scale-125"
+      className="w-3 h-3 rounded-full bg-rw-teal/30 hover:bg-rw-teal transition-all hover:scale-125"
     />
   ))}
 </div>
@@ -162,13 +162,13 @@ One dot per section. `position: fixed`, `z-50`, desktop only (`hidden lg:flex`):
 Always the first child inside the island. Teal circle + "REPWORTH" uppercase wordmark on the right:
 
 ```tsx
-<nav className="px-8 py-4 border-b border-[#97B3AE]/10 flex items-center justify-between">
+<nav className="px-8 py-4 border-b border-rw-teal/10 flex items-center justify-between">
   <div className="flex items-center gap-8">
     {/* scroll buttons + <a href="/pricing"> link */}
   </div>
   <div className="flex items-center gap-2">
-    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80" />
-    <span className="text-sm tracking-wider uppercase text-[#97B3AE]">RepWorth</span>
+    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-rw-teal to-rw-teal/80" />
+    <span className="text-sm tracking-wider uppercase text-rw-teal">RepWorth</span>
   </div>
 </nav>
 ```
@@ -179,12 +179,12 @@ Always the first child inside the island. Teal circle + "REPWORTH" uppercase wor
 
 | Element | Classes |
 |---|---|
-| Page h1 | `text-5xl md:text-6xl lg:text-7xl font-medium leading-tight text-[#2a2a2a]` |
-| Section h2 | `text-4xl md:text-5xl font-medium text-[#2a2a2a]` |
-| Card h3 | `text-xl md:text-2xl font-medium text-[#2a2a2a]` |
-| Body | `text-lg text-[#6a6a6a] leading-relaxed` |
-| Eyebrow | `text-sm tracking-wider uppercase text-[#97B3AE]` |
-| Caption / note | `text-sm text-[#97B3AE] italic` |
+| Page h1 | `text-5xl md:text-6xl lg:text-7xl font-medium leading-tight text-rw-ink` |
+| Section h2 | `text-4xl md:text-5xl font-medium text-rw-ink` |
+| Card h3 | `text-xl md:text-2xl font-medium text-rw-ink` |
+| Body | `text-lg text-rw-ink-soft leading-relaxed` |
+| Eyebrow | `text-sm tracking-wider uppercase text-rw-teal` |
+| Caption / note | `text-sm text-rw-teal italic` |
 
 ---
 
@@ -226,9 +226,9 @@ whileTap={{ scale: 0.98 }}
 
 | Type | Classes |
 |---|---|
-| Primary (teal pill) | `px-8 py-4 bg-[#97B3AE] text-white rounded-full shadow-lg` |
-| Secondary (outline) | `px-8 py-4 bg-white text-[#97B3AE] rounded-full border border-[#97B3AE]/20` |
-| Ghost | `px-8 py-4 bg-[#F0EEEA] text-[#2a2a2a] rounded-full border border-[#97B3AE]/10` |
+| Primary (teal pill) | `px-8 py-4 bg-rw-teal text-white rounded-full shadow-lg` |
+| Secondary (outline) | `px-8 py-4 bg-white text-rw-teal rounded-full border border-rw-teal/20` |
+| Ghost | `px-8 py-4 bg-rw-cream text-rw-ink rounded-full border border-rw-teal/10` |
 
 Always wrap clickable buttons in `motion.button` with hover/tap variants above.
 
@@ -241,8 +241,8 @@ Alternate between these to create visual rhythm:
 | Section type | Background |
 |---|---|
 | Default | `bg-white` |
-| Tinted | `bg-gradient-to-b from-white to-[#F0EEEA]/30` |
-| CTA (last section) | `bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80 text-white rounded-b-[3rem]` |
+| Tinted | `bg-gradient-to-b from-white to-rw-cream/30` |
+| CTA (last section) | `bg-gradient-to-br from-rw-teal to-rw-teal/80 text-white rounded-b-[3rem]` |
 
 ---
 
@@ -250,25 +250,25 @@ Alternate between these to create visual rhythm:
 
 ```tsx
 <motion.div
-  className="bg-white rounded-2xl p-6 border border-[#97B3AE]/10 shadow-lg"
+  className="bg-white rounded-2xl p-6 border border-rw-teal/10 shadow-lg"
   whileHover={{ y: -5, boxShadow: '0 20px 40px rgba(0,0,0,0.1)' }}
 >
   {/* Icon circle */}
   <div
     className="w-12 h-12 rounded-full flex items-center justify-center mb-4 shadow-md"
-    style={{ background: `linear-gradient(135deg, #97B3AE, #97B3AE cc)` }}
+    style={{ background: 'linear-gradient(135deg, var(--rw-teal), var(--rw-teal-strong))' }}
   >
     {/* Inline SVG — never use lucide-react or heroicons */}
     <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="..." />
     </svg>
   </div>
-  <h3 className="text-xl mb-2 text-[#2a2a2a] font-medium">{title}</h3>
-  <p className="text-[#6a6a6a]">{description}</p>
+  <h3 className="text-xl mb-2 text-rw-ink font-medium">{title}</h3>
+  <p className="text-rw-ink-soft">{description}</p>
 </motion.div>
 ```
 
-Icon circle color per card: primary `#97B3AE`, accent `#F2C3B9`, muted `#D6CBBF` — rotate through for visual variety.
+Icon circle color per card: primary `rw-teal` (#97B3AE), accent `rw-peach` (#F2C3B9), muted `rw-beige` (#D6CBBF) — rotate through for visual variety.
 
 ---
 
@@ -280,14 +280,14 @@ Use these only when they support a real RepWorth product idea or supplied metric
 
 ```tsx
 <motion.div
-  className="absolute -top-6 -right-6 w-32 h-24 bg-gradient-to-br from-[#F2C3B9]/40 to-[#F2C3B9]/20 rounded-xl backdrop-blur-sm border border-white/60 shadow-lg p-3"
+  className="absolute -top-6 -right-6 w-32 h-24 bg-gradient-to-br from-rw-peach/40 to-rw-peach/20 rounded-xl backdrop-blur-sm border border-white/60 shadow-lg p-3"
   initial={{ opacity: 0, scale: 0.8, rotate: -5 }}
   whileInView={{ opacity: 1, scale: 1, rotate: 5 }}
   viewport={{ once: true }}
   transition={{ duration: 0.6, delay: 0.5 }}
 >
-  <div className="text-xs text-[#6a6a6a] mb-1">Label</div>
-  <div className="text-xl text-[#2a2a2a]">Value</div>
+  <div className="text-xs text-rw-ink-soft mb-1">Label</div>
+  <div className="text-xl text-rw-ink">Value</div>
 </motion.div>
 ```
 
@@ -335,7 +335,7 @@ If a section only exists to look impressive, delete it or replace it with one co
 
 | Mistake | Fix |
 |---|---|
-| Cards directly on `#D2E0D3` without island | Wrap all content in `max-w-5xl bg-white rounded-[3rem]` island |
+| Cards directly on the sage field (`bg-rw-sage`) without island | Wrap all content in `max-w-5xl bg-white rounded-[3rem]` island |
 | `import { Check } from 'lucide-react'` | Inline SVG only |
 | `import { motion } from 'framer-motion'` | `import { motion } from 'motion/react'` |
 | `overflow-hidden` on root div | Remove it — clips nothing useful, breaks iOS |
