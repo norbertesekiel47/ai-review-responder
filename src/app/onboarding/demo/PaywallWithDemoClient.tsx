@@ -119,10 +119,10 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
 
   return (
     <OnboardingFunnelShell step="preview">
-      <h1 className="text-3xl md:text-4xl font-medium text-center text-[#2a2a2a] mb-2">
+      <h1 className="text-3xl md:text-4xl font-medium text-center text-rw-ink mb-2">
         Your AI-powered review responses
       </h1>
-      <p className="text-center text-[#6a6a6a] mb-8">
+      <p className="text-center text-rw-ink-soft mb-8">
         Here&apos;s what RepWorth would write for {demo.business_name}
       </p>
 
@@ -134,15 +134,15 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
       )}
 
       {isStale && isCompleted && staleAgeDays !== null && (
-        <div className="bg-[#F0EEEA] rounded-xl p-3 mb-6 text-sm text-[#6a6a6a] text-center">
+        <div className="bg-rw-cream rounded-xl p-3 mb-6 text-sm text-rw-ink-soft text-center">
           Last updated {staleAgeDays} days ago
         </div>
       )}
 
       {isLoading && (
         <div className="text-center py-12">
-          <div className="inline-block w-12 h-12 border-4 border-[#97B3AE]/25 border-t-[#97B3AE] rounded-full animate-spin mb-6" />
-          <p className="text-[#6a6a6a]">Generating your demo...</p>
+          <div className="inline-block w-12 h-12 border-4 border-rw-teal/25 border-t-rw-teal rounded-full animate-spin mb-6" />
+          <p className="text-rw-ink-soft">Generating your demo...</p>
           {pollCount >= MAX_POLLS && (
             <p className="text-sm text-[#9a948a] mt-2">
               Still working — refresh in a minute.
@@ -157,10 +157,10 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
             {isFailed ? (
               <>
                 <div
-                  className="w-12 h-12 mx-auto mb-4 rounded-full bg-[#F2C3B9]/40 flex items-center justify-center"
+                  className="w-12 h-12 mx-auto mb-4 rounded-full bg-rw-peach/40 flex items-center justify-center"
                 >
                   <svg
-                    className="w-6 h-6 text-[#2a2a2a]"
+                    className="w-6 h-6 text-rw-ink"
                     role="img"
                     aria-label="Warning"
                     fill="none"
@@ -175,18 +175,18 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
                     />
                   </svg>
                 </div>
-                <p className="text-[#6a6a6a] mb-4">
+                <p className="text-rw-ink-soft mb-4">
                   We couldn&apos;t generate a sample demo this time.
                 </p>
                 <button
                   onClick={handleRegenerate}
-                  className="bg-white border border-[#97B3AE]/30 text-[#2a2a2a] font-medium py-2 px-6 rounded-full hover:bg-[#F0EEEA] mb-2 transition"
+                  className="bg-white border border-rw-teal/30 text-rw-ink font-medium py-2 px-6 rounded-full hover:bg-rw-cream mb-2 transition"
                 >
                   Try the demo again
                 </button>
               </>
             ) : (
-              <p className="text-[#6a6a6a]">
+              <p className="text-rw-ink-soft">
                 Your live demo is on the way after signup — for now, you can
                 still subscribe.
               </p>
@@ -194,11 +194,11 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
           </div>
 
           {/* Paywall stays available even when the demo isn't — never block payment on a transient generation issue. */}
-          <div className="bg-[#F0EEEA] rounded-2xl border border-[#97B3AE]/15 p-6 sm:p-8 text-center">
-            <h2 className="text-xl font-medium text-[#2a2a2a] mb-2">
+          <div className="bg-rw-cream rounded-2xl border border-rw-teal/15 p-6 sm:p-8 text-center">
+            <h2 className="text-xl font-medium text-rw-ink mb-2">
               Choose your RepWorth plan
             </h2>
-            <p className="text-[#6a6a6a] mb-6 max-w-md mx-auto">
+            <p className="text-rw-ink-soft mb-6 max-w-md mx-auto">
               Subscribe to start automatically generating responses for every
               review.
             </p>
@@ -226,11 +226,11 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
             />
           ))}
 
-          <div className="bg-[#F0EEEA] rounded-2xl border border-[#97B3AE]/15 p-6 sm:p-8 text-center mt-8">
-            <h2 className="text-xl font-medium text-[#2a2a2a] mb-2">
+          <div className="bg-rw-cream rounded-2xl border border-rw-teal/15 p-6 sm:p-8 text-center mt-8">
+            <h2 className="text-xl font-medium text-rw-ink mb-2">
               Want this for every review?
             </h2>
-            <p className="text-[#6a6a6a] mb-6 max-w-md mx-auto">
+            <p className="text-rw-ink-soft mb-6 max-w-md mx-auto">
               Subscribe to RepWorth and we&apos;ll automatically generate
               responses for all your reviews.
             </p>
@@ -249,7 +249,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
           <div className="text-center">
             <button
               onClick={handleRegenerate}
-              className="text-sm text-[#97B3AE] hover:text-[#7e9b96] underline"
+              className="text-sm text-rw-teal hover:text-[#7e9b96] underline"
             >
               Regenerate demo
             </button>
@@ -290,7 +290,7 @@ function Stars({ rating }: { rating: number }) {
   return (
     <span className="inline-flex gap-0.5" aria-label={`${rating} out of 5 stars`}>
       {Array.from({ length: 5 }, (_, i) => (
-        <span key={i} className={i < rating ? 'text-[#97B3AE]' : 'text-[#cdd9ce]'}>
+        <span key={i} className={i < rating ? 'text-rw-teal' : 'text-[#cdd9ce]'}>
           ★
         </span>
       ))}
@@ -312,11 +312,11 @@ function ReviewCard({
   });
 
   return (
-    <div className="bg-white rounded-2xl border border-[#97B3AE]/15 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl border border-rw-teal/15 shadow-sm overflow-hidden">
       <div className="p-4 sm:p-5">
         <div className="flex items-start justify-between mb-2">
           <div>
-            <span className="font-semibold text-[#2a2a2a]">
+            <span className="font-semibold text-rw-ink">
               {review.reviewerName}
             </span>
             <span className="text-sm text-[#9a948a] ml-2">{formattedDate}</span>
@@ -324,7 +324,7 @@ function ReviewCard({
         </div>
         <Stars rating={review.starRating} />
         {review.reviewText ? (
-          <p className="mt-2 text-[#6a6a6a] text-sm leading-relaxed">
+          <p className="mt-2 text-rw-ink-soft text-sm leading-relaxed">
             {review.reviewText}
           </p>
         ) : (
@@ -334,11 +334,11 @@ function ReviewCard({
         )}
       </div>
       {response && (
-        <div className="bg-[#F0EEEA] border-t border-[#97B3AE]/15 p-4 sm:p-5">
-          <p className="text-xs font-semibold text-[#97B3AE] uppercase tracking-wider mb-2">
+        <div className="bg-rw-cream border-t border-rw-teal/15 p-4 sm:p-5">
+          <p className="text-xs font-semibold text-rw-teal uppercase tracking-wider mb-2">
             RepWorth draft response
           </p>
-          <p className="text-[#6a6a6a] text-sm leading-relaxed">
+          <p className="text-rw-ink-soft text-sm leading-relaxed">
             {response.responseText}
           </p>
         </div>

@@ -215,15 +215,15 @@ export function BusinessWizardClient({
   return (
     <OnboardingFunnelShell step="setup" showThread={demoFlowEnabled}>
       {demoFlowEnabled && (
-        <p className="text-center text-[#97B3AE] text-sm mb-2">
+        <p className="text-center text-rw-teal text-sm mb-2">
           You&apos;re in. A few quick steps to make responses sound like you and
           connect your reviews, then we go live.
         </p>
       )}
-      <h1 className="text-3xl md:text-4xl font-medium text-center text-[#2a2a2a] mb-2">
+      <h1 className="text-3xl md:text-4xl font-medium text-center text-rw-ink mb-2">
         Set up your business
       </h1>
-      <p className="text-center text-[#6a6a6a] mb-8">
+      <p className="text-center text-rw-ink-soft mb-8">
         A few quick details so we can start fetching your reviews.
       </p>
 

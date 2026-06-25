@@ -29,8 +29,8 @@ export function FunnelStepThread({ step }: { step: FunnelStep }) {
                   state === 'todo'
                     ? 'bg-[#e3ddd3] text-[#9a948a]'
                     : state === 'current'
-                      ? 'bg-[#97B3AE] text-white ring-4 ring-[#97B3AE]/25'
-                      : 'bg-[#97B3AE] text-white'
+                      ? 'bg-rw-teal text-white ring-4 ring-rw-teal/25'
+                      : 'bg-rw-teal text-white'
                 }`}
               >
                 {state === 'done' ? '✓' : i + 1}
@@ -38,8 +38,8 @@ export function FunnelStepThread({ step }: { step: FunnelStep }) {
               <span
                 className={`text-[11px] text-center leading-tight ${
                   state === 'current'
-                    ? 'font-medium text-[#2a2a2a]'
-                    : 'text-[#6a6a6a]'
+                    ? 'font-medium text-rw-ink'
+                    : 'text-rw-ink-soft'
                 }`}
               >
                 {m.label}
@@ -48,7 +48,7 @@ export function FunnelStepThread({ step }: { step: FunnelStep }) {
             {i < MILESTONES.length - 1 && (
               <span
                 className={`h-px w-5 sm:w-8 mt-3.5 ${
-                  i < currentIndex ? 'bg-[#97B3AE]' : 'bg-[#cdd9ce]'
+                  i < currentIndex ? 'bg-rw-teal' : 'bg-[#cdd9ce]'
                 }`}
               />
             )}
