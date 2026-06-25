@@ -58,6 +58,10 @@ jobs:
         run: pnpm ci:response-status
       - name: Run admin AAL2 mutation gate audit
         run: pnpm ci:admin-aal2
+      - name: Run config coverage audit
+        run: pnpm ci:config-coverage
+      - name: Run process.env baseline audit
+        run: pnpm ci:process-env
       - name: Run RLS coverage audit
         run: pnpm ci:rls-audit
       # Informational only: Dependabot owns dependency updates; this surfaces
@@ -137,6 +141,38 @@ jobs:
       - name: Setup Node + pnpm
         uses: ./.github/actions/setup
       - name: Build app
+        run: pnpm build
+
+  # Dummy-env build canary (Stage 2 config foundation): builds with ONLY
+  # PLACEHOLDER public + DB-infra env values and NO real subsystem secrets (no
+  # STRIPE_*, RESEND_*, TWILIO_*, SERPAPI_*, OPENAI_*, ANTHROPIC_*). It proves the
+  # build needs no *valid* secret VALUES — placeholders suffice — so no new strict
+  # import-time validation crept in with the config layer. It does NOT prove a
+  # zero-env build: `next build` collects page data, which imports `db/server.ts`
+  # whose Supabase client is constructed at module load (a PRE-EXISTING import-time
+  # DB dependency, not introduced by Stage 2), so empty SUPABASE_URL fails with
+  # "supabaseUrl is required". Hence the three DB placeholders are required here.
+  # The crisp "config modules have no import-time parse" guarantee is proven
+  # separately by src/lib/config/__tests__/import-safety.test.ts.
+  build-dummy-env:
+    name: build-dummy-env-canary
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key-for-ci
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_KEY: dummy-service-key-for-ci
+      DATABASE_POOL_URL: postgres://test:test@localhost:5432/test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup
+      - name: Build with placeholder env only (no real secrets)
         run: pnpm build
 
   # Reproduces a deploy build context (e.g. Railway RAILPACK) that runs

@@ -40,6 +40,7 @@ import { handleTelegramWebhook } from './ingress/telegram/telegram';
 import { handleZernioWebhook } from './ingress/zernio/zernio';
 import { enforceIngressRateLimit } from './ingress/rate-limit';
 import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertSingleConcurrencyWorker, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
+import { assertWorkerConfig } from '../src/lib/config/worker';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './background/pollers/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './background/schedulers/WeeklySummaryScheduler';
 import { startArchivalPoller, stopArchivalPoller } from './background/pollers/ArchivalPoller';
@@ -298,6 +299,12 @@ async function main(): Promise<void> {
   // Fail fast on missing env vars when feature flags are enabled.
   // Log per-flag status so operators can see at a glance what's enabled.
   try {
+    // Config-lane core-infra gate (Stage 2). Additive: asserts the same four
+    // CORE_INFRA_REQUIRED_ENV vars (with the same non-prod-mock carve-out) that
+    // startup-side-effect-guard already asserts via assertCoreInfraEnv, so it
+    // cannot fail an env that boots today. Belt-and-suspenders for Stage 3 when
+    // worker reads migrate onto getWorkerConfig().
+    assertWorkerConfig();
     assertChannelsTelegramEnv();
     assertChannelsWhatsAppEnv();
     assertSelfServeSignupEnv();
