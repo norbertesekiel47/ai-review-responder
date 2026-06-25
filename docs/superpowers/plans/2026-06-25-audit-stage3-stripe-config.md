@@ -25,6 +25,43 @@ dual-runtime `src/lib` modules read via `getServerConfig()` (runtime-invoked);
 #5 optional/fallback → optional schema field, NOT an asserting accessor; #7
 migrated RAW reads use `rawOptionalVar` (faithful `''`/`'   '`/unset passthrough).
 
+### Convention #4 refinement — `getServerConfig()` must be SHAPE-ONLY (campaign-wide)
+
+A Codex correctness review caught a BLOCKER this batch surfaced (and that the
+already-merged email pilot also latently carries): the server root `serverSchema`
+had the three core-app vars (`NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_APP_URL`) as **required**
+(`requiredVar`). But convention #4 routes shared `src/lib` modules' config reads
+through `getServerConfig()`, and those modules run in the **Railway worker** —
+whose env does NOT carry the Next public vars. So `getServerConfig()`'s
+`serverSchema.parse(process.env)` threw a `ZodError` ("expected string, received
+undefined" for `NEXT_PUBLIC_SUPABASE_URL`) **before** the subsystem's own check —
+breaking the worker Stripe client (and, latently, the worker email path) even when
+`STRIPE_SECRET_KEY`/`RESEND_API_KEY` were set. `rawOptionalVar` does NOT address
+this — the failure is the required core vars, not whitespace.
+
+**Refinement (now codified):** `getServerConfig()` is **SHAPE-ONLY** — *every*
+field is optional in the root parse, including the three core-app vars (changed to
+`rawOptionalVar`). **Required-ness lives ONLY in the boot asserts**
+(`assertCoreAppConfig()` at Next `register()`, `getServerDbConfig()`, the
+subsystem accessors), never the root parse. This matches the server.ts header's
+own stated intent ("Root schema is SHAPE-ONLY … asserted ONLY by that subsystem's
+accessor") — leaving the core vars `required` in the root was the deviation.
+Net: `getServerConfig()` is now safe to call from any worker-run shared module
+that lacks the Next public vars. `assertCoreAppConfig()` (STATIC `process.env.X`
+refs) remains the SOLE enforcer of these at Next-server boot — unchanged; the Next
+server still fails to boot without them. The separate `clientSchema` /
+`assertClientConfig()` (prebuild) still requires them. `CORE_APP_REQUIRED_VARS` /
+`CLIENT_REQUIRED_VARS` (the assert lists `ci:config-coverage` reads) are unchanged,
+so coverage still passes. **Retroactively de-risks the email pilot** (its worker
+email modules call `getServerConfig()` too).
+
+Locked by a lane-safety regression test (`config/__tests__/server.test.ts`:
+`getServerConfig()` does NOT throw when `NEXT_PUBLIC_*` absent + a subsystem
+secret set; `payments/__tests__/stripe-config-migration.test.ts`: `getStripe()`
+constructs in that worker-like env). Both are RED with the core vars required,
+GREEN once they are shape-only.
+
 ---
 
 ## Per-file treatment (verified against the code)

@@ -75,4 +75,21 @@ describe('stripe-client STRIPE_SECRET_KEY migration — raw-semantics preserved'
     expect(() => getStripe()).not.toThrow();
     expect(stripeCtorArgs).toEqual(['   ']);
   });
+
+  // LANE SAFETY (regression guard for the Codex blocker): getStripe() runs in the
+  // WORKER via shared src/lib code; the worker env does NOT carry the NEXT_PUBLIC_*
+  // core vars. Because getServerConfig() is shape-only, getStripe() must construct
+  // from STRIPE_SECRET_KEY alone — it must NOT throw a ZodError for absent
+  // NEXT_PUBLIC_*. Before the fix (core vars required in the root parse) this threw
+  // "expected string, received undefined" for NEXT_PUBLIC_SUPABASE_URL.
+  it('constructs in a worker-like env (STRIPE_SECRET_KEY set, NEXT_PUBLIC_* absent)', async () => {
+    const { getStripe } = await freshClient({
+      STRIPE_SECRET_KEY: 'sk_live_worker',
+      NEXT_PUBLIC_SUPABASE_URL: undefined,
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: undefined,
+      NEXT_PUBLIC_APP_URL: undefined,
+    });
+    expect(() => getStripe()).not.toThrow();
+    expect(stripeCtorArgs).toEqual(['sk_live_worker']);
+  });
 });

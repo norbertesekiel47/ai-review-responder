@@ -8,14 +8,18 @@
 // subsystem's accessor. No top-level z.parse — getServerConfig is lazy + memoized.
 import { z } from 'zod';
 import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
-import { optionalVar, rawOptionalVar, requirePresent, requirePresentIn, requiredVar } from './schema-helpers';
+import { optionalVar, rawOptionalVar, requirePresent, requirePresentIn } from './schema-helpers';
 import {
   STRIPE_REQUIRED_VARS,
   narrowStripeConfig,
   type StripeEnvConfig,
 } from './stripe-shape';
 
-const nonEmpty = requiredVar;
+// requiredVar/`nonEmpty` is intentionally NOT used here: the root server schema is
+// SHAPE-ONLY (every field optional). Required-ness is enforced by the boot asserts
+// (assertCoreAppConfig / getServerDbConfig / the subsystem accessors), never the
+// root parse — so getServerConfig() is safe to call from worker-run shared code
+// that lacks the Next public vars.
 const opt = optionalVar;
 // Raw passthrough for MIGRATED reads whose call site does its own normalization
 // (?.trim() / !value / Boolean / raw SDK arg). Preserves ''/'   '/unset exactly
@@ -29,10 +33,18 @@ const stripePriceShape = Object.fromEntries(
 ) as Record<(typeof STRIPE_PRICE_ENV_VARS)[number], typeof opt>;
 
 const serverSchema = z.object({
-  // ── core-app required (Supabase URL/anon, app URL) ──
-  NEXT_PUBLIC_SUPABASE_URL: nonEmpty,
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: nonEmpty,
-  NEXT_PUBLIC_APP_URL: nonEmpty,
+  // ── core-app vars (Supabase URL/anon, app URL) ──
+  // SHAPE-ONLY in the root parse (rawOptionalVar), NOT required here. Their
+  // required-ness lives in the boot assert assertCoreAppConfig() (Next server
+  // register()), which stays the SOLE enforcer. Making them required in the root
+  // parse broke getServerConfig() when called from worker-run shared code (e.g.
+  // getStripe(), the email modules) — the worker env doesn't carry NEXT_PUBLIC_*,
+  // so the root parse threw a ZodError BEFORE the subsystem's own assert. Per the
+  // Stage-2 principle ("root schema is shape-only; required-ness at the lane
+  // assert"), getServerConfig() must never throw on absent core vars.
+  NEXT_PUBLIC_SUPABASE_URL: rawOpt,
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: rawOpt,
+  NEXT_PUBLIC_APP_URL: rawOpt,
   // ── server-DB subsystem (optional in root; asserted by getServerDbConfig) ──
   SUPABASE_URL: opt,
   SUPABASE_SERVICE_KEY: opt,
