@@ -38,17 +38,23 @@ describe('emit', () => {
     expect(mockCaptureMessage).not.toHaveBeenCalled();
   });
 
-  it('records a Sentry cron check-in (dead-man heartbeat)', () => {
-    recordProbeCheckIn('ok');
+  it('records a Sentry cron check-in with an upsert monitor config (dead-man heartbeat)', () => {
+    recordProbeCheckIn('ok', 300_000);
     expect(mockCaptureCheckIn).toHaveBeenCalledTimes(1);
-    const arg = mockCaptureCheckIn.mock.calls[0]?.[0] as { monitorSlug: string; status: string };
+    const [arg, config] = mockCaptureCheckIn.mock.calls[0] as [
+      { monitorSlug: string; status: string },
+      { schedule?: { type: string; value: string }; checkinMargin?: number },
+    ];
     expect(arg.status).toBe('ok');
     expect(typeof arg.monitorSlug).toBe('string');
     expect(arg.monitorSlug.length).toBeGreaterThan(0);
+    // Upsert config must be present (crontab — Sentry rejects sub-hour intervals),
+    // or the check-in is dropped for a non-existent monitor.
+    expect(config?.schedule).toMatchObject({ type: 'crontab', value: '*/5 * * * *' });
   });
 
   it('forwards an error status check-in', () => {
-    recordProbeCheckIn('error');
+    recordProbeCheckIn('error', 300_000);
     const arg = mockCaptureCheckIn.mock.calls[0]?.[0] as { status: string };
     expect(arg.status).toBe('error');
   });

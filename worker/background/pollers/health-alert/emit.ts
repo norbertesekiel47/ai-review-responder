@@ -18,6 +18,21 @@ export function emitHealthFindings(findings: HealthFinding[]): void {
   }
 }
 
-export function recordProbeCheckIn(status: 'ok' | 'error'): void {
-  Sentry.captureCheckIn({ monitorSlug: PROBE_MONITOR_SLUG, status });
+export function recordProbeCheckIn(status: 'ok' | 'error', intervalMs: number): void {
+  // Pass an upsert monitorConfig so Sentry auto-creates/updates the cron monitor
+  // on check-in — without it, check-ins for a not-yet-existing monitor are
+  // silently dropped (which is why the monitor never appeared). A *crontab*
+  // schedule is required: Sentry rejects sub-hour `interval` schedules ("invalid
+  // schedule on unit count"). `*/N * * * *` mirrors the poller's own cadence
+  // (intervalMs, owned by HealthAlertPoller); one cycle of margin absorbs jitter
+  // before the dead-man switch pages.
+  const intervalMinutes = Math.max(1, Math.min(59, Math.round(intervalMs / 60_000)));
+  Sentry.captureCheckIn(
+    { monitorSlug: PROBE_MONITOR_SLUG, status },
+    {
+      schedule: { type: 'crontab', value: `*/${intervalMinutes} * * * *` },
+      checkinMargin: intervalMinutes,
+      timezone: 'UTC',
+    },
+  );
 }
