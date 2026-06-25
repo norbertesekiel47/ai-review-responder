@@ -6,8 +6,8 @@ import ts from 'typescript';
 /**
  * Flags hardcoded response-status GROUP literals — 2+ distinct canonical
  * status values co-located in a JS/TS array literal, or in a SQL
- * `IN (...)` / `ANY(ARRAY[...])` list inside a template literal — in TS files
- * under `src/`, outside the two exempt modules.
+ * `IN (...)` / `ANY (...)` predicate inside a `sql` / `tx` tagged template — in
+ * TS files under `src/`, outside the two exempt modules.
  *
  * Counting/display READ callsites must import the named groups from
  * `@/lib/shared/response-status` and bind them via `statusArraySql()`
@@ -20,6 +20,18 @@ import ts from 'typescript';
  * is `src/` only; `worker/**` is handled in a later stage. Structure mirrors
  * `static-policy-audit.ts`: a pure `scanSource` (unit-tested) + a thin
  * filesystem `main`.
+ *
+ * SQL detection is scoped to `sql` / `tx` tagged templates so plain template
+ * strings that merely mention statuses (UI copy, log lines) are NOT false-
+ * flagged, and it counts canonical values across the WHOLE `IN(...)` / `ANY(...)`
+ * predicate (balanced parens) so a group split across `ARRAY[...] || ARRAY[...]`
+ * is still caught. Spread composition of array literals
+ * (`[...['approved'], 'edited']`) is detected.
+ *
+ * Known boundary: a group assembled at runtime via `Array.prototype.concat`
+ * (`['approved'].concat(['edited'])`) is NOT detected — it is a contrived way
+ * to spell a constant group, absent from this codebase, and recognizing
+ * arbitrary call-chains is disproportionate for a maintainability guard.
  */
 
 const SCAN_DIR = 'src';
@@ -31,6 +43,10 @@ const EXEMPT = new Set([
   'src/lib/shared/response-status-sql.ts',
 ]);
 const IGNORE_PRAGMA = 'status-audit-ignore';
+
+// Tags whose template bodies are SQL in this codebase: the Postgres.js client
+// (`sql`) and a transaction scope from `sql.begin(tx => …)` (`tx`).
+const SQL_TAG_NAMES = new Set(['sql', 'tx']);
 
 const CANONICAL_STATUSES = new Set([
   'pending_approval',
@@ -58,7 +74,7 @@ const ARRAY_DETAIL =
   'subsets that must stay inline need a `// status-audit-ignore` pragma.';
 
 const SQL_DETAIL =
-  'hardcoded response-status group in a SQL IN()/ANY(ARRAY[]) list — import the ' +
+  'hardcoded response-status group in a SQL IN()/ANY() predicate — import the ' +
   'group from @/lib/shared/response-status and bind via statusArraySql(); add a ' +
   'trailing `-- status-audit-ignore` for intentionally-inline write guards.';
 
@@ -70,15 +86,68 @@ function normalizePath(file: string): string {
 const STATUS_LITERAL_RE =
   /(['"])(pending_approval|approved|edited|superseded|awaiting_owner_connect|posted|failed)\1/g;
 
-// One SQL IN(...) / ARRAY[...] parenthetical or bracket span (no nesting).
-const SQL_GROUP_RE = /\b(?:in|array)\s*[([][^)\]]*[)\]]/gi;
-
 function distinctCanonicalLiterals(text: string): number {
   const seen = new Set<string>();
   for (const match of text.matchAll(STATUS_LITERAL_RE)) {
     if (match[2]) seen.add(match[2]);
   }
   return seen.size;
+}
+
+// Distinct canonical statuses written directly in an array literal, descending
+// into spread elements that are themselves array literals
+// (`[...['approved'], 'edited']`). A spread of an identifier (`[...GROUP, x]`)
+// is intentionally NOT descended — that imports the named group rather than
+// re-spelling it inline, which is the desired pattern.
+function canonicalInArray(node: ts.ArrayLiteralExpression): Set<string> {
+  const seen = new Set<string>();
+  for (const element of node.elements) {
+    if (ts.isStringLiteral(element) && CANONICAL_STATUSES.has(element.text)) {
+      seen.add(element.text);
+    } else if (
+      ts.isSpreadElement(element) &&
+      ts.isArrayLiteralExpression(element.expression)
+    ) {
+      for (const value of canonicalInArray(element.expression)) seen.add(value);
+    }
+  }
+  return seen;
+}
+
+// Each `IN (...)` / `ANY (...)` predicate body (balanced parens) in SQL text,
+// with the byte offset of the keyword. Capturing the whole predicate — not each
+// `ARRAY[...]` span — means a group split across `ARRAY[...] || ARRAY[...]` is
+// counted as one group, while scoping to the predicate avoids miscounting two
+// unrelated single-status equalities elsewhere in the same query.
+function sqlPredicateGroups(sqlText: string): { body: string; index: number }[] {
+  const groups: { body: string; index: number }[] = [];
+  const keyword = /\b(?:in|any)\s*\(/gi;
+  let match: RegExpExecArray | null;
+  while ((match = keyword.exec(sqlText)) !== null) {
+    const open = match.index + match[0].length - 1; // index of '('
+    let depth = 0;
+    let end = open;
+    for (; end < sqlText.length; end++) {
+      const ch = sqlText[end];
+      if (ch === '(') depth++;
+      else if (ch === ')') {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+    groups.push({ body: sqlText.slice(open + 1, end), index: match.index });
+  }
+  return groups;
+}
+
+function isSqlTaggedTemplate(node: ts.TaggedTemplateExpression): boolean {
+  const tag = node.tag;
+  if (ts.isIdentifier(tag)) return SQL_TAG_NAMES.has(tag.text);
+  // e.g. `sql.unsafe` — key on the root identifier.
+  if (ts.isPropertyAccessExpression(tag) && ts.isIdentifier(tag.expression)) {
+    return SQL_TAG_NAMES.has(tag.expression.text);
+  }
+  return false;
 }
 
 function lineHasPragma(lines: string[], lineIndex: number): boolean {
@@ -107,15 +176,7 @@ export function scanSource(file: string, text: string): ResponseStatusFinding[] 
 
   const visit = (node: ts.Node): void => {
     if (ts.isArrayLiteralExpression(node)) {
-      const canonical = new Set(
-        node.elements
-          .filter(
-            (element): element is ts.StringLiteral =>
-              ts.isStringLiteral(element) && CANONICAL_STATUSES.has(element.text),
-          )
-          .map((element) => element.text),
-      );
-      if (canonical.size >= 2) {
+      if (canonicalInArray(node).size >= 2) {
         const line = lineOf(node.getStart(source));
         if (!lineHasPragma(lines, line)) {
           findings.push({
@@ -126,15 +187,12 @@ export function scanSource(file: string, text: string): ResponseStatusFinding[] 
           });
         }
       }
-    } else if (
-      ts.isNoSubstitutionTemplateLiteral(node) ||
-      ts.isTemplateExpression(node)
-    ) {
+    } else if (ts.isTaggedTemplateExpression(node) && isSqlTaggedTemplate(node)) {
       const raw = node.getText(source);
       const nodeStart = node.getStart(source);
-      for (const match of raw.matchAll(SQL_GROUP_RE)) {
-        if (distinctCanonicalLiterals(match[0]) < 2) continue;
-        const line = lineOf(nodeStart + (match.index ?? 0));
+      for (const group of sqlPredicateGroups(raw)) {
+        if (distinctCanonicalLiterals(group.body) < 2) continue;
+        const line = lineOf(nodeStart + group.index);
         if (lineHasPragma(lines, line)) continue;
         findings.push({
           file: normalized,

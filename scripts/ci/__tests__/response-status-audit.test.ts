@@ -81,4 +81,40 @@ describe('response-status-audit scanSource', () => {
     const findings = scanSource('src/x.ts', src);
     expect(findings[0]?.line).toBe(2);
   });
+
+  it('flags a group composed via spread of an array literal', () => {
+    // [...['approved'], 'edited'] is a hardcoded 2-status group split across a
+    // spread — the outer array must still count both.
+    const findings = scanSource('src/x.ts', `const g = [...['approved'], 'edited'];`);
+    expect(findings.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('does NOT flag a spread of a named group const plus an extra status', () => {
+    // [...HANDLED_STATUSES, 'posted'] imports the group rather than re-spelling
+    // it inline — only one direct literal, so it is not a hardcoded group.
+    expect(scanSource('src/x.ts', `const g = [...HANDLED_STATUSES, 'posted'];`)).toEqual([]);
+  });
+
+  it('flags a SQL group split across ARRAY[...] || ARRAY[...] concatenation', () => {
+    const src =
+      "const q = sql`WHERE status = ANY(ARRAY['approved']::text[] || ARRAY['edited']::text[])`;";
+    expect(scanSource('src/x.ts', src).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('flags a SQL IN list inside a tx (transaction) tagged template', () => {
+    const src = "const q = tx`SELECT 1 FROM t WHERE status IN ('approved','edited')`;";
+    expect(scanSource('src/x.ts', src).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('does NOT flag a non-SQL (untagged) template string mentioning statuses', () => {
+    // A UI/help/log string is not SQL — it must not trip CI just for naming
+    // statuses in a parenthesised list.
+    const src = "const msg = `allowed transitions in ('approved','edited')`;";
+    expect(scanSource('src/x.ts', src)).toEqual([]);
+  });
+
+  it('does NOT flag two unrelated single-status equalities in one SQL query', () => {
+    const src = "const q = sql`WHERE a.status = 'approved' OR b.status = 'edited'`;";
+    expect(scanSource('src/x.ts', src)).toEqual([]);
+  });
 });
