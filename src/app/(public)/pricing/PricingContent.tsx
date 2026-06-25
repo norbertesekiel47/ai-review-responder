@@ -581,7 +581,7 @@ function SliderRow({
         <span className="pr-slider-val">{display}</span>
       </div>
       <input
-        className="pr-slider focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#557069]"
+        className="pr-slider focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rw-teal-strong"
         type="range"
         min={min}
         max={max}

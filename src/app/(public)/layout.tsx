@@ -20,7 +20,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
     <>
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-[#557069] focus:px-4 focus:py-2 focus:text-sm focus:text-white focus:outline-2 focus:outline-offset-2 focus:outline-[#97B3AE]"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-rw-teal-strong focus:px-4 focus:py-2 focus:text-sm focus:text-white focus:outline-2 focus:outline-offset-2 focus:outline-rw-teal"
       >
         Skip to content
       </a>

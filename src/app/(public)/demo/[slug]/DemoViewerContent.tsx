@@ -49,11 +49,11 @@ export function DemoViewerContent({ businessName, reviews, responses, selfServeE
 
       <main id="main-content">
       {/* Hero */}
-      <div className="px-8 pt-12 pb-8 bg-gradient-to-b from-white to-[#F0EEEA]/30">
+      <div className="px-8 pt-12 pb-8 bg-gradient-to-b from-white to-rw-cream/30">
         <div className="max-w-3xl mx-auto">
           <motion.div {...heroReveal}>
-            <p className="text-sm tracking-wider uppercase text-[#557069] mb-3">RepWorth demo</p>
-            <h1 className="text-4xl md:text-5xl font-medium leading-tight text-[#2a2a2a] mb-5">
+            <p className="text-sm tracking-wider uppercase text-rw-teal-strong mb-3">RepWorth demo</p>
+            <h1 className="text-4xl md:text-5xl font-medium leading-tight text-rw-ink mb-5">
               {businessName}
             </h1>
             {hasReviews && (
@@ -64,7 +64,7 @@ export function DemoViewerContent({ businessName, reviews, responses, selfServeE
               </div>
             )}
             {repliesStillGenerating && (
-              <p className="mt-3 text-sm text-[#557069] italic">Some replies are still generating.</p>
+              <p className="mt-3 text-sm text-rw-teal-strong italic">Some replies are still generating.</p>
             )}
           </motion.div>
         </div>
@@ -90,7 +90,7 @@ export function DemoViewerContent({ businessName, reviews, responses, selfServeE
       </div>
 
       {/* CTA */}
-      <section className="px-8 py-14 bg-gradient-to-br from-[#557069] to-[#557069]/85 text-white rounded-b-[3rem] text-center">
+      <section className="px-8 py-14 bg-gradient-to-br from-rw-teal-strong to-rw-teal-strong/85 text-white rounded-b-[3rem] text-center">
         <motion.div {...ctaReveal} className="max-w-xl mx-auto">
           <h2 className="text-2xl md:text-3xl font-medium mb-3">Want replies like these for your reviews?</h2>
           <p className="text-white/90 mb-8">RepWorth drafts every reply — you approve before it posts.</p>
@@ -101,7 +101,7 @@ export function DemoViewerContent({ businessName, reviews, responses, selfServeE
           >
             <Link
               href="/book-a-demo"
-              className="inline-block px-8 py-4 bg-white text-[#557069] rounded-full shadow-lg font-medium"
+              className="inline-block px-8 py-4 bg-white text-rw-teal-strong rounded-full shadow-lg font-medium"
             >
               Book a demo
             </Link>
@@ -118,9 +118,9 @@ function EmptyState() {
     <div className="py-16 flex flex-col items-center text-center">
       <div
         aria-hidden="true"
-        className="w-16 h-16 rounded-full bg-[#557069]/15 flex items-center justify-center mb-6"
+        className="w-16 h-16 rounded-full bg-rw-teal-strong/15 flex items-center justify-center mb-6"
       >
-        <svg className="w-7 h-7 text-[#557069]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-7 h-7 text-rw-teal-strong" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -129,8 +129,8 @@ function EmptyState() {
           />
         </svg>
       </div>
-      <h2 className="text-xl font-medium text-[#2a2a2a] mb-2">No reviews to show yet</h2>
-      <p className="text-[#6a6a6a] max-w-md">
+      <h2 className="text-xl font-medium text-rw-ink mb-2">No reviews to show yet</h2>
+      <p className="text-rw-ink-soft max-w-md">
         We couldn&apos;t find public reviews for this business to draft replies from. Book a demo and
         we&apos;ll show you RepWorth on real reviews from your account.
       </p>
@@ -146,7 +146,7 @@ function reviewKey(review: NormalizedReview): string {
 
 function StatChip({ children }: { children: React.ReactNode }) {
   return (
-    <span className="text-sm text-[#557069] bg-[#F0EEEA] border border-[#557069]/25 rounded-full px-4 py-1.5">
+    <span className="text-sm text-rw-teal-strong bg-rw-cream border border-rw-teal-strong/25 rounded-full px-4 py-1.5">
       {children}
     </span>
   );
@@ -156,7 +156,7 @@ function Stars({ rating }: { rating: number }) {
   return (
     <span className="inline-flex gap-0.5" aria-label={`${rating} out of 5 stars`}>
       {Array.from({ length: 5 }, (_, i) => (
-        <span key={i} aria-hidden="true" className={i < rating ? 'text-[#557069]' : 'text-[#2a2a2a]/15'}>
+        <span key={i} aria-hidden="true" className={i < rating ? 'text-rw-teal-strong' : 'text-rw-ink/15'}>
           ★
         </span>
       ))}
@@ -194,31 +194,31 @@ function ReviewCard({
       };
 
   return (
-    <motion.div className="bg-white rounded-2xl border border-[#557069]/10 shadow-lg" {...cardReveal}>
+    <motion.div className="bg-white rounded-2xl border border-rw-teal-strong/10 shadow-lg" {...cardReveal}>
       <div className="p-5 sm:p-6">
         <div className="flex items-start justify-between mb-2 gap-3">
           <div>
-            <span className="font-medium text-[#2a2a2a]">{review.reviewerName}</span>
-            <span className="text-sm text-[#557069] ml-2">{formattedDate}</span>
+            <span className="font-medium text-rw-ink">{review.reviewerName}</span>
+            <span className="text-sm text-rw-teal-strong ml-2">{formattedDate}</span>
           </div>
           {isMultilingual && (
-            <span className="text-xs font-medium bg-[#557069]/15 text-[#557069] px-2.5 py-0.5 rounded-full shrink-0">
+            <span className="text-xs font-medium bg-rw-teal-strong/15 text-rw-teal-strong px-2.5 py-0.5 rounded-full shrink-0">
               Multilingual
             </span>
           )}
         </div>
         <Stars rating={review.starRating} />
         {review.reviewText ? (
-          <p className="mt-3 text-[#6a6a6a] leading-relaxed">{review.reviewText}</p>
+          <p className="mt-3 text-rw-ink-soft leading-relaxed">{review.reviewText}</p>
         ) : (
-          <p className="mt-3 text-[#6a6a6a]/70 italic">Rating only — no written review</p>
+          <p className="mt-3 text-rw-ink-soft/70 italic">Rating only — no written review</p>
         )}
       </div>
 
       {response && (
-        <div className="bg-[#F0EEEA] border-t border-[#557069]/20 p-5 sm:p-6 rounded-b-2xl">
-          <p className="text-xs font-semibold text-[#557069] uppercase tracking-wider mb-2">RepWorth reply</p>
-          <p className="text-[#6a6a6a] leading-relaxed">{response.responseText}</p>
+        <div className="bg-rw-cream border-t border-rw-teal-strong/20 p-5 sm:p-6 rounded-b-2xl">
+          <p className="text-xs font-semibold text-rw-teal-strong uppercase tracking-wider mb-2">RepWorth reply</p>
+          <p className="text-rw-ink-soft leading-relaxed">{response.responseText}</p>
         </div>
       )}
     </motion.div>
