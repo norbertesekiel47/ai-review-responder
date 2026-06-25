@@ -8,7 +8,12 @@
 // lazy + memoized.
 import { z } from 'zod';
 import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
-import { optionalVar, requiredVar } from './schema-helpers';
+import { optionalVar, requirePresent, requiredVar } from './schema-helpers';
+import {
+  STRIPE_REQUIRED_VARS,
+  narrowStripeConfig,
+  type StripeEnvConfig,
+} from './stripe-shape';
 
 const nonEmpty = requiredVar;
 const opt = optionalVar;
@@ -61,20 +66,17 @@ export const CORE_APP_REQUIRED_VARS = [
 
 let memo: ServerConfig | undefined;
 
+// Stage-2 foundation: getServerConfig + the per-subsystem accessors/asserts below
+// have no production consumer YET — Stage 3 migrates the ~990 raw process.env
+// reads onto them. They are unit-tested and deliberately unwired (wiring a
+// subsystem assert before its subsystem uses getXConfig() would be premature).
+// Suppress the "unused-export" finding until Stage 3 consumes them.
+
 /** Lazy, memoized parse. NEVER at import time. */
+// fallow-ignore-next-line unused-export
 export function getServerConfig(): ServerConfig {
   if (!memo) memo = serverSchema.parse(process.env);
   return memo;
-}
-
-function requirePresent(vars: readonly string[], subsystem: string): void {
-  const missing = vars.filter((name) => {
-    const value = process.env[name];
-    return value === undefined || value.trim().length === 0;
-  });
-  if (missing.length > 0) {
-    throw new Error(`[config] ${subsystem} requires: ${missing.join(', ')}`);
-  }
 }
 
 /** Core-app boot assert — the minimum every Next server process needs. */
@@ -84,47 +86,19 @@ export function assertCoreAppConfig(): void {
 
 // ── Subsystem accessors: assert presence, return non-null-narrowed view ──
 
-const STRIPE_SERVER_VARS = [
-  'STRIPE_SECRET_KEY',
-  'STRIPE_WEBHOOK_SECRET',
-  ...STRIPE_PRICE_ENV_VARS,
-] as const;
+export type StripeServerConfig = StripeEnvConfig;
 
-export interface StripeServerConfig {
-  STRIPE_SECRET_KEY: string;
-  STRIPE_WEBHOOK_SECRET: string;
-  STRIPE_PRICE_BASIC: string;
-  STRIPE_PRICE_FOUNDING: string;
-  STRIPE_PRICE_STANDARD: string;
-  STRIPE_PRICE_PREMIUM: string;
-  STRIPE_PRICE_STANDARD_OVERAGE: string;
-  STRIPE_PRICE_PREMIUM_OVERAGE: string;
-  STRIPE_PRICE_FOUNDERS_OVERAGE: string;
-}
-
+// fallow-ignore-next-line unused-export
 export function assertStripeConfig(): void {
-  requirePresent(STRIPE_SERVER_VARS, 'stripe (server)');
+  requirePresent(STRIPE_REQUIRED_VARS, 'stripe (server)');
 }
 
-// Each `!` below is guarded by the preceding assertStripeConfig() throw — the
-// value is provably non-null. This is the "required-ness at the accessor"
-// pattern, not papering over `any`.
 export function getStripeConfig(): StripeServerConfig {
   assertStripeConfig();
-  const cfg = getServerConfig();
-  return {
-    STRIPE_SECRET_KEY: cfg.STRIPE_SECRET_KEY!,
-    STRIPE_WEBHOOK_SECRET: cfg.STRIPE_WEBHOOK_SECRET!,
-    STRIPE_PRICE_BASIC: cfg.STRIPE_PRICE_BASIC!,
-    STRIPE_PRICE_FOUNDING: cfg.STRIPE_PRICE_FOUNDING!,
-    STRIPE_PRICE_STANDARD: cfg.STRIPE_PRICE_STANDARD!,
-    STRIPE_PRICE_PREMIUM: cfg.STRIPE_PRICE_PREMIUM!,
-    STRIPE_PRICE_STANDARD_OVERAGE: cfg.STRIPE_PRICE_STANDARD_OVERAGE!,
-    STRIPE_PRICE_PREMIUM_OVERAGE: cfg.STRIPE_PRICE_PREMIUM_OVERAGE!,
-    STRIPE_PRICE_FOUNDERS_OVERAGE: cfg.STRIPE_PRICE_FOUNDERS_OVERAGE!,
-  };
+  return narrowStripeConfig(getServerConfig());
 }
 
+// fallow-ignore-next-line unused-export
 export function assertResendConfig(): void {
   requirePresent(['RESEND_API_KEY'], 'resend (server)');
 }
@@ -133,25 +107,31 @@ export function getResendConfig(): { RESEND_API_KEY: string } {
   return { RESEND_API_KEY: getServerConfig().RESEND_API_KEY! };
 }
 
+// fallow-ignore-next-line unused-export
 export function assertSerpapiConfig(): void {
   requirePresent(['SERPAPI_API_KEY'], 'serpapi (server)');
 }
+// fallow-ignore-next-line unused-export
 export function getSerpapiConfig(): { SERPAPI_API_KEY: string } {
   assertSerpapiConfig();
   return { SERPAPI_API_KEY: getServerConfig().SERPAPI_API_KEY! };
 }
 
+// fallow-ignore-next-line unused-export
 export function assertOpenAiConfig(): void {
   requirePresent(['OPENAI_API_KEY'], 'openai (server)');
 }
+// fallow-ignore-next-line unused-export
 export function getOpenAiConfig(): { OPENAI_API_KEY: string } {
   assertOpenAiConfig();
   return { OPENAI_API_KEY: getServerConfig().OPENAI_API_KEY! };
 }
 
+// fallow-ignore-next-line unused-export
 export function assertGoogleMapsConfig(): void {
   requirePresent(['NEXT_PUBLIC_GOOGLE_MAPS_API_KEY'], 'google-maps (server)');
 }
+// fallow-ignore-next-line unused-export
 export function getGoogleMapsConfig(): { NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: string } {
   assertGoogleMapsConfig();
   return { NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: getServerConfig().NEXT_PUBLIC_GOOGLE_MAPS_API_KEY! };

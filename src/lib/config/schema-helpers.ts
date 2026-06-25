@@ -19,3 +19,19 @@ export const optionalVar = z.preprocess(
   (value) => (typeof value === 'string' && value.trim().length === 0 ? undefined : value),
   z.string().min(1).optional(),
 );
+
+/**
+ * Throw if any of `vars` is unset or empty/whitespace-only in process.env. Used
+ * by both lanes' subsystem accessors to assert presence before narrowing — the
+ * single "required-ness at the accessor" primitive (treats present-but-empty as
+ * absent, matching optionalVar's semantics).
+ */
+export function requirePresent(vars: readonly string[], subsystem: string): void {
+  const missing = vars.filter((name) => {
+    const value = process.env[name];
+    return value === undefined || value.trim().length === 0;
+  });
+  if (missing.length > 0) {
+    throw new Error(`[config] ${subsystem} requires: ${missing.join(', ')}`);
+  }
+}

@@ -8,7 +8,12 @@
 import { z } from 'zod';
 import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
 import { ensureWorkerDotenvLoaded } from './dotenv-load';
-import { optionalVar, requiredVar } from './schema-helpers';
+import { optionalVar, requirePresent, requiredVar } from './schema-helpers';
+import {
+  STRIPE_REQUIRED_VARS,
+  narrowStripeConfig,
+  type StripeEnvConfig,
+} from './stripe-shape';
 
 const nonEmpty = requiredVar;
 const opt = optionalVar;
@@ -49,7 +54,14 @@ export const WORKER_REQUIRED_VARS = [
 
 let memo: WorkerConfig | undefined;
 
+// Stage-2 foundation: getWorkerConfig + the per-subsystem accessors/asserts below
+// have no production consumer YET — Stage 3 migrates the raw worker process.env
+// reads onto them. They are unit-tested and deliberately unwired (wiring a
+// subsystem assert before its subsystem uses getXConfig() would be premature).
+// Suppress the "unused-export" finding until Stage 3 consumes them.
+
 /** Lazy, memoized parse — self-loads dotenv first. NEVER at import time. */
+// fallow-ignore-next-line unused-export
 export function getWorkerConfig(): WorkerConfig {
   if (!memo) {
     ensureWorkerDotenvLoaded();
@@ -63,16 +75,6 @@ function mockSkip(): boolean {
   return process.env.NODE_ENV !== 'production' && process.env.MOCK_EXTERNAL_APIS === 'true';
 }
 
-function requirePresent(vars: readonly string[], subsystem: string): void {
-  const missing = vars.filter((name) => {
-    const value = process.env[name];
-    return value === undefined || value.trim().length === 0;
-  });
-  if (missing.length > 0) {
-    throw new Error(`[config] worker ${subsystem} requires: ${missing.join(', ')}`);
-  }
-}
-
 /** Worker core-infra boot assert. Mirrors CORE_INFRA_REQUIRED_ENV. */
 export function assertWorkerConfig(): void {
   ensureWorkerDotenvLoaded();
@@ -80,64 +82,45 @@ export function assertWorkerConfig(): void {
   requirePresent(WORKER_REQUIRED_VARS, 'core-infra');
 }
 
-const STRIPE_WORKER_VARS = [
-  'STRIPE_SECRET_KEY',
-  'STRIPE_WEBHOOK_SECRET',
-  ...STRIPE_PRICE_ENV_VARS,
-] as const;
+export type WorkerStripeConfig = StripeEnvConfig;
 
-export interface WorkerStripeConfig {
-  STRIPE_SECRET_KEY: string;
-  STRIPE_WEBHOOK_SECRET: string;
-  STRIPE_PRICE_BASIC: string;
-  STRIPE_PRICE_FOUNDING: string;
-  STRIPE_PRICE_STANDARD: string;
-  STRIPE_PRICE_PREMIUM: string;
-  STRIPE_PRICE_STANDARD_OVERAGE: string;
-  STRIPE_PRICE_PREMIUM_OVERAGE: string;
-  STRIPE_PRICE_FOUNDERS_OVERAGE: string;
-}
-
+// fallow-ignore-next-line unused-export
 export function assertWorkerStripeConfig(): void {
-  requirePresent(STRIPE_WORKER_VARS, 'stripe');
+  requirePresent(STRIPE_REQUIRED_VARS, 'stripe');
 }
 
-// Each `!` is guarded by the preceding assertWorkerStripeConfig() throw.
 export function getWorkerStripeConfig(): WorkerStripeConfig {
   assertWorkerStripeConfig();
-  const cfg = getWorkerConfig();
-  return {
-    STRIPE_SECRET_KEY: cfg.STRIPE_SECRET_KEY!,
-    STRIPE_WEBHOOK_SECRET: cfg.STRIPE_WEBHOOK_SECRET!,
-    STRIPE_PRICE_BASIC: cfg.STRIPE_PRICE_BASIC!,
-    STRIPE_PRICE_FOUNDING: cfg.STRIPE_PRICE_FOUNDING!,
-    STRIPE_PRICE_STANDARD: cfg.STRIPE_PRICE_STANDARD!,
-    STRIPE_PRICE_PREMIUM: cfg.STRIPE_PRICE_PREMIUM!,
-    STRIPE_PRICE_STANDARD_OVERAGE: cfg.STRIPE_PRICE_STANDARD_OVERAGE!,
-    STRIPE_PRICE_PREMIUM_OVERAGE: cfg.STRIPE_PRICE_PREMIUM_OVERAGE!,
-    STRIPE_PRICE_FOUNDERS_OVERAGE: cfg.STRIPE_PRICE_FOUNDERS_OVERAGE!,
-  };
+  return narrowStripeConfig(getWorkerConfig());
 }
 
+// fallow-ignore-next-line unused-export
 export function assertWorkerResendConfig(): void { requirePresent(['RESEND_API_KEY'], 'resend'); }
+// fallow-ignore-next-line unused-export
 export function getWorkerResendConfig(): { RESEND_API_KEY: string } {
   assertWorkerResendConfig();
   return { RESEND_API_KEY: getWorkerConfig().RESEND_API_KEY! };
 }
 
+// fallow-ignore-next-line unused-export
 export function assertWorkerSerpapiConfig(): void { requirePresent(['SERPAPI_API_KEY'], 'serpapi'); }
+// fallow-ignore-next-line unused-export
 export function getWorkerSerpapiConfig(): { SERPAPI_API_KEY: string } {
   assertWorkerSerpapiConfig();
   return { SERPAPI_API_KEY: getWorkerConfig().SERPAPI_API_KEY! };
 }
 
+// fallow-ignore-next-line unused-export
 export function assertWorkerOpenAiConfig(): void { requirePresent(['OPENAI_API_KEY'], 'openai'); }
+// fallow-ignore-next-line unused-export
 export function getWorkerOpenAiConfig(): { OPENAI_API_KEY: string } {
   assertWorkerOpenAiConfig();
   return { OPENAI_API_KEY: getWorkerConfig().OPENAI_API_KEY! };
 }
 
+// fallow-ignore-next-line unused-export
 export function assertWorkerAnthropicConfig(): void { requirePresent(['ANTHROPIC_API_KEY'], 'anthropic'); }
+// fallow-ignore-next-line unused-export
 export function getWorkerAnthropicConfig(): { ANTHROPIC_API_KEY: string } {
   assertWorkerAnthropicConfig();
   return { ANTHROPIC_API_KEY: getWorkerConfig().ANTHROPIC_API_KEY! };
