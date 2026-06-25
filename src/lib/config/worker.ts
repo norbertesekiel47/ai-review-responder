@@ -8,7 +8,7 @@
 import { z } from 'zod';
 import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
 import { ensureWorkerDotenvLoaded } from './dotenv-load';
-import { optionalVar, requirePresent, requirePresentIn, requiredVar } from './schema-helpers';
+import { optionalVar, rawOptionalVar, requirePresent, requirePresentIn, requiredVar } from './schema-helpers';
 import {
   STRIPE_REQUIRED_VARS,
   narrowStripeConfig,
@@ -17,6 +17,10 @@ import {
 
 const nonEmpty = requiredVar;
 const opt = optionalVar;
+// Raw passthrough for MIGRATED reads whose call site does its own normalization
+// (!value / `envInterval ? parseInt`). Preserves ''/'   '/unset exactly like the
+// old process.env.X (convention #7). Do NOT use the collapsing `opt` for these.
+const rawOpt = rawOptionalVar;
 
 const stripePriceShape = Object.fromEntries(
   STRIPE_PRICE_ENV_VARS.map((name) => [name, opt]),
@@ -29,7 +33,11 @@ const workerSchema = z.object({
   REDIS_QUEUE_URL: nonEmpty,
   // subsystem secrets (optional)
   STRIPE_SECRET_KEY: opt,
-  STRIPE_WEBHOOK_SECRET: opt,
+  // Migrated raw read: worker/ingress/stripe.ts does `if (!webhookSecret)` on the
+  // RAW value, so rawOptionalVar (not the collapsing opt) keeps the truthy check
+  // byte-identical to the old process.env.STRIPE_WEBHOOK_SECRET (#7).
+  // getWorkerStripeConfig/narrowStripeConfig still treat whitespace as absent.
+  STRIPE_WEBHOOK_SECRET: rawOpt,
   ...stripePriceShape,
   RESEND_API_KEY: opt,
   SERPAPI_API_KEY: opt,
@@ -41,6 +49,10 @@ const workerSchema = z.object({
   SENTRY_DSN: opt,
   WORKER_PUBLIC_URL: opt,
   DATABASE_URL: opt,
+  // Migrated raw read: StripeLocationsReconcilePoller owns its own
+  // `envInterval ? parseInt(envInterval, 10) : NaN` parse + default, so
+  // rawOptionalVar preserves ''/'   '/unset exactly like the old raw read (#7).
+  STRIPE_LOCATIONS_RECONCILE_INTERVAL_MS: rawOpt,
 });
 
 export type WorkerConfig = z.infer<typeof workerSchema>;
@@ -54,14 +66,15 @@ export const WORKER_REQUIRED_VARS = [
 
 let memo: WorkerConfig | undefined;
 
-// Stage-2 foundation: getWorkerConfig + the per-subsystem accessors/asserts below
-// have no production consumer YET — Stage 3 migrates the raw worker process.env
-// reads onto them. They are unit-tested and deliberately unwired (wiring a
-// subsystem assert before its subsystem uses getXConfig() would be premature).
-// Suppress the "unused-export" finding until Stage 3 consumes them.
+// Stage-2 foundation: the per-subsystem accessors/asserts below have no
+// production consumer YET — Stage 3 migrates the raw worker process.env reads onto
+// them in batches (wiring a subsystem assert before its subsystem uses
+// getXConfig() would be premature). Suppress the "unused-export" finding until
+// their batch consumes them. getWorkerConfig itself IS now consumed (Stage-3
+// Stripe batch: worker/ingress/stripe.ts, StripeLocationsReconcilePoller.ts), so
+// it carries no suppression.
 
 /** Lazy, memoized parse — self-loads dotenv first. NEVER at import time. */
-// fallow-ignore-next-line unused-export
 export function getWorkerConfig(): WorkerConfig {
   if (!memo) {
     ensureWorkerDotenvLoaded();

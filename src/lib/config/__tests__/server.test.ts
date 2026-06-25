@@ -35,6 +35,25 @@ describe('config/server', () => {
     expect(() => assertCoreAppConfig()).toThrow(/NEXT_PUBLIC_APP_URL/);
   });
 
+  // LANE SAFETY (regression guard for the Codex blocker): getServerConfig() is
+  // SHAPE-ONLY — it must NOT throw when the NEXT_PUBLIC_* core vars are absent but
+  // a subsystem secret is present, because shared src/lib modules (getStripe(),
+  // the email modules) call getServerConfig() in the WORKER, whose env doesn't
+  // carry the Next public vars. Required-ness lives only in assertCoreAppConfig().
+  it('getServerConfig does NOT throw when NEXT_PUBLIC_* are absent but a subsystem secret is set (worker lane)', async () => {
+    // Simulate the worker env: no Next public vars, a subsystem secret present.
+    for (const v of ['NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY', 'NEXT_PUBLIC_APP_URL']) {
+      delete process.env[v];
+    }
+    process.env.STRIPE_SECRET_KEY = 'sk_live_worker';
+    const { getServerConfig } = await import('../server');
+    expect(() => getServerConfig()).not.toThrow();
+    const cfg = getServerConfig();
+    expect(cfg.STRIPE_SECRET_KEY).toBe('sk_live_worker');
+    expect(cfg.NEXT_PUBLIC_SUPABASE_URL).toBeUndefined();
+    expect(cfg.NEXT_PUBLIC_APP_URL).toBeUndefined();
+  });
+
   it('getServerDbConfig asserts presence and returns the DB creds', async () => {
     Object.assign(process.env, CORE);
     const { getServerDbConfig } = await import('../server');
@@ -65,6 +84,21 @@ describe('config/server', () => {
     Object.assign(process.env, CORE, { STRIPE_WEBHOOK_SECRET: 'whsec' });
     const { getStripeConfig } = await import('../server');
     expect(() => getStripeConfig()).toThrow(/STRIPE_SECRET_KEY/);
+  });
+
+  it('STRIPE_SECRET_KEY is exposed RAW via getServerConfig (tolerate-absent)', async () => {
+    // rawOptionalVar passthrough: present-when-set, undefined-when-unset, and
+    // whitespace survives verbatim (the stripe-client migrated read depends on it).
+    Object.assign(process.env, CORE, { STRIPE_SECRET_KEY: '   ' });
+    const { getServerConfig } = await import('../server');
+    expect(getServerConfig().STRIPE_SECRET_KEY).toBe('   ');
+  });
+
+  it('STRIPE_SECRET_KEY is undefined (not throwing) when unset — tolerate-absent', async () => {
+    Object.assign(process.env, CORE);
+    delete process.env.STRIPE_SECRET_KEY;
+    const { getServerConfig } = await import('../server');
+    expect(getServerConfig().STRIPE_SECRET_KEY).toBeUndefined();
   });
 
   it('getResendConfig throws when RESEND_API_KEY is missing', async () => {

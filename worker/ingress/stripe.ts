@@ -1,5 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import Stripe from 'stripe';
+import { getWorkerConfig } from '../../src/lib/config/worker';
 import { sql } from '../../src/lib/db/server';
 import { claimInboundEvent } from './shared';
 import { LOG_PREFIX, getStripe } from './stripe/shared';
@@ -27,7 +28,10 @@ export async function handleStripeWebhook(request: FastifyRequest, reply: Fastif
     return;
   }
 
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  // Worker-only ingress → worker lane. getWorkerConfig() self-loads dotenv and
+  // is read at request time. STRIPE_WEBHOOK_SECRET is rawOptionalVar, so the
+  // `if (!webhookSecret)` truthy check below is byte-identical to the old raw read.
+  const webhookSecret = getWorkerConfig().STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
     console.error(`${LOG_PREFIX} STRIPE_WEBHOOK_SECRET is not set — rejecting request`);
     reply.status(401).send({ error: 'webhook_secret_not_configured' });
