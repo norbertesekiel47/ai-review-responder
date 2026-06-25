@@ -310,7 +310,7 @@ export function SecurityClient() {
         <button
           type="button"
           className="btn btn-primary"
-          style={{ marginTop: 18, background: 'var(--rw-blue-600)' }}
+          style={{ marginTop: 18, background: 'var(--rw-accent-600)' }}
           disabled={busy || loading}
           onClick={() => void startEnrollment()}
         >
@@ -355,7 +355,7 @@ export function SecurityClient() {
             <button
               type="submit"
               className="btn btn-primary"
-              style={{ background: 'var(--rw-blue-600)' }}
+              style={{ background: 'var(--rw-accent-600)' }}
               disabled={busy || code.trim().length === 0}
             >
               {busy ? 'Verifying…' : 'Verify'}

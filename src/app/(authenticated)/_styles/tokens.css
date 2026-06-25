@@ -61,18 +61,18 @@
      from this token so the two can never drift (M6). */
   --rw-sidebar-width:   240px;
 
-  /* Primary accent — repurposed from Console blue to Warm Editorial SAGE.
-     Names kept to avoid a repo-wide token rename in the visual PR; a follow-up
-     cleanup renames --rw-blue-* → --rw-accent-*. Values are sage, not blue. */
-  --rw-blue-600:   #5E7C76;  /* primary accent — active nav, links, CTAs */
-  --rw-blue-700:   #527069;  /* hover */
-  --rw-blue-500:   #97B3AE;  /* focus ring, accent border */
-  --rw-blue-100:   #E4ECEA;  /* accent badge bg */
-  --rw-blue-50:    rgba(151, 179, 174, 0.16);  /* accent panel bg */
-  --rw-blue-800:   #4A615C;  /* accent badge text */
-  --rw-blue-fg:    #5E7C76;
-  --rw-accent:     var(--rw-blue-600);
-  --rw-accent-soft: var(--rw-blue-50);
+  /* Primary accent (Warm Editorial SAGE). Renamed from the misleading --rw-blue-*
+     in the design-token-utilities PR (audit #3) — the values were always sage,
+     never blue. Consumed via var(--rw-accent-*) in console.css + components. */
+  --rw-accent-600:   #5E7C76;  /* primary accent — active nav, links, CTAs */
+  --rw-accent-700:   #527069;  /* hover */
+  --rw-accent-500:   #97B3AE;  /* focus ring, accent border */
+  --rw-accent-100:   #E4ECEA;  /* accent badge bg */
+  --rw-accent-50:    rgba(151, 179, 174, 0.16);  /* accent panel bg */
+  --rw-accent-800:   #4A615C;  /* accent badge text */
+  --rw-accent-fg:    #5E7C76;
+  --rw-accent:     var(--rw-accent-600);
+  --rw-accent-soft: var(--rw-accent-50);
 
   --rw-green-600:  #16A34A;  /* approve action */
   --rw-green-700:  #15803D;

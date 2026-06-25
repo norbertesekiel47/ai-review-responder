@@ -167,11 +167,11 @@
   background: #F3F4F6;
 }
 .loc-picker-item--active {
-  color: var(--rw-blue-600);
+  color: var(--rw-accent-600);
   font-weight: 600;
 }
 .loc-picker-item--active:hover {
-  background: var(--rw-blue-50);
+  background: var(--rw-accent-50);
 }
 .loc-picker-item-label {
   flex: 1;
@@ -184,7 +184,7 @@
   text-overflow: ellipsis;
 }
 .loc-picker-item-check {
-  color: var(--rw-blue-600);
+  color: var(--rw-accent-600);
   flex-shrink: 0;
   display: inline-flex;
 }
@@ -196,11 +196,11 @@
   flex-shrink: 0;
 }
 .loc-picker-item--cta {
-  color: var(--rw-blue-600);
+  color: var(--rw-accent-600);
   font-weight: 600;
 }
 .loc-picker-item--cta:hover {
-  background: var(--rw-blue-50);
+  background: var(--rw-accent-50);
 }
 .loc-picker-divider {
   height: 1px;
@@ -237,11 +237,11 @@
 }
 .nav-item:hover .ni-icon { color: var(--rw-app-text); }
 .nav-item.active {
-  background: var(--rw-blue-50);
-  color: var(--rw-blue-700);
+  background: var(--rw-accent-50);
+  color: var(--rw-accent-700);
   font-weight: 600;
 }
-.nav-item.active .ni-icon { color: var(--rw-blue-600); }
+.nav-item.active .ni-icon { color: var(--rw-accent-600); }
 .nav-item.active::before {
   content: "";
   position: absolute;
@@ -249,7 +249,7 @@
   top: 6px; bottom: 6px;
   width: 3px;
   border-radius: 0 3px 3px 0;
-  background: var(--rw-blue-600);
+  background: var(--rw-accent-600);
 }
 .nav-badge {
   margin-left: auto;
@@ -535,8 +535,8 @@
   font-family: var(--rw-font-body);
 }
 .banner-attn .banner-cta:hover { background: #7c9994; }
-.banner-blue .banner-cta { background: var(--rw-blue-600); color: #fff; }
-.banner-blue .banner-cta:hover { background: var(--rw-blue-700); }
+.banner-blue .banner-cta { background: var(--rw-accent-600); color: #fff; }
+.banner-blue .banner-cta:hover { background: var(--rw-accent-700); }
 
 /* ---------- Subscription status banners ---------- */
 .sub-status-banner {
@@ -779,7 +779,7 @@
 .badge-pending { background: var(--rw-yellow-100); color: var(--rw-yellow-800); }
 .badge-posted { background: var(--rw-green-100); color: var(--rw-green-800); }
 .badge-awaiting { background: var(--rw-attn-bg); color: var(--rw-attn-fg); }
-.badge-edited { background: var(--rw-blue-100); color: var(--rw-blue-800); }
+.badge-edited { background: var(--rw-accent-100); color: var(--rw-accent-800); }
 .badge-failed { background: var(--rw-red-100); color: #991B1B; }
 .badge-auto { background: var(--rw-auto-bg); color: var(--rw-auto-fg); }
 .review-meta-time {
@@ -852,14 +852,14 @@
   margin-top: 8px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--rw-blue-600);
+  color: var(--rw-accent-600);
   background: none;
   border: none;
   cursor: pointer;
   padding: 2px 0;
   font-family: var(--rw-font-body);
 }
-.collapsed-toggle:hover { color: var(--rw-blue-700); }
+.collapsed-toggle:hover { color: var(--rw-accent-700); }
 .posted-resp {
   margin-top: 10px;
   padding: 11px 13px;
@@ -934,7 +934,7 @@
 }
 .error-state-title:focus { outline: none; }
 .error-state-title:focus-visible {
-  outline: 2px solid var(--rw-blue-500);
+  outline: 2px solid var(--rw-accent-500);
   outline-offset: 4px;
   border-radius: var(--rw-radius-xs);
 }
@@ -1023,7 +1023,7 @@
   width: 36px; height: 36px;
   border-radius: 8px;
   background: linear-gradient(135deg, #DBEAFE, #BFDBFE);
-  color: var(--rw-blue-700);
+  color: var(--rw-accent-700);
   display: grid; place-items: center;
   flex: 0 0 36px;
 }
@@ -1043,8 +1043,8 @@
 .brief-pill {
   font-size: 11px;
   font-weight: 600;
-  background: var(--rw-blue-100);
-  color: var(--rw-blue-800);
+  background: var(--rw-accent-100);
+  color: var(--rw-accent-800);
   padding: 3px 10px;
   border-radius: 9999px;
 }
@@ -1174,7 +1174,7 @@
     position: relative;
   }
   .mtab .ni-icon { width: 22px; height: 22px; }
-  .mtab.active { color: var(--rw-blue-600); }
+  .mtab.active { color: var(--rw-accent-600); }
   .mtab .nav-badge {
     position: absolute;
     top: 2px;
@@ -1234,7 +1234,7 @@
 }
 
 /* selection */
-::selection { background: var(--rw-blue-100); color: var(--rw-blue-800); }
+::selection { background: var(--rw-accent-100); color: var(--rw-accent-800); }
 
 /* ---------- Location chip (aggregate reviews, briefs) ---------- */
 .location-chip {
@@ -1243,8 +1243,8 @@
   gap: 4px;
   font-size: 11px;
   font-weight: 500;
-  color: var(--rw-blue-700);
-  background: var(--rw-blue-100);
+  color: var(--rw-accent-700);
+  background: var(--rw-accent-100);
   padding: 2px 8px;
   border-radius: 9999px;
   white-space: nowrap;
@@ -1280,8 +1280,8 @@
   font-family: var(--rw-font-body);
 }
 .loc-kpi-card:hover {
-  border-color: var(--rw-blue-500);
-  background: var(--rw-blue-50);
+  border-color: var(--rw-accent-500);
+  background: var(--rw-accent-50);
   transform: translateY(-1px);
   box-shadow: var(--rw-shadow-sm);
 }

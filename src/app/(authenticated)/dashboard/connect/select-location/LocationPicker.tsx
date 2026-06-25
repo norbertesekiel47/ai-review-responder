@@ -64,7 +64,7 @@ export function LocationPicker({ locations }: Props) {
               className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition"
               style={
                 selected === loc.id
-                  ? { borderColor: 'var(--rw-blue-500)', background: 'var(--rw-sage-soft)' }
+                  ? { borderColor: 'var(--rw-accent-500)', background: 'var(--rw-sage-soft)' }
                   : { borderColor: 'var(--rw-hair)', background: 'var(--rw-card)' }
               }
             >
