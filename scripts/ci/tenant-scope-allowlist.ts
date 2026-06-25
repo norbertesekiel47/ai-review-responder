@@ -1288,7 +1288,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/dashboard/aggregate-service.ts",
     table: "responses",
-    sqlSnippet: "SELECT COUNT(DISTINCT r.id)::int AS count FROM reviews r JOIN responses resp ON resp.review_id = r.id JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId}::uuid AND b.archived_at IS NULL AND r.status <> 'deleted' AND resp.status = ANY(ARRAY['approved', 'posted', 'edited', 'awaiting_owner_connect']::text[])",
+    sqlSnippet: "SELECT COUNT(DISTINCT r.id)::int AS count FROM reviews r JOIN responses resp ON resp.review_id = r.id JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId}::uuid AND b.archived_at IS NULL AND r.status <> 'deleted' AND resp.status = ANY(${statusArraySql(HANDLED_STATUSES)})",
     category: 'tenant-root-lookup',
     reason: "Dashboard service receives an owner-scoped accountId or businessId and uses it as the tenant boundary for joined data.",
   },
@@ -1519,7 +1519,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/dashboard/past-replies/draft/route.ts",
     table: "responses",
-    sqlSnippet: "SELECT id AS response_id, COALESCE(edited_text, approved_text, response_text) AS text, (edited_text IS NOT NULL) AS is_edited, status FROM responses WHERE review_id = ${parsed.data.review_id} AND status IN ('pending_approval', 'approved', 'edited', 'awaiting_owner_connect') ORDER BY version DESC LIMIT 1",
+    sqlSnippet: "SELECT id AS response_id, COALESCE(edited_text, approved_text, response_text) AS text, (edited_text IS NOT NULL) AS is_edited, status FROM responses WHERE review_id = ${parsed.data.review_id} AND status = ANY(${statusArraySql(NON_TERMINAL_STATUSES)}) ORDER BY version DESC LIMIT 1",
     category: 'tenant-root-lookup',
     reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
   },

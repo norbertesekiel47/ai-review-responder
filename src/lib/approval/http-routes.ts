@@ -165,7 +165,7 @@ export async function runDashboardReviewAction(
     WHERE rv.id = ${reviewId}
       AND b.account_id = ${owner.accountId}::uuid
       AND b.archived_at IS NULL
-      AND r.status NOT IN ('superseded', 'failed')
+      AND r.status NOT IN ('superseded', 'failed') -- status-audit-ignore: state-transition approval guard subset, intentionally inline per response-status.ts header
     ORDER BY r.version DESC LIMIT 1
   `;
 
