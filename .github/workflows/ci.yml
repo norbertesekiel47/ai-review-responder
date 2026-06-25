@@ -143,14 +143,19 @@ jobs:
       - name: Build app
         run: pnpm build
 
-  # No-secret build canary (Stage 2 config foundation): builds with ONLY the
-  # build-inlined NEXT_PUBLIC_* placeholders + the server DB/auth creds Next needs
-  # at register(). Deliberately NO subsystem secrets (no STRIPE_*, RESEND_*,
-  # TWILIO_*, SERPAPI_*, OPENAI_*, ANTHROPIC_*). If the build fails here, an
-  # import-time secret dependency has crept in — the whole point of the lazy,
-  # memoized config accessors is to prevent that.
-  build-no-secrets:
-    name: build-no-secrets-canary
+  # Dummy-env build canary (Stage 2 config foundation): builds with ONLY
+  # PLACEHOLDER public + DB-infra env values and NO real subsystem secrets (no
+  # STRIPE_*, RESEND_*, TWILIO_*, SERPAPI_*, OPENAI_*, ANTHROPIC_*). It proves the
+  # build needs no *valid* secret VALUES — placeholders suffice — so no new strict
+  # import-time validation crept in with the config layer. It does NOT prove a
+  # zero-env build: `next build` collects page data, which imports `db/server.ts`
+  # whose Supabase client is constructed at module load (a PRE-EXISTING import-time
+  # DB dependency, not introduced by Stage 2), so empty SUPABASE_URL fails with
+  # "supabaseUrl is required". Hence the three DB placeholders are required here.
+  # The crisp "config modules have no import-time parse" guarantee is proven
+  # separately by src/lib/config/__tests__/import-safety.test.ts.
+  build-dummy-env:
+    name: build-dummy-env-canary
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -167,7 +172,7 @@ jobs:
           persist-credentials: false
       - name: Setup Node + pnpm
         uses: ./.github/actions/setup
-      - name: Build with no secrets (canary)
+      - name: Build with placeholder env only (no real secrets)
         run: pnpm build
 
   # Reproduces a deploy build context (e.g. Railway RAILPACK) that runs
