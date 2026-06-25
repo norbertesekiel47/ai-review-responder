@@ -37,7 +37,7 @@ export function OnboardingFunnelShell({
 }: OnboardingFunnelShellProps) {
   return (
     <LazyMotion features={domAnimation}>
-      <div className="min-h-screen bg-[#D2E0D3] relative">
+      <div className="min-h-screen bg-rw-sage relative">
         <div className="fixed inset-0 pointer-events-none" aria-hidden="true">
           {ATMOSPHERE.map((card) => (
             <div
@@ -46,13 +46,13 @@ export function OnboardingFunnelShell({
             >
               <div className="flex gap-1 mb-3">
                 {Array.from({ length: card.dots }).map((_, j) => (
-                  <div key={j} className="size-4 bg-[#F2C3B9]/60 rounded-full" />
+                  <div key={j} className="size-4 bg-rw-peach/60 rounded-full" />
                 ))}
               </div>
               <div className="space-y-2">
-                <div className="h-3 bg-[#2a2a2a]/20 rounded w-full" />
-                <div className="h-3 bg-[#2a2a2a]/20 rounded w-5/6" />
-                <div className="h-3 bg-[#2a2a2a]/20 rounded w-4/6" />
+                <div className="h-3 bg-rw-ink/20 rounded w-full" />
+                <div className="h-3 bg-rw-ink/20 rounded w-5/6" />
+                <div className="h-3 bg-rw-ink/20 rounded w-4/6" />
               </div>
             </div>
           ))}
@@ -65,10 +65,10 @@ export function OnboardingFunnelShell({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 0.8, ease: 'easeOut' }}
           >
-            <nav className="px-6 sm:px-8 py-4 border-b border-[#97B3AE]/10 flex items-center justify-end">
+            <nav className="px-6 sm:px-8 py-4 border-b border-rw-teal/10 flex items-center justify-end">
               <div className="flex items-center gap-2">
-                <div className="size-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80" />
-                <span className="text-sm tracking-wider uppercase text-[#97B3AE]">
+                <div className="size-8 rounded-full bg-gradient-to-br from-rw-teal to-rw-teal/80" />
+                <span className="text-sm tracking-wider uppercase text-rw-teal">
                   RepWorth
                 </span>
               </div>

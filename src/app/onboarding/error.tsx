@@ -15,10 +15,10 @@ export default function OnboardingError({
     <LazyMotion features={domAnimation}>
     <OnboardingFunnelShell>
       <div className="max-w-md mx-auto text-center py-6">
-        <h1 className="text-2xl font-medium text-[#2a2a2a] mb-3">
+        <h1 className="text-2xl font-medium text-rw-ink mb-3">
           Something went wrong
         </h1>
-        <p className="text-[#6a6a6a] mb-8">
+        <p className="text-rw-ink-soft mb-8">
           We couldn&apos;t load the onboarding page. Please try again.
         </p>
         <m.button
@@ -32,7 +32,7 @@ export default function OnboardingError({
           Still having trouble?{' '}
           <a
             href="mailto:support@repworth.net"
-            className="text-[#97B3AE] underline hover:text-[#7e9b96]"
+            className="text-rw-teal underline hover:text-[#7e9b96]"
           >
             Contact support
           </a>

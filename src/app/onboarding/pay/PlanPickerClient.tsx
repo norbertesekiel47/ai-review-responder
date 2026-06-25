@@ -67,14 +67,14 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
     <LazyMotion features={domAnimation}>
     <div className="w-full">
       {cancelled && (
-        <p className="text-sm text-[#6a6a6a] mb-4 text-center">
+        <p className="text-sm text-rw-ink-soft mb-4 text-center">
           No worries, pick a plan when you&apos;re ready.
         </p>
       )}
-      <h1 className="text-3xl md:text-4xl font-medium text-[#2a2a2a] mb-2 text-center">
+      <h1 className="text-3xl md:text-4xl font-medium text-rw-ink mb-2 text-center">
         Choose your plan
       </h1>
-      <p className="text-[#6a6a6a] text-center mb-10">
+      <p className="text-rw-ink-soft text-center mb-10">
         You can switch tiers any time from your dashboard.
       </p>
 
@@ -87,8 +87,8 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
               key={plan.tier}
               className={`relative rounded-2xl p-7 mx-1 sm:mx-0 border shadow-lg flex flex-col bg-white ${
                 plan.highlight
-                  ? 'border-[#97B3AE]/40 bg-gradient-to-br from-[#F0EEEA]/60 to-white'
-                  : 'border-[#97B3AE]/10'
+                  ? 'border-rw-teal/40 bg-gradient-to-br from-rw-cream/60 to-white'
+                  : 'border-rw-teal/10'
               }`}
             >
               <div
@@ -98,15 +98,15 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
                 {plan.badge}
               </div>
 
-              <h3 className="text-xl font-medium text-[#2a2a2a] mt-2 mb-1">
+              <h3 className="text-xl font-medium text-rw-ink mt-2 mb-1">
                 {plan.name}
               </h3>
-              <p className="text-sm text-[#6a6a6a] mb-4">{plan.description}</p>
+              <p className="text-sm text-rw-ink-soft mb-4">{plan.description}</p>
               <div className="mb-6">
-                <span className="text-4xl font-medium text-[#2a2a2a]">
+                <span className="text-4xl font-medium text-rw-ink">
                   {plan.price}
                 </span>
-                <span className="text-[#6a6a6a] text-sm">/month</span>
+                <span className="text-rw-ink-soft text-sm">/month</span>
               </div>
 
               <m.button
@@ -116,14 +116,14 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
                 {...buttonMotion}
                 className={`block w-full text-center py-3 rounded-full font-medium text-sm mb-6 transition disabled:opacity-50 disabled:cursor-not-allowed ${
                   plan.highlight
-                    ? 'bg-[#97B3AE] text-white shadow-lg hover:bg-[#7e9b96]'
-                    : 'bg-[#F0EEEA] text-[#2a2a2a] border border-[#97B3AE]/10 hover:bg-[#e7e3dc]'
+                    ? 'bg-rw-teal text-white shadow-lg hover:bg-[#7e9b96]'
+                    : 'bg-rw-cream text-rw-ink border border-rw-teal/10 hover:bg-[#e7e3dc]'
                 }`}
               >
                 {isLoading ? 'Redirecting to checkout…' : plan.cta}
               </m.button>
 
-              <p className="text-xs text-[#6a6a6a] -mt-4 mb-6 text-center">
+              <p className="text-xs text-rw-ink-soft -mt-4 mb-6 text-center">
                 Auto-renews monthly until you cancel. Cancel anytime from your account.
               </p>
 
@@ -131,10 +131,10 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
                 {plan.features.map((feature) => (
                   <li
                     key={feature}
-                    className="flex items-start gap-2 text-sm text-[#6a6a6a]"
+                    className="flex items-start gap-2 text-sm text-rw-ink-soft"
                   >
                     <svg
-                      className="size-4 text-[#97B3AE] shrink-0 mt-0.5"
+                      className="size-4 text-rw-teal shrink-0 mt-0.5"
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
@@ -155,11 +155,11 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
         })}
       </div>
 
-      <p className="text-xs text-[#6a6a6a] text-center mt-8 max-w-xl mx-auto">
+      <p className="text-xs text-rw-ink-soft text-center mt-8 max-w-xl mx-auto">
         Subscriptions auto-renew monthly at the listed price plus applicable taxes
         until cancelled. Cancel anytime from your account. By subscribing you agree
         to our{' '}
-        <Link href="/legal/terms" className="underline hover:text-[#2a2a2a]">
+        <Link href="/legal/terms" className="underline hover:text-rw-ink">
           Terms
         </Link>
         .

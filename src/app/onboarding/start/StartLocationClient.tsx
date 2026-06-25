@@ -197,10 +197,10 @@ export function StartLocationClient() {
   return (
     <LazyMotion features={domAnimation}>
     <OnboardingFunnelShell step="find">
-      <h1 className="text-3xl md:text-4xl font-medium text-center text-[#2a2a2a] mb-2">
+      <h1 className="text-3xl md:text-4xl font-medium text-center text-rw-ink mb-2">
         Find your business
       </h1>
-      <p className="text-center text-[#6a6a6a] mb-8">
+      <p className="text-center text-rw-ink-soft mb-8">
         We&apos;ll generate a live demo of AI responses for your actual reviews.
       </p>
 
@@ -259,7 +259,7 @@ export function StartLocationClient() {
               dispatch({ type: 'switchToAutocomplete' });
             }
           }}
-          className="text-xs text-[#97B3AE] hover:text-[#7e9b96]"
+          className="text-xs text-rw-teal hover:text-[#7e9b96]"
         >
           {inputMode === 'autocomplete'
             ? 'Or paste a Google Maps URL'
