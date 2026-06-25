@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import type { EmailOtpType } from '@supabase/supabase-js';
-import { isAuthFlow, loginUrlForFlow, type AuthFlow } from '@/lib/shared/auth-flow';
+import {
+  isAuthFlow,
+  loginUrlForFlow,
+  resolveCallbackDestination,
+  type AuthFlow,
+} from '@/lib/shared/auth-flow';
 
 /**
  * Supabase auth callback handler.
@@ -53,11 +58,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const rawType = searchParams.get('type');
   const rawFlow = searchParams.get('flow');
   const flow: AuthFlow | undefined = isAuthFlow(rawFlow) ? rawFlow : undefined;
+  // The raw `next` param — sanitization lives inside resolveCallbackDestination
+  // (the single source of truth for redirect safety); callers never pre-sanitize.
   const rawNext = searchParams.get('next') ?? '';
-  // Restrict redirect to safe internal paths (no //, no external URLs).
-  const nextIsSafe =
-    rawNext.startsWith('/') && !rawNext.startsWith('//');
-  const requestedNext = nextIsSafe ? rawNext : '';
   const loginUrl = loginUrlForFlow(flow);
 
   if (!code && !tokenHash) {
@@ -140,76 +143,27 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  // Google-signup branch: session exists but no users row yet → let the
-  // owner finish provisioning instead of signing them out. Only applies
-  // when next explicitly points at /signup/finish; any other "no users
-  // row" case still signs out below.
-  if (role === null && requestedNext === '/signup/finish') {
-    const final = NextResponse.redirect(new URL('/signup/finish', origin));
-    for (const cookie of response.cookies.getAll()) {
-      final.cookies.set(cookie);
-    }
-    return final;
-  }
+  // Resolve the destination (and whether to sign out) from the role + raw next.
+  // resolveCallbackDestination owns ALL redirect-safety logic — `next`
+  // sanitization and the role/path allowlists — so this handler keeps only
+  // Supabase I/O and a single dispatch + cookie-copy path.
+  const resolution = resolveCallbackDestination({ role, rawNext, flow });
 
-  // "No users row" in any other flow → sign out + account_incomplete.
-  // Redirecting anywhere else causes a proxy-redirect loop. Sign
-  // them out so they can retry cleanly with a different account.
-  //
-  // signOut writes cleared session cookies into the `response` jar via
-  // the setAll adapter on lines 80–84. We MUST copy those cookies onto
-  // the redirect we return — without that, the browser keeps the bad
-  // session and bounces in a redirect loop on the next protected request.
-  if (role === null) {
+  // A `signout-redirect` means "no users row in any non-finish flow, or an
+  // unsupported role" → sign out so the user can retry cleanly. signOut writes
+  // cleared session cookies into the `response` jar via the setAll adapter
+  // above; the cookie copy below carries them onto the redirect we return —
+  // without that, the browser keeps the bad session and bounces in a
+  // redirect loop on the next protected request.
+  if (resolution.kind === 'signout-redirect') {
     await supabase.auth.signOut();
-    const incomplete = NextResponse.redirect(
-      new URL(`${loginUrl}?error=account_incomplete`, origin),
-    );
-    for (const cookie of response.cookies.getAll()) {
-      incomplete.cookies.set(cookie);
-    }
-    return incomplete;
   }
 
-  if (role !== 'owner' && role !== 'admin') {
-    await supabase.auth.signOut();
-    const incomplete = NextResponse.redirect(
-      new URL(`${loginUrl}?error=account_incomplete`, origin),
-    );
-    for (const cookie of response.cookies.getAll()) {
-      incomplete.cookies.set(cookie);
-    }
-    return incomplete;
-  }
-
-  if (
-    requestedNext === '/reset-password' ||
-    requestedNext === '/admin/reset-password'
-  ) {
-    const final = NextResponse.redirect(new URL(requestedNext, origin));
-    for (const cookie of response.cookies.getAll()) {
-      final.cookies.set(cookie);
-    }
-    return final;
-  }
-
-  // Role-aware destination resolution for supported runtime roles.
-  const nextIsAdmin = requestedNext.startsWith('/admin');
-  const nextIsOwner =
-    requestedNext.startsWith('/dashboard') ||
-    requestedNext.startsWith('/settings') ||
-    requestedNext.startsWith('/onboarding');
-
-  let destination: string;
-  if (role === 'owner') {
-    destination = nextIsOwner ? requestedNext : '/dashboard';
-  } else {
-    destination = nextIsAdmin ? requestedNext : '/admin/overview';
-  }
-
-  // Build a fresh redirect response with the resolved destination, copying
-  // the session cookies that `exchangeCodeForSession` wrote via setAll above.
-  const finalResponse = NextResponse.redirect(new URL(destination, origin));
+  // Build the final redirect with the resolved destination, copying the
+  // session cookies that the token exchange (or signOut) wrote via setAll.
+  const finalResponse = NextResponse.redirect(
+    new URL(resolution.destination, origin),
+  );
   for (const cookie of response.cookies.getAll()) {
     finalResponse.cookies.set(cookie);
   }
