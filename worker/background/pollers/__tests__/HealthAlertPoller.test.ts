@@ -40,7 +40,7 @@ describe('pollHealthAlerts', () => {
     mockRunHealthChecks.mockResolvedValueOnce([FINDING]);
     await pollHealthAlerts();
     expect(mockEmitHealthFindings).toHaveBeenCalledWith([FINDING]);
-    expect(mockRecordProbeCheckIn).toHaveBeenCalledWith('ok');
+    expect(mockRecordProbeCheckIn).toHaveBeenCalledWith('ok', expect.any(Number));
   });
 
   it('records an ok check-in and logs idle heartbeat when healthy (no emit)', async () => {
@@ -48,12 +48,12 @@ describe('pollHealthAlerts', () => {
     await pollHealthAlerts();
     expect(mockEmitHealthFindings).not.toHaveBeenCalled();
     expect(mockMaybeLogPollerHeartbeat).toHaveBeenCalled();
-    expect(mockRecordProbeCheckIn).toHaveBeenCalledWith('ok');
+    expect(mockRecordProbeCheckIn).toHaveBeenCalledWith('ok', expect.any(Number));
   });
 
   it('records an error check-in and does not throw when a check fails', async () => {
     mockRunHealthChecks.mockRejectedValueOnce(new Error('db down'));
     await expect(pollHealthAlerts()).resolves.toBeUndefined();
-    expect(mockRecordProbeCheckIn).toHaveBeenCalledWith('error');
+    expect(mockRecordProbeCheckIn).toHaveBeenCalledWith('error', expect.any(Number));
   });
 });
