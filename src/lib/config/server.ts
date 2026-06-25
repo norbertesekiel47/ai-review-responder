@@ -8,7 +8,7 @@
 // subsystem's accessor. No top-level z.parse — getServerConfig is lazy + memoized.
 import { z } from 'zod';
 import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
-import { optionalVar, requirePresent, requiredVar } from './schema-helpers';
+import { optionalVar, requirePresent, requirePresentIn, requiredVar } from './schema-helpers';
 import {
   STRIPE_REQUIRED_VARS,
   narrowStripeConfig,
@@ -88,9 +88,25 @@ export function getServerConfig(): ServerConfig {
   return memo;
 }
 
-/** Core-app boot assert — the minimum every Next server process needs. */
+/**
+ * Core-app boot assert — the minimum every Next server process needs.
+ *
+ * STATIC refs only. Next inlines a public env var at build time ONLY for
+ * statically-written `process.env.<LITERAL_NAME>` references; a dynamic
+ * `process.env[name]` lookup reads the raw runtime env instead and can
+ * false-throw on a deploy where the inlined app actually works. So this checks
+ * the three vars by their literal names below. The prebuild `assertClientConfig`
+ * is the canonical BUILD-time gate; this is the runtime backstop.
+ * (CORE_APP_REQUIRED_VARS stays the declared list the coverage audit reads.)
+ */
 export function assertCoreAppConfig(): void {
-  requirePresent(CORE_APP_REQUIRED_VARS, 'core-app');
+  const missing: string[] = [];
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()) missing.push('NEXT_PUBLIC_SUPABASE_URL');
+  if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim()) missing.push('NEXT_PUBLIC_SUPABASE_ANON_KEY');
+  if (!process.env.NEXT_PUBLIC_APP_URL?.trim()) missing.push('NEXT_PUBLIC_APP_URL');
+  if (missing.length > 0) {
+    throw new Error(`[config] core-app requires: ${missing.join(', ')}`);
+  }
 }
 
 // Server-DB subsystem: asserted at the first DB-backed entry in Stage 3, not at
@@ -105,8 +121,8 @@ export function getServerDbConfig(): {
   SUPABASE_SERVICE_KEY: string;
   DATABASE_POOL_URL: string;
 } {
-  assertServerDbConfig();
   const cfg = getServerConfig();
+  requirePresentIn(cfg, SERVER_DB_REQUIRED_VARS, 'server-db');
   return {
     SUPABASE_URL: cfg.SUPABASE_URL!,
     SUPABASE_SERVICE_KEY: cfg.SUPABASE_SERVICE_KEY!,
@@ -124,8 +140,7 @@ export function assertStripeConfig(): void {
 }
 
 export function getStripeConfig(): StripeServerConfig {
-  assertStripeConfig();
-  return narrowStripeConfig(getServerConfig());
+  return narrowStripeConfig(getServerConfig(), 'stripe (server)');
 }
 
 // fallow-ignore-next-line unused-export
@@ -133,8 +148,9 @@ export function assertResendConfig(): void {
   requirePresent(['RESEND_API_KEY'], 'resend (server)');
 }
 export function getResendConfig(): { RESEND_API_KEY: string } {
-  assertResendConfig();
-  return { RESEND_API_KEY: getServerConfig().RESEND_API_KEY! };
+  const cfg = getServerConfig();
+  requirePresentIn(cfg, ['RESEND_API_KEY'], 'resend (server)');
+  return { RESEND_API_KEY: cfg.RESEND_API_KEY! };
 }
 
 // fallow-ignore-next-line unused-export
@@ -143,8 +159,9 @@ export function assertSerpapiConfig(): void {
 }
 // fallow-ignore-next-line unused-export
 export function getSerpapiConfig(): { SERPAPI_API_KEY: string } {
-  assertSerpapiConfig();
-  return { SERPAPI_API_KEY: getServerConfig().SERPAPI_API_KEY! };
+  const cfg = getServerConfig();
+  requirePresentIn(cfg, ['SERPAPI_API_KEY'], 'serpapi (server)');
+  return { SERPAPI_API_KEY: cfg.SERPAPI_API_KEY! };
 }
 
 // fallow-ignore-next-line unused-export
@@ -153,8 +170,9 @@ export function assertOpenAiConfig(): void {
 }
 // fallow-ignore-next-line unused-export
 export function getOpenAiConfig(): { OPENAI_API_KEY: string } {
-  assertOpenAiConfig();
-  return { OPENAI_API_KEY: getServerConfig().OPENAI_API_KEY! };
+  const cfg = getServerConfig();
+  requirePresentIn(cfg, ['OPENAI_API_KEY'], 'openai (server)');
+  return { OPENAI_API_KEY: cfg.OPENAI_API_KEY! };
 }
 
 // fallow-ignore-next-line unused-export
@@ -163,6 +181,7 @@ export function assertGoogleMapsConfig(): void {
 }
 // fallow-ignore-next-line unused-export
 export function getGoogleMapsConfig(): { NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: string } {
-  assertGoogleMapsConfig();
-  return { NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: getServerConfig().NEXT_PUBLIC_GOOGLE_MAPS_API_KEY! };
+  const cfg = getServerConfig();
+  requirePresentIn(cfg, ['NEXT_PUBLIC_GOOGLE_MAPS_API_KEY'], 'google-maps (server)');
+  return { NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: cfg.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY! };
 }

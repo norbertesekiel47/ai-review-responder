@@ -21,17 +21,33 @@ export const optionalVar = z.preprocess(
 );
 
 /**
- * Throw if any of `vars` is unset or empty/whitespace-only in process.env. Used
- * by both lanes' subsystem accessors to assert presence before narrowing — the
- * single "required-ness at the accessor" primitive (treats present-but-empty as
- * absent, matching optionalVar's semantics).
+ * Throw if any of `vars` is unset or empty/whitespace-only in `snapshot`. The
+ * "required-ness at the accessor" primitive (treats present-but-empty as absent,
+ * matching optionalVar's semantics). Accessors pass the SAME memoized config
+ * snapshot they then narrow, so the assert and the `!` narrowing can never
+ * disagree (an env populated after the first parse cannot make a narrowed `!`
+ * yield undefined-as-string).
  */
-export function requirePresent(vars: readonly string[], subsystem: string): void {
+export function requirePresentIn(
+  snapshot: Partial<Record<string, string>>,
+  vars: readonly string[],
+  subsystem: string,
+): void {
   const missing = vars.filter((name) => {
-    const value = process.env[name];
+    const value = snapshot[name];
     return value === undefined || value.trim().length === 0;
   });
   if (missing.length > 0) {
     throw new Error(`[config] ${subsystem} requires: ${missing.join(', ')}`);
   }
+}
+
+/**
+ * Throw if any of `vars` is unset or empty/whitespace-only in live `process.env`.
+ * Used by the standalone assert*Config() entry-gate functions (Stage-3 entry
+ * asserts). Accessors that also RETURN values use requirePresentIn against their
+ * own snapshot instead, so assert + narrow share one source of truth.
+ */
+export function requirePresent(vars: readonly string[], subsystem: string): void {
+  requirePresentIn(process.env, vars, subsystem);
 }

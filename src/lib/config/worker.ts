@@ -8,7 +8,7 @@
 import { z } from 'zod';
 import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
 import { ensureWorkerDotenvLoaded } from './dotenv-load';
-import { optionalVar, requirePresent, requiredVar } from './schema-helpers';
+import { optionalVar, requirePresent, requirePresentIn, requiredVar } from './schema-helpers';
 import {
   STRIPE_REQUIRED_VARS,
   narrowStripeConfig,
@@ -90,38 +90,41 @@ export function assertWorkerStripeConfig(): void {
 }
 
 export function getWorkerStripeConfig(): WorkerStripeConfig {
-  assertWorkerStripeConfig();
-  return narrowStripeConfig(getWorkerConfig());
+  return narrowStripeConfig(getWorkerConfig(), 'stripe');
 }
 
 // fallow-ignore-next-line unused-export
 export function assertWorkerResendConfig(): void { requirePresent(['RESEND_API_KEY'], 'resend'); }
 // fallow-ignore-next-line unused-export
 export function getWorkerResendConfig(): { RESEND_API_KEY: string } {
-  assertWorkerResendConfig();
-  return { RESEND_API_KEY: getWorkerConfig().RESEND_API_KEY! };
+  const cfg = getWorkerConfig();
+  requirePresentIn(cfg, ['RESEND_API_KEY'], 'resend');
+  return { RESEND_API_KEY: cfg.RESEND_API_KEY! };
 }
 
 // fallow-ignore-next-line unused-export
 export function assertWorkerSerpapiConfig(): void { requirePresent(['SERPAPI_API_KEY'], 'serpapi'); }
 // fallow-ignore-next-line unused-export
 export function getWorkerSerpapiConfig(): { SERPAPI_API_KEY: string } {
-  assertWorkerSerpapiConfig();
-  return { SERPAPI_API_KEY: getWorkerConfig().SERPAPI_API_KEY! };
+  const cfg = getWorkerConfig();
+  requirePresentIn(cfg, ['SERPAPI_API_KEY'], 'serpapi');
+  return { SERPAPI_API_KEY: cfg.SERPAPI_API_KEY! };
 }
 
 // fallow-ignore-next-line unused-export
 export function assertWorkerOpenAiConfig(): void { requirePresent(['OPENAI_API_KEY'], 'openai'); }
 // fallow-ignore-next-line unused-export
 export function getWorkerOpenAiConfig(): { OPENAI_API_KEY: string } {
-  assertWorkerOpenAiConfig();
-  return { OPENAI_API_KEY: getWorkerConfig().OPENAI_API_KEY! };
+  const cfg = getWorkerConfig();
+  requirePresentIn(cfg, ['OPENAI_API_KEY'], 'openai');
+  return { OPENAI_API_KEY: cfg.OPENAI_API_KEY! };
 }
 
 // fallow-ignore-next-line unused-export
 export function assertWorkerAnthropicConfig(): void { requirePresent(['ANTHROPIC_API_KEY'], 'anthropic'); }
 // fallow-ignore-next-line unused-export
 export function getWorkerAnthropicConfig(): { ANTHROPIC_API_KEY: string } {
-  assertWorkerAnthropicConfig();
-  return { ANTHROPIC_API_KEY: getWorkerConfig().ANTHROPIC_API_KEY! };
+  const cfg = getWorkerConfig();
+  requirePresentIn(cfg, ['ANTHROPIC_API_KEY'], 'anthropic');
+  return { ANTHROPIC_API_KEY: cfg.ANTHROPIC_API_KEY! };
 }

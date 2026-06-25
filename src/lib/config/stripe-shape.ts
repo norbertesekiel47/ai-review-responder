@@ -5,6 +5,7 @@
 // required-var list, and the non-null narrowing live here once (DRY) instead of
 // being duplicated in server.ts and worker.ts.
 import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
+import { requirePresentIn } from './schema-helpers';
 
 export const STRIPE_REQUIRED_VARS = [
   'STRIPE_SECRET_KEY',
@@ -25,12 +26,17 @@ export interface StripeEnvConfig {
 }
 
 /**
- * Narrow a raw env snapshot to the non-null Stripe shape. The caller MUST have
- * already asserted presence (requirePresent(STRIPE_REQUIRED_VARS, …)) — every
- * non-null read below is guarded by that prior throw, the "required-ness at the
- * accessor" pattern, not papering over `any`.
+ * Assert presence of every Stripe var in `env` and narrow to the non-null shape.
+ * Asserts against the SAME snapshot it narrows (Stage label distinguishes the two
+ * lanes), so the throw and the `!` narrowing can never disagree — every non-null
+ * read below is guarded by the requirePresentIn throw above it, the
+ * "required-ness at the accessor" pattern, not papering over `any`.
  */
-export function narrowStripeConfig(env: Partial<Record<string, string>>): StripeEnvConfig {
+export function narrowStripeConfig(
+  env: Partial<Record<string, string>>,
+  subsystem = 'stripe',
+): StripeEnvConfig {
+  requirePresentIn(env, STRIPE_REQUIRED_VARS, subsystem);
   return {
     STRIPE_SECRET_KEY: env.STRIPE_SECRET_KEY!,
     STRIPE_WEBHOOK_SECRET: env.STRIPE_WEBHOOK_SECRET!,
