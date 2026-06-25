@@ -10,6 +10,8 @@
 // - internal: admin/sales-partner alerts (exceptions,
 //   partner engagement alerts). Not customer-facing, no unsubscribe needed.
 
+import { getServerConfig } from '@/lib/config/server';
+
 export type EmailCategory = 'transactional' | 'marketing' | 'internal';
 
 /**
@@ -48,9 +50,10 @@ export function extractMailbox(fromEmail: string | undefined): string | null {
 export function getEmailHeaders(category: EmailCategory): Record<string, string> {
   if (category !== 'marketing') return {};
 
-  const explicitUrl = process.env.LIST_UNSUBSCRIBE_URL?.trim();
-  const explicitMailbox = process.env.LIST_UNSUBSCRIBE_EMAIL?.trim();
-  const derived = extractMailbox(process.env.RESEND_FROM_EMAIL);
+  const cfg = getServerConfig();
+  const explicitUrl = cfg.LIST_UNSUBSCRIBE_URL?.trim();
+  const explicitMailbox = cfg.LIST_UNSUBSCRIBE_EMAIL?.trim();
+  const derived = extractMailbox(cfg.RESEND_FROM_EMAIL);
   // Fallback mailbox uses the reserved example.com domain (per RFC 2606) —
   // it's intentionally non-functional. Anyone reaching this branch has a
   // production misconfiguration: a marketing email is being sent without

@@ -5,6 +5,7 @@
 // rendered by other templates and passed in as `bodyHtml`; this function
 // handles only the Resend send + headers.
 import { randomUUID } from 'node:crypto';
+import { getServerConfig } from '@/lib/config/server';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { sendEmail } from '../send-email';
 import { getEmailHeaders, getEmailTags, type EmailCategory } from '../headers';
@@ -21,8 +22,8 @@ export interface InternalEmailParams {
    */
   idempotencyKey?: string;
   /**
-   * Sender address. Defaults to `process.env.RESEND_FROM_EMAIL`. Callers that
-   * own a sender-fallback policy (e.g. the public contact/demo/lead routes,
+   * Sender address. Defaults to `getServerConfig().RESEND_FROM_EMAIL`. Callers
+   * that own a sender-fallback policy (e.g. the public contact/demo/lead routes,
    * which historically default to the company no-reply mailbox) pass it
    * explicitly so a missing env var doesn't silently drop delivery.
    */
@@ -38,7 +39,7 @@ export interface InternalEmailParams {
 export async function sendInternalEmail(
   params: InternalEmailParams,
 ): Promise<{ messageId: string }> {
-  const from = params.from ?? process.env.RESEND_FROM_EMAIL;
+  const from = params.from ?? getServerConfig().RESEND_FROM_EMAIL;
   if (!from) throw new Error('RESEND_FROM_EMAIL not configured');
 
   if (isMockMode()) {

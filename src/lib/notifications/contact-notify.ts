@@ -3,6 +3,7 @@
 // contact, demo-request, and lead-intake routes.
 
 import * as Sentry from '@sentry/nextjs';
+import { getServerConfig } from '@/lib/config/server';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { extractMailbox } from './email/headers';
 import { sendInternalEmail } from './email/templates/internal';
@@ -33,10 +34,11 @@ const DEFAULT_NOTIFY_TO = COMPANY_NOREPLY;
  * a per-request warning would just spam dev/test logs.
  */
 export function resolveContactNotifyTo(): { to: string; source: ContactNotifySource } {
-  const explicit = process.env.CONTACT_NOTIFY_TO?.trim();
+  const cfg = getServerConfig();
+  const explicit = cfg.CONTACT_NOTIFY_TO?.trim();
   if (explicit) return { to: explicit, source: 'env' };
 
-  const derived = extractMailbox(process.env.RESEND_FROM_EMAIL);
+  const derived = extractMailbox(cfg.RESEND_FROM_EMAIL);
   const to = derived ?? DEFAULT_NOTIFY_TO;
   const source: ContactNotifySource = derived ? 'from-email' : 'default';
 
@@ -68,7 +70,7 @@ function escapeHtml(value: string): string {
 // falls back to COMPANY_NOREPLY in notifyContactSubmission, so a missing sender
 // env preserves delivery instead of silently dropping the lead.
 function emailConfigured(): boolean {
-  return isMockMode() || Boolean(process.env.RESEND_API_KEY);
+  return isMockMode() || Boolean(getServerConfig().RESEND_API_KEY);
 }
 
 /**
@@ -86,7 +88,7 @@ export async function notifyContactSubmission(params: {
 }): Promise<{ sent: boolean }> {
   if (!emailConfigured()) return { sent: false };
   const { to } = resolveContactNotifyTo();
-  const from = process.env.RESEND_FROM_EMAIL?.trim() || COMPANY_NOREPLY;
+  const from = getServerConfig().RESEND_FROM_EMAIL?.trim() || COMPANY_NOREPLY;
   const bodyHtml = params.lines.map(escapeHtml).join('<br>\n');
   await sendInternalEmail({ to, from, subject: params.subject, bodyHtml, category: 'internal' });
   return { sent: true };

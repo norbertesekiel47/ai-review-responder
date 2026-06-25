@@ -12,7 +12,17 @@ vi.mock('@/lib/shared/mock-mode', () => ({
   isMockMode: vi.fn().mockReturnValue(false),
 }));
 
-import { sendApprovalEmail, sendInternalEmail } from '../email';
+// sendApprovalEmail / sendInternalEmail now read RESEND_FROM_EMAIL (and
+// getEmailHeaders reads LIST_UNSUBSCRIBE_URL) through the memoized
+// getServerConfig() accessor (Stage-3 email migration). Each case sets its env,
+// then `vi.resetModules()` + a fresh dynamic import re-parses the live env
+// (convention #6). Only the env-setup MECHANISM changed — every scenario and
+// assertion is identical to the pre-migration test. The hoisted vi.mock factories
+// re-apply on re-import, so `mockSend` and the mock-mode stub survive resetModules.
+async function freshEmail() {
+  vi.resetModules();
+  return import('../email');
+}
 
 describe('sendApprovalEmail', () => {
   beforeEach(() => {
@@ -22,6 +32,7 @@ describe('sendApprovalEmail', () => {
   });
 
   it('sends with NO List-Unsubscribe header (transactional)', async () => {
+    const { sendApprovalEmail } = await freshEmail();
     await sendApprovalEmail({
       to: 'owner@example.com',
       from: 'RepWorth <notifications@repworth.example>',
@@ -52,6 +63,7 @@ describe('sendInternalEmail', () => {
   });
 
   it('defaults to internal category (no List-Unsubscribe)', async () => {
+    const { sendInternalEmail } = await freshEmail();
     await sendInternalEmail({
       to: 'admin@example.com',
       subject: 'Test',
@@ -65,6 +77,7 @@ describe('sendInternalEmail', () => {
   it('sends marketing emails with mailto List-Unsubscribe (no Post header without HTTPS URL)', async () => {
     // Default config: no LIST_UNSUBSCRIBE_URL → mailto-only form.
     delete process.env.LIST_UNSUBSCRIBE_URL;
+    const { sendInternalEmail } = await freshEmail();
     await sendInternalEmail({
       to: 'owner@example.com',
       subject: 'Your weekly report',
@@ -82,6 +95,7 @@ describe('sendInternalEmail', () => {
   it('sends marketing emails with both forms + Post header when LIST_UNSUBSCRIBE_URL is set', async () => {
     process.env.LIST_UNSUBSCRIBE_URL = 'https://repworth.example/unsub?t=xyz';
     try {
+      const { sendInternalEmail } = await freshEmail();
       await sendInternalEmail({
         to: 'owner@example.com',
         subject: 'Your weekly report',
@@ -99,6 +113,7 @@ describe('sendInternalEmail', () => {
   });
 
   it('sends explicit internal category with no List-Unsubscribe', async () => {
+    const { sendInternalEmail } = await freshEmail();
     await sendInternalEmail({
       to: 'admin@example.com',
       subject: 'Exception alert',
@@ -111,6 +126,7 @@ describe('sendInternalEmail', () => {
   });
 
   it('passes provider idempotency key separately from the email payload', async () => {
+    const { sendInternalEmail } = await freshEmail();
     await sendInternalEmail({
       to: 'owner@example.com',
       subject: 'Retryable',

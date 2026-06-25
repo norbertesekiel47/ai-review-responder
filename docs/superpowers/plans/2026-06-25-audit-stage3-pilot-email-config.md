@@ -14,12 +14,14 @@ batched by area. This pilot migrates the smallest real subsystem (email/Resend)
 to **establish and document the repeatable pattern** and to surface the campaign's
 hidden hazards on a small blast radius before the bulk batches.
 
-**Hard rule for this pilot (and the campaign): ZERO behavior change.** Every
-default, fallback, parse, trim, optionality, mock-mode tolerance, and throw
-condition is preserved byte-for-byte. The existing email tests encode that
-behavior and must pass unchanged. Where a migration would alter an observable
-semantic (including a test-harness semantic), the read is **left as-is and
-reported**, not forced green.
+**Hard rule for this pilot (and the campaign): ZERO PRODUCTION behavior change.**
+Every default, fallback, parse, trim, optionality, mock-mode tolerance, and throw
+condition is preserved byte-for-byte, and every existing behavior **assertion** is
+preserved. A test's env-setup *mechanism* may be refactored (set→reset→import) so
+it works with the memoized accessor — that is assertion-preserving, not a behavior
+change (runtime env is immutable, so a memoized snapshot equals a live read). If a
+migration would alter a real production semantic, the read is **left as-is and
+reported**, never forced green.
 
 ---
 
@@ -81,7 +83,7 @@ code currently doesn't, a behavior change. (`getResendConfig()` exists and asser
 reads the **optional** `getServerConfig().RESEND_API_KEY`, not the asserting
 accessor.)
 
-### 6. ⚠️ Test-isolation prerequisite (NEW — surfaced by this pilot)
+### 6. Test-isolation prerequisite (DEMONSTRATED end-to-end by this pilot)
 `getServerConfig()` **memoizes** the first `process.env` parse. A test that mutates
 `process.env` mid-file and expects a migrated read to reflect the change will break
 unless it calls `vi.resetModules()` (which re-evaluates the config module and clears
@@ -91,13 +93,26 @@ This is the campaign's central hidden cost. For a file whose existing tests muta
 env mid-run **without** `vi.resetModules()`, migrating its reads to
 `getServerConfig()` breaks those tests even though **production behavior is
 identical** (runtime env is immutable, so a memoized snapshot equals a live read).
+Editing the test's env-setup *mechanism* while preserving every assertion is normal,
+safe refactoring — NOT a production-behavior change.
 
-**Campaign rule:** before migrating a file, check its tests. If they mutate
-relevant env vars per-test, the migration PR must first add `vi.resetModules()` +
-dynamic import to those tests (a test change). In **this pilot** such test changes
-were out of scope ("existing tests pass unchanged"), so the 3 affected files were
-left un-migrated and reported (see below). The bulk campaign should budget for the
-test refactor that unblocks them.
+**The pattern (proven here on 3 files):** set env → `vi.resetModules()` →
+`await import('<module-under-test>')` → assert. Hoisted `vi.mock` factories
+(`resend`, `@sentry/nextjs`, `mock-mode`, `sendInternalEmail`) re-apply on
+re-import, so module-level mock references (`mockSend`, `mockCaptureMessage`, …)
+survive `resetModules` — no mock rewiring needed. A one-line local helper captures
+the dance, e.g.:
+```ts
+async function freshEmail() { vi.resetModules(); return import('../email'); }
+```
+Applied to `email-headers.test.ts` (12 cases), `email-send.test.ts` (6 cases), and
+`contact-notify.test.ts` (13 cases) — every scenario and assertion unchanged, only
+the env-setup mechanism converted to set-env-then-reset-then-import.
+
+**Campaign rule:** before migrating a file, check its tests. If they mutate relevant
+env vars per-test, convert those cases to the set→reset→import pattern in the SAME
+migration PR. Budget for it — it is the main per-file cost, but it is mechanical and
+assertion-preserving.
 
 ---
 
@@ -107,43 +122,52 @@ test refactor that unblocks them.
 |---|---|---|---|
 | `email/client.ts` | `RESEND_API_KEY` | ✅ migrated | `new Resend(process.env.RESEND_API_KEY)` → `new Resend(getServerConfig().RESEND_API_KEY)`. Optional field; still tolerates `undefined` (no assert). `getResend()` already memoizes `_resend`, so read-once semantics unchanged. |
 | `email/send-email.ts` | `EMAIL_SEND_TIMEOUT_MS` | ✅ migrated | `const raw = process.env.EMAIL_SEND_TIMEOUT_MS` → `getServerConfig().EMAIL_SEND_TIMEOUT_MS`. Identical `if (!raw) return DEFAULT; parseInt(raw,10); Number.isFinite && >0 ? : DEFAULT` — the default + NaN/non-positive guard preserved byte-for-byte. |
-| `email/headers.ts` | `LIST_UNSUBSCRIBE_URL`, `LIST_UNSUBSCRIBE_EMAIL`, `RESEND_FROM_EMAIL` | ⛔ left as-is | Migration trialed and **reverted**: its unit test (`email-send.test.ts`) sets `RESEND_FROM_EMAIL`/`LIST_UNSUBSCRIBE_URL` per-test without `vi.resetModules()`; the memo froze the first (unset) snapshot → tests failed. Reads unchanged (`process.env.X?.trim()` + example.com fallback intact). |
-| `email/templates/internal.ts` | `RESEND_FROM_EMAIL` | ⛔ left as-is | Same memo blocker (`email-send.test.ts` `sendInternalEmail` block sets `RESEND_FROM_EMAIL` in `beforeEach`; the file's first describe block memoized it unset → `RESEND_FROM_EMAIL not configured` throw). `from ?? process.env.RESEND_FROM_EMAIL; if(!from) throw` unchanged. |
-| `contact-notify.ts` | `CONTACT_NOTIFY_TO`, `RESEND_FROM_EMAIL`, `RESEND_API_KEY` | ⛔ left as-is | Same memo blocker (`contact-notify.test.ts` mutates all three per-test without reset). `NODE_ENV` read stays (exempt, #2). `emailConfigured()` mock-mode tolerance unchanged. |
+| `email/headers.ts` | `LIST_UNSUBSCRIBE_URL`, `LIST_UNSUBSCRIBE_EMAIL`, `RESEND_FROM_EMAIL` | ✅ migrated | `process.env.X?.trim()` / `extractMailbox(process.env.RESEND_FROM_EMAIL)` → `const cfg = getServerConfig(); cfg.X?.trim()` / `extractMailbox(cfg.RESEND_FROM_EMAIL)`. The `?.trim()`, the example.com non-functional fallback branch, and the HTTPS-only One-Click logic are byte-for-byte intact. Tests (`email-headers.test.ts`, `email-send.test.ts`) converted to set→reset→import (convention #6). |
+| `email/templates/internal.ts` | `RESEND_FROM_EMAIL` | ✅ migrated | `from ?? process.env.RESEND_FROM_EMAIL; if(!from) throw 'RESEND_FROM_EMAIL not configured'` → `from ?? getServerConfig().RESEND_FROM_EMAIL; if(!from) throw …`. Same throw condition. Tests converted (convention #6). |
+| `contact-notify.ts` | `CONTACT_NOTIFY_TO`, `RESEND_FROM_EMAIL`, `RESEND_API_KEY` | ✅ migrated | All three → `getServerConfig().X` (`CONTACT_NOTIFY_TO?.trim()` precedence chain, `extractMailbox(…RESEND_FROM_EMAIL)`, `RESEND_FROM_EMAIL?.trim() \|\| COMPANY_NOREPLY`, `emailConfigured()` = `isMockMode() \|\| Boolean(…RESEND_API_KEY)`). `NODE_ENV` read stays a direct exempt read (#2). Mock-mode tolerance unchanged. `contact-notify.test.ts` converted (convention #6). |
 
-**Net pilot result: 2 of 5 files migrated cleanly; 3 blocked by the memo/test
-prerequisite (convention #6) and reported, not forced.**
+**Net pilot result: 5 of 5 files migrated — email subsystem FULLY migrated. The
+memo/test-isolation prerequisite (convention #6) was demonstrated end-to-end: the
+3 initially-blocked files were unblocked by converting their tests' env-setup
+mechanism (set→reset→import), preserving every assertion.**
 
 ### Schema additions (`src/lib/config/server.ts`)
 Added as `optionalVar` (tolerate-absent), so a UI-only preview never throws and
 call-site fallbacks stay authoritative:
 `RESEND_FROM_EMAIL`, `EMAIL_SEND_TIMEOUT_MS`, `LIST_UNSUBSCRIBE_URL`,
 `LIST_UNSUBSCRIBE_EMAIL`. (`RESEND_API_KEY` + `CONTACT_NOTIFY_TO` were already
-present.) All four are added even though 3 of their consumers stayed un-migrated —
-they describe the email subsystem's shape and unblock the consumers once their
-tests get `vi.resetModules()`.
+present.) All consumers of these vars are now migrated.
 
-### Baseline (`scripts/ci/process-env-baseline.ts`): 100 → 91 (−9)
-- 2 migrated email files removed: `email/client.ts`, `email/send-email.ts`.
+### Baseline (`scripts/ci/process-env-baseline.ts`): 100 → 88 (−12)
+- 5 migrated email files removed: `email/client.ts`, `email/send-email.ts`,
+  `email/headers.ts`, `email/templates/internal.ts`, `contact-notify.ts`.
 - 7 exempt-only files dropped by convention #2 (each reads ONLY `NODE_ENV` or
   `MOCK_EXTERNAL_APIS`): `src/lib/shared/mock-mode.ts`,
   `src/lib/account-offboarding/destructive-auth.ts`, `src/lib/approval/cookies.ts`,
   `src/lib/demos/generate-responses.ts`, `src/lib/zernio/connect-session-cookie.ts`,
   `worker/ingress/twilio/twilio-verify.ts`, `worker/jobs/OnboardingDemoWorker.ts`.
-- `contact-notify.ts`, `email/headers.ts`, `email/templates/internal.ts` stay in
-  the baseline (still read non-exempt vars — un-migrated).
+- No email-subsystem file remains in the baseline.
 
 ---
 
 ## Tests
 
-Existing (must pass unchanged — verified):
-- `src/lib/notifications/email/__tests__/send-email.test.ts`
-- `src/lib/notifications/__tests__/email-send.test.ts`
-- `src/lib/notifications/__tests__/contact-notify.test.ts`
-- `src/lib/notifications/__tests__/email-templates.test.ts`
-- `scripts/ci/__tests__/process-env-audit.test.ts` (existing cases unchanged)
-- `src/lib/config/__tests__/server.test.ts` (existing cases unchanged)
+Behavior preserved unchanged (existing tests — semantics + every assertion intact):
+- `src/lib/notifications/email/__tests__/send-email.test.ts` — untouched (its env
+  setup never mutated a migrated var mid-file).
+- `src/lib/notifications/__tests__/email-templates.test.ts` — untouched (pure HTML
+  builders, no env).
+- `scripts/ci/__tests__/process-env-audit.test.ts`,
+  `src/lib/config/__tests__/server.test.ts` — existing cases untouched.
+
+Env-setup mechanism converted to set→reset→import (convention #6) — **every
+scenario and assertion preserved, only the env-setup changed**:
+- `src/lib/shared/__tests__/email-headers.test.ts` (12 cases) — `getEmailHeaders`
+  reads LIST_UNSUBSCRIBE_*/RESEND_FROM_EMAIL via `getServerConfig()`.
+- `src/lib/notifications/__tests__/email-send.test.ts` (6 cases) —
+  `sendInternalEmail`/`sendApprovalEmail` via the migrated `headers`/`internal`.
+- `src/lib/notifications/__tests__/contact-notify.test.ts` (13 cases) —
+  `resolveContactNotifyTo`/`notifyContactSubmission` via `getServerConfig()`.
 
 Added (this pilot):
 - `scripts/ci/__tests__/process-env-audit.test.ts` — env-indicator exemption cases
@@ -163,13 +187,20 @@ Added (this pilot):
 pnpm ci:rls-audit && pnpm ci:static-policy && pnpm ci:config-coverage &&
 pnpm ci:process-env && pnpm ci:fallow` — all green (see commit + report).
 
+## Status
+
+**Email subsystem FULLY migrated — no reads left un-migrated.** All 5 files read
+config through `getServerConfig()` (except the exempt `NODE_ENV` read in
+`contact-notify.ts`, which stays direct per convention #2). Baseline 100 → 88;
+no email file remains in it.
+
 ## Open risks / follow-ups for the campaign
-- **The memo/test-isolation prerequisite (convention #6) is the campaign's main
-  cost driver.** Every file whose tests mutate relevant env mid-run needs a test
-  refactor (`vi.resetModules()` + dynamic import) in the same batch before its
-  reads can migrate. Budget for it; it is not optional.
-- The 3 blocked email files (`headers.ts`, `templates/internal.ts`,
-  `contact-notify.ts`) should migrate in a follow-up that is allowed to add
-  `vi.resetModules()` to `email-send.test.ts` and `contact-notify.test.ts`.
-- Consider whether a small test helper (`withFreshConfig(envPatch, fn)`) is worth
-  extracting once several batches need the reset dance.
+- **The test-isolation prerequisite (convention #6) is the campaign's main cost
+  driver** — now demonstrated end-to-end on 3 files. Every file whose tests mutate
+  relevant env mid-run needs its cases converted to set→reset→import in the same
+  batch. Mechanical and assertion-preserving, but not free; budget for it.
+- A per-file one-liner (`async function freshX() { vi.resetModules(); return
+  import('…'); }`) sufficed here. If several upcoming batches share the exact same
+  module + env shape, a small shared `withFreshConfig(envPatch, () => import('…'))`
+  helper may be worth extracting — defer until the repetition is real (rules: wait
+  for the second concrete use case).

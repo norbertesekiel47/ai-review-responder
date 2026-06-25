@@ -45,6 +45,16 @@
     {
       "file": "src/lib/account-offboarding/types.ts",
       "exports": ["AccountOffboardingTerminalStatus"]
+    },
+    // resolveContactNotifyTo has no production consumer — notifyContactSubmission
+    // (the 3-route public API) calls it INTERNALLY (same-module, not an export
+    // consumer fallow traces), and it is exercised directly by
+    // contact-notify.test.ts via dynamic import (set->resetModules->import, the
+    // Stage-3 config-migration test pattern), which the static analyzer can't link.
+    // It is a deliberately-retained, directly-tested internal — acknowledged.
+    {
+      "file": "src/lib/notifications/contact-notify.ts",
+      "exports": ["resolveContactNotifyTo"]
     }
   ],
   // NotificationChannel send methods are invoked via interface dispatch through the
