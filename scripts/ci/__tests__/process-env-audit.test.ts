@@ -10,8 +10,24 @@ describe('process-env-audit (pure)', () => {
     expect(fileReadsProcessEnv("const x = process.env['FOO'];")).toBe(true);
   });
 
+  it('detects a destructured process.env read', () => {
+    expect(fileReadsProcessEnv('const { FOO } = process.env;')).toBe(true);
+  });
+
+  it('detects an aliased process.env read', () => {
+    expect(fileReadsProcessEnv('const e = process.env;')).toBe(true);
+  });
+
   it('ignores a comment that merely names process.env', () => {
     expect(fileReadsProcessEnv('// we used to read process.env.FOO here')).toBe(false);
+  });
+
+  it('ignores a string literal that contains process.env.X', () => {
+    expect(fileReadsProcessEnv('const s = "reads process.env.FOO";')).toBe(false);
+  });
+
+  it('ignores a template literal that contains process.env.X', () => {
+    expect(fileReadsProcessEnv('const s = `see process.env.FOO`;')).toBe(false);
   });
 
   it('allowlists the config home + worker/env.ts + startup-assert', () => {

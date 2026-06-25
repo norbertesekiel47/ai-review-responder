@@ -9,6 +9,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import ts from 'typescript';
 import { PROCESS_ENV_BASELINE, isAllowlisted } from './process-env-baseline';
 
 export { isAllowlisted };
@@ -18,21 +19,51 @@ const SCAN_EXT = /\.(?:ts|tsx)$/;
 const SKIP_DIRS = new Set(['node_modules', '__tests__', 'dist', '.next', 'coverage', '__fixtures__']);
 const SKIP_FILE = /\.(?:test|spec)\.[cm]?tsx?$/;
 
-// A genuine read: process.env.X or process.env['X'] on a non-comment line.
-const PROCESS_ENV_ACCESS = /process\.env(?:\.\w+|\[)/;
-
 function normalize(file: string): string {
   return file.split(sep).join('/');
 }
 
-function isCommentLine(line: string): boolean {
-  const trimmed = line.trimStart();
-  return trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*');
+/**
+ * True when `node` is the member-access `process.env` (the `.env` part of
+ * `process.env.X`, `process.env['X']`, `const { X } = process.env`, or
+ * `const e = process.env`). Catching this single node form covers every read
+ * shape — static `.X`, bracket, destructuring, and aliasing — while string
+ * literals and comments are never this node, so they can't false-fire.
+ */
+function isProcessEnvAccess(node: ts.Node): boolean {
+  return (
+    ts.isPropertyAccessExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === 'process' &&
+    node.name.text === 'env'
+  );
 }
 
-/** True if any non-comment line reads process.env. Pure — unit-tested. */
+/**
+ * True if the file's AST contains any `process.env` access. Parses with the
+ * TypeScript compiler (mirrors response-status-audit / static-policy-audit) so a
+ * regex can't miss `const { FOO } = process.env` / `const e = process.env`, and a
+ * `"process.env.X"` string literal or comment can't false-fire. Pure — unit-tested.
+ */
 export function fileReadsProcessEnv(text: string): boolean {
-  return text.split('\n').some((line) => !isCommentLine(line) && PROCESS_ENV_ACCESS.test(line));
+  const source = ts.createSourceFile(
+    'scan.tsx',
+    text,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ false,
+    ts.ScriptKind.TSX,
+  );
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (found) return;
+    if (isProcessEnvAccess(node)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
 }
 
 export interface EvaluateInput {
