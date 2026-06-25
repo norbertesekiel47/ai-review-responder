@@ -5,6 +5,7 @@
 // awaiter stops waiting and the queue slot frees; any orphaned fetch completes on
 // its own. Throws on timeout, matching existing throw-on-error call-site handling
 // (→ BullMQ retry). This is also the future home for an outbound token-bucket.
+import { getServerConfig } from '@/lib/config/server';
 import { getResend } from './client';
 
 type ResendEmails = ReturnType<typeof getResend>['emails'];
@@ -21,7 +22,7 @@ export class EmailSendTimeoutError extends Error {
 }
 
 function resolveTimeoutMs(): number {
-  const raw = process.env.EMAIL_SEND_TIMEOUT_MS;
+  const raw = getServerConfig().EMAIL_SEND_TIMEOUT_MS;
   if (!raw) return DEFAULT_EMAIL_SEND_TIMEOUT_MS;
   const parsed = parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_EMAIL_SEND_TIMEOUT_MS;

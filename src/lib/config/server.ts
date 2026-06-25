@@ -52,6 +52,11 @@ const serverSchema = z.object({
   CONTACT_NOTIFY_TO: opt,
   WORKER_PUBLIC_URL: opt,
   DB_POOL_MAX: opt,
+  // ── email subsystem (optional; tolerate-absent, fallbacks live at call sites) ──
+  RESEND_FROM_EMAIL: opt,
+  EMAIL_SEND_TIMEOUT_MS: opt,
+  LIST_UNSUBSCRIBE_URL: opt,
+  LIST_UNSUBSCRIBE_EMAIL: opt,
 });
 
 export type ServerConfig = z.infer<typeof serverSchema>;
@@ -75,14 +80,14 @@ const SERVER_DB_REQUIRED_VARS = [
 
 let memo: ServerConfig | undefined;
 
-// Stage-2 foundation: getServerConfig + the per-subsystem accessors/asserts below
-// have no production consumer YET — Stage 3 migrates the ~990 raw process.env
-// reads onto them. They are unit-tested and deliberately unwired (wiring a
-// subsystem assert before its subsystem uses getXConfig() would be premature).
-// Suppress the "unused-export" finding until Stage 3 consumes them.
+// Stage-2 foundation: the per-subsystem accessors/asserts below are still
+// deliberately unwired — Stage 3 migrates the ~990 raw process.env reads onto
+// them in batches (wiring a subsystem assert before its subsystem uses
+// getXConfig() would be premature). Suppress the "unused-export" finding on those
+// until their batch consumes them. getServerConfig itself IS now consumed (Stage-3
+// email pilot: email/client.ts, email/send-email.ts), so it carries no suppression.
 
 /** Lazy, memoized parse. NEVER at import time. */
-// fallow-ignore-next-line unused-export
 export function getServerConfig(): ServerConfig {
   if (!memo) memo = serverSchema.parse(process.env);
   return memo;
