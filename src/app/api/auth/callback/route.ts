@@ -25,18 +25,19 @@ import {
  *    the raw `token_hash`; we verify it server-side and the same setAll
  *    adapter persists session cookies as `exchangeCodeForSession` does.
  *
- * After authentication, three sub-flows fork on `next=`:
+ * After authentication, three sub-flows fork on `next=` — all resolved by
+ * `resolveCallbackDestination` (the single source of truth for redirect
+ * safety + role/path allowlisting):
  *
  *  1. **Email confirmation** — `next=/onboarding/pay`. Role-lookup → owner
  *     redirect. (Pending-payment routing happens in `/api/auth/signup-status`
  *     once the page mounts.)
  *  2. **Password recovery** — `next=/reset-password` or `/admin/reset-password`.
- *     We skip the role lookup entirely; the reset page reads the session
- *     directly via `supabase.auth.getUser()`.
+ *     The reset page reads the session directly via `supabase.auth.getUser()`.
  *  3. **Google OAuth signup** — `flow=owner` + `next=/signup/finish`. The
- *     Supabase Auth user exists (Google just confirmed it) but there's no
- *     app `users` row yet. Land on `/signup/finish` so the owner can finish
- *     provisioning their business, instead of signing out.
+ *     Supabase Auth user exists (Google just confirmed it) but there's no app
+ *     `users` row yet. Land on `/signup/finish` to finish provisioning instead
+ *     of signing out.
  *
  * Failure redirect target is derived from `flow` via `loginUrlForFlow` so
  * owners land on `/login` and admins on `/admin/login`.
@@ -50,6 +51,81 @@ const VALID_EMAIL_OTP_TYPES: ReadonlySet<EmailOtpType> = new Set<EmailOtpType>([
   'email_change',
   'email',
 ]);
+
+type CallbackClient = ReturnType<typeof createServerClient>;
+
+// SSR Supabase client whose cookie adapter writes session cookies into the
+// up-front `response` jar; the caller copies them onto the final redirect.
+function createCallbackClient(
+  request: NextRequest,
+  response: NextResponse,
+): CallbackClient {
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          for (const { name, value, options } of cookiesToSet) {
+            response.cookies.set(name, value, options);
+          }
+        },
+      },
+    },
+  );
+}
+
+// Completes whichever exchange the entry shape implies and returns the
+// authenticated auth-user id. `ok: false` means the exchange failed (bad OTP
+// type, expired link, etc.) and the caller should bounce to the failure page.
+async function exchangeForUserId(
+  supabase: CallbackClient,
+  params: { code: string | null; tokenHash: string | null; rawType: string | null },
+): Promise<{ ok: true; userId: string | undefined } | { ok: false }> {
+  const { code, tokenHash, rawType } = params;
+  if (tokenHash) {
+    if (!rawType || !VALID_EMAIL_OTP_TYPES.has(rawType as EmailOtpType)) {
+      return { ok: false };
+    }
+    const { error, data } = await supabase.auth.verifyOtp({
+      type: rawType as EmailOtpType,
+      token_hash: tokenHash,
+    });
+    return error ? { ok: false } : { ok: true, userId: data.user?.id };
+  }
+  const { error, data } = await supabase.auth.exchangeCodeForSession(code!);
+  return error ? { ok: false } : { ok: true, userId: data.user?.id };
+}
+
+// Resolves the app `users.role` for an authenticated auth-user, or `null` when
+// there is no users row yet (the Google-signup case) — which the resolver maps
+// to the finish/sign-out branches.
+async function lookupUserRole(
+  supabase: CallbackClient,
+  userId: string,
+): Promise<string | null> {
+  const { data: userRow, error: userErr } = await supabase
+    .from('users')
+    .select('role')
+    .eq('auth_id', userId)
+    .limit(1)
+    .single();
+  if (userErr && userErr.code === 'PGRST116') {
+    // PGRST116 = "Expected a single row. Got 0 or >1." We can't distinguish
+    // here, but log both possibilities. >1 would be a data-integrity bug
+    // (duplicate users.auth_id) that should page someone — auth_id is UNIQUE
+    // per migration 001, so this would only happen mid-restore or mid-migration.
+    // 0 rows is the expected Google-signup case.
+    console.warn(
+      `[callback] PGRST116 for auth_id=${userId} — either missing users row or duplicate auth_id. Investigate if duplicate.`,
+    );
+    return null;
+  }
+  return (userRow as { role: string } | null)?.role ?? null;
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams, origin } = new URL(request.url);
@@ -69,94 +145,31 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL(loginUrl, origin));
   }
 
-  // Temporary redirect target — will be rewritten after role lookup below.
-  // We still need a response up-front so createServerClient's setAll adapter
-  // has a cookie jar to write session cookies into.
+  // Temporary redirect target — rewritten after role lookup below. We still need
+  // a response up-front so createCallbackClient's setAll adapter has a cookie jar.
   const response = NextResponse.redirect(new URL(loginUrl, origin));
+  const supabase = createCallbackClient(request, response);
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          for (const { name, value, options } of cookiesToSet) {
-            response.cookies.set(name, value, options);
-          }
-        },
-      },
-    },
-  );
+  const exchanged = await exchangeForUserId(supabase, { code, tokenHash, rawType });
+  if (!exchanged.ok) return failRedirect();
 
-  let userId: string | undefined;
-  if (tokenHash) {
-    if (!rawType || !VALID_EMAIL_OTP_TYPES.has(rawType as EmailOtpType)) {
-      return failRedirect();
-    }
-    const { error, data } = await supabase.auth.verifyOtp({
-      type: rawType as EmailOtpType,
-      token_hash: tokenHash,
-    });
-    if (error) {
-      return failRedirect();
-    }
-    userId = data.user?.id;
-  } else {
-    const { error, data } = await supabase.auth.exchangeCodeForSession(code!);
-    if (error) {
-      return failRedirect();
-    }
-    userId = data.user?.id;
-  }
+  const role = exchanged.userId
+    ? await lookupUserRole(supabase, exchanged.userId)
+    : null;
 
-  // Role-aware post-callback redirect. An owner arriving via an email link
-  // must go to /dashboard, not /admin/overview (which they can't access).
-  // If `next` points to a role-appropriate path, honor it; otherwise fall
-  // back to the role's home page.
-  let role: string | null = null;
-  if (userId) {
-    const { data: userRow, error: userErr } = await supabase
-      .from('users')
-      .select('role')
-      .eq('auth_id', userId)
-      .limit(1)
-      .single();
-    if (userErr && userErr.code === 'PGRST116') {
-      // PGRST116 = "Expected a single row. Got 0 or >1." We can't distinguish
-      // here, but log both possibilities. >1 would be a data-integrity bug
-      // (duplicate users.auth_id) that should page someone — auth_id is
-      // UNIQUE per migration 001, so this would only happen mid-restore or
-      // mid-migration. 0 rows is the expected Google-signup case.
-      console.warn(
-        `[callback] PGRST116 for auth_id=${userId} — either missing users row or duplicate auth_id. Investigate if duplicate.`,
-      );
-      role = null;
-    } else {
-      role = (userRow as { role: string } | null)?.role ?? null;
-    }
-  }
-
-  // Resolve the destination (and whether to sign out) from the role + raw next.
-  // resolveCallbackDestination owns ALL redirect-safety logic — `next`
-  // sanitization and the role/path allowlists — so this handler keeps only
-  // Supabase I/O and a single dispatch + cookie-copy path.
   const resolution = resolveCallbackDestination({ role, rawNext, flow });
 
   // A `signout-redirect` means "no users row in any non-finish flow, or an
   // unsupported role" → sign out so the user can retry cleanly. signOut writes
-  // cleared session cookies into the `response` jar via the setAll adapter
-  // above; the cookie copy below carries them onto the redirect we return —
-  // without that, the browser keeps the bad session and bounces in a
-  // redirect loop on the next protected request.
+  // cleared session cookies into the `response` jar; the cookie copy below
+  // carries them onto the redirect — without that, the browser keeps the bad
+  // session and bounces in a redirect loop on the next protected request.
   if (resolution.kind === 'signout-redirect') {
     await supabase.auth.signOut();
   }
 
-  // Build the final redirect with the resolved destination, copying the
-  // session cookies that the token exchange (or signOut) wrote via setAll.
+  // Build the final redirect with the resolved destination, copying the session
+  // cookies that the token exchange (or signOut) wrote via setAll.
   const finalResponse = NextResponse.redirect(
     new URL(resolution.destination, origin),
   );

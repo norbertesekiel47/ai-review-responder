@@ -78,6 +78,15 @@ const SQL_DETAIL =
   'group from @/lib/shared/response-status and bind via statusArraySql(); add a ' +
   'trailing `-- status-audit-ignore` for intentionally-inline write guards.';
 
+// Per-file scan context, threaded into the node matchers so each stays a small
+// pure function instead of a closure inside one large visitor.
+interface ScanContext {
+  file: string;
+  source: ts.SourceFile;
+  lines: string[];
+  lineOf: (pos: number) => number;
+}
+
 function normalizePath(file: string): string {
   return file.split(sep).join('/');
 }
@@ -156,13 +165,39 @@ function lineHasPragma(lines: string[], lineIndex: number): boolean {
   return current.includes(IGNORE_PRAGMA) || previous.includes(IGNORE_PRAGMA);
 }
 
+// An array literal that hardcodes a 2+ status group (unless pragma'd).
+function arrayFinding(
+  node: ts.ArrayLiteralExpression,
+  ctx: ScanContext,
+): ResponseStatusFinding | null {
+  if (canonicalInArray(node).size < 2) return null;
+  const line = ctx.lineOf(node.getStart(ctx.source));
+  if (lineHasPragma(ctx.lines, line)) return null;
+  return { file: ctx.file, line: line + 1, rule: 'response-status-group', detail: ARRAY_DETAIL };
+}
+
+// Every hardcoded 2+ status group inside a `sql`/`tx` template's predicates.
+function sqlFindings(
+  node: ts.TaggedTemplateExpression,
+  ctx: ScanContext,
+): ResponseStatusFinding[] {
+  const raw = node.getText(ctx.source);
+  const nodeStart = node.getStart(ctx.source);
+  const findings: ResponseStatusFinding[] = [];
+  for (const group of sqlPredicateGroups(raw)) {
+    if (distinctCanonicalLiterals(group.body) < 2) continue;
+    const line = ctx.lineOf(nodeStart + group.index);
+    if (lineHasPragma(ctx.lines, line)) continue;
+    findings.push({ file: ctx.file, line: line + 1, rule: 'response-status-group', detail: SQL_DETAIL });
+  }
+  return findings;
+}
+
 /** Pure scan of one file's text. Exported for unit tests. */
 export function scanSource(file: string, text: string): ResponseStatusFinding[] {
   const normalized = normalizePath(file);
   if (EXEMPT.has(normalized)) return [];
 
-  const findings: ResponseStatusFinding[] = [];
-  const lines = text.split('\n');
   const source = ts.createSourceFile(
     normalized,
     text,
@@ -170,37 +205,20 @@ export function scanSource(file: string, text: string): ResponseStatusFinding[] 
     true,
     ts.ScriptKind.TSX,
   );
+  const ctx: ScanContext = {
+    file: normalized,
+    source,
+    lines: text.split('\n'),
+    lineOf: (pos) => source.getLineAndCharacterOfPosition(pos).line,
+  };
 
-  const lineOf = (pos: number): number =>
-    source.getLineAndCharacterOfPosition(pos).line;
-
+  const findings: ResponseStatusFinding[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isArrayLiteralExpression(node)) {
-      if (canonicalInArray(node).size >= 2) {
-        const line = lineOf(node.getStart(source));
-        if (!lineHasPragma(lines, line)) {
-          findings.push({
-            file: normalized,
-            line: line + 1,
-            rule: 'response-status-group',
-            detail: ARRAY_DETAIL,
-          });
-        }
-      }
+      const finding = arrayFinding(node, ctx);
+      if (finding) findings.push(finding);
     } else if (ts.isTaggedTemplateExpression(node) && isSqlTaggedTemplate(node)) {
-      const raw = node.getText(source);
-      const nodeStart = node.getStart(source);
-      for (const group of sqlPredicateGroups(raw)) {
-        if (distinctCanonicalLiterals(group.body) < 2) continue;
-        const line = lineOf(nodeStart + group.index);
-        if (lineHasPragma(lines, line)) continue;
-        findings.push({
-          file: normalized,
-          line: line + 1,
-          rule: 'response-status-group',
-          detail: SQL_DETAIL,
-        });
-      }
+      findings.push(...sqlFindings(node, ctx));
     }
     ts.forEachChild(node, visit);
   };
