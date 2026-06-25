@@ -62,6 +62,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // (the single source of truth for redirect safety); callers never pre-sanitize.
   const rawNext = searchParams.get('next') ?? '';
   const loginUrl = loginUrlForFlow(flow);
+  const failRedirect = (): NextResponse =>
+    NextResponse.redirect(new URL(`${loginUrl}?error=auth_callback_failed`, origin));
 
   if (!code && !tokenHash) {
     return NextResponse.redirect(new URL(loginUrl, origin));
@@ -92,26 +94,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   let userId: string | undefined;
   if (tokenHash) {
     if (!rawType || !VALID_EMAIL_OTP_TYPES.has(rawType as EmailOtpType)) {
-      return NextResponse.redirect(
-        new URL(`${loginUrl}?error=auth_callback_failed`, origin),
-      );
+      return failRedirect();
     }
     const { error, data } = await supabase.auth.verifyOtp({
       type: rawType as EmailOtpType,
       token_hash: tokenHash,
     });
     if (error) {
-      return NextResponse.redirect(
-        new URL(`${loginUrl}?error=auth_callback_failed`, origin),
-      );
+      return failRedirect();
     }
     userId = data.user?.id;
   } else {
     const { error, data } = await supabase.auth.exchangeCodeForSession(code!);
     if (error) {
-      return NextResponse.redirect(
-        new URL(`${loginUrl}?error=auth_callback_failed`, origin),
-      );
+      return failRedirect();
     }
     userId = data.user?.id;
   }
