@@ -94,7 +94,7 @@ export function VoiceDial() {
           <div className="rw-voice-dial-wrap">
             <div
               ref={dialRef}
-              className={`rw-voice-dial ${dragging ? 'dragging' : ''} outline-none focus-visible:ring-4 focus-visible:ring-[#557069]/60 focus-visible:ring-offset-2`}
+              className={`rw-voice-dial ${dragging ? 'dragging' : ''} outline-none focus-visible:ring-4 focus-visible:ring-rw-teal-strong/60 focus-visible:ring-offset-2`}
               role="slider"
               tabIndex={0}
               aria-label="Voice dial — adjust tone"
@@ -153,7 +153,7 @@ export function VoiceDial() {
               review, forever. Try a few settings.
             </p>
             <div className="rw-voice-preview">
-              <div className="mb-3 inline-block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#557069]">
+              <div className="mb-3 inline-block text-[11px] font-semibold uppercase tracking-[0.12em] text-rw-teal-strong">
                 Example
               </div>
               <div className="rw-src">

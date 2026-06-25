@@ -235,9 +235,9 @@ function LocationPin() {
 }
 
 const PRIMARY_BTN =
-  'flex-1 rounded-full bg-[#557069] px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-[#557069]/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#557069] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+  'flex-1 rounded-full bg-rw-teal-strong px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-rw-teal-strong/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
 const GHOST_BTN =
-  'flex-1 rounded-full border border-[#557069]/40 bg-white px-4 py-3 text-sm font-semibold text-[#557069] transition hover:bg-[#F0EEEA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#557069] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+  'flex-1 rounded-full border border-rw-teal-strong/40 bg-white px-4 py-3 text-sm font-semibold text-rw-teal-strong transition hover:bg-rw-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
 // The armed confirm step darkens further so the irreversible second tap reads
 // as a deliberate, distinct action — white label stays AA on the darker fill.
 const CONFIRM_BTN =
@@ -246,7 +246,7 @@ const CONFIRM_BTN =
 function LoadingSpinner() {
   return (
     <div className="flex items-center justify-center py-12">
-      <div className="size-8 animate-spin rounded-full border-4 border-[#557069] border-t-transparent" />
+      <div className="size-8 animate-spin rounded-full border-4 border-rw-teal-strong border-t-transparent" />
     </div>
   );
 }
@@ -274,9 +274,9 @@ function SuccessView({
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
       >
-        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[#557069]/15">
+        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-rw-teal-strong/15">
           <svg
-            className="size-7 text-[#557069]"
+            className="size-7 text-rw-teal-strong"
             fill="none"
             viewBox="0 0 24 24"
             strokeWidth={2.5}
@@ -290,21 +290,21 @@ function SuccessView({
             />
           </svg>
         </div>
-        <h2 className="text-xl font-medium text-[#2a2a2a]">{heading}</h2>
-        <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[#6a6a6a]">
+        <h2 className="text-xl font-medium text-rw-ink">{heading}</h2>
+        <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-rw-ink-soft">
           {successMessage}
         </p>
         {/* Primary affordance is a confirmation, NOT a dashboard link: most
             recipients are logged out, so /dashboard would hit a login wall. */}
         {isPublish && (
-          <p className="mx-auto mt-4 max-w-sm text-sm leading-relaxed text-[#557069]">
+          <p className="mx-auto mt-4 max-w-sm text-sm leading-relaxed text-rw-teal-strong">
             You can safely close this page now.
           </p>
         )}
         {/* Dashboard is demoted to a quiet secondary link for signed-in owners. */}
         <Link
           href="/dashboard"
-          className="mt-6 inline-block rounded-sm text-xs font-semibold text-[#557069] underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#557069] focus-visible:ring-offset-2"
+          className="mt-6 inline-block rounded-sm text-xs font-semibold text-rw-teal-strong underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong focus-visible:ring-offset-2"
         >
           Manage reviews in your dashboard →
         </Link>
@@ -322,12 +322,12 @@ function LocationChip({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="inline-flex max-w-[180px] items-center gap-1 truncate whitespace-nowrap rounded-full bg-[#97B3AE]/15 px-2.5 py-0.5 text-[11px] font-semibold text-[#5e7d77]">
+      <span className="inline-flex max-w-[180px] items-center gap-1 truncate whitespace-nowrap rounded-full bg-rw-teal/15 px-2.5 py-0.5 text-[11px] font-semibold text-[#5e7d77]">
         <LocationPin />
         {locationLabel}
       </span>
       {isArchived && (
-        <span className="inline-flex items-center rounded-full bg-[#D6CBBF]/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#6a6a6a]">
+        <span className="inline-flex items-center rounded-full bg-rw-beige/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rw-ink-soft">
           Archived
         </span>
       )}
@@ -337,20 +337,20 @@ function LocationChip({
 
 function ReviewCard({ review }: { review: ReviewData['review'] }) {
   return (
-    <div className="rounded-2xl border border-[#97B3AE]/15 bg-[#F0EEEA]/60 p-4">
-      <div className="text-lg tracking-wider text-[#97B3AE]" aria-hidden="true">
+    <div className="rounded-2xl border border-rw-teal/15 bg-rw-cream/60 p-4">
+      <div className="text-lg tracking-wider text-rw-teal" aria-hidden="true">
         {formatStars(review.starRating)}
       </div>
       <span className="sr-only">{review.starRating} out of 5 stars</span>
-      <p className="mt-1 text-sm font-semibold text-[#2a2a2a]">
+      <p className="mt-1 text-sm font-semibold text-rw-ink">
         {review.reviewerName} &middot; {formatDate(review.reviewDate)}
       </p>
       {review.reviewText ? (
-        <p className="mt-2 text-sm leading-relaxed text-[#6a6a6a]">
+        <p className="mt-2 text-sm leading-relaxed text-rw-ink-soft">
           {review.reviewText}
         </p>
       ) : (
-        <p className="mt-2 text-sm italic text-[#6a6a6a]/70">
+        <p className="mt-2 text-sm italic text-rw-ink-soft/70">
           Rating only, no written review
         </p>
       )}
@@ -374,10 +374,10 @@ function ResponseCard({
   onEditTextChange: (value: string) => void;
 }) {
   return (
-    <div className="rounded-2xl border border-[#97B3AE]/30 bg-white p-4">
-      <div className="mb-3 flex items-start gap-2 rounded-lg border border-[#97B3AE]/30 bg-[#D2E0D3]/40 px-3 py-2 text-xs leading-relaxed text-[#6a6a6a]">
+    <div className="rounded-2xl border border-rw-teal/30 bg-white p-4">
+      <div className="mb-3 flex items-start gap-2 rounded-lg border border-rw-teal/30 bg-rw-sage/40 px-3 py-2 text-xs leading-relaxed text-rw-ink-soft">
         <svg
-          className="mt-0.5 size-3.5 flex-shrink-0 text-[#557069]"
+          className="mt-0.5 size-3.5 flex-shrink-0 text-rw-teal-strong"
           fill="none"
           viewBox="0 0 24 24"
           strokeWidth={2}
@@ -389,14 +389,14 @@ function ResponseCard({
         </svg>
         <span>{AI_DRAFT_DISCLOSURE}</span>
       </div>
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[#557069]">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-rw-teal-strong">
         Draft response (v{response.version})
       </p>
       {isEditing ? (
         <div>
           <label
             htmlFor="approval-edit"
-            className="mb-1 block text-xs font-medium text-[#2a2a2a]"
+            className="mb-1 block text-xs font-medium text-rw-ink"
           >
             Edit your response
           </label>
@@ -407,20 +407,20 @@ function ResponseCard({
             readOnly={editLocked}
             aria-describedby={editLocked ? 'approval-edit-locked' : undefined}
             maxLength={MAX_EDIT_LENGTH}
-            className={`w-full rounded-lg border border-[#557069]/40 p-3 text-sm leading-relaxed text-[#2a2a2a] focus:border-[#557069] focus:outline-none focus:ring-2 focus:ring-[#557069]/30 ${editLocked ? 'cursor-not-allowed bg-[#F0EEEA]/60' : ''}`}
+            className={`w-full rounded-lg border border-rw-teal-strong/40 p-3 text-sm leading-relaxed text-rw-ink focus:border-rw-teal-strong focus:outline-none focus:ring-2 focus:ring-rw-teal-strong/30 ${editLocked ? 'cursor-not-allowed bg-rw-cream/60' : ''}`}
             rows={5}
           />
           {editLocked && (
-            <p id="approval-edit-locked" className="mt-1 text-[11px] text-[#557069]">
+            <p id="approval-edit-locked" className="mt-1 text-[11px] text-rw-teal-strong">
               Locked while confirming — tap “Cancel” to keep editing.
             </p>
           )}
-          <p className="mt-1 text-right text-[11px] text-[#557069]" aria-hidden="true">
+          <p className="mt-1 text-right text-[11px] text-rw-teal-strong" aria-hidden="true">
             {editedText.length} / {MAX_EDIT_LENGTH}
           </p>
         </div>
       ) : (
-        <p className="text-sm leading-relaxed text-[#2a2a2a]">
+        <p className="text-sm leading-relaxed text-rw-ink">
           {response.responseText}
         </p>
       )}
@@ -522,7 +522,7 @@ function ActionBar({
     // Server rejects every mutating action for archived locations (409) —
     // don't render buttons that can only fail on submit.
     return (
-      <p className="rounded-xl border border-[#97B3AE]/40 bg-[#97B3AE]/10 p-3 text-center text-sm text-[#3f544f]">
+      <p className="rounded-xl border border-rw-teal/40 bg-rw-teal/10 p-3 text-center text-sm text-[#3f544f]">
         This location has been archived — approval actions are no longer
         available for this draft.
       </p>
@@ -596,12 +596,12 @@ function ActionBar({
         )}
       </div>
       {armed ? (
-        <p className="text-center text-xs leading-relaxed text-[#557069]">
+        <p className="text-center text-xs leading-relaxed text-rw-teal-strong">
           This posts your reply to your public Google profile. Tap the button
           again to confirm.
         </p>
       ) : (
-        <p className="text-center text-xs leading-relaxed text-[#557069]">
+        <p className="text-center text-xs leading-relaxed text-rw-teal-strong">
           Close this page — nothing posts unless you approve.
         </p>
       )}
@@ -827,7 +827,7 @@ export default function ApprovalClient({ token }: { token: string }) {
           onCancelEdit={() => dispatch({ type: 'editCancelled' })}
         />
 
-        <p className="text-center text-xs italic text-[#557069]">
+        <p className="text-center text-xs italic text-rw-teal-strong">
           This link expires in {expiryLabel}
         </p>
       </div>
