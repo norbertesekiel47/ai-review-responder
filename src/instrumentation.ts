@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/nextjs';
 import { scrubSentryEvent } from '@/lib/shared/sentry-scrub';
 import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
+import { assertCoreAppConfig } from '@/lib/config/server';
 
 export const onRequestError = Sentry.captureRequestError;
 
@@ -21,6 +22,15 @@ export async function register() {
         return scrubSentryEvent(event, { scrubRequestData: true });
       },
     });
+
+    // Core-app config gate (Stage 2): the minimum every Next server process
+    // needs (Supabase URL/anon, app URL, server DB creds). Runs once per server
+    // process at register(); nodejs-runtime-guarded so an edge split can't skip
+    // or break it. Throws loudly on misconfig rather than failing the first
+    // request with an opaque non-null deref. These six vars are already
+    // dereferenced with `!` in db/server.ts / SSR auth on the first authenticated
+    // request today, so this moves an already-certain failure earlier, not new.
+    assertCoreAppConfig();
 
     // Soft assertion (no throw — preview deploys legitimately run without
     // billing env): the worker boot-asserts these on Railway, but nothing else

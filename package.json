@@ -10,6 +10,7 @@
     "dev": "next dev",
     "dev:all": "bash scripts/dev-stack.sh",
     "worktree:new": "bash scripts/new-worktree.sh",
+    "prebuild": "tsx scripts/prebuild-assert-client-config.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint src",

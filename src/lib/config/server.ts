@@ -8,9 +8,10 @@
 // lazy + memoized.
 import { z } from 'zod';
 import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
+import { optionalVar, requiredVar } from './schema-helpers';
 
-const nonEmpty = z.string().min(1);
-const opt = z.string().min(1).optional();
+const nonEmpty = requiredVar;
+const opt = optionalVar;
 
 // Build the Stripe price fields (optional in the root) from the single owner list.
 const stripePriceShape = Object.fromEntries(

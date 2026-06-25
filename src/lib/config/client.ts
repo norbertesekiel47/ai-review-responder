@@ -4,16 +4,15 @@
 // build time; a missing required one would otherwise inline as `undefined` and
 // fail silently in the browser, so assertClientConfig() runs in the prebuild step.
 import { z } from 'zod';
-
-const nonEmpty = z.string().min(1);
+import { optionalVar, requiredVar } from './schema-helpers';
 
 const clientSchema = z.object({
-  NEXT_PUBLIC_SUPABASE_URL: nonEmpty,
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: nonEmpty,
-  NEXT_PUBLIC_APP_URL: nonEmpty,
-  NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: z.string().min(1).optional(),
-  NEXT_PUBLIC_SENTRY_DSN: z.string().min(1).optional(),
-  NEXT_PUBLIC_DOCS_BASE_URL: z.string().min(1).optional(),
+  NEXT_PUBLIC_SUPABASE_URL: requiredVar,
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: requiredVar,
+  NEXT_PUBLIC_APP_URL: requiredVar,
+  NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: optionalVar,
+  NEXT_PUBLIC_SENTRY_DSN: optionalVar,
+  NEXT_PUBLIC_DOCS_BASE_URL: optionalVar,
 });
 
 export type ClientConfig = z.infer<typeof clientSchema>;

@@ -8,9 +8,10 @@
 import { z } from 'zod';
 import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
 import { ensureWorkerDotenvLoaded } from './dotenv-load';
+import { optionalVar, requiredVar } from './schema-helpers';
 
-const nonEmpty = z.string().min(1);
-const opt = z.string().min(1).optional();
+const nonEmpty = requiredVar;
+const opt = optionalVar;
 
 const stripePriceShape = Object.fromEntries(
   STRIPE_PRICE_ENV_VARS.map((name) => [name, opt]),

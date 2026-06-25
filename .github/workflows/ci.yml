@@ -139,6 +139,33 @@ jobs:
       - name: Build app
         run: pnpm build
 
+  # No-secret build canary (Stage 2 config foundation): builds with ONLY the
+  # build-inlined NEXT_PUBLIC_* placeholders + the server DB/auth creds Next needs
+  # at register(). Deliberately NO subsystem secrets (no STRIPE_*, RESEND_*,
+  # TWILIO_*, SERPAPI_*, OPENAI_*, ANTHROPIC_*). If the build fails here, an
+  # import-time secret dependency has crept in — the whole point of the lazy,
+  # memoized config accessors is to prevent that.
+  build-no-secrets:
+    name: build-no-secrets-canary
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key-for-ci
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_KEY: dummy-service-key-for-ci
+      DATABASE_POOL_URL: postgres://test:test@localhost:5432/test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup
+      - name: Build with no secrets (canary)
+        run: pnpm build
+
   # Reproduces a deploy build context (e.g. Railway RAILPACK) that runs
   # `pnpm install` with NO .git directory. Catches lifecycle scripts
   # (prepare/postinstall) that shell out to git and would abort the deploy.
