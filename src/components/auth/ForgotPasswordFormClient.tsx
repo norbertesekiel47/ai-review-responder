@@ -161,15 +161,15 @@ export function ForgotPasswordFormClient({
       <LiveRegion message={sent ? SENT_MESSAGE : ''} />
       {sent ? (
         <div className="space-y-6 text-center">
-          <p className="text-base text-[#2a2a2a]">{SENT_MESSAGE}</p>
+          <p className="text-base text-rw-ink">{SENT_MESSAGE}</p>
           <div className="space-y-2 text-sm">
-            <p className="text-[#6a6a6a]">
+            <p className="text-rw-ink-soft">
               Didn&apos;t get it?{' '}
               <button
                 type="button"
                 onClick={handleResend}
                 disabled={resendCoolingDown}
-                className="font-medium text-[#557069] hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
+                className="font-medium text-rw-teal-strong hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
               >
                 {resendCoolingDown ? 'Sent — check again shortly' : 'Resend'}
               </button>
@@ -177,7 +177,7 @@ export function ForgotPasswordFormClient({
             <p>
               <Link
                 href={loginUrlForFlow(portal)}
-                className="font-medium text-[#557069] hover:underline"
+                className="font-medium text-rw-teal-strong hover:underline"
               >
                 ← Back to sign in
               </Link>
@@ -186,7 +186,7 @@ export function ForgotPasswordFormClient({
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
-          <h1 className="text-2xl font-semibold text-[#2a2a2a]">Reset your password</h1>
+          <h1 className="text-2xl font-semibold text-rw-ink">Reset your password</h1>
           <div>
             <label htmlFor="forgot-email" className={authLabelClass}>Email</label>
             <input

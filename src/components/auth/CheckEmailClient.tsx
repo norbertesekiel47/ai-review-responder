@@ -71,7 +71,7 @@ function checkEmailReducer(state: CheckEmailState, action: CheckEmailAction): Ch
 
 export function CheckEmailClient() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-[#D2E0D3]" />}>
+    <Suspense fallback={<div className="min-h-screen bg-rw-sage" />}>
       <CheckEmailInner />
     </Suspense>
   );
@@ -215,11 +215,11 @@ function CheckEmailInner() {
 
   return (
     <AuthCardShell>
-      <h1 className="text-2xl font-semibold text-[#2a2a2a] mb-2 text-center">{heading}</h1>
-      <p className="text-[#6a6a6a] mb-1 text-center">{subtext}</p>
+      <h1 className="text-2xl font-semibold text-rw-ink mb-2 text-center">{heading}</h1>
+      <p className="text-rw-ink-soft mb-1 text-center">{subtext}</p>
       {email && (
-        <p className="text-sm text-[#6a6a6a] mb-6 text-center">
-          Sent to <span className="font-medium text-[#2a2a2a]">{email}</span>
+        <p className="text-sm text-rw-ink-soft mb-6 text-center">
+          Sent to <span className="font-medium text-rw-ink">{email}</span>
         </p>
       )}
 
@@ -255,7 +255,7 @@ function CheckEmailInner() {
         {/* aria-hidden — the assertive LiveRegion below is the sole announcer,
             so AT hears the verify error exactly once. */}
         {verifyError && (
-          <p className="text-sm text-[#b3261e]" aria-hidden="true">
+          <p className="text-sm text-rw-error" aria-hidden="true">
             {verifyError}
           </p>
         )}
@@ -272,8 +272,8 @@ function CheckEmailInner() {
       <LiveRegion level="assertive" message={resendError} />
       <LiveRegion message={resendSent ? 'A new code is on its way.' : ''} />
 
-      <div className="border-t border-[#2a2a2a]/10 pt-4 space-y-3 text-center">
-        <p className="text-xs text-[#6a6a6a]">
+      <div className="border-t border-rw-ink/10 pt-4 space-y-3 text-center">
+        <p className="text-xs text-rw-ink-soft">
           Didn&apos;t get a code? Check your spam folder. Codes expire in 24
           hours.
         </p>
@@ -282,12 +282,12 @@ function CheckEmailInner() {
             disabled during load/cooldown) so a second resend stays possible
             instead of the button being permanently swapped out. */}
         {resendSent && !resendCooldown && (
-          <p className="text-sm text-[#1d6b4f]" aria-hidden="true">
+          <p className="text-sm text-rw-success" aria-hidden="true">
             A new code is on its way.
           </p>
         )}
         {resendError && (
-          <p className="text-sm text-[#b3261e]" aria-hidden="true">
+          <p className="text-sm text-rw-error" aria-hidden="true">
             {resendError}
           </p>
         )}
@@ -295,7 +295,7 @@ function CheckEmailInner() {
           type="button"
           onClick={handleResend}
           disabled={resendLoading || resendCooldown || !email}
-          className="text-sm text-[#557069] hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+          className="text-sm text-rw-teal-strong hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {resendLoading
             ? 'Sending…'
@@ -306,7 +306,7 @@ function CheckEmailInner() {
         <div>
           <Link
             href="/signup"
-            className="text-sm text-[#6a6a6a] hover:text-[#2a2a2a] hover:underline"
+            className="text-sm text-rw-ink-soft hover:text-rw-ink hover:underline"
           >
             ← Go back and change email
           </Link>

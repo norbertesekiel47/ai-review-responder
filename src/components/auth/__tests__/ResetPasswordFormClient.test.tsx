@@ -36,7 +36,7 @@ describe('ResetPasswordFormClient portal variants', () => {
     const { container } = render(
       <ResetPasswordFormClient portal="owner" brandName="RepWorth" />,
     );
-    expect(container.innerHTML).toContain('bg-[#D2E0D3]');
+    expect(container.innerHTML).toContain('bg-rw-sage');
     expect(container.innerHTML).not.toContain('bg-blue-600');
     await waitFor(() => {
       expect(container.querySelector('input#new-password')?.className).toContain('text-base');
@@ -48,7 +48,7 @@ describe('ResetPasswordFormClient portal variants', () => {
       <ResetPasswordFormClient portal="admin" brandName="RepWorth Admin" />,
     );
     expect(container.innerHTML).toContain('bg-gray-50');
-    expect(container.innerHTML).not.toContain('bg-[#D2E0D3]');
+    expect(container.innerHTML).not.toMatch(/bg-rw-sage(?![-\w])/);
   });
 
   it('owner happy path — submits and pushes to redirectTo on success', async () => {
