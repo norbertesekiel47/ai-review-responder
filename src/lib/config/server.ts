@@ -114,6 +114,12 @@ const serverSchema = z.object({
   // (read only in mock mode), exempt in the process-env audit, never prod config.
   ZERNIO_API_BASE: rawOpt,
   ZERNIO_API_KEY: rawOpt,
+  // Migrated raw read (Stage-3 trial-period-days batch): create-checkout-session
+  // resolveTrialPeriodDays() does `if (!raw) return DEFAULT; parseInt(raw, 10)` on
+  // the raw value, so rawOptionalVar preserves ''/'   '/unset byte-for-byte (#7) —
+  // an empty string must stay falsy → default 30, exactly like the old read.
+  // Next-only (billing-checkout + onboarding select-plan routes); read in-fn.
+  TRIAL_PERIOD_DAYS: rawOpt,
   DB_POOL_MAX: opt,
   // ── Stage-3 src-lib batch (server/shared secrets + small config) ──────────
   // All migrated raw reads (each call site owns its own ?.trim()/!value/Boolean/

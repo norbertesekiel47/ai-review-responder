@@ -6,12 +6,17 @@ vi.mock('@/lib/payments/stripe-client', () => ({
   getStripe: () => ({ checkout: { sessions: { create: createMock } } }),
 }));
 
-vi.mock('@/lib/payments/price-tier-map', () => ({
+// Partial mock: keep the real exports (notably STRIPE_PRICE_ENV_VARS, which
+// config/server.ts imports to build its schema — now pulled in transitively via
+// resetServerConfigForTests) and override only the two price-id resolvers.
+vi.mock('@/lib/payments/price-tier-map', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/payments/price-tier-map')>()),
   basePriceIdForTier: () => 'price_basic_123',
   overagePriceIdForTier: () => null,
 }));
 
 import { createCheckoutSession } from '../create-checkout-session';
+import { resetServerConfigForTests } from '@/lib/config/server';
 
 describe('createCheckoutSession tax handling', () => {
   beforeEach(() => {
@@ -43,6 +48,12 @@ describe('createCheckoutSession trial handling', () => {
   beforeEach(() => {
     createMock.mockReset();
     createMock.mockResolvedValue({ url: 'https://checkout.stripe', id: 'cs_123' });
+    // resolveTrialPeriodDays() now reads TRIAL_PERIOD_DAYS via the memoized
+    // getServerConfig(); clear the memo so each test's vi.stubEnv() value is
+    // re-parsed at the next getServerConfig() call (Stage-3 convention #6). Every
+    // assertion below is unchanged. Each test stubs env BEFORE the first config
+    // read, so the reset here is sufficient (no per-stub reset needed).
+    resetServerConfigForTests();
   });
   afterEach(() => vi.unstubAllEnvs());
 
