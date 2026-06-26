@@ -10,6 +10,7 @@ import {
   subscriptionGrantsFullAccess,
 } from '@/lib/shared/subscription-status';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
+import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
 
 export const dynamic = 'force-dynamic';
 
@@ -141,7 +142,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   //      updated_at-vs-subscription_activated_at proxy, which could
   //      false-positive when the PlaceIdValidationWorker's UPDATE landed
   //      after Stripe.)
-  const demoFlowEnabled = process.env.ONBOARDING_DEMO_ENABLED === 'true';
+  const demoFlowEnabled = onboardingDemoEnabled();
   const ownerRole = 'owner';
   const [row] = await sql<SignupStatusRow[]>`
     SELECT a.id AS account_id, a.subscription_status, u.role,

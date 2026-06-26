@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { selfServeSignupEnabled } from '@/lib/auth/flags';
+import { trialEnabled as isTrialEnabled } from '@/lib/payments/flags';
 import { LandingContent } from '@/components/sections/landing/LandingContent';
 import { getServerConfig } from '@/lib/config/server';
 
@@ -21,7 +22,7 @@ export default function LandingPage() {
   // Server-authoritative trial flag (invariant #13: no NEXT_PUBLIC_* companion).
   // The hero CTA only switches to the trial offer when self-serve signup is also
   // live — there is no signup to start a trial from otherwise.
-  const trialEnabled = process.env.TRIAL_ENABLED === 'true' && selfServeEnabled;
+  const trialEnabled = isTrialEnabled() && selfServeEnabled;
   return (
     <LandingContent
       selfServeEnabled={selfServeEnabled}

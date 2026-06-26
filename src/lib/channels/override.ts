@@ -16,6 +16,7 @@ import { writeAccountAuditLog } from '@/lib/audit/log';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
 import { shouldUseMultiLocationSettings } from '@/lib/locations/multi-location-mode';
+import { multiLocationEnabled } from '@/lib/locations/flags';
 
 export type OverridableChannel = 'email' | 'telegram' | 'whatsapp';
 
@@ -77,7 +78,7 @@ async function checkEligibility(
     WHERE account_id = ${accountId}::uuid
       AND archived_at IS NULL
   `;
-  const featureEnabled = process.env.MULTI_LOCATION_ENABLED === 'true';
+  const featureEnabled = multiLocationEnabled();
   const activeLocationCount = Number(countRow ? countRow.count : 0);
   if (!shouldUseMultiLocationSettings(featureEnabled, activeLocationCount)) {
     return { kind: 'not_eligible' };

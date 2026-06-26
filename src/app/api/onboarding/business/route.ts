@@ -15,6 +15,7 @@ import { extractPlaceId } from '@/lib/reviews/url-parser';
 import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import { PLACEHOLDER_BUSINESS_NAME } from '@/lib/onboarding/create-business';
+import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
 import { enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
@@ -139,7 +140,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const demoFlowEnabled = process.env.ONBOARDING_DEMO_ENABLED === 'true';
+  const demoFlowEnabled = onboardingDemoEnabled();
 
   // 6. Onboarding-state guard. Branches by ONBOARDING_DEMO_ENABLED:
   //

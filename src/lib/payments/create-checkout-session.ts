@@ -16,6 +16,7 @@ import { computeOverageQuantity } from '@/lib/accounts/quota';
 import { sql } from '@/lib/db/server';
 import { getStripe } from '@/lib/payments/stripe-client';
 import { getServerConfig } from '@/lib/config/server';
+import { stripeTaxEnabled } from './flags';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -125,7 +126,7 @@ export async function createCheckoutSession(
   // makes sessions.create throw. Flip STRIPE_TAX_ENABLED only after the dashboard
   // is configured (see the Launch-Gate Checklist). tax_id_collection is a
   // deliberate B2B choice — RepWorth's customers are businesses.
-  const taxParams = process.env.STRIPE_TAX_ENABLED === 'true'
+  const taxParams = stripeTaxEnabled()
     ? {
         automatic_tax: { enabled: true },
         billing_address_collection: 'required' as const,

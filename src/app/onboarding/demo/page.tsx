@@ -7,6 +7,7 @@ import {
   subscriptionGrantsFullAccess,
 } from '@/lib/shared/subscription-status';
 import { PaywallWithDemoClient } from './PaywallWithDemoClient';
+import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,7 +32,7 @@ interface OwnerRow {
 }
 
 export default async function OnboardingDemoPage() {
-  if (process.env.ONBOARDING_DEMO_ENABLED !== 'true') notFound();
+  if (!onboardingDemoEnabled()) notFound();
 
   const cookieStore = await cookies();
   const supabase = createServerClient(

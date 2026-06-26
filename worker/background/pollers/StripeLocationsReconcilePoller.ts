@@ -23,6 +23,7 @@
 
 import { getStripe } from '../../../src/lib/payments/stripe-client';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
+import { stripeLocationsReconcileDisabled } from '../../../src/lib/payments/flags';
 import { sql } from '../../../src/lib/db/server';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { emitDriftAlert } from './billing-reconciliation/drift-alert';
@@ -207,7 +208,7 @@ export async function reconcileCycle(signal: AbortSignal): Promise<ReconcileResu
  * Starts the hourly reconciliation poller.
  */
 export function startStripeLocationsReconcilePoller(): void {
-  if (process.env.STRIPE_LOCATIONS_RECONCILE_DISABLED === 'true') {
+  if (stripeLocationsReconcileDisabled()) {
     logger.log('STRIPE_LOCATIONS_RECONCILE_DISABLED=true — not starting');
     return;
   }

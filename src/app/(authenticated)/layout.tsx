@@ -15,6 +15,7 @@ import { getDisplayLabel } from '@/lib/locations/display-label';
 import type { LocationScope } from '@/contexts/LocationContext';
 import type { LocationId } from '@/lib/shared/ids';
 import { accountOffboardingEnabled } from '@/lib/account-offboarding/flags';
+import { multiLocationEnabled as isMultiLocationEnabled } from '@/lib/locations/flags';
 import { getOffboardingState, isOperationalUIBlocked } from '@/lib/account-offboarding/gate';
 import {
   ACCOUNT_OFFBOARDING_STATUS_PATH,
@@ -115,7 +116,7 @@ export default async function AuthenticatedLayout({
   }
 
   // Determine multi-location state and fetch all active locations
-  const multiLocationEnabled = process.env.MULTI_LOCATION_ENABLED === 'true';
+  const multiLocationEnabled = isMultiLocationEnabled();
 
   // Reuse getRequestScope() for cookie validation + primary fallback
   // instead of duplicating the same validation logic inline.

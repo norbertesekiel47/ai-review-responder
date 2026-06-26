@@ -9,12 +9,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireOwnerWithAccount } from '@/lib/auth/route-helpers';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { multiLocationEnabled } from '@/lib/locations/flags';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   // Gate by MULTI_LOCATION_ENABLED
-  if (process.env.MULTI_LOCATION_ENABLED !== 'true') {
+  if (!multiLocationEnabled()) {
     return NextResponse.json(
       { error: 'not_found' },
       { status: 404, headers: NO_STORE_HEADERS },

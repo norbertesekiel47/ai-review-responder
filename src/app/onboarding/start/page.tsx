@@ -9,6 +9,7 @@ import {
   subscriptionGrantsFullAccess,
 } from '@/lib/shared/subscription-status';
 import { StartLocationClient } from './StartLocationClient';
+import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,7 +23,7 @@ interface GuardRow {
 export const metadata: Metadata = { title: 'Get started | RepWorth' };
 
 export default async function OnboardingStartPage() {
-  if (process.env.ONBOARDING_DEMO_ENABLED !== 'true') notFound();
+  if (!onboardingDemoEnabled()) notFound();
   if (!selfServeSignupEnabled()) notFound();
 
   const cookieStore = await cookies();

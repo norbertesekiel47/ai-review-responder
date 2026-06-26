@@ -4,6 +4,7 @@ import { jsonResponse, errorResponse, requireOwnerWithAccount } from '@/lib/auth
 import { subscriptionAllowsDashboardRead } from '@/lib/shared/subscription-status';
 import { isValidUuid } from '@/lib/shared/ids';
 import { getLocationById } from '@/lib/locations/repo';
+import { multiLocationEnabled as isMultiLocationEnabled } from '@/lib/locations/flags';
 import { getLocationKpiSummary, getAccountKpiSummary } from '@/lib/kpi/service';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { resolveDashboardScopePolicy } from '../policy';
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     const scopeParam = request.nextUrl.searchParams.get('scope');
-    const multiLocationEnabled = process.env.MULTI_LOCATION_ENABLED === 'true';
+    const multiLocationEnabled = isMultiLocationEnabled();
     const scopePolicy = resolveDashboardScopePolicy({
       scopeParam,
       userLocationId: user.locationId,

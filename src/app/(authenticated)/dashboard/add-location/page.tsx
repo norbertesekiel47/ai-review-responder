@@ -16,13 +16,14 @@ import { notFound } from 'next/navigation';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { currentBillingSnapshot } from '@/lib/accounts/quota';
 import { getActiveLocationCount } from '@/lib/locations/repo';
+import { multiLocationEnabled } from '@/lib/locations/flags';
 import { AddLocationWizard } from './AddLocationWizard';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AddLocationPage() {
   // VAL-LOC-041: Gate by MULTI_LOCATION_ENABLED flag
-  if (process.env.MULTI_LOCATION_ENABLED !== 'true') {
+  if (!multiLocationEnabled()) {
     notFound();
   }
 

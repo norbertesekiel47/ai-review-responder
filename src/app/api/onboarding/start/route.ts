@@ -11,6 +11,7 @@ import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 import { reserveOnboardingDemoBudget, CostCeilingExceeded } from '@/lib/costs/onboarding-demo-cost-guard';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { PLACEHOLDER_BUSINESS_NAME } from '@/lib/onboarding/create-business';
+import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
 import { botIdBlockResponse } from '@/lib/security/botid';
 import type postgres from 'postgres';
 import { enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
@@ -164,7 +165,7 @@ async function persistOnboardingStart(tx: TxClient, p: OnboardingStartTxParams):
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  if (process.env.ONBOARDING_DEMO_ENABLED !== 'true') {
+  if (!onboardingDemoEnabled()) {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
   }
 

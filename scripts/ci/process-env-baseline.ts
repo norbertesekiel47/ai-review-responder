@@ -82,6 +82,19 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   // notification/eligibility + zernio/zernio-ingest-shared. STAYS: worker/index.ts (PORT +
   // WORKER_SHUTDOWN_GRACE_MS) and RankingTrackingScheduler.ts (RANKING_TRACKING_INTERVAL_MS)
   // still read other non-exempt env. Net 28 → 20.
+  //
+  // Stage-4 locations/payments/onboarding/moderation flag cluster MIGRATED (removed 4): the
+  // multi-location (MULTI_LOCATION_ENABLED), payments (TRIAL_ENABLED / STRIPE_TAX_ENABLED /
+  // STRIPE_LOCATIONS_RECONCILE_DISABLED), onboarding-demo (ONBOARDING_DEMO_ENABLED) and
+  // moderation (OPENAI_MODERATION_ENABLED) reads now route through new <feature>/flags.ts
+  // accessors (locations, payments, onboarding, moderation) over the shared readFlag()
+  // primitive. Each was dropped because the flag was its ONLY non-exempt process.env read:
+  // channels/override.ts, locations/owner-route.ts, moderation/moderate.ts, and worker
+  // StripeLocationsReconcilePoller (its other read is the exempt MOCK_EXTERNAL_APIS). STAYS:
+  // payments/create-checkout-session.ts (NEXT_PUBLIC_APP_URL, literal #1 — not migratable)
+  // and onboarding/admin-onboarding-service.ts (NEXT_PUBLIC_APP_URL; its only read, never a
+  // flag — untouched here). Net 20 → 16. The four new flags.ts modules read no process.env
+  // directly → not added.
   // Stage-3 src-lib batch MIGRATED (removed): admin/impersonation/cookie.ts,
   // analytics/posthog.ts, costs/onboarding-demo-cost-guard.ts,
   // google/owner-leads-sheet.ts, shared/feedback-hmac.ts,
@@ -96,11 +109,8 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   // and the reservation logic are byte-for-byte unchanged. (admin/cost-report-service.ts
   // reads the same *_CENTS vars at module-load and stays ALLOWLISTED — independent.)
   'src/lib/auth/require-owner-access.ts',
-  'src/lib/channels/override.ts',
   'src/lib/db/auth.ts',
   'src/lib/db/browser.ts',
-  'src/lib/locations/owner-route.ts',
-  'src/lib/moderation/moderate.ts',
   // Stage-3 notification-channels batch removed the 5 fully-migrated SEND
   // adapters (email-channel.ts, telegram-client.ts, whatsapp-client.ts,
   // whatsapp-channel.ts, whatsapp-body.ts). They are reached only by the worker
@@ -140,9 +150,10 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   // src/lib/auth/flags.ts selfServeSignupEnabled() (the readFlag primitive). Net 29 → 28.
   // Stage-4 channels/publishing cluster then dropped EmailChannelReconcilePoller (only
   // EMAIL_CHANNEL_RECONCILE_DISABLED) and ZernioRecentReviewPoller (only
-  // ZERNIO_PUBLISHING_ENABLED + ZERNIO_RECENT_REVIEW_POLL_DISABLED). StripeLocationsReconcilePoller
-  // STAYS: still reads other non-exempt env.
-  'worker/background/pollers/StripeLocationsReconcilePoller.ts',
+  // ZERNIO_PUBLISHING_ENABLED + ZERNIO_RECENT_REVIEW_POLL_DISABLED). The Stage-4
+  // locations/payments cluster then also dropped StripeLocationsReconcilePoller: its only
+  // counted read was STRIPE_LOCATIONS_RECONCILE_DISABLED (now via payments/flags.ts); its
+  // other read, MOCK_EXTERNAL_APIS, is exempt (#2).
   'worker/background/schedulers/MonthlyImpactScheduler.ts',
   'worker/background/schedulers/OnboardingDripScheduler.ts',
   'worker/background/schedulers/RankingTrackingScheduler.ts',

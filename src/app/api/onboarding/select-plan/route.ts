@@ -7,6 +7,7 @@ import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { SelectPlanSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
 import { createCheckoutSession, CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
+import { trialEnabled } from '@/lib/payments/flags';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
@@ -288,7 +289,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // falls back to a normal paid checkout. Only self-serve businesses
     // (onboarded_by IS NULL) are trial-eligible.
     const trialEligible =
-      process.env.TRIAL_ENABLED === 'true' && accountRow.onboarded_by === null;
+      trialEnabled() && accountRow.onboarded_by === null;
     const result = await createCheckoutSession(accountRow.account_id, tier, ownerEmail, {
       trial: trialEligible,
     });
