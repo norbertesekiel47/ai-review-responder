@@ -20,6 +20,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
+import { zernioPublishingEnabled } from '../../../src/lib/publishing/flags';
 import { claimInboundEvent } from '../shared';
 import { verifyZernioSignature } from './zernio-verify';
 import {
@@ -296,7 +297,7 @@ export async function handleZernioWebhook(
   reply: FastifyReply,
 ): Promise<void> {
   // 1. Flag check.
-  if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') {
+  if (!zernioPublishingEnabled()) {
     reply.status(503).send({ error: 'feature_disabled' });
     return;
   }

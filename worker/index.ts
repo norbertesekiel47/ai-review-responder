@@ -42,6 +42,9 @@ import { enforceIngressRateLimit } from './ingress/rate-limit';
 import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertSingleConcurrencyWorker, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
 import { assertWorkerConfig } from '../src/lib/config/worker';
 import { selfServeSignupEnabled } from '../src/lib/auth/flags';
+import { channelsTelegramEnabled, channelsWhatsappEnabled } from '../src/lib/notifications/channels/flags';
+import { notificationFailoverDisabled } from '../src/lib/notifications/flags';
+import { zernioPublishingEnabled } from '../src/lib/publishing/flags';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './background/pollers/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './background/schedulers/WeeklySummaryScheduler';
 import { startArchivalPoller, stopArchivalPoller } from './background/pollers/ArchivalPoller';
@@ -97,7 +100,7 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 //
 // See docs/adding-communication-channels.md §3.5.
 function shouldRunFailoverPoller(): { run: boolean; reason?: string } {
-  if (process.env.NOTIFICATION_FAILOVER_DISABLED === 'true') {
+  if (notificationFailoverDisabled()) {
     return { run: false, reason: 'NOTIFICATION_FAILOVER_DISABLED=true' };
   }
   if (isMockMode()) {
@@ -314,10 +317,10 @@ async function main(): Promise<void> {
     warnMissingProductionEnv();
     console.log(
       `[worker] Feature flags: ` +
-        `Telegram=${process.env.CHANNELS_TELEGRAM_ENABLED === 'true' ? 'on' : 'off'}, ` +
-        `WhatsApp=${process.env.CHANNELS_WHATSAPP_ENABLED === 'true' ? 'on' : 'off'}, ` +
+        `Telegram=${channelsTelegramEnabled() ? 'on' : 'off'}, ` +
+        `WhatsApp=${channelsWhatsappEnabled() ? 'on' : 'off'}, ` +
         `SelfServeSignup=${selfServeSignupEnabled() ? 'on' : 'off'}, ` +
-        `ZernioPublishing=${process.env.ZERNIO_PUBLISHING_ENABLED === 'true' ? 'on' : 'off'}`,
+        `ZernioPublishing=${zernioPublishingEnabled() ? 'on' : 'off'}`,
     );
   } catch (err) {
     console.error(`[worker] Startup assertion failed: ${err instanceof Error ? err.message : err}`);

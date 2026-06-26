@@ -144,11 +144,11 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   'src/app/api/admin/billing/grant-extension/route.ts:108',
   'src/lib/admin/margin-service.ts:136',
   'worker/background/pollers/CancellationGracePoller.ts:47',
-  'worker/background/pollers/EmailChannelReconcilePoller.ts:114',
+  'worker/background/pollers/EmailChannelReconcilePoller.ts:115',
   'worker/background/pollers/EngagementMonitorPoller.ts:91',
   'worker/background/schedulers/MonthlyImpactScheduler.ts:45',
   'worker/background/schedulers/OnboardingDripScheduler.ts:39',
-  'worker/background/schedulers/RankingTrackingScheduler.ts:59',
+  'worker/background/schedulers/RankingTrackingScheduler.ts:60',
   'worker/background/schedulers/WeeklySummaryScheduler.ts:58',
   'worker/ingress/stripe/apply-subscription-state.ts:260',
   'worker/ingress/stripe/apply-subscription-state.ts:273',
@@ -158,7 +158,7 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   'worker/ingress/stripe/apply-subscription-state.ts:340',
   'worker/ingress/stripe/apply-subscription-state.ts:349',
   'worker/ingress/stripe/apply-subscription-state.ts:352',
-  'worker/ingress/stripe/shared.ts:104',
+  'worker/ingress/stripe/shared.ts:105',
   // ── dashboard view-model discriminant union (type-level literals; the union
   //    mixes enum statuses with synthetic states like 'active_pending_business') ──
   'src/lib/dashboard/types.ts:112',

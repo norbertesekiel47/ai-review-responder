@@ -1,4 +1,5 @@
 import { getWorkerConfig } from '../../../src/lib/config/worker';
+import { emailChannelReconcileDisabled } from '../../../src/lib/notifications/channels/flags';
 import { sql } from '../../../src/lib/db/server';
 import { createWorkerLogger, type WorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 import { invalidateChannelCache } from '../../../src/lib/notifications/resolve-channels';
@@ -210,7 +211,7 @@ async function runOnceInner(
 
 export function startEmailChannelReconcilePoller(): void {
   const logger = createWorkerLogger(LOG_PREFIX);
-  if (process.env.EMAIL_CHANNEL_RECONCILE_DISABLED === 'true') {
+  if (emailChannelReconcileDisabled()) {
     logger.log('EMAIL_CHANNEL_RECONCILE_DISABLED=true — not starting');
     return;
   }

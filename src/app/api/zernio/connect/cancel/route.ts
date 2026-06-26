@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { zernioPublishingEnabled } from '@/lib/publishing/flags';
 import * as Sentry from '@sentry/nextjs';
 import { sql } from '@/lib/db/server';
 import { getCacheRedis } from '@/lib/db/redis-cache';
@@ -46,7 +47,7 @@ interface CancelConnectBody {
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // Feature flag — subsystem A is gated by ZERNIO_PUBLISHING_ENABLED (§1.1).
-  if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') {
+  if (!zernioPublishingEnabled()) {
     return NextResponse.json(
       { error: 'feature_disabled' },
       { status: 503, headers: NO_STORE },

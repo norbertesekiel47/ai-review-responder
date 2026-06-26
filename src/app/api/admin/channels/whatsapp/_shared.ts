@@ -5,9 +5,10 @@
 
 import { NextResponse } from 'next/server';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
 
 export function isWhatsAppEnabled(): boolean {
-  return process.env.CHANNELS_WHATSAPP_ENABLED === 'true';
+  return channelsWhatsappEnabled();
 }
 
 export function flagOff(): NextResponse {

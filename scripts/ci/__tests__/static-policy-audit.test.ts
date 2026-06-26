@@ -248,7 +248,7 @@ describe('scanFile — subscription-status bare literal (deep-scan §7.1; repwor
 
   it('exposes a non-empty, reviewed carve-out allowlist', () => {
     expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.size).toBeGreaterThan(0);
-    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('worker/ingress/stripe/shared.ts:104')).toBe(true);
+    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('worker/ingress/stripe/shared.ts:105')).toBe(true);
     expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('src/lib/dashboard/types.ts:112')).toBe(true);
   });
 });

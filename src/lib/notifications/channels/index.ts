@@ -24,17 +24,18 @@ export type { NotificationChannel, ChannelId } from './types';
 import { EmailChannel } from './email-channel';
 import { TelegramChannel } from './telegram-channel';
 import { WhatsAppChannel } from './whatsapp-channel';
+import { channelsTelegramEnabled, channelsWhatsappEnabled } from './flags';
 
 export function getChannel(id: ChannelId): NotificationChannel {
   if (id === 'email') return new EmailChannel();
   if (id === 'telegram') {
-    if (process.env.CHANNELS_TELEGRAM_ENABLED !== 'true') {
+    if (!channelsTelegramEnabled()) {
       throw new Error('Telegram channel disabled by CHANNELS_TELEGRAM_ENABLED env flag');
     }
     return new TelegramChannel();
   }
   if (id === 'whatsapp') {
-    if (process.env.CHANNELS_WHATSAPP_ENABLED !== 'true') {
+    if (!channelsWhatsappEnabled()) {
       throw new Error('WhatsApp channel disabled by CHANNELS_WHATSAPP_ENABLED env flag');
     }
     return new WhatsAppChannel();

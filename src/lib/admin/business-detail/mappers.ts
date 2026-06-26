@@ -7,6 +7,7 @@
 import { computeChurnRiskScore } from '@/lib/shared/churn-score';
 import { parseDbArray } from '@/lib/shared/db-array';
 import { isPreviewEnvironment } from '@/lib/config/flags';
+import { channelsTelegramEnabled, channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
 import {
   autoApprovalRuntimeEnabled,
   providerModerationEnabled,
@@ -296,8 +297,8 @@ export function mapBusinessDetailResponse({
       rankingSearchLocation: business.ranking_search_location,
       googlePlaceAddress: business.google_place_address,
       ownerEmailBounced: business.owner_email_bounced ?? false,
-      telegramEnabled: process.env.CHANNELS_TELEGRAM_ENABLED === 'true',
-      whatsappEnabled: process.env.CHANNELS_WHATSAPP_ENABLED === 'true',
+      telegramEnabled: channelsTelegramEnabled(),
+      whatsappEnabled: channelsWhatsappEnabled(),
       churnScore,
     },
     account: accountContext,

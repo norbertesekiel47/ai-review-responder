@@ -5,6 +5,7 @@ import { sql, jsonb } from '@/lib/db/server';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { zernioPublishingEnabled } from '@/lib/publishing/flags';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,7 +60,7 @@ async function handleZernioQueueAction(
 
   try {
     if (parsed.data.action === 'force_drain') {
-      if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') {
+      if (!zernioPublishingEnabled()) {
         return NextResponse.json({ error: 'feature_disabled' }, { status: 503, headers: NO_STORE });
       }
       const queued = await forceDrain(businessId, admin.id);

@@ -11,6 +11,7 @@ import { zernioRouteErrorResponse } from '../_shared/error-response';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import { zernioClient } from '@/lib/zernio/client';
+import { zernioPublishingEnabled } from '@/lib/publishing/flags';
 import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 
 export const dynamic = 'force-dynamic';
@@ -42,7 +43,7 @@ interface DisconnectBody {
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // Feature flag — subsystem A is gated by ZERNIO_PUBLISHING_ENABLED (§1.1).
-  if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') {
+  if (!zernioPublishingEnabled()) {
     return NextResponse.json(
       { error: 'feature_disabled' },
       { status: 503, headers: NO_STORE },
