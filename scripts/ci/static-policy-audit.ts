@@ -46,7 +46,8 @@ export type PolicyRule =
   | 'next-public-allowlist'
   | 'server-owned-table-browser-access'
   | 'server-db-client-import'
-  | 'subscription-status-literal';
+  | 'subscription-status-literal'
+  | 'inline-feature-flag';
 
 export interface PolicyFinding {
   file: string;
@@ -57,9 +58,42 @@ export interface PolicyFinding {
 
 // An ESM/CJS module specifier for the banned package (bare or submodule import).
 const CRYPTO_JS_SPECIFIER = /(?:from|require|import)\s*\(?\s*['"]crypto-js(?:\/[^'"]*)?['"]/;
-// An actual READ of a public env var (`process.env.NEXT_PUBLIC_X`) — not a
-// log/comment that merely names the variable.
-const NEXT_PUBLIC_ACCESS = /process\.env\.(NEXT_PUBLIC_[A-Z0-9_]+)/g;
+// An actual READ of a public env var — dot form `process.env.NEXT_PUBLIC_X` OR
+// string-bracket form `process.env['NEXT_PUBLIC_X']` (so a non-allowlisted public
+// read can't bypass via notation; the dynamic `process.env[name]` is excluded).
+// Not a log/comment that merely names the variable.
+const NEXT_PUBLIC_ACCESS =
+  /process\.env(?:\.(NEXT_PUBLIC_[A-Z0-9_]+)|\[\s*['"](NEXT_PUBLIC_[A-Z0-9_]+)['"]\s*\])/g;
+
+// Invariant #13 (Stage-4 flag sweep): a boolean feature flag (`*_ENABLED` /
+// `*_DISABLED`) must be read through the shared `readFlag` primitive
+// (src/lib/config/flags.ts) behind a per-feature `<feature>/flags.ts` accessor —
+// never inline. Matches a DOT-notation read `process.env.X_ENABLED` (the
+// `process.env.` prefix; bare flag-name mentions in comments/log strings are not
+// matched, and whole-comment lines are skipped). Matches BOTH the dot form
+// `process.env.X_ENABLED` and the string-literal bracket form
+// `process.env['X_ENABLED']` / `process.env["X_ENABLED"]` (so the rule can't be
+// bypassed by switching notation) — but NOT the dynamic `process.env[name]` that
+// `readFlag` itself uses (bracket WITHOUT a string literal → variable key). A
+// `NEXT_PUBLIC_*_ENABLED` read is excluded (the negative lookaheads) because it is
+// already the more-specific `next-public-allowlist` rule's concern — no
+// double-flagging. Like the sibling `NEXT_PUBLIC_ACCESS`/`crypto-js` rules this is
+// a raw-line scan: a `process.env.X_ENABLED` buried inside a string literal or a
+// trailing comment on a CODE line is a rare, accepted false-positive surface (the
+// `process.env.` prefix makes it unlikely); the fix there is a local rewrite.
+// Exempt files below.
+const INLINE_FLAG_ACCESS =
+  /process\.env(?:\.(?!NEXT_PUBLIC_)([A-Z][A-Z0-9_]*_(?:ENABLED|DISABLED))\b|\[\s*['"](?!NEXT_PUBLIC_)([A-Z][A-Z0-9_]*_(?:ENABLED|DISABLED))['"]\s*\])/g;
+
+// The flag-ban does NOT apply to: every `<feature>/flags.ts` accessor module
+// (the sanctioned home, incl. config/flags.ts), the worker boot-assert (it
+// validates flag-gated env groups by name), and `scripts/` CI/dev tooling (run
+// standalone via tsx, outside the app runtime and the @/ import graph).
+function isFlagBanExempt(file: string): boolean {
+  return /(?:^|[/\\])flags\.ts$/.test(file)
+    || /^worker[/\\]config[/\\]startup-assert\.ts$/.test(file)
+    || /^scripts[/\\]/.test(file);
+}
 // File-local guard only: this catches direct client-component table references.
 // It does not follow imports through helper modules, so code review must still
 // reject browser Supabase helper indirection for these server-owned tables.
@@ -183,6 +217,7 @@ export function scanFile(file: string, text: string): PolicyFinding[] {
   // (CI tooling, audit allowlist DATA that names real queries) legitimately
   // carries status literals as data and cannot meaningfully import the enum.
   const inAppCode = /^(?:src|worker)[/\\]/.test(file);
+  const flagBanApplies = !isFlagBanExempt(file);
   for (let i = 0; i < lines.length; i++) {
     const lineText = lines[i]!;
 
@@ -196,7 +231,7 @@ export function scanFile(file: string, text: string): PolicyFinding[] {
     }
 
     for (const match of lineText.matchAll(NEXT_PUBLIC_ACCESS)) {
-      const name = match[1]!;
+      const name = match[1] ?? match[2]!;
       if (!ALLOWED_NEXT_PUBLIC.has(name)) {
         findings.push({
           file,
@@ -206,6 +241,21 @@ export function scanFile(file: string, text: string): PolicyFinding[] {
             `${name} is not allowlisted — invariant #13: feature flags are ` +
             'server-authoritative (no NEXT_PUBLIC_ companion). If genuinely ' +
             'browser-safe and not a flag, add it to ALLOWED_NEXT_PUBLIC.',
+        });
+      }
+    }
+
+    if (flagBanApplies && !isCommentLine(lineText)) {
+      for (const match of lineText.matchAll(INLINE_FLAG_ACCESS)) {
+        const flagName = match[1] ?? match[2]!;
+        findings.push({
+          file,
+          line: i + 1,
+          rule: 'inline-feature-flag',
+          detail:
+            `inline read of feature flag ${flagName} — invariant #13: route it ` +
+            'through the readFlag primitive behind a <feature>/flags.ts accessor ' +
+            '(e.g. selfServeSignupEnabled()), never a raw process.env.*_ENABLED read.',
         });
       }
     }

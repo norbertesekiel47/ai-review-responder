@@ -14,6 +14,7 @@ import {
   ZernioReplyVerificationIndeterminateError,
 } from './publisher-error-handlers';
 import { isOrphanMarker, POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED } from '../../../src/lib/publishing/orphan-markers';
+import { replyEditingFlagEnabled } from '../../../src/lib/past-replies/flags';
 import type { PublishResponsePayload } from '../../../src/lib/shared/worker-types';
 
 const PUBLISHABLE_STATUSES = ['approved', 'edited', 'awaiting_owner_connect'] as const;
@@ -60,7 +61,7 @@ export async function handlePublisherFailed(
     // indeterminate error returns `false` here and falls through to
     // `handleVerificationIndeterminate` exactly as before. Flag-gated so Phase A
     // (flag off) behaves byte-for-byte as today — the block is skipped entirely.
-    if (process.env.EDIT_REPLIES_ENABLED === 'true') {
+    if (replyEditingFlagEnabled()) {
       const handled = await attemptOrphanConversion(job.data, outboxId, outboxAttempt);
       if (handled) return;
       // Not an orphan (or row moved on benignly with a non-terminal disposition

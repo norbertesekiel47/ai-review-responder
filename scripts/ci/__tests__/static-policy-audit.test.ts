@@ -268,3 +268,97 @@ describe('auditPackageJson — crypto-js (invariant #10)', () => {
     expect(auditPackageJson({ dependencies: { uuid: '^14.0.0' } })).toHaveLength(0);
   });
 });
+
+describe('scanFile — inline feature-flag ban (invariant #13, Stage-4)', () => {
+  it('flags an inline process.env.X_ENABLED read in app code', () => {
+    const findings = scanFile('src/app/api/x/route.ts', "if (process.env.FOO_ENABLED === 'true') {}");
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe('inline-feature-flag');
+    expect(findings[0]!.detail).toContain('FOO_ENABLED');
+  });
+
+  it('flags an inline process.env.X_DISABLED read (kill-switch)', () => {
+    const findings = scanFile('worker/background/pollers/Y.ts', "if (process.env.BAR_DISABLED === 'true') return;");
+    expect(findings.map((f) => f.rule)).toContain('inline-feature-flag');
+  });
+
+  it('does NOT flag a <feature>/flags.ts accessor module (the sanctioned home)', () => {
+    const findings = scanFile('src/lib/auth/flags.ts', "return process.env.SELF_SERVE_SIGNUP_ENABLED === 'true';");
+    expect(findings.filter((f) => f.rule === 'inline-feature-flag')).toHaveLength(0);
+  });
+
+  it('does NOT flag the readFlag primitive (config/flags.ts)', () => {
+    const findings = scanFile('src/lib/config/flags.ts', "return process.env[name] === 'true';");
+    expect(findings.filter((f) => f.rule === 'inline-feature-flag')).toHaveLength(0);
+  });
+
+  it('does NOT flag the worker boot-assert (startup-assert.ts)', () => {
+    const findings = scanFile('worker/config/startup-assert.ts', "if (process.env.CHANNELS_TELEGRAM_ENABLED !== 'true') return;");
+    expect(findings.filter((f) => f.rule === 'inline-feature-flag')).toHaveLength(0);
+  });
+
+  it('does NOT flag scripts/ tooling (run standalone via tsx)', () => {
+    const findings = scanFile('scripts/verify-x.ts', "const required = process.env.STRIPE_TAX_ENABLED === 'true';");
+    expect(findings.filter((f) => f.rule === 'inline-feature-flag')).toHaveLength(0);
+  });
+
+  it('does NOT flag a bare flag-name mention without the process.env. prefix (comment/log string)', () => {
+    const comment = scanFile('src/x.ts', "  // gated behind FOO_ENABLED when the flag is on");
+    const logStr = scanFile('src/y.ts', "    logger.log('BAR_DISABLED=true — not starting');");
+    expect(comment.filter((f) => f.rule === 'inline-feature-flag')).toHaveLength(0);
+    expect(logStr.filter((f) => f.rule === 'inline-feature-flag')).toHaveLength(0);
+  });
+
+  it('does NOT flag a process.env.X_ENABLED that appears on a comment line', () => {
+    const findings = scanFile('src/x.ts', "  // historical: process.env.FOO_ENABLED === 'true' gated this");
+    expect(findings.filter((f) => f.rule === 'inline-feature-flag')).toHaveLength(0);
+  });
+
+  it('does NOT flag dynamic process.env[name] (bracket notation, used by readFlag)', () => {
+    const findings = scanFile('src/x.ts', "const on = process.env[flagName] === 'true';");
+    expect(findings.filter((f) => f.rule === 'inline-feature-flag')).toHaveLength(0);
+  });
+
+  it('flags a NON-allowlisted NEXT_PUBLIC string-bracket read (no notation bypass of the public rule)', () => {
+    const bad = scanFile('src/x.ts', "if (process.env['NEXT_PUBLIC_BETA_ENABLED'] === 'true') {}");
+    const pub = bad.filter((f) => f.rule === 'next-public-allowlist');
+    expect(pub).toHaveLength(1);
+    expect(pub[0]!.detail).toContain('NEXT_PUBLIC_BETA_ENABLED');
+    // and it is NOT double-flagged by the feature-flag rule
+    expect(bad.filter((f) => f.rule === 'inline-feature-flag')).toHaveLength(0);
+  });
+
+  it('does NOT flag an ALLOWLISTED NEXT_PUBLIC string-bracket read', () => {
+    const ok = scanFile('src/x.ts', "const u = process.env[\"NEXT_PUBLIC_APP_URL\"];");
+    expect(ok.filter((f) => f.rule === 'next-public-allowlist')).toHaveLength(0);
+  });
+
+  it('flags the string-bracket form process.env[\'X_ENABLED\'] (no notation bypass)', () => {
+    const single = scanFile('src/x.ts', "if (process.env['FOO_ENABLED'] === 'true') {}");
+    const dbl = scanFile('src/x.ts', 'if (process.env["BAR_DISABLED"] === "true") {}');
+    expect(single.filter((f) => f.rule === 'inline-feature-flag').map((f) => f.detail.includes('FOO_ENABLED'))).toEqual([true]);
+    expect(dbl.filter((f) => f.rule === 'inline-feature-flag').map((f) => f.detail.includes('BAR_DISABLED'))).toEqual([true]);
+  });
+
+  it('does NOT flag near-miss names (word boundary): X_ENABLEDISH / X_ENABLED_FOO / X_ENABLED2', () => {
+    for (const code of [
+      "process.env.FOO_ENABLEDISH === 'true'",
+      "process.env.FOO_ENABLED_FOO === 'true'",
+      "process.env.FOO_ENABLED2 === 'true'",
+    ]) {
+      expect(scanFile('src/x.ts', code).filter((f) => f.rule === 'inline-feature-flag')).toHaveLength(0);
+    }
+  });
+
+  it('STILL flags a non-accessor file ending in -flags.ts (only real <feature>/flags.ts is exempt)', () => {
+    const findings = scanFile('src/lib/x/feature-flags.ts', "if (process.env.FOO_ENABLED === 'true') {}");
+    expect(findings.filter((f) => f.rule === 'inline-feature-flag')).toHaveLength(1);
+  });
+
+  it('exempts ONLY the repo-root worker/config/startup-assert.ts (a nested look-alike is still flagged)', () => {
+    const root = scanFile('worker/config/startup-assert.ts', "if (process.env.FOO_ENABLED !== 'true') return;");
+    const nested = scanFile('src/foo/worker/config/startup-assert.ts', "if (process.env.FOO_ENABLED !== 'true') return;");
+    expect(root.filter((f) => f.rule === 'inline-feature-flag')).toHaveLength(0);
+    expect(nested.filter((f) => f.rule === 'inline-feature-flag')).toHaveLength(1);
+  });
+});
