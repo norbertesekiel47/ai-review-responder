@@ -172,10 +172,11 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   // SERPAPI_API_KEY / CSRF_SECRET / WHATSAPP_AUTOPOST_TEMPLATE_SID /
   // ZERNIO_INGEST_MAX_PAGES reads now go through getWorkerConfig()). Stage-4
   // channels/publishing cluster then dropped notification/eligibility.ts (CHANNELS_*_ENABLED)
-  // and zernio/zernio-ingest-shared.ts (EXTERNAL_REPLY_IMPORT_ENABLED). The 2 below STAY:
-  // each still reads another Stage-4 *_ENABLED/*_DISABLED flag.
-  'worker/jobs/publisher/ResponsePublisherWorker.ts',
-  'worker/jobs/publisher/failed-hook.ts',
+  // and zernio/zernio-ingest-shared.ts (EXTERNAL_REPLY_IMPORT_ENABLED). Stage-4 flag-ban batch
+  // dropped publisher/ResponsePublisherWorker.ts + publisher/failed-hook.ts — their last read
+  // (EDIT_REPLIES_ENABLED) now goes through replyEditingFlagEnabled() (past-replies/flags.ts).
+  // The static-policy audit now BANS new inline process.env.*_ENABLED/*_DISABLED reads outside
+  // the flags.ts modules + startup-assert.ts + scripts/ (the readFlag convention is enforced).
   'worker/redis-connection.ts',
   'worker/sentry.ts',
 ]);

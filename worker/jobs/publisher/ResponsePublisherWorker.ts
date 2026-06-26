@@ -11,6 +11,7 @@ import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { asLocationId } from '../../../src/lib/shared/ids';
 import type { LocationId } from '../../../src/lib/shared/ids';
 import { autoApprovalRuntimeEnabled } from '../../../src/lib/auto-approval/flags';
+import { replyEditingFlagEnabled } from '../../../src/lib/past-replies/flags';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { loadPublishResponseContext } from './load-context';
 import { parkResponseForOwnerReconnect } from './no-connection';
@@ -179,7 +180,7 @@ export async function handlePublishResponse(
   // is byte-for-byte today's POST-only path. The module owns all DB mutations
   // + the locked DELETE+POST tx; the worker translates its outcome into the
   // existing outbox lifecycle.
-  if (process.env.EDIT_REPLIES_ENABLED === 'true') {
+  if (replyEditingFlagEnabled()) {
     const [postedSibling] = await sql<{ id: string }[]>`
       SELECT id FROM responses
       WHERE review_id = ${response.review_id}
