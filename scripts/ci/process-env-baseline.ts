@@ -64,7 +64,11 @@ export function isAllowlisted(file: string): boolean {
 }
 
 export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
-  'src/lib/account-offboarding/flags.ts',
+  // Stage-4 readFlag-primitive batch MIGRATED (removed): account-offboarding/flags.ts,
+  // auto-approval/flags.ts, past-replies/flags.ts — the three existing <feature>/flags.ts
+  // accessors now call the shared readFlag() primitive (src/lib/config/flags.ts, an
+  // allowlisted env reader that is NOT routed through getServerConfig). isPreviewEnvironment
+  // (VERCEL_TARGET_ENV) also moved into config/flags.ts. No behavior change. Net 32 → 29.
   'src/lib/admin/business-detail/mappers.ts',
   // Stage-3 src-lib batch MIGRATED (removed): admin/impersonation/cookie.ts,
   // analytics/posthog.ts, costs/onboarding-demo-cost-guard.ts,
@@ -80,7 +84,6 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   // and the reservation logic are byte-for-byte unchanged. (admin/cost-report-service.ts
   // reads the same *_CENTS vars at module-load and stays ALLOWLISTED — independent.)
   'src/lib/auth/require-owner-access.ts',
-  'src/lib/auto-approval/flags.ts',
   'src/lib/channels/override.ts',
   'src/lib/db/auth.ts',
   'src/lib/db/browser.ts',
@@ -98,7 +101,6 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   // below STAYS: its only reads are the Stage-4 CHANNELS_*_ENABLED flags. Net 38 → 33.
   'src/lib/notifications/channels/index.ts',
   'src/lib/onboarding/admin-onboarding-service.ts',
-  'src/lib/past-replies/flags.ts',
   'src/lib/payments/create-checkout-session.ts',
   'src/lib/payments/payment-link.ts',
   // Stage-3 serpapi-redis batch MIGRATED (removed): reviews/place-id-resolver.ts

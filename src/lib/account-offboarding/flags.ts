@@ -1,3 +1,5 @@
+import { readFlag } from '@/lib/config/flags';
+
 export function accountOffboardingEnabled(): boolean {
-  return process.env.ACCOUNT_OFFBOARDING_ENABLED === 'true';
+  return readFlag('ACCOUNT_OFFBOARDING_ENABLED');
 }

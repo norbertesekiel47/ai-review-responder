@@ -7,9 +7,9 @@ import {
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { sql } from '@/lib/db/server';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
+import { isPreviewEnvironment } from '@/lib/config/flags';
 import {
   autoApprovalRuntimeEnabled,
-  isPreviewEnvironment,
   providerModerationEnabled,
   providerModerationValidated,
 } from './flags';

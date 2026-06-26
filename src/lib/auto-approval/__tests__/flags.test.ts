@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   autoApprovalRuntimeEnabled,
-  isPreviewEnvironment,
   providerModerationEnabled,
   providerModerationValidated,
 } from '../flags';
@@ -55,27 +54,5 @@ describe('auto-approval flag helpers', () => {
 
     process.env.AUTO_APPROVAL_PROVIDER_MODERATION_READY = 'true';
     expect(providerModerationValidated()).toBe(true);
-  });
-
-  it('detects only genuine per-PR previews via VERCEL_TARGET_ENV', () => {
-    delete process.env.VERCEL_ENV;
-    delete process.env.VERCEL_TARGET_ENV;
-    expect(isPreviewEnvironment()).toBe(false);
-
-    process.env.VERCEL_TARGET_ENV = 'preview';
-    expect(isPreviewEnvironment()).toBe(true);
-
-    // exact match only
-    process.env.VERCEL_TARGET_ENV = 'Preview';
-    expect(isPreviewEnvironment()).toBe(false);
-
-    process.env.VERCEL_TARGET_ENV = 'production';
-    expect(isPreviewEnvironment()).toBe(false);
-
-    // staging custom env: VERCEL_ENV='preview' but VERCEL_TARGET_ENV='staging'
-    // must NOT count as preview (this is the regression this fix addresses).
-    process.env.VERCEL_ENV = 'preview';
-    process.env.VERCEL_TARGET_ENV = 'staging';
-    expect(isPreviewEnvironment()).toBe(false);
   });
 });
