@@ -59,12 +59,31 @@ const serverSchema = z.object({
   STRIPE_WEBHOOK_SECRET: opt,
   ...stripePriceShape,
   RESEND_API_KEY: rawOpt, // migrated raw read (client.ts Resend(...), contact-notify emailConfigured) — #7
-  SERPAPI_API_KEY: opt,
+  // Migrated raw read (Stage-3 serpapi-redis batch): serpapi-prefill.ts does
+  // `const apiKey = getServerConfig().SERPAPI_API_KEY; if (!apiKey)` on the RAW
+  // value (#7); place-id-resolver passes it straight to the SerpAPI SDK. So
+  // rawOptionalVar (not the collapsing opt) keeps a whitespace `'   '` truthy
+  // exactly like the old raw process.env.SERPAPI_API_KEY. getSerpapiConfig/
+  // assertSerpapiConfig still treat whitespace as absent via requirePresentIn/
+  // requirePresent, so the asserting accessor is unaffected.
+  SERPAPI_API_KEY: rawOpt,
   OPENAI_API_KEY: opt,
   NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: opt,
   // ── shape-only optionals (not asserted this Stage) ──
   DATABASE_URL: opt,
-  REDIS_CACHE_URL: opt,
+  // Migrated raw read (Stage-3 serpapi-redis batch): the SerpAPI+Redis cluster's
+  // presence gates do `if (!getServerConfig().REDIS_CACHE_URL)` (serpapi-prefill
+  // readCache/writeCache, rate-limit), so rawOptionalVar keeps a whitespace `'   '`
+  // TRUTHY exactly like the old raw process.env.REDIS_CACHE_URL — the collapsing
+  // opt would map it to undefined and FLIP the gate (skip cache / wrongly
+  // fail-closed). REDIS_CACHE_URL was shape-only/unconsumed before this batch, so
+  // the switch has no other consumer. The db/redis-cache.ts constructor still reads
+  // process.env directly (allowlisted).
+  REDIS_CACHE_URL: rawOpt,
+  // Migrated raw read (Stage-3 serpapi-redis batch): serpapi-prefill computes
+  // `cfg.SERPAPI_TIMEOUT_MS ? Math.max(1, parseInt(cfg.SERPAPI_TIMEOUT_MS, 10)) :
+  // 2_000`, so rawOptionalVar preserves ''/'   '/unset byte-for-byte (#7).
+  SERPAPI_TIMEOUT_MS: rawOpt,
   SENTRY_DSN: opt,
   NEXT_PUBLIC_SENTRY_DSN: opt,
   NEXT_PUBLIC_DOCS_BASE_URL: opt,

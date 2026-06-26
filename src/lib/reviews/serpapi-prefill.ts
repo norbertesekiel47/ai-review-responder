@@ -1,4 +1,5 @@
 import { getJson } from 'serpapi';
+import { getServerConfig } from '@/lib/config/server';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { recordApiCost } from '@/lib/costs/audit';
 import { getCacheRedis } from '@/lib/db/redis-cache';
@@ -7,12 +8,6 @@ const LOG_PREFIX = '[serpapi-prefill]';
 const CACHE_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 const CACHE_KEY_PREFIX = 'serpapi:prefill:';
 const SERPAPI_PREFILL_COST_USD = 0.005; // ~$0.005 per SerpAPI search at $50/5000 plan
-// Vercel route is invoked synchronously from the onboarding form's PlaceAutocomplete
-// callback. A stalled SerpAPI call must not hang the UI — default 2s.
-// Override via SERPAPI_TIMEOUT_MS env var for staging timeout testing.
-const SERPAPI_TIMEOUT_MS = process.env.SERPAPI_TIMEOUT_MS
-  ? Math.max(1, parseInt(process.env.SERPAPI_TIMEOUT_MS, 10))
-  : 2_000;
 
 export interface BusinessPrefill {
   category: string | null;
@@ -58,11 +53,19 @@ export async function fetchBusinessDetails(placeId: string): Promise<BusinessPre
   if (cached) return cached;
 
   // 3. API key guard
-  const apiKey = process.env.SERPAPI_API_KEY;
+  const cfg = getServerConfig();
+  const apiKey = cfg.SERPAPI_API_KEY;
   if (!apiKey) {
     console.warn(`${LOG_PREFIX} SERPAPI_API_KEY not set — returning empty prefill`);
     return emptyPrefill();
   }
+
+  // The Vercel route is invoked synchronously from the onboarding form's
+  // PlaceAutocomplete callback. A stalled SerpAPI call must not hang the UI —
+  // default 2s. Override via SERPAPI_TIMEOUT_MS env var for staging timeout testing.
+  const serpApiTimeoutMs = cfg.SERPAPI_TIMEOUT_MS
+    ? Math.max(1, parseInt(cfg.SERPAPI_TIMEOUT_MS, 10))
+    : 2_000;
 
   // 4. SerpAPI call with timeout. The serpapi package doesn't support
   //    AbortController, so use Promise.race as the timeout primitive. The
@@ -84,8 +87,8 @@ export async function fetchBusinessDetails(placeId: string): Promise<BusinessPre
       }),
       new Promise<never>((_, reject) =>
         setTimeout(
-          () => reject(new Error(`SerpAPI timeout after ${SERPAPI_TIMEOUT_MS}ms`)),
-          SERPAPI_TIMEOUT_MS,
+          () => reject(new Error(`SerpAPI timeout after ${serpApiTimeoutMs}ms`)),
+          serpApiTimeoutMs,
         ),
       ),
     ]);
@@ -278,7 +281,7 @@ function isValidBusinessPrefill(data: unknown): data is BusinessPrefill {
 }
 
 async function readCache(placeId: string): Promise<BusinessPrefill | null> {
-  if (!process.env.REDIS_CACHE_URL) return null;
+  if (!getServerConfig().REDIS_CACHE_URL) return null;
   try {
     const redis = getCacheRedis();
     const key = `${CACHE_KEY_PREFIX}${placeId}`;
@@ -314,7 +317,7 @@ async function readCache(placeId: string): Promise<BusinessPrefill | null> {
 }
 
 async function writeCache(placeId: string, prefill: BusinessPrefill): Promise<void> {
-  if (!process.env.REDIS_CACHE_URL) return;
+  if (!getServerConfig().REDIS_CACHE_URL) return;
   const redis = getCacheRedis();
   await redis.setex(
     `${CACHE_KEY_PREFIX}${placeId}`,

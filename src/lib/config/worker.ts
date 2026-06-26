@@ -49,8 +49,11 @@ const workerSchema = z.object({
   SERPAPI_API_KEY: rawOpt,
   OPENAI_API_KEY: opt,
   ANTHROPIC_API_KEY: opt,
-  // shape-only optionals (presence owned by startup-assert.ts this Stage)
-  REDIS_CACHE_URL: opt,
+  // Migrated raw read (Stage-3 serpapi-redis batch): place-id-resolver.ts
+  // (worker-only) does `if (!getWorkerConfig().REDIS_CACHE_URL)` fail-closed gate;
+  // rawOptionalVar keeps `'   '` truthy (#7). startup-assert.ts reads process.env
+  // directly so boot semantics are unchanged.
+  REDIS_CACHE_URL: rawOpt,
   // Migrated raw reads (Stage-3 worker-pollers batch): NotificationFailoverPoller
   // reads ADMIN_NOTIFICATION_EMAIL raw (`if (adminEmail)` / `if (!adminEmail)`) and
   // drift-alert.ts reads SENTRY_DSN raw (`if (X)` Sentry-vs-warn gate), so rawOpt

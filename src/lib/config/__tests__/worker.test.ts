@@ -215,6 +215,25 @@ describe('config/worker', () => {
     expect(cfg.ZERNIO_WEBHOOK_SECRET).toBe('   ');
   });
 
+  // ── Stage-3 serpapi-redis batch ───────────────────────────────────────────
+
+  it('REDIS_CACHE_URL passes whitespace-only through RAW (rawOptionalVar #7)', async () => {
+    // place-id-resolver (worker-only) does `if (!getWorkerConfig().REDIS_CACHE_URL)`
+    // on the raw value; '   ' must stay truthy so the fail-closed budget gate does
+    // not false-fire. The collapsing optionalVar would map it to undefined. RED
+    // under optionalVar, GREEN under rawOptionalVar.
+    process.env = { ...CORE, NODE_ENV: 'test', REDIS_CACHE_URL: '   ' } as NodeJS.ProcessEnv;
+    const { getWorkerConfig } = await import('../worker');
+    expect(getWorkerConfig().REDIS_CACHE_URL).toBe('   ');
+  });
+
+  it('REDIS_CACHE_URL is undefined when unset — tolerate-absent (no throw)', async () => {
+    process.env = { ...CORE, NODE_ENV: 'test' } as NodeJS.ProcessEnv;
+    delete process.env.REDIS_CACHE_URL;
+    const { getWorkerConfig } = await import('../worker');
+    expect(getWorkerConfig().REDIS_CACHE_URL).toBeUndefined();
+  });
+
   it('resetWorkerConfigForTests clears the memo so the next read re-parses env', async () => {
     process.env = { ...CORE, NODE_ENV: 'test', OUTBOX_BATCH_SIZE: '50' } as NodeJS.ProcessEnv;
     const { getWorkerConfig, resetWorkerConfigForTests } = await import('../worker');

@@ -1,4 +1,5 @@
 import { getJson } from 'serpapi';
+import { getWorkerConfig } from '@/lib/config/worker';
 import { isPlaceId } from './url-parser';
 import type { GoogleMapsUrlData } from './url-parser';
 import { getCacheRedis } from '@/lib/db/redis-cache';
@@ -58,7 +59,7 @@ export async function resolvePlaceId(data: GoogleMapsUrlData): Promise<string> {
     q: data.businessName,
     ll: `@${data.coordinates.lat},${data.coordinates.lng},15z`,
     type: 'search',
-    api_key: process.env.SERPAPI_API_KEY,
+    api_key: getWorkerConfig().SERPAPI_API_KEY,
     // Explicit bounded timeout — the serpapi client defaults to 60s, which
     // exceeds the 25s shutdown grace window and stalls the only slot on a
     // concurrency-1 worker. Fail fast so BullMQ retry/backoff handles it.
@@ -132,7 +133,7 @@ return cur
 
 /** Fail-closed SerpAPI budget guard. Blocks if Redis is unavailable (unlike checkRateLimit which fails open). */
 async function checkSerpApiResolutionBudget(): Promise<void> {
-  if (!process.env.REDIS_CACHE_URL) {
+  if (!getWorkerConfig().REDIS_CACHE_URL) {
     throw new Error('Daily Place ID resolution limit unavailable — use the search field instead');
   }
 
