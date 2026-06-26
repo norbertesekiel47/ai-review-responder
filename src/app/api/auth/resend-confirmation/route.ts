@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { supabaseServer } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // Owner-only route — admins are manually provisioned and never need resend.
   // See ResendConfirmationSchema (literal 'owner') for the rationale.
-  if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
+  if (!selfServeSignupEnabled()) {
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
 

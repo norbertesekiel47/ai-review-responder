@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { notFound } from 'next/navigation';
 import { PaymentSuccessClient } from './PaymentSuccessClient';
 
@@ -9,7 +10,7 @@ export default async function PaymentSuccessPage({
 }: {
   searchParams: Promise<{ session_id?: string; checkout_session_id?: string }>;
 }) {
-  if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') notFound();
+  if (!selfServeSignupEnabled()) notFound();
   const params = await searchParams;
   return (
     <PaymentSuccessClient

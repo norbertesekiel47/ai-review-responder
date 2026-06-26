@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { getIpKey } from '@/lib/shared/request-ip';
 import { isPlaceId } from '@/lib/reviews/url-parser';
@@ -32,7 +33,7 @@ const NO_STORE = { 'Cache-Control': 'no-store' } as const;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   // 1. Feature flag — hide the route entirely when off.
-  if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
+  if (!selfServeSignupEnabled()) {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
   }
 

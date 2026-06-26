@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { notFound, redirect } from 'next/navigation';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
@@ -22,7 +23,7 @@ export const metadata: Metadata = { title: 'Get started | RepWorth' };
 
 export default async function OnboardingStartPage() {
   if (process.env.ONBOARDING_DEMO_ENABLED !== 'true') notFound();
-  if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') notFound();
+  if (!selfServeSignupEnabled()) notFound();
 
   const cookieStore = await cookies();
   const supabase = createServerClient(

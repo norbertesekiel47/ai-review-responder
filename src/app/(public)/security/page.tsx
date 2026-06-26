@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import Link from 'next/link';
 import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
@@ -11,7 +12,7 @@ export const metadata: Metadata = {
 };
 
 export default function SecurityPage() {
-  const selfServeEnabled = process.env.SELF_SERVE_SIGNUP_ENABLED === 'true';
+  const selfServeEnabled = selfServeSignupEnabled();
 
   return (
     <PageShell sections={[]}>

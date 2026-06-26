@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { sql, supabaseServer } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // 2. Body-level flag gate: owner requests 404 when self-serve is off; admin
   //    requests always proceed (admins need reset regardless of rollout state).
-  if (role === 'owner' && process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
+  if (role === 'owner' && !selfServeSignupEnabled()) {
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
 

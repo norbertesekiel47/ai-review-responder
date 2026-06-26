@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { createServerClient } from '@supabase/ssr';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
@@ -108,7 +109,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // 4. Role-based flag gate. Admin reset flow must work regardless of the
   //    self-serve rollout. Only owners 404 when the flag is off.
   const isOwner = row.role === 'owner';
-  if (isOwner && process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
+  if (isOwner && !selfServeSignupEnabled()) {
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
 

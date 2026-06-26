@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { createServerClient } from '@supabase/ssr';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
@@ -40,7 +41,7 @@ const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
  * limits are generous enough that two impatient retries don't trip them.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
+  if (!selfServeSignupEnabled()) {
     return NextResponse.json(
       { error: 'not_found' },
       { status: 404, headers: NO_STORE },

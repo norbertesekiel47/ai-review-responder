@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
 import type { NormalizedReview } from '@/lib/reviews/types';
@@ -43,7 +44,7 @@ export default async function DemoViewerPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const selfServeEnabled = process.env.SELF_SERVE_SIGNUP_ENABLED === 'true';
+  const selfServeEnabled = selfServeSignupEnabled();
   const demo = await getDemo(slug);
 
   if (!demo || demo.expires_at < new Date()) {

@@ -7,6 +7,7 @@
 //   VAL-BILLING-030 through VAL-BILLING-032.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { z } from 'zod';
 import { getOffboardingState, isCheckoutBlocked } from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
@@ -149,7 +150,7 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
   // self-serve accounts (onboarded_by IS NULL) are trial-eligible.
   const trialEligible =
     process.env.TRIAL_ENABLED === 'true' &&
-    process.env.SELF_SERVE_SIGNUP_ENABLED === 'true' &&
+    selfServeSignupEnabled() &&
     account.subscription_status === SubscriptionStatus.PENDING_PAYMENT &&
     account.onboarded_by === null;
 

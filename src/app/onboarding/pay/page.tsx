@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { redirect, notFound } from 'next/navigation';
@@ -22,7 +23,7 @@ export default async function OnboardingPayPage({
   // Self-serve signup must hide the entire onboarding flow when the flag is
   // off — including this server-rendered page. Otherwise a leaked URL could
   // probe whether self-serve was on.
-  if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') notFound();
+  if (!selfServeSignupEnabled()) notFound();
 
   // Use `await cookies()` for forward-compat with Next.js 15 (where it
   // returns a Promise). On Next 14 the await unwraps a non-Promise to

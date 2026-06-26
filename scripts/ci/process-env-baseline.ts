@@ -122,9 +122,11 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   // MOCK_EXTERNAL_APIS stays a direct exempt read (#2) — so no counted read remains
   // and no import-time reader → not allowlisted. Net 39 → 38.
   // Stage-3 worker-pollers batch removed the 15 fully-migrated poller files
-  // (all their tuning/alerting reads now go through getWorkerConfig()). The 4
+  // (all their tuning/alerting reads now go through getWorkerConfig()). The 3
   // pollers below STAY: each still reads a Stage-4 *_ENABLED/*_DISABLED flag.
-  'worker/background/pollers/CleanupAbandonedSignupsPoller.ts',
+  // Stage-4 auth-flags batch MIGRATED (removed): CleanupAbandonedSignupsPoller.ts —
+  // its only process.env read was SELF_SERVE_SIGNUP_ENABLED, now routed through
+  // src/lib/auth/flags.ts selfServeSignupEnabled() (the readFlag primitive). Net 29 → 28.
   'worker/background/pollers/EmailChannelReconcilePoller.ts',
   'worker/background/pollers/StripeLocationsReconcilePoller.ts',
   'worker/background/pollers/ZernioRecentReviewPoller.ts',
