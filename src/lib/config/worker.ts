@@ -45,14 +45,68 @@ const workerSchema = z.object({
   ANTHROPIC_API_KEY: opt,
   // shape-only optionals (presence owned by startup-assert.ts this Stage)
   REDIS_CACHE_URL: opt,
-  ADMIN_NOTIFICATION_EMAIL: opt,
-  SENTRY_DSN: opt,
+  // Migrated raw reads (Stage-3 worker-pollers batch): NotificationFailoverPoller
+  // reads ADMIN_NOTIFICATION_EMAIL raw (`if (adminEmail)` / `if (!adminEmail)`) and
+  // drift-alert.ts reads SENTRY_DSN raw (`if (X)` Sentry-vs-warn gate), so rawOpt
+  // keeps `'   '` truthy (#7). The boot asserts (assertAdminNotificationEmail /
+  // assertAlertSinkEnv in worker/config/startup-assert.ts) read process.env directly
+  // with their own trim check, so whitespace-as-absent boot semantics are unchanged.
+  ADMIN_NOTIFICATION_EMAIL: rawOpt,
+  SENTRY_DSN: rawOpt,
   WORKER_PUBLIC_URL: opt,
   DATABASE_URL: opt,
   // Migrated raw read: StripeLocationsReconcilePoller owns its own
   // `envInterval ? parseInt(envInterval, 10) : NaN` parse + default, so
   // rawOptionalVar preserves ''/'   '/unset exactly like the old raw read (#7).
   STRIPE_LOCATIONS_RECONCILE_INTERVAL_MS: rawOpt,
+
+  // ── Stage-3 worker-pollers batch ──────────────────────────────────────────
+  // Every poller-tuning var below is read at its call site with the site's own
+  // `process.env.X ? parse : DEFAULT` (or `parseInt(X || '', 10)` + Finite/range)
+  // guard, so rawOptionalVar preserves ''/'   '/unset byte-for-byte (#7). All
+  // poller files are worker-only → worker lane (getWorkerConfig).
+  ACCOUNT_OFFBOARDING_ACCESS_END_INTERVAL_MS: rawOpt,
+  ACCOUNT_OFFBOARDING_ACCESS_END_BATCH_SIZE: rawOpt,
+  ACCOUNT_OFFBOARDING_PURGE_INTERVAL_MS: rawOpt,
+  ACCOUNT_OFFBOARDING_PURGE_BATCH_SIZE: rawOpt,
+  ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS: rawOpt,
+  ACCOUNT_OFFBOARDING_PURGE_REMINDER_INTERVAL_MS: rawOpt,
+  ACCOUNT_OFFBOARDING_PURGE_REMINDER_BATCH_SIZE: rawOpt,
+  ACCOUNT_OFFBOARDING_REACTIVATION_RESET_INTERVAL_MS: rawOpt,
+  ACCOUNT_OFFBOARDING_REACTIVATION_RESET_BATCH_SIZE: rawOpt,
+  ACCOUNT_OFFBOARDING_TEARDOWN_RETRY_INTERVAL_MS: rawOpt,
+  ACCOUNT_OFFBOARDING_TEARDOWN_RETRY_BATCH_SIZE: rawOpt,
+  ACCOUNT_OFFBOARDING_TEARDOWN_RETRY_COOLDOWN_MS: rawOpt,
+  ACCOUNT_OFFBOARDING_TEARDOWN_MAX_RETRIES: rawOpt,
+  ANALYTICS_DISPATCH_POLL_INTERVAL_MS: rawOpt,
+  ANALYTICS_DISPATCH_BATCH_SIZE: rawOpt,
+  ARCHIVAL_INTERVAL_MS: rawOpt,
+  CANCELLATION_GRACE_INTERVAL_MS: rawOpt,
+  CLEANUP_ABANDONED_SIGNUPS_BATCH_SIZE: rawOpt,
+  CLEANUP_ABANDONED_SIGNUPS_INTERVAL_MS: rawOpt,
+  EMAIL_CHANNEL_RECONCILE_BATCH_SIZE: rawOpt,
+  EMAIL_CHANNEL_RECONCILE_INTERVAL_MS: rawOpt,
+  ENGAGEMENT_MONITOR_INTERVAL_MS: rawOpt,
+  HEALTH_ALERT_POLL_INTERVAL_MS: rawOpt,
+  NOTIFICATION_FAILOVER_INTERVAL_MS: rawOpt,
+  OUTBOX_POLL_INTERVAL_MS: rawOpt,
+  OUTBOX_BATCH_SIZE: rawOpt,
+  OUTBOX_DISPATCH_TIMEOUT_MS: rawOpt,
+  OUTBOX_POLL_MAX_CYCLE_MS: rawOpt,
+  ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS: rawOpt,
+  ZERNIO_RECENT_REVIEW_POLL_PAGE_SIZE: rawOpt,
+  ZERNIO_RECENT_REVIEW_POLL_MAX_PAGES: rawOpt,
+  ZERNIO_RECENT_REVIEW_POLL_MAX_CONNECTIONS: rawOpt,
+  ZERNIO_RECENT_REVIEW_POLL_CONCURRENCY: rawOpt,
+  ZERNIO_RECENT_REVIEW_POLL_DEADLINE_MS: rawOpt,
+  ZERNIO_RECENT_REVIEW_POLL_INTERVAL_MS: rawOpt,
+  HEALTH_ALERT_PENDING_AGE_S: rawOpt,
+  HEALTH_ALERT_FAILED_WINDOW_S: rawOpt,
+  HEALTH_ALERT_FAILED_THRESHOLD: rawOpt,
+  HEALTH_ALERT_STALE_DISPATCHING_S: rawOpt,
+  HEALTH_ALERT_FLAGGED_OPEN_THRESHOLD: rawOpt,
+  HEALTH_ALERT_ZERO_DELIVERY_WINDOW_S: rawOpt,
+  HEALTH_ALERT_MONITOR_SLUG: rawOpt,
 });
 
 export type WorkerConfig = z.infer<typeof workerSchema>;
@@ -81,6 +135,17 @@ export function getWorkerConfig(): WorkerConfig {
     memo = workerSchema.parse(process.env);
   }
   return memo;
+}
+
+/**
+ * Test-only: clear the memo so the NEXT getWorkerConfig() re-parses the current
+ * process.env. Used by poller tests that mutate a migrated tuning var mid-file and
+ * assert the parsed result (production env is immutable, so this seam never runs in
+ * prod). Clears ONLY the memo — NOT ensureWorkerDotenvLoaded's `loaded` flag — so a
+ * test's `delete process.env.X` is never repopulated from a real .env.local.
+ */
+export function resetWorkerConfigForTests(): void {
+  memo = undefined;
 }
 
 // Same carve-out as assertCoreInfraEnv: a no-op only in non-prod MOCK mode.

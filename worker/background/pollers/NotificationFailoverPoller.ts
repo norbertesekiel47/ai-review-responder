@@ -1,4 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import { sendInternalEmail } from '../../../src/lib/notifications/email';
 import { recordNotificationDelivery } from '../../../src/lib/notifications/delivery';
@@ -23,7 +24,7 @@ let pollerInterval: ReturnType<typeof setInterval> | null = null;
 let isPolling = false;
 
 function getIntervalMs(): number {
-  const envVal = process.env.NOTIFICATION_FAILOVER_INTERVAL_MS;
+  const envVal = getWorkerConfig().NOTIFICATION_FAILOVER_INTERVAL_MS;
   if (!envVal) return DEFAULT_INTERVAL_MS;
   const parsed = parseInt(envVal, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
@@ -183,7 +184,7 @@ export async function runFailoverPollerOnce(): Promise<void> {
     `;
 
     for (const row of allFailedResponses) {
-      const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
+      const adminEmail = getWorkerConfig().ADMIN_NOTIFICATION_EMAIL;
       if (adminEmail) {
         // Serialize concurrent failover pollers (multi-instance deployments)
         // on the (response_id, template, recipient) key so only ONE worker
@@ -294,7 +295,7 @@ export async function runFailoverPollerOnce(): Promise<void> {
       LIMIT ${BATCH_LIMIT}
     `;
 
-    const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
+    const adminEmail = getWorkerConfig().ADMIN_NOTIFICATION_EMAIL;
     let alertedCount = 0;
     for (const row of staleResponses) {
       if (!adminEmail) {

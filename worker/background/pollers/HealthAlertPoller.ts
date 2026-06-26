@@ -6,13 +6,20 @@
 // stuck/failed outbox by topic, zero-delivery approval notifications, stale
 // dispatching (watchdog down), and the held-flag backlog. Each cycle also emits
 // a Sentry Cron check-in so the probe's own death is detected (dead-man switch).
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 import { notePollerActivity, maybeLogPollerHeartbeat } from '../poller-heartbeat';
 import { runHealthChecks } from './health-alert/checks';
 import { emitHealthFindings, recordProbeCheckIn } from './health-alert/emit';
 
 const LOG_PREFIX = '[HealthAlertPoller]';
-const POLL_INTERVAL_MS = parseInt(process.env.HEALTH_ALERT_POLL_INTERVAL_MS || '300000', 10);
+
+// Read at runtime (NOT module top level — convention #4: never call
+// getWorkerConfig() at import). Worker env is immutable after boot, so this
+// returns the same value the old once-at-import const did; default preserved.
+function readPollIntervalMs(): number {
+  return parseInt(getWorkerConfig().HEALTH_ALERT_POLL_INTERVAL_MS || '300000', 10);
+}
 
 let pollerInterval: ReturnType<typeof setInterval> | null = null;
 let isPolling = false;
@@ -21,6 +28,7 @@ export async function pollHealthAlerts(): Promise<void> {
   if (isPolling) return; // single-flight: a slow cycle must not overlap the next tick
   isPolling = true;
   const logger = createWorkerLogger(LOG_PREFIX);
+  const pollIntervalMs = readPollIntervalMs();
   try {
     const findings = await runHealthChecks();
     if (findings.length > 0) {
@@ -32,10 +40,10 @@ export async function pollHealthAlerts(): Promise<void> {
     }
     // The probe completed a cycle — check in to the Sentry Cron monitor so a
     // missed check-in (probe/worker dead) pages. Independent of findings.
-    recordProbeCheckIn('ok', POLL_INTERVAL_MS);
+    recordProbeCheckIn('ok', pollIntervalMs);
   } catch (err) {
     logger.error('Health alert poll cycle failed', toError(err));
-    recordProbeCheckIn('error', POLL_INTERVAL_MS);
+    recordProbeCheckIn('error', pollIntervalMs);
   } finally {
     isPolling = false;
   }
@@ -43,11 +51,12 @@ export async function pollHealthAlerts(): Promise<void> {
 
 export function startHealthAlertPoller(): void {
   const logger = createWorkerLogger(LOG_PREFIX);
-  logger.log('Starting', { interval_ms: POLL_INTERVAL_MS });
+  const pollIntervalMs = readPollIntervalMs();
+  logger.log('Starting', { interval_ms: pollIntervalMs });
   pollHealthAlerts().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {
     pollHealthAlerts().catch(logUnhandledPollError(LOG_PREFIX));
-  }, POLL_INTERVAL_MS);
+  }, pollIntervalMs);
 }
 
 export function stopHealthAlertPoller(): void {

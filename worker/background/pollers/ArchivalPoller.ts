@@ -1,3 +1,4 @@
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
 import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 
@@ -8,7 +9,7 @@ let pollerInterval: ReturnType<typeof setInterval> | null = null;
 let isPolling = false;
 
 function getIntervalMs(): number {
-  const envVal = process.env.ARCHIVAL_INTERVAL_MS;
+  const envVal = getWorkerConfig().ARCHIVAL_INTERVAL_MS;
   if (!envVal) return DEFAULT_INTERVAL_MS;
   const parsed = parseInt(envVal, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;

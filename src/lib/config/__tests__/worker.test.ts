@@ -74,4 +74,49 @@ describe('config/worker', () => {
     const { getWorkerConfig } = await import('../worker');
     expect(getWorkerConfig().STRIPE_LOCATIONS_RECONCILE_INTERVAL_MS).toBeUndefined();
   });
+
+  // ── Stage-3 worker-pollers batch ──────────────────────────────────────────
+
+  it('a representative poller tuning var is exposed RAW via getWorkerConfig (present)', async () => {
+    process.env = {
+      ...CORE, NODE_ENV: 'test', OUTBOX_BATCH_SIZE: '50',
+    } as NodeJS.ProcessEnv;
+    const { getWorkerConfig } = await import('../worker');
+    expect(getWorkerConfig().OUTBOX_BATCH_SIZE).toBe('50');
+  });
+
+  it('a poller tuning var is undefined when unset — tolerate-absent (no throw)', async () => {
+    process.env = { ...CORE, NODE_ENV: 'test' } as NodeJS.ProcessEnv;
+    delete process.env.OUTBOX_BATCH_SIZE;
+    delete process.env.HEALTH_ALERT_FAILED_THRESHOLD;
+    const { getWorkerConfig } = await import('../worker');
+    expect(getWorkerConfig().OUTBOX_BATCH_SIZE).toBeUndefined();
+    expect(getWorkerConfig().HEALTH_ALERT_FAILED_THRESHOLD).toBeUndefined();
+  });
+
+  it('ADMIN_NOTIFICATION_EMAIL passes whitespace-only through RAW (rawOptionalVar #7)', async () => {
+    // The migrated NotificationFailoverPoller reads it raw via `if (adminEmail)`,
+    // so `'   '` must stay truthy (the collapsing optionalVar would map it to
+    // undefined and silently drop the alert).
+    process.env = { ...CORE, NODE_ENV: 'test', ADMIN_NOTIFICATION_EMAIL: '   ' } as NodeJS.ProcessEnv;
+    const { getWorkerConfig } = await import('../worker');
+    expect(getWorkerConfig().ADMIN_NOTIFICATION_EMAIL).toBe('   ');
+  });
+
+  it('SENTRY_DSN passes whitespace-only through RAW (rawOptionalVar #7)', async () => {
+    // drift-alert.ts reads it raw via `if (X)` (Sentry vs warn-log fallback).
+    process.env = { ...CORE, NODE_ENV: 'test', SENTRY_DSN: '   ' } as NodeJS.ProcessEnv;
+    const { getWorkerConfig } = await import('../worker');
+    expect(getWorkerConfig().SENTRY_DSN).toBe('   ');
+  });
+
+  it('resetWorkerConfigForTests clears the memo so the next read re-parses env', async () => {
+    process.env = { ...CORE, NODE_ENV: 'test', OUTBOX_BATCH_SIZE: '50' } as NodeJS.ProcessEnv;
+    const { getWorkerConfig, resetWorkerConfigForTests } = await import('../worker');
+    expect(getWorkerConfig().OUTBOX_BATCH_SIZE).toBe('50');
+    process.env.OUTBOX_BATCH_SIZE = '99';
+    expect(getWorkerConfig().OUTBOX_BATCH_SIZE).toBe('50'); // still memoized
+    resetWorkerConfigForTests();
+    expect(getWorkerConfig().OUTBOX_BATCH_SIZE).toBe('99'); // re-parsed
+  });
 });

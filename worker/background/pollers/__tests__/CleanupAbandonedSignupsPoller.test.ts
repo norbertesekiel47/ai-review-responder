@@ -82,6 +82,7 @@ vi.mock('@/lib/shared/logger', () => ({
 // ---------------------------------------------------------------------------
 // 3. Import AFTER mocks.
 // ---------------------------------------------------------------------------
+import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
 import {
   runOnce,
   startCleanupAbandonedSignupsPoller,
@@ -144,6 +145,9 @@ beforeEach(() => {
   delete process.env.CLEANUP_ABANDONED_SIGNUPS_BATCH_SIZE;
   delete process.env.CLEANUP_ABANDONED_SIGNUPS_INTERVAL_MS;
   delete process.env.SELF_SERVE_SIGNUP_ENABLED;
+  // Batch-size/interval now read the memoized getWorkerConfig(); clear the memo
+  // so each test's env override (set after this beforeEach) is parsed fresh (#6).
+  resetWorkerConfigForTests();
   // The poller now runs a top-of-loop "DELETE stale onboarding_demos" query
   // (Task 15 PR #2). Seed an empty result so the first sqlQueue.shift() goes
   // to that query and downstream candidate/seed pushes line up correctly.

@@ -12,6 +12,7 @@
 // tracked in docs/runbooks/beta-launch-alerting.md.)
 
 import { Sentry } from '../../../sentry';
+import { getWorkerConfig } from '../../../../src/lib/config/worker';
 import { createWorkerLogger } from '../../../../src/lib/shared/logger';
 import { LOG_PREFIX } from './constants';
 import type { DriftFinding } from './types';
@@ -79,7 +80,7 @@ export function emitDriftAlert(
 
   const level = driftAlertLevel(payload.driftType);
 
-  if (process.env.SENTRY_DSN) {
+  if (getWorkerConfig().SENTRY_DSN) {
     Sentry.captureMessage(message, {
       level,
       tags: {
