@@ -18,6 +18,7 @@
 //   7. On exception: mark failed + 500 (Zernio retries 7x over 51h)
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
 import { claimInboundEvent } from '../shared';
 import { verifyZernioSignature } from './zernio-verify';
@@ -305,7 +306,7 @@ export async function handleZernioWebhook(
   const sigHeader = request.headers['x-zernio-signature'];
   const signature = typeof sigHeader === 'string' ? sigHeader : '';
 
-  const webhookSecret = process.env.ZERNIO_WEBHOOK_SECRET;
+  const webhookSecret = getWorkerConfig().ZERNIO_WEBHOOK_SECRET;
   if (!webhookSecret) {
     console.error(`${LOG_PREFIX} ZERNIO_WEBHOOK_SECRET is not set — rejecting request`);
     reply.status(401).send({ error: 'webhook_secret_not_configured' });

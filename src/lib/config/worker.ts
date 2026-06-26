@@ -127,6 +127,24 @@ const workerSchema = z.object({
   CSRF_SECRET: rawOpt,
   WHATSAPP_AUTOPOST_TEMPLATE_SID: rawOpt,
   ZERNIO_INGEST_MAX_PAGES: rawOpt,
+
+  // ── Stage-3 worker-ingress batch ──────────────────────────────────────────
+  // Webhook SIGNATURE-VERIFICATION secrets. Each is migrated from a raw
+  // process.env read in a worker/ingress/** handler and is compared RAW in the
+  // verification primitive: RESEND/ZERNIO feed createHmac(...) directly,
+  // TELEGRAM is one side of timingSafeEqual(Buffer.from(...,'utf8')), and
+  // TWILIO_AUTH_TOKEN is passed raw to twilio.validateRequest(...). Each call
+  // site owns its own `if (!secret)` presence gate (fail-closed reject in prod,
+  // fail-open only in MOCK_EXTERNAL_APIS). So rawOptionalVar preserves
+  // ''/'   '/unset byte-for-byte (#7) — the collapsing optionalVar could map a
+  // whitespace secret to undefined and FLIP a verification outcome (security
+  // hole or spurious reject). No asserting accessor (#5): a throw would replace
+  // the handler's own 401/false behavior. (ADMIN_NOTIFICATION_EMAIL — the
+  // resend.ts hard-bounce alert recipient — is ALREADY rawOpt above.)
+  RESEND_WEBHOOK_SECRET: rawOpt,
+  TELEGRAM_WEBHOOK_SECRET: rawOpt,
+  TWILIO_AUTH_TOKEN: rawOpt,
+  ZERNIO_WEBHOOK_SECRET: rawOpt,
 });
 
 export type WorkerConfig = z.infer<typeof workerSchema>;

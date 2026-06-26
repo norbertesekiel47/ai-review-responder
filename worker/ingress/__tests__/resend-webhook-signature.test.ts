@@ -20,6 +20,7 @@ vi.mock('../../../src/lib/notifications/email', () => ({
 }));
 
 import { handleResendWebhook } from '../resend';
+import { resetWorkerConfigForTests } from '../../../src/lib/config/worker';
 
 // Svix secrets are 'whsec_' + base64(rawKeyBytes); the handler base64-decodes
 // the part after the prefix and HMACs "${svixId}.${svixTimestamp}.${rawBody}".
@@ -74,6 +75,10 @@ describe('handleResendWebhook — signature verification (real HMAC)', () => {
     vi.setSystemTime(new Date('2026-05-28T12:00:00Z'));
     process.env.RESEND_WEBHOOK_SECRET = SECRET;
     delete process.env.MOCK_EXTERNAL_APIS;
+    // The handler reads RESEND_WEBHOOK_SECRET via the memoized getWorkerConfig();
+    // clear the memo so the per-test env set above (and any per-test delete) is
+    // re-parsed on the handler's first read (Stage-3 convention #6).
+    resetWorkerConfigForTests();
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -139,6 +144,7 @@ describe('handleResendWebhook — signature verification (real HMAC)', () => {
 
   it('fails closed (401) when no secret is set and not in mock mode', async () => {
     delete process.env.RESEND_WEBHOOK_SECRET;
+    resetWorkerConfigForTests(); // re-parse so the handler sees the deleted secret
     const body = { type: 'email.delivered', data: { email_id: 'msg-abc' } };
     const { reply, captured } = makeReply();
     await handleResendWebhook(signedReq(body), reply);

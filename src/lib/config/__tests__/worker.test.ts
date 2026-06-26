@@ -162,6 +162,59 @@ describe('config/worker', () => {
     expect(getWorkerConfig().SERPAPI_API_KEY).toBe('   ');
   });
 
+  // ── Stage-3 worker-ingress batch (webhook signature secrets) ──────────────
+
+  it('the 4 webhook-signature secrets are exposed RAW via getWorkerConfig (present)', async () => {
+    process.env = {
+      ...CORE, NODE_ENV: 'test',
+      RESEND_WEBHOOK_SECRET: 'whsec_resend',
+      TELEGRAM_WEBHOOK_SECRET: 'tg-secret',
+      TWILIO_AUTH_TOKEN: 'twilio-tok',
+      ZERNIO_WEBHOOK_SECRET: 'zernio-secret',
+    } as NodeJS.ProcessEnv;
+    const { getWorkerConfig } = await import('../worker');
+    const cfg = getWorkerConfig();
+    expect(cfg.RESEND_WEBHOOK_SECRET).toBe('whsec_resend');
+    expect(cfg.TELEGRAM_WEBHOOK_SECRET).toBe('tg-secret');
+    expect(cfg.TWILIO_AUTH_TOKEN).toBe('twilio-tok');
+    expect(cfg.ZERNIO_WEBHOOK_SECRET).toBe('zernio-secret');
+  });
+
+  it('the 4 webhook-signature secrets are undefined when unset — tolerate-absent (no throw)', async () => {
+    process.env = { ...CORE, NODE_ENV: 'test' } as NodeJS.ProcessEnv;
+    delete process.env.RESEND_WEBHOOK_SECRET;
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    delete process.env.TWILIO_AUTH_TOKEN;
+    delete process.env.ZERNIO_WEBHOOK_SECRET;
+    const { getWorkerConfig } = await import('../worker');
+    const cfg = getWorkerConfig();
+    expect(cfg.RESEND_WEBHOOK_SECRET).toBeUndefined();
+    expect(cfg.TELEGRAM_WEBHOOK_SECRET).toBeUndefined();
+    expect(cfg.TWILIO_AUTH_TOKEN).toBeUndefined();
+    expect(cfg.ZERNIO_WEBHOOK_SECRET).toBeUndefined();
+  });
+
+  it('webhook-signature secrets pass whitespace-only through RAW (rawOptionalVar #7)', async () => {
+    // SECURITY-CRITICAL: each secret is compared RAW in the verification
+    // primitive (createHmac key / timingSafeEqual buffer / twilio.validateRequest
+    // authToken). A whitespace value MUST survive byte-for-byte — the collapsing
+    // optionalVar would map '   ' to undefined and could FLIP a verification
+    // outcome. RED under optionalVar, GREEN under rawOptionalVar.
+    process.env = {
+      ...CORE, NODE_ENV: 'test',
+      RESEND_WEBHOOK_SECRET: '   ',
+      TELEGRAM_WEBHOOK_SECRET: '   ',
+      TWILIO_AUTH_TOKEN: '   ',
+      ZERNIO_WEBHOOK_SECRET: '   ',
+    } as NodeJS.ProcessEnv;
+    const { getWorkerConfig } = await import('../worker');
+    const cfg = getWorkerConfig();
+    expect(cfg.RESEND_WEBHOOK_SECRET).toBe('   ');
+    expect(cfg.TELEGRAM_WEBHOOK_SECRET).toBe('   ');
+    expect(cfg.TWILIO_AUTH_TOKEN).toBe('   ');
+    expect(cfg.ZERNIO_WEBHOOK_SECRET).toBe('   ');
+  });
+
   it('resetWorkerConfigForTests clears the memo so the next read re-parses env', async () => {
     process.env = { ...CORE, NODE_ENV: 'test', OUTBOX_BATCH_SIZE: '50' } as NodeJS.ProcessEnv;
     const { getWorkerConfig, resetWorkerConfigForTests } = await import('../worker');
