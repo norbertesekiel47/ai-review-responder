@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { runOutputFilter, SEVERITY_RANK, type ModerationDecision } from './output-filter';
+import { openaiModerationEnabled } from './flags';
 
 // Worker-only. Never import from Next.js/Vercel code — moderation is an
 // LLM-class external call and belongs on the Railway worker.
@@ -9,10 +10,6 @@ const PROVIDER_MODEL = 'omni-moderation-latest';
 // slow provider must fail fast and fall back to local rules rather than stall
 // generation. The OpenAI SDK default is ~10min × retries — far too long here.
 const PROVIDER_TIMEOUT_MS = 10_000;
-
-function providerEnabled(): boolean {
-  return process.env.OPENAI_MODERATION_ENABLED === 'true';
-}
 
 let cachedClient: OpenAI | null = null;
 function client(): OpenAI {
@@ -43,7 +40,7 @@ function mergeDecisions(a: ModerationDecision, b: ModerationDecision): Moderatio
  */
 export async function moderateResponse(text: string): Promise<ModerationDecision> {
   const local = runOutputFilter(text);
-  if (!providerEnabled()) return local;
+  if (!openaiModerationEnabled()) return local;
 
   try {
     const response = await client().moderations.create(

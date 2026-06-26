@@ -7,6 +7,7 @@ import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { reserveOnboardingDemoBudget, CostCeilingExceeded } from '@/lib/costs/onboarding-demo-cost-guard';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,7 @@ interface OwnerRow {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  if (process.env.ONBOARDING_DEMO_ENABLED !== 'true') {
+  if (!onboardingDemoEnabled()) {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
   }
 

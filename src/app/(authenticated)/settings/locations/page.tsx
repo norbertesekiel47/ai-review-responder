@@ -13,6 +13,7 @@ import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LocationsClient } from './LocationsClient';
 import type { AddLocationState } from '@/components/dashboard/settings/LocationsPanel';
 import { getLocationsForAccount, getActiveLocationCount, getArchivedLocationsForAccount } from '@/lib/locations/repo';
+import { multiLocationEnabled } from '@/lib/locations/flags';
 import {
   resolveAddLocationState,
   shouldShowLocationsSettings,
@@ -21,7 +22,7 @@ import {
 export const dynamic = 'force-dynamic';
 
 export default async function LocationsPage() {
-  const featureEnabled = process.env.MULTI_LOCATION_ENABLED === 'true';
+  const featureEnabled = multiLocationEnabled();
   if (!shouldShowLocationsSettings(featureEnabled)) {
     notFound();
   }

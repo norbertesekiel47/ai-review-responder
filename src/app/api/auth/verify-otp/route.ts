@@ -10,6 +10,7 @@ import { VerifyEmailOtpSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
+import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
 
 export const dynamic = 'force-dynamic';
 
@@ -221,7 +222,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // When the pre-pay demo flag is on, send the owner to /onboarding/start
   // (location picker → demo generation) instead of straight to the paywall.
   const postVerifyRedirect =
-    process.env.ONBOARDING_DEMO_ENABLED === 'true'
+    onboardingDemoEnabled()
       ? '/onboarding/start'
       : '/onboarding/pay';
   const successResponse = NextResponse.json({ redirectTo: postVerifyRedirect });

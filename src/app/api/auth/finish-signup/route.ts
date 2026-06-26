@@ -13,6 +13,7 @@ import {
   DuplicateEmailError,
   type SelfServeBusinessTxInput,
 } from '@/lib/onboarding/create-business';
+import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
 
 export const dynamic = 'force-dynamic';
 
@@ -232,7 +233,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //     /onboarding/start + /onboarding/demo entirely and landed straight
   //     on the paywall — losing the AHA moment for half the funnel.
   const postFinishRedirect =
-    process.env.ONBOARDING_DEMO_ENABLED === 'true'
+    onboardingDemoEnabled()
       ? '/onboarding/start'
       : '/onboarding/pay';
   return NextResponse.json({ redirectTo: postFinishRedirect }, { status: 201 });

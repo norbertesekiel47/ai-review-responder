@@ -11,6 +11,7 @@ import {
 } from '@/lib/dashboard/service';
 import { getAggregateDashboardData } from '@/lib/dashboard/aggregate-service';
 import { getLocationById } from '@/lib/locations/repo';
+import { multiLocationEnabled as isMultiLocationEnabled } from '@/lib/locations/flags';
 import { isValidUuid } from '@/lib/shared/ids';
 import {
   computePastDueRecoveryState,
@@ -384,7 +385,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // VAL-DASH-024: `scope` query parameter — `all` → aggregate; `<locationId>` →
   // per-location; absent → the user's current location from session/cookie.
   const scopeParam = request.nextUrl.searchParams.get('scope');
-  const multiLocationEnabled = process.env.MULTI_LOCATION_ENABLED === 'true';
+  const multiLocationEnabled = isMultiLocationEnabled();
   const scopePolicy = resolveDashboardScopePolicy({
     scopeParam,
     userLocationId: user.locationId,

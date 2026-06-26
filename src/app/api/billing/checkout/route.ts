@@ -14,6 +14,7 @@ import { sql } from '@/lib/db/server';
 import { isSubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { createCheckoutSession, CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
+import { trialEnabled } from '@/lib/payments/flags';
 import { requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
@@ -149,7 +150,7 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
   // NORMAL paid checkout — never a $0 trial it could obtain by direct POST. Only
   // self-serve accounts (onboarded_by IS NULL) are trial-eligible.
   const trialEligible =
-    process.env.TRIAL_ENABLED === 'true' &&
+    trialEnabled() &&
     selfServeSignupEnabled() &&
     account.subscription_status === SubscriptionStatus.PENDING_PAYMENT &&
     account.onboarded_by === null;

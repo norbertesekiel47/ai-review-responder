@@ -23,6 +23,7 @@ import { channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
 import { getChannelOverridesView } from '@/lib/channels/overrides-view';
 import { CHANNEL_IDS } from '@/lib/notifications/channels/types';
 import { shouldUseMultiLocationSettings } from '@/lib/locations/multi-location-mode';
+import { multiLocationEnabled as isMultiLocationEnabled } from '@/lib/locations/flags';
 
 function isoOrNull(value: Date | null): string | null {
   return value ? value.toISOString() : null;
@@ -46,7 +47,7 @@ export default async function ChannelsPage() {
   const overridesView = await getChannelOverridesView(access.accountId);
   const activeLocations = overridesView.locations.filter((location) => !location.archived);
 
-  const featureEnabled = process.env.MULTI_LOCATION_ENABLED === 'true';
+  const featureEnabled = isMultiLocationEnabled();
   const multiLocationEnabled = shouldUseMultiLocationSettings(featureEnabled, activeLocations.length);
   const canAddOverrides = multiLocationEnabled && activeLocations.length > 1;
 

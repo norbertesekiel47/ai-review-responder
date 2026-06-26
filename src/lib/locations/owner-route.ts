@@ -7,6 +7,7 @@ import type { z } from 'zod';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 import { DUPLICATE_LOCATION } from './duplicate-location';
+import { multiLocationEnabled } from './flags';
 
 export const LOCATION_ROUTE_NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -25,7 +26,7 @@ export async function readOwnerForMultiLocationRoute(
   req: NextRequest,
   offboardingGate?: Pick<OffboardingGate, 'getOffboardingState'>,
 ): Promise<LocationOwnerRouteResult> {
-  if (process.env.MULTI_LOCATION_ENABLED !== 'true') {
+  if (!multiLocationEnabled()) {
     return {
       ok: false,
       response: NextResponse.json(

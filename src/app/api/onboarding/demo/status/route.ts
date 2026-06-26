@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +14,7 @@ interface OwnerRow {
 }
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  if (process.env.ONBOARDING_DEMO_ENABLED !== 'true') {
+  if (!onboardingDemoEnabled()) {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
   }
 

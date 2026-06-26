@@ -6,6 +6,7 @@ import { cookies } from 'next/headers';
 import { sql } from '@/lib/db/server';
 import { BusinessWizardClient } from './BusinessWizardClient';
 import { resolveWizardDestination, shouldUseDemoWizard, type WizardGuardRow } from './guard';
+import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,7 +57,7 @@ export default async function OnboardingBusinessPage() {
   // with no location → demoFlowEnabled=false → non-demo wizard (which captures the
   // location), instead of being bounced to /onboarding/start (→ infinite loop).
   const demoFlowEnabled = shouldUseDemoWizard(
-    process.env.ONBOARDING_DEMO_ENABLED === 'true',
+    onboardingDemoEnabled(),
     row,
   );
   const decision = resolveWizardDestination(row, { demoFlowEnabled });
