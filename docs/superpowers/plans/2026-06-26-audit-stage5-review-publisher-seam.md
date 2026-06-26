@@ -97,7 +97,7 @@ decision 1's deferred work and disappears when the GBP adapter forces error neut
 |---|---|---|
 | `ResponsePublisherWorker.ts` | `SELECT … zernio_connections` + `resolvePublishableZernioReviewId(...)` | `publisher.resolveTarget(ref)` → switch on result (`no_connection`→park, `review_not_found`→exception, `resolved`→continue with `target`) |
 | `review-lookup.ts` | catches `ZernioReviewNotFoundError`, opens review_exception | becomes the worker-side disposition for the `review_not_found` result (same DB writes); transient still wraps→`PublisherTransientWithContext` |
-| `post-reply.ts` | `zernioClient.postReply(acct, zReviewId, …)` + verify | `publisher.publishReply(target, text)`; coords for disposition read from `target.accountId/locationId/providerReviewId` |
+| `post-reply.ts` | `zernioClient.postReply(acct, zReviewId, …)` + verify | `publisher.publishReply(target.locator, text)`; coords for disposition destructured from `target.locator`, ids from `target.ref` |
 | `verify-posted.ts` | `zernioClient.listAllReviews` + `getCachedZernioReviewPage` + find/compare | `publisher.findReply(target)` (page-cache hidden) + keep canonicalize-compare + indeterminate throws |
 | `publisher-error-handlers.ts` | `verify409AndDispose`/`verify409InTx`: `listAllReviews`+pagecache | route list-fetch through `publisher.findReply(target)`; disposition unchanged |
 | `edit-publish.ts` | `zernioClient.deleteReply/postReply` in locked tx (injected via `EditPublishDeps`) | `publisher.deleteReply/publishReply(target)`; inject publisher via deps for tests |
