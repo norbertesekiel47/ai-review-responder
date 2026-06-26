@@ -25,62 +25,42 @@ an adapter swap. Define the seam now so GBP becomes a second adapter._
 // src/lib/publishing/review-publisher.ts  (NEW — interface + types + factory)
 
 /** Neutral identity — app-owned ids ONLY. No provider nouns ever appear here. */
-export interface ReviewRef {
-  responseId: string;
-  reviewId: string;
-  businessId: string;
-}
+export interface ReviewRef { responseId: string; reviewId: string; businessId: string; }
 
-/**
- * Resolved publishing target. OPAQUE to worker orchestration — it is produced by
- * the adapter and threaded back into the adapter's transport methods. The retained
- * (deferred-neutralization) Zernio disposition layer is the ONLY worker code allowed
- * to read its provider coordinates, via `target.dispositionContext`. Worker
- * orchestration never destructures a `zernio_*` field.
- */
-export interface ResolvedPublishTarget {
-  ref: ReviewRef;
-  /** Provider coordinates for the retained Zernio disposition layer. Opaque to
-   *  orchestration. Disappears when the GBP adapter forces error neutralization. */
-  dispositionContext: PublishDispositionContext;
-}
-
-/** What the retained Zernio disposition helpers consume. Named, not hidden, because
- *  decision 1 keeps the Zernio-aware disposition in the worker for now. */
-export interface PublishDispositionContext {
-  accountId: string;   // zernio_account_id
-  locationId: string;  // zernio_location_id
+/** Provider coordinates that locate a review's reply slot. ALL the adapter's
+ *  transport methods need — the adapter never sees an app-owned id. */
+export interface ReviewLocator {
+  accountId: string;        // zernio_account_id
+  locationId: string;       // zernio_location_id
   providerReviewId: string; // resolved Zernio review id
 }
 
+/** A ReviewLocator + the neutral ref the worker needs for its retained disposition. */
+export interface ResolvedPublishTarget extends ReviewLocator { ref: ReviewRef; }
+
 export type ResolveTargetResult =
   | { kind: 'no_connection' }
-  | { kind: 'review_not_found'; reason: string; meta: Record<string, unknown> }
+  | { kind: 'review_not_found'; meta: Record<string, unknown> }
+  | { kind: 'transient'; accountId: string; locationId: string; error: ZernioTransientError }
   | { kind: 'resolved'; target: ResolvedPublishTarget };
 
-/** Neutral view of a published reply for the post-verify / 409 paths. */
+/** Neutral view of the feed for post-verify / 409 (diagnostics preserved). */
 export type FindReplyResult =
-  | { kind: 'review_absent' }                              // not in feed after pagination
-  | { kind: 'found'; reply: { comment: string } | null };  // found; reply may be null
+  | { kind: 'review_absent'; pagesWalked: number; reviewsSeen: number }
+  | { kind: 'found'; reply: { comment: string } | null };
 
 export interface ReviewPublisher {
-  /** Owns: active-connection SELECT + provider review-id lookup (page-walk + Redis
-   *  cache + field-match). Returns a neutral discriminated result. May THROW the
-   *  existing Zernio transient/permanent classes (deferred neutralization). */
+  /** Owns active-connection lookup + review-id resolution (page-walk + Redis cache).
+   *  Neutral result; rethrows genuinely terminal/unknown lookup errors. */
   resolveTarget(ref: ReviewRef): Promise<ResolveTargetResult>;
-
-  /** Post a reply. Throws the existing Zernio error classes on failure. */
-  publishReply(target: ResolvedPublishTarget, replyText: string): Promise<void>;
-
-  /** Delete the existing reply (edit = DELETE-before-POST). Throws Zernio classes. */
-  deleteReply(target: ResolvedPublishTarget): Promise<void>;
-
-  /** Fetch our review's current reply from the live feed (post-verify + 409).
-   *  Owns the page-cache bounding internally (hides getCachedZernioReviewPage). */
-  findReply(target: ResolvedPublishTarget): Promise<FindReplyResult>;
+  /** Transport — coords-only locator; throw the existing Zernio error classes. */
+  publishReply(locator: ReviewLocator, replyText: string): Promise<void>;
+  deleteReply(locator: ReviewLocator): Promise<void>;
+  /** Locate + read current reply; owns the page-cache bounding internally. */
+  findReply(locator: ReviewLocator): Promise<FindReplyResult>;
 }
 
-export function getReviewPublisher(): ReviewPublisher { /* returns ZernioReviewPublisher */ }
+export function getReviewPublisher(): ReviewPublisher { /* lazy ZernioReviewPublisher */ }
 ```
 
 ```ts
@@ -89,21 +69,25 @@ export function getReviewPublisher(): ReviewPublisher { /* returns ZernioReviewP
 //   - the active-connection SELECT (moved here from ResponsePublisherWorker)
 //   - lookupZernioReviewId / getCachedZernioReviewPage (stay in zernio-publisher.ts)
 //   - zernioClient.{postReply,deleteReply,listAllReviews}
-// Delegation is deliberate: it keeps the 9 existing tests' mocks of zernioClient.* /
+// Delegation is deliberate: it keeps the existing tests' mocks of zernioClient.* /
 // lookupZernioReviewId intact, which is our strongest "zero behavior change" guard.
 ```
 
-### The one documented tension (for Codex)
-Decision 2 (neutral input contract) and decision 1 (worker keeps Zernio-aware
-disposition needing account/location/reviewId) are in tension: fully hiding provider
-coordinates would require moving disposition into the adapter (rejected — that's the
-deferred Scope-B/C work). Resolution: the transport methods take a `ResolvedPublishTarget`
-(the adapter's own value object), **not** raw provider strings. Worker *orchestration*
-stays provider-noun-free; only the retained disposition layer reads
-`target.dispositionContext`. This preserves behavior (single resolution, shared Redis
-cache) and avoids a new TOCTOU window. The leak is explicit and disappears with the
-GBP adapter. **`resolveTarget(ref)` is the neutral-result surface; transport methods
-take the opaque target — that is the faithful realization of both decisions.**
+### How the two decisions are reconciled (for Codex)
+Decision 2 (neutral input contract) and decision 1 (worker keeps the Zernio-aware
+disposition that needs account/location/reviewId) meet cleanly via **two types**:
+- The adapter's transport methods take a `ReviewLocator` — **provider coordinates
+  only, no app-owned id**. The adapter is fully app-id-agnostic except `resolveTarget`,
+  which is precisely the ref→coords mapping.
+- `ResolvedPublishTarget = ReviewLocator + ref`. The worker holds the target so its
+  retained (deferred-neutralization) disposition can read `target.ref` (status writes,
+  exceptions, Sentry) and pass the target (an IS-A `ReviewLocator`) to transport.
+- `verify409InTx`, which has no ref, calls `findReply` with a bare locator — no fake ref.
+
+This preserves behavior (single resolution, shared Redis cache, no new response-status
+read so no new TOCTOU window) and removes provider nouns from the adapter's transport
+surface. The leak that remains — the worker still catches Zernio error *classes* — is
+decision 1's deferred work and disappears when the GBP adapter forces error neutralization.
 
 ## Call-site migration (7 files, each mechanical; disposition behavior unchanged)
 
@@ -111,7 +95,7 @@ take the opaque target — that is the faithful realization of both decisions.**
 |---|---|---|
 | `ResponsePublisherWorker.ts` | `SELECT … zernio_connections` + `resolvePublishableZernioReviewId(...)` | `publisher.resolveTarget(ref)` → switch on result (`no_connection`→park, `review_not_found`→exception, `resolved`→continue with `target`) |
 | `review-lookup.ts` | catches `ZernioReviewNotFoundError`, opens review_exception | becomes the worker-side disposition for the `review_not_found` result (same DB writes); transient still wraps→`PublisherTransientWithContext` |
-| `post-reply.ts` | `zernioClient.postReply(acct, zReviewId, …)` + verify | `publisher.publishReply(target, text)`; coords for disposition from `target.dispositionContext` |
+| `post-reply.ts` | `zernioClient.postReply(acct, zReviewId, …)` + verify | `publisher.publishReply(target, text)`; coords for disposition read from `target.accountId/locationId/providerReviewId` |
 | `verify-posted.ts` | `zernioClient.listAllReviews` + `getCachedZernioReviewPage` + find/compare | `publisher.findReply(target)` (page-cache hidden) + keep canonicalize-compare + indeterminate throws |
 | `publisher-error-handlers.ts` | `verify409AndDispose`/`verify409InTx`: `listAllReviews`+pagecache | route list-fetch through `publisher.findReply(target)`; disposition unchanged |
 | `edit-publish.ts` | `zernioClient.deleteReply/postReply` in locked tx (injected via `EditPublishDeps`) | `publisher.deleteReply/publishReply(target)`; inject publisher via deps for tests |
