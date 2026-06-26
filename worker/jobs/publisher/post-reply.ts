@@ -1,4 +1,5 @@
-import { zernioClient } from '../../../src/lib/zernio/client';
+import { getReviewPublisher } from '../../../src/lib/publishing/review-publisher';
+import type { ResolvedPublishTarget } from '../../../src/lib/publishing/review-publisher';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import {
   ZernioAuthError,
@@ -15,39 +16,27 @@ import {
   ZernioReplyVerificationIndeterminateError,
 } from './publisher-error-handlers';
 import { verifyOwnReplyAttached } from './verify-posted';
-import type { ZernioConnectionRow } from './types';
 
 export async function postReplyAndHandleTerminalOutcomes(input: {
-  responseId: string;
-  businessId: string;
-  reviewId: string;
-  zernioReviewId: string;
+  target: ResolvedPublishTarget;
   approvedText: string;
   outboxId: string;
   outboxAttempt: number | undefined;
   correlationId?: string;
-  zernioConnection: ZernioConnectionRow;
   logger: WorkerLogger;
 }): Promise<'posted' | 'completed'> {
   const {
-    responseId,
-    businessId,
-    reviewId,
-    zernioReviewId,
+    target,
     approvedText,
     outboxId,
     outboxAttempt,
     correlationId,
-    zernioConnection,
     logger,
   } = input;
+  const { responseId, businessId, reviewId } = target.ref;
 
   try {
-    await zernioClient.postReply(
-      zernioConnection.zernio_account_id,
-      zernioReviewId,
-      { comment: approvedText },
-    );
+    await getReviewPublisher().publishReply(target, approvedText);
     // Fall through to post-verification below — do NOT return 'posted' yet.
   } catch (err) {
     if (err instanceof ZernioReplyAlreadyExistsError) {
@@ -55,9 +44,9 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
         response_id: responseId,
         business_id: businessId,
         review_id: reviewId,
-        account_id: zernioConnection.zernio_account_id,
-        location_id: zernioConnection.zernio_location_id,
-        zernio_review_id: zernioReviewId,
+        account_id: target.accountId,
+        location_id: target.locationId,
+        zernio_review_id: target.providerReviewId,
         approved_text: approvedText,
         outboxId,
         outboxAttempt,
@@ -74,8 +63,8 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
           throw new PublisherTransientWithContext(result.lookupErr, {
             response_id: responseId,
             business_id: businessId,
-            account_id: zernioConnection.zernio_account_id,
-            location_id: zernioConnection.zernio_location_id,
+            account_id: target.accountId,
+            location_id: target.locationId,
           });
 
         case 'auth': {
@@ -83,8 +72,8 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
           await handlePublisherAuthErrorTerminal({
             response_id: responseId,
             business_id: businessId,
-            account_id: zernioConnection.zernio_account_id,
-            location_id: zernioConnection.zernio_location_id,
+            account_id: target.accountId,
+            location_id: target.locationId,
             error_body: lookupErr.body ? String(lookupErr.body).slice(0, 500) : lookupErr.message,
             outboxId,
             outboxAttempt,
@@ -123,9 +112,9 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
             response_id: responseId,
             business_id: businessId,
             review_id: reviewId,
-            account_id: zernioConnection.zernio_account_id,
-            location_id: zernioConnection.zernio_location_id,
-            zernio_review_id: zernioReviewId,
+            account_id: target.accountId,
+            location_id: target.locationId,
+            zernio_review_id: target.providerReviewId,
             reason: result.reason,
             ...result.meta,
           });
@@ -136,8 +125,8 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
       await handlePublisherAuthErrorTerminal({
         response_id: responseId,
         business_id: businessId,
-        account_id: zernioConnection.zernio_account_id,
-        location_id: zernioConnection.zernio_location_id,
+        account_id: target.accountId,
+        location_id: target.locationId,
         error_body: err.body ? String(err.body).slice(0, 500) : err.message,
         outboxId,
         outboxAttempt,
@@ -173,8 +162,8 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
       throw new PublisherTransientWithContext(err, {
         response_id: responseId,
         business_id: businessId,
-        account_id: zernioConnection.zernio_account_id,
-        location_id: zernioConnection.zernio_location_id,
+        account_id: target.accountId,
+        location_id: target.locationId,
       });
     }
 
@@ -187,15 +176,6 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
   // when unconfirmed: ZernioReplyVerificationIndeterminateError → failed +
   // review_exception + admin alert at retry exhaustion; PublisherTransientWith-
   // Context → BullMQ retry, whose next attempt 409s into verify409AndDispose.
-  await verifyOwnReplyAttached({
-    responseId,
-    businessId,
-    reviewId,
-    zernioReviewId,
-    approvedText,
-    accountId: zernioConnection.zernio_account_id,
-    locationId: zernioConnection.zernio_location_id,
-    logger,
-  });
+  await verifyOwnReplyAttached({ target, approvedText, logger });
   return 'posted';
 }

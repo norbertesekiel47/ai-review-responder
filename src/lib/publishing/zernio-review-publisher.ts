@@ -21,7 +21,7 @@ import {
 import type {
   FindReplyResult,
   ResolveTargetResult,
-  ResolvedPublishTarget,
+  ReviewLocator,
   ReviewPublisher,
   ReviewRef,
 } from './review-publisher';
@@ -76,26 +76,26 @@ export class ZernioReviewPublisher implements ReviewPublisher {
     }
   }
 
-  async publishReply(target: ResolvedPublishTarget, replyText: string): Promise<void> {
-    await zernioClient.postReply(target.accountId, target.providerReviewId, {
+  async publishReply(locator: ReviewLocator, replyText: string): Promise<void> {
+    await zernioClient.postReply(locator.accountId, locator.providerReviewId, {
       comment: replyText,
     });
   }
 
-  async deleteReply(target: ResolvedPublishTarget): Promise<void> {
-    await zernioClient.deleteReply(target.accountId, target.providerReviewId);
+  async deleteReply(locator: ReviewLocator): Promise<void> {
+    await zernioClient.deleteReply(locator.accountId, locator.providerReviewId);
   }
 
-  async findReply(target: ResolvedPublishTarget): Promise<FindReplyResult> {
-    const maxPages = await this.resolveVerifierMaxPages(target);
+  async findReply(locator: ReviewLocator): Promise<FindReplyResult> {
+    const maxPages = await this.resolveVerifierMaxPages(locator);
 
-    const allReviews = await zernioClient.listAllReviews(target.accountId, {
-      locationId: target.locationId,
+    const allReviews = await zernioClient.listAllReviews(locator.accountId, {
+      locationId: locator.locationId,
       pageSize: 50,
       maxPages,
     });
 
-    const found = allReviews.find((review) => review.id === target.providerReviewId);
+    const found = allReviews.find((review) => review.id === locator.providerReviewId);
     if (!found) {
       return { kind: 'review_absent', pagesWalked: maxPages, reviewsSeen: allReviews.length };
     }
@@ -112,12 +112,12 @@ export class ZernioReviewPublisher implements ReviewPublisher {
    * failure falls back to the conservative cap. Single owner so the post-verify
    * and 409 paths cannot drift apart.
    */
-  private async resolveVerifierMaxPages(target: ResolvedPublishTarget): Promise<number> {
+  private async resolveVerifierMaxPages(locator: ReviewLocator): Promise<number> {
     try {
       const cachedPage = await getCachedZernioReviewPage(
-        target.accountId,
-        target.locationId,
-        target.providerReviewId,
+        locator.accountId,
+        locator.locationId,
+        locator.providerReviewId,
       );
       if (cachedPage !== null) return Math.min(cachedPage + 1, MAX_VERIFY_PAGES);
     } catch {

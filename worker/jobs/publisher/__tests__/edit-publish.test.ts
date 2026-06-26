@@ -98,7 +98,7 @@ function makeContext(overrides: Partial<EditPublishContext> = {}): EditPublishCo
 
 function deps() {
   return {
-    zernioClient: { deleteReply: mockDeleteReply, postReply: mockPostReply } as any,
+    publisher: { deleteReply: mockDeleteReply, publishReply: mockPostReply } as any,
     verify409InTx: mockVerify409InTx as any,
   };
 }
@@ -203,7 +203,11 @@ describe('runEditPublishIfApplicable — Phase A', () => {
     const result = await runEditPublishIfApplicable(makeContext(), deps());
 
     expect(result).toMatchObject({ outcome: 'completed' });
-    expect(mockDeleteReply).toHaveBeenCalledWith('acct-1', 'zernio-rev-id-1');
+    expect(mockDeleteReply).toHaveBeenCalledWith({
+      accountId: 'acct-1',
+      locationId: 'loc-1',
+      providerReviewId: 'zernio-rev-id-1',
+    });
     expect(mockPostReply).toHaveBeenCalledTimes(1);
     expect(mockDeleteReply.mock.invocationCallOrder[0]).toBeLessThan(
       mockPostReply.mock.invocationCallOrder[0]!,

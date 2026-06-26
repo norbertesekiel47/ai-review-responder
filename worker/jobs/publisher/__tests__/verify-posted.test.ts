@@ -42,14 +42,16 @@ function zReview(id: string, replyComment: string | null = null) {
   };
 }
 
-const baseArgs = {
-  responseId: 'resp-1',
-  businessId: 'biz-1',
-  reviewId: 'rev-1',
-  zernioReviewId: 'ZID-ours',
-  approvedText: 'Dear guest, thank you for the kind words!',
+const target = {
+  ref: { responseId: 'resp-1', businessId: 'biz-1', reviewId: 'rev-1' },
   accountId: 'acct-1',
   locationId: 'loc-1',
+  providerReviewId: 'ZID-ours',
+};
+
+const baseArgs = {
+  target,
+  approvedText: 'Dear guest, thank you for the kind words!',
   logger,
 };
 

@@ -27,20 +27,28 @@ export interface ReviewRef {
 }
 
 /**
- * A resolved publishing target. Produced by `resolveTarget`, threaded back into
- * the transport methods. The provider coordinates exist for the retained (deferred-
- * neutralization) Zernio disposition layer; worker *orchestration* never builds or
- * destructures them — it only forwards the target. They disappear from this type
- * when the GBP adapter forces the error taxonomy to be neutralized.
+ * Provider coordinates that locate a review's reply slot. This is ALL the adapter's
+ * transport methods need — the adapter never sees an app-owned id. The fields are
+ * provider-shaped (today Zernio's account/location/review ids); they disappear from
+ * the worker's view when the GBP adapter forces the error taxonomy to be neutralized.
  */
-export interface ResolvedPublishTarget {
-  ref: ReviewRef;
-  /** zernio_account_id — provider coordinate for retained disposition. */
+export interface ReviewLocator {
+  /** zernio_account_id */
   accountId: string;
-  /** zernio_location_id — provider coordinate for retained disposition. */
+  /** zernio_location_id */
   locationId: string;
   /** Provider's canonical review id (resolved via the adapter's cached lookup). */
   providerReviewId: string;
+}
+
+/**
+ * A resolved publishing target: a {@link ReviewLocator} plus the neutral {@link ReviewRef}
+ * the worker needs for its retained disposition (status transitions, exceptions,
+ * Sentry). Produced by `resolveTarget`; passed wherever both the provider coordinates
+ * and the app-owned ids are needed (the fresh-post + post-verify paths).
+ */
+export interface ResolvedPublishTarget extends ReviewLocator {
+  ref: ReviewRef;
 }
 
 /**
@@ -91,18 +99,18 @@ export interface ReviewPublisher {
    */
   resolveTarget(ref: ReviewRef): Promise<ResolveTargetResult>;
 
-  /** Post a reply for the resolved target. Throws provider error classes on failure. */
-  publishReply(target: ResolvedPublishTarget, replyText: string): Promise<void>;
+  /** Post a reply at the located review. Throws provider error classes on failure. */
+  publishReply(locator: ReviewLocator, replyText: string): Promise<void>;
 
-  /** Delete the target's existing reply (edit = DELETE-before-POST). Throws on failure. */
-  deleteReply(target: ResolvedPublishTarget): Promise<void>;
+  /** Delete the located review's existing reply (edit = DELETE-before-POST). Throws on failure. */
+  deleteReply(locator: ReviewLocator): Promise<void>;
 
   /**
-   * Locate the target's review in the live feed and return its current reply.
-   * Bounds the walk via the adapter-internal page cache. Throws provider error
-   * classes if the feed fetch itself fails (worker classifies for retry/terminal).
+   * Locate the review in the live feed and return its current reply. Bounds the
+   * walk via the adapter-internal page cache. Throws provider error classes if the
+   * feed fetch itself fails (worker classifies for retry/terminal).
    */
-  findReply(target: ResolvedPublishTarget): Promise<FindReplyResult>;
+  findReply(locator: ReviewLocator): Promise<FindReplyResult>;
 }
 
 let cached: ReviewPublisher | null = null;
