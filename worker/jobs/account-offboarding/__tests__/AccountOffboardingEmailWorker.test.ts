@@ -56,6 +56,7 @@ vi.mock('../../../../src/lib/notifications/email', () => ({
 
 import { accountOffboardingDeliveryId } from '../../../../src/lib/account-offboarding/email-dedup';
 import { handleAccountOffboardingEmail } from '../AccountOffboardingEmailWorker';
+import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const OFFBOARDING_ID = '22222222-2222-4222-8222-222222222222';
@@ -102,6 +103,10 @@ beforeEach(() => {
   process.env.SESSION_COOKIE_SECRET = 'test-session-cookie-secret-at-least-32-chars';
   sqlCalls.length = 0;
   sqlReturnQueue.length = 0;
+  // The worker reads NEXT_PUBLIC_APP_URL via the memoized getWorkerConfig(); clear
+  // the memo so the per-test `delete process.env.NEXT_PUBLIC_APP_URL` is re-parsed
+  // on the handler's first read (Stage-3 #6).
+  resetWorkerConfigForTests();
 });
 
 describe('AccountOffboardingEmailWorker', () => {

@@ -34,6 +34,7 @@ import {
   markOutboxFailed,
   extractOutboxHandle,
 } from '../../src/lib/shared/outbox';
+import { getWorkerConfig } from '../../src/lib/config/worker';
 import {
   sendInternalEmail,
   buildOwnerReconnectRequiredEmailHtml,
@@ -101,7 +102,7 @@ export async function handleOwnerEmail(
     return;
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const appUrl = getWorkerConfig().NEXT_PUBLIC_APP_URL;
   if (!appUrl) {
     logger.error('NEXT_PUBLIC_APP_URL not set — cannot construct reconnect URL');
     await markOutboxFailed(outboxId, 'NEXT_PUBLIC_APP_URL not configured', outboxAttempt);

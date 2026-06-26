@@ -9,6 +9,7 @@
 // send, finalize with the provider id after ack.
 
 import { getChannel } from '../../../src/lib/notifications/channels';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import type { ResolvedChannel } from '../../../src/lib/notifications/resolve-channels';
 import type { SendAutoPostNoticeParams } from '../../../src/lib/notifications/channels/types';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
@@ -51,6 +52,7 @@ export async function dispatchAutoPostNotice(
     retryableFailed: 0,
   };
   const locationLabel = input.business.displayLabel ?? input.business.name;
+  const whatsappTemplateSid = getWorkerConfig().WHATSAPP_AUTOPOST_TEMPLATE_SID;
 
   for (const enrollment of enrollments) {
     const channelId = enrollment.channel;
@@ -58,7 +60,7 @@ export async function dispatchAutoPostNotice(
 
     // B7 pre-filter: WhatsApp without its FYI template SID skips cleanly,
     // without constructing the client or recording a delivery row.
-    if (channelId === 'whatsapp' && !process.env.WHATSAPP_AUTOPOST_TEMPLATE_SID) {
+    if (channelId === 'whatsapp' && !whatsappTemplateSid) {
       result.skipped += 1;
       logger.log(
         `auto_post_notice skipped channel=whatsapp reason=template_unset response=${input.responseId}`,

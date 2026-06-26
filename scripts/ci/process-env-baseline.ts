@@ -89,21 +89,14 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   'worker/ingress/twilio/twilio-delivery-status.ts',
   'worker/ingress/twilio/twilio-whatsapp-inbound.ts',
   'worker/ingress/zernio/zernio.ts',
-  'worker/jobs/AdminExceptionWorker.ts',
-  'worker/jobs/EngagementAlertWorker.ts',
-  'worker/jobs/MonthlyImpactWorker.ts',
-  'worker/jobs/OnboardingDripWorker.ts',
-  'worker/jobs/OwnerEmailWorker.ts',
-  'worker/jobs/RankingTrackingWorker.ts',
-  'worker/jobs/WeeklySummaryWorker.ts',
-  'worker/jobs/account-offboarding/AccountOffboardingEmailWorker.ts',
-  'worker/jobs/auto-post-notice/AutoPostNoticeWorker.ts',
-  'worker/jobs/auto-post-notice/dispatch.ts',
-  'worker/jobs/notification/NotificationWorker.ts',
+  // Stage-3 worker-jobs batch removed the 12 fully-migrated job files (their
+  // NEXT_PUBLIC_APP_URL / RESEND_FROM_EMAIL / ADMIN_NOTIFICATION_EMAIL /
+  // SERPAPI_API_KEY / CSRF_SECRET / WHATSAPP_AUTOPOST_TEMPLATE_SID /
+  // ZERNIO_INGEST_MAX_PAGES reads now go through getWorkerConfig()). The 4 below
+  // STAY: each still reads a Stage-4 *_ENABLED/*_DISABLED flag.
   'worker/jobs/notification/eligibility.ts',
   'worker/jobs/publisher/ResponsePublisherWorker.ts',
   'worker/jobs/publisher/failed-hook.ts',
-  'worker/jobs/zernio/ZernioReviewIngestWorker.ts',
   'worker/jobs/zernio/zernio-ingest-shared.ts',
   'worker/redis-connection.ts',
   'worker/sentry.ts',

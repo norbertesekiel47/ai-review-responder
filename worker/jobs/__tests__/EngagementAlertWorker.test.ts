@@ -69,6 +69,7 @@ vi.mock('../../../src/lib/approval/create-link', () => ({
 }));
 
 import { handleEngagementAlert } from '../EngagementAlertWorker';
+import { resetWorkerConfigForTests } from '../../../src/lib/config/worker';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -122,6 +123,11 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
     process.env.NEXT_PUBLIC_APP_URL = 'https://app.repworth.com';
     process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@repworth.com';
     process.env.RESEND_FROM_EMAIL = 'RepWorth <noreply@repworth.com>';
+    // The worker reads NEXT_PUBLIC_APP_URL / RESEND_FROM_EMAIL /
+    // ADMIN_NOTIFICATION_EMAIL via the memoized getWorkerConfig(); clear the memo
+    // so each test's env (incl. the per-test `delete`s) is re-parsed on the
+    // handler's first read (Stage-3 #6).
+    resetWorkerConfigForTests();
   });
 
   // ── Common guards ──────────────────────────────────────────────────

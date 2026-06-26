@@ -17,6 +17,7 @@ import {
   markOutboxFailed,
   extractOutboxHandle,
 } from '../../../src/lib/shared/outbox';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import type { AutoPostNoticePayload } from '../../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { asLocationId } from '../../../src/lib/shared/ids';
@@ -66,7 +67,7 @@ export async function handleAutoPostNotice(job: Job<AutoPostNoticePayload>): Pro
     return;
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const appUrl = getWorkerConfig().NEXT_PUBLIC_APP_URL;
   if (!appUrl) {
     logger.error('NEXT_PUBLIC_APP_URL not set — cannot construct the FYI view URL');
     await markOutboxFailed(outboxId, 'NEXT_PUBLIC_APP_URL not configured', outboxAttempt);

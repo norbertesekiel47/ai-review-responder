@@ -70,6 +70,7 @@ import {
   ZernioIngestPaginationCapExhaustedError,
   ZernioIngestUnparseableLocationError,
 } from '../ZernioReviewIngestWorker';
+import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────
 
@@ -119,6 +120,10 @@ describe('ZernioReviewIngestWorker', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetMockSql();
+    // maxPages reads ZERNIO_INGEST_MAX_PAGES via the memoized getWorkerConfig();
+    // clear the memo so each test re-parses the current env (the override test
+    // below sets '2' then restores it) (Stage-3 #6).
+    resetWorkerConfigForTests();
   });
 
   // 1. Page 1 hit → processReview called
@@ -235,6 +240,7 @@ describe('ZernioReviewIngestWorker', () => {
   it('honors ZERNIO_INGEST_MAX_PAGES env var override', async () => {
     const prev = process.env.ZERNIO_INGEST_MAX_PAGES;
     process.env.ZERNIO_INGEST_MAX_PAGES = '2';
+    resetWorkerConfigForTests(); // re-parse so the handler reads the '2' override
     try {
       pushActiveBiz();
       pushActiveConn();

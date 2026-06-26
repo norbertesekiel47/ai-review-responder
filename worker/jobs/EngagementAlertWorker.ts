@@ -5,6 +5,7 @@ import {
   type AccountFlagsInput,
 } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
+import { getWorkerConfig } from '../../src/lib/config/worker';
 import {
   sendInternalEmail,
   buildOwnerNudgeEmailHtml,
@@ -105,14 +106,15 @@ async function handleOwnerNudge(
   }
 
   // Validate config before creating any approval links
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const cfg = getWorkerConfig();
+  const appUrl = cfg.NEXT_PUBLIC_APP_URL;
   if (!appUrl) {
     logger.error(`NEXT_PUBLIC_APP_URL not set — cannot send owner nudge`);
     await markOutboxFailedFn(outboxId, 'NEXT_PUBLIC_APP_URL not configured');
     return;
   }
 
-  const fromEmail = process.env.RESEND_FROM_EMAIL;
+  const fromEmail = cfg.RESEND_FROM_EMAIL;
   if (!fromEmail) {
     logger.error(`RESEND_FROM_EMAIL not set — cannot send owner nudge`);
     await markOutboxFailedFn(outboxId, 'RESEND_FROM_EMAIL not configured');
@@ -224,7 +226,7 @@ async function handlePartnerAlert(
   business: { name: string; account_id: string; owner_email: string; owner_phone: string | null },
   logger: WorkerLogger,
 ): Promise<void> {
-  const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
+  const adminEmail = getWorkerConfig().ADMIN_NOTIFICATION_EMAIL;
   if (!adminEmail) {
     logger.error(`ADMIN_NOTIFICATION_EMAIL not set — cannot send partner alert`);
     await markOutboxFailed(outboxId, 'ADMIN_NOTIFICATION_EMAIL not configured', outboxAttempt);
@@ -307,7 +309,7 @@ async function handleSatisfactionAlert(
   satisfaction: EngagementAlertPayload['satisfaction'] | null,
   logger: WorkerLogger,
 ): Promise<void> {
-  const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
+  const adminEmail = getWorkerConfig().ADMIN_NOTIFICATION_EMAIL;
   if (!adminEmail) {
     logger.error(`ADMIN_NOTIFICATION_EMAIL not set — cannot send satisfaction alert`);
     await markOutboxFailed(outboxId, 'ADMIN_NOTIFICATION_EMAIL not configured', outboxAttempt);
