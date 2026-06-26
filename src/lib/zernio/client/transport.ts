@@ -6,6 +6,7 @@ import {
   ZernioReviewNotFoundError,
   ZernioReplyAlreadyExistsError,
 } from '../errors';
+import { getServerConfig } from '@/lib/config/server';
 import type { EndpointKind } from '../types';
 import { classifyAndParse } from './error-classifier';
 
@@ -59,10 +60,15 @@ async function requestWithOptions<T>(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  // Read env on every call (NOT module-level) so MOCK_EXTERNAL_APIS toggling
-  // and per-test env overrides work correctly.
-  const apiBase = options.baseUrl ?? process.env.ZERNIO_API_BASE ?? 'https://zernio.com/api';
-  const apiKey = options.apiKey ?? process.env.ZERNIO_API_KEY ?? '';
+  // MOCK_EXTERNAL_APIS is still read per-call directly (above, exempt env
+  // indicator #2) so toggling works. ZERNIO_API_BASE / ZERNIO_API_KEY now come
+  // from the memoized getServerConfig() (Stage-3 zernio-transport batch): env is
+  // immutable in prod, so memoized == per-call; per-test overrides reset the memo
+  // (resetServerConfigForTests) per Stage-3 convention #6. options.X still wins,
+  // and the '' / 'https://zernio.com/api' fallbacks are preserved byte-for-byte.
+  const cfg = getServerConfig();
+  const apiBase = options.baseUrl ?? cfg.ZERNIO_API_BASE ?? 'https://zernio.com/api';
+  const apiKey = options.apiKey ?? cfg.ZERNIO_API_KEY ?? '';
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${apiKey}`,

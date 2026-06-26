@@ -33,9 +33,24 @@ function normalize(file: string): string {
  *   - MOCK_EXTERNAL_APIS — local mock-mode switch
  *   - VERCEL_*          — platform-injected deploy indicators (VERCEL_ENV,
  *                          VERCEL_TARGET_ENV, VERCEL_URL, …)
+ *
+ * MOCK_ZERNIO_LOCATION_COUNT is also exempt (EXACT-NAME, not a broad MOCK_*
+ * prefix — that would be too wide). It is a MOCK-mode fixture knob: read only
+ * inside the Zernio transport's mockLocations(), which is reachable ONLY when
+ * MOCK_EXTERNAL_APIS==='true' (the transport short-circuits to its mock branch
+ * before any real call) and is never read in production. It is a sibling to
+ * MOCK_EXTERNAL_APIS — a local fixture dial, not subsystem config — so routing it
+ * through the production config schema would add a never-used-in-prod field with
+ * mock-specific clamp logic. It therefore stays a direct process.env read and the
+ * audit must not count it.
  */
 function isExemptIndicatorName(name: string): boolean {
-  return name === 'NODE_ENV' || name === 'MOCK_EXTERNAL_APIS' || name.startsWith('VERCEL_');
+  return (
+    name === 'NODE_ENV' ||
+    name === 'MOCK_EXTERNAL_APIS' ||
+    name === 'MOCK_ZERNIO_LOCATION_COUNT' ||
+    name.startsWith('VERCEL_')
+  );
 }
 
 /**

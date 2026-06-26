@@ -104,7 +104,12 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   //  shared/worker-public-url.ts migrated to getServerConfig() — Stage-3 src-lib
   //  batch; shared/logger.ts moved to ALLOWLIST_FILES. shared/rate-limit.ts
   //  migrated to getServerConfig() — Stage-3 serpapi-redis batch, see above.)
-  'src/lib/zernio/client/transport.ts',
+  // Stage-3 zernio-transport batch MIGRATED (removed): zernio/client/transport.ts —
+  // ZERNIO_API_BASE / ZERNIO_API_KEY now read via getServerConfig() (rawOpt,
+  // fallbacks intact), in-fn AFTER the mock short-circuit. MOCK_ZERNIO_LOCATION_COUNT
+  // is exempted as a mock-fixture knob (audit isExemptIndicatorName), and
+  // MOCK_EXTERNAL_APIS stays a direct exempt read (#2) — so no counted read remains
+  // and no import-time reader → not allowlisted. Net 39 → 38.
   // Stage-3 worker-pollers batch removed the 15 fully-migrated poller files
   // (all their tuning/alerting reads now go through getWorkerConfig()). The 4
   // pollers below STAY: each still reads a Stage-4 *_ENABLED/*_DISABLED flag.

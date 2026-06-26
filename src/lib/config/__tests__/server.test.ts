@@ -233,4 +233,47 @@ describe('config/server', () => {
     expect(cfg.REDIS_CACHE_URL).toBe('   ');
     expect(cfg.SERPAPI_TIMEOUT_MS).toBe('   ');
   });
+
+  // ── Stage-3 zernio-transport batch: ZERNIO_API_BASE + ZERNIO_API_KEY added as
+  //    new rawOptionalVar fields. The transport does
+  //    `options.X ?? getServerConfig().X ?? <fallback>`, so the raw value must
+  //    survive verbatim for the fallbacks to stay behavior-identical (#7).
+  const ZERNIO_TRANSPORT_VARS = ['ZERNIO_API_BASE', 'ZERNIO_API_KEY'] as const;
+
+  it('exposes the Zernio transport vars as OPTIONAL (present when set)', async () => {
+    Object.assign(process.env, CORE, {
+      ZERNIO_API_BASE: 'https://zernio.test/api',
+      ZERNIO_API_KEY: 'zk-test',
+    });
+    const { getServerConfig } = await import('../server');
+    const cfg = getServerConfig();
+    expect(cfg.ZERNIO_API_BASE).toBe('https://zernio.test/api');
+    expect(cfg.ZERNIO_API_KEY).toBe('zk-test');
+  });
+
+  it('Zernio transport vars are undefined when unset — tolerate-absent (no throw)', async () => {
+    Object.assign(process.env, CORE);
+    for (const v of ZERNIO_TRANSPORT_VARS) delete process.env[v];
+    const { getServerConfig } = await import('../server');
+    const cfg = getServerConfig();
+    for (const v of ZERNIO_TRANSPORT_VARS) {
+      expect(cfg[v]).toBeUndefined();
+    }
+  });
+
+  // rawOptionalVar (#7): ZERNIO_API_BASE / ZERNIO_API_KEY must preserve a
+  // whitespace-only '   ' VERBATIM (not collapse to undefined). The transport
+  // does `options.X ?? cfg.X ?? <fallback>` — a collapsing optionalVar would map
+  // '   ' to undefined and reach the fallback, FLIPPING the value the old raw
+  // process.env read produced. RED under the collapsing optionalVar.
+  it('preserves whitespace-only Zernio transport vars verbatim (rawOptionalVar #7)', async () => {
+    Object.assign(process.env, CORE, {
+      ZERNIO_API_BASE: '   ',
+      ZERNIO_API_KEY: '   ',
+    });
+    const { getServerConfig } = await import('../server');
+    const cfg = getServerConfig();
+    expect(cfg.ZERNIO_API_BASE).toBe('   ');
+    expect(cfg.ZERNIO_API_KEY).toBe('   ');
+  });
 });
