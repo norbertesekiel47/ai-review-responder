@@ -73,11 +73,15 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   // getServerConfig(). Stage-3 src-lib batch ALLOWLISTED (moved up to
   // ALLOWLIST_FILES): admin/cost-report-service.ts, db/redis-cache.ts,
   // db/server.ts, demos/fetch-reviews.ts, shared/logger.ts (import-time readers).
-  // costs/tracker.ts STAYS below (CRITICAL cost guard, deferred — dynamic *_CENTS key).
+  // Stage-3 cost-guard batch MIGRATED (removed): costs/tracker.ts — its
+  // GLOBAL_DAILY_COST_LIMIT_CENTS + per-tier DAILY_COST_LIMIT_CENTS_{FOUNDING,
+  // STANDARD,PREMIUM,BASIC} reads now go through getServerConfig() (the former
+  // dynamic process.env[envKey] is a static-typed config lookup). safeParseLimitCents
+  // and the reservation logic are byte-for-byte unchanged. (admin/cost-report-service.ts
+  // reads the same *_CENTS vars at module-load and stays ALLOWLISTED — independent.)
   'src/lib/auth/require-owner-access.ts',
   'src/lib/auto-approval/flags.ts',
   'src/lib/channels/override.ts',
-  'src/lib/costs/tracker.ts',
   'src/lib/db/auth.ts',
   'src/lib/db/browser.ts',
   'src/lib/locations/owner-route.ts',

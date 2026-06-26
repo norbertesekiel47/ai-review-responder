@@ -1,4 +1,5 @@
 import { getCacheRedis } from '@/lib/db/redis-cache';
+import { getServerConfig } from '@/lib/config/server';
 import { CostInfraUnavailableError } from './errors';
 
 // ── Error classes ────────────────────────────────────────────────────
@@ -115,11 +116,24 @@ function getTierLimitCents(tier: string): number {
   const envSuffix = TIER_ENV_SUFFIX[tier] ?? tier.toUpperCase();
   const envKey = `DAILY_COST_LIMIT_CENTS_${envSuffix}`;
   const fallback = DEFAULT_TIER_LIMITS_CENTS[tier] ?? DEFAULT_TIER_LIMITS_CENTS.standard!;
-  return safeParseLimitCents(process.env[envKey], fallback);
+  // Static-typed mirror of the old dynamic `process.env[envKey]` read. The only
+  // env keys getTierLimitCents ever forms are the four tier suffixes below
+  // (FOUNDING for founders/founding, STANDARD, PREMIUM, and BASIC from the
+  // tier.toUpperCase() fallback) — config-migrated to rawOptionalVar so the raw
+  // value reaches safeParseLimitCents byte-for-byte (#7). An out-of-set envKey
+  // (an unknown tier) → undefined → fallback, exactly like an unset process.env.X.
+  const cfg = getServerConfig();
+  const tierLimitByEnvKey: Record<string, string | undefined> = {
+    DAILY_COST_LIMIT_CENTS_FOUNDING: cfg.DAILY_COST_LIMIT_CENTS_FOUNDING,
+    DAILY_COST_LIMIT_CENTS_STANDARD: cfg.DAILY_COST_LIMIT_CENTS_STANDARD,
+    DAILY_COST_LIMIT_CENTS_PREMIUM: cfg.DAILY_COST_LIMIT_CENTS_PREMIUM,
+    DAILY_COST_LIMIT_CENTS_BASIC: cfg.DAILY_COST_LIMIT_CENTS_BASIC,
+  };
+  return safeParseLimitCents(tierLimitByEnvKey[envKey], fallback);
 }
 
 function getGlobalLimitCents(): number {
-  return safeParseLimitCents(process.env.GLOBAL_DAILY_COST_LIMIT_CENTS, 10_000);
+  return safeParseLimitCents(getServerConfig().GLOBAL_DAILY_COST_LIMIT_CENTS, 10_000);
 }
 
 // ── Phase 1: Reservation ─────────────────────────────────────────────
