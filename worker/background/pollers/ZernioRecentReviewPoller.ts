@@ -1,3 +1,4 @@
+import { getWorkerConfig, type WorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
 import {
   checkSubscription,
@@ -72,8 +73,20 @@ export function resetConnectionCursorForTests(): void {
   connectionCursor = null;
 }
 
-function readPositiveInt(name: string, fallback: number): number {
-  const parsed = parseInt(process.env[name] ?? '', 10);
+// The migrated tuning vars this poller reads (all rawOptionalVar in workerSchema).
+// Typing the param to this union keeps getWorkerConfig()[name] type-safe without a
+// cast and documents exactly which vars the poller consumes.
+type ZernioPollerVar =
+  | 'ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS'
+  | 'ZERNIO_RECENT_REVIEW_POLL_PAGE_SIZE'
+  | 'ZERNIO_RECENT_REVIEW_POLL_MAX_PAGES'
+  | 'ZERNIO_RECENT_REVIEW_POLL_MAX_CONNECTIONS'
+  | 'ZERNIO_RECENT_REVIEW_POLL_CONCURRENCY'
+  | 'ZERNIO_RECENT_REVIEW_POLL_DEADLINE_MS'
+  | 'ZERNIO_RECENT_REVIEW_POLL_INTERVAL_MS';
+
+function readPositiveInt(name: ZernioPollerVar & keyof WorkerConfig, fallback: number): number {
+  const parsed = parseInt(getWorkerConfig()[name] ?? '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 

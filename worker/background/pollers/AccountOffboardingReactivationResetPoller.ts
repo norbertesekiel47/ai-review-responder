@@ -1,6 +1,7 @@
 import { getStripe } from '../../../src/lib/payments/stripe-client';
 import { accountOffboardingEnabled } from '../../../src/lib/account-offboarding/flags';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
 import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 import { maybeLogPollerHeartbeat, notePollerActivity } from '../poller-heartbeat';
@@ -29,12 +30,12 @@ interface StaleReactivationClaimRow {
 }
 
 function getIntervalMs(): number {
-  const raw = parseInt(process.env.ACCOUNT_OFFBOARDING_REACTIVATION_RESET_INTERVAL_MS || '', 10);
+  const raw = parseInt(getWorkerConfig().ACCOUNT_OFFBOARDING_REACTIVATION_RESET_INTERVAL_MS || '', 10);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_INTERVAL_MS;
 }
 
 function getBatchSize(): number {
-  const raw = parseInt(process.env.ACCOUNT_OFFBOARDING_REACTIVATION_RESET_BATCH_SIZE || '', 10);
+  const raw = parseInt(getWorkerConfig().ACCOUNT_OFFBOARDING_REACTIVATION_RESET_BATCH_SIZE || '', 10);
   if (!Number.isFinite(raw) || raw < 1) return DEFAULT_BATCH_SIZE;
   if (raw > 100) return 100;
   return raw;

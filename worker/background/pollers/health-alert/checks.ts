@@ -3,6 +3,7 @@
 // schema and compares to an env-tunable threshold, returning HealthFinding(s) or
 // null. No writes. Column references verified against supabase/migrations
 // (job_outbox, notification_deliveries, flagged_responses, responses).
+import { getWorkerConfig } from '../../../../src/lib/config/worker';
 import { sql } from '../../../../src/lib/db/server';
 
 export interface HealthFinding {
@@ -27,13 +28,14 @@ function num(value: string | undefined, fallback: number): number {
 }
 
 function resolveHealthAlertConfig(): HealthAlertConfig {
+  const cfg = getWorkerConfig();
   return {
-    pendingAgeThresholdS: num(process.env.HEALTH_ALERT_PENDING_AGE_S, 900),
-    failedWindowS: num(process.env.HEALTH_ALERT_FAILED_WINDOW_S, 3600),
-    failedThreshold: num(process.env.HEALTH_ALERT_FAILED_THRESHOLD, 0),
-    staleDispatchingThresholdS: num(process.env.HEALTH_ALERT_STALE_DISPATCHING_S, 600),
-    flaggedOpenThreshold: num(process.env.HEALTH_ALERT_FLAGGED_OPEN_THRESHOLD, 5),
-    zeroDeliveryWindowS: num(process.env.HEALTH_ALERT_ZERO_DELIVERY_WINDOW_S, 3600),
+    pendingAgeThresholdS: num(cfg.HEALTH_ALERT_PENDING_AGE_S, 900),
+    failedWindowS: num(cfg.HEALTH_ALERT_FAILED_WINDOW_S, 3600),
+    failedThreshold: num(cfg.HEALTH_ALERT_FAILED_THRESHOLD, 0),
+    staleDispatchingThresholdS: num(cfg.HEALTH_ALERT_STALE_DISPATCHING_S, 600),
+    flaggedOpenThreshold: num(cfg.HEALTH_ALERT_FLAGGED_OPEN_THRESHOLD, 5),
+    zeroDeliveryWindowS: num(cfg.HEALTH_ALERT_ZERO_DELIVERY_WINDOW_S, 3600),
   };
 }
 

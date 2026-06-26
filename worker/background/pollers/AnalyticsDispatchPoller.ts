@@ -4,6 +4,7 @@ import {
   flushAnalytics,
   isAnalyticsConfigured,
 } from '../../../src/lib/analytics/posthog';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { createWorkerLogger, logUnhandledPollError } from '../../../src/lib/shared/logger';
 
 const LOG_PREFIX = '[AnalyticsDispatchPoller]';
@@ -32,12 +33,12 @@ function parseInteger(value: string | undefined, defaultValue: number): number {
 }
 
 function pollIntervalMs(): number {
-  const parsed = parseInteger(process.env.ANALYTICS_DISPATCH_POLL_INTERVAL_MS, 30_000);
+  const parsed = parseInteger(getWorkerConfig().ANALYTICS_DISPATCH_POLL_INTERVAL_MS, 30_000);
   return parsed > 0 ? parsed : 30_000;
 }
 
 function batchSize(): number {
-  return Math.max(1, Math.min(parseInteger(process.env.ANALYTICS_DISPATCH_BATCH_SIZE, 50), 250));
+  return Math.max(1, Math.min(parseInteger(getWorkerConfig().ANALYTICS_DISPATCH_BATCH_SIZE, 50), 250));
 }
 
 let interval: ReturnType<typeof setInterval> | null = null;

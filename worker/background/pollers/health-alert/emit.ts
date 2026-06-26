@@ -4,9 +4,8 @@
 // The probe's own liveness is a Sentry Cron check-in (dead-man switch): if the
 // poller dies, the missed check-in pages even though nothing threw.
 import * as Sentry from '@sentry/node';
+import { getWorkerConfig } from '../../../../src/lib/config/worker';
 import type { HealthFinding } from './checks';
-
-const PROBE_MONITOR_SLUG = process.env.HEALTH_ALERT_MONITOR_SLUG || 'health-alert-poller';
 
 export function emitHealthFindings(findings: HealthFinding[]): void {
   for (const finding of findings) {
@@ -27,8 +26,9 @@ export function recordProbeCheckIn(status: 'ok' | 'error', intervalMs: number): 
   // (intervalMs, owned by HealthAlertPoller); one cycle of margin absorbs jitter
   // before the dead-man switch pages.
   const intervalMinutes = Math.max(1, Math.min(59, Math.round(intervalMs / 60_000)));
+  const probeMonitorSlug = getWorkerConfig().HEALTH_ALERT_MONITOR_SLUG || 'health-alert-poller';
   Sentry.captureCheckIn(
-    { monitorSlug: PROBE_MONITOR_SLUG, status },
+    { monitorSlug: probeMonitorSlug, status },
     {
       schedule: { type: 'crontab', value: `*/${intervalMinutes} * * * *` },
       checkinMargin: intervalMinutes,

@@ -8,6 +8,7 @@
 // the low-engagement email template.
 
 import { v7 as uuidv7 } from 'uuid';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 import type { EngagementAlertPayload, EngagementAlertType } from '../../../src/lib/shared/worker-types';
@@ -70,7 +71,7 @@ const RULES: EngagementRule[] = [
 ];
 
 function getIntervalMs(): number {
-  const envVal = process.env.ENGAGEMENT_MONITOR_INTERVAL_MS;
+  const envVal = getWorkerConfig().ENGAGEMENT_MONITOR_INTERVAL_MS;
   if (!envVal) return DEFAULT_INTERVAL_MS;
   const parsed = parseInt(envVal, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;

@@ -1,5 +1,6 @@
 import { accountOffboardingEnabled } from '../../../src/lib/account-offboarding/flags';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
 import { enqueueAccountOffboardingPurge } from '../../../src/lib/shared/job-outbox-helpers';
 import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
@@ -26,12 +27,12 @@ type ClaimResult =
   | { kind: 'claimed'; offboardingId: string };
 
 function getIntervalMs(): number {
-  const raw = parseInt(process.env.ACCOUNT_OFFBOARDING_PURGE_INTERVAL_MS || '', 10);
+  const raw = parseInt(getWorkerConfig().ACCOUNT_OFFBOARDING_PURGE_INTERVAL_MS || '', 10);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_INTERVAL_MS;
 }
 
 function getBatchSize(): number {
-  const raw = parseInt(process.env.ACCOUNT_OFFBOARDING_PURGE_BATCH_SIZE || '', 10);
+  const raw = parseInt(getWorkerConfig().ACCOUNT_OFFBOARDING_PURGE_BATCH_SIZE || '', 10);
   if (!Number.isFinite(raw) || raw < 1) return DEFAULT_BATCH_SIZE;
   if (raw > 100) return 100;
   return raw;
@@ -47,7 +48,7 @@ export function getAccountOffboardingPurgeWindowOverrideMs(): number | null {
     return null;
   }
 
-  const raw = parseInt(process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS || '', 10);
+  const raw = parseInt(getWorkerConfig().ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS || '', 10);
   if (!Number.isFinite(raw) || raw <= 0) {
     return null;
   }

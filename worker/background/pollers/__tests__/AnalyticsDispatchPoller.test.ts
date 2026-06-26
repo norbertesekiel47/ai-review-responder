@@ -15,6 +15,7 @@ vi.mock('../../../../src/lib/analytics/posthog', () => ({
   isAnalyticsConfigured: (...args: unknown[]) => mockIsAnalyticsConfigured(...args),
 }));
 
+import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
 import { runAnalyticsDispatchOnce, startAnalyticsDispatchPoller, stopAnalyticsDispatchPoller } from '../AnalyticsDispatchPoller';
 
 function sqlText(callIndex: number): string {
@@ -50,6 +51,10 @@ describe('AnalyticsDispatchPoller', () => {
   beforeEach(() => {
     delete process.env.ANALYTICS_DISPATCH_POLL_INTERVAL_MS;
     delete process.env.ANALYTICS_DISPATCH_BATCH_SIZE;
+    // pollIntervalMs()/batchSize() now read the memoized getWorkerConfig(); clear
+    // the memo so each test's env override (set after this beforeEach) is parsed
+    // fresh (convention #6).
+    resetWorkerConfigForTests();
     mockSql.mockReset();
     mockCaptureAnalyticsEvent.mockReset();
     mockCaptureAnalyticsEvent.mockReturnValue(true);
@@ -276,6 +281,9 @@ describe('AnalyticsDispatchPoller', () => {
 
     mockSql.mockReset();
     process.env.ANALYTICS_DISPATCH_BATCH_SIZE = '0';
+    // Second read of a DIFFERENT value in the same test: clear the memo so the
+    // new env value is parsed (the first read above memoized '999').
+    resetWorkerConfigForTests();
     mockSql
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);

@@ -119,6 +119,7 @@ vi.mock('../../../../src/lib/shared/logger', () => ({
   }),
 }));
 
+import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
 import {
   getAccountOffboardingPurgeWindowOverrideMs,
   runAccountOffboardingPurgeOnce,
@@ -257,6 +258,11 @@ beforeEach(() => {
   delete process.env[browserPurgeWindowOverrideEnvKey()];
   delete process.env.VERCEL_ENV;
   vi.stubEnv('NODE_ENV', 'test');
+  // The purge-window override now reads the memoized getWorkerConfig(); clear the
+  // memo so each test's ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS value (set
+  // after this beforeEach) is parsed fresh (#6). NODE_ENV/VERCEL_ENV stay direct
+  // reads (exempt indicators #2) and are unaffected.
+  resetWorkerConfigForTests();
 });
 
 afterEach(() => {
@@ -431,21 +437,28 @@ describe('AccountOffboardingPurgePoller', () => {
     expect(testState.revokedTokenCount).toBe(0);
   });
 
+  // readWindowOverride() is migrated to the memoized getWorkerConfig(), so each
+  // mid-test env mutation below is followed by resetWorkerConfigForTests() to
+  // re-parse (production env is immutable, so this never happens in prod) (#6).
   it('accepts the purge-window override only outside production and never via NEXT_PUBLIC env', () => {
     process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS = '86400000';
     process.env[browserPurgeWindowOverrideEnvKey()] = '123';
     vi.stubEnv('NODE_ENV', 'test');
+    resetWorkerConfigForTests();
     expect(getAccountOffboardingPurgeWindowOverrideMs()).toBe(86_400_000);
 
     delete process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS;
+    resetWorkerConfigForTests();
     expect(getAccountOffboardingPurgeWindowOverrideMs()).toBeNull();
 
     process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS = '86400000';
     vi.stubEnv('NODE_ENV', 'production');
+    resetWorkerConfigForTests();
     expect(getAccountOffboardingPurgeWindowOverrideMs()).toBeNull();
 
     vi.stubEnv('NODE_ENV', 'test');
     process.env.VERCEL_ENV = 'production';
+    resetWorkerConfigForTests();
     expect(getAccountOffboardingPurgeWindowOverrideMs()).toBeNull();
   });
 
@@ -457,15 +470,18 @@ describe('AccountOffboardingPurgePoller', () => {
     // A value above the cap is clamped down to exactly 3 days — so a fat-fingered
     // staging override can never push the destructive purge window arbitrarily far out.
     process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS = String(7 * 24 * 60 * 60 * 1000);
+    resetWorkerConfigForTests();
     expect(getAccountOffboardingPurgeWindowOverrideMs()).toBe(threeDaysMs);
 
     // Exactly 3 days passes through unchanged.
     process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS = String(threeDaysMs);
+    resetWorkerConfigForTests();
     expect(getAccountOffboardingPurgeWindowOverrideMs()).toBe(threeDaysMs);
 
     // Non-positive and non-numeric values are rejected (null), never coerced to 0/NaN.
     for (const bad of ['0', '-1', 'abc', '']) {
       process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS = bad;
+      resetWorkerConfigForTests();
       expect(getAccountOffboardingPurgeWindowOverrideMs()).toBeNull();
     }
   });

@@ -1,3 +1,4 @@
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
 import { createWorkerLogger, type WorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 import { invalidateChannelCache } from '../../../src/lib/notifications/resolve-channels';
@@ -97,7 +98,7 @@ async function runOnceInner(
   inserted: number;
   failed: number;
 }> {
-  const envBatch = process.env.EMAIL_CHANNEL_RECONCILE_BATCH_SIZE;
+  const envBatch = getWorkerConfig().EMAIL_CHANNEL_RECONCILE_BATCH_SIZE;
   const parsedBatch = envBatch ? parseInt(envBatch, 10) : NaN;
   const requestedBatchSize =
     Number.isFinite(parsedBatch) && parsedBatch > 0
@@ -226,7 +227,7 @@ export function startEmailChannelReconcilePoller(): void {
     return;
   }
 
-  const envInterval = process.env.EMAIL_CHANNEL_RECONCILE_INTERVAL_MS;
+  const envInterval = getWorkerConfig().EMAIL_CHANNEL_RECONCILE_INTERVAL_MS;
   const parsed = envInterval ? parseInt(envInterval, 10) : NaN;
   const interval =
     Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;

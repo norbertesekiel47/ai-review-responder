@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/node';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
 import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 import { withTimeout } from '../../../src/lib/shared/with-timeout';
@@ -14,15 +15,19 @@ interface OutboxEntry {
   max_attempts: number;
 }
 
-const POLL_INTERVAL_MS = parseInt(process.env.OUTBOX_POLL_INTERVAL_MS || '30000', 10);
+// Read at runtime (NOT module top level — convention #4: never call
+// getWorkerConfig() at import). Worker env is immutable after boot, so a runtime
+// read returns the same value a once-at-import const did. Parse/default preserved.
+function readPollIntervalMs(): number {
+  return parseInt(getWorkerConfig().OUTBOX_POLL_INTERVAL_MS || '30000', 10);
+}
 
 function readBatchSize(): number {
-  const raw = parseInt(process.env.OUTBOX_BATCH_SIZE || '50', 10);
+  const raw = parseInt(getWorkerConfig().OUTBOX_BATCH_SIZE || '50', 10);
   if (!Number.isFinite(raw) || raw < 1) return 50;
   if (raw > 500) return 500;
   return raw;
 }
-const BATCH_SIZE = readBatchSize();
 
 // A BullMQ enqueue can park forever in ioredis' offline command queue because
 // the queue connection uses `maxRetriesPerRequest: null` (required by BullMQ).
@@ -32,11 +37,10 @@ const BATCH_SIZE = readBatchSize();
 // (re-pended/dead-lettered via the existing dispatch catch) instead of a
 // silent permanent stall.
 function readDispatchTimeoutMs(): number {
-  const raw = parseInt(process.env.OUTBOX_DISPATCH_TIMEOUT_MS || '10000', 10);
+  const raw = parseInt(getWorkerConfig().OUTBOX_DISPATCH_TIMEOUT_MS || '10000', 10);
   if (!Number.isFinite(raw) || raw < 1000) return 10000;
   return raw;
 }
-const DISPATCH_TIMEOUT_MS = readDispatchTimeoutMs();
 
 // Defense in depth for the same failure class: even if some *other* await in a
 // cycle hangs without a timeout of its own, a single wedged cycle must never
@@ -46,11 +50,10 @@ const DISPATCH_TIMEOUT_MS = readDispatchTimeoutMs();
 // (claims use FOR UPDATE SKIP LOCKED; every dispatch UPDATE is attempt-scoped),
 // so proceeding can only help. Default 4× the poll interval (min 60s).
 function readMaxCycleMs(): number {
-  const raw = parseInt(process.env.OUTBOX_POLL_MAX_CYCLE_MS || '', 10);
+  const raw = parseInt(getWorkerConfig().OUTBOX_POLL_MAX_CYCLE_MS || '', 10);
   if (Number.isFinite(raw) && raw >= 1000) return raw;
-  return Math.max(POLL_INTERVAL_MS * 4, 60_000);
+  return Math.max(readPollIntervalMs() * 4, 60_000);
 }
-const MAX_CYCLE_MS = readMaxCycleMs();
 
 let pollerInterval: ReturnType<typeof setInterval> | null = null;
 // Generation token + start timestamp for the time-bounded overlap guard. A
@@ -62,16 +65,17 @@ let cycleSeq = 0;
 
 export async function pollOutbox(): Promise<void> {
   const logger = createWorkerLogger(LOG_PREFIX);
+  const maxCycleMs = readMaxCycleMs();
 
   // Time-bounded overlap guard with self-recovery. A normal in-flight cycle
-  // makes a fresh tick a no-op; a cycle that has overrun MAX_CYCLE_MS is
+  // makes a fresh tick a no-op; a cycle that has overrun maxCycleMs is
   // assumed wedged, logged, and superseded so the poller can never die silently.
   if (activeCycleToken !== null) {
     const elapsed = Date.now() - activeCycleStartedAt;
-    if (elapsed < MAX_CYCLE_MS) return;
+    if (elapsed < maxCycleMs) return;
     logger.error(
       'Previous poll cycle exceeded max duration; assuming wedged and starting a new cycle',
-      { stalled_ms: elapsed, max_cycle_ms: MAX_CYCLE_MS },
+      { stalled_ms: elapsed, max_cycle_ms: maxCycleMs },
     );
   }
 
@@ -80,6 +84,12 @@ export async function pollOutbox(): Promise<void> {
   activeCycleStartedAt = Date.now();
 
   try {
+    // Read once per cycle so the value is stable within the cycle (preserves the
+    // old module-level const semantics; getWorkerConfig is memoized so this is the
+    // same value every cycle).
+    const batchSize = readBatchSize();
+    const dispatchTimeoutMs = readDispatchTimeoutMs();
+
     // ── Phase 1: Watchdog recovery (separate transaction) ───────────
     // Runs in its own transaction so a timeout or failure here
     // doesn't block the dispatch phase.
@@ -159,7 +169,7 @@ export async function pollOutbox(): Promise<void> {
         WHERE status = 'pending'
           AND available_at <= NOW()
         ORDER BY available_at
-        LIMIT ${BATCH_SIZE}
+        LIMIT ${batchSize}
         FOR UPDATE SKIP LOCKED
       )
       RETURNING id, topic, payload, attempts, max_attempts
@@ -220,7 +230,7 @@ export async function pollOutbox(): Promise<void> {
             { ...payload, outbox_id: entry.id, outbox_attempt: entry.attempts },
             { jobId },
           ),
-          DISPATCH_TIMEOUT_MS,
+          dispatchTimeoutMs,
           `outbox dispatch ${entry.topic}`,
         );
 
@@ -288,16 +298,17 @@ export async function pollOutbox(): Promise<void> {
 
 export function startOutboxPoller(): void {
   const logger = createWorkerLogger(LOG_PREFIX);
+  const pollIntervalMs = readPollIntervalMs();
   logger.log('Starting', {
-    interval_ms: POLL_INTERVAL_MS,
-    batch: BATCH_SIZE,
-    dispatch_timeout_ms: DISPATCH_TIMEOUT_MS,
-    max_cycle_ms: MAX_CYCLE_MS,
+    interval_ms: pollIntervalMs,
+    batch: readBatchSize(),
+    dispatch_timeout_ms: readDispatchTimeoutMs(),
+    max_cycle_ms: readMaxCycleMs(),
   });
   pollOutbox().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {
     pollOutbox().catch(logUnhandledPollError(LOG_PREFIX));
-  }, POLL_INTERVAL_MS);
+  }, pollIntervalMs);
 }
 
 export function stopOutboxPoller(): void {

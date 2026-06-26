@@ -284,6 +284,10 @@ describe('NotificationFailoverPoller — stale branch (multi-channel era)', () =
     mockSendInternalEmail.mockReset();
     mockSendInternalEmail.mockResolvedValue({ messageId: 'mock-admin-1' });
     process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@repworth.example.com';
+    // ADMIN_NOTIFICATION_EMAIL now reads getWorkerConfig() (memoized) — reset the
+    // module registry AFTER setting env so the dynamic import below re-parses it
+    // (convention #6). The outer beforeEach's reset ran before this env override.
+    vi.resetModules();
     // NO vi.useFakeTimers() here — this describe calls runFailoverPollerOnce directly
   });
 

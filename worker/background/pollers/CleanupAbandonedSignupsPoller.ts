@@ -1,3 +1,4 @@
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql, supabaseServer } from '../../../src/lib/db/server';
 import { createWorkerLogger, type WorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 
@@ -77,7 +78,7 @@ async function runOnceInner(logger: WorkerLogger): Promise<void> {
     );
   }
 
-  const envVal = process.env.CLEANUP_ABANDONED_SIGNUPS_BATCH_SIZE;
+  const envVal = getWorkerConfig().CLEANUP_ABANDONED_SIGNUPS_BATCH_SIZE;
   const parsedBatchSize = envVal ? parseInt(envVal, 10) : NaN;
   const batchSize = Number.isFinite(parsedBatchSize) && parsedBatchSize > 0
     ? parsedBatchSize
@@ -283,7 +284,7 @@ export function startCleanupAbandonedSignupsPoller(): void {
     return;
   }
 
-  const envVal = process.env.CLEANUP_ABANDONED_SIGNUPS_INTERVAL_MS;
+  const envVal = getWorkerConfig().CLEANUP_ABANDONED_SIGNUPS_INTERVAL_MS;
   const parsed = envVal ? parseInt(envVal, 10) : NaN;
   const interval = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 

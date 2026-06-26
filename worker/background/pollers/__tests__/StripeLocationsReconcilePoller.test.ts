@@ -84,6 +84,7 @@ import {
   stopStripeLocationsReconcilePoller,
 } from '../StripeLocationsReconcilePoller';
 import { emitDriftAlert } from '../billing-reconciliation/drift-alert';
+import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -448,6 +449,10 @@ describe('StripeLocationsReconcilePoller', () => {
     process.env.STRIPE_PRICE_PREMIUM_OVERAGE = 'price_overage_prem';
     process.env.STRIPE_PRICE_FOUNDERS_OVERAGE = 'price_overage_founders';
     process.env.STRIPE_SECRET_KEY = 'sk_test_123';
+    // drift-alert.ts now reads SENTRY_DSN via the memoized getWorkerConfig(); clear
+    // the worker memo so each test's SENTRY_DSN override (set after this beforeEach)
+    // is parsed fresh (#6). Does not affect getServerConfig() (STRIPE_SECRET_KEY).
+    resetWorkerConfigForTests();
   });
 
   afterEach(() => {

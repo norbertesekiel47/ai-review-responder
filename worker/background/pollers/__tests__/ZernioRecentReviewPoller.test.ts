@@ -55,6 +55,7 @@ vi.mock('../../../../src/lib/zernio/auth-error-fallback', () => ({
 }));
 
 import { ZernioAuthError } from '../../../../src/lib/zernio/errors';
+import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
 import { runOnce, resetConnectionCursorForTests } from '../ZernioRecentReviewPoller';
 
 function makeReview(overrides: Partial<Record<string, unknown>> = {}) {
@@ -86,6 +87,9 @@ describe('ZernioRecentReviewPoller', () => {
     delete process.env.ZERNIO_RECENT_REVIEW_POLL_MAX_CONNECTIONS;
     delete process.env.ZERNIO_RECENT_REVIEW_POLL_CONCURRENCY;
     delete process.env.ZERNIO_RECENT_REVIEW_POLL_DEADLINE_MS;
+    // readPositiveInt now reads the memoized getWorkerConfig(); clear the memo so
+    // each test's ZERNIO_RECENT_REVIEW_POLL_* override is parsed fresh (#6).
+    resetWorkerConfigForTests();
     resetConnectionCursorForTests();
   });
 
