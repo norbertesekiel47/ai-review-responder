@@ -17,6 +17,9 @@ vi.mock('../../../../src/lib/zernio/client', () => ({
 }));
 vi.mock('../../../../src/lib/publishing/zernio-publisher', () => ({
   getCachedZernioReviewPage: mockGetCachedZernioReviewPage,
+  // The Zernio adapter statically imports this too (used only by resolveTarget,
+  // which this suite never invokes); mock it so the module surface is complete.
+  lookupZernioReviewId: vi.fn(),
 }));
 
 import { verifyOwnReplyAttached } from '../verify-posted';
@@ -44,9 +47,7 @@ function zReview(id: string, replyComment: string | null = null) {
 
 const target = {
   ref: { responseId: 'resp-1', businessId: 'biz-1', reviewId: 'rev-1' },
-  accountId: 'acct-1',
-  locationId: 'loc-1',
-  providerReviewId: 'ZID-ours',
+  locator: { accountId: 'acct-1', locationId: 'loc-1', providerReviewId: 'ZID-ours' },
 };
 
 const baseArgs = {

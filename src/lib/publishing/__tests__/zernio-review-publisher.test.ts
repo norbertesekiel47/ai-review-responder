@@ -16,7 +16,7 @@ vi.mock('../zernio-publisher', () => ({
 }));
 
 import { ZernioReviewPublisher } from '../zernio-review-publisher';
-import type { ResolvedPublishTarget, ReviewRef } from '../review-publisher';
+import type { ReviewLocator, ReviewRef } from '../review-publisher';
 import {
   ZernioAuthError,
   ZernioReviewNotFoundError,
@@ -24,8 +24,7 @@ import {
 } from '@/lib/zernio/errors';
 
 const REF: ReviewRef = { responseId: 'resp1', reviewId: 'rev1', businessId: 'biz1' };
-const TARGET: ResolvedPublishTarget = {
-  ref: REF,
+const LOCATOR: ReviewLocator = {
   accountId: 'acct1',
   locationId: 'loc1',
   providerReviewId: 'z-rev-1',
@@ -75,7 +74,7 @@ describe('ZernioReviewPublisher', () => {
 
       expect(result).toEqual({
         kind: 'resolved',
-        target: { ref: REF, accountId: 'acct1', locationId: 'loc1', providerReviewId: 'z-rev-1' },
+        target: { ref: REF, locator: { accountId: 'acct1', locationId: 'loc1', providerReviewId: 'z-rev-1' } },
       });
       expect(lookupZernioReviewId).toHaveBeenCalledWith('biz1', 'rev1', 'acct1', 'loc1');
     });
@@ -137,7 +136,7 @@ describe('ZernioReviewPublisher', () => {
         updateTime: 'now',
       });
 
-      await adapter.publishReply(TARGET, 'hi there');
+      await adapter.publishReply(LOCATOR, 'hi there');
 
       expect(zernioClient.postReply).toHaveBeenCalledWith('acct1', 'z-rev-1', { comment: 'hi there' });
     });
@@ -146,7 +145,7 @@ describe('ZernioReviewPublisher', () => {
       const { zernioClient } = await import('@/lib/zernio/client');
       (zernioClient.deleteReply as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 
-      await adapter.deleteReply(TARGET);
+      await adapter.deleteReply(LOCATOR);
 
       expect(zernioClient.deleteReply).toHaveBeenCalledWith('acct1', 'z-rev-1');
     });
@@ -161,7 +160,7 @@ describe('ZernioReviewPublisher', () => {
         makeZernioReview({ reviewReply: { comment: 'our reply', updateTime: 'now' } }),
       ]);
 
-      const result = await adapter.findReply(TARGET);
+      const result = await adapter.findReply(LOCATOR);
 
       expect(result).toEqual({ kind: 'found', reply: { comment: 'our reply' } });
     });
@@ -174,7 +173,7 @@ describe('ZernioReviewPublisher', () => {
         makeZernioReview({ reviewReply: null }),
       ]);
 
-      const result = await adapter.findReply(TARGET);
+      const result = await adapter.findReply(LOCATOR);
 
       expect(result).toEqual({ kind: 'found', reply: null });
     });
@@ -188,7 +187,7 @@ describe('ZernioReviewPublisher', () => {
         makeZernioReview({ id: 'another' }),
       ]);
 
-      const result = await adapter.findReply(TARGET);
+      const result = await adapter.findReply(LOCATOR);
 
       expect(result).toEqual({ kind: 'review_absent', pagesWalked: 4, reviewsSeen: 2 });
     });
@@ -199,7 +198,7 @@ describe('ZernioReviewPublisher', () => {
       (getCachedZernioReviewPage as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(1);
       (zernioClient.listAllReviews as ReturnType<typeof vi.fn>).mockResolvedValue([makeZernioReview()]);
 
-      await adapter.findReply(TARGET);
+      await adapter.findReply(LOCATOR);
 
       expect(zernioClient.listAllReviews).toHaveBeenCalledWith('acct1', {
         locationId: 'loc1',
@@ -216,7 +215,7 @@ describe('ZernioReviewPublisher', () => {
       );
       (zernioClient.listAllReviews as ReturnType<typeof vi.fn>).mockResolvedValue([makeZernioReview()]);
 
-      await adapter.findReply(TARGET);
+      await adapter.findReply(LOCATOR);
 
       expect(zernioClient.listAllReviews).toHaveBeenCalledWith('acct1', {
         locationId: 'loc1',
@@ -233,7 +232,7 @@ describe('ZernioReviewPublisher', () => {
         new ZernioTransientError('upstream_5xx', {}),
       );
 
-      await expect(adapter.findReply(TARGET)).rejects.toBeInstanceOf(ZernioTransientError);
+      await expect(adapter.findReply(LOCATOR)).rejects.toBeInstanceOf(ZernioTransientError);
     });
   });
 });

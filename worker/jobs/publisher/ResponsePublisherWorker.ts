@@ -193,9 +193,9 @@ export async function handlePublishResponse(
         reviewId: response.review_id,
         approvedText,
         responsePostingError: response.posting_error,
-        zernioAccountId: target.accountId,
-        zernioLocationId: target.locationId,
-        zernioReviewId: target.providerReviewId,
+        zernioAccountId: target.locator.accountId,
+        zernioLocationId: target.locator.locationId,
+        zernioReviewId: target.locator.providerReviewId,
         correlationId: job.data.correlation_id,
         logger,
       });

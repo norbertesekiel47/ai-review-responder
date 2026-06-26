@@ -57,7 +57,7 @@ export class ZernioReviewPublisher implements ReviewPublisher {
       );
       return {
         kind: 'resolved',
-        target: { ref, accountId, locationId, providerReviewId },
+        target: { ref, locator: { accountId, locationId, providerReviewId } },
       };
     } catch (err) {
       // Review couldn't be matched on the provider — neutral result; the worker

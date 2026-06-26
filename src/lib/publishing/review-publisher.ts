@@ -42,13 +42,15 @@ export interface ReviewLocator {
 }
 
 /**
- * A resolved publishing target: a {@link ReviewLocator} plus the neutral {@link ReviewRef}
- * the worker needs for its retained disposition (status transitions, exceptions,
- * Sentry). Produced by `resolveTarget`; passed wherever both the provider coordinates
- * and the app-owned ids are needed (the fresh-post + post-verify paths).
+ * A resolved publishing target: the neutral {@link ReviewRef} the worker needs for
+ * its retained disposition (status transitions, exceptions, Sentry), kept SEPARATE
+ * from the provider {@link ReviewLocator}. The two are nested (not flattened) so the
+ * worker passes `target.locator` — coordinates only, no app-owned id — to the adapter's
+ * transport methods, while reading `target.ref` for its own disposition.
  */
-export interface ResolvedPublishTarget extends ReviewLocator {
+export interface ResolvedPublishTarget {
   ref: ReviewRef;
+  locator: ReviewLocator;
 }
 
 /**

@@ -58,10 +58,11 @@ interface VerifyOwnReplyArgs {
 export async function verifyOwnReplyAttached(args: VerifyOwnReplyArgs): Promise<void> {
   const { target, approvedText, logger } = args;
   const { responseId, businessId, reviewId } = target.ref;
+  const { accountId, locationId, providerReviewId } = target.locator;
 
   let result: FindReplyResult;
   try {
-    result = await getReviewPublisher().findReply(target);
+    result = await getReviewPublisher().findReply(target.locator);
   } catch (err) {
     // The reply may already be on Google (postReply returned 2xx) — we just
     // can't confirm it right now. Retry rather than mark failed: the next
@@ -87,8 +88,8 @@ export async function verifyOwnReplyAttached(args: VerifyOwnReplyArgs): Promise<
       throw new PublisherTransientWithContext(transient, {
         response_id: responseId,
         business_id: businessId,
-        account_id: target.accountId,
-        location_id: target.locationId,
+        account_id: accountId,
+        location_id: locationId,
       });
     }
     throw err;
@@ -96,16 +97,16 @@ export async function verifyOwnReplyAttached(args: VerifyOwnReplyArgs): Promise<
 
   if (result.kind === 'review_absent') {
     logger.warn(
-      `post-verify: review ${target.providerReviewId} not in feed after ${result.reviewsSeen} reviews ` +
+      `post-verify: review ${providerReviewId} not in feed after ${result.reviewsSeen} reviews ` +
       `(maxPages=${result.pagesWalked}) for response ${responseId} — reply NOT confirmed on Google`,
     );
     throw new ZernioReplyVerificationIndeterminateError({
       response_id: responseId,
       business_id: businessId,
       review_id: reviewId,
-      account_id: target.accountId,
-      location_id: target.locationId,
-      zernio_review_id: target.providerReviewId,
+      account_id: accountId,
+      location_id: locationId,
+      zernio_review_id: providerReviewId,
       reason: 'review_not_found_after_pagination',
       pages_walked: result.pagesWalked,
       reviews_seen: result.reviewsSeen,
@@ -117,9 +118,9 @@ export async function verifyOwnReplyAttached(args: VerifyOwnReplyArgs): Promise<
       response_id: responseId,
       business_id: businessId,
       review_id: reviewId,
-      account_id: target.accountId,
-      location_id: target.locationId,
-      zernio_review_id: target.providerReviewId,
+      account_id: accountId,
+      location_id: locationId,
+      zernio_review_id: providerReviewId,
       reason: 'review_found_but_reply_null',
     });
   }
@@ -131,9 +132,9 @@ export async function verifyOwnReplyAttached(args: VerifyOwnReplyArgs): Promise<
       response_id: responseId,
       business_id: businessId,
       review_id: reviewId,
-      account_id: target.accountId,
-      location_id: target.locationId,
-      zernio_review_id: target.providerReviewId,
+      account_id: accountId,
+      location_id: locationId,
+      zernio_review_id: providerReviewId,
       reason: 'reply_text_mismatch',
     });
   }

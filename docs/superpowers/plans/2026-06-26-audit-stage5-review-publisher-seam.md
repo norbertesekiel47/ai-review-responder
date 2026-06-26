@@ -35,8 +35,9 @@ export interface ReviewLocator {
   providerReviewId: string; // resolved Zernio review id
 }
 
-/** A ReviewLocator + the neutral ref the worker needs for its retained disposition. */
-export interface ResolvedPublishTarget extends ReviewLocator { ref: ReviewRef; }
+/** The neutral ref (for worker disposition) nested SEPARATELY from the provider
+ *  locator, so transport gets `target.locator` (coords only — no app-owned id). */
+export interface ResolvedPublishTarget { ref: ReviewRef; locator: ReviewLocator; }
 
 export type ResolveTargetResult =
   | { kind: 'no_connection' }
@@ -79,9 +80,10 @@ disposition that needs account/location/reviewId) meet cleanly via **two types**
 - The adapter's transport methods take a `ReviewLocator` — **provider coordinates
   only, no app-owned id**. The adapter is fully app-id-agnostic except `resolveTarget`,
   which is precisely the ref→coords mapping.
-- `ResolvedPublishTarget = ReviewLocator + ref`. The worker holds the target so its
-  retained (deferred-neutralization) disposition can read `target.ref` (status writes,
-  exceptions, Sentry) and pass the target (an IS-A `ReviewLocator`) to transport.
+- `ResolvedPublishTarget = { ref, locator }` (nested, not flattened). The worker holds
+  the target so its retained (deferred-neutralization) disposition reads `target.ref`
+  (status writes, exceptions, Sentry) and passes `target.locator` — coordinates only,
+  no app-owned id — to the adapter's transport methods (Codex R1 #2).
 - `verify409InTx`, which has no ref, calls `findReply` with a bare locator — no fake ref.
 
 This preserves behavior (single resolution, shared Redis cache, no new response-status

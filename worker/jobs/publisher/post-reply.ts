@@ -34,9 +34,10 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
     logger,
   } = input;
   const { responseId, businessId, reviewId } = target.ref;
+  const { accountId, locationId, providerReviewId } = target.locator;
 
   try {
-    await getReviewPublisher().publishReply(target, approvedText);
+    await getReviewPublisher().publishReply(target.locator, approvedText);
     // Fall through to post-verification below — do NOT return 'posted' yet.
   } catch (err) {
     if (err instanceof ZernioReplyAlreadyExistsError) {
@@ -44,9 +45,9 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
         response_id: responseId,
         business_id: businessId,
         review_id: reviewId,
-        account_id: target.accountId,
-        location_id: target.locationId,
-        zernio_review_id: target.providerReviewId,
+        account_id: accountId,
+        location_id: locationId,
+        zernio_review_id: providerReviewId,
         approved_text: approvedText,
         outboxId,
         outboxAttempt,
@@ -63,8 +64,8 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
           throw new PublisherTransientWithContext(result.lookupErr, {
             response_id: responseId,
             business_id: businessId,
-            account_id: target.accountId,
-            location_id: target.locationId,
+            account_id: accountId,
+            location_id: locationId,
           });
 
         case 'auth': {
@@ -72,8 +73,8 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
           await handlePublisherAuthErrorTerminal({
             response_id: responseId,
             business_id: businessId,
-            account_id: target.accountId,
-            location_id: target.locationId,
+            account_id: accountId,
+            location_id: locationId,
             error_body: lookupErr.body ? String(lookupErr.body).slice(0, 500) : lookupErr.message,
             outboxId,
             outboxAttempt,
@@ -112,9 +113,9 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
             response_id: responseId,
             business_id: businessId,
             review_id: reviewId,
-            account_id: target.accountId,
-            location_id: target.locationId,
-            zernio_review_id: target.providerReviewId,
+            account_id: accountId,
+            location_id: locationId,
+            zernio_review_id: providerReviewId,
             reason: result.reason,
             ...result.meta,
           });
@@ -125,8 +126,8 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
       await handlePublisherAuthErrorTerminal({
         response_id: responseId,
         business_id: businessId,
-        account_id: target.accountId,
-        location_id: target.locationId,
+        account_id: accountId,
+        location_id: locationId,
         error_body: err.body ? String(err.body).slice(0, 500) : err.message,
         outboxId,
         outboxAttempt,
@@ -162,8 +163,8 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
       throw new PublisherTransientWithContext(err, {
         response_id: responseId,
         business_id: businessId,
-        account_id: target.accountId,
-        location_id: target.locationId,
+        account_id: accountId,
+        location_id: locationId,
       });
     }
 
