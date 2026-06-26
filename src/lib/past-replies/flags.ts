@@ -13,12 +13,14 @@
  * Server-authoritative (invariant #13): never expose via a `NEXT_PUBLIC_*`
  * companion; the browser learns the state through API responses / props.
  */
+import { readFlag } from '@/lib/config/flags';
+
 export function pastRepliesViewEnabled(): boolean {
-  return process.env.PAST_REPLIES_VIEW_ENABLED === 'true';
+  return readFlag('PAST_REPLIES_VIEW_ENABLED');
 }
 
 export function replyEditingFlagEnabled(): boolean {
-  return process.env.EDIT_REPLIES_ENABLED === 'true';
+  return readFlag('EDIT_REPLIES_ENABLED');
 }
 
 export function editRepliesEnabled(): boolean {

@@ -1,18 +1,16 @@
+import { readFlag } from '@/lib/config/flags';
+
 export function autoApprovalRuntimeEnabled(): boolean {
-  return process.env.AUTO_APPROVAL_ENABLED === 'true';
+  return readFlag('AUTO_APPROVAL_ENABLED');
 }
 
 export function providerModerationEnabled(): boolean {
-  return process.env.OPENAI_MODERATION_ENABLED === 'true';
+  return readFlag('OPENAI_MODERATION_ENABLED');
 }
 
 export function providerModerationValidated(): boolean {
-  return process.env.AUTO_APPROVAL_PROVIDER_MODERATION_READY === 'true';
+  return readFlag('AUTO_APPROVAL_PROVIDER_MODERATION_READY');
 }
 
-// Use VERCEL_TARGET_ENV, not VERCEL_ENV: a preview-type custom environment such
-// as `staging` reports VERCEL_ENV='preview' but VERCEL_TARGET_ENV='staging'. Only
-// genuine per-PR previews have VERCEL_TARGET_ENV='preview'. Both are runtime-available.
-export function isPreviewEnvironment(): boolean {
-  return process.env.VERCEL_TARGET_ENV === 'preview';
-}
+// isPreviewEnvironment moved to @/lib/config/flags (the one home for the
+// VERCEL_TARGET_ENV target-env resolution). Consumers import it from there.

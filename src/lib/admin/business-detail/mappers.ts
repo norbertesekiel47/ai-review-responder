@@ -6,9 +6,9 @@
 
 import { computeChurnRiskScore } from '@/lib/shared/churn-score';
 import { parseDbArray } from '@/lib/shared/db-array';
+import { isPreviewEnvironment } from '@/lib/config/flags';
 import {
   autoApprovalRuntimeEnabled,
-  isPreviewEnvironment,
   providerModerationEnabled,
   providerModerationValidated,
 } from '@/lib/auto-approval/flags';
