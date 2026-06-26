@@ -113,6 +113,50 @@ describe('reserveCost', () => {
     expect(dateStr).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
+  // Stage-3 cost-guard batch lock: a configured per-tier + global limit must reach
+  // the Lua reservation as the bizLimit/globalLimit ARGV — proving getServerConfig()
+  // DRIVES the limits (not just the defaults) after the config migration.
+  // ARGV order: [LUA, 2(keys), bizKey, globalKey, estimate, bizLimit, globalLimit, ttl].
+  it('passes config-driven standard-tier + global limits to the reservation script', async () => {
+    process.env.DAILY_COST_LIMIT_CENTS_STANDARD = '250';
+    process.env.GLOBAL_DAILY_COST_LIMIT_CENTS = '9999';
+    const { resetServerConfigForTests } = await import('@/lib/config/server');
+    resetServerConfigForTests();
+    try {
+      mockRedis.eval.mockResolvedValueOnce(['ok', 15, 15]);
+      const { reserveCost } = await import('../tracker');
+      await reserveCost('biz-001', 'standard');
+      const evalArgs = mockRedis.eval.mock.calls[0]!;
+      expect(evalArgs[5]).toBe('250'); // per-tier (STANDARD) limit from config
+      expect(evalArgs[6]).toBe('9999'); // global limit from config
+    } finally {
+      delete process.env.DAILY_COST_LIMIT_CENTS_STANDARD;
+      delete process.env.GLOBAL_DAILY_COST_LIMIT_CENTS;
+      resetServerConfigForTests();
+    }
+  });
+
+  // The non-obvious tier→env-key mapping: founders → DAILY_COST_LIMIT_CENTS_FOUNDING
+  // (NOT _FOUNDERS). This locks that the migrated config lookup preserves the
+  // TIER_ENV_SUFFIX mapping byte-for-byte.
+  it('reads founders-tier limit from DAILY_COST_LIMIT_CENTS_FOUNDING (not _FOUNDERS)', async () => {
+    process.env.DAILY_COST_LIMIT_CENTS_FOUNDING = '321';
+    process.env.DAILY_COST_LIMIT_CENTS_FOUNDERS = '999'; // wrong key — must be IGNORED
+    const { resetServerConfigForTests } = await import('@/lib/config/server');
+    resetServerConfigForTests();
+    try {
+      mockRedis.eval.mockResolvedValueOnce(['ok', 15, 15]);
+      const { reserveCost } = await import('../tracker');
+      await reserveCost('biz-001', 'founders');
+      const evalArgs = mockRedis.eval.mock.calls[0]!;
+      expect(evalArgs[5]).toBe('321'); // FOUNDING key wins; _FOUNDERS is not read
+    } finally {
+      delete process.env.DAILY_COST_LIMIT_CENTS_FOUNDING;
+      delete process.env.DAILY_COST_LIMIT_CENTS_FOUNDERS;
+      resetServerConfigForTests();
+    }
+  });
+
   it('throws CostLimitExceededError and rolls back when business limit exceeded', async () => {
     // Lua script returns 'biz_exceeded' after internally rolling back.
     mockRedis.eval.mockResolvedValueOnce(['biz_exceeded', 1001, 50]);

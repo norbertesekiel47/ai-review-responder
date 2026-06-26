@@ -298,4 +298,56 @@ describe('config/server', () => {
     mod = await import('../server');
     expect(mod.getServerConfig().TRIAL_PERIOD_DAYS).toBe('   ');
   });
+
+  // ── Stage-3 cost-guard batch: GLOBAL_DAILY_COST_LIMIT_CENTS + the four per-tier
+  //    DAILY_COST_LIMIT_CENTS_{FOUNDING,STANDARD,PREMIUM,BASIC} added as rawOptionalVar.
+  //    safeParseLimitCents owns trim + `^\d+$` validation, but the RAW value must
+  //    reach it verbatim (#7) so ''/'   ' hit the SAME numeric fallback as the old
+  //    raw process.env read. Note FOUNDING (founders/founding→FOUNDING), BASIC via
+  //    tier.toUpperCase().
+  const COST_LIMIT_VARS = [
+    'GLOBAL_DAILY_COST_LIMIT_CENTS',
+    'DAILY_COST_LIMIT_CENTS_FOUNDING',
+    'DAILY_COST_LIMIT_CENTS_STANDARD',
+    'DAILY_COST_LIMIT_CENTS_PREMIUM',
+    'DAILY_COST_LIMIT_CENTS_BASIC',
+  ] as const;
+
+  it('exposes the cost-limit vars as OPTIONAL (present when set)', async () => {
+    Object.assign(process.env, CORE, {
+      GLOBAL_DAILY_COST_LIMIT_CENTS: '9999',
+      DAILY_COST_LIMIT_CENTS_FOUNDING: '500',
+      DAILY_COST_LIMIT_CENTS_STANDARD: '1000',
+      DAILY_COST_LIMIT_CENTS_PREMIUM: '2000',
+      DAILY_COST_LIMIT_CENTS_BASIC: '750',
+    });
+    const { getServerConfig } = await import('../server');
+    const cfg = getServerConfig();
+    expect(cfg.GLOBAL_DAILY_COST_LIMIT_CENTS).toBe('9999');
+    expect(cfg.DAILY_COST_LIMIT_CENTS_FOUNDING).toBe('500');
+    expect(cfg.DAILY_COST_LIMIT_CENTS_STANDARD).toBe('1000');
+    expect(cfg.DAILY_COST_LIMIT_CENTS_PREMIUM).toBe('2000');
+    expect(cfg.DAILY_COST_LIMIT_CENTS_BASIC).toBe('750');
+  });
+
+  it('cost-limit vars are undefined when unset — fallback path (no throw)', async () => {
+    Object.assign(process.env, CORE);
+    for (const v of COST_LIMIT_VARS) delete process.env[v];
+    const { getServerConfig } = await import('../server');
+    const cfg = getServerConfig();
+    for (const v of COST_LIMIT_VARS) {
+      expect(cfg[v]).toBeUndefined();
+    }
+  });
+
+  it('preserves whitespace-only cost-limit vars verbatim (rawOptionalVar #7)', async () => {
+    Object.assign(process.env, CORE, {
+      GLOBAL_DAILY_COST_LIMIT_CENTS: '   ',
+      DAILY_COST_LIMIT_CENTS_STANDARD: '   ',
+    });
+    const { getServerConfig } = await import('../server');
+    const cfg = getServerConfig();
+    expect(cfg.GLOBAL_DAILY_COST_LIMIT_CENTS).toBe('   ');
+    expect(cfg.DAILY_COST_LIMIT_CENTS_STANDARD).toBe('   ');
+  });
 });
