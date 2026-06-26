@@ -7,7 +7,43 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-06-22 (1-Month Free Trial — PR #362, on staging, flag OFF: card-up-front 30-day trial. See the simple-words summary directly below. Earlier: Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15 #319/#320/#322; Multi-location launch hardening 2026-06-11 #262–#273; Rate-limiting & abuse hardening 2026-06-09 #254–#257; Launch readiness sweep 2026-05-29 #152–#186; Wave 3 #93–#96; Wave 2 #87.)
+Last updated: 2026-06-26 (Modularity-audit remediation COMPLETE — Stages 5–6 #397/#398; worker transient-DB resilience #399; Dependabot security patches #400. See the simple-words summary directly below. Earlier: 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15 #319/#320/#322; Multi-location launch hardening 2026-06-11 #262–#273; Rate-limiting & abuse hardening 2026-06-09 #254–#257; Launch readiness sweep 2026-05-29 #152–#186; Wave 3 #93–#96; Wave 2 #87.)
+
+## Quick summary — Modularity hardening complete + worker resilience + dep security (2026-06-26, PR #397–#400)
+
+In simple words: this was **codebase-health** work, not a customer feature. A heavy modularity audit had graded the codebase against five questions ("can I change one feature without touching unrelated files? test a module alone? …"). The weak spots are now fixed, so the codebase answers a confident **yes** to all five. Same behavior, cleaner structure — nothing a customer sees changed.
+
+Three things landed:
+
+1. **The publishing path is now swappable (the `ReviewPublisher` seam, #397).** Posting a review reply used to be hard-wired to one provider (Zernio) across ~7 worker files — adding the parked direct-Google path would have been a rewrite. Now publishing goes through a small interface (`publishReply` / `editReply` / `deleteReply` / `getReply`) with Zernio as the **first adapter**; a future Google-Business-Profile path is a *second adapter*, not a rewrite. Pure refactor, zero behavior change, proven by the existing publisher tests + a new concurrency test. This closed the last "replace a component" gap from the audit.
+
+2. **A transient database hiccup no longer kills the whole worker (#399).** A brief Postgres statement-timeout at boot could surface as an un-awaited error and the worker's crash-net would exit the **entire** process — killing every in-flight job across all 24 queues + 20 background loops over one blip. Now the worker **recovers** from a clearly-transient DB error (it logs + retries next cycle), while a *sustained* storm still escalates to a restart, and real bugs still crash. (The scheduler that triggered it already caught its own errors — the bug was the crash-net's blast radius, so the fix protects every loop.)
+
+3. **Security patches + hygiene (#398, #400).** Single-sourced a duplicated channel helper (Stage-6 hygiene); patched the cleanly-fixable Dependabot advisories (form-data HIGH, undici HIGH, esbuild) — **respecting** the repo's own supply-chain hardening (7-day release quarantine + no-downgrade trust policy) by deferring the few bumps it intentionally blocks.
+
+### The new shape — what got added
+
+```text
+src/lib/publishing/review-publisher.ts        ← NEW: the ReviewPublisher interface + ReviewRef/ReviewLocator + getReviewPublisher() factory (the seam).
+src/lib/publishing/zernio-review-publisher.ts ← NEW: first adapter; owns the Zernio connection lookup, review-id resolution, page-cache. A GBP adapter is the second.
+worker/transient-rejection-governor.ts        ← NEW: duration-based governor — survive a brief DB blip, escalate a SUSTAINED storm to a crash+restart.
+src/lib/db/transient-error.ts                 ← MOVED here from worker/jobs/billing/; adds isCrashNetRecoverableDbError (an explicit, conservative allowlist for the worker crash-net).
+src/app/api/admin/channels/_shared/flag-off.ts← NEW: single source for the disabled-channel 404 (telegram + whatsapp re-export it).
+
+# The 6 publisher worker call-sites now go through the seam (no direct zernioClient in the publish path):
+worker/jobs/publisher/{ResponsePublisherWorker,review-lookup,post-reply,verify-posted,publisher-error-handlers,edit-publish}.ts
+worker/index.ts  ← the unhandledRejection crash-net now classifies transient-DB errors via isCrashNetRecoverableDbError + the governor.
+```
+
+### Where the five audit questions landed (and two deliberate residuals)
+
+The audit's full campaign was Stages 1–6: Stages 1–4 (prior sessions, #376–#396) introduced the **typed config layer** (env reads owned in one place, CI-guarded) and routed **all feature flags** through per-feature `flags.ts` accessors; Stages 5–6 (this session) added the publishing seam + hygiene. Net grades: Q1 modify-without-touching **A−**, Q2 test-in-isolation **A−**, Q3 single-responsibility **A−**, Q4 dependencies-explicit **B+** (was the weak C+), Q5 replace-a-component **A−**.
+
+Two residuals were scoped **out** on purpose (documented, low-priority, not blocking): the `sql`/`supabaseServer` DB singletons are still ambient (injecting them is a 200+-file refactor; test isolation is already met via mocking), and the LLM provider fallback stays inline `callOpenAI`/`callAnthropic` (an interface would be speculative at two pinned providers).
+
+### One thing to remember
+
+The `ReviewPublisher` seam is a **1-adapter interface** today, so it can be subtly wrong-shaped until a real GBP adapter validates it — keep it minimal and driven by what the call-sites actually need. And the worker crash-net's transient-DB recovery is deliberate (Release It! "fail inside boundaries that prevent wider collapse") — don't reintroduce a blanket crash-on-any-rejection; ambiguous-state DB codes still crash by design.
 
 ## Quick summary — 1-Month Free Trial (2026-06-21 → 2026-06-22, PR #362, on staging — flag OFF)
 
