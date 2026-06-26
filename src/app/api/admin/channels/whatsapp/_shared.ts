@@ -11,9 +11,8 @@ export function isWhatsAppEnabled(): boolean {
   return channelsWhatsappEnabled();
 }
 
-export function flagOff(): NextResponse {
-  return NextResponse.json({ error: 'not_found' }, { status: 404 });
-}
+// Disabled-channel 404 — single source shared with telegram (see _shared/flag-off).
+export { flagOff } from '../_shared/flag-off';
 
 const WHATSAPP_REQUIRED_ENV = [
   'TWILIO_ACCOUNT_SID',
