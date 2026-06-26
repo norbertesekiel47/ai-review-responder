@@ -63,3 +63,29 @@ export function isTransientPostgresError(err: unknown): boolean {
   if (TRANSIENT_POSTGRES_ERROR_CODES.has(code)) return true;
   return code.length === 5 && code.startsWith(CONNECTION_EXCEPTION_PREFIX);
 }
+
+// Codes a billing-style idempotent+accounted retry tolerates, but whose
+// UNHANDLED-rejection semantics are too broad to silently survive at the PROCESS
+// level: their operation outcome is ambiguous or they signal a deeper fault.
+//   08007  transaction_resolution_unknown — COMMIT outcome unknown; no owner to reconcile
+//   08P01  protocol_violation — likely a deeper client/server fault, not a blip
+const PROCESS_NON_RECOVERABLE_CODES: ReadonlySet<string> = new Set(['08007', '08P01']);
+
+/**
+ * Stricter subset of {@link isTransientPostgresError} for the worker's
+ * process-level crash-net (worker/index.ts): a transient DB rejection it is safe
+ * to RECOVER from (survive without exiting) because the operation provably did
+ * not complete and the loop reconciles on its next cycle.
+ *
+ * Narrower than the billing predicate by design — it matches ONLY the explicit
+ * transient set MINUS the ambiguous-state codes, and does NOT apply the
+ * open-ended 08-class prefix fallback. Anything whose outcome is unknown (or any
+ * future/unlisted 08-class code) still fails fast, so an unknown state gets a
+ * clean restart rather than silent continuation.
+ */
+export function isCrashNetRecoverableDbError(err: unknown): boolean {
+  const code = errorStringProperty(err, 'code');
+  if (!code) return false;
+  if (PROCESS_NON_RECOVERABLE_CODES.has(code)) return false;
+  return TRANSIENT_POSTGRES_ERROR_CODES.has(code);
+}

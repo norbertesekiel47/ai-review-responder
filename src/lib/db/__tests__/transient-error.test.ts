@@ -5,7 +5,7 @@
 // crash-net recover from one) instead of terminal-failing / crashing.
 
 import { describe, it, expect } from 'vitest';
-import { isTransientPostgresError } from '../transient-error';
+import { isCrashNetRecoverableDbError, isTransientPostgresError } from '../transient-error';
 
 describe('isTransientPostgresError', () => {
   it.each([
@@ -59,5 +59,43 @@ describe('isTransientPostgresError', () => {
     expect(isTransientPostgresError(undefined)).toBe(false);
     expect(isTransientPostgresError(null)).toBe(false);
     expect(isTransientPostgresError('CONNECTION_CLOSED')).toBe(false);
+  });
+});
+
+describe('isCrashNetRecoverableDbError (stricter process-level subset)', () => {
+  it.each([
+    '57014', // the observed statement-timeout — the whole reason this exists
+    '57P01',
+    '57P02',
+    '57P03',
+    'CONNECTION_CLOSED',
+    'CONNECTION_ENDED',
+    'CONNECTION_DESTROYED',
+    'CONNECT_TIMEOUT',
+    '08001', // can't-establish connection failures: operation provably didn't run
+    '08003',
+    '08004',
+    '08006',
+  ])('recovers (no crash) on clearly-transient code %s', (code) => {
+    expect(isCrashNetRecoverableDbError(Object.assign(new Error('blip'), { code }))).toBe(true);
+  });
+
+  it.each([
+    '08007', // transaction_resolution_unknown — ambiguous COMMIT; crash instead of silently continuing
+    '08P01', // protocol_violation — likely a deeper fault
+  ])('does NOT recover (still crashes) on ambiguous/unknown code %s', (code) => {
+    expect(isCrashNetRecoverableDbError(Object.assign(new Error('ambiguous'), { code }))).toBe(false);
+  });
+
+  it('does NOT apply the open-ended 08-class prefix — an unlisted 08xxx still crashes', () => {
+    // isTransientPostgresError matches this via the prefix; the crash-net must not.
+    expect(isTransientPostgresError(Object.assign(new Error('x'), { code: '08555' }))).toBe(true);
+    expect(isCrashNetRecoverableDbError(Object.assign(new Error('x'), { code: '08555' }))).toBe(false);
+  });
+
+  it('is false for code-less / deterministic / nullish inputs', () => {
+    expect(isCrashNetRecoverableDbError(new Error('no code'))).toBe(false);
+    expect(isCrashNetRecoverableDbError(Object.assign(new Error('dup'), { code: '23505' }))).toBe(false);
+    expect(isCrashNetRecoverableDbError(undefined)).toBe(false);
   });
 });
