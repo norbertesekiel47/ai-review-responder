@@ -5,6 +5,7 @@ import { sql } from '@/lib/db/server';
 import { requireRoleOr401 } from '@/lib/auth/route-helpers';
 import { ALL_QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { getServerConfig } from '@/lib/config/server';
 
 // Queue names come from the shared registry (src/lib/shared/queue-names.ts)
 // so this list cannot drift behind worker/queues.ts. Importing worker/queues.ts
@@ -97,7 +98,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const failedTotal = countRows[0]?.total ?? 0;
 
     let queueHealth: Record<string, Record<string, number>> | { unavailable: true };
-    const redisUrl = process.env.REDIS_QUEUE_URL;
+    const redisUrl = getServerConfig().REDIS_QUEUE_URL;
     if (!redisUrl) {
       queueHealth = { unavailable: true };
     } else {
@@ -158,11 +159,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 /** Parse a Redis URL into ioredis options with a short connect timeout. */
 function parseRedisUrl(url: string): RedisOptions {
+  const cfg = getServerConfig();
   if (url.startsWith('https://')) {
     return {
       host: new URL(url).hostname,
       port: 6379,
-      password: process.env.REDIS_QUEUE_TOKEN,
+      password: cfg.REDIS_QUEUE_TOKEN,
       tls: {},
       maxRetriesPerRequest: 1,
       connectTimeout: 5_000,
@@ -172,7 +174,7 @@ function parseRedisUrl(url: string): RedisOptions {
   return {
     host: parsed.hostname,
     port: parseInt(parsed.port || '6379', 10),
-    password: parsed.password || process.env.REDIS_QUEUE_TOKEN || undefined,
+    password: parsed.password || cfg.REDIS_QUEUE_TOKEN || undefined,
     db: parsed.pathname ? parseInt(parsed.pathname.slice(1), 10) || 0 : 0,
     tls: parsed.protocol === 'rediss:' ? {} : undefined,
     maxRetriesPerRequest: 1,

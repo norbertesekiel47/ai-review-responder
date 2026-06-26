@@ -13,9 +13,10 @@ import { NextRequest } from 'next/server';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { runAdminChannelStart } from '@/app/api/admin/channels/_shared/start';
+import { getServerConfig } from '@/lib/config/server';
 
 function buildTelegramDeepLink(rawToken: string): string {
-  const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? 'RepWorthBot';
+  const botUsername = getServerConfig().TELEGRAM_BOT_USERNAME ?? 'RepWorthBot';
   return `https://t.me/${botUsername}?start=${rawToken}`;
 }
 

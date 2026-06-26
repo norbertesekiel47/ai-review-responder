@@ -31,6 +31,7 @@ import {
 } from '@/lib/zernio/connect-state';
 import type { ConnectPendingMarker, ConnectStateBlob } from '@/lib/zernio/types';
 import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
+import { getServerConfig } from '@/lib/config/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -253,7 +254,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     try {
       // 9. Step D — Start work (now safely behind the pending marker).
-      const profileIdPrefix = process.env.ZERNIO_PROFILE_ID_PREFIX ?? 'repworth-prod-';
+      const profileIdPrefix = getServerConfig().ZERNIO_PROFILE_ID_PREFIX ?? 'repworth-prod-';
       const { profileId } = await zernioClient.createProfile({
         name: `${profileIdPrefix}${locationId}`,
       });

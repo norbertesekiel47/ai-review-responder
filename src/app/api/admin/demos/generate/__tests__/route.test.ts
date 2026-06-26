@@ -70,6 +70,7 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 process.env.REDIS_CACHE_URL = 'redis://localhost:6379';
 
 import { POST } from '../route';
+import { resetServerConfigForTests } from '@/lib/config/server';
 
 function makeRequest(body: unknown): NextRequest {
   return new NextRequest('https://app.example.com/api/admin/demos/generate', {
@@ -96,6 +97,11 @@ describe('POST /api/admin/demos/generate', () => {
     mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
     // Rate limiter allows by default
     mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 49 });
+    // Migrated read: the rate-limit gate now reads REDIS_CACHE_URL via the memoized
+    // getServerConfig(). Clearing the memo here lets the next getServerConfig() in
+    // POST re-parse the current env — the "503 when REDIS_CACHE_URL not set" test
+    // deletes the var in its body BEFORE POST and restores it after (#6/#7).
+    resetServerConfigForTests();
   });
 
   it('returns 403 when MFA step-up is not satisfied (AAL2)', async () => {

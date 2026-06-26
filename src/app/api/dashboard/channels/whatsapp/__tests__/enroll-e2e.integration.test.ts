@@ -86,6 +86,7 @@ vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(async () => 'data:image/p
 
 // Imports AFTER mocks are registered.
 import { POST as startPOST } from '../start/route';
+import { resetServerConfigForTests } from '@/lib/config/server';
 import { handleTwilioWhatsAppInbound } from '../../../../../../../worker/ingress/twilio/twilio-whatsapp-inbound';
 // disable route is imported dynamically inside the regression test (avoid ESM
 // cycle from hoisted mocks resolving before the mock registry is ready).
@@ -162,6 +163,10 @@ beforeEach(() => {
   process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+15551230000';
   process.env.WORKER_PUBLIC_URL = WORKER_URL;
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+  // Migrated read: the start route's wa.me deep link now reads TWILIO_WHATSAPP_NUMBER
+  // via the memoized getServerConfig(). Clear the memo after this env setup so the
+  // first getServerConfig() in the flow re-parses it (#6/#7).
+  resetServerConfigForTests();
 });
 
 afterEach(() => {

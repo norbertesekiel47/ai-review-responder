@@ -48,6 +48,7 @@ vi.mock('qrcode', () => ({
 }));
 
 import { POST } from '../start/route';
+import { resetServerConfigForTests } from '@/lib/config/server';
 
 const APP_URL = 'http://localhost';
 
@@ -75,6 +76,11 @@ beforeEach(() => {
   process.env.MOCK_EXTERNAL_APIS = 'true'; // skip env readiness check in unit tests
   mockRequireRole.mockResolvedValue({ id: 'admin-1', role: 'admin' });
   mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
+  // Migrated read: buildWhatsAppDeepLink now reads TWILIO_WHATSAPP_NUMBER via the
+  // memoized getServerConfig(). Each test sets the number in its body BEFORE POST,
+  // so clearing the memo here lets the first getServerConfig() in POST re-parse this
+  // test's env (#6/#7).
+  resetServerConfigForTests();
 });
 
 describe('POST /api/admin/channels/whatsapp/start', () => {

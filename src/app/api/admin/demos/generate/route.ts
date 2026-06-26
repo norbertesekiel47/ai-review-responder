@@ -9,6 +9,7 @@ import type { DemoJobPayload } from '@/lib/demos/types';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { getServerConfig } from '@/lib/config/server';
 
 const GenerateDemoSchema = z
   .object({
@@ -32,7 +33,7 @@ async function enforceDemoGenerationRateLimits(
   request: NextRequest,
   adminId: string,
 ): Promise<NextResponse | null> {
-  if (!process.env.REDIS_CACHE_URL) {
+  if (!getServerConfig().REDIS_CACHE_URL) {
     return NextResponse.json(
       { error: 'Rate limiting unavailable — try again later' },
       { status: 503 },

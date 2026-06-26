@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { LandingContent } from '@/components/sections/landing/LandingContent';
+import { getServerConfig } from '@/lib/config/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,7 +11,7 @@ export const metadata: Metadata = {
 };
 
 function resolveTrialDays(): number {
-  const parsed = Number.parseInt(process.env.TRIAL_PERIOD_DAYS ?? '', 10);
+  const parsed = Number.parseInt(getServerConfig().TRIAL_PERIOD_DAYS ?? '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
 }
 
