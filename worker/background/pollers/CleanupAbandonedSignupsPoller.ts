@@ -1,4 +1,5 @@
 import { getWorkerConfig } from '../../../src/lib/config/worker';
+import { selfServeSignupEnabled } from '../../../src/lib/auth/flags';
 import { sql, supabaseServer } from '../../../src/lib/db/server';
 import { createWorkerLogger, type WorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 
@@ -268,7 +269,7 @@ async function runOnceInner(logger: WorkerLogger): Promise<void> {
 
 export function startCleanupAbandonedSignupsPoller(): void {
   const logger = createWorkerLogger(LOG_PREFIX);
-  if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
+  if (!selfServeSignupEnabled()) {
     logger.log('SELF_SERVE_SIGNUP_ENABLED != true — not starting');
     return;
   }

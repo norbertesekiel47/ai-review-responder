@@ -41,6 +41,7 @@ import { handleZernioWebhook } from './ingress/zernio/zernio';
 import { enforceIngressRateLimit } from './ingress/rate-limit';
 import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertSingleConcurrencyWorker, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
 import { assertWorkerConfig } from '../src/lib/config/worker';
+import { selfServeSignupEnabled } from '../src/lib/auth/flags';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './background/pollers/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './background/schedulers/WeeklySummaryScheduler';
 import { startArchivalPoller, stopArchivalPoller } from './background/pollers/ArchivalPoller';
@@ -315,7 +316,7 @@ async function main(): Promise<void> {
       `[worker] Feature flags: ` +
         `Telegram=${process.env.CHANNELS_TELEGRAM_ENABLED === 'true' ? 'on' : 'off'}, ` +
         `WhatsApp=${process.env.CHANNELS_WHATSAPP_ENABLED === 'true' ? 'on' : 'off'}, ` +
-        `SelfServeSignup=${process.env.SELF_SERVE_SIGNUP_ENABLED === 'true' ? 'on' : 'off'}, ` +
+        `SelfServeSignup=${selfServeSignupEnabled() ? 'on' : 'off'}, ` +
         `ZernioPublishing=${process.env.ZERNIO_PUBLISHING_ENABLED === 'true' ? 'on' : 'off'}`,
     );
   } catch (err) {

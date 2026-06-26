@@ -1,6 +1,7 @@
 import { DemoStatusIsland } from './DemoStatusIsland';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
 
 export default function DemoNotFound() {
-  const selfServeEnabled = process.env.SELF_SERVE_SIGNUP_ENABLED === 'true';
+  const selfServeEnabled = selfServeSignupEnabled();
   return <DemoStatusIsland variant="expired" selfServeEnabled={selfServeEnabled} />;
 }

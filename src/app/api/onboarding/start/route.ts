@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { createServerClient } from '@supabase/ssr';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
@@ -167,7 +168,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
   }
 
-  if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
+  if (!selfServeSignupEnabled()) {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
   }
 

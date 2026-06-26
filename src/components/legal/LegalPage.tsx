@@ -3,6 +3,7 @@ import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
 import { SiteFooter } from '@/components/ui/SiteFooter';
 import type { LegalDoc } from '@/lib/legal/content';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
 
 const CROSS_LINKS: ReadonlyArray<{ label: string; href: string }> = [
   { label: 'Privacy', href: '/legal/privacy' },
@@ -25,7 +26,7 @@ function sectionAnchorId(heading: string): string {
 }
 
 export function LegalPage({ doc }: { doc: LegalDoc }) {
-  const selfServeEnabled = process.env.SELF_SERVE_SIGNUP_ENABLED === 'true';
+  const selfServeEnabled = selfServeSignupEnabled();
   const tableCaption = `${doc.title} sub-processor table`;
 
   return (

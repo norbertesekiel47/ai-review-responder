@@ -7,6 +7,7 @@ import {
   normalizePath,
 } from '@/lib/shared/protected-routes';
 import { REQUEST_PATHNAME_HEADER } from '@/lib/shared/request-path-header';
+import { mfaEnforcementEnabled } from '@/lib/auth/flags';
 
 // Role lookups use the cookie-bound anon client below, relying on the
 // users_self_select RLS policy (migration 006) that lets any authenticated
@@ -89,7 +90,7 @@ export async function proxy(request: NextRequest) {
   }
 
   async function getAalGate(): Promise<'ok' | 'mfa_required' | 'mfa_check_failed'> {
-    if (process.env.MFA_ENFORCEMENT_ENABLED !== 'true') {
+    if (!mfaEnforcementEnabled()) {
       return 'ok';
     }
     const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();

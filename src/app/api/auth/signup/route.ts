@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { sql, supabaseServer } from '@/lib/db/server';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
@@ -16,7 +17,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // 1. Feature flag — hide the route entirely when off.
-  if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
+  if (!selfServeSignupEnabled()) {
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
 

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { FeaturesContent } from '@/components/sections/features/FeaturesContent';
 
 export const metadata: Metadata = {
@@ -8,6 +9,6 @@ export const metadata: Metadata = {
 };
 
 export default function FeaturesPage() {
-  const selfServeEnabled = process.env.SELF_SERVE_SIGNUP_ENABLED === 'true';
+  const selfServeEnabled = selfServeSignupEnabled();
   return <FeaturesContent selfServeEnabled={selfServeEnabled} />;
 }
