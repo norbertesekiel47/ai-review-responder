@@ -13,15 +13,20 @@ vi.mock('../whatsapp-client', async () => {
 
 import { WhatsAppChannel } from '../whatsapp-channel';
 import { WhatsAppRecipientBlockedError } from '../whatsapp-client';
+import { resetWorkerConfigForTests } from '@/lib/config/worker';
 
 describe('WhatsAppChannel', () => {
   beforeEach(() => {
     mockSendTemplate.mockReset();
+    // formatApprovalWhatsApp's default-param now reads WHATSAPP_APPROVAL_TEMPLATE_SID
+    // via the memoized getWorkerConfig() — reset the memo so each send re-parses
+    // the just-set value (convention #6).
     process.env.WHATSAPP_APPROVAL_TEMPLATE_SID = 'HX_test';
     process.env.WORKER_PUBLIC_URL = 'https://worker.example.com';
     process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+14155238886';
     process.env.TWILIO_ACCOUNT_SID = 'AC_test';
     process.env.TWILIO_AUTH_TOKEN = 'auth_test';
+    resetWorkerConfigForTests();
   });
 
   it('supports inline actions and requires opt-in handshake', () => {

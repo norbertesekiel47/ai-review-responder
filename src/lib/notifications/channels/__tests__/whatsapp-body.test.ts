@@ -8,6 +8,7 @@ import {
   toWaRecipient,
   truncate,
 } from '../whatsapp-body';
+import { resetWorkerConfigForTests } from '@/lib/config/worker';
 
 describe('truncate', () => {
   it('returns input unchanged when under limit', () => {
@@ -141,14 +142,19 @@ describe('formatApprovalWhatsApp', () => {
   });
 
   it('falls back to env.WHATSAPP_APPROVAL_TEMPLATE_SID when contentSid arg omitted', () => {
+    // The default-param now reads WHATSAPP_APPROVAL_TEMPLATE_SID via the memoized
+    // getWorkerConfig() — reset the memo around the mutation so the omitted-arg
+    // call re-parses the just-set value, then again after restore (convention #6).
     const prev = process.env.WHATSAPP_APPROVAL_TEMPLATE_SID;
     process.env.WHATSAPP_APPROVAL_TEMPLATE_SID = 'HX_env';
+    resetWorkerConfigForTests();
     try {
       const { contentSid } = formatApprovalWhatsApp(baseParams);
       expect(contentSid).toBe('HX_env');
     } finally {
       if (prev === undefined) delete process.env.WHATSAPP_APPROVAL_TEMPLATE_SID;
       else process.env.WHATSAPP_APPROVAL_TEMPLATE_SID = prev;
+      resetWorkerConfigForTests();
     }
   });
 

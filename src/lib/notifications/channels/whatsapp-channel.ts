@@ -11,6 +11,7 @@
 
 import { formatApprovalWhatsApp, formatAutoPostNoticeWhatsApp, toWaRecipient } from './whatsapp-body';
 import { WhatsAppClient } from './whatsapp-client';
+import { getWorkerConfig } from '@/lib/config/worker';
 import { getWorkerPublicUrl } from '@/lib/shared/worker-public-url';
 import type {
   NotificationChannel,
@@ -43,7 +44,7 @@ export class WhatsAppChannel implements NotificationChannel {
     // Until WHATSAPP_AUTOPOST_TEMPLATE_SID is set, skip WhatsApp cleanly —
     // email + Telegram still send. No enrollment flip, no job failure. The
     // dispatcher also pre-filters this, but the channel is self-protecting.
-    const contentSid = process.env.WHATSAPP_AUTOPOST_TEMPLATE_SID;
+    const contentSid = getWorkerConfig().WHATSAPP_AUTOPOST_TEMPLATE_SID;
     if (!contentSid) {
       return { status: 'skipped', reason: 'whatsapp_autopost_template_unset' };
     }

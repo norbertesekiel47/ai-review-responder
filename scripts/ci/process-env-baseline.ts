@@ -82,12 +82,17 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   'src/lib/db/browser.ts',
   'src/lib/locations/owner-route.ts',
   'src/lib/moderation/moderate.ts',
-  'src/lib/notifications/channels/email-channel.ts',
+  // Stage-3 notification-channels batch removed the 5 fully-migrated SEND
+  // adapters (email-channel.ts, telegram-client.ts, whatsapp-client.ts,
+  // whatsapp-channel.ts, whatsapp-body.ts). They are reached only by the worker
+  // (the getChannel() factory + auto-post-notice dispatch + telegram/twilio
+  // ingress), so their channel-send secret reads (RESEND_FROM_EMAIL /
+  // TELEGRAM_BOT_TOKEN / TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN /
+  // TWILIO_WHATSAPP_NUMBER / WHATSAPP_APPROVAL_TEMPLATE_SID /
+  // WHATSAPP_AUTOPOST_TEMPLATE_SID) now go through getWorkerConfig() — 4 new
+  // rawOpt vars + 3 reused. No import-time reader → none allowlisted. index.ts
+  // below STAYS: its only reads are the Stage-4 CHANNELS_*_ENABLED flags. Net 38 → 33.
   'src/lib/notifications/channels/index.ts',
-  'src/lib/notifications/channels/telegram-client.ts',
-  'src/lib/notifications/channels/whatsapp-body.ts',
-  'src/lib/notifications/channels/whatsapp-channel.ts',
-  'src/lib/notifications/channels/whatsapp-client.ts',
   'src/lib/onboarding/admin-onboarding-service.ts',
   'src/lib/past-replies/flags.ts',
   'src/lib/payments/create-checkout-session.ts',

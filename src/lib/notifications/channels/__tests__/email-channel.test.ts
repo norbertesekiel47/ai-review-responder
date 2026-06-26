@@ -9,12 +9,22 @@ vi.mock('../../email', () => ({
   sendApprovalEmail: mockSendApprovalEmail,
 }));
 
+// Hermetic worker-lane config (Stage-3 conventions #6/#9): EmailChannel now reads
+// RESEND_FROM_EMAIL via the memoized getWorkerConfig(), which self-loads
+// .env.local. The "throws when RESEND_FROM_EMAIL is not set" test relies on that
+// var being ABSENT, so stub the loader to a no-op — otherwise a developer's real
+// .env.local could repopulate the deleted var. Production is unaffected (no
+// .env.local on Railway).
+vi.mock('@/lib/config/dotenv-load', () => ({ ensureWorkerDotenvLoaded: () => {} }));
+
 import { EmailChannel } from '../email-channel';
+import { resetWorkerConfigForTests } from '@/lib/config/worker';
 
 describe('EmailChannel', () => {
   beforeEach(() => {
     mockSendApprovalEmail.mockReset();
     process.env.RESEND_FROM_EMAIL = 'RepWorth <notifications@example.com>';
+    resetWorkerConfigForTests();
   });
 
   it('exposes the expected capabilities', () => {
@@ -59,6 +69,7 @@ describe('EmailChannel', () => {
 
   it('throws when RESEND_FROM_EMAIL is not set', async () => {
     delete process.env.RESEND_FROM_EMAIL;
+    resetWorkerConfigForTests();
     const ch = new EmailChannel();
 
     await expect(

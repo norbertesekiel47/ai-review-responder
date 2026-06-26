@@ -6,11 +6,16 @@ import {
   TelegramRateLimitError,
   TelegramApiError,
 } from '../telegram-client';
+import { resetWorkerConfigForTests } from '@/lib/config/worker';
 
 describe('TelegramClient', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // TelegramClient's constructor default-param now reads TELEGRAM_BOT_TOKEN via
+    // the memoized getWorkerConfig() — reset the memo so each construction
+    // re-parses the just-set value (convention #6).
     process.env.TELEGRAM_BOT_TOKEN = 'test-token';
+    resetWorkerConfigForTests();
   });
 
   it('sendMessage calls correct URL with token and returns message_id on success', async () => {

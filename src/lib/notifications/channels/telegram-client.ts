@@ -4,6 +4,8 @@
 // Typed error classes let callers (TelegramChannel, the ingress handler) do
 // pattern matching without parsing Telegram's description strings twice.
 
+import { getWorkerConfig } from '@/lib/config/worker';
+
 export class TelegramRecipientBlockedError extends Error {
   constructor() { super('telegram_recipient_blocked'); this.name = 'TelegramRecipientBlockedError'; }
 }
@@ -50,7 +52,7 @@ interface SendMessageResult {
 export class TelegramClient {
   private readonly baseUrl: string;
 
-  constructor(botToken: string = process.env.TELEGRAM_BOT_TOKEN ?? '') {
+  constructor(botToken: string = getWorkerConfig().TELEGRAM_BOT_TOKEN ?? '') {
     if (!botToken) throw new Error('TELEGRAM_BOT_TOKEN is not set');
     this.baseUrl = `https://api.telegram.org/bot${botToken}`;
   }

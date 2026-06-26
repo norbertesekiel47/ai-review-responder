@@ -148,6 +148,27 @@ const workerSchema = z.object({
   TELEGRAM_WEBHOOK_SECRET: rawOpt,
   TWILIO_AUTH_TOKEN: rawOpt,
   ZERNIO_WEBHOOK_SECRET: rawOpt,
+
+  // ── Stage-3 notification-channels batch ───────────────────────────────────
+  // Worker-only channel-SEND secrets. The 5 send adapters (email-channel,
+  // telegram-client, whatsapp-client, whatsapp-channel, whatsapp-body) are
+  // reached only by the worker (the getChannel() factory + auto-post-notice
+  // dispatch + the telegram/twilio ingress handlers); no Next route imports the
+  // send clients, so they read via getWorkerConfig() (worker lane). Each call
+  // site owns its own presence guard — `if (!from) throw` (email-channel),
+  // `if (!botToken) throw` (telegram default-param then truthy check),
+  // `if (!sid || !token) throw` (whatsapp client()), the `X!` non-null on
+  // TWILIO_WHATSAPP_NUMBER (whatsapp sendTemplate/sendFreeform), and the
+  // `?? ''` default-params (whatsapp-body formatters) — so rawOptionalVar
+  // preserves ''/'   '/unset byte-for-byte (#7). The collapsing optionalVar
+  // would map a whitespace '   ' to undefined and flip a truthy check / send a
+  // raw `undefined` to the SDK. No asserting accessor (#5): a throw would
+  // replace each site's own throw/skip behavior. (RESEND_FROM_EMAIL,
+  // WHATSAPP_AUTOPOST_TEMPLATE_SID, TWILIO_AUTH_TOKEN are already rawOpt above.)
+  TELEGRAM_BOT_TOKEN: rawOpt,
+  TWILIO_ACCOUNT_SID: rawOpt,
+  TWILIO_WHATSAPP_NUMBER: rawOpt,
+  WHATSAPP_APPROVAL_TEMPLATE_SID: rawOpt,
 });
 
 export type WorkerConfig = z.infer<typeof workerSchema>;
