@@ -110,6 +110,7 @@ import {
 } from '../twilio-whatsapp';
 import { verifyTwilioSignature } from '../twilio-verify';
 import { claimInboundEvent } from '../../shared';
+import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
 import { createHash } from 'node:crypto';
 import {
   ConsumedLinkError,
@@ -163,6 +164,11 @@ beforeEach(() => {
 
   process.env.WORKER_PUBLIC_URL = 'https://worker.example.com';
   process.env.TWILIO_AUTH_TOKEN = 'auth';
+  // The status + inbound handlers read TWILIO_AUTH_TOKEN via the memoized
+  // getWorkerConfig() for the authToken arg; clear the memo so the env set above
+  // is re-parsed (#6). (verifyTwilioSignature is mocked here, so the token value
+  // never reaches a real verifier — the reset is for isolation consistency.)
+  resetWorkerConfigForTests();
 });
 
 // ─── Status handler tests ────────────────────────────────────────────────────

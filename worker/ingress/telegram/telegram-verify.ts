@@ -5,9 +5,10 @@
 // with fixtures.
 
 import { timingSafeEqual } from 'node:crypto';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 
 export function verifyTelegramSecret(headerValue: string | undefined): boolean {
-  const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const expected = getWorkerConfig().TELEGRAM_WEBHOOK_SECRET;
   if (!expected || !headerValue) return false;
   const a = Buffer.from(headerValue, 'utf8');
   const b = Buffer.from(expected, 'utf8');

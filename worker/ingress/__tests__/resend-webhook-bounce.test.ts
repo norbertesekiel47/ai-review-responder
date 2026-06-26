@@ -15,8 +15,14 @@ vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown)
 vi.mock('../../../src/lib/notifications/email', () => ({
   sendInternalEmail: (...args: unknown[]) => mockSendInternalEmail(...args),
 }));
+// Hermetic: the worker config lane self-loads .env.local before its first parse.
+// This test relies on RESEND_WEBHOOK_SECRET being ABSENT (so the handler takes the
+// MOCK_EXTERNAL_APIS fail-open branch); stub the loader to a no-op so the
+// developer's real .env.local secret can't repopulate it (matches worker.test.ts).
+vi.mock('../../../src/lib/config/dotenv-load', () => ({ ensureWorkerDotenvLoaded: () => {} }));
 
 import { handleResendWebhook } from '../resend';
+import { resetWorkerConfigForTests } from '../../../src/lib/config/worker';
 
 // Cast through `any` because FastifyRequest has a generics-heavy type surface
 // that's awkward to satisfy from an ad-hoc test object. The handler only reads
@@ -63,6 +69,9 @@ describe('handleResendWebhook — bounce handling', () => {
     sqlReturnQueue.length = 0;
     process.env.MOCK_EXTERNAL_APIS = 'true'; // bypass signature verification
     process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@example.com';
+    // The hard-bounce admin alert reads ADMIN_NOTIFICATION_EMAIL via the memoized
+    // getWorkerConfig(); clear the memo so the env set above is re-parsed (#6).
+    resetWorkerConfigForTests();
   });
 
   it('sets owner_email_bounced=true and alerts admin on hard bounce for owner-directed template', async () => {

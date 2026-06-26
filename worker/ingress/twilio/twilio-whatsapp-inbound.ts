@@ -11,6 +11,7 @@
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'node:crypto';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
 import { claimInboundEvent, markInboundEventProcessed, markInboundEventFailed } from '../shared';
 import { parseTwilioBody, verifyTwilioSignature } from './twilio-verify';
@@ -60,7 +61,7 @@ export async function handleTwilioWhatsAppInbound(
   const sig = request.headers['x-twilio-signature'] as string | undefined;
 
   if (!verifyTwilioSignature({
-    authToken: process.env.TWILIO_AUTH_TOKEN,
+    authToken: getWorkerConfig().TWILIO_AUTH_TOKEN,
     signatureHeader: sig,
     fullUrl: fullUrl(request),
     params,

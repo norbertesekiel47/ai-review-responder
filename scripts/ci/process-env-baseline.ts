@@ -83,11 +83,14 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   'worker/background/schedulers/RankingTrackingScheduler.ts',
   'worker/background/schedulers/WeeklySummaryScheduler.ts',
   'worker/index.ts',
-  'worker/ingress/resend.ts',
+  // Stage-3 worker-ingress batch removed the 4 fully-migrated ingress files
+  // (resend.ts, telegram/telegram-verify.ts, twilio/twilio-delivery-status.ts,
+  // twilio/twilio-whatsapp-inbound.ts) — their webhook-signature-secret reads
+  // (RESEND_WEBHOOK_SECRET / ADMIN_NOTIFICATION_EMAIL / TELEGRAM_WEBHOOK_SECRET /
+  // TWILIO_AUTH_TOKEN) now go through getWorkerConfig(). resend.ts's remaining
+  // MOCK_EXTERNAL_APIS read is exempt (#2). The 2 ingress files below STAY: each
+  // still reads a Stage-4 *_ENABLED flag (ZERNIO_PUBLISHING_ENABLED).
   'worker/ingress/stripe/shared.ts',
-  'worker/ingress/telegram/telegram-verify.ts',
-  'worker/ingress/twilio/twilio-delivery-status.ts',
-  'worker/ingress/twilio/twilio-whatsapp-inbound.ts',
   'worker/ingress/zernio/zernio.ts',
   // Stage-3 worker-jobs batch removed the 12 fully-migrated job files (their
   // NEXT_PUBLIC_APP_URL / RESEND_FROM_EMAIL / ADMIN_NOTIFICATION_EMAIL /

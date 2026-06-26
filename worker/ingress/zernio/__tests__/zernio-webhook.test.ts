@@ -20,6 +20,7 @@ vi.mock('../../shared', () => ({
 }));
 
 import { handleZernioWebhook } from '../zernio';
+import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
 import { SKIP_REASON_ARCHIVED_LOCATION } from '../../../../src/lib/shared/worker-types';
 
 const SECRET = 'test-zernio-webhook-secret';
@@ -53,6 +54,11 @@ beforeEach(() => {
   mockClaimInboundEvent.mockResolvedValue('claimed');
   process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
   process.env.ZERNIO_WEBHOOK_SECRET = SECRET;
+  // The handler reads ZERNIO_WEBHOOK_SECRET via the memoized getWorkerConfig();
+  // clear the memo so the env set above is re-parsed on first read (#6).
+  // (ZERNIO_PUBLISHING_ENABLED stays a direct process.env flag read — Stage 4 —
+  // so the reset does not affect it.)
+  resetWorkerConfigForTests();
 });
 
 afterEach(() => {

@@ -19,6 +19,11 @@ const { sqlReturnQueue, sqlCalls, mockSql } = vi.hoisted(() => {
 
 vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
+// Hermetic: the worker config lane self-loads .env.local before its first parse.
+// The Resend dedup cases below rely on RESEND_WEBHOOK_SECRET being ABSENT (so the
+// handler takes the MOCK_EXTERNAL_APIS fail-open branch); stub the loader to a
+// no-op so the developer's real .env.local secret can't repopulate it.
+vi.mock('../../../src/lib/config/dotenv-load', () => ({ ensureWorkerDotenvLoaded: () => {} }));
 
 // Mock Stripe SDK
 const mockConstructEvent = vi.fn();

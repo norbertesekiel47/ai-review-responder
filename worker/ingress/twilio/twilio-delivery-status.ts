@@ -5,6 +5,7 @@
 // dedup, first-terminal-wins delivery updates, and inbound_event finalization.
 
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
 import {
   claimInboundEvent,
@@ -44,7 +45,7 @@ export async function handleTwilioDeliveryStatus(
 
   if (
     !verifyTwilioSignature({
-      authToken: process.env.TWILIO_AUTH_TOKEN,
+      authToken: getWorkerConfig().TWILIO_AUTH_TOKEN,
       signatureHeader: sig,
       fullUrl: options.fullUrl(request),
       params,

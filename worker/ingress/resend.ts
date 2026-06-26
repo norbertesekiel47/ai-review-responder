@@ -1,5 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { getWorkerConfig } from '../../src/lib/config/worker';
 import { sql } from '../../src/lib/db/server';
 import {
   claimInboundEvent,
@@ -26,7 +27,7 @@ interface ResendWebhookBody {
  * Signature = base64(HMAC-SHA256(secret, "${svixId}.${svixTimestamp}.${body}"))
  */
 function verifySignature(rawBody: string, headers: Record<string, string | undefined>): boolean {
-  const secret = process.env.RESEND_WEBHOOK_SECRET;
+  const secret = getWorkerConfig().RESEND_WEBHOOK_SECRET;
   if (!secret) {
     // Fail open ONLY in mock mode (local dev). In production, reject unsigned payloads.
     if (process.env.MOCK_EXTERNAL_APIS === 'true') {
@@ -322,7 +323,7 @@ async function sendHardBounceAlert(
   template: string | null,
   bounceType: string,
 ): Promise<void> {
-  const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
+  const adminEmail = getWorkerConfig().ADMIN_NOTIFICATION_EMAIL;
   if (!adminEmail) {
     return;
   }
