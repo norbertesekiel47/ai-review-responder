@@ -26,6 +26,7 @@ vi.mock('@/lib/db/redis-cache', () => ({
 }));
 
 import { fetchBusinessDetails } from '../serpapi-prefill';
+import { resetServerConfigForTests } from '@/lib/config/server';
 
 const FULL_SERPAPI_RESPONSE = {
   place_results: {
@@ -60,6 +61,11 @@ describe('fetchBusinessDetails', () => {
     mockIsMockMode.mockReturnValue(false);
     process.env.SERPAPI_API_KEY = 'test-key';
     process.env.REDIS_CACHE_URL = 'redis://localhost:6379';
+    // fetchBusinessDetails now reads SERPAPI_API_KEY / REDIS_CACHE_URL / the
+    // timeout via the memoized getServerConfig(); clear the memo AFTER setting env
+    // so the next call re-parses this test's env (Stage-3 convention #6). Every
+    // assertion below is unchanged.
+    resetServerConfigForTests();
     mockGetCacheRedis.mockReturnValue(makeRedisMock());
   });
 
@@ -257,6 +263,7 @@ describe('fetchBusinessDetails', () => {
 
   it('skips cache entirely when REDIS_CACHE_URL is not set', async () => {
     delete process.env.REDIS_CACHE_URL;
+    resetServerConfigForTests();
     mockGetJson.mockResolvedValue(FULL_SERPAPI_RESPONSE);
 
     const result = await fetchBusinessDetails('ChIJ_no_redis');
@@ -266,6 +273,7 @@ describe('fetchBusinessDetails', () => {
 
   it('returns all-null when SERPAPI_API_KEY is not set', async () => {
     delete process.env.SERPAPI_API_KEY;
+    resetServerConfigForTests();
     const result = await fetchBusinessDetails('ChIJ_no_key');
     expect(result.category).toBeNull();
     expect(mockGetJson).not.toHaveBeenCalled();

@@ -92,13 +92,18 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   'src/lib/past-replies/flags.ts',
   'src/lib/payments/create-checkout-session.ts',
   'src/lib/payments/payment-link.ts',
-  'src/lib/reviews/place-id-resolver.ts',
-  'src/lib/reviews/serpapi-prefill.ts',
+  // Stage-3 serpapi-redis batch MIGRATED (removed): reviews/place-id-resolver.ts
+  // (worker-only → getWorkerConfig()), reviews/serpapi-prefill.ts (Next-only) +
+  // shared/rate-limit.ts (dual Next+worker) → getServerConfig(). All 3 fully
+  // migrated: REDIS_CACHE_URL + SERPAPI_API_KEY switched opt→rawOpt and
+  // SERPAPI_TIMEOUT_MS added (rawOpt); serpapi-prefill's module-level
+  // SERPAPI_TIMEOUT_MS read was moved into fetchBusinessDetails. No import-time
+  // readers remain, so none is allowlisted. Net 42 → 39.
   'src/lib/shared/csrf.ts',
   // (shared/feedback-hmac.ts, shared/session-cookie-secret.ts,
   //  shared/worker-public-url.ts migrated to getServerConfig() — Stage-3 src-lib
-  //  batch; shared/logger.ts moved to ALLOWLIST_FILES.)
-  'src/lib/shared/rate-limit.ts',
+  //  batch; shared/logger.ts moved to ALLOWLIST_FILES. shared/rate-limit.ts
+  //  migrated to getServerConfig() — Stage-3 serpapi-redis batch, see above.)
   'src/lib/zernio/client/transport.ts',
   // Stage-3 worker-pollers batch removed the 15 fully-migrated poller files
   // (all their tuning/alerting reads now go through getWorkerConfig()). The 4

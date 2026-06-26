@@ -9,12 +9,16 @@ vi.mock('@/lib/db/redis-cache', () => ({
 }));
 
 import { checkRateLimit } from '../rate-limit';
+import { resetServerConfigForTests } from '@/lib/config/server';
 
 describe('checkRateLimit', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Rate limiter skips when REDIS_CACHE_URL is not set — set it for tests
     process.env.REDIS_CACHE_URL = 'redis://localhost:6379/0';
+    // checkRateLimit now reads REDIS_CACHE_URL via the memoized getServerConfig();
+    // clear the memo AFTER setting env so the next call re-parses (convention #6).
+    resetServerConfigForTests();
   });
 
   it('allows first request', async () => {
@@ -81,6 +85,7 @@ describe('checkRateLimit', () => {
 
   it('throws when REDIS_CACHE_URL is missing in strict mode', async () => {
     delete process.env.REDIS_CACHE_URL;
+    resetServerConfigForTests();
 
     await expect(
       checkRateLimit('test:key', 5, 60, { strict: true }),
@@ -89,6 +94,7 @@ describe('checkRateLimit', () => {
 
   it('allows request when REDIS_CACHE_URL is missing in default mode', async () => {
     delete process.env.REDIS_CACHE_URL;
+    resetServerConfigForTests();
 
     const result = await checkRateLimit('test:key', 5, 60);
 

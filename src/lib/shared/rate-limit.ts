@@ -1,3 +1,4 @@
+import { getServerConfig } from '@/lib/config/server';
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { reportCaughtError } from './report-caught-error';
 
@@ -44,7 +45,7 @@ export async function checkRateLimit(
   // If Redis is not configured (e.g. Vercel without REDIS_CACHE_URL),
   // allow the request rather than crashing in fail-open mode.
   // In strict mode, throw so the caller can handle the missing budget enforcer.
-  if (!process.env.REDIS_CACHE_URL) {
+  if (!getServerConfig().REDIS_CACHE_URL) {
     if (strict) {
       throw new Error('[rate-limit] REDIS_CACHE_URL not configured — cannot enforce budget in strict mode');
     }

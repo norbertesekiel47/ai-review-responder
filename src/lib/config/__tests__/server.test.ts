@@ -188,4 +188,49 @@ describe('config/server', () => {
     expect(cfg.CSRF_SECRET).toBe('   ');
     expect(cfg.WORKER_PUBLIC_URL).toBe('   ');
   });
+
+  // ── Stage-3 serpapi-redis batch: SERPAPI_API_KEY + REDIS_CACHE_URL switched
+  //    optionalVar → rawOptionalVar, and SERPAPI_TIMEOUT_MS added (rawOptionalVar).
+  const SERPAPI_REDIS_VARS = ['SERPAPI_API_KEY', 'REDIS_CACHE_URL', 'SERPAPI_TIMEOUT_MS'] as const;
+
+  it('exposes the SerpAPI+Redis cluster vars as OPTIONAL (present when set)', async () => {
+    Object.assign(process.env, CORE, {
+      SERPAPI_API_KEY: 'serp-key',
+      REDIS_CACHE_URL: 'redis://localhost:6379',
+      SERPAPI_TIMEOUT_MS: '3500',
+    });
+    const { getServerConfig } = await import('../server');
+    const cfg = getServerConfig();
+    expect(cfg.SERPAPI_API_KEY).toBe('serp-key');
+    expect(cfg.REDIS_CACHE_URL).toBe('redis://localhost:6379');
+    expect(cfg.SERPAPI_TIMEOUT_MS).toBe('3500');
+  });
+
+  it('SerpAPI+Redis cluster vars are undefined when unset — tolerate-absent (no throw)', async () => {
+    Object.assign(process.env, CORE);
+    for (const v of SERPAPI_REDIS_VARS) delete process.env[v];
+    const { getServerConfig } = await import('../server');
+    const cfg = getServerConfig();
+    for (const v of SERPAPI_REDIS_VARS) {
+      expect(cfg[v]).toBeUndefined();
+    }
+  });
+
+  // rawOptionalVar (#7): SERPAPI_API_KEY / REDIS_CACHE_URL / SERPAPI_TIMEOUT_MS must
+  // preserve a whitespace-only '   ' VERBATIM (not collapse to undefined): the
+  // migrated consumers do `if (!apiKey)` / `if (!REDIS_CACHE_URL)` (presence gates)
+  // and `cfg.SERPAPI_TIMEOUT_MS ? parseInt(...) : 2_000`, so '   ' must stay truthy
+  // exactly like the old raw process.env read. RED under the collapsing optionalVar.
+  it('preserves whitespace-only SerpAPI+Redis cluster vars verbatim (rawOptionalVar #7)', async () => {
+    Object.assign(process.env, CORE, {
+      SERPAPI_API_KEY: '   ',
+      REDIS_CACHE_URL: '   ',
+      SERPAPI_TIMEOUT_MS: '   ',
+    });
+    const { getServerConfig } = await import('../server');
+    const cfg = getServerConfig();
+    expect(cfg.SERPAPI_API_KEY).toBe('   ');
+    expect(cfg.REDIS_CACHE_URL).toBe('   ');
+    expect(cfg.SERPAPI_TIMEOUT_MS).toBe('   ');
+  });
 });

@@ -1,8 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { resetWorkerConfigForTests } from '@/lib/config/worker';
 
 vi.mock('serpapi', () => ({
   getJson: vi.fn(),
 }));
+
+// Hermetic worker-lane config (Stage-3 convention #9): place-id-resolver now reads
+// SERPAPI_API_KEY / REDIS_CACHE_URL via the memoized getWorkerConfig(), which
+// self-loads .env.local. The "blocks when REDIS_CACHE_URL is not set" test relies
+// on that var being ABSENT, so stub the loader to a no-op — otherwise a developer's
+// real .env.local could repopulate the deleted var. Production is unaffected: no
+// .env.local exists on Railway. The 4 worker-required vars come from vitest.setup.ts.
+vi.mock('@/lib/config/dotenv-load', () => ({ ensureWorkerDotenvLoaded: () => {} }));
 
 // Mock Redis for the fail-closed budget guard.
 // The production code uses a Lua EVAL that increments + conditionally sets TTL;
@@ -33,6 +42,9 @@ describe('resolvePlaceId', () => {
     vi.clearAllMocks();
     mockIncr.mockResolvedValue(1);
     process.env.REDIS_CACHE_URL = 'redis://localhost:6379/0';
+    // Clear the memo AFTER setting env so getWorkerConfig() re-parses this test's
+    // env on the next call (Stage-3 convention #6). Every assertion is unchanged.
+    resetWorkerConfigForTests();
   });
 
   it('returns canonical Place ID directly without SerpAPI call', async () => {
@@ -175,6 +187,7 @@ describe('resolvePlaceId', () => {
 
   it('blocks when REDIS_CACHE_URL is not set (fail closed)', async () => {
     delete process.env.REDIS_CACHE_URL;
+    resetWorkerConfigForTests();
 
     const data: GoogleMapsUrlData = {
       placeId: null, hexCid: null, businessName: 'Café LaTTea',
