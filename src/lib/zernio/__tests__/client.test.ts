@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { resetServerConfigForTests } from '@/lib/config/server';
 import { classifyAndParse, createZernioTransport, zernioClient } from '../client';
 import {
   ZernioAuthError,
@@ -272,6 +273,10 @@ describe('zernioClient connect contract', () => {
     process.env.ZERNIO_API_BASE = 'https://zernio.test/api';
     process.env.ZERNIO_API_KEY = 'test-key';
     delete process.env.MOCK_EXTERNAL_APIS;
+    // transport now reads ZERNIO_API_BASE/ZERNIO_API_KEY via the memoized
+    // getServerConfig() — clear the memo after mutating env so the next call
+    // re-parses (Stage-3 convention #6). Every assertion below is unchanged.
+    resetServerConfigForTests();
   });
 
   afterEach(() => {
@@ -291,6 +296,9 @@ describe('zernioClient connect contract', () => {
     } else {
       process.env.MOCK_EXTERNAL_APIS = originalMockExternalApis;
     }
+    // Clear the memo again after restoring env so later describe blocks re-parse
+    // the restored values rather than this block's 'test-key' snapshot (#6).
+    resetServerConfigForTests();
   });
 
   it('starts Google Business headless connect with the documented platform slug and redirect_url query', async () => {

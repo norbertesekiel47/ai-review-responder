@@ -102,6 +102,18 @@ const serverSchema = z.object({
   // Migrated raw read: getWorkerPublicUrl() does `if (!raw) throw; new URL(raw)`
   // on the raw value, so rawOptionalVar preserves '   '/'' verbatim (#7).
   WORKER_PUBLIC_URL: rawOpt,
+  // Migrated raw reads (Stage-3 zernio-transport batch): the Zernio transport does
+  // `options.X ?? getServerConfig().X ?? <fallback>` inside requestWithOptions
+  // (read AFTER the MOCK_EXTERNAL_APIS short-circuit). rawOptionalVar preserves
+  // ''/'   '/unset byte-for-byte (#7), so the `?? 'https://zernio.com/api'` and
+  // `?? ''` fallbacks stay behavior-identical to the old raw process.env reads.
+  // Dual-runtime: the zernio client surface is reached from BOTH Next connect
+  // OAuth routes (ADR-0001 exception) and the worker (publishing/ingest/teardown),
+  // so getServerConfig() (#4). No asserting accessor — the fallbacks tolerate
+  // absence (#5). MOCK_ZERNIO_LOCATION_COUNT is NOT here: it is a mock-fixture knob
+  // (read only in mock mode), exempt in the process-env audit, never prod config.
+  ZERNIO_API_BASE: rawOpt,
+  ZERNIO_API_KEY: rawOpt,
   DB_POOL_MAX: opt,
   // ── Stage-3 src-lib batch (server/shared secrets + small config) ──────────
   // All migrated raw reads (each call site owns its own ?.trim()/!value/Boolean/

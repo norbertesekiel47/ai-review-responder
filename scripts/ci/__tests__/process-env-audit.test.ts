@@ -52,6 +52,19 @@ describe('process-env-audit (pure)', () => {
     expect(fileReadsProcessEnv("const m = process.env['MOCK_EXTERNAL_APIS'];")).toBe(false);
   });
 
+  it('does NOT count a sole process.env.MOCK_ZERNIO_LOCATION_COUNT read (mock-fixture knob, exempt)', () => {
+    // A mock-mode fixture dial read only inside the Zernio transport's
+    // mockLocations() (reachable only when MOCK_EXTERNAL_APIS==='true'); never
+    // production config — exempt by EXACT name (Stage-3 zernio-transport batch).
+    expect(fileReadsProcessEnv('const raw = Number(process.env.MOCK_ZERNIO_LOCATION_COUNT ?? 1);')).toBe(
+      false,
+    );
+  });
+
+  it('STILL counts a different MOCK_* var (exemption is exact-name, not a MOCK_ prefix)', () => {
+    expect(fileReadsProcessEnv('const x = process.env.MOCK_OTHER_THING;')).toBe(true);
+  });
+
   it('STILL counts a non-exempt read even when an exempt read is also present', () => {
     expect(
       fileReadsProcessEnv(
