@@ -11,9 +11,14 @@ import type { DashboardOrAggregate } from '@/hooks/useDashboardData';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
+import { ReputationHeroBand } from '@/components/dashboard/kpi/ReputationHeroBand';
 import { ReputationTrendChart } from '@/components/dashboard/kpi/ReputationTrendChart';
+import { IntelligenceBriefCard } from '@/components/dashboard/kpi/IntelligenceBriefCard';
+import { RecentRatingBreakdown } from '@/components/dashboard/kpi/RecentRatingBreakdown';
 import { VelocityCard } from '@/components/dashboard/kpi/VelocityCard';
 import { RankingCard } from '@/components/dashboard/kpi/RankingCard';
+import { AggregateKpiCards } from '@/components/dashboard/aggregate/AggregateKpiCards';
+import { AggregateIntelligenceBriefCard } from '@/components/dashboard/aggregate/AggregateIntelligenceBriefCard';
 import { AggregateVelocityCard } from '@/components/dashboard/aggregate/AggregateVelocityCard';
 import { AggregateRankingCard } from '@/components/dashboard/aggregate/AggregateRankingCard';
 import { useDashboardData } from '@/hooks/useDashboardData';
@@ -33,10 +38,11 @@ function perLocationActive(data: DashboardOrAggregate): DashboardDataActive | nu
 }
 
 /**
- * /dashboard/analytics — depth, moved off the glance dashboard (design spec
- * 2026-06-19). Re-homes the three charts (trend · velocity · ranking) behind a
- * headline-first layout. Shares the cached /api/dashboard payload via
- * useDashboardData — same per-location and aggregate scopes as the dashboard.
+ * /dashboard/analytics — depth, moved off the glance dashboard. A headline-first
+ * analytics grid: a reputation KPI strip, an optional AI insight, the reputation
+ * trend, a two-up velocity/ranking row, and a recent-rating breakdown. Shares the
+ * cached /api/dashboard payload via useDashboardData — same per-location and
+ * aggregate scopes as the dashboard, each keeping its own component set.
  */
 export function AnalyticsContent() {
   const { currentScope } = useLocationScope();
@@ -86,6 +92,7 @@ export function AnalyticsContent() {
   }
 
   if (isAggregate(data)) {
+    const hasRanking = Boolean(data.ranking) || data.perLocationRanking.length > 0;
     return (
       <>
         <TopBar
@@ -95,17 +102,32 @@ export function AnalyticsContent() {
           refresh={refresh}
         />
         <div className="content">
+          <LiveRegion message="Analytics ready." />
           <div className="section-enter section-enter-1">
+            <AggregateKpiCards
+              valueSummary={data.valueSummary}
+              activeLocationCount={data.activeLocationCount}
+            />
+          </div>
+          {data.perLocationBriefs.length > 0 && (
+            <div className="section-enter section-enter-2">
+              <AggregateIntelligenceBriefCard perLocationBriefs={data.perLocationBriefs} />
+            </div>
+          )}
+          <div className={`section-enter section-enter-3${hasRanking ? ' chart-row' : ''}`}>
             <AggregateVelocityCard
               reviewVelocity={data.reviewVelocity}
               perLocationVelocity={data.perLocationVelocity}
             />
+            {hasRanking && (
+              <AggregateRankingCard
+                ranking={data.ranking}
+                perLocationRanking={data.perLocationRanking}
+              />
+            )}
           </div>
-          <div className="section-enter section-enter-2">
-            <AggregateRankingCard
-              ranking={data.ranking}
-              perLocationRanking={data.perLocationRanking}
-            />
+          <div className="section-enter section-enter-4">
+            <RecentRatingBreakdown reviews={data.recentReviews} />
           </div>
         </div>
       </>
@@ -132,11 +154,13 @@ export function AnalyticsContent() {
     );
   }
 
-  const trend = active.reputationSummary?.trend ?? [];
+  const reputation = active.reputationSummary;
+  const trend = reputation?.trend ?? [];
+  const hasRanking = (active.ranking?.length ?? 0) > 0;
   const hasAnything =
     trend.some((week) => week.starEquivalent != null) ||
     active.reviewVelocity.length > 0 ||
-    (active.ranking?.length ?? 0) > 0;
+    hasRanking;
 
   return (
     <>
@@ -149,14 +173,31 @@ export function AnalyticsContent() {
       <div className="content">
         {hasAnything ? (
           <>
-            <div className="section-enter section-enter-1">
+            <LiveRegion message="Analytics ready." />
+            {reputation && (
+              <div className="section-enter section-enter-1">
+                <ReputationHeroBand
+                  summary={reputation}
+                  lifetimeReviewsHandled={active.valueSummary.totalReviewsHandled}
+                  lifetimeTimeSavedMinutes={active.valueSummary.totalTimeSavedMinutes}
+                  connected={active.zernioConnection.status === 'active'}
+                />
+              </div>
+            )}
+            {active.latestBrief && (
+              <div className="section-enter section-enter-2">
+                <IntelligenceBriefCard brief={active.latestBrief} />
+              </div>
+            )}
+            <div className="section-enter section-enter-3">
               <ReputationTrendChart trend={trend} />
             </div>
-            <div className="section-enter section-enter-2">
+            <div className={`section-enter section-enter-4${hasRanking ? ' chart-row' : ''}`}>
               <VelocityCard reviewVelocity={active.reviewVelocity} />
+              {hasRanking && <RankingCard ranking={active.ranking} />}
             </div>
-            <div className="section-enter section-enter-3">
-              <RankingCard ranking={active.ranking} />
+            <div className="section-enter section-enter-5">
+              <RecentRatingBreakdown reviews={active.recentReviews} />
             </div>
           </>
         ) : (
