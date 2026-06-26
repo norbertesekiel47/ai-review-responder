@@ -68,12 +68,35 @@ const serverSchema = z.object({
   SENTRY_DSN: opt,
   NEXT_PUBLIC_SENTRY_DSN: opt,
   NEXT_PUBLIC_DOCS_BASE_URL: opt,
-  SESSION_COOKIE_SECRET: opt,
-  CSRF_SECRET: opt,
-  IMPERSONATION_COOKIE_SECRET: opt,
+  // ── HMAC/cookie secrets (Stage-3 src-lib batch) — migrated raw reads ──
+  // Each accessor (getSessionCookieSecret / feedback-hmac getSecret /
+  // impersonation getSecret) does `if (!secret) throw` then a RAW check on the
+  // value (Buffer.byteLength >= 32 / HMAC update / .length < 32). rawOptionalVar
+  // keeps a whitespace `'   '` truthy so it reaches the length check exactly as
+  // the old raw process.env.X did (#7) — the collapsing `opt` would map it to
+  // undefined and FLIP the throw branch. requirePresent-based asserts (if any
+  // wire up later) still treat whitespace as absent, independent of the field.
+  SESSION_COOKIE_SECRET: rawOpt,
+  CSRF_SECRET: rawOpt,
+  IMPERSONATION_COOKIE_SECRET: rawOpt,
   CONTACT_NOTIFY_TO: rawOpt, // migrated raw read (contact-notify resolveContactNotifyTo ?.trim()) — #7
-  WORKER_PUBLIC_URL: opt,
+  // Migrated raw read: getWorkerPublicUrl() does `if (!raw) throw; new URL(raw)`
+  // on the raw value, so rawOptionalVar preserves '   '/'' verbatim (#7).
+  WORKER_PUBLIC_URL: rawOpt,
   DB_POOL_MAX: opt,
+  // ── Stage-3 src-lib batch (server/shared secrets + small config) ──────────
+  // All migrated raw reads (each call site owns its own ?.trim()/!value/Boolean/
+  // parseInt guard or passes the value straight to its SDK), so rawOptionalVar
+  // preserves ''/'   '/unset byte-for-byte (#7). All read via getServerConfig()
+  // INSIDE a function (never at import) — these modules run in both the worker
+  // and Next-server lanes (convention #4 runtime-invocation constraint).
+  POSTHOG_API_KEY: rawOpt,
+  POSTHOG_HOST: rawOpt,
+  ONBOARDING_DEMO_DAILY_CENTS: rawOpt,
+  OWNER_LEADS_GOOGLE_SHEET_ID: rawOpt,
+  GOOGLE_SHEETS_CLIENT_EMAIL: rawOpt,
+  GOOGLE_SHEETS_PRIVATE_KEY: rawOpt,
+  OWNER_LEADS_GOOGLE_SHEET_RANGE: rawOpt,
   // ── email subsystem (migrated raw reads — rawOptionalVar preserves ''/'   '
   //    exactly; call sites own their own ?.trim()/!value/Boolean/SDK-arg) — #7 ──
   RESEND_FROM_EMAIL: rawOpt,
@@ -114,6 +137,21 @@ let memo: ServerConfig | undefined;
 export function getServerConfig(): ServerConfig {
   if (!memo) memo = serverSchema.parse(process.env);
   return memo;
+}
+
+/**
+ * Test-only: clear the memo so the NEXT getServerConfig() re-parses the current
+ * process.env. Mirrors resetWorkerConfigForTests(). Most server-lane tests use
+ * the set→vi.resetModules()→re-import pattern (which re-evaluates this module and
+ * clears the memo), but a WORKER-lane test that statically imports a handler which
+ * transitively reads a SHARED src/lib module on getServerConfig() (e.g.
+ * session-cookie-secret via tokens) can't re-import the handler cheaply — it calls
+ * this seam in beforeEach instead, exactly like it already calls
+ * resetWorkerConfigForTests(). Production env is immutable, so this seam never runs
+ * in prod (a memoized snapshot equals a live read).
+ */
+export function resetServerConfigForTests(): void {
+  memo = undefined;
 }
 
 /**

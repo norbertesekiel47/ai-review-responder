@@ -1,3 +1,5 @@
+import { getServerConfig } from '@/lib/config/server';
+
 /**
  * Single authoritative reader for WORKER_PUBLIC_URL. Normalizes to the URL origin
  * (scheme://host[:port]), dropping any path, query string, fragment, trailing slash,
@@ -5,7 +7,7 @@
  * component issues (Twilio signature verification, status callbacks, etc.). (F-13/P3)
  */
 export function getWorkerPublicUrl(): string {
-  const raw = process.env.WORKER_PUBLIC_URL;
+  const raw = getServerConfig().WORKER_PUBLIC_URL;
   if (!raw) throw new Error('WORKER_PUBLIC_URL is not set');
   return new URL(raw).origin;
 }

@@ -67,6 +67,17 @@
     {
       "file": "src/lib/payments/stripe-client.ts",
       "exports": ["STRIPE_CLIENT_CONFIG", "resetStripeClientForTests"]
+    },
+    // signFeedback IS used — by worker/jobs/WeeklySummaryWorker.ts,
+    // worker/ingress/zernio/zernio-verify.ts, and src/app/api/feedback/route.ts.
+    // The Stage-3 src-lib config batch touched feedback-hmac.ts (CSRF_SECRET now
+    // read via getServerConfig()), bringing it into fallow's new-only changed-file
+    // scope; those consumer files are NOT in the changed set, so the incremental
+    // scan can't link them and reads the export as unused. False positive,
+    // acknowledged the same way the Stripe test-seam exports are.
+    {
+      "file": "src/lib/shared/feedback-hmac.ts",
+      "exports": ["signFeedback"]
     }
   ],
   // NotificationChannel send methods are invoked via interface dispatch through the
@@ -566,7 +577,20 @@
       // intentional; this PR's commandTimeout addition shifted lines and brought
       // the pre-existing clone into changed-file scope. Ignoring the queue side
       // drops the group.
-      "worker/redis-connection.ts"
+      "worker/redis-connection.ts",
+
+      // ── Stage-3 src-lib config batch (this PR) ──
+      // owner-leads-sheet.ts: the two Google Sheets fetch blocks — the OAuth
+      // token exchange (~:94-107) and the values:append call (~:155-164) — share
+      // a parallel `fetch → if (!response.ok) throw → await response.json()`
+      // shape. They are behaviourally distinct (different endpoints, bodies, and
+      // success shapes: a token vs an updatedRows count) and pre-exist on main.
+      // This PR's edit only touched readConfig() (OWNER_LEADS_*/GOOGLE_SHEETS_*
+      // now read via getServerConfig()), which shifted line numbers and brought
+      // the pre-existing clone into fallow's changed-file scope. Acknowledged —
+      // extracting a shared fetch helper would be a thin pass-through the design
+      // rules reject.
+      "src/lib/google/owner-leads-sheet.ts"
     ]
   }
 }

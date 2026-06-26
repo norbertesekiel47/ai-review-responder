@@ -57,6 +57,7 @@ vi.mock('../../../../src/lib/notifications/email', () => ({
 import { accountOffboardingDeliveryId } from '../../../../src/lib/account-offboarding/email-dedup';
 import { handleAccountOffboardingEmail } from '../AccountOffboardingEmailWorker';
 import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
+import { resetServerConfigForTests } from '../../../../src/lib/config/server';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const OFFBOARDING_ID = '22222222-2222-4222-8222-222222222222';
@@ -107,6 +108,11 @@ beforeEach(() => {
   // the memo so the per-test `delete process.env.NEXT_PUBLIC_APP_URL` is re-parsed
   // on the handler's first read (Stage-3 #6).
   resetWorkerConfigForTests();
+  // tokens.ts → session-cookie-secret.ts now reads SESSION_COOKIE_SECRET via the
+  // SERVER-lane getServerConfig() (it's a shared src/lib module). Clear that memo
+  // too so the `delete process.env.SESSION_COOKIE_SECRET` token-secret-missing
+  // case is re-parsed on the handler's first read (Stage-3 #6).
+  resetServerConfigForTests();
 });
 
 describe('AccountOffboardingEmailWorker', () => {

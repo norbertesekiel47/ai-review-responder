@@ -134,4 +134,58 @@ describe('config/server', () => {
     expect(cfg.LIST_UNSUBSCRIBE_URL).toBeUndefined();
     expect(cfg.LIST_UNSUBSCRIBE_EMAIL).toBeUndefined();
   });
+
+  // ── Stage-3 src-lib batch: the migrated server/shared secret + config vars ──
+  const SRC_LIB_VARS = [
+    'POSTHOG_API_KEY',
+    'POSTHOG_HOST',
+    'ONBOARDING_DEMO_DAILY_CENTS',
+    'OWNER_LEADS_GOOGLE_SHEET_ID',
+    'GOOGLE_SHEETS_CLIENT_EMAIL',
+    'GOOGLE_SHEETS_PRIVATE_KEY',
+    'OWNER_LEADS_GOOGLE_SHEET_RANGE',
+    'IMPERSONATION_COOKIE_SECRET',
+    'SESSION_COOKIE_SECRET',
+    'CSRF_SECRET',
+    'WORKER_PUBLIC_URL',
+  ] as const;
+
+  it('exposes the Stage-3 src-lib vars as OPTIONAL (present when set)', async () => {
+    Object.assign(process.env, CORE);
+    for (const v of SRC_LIB_VARS) process.env[v] = `val_${v}`;
+    const { getServerConfig } = await import('../server');
+    const cfg = getServerConfig();
+    for (const v of SRC_LIB_VARS) {
+      expect(cfg[v]).toBe(`val_${v}`);
+    }
+  });
+
+  it('Stage-3 src-lib vars are undefined (not throwing) when unset — tolerate-absent', async () => {
+    Object.assign(process.env, CORE);
+    for (const v of SRC_LIB_VARS) delete process.env[v];
+    const { getServerConfig } = await import('../server');
+    const cfg = getServerConfig();
+    for (const v of SRC_LIB_VARS) {
+      expect(cfg[v]).toBeUndefined();
+    }
+  });
+
+  // rawOptionalVar (#7): the four HMAC/secret/URL vars switched from optionalVar
+  // → rawOptionalVar must preserve a whitespace-only '   ' VERBATIM (not collapse
+  // to undefined), because each consumer does `if (!value) throw` then a RAW
+  // length/HMAC/URL check on the value. RED under the collapsing optionalVar.
+  it('preserves whitespace-only secrets verbatim (rawOptionalVar passthrough)', async () => {
+    Object.assign(process.env, CORE, {
+      SESSION_COOKIE_SECRET: '   ',
+      IMPERSONATION_COOKIE_SECRET: '   ',
+      CSRF_SECRET: '   ',
+      WORKER_PUBLIC_URL: '   ',
+    });
+    const { getServerConfig } = await import('../server');
+    const cfg = getServerConfig();
+    expect(cfg.SESSION_COOKIE_SECRET).toBe('   ');
+    expect(cfg.IMPERSONATION_COOKIE_SECRET).toBe('   ');
+    expect(cfg.CSRF_SECRET).toBe('   ');
+    expect(cfg.WORKER_PUBLIC_URL).toBe('   ');
+  });
 });

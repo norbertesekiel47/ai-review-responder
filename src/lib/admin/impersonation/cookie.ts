@@ -1,11 +1,12 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { getServerConfig } from '@/lib/config/server';
 
 const COOKIE_NAME = 'rw_impersonation';
 
 const MIN_SECRET_LENGTH = 32;
 
 function getSecret(): string {
-  const value = process.env.IMPERSONATION_COOKIE_SECRET;
+  const value = getServerConfig().IMPERSONATION_COOKIE_SECRET;
   if (!value) throw new Error('IMPERSONATION_COOKIE_SECRET not configured');
   if (value.length < MIN_SECRET_LENGTH) {
     throw new Error(

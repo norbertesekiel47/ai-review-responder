@@ -1,4 +1,5 @@
 import { getCacheRedis } from '@/lib/db/redis-cache';
+import { getServerConfig } from '@/lib/config/server';
 
 const DEFAULT_DAILY_CENTS = 1000; // $10/day
 const RESERVATION_CENTS = 20;     // ~$0.01 SerpAPI + ~$0.015 LLM + headroom
@@ -34,7 +35,7 @@ async function resolveCeilingCents(lane: string): Promise<number> {
   }
 
   if (lane === 'onboarding-demo') {
-    const envVal = process.env.ONBOARDING_DEMO_DAILY_CENTS;
+    const envVal = getServerConfig().ONBOARDING_DEMO_DAILY_CENTS;
     if (envVal) {
       const envParsed = parseInt(envVal, 10);
       if (Number.isFinite(envParsed) && envParsed > 0) {

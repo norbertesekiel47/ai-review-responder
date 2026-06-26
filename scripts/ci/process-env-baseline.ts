@@ -27,6 +27,36 @@ const ALLOWLIST_FILES = new Set<string>([
   // a sanctioned process.env home and its reads are left exactly as-is (Stage-3
   // Stripe batch).
   'src/lib/payments/price-tier-map.ts',
+  // ── Stage-3 src-lib batch: FOUNDATIONAL import-time readers ────────────────
+  // These read env at MODULE LOAD to construct a client/singleton or a limit
+  // constant. Routing them through a config accessor would force an import-time
+  // getServerConfig() parse (the accessor is lazy by design), so they stay
+  // sanctioned process.env homes and their reads are left byte-for-byte.
+  //
+  // db/server.ts: top-level `postgres(DATABASE_POOL_URL!, { max: DB_POOL_MAX })`
+  // and `createClient(SUPABASE_URL!, SUPABASE_SERVICE_KEY!)` — the primary
+  // Postgres.js + Supabase service clients, constructed at import.
+  'src/lib/db/server.ts',
+  // db/redis-cache.ts: getCacheRedisOptions() builds the ioredis cache client
+  // options from REDIS_CACHE_URL/REDIS_CACHE_TOKEN (the `url!` non-null +
+  // URL-shape branch is the singleton constructor).
+  'src/lib/db/redis-cache.ts',
+  // demos/fetch-reviews.ts: reads SERPAPI_API_KEY at MODULE TOP-LEVEL with a
+  // module-load fail-fast throw (so the missing key surfaces at import, not at
+  // first fetch). (MOCK_EXTERNAL_APIS is exempt #2.)
+  'src/lib/demos/fetch-reviews.ts',
+  // admin/cost-report-service.ts: the *_CENTS daily cost limits are read at
+  // MODULE TOP-LEVEL to build the TIER_LIMITS_CENTS / GLOBAL_DAILY_LIMIT_CENTS
+  // constants. CRITICAL cost-limit math — preserved byte-for-byte; allowlisted
+  // rather than forced into an import-time parse.
+  'src/lib/admin/cost-report-service.ts',
+  // shared/logger.ts: the universal structured logger, imported by ~93 modules
+  // ultra-early. Its only non-exempt read is LOG_SERVICE (a tolerate-absent
+  // `?? 'worker'` service label); NODE_ENV is exempt #2. Routing the lowest-level
+  // logging utility through getServerConfig() risks an import cycle and adds a
+  // memoized parse to a hot path — allowlisted as a config-adjacent foundational
+  // reader (see plan: revisit only with a proven no-cycle migration).
+  'src/lib/shared/logger.ts',
 ]);
 
 export function isAllowlisted(file: string): boolean {
@@ -36,20 +66,20 @@ export function isAllowlisted(file: string): boolean {
 export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   'src/lib/account-offboarding/flags.ts',
   'src/lib/admin/business-detail/mappers.ts',
-  'src/lib/admin/cost-report-service.ts',
-  'src/lib/admin/impersonation/cookie.ts',
-  'src/lib/analytics/posthog.ts',
+  // Stage-3 src-lib batch MIGRATED (removed): admin/impersonation/cookie.ts,
+  // analytics/posthog.ts, costs/onboarding-demo-cost-guard.ts,
+  // google/owner-leads-sheet.ts, shared/feedback-hmac.ts,
+  // shared/session-cookie-secret.ts, shared/worker-public-url.ts — now read via
+  // getServerConfig(). Stage-3 src-lib batch ALLOWLISTED (moved up to
+  // ALLOWLIST_FILES): admin/cost-report-service.ts, db/redis-cache.ts,
+  // db/server.ts, demos/fetch-reviews.ts, shared/logger.ts (import-time readers).
+  // costs/tracker.ts STAYS below (CRITICAL cost guard, deferred — dynamic *_CENTS key).
   'src/lib/auth/require-owner-access.ts',
   'src/lib/auto-approval/flags.ts',
   'src/lib/channels/override.ts',
-  'src/lib/costs/onboarding-demo-cost-guard.ts',
   'src/lib/costs/tracker.ts',
   'src/lib/db/auth.ts',
   'src/lib/db/browser.ts',
-  'src/lib/db/redis-cache.ts',
-  'src/lib/db/server.ts',
-  'src/lib/demos/fetch-reviews.ts',
-  'src/lib/google/owner-leads-sheet.ts',
   'src/lib/locations/owner-route.ts',
   'src/lib/moderation/moderate.ts',
   'src/lib/notifications/channels/email-channel.ts',
@@ -65,11 +95,10 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   'src/lib/reviews/place-id-resolver.ts',
   'src/lib/reviews/serpapi-prefill.ts',
   'src/lib/shared/csrf.ts',
-  'src/lib/shared/feedback-hmac.ts',
-  'src/lib/shared/logger.ts',
+  // (shared/feedback-hmac.ts, shared/session-cookie-secret.ts,
+  //  shared/worker-public-url.ts migrated to getServerConfig() — Stage-3 src-lib
+  //  batch; shared/logger.ts moved to ALLOWLIST_FILES.)
   'src/lib/shared/rate-limit.ts',
-  'src/lib/shared/session-cookie-secret.ts',
-  'src/lib/shared/worker-public-url.ts',
   'src/lib/zernio/client/transport.ts',
   // Stage-3 worker-pollers batch removed the 15 fully-migrated poller files
   // (all their tuning/alerting reads now go through getWorkerConfig()). The 4
