@@ -81,9 +81,12 @@ describe('isCrashNetRecoverableDbError (stricter process-level subset)', () => {
   });
 
   it.each([
+    '08000', // connection_exception — generic class code; too vague to survive blind
     '08007', // transaction_resolution_unknown — ambiguous COMMIT; crash instead of silently continuing
     '08P01', // protocol_violation — likely a deeper fault
-  ])('does NOT recover (still crashes) on ambiguous/unknown code %s', (code) => {
+  ])('does NOT recover (still crashes) on ambiguous/generic code %s — even though billing tolerates it', (code) => {
+    // These are all in the BROAD billing set; the crash-net deliberately omits them.
+    expect(isTransientPostgresError(Object.assign(new Error('x'), { code }))).toBe(true);
     expect(isCrashNetRecoverableDbError(Object.assign(new Error('ambiguous'), { code }))).toBe(false);
   });
 

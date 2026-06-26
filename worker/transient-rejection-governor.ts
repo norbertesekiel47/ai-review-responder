@@ -1,43 +1,50 @@
 // worker/transient-rejection-governor.ts
 //
-// Governor (Release It! pattern) that bounds how long the worker tolerates
-// RECOVERED transient-DB unhandledRejections before escalating to a fatal exit.
+// Governor (Release It! pattern) that decides when RECOVERED transient-DB
+// unhandledRejections have stopped being "transient" and the worker should
+// escalate to a fatal exit (so Railway restarts + restart-alerting fires).
 //
-// The crash-net survives an isolated transient-DB blip (the loop reconciles next
-// cycle). But a persistently-broken path — a query that ALWAYS times out — would
-// otherwise emit warning-level Sentry events forever while `/ready` still returns
-// 200 (it only runs `SELECT 1`), leaving the worker alive-but-broken with no
-// restart and no page. This governor converts a SUSTAINED storm back into a
-// fail-fast crash so Railway restarts the process and restart-alerting fires.
+// The hard part is distinguishing a BURST from a STORM. At boot ~20 pollers +
+// 24 queues fire at once, so ONE short DB brownout can fan out into dozens of
+// recovered rejections within a few seconds — that is a single transient event
+// and MUST be survived. A genuinely broken path instead keeps failing across many
+// cycles. So we escalate on DURATION, not raw count: a storm that PERSISTS
+// (rejections keep arriving with no idle gap) for at least `sustainedMs` is no
+// longer transient. A quiet gap of `idleResetMs` ends the current storm, so a
+// brief boot fan-out — however large — never escalates.
 //
-// Pure + injectable-clock so the rolling window is unit-testable without booting
-// the worker.
+// Pure + caller-supplied clock → unit-testable without booting the worker.
 
-const DEFAULT_WINDOW_MS = 60_000; // 1 minute
-const DEFAULT_MAX_IN_WINDOW = 20; // > this many recovered rejections in the window → escalate
+const DEFAULT_SUSTAINED_MS = 600_000; // 10 min of continuous rejections → escalate
+const DEFAULT_IDLE_RESET_MS = 300_000; // 5 min with no rejection → the storm is over
 
 export interface TransientRejectionGovernor {
   /**
-   * Record one recovered transient-DB rejection at `nowMs`. Returns true when the
-   * count within the rolling window has EXCEEDED the threshold — the caller should
-   * then escalate (fatal exit) instead of silently recovering again.
+   * Record one recovered transient-DB rejection at `nowMs`. Returns true once the
+   * current UNINTERRUPTED storm has persisted for at least `sustainedMs` — the
+   * caller should then escalate (fatal exit) instead of recovering again.
    */
   record(nowMs: number): boolean;
 }
 
 export function createTransientRejectionGovernor(
-  opts: { windowMs?: number; maxInWindow?: number } = {},
+  opts: { sustainedMs?: number; idleResetMs?: number } = {},
 ): TransientRejectionGovernor {
-  const windowMs = opts.windowMs ?? DEFAULT_WINDOW_MS;
-  const maxInWindow = opts.maxInWindow ?? DEFAULT_MAX_IN_WINDOW;
-  const hits: number[] = [];
+  const sustainedMs = opts.sustainedMs ?? DEFAULT_SUSTAINED_MS;
+  const idleResetMs = opts.idleResetMs ?? DEFAULT_IDLE_RESET_MS;
+
+  let stormStartMs: number | null = null;
+  let lastMs: number | null = null;
 
   return {
     record(nowMs: number): boolean {
-      const cutoff = nowMs - windowMs;
-      while (hits.length > 0 && hits[0]! <= cutoff) hits.shift();
-      hits.push(nowMs);
-      return hits.length > maxInWindow;
+      // The first ever rejection, or one after a long-enough quiet gap, begins a
+      // fresh storm (so a brief boot fan-out that then stops can never escalate).
+      if (stormStartMs === null || lastMs === null || nowMs - lastMs > idleResetMs) {
+        stormStartMs = nowMs;
+      }
+      lastMs = nowMs;
+      return nowMs - stormStartMs >= sustainedMs;
     },
   };
 }

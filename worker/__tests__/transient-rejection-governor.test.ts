@@ -3,42 +3,54 @@
 import { describe, it, expect } from 'vitest';
 import { createTransientRejectionGovernor } from '../transient-rejection-governor';
 
+const MIN = 60_000;
+// A continuous storm = rejections spaced closer than idleResetMs so the clock
+// never resets. 1-min spacing under a 5-min idle reset stays continuous.
+
 describe('createTransientRejectionGovernor', () => {
-  it('does not escalate while at or below the threshold within the window', () => {
-    const g = createTransientRejectionGovernor({ windowMs: 1000, maxInWindow: 3 });
+  it('never escalates on the first rejection (zero duration)', () => {
+    const g = createTransientRejectionGovernor({ sustainedMs: 10 * MIN, idleResetMs: 5 * MIN });
     expect(g.record(0)).toBe(false);
-    expect(g.record(100)).toBe(false);
-    expect(g.record(200)).toBe(false); // 3rd hit == threshold, still ok
   });
 
-  it('escalates once the count EXCEEDS the threshold within the window', () => {
-    const g = createTransientRejectionGovernor({ windowMs: 1000, maxInWindow: 3 });
-    g.record(0);
-    g.record(100);
-    g.record(200);
-    expect(g.record(300)).toBe(true); // 4th hit in-window → escalate
+  it('survives a large, brief boot fan-out (dozens of rejections within seconds)', () => {
+    const g = createTransientRejectionGovernor({ sustainedMs: 10 * MIN, idleResetMs: 5 * MIN });
+    // 50 recovered rejections all inside the first ~5s — one transient event.
+    let escalated = false;
+    for (let i = 0; i < 50; i++) escalated = g.record(i * 100) || escalated; // 0..4900ms
+    expect(escalated).toBe(false);
   });
 
-  it('prunes hits older than the window so isolated blips never escalate', () => {
-    const g = createTransientRejectionGovernor({ windowMs: 1000, maxInWindow: 2 });
-    // One blip every window-and-a-bit: each prunes the previous, count stays at 1.
+  it('escalates once a continuous storm persists past sustainedMs', () => {
+    const g = createTransientRejectionGovernor({ sustainedMs: 10 * MIN, idleResetMs: 5 * MIN });
+    // One rejection every 10s — never an idle gap — for just over 10 minutes.
+    let escalated = false;
+    for (let t = 0; t <= 10 * MIN; t += 10_000) escalated = g.record(t);
+    expect(escalated).toBe(true);
+  });
+
+  it('does not escalate while a continuous storm is still younger than sustainedMs', () => {
+    const g = createTransientRejectionGovernor({ sustainedMs: 10 * MIN, idleResetMs: 5 * MIN });
     expect(g.record(0)).toBe(false);
-    expect(g.record(1_500)).toBe(false);
-    expect(g.record(3_000)).toBe(false);
-    expect(g.record(4_500)).toBe(false);
+    expect(g.record(4 * MIN)).toBe(false); // gap 4<5 → continuous
+    expect(g.record(8 * MIN)).toBe(false); // 8 min into the storm < 10 min
   });
 
-  it('treats a hit exactly at the window edge as expired (cutoff is inclusive)', () => {
-    const g = createTransientRejectionGovernor({ windowMs: 1000, maxInWindow: 1 });
-    expect(g.record(0)).toBe(false); // hits: [0]
-    // now=1000 → cutoff=0 → the hit at 0 is pruned (<= cutoff); count back to 1.
-    expect(g.record(1000)).toBe(false);
+  it('escalates exactly at the sustainedMs boundary of a continuous storm', () => {
+    const g = createTransientRejectionGovernor({ sustainedMs: 10 * MIN, idleResetMs: 5 * MIN });
+    expect(g.record(0)).toBe(false);
+    expect(g.record(4 * MIN)).toBe(false); // continuous
+    expect(g.record(8 * MIN)).toBe(false); // continuous
+    expect(g.record(10 * MIN)).toBe(true); // duration == sustainedMs, no gap > idle → escalate
   });
 
-  it('counts a tight burst at the same timestamp', () => {
-    const g = createTransientRejectionGovernor({ windowMs: 1000, maxInWindow: 2 });
-    expect(g.record(500)).toBe(false);
-    expect(g.record(500)).toBe(false);
-    expect(g.record(500)).toBe(true); // 3 at once > 2 → escalate
+  it('a quiet gap longer than idleResetMs ends the storm and restarts the clock', () => {
+    const g = createTransientRejectionGovernor({ sustainedMs: 10 * MIN, idleResetMs: 5 * MIN });
+    expect(g.record(0)).toBe(false);
+    expect(g.record(4 * MIN)).toBe(false); // continuous, 4 min into the storm
+    // ...then 6 min of quiet (> 5 min idle reset) — the storm is over.
+    expect(g.record(10 * MIN)).toBe(false); // fresh storm starts here (duration 0)
+    expect(g.record(13 * MIN)).toBe(false); // continuous: 3 min into the NEW storm
+    expect(g.record(16 * MIN)).toBe(false); // continuous: 6 min in — still under, despite t=16min
   });
 });

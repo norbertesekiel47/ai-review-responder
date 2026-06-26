@@ -64,28 +64,41 @@ export function isTransientPostgresError(err: unknown): boolean {
   return code.length === 5 && code.startsWith(CONNECTION_EXCEPTION_PREFIX);
 }
 
-// Codes a billing-style idempotent+accounted retry tolerates, but whose
-// UNHANDLED-rejection semantics are too broad to silently survive at the PROCESS
-// level: their operation outcome is ambiguous or they signal a deeper fault.
-//   08007  transaction_resolution_unknown — COMMIT outcome unknown; no owner to reconcile
-//   08P01  protocol_violation — likely a deeper client/server fault, not a blip
-const PROCESS_NON_RECOVERABLE_CODES: ReadonlySet<string> = new Set(['08007', '08P01']);
+// Explicit allowlist of DB error codes the worker's process-level crash-net
+// (worker/index.ts) may RECOVER from — survive without exiting the whole process.
+// A deliberately curated, conservative SUBSET of the billing transient set: every
+// code here is a failure where the operation provably did NOT complete, so the
+// loop reconciles on its next cycle. It intentionally OMITS, so anything ambiguous
+// or unknown still fails fast (clean restart over silent continuation):
+//   08000  connection_exception  — generic class code; too vague to survive blind
+//   08007  transaction_resolution_unknown — ambiguous COMMIT outcome, no reconciler
+//   08P01  protocol_violation    — likely a deeper client/server fault, not a blip
+//   any unlisted 08xxx           — no open-ended prefix match here (unlike billing)
+// Billing keeps the broader isTransientPostgresError (its retry is idempotent +
+// accounted, so it can safely tolerate the ambiguous/blanket cases this omits).
+const CRASH_NET_RECOVERABLE_DB_ERROR_CODES: ReadonlySet<string> = new Set([
+  '57014', // query_canceled — statement / lock-wait timeout (the observed incident)
+  '57P01', // admin_shutdown
+  '57P02', // crash_shutdown
+  '57P03', // cannot_connect_now
+  'CONNECTION_CLOSED',
+  'CONNECTION_ENDED',
+  'CONNECTION_DESTROYED',
+  'CONNECT_TIMEOUT',
+  '08001', // sqlclient_unable_to_establish_sqlconnection
+  '08003', // connection_does_not_exist
+  '08004', // sqlserver_rejected_establishment_of_sqlconnection
+  '08006', // connection_failure
+]);
 
 /**
- * Stricter subset of {@link isTransientPostgresError} for the worker's
- * process-level crash-net (worker/index.ts): a transient DB rejection it is safe
- * to RECOVER from (survive without exiting) because the operation provably did
- * not complete and the loop reconciles on its next cycle.
- *
- * Narrower than the billing predicate by design — it matches ONLY the explicit
- * transient set MINUS the ambiguous-state codes, and does NOT apply the
- * open-ended 08-class prefix fallback. Anything whose outcome is unknown (or any
- * future/unlisted 08-class code) still fails fast, so an unknown state gets a
- * clean restart rather than silent continuation.
+ * Whether the worker's process-level crash-net (worker/index.ts) may RECOVER from
+ * this rejection — survive without exiting — because it is a clearly-transient DB
+ * failure where the operation provably did not complete and the loop reconciles
+ * next cycle. Strictly narrower than {@link isTransientPostgresError}: an explicit
+ * allowlist, no ambiguous-state codes, no open-ended 08-class prefix.
  */
 export function isCrashNetRecoverableDbError(err: unknown): boolean {
   const code = errorStringProperty(err, 'code');
-  if (!code) return false;
-  if (PROCESS_NON_RECOVERABLE_CODES.has(code)) return false;
-  return TRANSIENT_POSTGRES_ERROR_CODES.has(code);
+  return code !== undefined && CRASH_NET_RECOVERABLE_DB_ERROR_CODES.has(code);
 }
