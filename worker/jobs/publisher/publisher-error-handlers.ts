@@ -24,9 +24,9 @@ import {
   ZernioTransientError,
   ZernioValidationError,
 } from '../../../src/lib/zernio/errors';
-import { zernioClient } from '../../../src/lib/zernio/client';
 import { canonicalizeReplyText } from '../../../src/lib/zernio/canonicalize-reply';
-import { getCachedZernioReviewPage } from '../../../src/lib/publishing/zernio-publisher';
+import { getReviewPublisher } from '../../../src/lib/publishing/review-publisher';
+import type { FindReplyResult, ReviewLocator } from '../../../src/lib/publishing/review-publisher';
 import { markOutboxCompleted } from '../../../src/lib/shared/outbox';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import type { SendOwnerEmailPayload } from '../../../src/lib/shared/worker-types';
@@ -340,27 +340,6 @@ interface Verify409Args {
 }
 
 /**
- * Bounds the 409-verifier review walk using the page-cache from
- * lookupZernioReviewId: a review found on page 0 or 1 avoids re-walking all 4
- * pages. Cache miss / cache-read failure falls back to the conservative 4-page
- * cap. Single owner shared by both `verify409AndDispose` and `verify409InTx`
- * so their maxPages bounding cannot drift apart.
- */
-async function resolveVerifierMaxPages(
-  account_id: string,
-  location_id: string,
-  zernio_review_id: string,
-): Promise<number> {
-  try {
-    const cachedPage = await getCachedZernioReviewPage(account_id, location_id, zernio_review_id);
-    if (cachedPage !== null) return Math.min(cachedPage + 1, 4);
-  } catch {
-    // Non-fatal — fall back to 4-page walk.
-  }
-  return 4;
-}
-
-/**
  * 409 verify-first handler per spec §6.10b.
  *
  * When postReply returns ZernioReplyAlreadyExistsError, we cannot safely mark
@@ -386,15 +365,15 @@ export async function verify409AndDispose(args: Verify409Args): Promise<Verify40
     approved_text, outboxId, outboxAttempt, correlation_id, logger,
   } = args;
 
-  const maxPages = await resolveVerifierMaxPages(account_id, location_id, zernio_review_id);
+  const locator: ReviewLocator = {
+    accountId: account_id,
+    locationId: location_id,
+    providerReviewId: zernio_review_id,
+  };
 
-  let allReviews: Awaited<ReturnType<typeof zernioClient.listAllReviews>>;
+  let findResult: FindReplyResult;
   try {
-    allReviews = await zernioClient.listAllReviews(account_id, {
-      locationId: location_id,
-      pageSize: 50,
-      maxPages,
-    });
+    findResult = await getReviewPublisher().findReply(locator);
   } catch (lookupErr) {
     if (lookupErr instanceof ZernioTransientError) {
       logger.warn(
@@ -423,9 +402,7 @@ export async function verify409AndDispose(args: Verify409Args): Promise<Verify40
     };
   }
 
-  const found = allReviews.find((r) => r.id === zernio_review_id);
-
-  if (!found) {
+  if (findResult.kind === 'review_absent') {
     // Capture for ops visibility — this fires when the review slipped past
     // the page cap (old review pushed back by newer accumulations). Sentry
     // allows tuning maxPages before the problem affects customers.
@@ -438,22 +415,22 @@ export async function verify409AndDispose(args: Verify409Args): Promise<Verify40
         account_id,
         location_id,
         zernio_review_id,
-        pages_walked: maxPages,
-        reviews_seen: allReviews.length,
+        pages_walked: findResult.pagesWalked,
+        reviews_seen: findResult.reviewsSeen,
       },
     });
     logger.warn(
-      `409 verifier could not locate review ${zernio_review_id} after walking ${allReviews.length} reviews ` +
-      `(maxPages=${maxPages}) — indeterminate, retrying`,
+      `409 verifier could not locate review ${zernio_review_id} after walking ${findResult.reviewsSeen} reviews ` +
+      `(maxPages=${findResult.pagesWalked}) — indeterminate, retrying`,
     );
     return {
       outcome: 'indeterminate',
       reason: 'review_not_found_after_pagination',
-      meta: { pages_walked: maxPages, reviews_seen: allReviews.length },
+      meta: { pages_walked: findResult.pagesWalked, reviews_seen: findResult.reviewsSeen },
     };
   }
 
-  const existingReply = found.reviewReply ?? null;
+  const existingReply = findResult.reply;
 
   if (existingReply === null) {
     logger.warn(
@@ -588,15 +565,15 @@ interface Verify409InTxArgs {
 export async function verify409InTx(args: Verify409InTxArgs): Promise<Verify409Disposition> {
   const { account_id, location_id, zernio_review_id, approved_text, logger } = args;
 
-  const maxPages = await resolveVerifierMaxPages(account_id, location_id, zernio_review_id);
+  const locator: ReviewLocator = {
+    accountId: account_id,
+    locationId: location_id,
+    providerReviewId: zernio_review_id,
+  };
 
-  let allReviews: Awaited<ReturnType<typeof zernioClient.listAllReviews>>;
+  let findResult: FindReplyResult;
   try {
-    allReviews = await zernioClient.listAllReviews(account_id, {
-      locationId: location_id,
-      pageSize: 50,
-      maxPages,
-    });
+    findResult = await getReviewPublisher().findReply(locator);
   } catch (lookupErr) {
     if (lookupErr instanceof ZernioAuthError) {
       return { disposition: 'auth', lookupErr };
@@ -619,18 +596,17 @@ export async function verify409InTx(args: Verify409InTxArgs): Promise<Verify409D
     };
   }
 
-  const found = allReviews.find((r) => r.id === zernio_review_id);
-  if (!found) {
+  if (findResult.kind === 'review_absent') {
     return {
       disposition: 'indeterminate',
       reason: 'review_not_found_after_pagination',
-      meta: { pages_walked: maxPages, reviews_seen: allReviews.length },
+      meta: { pages_walked: findResult.pagesWalked, reviews_seen: findResult.reviewsSeen },
     };
   }
 
-  if (found.reviewReply == null) {
+  if (findResult.reply == null) {
     // Loose-equality catches both null and undefined (defense-in-depth;
-    // listReviews normalizes to null today but the guard is cheap).
+    // findReply normalizes to null today but the guard is cheap).
     return {
       disposition: 'indeterminate',
       reason: 'review_found_but_reply_null',
@@ -638,7 +614,7 @@ export async function verify409InTx(args: Verify409InTxArgs): Promise<Verify409D
     };
   }
 
-  const verifierText = canonicalizeReplyText(found.reviewReply.comment);
+  const verifierText = canonicalizeReplyText(findResult.reply.comment);
   const ourText = canonicalizeReplyText(approved_text);
   if (verifierText === ourText) {
     return { disposition: 'matches_our_text', verifierText };

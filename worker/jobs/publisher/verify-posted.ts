@@ -20,9 +20,12 @@
 // failed-hook (handleVerificationIndeterminate): status=failed +
 // review_exception + notify_admin_review_exception. No silent success.
 
-import { zernioClient } from '../../../src/lib/zernio/client';
 import { canonicalizeReplyText } from '../../../src/lib/zernio/canonicalize-reply';
-import { getCachedZernioReviewPage } from '../../../src/lib/publishing/zernio-publisher';
+import { getReviewPublisher } from '../../../src/lib/publishing/review-publisher';
+import type {
+  FindReplyResult,
+  ResolvedPublishTarget,
+} from '../../../src/lib/publishing/review-publisher';
 import {
   ZernioAuthError,
   ZernioPermanentError,
@@ -36,13 +39,8 @@ import {
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 
 interface VerifyOwnReplyArgs {
-  responseId: string;
-  businessId: string;
-  reviewId: string;
-  zernioReviewId: string;
+  target: ResolvedPublishTarget;
   approvedText: string;
-  accountId: string;
-  locationId: string;
   logger: WorkerLogger;
 }
 
@@ -50,36 +48,21 @@ interface VerifyOwnReplyArgs {
  * Confirm our reply is actually attached to the review on Zernio after a
  * postReply that returned 2xx. Resolves when confirmed; throws otherwise.
  *
- * Throw types are chosen so the publisher failed-hook already knows how to land
- * them: ZernioReplyVerificationIndeterminateError → failed + exception + admin
- * alert; PublisherTransientWithContext → BullMQ retry (→ next attempt 409 →
- * verify409AndDispose).
+ * The feed fetch + page-cache bounding live behind `publisher.findReply`; this
+ * function owns the canonicalization comparison and the indeterminate/retry
+ * disposition. Throw types are chosen so the publisher failed-hook already knows
+ * how to land them: ZernioReplyVerificationIndeterminateError → failed +
+ * exception + admin alert; PublisherTransientWithContext → BullMQ retry (→ next
+ * attempt 409 → verify409AndDispose).
  */
 export async function verifyOwnReplyAttached(args: VerifyOwnReplyArgs): Promise<void> {
-  const {
-    responseId, businessId, reviewId,
-    zernioReviewId, approvedText, accountId, locationId, logger,
-  } = args;
+  const { target, approvedText, logger } = args;
+  const { responseId, businessId, reviewId } = target.ref;
+  const { accountId, locationId, providerReviewId } = target.locator;
 
-  // Bound the walk with the page-cache populated by lookupZernioReviewId, same
-  // as verify409AndDispose. Cache miss / read failure → conservative 4 pages.
-  let maxPages = 4;
+  let result: FindReplyResult;
   try {
-    const cachedPage = await getCachedZernioReviewPage(accountId, locationId, zernioReviewId);
-    if (cachedPage !== null) {
-      maxPages = Math.min(cachedPage + 1, 4);
-    }
-  } catch {
-    // Non-fatal — fall back to the 4-page walk.
-  }
-
-  let allReviews: Awaited<ReturnType<typeof zernioClient.listAllReviews>>;
-  try {
-    allReviews = await zernioClient.listAllReviews(accountId, {
-      locationId,
-      pageSize: 50,
-      maxPages,
-    });
+    result = await getReviewPublisher().findReply(target.locator);
   } catch (err) {
     // The reply may already be on Google (postReply returned 2xx) — we just
     // can't confirm it right now. Retry rather than mark failed: the next
@@ -112,12 +95,10 @@ export async function verifyOwnReplyAttached(args: VerifyOwnReplyArgs): Promise<
     throw err;
   }
 
-  const found = allReviews.find((r) => r.id === zernioReviewId);
-
-  if (!found) {
+  if (result.kind === 'review_absent') {
     logger.warn(
-      `post-verify: review ${zernioReviewId} not in feed after ${allReviews.length} reviews ` +
-      `(maxPages=${maxPages}) for response ${responseId} — reply NOT confirmed on Google`,
+      `post-verify: review ${providerReviewId} not in feed after ${result.reviewsSeen} reviews ` +
+      `(maxPages=${result.pagesWalked}) for response ${responseId} — reply NOT confirmed on Google`,
     );
     throw new ZernioReplyVerificationIndeterminateError({
       response_id: responseId,
@@ -125,26 +106,26 @@ export async function verifyOwnReplyAttached(args: VerifyOwnReplyArgs): Promise<
       review_id: reviewId,
       account_id: accountId,
       location_id: locationId,
-      zernio_review_id: zernioReviewId,
+      zernio_review_id: providerReviewId,
       reason: 'review_not_found_after_pagination',
-      pages_walked: maxPages,
-      reviews_seen: allReviews.length,
+      pages_walked: result.pagesWalked,
+      reviews_seen: result.reviewsSeen,
     });
   }
 
-  if (found.reviewReply == null) {
+  if (result.reply == null) {
     throw new ZernioReplyVerificationIndeterminateError({
       response_id: responseId,
       business_id: businessId,
       review_id: reviewId,
       account_id: accountId,
       location_id: locationId,
-      zernio_review_id: zernioReviewId,
+      zernio_review_id: providerReviewId,
       reason: 'review_found_but_reply_null',
     });
   }
 
-  const attached = canonicalizeReplyText(found.reviewReply.comment);
+  const attached = canonicalizeReplyText(result.reply.comment);
   const ours = canonicalizeReplyText(approvedText);
   if (attached !== ours) {
     throw new ZernioReplyVerificationIndeterminateError({
@@ -153,7 +134,7 @@ export async function verifyOwnReplyAttached(args: VerifyOwnReplyArgs): Promise<
       review_id: reviewId,
       account_id: accountId,
       location_id: locationId,
-      zernio_review_id: zernioReviewId,
+      zernio_review_id: providerReviewId,
       reason: 'reply_text_mismatch',
     });
   }

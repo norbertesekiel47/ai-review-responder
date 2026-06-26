@@ -14,16 +14,14 @@ import { autoApprovalRuntimeEnabled } from '../../../src/lib/auto-approval/flags
 import { replyEditingFlagEnabled } from '../../../src/lib/past-replies/flags';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { loadPublishResponseContext } from './load-context';
-import { parkResponseForOwnerReconnect } from './no-connection';
 import { postReplyAndHandleTerminalOutcomes } from './post-reply';
-import { resolvePublishableZernioReviewId } from './review-lookup';
+import { resolvePublishTarget } from './review-lookup';
 import { runEditPublishIfApplicable } from './edit-publish';
 import { isOrphanMarker } from '../../../src/lib/publishing/orphan-markers';
 import { maybeCaptureActivationCompleted } from './activation';
 import { downgradeAutoApprovedResponseForManualReview } from './auto-policy-downgrade';
 import { markPostedAndMaybeEnqueueAutoPostNotice } from './mark-posted';
 import { isHeldForModerationReview } from './held-flag-gate';
-import type { ZernioConnectionRow } from './types';
 
 export async function handlePublishResponse(
   job: Job<PublishResponsePayload>,
@@ -127,29 +125,11 @@ export async function handlePublishResponse(
     return;
   }
 
-  // ── Load active Zernio connection ──────────────────────────
-  const [zernioConnection] = await sql<ZernioConnectionRow[]>`
-    SELECT zernio_account_id, zernio_location_id
-    FROM zernio_connections
-    WHERE business_id = ${businessId} AND status = 'active'
-    LIMIT 1
-  `;
-
-  // ── Branch on connection presence ──────────────────────────
-  if (!zernioConnection) {
-    await parkResponseForOwnerReconnect({
-      responseId: response_id,
-      businessId,
-      outboxId,
-      outboxAttempt,
-      responseStatus: response.status,
-      logger,
-    });
-    return;
-  }
-
-  // Branch B — active connection found. Resolve Zernio's review id, then
-  // post the reply.
+  // ── Resolve the publishing target via the ReviewPublisher seam ──────
+  // The seam owns the active-connection lookup + provider review-id resolution.
+  // Every non-success outcome (no connection → park, review-not-found →
+  // exception, transient → retry) is dispositioned inside resolvePublishTarget,
+  // which returns 'completed' (terminal here) or throws for BullMQ retry.
   const approvedText = response.approved_text ?? '';
   if (!response.approved_text) {
     logger.warn(
@@ -157,16 +137,16 @@ export async function handlePublishResponse(
     );
   }
 
-  const zernioReviewId = await resolvePublishableZernioReviewId({
+  const target = await resolvePublishTarget({
     responseId: response_id,
     businessId,
     reviewId: response.review_id,
-    zernioConnection,
+    responseStatus: response.status,
     outboxId,
     outboxAttempt,
     logger,
   });
-  if (zernioReviewId === 'completed') return;
+  if (target === 'completed') return;
 
   // ── Edit-publish dispatch (DELETE-before-POST) ──────────────
   //
@@ -213,9 +193,9 @@ export async function handlePublishResponse(
         reviewId: response.review_id,
         approvedText,
         responsePostingError: response.posting_error,
-        zernioAccountId: zernioConnection.zernio_account_id,
-        zernioLocationId: zernioConnection.zernio_location_id,
-        zernioReviewId,
+        zernioAccountId: target.locator.accountId,
+        zernioLocationId: target.locator.locationId,
+        zernioReviewId: target.locator.providerReviewId,
         correlationId: job.data.correlation_id,
         logger,
       });
@@ -239,15 +219,11 @@ export async function handlePublishResponse(
   }
 
   const postOutcome = await postReplyAndHandleTerminalOutcomes({
-    responseId: response_id,
-    businessId,
-    reviewId: response.review_id,
-    zernioReviewId,
+    target,
     approvedText,
     outboxId,
     outboxAttempt,
     correlationId: job.data.correlation_id,
-    zernioConnection,
     logger,
   });
   if (postOutcome === 'completed') return;

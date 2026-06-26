@@ -493,6 +493,45 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     ).toBeLessThan(mockMarkOutboxCompleted.mock.invocationCallOrder[0]!);
   });
 
+  // ── Branch B: Stage-5 seam TOCTOU regression ────────────────────────
+  //
+  // The ReviewPublisher seam moved connection + review-id resolution into the
+  // adapter. The response's publishable-state gate still runs BEFORE resolution
+  // and every mutating UPDATE on the publish path stays status-guarded, so a
+  // status change landing mid-publish loses to the guard (no double-post / no
+  // clobber) exactly as before the seam. This pins both facts: the markPosted
+  // UPDATE carries the status guard, AND when that guard matches zero rows (a
+  // parallel worker already transitioned the row) the publish path completes the
+  // outbox idempotently — never throwing or marking failed.
+  it('status-guards markPosted so a transition landing mid-publish loses without double-posting', async () => {
+    sqlReturnQueue.push([mockResponseRow()]);          // 1: response
+    sqlReturnQueue.push([mockBusinessRow()]);           // 2: business
+    sqlReturnQueue.push([mockZernioConnectionRow()]);   // 3: zernio_connections (resolveTarget)
+    sqlReturnQueue.push([]);                            // 4: markPosted UPDATE matches ZERO rows (raced terminal)
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockPostReply.mockResolvedValueOnce({
+      comment: 'Thank you for your kind review!',
+      updateTime: '2026-04-27T00:00:00Z',
+    });
+    mockListAllReviews.mockResolvedValueOnce([
+      makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
+    ]);
+
+    await handlePublishResponse(makeJob());
+
+    const markPostedUpdate = (mockSql as any).mock.calls
+      .map((c: any[]) => (c[0] as TemplateStringsArray).join('?'))
+      .find((t: string) => /UPDATE responses[\s\S]*SET status = 'posted'/.test(t));
+    expect(markPostedUpdate).toBeDefined();
+    expect(markPostedUpdate).toMatch(
+      /status IN \('approved', 'edited', 'awaiting_owner_connect'\)/,
+    );
+    // Guard matched zero rows → idempotent completion, no failure, no re-post.
+    expect(mockPostReply).toHaveBeenCalledTimes(1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
   // ── Branch B: auto-post FYI enqueue on the fresh-2xx success path ─────
 
   it('fresh 2xx success for an auto_policy response enqueues the auto-post FYI exactly once', async () => {

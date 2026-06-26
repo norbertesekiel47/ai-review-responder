@@ -23,7 +23,8 @@
 
 import * as Sentry from '@sentry/node';
 import { sql } from '../../../src/lib/db/server';
-import { zernioClient as defaultZernioClient } from '../../../src/lib/zernio/client';
+import { getReviewPublisher } from '../../../src/lib/publishing/review-publisher';
+import type { ReviewLocator, ReviewPublisher } from '../../../src/lib/publishing/review-publisher';
 import {
   ZernioPermanentError,
   ZernioReplyAlreadyDeletedError,
@@ -56,7 +57,7 @@ export interface EditPublishContext {
 
 /** Injectable dependencies — real defaults; tests/Task 6 override. */
 export interface EditPublishDeps {
-  zernioClient?: Pick<typeof defaultZernioClient, 'deleteReply' | 'postReply'>;
+  publisher?: Pick<ReviewPublisher, 'deleteReply' | 'publishReply'>;
   verify409InTx?: typeof defaultVerify409InTx;
 }
 
@@ -132,8 +133,13 @@ export async function runEditPublishIfApplicable(
     zernioReviewId,
     logger,
   } = context;
-  const zernioClient = deps.zernioClient ?? defaultZernioClient;
+  const publisher = deps.publisher ?? getReviewPublisher();
   const verify409InTx = deps.verify409InTx ?? defaultVerify409InTx;
+  const locator: ReviewLocator = {
+    accountId: zernioAccountId,
+    locationId: zernioLocationId,
+    providerReviewId: zernioReviewId,
+  };
 
   // ── PHASE A: Non-locking pre-flight (no tx, no DELETE) ────────────────
   //
@@ -256,7 +262,7 @@ export async function runEditPublishIfApplicable(
       let deleteSucceeded = false;
       if (existingPosted) {
         try {
-          await zernioClient.deleteReply(zernioAccountId, zernioReviewId);
+          await publisher.deleteReply(locator);
           deleteSucceeded = true;
         } catch (err) {
           if (isDeleteAlreadyGone(err)) {
@@ -284,9 +290,7 @@ export async function runEditPublishIfApplicable(
 
       // 6. POST branch.
       try {
-        await zernioClient.postReply(zernioAccountId, zernioReviewId, {
-          comment: approvedText,
-        });
+        await publisher.publishReply(locator, approvedText);
       } catch (err) {
         const outcome = await handlePostError(
           tx,
