@@ -1,27 +1,29 @@
-// worker/jobs/billing/postgres-transient-error.ts
+// src/lib/db/transient-error.ts
 //
 // Single responsibility: "is this a transient Postgres / db-infra error?"
 //
-// UpdateStripeOverageWorker runs its account-scoped advisory lock inside a
-// `sql.begin` that SHARES the Stripe try/catch. A transient postgres.js error
-// raised while opening that tx or taking pg_advisory_xact_lock (connection
-// drop, failover, statement/lock-wait timeout) is INFRA, not a deterministic
-// Stripe failure — it must RETRY (BullMQ + the 1h outbox watchdog), never
-// terminal-fail the overage sync.
+// The db-infra-transient vocabulary, separate from the Stripe network vocabulary
+// in src/lib/payments/stripe-error-inspect.ts (whose OS-socket set does NOT cover
+// postgres.js connection-lifecycle codes or PG SQLSTATEs). The two concerns stay
+// orthogonal so neither leaks into the other.
 //
-// The Stripe error-inspection vocabulary lives in
-// src/lib/payments/stripe-error-inspect.ts and is intentionally kept Stripe-only
-// (its OS-socket RETRYABLE_NETWORK_ERROR_CODES set does NOT include postgres.js
-// connection-lifecycle codes or PG SQLSTATEs). This module owns the orthogonal
-// Postgres/db-infra vocabulary so the two concerns never leak into each other.
+// Consumers:
+//   - UpdateStripeOverageWorker: a transient postgres.js error raised while
+//     opening its `sql.begin` tx or taking pg_advisory_xact_lock (connection
+//     drop, failover, statement/lock-wait timeout) is INFRA, not a deterministic
+//     Stripe failure — it must RETRY, never terminal-fail the overage sync.
+//   - worker/index.ts crash-net: a transient DB rejection that surfaces as an
+//     unhandledRejection (e.g. a boot-burst statement timeout from postgres.js'
+//     connection layer, which escapes a poller's own try/catch) must NOT crash
+//     the whole worker — the loop recovers on its next cycle.
 //
 // Scope: matches ONLY genuine transient DB shapes via `err.code`. A code-less
-// generic error is NOT transient (so the worker's existing "unknown error →
-// terminal" default is preserved). Real OS socket codes (e.g. ECONNRESET) are
-// deliberately NOT matched here — those are already handled by the Stripe
-// network-code path; this predicate is the additive, non-overlapping db layer.
+// generic error is NOT transient (so callers' "unknown error → terminal/fatal"
+// defaults are preserved). Real OS socket codes (e.g. ECONNRESET) are
+// deliberately NOT matched here — those are the Stripe network-code path's job;
+// this predicate is the additive, non-overlapping db layer.
 
-import { errorStringProperty } from '../../../src/lib/payments/stripe-error-inspect';
+import { errorStringProperty } from '../payments/stripe-error-inspect';
 
 // postgres.js connection-lifecycle codes + transient server SQLSTATEs.
 //   57014           query_canceled (statement / lock-wait timeout)

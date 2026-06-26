@@ -83,6 +83,8 @@ import { createWorkerLogger } from '../src/lib/shared/logger';
 import { runReadinessProbes } from '../src/lib/shared/readiness';
 import { sql } from '../src/lib/db/server';
 import { getCacheRedis } from '../src/lib/db/redis-cache';
+import { isTransientPostgresError } from '../src/lib/db/transient-error';
+import { errorStringProperty } from '../src/lib/payments/stripe-error-inspect';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
@@ -513,7 +515,32 @@ function fatalExit(crashKind: 'unhandledRejection' | 'uncaughtException', err: u
     () => process.exit(1),
   );
 }
-process.on('unhandledRejection', (reason) => fatalExit('unhandledRejection', reason));
+
+// A recoverable infra rejection — a transient Postgres statement-timeout /
+// connection drop that surfaced as an un-awaited promise (e.g. postgres.js'
+// connection layer rejecting during a boot-burst statement timeout, which
+// escapes a poller's OWN try/catch) — is NOT a programmer bug. Crashing the
+// whole worker (every in-flight job across all queues) over one transient DB
+// blip is the wrong blast radius (Release It! "fail inside boundaries that
+// prevent wider collapse"): capture for visibility and let the loop recover on
+// its next cycle. Everything else still fails fast. uncaughtException ALWAYS
+// crashes — the stack unwound, so process state is genuinely unknown.
+process.on('unhandledRejection', (reason) => {
+  if (isTransientPostgresError(reason)) {
+    const error = reason instanceof Error ? reason : new Error(String(reason));
+    Sentry.captureException(error, {
+      level: 'warning',
+      tags: { crash_kind: 'unhandledRejection', recovered: 'transient_db' },
+    });
+    createWorkerLogger('[worker]').warn(
+      'Recoverable transient-DB rejection — captured, not crashing',
+      { code: errorStringProperty(reason, 'code') },
+      error,
+    );
+    return;
+  }
+  fatalExit('unhandledRejection', reason);
+});
 process.on('uncaughtException', (err) => fatalExit('uncaughtException', err));
 
 main().catch((error) => {

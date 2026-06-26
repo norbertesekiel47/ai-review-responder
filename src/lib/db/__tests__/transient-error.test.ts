@@ -1,11 +1,11 @@
-// worker/jobs/billing/__tests__/postgres-transient-error.test.ts
+// src/lib/db/__tests__/transient-error.test.ts
 //
 // Unit tests for isTransientPostgresError — the additive db-infra layer that
-// lets the overage lock tx RETRY a transient Postgres blip instead of
-// terminal-failing the sync.
+// lets the overage lock tx RETRY a transient Postgres blip (and the worker
+// crash-net recover from one) instead of terminal-failing / crashing.
 
 import { describe, it, expect } from 'vitest';
-import { isTransientPostgresError } from '../postgres-transient-error';
+import { isTransientPostgresError } from '../transient-error';
 
 describe('isTransientPostgresError', () => {
   it.each([
