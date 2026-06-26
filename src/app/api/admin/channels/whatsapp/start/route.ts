@@ -15,10 +15,11 @@ import { NextRequest } from 'next/server';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { runAdminChannelStart } from '@/app/api/admin/channels/_shared/start';
+import { getServerConfig } from '@/lib/config/server';
 
 function buildWhatsAppDeepLink(rawToken: string): string {
   // wa.me requires digits only (no +, no whatsapp:) per WhatsApp click-to-chat.
-  const digits = process.env.TWILIO_WHATSAPP_NUMBER!.replace(/^whatsapp:\+?/, '');
+  const digits = getServerConfig().TWILIO_WHATSAPP_NUMBER!.replace(/^whatsapp:\+?/, '');
   const prefilled = encodeURIComponent(`start-${rawToken}`);
   return `https://wa.me/${digits}?text=${prefilled}`;
 }

@@ -38,6 +38,7 @@ vi.mock('@/lib/channels/mobile-enrollment', async (importOriginal) => {
 
 import { POST } from '../start/route';
 import { MultipleMobileChannelsError } from '@/lib/channels/unique-violation';
+import { resetServerConfigForTests } from '@/lib/config/server';
 
 const APP_URL = 'http://localhost';
 function mkReq() {
@@ -54,6 +55,11 @@ beforeEach(() => {
   process.env.MOCK_EXTERNAL_APIS = 'true';
   process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+15551230000';
   delete process.env.CHANNELS_WHATSAPP_ENABLED;
+  // Migrated read: the wa.me deep link now reads TWILIO_WHATSAPP_NUMBER via the
+  // memoized getServerConfig(). Clearing the memo here (after the beforeEach env
+  // setup) lets the first getServerConfig() in POST re-parse each test's env — the
+  // strips-formatting test overrides the number in its body before POST (#6/#7).
+  resetServerConfigForTests();
 });
 
 describe('POST /api/dashboard/channels/whatsapp/start', () => {

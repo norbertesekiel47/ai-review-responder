@@ -44,6 +44,7 @@ vi.mock('@/lib/auth/mfa', () => ({
 }));
 
 import { POST } from '../start/route';
+import { resetServerConfigForTests } from '@/lib/config/server';
 
 const APP_URL = 'http://localhost';
 
@@ -75,6 +76,10 @@ beforeEach(() => {
   process.env.MOCK_EXTERNAL_APIS = 'true'; // skip env readiness check in unit tests
   mockRequireRole.mockResolvedValue({ id: 'admin-1', role: 'admin' });
   mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
+  // Migrated read: buildTelegramDeepLink now reads TELEGRAM_BOT_USERNAME via the
+  // memoized getServerConfig(). Clear the memo AFTER the per-test env setup above so
+  // the first getServerConfig() inside POST re-parses this test's env (#6/#7).
+  resetServerConfigForTests();
 });
 
 describe('POST /api/admin/channels/telegram/start', () => {

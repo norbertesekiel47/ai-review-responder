@@ -157,6 +157,29 @@ const serverSchema = z.object({
   EMAIL_SEND_TIMEOUT_MS: rawOpt,
   LIST_UNSUBSCRIBE_URL: rawOpt,
   LIST_UNSUBSCRIBE_EMAIL: rawOpt,
+  // ── Stage-3 out-of-guard batch (scattered src/app server-side route config) ──
+  // Migrated raw reads from server-side process.env reads in src/app/** (Next route
+  // handlers + one landing Server Component) that live OUTSIDE the process-env
+  // audit's scope (the audit scans only src/lib/** + worker/**). So the baseline is
+  // UNCHANGED by this batch — the value is Q4 config-ownership, not audit
+  // enforcement. Each call site owns its own guard (`?? 'fallback'`, `!value`,
+  // `?.trim() || …`), so rawOptionalVar preserves ''/'   '/unset byte-for-byte (#7)
+  // — the collapsing `opt` would flip whitespace edge cases. Server lane
+  // (getServerConfig is shape-only, never throws); these are Next server reads,
+  // NONE NEXT_PUBLIC_*, so no build-inlining concern.
+  //  - ZERNIO_PROFILE_ID_PREFIX: zernio/connect/start `?? 'repworth-prod-'`.
+  //  - TWILIO_WHATSAPP_NUMBER: admin+dashboard whatsapp/start `!`.replace(...) — also
+  //    declared in worker.ts (worker WhatsApp batch); a var may live in BOTH schemas
+  //    (like RESEND_FROM_EMAIL), which is fine — both lanes read the same env.
+  //  - TELEGRAM_BOT_USERNAME: admin `?? 'RepWorthBot'`, dashboard `?.trim() || 'RepWorthBot'`.
+  //  - REDIS_QUEUE_URL / REDIS_QUEUE_TOKEN: admin/jobs queue-health probe (`if (!url)`
+  //    gate + ioredis `password`). (REDIS_CACHE_URL — admin/demos/generate gate — and
+  //    TRIAL_PERIOD_DAYS — (public)/page.tsx — are REUSED from prior batches.)
+  ZERNIO_PROFILE_ID_PREFIX: rawOpt,
+  TWILIO_WHATSAPP_NUMBER: rawOpt,
+  TELEGRAM_BOT_USERNAME: rawOpt,
+  REDIS_QUEUE_URL: rawOpt,
+  REDIS_QUEUE_TOKEN: rawOpt,
 });
 
 export type ServerConfig = z.infer<typeof serverSchema>;

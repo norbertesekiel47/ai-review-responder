@@ -37,6 +37,7 @@ vi.mock('@/lib/channels/mobile-enrollment', async (importOriginal) => {
 
 import { POST } from '../start/route';
 import { MultipleMobileChannelsError } from '@/lib/channels/unique-violation';
+import { resetServerConfigForTests } from '@/lib/config/server';
 
 const APP_URL = 'http://localhost';
 function mkReq() {
@@ -53,6 +54,11 @@ beforeEach(() => {
   process.env.MOCK_EXTERNAL_APIS = 'true';
   delete process.env.CHANNELS_TELEGRAM_ENABLED;
   delete process.env.TELEGRAM_BOT_USERNAME;
+  // Migrated read: the t.me deep link now reads TELEGRAM_BOT_USERNAME via the
+  // memoized getServerConfig(). Each test sets/clears the var in its body BEFORE
+  // POST, so clearing the memo here lets the first getServerConfig() in POST
+  // re-parse this test's env (#6/#7).
+  resetServerConfigForTests();
 });
 
 describe('POST /api/dashboard/channels/telegram/start', () => {

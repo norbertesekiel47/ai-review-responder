@@ -350,4 +350,48 @@ describe('config/server', () => {
     expect(cfg.GLOBAL_DAILY_COST_LIMIT_CENTS).toBe('   ');
     expect(cfg.DAILY_COST_LIMIT_CENTS_STANDARD).toBe('   ');
   });
+
+  // ── Stage-3 out-of-guard batch: the 5 new src/app server-route vars added as
+  //    rawOptionalVar. Each call site owns its own guard (`?? 'fallback'`, `!value`,
+  //    `?.trim() || …`), so the RAW value must survive verbatim (#7) — a collapsing
+  //    optionalVar would map '   ' to undefined and FLIP whitespace edge cases
+  //    (e.g. TWILIO_WHATSAPP_NUMBER!.replace(...) on a non-null `'   '`). RED under
+  //    the collapsing optionalVar.
+  const OUT_OF_GUARD_VARS = [
+    'ZERNIO_PROFILE_ID_PREFIX',
+    'TWILIO_WHATSAPP_NUMBER',
+    'TELEGRAM_BOT_USERNAME',
+    'REDIS_QUEUE_URL',
+    'REDIS_QUEUE_TOKEN',
+  ] as const;
+
+  it('exposes the out-of-guard src/app vars as OPTIONAL (present when set)', async () => {
+    Object.assign(process.env, CORE);
+    for (const v of OUT_OF_GUARD_VARS) process.env[v] = `val_${v}`;
+    const { getServerConfig } = await import('../server');
+    const cfg = getServerConfig();
+    for (const v of OUT_OF_GUARD_VARS) {
+      expect(cfg[v]).toBe(`val_${v}`);
+    }
+  });
+
+  it('out-of-guard src/app vars are undefined when unset — tolerate-absent (no throw)', async () => {
+    Object.assign(process.env, CORE);
+    for (const v of OUT_OF_GUARD_VARS) delete process.env[v];
+    const { getServerConfig } = await import('../server');
+    const cfg = getServerConfig();
+    for (const v of OUT_OF_GUARD_VARS) {
+      expect(cfg[v]).toBeUndefined();
+    }
+  });
+
+  it('preserves whitespace-only out-of-guard src/app vars verbatim (rawOptionalVar #7)', async () => {
+    Object.assign(process.env, CORE);
+    for (const v of OUT_OF_GUARD_VARS) process.env[v] = '   ';
+    const { getServerConfig } = await import('../server');
+    const cfg = getServerConfig();
+    for (const v of OUT_OF_GUARD_VARS) {
+      expect(cfg[v]).toBe('   ');
+    }
+  });
 });

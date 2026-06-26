@@ -17,6 +17,7 @@ import { TOKEN_TTL_MS } from '@/lib/notifications/channels/constants';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { getServerConfig } from '@/lib/config/server';
 
 async function handler(req: NextRequest): Promise<NextResponse> {
   if (!isWhatsAppEnabled()) return flagOff();
@@ -69,7 +70,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
   // wa.me requires digits only — strip every non-digit (the whatsapp: prefix,
   // a leading +, and any spaces/dashes/parens the env value may carry).
-  const digits = process.env.TWILIO_WHATSAPP_NUMBER!.replace(/\D/g, '');
+  const digits = getServerConfig().TWILIO_WHATSAPP_NUMBER!.replace(/\D/g, '');
   const prefilled = encodeURIComponent(`start-${rawToken}`);
   const deepLink = `https://wa.me/${digits}?text=${prefilled}`;
   const qrDataUrl = await QRCode.toDataURL(deepLink, { margin: 1, width: 256 });

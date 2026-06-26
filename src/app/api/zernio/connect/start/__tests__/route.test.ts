@@ -124,6 +124,7 @@ process.env.NEXT_PUBLIC_APP_URL = 'http://localhost:3000';
 process.env.ZERNIO_PROFILE_ID_PREFIX = 'test-profile-';
 
 import { POST } from '../route';
+import { resetServerConfigForTests } from '@/lib/config/server';
 
 function ownerUser() {
   return {
@@ -156,6 +157,11 @@ describe('POST /api/zernio/connect/start location targeting', () => {
       },
     ];
     mockRequireRole.mockResolvedValue(ownerUser());
+    // Migrated read: createProfile's name prefix now reads ZERNIO_PROFILE_ID_PREFIX
+    // via the memoized getServerConfig(). The var is set once at module load (never
+    // mutated), but clearing the memo here keeps the first getServerConfig() in POST
+    // re-parsing the live env, immune to any import-time memo creep (#6/#7).
+    resetServerConfigForTests();
   });
 
   it('starts a connect flow for the requested secondary location instead of the primary location', async () => {
