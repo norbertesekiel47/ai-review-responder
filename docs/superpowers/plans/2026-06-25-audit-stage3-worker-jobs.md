@@ -185,7 +185,7 @@ after all of that test's mutations. Every assertion is preserved; only a
 The conversion is mechanical and assertion-preserving — a memoized snapshot of an
 immutable runtime env equals a live read, so production behavior is identical.
 
-## Baseline (`scripts/ci/process-env-baseline.ts`): 70 → 57 (−13)
+## Baseline (`scripts/ci/process-env-baseline.ts`): 70 → 58 (−12)
 
 **Removed (no remaining non-exempt/non-flag `process.env` read after migration):**
 `worker/jobs/AdminExceptionWorker.ts`, `worker/jobs/EngagementAlertWorker.ts`,
