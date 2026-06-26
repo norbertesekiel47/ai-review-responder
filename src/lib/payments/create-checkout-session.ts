@@ -15,6 +15,7 @@ import { basePriceIdForTier, overagePriceIdForTier } from '@/lib/payments/price-
 import { computeOverageQuantity } from '@/lib/accounts/quota';
 import { sql } from '@/lib/db/server';
 import { getStripe } from '@/lib/payments/stripe-client';
+import { getServerConfig } from '@/lib/config/server';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -38,7 +39,10 @@ export interface CheckoutSessionOptions {
 const DEFAULT_TRIAL_PERIOD_DAYS = 30;
 
 function resolveTrialPeriodDays(): number {
-  const raw = process.env.TRIAL_PERIOD_DAYS;
+  // Migrated raw read (Stage-3 trial-period-days batch): rawOptionalVar keeps
+  // ''/'   '/unset byte-for-byte (#7) so the `if (!raw)` default + parseInt guard
+  // below stay identical to the old process.env.TRIAL_PERIOD_DAYS read.
+  const raw = getServerConfig().TRIAL_PERIOD_DAYS;
   if (!raw) return DEFAULT_TRIAL_PERIOD_DAYS;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TRIAL_PERIOD_DAYS;

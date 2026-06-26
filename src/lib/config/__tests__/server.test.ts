@@ -276,4 +276,26 @@ describe('config/server', () => {
     expect(cfg.ZERNIO_API_BASE).toBe('   ');
     expect(cfg.ZERNIO_API_KEY).toBe('   ');
   });
+
+  // ── Stage-3 trial-period-days batch: TRIAL_PERIOD_DAYS added as a new
+  //    rawOptionalVar field. resolveTrialPeriodDays() does
+  //    `if (!raw) return 30; parseInt(raw, 10)`, so a whitespace/empty value must
+  //    survive verbatim (#7) — a collapsing optionalVar would map it to undefined
+  //    (still falsy → 30 here, but the raw read must be byte-identical on principle).
+  it('TRIAL_PERIOD_DAYS present-when-set, undefined-when-unset, whitespace verbatim (rawOptionalVar #7)', async () => {
+    Object.assign(process.env, CORE, { TRIAL_PERIOD_DAYS: '14' });
+    let mod = await import('../server');
+    expect(mod.getServerConfig().TRIAL_PERIOD_DAYS).toBe('14');
+
+    vi.resetModules();
+    Object.assign(process.env, CORE);
+    delete process.env.TRIAL_PERIOD_DAYS;
+    mod = await import('../server');
+    expect(mod.getServerConfig().TRIAL_PERIOD_DAYS).toBeUndefined();
+
+    vi.resetModules();
+    Object.assign(process.env, CORE, { TRIAL_PERIOD_DAYS: '   ' });
+    mod = await import('../server');
+    expect(mod.getServerConfig().TRIAL_PERIOD_DAYS).toBe('   ');
+  });
 });
