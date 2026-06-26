@@ -1,6 +1,7 @@
 import type { Job } from 'bullmq';
 import { sql } from '../../src/lib/db/server';
 import { markOutboxCompleted, extractOutboxHandle } from '../../src/lib/shared/outbox';
+import { getWorkerConfig } from '../../src/lib/config/worker';
 import { sendInternalEmail } from '../../src/lib/notifications/email';
 import type { NotifyAdminExceptionPayload } from '../../src/lib/shared/worker-types';
 import { escapeHtml } from '../../src/lib/shared/html';
@@ -121,7 +122,7 @@ export async function handleAdminException(
     ? JSON.parse(exception.payload) as Record<string, unknown>
     : exception.payload;
 
-  const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
+  const adminEmail = getWorkerConfig().ADMIN_NOTIFICATION_EMAIL;
   if (!adminEmail) {
     logger.error(`ADMIN_NOTIFICATION_EMAIL not set — cannot send alert`);
     await markOutboxCompleted(outboxId, outboxAttempt);

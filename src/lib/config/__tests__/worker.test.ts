@@ -110,6 +110,58 @@ describe('config/worker', () => {
     expect(getWorkerConfig().SENTRY_DSN).toBe('   ');
   });
 
+  // ── Stage-3 worker-jobs batch ─────────────────────────────────────────────
+
+  it('the new worker-jobs vars are exposed RAW via getWorkerConfig (present)', async () => {
+    process.env = {
+      ...CORE, NODE_ENV: 'test',
+      NEXT_PUBLIC_APP_URL: 'https://app.repworth.com',
+      RESEND_FROM_EMAIL: 'RepWorth <noreply@repworth.com>',
+      CSRF_SECRET: 'csrf-secret',
+      WHATSAPP_AUTOPOST_TEMPLATE_SID: 'HXsid',
+      ZERNIO_INGEST_MAX_PAGES: '6',
+    } as NodeJS.ProcessEnv;
+    const { getWorkerConfig } = await import('../worker');
+    const cfg = getWorkerConfig();
+    expect(cfg.NEXT_PUBLIC_APP_URL).toBe('https://app.repworth.com');
+    expect(cfg.RESEND_FROM_EMAIL).toBe('RepWorth <noreply@repworth.com>');
+    expect(cfg.CSRF_SECRET).toBe('csrf-secret');
+    expect(cfg.WHATSAPP_AUTOPOST_TEMPLATE_SID).toBe('HXsid');
+    expect(cfg.ZERNIO_INGEST_MAX_PAGES).toBe('6');
+  });
+
+  it('the new worker-jobs vars are undefined when unset — tolerate-absent (no throw)', async () => {
+    process.env = { ...CORE, NODE_ENV: 'test' } as NodeJS.ProcessEnv;
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.RESEND_FROM_EMAIL;
+    delete process.env.CSRF_SECRET;
+    delete process.env.WHATSAPP_AUTOPOST_TEMPLATE_SID;
+    delete process.env.ZERNIO_INGEST_MAX_PAGES;
+    const { getWorkerConfig } = await import('../worker');
+    const cfg = getWorkerConfig();
+    expect(cfg.NEXT_PUBLIC_APP_URL).toBeUndefined();
+    expect(cfg.RESEND_FROM_EMAIL).toBeUndefined();
+    expect(cfg.CSRF_SECRET).toBeUndefined();
+    expect(cfg.WHATSAPP_AUTOPOST_TEMPLATE_SID).toBeUndefined();
+    expect(cfg.ZERNIO_INGEST_MAX_PAGES).toBeUndefined();
+  });
+
+  it('NEXT_PUBLIC_APP_URL passes whitespace-only through RAW (rawOptionalVar #7)', async () => {
+    // Worker job sites build `${appUrl}/dashboard` / `if (!appUrl)` on the raw
+    // value; the collapsing optionalVar would map '   ' to undefined.
+    process.env = { ...CORE, NODE_ENV: 'test', NEXT_PUBLIC_APP_URL: '   ' } as NodeJS.ProcessEnv;
+    const { getWorkerConfig } = await import('../worker');
+    expect(getWorkerConfig().NEXT_PUBLIC_APP_URL).toBe('   ');
+  });
+
+  it('SERPAPI_API_KEY passes whitespace-only through RAW (rawOptionalVar #7)', async () => {
+    // RankingTrackingWorker passes it straight to the SerpAPI SDK; '   ' must
+    // survive exactly (the collapsing optionalVar would send undefined instead).
+    process.env = { ...CORE, NODE_ENV: 'test', SERPAPI_API_KEY: '   ' } as NodeJS.ProcessEnv;
+    const { getWorkerConfig } = await import('../worker');
+    expect(getWorkerConfig().SERPAPI_API_KEY).toBe('   ');
+  });
+
   it('resetWorkerConfigForTests clears the memo so the next read re-parses env', async () => {
     process.env = { ...CORE, NODE_ENV: 'test', OUTBOX_BATCH_SIZE: '50' } as NodeJS.ProcessEnv;
     const { getWorkerConfig, resetWorkerConfigForTests } = await import('../worker');

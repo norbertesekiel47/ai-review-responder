@@ -2,6 +2,7 @@ import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
+import { getWorkerConfig } from '../../src/lib/config/worker';
 import { sendInternalEmail, buildWeeklyValueReportHtml } from '../../src/lib/notifications/email';
 import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import { generateReviewSummary } from '../../src/lib/responses/review-summary';
@@ -111,7 +112,8 @@ export async function handleWeeklySummary(
   const ranking = await loadLatestRankingSummary(businessId);
 
   // 4d. Dashboard link eligibility
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const cfg = getWorkerConfig();
+  const appUrl = cfg.NEXT_PUBLIC_APP_URL;
   const dashboardUrl = buildDashboardUrl(
     await ownerHasDashboardAuth(businessId),
     appUrl,
@@ -203,7 +205,7 @@ export async function handleWeeklySummary(
 
   // ── 8. Build feedback URLs (satisfaction pulse) ───────────────────
   let feedbackUrls: { great: string; ok: string; notGreat: string } | null = null;
-  if (appUrl && process.env.CSRF_SECRET) {
+  if (appUrl && cfg.CSRF_SECRET) {
     feedbackUrls = {
       great: buildFeedbackUrl(appUrl, businessId, 'great', week_start_date),
       ok: buildFeedbackUrl(appUrl, businessId, 'ok', week_start_date),

@@ -20,6 +20,7 @@ vi.mock('../../../../src/lib/notifications/channels', () => ({ getChannel: mockG
 
 import { dispatchAutoPostNotice, type AutoPostNoticeDispatchInput } from '../dispatch';
 import { WhatsAppRateLimitError } from '../../../../src/lib/notifications/channels/whatsapp-client';
+import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
 
 const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() } as never;
 
@@ -40,6 +41,10 @@ beforeEach(() => {
   sqlCalls.length = 0;
   mockGetChannel.mockReset();
   process.env.WHATSAPP_AUTOPOST_TEMPLATE_SID = 'HXsid';
+  // dispatch now reads WHATSAPP_AUTOPOST_TEMPLATE_SID via the memoized
+  // getWorkerConfig(); clear the memo so each test's env (incl. the per-test
+  // `delete` below) is re-parsed on the handler's first read (Stage-3 #6).
+  resetWorkerConfigForTests();
 });
 
 describe('dispatchAutoPostNotice', () => {

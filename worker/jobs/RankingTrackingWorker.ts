@@ -3,6 +3,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { getJson } from 'serpapi';
 import { sql } from '../../src/lib/db/server';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
+import { getWorkerConfig } from '../../src/lib/config/worker';
 import { checkRateLimit } from '../../src/lib/shared/rate-limit';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
 import type { TrackRankingPayload } from '../../src/lib/shared/worker-types';
@@ -63,7 +64,7 @@ async function resolveRankPosition(
   const params: Record<string, unknown> = {
     engine: 'google_maps',
     q: keyword,
-    api_key: process.env.SERPAPI_API_KEY,
+    api_key: getWorkerConfig().SERPAPI_API_KEY,
     timeout: SERPAPI_TIMEOUT_MS,
   };
 

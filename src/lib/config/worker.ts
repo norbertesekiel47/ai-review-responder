@@ -40,7 +40,13 @@ const workerSchema = z.object({
   STRIPE_WEBHOOK_SECRET: rawOpt,
   ...stripePriceShape,
   RESEND_API_KEY: opt,
-  SERPAPI_API_KEY: opt,
+  // Migrated raw read (Stage-3 worker-jobs batch): RankingTrackingWorker passes
+  // SERPAPI_API_KEY straight to the SerpAPI SDK (`api_key: cfg.SERPAPI_API_KEY`)
+  // with no `?.trim()` and no presence assert (tolerate-read), so rawOptionalVar
+  // keeps `''`/`'   '` byte-identical to the old raw `process.env.SERPAPI_API_KEY`
+  // (#7). getWorkerSerpapiConfig/assertWorkerSerpapiConfig still treat whitespace
+  // as absent via requirePresentIn/requirePresent.
+  SERPAPI_API_KEY: rawOpt,
   OPENAI_API_KEY: opt,
   ANTHROPIC_API_KEY: opt,
   // shape-only optionals (presence owned by startup-assert.ts this Stage)
@@ -107,6 +113,20 @@ const workerSchema = z.object({
   HEALTH_ALERT_FLAGGED_OPEN_THRESHOLD: rawOpt,
   HEALTH_ALERT_ZERO_DELIVERY_WINDOW_S: rawOpt,
   HEALTH_ALERT_MONITOR_SLUG: rawOpt,
+
+  // ── Stage-3 worker-jobs batch ─────────────────────────────────────────────
+  // worker/jobs/** non-flag reads. All worker-only (no Next-route consumer) →
+  // worker lane. Each call site owns its own truthy/`!`/`parseInt` guard, so
+  // rawOptionalVar preserves ''/'   '/unset byte-for-byte (#7).
+  // NEXT_PUBLIC_APP_URL is migrated here (NOT exempt under convention #1): the
+  // exemption guards Next BUILD-TIME inlining, but the tsx worker never bundles,
+  // so a worker read of it is a plain runtime process.env read with no inlining to
+  // break (Convention #1 refinement — see the worker-jobs plan doc).
+  NEXT_PUBLIC_APP_URL: rawOpt,
+  RESEND_FROM_EMAIL: rawOpt,
+  CSRF_SECRET: rawOpt,
+  WHATSAPP_AUTOPOST_TEMPLATE_SID: rawOpt,
+  ZERNIO_INGEST_MAX_PAGES: rawOpt,
 });
 
 export type WorkerConfig = z.infer<typeof workerSchema>;

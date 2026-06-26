@@ -6,6 +6,7 @@ import {
   type AccountFlagsInput,
 } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
+import { getWorkerConfig } from '../../src/lib/config/worker';
 import {
   sendInternalEmail,
   buildOnboardingDay1Html,
@@ -137,7 +138,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     }
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const appUrl = getWorkerConfig().NEXT_PUBLIC_APP_URL;
 
   // ── 5. Check owner has auth (for dashboard URL) ───────────────────
   const [ownerWithAuth] = await sql<{ id: string }[]>`

@@ -2,6 +2,7 @@ import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../src/lib/db/server';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
+import { getWorkerConfig } from '../../src/lib/config/worker';
 import { sendInternalEmail, buildMonthlyImpactEmailHtml } from '../../src/lib/notifications/email';
 import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import { generateReviewSummary } from '../../src/lib/responses/review-summary';
@@ -185,7 +186,7 @@ export async function handleMonthlyImpact(
   // ── 9. Dashboard eligibility ─────────────────────────────────────
   const dashboardUrl = buildDashboardUrl(
     await ownerHasDashboardAuth(businessId),
-    process.env.NEXT_PUBLIC_APP_URL,
+    getWorkerConfig().NEXT_PUBLIC_APP_URL,
   );
 
   // ── 10. Compute values ───────────────────────────────────────────

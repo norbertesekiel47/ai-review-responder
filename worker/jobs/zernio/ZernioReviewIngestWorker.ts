@@ -21,6 +21,7 @@
 import type { Job } from 'bullmq';
 import { sql } from '../../../src/lib/db/server';
 import { extractOutboxHandle, markOutboxCompleted } from '../../../src/lib/shared/outbox';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
 import { zernioClient } from '../../../src/lib/zernio/client';
@@ -144,7 +145,7 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
   //       manually reconcile.
   // The failed-hook in worker/index.ts opens DIFFERENT review_exceptions
   // types for the two cases so ops can triage separately.
-  const maxPages = Math.max(1, parseInt(process.env.ZERNIO_INGEST_MAX_PAGES ?? '4', 10) || 4);
+  const maxPages = Math.max(1, parseInt(getWorkerConfig().ZERNIO_INGEST_MAX_PAGES ?? '4', 10) || 4);
   let target: ZernioReview | undefined;
   let pageToken: string | undefined;
   let reviewsSeen = 0;

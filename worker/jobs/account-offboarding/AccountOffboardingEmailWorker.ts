@@ -13,6 +13,7 @@ import {
   sendInternalEmail,
 } from '../../../src/lib/notifications/email';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import {
   assertKeepMyDataTokenSecretConfigured,
   createKeepMyDataRawToken,
@@ -148,7 +149,7 @@ const EMAIL_DESCRIPTORS: Record<RowBackedEmailType, EmailTypeDescriptor> = {
         emailType: 'delete_data_confirmation',
         accessEndsAt: row.access_ends_at,
         purgeAfter: row.purge_after,
-        keepMyDataUrl: buildKeepMyDataUrl(process.env.NEXT_PUBLIC_APP_URL!, token.rawToken),
+        keepMyDataUrl: buildKeepMyDataUrl(getWorkerConfig().NEXT_PUBLIC_APP_URL!, token.rawToken),
       });
     },
   },
@@ -260,7 +261,7 @@ export async function handleAccountOffboardingEmail(
     await markOutboxFailed(outboxId, validationError, outboxAttempt);
     return;
   }
-  if (descriptor.needsKeepMyDataToken && !process.env.NEXT_PUBLIC_APP_URL) {
+  if (descriptor.needsKeepMyDataToken && !getWorkerConfig().NEXT_PUBLIC_APP_URL) {
     await markOutboxFailed(outboxId, 'NEXT_PUBLIC_APP_URL not configured', outboxAttempt);
     return;
   }

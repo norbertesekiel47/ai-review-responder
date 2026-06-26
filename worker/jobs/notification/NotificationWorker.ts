@@ -13,6 +13,7 @@ import {
   markOutboxFailed,
   extractOutboxHandle,
 } from '../../../src/lib/shared/outbox';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import type { SendNotificationPayload } from '../../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { asLocationId } from '../../../src/lib/shared/ids';
@@ -78,7 +79,7 @@ export async function handleSendNotification(
     return;
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const appUrl = getWorkerConfig().NEXT_PUBLIC_APP_URL;
   if (!appUrl) {
     logger.error('NEXT_PUBLIC_APP_URL not set — cannot construct approval URLs');
     await markOutboxFailed(outboxId, 'NEXT_PUBLIC_APP_URL not configured', outboxAttempt);
