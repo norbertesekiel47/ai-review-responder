@@ -12,6 +12,7 @@ import { ZernioRouteError } from '@/lib/zernio/errors';
 import { locationsKey } from '@/lib/zernio/connect-state';
 import { readConnectSessionCookie } from '@/lib/zernio/connect-session-cookie';
 import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
+import { zernioPublishingEnabled } from '@/lib/publishing/flags';
 import type { AppUser } from '@/lib/db/auth';
 import type { ConnectLocationsBlob } from '@/lib/zernio/types';
 import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
@@ -45,7 +46,7 @@ export async function authorizeSelectLocation(
   req: NextRequest,
 ): Promise<SelectLocationContext> {
   // Feature flag — subsystem A is gated by ZERNIO_PUBLISHING_ENABLED (§1.1).
-  if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') {
+  if (!zernioPublishingEnabled()) {
     throw new ZernioRouteError(503, 'feature_disabled');
   }
 

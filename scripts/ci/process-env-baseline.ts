@@ -69,7 +69,19 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   // accessors now call the shared readFlag() primitive (src/lib/config/flags.ts, an
   // allowlisted env reader that is NOT routed through getServerConfig). isPreviewEnvironment
   // (VERCEL_TARGET_ENV) also moved into config/flags.ts. No behavior change. Net 32 → 29.
-  'src/lib/admin/business-detail/mappers.ts',
+  //
+  // Stage-4 channels/publishing/poller flag cluster MIGRATED (removed 8): the channels
+  // (CHANNELS_TELEGRAM_ENABLED / CHANNELS_WHATSAPP_ENABLED / EMAIL_CHANNEL_RECONCILE_DISABLED),
+  // publishing (ZERNIO_PUBLISHING_ENABLED / EXTERNAL_REPLY_IMPORT_ENABLED /
+  // ZERNIO_RECENT_REVIEW_POLL_DISABLED) and NOTIFICATION_FAILOVER_DISABLED reads now route
+  // through new <feature>/flags.ts accessors (notifications/channels, publishing,
+  // notifications) over the shared readFlag() primitive. Each was dropped because the flag
+  // was its ONLY non-exempt process.env read: business-detail/mappers.ts,
+  // notifications/channels/index.ts, worker EmailChannelReconcilePoller /
+  // ZernioRecentReviewPoller, worker ingress stripe/shared + zernio/zernio, worker jobs
+  // notification/eligibility + zernio/zernio-ingest-shared. STAYS: worker/index.ts (PORT +
+  // WORKER_SHUTDOWN_GRACE_MS) and RankingTrackingScheduler.ts (RANKING_TRACKING_INTERVAL_MS)
+  // still read other non-exempt env. Net 28 → 20.
   // Stage-3 src-lib batch MIGRATED (removed): admin/impersonation/cookie.ts,
   // analytics/posthog.ts, costs/onboarding-demo-cost-guard.ts,
   // google/owner-leads-sheet.ts, shared/feedback-hmac.ts,
@@ -97,9 +109,9 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   // TELEGRAM_BOT_TOKEN / TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN /
   // TWILIO_WHATSAPP_NUMBER / WHATSAPP_APPROVAL_TEMPLATE_SID /
   // WHATSAPP_AUTOPOST_TEMPLATE_SID) now go through getWorkerConfig() — 4 new
-  // rawOpt vars + 3 reused. No import-time reader → none allowlisted. index.ts
-  // below STAYS: its only reads are the Stage-4 CHANNELS_*_ENABLED flags. Net 38 → 33.
-  'src/lib/notifications/channels/index.ts',
+  // rawOpt vars + 3 reused. No import-time reader → none allowlisted. Net 38 → 33.
+  // (notifications/channels/index.ts dropped in the Stage-4 channels cluster above —
+  // its CHANNELS_*_ENABLED reads now route through notifications/channels/flags.ts.)
   'src/lib/onboarding/admin-onboarding-service.ts',
   'src/lib/payments/create-checkout-session.ts',
   'src/lib/payments/payment-link.ts',
@@ -122,14 +134,15 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   // MOCK_EXTERNAL_APIS stays a direct exempt read (#2) — so no counted read remains
   // and no import-time reader → not allowlisted. Net 39 → 38.
   // Stage-3 worker-pollers batch removed the 15 fully-migrated poller files
-  // (all their tuning/alerting reads now go through getWorkerConfig()). The 3
-  // pollers below STAY: each still reads a Stage-4 *_ENABLED/*_DISABLED flag.
+  // (all their tuning/alerting reads now go through getWorkerConfig()).
   // Stage-4 auth-flags batch MIGRATED (removed): CleanupAbandonedSignupsPoller.ts —
   // its only process.env read was SELF_SERVE_SIGNUP_ENABLED, now routed through
   // src/lib/auth/flags.ts selfServeSignupEnabled() (the readFlag primitive). Net 29 → 28.
-  'worker/background/pollers/EmailChannelReconcilePoller.ts',
+  // Stage-4 channels/publishing cluster then dropped EmailChannelReconcilePoller (only
+  // EMAIL_CHANNEL_RECONCILE_DISABLED) and ZernioRecentReviewPoller (only
+  // ZERNIO_PUBLISHING_ENABLED + ZERNIO_RECENT_REVIEW_POLL_DISABLED). StripeLocationsReconcilePoller
+  // STAYS: still reads other non-exempt env.
   'worker/background/pollers/StripeLocationsReconcilePoller.ts',
-  'worker/background/pollers/ZernioRecentReviewPoller.ts',
   'worker/background/schedulers/MonthlyImpactScheduler.ts',
   'worker/background/schedulers/OnboardingDripScheduler.ts',
   'worker/background/schedulers/RankingTrackingScheduler.ts',
@@ -140,19 +153,18 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   // twilio/twilio-whatsapp-inbound.ts) — their webhook-signature-secret reads
   // (RESEND_WEBHOOK_SECRET / ADMIN_NOTIFICATION_EMAIL / TELEGRAM_WEBHOOK_SECRET /
   // TWILIO_AUTH_TOKEN) now go through getWorkerConfig(). resend.ts's remaining
-  // MOCK_EXTERNAL_APIS read is exempt (#2). The 2 ingress files below STAY: each
-  // still reads a Stage-4 *_ENABLED flag (ZERNIO_PUBLISHING_ENABLED).
-  'worker/ingress/stripe/shared.ts',
-  'worker/ingress/zernio/zernio.ts',
+  // MOCK_EXTERNAL_APIS read is exempt (#2). Stage-4 channels/publishing cluster then
+  // dropped the last 2 ingress files (stripe/shared.ts + zernio/zernio.ts) — their
+  // ZERNIO_PUBLISHING_ENABLED reads now route through publishing/flags.ts.
   // Stage-3 worker-jobs batch removed the 12 fully-migrated job files (their
   // NEXT_PUBLIC_APP_URL / RESEND_FROM_EMAIL / ADMIN_NOTIFICATION_EMAIL /
   // SERPAPI_API_KEY / CSRF_SECRET / WHATSAPP_AUTOPOST_TEMPLATE_SID /
-  // ZERNIO_INGEST_MAX_PAGES reads now go through getWorkerConfig()). The 4 below
-  // STAY: each still reads a Stage-4 *_ENABLED/*_DISABLED flag.
-  'worker/jobs/notification/eligibility.ts',
+  // ZERNIO_INGEST_MAX_PAGES reads now go through getWorkerConfig()). Stage-4
+  // channels/publishing cluster then dropped notification/eligibility.ts (CHANNELS_*_ENABLED)
+  // and zernio/zernio-ingest-shared.ts (EXTERNAL_REPLY_IMPORT_ENABLED). The 2 below STAY:
+  // each still reads another Stage-4 *_ENABLED/*_DISABLED flag.
   'worker/jobs/publisher/ResponsePublisherWorker.ts',
   'worker/jobs/publisher/failed-hook.ts',
-  'worker/jobs/zernio/zernio-ingest-shared.ts',
   'worker/redis-connection.ts',
   'worker/sentry.ts',
 ]);

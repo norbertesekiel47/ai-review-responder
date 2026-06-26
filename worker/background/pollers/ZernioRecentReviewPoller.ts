@@ -1,4 +1,5 @@
 import { getWorkerConfig, type WorkerConfig } from '../../../src/lib/config/worker';
+import { zernioPublishingEnabled, zernioRecentReviewPollDisabled } from '../../../src/lib/publishing/flags';
 import { sql } from '../../../src/lib/db/server';
 import {
   checkSubscription,
@@ -376,7 +377,7 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
     errors: 0,
   };
 
-  if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') {
+  if (!zernioPublishingEnabled()) {
     return result;
   }
 
@@ -493,7 +494,7 @@ async function poll(): Promise<void> {
 
 export function startZernioRecentReviewPoller(): void {
   const logger = createWorkerLogger(LOG_PREFIX);
-  if (process.env.ZERNIO_RECENT_REVIEW_POLL_DISABLED === 'true') {
+  if (zernioRecentReviewPollDisabled()) {
     logger.log('Skipped - ZERNIO_RECENT_REVIEW_POLL_DISABLED=true');
     return;
   }

@@ -14,6 +14,7 @@ import {
   type AccountFlagsInput,
 } from '../../../src/lib/shared/subscription-guard';
 import { resolveChannels, type ResolvedChannel } from '../../../src/lib/notifications/resolve-channels';
+import { channelsTelegramEnabled, channelsWhatsappEnabled } from '../../../src/lib/notifications/channels/flags';
 import type { ChannelId } from '../../../src/lib/notifications/channels/types';
 import type { AccountId, LocationId } from '../../../src/lib/shared/ids';
 import { asAccountId, asLocationId } from '../../../src/lib/shared/ids';
@@ -42,8 +43,8 @@ export type EligibilityResult =
  */
 function isChannelFlagEnabled(channelId: ChannelId): boolean {
   if (channelId === 'email') return true;
-  if (channelId === 'telegram') return process.env.CHANNELS_TELEGRAM_ENABLED === 'true';
-  if (channelId === 'whatsapp') return process.env.CHANNELS_WHATSAPP_ENABLED === 'true';
+  if (channelId === 'telegram') return channelsTelegramEnabled();
+  if (channelId === 'whatsapp') return channelsWhatsappEnabled();
   return false;
 }
 

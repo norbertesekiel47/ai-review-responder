@@ -6,6 +6,7 @@ import {
   verifySignedConnectSessionValue,
 } from '@/lib/zernio/connect-session-cookie';
 import { locationsKey } from '@/lib/zernio/connect-state';
+import { zernioPublishingEnabled } from '@/lib/publishing/flags';
 import type { ConnectLocationsBlob } from '@/lib/zernio/types';
 import { LocationPicker } from './LocationPicker';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
@@ -23,7 +24,7 @@ export const dynamic = 'force-dynamic';
  * `/api/zernio/connect/select-location` which runs the full guard.
  */
 export default async function SelectLocationPage() {
-  if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') {
+  if (!zernioPublishingEnabled()) {
     // Mirror the API gating: if the feature flag is off we should not render
     // the picker at all.
     redirect('/dashboard');

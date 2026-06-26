@@ -13,6 +13,7 @@ import type postgres from 'postgres';
 import * as Sentry from '@sentry/node';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
+import { externalReplyImportEnabled } from '../../../src/lib/publishing/flags';
 import {
   ZernioAuthError,
   ZernioPermanentError,
@@ -32,7 +33,7 @@ type TxClient = postgres.TransactionSql;
 type SqlExecutor = typeof sql | TxClient;
 
 const FLAG_ON = (): boolean =>
-  process.env.EXTERNAL_REPLY_IMPORT_ENABLED === 'true';
+  externalReplyImportEnabled();
 
 export interface IngestErrorContext {
   business_id: string;

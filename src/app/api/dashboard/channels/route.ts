@@ -12,6 +12,7 @@ import { requireRoleOr401, errorResponse } from '@/lib/auth/route-helpers';
 import { subscriptionAllowsDashboardRead } from '@/lib/shared/subscription-status';
 import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 import { whatsappEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
+import { channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
 import { CHANNEL_IDS } from '@/lib/notifications/channels/types';
 import { maskChannelHandle } from '@/lib/notifications/mask-handle';
 
@@ -19,7 +20,7 @@ export const dynamic = 'force-dynamic';
 
 
 function whatsappAvailable(): boolean {
-  if (process.env.CHANNELS_WHATSAPP_ENABLED !== 'true') return false;
+  if (!channelsWhatsappEnabled()) return false;
   return whatsappEnvReady();
 }
 

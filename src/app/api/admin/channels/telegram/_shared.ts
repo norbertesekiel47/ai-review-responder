@@ -4,9 +4,10 @@
 
 import { NextResponse } from 'next/server';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { channelsTelegramEnabled } from '@/lib/notifications/channels/flags';
 
 export function isTelegramEnabled(): boolean {
-  return process.env.CHANNELS_TELEGRAM_ENABLED === 'true';
+  return channelsTelegramEnabled();
 }
 
 export function flagOff(): NextResponse {

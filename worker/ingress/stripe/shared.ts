@@ -1,6 +1,7 @@
 import type Stripe from 'stripe';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
+import { zernioPublishingEnabled } from '../../../src/lib/publishing/flags';
 
 export const LOG_PREFIX = '[ingress/stripe]';
 
@@ -82,7 +83,7 @@ export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
  * mutation, this is best-effort on top.
  */
 export async function maybeEnqueueBackfillResume(businessId: string): Promise<void> {
-  if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') return;
+  if (!zernioPublishingEnabled()) return;
 
   const [target] = await sql<{
     zernio_account_id: string;

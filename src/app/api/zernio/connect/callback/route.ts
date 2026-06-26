@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { zernioPublishingEnabled } from '@/lib/publishing/flags';
 import {
   activeOffboardingStateFromProjection,
   isConnectBlocked,
@@ -102,7 +103,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const profileIdParam = searchParams.get('profileId');
 
   // 1. Feature flag — subsystem A is gated by ZERNIO_PUBLISHING_ENABLED (§1.1).
-  if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') {
+  if (!zernioPublishingEnabled()) {
     return redirectError(origin, 'feature_disabled');
   }
 

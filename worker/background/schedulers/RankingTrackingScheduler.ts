@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
+import { rankingTrackingEnabled } from '../../../src/lib/ranking/flags';
 import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 import { isMockMode } from '../../../src/lib/shared/mock-mode';
 import type { TrackRankingPayload } from '../../../src/lib/shared/worker-types';
@@ -37,7 +38,7 @@ export async function runRankingCheck(): Promise<void> {
   const logger = createWorkerLogger(LOG_PREFIX);
   try {
     // Feature flag — silent return when disabled (runs hourly, no log spam)
-    if (process.env.RANKING_TRACKING_ENABLED !== 'true') return;
+    if (!rankingTrackingEnabled()) return;
 
     if (isMockMode()) {
       logger.log('Mock mode — skipping');
