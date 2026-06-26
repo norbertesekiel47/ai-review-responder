@@ -1,4 +1,5 @@
 import { createSign } from 'crypto';
+import { getServerConfig } from '@/lib/config/server';
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
@@ -34,14 +35,15 @@ function normalizePrivateKey(privateKey: string): string {
 }
 
 function readConfig(): GoogleSheetConfig | null {
-  const spreadsheetId = process.env.OWNER_LEADS_GOOGLE_SHEET_ID?.trim();
+  const cfg = getServerConfig();
+  const spreadsheetId = cfg.OWNER_LEADS_GOOGLE_SHEET_ID?.trim();
 
   if (!spreadsheetId) {
     return null;
   }
 
-  const clientEmail = process.env.GOOGLE_SHEETS_CLIENT_EMAIL?.trim();
-  const privateKey = process.env.GOOGLE_SHEETS_PRIVATE_KEY;
+  const clientEmail = cfg.GOOGLE_SHEETS_CLIENT_EMAIL?.trim();
+  const privateKey = cfg.GOOGLE_SHEETS_PRIVATE_KEY;
 
   if (!clientEmail || !privateKey) {
     throw new Error('Google Sheets lead sync is partially configured');
@@ -49,7 +51,7 @@ function readConfig(): GoogleSheetConfig | null {
 
   return {
     spreadsheetId,
-    range: process.env.OWNER_LEADS_GOOGLE_SHEET_RANGE?.trim() || DEFAULT_RANGE,
+    range: cfg.OWNER_LEADS_GOOGLE_SHEET_RANGE?.trim() || DEFAULT_RANGE,
     clientEmail,
     privateKey: normalizePrivateKey(privateKey),
   };

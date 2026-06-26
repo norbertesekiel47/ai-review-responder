@@ -31,28 +31,32 @@ vi.mock('posthog-node', () => ({
   PostHog: posthogMock.PostHog,
 }));
 
-import {
-  captureAnalyticsEvent,
-  flushAnalytics,
-  isAnalyticsConfigured,
-  shutdownAnalytics,
-} from '../posthog';
+// posthog.ts now reads POSTHOG_API_KEY / POSTHOG_HOST via getServerConfig()
+// (memoized). Stub the env, reset modules, then dynamically import so the config
+// memo re-parses the stubbed values (Stage-3 convention #6). The hoisted
+// posthog-node mock re-applies on each re-import, so the module-level
+// posthogMock refs survive resetModules. Every assertion below is unchanged —
+// each test imports the module ONCE (after stubbing env) and reuses it so the
+// module-level lazy `client` state behaves exactly as before.
+async function freshPosthog() {
+  vi.resetModules();
+  return import('../posthog');
+}
 
 describe('PostHog analytics wrapper', () => {
-  beforeEach(async () => {
-    await shutdownAnalytics();
+  beforeEach(() => {
     vi.unstubAllEnvs();
     posthogMock.PostHog.mockClear();
     posthogMock.instances.length = 0;
   });
 
-  afterEach(async () => {
-    await shutdownAnalytics();
+  afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  it('no-ops when POSTHOG_API_KEY is unset', () => {
+  it('no-ops when POSTHOG_API_KEY is unset', async () => {
     vi.stubEnv('POSTHOG_API_KEY', '');
+    const { captureAnalyticsEvent } = await freshPosthog();
 
     const captured = captureAnalyticsEvent({
       event: 'review_published',
@@ -65,9 +69,10 @@ describe('PostHog analytics wrapper', () => {
     expect(posthogMock.instances).toHaveLength(0);
   });
 
-  it('captures configured events with the configured PostHog host', () => {
+  it('captures configured events with the configured PostHog host', async () => {
     vi.stubEnv('POSTHOG_API_KEY', 'ph_test_key');
     vi.stubEnv('POSTHOG_HOST', 'https://eu.i.posthog.com');
+    const { captureAnalyticsEvent } = await freshPosthog();
 
     const captured = captureAnalyticsEvent({
       event: 'review_published',
@@ -86,16 +91,19 @@ describe('PostHog analytics wrapper', () => {
     });
   });
 
-  it('reports configuration state from POSTHOG_API_KEY presence', () => {
+  it('reports configuration state from POSTHOG_API_KEY presence', async () => {
     vi.stubEnv('POSTHOG_API_KEY', '');
-    expect(isAnalyticsConfigured()).toBe(false);
+    const unconfigured = await freshPosthog();
+    expect(unconfigured.isAnalyticsConfigured()).toBe(false);
 
     vi.stubEnv('POSTHOG_API_KEY', 'ph_test_key');
-    expect(isAnalyticsConfigured()).toBe(true);
+    const configured = await freshPosthog();
+    expect(configured.isAnalyticsConfigured()).toBe(true);
   });
 
   it('flushAnalytics forwards to the client flush when configured', async () => {
     vi.stubEnv('POSTHOG_API_KEY', 'ph_test_key');
+    const { captureAnalyticsEvent, flushAnalytics } = await freshPosthog();
 
     captureAnalyticsEvent({ event: 'first_response_drafted', distinctId: 'acct_1' });
     await flushAnalytics();
@@ -105,6 +113,7 @@ describe('PostHog analytics wrapper', () => {
 
   it('flushAnalytics is a no-op and creates no client when unconfigured', async () => {
     vi.stubEnv('POSTHOG_API_KEY', '');
+    const { flushAnalytics } = await freshPosthog();
 
     await flushAnalytics();
 
@@ -115,6 +124,7 @@ describe('PostHog analytics wrapper', () => {
   it('awaits shutdown and resets lazy state for the next capture', async () => {
     vi.stubEnv('POSTHOG_API_KEY', 'ph_test_key');
     vi.stubEnv('POSTHOG_HOST', 'https://us.i.posthog.com');
+    const { captureAnalyticsEvent, shutdownAnalytics } = await freshPosthog();
 
     expect(
       captureAnalyticsEvent({
@@ -144,8 +154,9 @@ describe('PostHog analytics wrapper', () => {
     });
   });
 
-  it('forwards timestamp and uuid to capture when provided', () => {
+  it('forwards timestamp and uuid to capture when provided', async () => {
     vi.stubEnv('POSTHOG_API_KEY', 'ph_test_key');
+    const { captureAnalyticsEvent } = await freshPosthog();
     const when = new Date('2026-05-03T12:00:00.000Z');
 
     const captured = captureAnalyticsEvent({
@@ -166,8 +177,9 @@ describe('PostHog analytics wrapper', () => {
     });
   });
 
-  it('omits timestamp and uuid keys when not provided or explicitly undefined', () => {
+  it('omits timestamp and uuid keys when not provided or explicitly undefined', async () => {
     vi.stubEnv('POSTHOG_API_KEY', 'ph_test_key');
+    const { captureAnalyticsEvent } = await freshPosthog();
 
     captureAnalyticsEvent({ event: 'review_published', distinctId: 'business_1' });
     captureAnalyticsEvent({

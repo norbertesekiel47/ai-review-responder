@@ -123,6 +123,13 @@ function firstInvocationOrder(mock: { mock: { invocationCallOrder: number[] } })
 describe('POST /api/lead-intake', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // owner-leads-sheet now reads OWNER_LEADS_* / GOOGLE_SHEETS_* via the memoized
+    // getServerConfig(). Each test sets (or clears) those vars BEFORE its
+    // `await import('../route')`; resetting modules here drops the config memo so
+    // the route's transitive config import re-parses the per-test env (Stage-3
+    // convention #6). The hoisted vi.mock factories re-apply on re-import, so the
+    // mockSql/mockFetch/mockNotify refs survive. Every assertion is unchanged.
+    vi.resetModules();
     vi.stubGlobal('fetch', mockFetch);
     dbState.rejectNext = false;
     dbState.calls = [];

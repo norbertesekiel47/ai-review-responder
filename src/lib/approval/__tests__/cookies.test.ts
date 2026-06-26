@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createHash, createHmac } from 'node:crypto';
 
 // Set secret before importing (module reads env on first call)
@@ -108,18 +108,26 @@ describe('verifyDeviceCookie', () => {
 // ── getSessionSecret length guard ────────────────────────────────────────
 
 describe('getSessionSecret (via setDeviceCookie)', () => {
-  it('throws when SESSION_COOKIE_SECRET is shorter than 32 bytes', () => {
+  it('throws when SESSION_COOKIE_SECRET is shorter than 32 bytes', async () => {
+    // cookies.ts → session-cookie-secret.ts now reads SESSION_COOKIE_SECRET via
+    // the memoized getServerConfig(). The other tests in this file share the
+    // valid secret set before the static import; this one needs the SHORT secret,
+    // so it set→resetModules→re-imports cookies.ts so the config memo re-parses
+    // 'short' (Stage-3 convention #6). Assertion unchanged.
     const prev = process.env.SESSION_COOKIE_SECRET;
     process.env.SESSION_COOKIE_SECRET = 'short';
     try {
+      vi.resetModules();
+      const { setDeviceCookie: freshSetDeviceCookie } = await import('../cookies');
       const response = NextResponse.json({});
-      expect(() => setDeviceCookie(response)).toThrow(/SESSION_COOKIE_SECRET/);
+      expect(() => freshSetDeviceCookie(response)).toThrow(/SESSION_COOKIE_SECRET/);
     } finally {
       if (prev === undefined) {
         delete process.env.SESSION_COOKIE_SECRET;
       } else {
         process.env.SESSION_COOKIE_SECRET = prev;
       }
+      vi.resetModules();
     }
   });
 });

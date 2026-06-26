@@ -1,7 +1,8 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { getServerConfig } from '@/lib/config/server';
 
 function getSecret(): string {
-  const secret = process.env.CSRF_SECRET;
+  const secret = getServerConfig().CSRF_SECRET;
   if (!secret) throw new Error('CSRF_SECRET not configured');
   return secret;
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   withOnboardingDemoCostGuard,
   reserveOnboardingDemoBudget,
@@ -82,5 +82,48 @@ describe('onboarding-demo-cost-guard', () => {
     mockRedis.sadd.mockResolvedValue(1);
     const result = await checkCostThreshold('onboarding-demo', '2026-05-03', [50, 90, 100]);
     expect(result.crossed).toEqual([50, 90]);
+  });
+});
+
+// Behavior-preservation spot-check for the migrated ONBOARDING_DEMO_DAILY_CENTS
+// read (now via getServerConfig(), Stage-3 src-lib batch). The env-override
+// ceiling branch in resolveCeilingCents must still: prefer the Redis override,
+// else honor a valid positive ONBOARDING_DEMO_DAILY_CENTS, else fall back to
+// DEFAULT_DAILY_CENTS (1000). Driven through reserveOnboardingDemoBudget, whose
+// CostCeilingExceeded throw fires once the running total exceeds the ceiling.
+describe('onboarding-demo-cost-guard: ONBOARDING_DEMO_DAILY_CENTS env ceiling', () => {
+  let SNAP: string | undefined;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRedis.get.mockResolvedValue(null); // no Redis override
+    mockRedis.decrby.mockResolvedValue(0);
+    mockRedis.pexpire.mockResolvedValue(1);
+    SNAP = process.env.ONBOARDING_DEMO_DAILY_CENTS;
+    delete process.env.ONBOARDING_DEMO_DAILY_CENTS;
+  });
+  afterEach(() => {
+    if (SNAP === undefined) delete process.env.ONBOARDING_DEMO_DAILY_CENTS;
+    else process.env.ONBOARDING_DEMO_DAILY_CENTS = SNAP;
+  });
+
+  async function freshGuard() {
+    vi.resetModules();
+    return import('../onboarding-demo-cost-guard');
+  }
+
+  it('honors a valid ONBOARDING_DEMO_DAILY_CENTS override (lower ceiling rejects sooner)', async () => {
+    process.env.ONBOARDING_DEMO_DAILY_CENTS = '100';
+    const { reserveOnboardingDemoBudget, CostCeilingExceeded } = await freshGuard();
+    // running total 120 > 100 ceiling → reject (would be UNDER the 1000 default).
+    mockRedis.incrby.mockResolvedValue(120);
+    await expect(reserveOnboardingDemoBudget()).rejects.toBeInstanceOf(CostCeilingExceeded);
+  });
+
+  it('falls back to the 1000-cent default when ONBOARDING_DEMO_DAILY_CENTS is unset', async () => {
+    const { reserveOnboardingDemoBudget } = await freshGuard();
+    // running total 120 is under the 1000 default → succeeds.
+    mockRedis.incrby.mockResolvedValue(120);
+    const r = await reserveOnboardingDemoBudget();
+    expect(r.release).toBeTypeOf('function');
   });
 });

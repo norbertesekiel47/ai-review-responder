@@ -1,4 +1,5 @@
 import { PostHog } from 'posthog-node';
+import { getServerConfig } from '@/lib/config/server';
 
 const DEFAULT_POSTHOG_HOST = 'https://us.i.posthog.com';
 
@@ -21,20 +22,21 @@ function getPostHogClient(): PostHogClient | null {
     return client;
   }
 
-  const apiKey = process.env.POSTHOG_API_KEY;
+  const cfg = getServerConfig();
+  const apiKey = cfg.POSTHOG_API_KEY;
   if (!apiKey) {
     client = null;
     return client;
   }
 
   client = new PostHog(apiKey, {
-    host: process.env.POSTHOG_HOST ?? DEFAULT_POSTHOG_HOST,
+    host: cfg.POSTHOG_HOST ?? DEFAULT_POSTHOG_HOST,
   });
   return client;
 }
 
 export function isAnalyticsConfigured(): boolean {
-  return Boolean(process.env.POSTHOG_API_KEY);
+  return Boolean(getServerConfig().POSTHOG_API_KEY);
 }
 
 export function captureAnalyticsEvent(input: CaptureAnalyticsEventInput): boolean {
