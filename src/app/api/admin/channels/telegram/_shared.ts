@@ -10,9 +10,8 @@ export function isTelegramEnabled(): boolean {
   return channelsTelegramEnabled();
 }
 
-export function flagOff(): NextResponse {
-  return NextResponse.json({ error: 'not_found' }, { status: 404 });
-}
+// Disabled-channel 404 — single source shared with whatsapp (see _shared/flag-off).
+export { flagOff } from '../_shared/flag-off';
 
 /**
  * Returns a 503 NextResponse if CHANNELS_TELEGRAM_ENABLED=true but the required
