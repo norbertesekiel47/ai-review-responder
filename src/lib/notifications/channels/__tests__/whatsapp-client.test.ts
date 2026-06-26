@@ -17,6 +17,7 @@ import {
   WhatsAppTimeoutError,
   WhatsAppApiError,
 } from '../whatsapp-client';
+import { resetWorkerConfigForTests } from '@/lib/config/worker';
 
 const RAW_TOKEN = 'TOKEN_FOR_LEAK_DETECTION';
 
@@ -34,9 +35,12 @@ describe('WhatsAppClient.sendTemplate error classification', () => {
 
   beforeEach(() => {
     mockCreate.mockReset();
+    // WhatsAppClient.client()/sendTemplate now read TWILIO_* via the memoized
+    // getWorkerConfig() — reset the memo so each send re-parses (convention #6).
     process.env.TWILIO_ACCOUNT_SID = 'AC_test';
     process.env.TWILIO_AUTH_TOKEN = 'auth_test';
     process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+14155238886';
+    resetWorkerConfigForTests();
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -149,6 +153,7 @@ describe('WhatsAppClient.sendFreeform', () => {
     process.env.TWILIO_ACCOUNT_SID = 'AC_test';
     process.env.TWILIO_AUTH_TOKEN = 'auth_test';
     process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+14155238886';
+    resetWorkerConfigForTests();
   });
 
   it('sends a freeform body and returns external message id', async () => {

@@ -3,10 +3,12 @@
 // Pure helpers for the WhatsApp channel. No I/O, no env reads at module scope
 // (Phase 3 spec §2.0 sequencing rule 2 — side-effect-free at import). All inputs
 // flow through function params; the template SID is passable in rather than
-// read from process.env so tests don't need to mutate env.
+// read from config (getWorkerConfig()) so tests don't need to mutate env. The
+// default-param config read evaluates at call time (send-time), never at import.
 //
 // Template shape authoritative reference: docs/whatsapp-templates.md
 
+import { getWorkerConfig } from '@/lib/config/worker';
 import type { SendApprovalParams } from './types';
 
 export interface WhatsAppSendContent {
@@ -133,12 +135,13 @@ function oneLine(value: string): string {
 /**
  * Format a SendApprovalParams into Twilio Content variables for the
  * repworth_approval_request_v1 template. Second param `contentSid` allows
- * tests to pass a deterministic SID; production callers omit it to fall
- * back to process.env.WHATSAPP_APPROVAL_TEMPLATE_SID.
+ * tests to pass a deterministic SID; production callers omit it to fall back
+ * to WHATSAPP_APPROVAL_TEMPLATE_SID (read via getWorkerConfig() — default-param
+ * evaluates at call time, i.e. send-time on the worker, never at module load).
  */
 export function formatApprovalWhatsApp(
   params: SendApprovalParams,
-  contentSid: string = process.env.WHATSAPP_APPROVAL_TEMPLATE_SID ?? '',
+  contentSid: string = getWorkerConfig().WHATSAPP_APPROVAL_TEMPLATE_SID ?? '',
 ): WhatsAppSendContent {
   return {
     contentSid,
@@ -171,11 +174,12 @@ export interface AutoPostNoticeWhatsAppParams {
  * prefix + dynamic responseId suffix (same shape as the approved approval
  * template's `/approve/{{9}}` button). Second param `contentSid` lets tests
  * pass a deterministic SID; production callers omit it to fall back to
- * process.env.WHATSAPP_AUTOPOST_TEMPLATE_SID.
+ * WHATSAPP_AUTOPOST_TEMPLATE_SID (read via getWorkerConfig() — default-param
+ * evaluates at call time, i.e. send-time on the worker, never at module load).
  */
 export function formatAutoPostNoticeWhatsApp(
   params: AutoPostNoticeWhatsAppParams,
-  contentSid: string = process.env.WHATSAPP_AUTOPOST_TEMPLATE_SID ?? '',
+  contentSid: string = getWorkerConfig().WHATSAPP_AUTOPOST_TEMPLATE_SID ?? '',
 ): WhatsAppSendContent {
   return {
     contentSid,

@@ -9,6 +9,7 @@
 // Error classification per docs/superpowers/specs/2026-04-23-whatsapp-phase-3-design.md §1.2.
 
 import twilio from 'twilio';
+import { getWorkerConfig } from '@/lib/config/worker';
 
 export class WhatsAppRecipientBlockedError extends Error {
   readonly code: number;
@@ -93,8 +94,9 @@ const TRANSIENT_RATE_LIMIT = new Set<number>([63017, 63018]);
 
 export class WhatsAppClient {
   private client(): ReturnType<typeof twilio> {
-    const sid = process.env.TWILIO_ACCOUNT_SID;
-    const token = process.env.TWILIO_AUTH_TOKEN;
+    const cfg = getWorkerConfig();
+    const sid = cfg.TWILIO_ACCOUNT_SID;
+    const token = cfg.TWILIO_AUTH_TOKEN;
     if (!sid || !token) throw new Error('TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN not set');
     return twilio(sid, token, { timeout: 10_000, autoRetry: false });
   }
@@ -102,7 +104,7 @@ export class WhatsAppClient {
   async sendTemplate(p: SendTemplateParams): Promise<{ externalMessageId: string }> {
     try {
       const msg = await this.client().messages.create({
-        from: process.env.TWILIO_WHATSAPP_NUMBER!,
+        from: getWorkerConfig().TWILIO_WHATSAPP_NUMBER!,
         to: p.to,
         contentSid: p.contentSid,
         contentVariables: JSON.stringify(p.contentVariables),
@@ -117,7 +119,7 @@ export class WhatsAppClient {
   async sendFreeform(p: SendFreeformParams): Promise<{ externalMessageId: string }> {
     try {
       const msg = await this.client().messages.create({
-        from: process.env.TWILIO_WHATSAPP_NUMBER!,
+        from: getWorkerConfig().TWILIO_WHATSAPP_NUMBER!,
         to: p.to,
         body: p.body,
       });

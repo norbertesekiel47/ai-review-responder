@@ -234,6 +234,60 @@ describe('config/worker', () => {
     expect(getWorkerConfig().REDIS_CACHE_URL).toBeUndefined();
   });
 
+  // ── Stage-3 notification-channels batch ───────────────────────────────────
+
+  it('the 4 new channel-send vars are exposed RAW via getWorkerConfig (present)', async () => {
+    process.env = {
+      ...CORE, NODE_ENV: 'test',
+      TELEGRAM_BOT_TOKEN: 'bot-token',
+      TWILIO_ACCOUNT_SID: 'AC_test',
+      TWILIO_WHATSAPP_NUMBER: 'whatsapp:+14155238886',
+      WHATSAPP_APPROVAL_TEMPLATE_SID: 'HX_approval',
+    } as NodeJS.ProcessEnv;
+    const { getWorkerConfig } = await import('../worker');
+    const cfg = getWorkerConfig();
+    expect(cfg.TELEGRAM_BOT_TOKEN).toBe('bot-token');
+    expect(cfg.TWILIO_ACCOUNT_SID).toBe('AC_test');
+    expect(cfg.TWILIO_WHATSAPP_NUMBER).toBe('whatsapp:+14155238886');
+    expect(cfg.WHATSAPP_APPROVAL_TEMPLATE_SID).toBe('HX_approval');
+  });
+
+  it('the 4 new channel-send vars are undefined when unset — tolerate-absent (no throw)', async () => {
+    process.env = { ...CORE, NODE_ENV: 'test' } as NodeJS.ProcessEnv;
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    delete process.env.TWILIO_ACCOUNT_SID;
+    delete process.env.TWILIO_WHATSAPP_NUMBER;
+    delete process.env.WHATSAPP_APPROVAL_TEMPLATE_SID;
+    const { getWorkerConfig } = await import('../worker');
+    const cfg = getWorkerConfig();
+    expect(cfg.TELEGRAM_BOT_TOKEN).toBeUndefined();
+    expect(cfg.TWILIO_ACCOUNT_SID).toBeUndefined();
+    expect(cfg.TWILIO_WHATSAPP_NUMBER).toBeUndefined();
+    expect(cfg.WHATSAPP_APPROVAL_TEMPLATE_SID).toBeUndefined();
+  });
+
+  it('the channel-send vars pass whitespace-only through RAW (rawOptionalVar #7)', async () => {
+    // Each call site owns its own truthy/`!`/`X!`/`?? ''` guard on the raw value:
+    // `if (!from) throw`, `if (!botToken) throw`, `if (!sid || !token) throw`,
+    // `TWILIO_WHATSAPP_NUMBER!`, and the `?? ''` formatter default-params. A
+    // whitespace `'   '` MUST stay truthy / survive byte-for-byte — the collapsing
+    // optionalVar would map it to undefined and FLIP a guard. RED under
+    // optionalVar, GREEN under rawOptionalVar.
+    process.env = {
+      ...CORE, NODE_ENV: 'test',
+      TELEGRAM_BOT_TOKEN: '   ',
+      TWILIO_ACCOUNT_SID: '   ',
+      TWILIO_WHATSAPP_NUMBER: '   ',
+      WHATSAPP_APPROVAL_TEMPLATE_SID: '   ',
+    } as NodeJS.ProcessEnv;
+    const { getWorkerConfig } = await import('../worker');
+    const cfg = getWorkerConfig();
+    expect(cfg.TELEGRAM_BOT_TOKEN).toBe('   ');
+    expect(cfg.TWILIO_ACCOUNT_SID).toBe('   ');
+    expect(cfg.TWILIO_WHATSAPP_NUMBER).toBe('   ');
+    expect(cfg.WHATSAPP_APPROVAL_TEMPLATE_SID).toBe('   ');
+  });
+
   it('resetWorkerConfigForTests clears the memo so the next read re-parses env', async () => {
     process.env = { ...CORE, NODE_ENV: 'test', OUTBOX_BATCH_SIZE: '50' } as NodeJS.ProcessEnv;
     const { getWorkerConfig, resetWorkerConfigForTests } = await import('../worker');

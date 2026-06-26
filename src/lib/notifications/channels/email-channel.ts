@@ -5,6 +5,7 @@
 // this class just adapts that call to the NotificationChannel interface.
 
 import { sendApprovalEmail, sendAutoPostNoticeEmail } from '../email';
+import { getWorkerConfig } from '@/lib/config/worker';
 import type {
   NotificationChannel,
   SendApprovalParams,
@@ -19,7 +20,7 @@ export class EmailChannel implements NotificationChannel {
   readonly requiresOptInHandshake = false;
 
   async sendApprovalRequest(p: SendApprovalParams): Promise<SendApprovalResult> {
-    const from = process.env.RESEND_FROM_EMAIL;
+    const from = getWorkerConfig().RESEND_FROM_EMAIL;
     if (!from) {
       throw new Error('RESEND_FROM_EMAIL not configured');
     }
@@ -42,7 +43,7 @@ export class EmailChannel implements NotificationChannel {
   }
 
   async sendAutoPostNotice(p: SendAutoPostNoticeParams): Promise<SendAutoPostNoticeResult> {
-    const from = process.env.RESEND_FROM_EMAIL;
+    const from = getWorkerConfig().RESEND_FROM_EMAIL;
     if (!from) {
       throw new Error('RESEND_FROM_EMAIL not configured');
     }
