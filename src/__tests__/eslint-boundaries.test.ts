@@ -8,6 +8,10 @@ import { beforeAll, describe, expect, it } from 'vitest';
 const RESTRICTED_RULE_IDS = new Set([
   'no-restricted-imports',
   '@typescript-eslint/no-restricted-imports',
+  // Dynamic import() is invisible to no-restricted-imports; the invariant-#1
+  // dynamic bans run through no-restricted-syntax, so it must be counted here
+  // or the dynamic-import assertions would filter out their own messages.
+  'no-restricted-syntax',
 ]);
 
 let eslint: ESLint;
@@ -23,6 +27,11 @@ async function restrictedMessages(code: string, relPath: string) {
   const results = await eslint.lintText(code, { filePath, warnIgnored: false });
   const result = results[0];
   if (!result) throw new Error(`ESLint returned no result for ${relPath}`);
+  // Fail fast on config/parse breakage: a fatal or null-ruleId message means the
+  // fixture didn't lint cleanly, which would make the `toHaveLength(0)` "allowed"
+  // assertions pass for the wrong reason. Surface it instead.
+  const fatalErrors = result.messages.filter((m) => m.fatal || m.ruleId === null);
+  expect(fatalErrors, JSON.stringify(fatalErrors)).toHaveLength(0);
   return result.messages.filter(
     (m) => m.ruleId != null && RESTRICTED_RULE_IDS.has(m.ruleId),
   );
@@ -34,6 +43,17 @@ const FORBIDDEN_RUNTIME: ReadonlyArray<readonly [string, string]> = [
   ["import { Queue } from 'bullmq';", 'bullmq'],
   ["import postgres from 'postgres';", 'postgres'],
   ["import { generateResponse } from '@/lib/responses/generator';", 'generator'],
+];
+
+// Dynamic import() variants — must be caught by no-restricted-syntax (the
+// static no-restricted-imports rule never sees import()).
+const FORBIDDEN_DYNAMIC: ReadonlyArray<readonly [string, string]> = [
+  ["await import('openai');", 'openai'],
+  ["await import('@anthropic-ai/sdk');", '@anthropic-ai/sdk'],
+  ["await import('bullmq');", 'bullmq'],
+  ["await import('postgres');", 'postgres'],
+  ["await import('@/lib/responses/generator');", 'generator'],
+  ["await import('../../../../worker/queues');", 'worker/queues'],
 ];
 
 describe('invariant #1 — Vercel UI surface may not runtime-import worker-only modules', () => {
@@ -107,6 +127,39 @@ describe('invariant #1 — Vercel UI surface may not runtime-import worker-only 
     const msgs = await restrictedMessages(
       "import { Queue } from 'bullmq';\nexport const q = Queue;\n",
       'src/app/api/admin/jobs/__tests__/route.test.ts',
+    );
+    expect(msgs).toHaveLength(0);
+  });
+
+  // --- Dynamic import() bans (no-restricted-syntax) ------------------------
+  it.each(FORBIDDEN_DYNAMIC)('app route dynamic-importing %s errors', async (expr) => {
+    const msgs = await restrictedMessages(
+      `export async function GET() { ${expr} return new Response('ok'); }\n`,
+      'src/app/api/_fixture/route.ts',
+    );
+    expect(msgs.length).toBeGreaterThan(0);
+  });
+
+  it('component (non-ui) dynamic-importing openai errors', async () => {
+    const msgs = await restrictedMessages(
+      "export const C = () => import('openai');\n",
+      'src/components/dashboard/_fixture.tsx',
+    );
+    expect(msgs.length).toBeGreaterThan(0);
+  });
+
+  it('component (non-ui) dynamic-importing @/app still errors (restated dynamic ban)', async () => {
+    const msgs = await restrictedMessages(
+      "export const C = () => import('@/app/api/x/route');\n",
+      'src/components/dashboard/_fixture.tsx',
+    );
+    expect(msgs.length).toBeGreaterThan(0);
+  });
+
+  it('components/ui TEST importing bullmq does NOT error (ui tests exempt)', async () => {
+    const msgs = await restrictedMessages(
+      "import { Queue } from 'bullmq';\nexport const q = Queue;\n",
+      'src/components/ui/__tests__/x.test.tsx',
     );
     expect(msgs).toHaveLength(0);
   });

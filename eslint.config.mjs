@@ -38,6 +38,31 @@ const VERCEL_FORBIDDEN_RUNTIME_IMPORTS = [
   { group: ['**/worker/queues', '**/worker/queues*'], allowTypeImports: true, message: invariantOne('the worker queue registry') },
 ];
 
+// no-restricted-imports is BLIND to dynamic import() — `await import('openai')`
+// slips past the static bans above. These no-restricted-syntax selectors close
+// that hole for the same modules. Dynamic import() is always runtime, so there
+// is no allowTypeImports concern. Like no-restricted-imports, no-restricted-syntax
+// does NOT merge across flat-config objects — each entry-surface zone restates
+// what it wants (the guard test proves the resolved bans fire).
+const VERCEL_FORBIDDEN_DYNAMIC_IMPORTS = [
+  { selector: "ImportExpression[source.value=/^openai(\\/|$)/]", message: invariantOne('the OpenAI SDK') },
+  { selector: "ImportExpression[source.value=/^@anthropic-ai\\/sdk(\\/|$)/]", message: invariantOne('the Anthropic SDK') },
+  { selector: "ImportExpression[source.value=/^bullmq(\\/|$)/]", message: invariantOne('BullMQ') },
+  { selector: "ImportExpression[source.value=/^postgres(\\/|$)/]", message: invariantOne('the Postgres.js client') },
+  { selector: "ImportExpression[source.value=/(^|\\/)responses\\/generator/]", message: invariantOne('the LLM response generator') },
+  { selector: "ImportExpression[source.value=/(^|\\/)worker\\/queues/]", message: invariantOne('the worker queue registry') },
+];
+
+// The existing dynamic @/app ban, extracted so the entry-surface zones that set
+// their own no-restricted-syntax can RESTATE it (otherwise the no-merge footgun
+// would silently drop the non-route zone's dynamic @/app ban for those files).
+const APP_LEAF_DYNAMIC_IMPORT_BAN = {
+  selector: "ImportExpression[source.value=/^@\\/app\\//]",
+  message:
+    'Route leaves (app/**) are terminal — non-route code must not dynamically import from app/. ' +
+    'Move shared code into components/<domain> or lib/<domain>.',
+};
+
 /**
  * Flat-config replacement for the legacy `.eslintrc.json` (`extends:
  * next/core-web-vitals`). ESLint 10 dropped eslintrc support and Next 16
@@ -148,8 +173,10 @@ const config = [
     // lib/shared allowed), no app/**, no domain components — AND (invariant #1)
     // no worker-only runtime imports. Switched to @typescript-eslint/no-restricted-imports
     // for allowTypeImports; base rule off so there is exactly one restricted-imports
-    // rule for these files. Restates inherited bans (no-merge footgun).
+    // rule for these files. Restates inherited bans (no-merge footgun). Tests are
+    // exempt (they don't ship to Vercel) — matching the other entry-surface zones.
     files: ['src/components/ui/**/*.{ts,tsx}'],
+    ignores: ['**/__tests__/**', '**/*.test.{ts,tsx}'],
     rules: {
       'no-restricted-imports': 'off',
       '@typescript-eslint/no-restricted-imports': ['error', {
@@ -173,6 +200,9 @@ const config = [
           ...VERCEL_FORBIDDEN_RUNTIME_IMPORTS,
         ],
       }],
+      // This zone is the last matcher of no-restricted-syntax for ui source files,
+      // so restate the dynamic @/app ban (else it is dropped) + the dynamic SDK bans.
+      'no-restricted-syntax': ['error', APP_LEAF_DYNAMIC_IMPORT_BAN, ...VERCEL_FORBIDDEN_DYNAMIC_IMPORTS],
     },
   },
   {
@@ -190,6 +220,10 @@ const config = [
       '@typescript-eslint/no-restricted-imports': ['error', {
         patterns: [PARENT_TRAVERSAL_BAN, ...VERCEL_FORBIDDEN_RUNTIME_IMPORTS],
       }],
+      // Dynamic SDK bans only — NO dynamic @/app ban (app/** siblings may import
+      // each other, consistent with the static side). app/** is exempt from the
+      // non-route zone, so this zone is the sole no-restricted-syntax setter here.
+      'no-restricted-syntax': ['error', ...VERCEL_FORBIDDEN_DYNAMIC_IMPORTS],
     },
   },
   {
@@ -208,6 +242,10 @@ const config = [
       '@typescript-eslint/no-restricted-imports': ['error', {
         patterns: [PARENT_TRAVERSAL_BAN, APP_LEAF_IMPORT_BAN, ...VERCEL_FORBIDDEN_RUNTIME_IMPORTS],
       }],
+      // This zone is now the last matcher of no-restricted-syntax for these files,
+      // so it CLOBBERS the non-route zone's dynamic @/app ban — restate it here +
+      // add the dynamic SDK bans.
+      'no-restricted-syntax': ['error', APP_LEAF_DYNAMIC_IMPORT_BAN, ...VERCEL_FORBIDDEN_DYNAMIC_IMPORTS],
     },
   },
 ];
