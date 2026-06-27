@@ -47,7 +47,7 @@ describe('ReviewsContent', () => {
 
   it('renders the AggregateReviewsCard for aggregate data', () => {
     useDashboardDataMock.mockReturnValue({
-      data: { scope: 'aggregate', recentReviews: [], isReadOnly: false },
+      data: { scope: 'aggregate', recentReviews: [], isReadOnly: false, locationKpis: [] },
       error: null,
       loading: false,
       refresh: vi.fn(),

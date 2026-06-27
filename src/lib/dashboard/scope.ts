@@ -42,7 +42,7 @@ export function perLocationActive(data: DashboardPayload): DashboardDataActive |
 export function authoritativePendingCount(data: DashboardPayload | null): number {
   if (!data) return 0;
   if (isAggregate(data)) {
-    return (data.locationKpis ?? []).reduce((sum, kpi) => sum + kpi.pendingApprovalCount, 0);
+    return data.locationKpis.reduce((sum, kpi) => sum + kpi.pendingApprovalCount, 0);
   }
   const active = perLocationActive(data);
   if (!active) return 0;
