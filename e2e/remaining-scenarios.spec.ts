@@ -28,9 +28,6 @@ const REVIEW_HIST = '701f8903-b65f-40bd-926b-d004d0bcc16e'; // 2023-08-27 histor
 const DB_URL = E2E_DATABASE_URL;
 
 // ─── psql helper ─────────────────────────────────────────────────────────────
-function psql(sql: string): string {
-  return execSync(`psql "${DB_URL}" -c "${sql.replace(/"/g, '\\"')}" --tuples-only --no-align 2>&1`).toString().trim();
-}
 function psqlRaw(sql: string): string {
   return execSync(`psql "${DB_URL}" << 'SQLEOF'\n${sql}\nSQLEOF`, { shell: '/bin/bash' }).toString().trim();
 }

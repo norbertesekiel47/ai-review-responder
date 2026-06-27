@@ -24,10 +24,8 @@ describe('applyIngestionAuthErrorFallback', () => {
       return arr;
     };
 
-    let txCallIdx = 0;
     const tx = vi.fn((_strings: TemplateStringsArray, ...args: unknown[]) => {
       txCalls.push({ args, returnValue: null });
-      txCallIdx += 1;
       // Return updated.count=1 on the first UPDATE call; count=1 on insert.
       return Promise.resolve(mkTaggedResult(1));
     });

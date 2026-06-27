@@ -29,7 +29,6 @@ const {
   mockBuildZernioMonitoredReview,
   mockExtractLocationFromReviewName,
 } = vi.hoisted(() => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mockSqlA: any = vi.fn(
     (_strings: TemplateStringsArray, ..._values: unknown[]): Promise<unknown[]> =>
       Promise.resolve([]),

@@ -56,7 +56,7 @@ describe('approval link resolution chain', () => {
       [{ account_id: 'acc-001', display_label: 'Downtown Cafe', name: 'Acme Inc', archived_at: null }],
     ];
 
-    const mockTx = {
+    const _mockTx = {
       query: vi.fn(),
     } as unknown;
 
@@ -146,7 +146,7 @@ describe('no callback-mode SMS approval path exists', () => {
     // The callback-mode module only supports Telegram and WhatsApp button taps,
     // not SMS reply-to-approve. We verify by checking the types.
 
-    const types = await import('@/lib/approval/types');
+    const _types = await import('@/lib/approval/types');
     // CallbackApprovalInput.viaChannel is 'telegram' | 'whatsapp' — no 'sms'
     type ViaChannel = 'telegram' | 'whatsapp';
     const validChannels: ViaChannel[] = ['telegram', 'whatsapp'];

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRoleOr401 } from '@/lib/auth/route-helpers';
-import { computeChurnRiskScore, type ChurnScore } from '@/lib/shared/churn-score';
+import { computeChurnRiskScore } from '@/lib/shared/churn-score';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 

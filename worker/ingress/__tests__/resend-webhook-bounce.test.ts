@@ -27,7 +27,6 @@ import { resetWorkerConfigForTests } from '../../../src/lib/config/worker';
 // Cast through `any` because FastifyRequest has a generics-heavy type surface
 // that's awkward to satisfy from an ad-hoc test object. The handler only reads
 // .body, .headers, and .rawBody — the test mock supplies all three.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeReq(body: unknown, headers: Record<string, string | undefined> = {}): any {
   return {
     body,

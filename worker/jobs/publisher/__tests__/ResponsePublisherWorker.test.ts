@@ -10,7 +10,6 @@ import {
 } from '../../../../src/lib/zernio/errors';
 import {
   PublisherTransientWithContext,
-  ZernioReplyVerificationIndeterminateError,
 } from '../publisher-error-handlers';
 
 // ── Hoisted state shared between mock factories and tests ──────────────

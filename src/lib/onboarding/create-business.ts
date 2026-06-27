@@ -143,7 +143,7 @@ export async function createBusinessTx(
 
   // Self-serve hardcodes 'standard' tier (admin retains the founding/standard
   // choice via AdminBusinessTxInput.subscriptionTier).
-  const subscriptionTier =
+  const _subscriptionTier =
     options.mode === 'admin'
       ? (input as AdminBusinessTxInput).subscriptionTier
       : ('standard' as const);

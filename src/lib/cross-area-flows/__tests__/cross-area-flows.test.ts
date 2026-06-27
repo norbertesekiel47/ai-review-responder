@@ -10,8 +10,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createAccountRow,
   createLocationRow,
-  createChannelEnrollmentRow,
-  createAuditLogRow,
   createAccountWithLocations,
   resetFixtureCounters,
 } from '@/lib/__fixtures__/account-location';
@@ -55,10 +53,10 @@ vi.mock('@/lib/accounts/repo', () => ({
 }));
 
 // Import modules AFTER mocks are set up
-import { computeOverageQuantity, currentBillingSnapshot, assertCanAddLocation } from '@/lib/accounts/quota';
+import { currentBillingSnapshot, assertCanAddLocation } from '@/lib/accounts/quota';
 import { addLocationTransaction } from '@/lib/locations/add-location-tx';
 import { archiveLocationTransaction, assertCanArchiveLocation } from '@/lib/locations/archive-location-tx';
-import { resolveChannels, invalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { resolveChannels } from '@/lib/notifications/resolve-channels';
 import { isAccountActive } from '@/lib/db/account-guard';
 import { parseCsv, validateRow, processRow, writeCsvImportAuditLog } from '@/lib/admin/csv-import';
 import { getActiveLocationCount, getLocationsForAccount, getLocationById } from '@/lib/locations/repo';
@@ -95,7 +93,7 @@ describe('VAL-CROSS-001: Signup-to-multi-location end-to-end', () => {
       subscription_status: SubscriptionStatus.PENDING_PAYMENT,
       locations_paid: 0,
     });
-    const primaryLocation = createLocationRow({
+    const _primaryLocation = createLocationRow({
       account_id: account.id,
       is_primary: true,
       name: 'Downtown Cafe',
@@ -291,7 +289,7 @@ describe('VAL-CROSS-003: Switcher + approval attribution', () => {
       { subscription_tier: SubscriptionTier.STANDARD, subscription_status: SubscriptionStatus.ACTIVE },
       2,
     );
-    const locA = locations[0]!;
+    const _locA = locations[0]!;
     const locB = locations[1]!;
 
     // Verify getLocationContext returns the correct location
@@ -378,7 +376,7 @@ describe('VAL-CROSS-005: Archive mid-flow', () => {
       { subscription_tier: SubscriptionTier.STANDARD, subscription_status: SubscriptionStatus.ACTIVE },
       2,
     );
-    const locA = locations[0]!;
+    const _locA = locations[0]!;
     const locB = locations[1]!;
 
     // Step 1: Verify archive guard allows archiving locB (non-primary, not last)
@@ -573,7 +571,7 @@ describe('VAL-CROSS-008: Cookie persistence across sessions', () => {
       { subscription_tier: SubscriptionTier.STANDARD, subscription_status: SubscriptionStatus.ACTIVE },
       2,
     );
-    const locA = locations[0]!;
+    const _locA = locations[0]!;
     const locB = locations[1]!;
 
     // Simulate the getRequestScope helper reading the cookie

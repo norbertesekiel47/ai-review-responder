@@ -25,7 +25,6 @@ vi.mock('../../../../src/lib/publishing/zernio-publisher', () => ({
 import { verifyOwnReplyAttached } from '../verify-posted';
 import {
   PublisherTransientWithContext,
-  ZernioReplyVerificationIndeterminateError,
 } from '../publisher-error-handlers';
 import { ZernioTransientError } from '../../../../src/lib/zernio/errors';
 

@@ -105,7 +105,7 @@ function installSessionClaimSimulators() {
 // ── Helpers ─────────────────────────────────────────────────────────
 
 const BUSINESS_ID = '01234567-0000-0000-0000-000000000001';
-const OTHER_BUSINESS_ID = '01234567-0000-0000-0000-000000000099';
+const _OTHER_BUSINESS_ID = '01234567-0000-0000-0000-000000000099';
 const ACCOUNT_ID = 'a0000000-0000-0000-0000-000000000001';
 const REVIEW_ID = 'rev-001';
 const RESPONSE_ID = 'resp-001';

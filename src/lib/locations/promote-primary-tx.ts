@@ -37,7 +37,6 @@
 
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
-import type { AccountId, LocationId } from '@/lib/shared/ids';
 
 // ── Input / Output types ───────────────────────────────────────────────────
 

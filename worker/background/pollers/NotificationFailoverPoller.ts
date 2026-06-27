@@ -2,7 +2,6 @@ import { v7 as uuidv7 } from 'uuid';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import { sendInternalEmail } from '../../../src/lib/notifications/email';
-import { recordNotificationDelivery } from '../../../src/lib/notifications/delivery';
 import { escapeHtml } from '../../../src/lib/shared/html';
 import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 import type { SendNotificationPayload } from '../../../src/lib/shared/worker-types';

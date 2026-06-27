@@ -8,7 +8,6 @@ const {
   mockRequireCurrentAal2FromSupabase,
   mockCheckRateLimit,
   mockSql,
-  mockTx,
   txCalls,
 } = vi.hoisted(() => {
   const txCalls: { text: string; values: unknown[] }[] = [];

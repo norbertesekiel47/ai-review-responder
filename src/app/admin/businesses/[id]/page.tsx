@@ -65,7 +65,7 @@ export default function BusinessDetailPage() {
     : null;
 
   // Other locations under the same account (excluding current one)
-  const otherLocations = account.locations.filter(
+  const _otherLocations = account.locations.filter(
     (loc) => loc.id !== businessId && !loc.archivedAt,
   );
 

@@ -8,7 +8,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { sql } from '@/lib/db/server';
 import { updateDisplayLabel } from '@/lib/locations/update-display-label';
 import { jsonResponse, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';

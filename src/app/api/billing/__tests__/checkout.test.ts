@@ -293,7 +293,7 @@ describe('POST /api/billing/checkout', () => {
     });
 
     const req = mkRequest({ accountId: ACCOUNT_ID });
-    const res = await POST(req);
+    const _res = await POST(req);
 
     const createArgs = mockStripeCheckoutCreate.mock.calls[0]![0];
     expect(createArgs.line_items).toHaveLength(2);
@@ -359,7 +359,7 @@ describe('POST /api/billing/checkout', () => {
     });
 
     const req = mkRequest({ accountId: ACCOUNT_ID });
-    const res = await POST(req);
+    const _res = await POST(req);
 
     const createArgs = mockStripeCheckoutCreate.mock.calls[0]![0];
     expect(
@@ -381,7 +381,7 @@ describe('POST /api/billing/checkout', () => {
     mockSql.mockResolvedValueOnce([mockCheckoutUsageRow(1, 1)]);
 
     const req = mkRequest({ accountId: ACCOUNT_ID });
-    const res = await POST(req);
+    const _res = await POST(req);
 
     const createArgs = mockStripeCheckoutCreate.mock.calls[0]![0];
     expect(createArgs.line_items).toHaveLength(1);
@@ -407,7 +407,7 @@ describe('POST /api/billing/checkout', () => {
     });
 
     const req = mkRequest({ accountId: ACCOUNT_ID });
-    const res = await POST(req);
+    const _res = await POST(req);
 
     const createArgs = mockStripeCheckoutCreate.mock.calls[0]![0];
     expect(createArgs.mode).toBe('subscription');
@@ -446,7 +446,7 @@ describe('POST /api/billing/checkout', () => {
     });
 
     const req = mkRequest({ accountId: ACCOUNT_ID });
-    const res = await POST(req);
+    const _res = await POST(req);
 
     const createArgs = mockStripeCheckoutCreate.mock.calls[0]![0];
     expect(createArgs.line_items[0].price).toBe('price_premium_test');
@@ -466,7 +466,7 @@ describe('POST /api/billing/checkout', () => {
     });
 
     const req = mkRequest({ accountId: ACCOUNT_ID });
-    const res = await POST(req);
+    const _res = await POST(req);
 
     const createArgs = mockStripeCheckoutCreate.mock.calls[0]![0];
     expect(createArgs.line_items[0].price).toBe('price_founding_test');

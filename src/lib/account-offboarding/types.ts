@@ -1,6 +1,8 @@
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- runtime array backs the exported typeof-derived union (and satisfies subset checks); value is intentionally type-only here
 const ACCOUNT_OFFBOARDING_MODES = ['cancel_only', 'delete_data'] as const;
 export type AccountOffboardingMode = (typeof ACCOUNT_OFFBOARDING_MODES)[number];
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- runtime array backs the exported typeof-derived union (and satisfies subset checks); value is intentionally type-only here
 const ACCOUNT_OFFBOARDING_STATUSES = [
   'pending',
   'scheduled',
@@ -14,6 +16,7 @@ const ACCOUNT_OFFBOARDING_STATUSES = [
 export type AccountOffboardingStatus =
   (typeof ACCOUNT_OFFBOARDING_STATUSES)[number];
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- runtime array backs the exported typeof-derived union (and satisfies subset checks); value is intentionally type-only here
 const ACCOUNT_OFFBOARDING_TERMINAL_STATUSES = [
   'purged',
   'churned',
@@ -22,6 +25,7 @@ const ACCOUNT_OFFBOARDING_TERMINAL_STATUSES = [
 export type AccountOffboardingTerminalStatus =
   (typeof ACCOUNT_OFFBOARDING_TERMINAL_STATUSES)[number];
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- runtime array backs the exported typeof-derived union (and satisfies subset checks); value is intentionally type-only here
 const ACCOUNT_OFFBOARDING_ACTIVE_STATUSES = [
   'pending',
   'scheduled',
@@ -32,6 +36,7 @@ const ACCOUNT_OFFBOARDING_ACTIVE_STATUSES = [
 export type AccountOffboardingActiveStatus =
   (typeof ACCOUNT_OFFBOARDING_ACTIVE_STATUSES)[number];
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- runtime array backs the exported typeof-derived union (and satisfies subset checks); value is intentionally type-only here
 const ACCOUNT_OFFBOARDING_FAILED_STEPS = [
   'billing',
   'teardown',
@@ -40,6 +45,7 @@ const ACCOUNT_OFFBOARDING_FAILED_STEPS = [
 export type AccountOffboardingFailedStep =
   (typeof ACCOUNT_OFFBOARDING_FAILED_STEPS)[number];
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- runtime array backs the exported typeof-derived union (and satisfies subset checks); value is intentionally type-only here
 const ACCOUNT_OFFBOARDING_STEP_OUTCOMES = [
   'success',
   'failed',

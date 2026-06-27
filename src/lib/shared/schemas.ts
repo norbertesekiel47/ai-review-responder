@@ -245,7 +245,6 @@ export const SignupSchema = z.object({
   password: passwordSchema,
 });
 
-type SignupInput = z.infer<typeof SignupSchema>;
 
 // Google OAuth session provides email; collect name + phone only. Business
 // details are deferred to BusinessOnboardingSchema, same as password signup.
@@ -254,7 +253,6 @@ export const FinishSignupSchema = z.object({
   ownerPhone: ownerPhoneSchema.optional(),
 });
 
-type FinishSignupInput = z.infer<typeof FinishSignupSchema>;
 
 // Submitted by /onboarding/business after Stripe payment confirms.
 // Replaces the business-fields portion of the previous combined SignupSchema.
@@ -296,12 +294,10 @@ export const ForgotPasswordSchema = z.object({
   email: normalizedEmailSchema,
   role: z.enum(['owner', 'admin']),
 });
-type ForgotPasswordInput = z.infer<typeof ForgotPasswordSchema>;
 
 export const ResetPasswordSchema = z.object({
   password: passwordSchema,
 });
-type ResetPasswordInput = z.infer<typeof ResetPasswordSchema>;
 
 // Admin identities are provisioned manually via the Supabase dashboard with
 // `email_confirm: true` and never go through the confirmation-email flow, so
@@ -312,7 +308,6 @@ export const ResendConfirmationSchema = z.object({
   email: normalizedEmailSchema,
   flow: z.literal('owner'),
 });
-type ResendConfirmationInput = z.infer<typeof ResendConfirmationSchema>;
 
 /**
  * Canonical email OTP length — the SINGLE source of truth shared by the UI
@@ -348,7 +343,6 @@ export const VerifyEmailOtpSchema = z.object({
     .max(10, 'Code is too long')
     .regex(/^[A-Za-z0-9]+$/, 'Code must be alphanumeric'),
 });
-type VerifyEmailOtpInput = z.infer<typeof VerifyEmailOtpSchema>;
 
 // Plan selection on /onboarding/pay. Owner picks founders, basic, standard,
 // or premium; the route writes the choice to accounts.subscription_tier and
@@ -356,7 +350,6 @@ type VerifyEmailOtpInput = z.infer<typeof VerifyEmailOtpSchema>;
 export const SelectPlanSchema = z.object({
   tier: z.enum(['founders', 'basic', 'standard', 'premium']),
 });
-type SelectPlanInput = z.infer<typeof SelectPlanSchema>;
 
 /**
  * Tightened business name for pre-pay demo path.
@@ -410,7 +403,6 @@ export const OnboardingStartSchema = z
     },
   );
 
-type OnboardingStartInput = z.infer<typeof OnboardingStartSchema>;
 
 /**
  * POST /api/onboarding/business when ONBOARDING_DEMO_ENABLED=true.

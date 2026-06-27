@@ -6,7 +6,6 @@
 // Validation contract: VAL-BILLING-068, VAL-BILLING-069.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 import { getOffboardingState, isBillingManagementBlocked } from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';

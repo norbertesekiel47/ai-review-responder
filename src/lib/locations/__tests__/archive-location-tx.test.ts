@@ -437,7 +437,7 @@ describe('archiveLocationTransaction', () => {
 
   // VAL-LOC-043: If any step fails, all rollback
   it('rolls back entire transaction if any step fails', async () => {
-    mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => {
+    mockSql.begin = vi.fn(async (_cb: (tx: any) => Promise<unknown>) => {
       throw new Error('outbox INSERT failed: constraint violation');
     });
 

@@ -13,7 +13,7 @@
     "prebuild": "tsx scripts/prebuild-assert-client-config.ts",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint src",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

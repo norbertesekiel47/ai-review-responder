@@ -6,7 +6,7 @@ import { act, render, screen } from '@testing-library/react';
 import { createElement as h } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
-import { LocationProvider, type LocationInfo } from '@/contexts/LocationContext';
+import { LocationProvider } from '@/contexts/LocationContext';
 import type { LocationId } from '@/lib/shared/ids';
 
 vi.mock('next/navigation', () => ({

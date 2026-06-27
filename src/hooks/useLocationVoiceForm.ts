@@ -11,7 +11,6 @@
 // VAL-SETTINGS-036: Voice tab for single-location account.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getDisplayLabel, type HasDisplayLabelCamelCase } from '@/lib/locations/display-label';
 
 // ── Types ────────────────────────────────────────────────────────────────
 

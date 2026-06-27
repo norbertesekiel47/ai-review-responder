@@ -27,7 +27,7 @@ export interface MonthlyImpactEmailParams {
 export function buildMonthlyImpactEmailHtml(params: MonthlyImpactEmailParams): string {
   const {
     businessName, monthLabel,
-    totalReviews, totalResponded, responseRate,
+    totalResponded, responseRate,
     baselineResponseRate, timeSavedMinutes,
     intelligenceBrief, ranking, bestReview, dashboardUrl,
   } = params;

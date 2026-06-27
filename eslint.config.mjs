@@ -19,6 +19,19 @@ const config = [
   },
   ...nextCoreWebVitals,
   {
+    // #269: dead imports/vars survived CI because no unused rule existed
+    // anywhere (only react/jsx-no-undef). Enable the @typescript-eslint rule
+    // (resolves via eslint-config-next — no new dependency). `^_` opts a binding
+    // out (args, locals, caught errors) when it is intentionally unused.
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+        caughtErrorsIgnorePattern: '^_',
+      }],
+    },
+  },
+  {
     // Pin the React version so eslint-plugin-react skips runtime detection,
     // which calls the `context.getFilename()` API that ESLint 10 removed.
     settings: { react: { version: '19.2.6' } },
