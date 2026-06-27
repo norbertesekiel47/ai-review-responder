@@ -22,6 +22,7 @@ import {
 } from '../../jobs/zernio/zernio-ingest-shared';
 import type { ZernioReview } from '../../../src/lib/zernio/types';
 import { createWorkerLogger, type WorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import { withTimeout } from '../../../src/lib/shared/with-timeout';
 
 const LOG_PREFIX = '[ZernioRecentReviewPoller]';
 const DEFAULT_INTERVAL_MS = 5 * 60_000;
@@ -461,12 +462,26 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
   return result;
 }
 
-async function poll(): Promise<void> {
+// Watchdog buffer added on top of the per-cycle dispatch deadline. A hung DB
+// await inside runOnce — a stale pooled connection where the server-side
+// statement_timeout never fires on a black-hole socket — would otherwise leave
+// runOnce pending forever, pin isPolling=true, and silently disable every future
+// tick (the exact failure mode HealthAlertPoller / StripeLocationsReconcilePoller
+// already guard with withTimeout). The watchdog sits ABOVE the legitimate max
+// cycle (dispatch deadline + the in-flight connection drain that runs past it) so
+// it never aborts real work — only a true hang trips it, falls to the catch
+// (logs + resets isPolling), and the next tick recovers.
+const POLL_CYCLE_WATCHDOG_BUFFER_MS = 120_000;
+
+export async function poll(): Promise<void> {
   if (isPolling) return;
   isPolling = true;
   const logger = createWorkerLogger(LOG_PREFIX);
+  const watchdogMs =
+    readPositiveInt('ZERNIO_RECENT_REVIEW_POLL_DEADLINE_MS', DEFAULT_CYCLE_DEADLINE_MS) +
+    POLL_CYCLE_WATCHDOG_BUFFER_MS;
   try {
-    const result = await runOnce();
+    const result = await withTimeout(runOnce(), watchdogMs, 'zernio-recent-review-poll');
     if (
       result.reviewsProcessed > 0 ||
       result.reviewsReconciled > 0 ||
