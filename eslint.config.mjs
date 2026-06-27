@@ -1,5 +1,43 @@
 import nextCoreWebVitals from 'eslint-config-next/core-web-vitals';
 
+// --- Reusable no-restricted-imports patterns (single source of truth) -------
+// no-restricted-imports does NOT merge `patterns` across flat-config objects;
+// each zone restates the bans it wants. Defining the patterns once here keeps
+// the restatements honest. The guard test (src/__tests__/eslint-boundaries.test.ts)
+// proves the *resolved* bans fire and don't over-fire.
+const PARENT_TRAVERSAL_BAN = {
+  regex: '^\\.\\./\\.\\.(?!.*/(worker|scripts)/)',
+  message: 'No ../.. parent-traversal for src-internal imports — use @/ path aliases.',
+};
+
+const APP_LEAF_IMPORT_BAN = {
+  group: ['@/app/*', '@/app/**'],
+  message:
+    'Route leaves (app/**) are terminal — non-route code must not import from app/. ' +
+    'Move shared code into components/<domain> or lib/<domain>.',
+};
+
+// Invariant #1 (Vercel = UI only): the entry surface (app/**, components/**,
+// instrumentation) must never RUNTIME-import worker-only modules. `import type`
+// stays allowed (allowTypeImports) so shared DTOs are unaffected.
+const invariantOne = (subject) =>
+  `Invariant #1 (Vercel = UI only): ${subject} is worker-only — Next.js routes/` +
+  'components must not runtime-import it. Move LLM/queue/DB work to a Railway ' +
+  'worker; a type-only `import type` is allowed. See .claude/CLAUDE.md invariant #1.';
+
+const VERCEL_FORBIDDEN_RUNTIME_IMPORTS = [
+  { group: ['openai', 'openai/*'], allowTypeImports: true, message: invariantOne('the OpenAI SDK') },
+  { group: ['@anthropic-ai/sdk', '@anthropic-ai/sdk/*'], allowTypeImports: true, message: invariantOne('the Anthropic SDK') },
+  { group: ['bullmq', 'bullmq/*'], allowTypeImports: true, message: invariantOne('BullMQ') },
+  { group: ['postgres', 'postgres/*'], allowTypeImports: true, message: invariantOne('the Postgres.js client') },
+  {
+    group: ['**/responses/generator', '**/responses/generator*', '@/lib/responses/generator', '@/lib/responses/generator*'],
+    allowTypeImports: true,
+    message: invariantOne('the LLM response generator'),
+  },
+  { group: ['**/worker/queues', '**/worker/queues*'], allowTypeImports: true, message: invariantOne('the worker queue registry') },
+];
+
 /**
  * Flat-config replacement for the legacy `.eslintrc.json` (`extends:
  * next/core-web-vitals`). ESLint 10 dropped eslintrc support and Next 16
@@ -107,16 +145,16 @@ const config = [
   },
   {
     // components/ui/** are domain-agnostic primitives: no lib/<domain> (lib/ui +
-    // lib/shared allowed), no app/**, no domain components. Restates the above.
+    // lib/shared allowed), no app/**, no domain components — AND (invariant #1)
+    // no worker-only runtime imports. Switched to @typescript-eslint/no-restricted-imports
+    // for allowTypeImports; base rule off so there is exactly one restricted-imports
+    // rule for these files. Restates inherited bans (no-merge footgun).
     files: ['src/components/ui/**/*.{ts,tsx}'],
     rules: {
-      'no-restricted-imports': ['error', {
+      'no-restricted-imports': 'off',
+      '@typescript-eslint/no-restricted-imports': ['error', {
         patterns: [
-          {
-            regex: '^\\.\\./\\.\\.(?!.*/(worker|scripts)/)',
-            message:
-              'No ../.. parent-traversal for src-internal imports — use @/ path aliases.',
-          },
+          PARENT_TRAVERSAL_BAN,
           {
             regex: '^@/lib/(?!ui/|shared/)',
             message:
@@ -132,7 +170,43 @@ const config = [
             message:
               'components/ui must not import domain components — only other components/ui primitives.',
           },
+          ...VERCEL_FORBIDDEN_RUNTIME_IMPORTS,
         ],
+      }],
+    },
+  },
+  {
+    // Invariant #1 entry surface — app routes + instrumentation (run on Vercel).
+    // No @/app ban here: app/** siblings may import each other (preserved from
+    // the non-route zone, which ignores app/**). Base rule off; restate the
+    // parent-traversal ban (no-merge footgun) so it is not dropped. Tests are
+    // exempt (they don't ship to Vercel and legitimately import route handlers /
+    // worker helpers under test) — matching the non-route zone's exemption; the
+    // ../.. ban still reaches them via the base src/** zone.
+    files: ['src/app/**/*.{ts,tsx}', 'src/instrumentation.ts'],
+    ignores: ['**/__tests__/**', '**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': 'off',
+      '@typescript-eslint/no-restricted-imports': ['error', {
+        patterns: [PARENT_TRAVERSAL_BAN, ...VERCEL_FORBIDDEN_RUNTIME_IMPORTS],
+      }],
+    },
+  },
+  {
+    // Invariant #1 entry surface — domain components (ui handled by its own zone
+    // above, so excluded here). Restates parent-traversal + @/app bans (the
+    // non-route zone is no longer the last matcher for these files) plus the
+    // worker-only runtime bans. The dynamic-import @/app ban (no-restricted-syntax)
+    // is a different rule and is NOT clobbered — it persists from the non-route zone.
+    // Tests are exempt (they don't ship and legitimately import route handlers
+    // under test) — matching the non-route zone; the ../.. ban still reaches them
+    // via the base src/** zone.
+    files: ['src/components/**/*.{ts,tsx}'],
+    ignores: ['src/components/ui/**', '**/__tests__/**', '**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': 'off',
+      '@typescript-eslint/no-restricted-imports': ['error', {
+        patterns: [PARENT_TRAVERSAL_BAN, APP_LEAF_IMPORT_BAN, ...VERCEL_FORBIDDEN_RUNTIME_IMPORTS],
       }],
     },
   },
