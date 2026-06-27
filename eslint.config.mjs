@@ -1,4 +1,16 @@
+import { includeIgnoreFile } from '@eslint/compat';
+import { fileURLToPath } from 'node:url';
 import nextCoreWebVitals from 'eslint-config-next/core-web-vitals';
+
+// Make ESLint's lint surface match git's tracked surface (== what CI lints).
+// eslint-config-next 16 + ESLint 10 HARD-CRASH on any non-TS source file
+// (`scopeManager.addGlobals is not a function`; see the `**/*.mjs` ignore note
+// below), and the tracked tree is 100% TS so CI never trips it. But flat config
+// does NOT honour .gitignore by default, so locally `eslint .` reaches gitignored
+// scratch/tool artifacts (.understand-anything/**, .tmp-design/**, stray scripts)
+// — .js/.jsx ones crash, others diverge from CI. Deriving ignores from the one
+// authoritative source (.gitignore) keeps local == CI and is future-proof.
+const gitignorePath = fileURLToPath(new URL('.gitignore', import.meta.url));
 
 // --- Reusable no-restricted-imports patterns (single source of truth) -------
 // no-restricted-imports does NOT merge `patterns` across flat-config objects;
@@ -71,6 +83,9 @@ const APP_LEAF_DYNAMIC_IMPORT_BAN = {
  * ships a ready-made flat-config array, so we just spread it.
  */
 const config = [
+  // Derived ignores: everything in .gitignore (node_modules, build output, and
+  // local-only scratch/tool artifacts). Single source of truth — see header.
+  includeIgnoreFile(gitignorePath, 'Imported .gitignore patterns'),
   {
     // `**/*.mjs` is excluded: eslint-config-next's globals handling calls
     // `scopeManager.addGlobals`, which ESLint 10 removed, so it hard-crashes on
@@ -86,6 +101,16 @@ const config = [
     // anywhere (only react/jsx-no-undef). Enable the @typescript-eslint rule
     // (resolves via eslint-config-next — no new dependency). `^_` opts a binding
     // out (args, locals, caught errors) when it is intentionally unused.
+    //
+    // `files` is load-bearing, not cosmetic: eslint-config-next registers the
+    // `@typescript-eslint` plugin ONLY for `**/*.{ts,tsx}`. A flat-config object
+    // that references a plugin rule must be scoped to files where that plugin is
+    // registered — otherwise ESLint hits a `.js/.jsx` file (e.g. a gitignored
+    // scratch file locally), finds the rule but not the plugin, and HARD-CRASHES
+    // config resolution ("could not find plugin @typescript-eslint"). CI never
+    // tripped this only because the tracked tree is 100% TS. Keep this scope in
+    // lockstep with config-next's TS plugin registration.
+    files: ['**/*.ts', '**/*.tsx'],
     rules: {
       '@typescript-eslint/no-unused-vars': ['error', {
         argsIgnorePattern: '^_',
