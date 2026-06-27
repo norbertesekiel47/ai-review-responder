@@ -312,6 +312,24 @@ export async function handleDeleteError(
   if (err instanceof ZernioPermanentError) {
     // DELETE permanent failure (incl. inbox_addon_required). Sibling unchanged.
     const kind = err.kind ?? 'unknown';
+
+    // #355 Pass-1 instrumentation: surface the otherwise-lost Zernio 400 body
+    // on the delete_reply path. Sentry is off on staging, so this durable
+    // structured line is how the orchestrator captures `body.code` to decide
+    // the Pass-2 disposition. Zernio API error metadata (status/code/body) is
+    // NOT customer content; the body is bounded so a pathological payload can't
+    // bloat the log. Passed as an OBJECT arg so the analytics blocked-key
+    // sanitizer applies (string args are logged verbatim).
+    if (kind === 'http_400' && (err.meta as { endpointKind?: unknown }).endpointKind === 'delete_reply') {
+      const body = (err.meta as { body?: unknown }).body;
+      logger.warn('delete_reply_400_body', {
+        event: 'delete_reply_400_body',
+        status: (err.meta as { status?: unknown }).status,
+        code: (body as { code?: unknown } | null | undefined)?.code,
+        bodyPreview: JSON.stringify(body ?? null).slice(0, 500),
+      });
+    }
+
     const updated = await tx`
       UPDATE responses
       SET status = 'failed',
