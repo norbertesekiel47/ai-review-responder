@@ -1,35 +1,20 @@
 'use client';
 
-import { useEffect } from 'react';
-import Link from 'next/link';
 import type {
   DashboardData,
-  DashboardDataActive,
   DashboardDataPastDue,
-  AggregateDashboardData,
 } from '@/lib/dashboard/types';
-import type { DashboardOrAggregate } from '@/hooks/useDashboardData';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
+import { SubscriptionUnavailableCard } from '@/components/dashboard/shell/SubscriptionUnavailableCard';
 import { ReviewsCard } from '@/components/dashboard/reviews/ReviewsCard';
 import { AggregateReviewsCard } from '@/components/dashboard/aggregate/AggregateReviewsCard';
 import { ReviewsTabs } from '@/components/dashboard/reviews/ReviewsTabs';
 import { useDashboardData } from '@/hooks/useDashboardData';
+import { useSyncPendingCount } from '@/hooks/useSyncPendingCount';
 import { useLocationScope } from '@/contexts/LocationContext';
-import { useSetPendingCount } from '@/contexts/PendingCountContext';
-
-function isAggregate(data: DashboardOrAggregate): data is AggregateDashboardData {
-  return 'scope' in data && data.scope === 'aggregate';
-}
-
-/** Active (status undefined) and past_due both carry recentReviews. */
-function perLocationActive(data: DashboardOrAggregate): DashboardDataActive | null {
-  if (isAggregate(data)) return null;
-  const status = (data as DashboardData).subscriptionStatus;
-  if (status !== undefined && status !== SubscriptionStatus.PAST_DUE) return null;
-  return data as DashboardDataActive;
-}
+import { isAggregate, perLocationActive } from '@/lib/dashboard/scope';
 
 /**
  * /dashboard/reviews — the reviews action queue, moved off the dashboard
@@ -44,19 +29,7 @@ interface ReviewsContentProps {
 export function ReviewsContent({ historyEnabled }: ReviewsContentProps) {
   const { currentScope } = useLocationScope();
   const { data, error, loading, refresh } = useDashboardData(currentScope);
-  const setPendingCount = useSetPendingCount();
-
-  const pending =
-    data && !loading
-      ? (isAggregate(data)
-          ? data.recentReviews
-          : (perLocationActive(data)?.recentReviews ?? [])
-        ).filter((r) => (r.responseStatus ?? r.status) === 'pending_approval').length
-      : 0;
-
-  useEffect(() => {
-    setPendingCount(pending);
-  }, [pending, setPendingCount]);
+  useSyncPendingCount(data, loading);
 
   if (loading || !data) {
     return (
@@ -115,20 +88,11 @@ export function ReviewsContent({ historyEnabled }: ReviewsContentProps) {
   const active = perLocationActive(data);
   if (!active) {
     return (
-      <>
-        <TopBar title="Reviews" />
-        <div className="content">
-          <div className="card">
-            <h2 className="card-h2">Reviews aren&apos;t available right now</h2>
-            <p style={{ fontSize: 14, color: 'var(--rw-app-text-muted)', marginTop: 6, lineHeight: 1.5 }}>
-              Your account needs an active subscription to review drafts.{' '}
-              <Link href="/dashboard" style={{ color: 'var(--rw-sage-deep)', fontWeight: 600 }}>
-                Back to dashboard
-              </Link>
-            </p>
-          </div>
-        </div>
-      </>
+      <SubscriptionUnavailableCard
+        topBarTitle="Reviews"
+        heading="Reviews aren't available right now"
+        body="Your account needs an active subscription to review drafts."
+      />
     );
   }
 
