@@ -64,4 +64,37 @@ describe('handleDeleteError — http_400 / delete_reply instrumentation (Pass 1)
     expect(outcome).toEqual({ kind: 'permanent_failed' });
     expect(capturedLogText(logger)).not.toContain('delete_reply_400_body');
   });
+
+  it('does not emit the instrumentation for a 400 on a non-delete_reply endpoint', async () => {
+    const logger = mkLogger();
+    const tx = mkTxReturning(1);
+    const err = new ZernioPermanentError('http_400', {
+      status: 400,
+      body: { code: 'some_test_code' },
+      endpointKind: 'publish_reply',
+    });
+
+    const outcome = await handleDeleteError(tx, err, mkArgs(logger));
+
+    expect(outcome).toEqual({ kind: 'permanent_failed' });
+    expect(capturedLogText(logger)).not.toContain('delete_reply_400_body');
+  });
+
+  it('does not throw when the 400 body/code is absent (still returns permanent_failed)', async () => {
+    const logger = mkLogger();
+    const tx = mkTxReturning(1);
+    // delete_reply 400 with no `body` key at all — the instrumentation must
+    // tolerate a missing/degenerate payload and never let a logging read throw
+    // before the candidate row is marked failed.
+    const err = new ZernioPermanentError('http_400', {
+      status: 400,
+      endpointKind: 'delete_reply',
+    });
+
+    const outcome = await handleDeleteError(tx, err, mkArgs(logger));
+
+    expect(outcome).toEqual({ kind: 'permanent_failed' });
+    // Guard matched (delete_reply 400) so the line still fires — just with no code.
+    expect(capturedLogText(logger)).toContain('delete_reply_400_body');
+  });
 });

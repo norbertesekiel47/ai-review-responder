@@ -320,7 +320,7 @@ export async function handleDeleteError(
     // NOT customer content; the body is bounded so a pathological payload can't
     // bloat the log. Passed as an OBJECT arg so the analytics blocked-key
     // sanitizer applies (string args are logged verbatim).
-    if (kind === 'http_400' && (err.meta as { endpointKind?: unknown }).endpointKind === 'delete_reply') {
+    if (kind === 'http_400' && (err.meta as { endpointKind?: unknown } | null | undefined)?.endpointKind === 'delete_reply') {
       const body = (err.meta as { body?: unknown }).body;
       logger.warn('delete_reply_400_body', {
         event: 'delete_reply_400_body',
