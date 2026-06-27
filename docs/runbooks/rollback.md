@@ -112,9 +112,11 @@ To recover from a bad migration:
 3. **For bad data**, fix with a single explicit `BEGIN … COMMIT` transaction;
    account-status changes go through `writeAccountAuditLog` in the same tx
    (CLAUDE.md). Re-validate predicates with `SELECT … FOR UPDATE` before mutating.
-4. **For catastrophic data loss**, restore from Supabase backups / PITR
-   (`deployment-guide.md §12.5`): Supabase dashboard → Database → Backups.
-   Do **not** test-restore on the prod project.
+4. **For catastrophic data loss**, restore from Supabase backups / PITR — full
+   procedure (the safe clone-to-new-project drill vs. the destructive in-place
+   restore, plus integrity checks) in **`pitr-restore-drill.md`**. Never run an
+   in-place restore as a *test*: it rewinds and downs the named project — drill
+   via *Restore to a New Project* instead.
 
 Rule of thumb: a code rollback must never require a schema rollback. If it does,
 the migration wasn't expand/contract — fix forward.

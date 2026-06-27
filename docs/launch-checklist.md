@@ -14,14 +14,17 @@
 ## 🔴 Hard blockers — do not launch without these
 
 - [ ] **First PITR restore drill** (Spec 08) — PITR is *enabled* but has **never
-  been restored end-to-end**. Restore to a scratch DB, verify data integrity,
-  and **record the measured RTO** in `docs/runbooks/` (create a new restore
-  runbook). _Highest risk-reduction per hour of any item here._
-- [ ] **Email auth: DKIM + SPF + DMARC** (Spec 28) — verify the Resend sending
-  domain is authenticated and DMARC is at `p=reject`. The entire product hinges
-  on approval emails reaching the inbox; unauthenticated mail silently lands in
-  spam and breaks the core loop. _Likely already set via Resend domain
-  verification — confirm, don't assume._ (~10 min)
+  been restored end-to-end**. Runbook now exists:
+  `docs/runbooks/pitr-restore-drill.md`. Remaining: **run** the clone-to-new-project
+  drill, verify integrity, and **record the measured RTO** in that runbook's
+  results table. _Highest risk-reduction per hour of any item here._
+- [x] **Email auth: DKIM + SPF + DMARC** (Spec 28) — verified 2026-06-26: Resend
+  reports `repworth.net` **verified**; DKIM TXT at `resend._domainkey`, SPF
+  (`include:amazonses.com`) on `send.repworth.net`, DMARC published. _Follow-up
+  (non-blocking): DMARC is at `p=quarantine` — tighten to `p=reject` after clean
+  aggregate reports, and point `rua` at a RepWorth-owned mailbox._ The entire
+  product hinges on approval emails reaching the inbox; unauthenticated mail
+  silently lands in spam and breaks the core loop.
 - [ ] **Lawyer review of legal docs** (Spec 17) — ToS / Privacy Policy / AUP /
   DPA are live at `/legal/*` but **unreviewed**. `docs/legal/legal-review.md`
   is a placeholder. _Long lead time — start immediately, in parallel with

@@ -871,7 +871,7 @@ These are the items not covered above that I'd want to know before hitting deplo
 
 4. **Time zones for cron jobs.** Weekly digest fires Monday 8–9 AM **UTC**. Monthly impact fires the 1st 9–10 AM UTC. If the friend is in PST and you don't disable these (§10.6), he gets emails at midnight Sunday / 1 AM the 1st. Disabling is friendlier.
 
-5. **Backups.** Supabase free tier has 7 days of automatic daily backups. That's fine for a beta. Know how to restore (Supabase dashboard → Database → Backups). Do not test restore on the prod project.
+5. **Backups.** Supabase takes automatic daily physical backups (7 days on Pro); PITR is an add-on for to-the-second recovery. Restore procedure — the safe clone-to-new-project drill, the destructive in-place path, and integrity checks — is in **`pitr-restore-drill.md`**. Never run an in-place restore as a test on the prod project; drill via *Restore to a New Project*.
 
 6. **Cost ceiling for first month.** With one business, ~$10/mo of OpenAI + Anthropic + Resend. Set OpenAI hard limit at $20 in their dashboard — it caps spend at the API level even if our cost guard breaks.
 
