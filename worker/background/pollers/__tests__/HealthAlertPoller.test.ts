@@ -56,4 +56,20 @@ describe('pollHealthAlerts', () => {
     await expect(pollHealthAlerts()).resolves.toBeUndefined();
     expect(mockRecordProbeCheckIn).toHaveBeenCalledWith('error', expect.any(Number));
   });
+
+  // Regression: a hung runHealthChecks (stale pooled connection where server-side
+  // statement_timeout never fires) used to wedge the single-flight poller forever
+  // — no check-in ever sent. The withTimeout bound must trip and fall to the catch.
+  it('bounds a hung runHealthChecks instead of wedging, and records an error check-in', async () => {
+    vi.useFakeTimers();
+    try {
+      mockRunHealthChecks.mockReturnValueOnce(new Promise(() => {})); // never settles
+      const cycle = pollHealthAlerts();
+      await vi.advanceTimersByTimeAsync(30_000); // trip the withTimeout deadline
+      await expect(cycle).resolves.toBeUndefined();
+      expect(mockRecordProbeCheckIn).toHaveBeenCalledWith('error', expect.any(Number));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

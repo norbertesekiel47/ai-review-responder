@@ -8,11 +8,20 @@
 // a Sentry Cron check-in so the probe's own death is detected (dead-man switch).
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import { withTimeout } from '../../../src/lib/shared/with-timeout';
 import { notePollerActivity, maybeLogPollerHeartbeat } from '../poller-heartbeat';
 import { runHealthChecks } from './health-alert/checks';
 import { emitHealthFindings, recordProbeCheckIn } from './health-alert/emit';
 
 const LOG_PREFIX = '[HealthAlertPoller]';
+
+// A hung health-check query (e.g. a stale pooled connection where server-side
+// statement_timeout never fires) must not wedge the single-flight poller: without
+// a client-side bound, `runHealthChecks` hangs forever, `isPolling` stays true,
+// every later tick is skipped, and the probe stops checking in AND stops
+// detecting failures. On timeout the cycle falls to the catch (logs + 'error'
+// check-in + resets isPolling), so the next tick runs.
+const HEALTH_CHECK_TIMEOUT_MS = 30_000;
 
 // Read at runtime (NOT module top level — convention #4: never call
 // getWorkerConfig() at import). Worker env is immutable after boot, so this
@@ -30,7 +39,11 @@ export async function pollHealthAlerts(): Promise<void> {
   const logger = createWorkerLogger(LOG_PREFIX);
   const pollIntervalMs = readPollIntervalMs();
   try {
-    const findings = await runHealthChecks();
+    const findings = await withTimeout(
+      runHealthChecks(),
+      HEALTH_CHECK_TIMEOUT_MS,
+      'health-alert-checks',
+    );
     if (findings.length > 0) {
       emitHealthFindings(findings);
       notePollerActivity(LOG_PREFIX);
