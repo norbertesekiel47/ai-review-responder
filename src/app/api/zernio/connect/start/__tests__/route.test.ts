@@ -14,13 +14,16 @@ const {
   mockCreateProfile,
   mockStartConnect,
   mockDeleteProfile,
+  mockDeleteAccount,
   mockAccountRows,
   mockOrphanRows,
   mockEnqueueAnalyticsEvent,
 } = vi.hoisted(() => {
   const sqlCalls: Array<{ raw: string; values: unknown[] }> = [];
   // Disconnected-connection rows returned by the reconnect orphan-cleanup query.
-  const mockOrphanRows: { value: Array<{ zernio_profile_id: string }> } = { value: [] };
+  const mockOrphanRows: {
+    value: Array<{ zernio_account_id: string | null; zernio_profile_id: string }>;
+  } = { value: [] };
   const mockAccountRows: {
     value: Array<{
       subscription_status: string;
@@ -55,6 +58,7 @@ const {
       state: 'returned-state',
     })),
     mockDeleteProfile: vi.fn(async (_profileId: unknown) => undefined),
+    mockDeleteAccount: vi.fn(async (_accountId: unknown) => undefined),
     mockAccountRows,
     mockOrphanRows,
     mockEnqueueAnalyticsEvent: vi.fn(async () => undefined),
@@ -126,6 +130,7 @@ vi.mock('@/lib/zernio/client', () => ({
     createProfile: (input: unknown) => mockCreateProfile(input),
     startConnect: (input: unknown) => mockStartConnect(input),
     deleteProfile: (profileId: unknown) => mockDeleteProfile(profileId),
+    deleteAccount: (accountId: unknown) => mockDeleteAccount(accountId),
   },
 }));
 
@@ -255,28 +260,48 @@ describe('POST /api/zernio/connect/start location targeting', () => {
     expect(mockStartConnect).not.toHaveBeenCalled();
   });
 
-  it('deletes an orphaned Zernio profile from a prior disconnected connection BEFORE createProfile (reconnect self-heal)', async () => {
-    // A disconnected connection left an orphaned Zernio profile; its
-    // deterministic name would otherwise collide with createProfile → 400.
-    mockOrphanRows.value = [{ zernio_profile_id: 'orphan-profile-abc' }];
+  it('deletes the orphaned account THEN profile from a prior disconnected connection BEFORE createProfile (reconnect self-heal)', async () => {
+    // A disconnected connection left an orphaned Zernio account+profile; its
+    // deterministic name would otherwise collide with createProfile → 400. And
+    // Zernio refuses to delete a profile that still has a connected account, so
+    // the account must be deleted first.
+    mockOrphanRows.value = [
+      { zernio_account_id: 'orphan-account-abc', zernio_profile_id: 'orphan-profile-abc' },
+    ];
 
     const res = await POST(makeRequest({ locationId: SECONDARY_LOCATION_ID }));
 
     expect(res.status).toBe(200);
+    expect(mockDeleteAccount).toHaveBeenCalledWith('orphan-account-abc');
     expect(mockDeleteProfile).toHaveBeenCalledWith('orphan-profile-abc');
     expect(mockCreateProfile).toHaveBeenCalledWith({
       name: `test-profile-${SECONDARY_LOCATION_ID}`,
     });
-    // Cleanup must run BEFORE createProfile so the deterministic name is free.
+    // Order: account → profile (Zernio blocks profile delete while an account is
+    // connected) → createProfile (name now free).
+    expect(mockDeleteAccount.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockDeleteProfile.mock.invocationCallOrder[0]!,
+    );
     expect(mockDeleteProfile.mock.invocationCallOrder[0]!).toBeLessThan(
       mockCreateProfile.mock.invocationCallOrder[0]!,
     );
   });
 
-  it('does not delete any profile on a fresh connect with no orphaned connection', async () => {
+  it('skips account deletion when an orphaned row has no account, still deletes the profile', async () => {
+    mockOrphanRows.value = [{ zernio_account_id: null, zernio_profile_id: 'orphan-profile-xyz' }];
+
     const res = await POST(makeRequest({ locationId: SECONDARY_LOCATION_ID }));
 
     expect(res.status).toBe(200);
+    expect(mockDeleteAccount).not.toHaveBeenCalled();
+    expect(mockDeleteProfile).toHaveBeenCalledWith('orphan-profile-xyz');
+  });
+
+  it('does not delete any account or profile on a fresh connect with no orphaned connection', async () => {
+    const res = await POST(makeRequest({ locationId: SECONDARY_LOCATION_ID }));
+
+    expect(res.status).toBe(200);
+    expect(mockDeleteAccount).not.toHaveBeenCalled();
     expect(mockDeleteProfile).not.toHaveBeenCalled();
     expect(mockCreateProfile).toHaveBeenCalled();
   });

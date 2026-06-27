@@ -259,18 +259,33 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // leaves an orphaned Zernio profile whose name is deterministic
       // (`${ZERNIO_PROFILE_ID_PREFIX}${locationId}`), so the createProfile below
       // would collide → Zernio 400 and the owner can never reconnect (the
-      // `auth_error_on_post` → reconnect-400 loop). Best-effort delete the
-      // orphan(s) first so the name is free: a 404 (already gone) is fine and no
-      // orphan is a no-op. Cleaning up HERE (not in every disconnect path) keeps
-      // reconnect self-healing regardless of how the disconnect happened.
-      const orphanedProfiles = await sql<{ zernio_profile_id: string }[]>`
-        SELECT DISTINCT zernio_profile_id
+      // `auth_error_on_post` → reconnect-400 loop). Clean up the orphan(s) first
+      // so the name is free. Zernio REFUSES to delete a profile that still has a
+      // connected account ("Cannot delete profile with connected accounts"), so
+      // delete the account FIRST, then the profile. Both best-effort: a 404
+      // (already gone) is fine and no orphan is a no-op. Cleaning up HERE (not in
+      // every disconnect path) keeps reconnect self-healing regardless of how the
+      // disconnect happened.
+      const orphanedConnections = await sql<{
+        zernio_account_id: string | null;
+        zernio_profile_id: string;
+      }[]>`
+        SELECT DISTINCT zernio_account_id, zernio_profile_id
         FROM zernio_connections
         WHERE business_id = ${locationId}
           AND status = 'disconnected'
           AND zernio_profile_id IS NOT NULL
       `;
-      for (const orphan of orphanedProfiles) {
+      for (const orphan of orphanedConnections) {
+        if (orphan.zernio_account_id) {
+          await zernioClient.deleteAccount(orphan.zernio_account_id).catch((cleanupErr) => {
+            reportCaughtError('api/zernio/connect/start', cleanupErr, {
+              step: 'orphaned_account_cleanup',
+              accountId: orphan.zernio_account_id,
+              businessId: locationId,
+            });
+          });
+        }
         await zernioClient.deleteProfile(orphan.zernio_profile_id).catch((cleanupErr) => {
           reportCaughtError('api/zernio/connect/start', cleanupErr, {
             step: 'orphaned_profile_cleanup',
