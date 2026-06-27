@@ -43,13 +43,36 @@ repo** — the repo cannot prove them; the owner verifies them live.
   `NEXT_PUBLIC_*`.
 - Env-var reference: `.claude/reference/env-vars.md` (flag rows ~L400-407).
 
-## Live verification snapshot (owner/orchestrator fills via MCP)
+## Live verification snapshot
 
-> Intentionally empty. The owner/orchestrator appends the live-state read here
-> (Railway/Vercel env presence, Stripe price liveness, Meta/SerpAPI status) at
-> flip time. This is not a placeholder gap — it is the hand-off surface for the
-> live verification that cannot be done from the repo.
+> The owner/orchestrator appends live-state reads here at flip time. This is the
+> hand-off surface for verification that cannot be done from the repo.
 
-| Date | Flag | Live fact verified | Source (MCP) | Verifier | Result |
-|---|---|---|---|---|---|
-| | | | | | |
+### 2026-06-26 — worker-side (Railway) flag read
+
+Source: `railway variables` via the Railway CLI (project `repworth`), worker
+service `repworth-worker`, both environments. **Scope caveat:** these are the
+**worker (Railway)** env values. Flags whose authoritative consumer is the UI —
+`SELF_SERVE_SIGNUP_ENABLED`, `MFA_ENFORCEMENT_ENABLED`, `MULTI_LOCATION_ENABLED`
+(display) — are set on **Vercel**, which is NOT covered by this read; treat their
+prod UI state as **still unverified** (needs a `vercel env` read). Secrets were
+filtered out and never displayed.
+
+| Flag | Prod worker | Staging worker | Authoritative consumer | Note |
+|---|---|---|---|---|
+| `SELF_SERVE_SIGNUP_ENABLED` | unset → **off** | `true` | UI (Vercel) + worker | Prod UI state pending Vercel read; matches pre-GA (#288 era) |
+| `OPENAI_MODERATION_ENABLED` | unset → **off** | `true` | Worker | Worker-authoritative; prod confirmed OFF (local regex still runs, fail-open) |
+| `MFA_ENFORCEMENT_ENABLED` | unset → **off** | `false` | UI (Vercel) | Prod UI nav-redirect state pending Vercel read; AAL2 already hard-required at sensitive routes regardless |
+| `MULTI_LOCATION_ENABLED` | unset → **off** | `true` | UI (Vercel) + worker | Prod UI state pending Vercel read |
+| `CHANNELS_WHATSAPP_ENABLED` | unset → **off** | `true` | Worker (dispatch) + UI | Prod worker OFF — matches "not live"; this PR's #134 prep targets this |
+| `CHANNELS_TELEGRAM_ENABLED` | unset → **off** | `true` | Worker (dispatch) + UI | Prod worker OFF |
+| `RANKING_TRACKING_ENABLED` | unset → **off** | `false` | Worker | Worker-authoritative; OFF in both (1-keyword cap still in code) |
+
+Bonus GA-posture flags verified in the **prod worker** (same read):
+`ZERNIO_PUBLISHING_ENABLED` → **off**, `AUTO_APPROVAL_ENABLED` → **off**
+(matches invariant #3 default-off), `EDIT_REPLIES_ENABLED` → **off** (matches
+#355 blocked), `TRIAL_ENABLED` → **off**. Staging has all of these `true` for
+full-pipeline integration testing.
+
+**Verifier:** Claude (orchestrator), Railway CLI. **Still owner-to-verify:**
+Vercel UI-side prod flag state; Stripe price liveness; Meta/WABA/SerpAPI status.
