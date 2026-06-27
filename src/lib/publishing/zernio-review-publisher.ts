@@ -13,7 +13,14 @@
 
 import { sql } from '@/lib/db/server';
 import { zernioClient } from '@/lib/zernio/client';
-import { ZernioReviewNotFoundError, ZernioTransientError } from '@/lib/zernio/errors';
+import {
+  ZernioReviewNotFoundError,
+  ZernioTransientError,
+  ZernioAuthError,
+  ZernioPermanentError,
+  ZernioValidationError,
+} from '@/lib/zernio/errors';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import {
   getCachedZernioReviewPage,
   lookupZernioReviewId,
@@ -28,6 +35,40 @@ import type {
 
 /** Conservative cap on the verify walk when the page cache misses (4 pages × 50). */
 const MAX_VERIFY_PAGES = 4;
+
+/**
+ * Surface the raw Zernio failure of a reply post/delete to Sentry. Publish
+ * failures were previously invisible: the worker's retry-exhaustion fallback
+ * collapses every cause into a single `auth_error_on_post` disconnect with
+ * `last_error="BullMQ retries exhausted"`, discarding the actual Zernio status +
+ * body. Capturing the typed error's `status`/`body`/`kind`/`meta` here (the
+ * chokepoint where the raw error is still intact) makes publish failures
+ * diagnosable. Re-throws unchanged — pure observability, no behavior change.
+ */
+function captureZernioPublishFailure(
+  op: 'publishReply' | 'deleteReply',
+  err: unknown,
+  locator: ReviewLocator,
+): void {
+  const detail: Record<string, unknown> = {
+    op,
+    error_name: err instanceof Error ? err.name : typeof err,
+    account_id: locator.accountId,
+    location_id: locator.locationId,
+    provider_review_id: locator.providerReviewId,
+  };
+  if (err instanceof ZernioAuthError) {
+    detail.status = err.status;
+    detail.body = err.body;
+  } else if (err instanceof ZernioPermanentError || err instanceof ZernioTransientError) {
+    detail.kind = err.kind;
+    detail.meta = err.meta;
+  } else if (err instanceof ZernioValidationError) {
+    detail.code = err.code;
+    detail.body = err.body;
+  }
+  reportCaughtError('publishing/zernio-post-failure', err, detail);
+}
 
 interface ActiveConnectionRow {
   zernio_account_id: string;
@@ -77,13 +118,23 @@ export class ZernioReviewPublisher implements ReviewPublisher {
   }
 
   async publishReply(locator: ReviewLocator, replyText: string): Promise<void> {
-    await zernioClient.postReply(locator.accountId, locator.providerReviewId, {
-      comment: replyText,
-    });
+    try {
+      await zernioClient.postReply(locator.accountId, locator.providerReviewId, {
+        comment: replyText,
+      });
+    } catch (err) {
+      captureZernioPublishFailure('publishReply', err, locator);
+      throw err;
+    }
   }
 
   async deleteReply(locator: ReviewLocator): Promise<void> {
-    await zernioClient.deleteReply(locator.accountId, locator.providerReviewId);
+    try {
+      await zernioClient.deleteReply(locator.accountId, locator.providerReviewId);
+    } catch (err) {
+      captureZernioPublishFailure('deleteReply', err, locator);
+      throw err;
+    }
   }
 
   async findReply(locator: ReviewLocator): Promise<FindReplyResult> {
