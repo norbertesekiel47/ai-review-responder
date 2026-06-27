@@ -22,6 +22,7 @@ import {
 } from '../../jobs/zernio/zernio-ingest-shared';
 import type { ZernioReview } from '../../../src/lib/zernio/types';
 import { createWorkerLogger, type WorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import { withTimeout } from '../../../src/lib/shared/with-timeout';
 
 const LOG_PREFIX = '[ZernioRecentReviewPoller]';
 const DEFAULT_INTERVAL_MS = 5 * 60_000;
@@ -33,7 +34,13 @@ const DEFAULT_CONNECT_GRACE_MS = 5 * 60_000;
 // cycle can never run unbounded against the 5-minute interval.
 const DEFAULT_MAX_CONNECTIONS_PER_CYCLE = 100;
 const DEFAULT_FAN_OUT_CONCURRENCY = 3;
-const DEFAULT_CYCLE_DEADLINE_MS = 4 * 60_000;
+// Sized so the dispatch deadline plus the in-flight drain (and therefore the
+// poll-cycle watchdog = deadline + buffer, below) stays well under the poll
+// interval — a hung cycle then frees isPolling before the next tick, so recovery
+// costs one interval, not two. At current scale a cycle finishes in seconds and
+// never reaches this; env-tunable via ZERNIO_RECENT_REVIEW_POLL_DEADLINE_MS if a
+// larger connection set legitimately needs a longer dispatch window.
+const DEFAULT_CYCLE_DEADLINE_MS = 60_000;
 
 interface ConnectionRow {
   business_id: string;
@@ -461,12 +468,33 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
   return result;
 }
 
-async function poll(): Promise<void> {
+// Watchdog buffer added on top of the per-cycle dispatch deadline. A hung DB
+// await inside runOnce — a stale pooled connection where the server-side
+// statement_timeout never fires on a black-hole socket — would otherwise leave
+// runOnce pending forever, pin isPolling=true, and silently disable every future
+// tick (the exact failure mode HealthAlertPoller / StripeLocationsReconcilePoller
+// already guard with withTimeout). Two bounds the watchdog must honour:
+//   1. ABOVE the legitimate max cycle (dispatch deadline + the in-flight
+//      connection drain that runs past it) so it never aborts real work; and
+//   2. BELOW the poll interval (DEFAULT_INTERVAL_MS) so a hung cycle frees
+//      isPolling before the next tick — recovery then costs one interval, not
+//      two (a watchdog longer than the interval makes the next tick a no-op and
+//      wastes a whole cycle).
+// With the 60s deadline + 60s buffer the watchdog is 120s: comfortably above a
+// real cycle (which finishes in seconds at current scale) and well under the
+// 5-min interval. A true hang trips it, falls to the catch (logs + resets
+// isPolling), and the next tick recovers.
+const POLL_CYCLE_WATCHDOG_BUFFER_MS = 60_000;
+
+export async function poll(): Promise<void> {
   if (isPolling) return;
   isPolling = true;
   const logger = createWorkerLogger(LOG_PREFIX);
+  const watchdogMs =
+    readPositiveInt('ZERNIO_RECENT_REVIEW_POLL_DEADLINE_MS', DEFAULT_CYCLE_DEADLINE_MS) +
+    POLL_CYCLE_WATCHDOG_BUFFER_MS;
   try {
-    const result = await runOnce();
+    const result = await withTimeout(runOnce(), watchdogMs, 'zernio-recent-review-poll');
     if (
       result.reviewsProcessed > 0 ||
       result.reviewsReconciled > 0 ||

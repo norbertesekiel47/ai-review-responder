@@ -56,7 +56,7 @@ vi.mock('../../../../src/lib/zernio/auth-error-fallback', () => ({
 
 import { ZernioAuthError } from '../../../../src/lib/zernio/errors';
 import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
-import { runOnce, resetConnectionCursorForTests } from '../ZernioRecentReviewPoller';
+import { runOnce, poll, resetConnectionCursorForTests } from '../ZernioRecentReviewPoller';
 
 function makeReview(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -466,6 +466,47 @@ describe('ZernioRecentReviewPoller', () => {
       expect(result.connectionsChecked).toBe(4);
       expect(result.connectionsDeferred).toBe(0);
       expect(maxInFlight).toBe(2);
+    });
+  });
+
+  describe('poll() self-healing watchdog', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('trips the watchdog when a cycle hangs on a stale connection and resets isPolling so the next tick recovers', async () => {
+      vi.useFakeTimers();
+      const connection = {
+        business_id: 'business-1',
+        zernio_account_id: 'zernio-account-1',
+        zernio_location_id: 'location-1',
+        connected_at: new Date('2026-05-10T06:28:15.000Z'),
+        subscription_status: 'active',
+      };
+
+      // Cycle 1: an eligible review whose processReview never settles — the
+      // stale-pooled-connection hang (server-side statement_timeout never fires).
+      // Without the watchdog poll() would pend forever and pin isPolling=true.
+      sqlReturnQueue.push([connection]);
+      mockListReviews.mockResolvedValueOnce({ reviews: [makeReview()] });
+      mockProcessReview.mockReturnValueOnce(new Promise(() => {}));
+
+      const firstCycle = poll();
+      // Advance past the watchdog (DEFAULT_CYCLE_DEADLINE_MS 60s + 60s buffer = 120s).
+      await vi.advanceTimersByTimeAsync(3 * 60_000);
+      await firstCycle; // poll() caught the TimeoutError and released isPolling.
+
+      expect(mockProcessReview).toHaveBeenCalledTimes(1);
+
+      // Cycle 2: the next tick must proceed (isPolling released) and ingest.
+      sqlReturnQueue.push([connection]);
+      mockListReviews.mockResolvedValueOnce({ reviews: [makeReview()] });
+      mockProcessReview.mockResolvedValueOnce('new');
+
+      await poll();
+
+      expect(mockListReviews).toHaveBeenCalledTimes(2);
+      expect(mockProcessReview).toHaveBeenCalledTimes(2);
     });
   });
 });
