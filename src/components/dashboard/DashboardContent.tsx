@@ -26,6 +26,7 @@ import { AggregateDashboardContent } from '@/components/dashboard/aggregate/Aggr
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useSetPendingCount } from '@/contexts/PendingCountContext';
 import { useLocationScope } from '@/contexts/LocationContext';
+import { authoritativePendingCount } from '@/lib/dashboard/scope';
 
 export function DashboardContent() {
   const setPendingCount = useSetPendingCount();
@@ -135,7 +136,7 @@ function DashboardOperationalContent() {
 
   // Push pending count to the layout-scoped context so MobileTabBar's "Needs
   // Action" tab can show a red badge on every authenticated route.
-  const pendingFromData = computePendingCount(data);
+  const pendingFromData = authoritativePendingCount(data);
   useEffect(() => {
     setPendingCount(pendingFromData);
   }, [pendingFromData, setPendingCount]);
@@ -353,18 +354,3 @@ function isAggregateData(data: DashboardOrAggregate): data is AggregateDashboard
   return 'scope' in data && data.scope === 'aggregate';
 }
 
-/** Compute pending approval count from either aggregate or per-location data. */
-function computePendingCount(data: DashboardOrAggregate | null): number {
-  if (!data) return 0;
-  if (isAggregateData(data)) {
-    return data.recentReviews.filter(
-      (r) => (r.responseStatus ?? r.status) === 'pending_approval',
-    ).length;
-  }
-  if (data.subscriptionStatus === undefined || data.subscriptionStatus === SubscriptionStatus.PAST_DUE) {
-    return data.recentReviews.filter(
-      (r) => (r.responseStatus ?? r.status) === 'pending_approval',
-    ).length;
-  }
-  return 0;
-}
