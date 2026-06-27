@@ -124,15 +124,7 @@ const config = [
     // imports into worker//scripts/ are exempt (they have no @/ alias).
     files: ['src/**/*.{ts,tsx}'],
     rules: {
-      'no-restricted-imports': ['error', {
-        patterns: [
-          {
-            regex: '^\\.\\./\\.\\.(?!.*/(worker|scripts)/)',
-            message:
-              'No ../.. parent-traversal for src-internal imports — use @/ path aliases.',
-          },
-        ],
-      }],
+      'no-restricted-imports': ['error', { patterns: [PARENT_TRAVERSAL_BAN] }],
     },
   },
   {
@@ -144,28 +136,9 @@ const config = [
     files: ['src/**/*.{ts,tsx}'],
     ignores: ['src/app/**', '**/__tests__/**', '**/*.test.{ts,tsx}'],
     rules: {
-      'no-restricted-imports': ['error', {
-        patterns: [
-          {
-            regex: '^\\.\\./\\.\\.(?!.*/(worker|scripts)/)',
-            message:
-              'No ../.. parent-traversal for src-internal imports — use @/ path aliases.',
-          },
-          {
-            group: ['@/app/*', '@/app/**'],
-            message:
-              'Route leaves (app/**) are terminal — non-route code must not import from app/. ' +
-              'Move shared code into components/<domain> or lib/<domain>.',
-          },
-        ],
-      }],
+      'no-restricted-imports': ['error', { patterns: [PARENT_TRAVERSAL_BAN, APP_LEAF_IMPORT_BAN] }],
       // no-restricted-imports does NOT see import() — cover dynamic imports here.
-      'no-restricted-syntax': ['error', {
-        selector: "ImportExpression[source.value=/^@\\/app\\//]",
-        message:
-          'Route leaves (app/**) are terminal — non-route code must not dynamically import from app/. ' +
-          'Move shared code into components/<domain> or lib/<domain>.',
-      }],
+      'no-restricted-syntax': ['error', APP_LEAF_DYNAMIC_IMPORT_BAN],
     },
   },
   {
@@ -230,11 +203,9 @@ const config = [
     // Invariant #1 entry surface — domain components (ui handled by its own zone
     // above, so excluded here). Restates parent-traversal + @/app bans (the
     // non-route zone is no longer the last matcher for these files) plus the
-    // worker-only runtime bans. The dynamic-import @/app ban (no-restricted-syntax)
-    // is a different rule and is NOT clobbered — it persists from the non-route zone.
-    // Tests are exempt (they don't ship and legitimately import route handlers
-    // under test) — matching the non-route zone; the ../.. ban still reaches them
-    // via the base src/** zone.
+    // worker-only runtime bans. Tests are exempt (they don't ship and legitimately
+    // import route handlers under test) — matching the non-route zone; the ../..
+    // ban still reaches them via the base src/** zone.
     files: ['src/components/**/*.{ts,tsx}'],
     ignores: ['src/components/ui/**', '**/__tests__/**', '**/*.test.{ts,tsx}'],
     rules: {
