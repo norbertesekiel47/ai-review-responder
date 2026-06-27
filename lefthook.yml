@@ -26,3 +26,12 @@ pre-push:
     # change graph misses (e.g. config/env-only changes run zero tests here).
     test-changed:
       run: pnpm test:changed
+    # Import-graph blind spot: `vitest --changed` (test-changed above) only runs
+    # tests reachable from changed files' MODULE graph. The src/__tests__/* guard
+    # tests read files via readFileSync / the ESLint Node API instead of importing
+    # the code they check, so they are in NO import graph and `--changed` silently
+    # skips them — a config/source change can break a guard with a false-green
+    # push. Run them unconditionally; they are fast file reads. CI's full
+    # `pnpm test` still backstops everything else.
+    guards:
+      run: pnpm vitest run src/__tests__
