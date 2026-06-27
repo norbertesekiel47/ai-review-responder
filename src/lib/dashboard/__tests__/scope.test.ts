@@ -77,9 +77,10 @@ describe('authoritativePendingCount', () => {
     expect(authoritativePendingCount(pastDue)).toBe(12);
   });
 
-  it('per-location without reputationSummary: defensive fallback to the filtered slice', () => {
+  it('per-location without reputationSummary (impossible state): returns 0, never the capped slice', () => {
+    // 3 pending in the capped slice, but no authoritative summary → 0, NOT 3.
     const data = activePayload({ recentPendingCount: 3 });
-    expect(authoritativePendingCount(data)).toBe(3);
+    expect(authoritativePendingCount(data)).toBe(0);
   });
 
   it('non-active per-location status returns 0', () => {

@@ -26,18 +26,18 @@ export function perLocationActive(data: DashboardPayload): DashboardDataActive |
 }
 
 /**
- * Authoritative count of owner drafts awaiting approval, derived from the
- * SQL-backed fields already present in the payload — NOT the capped
- * `recentReviews` slice, which undercounts past ~10 pending (issue #346).
+ * Authoritative count of owner drafts awaiting approval, derived ONLY from the
+ * SQL-backed fields in the payload — never the capped `recentReviews` slice,
+ * which undercounts past ~10 pending (issue #346).
  *
  *   aggregate              → Σ locationKpis[].pendingApprovalCount
  *   per-loc active/pastdue  → reputationSummary.pendingApprovalCount
  *   else / null            → 0
  *
- * The per-location branch falls back to filtering `recentReviews` only when
- * `reputationSummary` is absent — an impossible state for the active
- * per-location route (it always passes includeReputationMetrics), kept purely
- * as a defensive guard so the count can never regress below today's behavior.
+ * `reputationSummary` is always present on the per-location route (it always
+ * passes includeReputationMetrics). The `?? 0` is a guard for that impossible
+ * state: 0 ("no authoritative data → no badge") never lies, whereas falling back
+ * to the capped slice would re-introduce the exact undercount this fixes.
  */
 export function authoritativePendingCount(data: DashboardPayload | null): number {
   if (!data) return 0;
@@ -46,10 +46,5 @@ export function authoritativePendingCount(data: DashboardPayload | null): number
   }
   const active = perLocationActive(data);
   if (!active) return 0;
-  return (
-    active.reputationSummary?.pendingApprovalCount ??
-    active.recentReviews.filter(
-      (review) => (review.responseStatus ?? review.status) === 'pending_approval',
-    ).length
-  );
+  return active.reputationSummary?.pendingApprovalCount ?? 0;
 }

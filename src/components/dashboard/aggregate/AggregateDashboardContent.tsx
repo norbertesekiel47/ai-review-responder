@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect } from 'react';
 import type { AggregateDashboardData } from '@/lib/dashboard/types';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
@@ -10,7 +9,6 @@ import { AggregateIntelligenceBriefCard } from '@/components/dashboard/aggregate
 import { LocationKpiStrip } from '@/components/dashboard/aggregate/LocationKpiStrip';
 import { PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
 import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal';
-import { useSetPendingCount } from '@/contexts/PendingCountContext';
 import { authoritativePendingCount } from '@/lib/dashboard/scope';
 
 interface Props {
@@ -31,16 +29,12 @@ interface Props {
  *  5. IntelligenceBriefCard (per-location prefix bullets)
  */
 export function AggregateDashboardContent({ data, refresh }: Props) {
-  const setPendingCount = useSetPendingCount();
-
   // Authoritative pending count across all locations — sum of the SQL-backed
   // per-location counts, NOT a filter over the capped recentReviews slice, which
-  // undercounts past ~10 pending (#346). Matches the parent badge value.
+  // undercounts past ~10 pending (#346). The parent (DashboardOperationalContent)
+  // owns pushing this to the nav badge via useSyncPendingCount; here it only
+  // drives the visible strip below.
   const pendingCount = authoritativePendingCount(data);
-
-  useEffect(() => {
-    setPendingCount(pendingCount);
-  }, [pendingCount, setPendingCount]);
 
   // VAL-DASH-026: Empty state when no reviews at any location
   const hasNoData =
