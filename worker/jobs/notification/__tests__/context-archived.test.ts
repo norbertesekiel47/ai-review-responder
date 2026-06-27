@@ -23,7 +23,7 @@ import { loadNotificationContext } from '../context';
 
 const RESPONSE_ID = 'rrrrrrrr-0000-0000-0000-000000000001';
 const BUSINESS_ID = 'bbbbbbbb-0000-0000-0000-000000000001';
-const ACCOUNT_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
+const _ACCOUNT_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
 
 function mockLogger() {
   return {

@@ -90,7 +90,7 @@ export async function handleAdminException(
   job: Job<NotifyAdminExceptionPayload>,
 ): Promise<void> {
   const logger = createWorkerLogger('[AdminExceptionWorker]', job.data.correlation_id);
-  const { review_exception_id, business_id } = job.data;
+  const { review_exception_id } = job.data;
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // Read exception with review + business info

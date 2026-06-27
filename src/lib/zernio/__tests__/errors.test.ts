@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ZernioAuthError, ZernioValidationError, ZernioTransientError,
-  ZernioPermanentError, ZernioReviewNotFoundError,
-  ZernioReplyAlreadyExistsError, ZernioRouteError,
+  ZernioAuthError, ZernioTransientError, ZernioRouteError,
 } from '../errors';
 
 describe('Zernio error classes', () => {

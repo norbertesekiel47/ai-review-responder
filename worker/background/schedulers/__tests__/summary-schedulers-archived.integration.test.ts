@@ -44,6 +44,7 @@ const d = RUN ? describe : describe.skip;
 const WEEKLY_WINDOW_TIME = '2026-06-01T08:30:00Z';
 const MONTHLY_WINDOW_TIME = '2026-06-01T09:30:00Z';
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- runtime array backs the typeof-derived OutboxTopic type below; value is intentionally type-only here
 const OUTBOX_TOPICS = ['weekly_summary', 'send_monthly_impact'] as const;
 type OutboxTopic = (typeof OUTBOX_TOPICS)[number];
 

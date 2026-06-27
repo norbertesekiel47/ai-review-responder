@@ -16,7 +16,7 @@ import { OWNER_EMAIL, OWNER_PASSWORD, isOwnerE2eConfigured } from './helpers/tes
 
 const TEST_EMAIL = OWNER_EMAIL;
 const TEST_PASSWORD = OWNER_PASSWORD;
-const BUSINESS_ID = '019e4e19-1c5a-72b8-b2a1-3301152e78c7';
+const _BUSINESS_ID = '019e4e19-1c5a-72b8-b2a1-3301152e78c7';
 
 // Warm up the dev server before the first test so the login page is compiled.
 // In Next.js dev mode the first request to any page triggers on-demand compilation
@@ -138,7 +138,7 @@ test.describe('Scenario 0 — Prerequisites', () => {
     // Check the page has meaningful content — not empty or loading spinner
     await page.waitForTimeout(2000); // let lazy data load
 
-    const screenshot = await page.screenshot({ path: '/tmp/e2e-s0-d-page-structure.png', fullPage: true });
+    const _screenshot = await page.screenshot({ path: '/tmp/e2e-s0-d-page-structure.png', fullPage: true });
 
     // Look for elements that suggest reply cards are rendered
     const cards = await page.locator('[data-testid], article, [role="listitem"], .card').count();

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
 import { SKIP_REASON_ARCHIVED_LOCATION, type IngestZernioReviewPayload } from '../../../../src/lib/shared/worker-types';
 import type { ZernioReview } from '../../../../src/lib/zernio/types';
@@ -66,9 +66,6 @@ vi.mock('../../../../src/lib/shared/logger', () => ({
 
 import {
   handleZernioReviewIngest,
-  ZernioIngestReviewNotFoundError,
-  ZernioIngestPaginationCapExhaustedError,
-  ZernioIngestUnparseableLocationError,
 } from '../ZernioReviewIngestWorker';
 import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
 

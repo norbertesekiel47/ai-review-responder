@@ -226,7 +226,7 @@ describe('promotePrimaryTransaction', () => {
   // Transaction rolls back on failure
   it('rolls back entire transaction if any step fails', async () => {
     // Make the transaction throw
-    mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => {
+    mockSql.begin = vi.fn(async (_cb: (tx: any) => Promise<unknown>) => {
       throw new Error('audit INSERT failed');
     });
 

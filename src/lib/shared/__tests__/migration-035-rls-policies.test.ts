@@ -184,7 +184,7 @@ describe('migration 035 — Group 1: direct account_id tables', () => {
 // ── Group 2: Tables scoped by business_id (JOIN predicate) ──────────────────
 
 describe('migration 035 — Group 2: business_id JOIN tables', () => {
-  const joinPredicatePattern =
+  const _joinPredicatePattern =
     /business_id IN \(SELECT id FROM businesses WHERE account_id = owner_account_id\(\)\)/i;
 
   const businessScopedTables = [

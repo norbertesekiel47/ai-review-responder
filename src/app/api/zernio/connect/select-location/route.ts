@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  ZernioRouteError,
   ZernioAuthError,
   ZernioValidationError,
 } from '@/lib/zernio/errors';

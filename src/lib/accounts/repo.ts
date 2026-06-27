@@ -13,7 +13,6 @@
 // VAL-LOC-007 (add-location tx reads account fields).
 
 import { sql } from '@/lib/db/server';
-import type { AccountId } from '@/lib/shared/ids';
 import type { SubscriptionTierValue } from './tier-config';
 import type { SubscriptionStatusValue } from '@/lib/shared/subscription-status';
 

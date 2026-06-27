@@ -6,7 +6,6 @@ const {
   mockRequireCurrentAal2FromSupabase,
   mockWriteAccountAuditLog,
   mockSql,
-  mockTx,
   txResults,
   txCalls,
 } = vi.hoisted(() => {

@@ -16,14 +16,12 @@ const {
     },
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mockSql: any = vi.fn(
     (_strings: TemplateStringsArray, ..._values: unknown[]): Promise<unknown[]> => {
       return Promise.resolve([]);
     },
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mockSql.begin = vi.fn(async (callback: (tx: any) => Promise<any>) => {
     return callback(mockTx);
   });

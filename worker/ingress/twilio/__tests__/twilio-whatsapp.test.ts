@@ -42,7 +42,7 @@ vi.mock('../../shared', async (importOriginal) => {
 // sql mock: tagged-template function that reads from sqlQueue for sequential
 // return values; `.begin` wraps a tx function that reads from the same queue.
 vi.mock('../../../../src/lib/db/server', () => {
-  const sqlFn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
+  const sqlFn = async (strings: TemplateStringsArray, ..._values: unknown[]) => {
     sqlCalls.push({ sql: strings.join('?') });
     const next = sqlQueue.shift();
     if (next instanceof Error) throw next;
@@ -52,7 +52,7 @@ vi.mock('../../../../src/lib/db/server', () => {
     return arr;
   };
   const beginFn = async (fn: (tx: typeof sqlFn) => Promise<unknown>) => {
-    const tx = async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    const tx = async (strings: TemplateStringsArray, ..._values: unknown[]) => {
       sqlCalls.push({ sql: strings.join('?') });
       const next = sqlQueue.shift();
       if (next instanceof Error) throw next;
@@ -108,15 +108,9 @@ import {
   redactWhatsAppPayload,
   redactDeliveryStatusPayload,
 } from '../twilio-whatsapp';
-import { verifyTwilioSignature } from '../twilio-verify';
-import { claimInboundEvent } from '../../shared';
 import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
-import { createHash } from 'node:crypto';
 import {
   ConsumedLinkError,
-  RevokedLinkError,
-  ExpiredLinkError,
-  ChannelMismatchError,
   ResponseNotPendingError,
   ArchivedLocationError,
 } from '../../../../src/lib/approval/errors';

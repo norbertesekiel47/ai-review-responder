@@ -8,7 +8,6 @@ import {
   setDeviceCookie,
   getDeviceCookieHash,
   verifyDeviceCookie,
-  setCsrfCookie,
   validateCsrf,
 } from '../cookies';
 import { NextRequest, NextResponse } from 'next/server';

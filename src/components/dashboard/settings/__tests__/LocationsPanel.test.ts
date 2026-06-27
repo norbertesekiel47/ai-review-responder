@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { getDisplayLabel } from '@/lib/locations/display-label';
-import * as fs from 'fs';
-import * as path from 'path';
 
 // ── LocationsPanel guard logic ─────────────────────────────────────────────
 
@@ -27,7 +25,7 @@ describe('LocationsPanel archive guard logic', () => {
   });
 
   it('blocks archive on primary that is also last active', () => {
-    const isPrimary = true;
+    const _isPrimary = true;
     const isLastActive = true;
     // Last-active takes precedence — always blocked
     const shouldBlock = isLastActive;

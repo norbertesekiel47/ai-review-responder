@@ -8,11 +8,9 @@
 // VAL-LOC-001 through VAL-LOC-006.
 
 import { sql } from '@/lib/db/server';
-import type { AccountId } from '@/lib/shared/ids';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import {
   TIER_CONFIG,
-  type SubscriptionTierValue,
   isSubscriptionTier,
 } from './tier-config';
 

@@ -13,7 +13,6 @@
 // VAL-LOC-001 through VAL-LOC-012 (quota checks depend on accurate counts).
 
 import { sql } from '@/lib/db/server';
-import type { AccountId, LocationId } from '@/lib/shared/ids';
 
 // ── Location row type ──────────────────────────────────────────────────────
 

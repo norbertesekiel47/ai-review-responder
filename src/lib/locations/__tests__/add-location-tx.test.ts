@@ -32,7 +32,7 @@ import { addLocationTransaction, type AddLocationTxInput } from '../add-location
 
 const ACCOUNT_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
 const ACTOR_USER_ID = 'uuuuuuuu-0000-0000-0000-000000000001';
-const PRIMARY_LOCATION_ID = 'bbbbbbbb-0000-0000-0000-000000000001';
+const _PRIMARY_LOCATION_ID = 'bbbbbbbb-0000-0000-0000-000000000001';
 
 function mkPrimaryVoiceRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -249,7 +249,7 @@ describe('addLocationTransaction', () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
     // Make the transaction callback throw to simulate a failure
-    mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => {
+    mockSql.begin = vi.fn(async (_cb: (tx: any) => Promise<unknown>) => {
       // First INSERT succeeds, second throws
       const tx = mockSql;
       // Simulate: businesses INSERT works, audit_log INSERT throws

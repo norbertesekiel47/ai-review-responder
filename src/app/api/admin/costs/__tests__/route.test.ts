@@ -530,7 +530,7 @@ describe('GET /api/admin/costs', () => {
     });
 
     // Intercept sql calls by wrapping mockSqlResults with a logger.
-    const intercept = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const intercept = vi.fn((strings: TemplateStringsArray, ..._values: unknown[]) => {
       seenQueries.push([...strings]);
       const result = mockSqlResults[sqlCallCounter.value] ?? [];
       sqlCallCounter.value++;

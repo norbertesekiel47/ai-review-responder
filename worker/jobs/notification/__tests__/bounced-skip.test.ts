@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Instead, fixtures are keyed by a distinguishing fragment of the query text.
 // A query for `responses` can never receive a `businesses` row regardless of
 // call order, so a stray or late sql() call cannot desync another test.
-const { sqlFixtures, mockSql, mockTx, mockSendApprovalEmail, mockSendInternalEmail, mockMarkOutboxCompleted, mockMarkOutboxFailed } = vi.hoisted(() => {
+const { sqlFixtures, mockSql, mockSendApprovalEmail, mockSendInternalEmail, mockMarkOutboxCompleted, mockMarkOutboxFailed } = vi.hoisted(() => {
   // Map of query-text fragment → rows to return when a query contains it.
   const sqlFixtures = new Map<string, unknown[]>();
   const mockTx = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]): Promise<unknown[]> => Promise.resolve([]));

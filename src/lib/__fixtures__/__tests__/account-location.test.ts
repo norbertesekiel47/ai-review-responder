@@ -143,7 +143,7 @@ describe('createAccountWithLocations', () => {
   });
 
   it('creates account with single location (primary)', () => {
-    const { account, locations } = createAccountWithLocations({}, 1);
+    const { locations } = createAccountWithLocations({}, 1);
 
     expect(locations).toHaveLength(1);
     expect(locations[0]!.is_primary).toBe(true);

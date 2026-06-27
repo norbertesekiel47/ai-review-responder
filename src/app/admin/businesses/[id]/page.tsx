@@ -64,11 +64,6 @@ export default function BusinessDetailPage() {
     ? `https://www.google.com/maps/place/?q=place_id:${business.googlePlaceId}`
     : null;
 
-  // Other locations under the same account (excluding current one)
-  const otherLocations = account.locations.filter(
-    (loc) => loc.id !== businessId && !loc.archivedAt,
-  );
-
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-4xl mx-auto px-4 py-8">

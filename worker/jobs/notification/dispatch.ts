@@ -14,7 +14,6 @@ import { getChannel } from '../../../src/lib/notifications/channels';
 import { createApprovalLink } from '../../../src/lib/approval/create-link';
 import type { ChannelId } from '../../../src/lib/notifications/channels/types';
 import { safeInvalidateChannelCache, type ResolvedChannel } from '../../../src/lib/notifications/resolve-channels';
-import type { AccountId } from '../../../src/lib/shared/ids';
 import { asAccountId } from '../../../src/lib/shared/ids';
 import { classifyChannelError } from './errors';
 import { getDisplayLabel } from '../../../src/lib/locations/display-label';

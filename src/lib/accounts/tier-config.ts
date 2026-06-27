@@ -11,7 +11,6 @@
 //
 // Validation contract: VAL-BILLING-028, VAL-BILLING-042.
 
-import type { AccountId } from '@/lib/shared/ids';
 
 // ── Const object (enum-like) ──────────────────────────────────────────────────
 

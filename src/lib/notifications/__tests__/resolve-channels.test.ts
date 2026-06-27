@@ -50,8 +50,7 @@ vi.mock('../../db/redis-cache', () => ({
 }));
 
 // Import after mocks are wired
-import { resolveChannels, invalidateChannelCache, safeInvalidateChannelCache, type ResolvedChannel } from '../resolve-channels';
-import type { AccountId, LocationId } from '@/lib/shared/ids';
+import { resolveChannels, invalidateChannelCache, safeInvalidateChannelCache } from '../resolve-channels';
 import { asAccountId, asLocationId } from '@/lib/shared/ids';
 
 // ── Test fixtures ────────────────────────────────────────────────────────
@@ -212,7 +211,7 @@ describe('resolveChannels', () => {
       makeEnrollmentRow({ channel: 'email', handle: 'owner@example.com', location_id: null }),
     ]);
 
-    const result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    const _result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
 
     // Verify the SQL query includes the status = 'verified' filter
     const enrollmentsCall = mockSql.mock.calls[1];
@@ -227,7 +226,7 @@ describe('resolveChannels', () => {
       makeEnrollmentRow({ channel: 'email', handle: 'owner@example.com', location_id: null }),
     ]);
 
-    const result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    const _result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
 
     // Verify the SQL query includes the unsubscribed_at filter
     const enrollmentsCall = mockSql.mock.calls[1];

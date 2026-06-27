@@ -12,8 +12,6 @@ const {
   mockIsPlaceId,
   mockCreateWorkerLogger,
   loggerError,
-  loggerLog,
-  loggerWarn,
 } = vi.hoisted(() => {
   const loggerError = vi.fn();
   const loggerLog = vi.fn();
@@ -49,7 +47,6 @@ vi.mock('../../../src/lib/demos/generator', () => ({
 
 vi.mock('../../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   extractOutboxHandle: (d: any, fallback: string) => ({
     outboxId:
       d && typeof d.outbox_id === 'string' ? d.outbox_id : fallback,
@@ -93,7 +90,6 @@ function makeJob(): Job<{
       googlePlaceId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
       correlation_id: 'corr-1',
     },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
 }
 

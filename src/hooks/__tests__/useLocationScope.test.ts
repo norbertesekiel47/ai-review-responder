@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { createElement as h } from 'react';
 import {
@@ -13,7 +13,7 @@ import type { LocationId } from '@/lib/shared/ids';
 
 const LOC_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' as LocationId;
 const LOC_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' as LocationId;
-const LOC_C = 'cccccccc-cccc-cccc-cccc-cccccccccccc' as LocationId;
+const _LOC_C = 'cccccccc-cccc-cccc-cccc-cccccccccccc' as LocationId;
 
 function makeLoc(id: string, name: string, overrides?: Partial<LocationInfo>): LocationInfo {
   return {

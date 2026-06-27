@@ -55,7 +55,7 @@ function buildApprovalEmailHtml(params: ApprovalEmailParams): string {
   const safeLabel = sanitizeLocationLabelForPrefix(params.locationLabel);
   const stars = renderStars(starRating);
   const safeLocationLabel = escapeHtml(safeLabel);
-  const safeName = escapeHtml(businessName);
+  const _safeName = escapeHtml(businessName);
   const safeReviewer = escapeHtml(reviewerName);
   const safeDate = escapeHtml(formatDate(reviewDate));
   const reviewBody = reviewText

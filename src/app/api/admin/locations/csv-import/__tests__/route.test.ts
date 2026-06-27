@@ -92,9 +92,6 @@ function mockAdminUser() {
   return { id: 'admin-1', role: 'admin', email: 'admin@test.com', name: 'Admin' };
 }
 
-function mockOwnerUser() {
-  return { id: 'owner-1', role: 'owner', email: 'owner@test.com', name: 'Owner' };
-}
 
 function mockAccountRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -322,7 +319,7 @@ Downtown Cafe,ChIJ1234
 Uptown Bistro,ChIJ5678`;
 
     const req = mkCsvRequest(csv);
-    const res = await POST(req);
+    const _res = await POST(req);
 
     expect(mockAddLocationTransaction).toHaveBeenCalledTimes(2);
   });

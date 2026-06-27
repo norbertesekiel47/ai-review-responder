@@ -122,7 +122,7 @@ type OffboardingStatusResponse = {
 
 function DashboardOperationalContent() {
   const { currentScope, setLocationScope } = useLocationScope();
-  const { data, error, loading, refresh, scopeFallback } = useDashboardData(
+  const { data, error, loading, refresh } = useDashboardData(
     currentScope,
     {
       // VAL-DASH-029: When the API detects the selected location is archived,

@@ -86,7 +86,6 @@ async function handle409Disposition(
     approvedText,
     zernioAccountId,
     zernioLocationId,
-    zernioReviewId,
     existingPosted,
     postDeleteCommitted,
     lockedIsOrphanRetry,

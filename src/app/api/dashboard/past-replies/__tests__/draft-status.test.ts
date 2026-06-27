@@ -8,7 +8,6 @@ const {
   mockGetRequestScope,
   accountQueue,
   topLevelQueue,
-  topLevelMock,
   sqlProxy,
 } = vi.hoisted(() => {
   const mockRequireRole = vi.fn();

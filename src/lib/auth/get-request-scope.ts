@@ -10,7 +10,7 @@
 // when the owner selects a location from the switcher dropdown.
 
 import { sql } from '@/lib/db/server';
-import { asAccountId, asLocationId, isValidUuid } from '@/lib/shared/ids';
+import { asLocationId, isValidUuid } from '@/lib/shared/ids';
 import type { AccountId, LocationId } from '@/lib/shared/ids';
 
 export interface RequestScope {

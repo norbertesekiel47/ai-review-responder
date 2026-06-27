@@ -96,7 +96,6 @@ interface TierChangeModalProps {
 export function TierChangeModal({
   currentTier,
   newTier,
-  accountId,
   billingPreview,
   previewLoading,
   previewError,

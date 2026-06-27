@@ -16,7 +16,6 @@ const {
   topLevelMock,
   txQueue,
   txMock,
-  beginMock,
   sqlProxy,
 } = vi.hoisted(() => {
   const mockRequireRole = vi.fn();

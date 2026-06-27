@@ -8,7 +8,6 @@
 // Validation contract: VAL-BILLING-033 through VAL-BILLING-037, VAL-BILLING-044.
 
 import { sql } from '@/lib/db/server';
-import type { AccountId } from '@/lib/shared/ids';
 import {
   SubscriptionStatus,
   subscriptionGrantsFullAccess,

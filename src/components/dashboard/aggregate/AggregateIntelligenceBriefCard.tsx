@@ -68,7 +68,6 @@ export function AggregateIntelligenceBriefCard({ perLocationBriefs }: Props) {
 
 function SingleLocationBrief({
   brief,
-  displayName,
 }: {
   brief: NonNullable<AggregateDashboardData['perLocationBriefs'][number]['brief']>;
   displayName: string;

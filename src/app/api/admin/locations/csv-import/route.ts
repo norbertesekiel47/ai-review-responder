@@ -18,7 +18,6 @@ import {
   MAX_FILE_SIZE,
   MAX_ROWS,
   type CsvImportReport,
-  type CsvRowFailure,
 } from '@/lib/admin/csv-import';
 import { getAccountById } from '@/lib/accounts/repo';
 import { withSameOrigin } from '@/lib/auth/route-helpers';

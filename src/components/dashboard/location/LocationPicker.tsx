@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useLocationScope, type LocationInfo } from '@/contexts/LocationContext';
+import { useLocationScope } from '@/contexts/LocationContext';
 import type { LocationId } from '@/lib/shared/ids';
 import { getDisplayLabel } from '@/lib/locations/display-label';
 import { Icon } from '@/components/dashboard/shell/Icon';
