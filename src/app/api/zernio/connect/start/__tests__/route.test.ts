@@ -15,9 +15,12 @@ const {
   mockStartConnect,
   mockDeleteProfile,
   mockAccountRows,
+  mockOrphanRows,
   mockEnqueueAnalyticsEvent,
 } = vi.hoisted(() => {
   const sqlCalls: Array<{ raw: string; values: unknown[] }> = [];
+  // Disconnected-connection rows returned by the reconnect orphan-cleanup query.
+  const mockOrphanRows: { value: Array<{ zernio_profile_id: string }> } = { value: [] };
   const mockAccountRows: {
     value: Array<{
       subscription_status: string;
@@ -53,6 +56,7 @@ const {
     })),
     mockDeleteProfile: vi.fn(async (_profileId: unknown) => undefined),
     mockAccountRows,
+    mockOrphanRows,
     mockEnqueueAnalyticsEvent: vi.fn(async () => undefined),
   };
 });
@@ -92,6 +96,12 @@ vi.mock('@/lib/db/server', () => ({
     sqlCalls.push({ raw, values });
 
     if (/zernio_connections/.test(raw)) {
+      // Reconnect orphan-cleanup query (selects zernio_profile_id for
+      // disconnected rows) is distinct from the active/pending idempotency
+      // check (selects `1 AS exists`).
+      if (/zernio_profile_id/.test(raw)) {
+        return Promise.resolve(mockOrphanRows.value);
+      }
       return Promise.resolve(
         values.includes(PRIMARY_LOCATION_ID) ? [{ exists: 1 }] : [],
       );
@@ -149,6 +159,7 @@ describe('POST /api/zernio/connect/start location targeting', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sqlCalls.length = 0;
+    mockOrphanRows.value = [];
     mockAccountRows.value = [
       {
         subscription_status: 'active',
@@ -242,5 +253,31 @@ describe('POST /api/zernio/connect/start location targeting', () => {
     expect(await res.json()).toEqual({ error: 'past_due_read_only' });
     expect(mockCreateProfile).not.toHaveBeenCalled();
     expect(mockStartConnect).not.toHaveBeenCalled();
+  });
+
+  it('deletes an orphaned Zernio profile from a prior disconnected connection BEFORE createProfile (reconnect self-heal)', async () => {
+    // A disconnected connection left an orphaned Zernio profile; its
+    // deterministic name would otherwise collide with createProfile → 400.
+    mockOrphanRows.value = [{ zernio_profile_id: 'orphan-profile-abc' }];
+
+    const res = await POST(makeRequest({ locationId: SECONDARY_LOCATION_ID }));
+
+    expect(res.status).toBe(200);
+    expect(mockDeleteProfile).toHaveBeenCalledWith('orphan-profile-abc');
+    expect(mockCreateProfile).toHaveBeenCalledWith({
+      name: `test-profile-${SECONDARY_LOCATION_ID}`,
+    });
+    // Cleanup must run BEFORE createProfile so the deterministic name is free.
+    expect(mockDeleteProfile.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockCreateProfile.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('does not delete any profile on a fresh connect with no orphaned connection', async () => {
+    const res = await POST(makeRequest({ locationId: SECONDARY_LOCATION_ID }));
+
+    expect(res.status).toBe(200);
+    expect(mockDeleteProfile).not.toHaveBeenCalled();
+    expect(mockCreateProfile).toHaveBeenCalled();
   });
 });
