@@ -4,8 +4,7 @@ import { useEffect } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { redirect } from 'next/navigation';
-import type { DashboardDataActive, DashboardDataPastDue, AggregateDashboardData, ReputationSummary } from '@/lib/dashboard/types';
-import type { DashboardOrAggregate } from '@/hooks/useDashboardData';
+import type { DashboardDataActive, DashboardDataPastDue, ReputationSummary } from '@/lib/dashboard/types';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   ActivePendingBusinessScreen,
@@ -26,6 +25,8 @@ import { AggregateDashboardContent } from '@/components/dashboard/aggregate/Aggr
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useSetPendingCount } from '@/contexts/PendingCountContext';
 import { useLocationScope } from '@/contexts/LocationContext';
+import { isAggregate } from '@/lib/dashboard/scope';
+import { useSyncPendingCount } from '@/hooks/useSyncPendingCount';
 
 export function DashboardContent() {
   const setPendingCount = useSetPendingCount();
@@ -131,14 +132,11 @@ function DashboardOperationalContent() {
       },
     },
   );
-  const setPendingCount = useSetPendingCount();
-
-  // Push pending count to the layout-scoped context so MobileTabBar's "Needs
-  // Action" tab can show a red badge on every authenticated route.
-  const pendingFromData = computePendingCount(data);
-  useEffect(() => {
-    setPendingCount(pendingFromData);
-  }, [pendingFromData, setPendingCount]);
+  // Push the authoritative pending count to the layout-scoped context so
+  // MobileTabBar's "Needs Action" badge stays in sync on every authenticated
+  // route. useSyncPendingCount is the single owner of this derivation across
+  // all surfaces that read the dashboard payload (#346).
+  useSyncPendingCount(data, loading);
 
   if (error) {
     return (
@@ -183,7 +181,7 @@ function DashboardOperationalContent() {
   }
 
   // Aggregate view: scope === 'all'
-  if (isAggregateData(data)) {
+  if (isAggregate(data)) {
     return <AggregateDashboardContent data={data} refresh={refresh} />;
   }
 
@@ -255,7 +253,7 @@ function DashboardOperationalContent() {
   const pastDueData: DashboardDataPastDue | null =
     data.subscriptionStatus === SubscriptionStatus.PAST_DUE ? data : null;
   const activeData: DashboardDataActive = data as DashboardDataActive;
-  const { valueSummary, recentReviews, zernioConnection, business } = activeData;
+  const { valueSummary, zernioConnection, business } = activeData;
 
   // The dashboard has exactly ONE layout: the 4-zone reputation landing. The
   // per-location route always requests reputation metrics, so reputationSummary
@@ -267,9 +265,9 @@ function DashboardOperationalContent() {
     averageStar: { current: null, delta: null, priorSampleSize: 0 },
     responseRate: { current: valueSummary.currentResponseRate, delta: null, priorSampleSize: 0 },
     timeSavedMinutes: { current: valueSummary.totalTimeSavedMinutes, delta: null, priorSampleSize: 0 },
-    pendingApprovalCount: recentReviews.filter(
-      (r) => (r.responseStatus ?? r.status) === 'pending_approval',
-    ).length,
+    // Dead branch (the per-location route always sends reputationSummary). 0,
+    // never the capped-slice undercount this fix removes (#346).
+    pendingApprovalCount: 0,
     trend: [],
     isRamping: true,
   };
@@ -348,23 +346,3 @@ async function fetchAccountOffboardingStatus(): Promise<OffboardingStatusRespons
   return body as OffboardingStatusResponse;
 }
 
-/** Type guard to distinguish AggregateDashboardData from per-location DashboardData. */
-function isAggregateData(data: DashboardOrAggregate): data is AggregateDashboardData {
-  return 'scope' in data && data.scope === 'aggregate';
-}
-
-/** Compute pending approval count from either aggregate or per-location data. */
-function computePendingCount(data: DashboardOrAggregate | null): number {
-  if (!data) return 0;
-  if (isAggregateData(data)) {
-    return data.recentReviews.filter(
-      (r) => (r.responseStatus ?? r.status) === 'pending_approval',
-    ).length;
-  }
-  if (data.subscriptionStatus === undefined || data.subscriptionStatus === SubscriptionStatus.PAST_DUE) {
-    return data.recentReviews.filter(
-      (r) => (r.responseStatus ?? r.status) === 'pending_approval',
-    ).length;
-  }
-  return 0;
-}

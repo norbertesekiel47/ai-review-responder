@@ -13,6 +13,7 @@ import { sql } from '@/lib/db/server';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 import { statusArraySql } from '@/lib/shared/response-status-sql';
 import { getActiveDashboardData } from './service';
+import { getPendingApprovalCount } from './pending-count';
 import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel } from '@/lib/locations/display-label';
 import type {
@@ -91,8 +92,14 @@ export async function getAggregateDashboardData(
     AGGREGATE_LOCATION_CONCURRENCY,
     async (loc) => {
       try {
-        const data = await getActiveDashboardData(loc.id);
-        return { location: loc, data };
+        // Fetch the heavy per-location dashboard batch and the authoritative
+        // pending count (no LIMIT, held/flagged excluded) together, bounded by
+        // the same concurrency cap rather than a second unbounded wave (#346).
+        const [data, pendingApprovalCount] = await Promise.all([
+          getActiveDashboardData(loc.id),
+          getPendingApprovalCount(loc.id),
+        ]);
+        return { location: loc, data, pendingApprovalCount };
       } catch (err) {
         console.error(
           `[dashboard/aggregate] Failed to load location=${loc.id} account=${accountId}:`,
@@ -104,7 +111,7 @@ export async function getAggregateDashboardData(
   );
 
   const validPairs = locationDataPairs.filter(
-    (p): p is { location: (typeof locations)[number]; data: DashboardDataActive } => p !== null,
+    (p): p is { location: (typeof locations)[number]; data: DashboardDataActive; pendingApprovalCount: number } => p !== null,
   );
   const partialFailures = locationDataPairs
     .map((pair, index) => pair === null ? locations[index] : null)
@@ -143,21 +150,19 @@ export async function getAggregateDashboardData(
   // the billing-confirmed count (locations_included + locations_paid).
   // This means the Stripe overage webhook hasn't yet confirmed the quantity
   // update for that location.
-  const locationKpis: PerLocationKpi[] = validPairs.map((p, idx) => {
-    const pendingCount = p.data.recentReviews.filter(
-      (r) => (r.responseStatus ?? r.status) === 'pending_approval',
-    ).length;
-    const recentCount = p.data.recentReviews.length;
-    return {
-      locationId: p.location.id,
-      displayName: getDisplayLabel(p.location),
-      isPrimary: p.location.is_primary,
-      totalReviewsHandled: p.data.valueSummary.totalReviewsHandled,
-      pendingApprovalCount: pendingCount,
-      recentReviewCount: recentCount,
-      billingPending: idx >= billingConfirmedCount,
-    };
-  });
+  // pendingApprovalCount is the authoritative SQL count fetched above via
+  // getPendingApprovalCount (no LIMIT, held/flagged excluded) — NOT a filter over
+  // the capped recentReviews slice, which undercounts >10 pending (#346).
+  // recentReviewCount stays a count of the displayed slice.
+  const locationKpis: PerLocationKpi[] = validPairs.map((p, idx) => ({
+    locationId: p.location.id,
+    displayName: getDisplayLabel(p.location),
+    isPrimary: p.location.is_primary,
+    totalReviewsHandled: p.data.valueSummary.totalReviewsHandled,
+    pendingApprovalCount: p.pendingApprovalCount,
+    recentReviewCount: p.data.recentReviews.length,
+    billingPending: idx >= billingConfirmedCount,
+  }));
 
   // ── Review Velocity (combined total + per-location) ──────────────────────
   // Merge all week keys across locations, sum counts per week

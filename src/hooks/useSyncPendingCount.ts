@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import type { DashboardPayload } from '@/lib/dashboard/scope';
-import { isAggregate, perLocationActive } from '@/lib/dashboard/scope';
+import { authoritativePendingCount } from '@/lib/dashboard/scope';
 import { useSetPendingCount } from '@/contexts/PendingCountContext';
 
 /**
@@ -16,13 +16,7 @@ export function useSyncPendingCount(
 ): number {
   const setPendingCount = useSetPendingCount();
 
-  const pending =
-    data && !loading
-      ? (isAggregate(data)
-          ? data.recentReviews
-          : (perLocationActive(data)?.recentReviews ?? [])
-        ).filter((review) => (review.responseStatus ?? review.status) === 'pending_approval').length
-      : 0;
+  const pending = !loading ? authoritativePendingCount(data) : 0;
 
   useEffect(() => {
     setPendingCount(pending);
