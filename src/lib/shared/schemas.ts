@@ -318,12 +318,15 @@ type ResendConfirmationInput = z.infer<typeof ResendConfirmationSchema>;
  * Canonical email OTP length — the SINGLE source of truth shared by the UI
  * input attributes and the confirmation copy.
  *
- * Supabase email OTP is FIXED at 6 digits — unlike SMS, there is NO "Email OTP
- * Length" setting to configure (Supabase docs: the email OTP is "a six digit
- * code"). So no dashboard / Management-API change is required; this constant
- * simply keeps the UI input + copy aligned with Supabase's fixed 6-digit code.
- * The only email-side requirement is that the confirmation template render
- * `{{ .Token }}` (the 6-digit code), not `{{ .ConfirmationURL }}`.
+ * Email OTP length is NOT fixed. It is owned server-side by Supabase Auth's
+ * `mailer_otp_length` setting (Management API `…/config/auth`, integer 6–10,
+ * default null = 6) — a distinct field from SMS's `sms_otp_length`. This
+ * constant does NOT influence what Supabase generates; it only sizes the UI
+ * input attributes + copy. If the two drift, the input cannot accept the full
+ * emailed code and email confirmation silently fails — so this constant MUST be
+ * kept in lockstep with the project's `mailer_otp_length` (currently 6 on both
+ * staging and prod). The confirmation template must also render `{{ .Token }}`
+ * (the numeric code), not `{{ .ConfirmationURL }}`.
  *
  * The server schema below stays defensively permissive (Supabase's `verifyOtp`
  * is the real validator); every user-facing constraint derives from this
