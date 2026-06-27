@@ -1,10 +1,8 @@
-import { v7 as uuidv7 } from 'uuid';
 import { getCacheRedis } from '@/lib/db/redis-cache';
-import { jsonb, sql } from '@/lib/db/server';
+import { sql } from '@/lib/db/server';
 import { zernioClient } from '@/lib/zernio/client';
 import { ZernioReviewNotFoundError } from '@/lib/zernio/errors';
 import { fromZernioReview, matchesLocalRow } from '@/lib/reviews/zernio-field-match';
-import type { SendOwnerEmailPayload } from '@/lib/shared/worker-types';
 
 const CACHE_TTL_SECONDS = 86_400;
 
@@ -161,107 +159,37 @@ export async function getCachedZernioReviewPage(
 }
 
 /**
- * BullMQ retry-exhaustion fallback for the response publisher (spec §4.4).
+ * BullMQ retry-exhaustion handler for the response publisher — TRANSIENT errors
+ * only. Auth errors take the terminal path (`applyAuthErrorTerminalInTx`, which
+ * DOES disconnect with `auth_error_on_publish`); this path is reached only when
+ * a transient/5xx Zernio failure exhausts retries.
  *
- * Mirrors the in-worker auth-error path (spec §4.2): mark the active Zernio
- * connection disconnected with reason `auth_error_on_post`, transition the
- * affected response to `awaiting_owner_connect`, and enqueue both notify
- * outbox rows (reconnect + connection-lost) — but only if the response was
- * still in a non-terminal status. The status guard is critical: a parallel
- * worker may have already posted/failed/superseded the row.
+ * A transient publish failure (e.g. Zernio's `deleteReply` returning HTTP 500
+ * while editing a reply) does NOT mean the owner's Zernio connection is broken,
+ * so we MUST NOT disconnect it or tell the owner to reconnect. Doing so created
+ * a publish-fail → disconnect → reconnect → publish-fail loop and a misleading
+ * `auth_error_on_post` disconnect reason for what was actually a server-side 500.
  *
- * Lives here (not in the worker) so the same single-tx mutation block is
- * reused by both the in-worker auth-error path and the BullMQ onFailed
- * graceful-degradation path. No duplication.
+ * Instead: park the response as `failed` (recoverable — Past Replies surfaces it
+ * with /retry + /restore-original) and leave the connection ACTIVE. Ops is
+ * alerted by the HealthAlertPoller's `publish_response exhausted retries` check;
+ * the owner sees the failed reply in the dashboard. Status guard: no-op if the
+ * response is already terminal (posted/failed/superseded by a parallel worker).
  */
 export async function applyTransientExhaustionFallback(args: {
   response_id: string;
   business_id: string;
-  /** REQUIRED — every code path now wraps transient throws in
-   *  PublisherTransientWithContext, so the failed-hook always has the
-   *  attempt's account/location available. The previous un-pinned legacy
-   *  fallback was deleted: a missing account+location would silently
-   *  disconnect EVERY active connection at the business, which is
-   *  catastrophic when a business has multiple Zernio connections. */
-  account_id: string;
-  location_id: string;
   correlation_id?: string;
 }): Promise<void> {
-  const {
-    response_id: responseId,
-    business_id: businessId,
-    account_id: accountId,
-    location_id: locationId,
-  } = args;
+  const { response_id: responseId, business_id: businessId } = args;
 
-  await sql.begin(async (tx) => {
-    // Order matters: response transition FIRST. If the response is already
-    // terminal (posted/failed/superseded by a parallel worker), we don't
-    // want to disconnect the connection — the connection might still be
-    // healthy from the perspective of every other queued response. The
-    // connection-disconnect is only justified when we still own a response
-    // that needs to be parked.
-    const updated = await tx`
-      UPDATE responses
-      SET status = 'awaiting_owner_connect', updated_at = NOW()
-      WHERE id = ${responseId}
-        AND business_id = ${businessId}
-        AND status IN ('approved', 'edited', 'awaiting_owner_connect') -- status-audit-ignore: state-transition UPDATE guard, intentionally inline per response-status.ts header
-      RETURNING 1
-    `;
-
-    if (updated.count === 0) {
-      // Response already terminal (posted/failed/superseded). Skip both the
-      // connection-disconnect AND the notify enqueues — neither is justified
-      // by the row we hold.
-      return;
-    }
-
-    await tx`
-      UPDATE zernio_connections
-      SET status = 'disconnected',
-          disconnected_at = NOW(),
-          disconnect_reason = 'auth_error_on_post',
-          last_error = 'BullMQ retries exhausted',
-          last_error_at = NOW()
-      WHERE business_id = ${businessId}
-        AND zernio_account_id = ${accountId}
-        AND zernio_location_id = ${locationId}
-        AND status = 'active'
-    `;
-
-    const reconnectPayload = {
-      kind: 'reconnect_required',
-      response_id: responseId,
-      business_id: businessId,
-    } satisfies SendOwnerEmailPayload;
-    const lostPayload = {
-      kind: 'connection_lost',
-      business_id: businessId,
-    } satisfies SendOwnerEmailPayload;
-
-    await tx`
-      INSERT INTO job_outbox (
-        id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
-      ) VALUES
-        (
-          ${uuidv7()},
-          'notify_owner_reconnect',
-          'response',
-          ${responseId},
-          ${jsonb(reconnectPayload)},
-          0,
-          5
-        ),
-        (
-          ${uuidv7()},
-          'notify_owner_connection_lost',
-          'business',
-          ${businessId},
-          ${jsonb(lostPayload)},
-          0,
-          5
-        )
-    `;
-  });
+  await sql`
+    UPDATE responses
+    SET status = 'failed',
+        posting_error = 'publish_transient_retries_exhausted',
+        updated_at = NOW()
+    WHERE id = ${responseId}
+      AND business_id = ${businessId}
+      AND status IN ('approved', 'edited', 'awaiting_owner_connect') -- status-audit-ignore: state-transition UPDATE guard, intentionally inline per response-status.ts header
+  `;
 }

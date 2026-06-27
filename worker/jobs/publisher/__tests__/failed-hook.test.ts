@@ -193,8 +193,6 @@ describe('handlePublisherFailed', () => {
         response_id: 'resp-1',
         business_id: 'biz-1',
         correlation_id: 'corr-1',
-        account_id: 'acct-X',
-        location_id: 'loc-Y',
       });
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
         'outbox-1',
@@ -354,8 +352,6 @@ describe('handlePublisherFailed', () => {
         response_id: 'resp-1',
         business_id: 'biz-1',
         correlation_id: 'corr-1',
-        account_id: 'acct-X',
-        location_id: 'loc-Y',
       });
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-1', 'zernio_transient_max_attempts', 1);
     });

@@ -13,7 +13,42 @@ vi.mock('@/lib/zernio/client', () => ({
   },
 }));
 
-import { lookupZernioReviewId, getCachedZernioReviewPage } from '../zernio-publisher';
+import {
+  lookupZernioReviewId,
+  getCachedZernioReviewPage,
+  applyTransientExhaustionFallback,
+} from '../zernio-publisher';
+
+describe('applyTransientExhaustionFallback', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('parks the response as failed and never disconnects the connection or notifies the owner', async () => {
+    const { sql } = await import('@/lib/db/server');
+    const mockSql = sql as unknown as ReturnType<typeof vi.fn>;
+    mockSql.mockResolvedValue([]);
+
+    await applyTransientExhaustionFallback({
+      response_id: 'resp-1',
+      business_id: 'biz-1',
+      correlation_id: 'corr-1',
+    });
+
+    // A transient publish failure must produce EXACTLY one statement — the
+    // response park — and never touch the connection or enqueue notifications.
+    expect(mockSql).toHaveBeenCalledTimes(1);
+    const [strings] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+    const text = strings.join('?');
+    expect(text).toMatch(/UPDATE\s+responses/);
+    expect(text).toContain("status = 'failed'");
+    expect(text).toContain("status IN ('approved', 'edited', 'awaiting_owner_connect')");
+    // Regression guards for the publish-fail → disconnect → reconnect loop:
+    expect(text).not.toMatch(/zernio_connections/);
+    expect(text).not.toMatch(/job_outbox/);
+    expect(text).not.toContain('disconnect');
+  });
+});
 
 describe('lookupZernioReviewId', () => {
   beforeEach(() => {
