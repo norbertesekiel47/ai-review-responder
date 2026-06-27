@@ -267,6 +267,33 @@ export interface DeleteErrorArgs {
 }
 
 /**
+ * #355 Pass-1 instrumentation (TEMPORARY — delete when the Pass-2 disposition
+ * lands). The Zernio delete-reply 400 body is otherwise lost: Sentry is off on
+ * staging and `classifyAndParse` buries `body` in `ZernioPermanentError.meta`
+ * without surfacing it. This durable structured line is how the orchestrator
+ * captures the undocumented `body.code` needed to choose the Pass-2 fix.
+ *
+ * Self-guards so the disposition flow stays a single call. Zernio API error
+ * metadata (status/code/body) is NOT customer content, and `delete_reply` sends
+ * only IDs — but the body is still bounded and passed as an OBJECT arg so the
+ * analytics blocked-key sanitizer applies (string args are logged verbatim).
+ */
+function logDeleteReply400Body(err: ZernioPermanentError, logger: WorkerLogger): void {
+  if (err.kind !== 'http_400') return;
+  const meta = err.meta as
+    | { endpointKind?: unknown; status?: unknown; body?: unknown }
+    | null
+    | undefined;
+  if (meta?.endpointKind !== 'delete_reply') return;
+  const body = meta.body;
+  logger.warn('delete_reply_400_body', {
+    status: meta.status,
+    code: (body as { code?: unknown } | null | undefined)?.code,
+    bodyPreview: JSON.stringify(body ?? null).slice(0, 500),
+  });
+}
+
+/**
  * Disposition for an error thrown by the DELETE call. The orchestrator handles
  * the 404-as-success case (isDeleteAlreadyGone) inline BEFORE calling this, so
  * here the DELETE genuinely failed and the sibling 'posted' row is UNCHANGED on
@@ -312,23 +339,7 @@ export async function handleDeleteError(
   if (err instanceof ZernioPermanentError) {
     // DELETE permanent failure (incl. inbox_addon_required). Sibling unchanged.
     const kind = err.kind ?? 'unknown';
-
-    // #355 Pass-1 instrumentation: surface the otherwise-lost Zernio 400 body
-    // on the delete_reply path. Sentry is off on staging, so this durable
-    // structured line is how the orchestrator captures `body.code` to decide
-    // the Pass-2 disposition. Zernio API error metadata (status/code/body) is
-    // NOT customer content; the body is bounded so a pathological payload can't
-    // bloat the log. Passed as an OBJECT arg so the analytics blocked-key
-    // sanitizer applies (string args are logged verbatim).
-    if (kind === 'http_400' && (err.meta as { endpointKind?: unknown } | null | undefined)?.endpointKind === 'delete_reply') {
-      const body = (err.meta as { body?: unknown }).body;
-      logger.warn('delete_reply_400_body', {
-        event: 'delete_reply_400_body',
-        status: (err.meta as { status?: unknown }).status,
-        code: (body as { code?: unknown } | null | undefined)?.code,
-        bodyPreview: JSON.stringify(body ?? null).slice(0, 500),
-      });
-    }
+    logDeleteReply400Body(err, logger);
 
     const updated = await tx`
       UPDATE responses
