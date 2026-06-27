@@ -439,7 +439,7 @@ describe('mock mode', () => {
 });
 
 describe('deleteReply', () => {
-  it('calls transport.request with correct method, path, endpointKind, and timeoutMs', async () => {
+  it('calls transport.request with method, path, endpointKind, timeoutMs, and accountId in the body', async () => {
     const mockRequest = vi.fn().mockResolvedValue(undefined);
     const transport = { request: mockRequest };
     const { createReplyClient } = await import('../client/replies');
@@ -448,11 +448,15 @@ describe('deleteReply', () => {
     await replyClient.deleteReply('acct_1', 'rev_1');
 
     expect(mockRequest).toHaveBeenCalledOnce();
+    // #355: Zernio's delete-inbox-review-reply requires accountId in the JSON
+    // body (DELETE /v1/inbox/reviews/{reviewId}/reply { accountId }). Omitting it
+    // returns HTTP 400 missing_required_field — the bug this regression guards.
     expect(mockRequest).toHaveBeenCalledWith({
       method: 'DELETE',
       path: '/v1/inbox/reviews/rev_1/reply',
       endpointKind: 'delete_reply',
       timeoutMs: 15_000,
+      body: { accountId: 'acct_1' },
     });
   });
 

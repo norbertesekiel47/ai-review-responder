@@ -11,12 +11,18 @@ export function createReplyClient(transport: ZernioTransport) {
         body: { comment: input.comment },
       }),
 
-    deleteReply: (_accountId: string, reviewId: string) =>
+    // #355: the delete-inbox-review-reply endpoint requires accountId in the
+    // JSON body (docs.zernio.com/reviews/delete-inbox-review-reply). Omitting it
+    // returns HTTP 400 missing_required_field — captured on staging 2026-06-27 —
+    // which the classifier treats as permanent, silently breaking every edit of
+    // a posted reply. Mirror postReply, which already scopes by accountId.
+    deleteReply: (accountId: string, reviewId: string) =>
       transport.request<void>({
         method: 'DELETE',
         path: `/v1/inbox/reviews/${encodeURIComponent(reviewId)}/reply`,
         endpointKind: 'delete_reply',
         timeoutMs: 15_000,
+        body: { accountId },
       }),
   };
 }
