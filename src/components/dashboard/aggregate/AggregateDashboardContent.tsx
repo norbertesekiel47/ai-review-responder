@@ -11,6 +11,7 @@ import { LocationKpiStrip } from '@/components/dashboard/aggregate/LocationKpiSt
 import { PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
 import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal';
 import { useSetPendingCount } from '@/contexts/PendingCountContext';
+import { authoritativePendingCount } from '@/lib/dashboard/scope';
 
 interface Props {
   data: AggregateDashboardData;
@@ -32,10 +33,10 @@ interface Props {
 export function AggregateDashboardContent({ data, refresh }: Props) {
   const setPendingCount = useSetPendingCount();
 
-  // Compute pending count across all locations
-  const pendingCount = data.recentReviews.filter(
-    (r) => (r.responseStatus ?? r.status) === 'pending_approval',
-  ).length;
+  // Authoritative pending count across all locations — sum of the SQL-backed
+  // per-location counts, NOT a filter over the capped recentReviews slice, which
+  // undercounts past ~10 pending (#346). Matches the parent badge value.
+  const pendingCount = authoritativePendingCount(data);
 
   useEffect(() => {
     setPendingCount(pendingCount);

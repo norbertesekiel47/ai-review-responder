@@ -64,4 +64,24 @@ describe('AggregateDashboardContent', () => {
     expect(screen.queryByTestId('aggregate-velocity')).not.toBeInTheDocument();
     expect(screen.queryByTestId('aggregate-ranking')).not.toBeInTheDocument();
   });
+
+  it('strip shows the authoritative aggregate pending count (sum of locationKpis), not the capped slice (#346)', () => {
+    const busy: AggregateDashboardData = {
+      ...data,
+      // 8 + 9 = 17 authoritative pending across locations…
+      locationKpis: [
+        { locationId: 'l1', displayName: 'A', isPrimary: true, totalReviewsHandled: 0, pendingApprovalCount: 8, recentReviewCount: 8, billingPending: false },
+        { locationId: 'l2', displayName: 'B', isPrimary: false, totalReviewsHandled: 0, pendingApprovalCount: 9, recentReviewCount: 9, billingPending: false },
+      ],
+      // …while the capped recentReviews slice only carries 3 pending rows.
+      recentReviews: Array.from({ length: 3 }, (_, i) => ({
+        id: `r${i}`, reviewerName: 'X', starRating: 5, reviewText: null, reviewDate: '2026-06-01',
+        status: 'pending_approval', responseText: 'd', responseStatus: 'pending_approval', approvalMethod: null,
+        locationId: 'l1', locationDisplayName: 'A',
+      })),
+    };
+    render(<AggregateDashboardContent data={busy} refresh={vi.fn()} />);
+    expect(screen.getByText(/17 drafts/i)).toBeInTheDocument();
+    expect(screen.queryByText(/3 drafts/i)).not.toBeInTheDocument();
+  });
 });
