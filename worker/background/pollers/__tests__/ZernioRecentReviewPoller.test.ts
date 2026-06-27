@@ -492,8 +492,8 @@ describe('ZernioRecentReviewPoller', () => {
       mockProcessReview.mockReturnValueOnce(new Promise(() => {}));
 
       const firstCycle = poll();
-      // Advance past the watchdog (DEFAULT_CYCLE_DEADLINE_MS 240s + 120s buffer).
-      await vi.advanceTimersByTimeAsync(6 * 60_000 + 10);
+      // Advance past the watchdog (DEFAULT_CYCLE_DEADLINE_MS 60s + 60s buffer = 120s).
+      await vi.advanceTimersByTimeAsync(3 * 60_000);
       await firstCycle; // poll() caught the TimeoutError and released isPolling.
 
       expect(mockProcessReview).toHaveBeenCalledTimes(1);
