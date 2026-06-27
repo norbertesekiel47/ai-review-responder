@@ -69,6 +69,40 @@ Canonical 9-variable map (source of truth is `formatApprovalWhatsApp`):
 
 Any change to `formatApprovalWhatsApp` (add/remove/reorder variables) requires a matching template edit **and** a fresh Meta review cycle. Copy is locked only after this diff passes — see [Copy-lock note](#copy-lock-note) below.
 
+#### Variable-map validation (2026-06-26)
+
+Diffed the documented `repworth_approval_request_v1` body + button map against the live renderer `formatApprovalWhatsApp` (`src/lib/notifications/channels/whatsapp-body.ts:148-159`). Positional `contentVariables` keys `"1"`–`"9"` (no runtime re-mapping):
+
+| Index | Renderer source field (`formatApprovalWhatsApp`) | Template placeholder |
+|-------|--------------------------------------------------|----------------------|
+| 1 | `truncate(oneLine(params.businessName), 100)` | `{{1}}` body — business name |
+| 2 | `truncate(oneLine(params.reviewerName \|\| 'Reviewer'), 100)` | `{{2}}` body — reviewer name |
+| 3 | `String(params.starRating)` | `{{3}}` body — star rating |
+| 4 | `truncate(oneLine(params.reviewDate), 12)` | `{{4}}` body — review date |
+| 5 | `truncate(oneLine(params.reviewText ?? '(no comment)'), REVIEW_TEXT_MAX)` | `{{5}}` body — review text |
+| 6 | `truncate(oneLine(params.responsePreview), RESPONSE_PREVIEW_MAX)` | `{{6}}` body — draft reply preview |
+| 7 | `` `a:${params.approvalLinkId}` `` | `{{7}}` → Approve button `id` |
+| 8 | `` `r:${params.approvalLinkId}` `` | `{{8}}` → Regenerate button `id` |
+| 9 | `extractTokenFromApprovalUrl(params.approvalUrl)` | `{{9}}` → URL button suffix (raw approval token) |
+
+**Verdict: PASS.** All nine positional indices map exactly to the documented `whatsapp/card` body (`{{1}}`–`{{6}}`) and the three buttons (`{{7}}`/`{{8}}` QUICK_REPLY ids, `{{9}}` URL suffix). The renderer was **not** modified — the body template constant (`APPROVAL_CARD_BODY_TEMPLATE`) and the index order are unchanged, so this validation does **not** restart the Meta review clock.
+
+#### Go-live record (record at flip, do not invent)
+
+- **Approved Content SID:** `HX________ (record at go-live)` — paste the `HX…` SID Twilio returns after Meta approves, then set it as `WHATSAPP_APPROVAL_TEMPLATE_SID` on both platforms below.
+- **Variable-map gate:** PASS (2026-06-26, above). Re-run this diff before any resubmission.
+
+**7-env-var go-live checklist — set on BOTH Vercel (UI + routes) AND Railway (worker)** (authoritative matrix below; `assertChannelsWhatsAppEnv` enforces presence + format + URL-base equality on the Railway side):
+
+- [ ] `CHANNELS_WHATSAPP_ENABLED` — keep `false` until the 8-point ship gate passes (Vercel + Railway)
+- [ ] `TWILIO_ACCOUNT_SID` (Vercel + Railway)
+- [ ] `TWILIO_AUTH_TOKEN` (Vercel + Railway)
+- [ ] `TWILIO_WHATSAPP_NUMBER` — format `whatsapp:+<digits>` (Vercel + Railway)
+- [ ] `WHATSAPP_APPROVAL_TEMPLATE_SID` — the `HX…` SID above (Vercel + Railway)
+- [ ] `WHATSAPP_APPROVAL_URL_BASE` — MUST equal `NEXT_PUBLIC_APP_URL + '/approve/'` exactly (Vercel + Railway)
+- [ ] `NEXT_PUBLIC_APP_URL` (Vercel + Railway)
+- [ ] `WORKER_PUBLIC_URL` — **Railway worker only** (Twilio webhook registration)
+
 ### Submission JSON (Twilio Content API)
 
 Submit via the Content Editor UI or the `/v1/Content` POST endpoint. Field names verified against https://www.twilio.com/docs/content/whatsappcard (2026-05-22).
