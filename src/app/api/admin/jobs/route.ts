@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- invariant #1 carve-out: admin-only queue-health READ. Instantiates a BullMQ Queue solely to call getJobCounts(), then closes it in a finally — not a publish path. TODO: file a follow-up issue to relocate queue-health to the Railway worker (also fixes the likely-broken Vercel→Railway-Redis call) and drop this disable.
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- invariant #1 carve-out: admin-only queue-health READ. Instantiates a BullMQ Queue solely to call getJobCounts(), then closes it in a finally — not a publish path. TODO(#408): relocate queue-health to the Railway worker (also fixes the likely-broken Vercel→Railway-Redis call) and drop this disable.
 import { Queue } from 'bullmq';
 import type { RedisOptions } from 'ioredis';
 import { sql } from '@/lib/db/server';
