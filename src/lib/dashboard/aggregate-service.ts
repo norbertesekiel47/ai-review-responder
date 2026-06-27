@@ -13,6 +13,7 @@ import { sql } from '@/lib/db/server';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 import { statusArraySql } from '@/lib/shared/response-status-sql';
 import { getActiveDashboardData } from './service';
+import { getPendingApprovalCount } from './pending-count';
 import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel } from '@/lib/locations/display-label';
 import type {
@@ -143,21 +144,22 @@ export async function getAggregateDashboardData(
   // the billing-confirmed count (locations_included + locations_paid).
   // This means the Stripe overage webhook hasn't yet confirmed the quantity
   // update for that location.
-  const locationKpis: PerLocationKpi[] = validPairs.map((p, idx) => {
-    const pendingCount = p.data.recentReviews.filter(
-      (r) => (r.responseStatus ?? r.status) === 'pending_approval',
-    ).length;
-    const recentCount = p.data.recentReviews.length;
-    return {
+  // pendingApprovalCount must be the authoritative SQL count (no LIMIT, held/
+  // flagged excluded) — NOT a filter over the per-location recentReviews slice,
+  // which is capped at 10 and undercounts locations with >10 pending drafts
+  // (#346). Reuse getPendingApprovalCount so the count semantics live in one
+  // place. recentReviewCount stays a count of the displayed slice.
+  const locationKpis: PerLocationKpi[] = await Promise.all(
+    validPairs.map(async (p, idx) => ({
       locationId: p.location.id,
       displayName: getDisplayLabel(p.location),
       isPrimary: p.location.is_primary,
       totalReviewsHandled: p.data.valueSummary.totalReviewsHandled,
-      pendingApprovalCount: pendingCount,
-      recentReviewCount: recentCount,
+      pendingApprovalCount: await getPendingApprovalCount(p.location.id),
+      recentReviewCount: p.data.recentReviews.length,
       billingPending: idx >= billingConfirmedCount,
-    };
-  });
+    })),
+  );
 
   // ── Review Velocity (combined total + per-location) ──────────────────────
   // Merge all week keys across locations, sum counts per week

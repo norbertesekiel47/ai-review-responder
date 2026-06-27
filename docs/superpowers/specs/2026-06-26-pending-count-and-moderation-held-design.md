@@ -39,12 +39,18 @@ The authoritative SQL count is **already in the payload** for every surface:
   `getActiveDashboardData(locationId, { includeReputationMetrics: true })` — so
   **both** `/dashboard` (`DashboardContent`) and `/dashboard/reviews`
   (`ReviewsContent` → `useSyncPendingCount`) receive it.
-- **Aggregate** (`AggregateDashboardData`): each `locationKpis[]` entry carries
-  an authoritative per-location `pendingApprovalCount`; the aggregate total is
-  their sum. (No top-level aggregate field exists today.)
+- **Aggregate** (`AggregateDashboardData`): the aggregate total is the sum of
+  `locationKpis[].pendingApprovalCount`. **Correction (Codex review):** that
+  field was NOT authoritative — `aggregate-service.ts` computed it by filtering
+  each location's capped `recentReviews` slice, so it inherited the same >10
+  undercount. Fixed at the source: `aggregate-service.ts` now derives each
+  location's `pendingApprovalCount` from `getPendingApprovalCount(locationId)`
+  (the no-LIMIT SQL count — the single owner of the count semantics). The
+  payload shape is unchanged; only its computation became authoritative.
 
-So convergence is a pure client-side change: derive from the authoritative
-fields already present, instead of filtering the capped slice.
+So convergence is mostly a client-side change (one shared helper over the
+payload), plus a one-line source fix in `aggregate-service.ts` to make the
+aggregate field it reads genuinely authoritative. No payload-shape/API change.
 
 ### Design
 
