@@ -28,6 +28,9 @@ import { AnalyticsContent } from '@/components/dashboard/analytics/AnalyticsCont
 const weeks = (counts: number[]) =>
   counts.map((count, i) => ({ weekStart: `2026-04-${String(i + 1).padStart(2, '0')}`, count }));
 
+const ratings = (stars: Array<number | null>) =>
+  stars.map((starRating, i) => ({ id: `r${i}`, starRating, status: 'posted' }));
+
 const baseActive = {
   business: { name: 'Biz', createdAt: '2026-01-01' },
   valueSummary: { totalReviewsHandled: 9, totalTimeSavedMinutes: 54, currentResponseRate: 90, baselineResponseRate: null },
@@ -71,9 +74,13 @@ const baseAggregate = {
 };
 
 describe('AnalyticsContent', () => {
-  it('renders the three per-location charts, each leading with a headline', () => {
+  it('leads the per-location grid with the reputation KPI strip, then the three charts', () => {
     useDashboardDataMock.mockReturnValue({ data: baseActive, error: null, loading: false, refresh: vi.fn() });
     render(<AnalyticsContent />);
+
+    // KPI strip (slot 1) — ReputationHeroBand
+    expect(screen.getByText('Average rating')).toBeInTheDocument();
+    expect(screen.getByText('Response rate')).toBeInTheDocument();
 
     // Charts
     expect(screen.getByText('Reputation trend')).toBeInTheDocument();
@@ -84,14 +91,61 @@ describe('AnalyticsContent', () => {
     expect(screen.getByText(/Rating climbing/i)).toBeInTheDocument();
     expect(screen.getByText(/Up 150% in new reviews this week/i)).toBeInTheDocument();
     expect(screen.getByText(/Up 2 spots this month/i)).toBeInTheDocument();
+
+    // Breakdown is hidden when no recent review carries a rating
+    expect(screen.queryByText('Recent reviews by rating')).not.toBeInTheDocument();
   });
 
-  it('renders the aggregate chart variants (no per-location trend)', () => {
+  it('renders the recent rating breakdown when recent reviews carry ratings', () => {
+    useDashboardDataMock.mockReturnValue({
+      data: { ...baseActive, recentReviews: ratings([5, 5, 4, 3, 1, null]) },
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+    });
+    render(<AnalyticsContent />);
+
+    expect(screen.getByText('Recent reviews by rating')).toBeInTheDocument();
+    // The unrated review is excluded — 5 of 6 count toward the sample.
+    expect(screen.getByText(/Based on your 5 most recent reviews/i)).toBeInTheDocument();
+  });
+
+  it('renders velocity without a ranking card when ranking is null', () => {
+    useDashboardDataMock.mockReturnValue({
+      data: { ...baseActive, ranking: null },
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+    });
+    render(<AnalyticsContent />);
+
+    expect(screen.getByText('Review Velocity')).toBeInTheDocument();
+    expect(screen.queryByText('Search Ranking')).not.toBeInTheDocument();
+  });
+
+  it('renders the aggregate variants with a KPI strip and no per-location trend', () => {
     useDashboardDataMock.mockReturnValue({ data: baseAggregate, error: null, loading: false, refresh: vi.fn() });
     render(<AnalyticsContent />);
+
+    // KPI strip (slot 1) — AggregateKpiCards → ValueKpiGrid
+    expect(screen.getByText(/Reviews handled/i)).toBeInTheDocument();
+
     expect(screen.getByText('Review Velocity')).toBeInTheDocument();
     expect(screen.getByText('Search Ranking')).toBeInTheDocument();
     expect(screen.queryByText('Reputation trend')).not.toBeInTheDocument();
+  });
+
+  it('renders the recent rating breakdown in aggregate scope', () => {
+    useDashboardDataMock.mockReturnValue({
+      data: { ...baseAggregate, recentReviews: ratings([5, 4, 4, 2]) },
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+    });
+    render(<AnalyticsContent />);
+
+    expect(screen.getByText('Recent reviews by rating')).toBeInTheDocument();
+    expect(screen.getByText(/Based on your 4 most recent reviews/i)).toBeInTheDocument();
   });
 
   it('shows a loading state', () => {
@@ -116,6 +170,8 @@ describe('AnalyticsContent', () => {
     });
     render(<AnalyticsContent />);
     expect(screen.getByText(/no analytics yet/i)).toBeInTheDocument();
+    // The KPI strip stays inside the populated branch, so it should not appear here.
+    expect(screen.queryByText('Average rating')).not.toBeInTheDocument();
   });
 
   it('renders a graceful unavailable state for a non-active subscription', () => {

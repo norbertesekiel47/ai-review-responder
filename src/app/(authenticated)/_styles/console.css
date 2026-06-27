@@ -993,6 +993,73 @@
 .rank-grid { stroke: var(--rw-hair); }
 .rank-axis { fill: var(--rw-app-text-soft); font-family: var(--rw-font-body); }
 
+/* ---------- Recent reviews by rating (analytics breakdown) ----------
+   Horizontal-bar histogram derived from the recent-reviews sample. Bars grow via
+   transform (GPU-safe) from the left, sentiment-cued by tier. */
+.rating-breakdown-sub {
+  font-size: 13px;
+  color: var(--rw-app-text-muted);
+  margin: -4px 0 16px;
+}
+.rating-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rating-row {
+  display: grid;
+  grid-template-columns: 34px 1fr 28px;
+  align-items: center;
+  gap: 12px;
+}
+.rating-row-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rw-app-text);
+  font-variant-numeric: tabular-nums;
+}
+.rating-row-star { color: var(--rw-star); font-size: 12px; }
+.rating-track {
+  position: relative;
+  height: 10px;
+  border-radius: var(--rw-radius-pill);
+  background: var(--rw-recess);
+  border: 1px solid var(--rw-hair);
+  overflow: hidden;
+}
+.rating-fill {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: var(--rw-radius-pill);
+  transform-origin: left center;
+  animation: ratingGrow 600ms var(--rw-ease-spring) both;
+}
+.rating-fill--good { background: var(--rw-sage-deep); }
+.rating-fill--mid { background: var(--rw-star); }
+.rating-fill--low { background: var(--rw-blush-deep); }
+.rating-row-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rw-app-text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+@keyframes ratingGrow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rating-fill { animation: none; }
+}
+
 /* ---------- Analytics headline-first chart cards ---------- */
 /* Each chart leads with a deterministic plain-English takeaway; the chart below
    is evidence, not the message (design spec 2026-06-19). */
