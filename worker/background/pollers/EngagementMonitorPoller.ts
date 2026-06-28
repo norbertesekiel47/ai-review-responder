@@ -10,12 +10,18 @@
 import { v7 as uuidv7 } from 'uuid';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql, jsonb } from '../../../src/lib/db/server';
-import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, toError, type WorkerLogger } from '../../../src/lib/shared/logger';
+import { createGuardedPoll } from '../guarded-poll';
 import type { EngagementAlertPayload, EngagementAlertType } from '../../../src/lib/shared/worker-types';
 import { HANDLED_STATUSES } from '../../../src/lib/shared/response-status';
 
 const LOG_PREFIX = '[EngagementMonitorPoller]';
 const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours
+// Hard per-cycle deadline (#414). 30min is far above a real cycle (one metrics
+// CTE + per-business insert loop → minutes) and well under the 24h interval, so a
+// cycle hung on a stale connection frees the single-flight flag before the next
+// tick instead of pinning it forever and silently disabling engagement alerts.
+const ENGAGEMENT_CYCLE_TIMEOUT_MS = 1_800_000; // 30 minutes
 
 // Cooldowns in days per alert type. partner_satisfaction_alert is NOT listed here —
 // its dedup is handled by the satisfaction pulse producer (Prompt 19g) + the worker's
@@ -26,9 +32,6 @@ const COOLDOWNS: Partial<Record<EngagementAlertType, number>> = {
   partner_escalation_alert: 14,
   partner_low_engagement: 7,
 };
-
-let pollerInterval: ReturnType<typeof setInterval> | null = null;
-let isPolling = false;
 
 interface BusinessMetrics {
   business_id: string;
@@ -77,11 +80,7 @@ function getIntervalMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 }
 
-async function runEngagementCheck(): Promise<void> {
-  if (isPolling) return;
-  isPolling = true;
-  const logger = createWorkerLogger(LOG_PREFIX);
-
+async function runEngagementCheck(logger: WorkerLogger): Promise<void> {
   try {
     const rows = await sql<BusinessMetrics[]>`
       WITH active_biz AS (
@@ -211,25 +210,22 @@ async function runEngagementCheck(): Promise<void> {
     }
   } catch (error) {
     logger.error('Engagement check failed', toError(error));
-  } finally {
-    isPolling = false;
   }
 }
 
+const guard = createGuardedPoll(runEngagementCheck, {
+  label: LOG_PREFIX,
+  intervalMs: getIntervalMs,
+  timeoutMs: ENGAGEMENT_CYCLE_TIMEOUT_MS,
+  onErrorMessage: 'Engagement check failed',
+});
+
 export function startEngagementMonitorPoller(): void {
-  const intervalMs = getIntervalMs();
-  const logger = createWorkerLogger(LOG_PREFIX);
-  logger.log('Starting', { interval_ms: intervalMs });
-  runEngagementCheck().catch(logUnhandledPollError(LOG_PREFIX));
-  pollerInterval = setInterval(() => {
-    runEngagementCheck().catch(logUnhandledPollError(LOG_PREFIX));
-  }, intervalMs);
+  guard.start(() =>
+    createWorkerLogger(LOG_PREFIX).log('Starting', { interval_ms: getIntervalMs() }),
+  );
 }
 
 export function stopEngagementMonitorPoller(): void {
-  if (pollerInterval) {
-    clearInterval(pollerInterval);
-    pollerInterval = null;
-    createWorkerLogger(LOG_PREFIX).log('Stopped');
-  }
+  guard.stop();
 }

@@ -353,11 +353,28 @@ describe('AccountOffboardingAccessEndPoller', () => {
 
     startAccountOffboardingAccessEndPoller();
     startAccountOffboardingAccessEndPoller();
-    await Promise.resolve();
+    // Drain the initial cycle so its per-cycle withTimeout deadline timer (#414
+    // guard) clears, leaving only the single interval timer under assertion.
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(vi.getTimerCount()).toBe(1);
 
     stopAccountOffboardingAccessEndPoller();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('bounds a hung cycle with the #414 deadline and resets so the next tick runs', async () => {
+    // A cycle hung on a stale connection must not pin single-flight forever:
+    // the withTimeout deadline trips, the flag releases, and the next tick runs.
+    mockSql.begin.mockImplementationOnce(() => new Promise<never>(() => {})); // never settles
+    sqlQueue.push([]); // recovery cycle: candidate query returns none
+
+    const hung = runAccountOffboardingAccessEndOnce();
+    await vi.advanceTimersByTimeAsync(45_000); // trip the cycle deadline
+    await expect(hung).resolves.toBeUndefined();
+    expect(mockLoggerError).toHaveBeenCalledWith('Poll cycle failed', expect.any(Error));
+
+    await runAccountOffboardingAccessEndOnce();
+    expect(mockSql.begin).toHaveBeenCalledTimes(2);
   });
 });

@@ -3,8 +3,9 @@ import { accountOffboardingEnabled } from '../../../src/lib/account-offboarding/
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
-import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { maybeLogPollerHeartbeat, notePollerActivity } from '../poller-heartbeat';
+import { createGuardedPoll } from '../guarded-poll';
 
 // Autonomous recovery for stale cancel_only reactivation claims (M1). A claim is
 // stale when its originating reactivation process died mid-reversal — the row sits
@@ -18,9 +19,11 @@ const LOG_PREFIX = '[AccountOffboardingReactivationResetPoller]';
 const DEFAULT_INTERVAL_MS = 60_000;
 const DEFAULT_BATCH_SIZE = 25;
 const STALE_REACTIVATION_CLAIM_MS = 5 * 60 * 1000;
-
-let pollerInterval: ReturnType<typeof setInterval> | null = null;
-let inProgress = false;
+// Hard per-cycle deadline (#414). 45s is far above a real cycle (claim+reset →
+// seconds) and under the 60s interval, so a cycle hung on a stale connection
+// frees the single-flight flag before the next tick instead of pinning it forever
+// and silently disabling stale-reactivation-claim recovery.
+const REACTIVATION_RESET_CYCLE_TIMEOUT_MS = 45_000;
 
 interface StaleReactivationClaimRow {
   id: string;
@@ -41,24 +44,20 @@ function getBatchSize(): number {
   return raw;
 }
 
-export async function runAccountOffboardingReactivationResetOnce(): Promise<void> {
-  if (!accountOffboardingEnabled()) return;
-
-  const logger = createWorkerLogger(LOG_PREFIX);
-  if (inProgress) {
-    logger.log('Previous run still in progress - skipping this tick');
-    return;
-  }
-
-  inProgress = true;
-  try {
+const guard = createGuardedPoll(
+  async (logger) => {
+    if (!accountOffboardingEnabled()) return;
     await runAccountOffboardingReactivationResetInner(logger);
-  } catch (err) {
-    logger.error('Poll cycle failed', toError(err));
-  } finally {
-    inProgress = false;
-  }
-}
+  },
+  {
+    label: LOG_PREFIX,
+    intervalMs: getIntervalMs,
+    timeoutMs: REACTIVATION_RESET_CYCLE_TIMEOUT_MS,
+    onSkipMessage: 'Previous run still in progress - skipping this tick',
+  },
+);
+
+export const runAccountOffboardingReactivationResetOnce = guard.runOnce;
 
 async function runAccountOffboardingReactivationResetInner(
   logger: ReturnType<typeof createWorkerLogger>,
@@ -198,23 +197,11 @@ export function startAccountOffboardingReactivationResetPoller(): void {
     logger.log('ACCOUNT_OFFBOARDING_ENABLED != true — not starting');
     return;
   }
-
-  if (pollerInterval) {
-    return;
-  }
-
-  const intervalMs = getIntervalMs();
-  logger.log('Starting', { interval_ms: intervalMs, batch: getBatchSize() });
-  runAccountOffboardingReactivationResetOnce().catch(logUnhandledPollError(LOG_PREFIX));
-  pollerInterval = setInterval(() => {
-    runAccountOffboardingReactivationResetOnce().catch(logUnhandledPollError(LOG_PREFIX));
-  }, intervalMs);
+  guard.start(() =>
+    logger.log('Starting', { interval_ms: getIntervalMs(), batch: getBatchSize() }),
+  );
 }
 
 export function stopAccountOffboardingReactivationResetPoller(): void {
-  if (pollerInterval) {
-    clearInterval(pollerInterval);
-    pollerInterval = null;
-    createWorkerLogger(LOG_PREFIX).log('Stopped');
-  }
+  guard.stop();
 }

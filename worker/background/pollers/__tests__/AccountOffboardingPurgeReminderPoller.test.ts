@@ -163,7 +163,9 @@ describe('AccountOffboardingPurgeReminderPoller', () => {
 
     startAccountOffboardingPurgeReminderPoller();
     startAccountOffboardingPurgeReminderPoller();
-    await Promise.resolve();
+    // Drain the initial cycle so its per-cycle withTimeout deadline timer (#414
+    // guard) clears, leaving only the single interval timer under assertion.
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(vi.getTimerCount()).toBe(1);
 

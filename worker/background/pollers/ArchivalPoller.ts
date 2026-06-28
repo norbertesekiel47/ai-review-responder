@@ -1,12 +1,15 @@
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
-import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, toError, type WorkerLogger } from '../../../src/lib/shared/logger';
+import { createGuardedPoll } from '../guarded-poll';
 
 const LOG_PREFIX = '[ArchivalPoller]';
 const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours
-
-let pollerInterval: ReturnType<typeof setInterval> | null = null;
-let isPolling = false;
+// Hard per-cycle deadline (#414). 30min is far above a real cycle (6 batched
+// DELETEs, LIMIT 5000 each → minutes) and well under the 24h interval, so a
+// cycle hung on a stale connection frees the single-flight flag before the next
+// tick instead of pinning it forever and silently disabling archival.
+const ARCHIVAL_CYCLE_TIMEOUT_MS = 1_800_000; // 30 minutes
 
 function getIntervalMs(): number {
   const envVal = getWorkerConfig().ARCHIVAL_INTERVAL_MS;
@@ -15,11 +18,7 @@ function getIntervalMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 }
 
-async function runArchival(): Promise<void> {
-  if (isPolling) return;
-  isPolling = true;
-  const logger = createWorkerLogger(LOG_PREFIX);
-
+async function runArchival(logger: WorkerLogger): Promise<void> {
   try {
     // 1. Completed outbox entries older than 7 days (batched to avoid long locks)
     const [outboxResult] = await sql<{ count: string }[]>`
@@ -206,24 +205,22 @@ async function runArchival(): Promise<void> {
     }
   } catch (error) {
     logger.error('Archival cycle failed', toError(error));
-  } finally {
-    isPolling = false;
   }
 }
 
+const guard = createGuardedPoll(runArchival, {
+  label: LOG_PREFIX,
+  intervalMs: getIntervalMs,
+  timeoutMs: ARCHIVAL_CYCLE_TIMEOUT_MS,
+  onErrorMessage: 'Archival cycle failed',
+});
+
 export function startArchivalPoller(): void {
-  const intervalMs = getIntervalMs();
-  createWorkerLogger(LOG_PREFIX).log('Starting', { interval_ms: intervalMs });
-  runArchival().catch(logUnhandledPollError(LOG_PREFIX));
-  pollerInterval = setInterval(() => {
-    runArchival().catch(logUnhandledPollError(LOG_PREFIX));
-  }, intervalMs);
+  guard.start(() =>
+    createWorkerLogger(LOG_PREFIX).log('Starting', { interval_ms: getIntervalMs() }),
+  );
 }
 
 export function stopArchivalPoller(): void {
-  if (pollerInterval) {
-    clearInterval(pollerInterval);
-    pollerInterval = null;
-    createWorkerLogger(LOG_PREFIX).log('Stopped');
-  }
+  guard.stop();
 }

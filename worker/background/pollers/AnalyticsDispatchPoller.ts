@@ -6,8 +6,18 @@ import {
 } from '../../../src/lib/analytics/posthog';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { createWorkerLogger, logUnhandledPollError } from '../../../src/lib/shared/logger';
+import { withTimeout } from '../../../src/lib/shared/with-timeout';
 
 const LOG_PREFIX = '[AnalyticsDispatchPoller]';
+
+// Hard per-cycle deadline (#414). The promise-returning single-flight below
+// keeps `activeRun` pinned until the cycle settles; a `dispatchOnce` that hangs
+// on a stale pooled connection (server-side statement_timeout never fires) would
+// otherwise pin it forever and silently disable every later tick. 20s < the 30s
+// default interval and far above a real cycle (in-memory capture of <=250 events
+// + one PostHog flush). A timed-out cycle rejects `activeRun`, the call-site
+// logUnhandledPollError logs it, and the next tick starts fresh.
+const ANALYTICS_DISPATCH_TIMEOUT_MS = 20_000;
 
 interface AnalyticsEventRow {
   id: string;
@@ -179,7 +189,7 @@ export function runAnalyticsDispatchOnce(): Promise<void> {
   if (activeRun) {
     return activeRun;
   }
-  activeRun = dispatchOnce().finally(() => {
+  activeRun = withTimeout(dispatchOnce(), ANALYTICS_DISPATCH_TIMEOUT_MS, LOG_PREFIX).finally(() => {
     activeRun = null;
   });
   return activeRun;

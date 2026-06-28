@@ -2,14 +2,17 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import { isMockMode } from '../../../src/lib/shared/mock-mode';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { createGuardedPoll } from '../guarded-poll';
 import type { OnboardingDripPayload } from '../../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[OnboardingDripScheduler]';
 const logger = createWorkerLogger(LOG_PREFIX);
 const DEFAULT_INTERVAL_MS = 3_600_000; // 1 hour
-
-let pollerInterval: ReturnType<typeof setInterval> | null = null;
-let isPolling = false;
+// Hard per-cycle deadline (#414). 10min is far above a real cycle (due-drip scan
+// + outbox insert loop → seconds) and well under the 1h interval, so a cycle hung
+// on a stale connection frees the single-flight flag before the next tick instead
+// of pinning it forever and silently disabling onboarding drips.
+const ONBOARDING_DRIP_CYCLE_TIMEOUT_MS = 600_000; // 10 minutes
 
 function getIntervalMs(): number {
   const envVal = process.env.ONBOARDING_DRIP_INTERVAL_MS;
@@ -19,9 +22,6 @@ function getIntervalMs(): number {
 }
 
 export async function checkAndSchedule(): Promise<void> {
-  if (isPolling) return;
-  isPolling = true;
-
   try {
     if (isMockMode()) {
       logger.log('Mock mode — skipping');
@@ -90,25 +90,21 @@ export async function checkAndSchedule(): Promise<void> {
     }
   } catch (error) {
     logger.error('Scheduler cycle failed', error);
-  } finally {
-    isPolling = false;
   }
 }
 
+const guard = createGuardedPoll(checkAndSchedule, {
+  label: LOG_PREFIX,
+  logger,
+  intervalMs: getIntervalMs,
+  timeoutMs: ONBOARDING_DRIP_CYCLE_TIMEOUT_MS,
+  onErrorMessage: 'Scheduler cycle failed',
+});
+
 export function startOnboardingDripScheduler(): void {
-  if (pollerInterval) return;
-  const intervalMs = getIntervalMs();
-  logger.log(`Starting (interval=${intervalMs}ms)`);
-  checkAndSchedule().catch((err) => logger.error('Initial run failed', err));
-  pollerInterval = setInterval(() => {
-    checkAndSchedule().catch((err) => logger.error('Scheduled run failed', err));
-  }, intervalMs);
+  guard.start(() => logger.log(`Starting (interval=${getIntervalMs()}ms)`));
 }
 
 export function stopOnboardingDripScheduler(): void {
-  if (pollerInterval) {
-    clearInterval(pollerInterval);
-    pollerInterval = null;
-    logger.log('Stopped');
-  }
+  guard.stop();
 }

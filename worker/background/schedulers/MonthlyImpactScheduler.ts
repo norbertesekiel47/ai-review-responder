@@ -1,15 +1,18 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { createGuardedPoll } from '../guarded-poll';
 import type { SendMonthlyImpactPayload } from '../../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[MonthlyImpactScheduler]';
 const logger = createWorkerLogger(LOG_PREFIX);
 const DEFAULT_INTERVAL_MS = 3_600_000;
 const MONTHLY_IMPACT_TIMEZONE = 'UTC';
-
-let pollerInterval: ReturnType<typeof setInterval> | null = null;
-let isPolling = false;
+// Hard per-cycle deadline (#414). 10min is far above a real cycle (business scan
+// + outbox insert loop → seconds) and well under the 1h interval, so a cycle hung
+// on a stale connection frees the single-flight flag before the next tick instead
+// of pinning it forever and silently disabling monthly impact emails.
+const MONTHLY_IMPACT_CYCLE_TIMEOUT_MS = 600_000; // 10 minutes
 
 function getIntervalMs(): number {
   const envVal = process.env.MONTHLY_IMPACT_SCHEDULER_INTERVAL_MS;
@@ -29,8 +32,6 @@ function getPreviousMonthStart(now: Date): string {
 // in the multi-location fast-follow spec.
 // fallow-ignore-next-line complexity
 async function checkAndSchedule(): Promise<void> {
-  if (isPolling) return;
-  isPolling = true;
   try {
     const now = new Date();
     const utcDate = now.getUTCDate();
@@ -85,24 +86,23 @@ async function checkAndSchedule(): Promise<void> {
     }
   } catch (error) {
     logger.error('Scheduler cycle failed', error);
-  } finally {
-    isPolling = false;
   }
 }
 
+const guard = createGuardedPoll(checkAndSchedule, {
+  label: LOG_PREFIX,
+  logger,
+  intervalMs: getIntervalMs,
+  timeoutMs: MONTHLY_IMPACT_CYCLE_TIMEOUT_MS,
+  onErrorMessage: 'Scheduler cycle failed',
+});
+
 export function startMonthlyImpactScheduler(): void {
-  const intervalMs = getIntervalMs();
-  logger.log(`Starting (interval=${intervalMs}ms, timezone=${MONTHLY_IMPACT_TIMEZONE})`);
-  checkAndSchedule().catch((err) => logger.error('Initial run failed', err));
-  pollerInterval = setInterval(() => {
-    checkAndSchedule().catch((err) => logger.error('Scheduled run failed', err));
-  }, intervalMs);
+  guard.start(() =>
+    logger.log(`Starting (interval=${getIntervalMs()}ms, timezone=${MONTHLY_IMPACT_TIMEZONE})`),
+  );
 }
 
 export function stopMonthlyImpactScheduler(): void {
-  if (pollerInterval) {
-    clearInterval(pollerInterval);
-    pollerInterval = null;
-    logger.log('Stopped');
-  }
+  guard.stop();
 }

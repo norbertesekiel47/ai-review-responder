@@ -2,10 +2,20 @@ import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { selfServeSignupEnabled } from '../../../src/lib/auth/flags';
 import { sql, supabaseServer } from '../../../src/lib/db/server';
 import { createWorkerLogger, type WorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import { withTimeout } from '../../../src/lib/shared/with-timeout';
 
 const LOG_PREFIX = '[CleanupAbandonedSignups]';
 const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours
 const DEFAULT_BATCH_SIZE = 100;
+
+// Hard per-cycle deadline (#414). Single-flight cannot save a cycle that hangs
+// on a stale pooled connection (server-side statement_timeout never fires on a
+// black-hole socket): `inProgress` would stay set forever and every later tick
+// skip, silently disabling abandoned-signup cleanup. Sized above the legitimate
+// worst case — default batch 100 x the 10s per-row deleteUser cap is ~16min — so
+// it only trips on a true hang, and far under the 24h interval. A timed-out cycle
+// frees `inProgress` (finally) so the next tick runs.
+const CLEANUP_CYCLE_TIMEOUT_MS = 3_600_000; // 60 minutes
 
 let timer: ReturnType<typeof setInterval> | null = null;
 // Single-flight guard. Prevents two scheduled ticks from running runOnce()
@@ -48,7 +58,7 @@ export async function runOnce(): Promise<void> {
   }
   inProgress = true;
   try {
-    return await runOnceInner(logger);
+    return await withTimeout(runOnceInner(logger), CLEANUP_CYCLE_TIMEOUT_MS, LOG_PREFIX);
   } finally {
     inProgress = false;
   }
