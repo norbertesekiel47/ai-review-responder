@@ -10,7 +10,7 @@ export default function SignupError({ reset }: { error: Error; reset: () => void
         </p>
         <button type="button"
           onClick={reset}
-          className="bg-rw-teal-strong text-white px-6 py-2 rounded-full hover:bg-[#46645d] transition-colors"
+          className="bg-rw-teal-strong text-white px-6 py-2 rounded-full hover:bg-rw-teal-strong-hover transition-colors"
         >
           Retry
         </button>

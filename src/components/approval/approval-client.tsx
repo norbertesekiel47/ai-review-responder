@@ -241,7 +241,7 @@ const GHOST_BTN =
 // The armed confirm step darkens further so the irreversible second tap reads
 // as a deliberate, distinct action — white label stays AA on the darker fill.
 const CONFIRM_BTN =
-  'flex-1 rounded-full bg-[#3f544f] px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-[#3f544f]/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3f544f] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+  'flex-1 rounded-full bg-rw-teal-darkest px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-rw-teal-darkest/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-darkest focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
 
 function LoadingSpinner() {
   return (
@@ -322,7 +322,7 @@ function LocationChip({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="inline-flex max-w-[180px] items-center gap-1 truncate whitespace-nowrap rounded-full bg-rw-teal/15 px-2.5 py-0.5 text-[11px] font-semibold text-[#5e7d77]">
+      <span className="inline-flex max-w-[180px] items-center gap-1 truncate whitespace-nowrap rounded-full bg-rw-teal/15 px-2.5 py-0.5 text-[11px] font-semibold text-rw-sage-text">
         <LocationPin />
         {locationLabel}
       </span>
@@ -522,7 +522,7 @@ function ActionBar({
     // Server rejects every mutating action for archived locations (409) —
     // don't render buttons that can only fail on submit.
     return (
-      <p className="rounded-xl border border-rw-teal/40 bg-rw-teal/10 p-3 text-center text-sm text-[#3f544f]">
+      <p className="rounded-xl border border-rw-teal/40 bg-rw-teal/10 p-3 text-center text-sm text-rw-teal-darkest">
         This location has been archived — approval actions are no longer
         available for this draft.
       </p>
@@ -787,7 +787,7 @@ export default function ApprovalClient({ token }: { token: string }) {
         {error && (
           <div
             role="alert"
-            className="rounded-xl border border-[#dc2626]/30 bg-[#dc2626]/5 p-3 text-sm text-[#b91c1c]"
+            className="rounded-xl border border-rw-red-600/30 bg-rw-red-600/5 p-3 text-sm text-rw-red-700"
           >
             {error}
           </div>

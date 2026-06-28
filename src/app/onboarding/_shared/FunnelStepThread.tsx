@@ -27,7 +27,7 @@ export function FunnelStepThread({ step }: { step: FunnelStep }) {
                 aria-current={state === 'current' ? 'step' : undefined}
                 className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium ${
                   state === 'todo'
-                    ? 'bg-[#e3ddd3] text-[#9a948a]'
+                    ? 'bg-rw-warm-gray-soft text-rw-warm-gray'
                     : state === 'current'
                       ? 'bg-rw-teal text-white ring-4 ring-rw-teal/25'
                       : 'bg-rw-teal text-white'
@@ -48,7 +48,7 @@ export function FunnelStepThread({ step }: { step: FunnelStep }) {
             {i < MILESTONES.length - 1 && (
               <span
                 className={`h-px w-5 sm:w-8 mt-3.5 ${
-                  i < currentIndex ? 'bg-rw-teal' : 'bg-[#cdd9ce]'
+                  i < currentIndex ? 'bg-rw-teal' : 'bg-rw-sage-muted'
                 }`}
               />
             )}

@@ -5,7 +5,7 @@
 
 export const fieldClass =
   'w-full px-4 py-3 rounded-xl border border-[#97B3AE]/30 bg-white text-base text-[#2a2a2a] ' +
-  'placeholder:text-[#9a948a] focus:outline-none focus:border-[#97B3AE] focus:ring-2 ' +
+  'placeholder:text-rw-warm-gray focus:outline-none focus:border-[#97B3AE] focus:ring-2 ' +
   'focus:ring-[#97B3AE]/30 transition';
 
 export const textareaClass = `${fieldClass} resize-y min-h-[64px]`;
@@ -20,7 +20,7 @@ export const infoBannerClass =
 
 export const primaryButtonClass =
   'px-8 py-3 bg-[#97B3AE] text-white rounded-full font-medium shadow-lg ' +
-  'hover:bg-[#7e9b96] disabled:opacity-50 disabled:cursor-not-allowed transition';
+  'hover:bg-rw-teal-hover disabled:opacity-50 disabled:cursor-not-allowed transition';
 
 export const ghostButtonClass =
   'px-6 py-3 text-[#6a6a6a] font-medium rounded-full hover:text-[#2a2a2a] ' +

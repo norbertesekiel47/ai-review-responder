@@ -43,7 +43,7 @@ export function StepVoice({
           type="button"
           onClick={onSkip}
           disabled={submitting}
-          className="text-sm text-rw-teal hover:text-[#7e9b96] underline whitespace-nowrap disabled:opacity-50"
+          className="text-sm text-rw-teal hover:text-rw-teal-hover underline whitespace-nowrap disabled:opacity-50"
         >
           Skip for now
         </button>

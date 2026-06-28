@@ -116,8 +116,8 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
                 {...buttonMotion}
                 className={`block w-full text-center py-3 rounded-full font-medium text-sm mb-6 transition disabled:opacity-50 disabled:cursor-not-allowed ${
                   plan.highlight
-                    ? 'bg-rw-teal text-white shadow-lg hover:bg-[#7e9b96]'
-                    : 'bg-rw-cream text-rw-ink border border-rw-teal/10 hover:bg-[#e7e3dc]'
+                    ? 'bg-rw-teal text-white shadow-lg hover:bg-rw-teal-hover'
+                    : 'bg-rw-cream text-rw-ink border border-rw-teal/10 hover:bg-rw-cream-hover'
                 }`}
               >
                 {isLoading ? 'Redirecting to checkout…' : plan.cta}

@@ -37,9 +37,9 @@ function NeutralUsedIcon() {
 
 function ErrorIcon() {
   return (
-    <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[#dc2626]/10">
+    <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-rw-red-600/10">
       <svg
-        className="size-7 text-[#dc2626]"
+        className="size-7 text-rw-red-600"
         fill="none"
         viewBox="0 0 24 24"
         strokeWidth={2}

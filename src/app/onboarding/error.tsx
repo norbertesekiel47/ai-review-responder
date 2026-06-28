@@ -28,11 +28,11 @@ export default function OnboardingError({
         >
           Retry
         </m.button>
-        <p className="text-sm text-[#9a948a] mt-6">
+        <p className="text-sm text-rw-warm-gray mt-6">
           Still having trouble?{' '}
           <a
             href="mailto:support@repworth.net"
-            className="text-rw-teal underline hover:text-[#7e9b96]"
+            className="text-rw-teal underline hover:text-rw-teal-hover"
           >
             Contact support
           </a>

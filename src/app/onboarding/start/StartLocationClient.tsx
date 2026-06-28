@@ -259,7 +259,7 @@ export function StartLocationClient() {
               dispatch({ type: 'switchToAutocomplete' });
             }
           }}
-          className="text-xs text-rw-teal hover:text-[#7e9b96]"
+          className="text-xs text-rw-teal hover:text-rw-teal-hover"
         >
           {inputMode === 'autocomplete'
             ? 'Or paste a Google Maps URL'
