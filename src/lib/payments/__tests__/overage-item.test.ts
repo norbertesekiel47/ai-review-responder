@@ -2,6 +2,7 @@ import Stripe from 'stripe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   resolveOverageItem,
+  resolveSubscriptionBilling,
   overageItemMutationParams,
   OVERAGE_BILLING_ROLE,
 } from '../overage-item';
@@ -256,6 +257,72 @@ describe('resolveOverageItem — confidence kinds', () => {
       item: addOn,
       matchedBy: 'descriptor',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveSubscriptionBilling — base resolution (positive + inferred fallback)
+// ---------------------------------------------------------------------------
+//
+// Env stubs (beforeEach above): STRIPE_PRICE_STANDARD='price_base' maps to the
+// 'standard' tier; STRIPE_PRICE_STANDARD_OVERAGE='price_env_overage'.
+
+describe('resolveSubscriptionBilling — base resolution', () => {
+  it('resolves the base item POSITIVELY via the price-tier-map when the base price is known', () => {
+    const base = makeItem({ id: 'si_base', priceId: 'price_base', unit_amount: 7900 });
+    const overage = makeItem({ id: 'si_over', priceId: 'price_env_overage', unit_amount: 2500 });
+    const res = resolveSubscriptionBilling([base, overage], OPTS);
+    expect(res.base).toEqual({ item: base, tier: 'standard' });
+    expect(res.overage).toEqual({ kind: 'trusted', item: overage, matchedBy: 'price_id' });
+  });
+
+  it('falls back to an INFERRED base when the base price is legacy/rotated (not in the env map)', () => {
+    // price_legacy_base is NOT a configured base price → tierForBasePriceId is null.
+    const legacyBase = makeItem({ id: 'si_base', priceId: 'price_legacy_base', unit_amount: 6900 });
+    const overage = makeItem({ id: 'si_over', priceId: 'price_env_overage', unit_amount: 2500 });
+    const res = resolveSubscriptionBilling([legacyBase, overage], OPTS);
+    // This is the load-bearing fallback the reconcile poller depends on: the base
+    // item is still returned (so its unit_amount stays comparable for drift
+    // detection), explicitly flagged tier:null/inferred so no caller mistakes it
+    // for a positively-confirmed tier.
+    expect(res.base).toEqual({ item: legacyBase, tier: null, inferred: true });
+  });
+
+  it('the inferred fallback is the first NON-overage item (overage is excluded even when it sorts first)', () => {
+    const overage = makeItem({ id: 'si_over', priceId: 'price_env_overage', unit_amount: 2500 });
+    const legacyBase = makeItem({ id: 'si_base', priceId: 'price_legacy_base', unit_amount: 6900 });
+    const res = resolveSubscriptionBilling([overage, legacyBase], OPTS);
+    expect(res.base?.item).toBe(legacyBase);
+    expect(res.base).toMatchObject({ tier: null, inferred: true });
+  });
+
+  it('prefers the positively-mapped base over the inferred fallback in a multi-item subscription', () => {
+    const legacyExtra = makeItem({ id: 'si_extra', priceId: 'price_unrelated', unit_amount: 1100 });
+    const base = makeItem({ id: 'si_base', priceId: 'price_base', unit_amount: 7900 });
+    const overage = makeItem({ id: 'si_over', priceId: 'price_env_overage', unit_amount: 2500 });
+    const res = resolveSubscriptionBilling([legacyExtra, base, overage], OPTS);
+    expect(res.base).toEqual({ item: base, tier: 'standard' });
+  });
+
+  it('returns base:undefined when the only item is the overage item', () => {
+    const overage = makeItem({ id: 'si_over', priceId: 'price_env_overage', unit_amount: 2500 });
+    const res = resolveSubscriptionBilling([overage], OPTS);
+    expect(res.base).toBeUndefined();
+    expect(res.overage.kind).toBe('trusted');
+  });
+
+  it('returns base:undefined and overage none for an empty subscription', () => {
+    const res = resolveSubscriptionBilling([], OPTS);
+    expect(res.base).toBeUndefined();
+    expect(res.overage).toEqual({ kind: 'none' });
+  });
+
+  it('delegates overage resolution to resolveOverageItem (same confidence-graded result)', () => {
+    const base = makeItem({ id: 'si_base', priceId: 'price_base', unit_amount: 7900 });
+    const keywordOverage = makeItem({ id: 'si_kw', priceId: 'price_kw', lookup_key: 'extra seat', unit_amount: 9900 });
+    const res = resolveSubscriptionBilling([base, keywordOverage], OPTS);
+    expect(res.overage).toEqual({ kind: 'untrusted', item: keywordOverage, matchedBy: 'descriptor' });
+    expect(res.base).toEqual({ item: base, tier: 'standard' });
   });
 });
 

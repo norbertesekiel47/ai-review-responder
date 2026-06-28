@@ -229,6 +229,34 @@ describe('reconcileAccount', () => {
     expect(outcome.drifts.some((d) => d.driftType === 'duplicate_subscription')).toBe(false);
   });
 
+  // #267 — DRIFT-DETECTION SAFETY LOCK. The poller's base-item resolution is
+  // intentionally tolerant of a legacy/rotated/grandfathered base price (one that
+  // is NOT in the env price-tier-map): such a price still resolves via the
+  // resolver's INFERRED fallback so its unit_amount stays comparable to the
+  // account's STORED base_price_cents and `price_mismatch` still fires. A naive
+  // "positive-only" base resolution would drop the base item and silently swallow
+  // this drift — exactly what this poller exists to catch. This test must stay
+  // green across the base-resolution refactor.
+  it('still flags price_mismatch for a legacy/rotated/grandfathered base price (inferred fallback)', async () => {
+    const legacySubscription = {
+      id: 'sub_legacy',
+      customer: 'cus_123',
+      status: 'active',
+      items: { data: [
+        // Base price is NOT the env-mapped price and its unit_amount has drifted
+        // from the account's stored base_price_cents (7900).
+        { id: 'si_base', price: { id: 'price_legacy_base', unit_amount: 6900 }, quantity: 1 },
+        { id: 'si_over', price: { id: 'price_overage_std', unit_amount: 2500 }, quantity: 2 },
+      ] },
+    };
+    const stripe = makeStripe({ retrieve: legacySubscription, createPreview: makePreview(2) });
+    const outcome = await reconcileAccount(stripe, makeAccount());
+    const priceDrift = outcome.drifts.find((d) => d.driftType === 'price_mismatch');
+    expect(priceDrift).toBeDefined();
+    expect(priceDrift?.expectedCents).toBe(7900);
+    expect(priceDrift?.actualCents).toBe(6900);
+  });
+
   it('flags duplicate_subscription when 2+ active subs belong to THIS account lineage', async () => {
     const stripe = makeStripe({
       retrieve: makeSubscription(2),
