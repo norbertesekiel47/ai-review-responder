@@ -304,12 +304,18 @@ function DashboardOperationalContent() {
             />
           </div>
         )}
-        <div className="section-enter section-enter-1">
-          <ConnectGoogleBanner
-            zernio={zernioConnection}
-            readOnly={pastDueData?.isReadOnly ?? false}
-          />
-        </div>
+        {/* Only mount the connect banner (and its section wrapper) when it has
+            something to show. ConnectGoogleBanner returns null for a connected
+            account, so an always-on wrapper would leave an empty flex item that
+            doubles the section gap above the hero. */}
+        {zernioConnection.status !== 'active' && (
+          <div className="section-enter section-enter-1">
+            <ConnectGoogleBanner
+              zernio={zernioConnection}
+              readOnly={pastDueData?.isReadOnly ?? false}
+            />
+          </div>
+        )}
         {/* Zone 1 — reputation hero band */}
         <div className="section-enter section-enter-2">
           <ReputationHeroBand
