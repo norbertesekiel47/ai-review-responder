@@ -68,6 +68,7 @@ vi.mock('@/lib/locations/repo', () => ({
 // Import AFTER mocks are set up
 import { GET } from '../route';
 import { AuthError } from '@/lib/db/auth';
+import { DEFAULT_DASHBOARD_WINDOW } from '@/lib/kpi/types';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -144,7 +145,8 @@ describe('GET /api/dashboard/kpis', () => {
     expect(res.status).toBe(200);
 
     expect(mockGetLocationKpiSummary).toHaveBeenCalledOnce();
-    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(BUSINESS_ID);
+    // #403: the route always resolves + passes the validated window (default here).
+    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
     expect(mockGetAccountKpiSummary).not.toHaveBeenCalled();
 
     const body = await res.json();
@@ -169,7 +171,7 @@ describe('GET /api/dashboard/kpis', () => {
       expect(res.status).toBe(200);
 
       expect(mockGetAccountKpiSummary).toHaveBeenCalledOnce();
-      expect(mockGetAccountKpiSummary).toHaveBeenCalledWith(ACCOUNT_ID);
+      expect(mockGetAccountKpiSummary).toHaveBeenCalledWith(ACCOUNT_ID, DEFAULT_DASHBOARD_WINDOW);
       expect(mockGetLocationKpiSummary).not.toHaveBeenCalled();
 
       const body = await res.json();
@@ -310,7 +312,7 @@ describe('GET /api/dashboard/kpis', () => {
       expect(res.status).toBe(200);
 
       // scope=all without multi-location → falls back to user's locationId
-      expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(BUSINESS_ID);
+      expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
       expect(mockGetAccountKpiSummary).not.toHaveBeenCalled();
     } finally {
       process.env.MULTI_LOCATION_ENABLED = previous;
@@ -397,7 +399,7 @@ describe('GET /api/dashboard/kpis', () => {
 
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
-    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(BUSINESS_ID);
+    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
   });
 
   it('malformed scope (not a UUID) → 400 Invalid scope; no KPI service / location call', async () => {
@@ -425,5 +427,43 @@ describe('GET /api/dashboard/kpis', () => {
     expect(body.error).toBe('Account not found');
     expect(mockGetLocationKpiSummary).not.toHaveBeenCalled();
     expect(mockGetAccountKpiSummary).not.toHaveBeenCalled();
+  });
+
+  // ── Analytics time-range window (#403) ─────────────────────────────────
+
+  it('valid ?window=7d → threaded to getLocationKpiSummary', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockGetLocationById.mockResolvedValue(ownedActiveLocation());
+    mockGetLocationKpiSummary.mockResolvedValue(MOCK_LOCATION_SUMMARY);
+
+    const res = await GET(makeRequest('/api/dashboard/kpis?window=7d'));
+    expect(res.status).toBe(200);
+    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(BUSINESS_ID, '7d');
+  });
+
+  it('invalid ?window= clamps to the default window before reaching the service', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockGetLocationById.mockResolvedValue(ownedActiveLocation());
+    mockGetLocationKpiSummary.mockResolvedValue(MOCK_LOCATION_SUMMARY);
+
+    const res = await GET(makeRequest('/api/dashboard/kpis?window=not-a-window'));
+    expect(res.status).toBe(200);
+    // The untrusted value never reaches the service — it is clamped to default.
+    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
+  });
+
+  it('valid ?window=90d in aggregate scope → threaded to getAccountKpiSummary', async () => {
+    const previous = process.env.MULTI_LOCATION_ENABLED;
+    try {
+      process.env.MULTI_LOCATION_ENABLED = 'true';
+      mockRequireRole.mockResolvedValue(ownerUser());
+      mockGetAccountKpiSummary.mockResolvedValue(MOCK_ACCOUNT_SUMMARY);
+
+      const res = await GET(makeRequest('/api/dashboard/kpis?scope=all&window=90d'));
+      expect(res.status).toBe(200);
+      expect(mockGetAccountKpiSummary).toHaveBeenCalledWith(ACCOUNT_ID, '90d');
+    } finally {
+      process.env.MULTI_LOCATION_ENABLED = previous;
+    }
   });
 });

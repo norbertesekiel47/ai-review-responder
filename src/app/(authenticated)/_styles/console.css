@@ -329,6 +329,36 @@
 }
 .topbar-spacer { flex: 1; }
 
+/* ---------- Analytics period toolbar (#403) ---------- */
+/* Console segmented control mirroring .tabs/.tab, sized for the TopBar action
+   slot. Lives left of the live-pill / refresh button. */
+.topbar-actions { display: inline-flex; align-items: center; }
+.period-toolbar {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: #F3F4F6;
+  border-radius: 9999px;
+  width: fit-content;
+}
+.period-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #6B7280;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  transition: background 160ms var(--rw-ease), color 160ms var(--rw-ease);
+  font-family: var(--rw-font-body);
+  white-space: nowrap;
+}
+.period-tab:hover { color: #374151; }
+.period-tab.active { background: #fff; color: var(--rw-app-text); box-shadow: var(--rw-shadow-sm); }
+
 .live-pill {
   display: inline-flex;
   align-items: center;

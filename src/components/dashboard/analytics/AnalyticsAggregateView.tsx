@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import type { AggregateDashboardData } from '@/lib/dashboard/types';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
@@ -14,6 +15,8 @@ import { RecentSentimentMix } from '@/components/dashboard/kpi/RecentSentimentMi
 interface Props {
   data: AggregateDashboardData;
   refresh: () => Promise<void>;
+  /** Analytics time-range control rendered into the TopBar action slot (#403). */
+  periodToolbar?: ReactNode;
 }
 
 /**
@@ -21,7 +24,7 @@ interface Props {
  * two-up velocity/ranking -> recent rating breakdown. No reputation trend —
  * the aggregate payload carries no trend series.
  */
-export function AnalyticsAggregateView({ data, refresh }: Props) {
+export function AnalyticsAggregateView({ data, refresh, periodToolbar }: Props) {
   const hasRanking = Boolean(data.ranking) || data.perLocationRanking.length > 0;
   const hasRatedReviews = data.recentReviews.some((review) => review.starRating != null);
 
@@ -32,7 +35,9 @@ export function AnalyticsAggregateView({ data, refresh }: Props) {
         subtitle="Review volume and local search ranking across all locations."
         showLive
         refresh={refresh}
-      />
+      >
+        {periodToolbar}
+      </TopBar>
       <div className="content content--analytics">
         <LiveRegion message="Analytics ready." />
         <div className="section-enter section-enter-1">

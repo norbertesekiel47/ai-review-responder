@@ -4,10 +4,9 @@ import { jsonResponse, errorResponse, requireOwnerWithAccount } from '@/lib/auth
 import { subscriptionAllowsDashboardRead } from '@/lib/shared/subscription-status';
 import { isValidUuid } from '@/lib/shared/ids';
 import { getLocationById } from '@/lib/locations/repo';
-import { multiLocationEnabled as isMultiLocationEnabled } from '@/lib/locations/flags';
 import { getLocationKpiSummary, getAccountKpiSummary } from '@/lib/kpi/service';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
-import { resolveDashboardScopePolicy } from '../policy';
+import { resolveDashboardRequest } from '../policy';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,16 +40,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const scopeParam = request.nextUrl.searchParams.get('scope');
-    const multiLocationEnabled = isMultiLocationEnabled();
-    const scopePolicy = resolveDashboardScopePolicy({
-      scopeParam,
-      userLocationId: user.locationId,
-      multiLocationEnabled,
-    });
+    // #403: validate + clamp the client window and resolve the scope policy in
+    // one shared step (the untrusted window never reaches SQL un-clamped).
+    const { window, scopePolicy } = resolveDashboardRequest(request, user.locationId);
 
     if (scopePolicy.mode === 'aggregate') {
-      const summary = await getAccountKpiSummary(accountId);
+      const summary = await getAccountKpiSummary(accountId, window);
       return jsonResponse(summary);
     }
 
@@ -86,7 +81,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return errorResponse('No active location available', 404);
     }
 
-    const summary = await getLocationKpiSummary(locationId);
+    const summary = await getLocationKpiSummary(locationId, window);
     return jsonResponse(summary);
   } catch (err) {
     reportCaughtError('api/dashboard/kpis', err, { accountId });
