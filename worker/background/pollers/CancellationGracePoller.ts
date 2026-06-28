@@ -14,13 +14,16 @@
 import { v7 as uuidv7 } from 'uuid';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql, jsonb } from '../../../src/lib/db/server';
-import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, toError, type WorkerLogger } from '../../../src/lib/shared/logger';
+import { createGuardedPoll } from '../guarded-poll';
 
 const LOG_PREFIX = '[CancellationGracePoller]';
 const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours
-
-let pollerInterval: ReturnType<typeof setInterval> | null = null;
-let isPolling = false;
+// Hard per-cycle deadline (#414). 30min is far above a real cycle (expired-account
+// scan + per-account soft-archive tx → minutes) and well under the 24h interval,
+// so a cycle hung on a stale connection frees the single-flight flag before the
+// next tick instead of pinning it forever and silently disabling grace archival.
+const GRACE_CYCLE_TIMEOUT_MS = 1_800_000; // 30 minutes
 
 function getIntervalMs(): number {
   const envVal = getWorkerConfig().CANCELLATION_GRACE_INTERVAL_MS;
@@ -29,11 +32,7 @@ function getIntervalMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 }
 
-async function runCancellationGrace(): Promise<void> {
-  if (isPolling) return;
-  isPolling = true;
-  const logger = createWorkerLogger(LOG_PREFIX);
-
+async function runCancellationGrace(logger: WorkerLogger): Promise<void> {
   try {
     // Find accounts that have been cancelled for more than 30 days
     // and still have active (non-archived) locations
@@ -107,24 +106,22 @@ async function runCancellationGrace(): Promise<void> {
     logger.log('Processed expired cancelled accounts', { account_count: expiredAccounts.length });
   } catch (error) {
     logger.error('Grace period archival cycle failed', toError(error));
-  } finally {
-    isPolling = false;
   }
 }
 
+const guard = createGuardedPoll(runCancellationGrace, {
+  label: LOG_PREFIX,
+  intervalMs: getIntervalMs,
+  timeoutMs: GRACE_CYCLE_TIMEOUT_MS,
+  onErrorMessage: 'Grace period archival cycle failed',
+});
+
 export function startCancellationGracePoller(): void {
-  const intervalMs = getIntervalMs();
-  createWorkerLogger(LOG_PREFIX).log('Starting', { interval_ms: intervalMs });
-  runCancellationGrace().catch(logUnhandledPollError(LOG_PREFIX));
-  pollerInterval = setInterval(() => {
-    runCancellationGrace().catch(logUnhandledPollError(LOG_PREFIX));
-  }, intervalMs);
+  guard.start(() =>
+    createWorkerLogger(LOG_PREFIX).log('Starting', { interval_ms: getIntervalMs() }),
+  );
 }
 
 export function stopCancellationGracePoller(): void {
-  if (pollerInterval) {
-    clearInterval(pollerInterval);
-    pollerInterval = null;
-    createWorkerLogger(LOG_PREFIX).log('Stopped');
-  }
+  guard.stop();
 }

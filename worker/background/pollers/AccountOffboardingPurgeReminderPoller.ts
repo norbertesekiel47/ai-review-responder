@@ -3,17 +3,20 @@ import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
 import { enqueueAccountOffboardingEmail } from '../../../src/lib/shared/job-outbox-helpers';
-import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { maybeLogPollerHeartbeat, notePollerActivity } from '../poller-heartbeat';
+import { createGuardedPoll } from '../guarded-poll';
 
 const LOG_PREFIX = '[AccountOffboardingPurgeReminderPoller]';
 const DEFAULT_INTERVAL_MS = 60_000;
 const DEFAULT_BATCH_SIZE = 25;
 // T-minus lead before purge_after at which the last-chance reminder is sent.
 const REMINDER_LEAD_DAYS = 3;
-
-let pollerInterval: ReturnType<typeof setInterval> | null = null;
-let inProgress = false;
+// Hard per-cycle deadline (#414). 45s is far above a real cycle (claim+notify
+// enqueue → seconds) and under the 60s interval, so a cycle hung on a stale
+// connection frees the single-flight flag before the next tick instead of
+// pinning it forever and silently disabling purge reminders.
+const PURGE_REMINDER_CYCLE_TIMEOUT_MS = 45_000;
 
 interface ClaimableOffboardingRow {
   id: string;
@@ -40,24 +43,20 @@ function getBatchSize(): number {
   return raw;
 }
 
-export async function runAccountOffboardingPurgeReminderOnce(): Promise<void> {
-  if (!accountOffboardingEnabled()) return;
-
-  const logger = createWorkerLogger(LOG_PREFIX);
-  if (inProgress) {
-    logger.log('Previous run still in progress - skipping this tick');
-    return;
-  }
-
-  inProgress = true;
-  try {
+const guard = createGuardedPoll(
+  async (logger) => {
+    if (!accountOffboardingEnabled()) return;
     await runAccountOffboardingPurgeReminderInner(logger);
-  } catch (err) {
-    logger.error('Poll cycle failed', toError(err));
-  } finally {
-    inProgress = false;
-  }
-}
+  },
+  {
+    label: LOG_PREFIX,
+    intervalMs: getIntervalMs,
+    timeoutMs: PURGE_REMINDER_CYCLE_TIMEOUT_MS,
+    onSkipMessage: 'Previous run still in progress - skipping this tick',
+  },
+);
+
+export const runAccountOffboardingPurgeReminderOnce = guard.runOnce;
 
 async function runAccountOffboardingPurgeReminderInner(
   logger: ReturnType<typeof createWorkerLogger>,
@@ -166,23 +165,11 @@ export function startAccountOffboardingPurgeReminderPoller(): void {
     logger.log('ACCOUNT_OFFBOARDING_ENABLED != true — not starting');
     return;
   }
-
-  if (pollerInterval) {
-    return;
-  }
-
-  const intervalMs = getIntervalMs();
-  logger.log('Starting', { interval_ms: intervalMs, batch: getBatchSize() });
-  runAccountOffboardingPurgeReminderOnce().catch(logUnhandledPollError(LOG_PREFIX));
-  pollerInterval = setInterval(() => {
-    runAccountOffboardingPurgeReminderOnce().catch(logUnhandledPollError(LOG_PREFIX));
-  }, intervalMs);
+  guard.start(() =>
+    logger.log('Starting', { interval_ms: getIntervalMs(), batch: getBatchSize() }),
+  );
 }
 
 export function stopAccountOffboardingPurgeReminderPoller(): void {
-  if (pollerInterval) {
-    clearInterval(pollerInterval);
-    pollerInterval = null;
-    createWorkerLogger(LOG_PREFIX).log('Stopped');
-  }
+  guard.stop();
 }

@@ -3,11 +3,17 @@ import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import { sendInternalEmail } from '../../../src/lib/notifications/email';
 import { escapeHtml } from '../../../src/lib/shared/html';
-import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, toError } from '../../../src/lib/shared/logger';
+import { createGuardedPoll } from '../guarded-poll';
 import type { SendNotificationPayload } from '../../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[NotificationFailover]';
 const DEFAULT_INTERVAL_MS = 7_200_000; // 2 hours
+// Hard per-cycle deadline (#414). 30min is above the legitimate worst case
+// (<=200 rows x <=2 admin emails, ~7min) and far under the 2h interval, so a
+// cycle hung on a stale connection frees the single-flight flag before the next
+// tick instead of pinning it forever and silently disabling failover alerting.
+const FAILOVER_CYCLE_TIMEOUT_MS = 1_800_000; // 30 minutes
 
 // Per-tick row cap (deep-scan §5.7). The two driving SELECTs below are otherwise
 // unbounded; this caps how many candidate rows one 2-hour tick loads into memory.
@@ -18,9 +24,6 @@ const DEFAULT_INTERVAL_MS = 7_200_000; // 2 hours
 // so a >200 simultaneous-stuck backlog (itself a sev incident) is triaged
 // oldest-first over successive ticks rather than loaded all at once.
 const BATCH_LIMIT = 200;
-
-let pollerInterval: ReturnType<typeof setInterval> | null = null;
-let isPolling = false;
 
 function getIntervalMs(): number {
   const envVal = getWorkerConfig().NOTIFICATION_FAILOVER_INTERVAL_MS;
@@ -137,8 +140,6 @@ async function recoverFailoverCorrelationId(responseId: string): Promise<string>
 }
 
 export async function runFailoverPollerOnce(): Promise<void> {
-  if (isPolling) return;
-  isPolling = true;
   const logger = createWorkerLogger(LOG_PREFIX);
 
   try {
@@ -339,25 +340,21 @@ export async function runFailoverPollerOnce(): Promise<void> {
     }
   } catch (error) {
     logger.error('Poll cycle failed', toError(error));
-  } finally {
-    isPolling = false;
   }
 }
 
+const guard = createGuardedPoll(runFailoverPollerOnce, {
+  label: LOG_PREFIX,
+  intervalMs: getIntervalMs,
+  timeoutMs: FAILOVER_CYCLE_TIMEOUT_MS,
+});
+
 export function startNotificationFailoverPoller(): void {
-  const intervalMs = getIntervalMs();
-  const logger = createWorkerLogger(LOG_PREFIX);
-  logger.log('Starting', { interval_ms: intervalMs });
-  runFailoverPollerOnce().catch(logUnhandledPollError(LOG_PREFIX));
-  pollerInterval = setInterval(() => {
-    runFailoverPollerOnce().catch(logUnhandledPollError(LOG_PREFIX));
-  }, intervalMs);
+  guard.start(() =>
+    createWorkerLogger(LOG_PREFIX).log('Starting', { interval_ms: getIntervalMs() }),
+  );
 }
 
 export function stopNotificationFailoverPoller(): void {
-  if (pollerInterval) {
-    clearInterval(pollerInterval);
-    pollerInterval = null;
-    createWorkerLogger(LOG_PREFIX).log('Stopped');
-  }
+  guard.stop();
 }

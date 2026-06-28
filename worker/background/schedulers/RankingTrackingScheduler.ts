@@ -1,15 +1,18 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import { rankingTrackingEnabled } from '../../../src/lib/ranking/flags';
-import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, toError } from '../../../src/lib/shared/logger';
+import { createGuardedPoll } from '../guarded-poll';
 import { isMockMode } from '../../../src/lib/shared/mock-mode';
 import type { TrackRankingPayload } from '../../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[RankingTrackingScheduler]';
 const DEFAULT_INTERVAL_MS = 3_600_000; // 1 hour
-
-let pollerInterval: ReturnType<typeof setInterval> | null = null;
-let isPolling = false;
+// Hard per-cycle deadline (#414). 10min is far above a real cycle (candidate scan
+// + outbox insert loop → seconds) and well under the 1h interval, so a cycle hung
+// on a stale connection frees the single-flight flag before the next tick instead
+// of pinning it forever and silently disabling ranking scheduling.
+const RANKING_CYCLE_TIMEOUT_MS = 600_000; // 10 minutes
 
 function getIntervalMs(): number {
   const envVal = process.env.RANKING_TRACKING_INTERVAL_MS;
@@ -32,9 +35,6 @@ export function getIsoWeekNumber(date: Date): number {
 }
 
 export async function runRankingCheck(): Promise<void> {
-  if (isPolling) return;
-  isPolling = true;
-
   const logger = createWorkerLogger(LOG_PREFIX);
   try {
     // Feature flag — silent return when disabled (runs hourly, no log spam)
@@ -122,26 +122,22 @@ export async function runRankingCheck(): Promise<void> {
       'Ranking check failed',
       toError(error),
     );
-  } finally {
-    isPolling = false;
   }
 }
 
+const guard = createGuardedPoll(runRankingCheck, {
+  label: LOG_PREFIX,
+  intervalMs: getIntervalMs,
+  timeoutMs: RANKING_CYCLE_TIMEOUT_MS,
+  onErrorMessage: 'Ranking check failed',
+});
+
 export function startRankingTrackingScheduler(): void {
-  if (pollerInterval) return; // Prevent duplicate intervals on double-start
-  const logger = createWorkerLogger(LOG_PREFIX);
-  const intervalMs = getIntervalMs();
-  logger.log('Starting', { interval_ms: intervalMs });
-  runRankingCheck().catch(logUnhandledPollError(LOG_PREFIX));
-  pollerInterval = setInterval(() => {
-    runRankingCheck().catch(logUnhandledPollError(LOG_PREFIX));
-  }, intervalMs);
+  guard.start(() =>
+    createWorkerLogger(LOG_PREFIX).log('Starting', { interval_ms: getIntervalMs() }),
+  );
 }
 
 export function stopRankingTrackingScheduler(): void {
-  if (pollerInterval) {
-    clearInterval(pollerInterval);
-    pollerInterval = null;
-    createWorkerLogger(LOG_PREFIX).log('Stopped');
-  }
+  guard.stop();
 }

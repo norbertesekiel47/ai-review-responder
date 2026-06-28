@@ -2,6 +2,7 @@ import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { emailChannelReconcileDisabled } from '../../../src/lib/notifications/channels/flags';
 import { sql } from '../../../src/lib/db/server';
 import { createWorkerLogger, type WorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import { withTimeout } from '../../../src/lib/shared/with-timeout';
 import { invalidateChannelCache } from '../../../src/lib/notifications/resolve-channels';
 import { asAccountId } from '../../../src/lib/shared/ids';
 import { v7 as uuidv7 } from 'uuid';
@@ -58,6 +59,14 @@ const DEFAULT_BATCH_SIZE = 100;
 // under operator misconfiguration.
 const MAX_BATCH_SIZE = 1_000;
 
+// Hard per-cycle deadline (#414). Single-flight alone cannot save a cycle that
+// hangs on a stale pooled connection (server-side statement_timeout never fires
+// on a black-hole socket): `inProgress` would stay set forever and every later
+// tick skip, silently disabling this email-channel recovery backstop. 5min is
+// far above a real cycle (<=1000 light INSERTs) and well under the 10min
+// interval. A timed-out cycle frees `inProgress` (finally) so the next tick runs.
+const RECONCILE_TIMEOUT_MS = 300_000; // 5 minutes
+
 let timer: ReturnType<typeof setInterval> | null = null;
 // Single-flight guard. Same pattern as CleanupAbandonedSignupsPoller —
 // prevents two scheduled ticks from running concurrently if a run takes
@@ -86,7 +95,7 @@ export async function runOnce(): Promise<{
   }
   inProgress = true;
   try {
-    return await runOnceInner(logger);
+    return await withTimeout(runOnceInner(logger), RECONCILE_TIMEOUT_MS, LOG_PREFIX);
   } finally {
     inProgress = false;
   }

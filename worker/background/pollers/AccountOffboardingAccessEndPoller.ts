@@ -3,15 +3,18 @@ import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
 import { enqueueAccountOffboardingTeardown } from '../../../src/lib/shared/job-outbox-helpers';
-import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { maybeLogPollerHeartbeat, notePollerActivity } from '../poller-heartbeat';
+import { createGuardedPoll } from '../guarded-poll';
 
 const LOG_PREFIX = '[AccountOffboardingAccessEndPoller]';
 const DEFAULT_INTERVAL_MS = 60_000;
 const DEFAULT_BATCH_SIZE = 25;
-
-let pollerInterval: ReturnType<typeof setInterval> | null = null;
-let inProgress = false;
+// Hard per-cycle deadline (#414). 45s is far above a real cycle (batched
+// claim+enqueue, <=100 small txns → seconds) and under the 60s interval, so a
+// cycle hung on a stale connection frees the single-flight flag before the next
+// tick instead of pinning it forever and silently disabling access-end teardown.
+const ACCESS_END_CYCLE_TIMEOUT_MS = 45_000;
 
 interface ClaimableOffboardingRow {
   id: string;
@@ -46,24 +49,20 @@ function getBatchSize(): number {
   return raw;
 }
 
-export async function runAccountOffboardingAccessEndOnce(): Promise<void> {
-  if (!accountOffboardingEnabled()) return;
-
-  const logger = createWorkerLogger(LOG_PREFIX);
-  if (inProgress) {
-    logger.log('Previous run still in progress - skipping this tick');
-    return;
-  }
-
-  inProgress = true;
-  try {
+const guard = createGuardedPoll(
+  async (logger) => {
+    if (!accountOffboardingEnabled()) return;
     await runAccountOffboardingAccessEndInner(logger);
-  } catch (err) {
-    logger.error('Poll cycle failed', toError(err));
-  } finally {
-    inProgress = false;
-  }
-}
+  },
+  {
+    label: LOG_PREFIX,
+    intervalMs: getIntervalMs,
+    timeoutMs: ACCESS_END_CYCLE_TIMEOUT_MS,
+    onSkipMessage: 'Previous run still in progress - skipping this tick',
+  },
+);
+
+export const runAccountOffboardingAccessEndOnce = guard.runOnce;
 
 async function runAccountOffboardingAccessEndInner(
   logger: ReturnType<typeof createWorkerLogger>,
@@ -170,23 +169,11 @@ export function startAccountOffboardingAccessEndPoller(): void {
     logger.log('ACCOUNT_OFFBOARDING_ENABLED != true — not starting');
     return;
   }
-
-  if (pollerInterval) {
-    return;
-  }
-
-  const intervalMs = getIntervalMs();
-  logger.log('Starting', { interval_ms: intervalMs, batch: getBatchSize() });
-  runAccountOffboardingAccessEndOnce().catch(logUnhandledPollError(LOG_PREFIX));
-  pollerInterval = setInterval(() => {
-    runAccountOffboardingAccessEndOnce().catch(logUnhandledPollError(LOG_PREFIX));
-  }, intervalMs);
+  guard.start(() =>
+    logger.log('Starting', { interval_ms: getIntervalMs(), batch: getBatchSize() }),
+  );
 }
 
 export function stopAccountOffboardingAccessEndPoller(): void {
-  if (pollerInterval) {
-    clearInterval(pollerInterval);
-    pollerInterval = null;
-    createWorkerLogger(LOG_PREFIX).log('Stopped');
-  }
+  guard.stop();
 }

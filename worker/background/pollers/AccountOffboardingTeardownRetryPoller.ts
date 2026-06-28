@@ -3,8 +3,9 @@ import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
 import { enqueueAccountOffboardingTeardown } from '../../../src/lib/shared/job-outbox-helpers';
-import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { maybeLogPollerHeartbeat, notePollerActivity } from '../poller-heartbeat';
+import { createGuardedPoll } from '../guarded-poll';
 
 // Autonomous re-drive for teardowns that exhausted their BullMQ attempts and
 // landed status='failed', failed_step='teardown' (both modes). Without this a
@@ -23,9 +24,11 @@ const DEFAULT_INTERVAL_MS = 60_000;
 const DEFAULT_BATCH_SIZE = 10;
 const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
 const DEFAULT_MAX_RETRIES = 12;
-
-let pollerInterval: ReturnType<typeof setInterval> | null = null;
-let inProgress = false;
+// Hard per-cycle deadline (#414). 45s is far above a real cycle (claim+re-enqueue
+// → seconds) and under the 60s interval, so a cycle hung on a stale connection
+// frees the single-flight flag before the next tick instead of pinning it forever
+// and silently disabling teardown re-drive.
+const TEARDOWN_RETRY_CYCLE_TIMEOUT_MS = 45_000;
 
 interface RetryableTeardownRow {
   id: string;
@@ -56,24 +59,20 @@ function getMaxRetries(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_MAX_RETRIES;
 }
 
-export async function runAccountOffboardingTeardownRetryOnce(): Promise<void> {
-  if (!accountOffboardingEnabled()) return;
-
-  const logger = createWorkerLogger(LOG_PREFIX);
-  if (inProgress) {
-    logger.log('Previous run still in progress - skipping this tick');
-    return;
-  }
-
-  inProgress = true;
-  try {
+const guard = createGuardedPoll(
+  async (logger) => {
+    if (!accountOffboardingEnabled()) return;
     await runAccountOffboardingTeardownRetryInner(logger);
-  } catch (err) {
-    logger.error('Poll cycle failed', toError(err));
-  } finally {
-    inProgress = false;
-  }
-}
+  },
+  {
+    label: LOG_PREFIX,
+    intervalMs: getIntervalMs,
+    timeoutMs: TEARDOWN_RETRY_CYCLE_TIMEOUT_MS,
+    onSkipMessage: 'Previous run still in progress - skipping this tick',
+  },
+);
+
+export const runAccountOffboardingTeardownRetryOnce = guard.runOnce;
 
 async function runAccountOffboardingTeardownRetryInner(
   logger: ReturnType<typeof createWorkerLogger>,
@@ -156,23 +155,11 @@ export function startAccountOffboardingTeardownRetryPoller(): void {
     logger.log('ACCOUNT_OFFBOARDING_ENABLED != true — not starting');
     return;
   }
-
-  if (pollerInterval) {
-    return;
-  }
-
-  const intervalMs = getIntervalMs();
-  logger.log('Starting', { interval_ms: intervalMs, batch: getBatchSize() });
-  runAccountOffboardingTeardownRetryOnce().catch(logUnhandledPollError(LOG_PREFIX));
-  pollerInterval = setInterval(() => {
-    runAccountOffboardingTeardownRetryOnce().catch(logUnhandledPollError(LOG_PREFIX));
-  }, intervalMs);
+  guard.start(() =>
+    logger.log('Starting', { interval_ms: getIntervalMs(), batch: getBatchSize() }),
+  );
 }
 
 export function stopAccountOffboardingTeardownRetryPoller(): void {
-  if (pollerInterval) {
-    clearInterval(pollerInterval);
-    pollerInterval = null;
-    createWorkerLogger(LOG_PREFIX).log('Stopped');
-  }
+  guard.stop();
 }
