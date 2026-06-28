@@ -1026,6 +1026,9 @@
   font-variant-numeric: tabular-nums;
 }
 .rating-row-star { color: var(--rw-star); font-size: 12px; }
+/* Wide label variant for the sentiment-mix card (text labels, not star numerals). */
+.rating-row.wide { grid-template-columns: 84px 1fr 36px; }
+.rating-row-label.text { justify-content: flex-start; font-weight: 600; }
 .rating-track {
   position: relative;
   height: 10px;

@@ -8,6 +8,8 @@ import { AggregateKpiCards } from '@/components/dashboard/aggregate/AggregateKpi
 import { AggregateIntelligenceBriefCard } from '@/components/dashboard/aggregate/AggregateIntelligenceBriefCard';
 import { AggregateVelocityCard } from '@/components/dashboard/aggregate/AggregateVelocityCard';
 import { AggregateRankingCard } from '@/components/dashboard/aggregate/AggregateRankingCard';
+import { LocationKpiStrip } from '@/components/dashboard/aggregate/LocationKpiStrip';
+import { RecentSentimentMix } from '@/components/dashboard/kpi/RecentSentimentMix';
 
 interface Props {
   data: AggregateDashboardData;
@@ -21,6 +23,7 @@ interface Props {
  */
 export function AnalyticsAggregateView({ data, refresh }: Props) {
   const hasRanking = Boolean(data.ranking) || data.perLocationRanking.length > 0;
+  const hasRatedReviews = data.recentReviews.some((review) => review.starRating != null);
 
   return (
     <>
@@ -37,6 +40,7 @@ export function AnalyticsAggregateView({ data, refresh }: Props) {
             valueSummary={data.valueSummary}
             activeLocationCount={data.activeLocationCount}
           />
+          <LocationKpiStrip locationKpis={data.locationKpis} />
         </div>
         {data.perLocationBriefs.length > 0 && (
           <div className="section-enter section-enter-2">
@@ -55,9 +59,12 @@ export function AnalyticsAggregateView({ data, refresh }: Props) {
             />
           )}
         </div>
-        <div className="section-enter section-enter-4">
-          <RecentRatingBreakdown reviews={data.recentReviews} />
-        </div>
+        {hasRatedReviews && (
+          <div className="section-enter section-enter-4 chart-row">
+            <RecentRatingBreakdown reviews={data.recentReviews} />
+            <RecentSentimentMix reviews={data.recentReviews} />
+          </div>
+        )}
       </div>
     </>
   );

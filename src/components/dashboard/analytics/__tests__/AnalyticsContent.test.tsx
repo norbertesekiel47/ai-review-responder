@@ -108,6 +108,9 @@ describe('AnalyticsContent', () => {
     expect(screen.getByText('Recent reviews by rating')).toBeInTheDocument();
     // The unrated review is excluded — 5 of 6 count toward the sample.
     expect(screen.getByText(/Based on your 5 most recent reviews/i)).toBeInTheDocument();
+    // The paired sentiment-mix card derives from the same recent sample.
+    expect(screen.getByText('Sentiment mix')).toBeInTheDocument();
+    expect(screen.getByText(/Share of your 5 most recent reviews/i)).toBeInTheDocument();
   });
 
   it('renders velocity without a ranking card when ranking is null', () => {
@@ -146,6 +149,7 @@ describe('AnalyticsContent', () => {
 
     expect(screen.getByText('Recent reviews by rating')).toBeInTheDocument();
     expect(screen.getByText(/Based on your 4 most recent reviews/i)).toBeInTheDocument();
+    expect(screen.getByText('Sentiment mix')).toBeInTheDocument();
   });
 
   it('shows a loading state', () => {
