@@ -1,19 +1,14 @@
 import { Icon } from '@/components/dashboard/shell/Icon';
-
-interface RatedReview {
-  starRating: number | null;
-}
+import type { RatingBreakdown } from '@/lib/dashboard/types';
 
 interface Props {
   /**
-   * Recent reviews from either dashboard scope. Only `starRating` is read, so
-   * both the per-location and aggregate review shapes satisfy this contract
-   * without leaking source-specific fields.
+   * Windowed reviews-by-rating aggregate (#405). A TRUE distribution across the
+   * selected analytics window — not the recent-reviews sample — so both dashboard
+   * scopes (per-location and account aggregate) feed the same shape.
    */
-  reviews: ReadonlyArray<RatedReview>;
+  breakdown: RatingBreakdown;
 }
-
-const TIERS = [5, 4, 3, 2, 1] as const;
 
 /** Sentiment-cued bar color: 4–5 positive, 3 neutral, 1–2 attention. */
 function tierClass(stars: number): 'good' | 'mid' | 'low' {
@@ -23,35 +18,25 @@ function tierClass(stars: number): 'good' | 'mid' | 'low' {
 }
 
 /**
- * Recent reviews by rating — a horizontal-bar breakdown derived from the
- * recent-reviews list already in the dashboard payload. Honest by construction:
- * it counts only that recent sample (not a lifetime aggregate) and the subtitle
- * says so. Renders nothing when no recent review carries a star rating, so the
- * caller can drop the slot cleanly.
+ * Reviews by rating — a horizontal-bar breakdown over every rated review in the
+ * selected analytics window (#405). Renders nothing when the window holds no
+ * rated review, so the caller can drop the slot cleanly.
  */
-export function RecentRatingBreakdown({ reviews }: Props) {
-  const counts = new Map<number, number>(TIERS.map((stars) => [stars, 0]));
-  for (const review of reviews) {
-    if (review.starRating == null) continue;
-    const bucket = Math.max(1, Math.min(5, Math.round(review.starRating)));
-    counts.set(bucket, (counts.get(bucket) ?? 0) + 1);
-  }
-
-  const total = Array.from(counts.values()).reduce((sum, n) => sum + n, 0);
+export function RecentRatingBreakdown({ breakdown }: Props) {
+  const { counts, total } = breakdown;
   if (total === 0) return null;
 
   return (
     <div className="card rating-breakdown">
       <div className="card-h2-row">
         <Icon name="chart" size={18} />
-        <h2>Recent reviews by rating</h2>
+        <h2>Reviews by rating</h2>
       </div>
       <p className="rating-breakdown-sub">
-        Based on your {total} most recent {total === 1 ? 'review' : 'reviews'}.
+        Across {total} {total === 1 ? 'review' : 'reviews'} in the selected period.
       </p>
       <ul className="rating-rows">
-        {TIERS.map((stars) => {
-          const count = counts.get(stars) ?? 0;
+        {counts.map(({ stars, count }) => {
           const pct = Math.round((count / total) * 100);
           return (
             <li

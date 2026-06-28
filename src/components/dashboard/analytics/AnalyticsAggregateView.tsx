@@ -26,6 +26,7 @@ interface Props {
  */
 export function AnalyticsAggregateView({ data, refresh, periodToolbar }: Props) {
   const hasRanking = Boolean(data.ranking) || data.perLocationRanking.length > 0;
+  const hasRatingBreakdown = data.ratingBreakdown.total > 0;
   const hasRatedReviews = data.recentReviews.some((review) => review.starRating != null);
 
   return (
@@ -64,9 +65,9 @@ export function AnalyticsAggregateView({ data, refresh, periodToolbar }: Props) 
             />
           )}
         </div>
-        {hasRatedReviews && (
+        {(hasRatingBreakdown || hasRatedReviews) && (
           <div className="section-enter section-enter-4 chart-row">
-            <RecentRatingBreakdown reviews={data.recentReviews} />
+            <RecentRatingBreakdown breakdown={data.ratingBreakdown} />
             <RecentSentimentMix reviews={data.recentReviews} />
           </div>
         )}

@@ -74,6 +74,7 @@ export async function getActiveDashboardData(
     zernioConnectionRows,
     queuedReconnectRows,
     unresolvedIncidentRows,
+    ratingBreakdownRows,
     pendingRaw,
   ] = await Promise.all([
     // Business info + settings
@@ -213,6 +214,20 @@ export async function getActiveDashboardData(
       WHERE business_id = ${businessId}
         AND resolved_at IS NULL
     `,
+    // Reviews-by-rating breakdown (#405): true 1–5★ distribution across the
+    // selected window — NOT the recentReviews sample. star_rating is
+    // INTEGER CHECK (1..5) or NULL (migration 001), so a direct GROUP BY is
+    // exact. The window reaches SQL only as a bound integer via make_interval
+    // (issue #403); zero-fill + ordering happen in buildRatingBreakdown.
+    sql<{ stars: number; count: number }[]>`
+      SELECT star_rating AS stars, COUNT(*)::int AS count
+      FROM reviews
+      WHERE business_id = ${businessId}
+        AND status <> 'deleted'
+        AND star_rating IS NOT NULL
+        AND detected_at >= NOW() - make_interval(days => ${windowDays})
+      GROUP BY star_rating
+    `,
     // In-flight connect flow marker. Lives in Redis only — the DB row
     // (zernio_connections) is not inserted until select-location succeeds.
     // Surfacing this lets the dashboard render a "Connecting…" UX during the
@@ -257,6 +272,7 @@ export async function getActiveDashboardData(
     zernioRow: zernioConnectionRows[0],
     queuedReconnectCount: queuedReconnectRows[0]?.count ?? 0,
     hasUnresolvedIncident: (unresolvedIncidentRows[0]?.count ?? 0) > 0,
+    ratingBreakdownRows,
     pendingRaw,
     reputationSummary,
   });

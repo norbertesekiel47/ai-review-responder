@@ -31,6 +31,12 @@ const weeks = (counts: number[]) =>
 const ratings = (stars: Array<number | null>) =>
   stars.map((starRating, i) => ({ id: `r${i}`, starRating, status: 'posted' }));
 
+/** Windowed reviews-by-rating breakdown (#405) — the card's real data source. */
+const breakdown = (byStar: Record<number, number>) => {
+  const counts = [5, 4, 3, 2, 1].map((stars) => ({ stars, count: byStar[stars] ?? 0 }));
+  return { counts, total: counts.reduce((sum, c) => sum + c.count, 0) };
+};
+
 const baseActive = {
   business: { name: 'Biz', createdAt: '2026-01-01' },
   valueSummary: { totalReviewsHandled: 9, totalTimeSavedMinutes: 54, currentResponseRate: 90, baselineResponseRate: null },
@@ -55,6 +61,7 @@ const baseActive = {
       ],
     },
   ],
+  ratingBreakdown: breakdown({}),
   recentReviews: [],
   latestBrief: null,
   zernioConnection: { status: 'active', queuedReconnectCount: 0, hasUnresolvedIncident: false },
@@ -63,6 +70,7 @@ const baseActive = {
 const baseAggregate = {
   scope: 'aggregate',
   valueSummary: { totalReviewsHandled: 20, totalTimeSavedMinutes: 120, currentResponseRate: 88, baselineResponseRate: null },
+  ratingBreakdown: breakdown({}),
   reviewVelocity: weeks([3, 6]),
   perLocationVelocity: [],
   ranking: [{ keyword: 'best cafe', snapshots: [{ date: '2026-06-01', position: 2 }] }],
@@ -92,23 +100,30 @@ describe('AnalyticsContent', () => {
     expect(screen.getByText(/Up 150% in new reviews this week/i)).toBeInTheDocument();
     expect(screen.getByText(/Up 2 spots this month/i)).toBeInTheDocument();
 
-    // Breakdown is hidden when no recent review carries a rating
-    expect(screen.queryByText('Recent reviews by rating')).not.toBeInTheDocument();
+    // Breakdown is hidden when the window holds no rated review and the sample is empty
+    expect(screen.queryByText('Reviews by rating')).not.toBeInTheDocument();
   });
 
-  it('renders the recent rating breakdown when recent reviews carry ratings', () => {
+  it('renders the windowed rating breakdown from the aggregate field, paired with the sample sentiment mix', () => {
     useDashboardDataMock.mockReturnValue({
-      data: { ...baseActive, recentReviews: ratings([5, 5, 4, 3, 1, null]) },
+      data: {
+        ...baseActive,
+        // True windowed aggregate (5 rated reviews) drives the breakdown bars…
+        ratingBreakdown: breakdown({ 5: 2, 4: 1, 3: 1, 1: 1 }),
+        // …while the recent sample still drives the paired sentiment-mix card.
+        recentReviews: ratings([5, 5, 4, 3, 1, null]),
+      },
       error: null,
       loading: false,
       refresh: vi.fn(),
     });
     render(<AnalyticsContent />);
 
-    expect(screen.getByText('Recent reviews by rating')).toBeInTheDocument();
-    // The unrated review is excluded — 5 of 6 count toward the sample.
-    expect(screen.getByText(/Based on your 5 most recent reviews/i)).toBeInTheDocument();
-    // The paired sentiment-mix card derives from the same recent sample.
+    expect(screen.getByText('Reviews by rating')).toBeInTheDocument();
+    // Honest aggregate copy — no "most recent sample" caveat.
+    expect(screen.getByText(/Across 5 reviews in the selected period/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Based on your/i)).not.toBeInTheDocument();
+    // The paired sentiment-mix card still derives from the recent sample (5 of 6 rated).
     expect(screen.getByText('Sentiment mix')).toBeInTheDocument();
     expect(screen.getByText(/Share of your 5 most recent reviews/i)).toBeInTheDocument();
   });
@@ -138,17 +153,22 @@ describe('AnalyticsContent', () => {
     expect(screen.queryByText('Reputation trend')).not.toBeInTheDocument();
   });
 
-  it('renders the recent rating breakdown in aggregate scope', () => {
+  it('renders the windowed rating breakdown in aggregate scope', () => {
     useDashboardDataMock.mockReturnValue({
-      data: { ...baseAggregate, recentReviews: ratings([5, 4, 4, 2]) },
+      data: {
+        ...baseAggregate,
+        ratingBreakdown: breakdown({ 5: 1, 4: 2, 2: 1 }),
+        recentReviews: ratings([5, 4, 4, 2]),
+      },
       error: null,
       loading: false,
       refresh: vi.fn(),
     });
     render(<AnalyticsContent />);
 
-    expect(screen.getByText('Recent reviews by rating')).toBeInTheDocument();
-    expect(screen.getByText(/Based on your 4 most recent reviews/i)).toBeInTheDocument();
+    expect(screen.getByText('Reviews by rating')).toBeInTheDocument();
+    expect(screen.getByText(/Across 4 reviews in the selected period/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Based on your/i)).not.toBeInTheDocument();
     expect(screen.getByText('Sentiment mix')).toBeInTheDocument();
   });
 

@@ -43,12 +43,17 @@ vi.mock('@/lib/locations/repo', () => ({
 // Import AFTER mocks are set up.
 import { getAggregateDashboardData } from '../aggregate-service';
 import { authoritativePendingCount } from '../scope';
-import type { DashboardDataActive } from '../types';
+import { buildRatingBreakdown } from '../rating-breakdown';
+import type { DashboardDataActive, RatingBreakdown } from '../types';
 
 /** A per-location dashboard payload whose recentReviews slice has `slicePending`
  *  pending rows — deliberately SMALLER than the authoritative count, to prove
- *  the KPI does not derive from the capped slice. */
-function locationData(slicePending: number): DashboardDataActive {
+ *  the KPI does not derive from the capped slice. `ratingBreakdown` defaults to
+ *  an empty (windowed) breakdown unless a location-specific one is supplied. */
+function locationData(
+  slicePending: number,
+  ratingBreakdown: RatingBreakdown = buildRatingBreakdown([]),
+): DashboardDataActive {
   const recentReviews = Array.from({ length: slicePending }, (_, i) => ({
     id: `rev-${i}`,
     reviewerName: 'Reviewer',
@@ -68,6 +73,7 @@ function locationData(slicePending: number): DashboardDataActive {
       currentResponseRate: 80,
       baselineResponseRate: 30,
     },
+    ratingBreakdown,
     reviewVelocity: [],
     ranking: null,
     recentReviews,
@@ -115,5 +121,61 @@ describe('getAggregateDashboardData — authoritative per-location pending count
     const result = await getAggregateDashboardData('acc-1');
     // 25 + 13 = 38 authoritative — not 2 + 2 = 4 from the capped slices.
     expect(authoritativePendingCount(result)).toBe(38);
+  });
+});
+
+describe('getAggregateDashboardData — ratingBreakdown (#405)', () => {
+  beforeEach(() => {
+    sqlCallCounter.value = 0;
+    mockSqlResults.length = 0;
+    // sql call order: [account billing, total reviews, total responded]
+    mockSqlResults.push(
+      [{ locations_included: 5, locations_paid: 0 }],
+      [{ count: 100 }],
+      [{ count: 80 }],
+    );
+    mockGetPendingApprovalCount.mockReset();
+    mockGetPendingApprovalCount.mockResolvedValue(0);
+  });
+
+  it('sums the per-location windowed breakdowns into one account-wide breakdown', async () => {
+    // getLocationsForAccount (mocked) yields loc-1 + loc-2 of acc-1, so the
+    // summed breakdown is tenant-scoped to the account's active locations.
+    mockGetActiveDashboardData.mockReset();
+    mockGetActiveDashboardData.mockImplementation(async (id: string) =>
+      id === 'loc-1'
+        ? locationData(0, buildRatingBreakdown([{ stars: 5, count: 2 }, { stars: 1, count: 1 }]))
+        : locationData(0, buildRatingBreakdown([{ stars: 5, count: 3 }, { stars: 4, count: 4 }])),
+    );
+
+    const result = await getAggregateDashboardData('acc-1');
+
+    expect(result.ratingBreakdown.counts).toEqual([
+      { stars: 5, count: 5 },
+      { stars: 4, count: 4 },
+      { stars: 3, count: 0 },
+      { stars: 2, count: 0 },
+      { stars: 1, count: 1 },
+    ]);
+    expect(result.ratingBreakdown.total).toBe(10);
+  });
+});
+
+describe('getAggregateDashboardData — no active locations', () => {
+  beforeEach(() => {
+    sqlCallCounter.value = 0;
+    mockSqlResults.length = 0;
+  });
+
+  it('returns an all-zero rating breakdown when the account has no active locations', async () => {
+    const { getLocationsForAccount } = await import('@/lib/locations/repo');
+    vi.mocked(getLocationsForAccount).mockResolvedValueOnce([]);
+    mockSqlResults.push([{ locations_included: 1, locations_paid: 0 }]);
+
+    const result = await getAggregateDashboardData('acc-empty');
+
+    expect(result.activeLocationCount).toBe(0);
+    expect(result.ratingBreakdown.total).toBe(0);
+    expect(result.ratingBreakdown.counts.map((c) => c.count)).toEqual([0, 0, 0, 0, 0]);
   });
 });

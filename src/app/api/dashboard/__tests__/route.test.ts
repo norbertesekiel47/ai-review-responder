@@ -132,8 +132,9 @@ const DEFAULT_SUB_ROW = {
  * Calls 0 = subRow (subscription status check).
  * Calls 1–8 = the Promise.all heavy queries (business/totals/velocity/ranking/reviews/briefs).
  * Calls 9–11 = the Zernio banner queries (zernio_connections, queued reconnects, unresolved incidents).
+ * Call 12 = the windowed reviews-by-rating breakdown GROUP BY (#405).
  *
- * The Promise.all includes a 12th entry (the Redis pending-marker read) but that
+ * The Promise.all includes a final entry (the Redis pending-marker read) but that
  * resolves through `mockRedisGet`, not through the sql proxy.
  */
 function setDbResults(overrides?: {
@@ -149,6 +150,7 @@ function setDbResults(overrides?: {
   zernioConnectionRows?: unknown[];
   queuedReconnectRows?: unknown[];
   unresolvedIncidentRows?: unknown[];
+  ratingBreakdownRows?: unknown[];
 }) {
   mockSqlResults.length = 0;
   sqlCallCounter.value = 0;
@@ -210,6 +212,8 @@ function setDbResults(overrides?: {
     overrides?.zernioConnectionRows ?? [],
     overrides?.queuedReconnectRows ?? [{ count: 0 }],
     overrides?.unresolvedIncidentRows ?? [{ count: 0 }],
+    // Call 12: windowed reviews-by-rating breakdown (#405). Empty by default.
+    overrides?.ratingBreakdownRows ?? [],
   );
 }
 
@@ -485,6 +489,36 @@ describe('GET /api/dashboard', () => {
 
     // Verify no-store header
     expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+  });
+
+  it('returns the windowed reviews-by-rating breakdown in the active payload (#405)', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setDbResults({
+      ratingBreakdownRows: [
+        { stars: 5, count: 4 },
+        { stars: 4, count: 1 },
+        { stars: 2, count: 3 },
+      ],
+    });
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    const body: DashboardDataActive = await res.json();
+    // Zero-filled, ordered 5★→1★, summed total — the true aggregate, not the sample.
+    expect(body.ratingBreakdown.counts).toEqual([
+      { stars: 5, count: 4 },
+      { stars: 4, count: 1 },
+      { stars: 3, count: 0 },
+      { stars: 2, count: 3 },
+      { stars: 1, count: 0 },
+    ]);
+    expect(body.ratingBreakdown.total).toBe(8);
+
+    // The breakdown is windowed: its query binds the interval via make_interval.
+    const breakdownSql = capturedSqlTexts.find((t) => t.includes('GROUP BY star_rating'));
+    expect(breakdownSql).toContain('make_interval(days => ?)');
+    expect(breakdownSql).toContain('business_id = ?');
   });
 
   it('returns null ranking when no snapshots exist', async () => {

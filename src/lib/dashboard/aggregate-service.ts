@@ -17,6 +17,7 @@ import {
   DEFAULT_DASHBOARD_WINDOW,
 } from '@/lib/kpi/types';
 import { getActiveDashboardData } from './service';
+import { sumRatingBreakdowns } from './rating-breakdown';
 import { getPendingApprovalCount } from './pending-count';
 import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel } from '@/lib/locations/display-label';
@@ -80,6 +81,7 @@ export async function getAggregateDashboardData(
         currentResponseRate: 0,
         baselineResponseRate: null,
       },
+      ratingBreakdown: sumRatingBreakdowns([]),
       reviewVelocity: [],
       perLocationVelocity: [],
       ranking: null,
@@ -250,6 +252,14 @@ export async function getAggregateDashboardData(
   // Limit to 20 items total across all locations
   const recentReviews = allReviews.slice(0, 20);
 
+  // ── Reviews by rating (#405) ─────────────────────────────────────────────
+  // Sum the per-location windowed 1–5★ breakdowns. Each location's breakdown is
+  // scoped by business_id and the locations are scoped by account_id, so the
+  // account-wide rollup leaks no other tenant. Same composition as velocity.
+  const ratingBreakdown = sumRatingBreakdowns(
+    validPairs.map((p) => p.data.ratingBreakdown),
+  );
+
   // ── Per-Location Briefs ─────────────────────────────────────────────────
   const perLocationBriefs: PerLocationBrief[] = validPairs
     .filter((p) => p.data.latestBrief !== null)
@@ -267,6 +277,7 @@ export async function getAggregateDashboardData(
       currentResponseRate,
       baselineResponseRate,
     },
+    ratingBreakdown,
     reviewVelocity,
     perLocationVelocity,
     ranking,
