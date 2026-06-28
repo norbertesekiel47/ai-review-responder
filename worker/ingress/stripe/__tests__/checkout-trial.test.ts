@@ -18,7 +18,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const {
   mockSql,
   mockApplyStripeSubscriptionState,
-  mockMaybeEnqueueBackfillResume,
+  mockResumePrimaryBusinessBackfill,
   mockRetrieve,
 } = vi.hoisted(() => {
   // Default: the account-resolution SELECT (`SELECT id FROM accounts WHERE id=...`)
@@ -37,7 +37,7 @@ const {
   return {
     mockSql,
     mockApplyStripeSubscriptionState: vi.fn(),
-    mockMaybeEnqueueBackfillResume: vi.fn().mockResolvedValue(undefined),
+    mockResumePrimaryBusinessBackfill: vi.fn().mockResolvedValue(undefined),
     mockRetrieve: vi.fn(),
   };
 });
@@ -50,7 +50,7 @@ vi.mock('../shared', async () => {
   const actual = await vi.importActual<typeof import('../shared')>('../shared');
   return {
     ...actual,
-    maybeEnqueueBackfillResume: mockMaybeEnqueueBackfillResume,
+    resumePrimaryBusinessBackfill: mockResumePrimaryBusinessBackfill,
     getStripe: () => ({ subscriptions: { retrieve: mockRetrieve } }),
   };
 });
@@ -93,7 +93,7 @@ beforeEach(() => {
     activated: true,
     primaryBusinessId: PRIMARY_BIZ,
   });
-  mockMaybeEnqueueBackfillResume.mockClear();
+  mockResumePrimaryBusinessBackfill.mockClear();
   mockRetrieve.mockReset();
 });
 
@@ -150,7 +150,7 @@ describe('checkout.session.completed — paid activation', () => {
       subscription: SUB_ID,
     } as any);
 
-    expect(mockMaybeEnqueueBackfillResume).toHaveBeenCalledWith(PRIMARY_BIZ);
+    expect(mockResumePrimaryBusinessBackfill).toHaveBeenCalledWith(PRIMARY_BIZ);
   });
 
   it('paid activation with changed=false skips backfill resume (idempotent re-delivery)', async () => {
@@ -162,7 +162,7 @@ describe('checkout.session.completed — paid activation', () => {
       activated: false,
       primaryBusinessId: PRIMARY_BIZ,
     });
-    mockMaybeEnqueueBackfillResume.mockClear();
+    mockResumePrimaryBusinessBackfill.mockClear();
 
     await processCheckoutSessionCompleted({
       client_reference_id: ACCOUNT_ID,
@@ -173,7 +173,7 @@ describe('checkout.session.completed — paid activation', () => {
       subscription: SUB_ID,
     } as any);
 
-    expect(mockMaybeEnqueueBackfillResume).not.toHaveBeenCalled();
+    expect(mockResumePrimaryBusinessBackfill).not.toHaveBeenCalled();
   });
 });
 
@@ -241,7 +241,7 @@ describe('checkout.session.completed — trial start', () => {
 
     await processCheckoutSessionCompleted(trialSession());
 
-    expect(mockMaybeEnqueueBackfillResume).toHaveBeenCalledWith(PRIMARY_BIZ);
+    expect(mockResumePrimaryBusinessBackfill).toHaveBeenCalledWith(PRIMARY_BIZ);
   });
 
   it('retrieved sub is not trialing ($0 session, 100%-off coupon) → falls through to paid activation applier', async () => {

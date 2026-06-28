@@ -81,8 +81,12 @@ export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
  *
  * Invoked OUTSIDE the activation tx — billing flip is the load-bearing
  * mutation, this is best-effort on top.
+ *
+ * Module-private: every activation handler reaches it through
+ * `resumePrimaryBusinessBackfill` (below), which owns the null-skip + best-effort
+ * error boundary. Call that, not this, from a handler.
  */
-export async function maybeEnqueueBackfillResume(businessId: string): Promise<void> {
+async function maybeEnqueueBackfillResume(businessId: string): Promise<void> {
   if (!zernioPublishingEnabled()) return;
 
   const [target] = await sql<{
@@ -138,4 +142,31 @@ export async function maybeEnqueueBackfillResume(businessId: string): Promise<vo
     )
   `;
   console.log(`${LOG_PREFIX} Re-enqueued zernio_initial_backfill for business=${businessId} (post-activation backfill resume)`);
+}
+
+/**
+ * The single home for the post-commit "subscription became active → resume the
+ * Zernio backfill" side effect (issue #266). All four activation paths converge
+ * here: invoice.paid past_due-recovery + trial-convert, and
+ * checkout.session.completed paid + trial-start.
+ *
+ * The CALLER resolves WHICH business to resume — the account's primary business
+ * in the common case, or the legacy Payment-Link business id for the legacy
+ * checkout path — and passes it (or `null` when none resolved). That resolution
+ * differs subtly per call site and is deliberately left to the caller; this
+ * helper owns only the two things every call site repeated:
+ *   - null-skip (no resolved business → nothing to resume), and
+ *   - the best-effort error boundary: a resume failure is logged and swallowed
+ *     so it can never flip an already-committed activation to `failed` (the
+ *     worker best-effort-after-primary-side-effect rule).
+ *
+ * Always invoked OUTSIDE the activation tx — the billing flip already committed.
+ */
+export async function resumePrimaryBusinessBackfill(businessId: string | null): Promise<void> {
+  if (!businessId) return;
+  await maybeEnqueueBackfillResume(businessId).catch((err) => {
+    console.error(
+      `${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${businessId}: ${err instanceof Error ? err.message : err}`,
+    );
+  });
 }

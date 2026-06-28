@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
-import { LOG_PREFIX, extractCustomerId, extractSubscriptionId, UUID_RE, maybeEnqueueBackfillResume, getStripe } from './shared';
+import { LOG_PREFIX, extractCustomerId, extractSubscriptionId, UUID_RE, resumePrimaryBusinessBackfill, getStripe } from './shared';
 import { applyStripeSubscriptionState, type TransitionResult } from './apply-subscription-state';
 
 export async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
@@ -108,12 +108,7 @@ export async function processCheckoutSessionCompleted(session: Stripe.Checkout.S
 
   // Best-effort backfill resume — only after a real activation.
   if (transition.changed && transition.activated) {
-    const resumeBusinessId = businessId ?? transition.primaryBusinessId;
-    if (resumeBusinessId) {
-      await maybeEnqueueBackfillResume(resumeBusinessId).catch((err) => {
-        console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${resumeBusinessId}: ${err instanceof Error ? err.message : err}`);
-      });
-    }
+    await resumePrimaryBusinessBackfill(businessId ?? transition.primaryBusinessId);
   }
 }
 
@@ -175,12 +170,7 @@ async function maybeStartTrial(
   });
 
   if (transition.changed && transition.activated) {
-    const businessId = knownBusinessId ?? transition.primaryBusinessId;
-    if (businessId) {
-      await maybeEnqueueBackfillResume(businessId).catch((err) => {
-        console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${businessId}: ${err instanceof Error ? err.message : err}`);
-      });
-    }
+    await resumePrimaryBusinessBackfill(knownBusinessId ?? transition.primaryBusinessId);
   }
   return true;
 }

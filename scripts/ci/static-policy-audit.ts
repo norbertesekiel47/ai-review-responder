@@ -192,7 +192,7 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   'worker/ingress/stripe/apply-subscription-state.ts:340',
   'worker/ingress/stripe/apply-subscription-state.ts:349',
   'worker/ingress/stripe/apply-subscription-state.ts:352',
-  'worker/ingress/stripe/shared.ts:105',
+  'worker/ingress/stripe/shared.ts:109',
   // ── dashboard view-model discriminant union (type-level literals; the union
   //    mixes enum statuses with synthetic states like 'active_pending_business') ──
   'src/lib/dashboard/types.ts:112',
