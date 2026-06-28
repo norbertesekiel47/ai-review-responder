@@ -1,6 +1,28 @@
 # Plan: Redesign the owner dashboard around reputation-health/ROI (single-location)
 _Locked via grill — by Claude + Norbert · revised after Codex round 1_
 
+> **⚠️ IA superseded (2026-06-19).** This plan's IA decision to move secondary
+> analytics to a new **`/dashboard/insights`** route (steps 15-16) and to keep the
+> needs-action reviews queue on the dashboard has been superseded in two steps:
+>
+> 1. The overview/reviews-split restructure
+>    ([`docs/superpowers/specs/2026-06-19-dashboard-overview-reviews-split-design.md`](docs/superpowers/specs/2026-06-19-dashboard-overview-reviews-split-design.md),
+>    plan [`…-split.md`](docs/superpowers/plans/2026-06-19-dashboard-overview-reviews-split.md))
+>    removed the `/dashboard/insights` route and moved the reviews queue to its own
+>    `/dashboard/reviews` page.
+> 2. The **final, current IA**
+>    ([`docs/superpowers/specs/2026-06-19-glance-dashboard-analytics-history-design.md`](docs/superpowers/specs/2026-06-19-glance-dashboard-analytics-history-design.md))
+>    made the dashboard a two-second **glance** (reputation hero + intelligence
+>    brief + doorways to Reviews and Analytics) and **moved the trend / velocity /
+>    ranking analytics to a new `/dashboard/analytics` page**.
+>
+> Net current state: `/dashboard` = glance · `/dashboard/analytics` = the charts ·
+> `/dashboard/reviews` = the review queue. `/dashboard/insights` is **not** a live
+> route, and analytics/reviews are **not** on the dashboard. The reputation-health/
+> ROI goal, hero band, and deltas below were shipped and remain accurate; treat the
+> `/dashboard/insights`, charts-on-dashboard, and reviews-on-dashboard references as
+> a historical record. See the glance spec (step 2) for the authoritative current IA.
+
 ## Goal
 Rebuild the single-location owner dashboard so its primary job is **reassurance + proving subscription value** ("your reputation is improving, and you're getting time back"), with the pending-approval queue as a strong *secondary* action. Apply the 7 dashboard principles: a single dominant hero (composite reputation band, top), honest trend/comparison context on every number (no bare values, no decorative chart junk), an aggressively decluttered ~4-zone above-the-fold view, and one purpose-fit trend chart. Secondary analytics move to a new `/dashboard/insights` drill-down rather than competing on the landing view. Multi-location aggregate is explicitly a fast-follow, but every new piece is built to be reusable there.
 
