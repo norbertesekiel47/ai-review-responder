@@ -1,20 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- invariant #1 carve-out: admin-only queue-health READ. Instantiates a BullMQ Queue solely to call getJobCounts(), then closes it in a finally — not a publish path. TODO(#408): relocate queue-health to the Railway worker (also fixes the likely-broken Vercel→Railway-Redis call) and drop this disable.
-import { Queue } from 'bullmq';
-import type { RedisOptions } from 'ioredis';
 import { sql } from '@/lib/db/server';
 import { requireRoleOr401 } from '@/lib/auth/route-helpers';
-import { ALL_QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { getServerConfig } from '@/lib/config/server';
-
-// Queue names come from the shared registry (src/lib/shared/queue-names.ts)
-// so this list cannot drift behind worker/queues.ts. Importing worker/queues.ts
-// directly is unsafe from a Next.js route because it instantiates BullMQ
-// Queues at module scope and would crash if REDIS_QUEUE_URL is missing.
-const QUEUE_NAMES = ALL_QUEUE_NAMES;
+import { getWorkerPublicUrl } from '@/lib/shared/worker-public-url';
 
 export const dynamic = 'force-dynamic';
+
+// Vercel = UI only (invariant #1): per-queue depth lives on the Railway worker,
+// which owns the BullMQ/Railway-Redis connection (Vercel can't reach the private
+// IPv6-only network). This route fetches the worker's authed internal endpoint
+// server-side with a short, explicit timeout and NO retry — an admin read that
+// degrades to {unavailable:true} on any failure rather than blocking the panel.
+const QUEUE_HEALTH_TIMEOUT_MS = 5_000;
 
 interface OutboxSummaryRow {
   pending: number;
@@ -98,36 +96,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const summary = summaryRows[0] ?? { pending: 0, dispatching: 0, dispatched: 0, failed: 0, completed_today: 0 };
     const failedTotal = countRows[0]?.total ?? 0;
 
-    let queueHealth: Record<string, Record<string, number>> | { unavailable: true };
-    const redisUrl = getServerConfig().REDIS_QUEUE_URL;
-    if (!redisUrl) {
-      queueHealth = { unavailable: true };
-    } else {
-      try {
-        const redisOpts = parseRedisUrl(redisUrl);
-        const counts: Record<string, Record<string, number>> = {};
-        for (const name of QUEUE_NAMES) {
-          const queue = new Queue(name, { connection: redisOpts });
-          try {
-            const jobCounts = await queue.getJobCounts(
-              'waiting',
-              'active',
-              'delayed',
-              'failed',
-              'completed',
-              'paused',
-            );
-            counts[name] = jobCounts;
-          } finally {
-            await queue.close();
-          }
-        }
-        queueHealth = counts;
-      } catch (redisError) {
-        console.warn('[api/admin/jobs] Redis unavailable for queue health:', redisError);
-        queueHealth = { unavailable: true };
-      }
-    }
+    const queueHealth = await fetchQueueHealth();
 
     const data: JobsData = {
       outbox: {
@@ -158,27 +127,48 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-/** Parse a Redis URL into ioredis options with a short connect timeout. */
-function parseRedisUrl(url: string): RedisOptions {
-  const cfg = getServerConfig();
-  if (url.startsWith('https://')) {
-    return {
-      host: new URL(url).hostname,
-      port: 6379,
-      password: cfg.REDIS_QUEUE_TOKEN,
-      tls: {},
-      maxRetriesPerRequest: 1,
-      connectTimeout: 5_000,
-    };
+/**
+ * Fetch per-queue depth from the Railway worker's authed internal endpoint.
+ * Returns the existing graceful shape `{ unavailable: true }` on ANY failure —
+ * missing config (WORKER_PUBLIC_URL / WORKER_INTERNAL_SECRET), invalid worker
+ * URL, non-200, network error, or the 5s timeout — and logs a warning instead of
+ * throwing, so the panel always renders. Never logs the secret.
+ */
+async function fetchQueueHealth(): Promise<
+  Record<string, Record<string, number>> | { unavailable: true }
+> {
+  const secret = getServerConfig().WORKER_INTERNAL_SECRET;
+  if (!secret) return { unavailable: true };
+
+  let origin: string;
+  try {
+    origin = getWorkerPublicUrl();
+  } catch {
+    // WORKER_PUBLIC_URL unset or not a valid URL — degrade silently.
+    return { unavailable: true };
   }
-  const parsed = new URL(url);
-  return {
-    host: parsed.hostname,
-    port: parseInt(parsed.port || '6379', 10),
-    password: parsed.password || cfg.REDIS_QUEUE_TOKEN || undefined,
-    db: parsed.pathname ? parseInt(parsed.pathname.slice(1), 10) || 0 : 0,
-    tls: parsed.protocol === 'rediss:' ? {} : undefined,
-    maxRetriesPerRequest: 1,
-    connectTimeout: 5_000,
-  };
+
+  try {
+    const response = await fetch(`${origin}/internal/queue-health`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${secret}` },
+      signal: AbortSignal.timeout(QUEUE_HEALTH_TIMEOUT_MS),
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      console.warn(`[api/admin/jobs] worker queue-health returned ${response.status}; queue health unavailable`);
+      return { unavailable: true };
+    }
+    const body = (await response.json()) as {
+      queues?: Record<string, Record<string, number>>;
+    };
+    if (!body.queues) {
+      console.warn('[api/admin/jobs] worker queue-health response missing queues; queue health unavailable');
+      return { unavailable: true };
+    }
+    return body.queues;
+  } catch (error) {
+    console.warn('[api/admin/jobs] worker queue-health fetch failed; queue health unavailable:', error);
+    return { unavailable: true };
+  }
 }
