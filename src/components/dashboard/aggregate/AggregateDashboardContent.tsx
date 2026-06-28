@@ -5,7 +5,6 @@ import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { AggregateKpiCards } from '@/components/dashboard/aggregate/AggregateKpiCards';
 import { PendingApprovalsStrip } from '@/components/dashboard/kpi/PendingApprovalsStrip';
-import { AggregateIntelligenceBriefCard } from '@/components/dashboard/aggregate/AggregateIntelligenceBriefCard';
 import { LocationKpiStrip } from '@/components/dashboard/aggregate/LocationKpiStrip';
 import { PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
 import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal';
@@ -18,15 +17,14 @@ interface Props {
 
 /**
  * Renders the "All Locations" aggregate dashboard glance. Velocity + ranking
- * charts moved to /dashboard/analytics (design spec 2026-06-19); the dashboard
- * keeps only the glanceable zones.
+ * charts and the intelligence brief moved to /dashboard/analytics (design spec
+ * 2026-06-19); the dashboard keeps only the glanceable zones.
  *
  * Layout:
  *  1. TopBar with aggregate title
  *  2. Aggregate KpiCards (summed values)
  *  3. PendingApprovalsStrip (links to /dashboard/reviews)
  *  4. Location KPI strip (clickable per-location cards)
- *  5. IntelligenceBriefCard (per-location prefix bullets)
  */
 export function AggregateDashboardContent({ data, refresh }: Props) {
   // Authoritative pending count across all locations — sum of the SQL-backed
@@ -92,11 +90,6 @@ export function AggregateDashboardContent({ data, refresh }: Props) {
             <div className="section-enter section-enter-3">
               <LocationKpiStrip locationKpis={data.locationKpis} />
             </div>
-            {data.perLocationBriefs.length > 0 && (
-              <div className="section-enter section-enter-4">
-                <AggregateIntelligenceBriefCard perLocationBriefs={data.perLocationBriefs} />
-              </div>
-            )}
           </>
         )}
       </div>

@@ -20,7 +20,6 @@ import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { ReputationHeroBand } from '@/components/dashboard/kpi/ReputationHeroBand';
 import { PendingApprovalsStrip } from '@/components/dashboard/kpi/PendingApprovalsStrip';
-import { IntelligenceBriefCard } from '@/components/dashboard/kpi/IntelligenceBriefCard';
 import { AggregateDashboardContent } from '@/components/dashboard/aggregate/AggregateDashboardContent';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useSetPendingCount } from '@/contexts/PendingCountContext';
@@ -320,16 +319,11 @@ function DashboardOperationalContent() {
             connected={zernioConnection.status === 'active'}
           />
         </div>
-        {/* Action strip → Reviews page */}
+        {/* Action strip → Reviews page. The intelligence brief lives on
+            /dashboard/analytics now, not on the glance dashboard. */}
         <div className="section-enter section-enter-3">
           <PendingApprovalsStrip count={reputation.pendingApprovalCount} />
         </div>
-        {/* Intelligence brief — the glance centerpiece (charts moved to Analytics) */}
-        {activeData.latestBrief && (
-          <div className="section-enter section-enter-4">
-            <IntelligenceBriefCard brief={activeData.latestBrief} />
-          </div>
-        )}
       </div>
     </>
   );
