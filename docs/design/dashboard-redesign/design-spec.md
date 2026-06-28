@@ -3,13 +3,42 @@
 _Status: locked direction, pending implementation · 2026-06-18_
 _Owner: Norbert + Claude · Visual companion to [`PLAN.md`](../../../PLAN.md)_
 
+> **⚠️ IA SUPERSEDED (2026-06-19) — visual system still current.** The
+> *information architecture* described below — a separate `/dashboard/insights`
+> route and the needs-action reviews queue living on the dashboard — is **stale**.
+> It was superseded in two steps:
+>
+> 1. The overview/reviews-split restructure
+>    ([`2026-06-19-dashboard-overview-reviews-split-design.md`](../../superpowers/specs/2026-06-19-dashboard-overview-reviews-split-design.md),
+>    PR #347) removed the `/dashboard/insights` route — folding its analytics
+>    into the dashboard — and moved the reviews action queue to its own
+>    `/dashboard/reviews` page.
+> 2. The **final, current IA**
+>    ([`2026-06-19-glance-dashboard-analytics-history-design.md`](../../superpowers/specs/2026-06-19-glance-dashboard-analytics-history-design.md))
+>    then made the **dashboard a two-second "glance"** (reputation hero +
+>    intelligence brief + a pending-approvals doorway to `/dashboard/reviews` +
+>    an Analytics doorway) and **moved the trend / velocity / ranking analytics
+>    to a new `/dashboard/analytics` page**.
+>
+> Net current state: `/dashboard` = glance · `/dashboard/analytics` = the
+> charts/analytics · `/dashboard/reviews` = the review queue (with a History
+> tab). `/dashboard/insights` is **not** a live route, the analytics are **not**
+> on the dashboard, and reviews are **not** on the dashboard. **Read the glance
+> spec (step 2) for the authoritative current IA.**
+>
+> The **Warm Editorial visual system** in this doc (tokens, fonts, double-bezel
+> cards, gold stars, motion) is **NOT** superseded — it remains the live Console
+> visual source of truth, cited by `src/app/(authenticated)/_styles/tokens.css`
+> and `docs/design/README.md`. Both 2026-06-19 specs explicitly keep it unchanged.
+
 ## 1. Purpose & scope
 
 This spec pins the **visual design system** for the owner dashboard redesign so it can
 be ported into the real app. It is the *visual* half; [`PLAN.md`](../../../PLAN.md) is the
-*data / IA / behavior* half (4-zone structure, reputation deltas, `/dashboard/insights`,
-ramping rules). Where they overlap, **PLAN.md wins on structure and data; this spec wins
-on look, type, motion, and component styling.**
+*data / IA / behavior* half (reputation deltas, ramping rules). Where they overlap, **this
+spec wins on look, type, motion, and component styling** — but the original IA in PLAN.md
+(4-zone landing, the now-removed `/dashboard/insights` route) is **superseded**; the current
+IA lives in the 2026-06-19 spec linked in the banner above.
 
 **Visual source of truth:** the static mockups in this folder, viewable via the local
 preview (`python3 -m http.server` over `docs/design/dashboard-redesign/`):
@@ -18,13 +47,15 @@ preview (`python3 -m http.server` over `docs/design/dashboard-redesign/`):
 |---|---|
 | `index.html` | Launcher |
 | `dashboard.html` | Landing — 4 zones |
-| `insights.html` | `/dashboard/insights` drill-down |
+| `insights.html` | _(superseded IA — the `/dashboard/insights` route is gone; its analytics now live on `/dashboard/analytics`; see banner)_ |
 | `settings.html` | Settings shell + Brand Voice panel |
 | `states.html` | Banners, all-caught-up, ramping hero, regenerate limit-reached |
 | `style-comparison.html`, `type-specimen.html` | Direction + typeface exploration (archive) |
 
 **In scope:** the authenticated owner surface — shell (sidebar / top bar / mobile tab bar),
-dashboard landing, insights, settings, and adaptive states. **Out of scope** (this round):
+dashboard landing, settings, and adaptive states. (The original "insights" surface is
+superseded — the `/dashboard/insights` route is gone and its analytics now live on
+`/dashboard/analytics`; see banner.) **Out of scope** (this round):
 auth pages, onboarding, marketing, admin, and the multi-location **aggregate** redesign
 (PLAN.md fast-follow). The brand-design skill is intentionally **not** applied here.
 
@@ -109,6 +140,16 @@ Keep the existing class-based architecture.
 
 Legend: **CSS** = restyle only · **NEW** = new component (per PLAN.md) · **PROP** = prop-extend shared component · **DATA** = needs PLAN.md `reputationSummary`.
 
+> **IA note:** The component-styling intent in these tables is still useful, but the
+> *placement* rows that reflect the old IA are superseded by the 2026-06-19 specs.
+> Per the final (glance) IA: the nav is `Dashboard · Reviews · Analytics · Settings`
+> (no Insights entry); the needs-action reviews queue is **not** a dashboard zone
+> (it lives on `/dashboard/reviews`); and the trend / velocity / ranking charts are
+> **not** dashboard zones either (they live on `/dashboard/analytics`). The glance
+> dashboard keeps only the reputation hero, the intelligence brief, and the
+> pending-approvals + Analytics doorways. Treat the placement rows as visual
+> reference only.
+
 ### Shell (global — affects every authenticated screen)
 | Mockup piece | Real file | Type |
 |---|---|---|
@@ -124,13 +165,17 @@ Legend: **CSS** = restyle only · **NEW** = new component (per PLAN.md) · **PRO
 | Banners (above hero) | connect / past-due | `account-state/ConnectGoogleBanner.tsx`, `SubscriptionStatusBanner.tsx` | CSS |
 | 1 · Reputation hero band | 3 stats + deltas | **`ReputationHeroBand`** (new) — replaces `KpiCards` on this path | NEW + DATA |
 | 2 · Pending approvals strip | blush strip / calm | **`PendingApprovalsStrip`** (new) | NEW + DATA (SQL pending count) |
-| 3 · Needs-action reviews | queue + Approve/Edit/**Regenerate** | `reviews/ReviewsCard.tsx` + `ReviewActions.tsx` (+ single-loc variant of `ReviewFeedCard`) | CSS + PROP |
-| 4 · Reputation trend | clean line, star-equivalent | **`ReputationTrendChart`** (new) — replaces `VelocityCard` on landing | NEW + DATA |
+| 3 · Needs-action reviews _(superseded — moved off the dashboard to `/dashboard/reviews`)_ | queue + Approve/Edit/**Regenerate** | `reviews/ReviewsCard.tsx` + `ReviewActions.tsx` (+ single-loc variant of `ReviewFeedCard`) | CSS + PROP |
+| 4 · Reputation trend _(superseded — moved off the dashboard to `/dashboard/analytics`)_ | clean line, star-equivalent | **`ReputationTrendChart`** (new) — replaces `VelocityCard` on landing | NEW + DATA |
 
 > Shared `KpiCards` / `ValueKpiGrid` / `Sparkline` / `AggregateReviewsCard` **stay intact**
 > for the untouched aggregate view (PLAN.md). The landing uses the new components.
 
-### Insights (`/dashboard/insights`, new route per PLAN.md step 15)
+### Insights _(SUPERSEDED — no longer a route per the 2026-06-19 specs)_
+`/dashboard/insights` is gone. Velocity and ranking (plus the reputation trend) now render on
+the new **`/dashboard/analytics`** page; the intelligence brief stays on the glance dashboard.
+Mapping kept for visual reference only.
+
 | Mockup | Real component | Type |
 |---|---|---|
 | Velocity bars | `kpi/VelocityCard.tsx` | CSS (reuse) |
@@ -181,7 +226,7 @@ Legend: **CSS** = restyle only · **NEW** = new component (per PLAN.md) · **PRO
 ## 10. Rollout sequencing
 
 1. **Visual layer (global, low-risk, no data):** tokens.css remap + font swap + shell/Sidebar/TopBar/MobileTabBar + shared card/button/badge/form/save-bar styling + literal-color sweep. Affects single-location **and** aggregate **and** settings — they simply look Warm Editorial. Ships behind no new data.
-2. **Structural layer (single-location, per PLAN.md):** new `ReputationHeroBand` / `PendingApprovalsStrip` / `ReputationTrendChart`, the 4-zone `DashboardContent` rewrite, `/dashboard/insights` route + nav, `ReviewFeedCard` single-loc prop. Needs PLAN.md backend (`reputationSummary` deltas, shared pending-count helper).
+2. **Structural layer (single-location, per PLAN.md):** new `ReputationHeroBand` / `PendingApprovalsStrip` / `ReputationTrendChart`, the `DashboardContent` rewrite, `ReviewFeedCard` single-loc prop. Needs PLAN.md backend (`reputationSummary` deltas, shared pending-count helper). _(IA superseded: the original `/dashboard/insights` route + nav was dropped; per the 2026-06-19 specs the analytics now live on `/dashboard/analytics`, the dashboard is a glance, and reviews moved to `/dashboard/reviews`.)_
 3. **Aggregate fast-follow:** restyle aggregate components to the warm system + bring the 4-zone structure to the aggregate view (separate PR).
 
 Land via PR, staging first (touches the dashboard data path). CI green incl. `pnpm build`,
