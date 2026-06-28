@@ -160,7 +160,7 @@ describe('DashboardContent glance composition (charts relocated to Analytics)', 
     zernioConnection: { status: 'active', queuedReconnectCount: 0, hasUnresolvedIncident: false },
   };
 
-  it('keeps hero · brief · strip and drops the trend/velocity/ranking charts', async () => {
+  it('keeps hero · strip and drops the brief (moved to Analytics) + trend/velocity/ranking charts', async () => {
     mockUseDashboardData.mockReturnValue({
       data: activeData,
       error: null,
@@ -172,8 +172,9 @@ describe('DashboardContent glance composition (charts relocated to Analytics)', 
     renderDashboard(<DashboardContent />);
 
     expect(await screen.findByTestId('hero')).toBeInTheDocument();
-    expect(screen.getByTestId('brief')).toBeInTheDocument();
     expect(screen.getByTestId('strip')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /view analytics/i })).toHaveAttribute('href', '/dashboard/analytics');
+    expect(screen.queryByTestId('brief')).not.toBeInTheDocument();
     expect(screen.queryByTestId('trend')).not.toBeInTheDocument();
     expect(screen.queryByTestId('velocity')).not.toBeInTheDocument();
     expect(screen.queryByTestId('ranking')).not.toBeInTheDocument();

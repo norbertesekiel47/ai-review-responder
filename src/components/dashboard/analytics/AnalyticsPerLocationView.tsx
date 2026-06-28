@@ -9,6 +9,7 @@ import { IntelligenceBriefCard } from '@/components/dashboard/kpi/IntelligenceBr
 import { RecentRatingBreakdown } from '@/components/dashboard/kpi/RecentRatingBreakdown';
 import { VelocityCard } from '@/components/dashboard/kpi/VelocityCard';
 import { RankingCard } from '@/components/dashboard/kpi/RankingCard';
+import { RecentSentimentMix } from '@/components/dashboard/kpi/RecentSentimentMix';
 
 interface Props {
   active: DashboardDataActive;
@@ -24,6 +25,7 @@ export function AnalyticsPerLocationView({ active, refresh }: Props) {
   const reputation = active.reputationSummary;
   const trend = reputation?.trend ?? [];
   const hasRanking = (active.ranking?.length ?? 0) > 0;
+  const hasRatedReviews = active.recentReviews.some((review) => review.starRating != null);
   const hasAnything =
     trend.some((week) => week.starEquivalent != null) ||
     active.reviewVelocity.length > 0 ||
@@ -37,7 +39,7 @@ export function AnalyticsPerLocationView({ active, refresh }: Props) {
         showLive
         refresh={refresh}
       />
-      <div className="content">
+      <div className="content content--analytics">
         {hasAnything ? (
           <>
             <LiveRegion message="Analytics ready." />
@@ -51,21 +53,20 @@ export function AnalyticsPerLocationView({ active, refresh }: Props) {
                 />
               </div>
             )}
-            {active.latestBrief && (
-              <div className="section-enter section-enter-2">
-                <IntelligenceBriefCard brief={active.latestBrief} />
-              </div>
-            )}
-            <div className="section-enter section-enter-3">
+            <div className={`section-enter section-enter-2${active.latestBrief ? ' chart-row' : ''}`}>
+              {active.latestBrief && <IntelligenceBriefCard brief={active.latestBrief} />}
               <ReputationTrendChart trend={trend} />
             </div>
-            <div className={`section-enter section-enter-4${hasRanking ? ' chart-row' : ''}`}>
+            <div className={`section-enter section-enter-3${hasRanking ? ' chart-row' : ''}`}>
               <VelocityCard reviewVelocity={active.reviewVelocity} />
               {hasRanking && <RankingCard ranking={active.ranking} />}
             </div>
-            <div className="section-enter section-enter-5">
-              <RecentRatingBreakdown reviews={active.recentReviews} />
-            </div>
+            {hasRatedReviews && (
+              <div className="section-enter section-enter-4 chart-row">
+                <RecentRatingBreakdown reviews={active.recentReviews} />
+                <RecentSentimentMix reviews={active.recentReviews} />
+              </div>
+            )}
           </>
         ) : (
           <div className="aggregate-empty">

@@ -19,9 +19,6 @@ vi.mock('@/components/dashboard/aggregate/AggregateVelocityCard', () => ({
 vi.mock('@/components/dashboard/aggregate/AggregateRankingCard', () => ({
   AggregateRankingCard: () => <div data-testid="aggregate-ranking" />,
 }));
-vi.mock('@/components/dashboard/aggregate/AggregateIntelligenceBriefCard', () => ({
-  AggregateIntelligenceBriefCard: () => null,
-}));
 vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>{children}</a>

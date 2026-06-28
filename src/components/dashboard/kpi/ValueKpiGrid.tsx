@@ -18,6 +18,11 @@ interface ValueKpiGridProps {
   timeSavedFoot: string;
 }
 
+// Sparkline strokes need a concrete hex (not a token) because Sparkline derives
+// its gradient id from the color string. Warm Editorial sage / blush accents.
+const SPARK_HANDLED = '#5E7C76'; // --rw-sage-deep
+const SPARK_SAVED = '#A85F4E'; // --rw-blush-deep
+
 export function ValueKpiGrid({
   valueSummary,
   reviewsHandledFoot,
@@ -44,7 +49,7 @@ export function ValueKpiGrid({
         <div className="kpi-eyebrow">
           <Icon name="inbox" size={14} /> Reviews handled
         </div>
-        <Sparkline data={sparkHandled} color="#2563eb" />
+        <Sparkline data={sparkHandled} color={SPARK_HANDLED} />
         <div className="kpi-value">{Math.round(v1).toLocaleString()}</div>
         <div className="kpi-foot">{reviewsHandledFoot}</div>
       </div>
@@ -53,7 +58,7 @@ export function ValueKpiGrid({
         <div className="kpi-eyebrow">
           <Icon name="clock" size={14} /> Time saved
         </div>
-        <Sparkline data={sparkSaved} color="#16a34a" />
+        <Sparkline data={sparkSaved} color={SPARK_SAVED} />
         <div className="kpi-value">
           {(v2 / 10).toFixed(1)}
           <span className="kpi-unit">h</span>
