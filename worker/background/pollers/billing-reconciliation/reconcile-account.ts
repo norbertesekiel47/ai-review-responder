@@ -12,7 +12,7 @@ import { sql } from '../../../../src/lib/db/server';
 import { applyStripeSubscriptionState } from '../../../ingress/stripe/apply-subscription-state';
 import { SubscriptionStatus } from '../../../../src/lib/shared/subscription-status';
 import { isSubscriptionTier, TIER_CONFIG } from '../../../../src/lib/accounts/tier-config';
-import { resolveOverageItem } from '../../../../src/lib/payments/overage-item';
+import { resolveSubscriptionBilling } from '../../../../src/lib/payments/overage-item';
 import {
   compareUpcomingInvoice,
   isExpectedStatusWindow,
@@ -236,11 +236,13 @@ export async function reconcileAccount(
     });
   }
 
-  // Read-only drift detection deliberately accepts ANY confidence, including
+  // Resolve BOTH billing line items via the single-owner resolver. Read-only
+  // drift detection deliberately accepts ANY overage confidence, including
   // untrusted descriptor matches — flagging is exactly what this poller is for.
-  const overageResolution = resolveOverageItem(subscription.items?.data ?? [], {
+  const billing = resolveSubscriptionBilling(subscription.items?.data ?? [], {
     storedOveragePriceCents: expectedInvoice.overageUnitPriceCents,
   });
+  const overageResolution = billing.overage;
   const overageItem = overageResolution.kind === 'none' ? undefined : overageResolution.item;
   const stripeOverageQuantity = overageItem?.quantity ?? 0;
 
@@ -266,8 +268,13 @@ export async function reconcileAccount(
     });
   }
 
-  const subscriptionItems = subscription.items?.data ?? [];
-  const baseItem = subscriptionItems.find((item) => item.id !== overageItem?.id);
+  // Base-price drift. The resolver's INFERRED fallback is load-bearing here: a
+  // legacy/rotated/grandfathered base price is not in the env price-tier-map, so
+  // `billing.base` carries it as { tier: null, inferred: true } rather than
+  // dropping it — keeping its unit_amount comparable against the account's STORED
+  // base price. Positive-only resolution would yield no base item and silently
+  // swallow this `price_mismatch`, the very signal this poller exists to raise.
+  const baseItem = billing.base?.item;
   const baseUnitAmount = baseItem?.price?.unit_amount;
   if (typeof baseUnitAmount === 'number' && baseUnitAmount !== expectedInvoice.baseCents) {
     drifts.push({

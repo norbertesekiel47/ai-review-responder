@@ -31,7 +31,8 @@
 // a single-item subscription never matches by unit-amount alone.
 
 import Stripe from 'stripe';
-import { basePriceIdSet, overagePriceIdSet } from './price-tier-map';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import { basePriceIdSet, overagePriceIdSet, tierForBasePriceId } from './price-tier-map';
 
 /** Metadata value this app stamps on every overage item it creates or re-prices. */
 export const OVERAGE_BILLING_ROLE = 'overage';
@@ -126,6 +127,77 @@ export function resolveOverageItem(
   if (byKeyword !== undefined) return { kind: 'untrusted', item: byKeyword, matchedBy: 'descriptor' };
 
   return { kind: 'none' };
+}
+
+/**
+ * The base subscription line item, with its tier resolved POSITIVELY from the
+ * price-tier-map when the base price is known.
+ *
+ *   { item, tier }                      — base price maps to a tier (authoritative).
+ *   { item, tier: null, inferred: true } — base price is unknown (legacy, rotated,
+ *                                          or grandfathered out of the env map). The
+ *                                          item is still the base line (first
+ *                                          non-overage item), so its unit_amount
+ *                                          stays comparable for drift detection, but
+ *                                          `tier` is NOT trustworthy — a caller that
+ *                                          needs an authoritative tier must refuse it.
+ */
+export type BaseItemResolution =
+  | { item: Stripe.SubscriptionItem; tier: SubscriptionTierValue }
+  | { item: Stripe.SubscriptionItem; tier: null; inferred: true };
+
+export interface SubscriptionBillingResolution {
+  /** The base line item, or undefined when the subscription has no non-overage item. */
+  base: BaseItemResolution | undefined;
+  /** The overage line item, confidence-graded — see resolveOverageItem. */
+  overage: OverageItemResolution;
+}
+
+/**
+ * Resolves BOTH billing line items of a subscription in one pass: the overage
+ * item (delegated to resolveOverageItem — the single owner of that predicate)
+ * and the base item.
+ *
+ * Base resolution is positive-first:
+ *   1. The first non-overage item whose price maps to a tier via the
+ *      price-tier-map is the base, and its tier is returned.
+ *   2. INFERRED FALLBACK — when no item maps (a legacy/rotated/grandfathered base
+ *      price), the FIRST non-overage item is returned as
+ *      { tier: null, inferred: true }.
+ *
+ * The inferred fallback is intentional and load-bearing: the billing-reconciliation
+ * poller MUST still flag a `price_mismatch` for a base price that has rotated out of
+ * the env map. Positive-only resolution would return no base item there and silently
+ * swallow that drift — the very signal the poller exists to raise. The `inferred`
+ * flag documents, in the type, that the base price could not be positively confirmed,
+ * so callers needing an authoritative tier can refuse it while drift detection that
+ * only compares the stored unit-amount can still proceed.
+ */
+export function resolveSubscriptionBilling(
+  items: Stripe.SubscriptionItem[],
+  options: ResolveOverageItemOptions,
+): SubscriptionBillingResolution {
+  const overage = resolveOverageItem(items, options);
+  const overageItemId = overage.kind === 'none' ? undefined : overage.item.id;
+  const nonOverageItems = items.filter((item) => item.id !== overageItemId);
+
+  // Priority 1 — positive tier resolution via the price-tier-map.
+  for (const item of nonOverageItems) {
+    const priceId = item.price?.id;
+    const tier = priceId != null ? tierForBasePriceId(priceId) : null;
+    if (tier !== null) {
+      return { base: { item, tier }, overage };
+    }
+  }
+
+  // Priority 2 — inferred fallback: the first non-overage item. Byte-equivalent
+  // to the poller's historical `find(item => item.id !== overageItem?.id)`.
+  const inferredBase = nonOverageItems[0];
+  if (inferredBase !== undefined) {
+    return { base: { item: inferredBase, tier: null, inferred: true }, overage };
+  }
+
+  return { base: undefined, overage };
 }
 
 /**
