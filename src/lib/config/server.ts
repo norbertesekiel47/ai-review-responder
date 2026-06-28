@@ -102,6 +102,12 @@ const serverSchema = z.object({
   // Migrated raw read: getWorkerPublicUrl() does `if (!raw) throw; new URL(raw)`
   // on the raw value, so rawOptionalVar preserves '   '/'' verbatim (#7).
   WORKER_PUBLIC_URL: rawOpt,
+  // Shared secret the admin jobs route (/api/admin/jobs) sends as a bearer token
+  // when fetching the worker's GET /internal/queue-health endpoint (#408). NEW
+  // optional config that intentionally treats empty/whitespace as "unset" → the
+  // collapsing `opt`: when absent the route skips the worker call and surfaces
+  // queueHealth:{unavailable:true}. Server-only (NOT NEXT_PUBLIC). Never logged.
+  WORKER_INTERNAL_SECRET: opt,
   // Migrated raw reads (Stage-3 zernio-transport batch): the Zernio transport does
   // `options.X ?? getServerConfig().X ?? <fallback>` inside requestWithOptions
   // (read AFTER the MOCK_EXTERNAL_APIS short-circuit). rawOptionalVar preserves

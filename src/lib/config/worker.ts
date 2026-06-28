@@ -63,6 +63,13 @@ const workerSchema = z.object({
   ADMIN_NOTIFICATION_EMAIL: rawOpt,
   SENTRY_DSN: rawOpt,
   WORKER_PUBLIC_URL: opt,
+  // Shared secret authenticating the Vercel admin panel's server-side fetch to
+  // the worker's GET /internal/queue-health endpoint (#408). NEW optional config
+  // that intentionally treats empty/whitespace as "unset" → the collapsing `opt`:
+  // when unset the endpoint returns 503 {disabled:true} and the admin panel
+  // degrades to {unavailable:true}. NOT boot-asserted (absence must never break
+  // worker boot). Never logged.
+  WORKER_INTERNAL_SECRET: opt,
   DATABASE_URL: opt,
   // Migrated raw read: StripeLocationsReconcilePoller owns its own
   // `envInterval ? parseInt(envInterval, 10) : NaN` parse + default, so

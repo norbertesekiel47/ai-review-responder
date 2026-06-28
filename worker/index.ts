@@ -7,7 +7,8 @@ import rawBody from 'fastify-raw-body';
 import { registerIngressContentTypeParsers } from './config/content-type-parsers';
 import { Worker } from 'bullmq';
 import Redis from 'ioredis';
-import { getRedisOptions, QUEUE_NAMES, queues } from './queues';
+import { getRedisOptions, QUEUE_NAMES, queues, topicToQueue } from './queues';
+import { createQueueHealthHandler, QUEUE_HEALTH_JOB_STATES } from './internal/queue-health';
 import { withJobLogContext } from './job-log-context';
 import { createGracefulShutdown } from './shutdown';
 import { startOutboxPoller, stopOutboxPoller } from './background/pollers/OutboxPoller';
@@ -40,7 +41,7 @@ import { handleTelegramWebhook } from './ingress/telegram/telegram';
 import { handleZernioWebhook } from './ingress/zernio/zernio';
 import { enforceIngressRateLimit } from './ingress/rate-limit';
 import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertSingleConcurrencyWorker, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
-import { assertWorkerConfig } from '../src/lib/config/worker';
+import { assertWorkerConfig, getWorkerConfig } from '../src/lib/config/worker';
 import { selfServeSignupEnabled } from '../src/lib/auth/flags';
 import { channelsTelegramEnabled, channelsWhatsappEnabled } from '../src/lib/notifications/channels/flags';
 import { notificationFailoverDisabled } from '../src/lib/notifications/flags';
@@ -371,6 +372,23 @@ async function main(): Promise<void> {
         timestamp: new Date().toISOString(),
       });
   });
+
+  // Internal queue-health (#408) — bearer-authed per-queue depth for the Vercel
+  // admin panel, which can't reach Railway Redis directly (invariant #1). The
+  // module owns auth + iteration + response shape; this entry point only wires the
+  // BullMQ/Redis deps (invariant #12). Disabled (503) when WORKER_INTERNAL_SECRET
+  // is unset, so absence never opens an unauthenticated surface.
+  app.get(
+    '/internal/queue-health',
+    createQueueHealthHandler({
+      getSecret: () => getWorkerConfig().WORKER_INTERNAL_SECRET,
+      getQueueCounts: (name) => {
+        const queue = topicToQueue[name];
+        if (!queue) throw new Error(`No queue registered for ${name}`);
+        return queue.getJobCounts(...QUEUE_HEALTH_JOB_STATES);
+      },
+    }),
+  );
 
   // Stripe webhook ingress — real handler
   app.post('/ingress/stripe', { config: { rawBody: true } }, handleStripeWebhook);
