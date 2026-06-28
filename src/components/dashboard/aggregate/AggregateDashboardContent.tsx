@@ -6,6 +6,7 @@ import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { AggregateKpiCards } from '@/components/dashboard/aggregate/AggregateKpiCards';
 import { PendingApprovalsStrip } from '@/components/dashboard/kpi/PendingApprovalsStrip';
 import { LocationKpiStrip } from '@/components/dashboard/aggregate/LocationKpiStrip';
+import { AnalyticsLinkCard } from '@/components/dashboard/kpi/AnalyticsLinkCard';
 import { PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
 import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal';
 import { authoritativePendingCount } from '@/lib/dashboard/scope';
@@ -25,6 +26,7 @@ interface Props {
  *  2. Aggregate KpiCards (summed values)
  *  3. PendingApprovalsStrip (links to /dashboard/reviews)
  *  4. Location KPI strip (clickable per-location cards)
+ *  5. AnalyticsLinkCard (doorway to /dashboard/analytics)
  */
 export function AggregateDashboardContent({ data, refresh }: Props) {
   // Authoritative pending count across all locations — sum of the SQL-backed
@@ -89,6 +91,9 @@ export function AggregateDashboardContent({ data, refresh }: Props) {
             </div>
             <div className="section-enter section-enter-3">
               <LocationKpiStrip locationKpis={data.locationKpis} />
+            </div>
+            <div className="section-enter section-enter-4">
+              <AnalyticsLinkCard />
             </div>
           </>
         )}

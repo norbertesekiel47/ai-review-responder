@@ -20,6 +20,7 @@ import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { ReputationHeroBand } from '@/components/dashboard/kpi/ReputationHeroBand';
 import { PendingApprovalsStrip } from '@/components/dashboard/kpi/PendingApprovalsStrip';
+import { AnalyticsLinkCard } from '@/components/dashboard/kpi/AnalyticsLinkCard';
 import { AggregateDashboardContent } from '@/components/dashboard/aggregate/AggregateDashboardContent';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useSetPendingCount } from '@/contexts/PendingCountContext';
@@ -329,6 +330,10 @@ function DashboardOperationalContent() {
             /dashboard/analytics now, not on the glance dashboard. */}
         <div className="section-enter section-enter-3">
           <PendingApprovalsStrip count={reputation.pendingApprovalCount} />
+        </div>
+        {/* Doorway to the full analytics page (charts + brief live there now). */}
+        <div className="section-enter section-enter-4">
+          <AnalyticsLinkCard />
         </div>
       </div>
     </>

@@ -173,6 +173,7 @@ describe('DashboardContent glance composition (charts relocated to Analytics)', 
 
     expect(await screen.findByTestId('hero')).toBeInTheDocument();
     expect(screen.getByTestId('strip')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /view analytics/i })).toHaveAttribute('href', '/dashboard/analytics');
     expect(screen.queryByTestId('brief')).not.toBeInTheDocument();
     expect(screen.queryByTestId('trend')).not.toBeInTheDocument();
     expect(screen.queryByTestId('velocity')).not.toBeInTheDocument();
