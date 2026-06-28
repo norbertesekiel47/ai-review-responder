@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
-import { LOG_PREFIX, extractCustomerId, invoiceSubscriptionId, getStripe, maybeEnqueueBackfillResume } from './shared';
+import { LOG_PREFIX, extractCustomerId, invoiceSubscriptionId, getStripe, resumePrimaryBusinessBackfill } from './shared';
 import { applyStripeSubscriptionState } from './apply-subscription-state';
 
 export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
@@ -96,11 +96,7 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
         AND is_primary = TRUE AND archived_at IS NULL
       LIMIT 1
     `;
-    if (primaryBiz) {
-      await maybeEnqueueBackfillResume(primaryBiz.id).catch((err) => {
-        console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${primaryBiz.id}: ${err instanceof Error ? err.message : err}`);
-      });
-    }
+    await resumePrimaryBusinessBackfill(primaryBiz?.id ?? null);
   }
 }
 
@@ -149,10 +145,5 @@ async function convertTrialingAccount(
   // we deferred only the one account whose stripe_subscription_id === subscriptionId.
   console.log(`${LOG_PREFIX} Account ${trialingAccountId} converted trialing→active via invoice.paid (customer=${customerId})`);
 
-  const businessId = transition.primaryBusinessId;
-  if (businessId) {
-    await maybeEnqueueBackfillResume(businessId).catch((err) => {
-      console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${businessId}: ${err instanceof Error ? err.message : err}`);
-    });
-  }
+  await resumePrimaryBusinessBackfill(transition.primaryBusinessId);
 }

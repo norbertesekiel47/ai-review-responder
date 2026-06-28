@@ -20,7 +20,7 @@ const {
   sqlCalls,
   mockApplyStripeSubscriptionState,
   mockRetrieve,
-  mockMaybeEnqueueBackfillResume,
+  mockResumePrimaryBusinessBackfill,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
   const sqlCalls: { text: string; values: unknown[] }[] = [];
@@ -40,7 +40,7 @@ const {
       changed: true, activated: true, primaryBusinessId: null,
     }),
     mockRetrieve: vi.fn(),
-    mockMaybeEnqueueBackfillResume: vi.fn().mockResolvedValue(undefined),
+    mockResumePrimaryBusinessBackfill: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -57,7 +57,7 @@ vi.mock('../shared', async (importOriginal) => {
   return {
     ...actual,
     getStripe: () => ({ subscriptions: { retrieve: mockRetrieve } }),
-    maybeEnqueueBackfillResume: mockMaybeEnqueueBackfillResume,
+    resumePrimaryBusinessBackfill: mockResumePrimaryBusinessBackfill,
   };
 });
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
@@ -77,7 +77,7 @@ beforeEach(() => {
   sqlCalls.length = 0;
   mockApplyStripeSubscriptionState.mockClear();
   mockRetrieve.mockReset();
-  mockMaybeEnqueueBackfillResume.mockClear();
+  mockResumePrimaryBusinessBackfill.mockClear();
 });
 
 describe('invoice.paid — trial conversion (FIX 4)', () => {
