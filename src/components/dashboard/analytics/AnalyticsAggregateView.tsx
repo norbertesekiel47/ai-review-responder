@@ -33,7 +33,7 @@ export function AnalyticsAggregateView({ data, refresh }: Props) {
         showLive
         refresh={refresh}
       />
-      <div className="content">
+      <div className="content content--analytics">
         <LiveRegion message="Analytics ready." />
         <div className="section-enter section-enter-1">
           <AggregateKpiCards

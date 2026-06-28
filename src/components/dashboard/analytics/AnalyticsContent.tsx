@@ -24,7 +24,7 @@ export function AnalyticsContent() {
     return (
       <>
         <TopBar title="Analytics" />
-        <div className="content">
+        <div className="content content--analytics">
           <LiveRegion message="Loading your analytics…" />
           <div className="dashboard-skeleton">
             <div className="skeleton-card-lg" />
@@ -39,7 +39,7 @@ export function AnalyticsContent() {
     return (
       <>
         <TopBar title="Analytics" />
-        <div className="content">
+        <div className="content content--analytics">
           <LiveRegion message={error} level="assertive" />
           <div className="card">
             <h2 className="card-h2">Unable to load analytics</h2>

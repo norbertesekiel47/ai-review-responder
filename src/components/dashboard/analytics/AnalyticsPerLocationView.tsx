@@ -39,7 +39,7 @@ export function AnalyticsPerLocationView({ active, refresh }: Props) {
         showLive
         refresh={refresh}
       />
-      <div className="content">
+      <div className="content content--analytics">
         {hasAnything ? (
           <>
             <LiveRegion message="Analytics ready." />

@@ -408,6 +408,22 @@
   gap: 30px;
 }
 
+/* ---------- Analytics surface: full-bleed dense grid ----------
+   The analytics page is chart-heavy with two-up rows, so it drops the default
+   1140px reading column and fills the width (horizontal padding aligned to the
+   topbar's 32px), with tighter section + chart-row gaps. Matches the density of
+   the Analytics design comp. */
+.content--analytics {
+  max-width: none;
+  margin: 0;
+  padding: 18px 32px 80px;
+  gap: 16px;
+}
+.content--analytics .chart-row { gap: 16px; }
+@media (max-width: 768px) {
+  .content--analytics { padding: 14px 14px 96px; }
+}
+
 /* ---------- Reviews surface (Needs Action + History tabs) ----------
    Both routed Reviews tabs share ONE reading-column geometry (the archive's
    1024px) so the routed tab bar stays put when switching tabs instead of
