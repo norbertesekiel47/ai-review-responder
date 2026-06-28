@@ -67,14 +67,18 @@ export default function GlobalError({
                 marginBottom: '1.5rem',
               }}
             >
-              <span
-                aria-hidden="true"
+              {/* Plain <img> on purpose: this is the last-resort crash boundary,
+                  so it must not depend on next/image. The asset is static. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/logo.svg"
+                alt=""
+                width={32}
+                height={32}
                 style={{
                   width: '2rem',
                   height: '2rem',
-                  borderRadius: '9999px',
-                  background:
-                    'linear-gradient(135deg, #97B3AE, rgba(151, 179, 174, 0.8))',
+                  objectFit: 'contain',
                   display: 'inline-block',
                 }}
               />

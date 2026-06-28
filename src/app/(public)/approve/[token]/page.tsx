@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Metadata } from 'next';
 import { sql } from '@/lib/db/server';
 import { PageShell } from '@/components/ui/PageShell';
+import { BrandLogo } from '@/components/ui/BrandLogo';
 import {
   ApprovalErrorState,
   USED_LINK_MESSAGE,
@@ -23,10 +24,7 @@ interface PageProps {
 function BrandHeaderRow() {
   return (
     <div className="flex items-center justify-end gap-2">
-      <div
-        aria-hidden="true"
-        className="size-8 rounded-full bg-gradient-to-br from-rw-teal to-rw-teal/80"
-      />
+      <BrandLogo size={32} />
       <span className="text-sm uppercase tracking-wider text-rw-teal-strong">
         RepWorth
       </span>

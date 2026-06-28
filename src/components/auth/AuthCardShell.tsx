@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import { LazyMotion, m, domAnimation } from 'motion/react';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
+import { BrandLogo } from '@/components/ui/BrandLogo';
 
 /** One owner for auth-card field styling. text-base = 16px (iOS zoom rule). */
 export const authFieldClass =
@@ -41,7 +42,7 @@ export function AuthCardShell({ children, width = 'md' }: AuthCardShellProps) {
           transition={{ duration: 0.6, ease: 'easeOut' }}
         >
           <div className="flex items-center gap-2 mb-8">
-            <div aria-hidden="true" className="size-8 rounded-full bg-gradient-to-br from-rw-teal to-rw-teal/80" />
+            <BrandLogo size={32} />
             <span className="text-sm tracking-wider uppercase text-rw-teal-strong">RepWorth</span>
           </div>
           {children}

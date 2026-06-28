@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LazyMotion, m, domAnimation, useReducedMotion } from 'motion/react';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
+import { BrandLogo } from '@/components/ui/BrandLogo';
 
 const SUPPORT_EMAIL = 'support@repworth.net';
 
@@ -110,7 +111,7 @@ function MfaShell({ children }: { children: ReactNode }) {
         transition={{ duration: 0.6, ease: 'easeOut' }}
       >
         <div className="flex items-center gap-2 mb-8">
-          <div className="size-8 rounded-full bg-gradient-to-br from-rw-teal to-rw-teal/80" />
+          <BrandLogo size={32} />
           <span className="text-sm tracking-wider uppercase text-rw-teal">
             RepWorth
           </span>
