@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { trialEnabled as isTrialEnabled } from '@/lib/payments/flags';
 import { LandingContent } from '@/components/sections/landing/LandingContent';
+import { VideoHero } from '@/components/sections/landing/VideoHero';
 import { getServerConfig } from '@/lib/config/server';
 
 export const dynamic = 'force-dynamic';
@@ -24,10 +25,13 @@ export default function LandingPage() {
   // live — there is no signup to start a trial from otherwise.
   const trialEnabled = isTrialEnabled() && selfServeEnabled;
   return (
-    <LandingContent
-      selfServeEnabled={selfServeEnabled}
-      trialEnabled={trialEnabled}
-      trialDays={resolveTrialDays()}
-    />
+    <div className="rw-has-video-hero">
+      <VideoHero />
+      <LandingContent
+        selfServeEnabled={selfServeEnabled}
+        trialEnabled={trialEnabled}
+        trialDays={resolveTrialDays()}
+      />
+    </div>
   );
 }

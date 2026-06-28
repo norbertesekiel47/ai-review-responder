@@ -44,21 +44,6 @@
   border-bottom: 1px solid var(--rw-app-border-soft);
   margin-bottom: 12px;
 }
-.brand-mark {
-  width: 32px; height: 32px;
-  border-radius: 9999px;
-  background: linear-gradient(135deg, var(--rw-teal), #97B3AEcc);
-  position: relative;
-  flex: 0 0 32px;
-  box-shadow: 0 1px 2px rgba(151,179,174,0.4);
-  overflow: hidden;
-}
-.brand-mark::after {
-  content: "";
-  position: absolute; inset: 6px;
-  border-radius: 9999px;
-  background: radial-gradient(circle at 30% 30%, #fff8, transparent 60%);
-}
 .brand-name {
   font-family: var(--rw-font-display);
   font-weight: 700;

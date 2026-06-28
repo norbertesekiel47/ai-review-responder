@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BrandLogo } from '@/components/ui/BrandLogo';
 
 // Branded root 404 — island layout on the sage background, server-rendered
 // (no client motion needed for a static error surface).
@@ -8,7 +9,7 @@ export default function NotFound() {
       <div className="relative z-10 min-h-screen py-20 px-4 flex items-center justify-center">
         <main className="w-full max-w-2xl bg-white rounded-[3rem] shadow-2xl px-8 py-16 text-center">
           <div className="flex items-center justify-center gap-2 mb-10">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-rw-teal to-rw-teal/80" aria-hidden="true" />
+            <BrandLogo size={32} />
             <span className="text-sm tracking-wider uppercase text-rw-teal">RepWorth</span>
           </div>
           <p className="text-sm tracking-wider uppercase text-rw-teal mb-3">404</p>

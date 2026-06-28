@@ -182,7 +182,7 @@
 }
 .rw-island {
   width: 100%;
-  max-width: 1200px;
+  max-width: 1440px;
   background: white;
   border-radius: 48px;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
@@ -1217,6 +1217,10 @@
 
 /* Hero review marquee */
 .rw-feat-marquee-mask {
+  /* Clip the w-max track to the marquee window. mask-image only fades the
+     painted edges — it does NOT clip layout, so without this the oversized
+     animated track spills past the page and creates a horizontal scrollbar. */
+  overflow: hidden;
   mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
   -webkit-mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
 }
@@ -2451,4 +2455,238 @@
      from the <=1100px rule and scrolls horizontally below its 720px min-width. */
   .pr-cta { padding: 48px 24px 56px; border-radius: 0 0 2rem 2rem; }
   .pr-cta h2 { font-size: 28px; }
+}
+
+/* ---------- Video intro hero (landing) ----------
+   Cinematic video section layered above the existing landing page; see
+   VideoHero.tsx for the layering contract. z-index:61 keeps it above the
+   landing's fixed marquee (z0) and section dot-nav (z60) while in view. The
+   fade target is the brand sage field, so the video melts into the page. */
+.rw-video-hero {
+  --rw-vh-night: hsl(201 100% 13%);
+  position: relative;
+  z-index: 61;
+  height: 100vh;
+  min-height: 620px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--rw-vh-night);
+  font-family: var(--rw-font-body);
+}
+.rw-vh-media {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.rw-vh-media video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  will-change: transform;
+}
+.rw-vh-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(4, 26, 38, 0.32) 0%,
+    rgba(4, 26, 38, 0.12) 32%,
+    rgba(4, 26, 38, 0.28) 100%
+  );
+  pointer-events: none;
+}
+.rw-vh-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* Short, bottom-weighted band so the hero reads fully dark/cinematic at rest
+     and the sage melt only appears in the final ~15% of the viewport, right at
+     the seam into the page. Raise `height` for a longer melt, lower it (or push
+     the first sage stop down) to start the fade even later. */
+  height: 18vh;
+  background: linear-gradient(
+    180deg,
+    rgba(210, 224, 211, 0) 0%,
+    rgba(210, 224, 211, 0) 22%,
+    rgba(210, 224, 211, 0.5) 62%,
+    var(--rw-sage) 100%
+  );
+  pointer-events: none;
+}
+
+/* When the landing carries the video intro above it, tighten the island's top
+   padding so it rises closer to the video's melt instead of leaving a tall
+   sage/marquee band between them. Scoped to the hero composition so the other
+   marketing pages (which use the default 80px) are untouched. */
+.rw-has-video-hero .rw-island-wrap {
+  padding-top: 20px;
+}
+
+.rw-vh-nav {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px 32px;
+}
+.rw-vh-logo {
+  font-family: var(--font-fraunces), Georgia, serif;
+  font-size: 30px;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: #fff;
+  text-decoration: none;
+}
+.rw-vh-links {
+  display: flex;
+  align-items: center;
+  gap: 34px;
+}
+.rw-vh-links a {
+  font: 500 14px/1 var(--rw-font-body);
+  color: rgba(255, 255, 255, 0.72);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+.rw-vh-links a:hover {
+  color: #fff;
+}
+.rw-vh-btn {
+  border-radius: 9999px;
+  padding: 11px 24px;
+  font: 500 14px/1 var(--rw-font-body);
+  color: #fff;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: transform 0.25s ease, background 0.25s ease;
+}
+.rw-vh-btn:hover {
+  transform: scale(1.03);
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.rw-vh-content {
+  position: relative;
+  z-index: 10;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px 24px 72px;
+  will-change: opacity, transform;
+}
+.rw-vh-title {
+  font-family: var(--font-fraunces), Georgia, serif;
+  font-weight: 400;
+  font-size: clamp(40px, 7.5vw, 100px);
+  line-height: 0.98;
+  letter-spacing: -0.02em;
+  color: #fff;
+  max-width: 1100px;
+  margin: 0;
+  text-shadow: 0 2px 40px rgba(0, 0, 0, 0.28);
+}
+.rw-vh-title em {
+  font-style: normal;
+  color: var(--rw-teal);
+}
+.rw-vh-sub {
+  font: 400 clamp(16px, 1.5vw, 19px) / 1.6 var(--rw-font-body);
+  color: rgba(255, 255, 255, 0.78);
+  max-width: 620px;
+  margin: 32px 0 0;
+}
+.rw-vh-cta {
+  margin-top: 44px;
+  padding: 18px 52px;
+  font-size: 16px;
+}
+
+.rw-vh-cue {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 0 0 30px;
+  margin: 0 auto;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.rw-vh-cue-label {
+  font: 500 11px/1 var(--rw-font-body);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+.rw-vh-cue-line {
+  display: block;
+  width: 1px;
+  height: 34px;
+  background: linear-gradient(rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rw-vh-title {
+    animation: rw-vh-rise 0.8s ease-out both;
+  }
+  .rw-vh-sub {
+    animation: rw-vh-rise 0.8s ease-out 0.2s both;
+  }
+  .rw-vh-cta {
+    animation: rw-vh-rise 0.8s ease-out 0.4s both;
+  }
+  .rw-vh-cue-line {
+    animation: rw-vh-cue 2s ease-in-out infinite;
+  }
+}
+@keyframes rw-vh-rise {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes rw-vh-cue {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(5px);
+  }
+}
+
+@media (max-width: 767px) {
+  .rw-vh-links {
+    display: none;
+  }
+  .rw-vh-nav {
+    padding: 18px 20px;
+  }
+  .rw-vh-content {
+    padding: 24px 20px 56px;
+  }
 }

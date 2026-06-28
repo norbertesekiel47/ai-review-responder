@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { LazyMotion, m, domAnimation } from 'motion/react';
 import { PageShell } from '@/components/ui/PageShell';
+import { BrandLogo } from '@/components/ui/BrandLogo';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 
 export function FeedbackThanksContent() {
@@ -21,10 +22,7 @@ export function FeedbackThanksContent() {
       <main id="main-content">
       {/* Minimal brand header */}
       <div className="flex items-center justify-center gap-2 px-8 pt-8">
-        <div
-          className="size-8 rounded-full bg-gradient-to-br from-rw-teal-strong to-rw-teal-strong/85"
-          aria-hidden="true"
-        />
+        <BrandLogo size={32} />
         <span className="text-sm tracking-wider uppercase text-rw-teal-strong">RepWorth</span>
       </div>
 

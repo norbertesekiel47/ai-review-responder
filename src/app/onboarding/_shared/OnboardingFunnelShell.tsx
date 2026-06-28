@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import { LazyMotion, domAnimation, m } from 'motion/react';
 
+import { BrandLogo } from '@/components/ui/BrandLogo';
 import { FunnelStepThread, type FunnelStep } from './FunnelStepThread';
 
 interface OnboardingFunnelShellProps {
@@ -67,7 +68,7 @@ export function OnboardingFunnelShell({
           >
             <nav className="px-6 sm:px-8 py-4 border-b border-rw-teal/10 flex items-center justify-end">
               <div className="flex items-center gap-2">
-                <div className="size-8 rounded-full bg-gradient-to-br from-rw-teal to-rw-teal/80" />
+                <BrandLogo size={32} />
                 <span className="text-sm tracking-wider uppercase text-rw-teal">
                   RepWorth
                 </span>

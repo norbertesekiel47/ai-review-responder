@@ -62,11 +62,18 @@
 @media (max-width: 1100px) { .rw-chip { display: none; } }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(85,112,105,0.4); } 50% { box-shadow: 0 0 0 6px rgba(85,112,105,0); } }
 
-/* Page wrap + Island */
+/* Page wrap + Island.
+   NOTE: `.rw-island` (and `.rw-foot` below) are also marketing class names in
+   globals.css. This file loads as a per-route CSS chunk that persists after you
+   navigate away from /login, so a BARE `.rw-island` here would override the
+   marketing shell's island on the landing page after a back-navigation (it gets
+   ordered after globals.css), shrinking it to 1080px and turning it into a
+   2-col grid. Scope every such shared name under `.rw-auth` so it can only ever
+   match the auth page. */
 .rw-page { position: relative; z-index: 10; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 40px 20px; }
-.rw-island { width: 100%; max-width: 1080px; background: #fff; border-radius: 48px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); display: grid; grid-template-columns: 1.05fr 1fr; min-height: 680px; opacity: 0; transform: translateY(30px) scale(0.97); animation: rwIntro 0.8s cubic-bezier(0.25,0.46,0.45,0.94) forwards; }
+.rw-auth .rw-island { width: 100%; max-width: 1080px; background: #fff; border-radius: 48px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); display: grid; grid-template-columns: 1.05fr 1fr; min-height: 680px; opacity: 0; transform: translateY(30px) scale(0.97); animation: rwIntro 0.8s cubic-bezier(0.25,0.46,0.45,0.94) forwards; }
 @keyframes rwIntro { to { opacity: 1; transform: none; } }
-@media (max-width: 900px) { .rw-island { grid-template-columns: 1fr; min-height: auto; } }
+@media (max-width: 900px) { .rw-auth .rw-island { grid-template-columns: 1fr; min-height: auto; } }
 
 /* Showcase pane */
 .rw-showcase { position: relative; border-radius: 48px 0 0 48px; padding: 56px 52px; background: radial-gradient(ellipse at 20% 0%, rgba(242,195,185,0.55) 0%, transparent 55%), radial-gradient(ellipse at 100% 100%, rgba(151,179,174,0.55) 0%, transparent 55%), linear-gradient(160deg, #f0eeea 0%, #ffffff 60%, #f0ddd6 100%); display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
@@ -233,8 +240,8 @@
 .rw-alert .rw-link { color: var(--rw-error); text-decoration: underline; font-weight: 600; margin-left: 6px; }
 .rw-alert .rw-link:focus-visible { outline: 2px solid var(--rw-error); outline-offset: 2px; }
 
-.rw-foot { text-align: center; font-size: 13px; color: var(--rw-ink-soft); margin: 24px 0 0; }
-.rw-foot .rw-link { font-weight: 600; }
+.rw-auth .rw-foot { text-align: center; font-size: 13px; color: var(--rw-ink-soft); margin: 24px 0 0; }
+.rw-auth .rw-foot .rw-link { font-weight: 600; }
 
 /* Confetti */
 .rw-confetti { position: fixed; inset: 0; pointer-events: none; z-index: 100; }

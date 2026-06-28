@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
 import { Icon } from '@/components/dashboard/shell/Icon';
+import { BrandLogo } from '@/components/ui/BrandLogo';
 import { LocationPicker } from '@/components/dashboard/location/LocationPicker';
 import { useLocationScope } from '@/contexts/LocationContext';
 import { usePendingCount } from '@/contexts/PendingCountContext';
@@ -71,7 +72,7 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <div className="brand">
-        <div className="brand-mark" />
+        <BrandLogo size={32} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="brand-name">RepWorth</div>
           {isMultiLocation ? (
