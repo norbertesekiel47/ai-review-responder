@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import type { DashboardDataActive } from '@/lib/dashboard/types';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
@@ -14,6 +15,8 @@ import { RecentSentimentMix } from '@/components/dashboard/kpi/RecentSentimentMi
 interface Props {
   active: DashboardDataActive;
   refresh: () => Promise<void>;
+  /** Analytics time-range control rendered into the TopBar action slot (#403). */
+  periodToolbar?: ReactNode;
 }
 
 /**
@@ -21,7 +24,7 @@ interface Props {
  * trend -> two-up velocity/ranking -> recent rating breakdown. Falls back to the
  * "no analytics yet" empty state until any chartable data exists.
  */
-export function AnalyticsPerLocationView({ active, refresh }: Props) {
+export function AnalyticsPerLocationView({ active, refresh, periodToolbar }: Props) {
   const reputation = active.reputationSummary;
   const trend = reputation?.trend ?? [];
   const hasRanking = (active.ranking?.length ?? 0) > 0;
@@ -38,7 +41,9 @@ export function AnalyticsPerLocationView({ active, refresh }: Props) {
         subtitle="How your reputation, review volume, and local ranking are trending."
         showLive
         refresh={refresh}
-      />
+      >
+        {periodToolbar}
+      </TopBar>
       <div className="content content--analytics">
         {hasAnything ? (
           <>

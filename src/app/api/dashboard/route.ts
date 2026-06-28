@@ -11,7 +11,6 @@ import {
 } from '@/lib/dashboard/service';
 import { getAggregateDashboardData } from '@/lib/dashboard/aggregate-service';
 import { getLocationById } from '@/lib/locations/repo';
-import { multiLocationEnabled as isMultiLocationEnabled } from '@/lib/locations/flags';
 import { isValidUuid } from '@/lib/shared/ids';
 import {
   computePastDueRecoveryState,
@@ -19,7 +18,8 @@ import {
   type PastDueRecoveryState,
 } from '@/lib/shared/past-due-recovery';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
-import { resolveDashboardScopePolicy } from './policy';
+import type { DashboardWindow } from '@/lib/kpi/types';
+import { resolveDashboardRequest } from './policy';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +35,127 @@ function serializePastDueRecovery(recovery: PastDueRecoveryState) {
     daysRemaining: recovery.daysRemaining,
     isReadOnly: recovery.isReadOnly,
   };
+}
+
+/** ISO trial-end, non-null only while trialing (trial_ends_at ⟺ status='trialing'). */
+function trialEndsAtIso(
+  subscriptionStatus: string,
+  trialEndsAt: Date | string | null,
+): string | null {
+  return subscriptionStatus === SubscriptionStatus.TRIALING ? toIsoOrNull(trialEndsAt) : null;
+}
+
+/** pending_payment per-location response: admin-handoff vs self-serve pay CTA. */
+function pendingPaymentResponse(
+  subRow: { name: string; onboarded_by: string | null },
+  locationId: string,
+): NextResponse {
+  // Admin-onboarded businesses get a handoff payload, never the self-serve
+  // payment CTA — showing a payment link risks a double-charge via the partner.
+  if (subRow.onboarded_by !== null) {
+    return jsonResponse({
+      subscriptionStatus: 'pending_payment_admin_handoff',
+      locationId,
+      businessName: subRow.name,
+    });
+  }
+  // Self-serve owners are routed to /onboarding/pay (PlanPickerClient creates the
+  // Checkout Session) — this replaces the old Payment Link URL flow.
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+  return jsonResponse({
+    subscriptionStatus: SubscriptionStatus.PENDING_PAYMENT,
+    locationId,
+    businessName: subRow.name,
+    paymentUrl: `${baseUrl}/onboarding/pay`,
+  });
+}
+
+/**
+ * Cancelled-account 30-day grace-period response, shared by the per-location and
+ * aggregate paths (VAL-CROSS-011). Grace runs 30 days from cancelled_at (Stripe
+ * webhook, migration 037), falling back to subscription_activated_at for legacy
+ * rows; defaults to read access when neither date is known.
+ */
+async function cancelledGraceResponse(
+  accountId: string,
+  businessName: string,
+): Promise<NextResponse> {
+  const [cancelledRow] = await sql<{
+    cancelled_at: Date | null;
+    subscription_activated_at: Date | null;
+  }[]>`
+    SELECT cancelled_at, subscription_activated_at FROM accounts WHERE id = ${accountId}::uuid
+  `;
+  const cancellationDate = cancelledRow?.cancelled_at ?? cancelledRow?.subscription_activated_at;
+  const gracePeriodEnd = cancellationDate
+    ? new Date(new Date(cancellationDate).getTime() + 30 * 86_400_000)
+    : null;
+  const readAccess = gracePeriodEnd ? gracePeriodEnd > new Date() : true;
+  return jsonResponse({
+    subscriptionStatus: SubscriptionStatus.CANCELLED,
+    businessName,
+    gracePeriodEndDate: gracePeriodEnd?.toISOString() ?? null,
+    readAccess,
+  });
+}
+
+/** Whether an active/trialing owner still needs the onboarding business wizard. */
+function isActivePendingBusiness(subRow: {
+  subscription_status: string;
+  place_id_verified: boolean;
+  google_maps_url: string | null;
+}): boolean {
+  return subscriptionGrantsFullAccess(subRow.subscription_status)
+    && !subRow.place_id_verified
+    && subRow.google_maps_url === null;
+}
+
+/** Past-due per-location payload: dashboard data + payment warning + recovery state. */
+async function pastDuePerLocationResponse(
+  subRow: {
+    name: string;
+    subscription_status: string;
+    past_due_at: Date | string | null;
+    flags: AccountFlagsInput;
+    stripe_customer_id: string | null;
+  },
+  locationId: string,
+  accountId: string,
+  window: DashboardWindow,
+): Promise<NextResponse> {
+  const billingPortalUrl = subRow.stripe_customer_id ? `/api/billing/portal` : null;
+  const recovery = computePastDueRecoveryState({
+    subscriptionStatus: subRow.subscription_status,
+    pastDueAt: subRow.past_due_at,
+    accountFlags: subRow.flags,
+  });
+  const data = await getActiveDashboardData(locationId, { includeReputationMetrics: true, window });
+  return jsonResponse({
+    ...data,
+    subscriptionStatus: SubscriptionStatus.PAST_DUE,
+    accountId,
+    businessName: subRow.name,
+    billingPortalUrl,
+    ...serializePastDueRecovery(recovery),
+  });
+}
+
+/**
+ * Resolve the account's primary location and serve its dashboard as a scope
+ * fallback (VAL-DASH-029). Returns null when there is no usable primary, so the
+ * caller can return its own not-available error.
+ */
+async function fallbackToPrimary(
+  accountId: string,
+  window: DashboardWindow,
+  reason: 'location_not_found' | 'location_archived',
+  excludeLocationId?: string,
+): Promise<NextResponse | null> {
+  const primary = await getPrimaryLocationId(accountId);
+  if (!primary || primary === excludeLocationId) return null;
+  return fetchPerLocationData(primary, accountId, window, {
+    scopeFallback: { reason, fallbackLocationId: primary },
+  });
 }
 
 /** Returns the primary (or first active) location ID for an account. */
@@ -56,11 +177,13 @@ async function getPrimaryLocationId(accountId: string): Promise<string | null> {
  *
  * @param locationId  The location to fetch data for.
  * @param accountId   The owner's account ID (for fallback resolution).
+ * @param window      Validated analytics time-range window (issue #403).
  * @param fallback    If provided, a scopeFallback indicator to include in the response.
  */
 async function fetchPerLocationData(
   locationId: string,
   accountId: string,
+  window: DashboardWindow,
   fallback?: { scopeFallback: { reason: string; fallbackLocationId: string } },
 ): Promise<NextResponse> {
   const [subRow] = await sql<{
@@ -98,77 +221,17 @@ async function fetchPerLocationData(
   }
 
   if (subRow.subscription_status === SubscriptionStatus.PENDING_PAYMENT) {
-    // Admin-onboarded businesses should NOT see the self-serve payment CTA —
-    // they already have a handoff path via the partner. Showing the payment
-    // link here would risk a double-charge if the partner's flow used a
-    // different price point or coupon.
-    if (subRow.onboarded_by !== null) {
-      return jsonResponse({
-        subscriptionStatus: 'pending_payment_admin_handoff',
-        locationId,
-        businessName: subRow.name,
-      });
-    }
-    // Self-serve owners with pending_payment should be directed to
-    // /onboarding/pay where the PlanPickerClient creates a Checkout
-    // Session via /api/onboarding/select-plan.
-    // This replaces the old Payment Link URL flow.
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-    const paymentUrl = `${baseUrl}/onboarding/pay`;
-    return jsonResponse({
-      subscriptionStatus: SubscriptionStatus.PENDING_PAYMENT,
-      locationId,
-      businessName: subRow.name,
-      paymentUrl,
-    });
+    return pendingPaymentResponse(subRow, locationId);
   }
 
   // VAL-CROSS-011: Cancelled account — 30-day grace period for read access
   if (subRow.subscription_status === SubscriptionStatus.CANCELLED) {
-    // Grace period: 30 days from the cancellation event.
-    // Migration 037 added cancelled_at, which the Stripe webhook sets on
-    // customer.subscription.deleted. Prefer cancelled_at; fall back to
-    // subscription_activated_at only for legacy rows where cancelled_at is null.
-    const [cancelledRow] = await sql<{
-      cancelled_at: Date | null;
-      subscription_activated_at: Date | null;
-    }[]>`
-      SELECT cancelled_at, subscription_activated_at FROM accounts WHERE id = ${accountId}::uuid
-    `;
-    const cancellationDate = cancelledRow?.cancelled_at ?? cancelledRow?.subscription_activated_at;
-    const gracePeriodEnd = cancellationDate
-      ? new Date(new Date(cancellationDate).getTime() + 30 * 86_400_000)
-      : null;
-    const readAccess = gracePeriodEnd
-      ? gracePeriodEnd > new Date()
-      : true; // default to read access if we can't determine
-    return jsonResponse({
-      subscriptionStatus: SubscriptionStatus.CANCELLED,
-      businessName: subRow.name,
-      gracePeriodEndDate: gracePeriodEnd?.toISOString() ?? null,
-      readAccess,
-    });
+    return cancelledGraceResponse(accountId, subRow.name);
   }
 
   // VAL-CROSS-012: Past-due account — payment warning, features continue during grace
   if (subRow.subscription_status === SubscriptionStatus.PAST_DUE) {
-    const billingPortalUrl = subRow.stripe_customer_id
-      ? `/api/billing/portal`
-      : null;
-    const recovery = computePastDueRecoveryState({
-      subscriptionStatus: subRow.subscription_status,
-      pastDueAt: subRow.past_due_at,
-      accountFlags: subRow.flags,
-    });
-    const data = await getActiveDashboardData(locationId, { includeReputationMetrics: true });
-    return jsonResponse({
-      ...data,
-      subscriptionStatus: SubscriptionStatus.PAST_DUE,
-      accountId,
-      businessName: subRow.name,
-      billingPortalUrl,
-      ...serializePastDueRecovery(recovery),
-    });
+    return pastDuePerLocationResponse(subRow, locationId, accountId, window);
   }
 
   // Active subscription but the owner skipped or never reached the
@@ -176,11 +239,7 @@ async function fetchPerLocationData(
   // or closed the tab during the post-payment redirect). Surface a
   // CTA-only screen instead of the empty-state dashboard so they have
   // an obvious next action.
-  if (
-    subscriptionGrantsFullAccess(subRow.subscription_status) &&
-    !subRow.place_id_verified &&
-    subRow.google_maps_url === null
-  ) {
+  if (isActivePendingBusiness(subRow)) {
     return jsonResponse({
       subscriptionStatus: 'active_pending_business',
       locationId,
@@ -192,14 +251,8 @@ async function fetchPerLocationData(
   // renders the 4-zone reputation hero (PLAN.md PR2) instead of the legacy KPI
   // fallback. The past-due path above already opts in; this is the normal
   // active path.
-  const data = await getActiveDashboardData(locationId, { includeReputationMetrics: true });
-
-  // Surface the trial end (ISO) so DashboardContent can render the
-  // "Trial — N days left" banner. Non-null only while trialing
-  // (trial_ends_at IS NOT NULL ⟺ status='trialing').
-  const trialEndsAt = subRow.subscription_status === SubscriptionStatus.TRIALING
-    ? toIsoOrNull(subRow.trial_ends_at)
-    : null;
+  const data = await getActiveDashboardData(locationId, { includeReputationMetrics: true, window });
+  const trialEndsAt = trialEndsAtIso(subRow.subscription_status, subRow.trial_ends_at);
 
   // VAL-DASH-029: Attach scopeFallback indicator if a fallback occurred
   if (fallback) {
@@ -229,6 +282,7 @@ interface AggregateAccountRow {
 async function aggregateSubscriptionResponse(
   accountRow: AggregateAccountRow,
   accountId: string,
+  window: DashboardWindow,
 ): Promise<NextResponse | null> {
   if (accountRow.subscription_status === SubscriptionStatus.PENDING_PAYMENT) {
     return jsonResponse({
@@ -240,25 +294,7 @@ async function aggregateSubscriptionResponse(
 
   // VAL-CROSS-011: Cancelled account in aggregate mode
   if (accountRow.subscription_status === SubscriptionStatus.CANCELLED) {
-    const [cancelledRow] = await sql<{
-      cancelled_at: Date | null;
-      subscription_activated_at: Date | null;
-    }[]>`
-      SELECT cancelled_at, subscription_activated_at FROM accounts WHERE id = ${accountId}::uuid
-    `;
-    const cancellationDate = cancelledRow?.cancelled_at ?? cancelledRow?.subscription_activated_at;
-    const gracePeriodEnd = cancellationDate
-      ? new Date(new Date(cancellationDate).getTime() + 30 * 86_400_000)
-      : null;
-    const readAccess = gracePeriodEnd
-      ? gracePeriodEnd > new Date()
-      : true;
-    return jsonResponse({
-      subscriptionStatus: SubscriptionStatus.CANCELLED,
-      businessName: 'Account',
-      gracePeriodEndDate: gracePeriodEnd?.toISOString() ?? null,
-      readAccess,
-    });
+    return cancelledGraceResponse(accountId, 'Account');
   }
 
   // VAL-CROSS-012: Past-due account in aggregate mode
@@ -271,7 +307,7 @@ async function aggregateSubscriptionResponse(
       pastDueAt: accountRow.past_due_at,
       accountFlags: accountRow.flags,
     });
-    const data = await getAggregateDashboardData(accountId);
+    const data = await getAggregateDashboardData(accountId, window);
     return jsonResponse({
       ...data,
       subscriptionStatus: SubscriptionStatus.PAST_DUE,
@@ -292,7 +328,10 @@ async function aggregateSubscriptionResponse(
 }
 
 // scope=all: account-wide aggregate dashboard data, gated by subscription state.
-async function handleAggregateDashboard(accountId: string): Promise<NextResponse> {
+async function handleAggregateDashboard(
+  accountId: string,
+  window: DashboardWindow,
+): Promise<NextResponse> {
   try {
     const [accountRow] = await sql<AggregateAccountRow[]>`
       SELECT subscription_status, past_due_at, trial_ends_at, flags, stripe_customer_id
@@ -303,13 +342,11 @@ async function handleAggregateDashboard(accountId: string): Promise<NextResponse
       return errorResponse('Account not found', 404);
     }
 
-    const gated = await aggregateSubscriptionResponse(accountRow, accountId);
+    const gated = await aggregateSubscriptionResponse(accountRow, accountId, window);
     if (gated) return gated;
 
-    const trialEndsAt = accountRow.subscription_status === SubscriptionStatus.TRIALING
-      ? toIsoOrNull(accountRow.trial_ends_at)
-      : null;
-    const data = await getAggregateDashboardData(accountId);
+    const trialEndsAt = trialEndsAtIso(accountRow.subscription_status, accountRow.trial_ends_at);
+    const data = await getAggregateDashboardData(accountId, window);
     return jsonResponse({ ...data, trialEndsAt });
   } catch (error) {
     reportCaughtError('api/dashboard', error, { accountId, scope: 'aggregate' });
@@ -322,6 +359,7 @@ async function handleAggregateDashboard(accountId: string): Promise<NextResponse
 async function handlePerLocationDashboard(
   locationId: string,
   accountId: string,
+  window: DashboardWindow,
 ): Promise<NextResponse> {
   // Validate the scope/location id BEFORE the DB read so a malformed
   // client-supplied `?scope=` value produces a controlled 400, not a
@@ -337,14 +375,9 @@ async function handlePerLocationDashboard(
     const location = await getLocationById(locationId);
 
     if (!location) {
-      // Location not found — fall back to primary
-      const primary = await getPrimaryLocationId(accountId);
-      if (primary) {
-        return fetchPerLocationData(primary, accountId, {
-          scopeFallback: { reason: 'location_not_found', fallbackLocationId: primary },
-        });
-      }
-      return errorResponse('Business not found', 404);
+      // Location not found — fall back to primary, else 404.
+      const fallback = await fallbackToPrimary(accountId, window, 'location_not_found');
+      return fallback ?? errorResponse('Business not found', 404);
     }
 
     if (location.account_id !== accountId) {
@@ -353,19 +386,13 @@ async function handlePerLocationDashboard(
     }
 
     if (location.archived_at !== null) {
-      // Location is archived — fall back to primary
-      const primary = await getPrimaryLocationId(accountId);
-      if (primary && primary !== locationId) {
-        return fetchPerLocationData(primary, accountId, {
-          scopeFallback: { reason: 'location_archived', fallbackLocationId: primary },
-        });
-      }
-      // Primary itself archived or same — return error
-      return errorResponse('No active location available', 404);
+      // Location is archived — fall back to a different primary, else 404.
+      const fallback = await fallbackToPrimary(accountId, window, 'location_archived', locationId);
+      return fallback ?? errorResponse('No active location available', 404);
     }
 
     // Location is active and owned — fetch its data normally
-    return fetchPerLocationData(locationId, accountId);
+    return fetchPerLocationData(locationId, accountId, window);
   } catch (error) {
     if (error instanceof BusinessNotFoundError) {
       return errorResponse('Business not found', 404);
@@ -378,22 +405,15 @@ async function handlePerLocationDashboard(
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const owner = await requireOwnerWithAccount(request);
   if (!owner.ok) return owner.response;
-  const user = owner.user;
-
   const accountId = owner.accountId;
 
-  // VAL-DASH-024: `scope` query parameter — `all` → aggregate; `<locationId>` →
-  // per-location; absent → the user's current location from session/cookie.
-  const scopeParam = request.nextUrl.searchParams.get('scope');
-  const multiLocationEnabled = isMultiLocationEnabled();
-  const scopePolicy = resolveDashboardScopePolicy({
-    scopeParam,
-    userLocationId: user.locationId,
-    multiLocationEnabled,
-  });
+  // VAL-DASH-024 (`scope`) + #403 (`window`): resolve the scope policy and the
+  // validated/clamped time-range in one shared step (the untrusted window never
+  // reaches a service / SQL un-clamped).
+  const { window, scopePolicy } = resolveDashboardRequest(request, owner.user.locationId);
 
   if (scopePolicy.mode === 'aggregate') {
-    return handleAggregateDashboard(accountId);
+    return handleAggregateDashboard(accountId, window);
   }
 
   const locationId = scopePolicy.locationId;
@@ -401,5 +421,5 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return errorResponse('No business associated with this account', 403);
   }
 
-  return handlePerLocationDashboard(locationId, accountId);
+  return handlePerLocationDashboard(locationId, accountId, window);
 }

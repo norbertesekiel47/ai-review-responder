@@ -6,7 +6,7 @@ import type {
 } from '@/lib/dashboard/types';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
-import { LiveRegion } from '@/components/ui/LiveRegion';
+import { renderDashboardStatePanel } from '@/components/dashboard/shell/DashboardStatePanel';
 import { SubscriptionUnavailableCard } from '@/components/dashboard/shell/SubscriptionUnavailableCard';
 import { ReviewsCard } from '@/components/dashboard/reviews/ReviewsCard';
 import { AggregateReviewsCard } from '@/components/dashboard/aggregate/AggregateReviewsCard';
@@ -31,33 +31,9 @@ export function ReviewsContent({ historyEnabled }: ReviewsContentProps) {
   const { data, error, loading, refresh } = useDashboardData(currentScope);
   useSyncPendingCount(data, loading);
 
-  if (loading || !data) {
-    return (
-      <>
-        <TopBar title="Reviews" />
-        <div className="content">
-          <LiveRegion message="Loading your reviews…" />
-          <div className="dashboard-skeleton">
-            <div className="skeleton-card-lg" />
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  if (error) {
-    return (
-      <>
-        <TopBar title="Reviews" />
-        <div className="content">
-          <LiveRegion message={error} level="assertive" />
-          <div className="card">
-            <h2 className="card-h2">Unable to load reviews</h2>
-            <p style={{ fontSize: 14, color: 'var(--rw-app-text-muted)', marginTop: 4 }}>{error}</p>
-          </div>
-        </div>
-      </>
-    );
+  // Loading/error scaffold (shared). The guard also narrows `data` below.
+  if (loading || error || !data) {
+    return renderDashboardStatePanel('reviews', { loading, hasData: data != null, error });
   }
 
   if (isAggregate(data)) {

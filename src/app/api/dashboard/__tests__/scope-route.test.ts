@@ -226,7 +226,8 @@ describe('GET /api/dashboard scope parameter', () => {
     expect(body.activeLocationCount).toBe(2);
     expect(body.locationKpis).toHaveLength(2);
 
-    expect(mockGetAggregateDashboardData).toHaveBeenCalledWith(ACCOUNT_ID);
+    // #403: the route resolves + passes the validated window (default here).
+    expect(mockGetAggregateDashboardData).toHaveBeenCalledWith(ACCOUNT_ID, '30d');
 
     process.env.MULTI_LOCATION_ENABLED = originalEnv;
   });
@@ -251,6 +252,7 @@ describe('GET /api/dashboard scope parameter', () => {
     // (A missing flag here is invisible to the CSS/component tests.)
     expect(mockGetActiveDashboardData).toHaveBeenCalledWith(LOCATION_ID, {
       includeReputationMetrics: true,
+      window: '30d',
     });
 
     process.env.MULTI_LOCATION_ENABLED = originalEnv;

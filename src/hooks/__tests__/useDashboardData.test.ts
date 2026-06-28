@@ -210,4 +210,70 @@ describe('useDashboardData', () => {
       fallbackLocationId: 'primary-loc-id',
     });
   });
+
+  // ── Analytics time-range window (#403) ─────────────────────────────────
+
+  const aggregatePayload = {
+    scope: 'aggregate' as const,
+    valueSummary: { totalReviewsHandled: 0, totalTimeSavedMinutes: 0, currentResponseRate: 0, baselineResponseRate: null },
+    reviewVelocity: [], perLocationVelocity: [], ranking: null, perLocationRanking: [],
+    recentReviews: [], perLocationBriefs: [], locationKpis: [], activeLocationCount: 1,
+  };
+
+  it('omits the window param from the URL for the default window', async () => {
+    mockFetch.mockReturnValue(mockJsonResponse(aggregatePayload));
+
+    const { result } = renderHook(() => useDashboardData('all', { window: '30d' }));
+
+    await waitFor(() => {
+      expect(result.current.data).not.toBeNull();
+    });
+
+    const calledUrl = mockFetch.mock.calls[0]![0] as string;
+    expect(calledUrl).toContain('scope=all');
+    expect(calledUrl).not.toContain('window');
+  });
+
+  it('appends the window param to the URL for a non-default window', async () => {
+    mockFetch.mockReturnValue(mockJsonResponse(aggregatePayload));
+
+    const { result } = renderHook(() => useDashboardData('all', { window: '7d' }));
+
+    await waitFor(() => {
+      expect(result.current.data).not.toBeNull();
+    });
+
+    const calledUrl = mockFetch.mock.calls[0]![0] as string;
+    expect(calledUrl).toContain('scope=all');
+    expect(calledUrl).toContain('window=7d');
+  });
+
+  it('refetches and clears stale data when the window changes (cache key includes window)', async () => {
+    mockFetch.mockReturnValue(mockJsonResponse({ ...aggregatePayload, activeLocationCount: 1 }));
+
+    const { result, rerender } = renderHook(
+      ({ window }) => useDashboardData('all', { window }),
+      { initialProps: { window: '30d' as const } },
+    );
+
+    await waitFor(() => {
+      expect(result.current.data).not.toBeNull();
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    // Change only the window — data fetched for the previous window must not be
+    // surfaced, and a fresh request must fire (two windows never collide).
+    mockFetch.mockReturnValue(mockJsonResponse({ ...aggregatePayload, activeLocationCount: 2 }));
+    rerender({ window: '90d' as unknown as '30d' });
+
+    expect(result.current.data).toBeNull();
+    expect(result.current.loading).toBe(true);
+
+    await waitFor(() => {
+      expect(result.current.data).not.toBeNull();
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const secondUrl = mockFetch.mock.calls[1]![0] as string;
+    expect(secondUrl).toContain('window=90d');
+  });
 });

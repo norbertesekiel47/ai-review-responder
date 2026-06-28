@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockSqlResults, sqlCallCounter, capturedSqlTexts } = vi.hoisted(() => ({
+const { mockSqlResults, sqlCallCounter, capturedSqlTexts, capturedSqlValues } = vi.hoisted(() => ({
   mockSqlResults: [] as unknown[][],
   sqlCallCounter: { value: 0 },
   capturedSqlTexts: [] as string[],
+  // Bound (interpolated) values per query — proves intervals reach SQL as bound
+  // params (make_interval(days => $n)), never as interpolated text (#403).
+  capturedSqlValues: [] as unknown[][],
 }));
 
 vi.mock('@/lib/db/server', () => ({
@@ -12,6 +15,7 @@ vi.mock('@/lib/db/server', () => ({
       const first = args[0];
       if (first != null && typeof first === 'object' && 'raw' in (first as object)) {
         capturedSqlTexts.push((first as TemplateStringsArray).raw.join('?'));
+        capturedSqlValues.push(args.slice(1));
       }
       const result = mockSqlResults[sqlCallCounter.value] ?? [];
       sqlCallCounter.value++;
@@ -21,10 +25,12 @@ vi.mock('@/lib/db/server', () => ({
 }));
 
 import { getAccountKpiSummary, getLocationKpiSummary } from '../service';
+import { DEFAULT_DASHBOARD_WINDOW } from '../types';
 
 beforeEach(() => {
   mockSqlResults.length = 0;
   capturedSqlTexts.length = 0;
+  capturedSqlValues.length = 0;
   sqlCallCounter.value = 0;
 });
 /**
@@ -133,5 +139,56 @@ describe('getAccountKpiSummary', () => {
       expect(text).toContain('account_id = ?');
       expect(text).toContain('archived_at IS NULL');
     }
+  });
+});
+
+describe('window parameterization (#403)', () => {
+  const flatValues = () => capturedSqlValues.flat();
+
+  it('defaults to the 30-day / 8-week window when no window arg is passed', async () => {
+    seed({});
+    const summary = await getLocationKpiSummary('biz-1');
+    expect(summary.windowDays).toBe(30);
+    // Bound integers reach SQL via make_interval(...): windowDays=30 (rate/star/ttr),
+    // trendWeeks=8, trendSpanWeeks=7. None of them are interpolated as text.
+    expect(flatValues()).toEqual(expect.arrayContaining([30, 8, 7]));
+  });
+
+  it('passing the default window explicitly is identical to omitting it', async () => {
+    seed({});
+    await getLocationKpiSummary('biz-1', DEFAULT_DASHBOARD_WINDOW);
+    expect(flatValues()).toEqual(expect.arrayContaining([30, 8, 7]));
+  });
+
+  it('threads 7d → windowDays=7, trendWeeks=4 as bound make_interval params', async () => {
+    seed({});
+    const summary = await getLocationKpiSummary('biz-1', '7d');
+    expect(summary.windowDays).toBe(7);
+    expect(flatValues()).toEqual(expect.arrayContaining([7, 4, 3]));
+  });
+
+  it('threads 90d → windowDays=90, trendWeeks=13', async () => {
+    seed({});
+    const summary = await getLocationKpiSummary('biz-1', '90d');
+    expect(summary.windowDays).toBe(90);
+    expect(flatValues()).toEqual(expect.arrayContaining([90, 13]));
+  });
+
+  it('threads 12w → windowDays=84, trendWeeks=12 for the account scope too', async () => {
+    seed({});
+    const summary = await getAccountKpiSummary('acct-1', '12w');
+    expect(summary.windowDays).toBe(84);
+    expect(flatValues()).toEqual(expect.arrayContaining([84, 12]));
+  });
+
+  it('never interpolates an interval as raw SQL text — every window uses make_interval', async () => {
+    seed({});
+    await getLocationKpiSummary('biz-1', '7d');
+    for (const text of capturedSqlTexts) {
+      expect(text).not.toMatch(/INTERVAL\s+'\d+\s+(days|weeks)'/i);
+    }
+    const joined = capturedSqlTexts.join('\n');
+    expect(joined).toContain('make_interval(days => ?)');
+    expect(joined).toContain('make_interval(weeks => ?)');
   });
 });

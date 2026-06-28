@@ -12,6 +12,10 @@
 import { sql } from '@/lib/db/server';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 import { statusArraySql } from '@/lib/shared/response-status-sql';
+import {
+  type DashboardWindow,
+  DEFAULT_DASHBOARD_WINDOW,
+} from '@/lib/kpi/types';
 import { getActiveDashboardData } from './service';
 import { getPendingApprovalCount } from './pending-count';
 import { getLocationsForAccount } from '@/lib/locations/repo';
@@ -45,6 +49,7 @@ const AGGREGATE_LOCATION_CONCURRENCY = 5;
  */
 export async function getAggregateDashboardData(
   accountId: string,
+  window: DashboardWindow = DEFAULT_DASHBOARD_WINDOW,
 ): Promise<AggregateDashboardData> {
   const [locations, accountRows] = await Promise.all([
     getLocationsForAccount(accountId),
@@ -96,7 +101,7 @@ export async function getAggregateDashboardData(
         // pending count (no LIMIT, held/flagged excluded) together, bounded by
         // the same concurrency cap rather than a second unbounded wave (#346).
         const [data, pendingApprovalCount] = await Promise.all([
-          getActiveDashboardData(loc.id),
+          getActiveDashboardData(loc.id, { window }),
           getPendingApprovalCount(loc.id),
         ]);
         return { location: loc, data, pendingApprovalCount };

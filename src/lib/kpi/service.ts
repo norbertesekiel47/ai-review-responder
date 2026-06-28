@@ -8,13 +8,15 @@ import { sql } from '@/lib/db/server';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 import {
   DashboardKpiSummary,
-  KPI_WINDOW_DAYS,
+  DashboardWindow,
+  DEFAULT_DASHBOARD_WINDOW,
+  dashboardWindowParams,
   KpiScope,
 } from './types';
 
 const HANDLED = [...HANDLED_STATUSES] as string[];
 
-function round(value: number | null, decimals: number): number | null {
+function round(value: number | null | undefined, decimals: number): number | null {
   if (value == null || Number.isNaN(value)) return null;
   const f = 10 ** decimals;
   return Math.round(value * f) / f;
@@ -44,36 +46,49 @@ type VolumeRow = { current_month: number; prior_month: number };
 type TtrRow = { avg_hours: number | null };
 type TrendRow = { week_start: unknown; avg_score: unknown; cnt: unknown };
 
+// Empty-result sentinels keep assembleSummary free of per-field `?? 0`
+// coalescing: an empty rows array yields these zeroed rows (same values the old
+// inline defaults produced).
+const EMPTY_RATE: RateRow = { received: 0, handled: 0 };
+const EMPTY_VOLUME: VolumeRow = { current_month: 0, prior_month: 0 };
+
 function assembleSummary(
   scope: KpiScope,
+  windowDays: number,
   rateRows: RateRow[],
   starRows: StarRow[],
   volumeRows: VolumeRow[],
   ttrRows: TtrRow[],
   trendRows: TrendRow[],
 ): DashboardKpiSummary {
-  const received = rateRows[0]?.received ?? 0;
-  const handled = rateRows[0]?.handled ?? 0;
-  const current = volumeRows[0]?.current_month ?? 0;
-  const prior = volumeRows[0]?.prior_month ?? 0;
+  const rate = rateRows[0] ?? EMPTY_RATE;
+  const volume = volumeRows[0] ?? EMPTY_VOLUME;
   return {
     scope,
-    windowDays: KPI_WINDOW_DAYS,
-    responseRate: { handled, received, ratePct: ratePct(handled, received) },
-    averageStarRating: round(starRows[0]?.avg ?? null, 2),
-    reviewVolume: { currentMonth: current, priorMonth: prior, deltaPct: deltaPct(current, prior) },
-    averageTimeToRespondHours: round(ttrRows[0]?.avg_hours ?? null, 1),
+    windowDays,
+    responseRate: { handled: rate.handled, received: rate.received, ratePct: ratePct(rate.handled, rate.received) },
+    averageStarRating: round(starRows[0]?.avg, 2),
+    reviewVolume: {
+      currentMonth: volume.current_month,
+      priorMonth: volume.prior_month,
+      deltaPct: deltaPct(volume.current_month, volume.prior_month),
+    },
+    averageTimeToRespondHours: round(ttrRows[0]?.avg_hours, 1),
     sentimentTrend: mapTrend(trendRows),
   };
 }
 
 export async function getLocationKpiSummary(
   businessId: string,
+  window: DashboardWindow = DEFAULT_DASHBOARD_WINDOW,
 ): Promise<DashboardKpiSummary> {
-  // The SQL INTERVAL literals below correspond to KPI_WINDOW_DAYS (30) and
-  // SENTIMENT_TREND_WEEKS (8) from ./types. They are kept as inline literals
-  // because Postgres.js interval parameters cannot interpolate a TS constant —
-  // keep them in sync if those constants change.
+  // Window intervals are PARAMETERIZED: windowDays / trendWeeks come from the
+  // fixed lookup in ./types and reach SQL only as bound integers via
+  // make_interval(...) — never interpolated text (issue #403). `30d` (default)
+  // reproduces the legacy 30-day / 8-week behavior exactly. reviewVolume stays
+  // calendar-month regardless of window, per the KpiReviewVolume contract.
+  const { windowDays, trendWeeks } = dashboardWindowParams(window);
+  const trendSpanWeeks = trendWeeks - 1;
   const [rateRows, starRows, volumeRows, ttrRows, trendRows] = await Promise.all([
     sql<RateRow[]>`
       SELECT
@@ -88,7 +103,7 @@ export async function getLocationKpiSummary(
       FROM reviews r
       WHERE r.business_id = ${businessId}
         AND r.status <> 'deleted'
-        AND r.detected_at >= NOW() - INTERVAL '30 days'
+        AND r.detected_at >= NOW() - make_interval(days => ${windowDays})
     `,
     sql<StarRow[]>`
       SELECT AVG(star_rating)::float AS avg
@@ -96,7 +111,7 @@ export async function getLocationKpiSummary(
       WHERE business_id = ${businessId}
         AND status <> 'deleted'
         AND star_rating IS NOT NULL
-        AND detected_at >= NOW() - INTERVAL '30 days'
+        AND detected_at >= NOW() - make_interval(days => ${windowDays})
     `,
     sql<VolumeRow[]>`
       SELECT
@@ -119,14 +134,14 @@ export async function getLocationKpiSummary(
         AND r.status <> 'deleted'
         AND resp.status = ANY(${HANDLED}::text[])
         AND resp.approved_at IS NOT NULL
-        AND resp.approved_at >= NOW() - INTERVAL '30 days'
+        AND resp.approved_at >= NOW() - make_interval(days => ${windowDays})
     `,
     sql<TrendRow[]>`
       SELECT gs::date AS week_start,
              agg.avg_score::float AS avg_score,
              COALESCE(agg.cnt, 0)::int AS cnt
       FROM generate_series(
-        DATE_TRUNC('week', NOW() - INTERVAL '7 weeks'),
+        DATE_TRUNC('week', NOW() - make_interval(weeks => ${trendSpanWeeks})),
         DATE_TRUNC('week', NOW()),
         INTERVAL '1 week'
       ) gs
@@ -137,7 +152,7 @@ export async function getLocationKpiSummary(
         FROM reviews
         WHERE business_id = ${businessId}
           AND status <> 'deleted'
-          AND detected_at >= NOW() - INTERVAL '8 weeks'
+          AND detected_at >= NOW() - make_interval(weeks => ${trendWeeks})
         GROUP BY DATE_TRUNC('week', detected_at)
       ) agg ON agg.wk = gs::date
       ORDER BY week_start ASC
@@ -146,16 +161,20 @@ export async function getLocationKpiSummary(
 
   return assembleSummary(
     { kind: 'location', businessId },
+    windowDays,
     rateRows, starRows, volumeRows, ttrRows, trendRows,
   );
 }
 
 export async function getAccountKpiSummary(
   accountId: string,
+  window: DashboardWindow = DEFAULT_DASHBOARD_WINDOW,
 ): Promise<DashboardKpiSummary> {
-  // Window intervals correspond to KPI_WINDOW_DAYS (30) and SENTIMENT_TREND_WEEKS (8);
-  // kept as SQL literals (Postgres.js interval literals can't interpolate a TS constant).
-  // Active locations only: b.archived_at IS NULL.
+  // Same parameterized-window contract as getLocationKpiSummary, across all
+  // active locations of the account (b.archived_at IS NULL). Intervals are bound
+  // integers via make_interval(...), never interpolated text (issue #403).
+  const { windowDays, trendWeeks } = dashboardWindowParams(window);
+  const trendSpanWeeks = trendWeeks - 1;
   const [rateRows, starRows, volumeRows, ttrRows, trendRows] = await Promise.all([
     sql<RateRow[]>`
       SELECT
@@ -172,7 +191,7 @@ export async function getAccountKpiSummary(
       WHERE b.account_id = ${accountId}
         AND b.archived_at IS NULL
         AND r.status <> 'deleted'
-        AND r.detected_at >= NOW() - INTERVAL '30 days'
+        AND r.detected_at >= NOW() - make_interval(days => ${windowDays})
     `,
     sql<StarRow[]>`
       SELECT AVG(r.star_rating)::float AS avg
@@ -182,7 +201,7 @@ export async function getAccountKpiSummary(
         AND b.archived_at IS NULL
         AND r.status <> 'deleted'
         AND r.star_rating IS NOT NULL
-        AND r.detected_at >= NOW() - INTERVAL '30 days'
+        AND r.detected_at >= NOW() - make_interval(days => ${windowDays})
     `,
     sql<VolumeRow[]>`
       SELECT
@@ -207,14 +226,14 @@ export async function getAccountKpiSummary(
         AND r.status <> 'deleted'
         AND resp.status = ANY(${HANDLED}::text[])
         AND resp.approved_at IS NOT NULL
-        AND resp.approved_at >= NOW() - INTERVAL '30 days'
+        AND resp.approved_at >= NOW() - make_interval(days => ${windowDays})
     `,
     sql<TrendRow[]>`
       SELECT gs::date AS week_start,
              agg.avg_score::float AS avg_score,
              COALESCE(agg.cnt, 0)::int AS cnt
       FROM generate_series(
-        DATE_TRUNC('week', NOW() - INTERVAL '7 weeks'),
+        DATE_TRUNC('week', NOW() - make_interval(weeks => ${trendSpanWeeks})),
         DATE_TRUNC('week', NOW()),
         INTERVAL '1 week'
       ) gs
@@ -227,7 +246,7 @@ export async function getAccountKpiSummary(
         WHERE b.account_id = ${accountId}
           AND b.archived_at IS NULL
           AND r.status <> 'deleted'
-          AND r.detected_at >= NOW() - INTERVAL '8 weeks'
+          AND r.detected_at >= NOW() - make_interval(weeks => ${trendWeeks})
         GROUP BY DATE_TRUNC('week', r.detected_at)
       ) agg ON agg.wk = gs::date
       ORDER BY week_start ASC
@@ -236,6 +255,7 @@ export async function getAccountKpiSummary(
 
   return assembleSummary(
     { kind: 'account', accountId },
+    windowDays,
     rateRows, starRows, volumeRows, ttrRows, trendRows,
   );
 }

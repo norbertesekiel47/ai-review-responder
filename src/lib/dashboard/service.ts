@@ -12,6 +12,11 @@ import {
   HANDLED_STATUSES,
   RECENT_REVIEW_DISPLAY_STATUSES,
 } from '@/lib/shared/response-status';
+import {
+  type DashboardWindow,
+  DEFAULT_DASHBOARD_WINDOW,
+  dashboardWindowParams,
+} from '@/lib/kpi/types';
 import { pendingKey } from '@/lib/zernio/connect-state';
 import type { DashboardDataActive } from './types';
 import {
@@ -48,8 +53,15 @@ export class BusinessNotFoundError extends Error {
 
 export async function getActiveDashboardData(
   businessId: string,
-  opts?: { includeReputationMetrics?: boolean },
+  opts?: { includeReputationMetrics?: boolean; window?: DashboardWindow },
 ): Promise<DashboardDataActive> {
+  // Velocity + reputation windows are PARAMETERIZED from the analytics window
+  // (issue #403). `30d` (default) reproduces the legacy 30-day / 8-week behavior.
+  // Intervals reach SQL only as bound integers via make_interval(...).
+  const { windowDays, trendWeeks } = dashboardWindowParams(
+    opts?.window ?? DEFAULT_DASHBOARD_WINDOW,
+  );
+  const velocitySpanWeeks = trendWeeks - 1;
   const [
     businessRows,
     totalReviewRows,
@@ -92,12 +104,12 @@ export async function getActiveDashboardData(
         AND r.status <> 'deleted'
         AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
     `,
-    // Review velocity: last 8 weeks (zero-filled)
+    // Review velocity: last `trendWeeks` weeks (zero-filled), window-driven.
     sql<{ week_start: unknown; count: unknown }[]>`
       SELECT gs::date AS week_start,
              COALESCE(r.cnt, 0)::int AS count
       FROM generate_series(
-        DATE_TRUNC('week', NOW() - INTERVAL '7 weeks'),
+        DATE_TRUNC('week', NOW() - make_interval(weeks => ${velocitySpanWeeks})),
         DATE_TRUNC('week', NOW()),
         INTERVAL '1 week'
       ) gs
@@ -105,7 +117,7 @@ export async function getActiveDashboardData(
         SELECT DATE_TRUNC('week', detected_at)::date AS wk, COUNT(*) AS cnt
         FROM reviews
         WHERE business_id = ${businessId}
-          AND detected_at >= NOW() - INTERVAL '8 weeks'
+          AND detected_at >= NOW() - make_interval(weeks => ${trendWeeks})
           AND status <> 'deleted'
         GROUP BY DATE_TRUNC('week', detected_at)
       ) r ON r.wk = gs::date
@@ -221,7 +233,7 @@ export async function getActiveDashboardData(
   // batch; its windowed queries are internally parallel (one FILTER query per
   // metric). Aggregate/connect callers omit the flag and pay nothing.
   const reputationRows = opts?.includeReputationMetrics
-    ? await fetchReputationRows(businessId)
+    ? await fetchReputationRows(businessId, windowDays, trendWeeks)
     : null;
   const reputationSummary = reputationRows
     ? buildReputationSummary({
@@ -255,28 +267,36 @@ function daysSince(date: Date): number {
 }
 
 /**
- * Windowed reputation metrics: current 30-day vs prior 30-day buckets via
- * FILTER (single round-trip per metric), plus the 8-week sentiment trend and
- * the authoritative pending-approval count. Response-rate history uses
+ * Windowed reputation metrics: current vs prior `windowDays`-day buckets via
+ * FILTER (single round-trip per metric), plus the `trendWeeks`-week sentiment
+ * trend and the authoritative pending-approval count. Response-rate history uses
  * `approved_at <= prior window end` so late approvals don't retro-inflate the
- * prior period (PLAN.md A.2). All scoped by business_id.
+ * prior period (PLAN.md A.2). All scoped by business_id. Intervals are
+ * PARAMETERIZED (issue #403): `windowDays` / `priorEndDays` (= 2×windowDays) /
+ * `trendWeeks` reach SQL only as bound integers via make_interval(...).
  */
-async function fetchReputationRows(businessId: string): Promise<{
+async function fetchReputationRows(
+  businessId: string,
+  windowDays: number,
+  trendWeeks: number,
+): Promise<{
   rate: RateWindowRow;
   star: StarWindowRow;
   timeSaved: TimeSavedWindowRow;
   trend: SentimentTrendRow[];
   pendingApprovalCount: number;
 }> {
+  const priorEndDays = windowDays * 2;
+  const trendSpanWeeks = trendWeeks - 1;
   const [rateRows, starRows, timeSavedRows, trendRows, pendingApprovalCount] =
     await Promise.all([
       sql<RateWindowRow[]>`
         SELECT
           COUNT(*) FILTER (
-            WHERE r.detected_at >= NOW() - INTERVAL '30 days'
+            WHERE r.detected_at >= NOW() - make_interval(days => ${windowDays})
           )::int AS received_current,
           COUNT(*) FILTER (
-            WHERE r.detected_at >= NOW() - INTERVAL '30 days'
+            WHERE r.detected_at >= NOW() - make_interval(days => ${windowDays})
               AND EXISTS (
                 SELECT 1 FROM responses resp
                 WHERE resp.review_id = r.id
@@ -285,56 +305,56 @@ async function fetchReputationRows(businessId: string): Promise<{
               )
           )::int AS handled_current,
           COUNT(*) FILTER (
-            WHERE r.detected_at >= NOW() - INTERVAL '60 days'
-              AND r.detected_at < NOW() - INTERVAL '30 days'
+            WHERE r.detected_at >= NOW() - make_interval(days => ${priorEndDays})
+              AND r.detected_at < NOW() - make_interval(days => ${windowDays})
           )::int AS received_prior,
           COUNT(*) FILTER (
-            WHERE r.detected_at >= NOW() - INTERVAL '60 days'
-              AND r.detected_at < NOW() - INTERVAL '30 days'
+            WHERE r.detected_at >= NOW() - make_interval(days => ${priorEndDays})
+              AND r.detected_at < NOW() - make_interval(days => ${windowDays})
               AND EXISTS (
                 SELECT 1 FROM responses resp
                 WHERE resp.review_id = r.id
                   AND resp.business_id = ${businessId}
                   AND resp.status = ANY(${HANDLED}::text[])
                   AND resp.approved_at IS NOT NULL
-                  AND resp.approved_at <= NOW() - INTERVAL '30 days'
+                  AND resp.approved_at <= NOW() - make_interval(days => ${windowDays})
               )
           )::int AS handled_prior
         FROM reviews r
         WHERE r.business_id = ${businessId}
           AND r.status <> 'deleted'
-          AND r.detected_at >= NOW() - INTERVAL '60 days'
+          AND r.detected_at >= NOW() - make_interval(days => ${priorEndDays})
       `,
       sql<StarWindowRow[]>`
         SELECT
           AVG(star_rating) FILTER (
-            WHERE detected_at >= NOW() - INTERVAL '30 days'
+            WHERE detected_at >= NOW() - make_interval(days => ${windowDays})
           )::float AS star_current,
           COUNT(star_rating) FILTER (
-            WHERE detected_at >= NOW() - INTERVAL '30 days'
+            WHERE detected_at >= NOW() - make_interval(days => ${windowDays})
           )::int AS star_n_current,
           AVG(star_rating) FILTER (
-            WHERE detected_at >= NOW() - INTERVAL '60 days'
-              AND detected_at < NOW() - INTERVAL '30 days'
+            WHERE detected_at >= NOW() - make_interval(days => ${priorEndDays})
+              AND detected_at < NOW() - make_interval(days => ${windowDays})
           )::float AS star_prior,
           COUNT(star_rating) FILTER (
-            WHERE detected_at >= NOW() - INTERVAL '60 days'
-              AND detected_at < NOW() - INTERVAL '30 days'
+            WHERE detected_at >= NOW() - make_interval(days => ${priorEndDays})
+              AND detected_at < NOW() - make_interval(days => ${windowDays})
           )::int AS star_n_prior
         FROM reviews
         WHERE business_id = ${businessId}
           AND status <> 'deleted'
           AND star_rating IS NOT NULL
-          AND detected_at >= NOW() - INTERVAL '60 days'
+          AND detected_at >= NOW() - make_interval(days => ${priorEndDays})
       `,
       sql<TimeSavedWindowRow[]>`
         SELECT
           COUNT(*) FILTER (
-            WHERE resp.approved_at >= NOW() - INTERVAL '30 days'
+            WHERE resp.approved_at >= NOW() - make_interval(days => ${windowDays})
           )::int AS handled_current,
           COUNT(*) FILTER (
-            WHERE resp.approved_at >= NOW() - INTERVAL '60 days'
-              AND resp.approved_at < NOW() - INTERVAL '30 days'
+            WHERE resp.approved_at >= NOW() - make_interval(days => ${priorEndDays})
+              AND resp.approved_at < NOW() - make_interval(days => ${windowDays})
           )::int AS handled_prior
         FROM responses resp
         JOIN reviews r ON r.id = resp.review_id
@@ -343,14 +363,14 @@ async function fetchReputationRows(businessId: string): Promise<{
           AND r.status <> 'deleted'
           AND resp.status = ANY(${HANDLED}::text[])
           AND resp.approved_at IS NOT NULL
-          AND resp.approved_at >= NOW() - INTERVAL '60 days'
+          AND resp.approved_at >= NOW() - make_interval(days => ${priorEndDays})
       `,
       sql<SentimentTrendRow[]>`
         SELECT gs::date AS week_start,
                agg.avg_score::float AS avg_score,
                COALESCE(agg.cnt, 0)::int AS cnt
         FROM generate_series(
-          DATE_TRUNC('week', NOW() - INTERVAL '7 weeks'),
+          DATE_TRUNC('week', NOW() - make_interval(weeks => ${trendSpanWeeks})),
           DATE_TRUNC('week', NOW()),
           INTERVAL '1 week'
         ) gs
@@ -361,7 +381,7 @@ async function fetchReputationRows(businessId: string): Promise<{
           FROM reviews
           WHERE business_id = ${businessId}
             AND status <> 'deleted'
-            AND detected_at >= NOW() - INTERVAL '8 weeks'
+            AND detected_at >= NOW() - make_interval(weeks => ${trendWeeks})
           GROUP BY DATE_TRUNC('week', detected_at)
         ) agg ON agg.wk = gs::date
         ORDER BY week_start ASC

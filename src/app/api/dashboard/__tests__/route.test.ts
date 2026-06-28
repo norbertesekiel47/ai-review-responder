@@ -3,11 +3,14 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state (available inside vi.mock factories) ────────
 
-const { mockRequireRole, mockSqlResults, sqlCallCounter, capturedSqlTexts } = vi.hoisted(() => ({
+const { mockRequireRole, mockSqlResults, sqlCallCounter, capturedSqlTexts, capturedSqlValues } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockSqlResults: [] as unknown[][],
   sqlCallCounter: { value: 0 },
   capturedSqlTexts: [] as string[],
+  // Bound (interpolated) values per query — proves the analytics window reaches
+  // SQL as bound make_interval params, never as interpolated text (#403).
+  capturedSqlValues: [] as unknown[][],
 }));
 
 // ── Mock Auth ────────────────────────────────────────────────────────
@@ -48,6 +51,7 @@ vi.mock('@/lib/db/server', () => ({
       const first = argumentsList[0];
       if (first != null && typeof first === 'object' && 'raw' in (first as object)) {
         capturedSqlTexts.push((first as TemplateStringsArray).raw.join('?'));
+        capturedSqlValues.push(argumentsList.slice(1));
       }
       const result = mockSqlResults[sqlCallCounter.value] ?? [];
       sqlCallCounter.value++;
@@ -217,6 +221,7 @@ describe('GET /api/dashboard', () => {
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
     capturedSqlTexts.length = 0;
+    capturedSqlValues.length = 0;
   });
 
   it('returns 401 when requireRole throws AuthError(401)', async () => {
@@ -994,5 +999,77 @@ describe('GET /api/dashboard', () => {
     expect(body.zernioConnection.status).toBe('finalize_unknown');
     expect(body.zernioConnection.pendingFlow?.status).toBe('finalize_unknown');
     expect(body.zernioConnection.pendingFlow?.started_at).toBe(startedAt);
+  });
+
+  // ── Analytics time-range window (#403) ─────────────────────────────────
+
+  // Numeric bound values across every windowed query (proves intervals reach
+  // SQL as bound make_interval params, not interpolated text).
+  const numericBoundValues = (): number[] =>
+    capturedSqlValues.flat().filter((v): v is number => typeof v === 'number');
+
+  it('default (no window param) keeps the 30-day / 60-day reputation buckets and 8-week trend', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setDbResults();
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    // Behavior unchanged — the active payload is identical to the legacy path.
+    const body: DashboardDataActive = await res.json();
+    expect(body.business.name).toBe('Test Biz');
+
+    // windowDays=30, priorEndDays=60 reach the reputation queries as bound ints.
+    const values = numericBoundValues();
+    expect(values).toContain(30);
+    expect(values).toContain(60);
+    expect(values).not.toContain(14);
+
+    // No interval is ever interpolated as raw SQL text; every windowed query
+    // uses make_interval(...).
+    for (const text of capturedSqlTexts) {
+      expect(text).not.toMatch(/INTERVAL\s+'\d+\s+(days|weeks)'/i);
+    }
+    const joined = capturedSqlTexts.join('\n');
+    expect(joined).toContain('make_interval(days => ?)');
+    expect(joined).toContain('make_interval(weeks => ?)');
+  });
+
+  it('?window=7d threads windowDays=7 / priorEndDays=14 through to the SQL as bound params', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setDbResults();
+
+    const res = await GET(makeRequest('/api/dashboard?window=7d'));
+    expect(res.status).toBe(200);
+
+    const values = numericBoundValues();
+    expect(values).toContain(7);
+    expect(values).toContain(14);
+    expect(values).not.toContain(60);
+  });
+
+  it('?window=90d threads windowDays=90 / priorEndDays=180', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setDbResults();
+
+    const res = await GET(makeRequest('/api/dashboard?window=90d'));
+    expect(res.status).toBe(200);
+
+    const values = numericBoundValues();
+    expect(values).toContain(90);
+    expect(values).toContain(180);
+  });
+
+  it('invalid ?window= clamps to the default window (30/60 buckets), never reaching SQL untrusted', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setDbResults();
+
+    const res = await GET(makeRequest('/api/dashboard?window=999d-or-injection'));
+    expect(res.status).toBe(200);
+
+    const values = numericBoundValues();
+    expect(values).toContain(30);
+    expect(values).toContain(60);
+    expect(values).not.toContain(14);
   });
 });

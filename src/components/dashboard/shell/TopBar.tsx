@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { LocationPicker } from '@/components/dashboard/location/LocationPicker';
@@ -17,6 +17,9 @@ interface Props {
   rightLink?: { href: string; label: string };
   /** Business name fallback for single-location (from server). */
   businessName?: string;
+  /** Right-aligned action slot (e.g. the analytics period toolbar, #403).
+   *  Rendered left of the live-pill / refresh controls. */
+  children?: ReactNode;
 }
 
 export function TopBar({
@@ -26,6 +29,7 @@ export function TopBar({
   refresh,
   rightLink,
   businessName,
+  children,
 }: Props) {
   const [secondsToRefresh, setSecondsToRefresh] = useState(60);
   const [refreshing, setRefreshing] = useState(false);
@@ -91,6 +95,7 @@ export function TopBar({
         </div>
       )}
       <div className="topbar-spacer" />
+      {children && <div className="topbar-actions">{children}</div>}
       {showLive && (
         <>
           <span className="live-pill">
