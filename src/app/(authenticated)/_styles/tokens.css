@@ -96,8 +96,9 @@
   --rw-auto-bg: #EDE9FE;
   --rw-auto-fg: #5B21B6;
 
-  --rw-red-600:    #DC2626;
-  --rw-red-700:    #B91C1C;
+  /* --rw-red-600 (#DC2626) / --rw-red-700 (#B91C1C) moved to globals.css :root
+     (issue #373) — the public approval page needs them too, so they now have a
+     single global owner. The Console resolves them here by fall-through. */
   --rw-red-100:    #FEE2E2;
   --rw-red-50:     #FEF2F2;
   --rw-red-300:    #FCA5A5;

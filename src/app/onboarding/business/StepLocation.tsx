@@ -212,7 +212,7 @@ export function StepLocation({
             update({ inputMode: 'autocomplete', googleMapsUrl: '' });
           }
         }}
-        className="text-xs text-rw-teal hover:text-[#7e9b96]"
+        className="text-xs text-rw-teal hover:text-rw-teal-hover"
       >
         {data.inputMode === 'autocomplete'
           ? 'Or paste a Google Maps URL'
@@ -220,7 +220,7 @@ export function StepLocation({
       </button>
 
       {prefilling && (
-        <p className="text-xs text-[#9a948a]">
+        <p className="text-xs text-rw-warm-gray">
           Fetching business details from Google Maps…
         </p>
       )}

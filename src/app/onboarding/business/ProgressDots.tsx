@@ -39,7 +39,7 @@ export function ProgressDots({ current, total = 3, demoFlow = false }: ProgressD
                 ? 'bg-rw-teal text-white'
                 : s.n === current
                   ? 'bg-rw-teal text-white ring-4 ring-rw-teal/25'
-                  : 'bg-[#e3ddd3] text-[#9a948a]'
+                  : 'bg-rw-warm-gray-soft text-rw-warm-gray'
             }`}
             aria-current={s.n === current ? 'step' : undefined}
           >
@@ -47,7 +47,7 @@ export function ProgressDots({ current, total = 3, demoFlow = false }: ProgressD
           </div>
           <span
             className={`text-sm ${
-              s.n === current ? 'font-medium text-rw-ink' : 'text-[#9a948a]'
+              s.n === current ? 'font-medium text-rw-ink' : 'text-rw-warm-gray'
             }`}
           >
             {s.label}
@@ -55,7 +55,7 @@ export function ProgressDots({ current, total = 3, demoFlow = false }: ProgressD
           {i < visible.length - 1 && (
             <div
               className={`mx-2 h-px w-8 ${
-                s.n < current ? 'bg-rw-teal' : 'bg-[#cdd9ce]'
+                s.n < current ? 'bg-rw-teal' : 'bg-rw-sage-muted'
               }`}
             />
           )}

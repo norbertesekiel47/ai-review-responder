@@ -15,7 +15,7 @@ export const authLabelClass = 'block text-sm font-medium text-rw-ink mb-1';
 // white button text clears WCAG AA — the old #97B3AE on white was 2.24:1 (fail).
 // Hover darkens further; focus-visible ring keeps the same accessible token.
 export const authPrimaryButtonClass =
-  'w-full bg-rw-teal-strong text-white font-medium py-3 rounded-full hover:bg-[#46594f] disabled:opacity-50 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rw-teal-strong';
+  'w-full bg-rw-teal-strong text-white font-medium py-3 rounded-full hover:bg-rw-teal-strong-hover-deep disabled:opacity-50 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rw-teal-strong';
 
 interface AuthCardShellProps {
   children: ReactNode;

@@ -55,13 +55,13 @@ function RiskBadge({ level }: { level: RiskLevel }) {
   }
   if (level === 'warning') {
     return (
-      <span className="inline-block rounded px-2 py-0.5 text-xs font-medium bg-rw-peach/50 text-[#6a4a44]">
+      <span className="inline-block rounded px-2 py-0.5 text-xs font-medium bg-rw-peach/50 text-rw-brown">
         Warning
       </span>
     );
   }
   return (
-    <span className="inline-block rounded px-2 py-0.5 text-xs font-medium bg-rw-teal/20 text-[#2a6a64]">
+    <span className="inline-block rounded px-2 py-0.5 text-xs font-medium bg-rw-teal/20 text-rw-teal-deep">
       OK
     </span>
   );
@@ -289,7 +289,7 @@ function MarginSection({ margin }: { margin: MarginData }) {
               margin.platform.riskLevel === 'action'
                 ? 'text-red-700'
                 : margin.platform.riskLevel === 'warning'
-                  ? 'text-[#6a4a44]'
+                  ? 'text-rw-brown'
                   : 'text-gray-900'
             }`}>
               {margin.platform.grossMarginPct != null
@@ -397,7 +397,7 @@ function MarginSection({ margin }: { margin: MarginData }) {
                     row.riskLevel === 'action'
                       ? 'text-red-700'
                       : row.riskLevel === 'warning'
-                        ? 'text-[#6a4a44]'
+                        ? 'text-rw-brown'
                         : 'text-gray-700'
                   }`}>
                     {fmtPct(row.costPctOfMrr)}

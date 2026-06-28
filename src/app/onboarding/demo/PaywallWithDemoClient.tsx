@@ -144,7 +144,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
           <div className="inline-block w-12 h-12 border-4 border-rw-teal/25 border-t-rw-teal rounded-full animate-spin mb-6" />
           <p className="text-rw-ink-soft">Generating your demo...</p>
           {pollCount >= MAX_POLLS && (
-            <p className="text-sm text-[#9a948a] mt-2">
+            <p className="text-sm text-rw-warm-gray mt-2">
               Still working — refresh in a minute.
             </p>
           )}
@@ -249,7 +249,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
           <div className="text-center">
             <button
               onClick={handleRegenerate}
-              className="text-sm text-rw-teal hover:text-[#7e9b96] underline"
+              className="text-sm text-rw-teal hover:text-rw-teal-hover underline"
             >
               Regenerate demo
             </button>
@@ -290,7 +290,7 @@ function Stars({ rating }: { rating: number }) {
   return (
     <span className="inline-flex gap-0.5" aria-label={`${rating} out of 5 stars`}>
       {Array.from({ length: 5 }, (_, i) => (
-        <span key={i} className={i < rating ? 'text-rw-teal' : 'text-[#cdd9ce]'}>
+        <span key={i} className={i < rating ? 'text-rw-teal' : 'text-rw-sage-muted'}>
           ★
         </span>
       ))}
@@ -319,7 +319,7 @@ function ReviewCard({
             <span className="font-semibold text-rw-ink">
               {review.reviewerName}
             </span>
-            <span className="text-sm text-[#9a948a] ml-2">{formattedDate}</span>
+            <span className="text-sm text-rw-warm-gray ml-2">{formattedDate}</span>
           </div>
         </div>
         <Stars rating={review.starRating} />
@@ -328,7 +328,7 @@ function ReviewCard({
             {review.reviewText}
           </p>
         ) : (
-          <p className="mt-2 text-[#9a948a] text-sm italic">
+          <p className="mt-2 text-rw-warm-gray text-sm italic">
             Rating only — no written review
           </p>
         )}

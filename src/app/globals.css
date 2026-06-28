@@ -24,6 +24,18 @@
   --color-rw-ink-soft: var(--rw-ink-soft);
   --color-rw-error: var(--rw-error);
   --color-rw-success: var(--rw-success);
+  /* Extended Island tints (issue #373) */
+  --color-rw-warm-gray: var(--rw-warm-gray);
+  --color-rw-warm-gray-soft: var(--rw-warm-gray-soft);
+  --color-rw-cream-hover: var(--rw-cream-hover);
+  --color-rw-brown: var(--rw-brown);
+  --color-rw-teal-hover: var(--rw-teal-hover);
+  --color-rw-sage-muted: var(--rw-sage-muted);
+  --color-rw-sage-text: var(--rw-sage-text);
+  --color-rw-teal-deep: var(--rw-teal-deep);
+  --color-rw-teal-strong-hover: var(--rw-teal-strong-hover);
+  --color-rw-teal-strong-hover-deep: var(--rw-teal-strong-hover-deep);
+  --color-rw-teal-darkest: var(--rw-teal-darkest);
 
   /* Console (authenticated app — Warm Editorial). Resolve only inside .rw-console. */
   --color-rw-app-bg: var(--rw-app-bg);
@@ -78,6 +90,33 @@
   /* Approved status tokens (AA on white): replaces ad-hoc Tailwind reds/greens. */
   --rw-error: #b3261e;   /* 6.47:1 on white */
   --rw-success: #1d6b4f; /* 5.10:1 on white */
+
+  /* ---------- Extended Island tints (issue #373) ----------
+     Onboarding funnel + approval page + admin badges used these as rogue
+     `bg-[#hex]` literals because the existing tokens would have CHANGED the
+     palette. Tokenized here at their EXACT current hex (zero pixel change) so
+     they become reusable members of the warm-gray / sage families. globals.css
+     loads on every route, so onboarding/auth/approval/admin (none of which load
+     the Console tokens.css) can all consume them. */
+  --rw-warm-gray: #9a948a;              /* muted warm-gray text (placeholders, captions) */
+  --rw-warm-gray-soft: #e3ddd3;         /* light warm-gray surface — inactive step dots */
+  --rw-cream-hover: #e7e3dc;            /* cream secondary-button hover */
+  --rw-brown: #6a4a44;                  /* brown badge text on peach (admin costs) */
+  --rw-teal-hover: #7e9b96;             /* hover shade for teal links/buttons */
+  --rw-sage-muted: #cdd9ce;             /* muted sage — inactive / empty states */
+  --rw-sage-text: #5e7d77;              /* muted-sage badge text (approval location chip) */
+  --rw-teal-deep: #2a6a64;              /* deep teal badge text (admin costs) */
+  --rw-teal-strong-hover: #46645d;      /* darker teal-strong — button hover + CTA gradient end */
+  --rw-teal-strong-hover-deep: #46594f; /* deeper teal-strong button hover (auth card) */
+  --rw-teal-darkest: #3f544f;           /* darkest sage — approval confirm action */
+
+  /* Bright alert reds. Moved here from the Console tokens.css (issue #373): the
+     public approval page needs them and globals.css already maps the
+     rw-red-600/700 utilities in @theme inline. Single owner now lives here; the
+     Console resolves them by fall-through. Distinct from --rw-error (#b3261e,
+     the AA body-text error) — these are error-glyph reds only. */
+  --rw-red-600: #DC2626;
+  --rw-red-700: #B91C1C;
   --rw-font-display: var(--font-plus-jakarta), 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --rw-font-body: var(--font-dm-sans), 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --rw-font-serif: var(--font-fraunces), 'Fraunces', ui-serif, Georgia, serif;
@@ -1012,7 +1051,7 @@
      background — darkened from #97B3AE→#83a19b to #557069→#46645d so white copy
      clears AA (was 2.24:1). Primary action on the band is a white pill with
      --rw-teal-strong text (Row 2 = Option A). */
-  background: linear-gradient(135deg, var(--rw-teal-strong), #46645d);
+  background: linear-gradient(135deg, var(--rw-teal-strong), var(--rw-teal-strong-hover));
   color: white;
   border-radius: 0 0 48px 48px;
   text-align: center;
