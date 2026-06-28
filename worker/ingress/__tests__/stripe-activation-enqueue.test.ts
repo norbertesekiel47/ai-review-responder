@@ -24,25 +24,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
  *     against in-flight rows.
  */
 
-// ── Hoisted mock state ───────────────────────────────────────────────
-const { sqlReturnQueue, sqlCalls, mockSql } = vi.hoisted(() => {
-  const sqlReturnQueue: unknown[] = [];
-  const sqlCalls: { text: string; values: unknown[] }[] = [];
-
-  const mockSql: any = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => {
-    const text = Array.from(_s).join('?');
-    sqlCalls.push({ text, values: _v });
-    const queued = sqlReturnQueue.shift();
-    if (queued !== undefined) return Promise.resolve(queued);
-    const empty: unknown[] & { count: number } = Object.assign([], { count: 0 });
-    return Promise.resolve(empty);
-  });
-
-  mockSql.begin = vi.fn(async (callback: (tx: any) => Promise<any>) => {
-    return callback(mockSql);
-  });
-
-  return { sqlReturnQueue, sqlCalls, mockSql };
+// ── Hoisted mock state (shared Postgres.js mock — issue #268) ─────────
+// Uses the repo-canonical createMockSql instead of a hand-rolled copy. The
+// async-hoisted dynamic import is required because vi.hoisted runs before static
+// imports are initialized (see worker/__tests__/helpers/mock-sql.ts).
+const { sqlReturnQueue, sqlCalls, mockSql } = await vi.hoisted(async () => {
+  const { createMockSql } = await import('../../__tests__/helpers/mock-sql');
+  return createMockSql();
 });
 
 vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
