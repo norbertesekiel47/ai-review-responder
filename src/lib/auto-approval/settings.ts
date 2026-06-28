@@ -70,15 +70,31 @@ interface TargetLocationRow {
   archived_at: Date | null;
 }
 
-interface MutationBeforeAfter {
-  beforeRow: AutoApprovalPolicyApiState;
-  afterRow: AutoApprovalPolicyApiState;
-  beforeEffective: EffectiveAutoApprovalPolicy;
-  afterEffective: EffectiveAutoApprovalPolicy;
-  affectedActiveLocationCount: number;
+// One point-in-time view of the targeted policy: its API row plus the effective
+// policy that results for the targeted scope.
+interface PolicySnapshot {
+  row: AutoApprovalPolicyApiState;
+  effective: EffectiveAutoApprovalPolicy;
+}
+
+// The before-state plus the facts about the mutation target that do NOT change
+// across the mutation (scope, location, archived flag, affected-count, and the
+// inherited account default). A policy op never alters which scope/location is
+// targeted nor which active locations inherit, so the audit can read these from
+// `before` and get exactly the value the old code re-read into `after`.
+interface PolicyMutationBeforeState {
+  snapshot: PolicySnapshot;
   scope: 'account_default' | 'location_override';
   locationId: string | null;
   locationArchived: boolean;
+  affectedActiveLocationCount: number;
+  accountDefault: PolicyRowState | null;
+}
+
+// The derived after-state. A pure function of (before, operation, newPolicyId) —
+// see computeAfterState; never re-read from the DB.
+interface PolicyMutationAfterState {
+  snapshot: PolicySnapshot;
 }
 
 export class AutoApprovalConfirmationRequiredError extends Error {
@@ -147,11 +163,16 @@ async function updatePolicyInTransaction(
 ): Promise<void> {
   await lockAccount(tx, input.accountId);
 
-  const before = await captureBefore(tx, input);
-  await applyMutation(tx, input);
-  const after = await captureAfter(tx, input, before);
-  const auditContext = await buildAuditContext(tx, input, before, after);
-  await writePolicyChangeAudit(tx, input, before, after, auditContext);
+  // Gate BEFORE write: read the current state, derive the after-state purely,
+  // assert the mutation is allowed (throws before any write), THEN mutate. The
+  // "blocked => nothing written" guarantee is structural here, not a rollback
+  // side effect. The lock + writes remain inside the caller's sql.begin().
+  const before = await readBeforeState(tx, input);
+  const newPolicyId = uuidv7();
+  const after = computeAfterState(before, input, newPolicyId);
+  const auditContext = await assertMutationAllowed(tx, input, before, after);
+  await applyMutation(tx, input, newPolicyId);
+  await writeAudit(tx, input, before, after, auditContext);
 }
 
 interface PolicyChangeAuditContext {
@@ -162,78 +183,116 @@ interface PolicyChangeAuditContext {
   readiness: AutoApprovalReadiness;
 }
 
-async function buildAuditContext(
-  tx: postgres.TransactionSql,
+// Spec §6, unified archived-location rules: a location's effective policy may
+// not be expanded while archived, and an override may not be (re)set on an
+// archived location at all. Setting an override re-arms auto-posting the moment
+// the location reactivates; an expanding delete/manual exposes a higher account
+// default. Previously split between captureBefore (set_location_override) and
+// buildAuditContext (the expansion case); housed together here, before any write.
+function assertArchivedPolicyAllowed(
+  before: PolicyMutationBeforeState,
   input: PatchAutoApprovalSettingsInput,
-  before: MutationBeforeAfter,
-  after: MutationBeforeAfter,
-): Promise<PolicyChangeAuditContext> {
-  const expansion = isThresholdExpansion(before.beforeEffective.threshold, after.afterEffective.threshold);
-
-  // Spec §6: expanding a location's effective policy requires an active location.
-  // captureBefore already rejects set_location_override on archived locations; this
-  // additionally blocks delete_location_override that would expand an archived location
-  // into an auto account default (which would auto-post the moment it is reactivated).
-  if (expansion && before.scope === 'location_override' && before.locationArchived) {
+  expansion: boolean,
+): void {
+  if (before.scope !== 'location_override' || !before.locationArchived) return;
+  if (input.operation === 'set_location_override' || expansion) {
     throw new AutoApprovalSettingsError('location_inactive', 409);
   }
+}
 
-  const requiredConfirmationLevel = expansion ? requiredConfirmation(after.afterEffective.threshold) : null;
-
+// Expansions past the confirmation threshold require the matching confirmation
+// level. Returns the required level (or null) for the audit row.
+function assertConfirmationProvided(
+  input: PatchAutoApprovalSettingsInput,
+  after: PolicyMutationAfterState,
+  expansion: boolean,
+): AutoApprovalConfirmationLevel | null {
+  const requiredConfirmationLevel = expansion
+    ? requiredConfirmation(after.snapshot.effective.threshold)
+    : null;
   if (requiredConfirmationLevel && !confirmationSatisfies(input.confirmationLevel, requiredConfirmationLevel)) {
     throw new AutoApprovalConfirmationRequiredError(requiredConfirmationLevel);
   }
+  return requiredConfirmationLevel;
+}
 
+// Reads readiness once (for the expansion gate) and returns it so the audit row
+// can reuse it without a second read. Throws when an expansion isn't ready.
+async function assertExpansionReady(
+  tx: postgres.TransactionSql,
+  input: PatchAutoApprovalSettingsInput,
+  expansion: boolean,
+): Promise<AutoApprovalReadiness> {
   const readiness = await buildReadiness(tx, input.accountId, input.impersonated);
   if (expansion && !readiness.canExpand) {
     throw new AutoApprovalExpansionBlockedError(readiness.blockReasons);
   }
+  return readiness;
+}
+
+// Runs every reject gate BEFORE applyMutation and returns the context the audit
+// row needs. Throws => the caller never reaches applyMutation, so nothing is
+// written. Gate order is preserved: archived -> confirmation -> readiness.
+async function assertMutationAllowed(
+  tx: postgres.TransactionSql,
+  input: PatchAutoApprovalSettingsInput,
+  before: PolicyMutationBeforeState,
+  after: PolicyMutationAfterState,
+): Promise<PolicyChangeAuditContext> {
+  const expansion = isThresholdExpansion(
+    before.snapshot.effective.threshold,
+    after.snapshot.effective.threshold,
+  );
+
+  assertArchivedPolicyAllowed(before, input, expansion);
+  const requiredConfirmationLevel = assertConfirmationProvided(input, after, expansion);
+  const readiness = await assertExpansionReady(tx, input, expansion);
 
   return {
-    beforeRank: exposureRank(before.beforeEffective.threshold),
-    afterRank: exposureRank(after.afterEffective.threshold),
+    beforeRank: exposureRank(before.snapshot.effective.threshold),
+    afterRank: exposureRank(after.snapshot.effective.threshold),
     expansion,
     requiredConfirmationLevel,
     readiness,
   };
 }
 
-async function writePolicyChangeAudit(
+async function writeAudit(
   tx: postgres.TransactionSql,
   input: PatchAutoApprovalSettingsInput,
-  before: MutationBeforeAfter,
-  after: MutationBeforeAfter,
+  before: PolicyMutationBeforeState,
+  after: PolicyMutationAfterState,
   context: PolicyChangeAuditContext,
 ): Promise<void> {
   await writeAccountAuditLog(
     {
       accountId: input.accountId,
-      locationId: after.locationId,
+      locationId: before.locationId,
       actorUserId: input.actorUserId,
       eventType: 'auto_approval_policy_changed',
       entityType: 'auto_approval_policy',
-      entityId: after.afterRow.policyId ?? before.beforeRow.policyId,
+      entityId: after.snapshot.row.policyId ?? before.snapshot.row.policyId,
       ip: input.ip ?? null,
       userAgent: input.userAgent ?? null,
       requestId: input.requestId ?? null,
       payload: {
         operation: input.operation,
-        scope: after.scope,
-        locationId: after.locationId,
-        beforeRow: before.beforeRow,
-        afterRow: after.afterRow,
-        beforeEffectiveThreshold: before.beforeEffective.threshold,
-        afterEffectiveThreshold: after.afterEffective.threshold,
-        beforeEffectiveSource: before.beforeEffective.source,
-        afterEffectiveSource: after.afterEffective.source,
+        scope: before.scope,
+        locationId: before.locationId,
+        beforeRow: before.snapshot.row,
+        afterRow: after.snapshot.row,
+        beforeEffectiveThreshold: before.snapshot.effective.threshold,
+        afterEffectiveThreshold: after.snapshot.effective.threshold,
+        beforeEffectiveSource: before.snapshot.effective.source,
+        afterEffectiveSource: after.snapshot.effective.source,
         beforeExposureRank: context.beforeRank,
         afterExposureRank: context.afterRank,
         expansion: context.expansion,
         requiredConfirmationLevel: context.requiredConfirmationLevel,
         submittedConfirmationLevel: input.confirmationLevel ?? null,
         readiness: context.readiness,
-        affectedActiveLocationCount: after.affectedActiveLocationCount,
-        futureDefaultApplies: after.scope === 'account_default',
+        affectedActiveLocationCount: before.affectedActiveLocationCount,
+        futureDefaultApplies: before.scope === 'account_default',
       },
     },
     tx,
@@ -252,85 +311,128 @@ async function lockAccount(db: postgres.TransactionSql, accountId: string): Prom
   }
 }
 
-async function captureBefore(
+async function readBeforeState(
   db: postgres.TransactionSql,
   input: PatchAutoApprovalSettingsInput,
-): Promise<MutationBeforeAfter> {
+): Promise<PolicyMutationBeforeState> {
   const accountDefault = await loadAccountDefault(db, input.accountId);
 
   if (!('locationId' in input)) {
-    const beforeState = toApiState(accountDefault);
     return {
-      beforeRow: beforeState,
-      afterRow: beforeState,
-      beforeEffective: effectiveForAccountDefault(accountDefault),
-      afterEffective: effectiveForAccountDefault(accountDefault),
-      affectedActiveLocationCount: await countActiveInheritingLocations(db, input.accountId),
+      snapshot: {
+        row: toApiState(accountDefault),
+        effective: effectiveForAccountDefault(accountDefault),
+      },
       scope: 'account_default',
       locationId: null,
       locationArchived: false,
+      affectedActiveLocationCount: await countActiveInheritingLocations(db, input.accountId),
+      accountDefault,
     };
   }
 
+  // location_not_found is a read precondition (you cannot snapshot a location
+  // that doesn't exist), so it stays here. The archived-location policy gates
+  // live in assertMutationAllowed.
   const target = await loadTargetLocation(db, input.accountId, input.locationId);
   if (!target) {
     throw new AutoApprovalSettingsError('location_not_found', 404);
   }
-  if (input.operation === 'set_location_override' && target.archived_at !== null) {
-    throw new AutoApprovalSettingsError('location_inactive', 409);
-  }
 
   const locationOverride = await loadLocationOverride(db, input.accountId, input.locationId);
-  const effective = resolveEffectivePolicy(accountDefault, locationOverride);
-  const beforeState = toApiState(locationOverride);
 
   return {
-    beforeRow: beforeState,
-    afterRow: beforeState,
-    beforeEffective: effective,
-    afterEffective: effective,
-    affectedActiveLocationCount: target.archived_at === null ? 1 : 0,
+    snapshot: {
+      row: toApiState(locationOverride),
+      effective: resolveEffectivePolicy(accountDefault, locationOverride),
+    },
     scope: 'location_override',
     locationId: input.locationId,
     locationArchived: target.archived_at !== null,
+    affectedActiveLocationCount: target.archived_at === null ? 1 : 0,
+    accountDefault,
   };
 }
 
-async function captureAfter(
-  db: postgres.TransactionSql,
+// PURE: the after-state is fully determined by (before, operation, newPolicyId).
+// policyId mirrors the ON CONFLICT upsert: an update keeps the existing row id, a
+// fresh insert uses newPolicyId (which applyMutation threads into the INSERT so
+// the persisted row id equals this derived id — afterRow stays truthful).
+function computeAfterState(
+  before: PolicyMutationBeforeState,
   input: PatchAutoApprovalSettingsInput,
-  before: MutationBeforeAfter,
-): Promise<MutationBeforeAfter> {
-  const accountDefault = await loadAccountDefault(db, input.accountId);
+  newPolicyId: string,
+): PolicyMutationAfterState {
+  const upsertPolicyId = before.snapshot.row.exists
+    ? (before.snapshot.row.policyId ?? newPolicyId)
+    : newPolicyId;
 
-  if (!('locationId' in input)) {
-    const afterState = toApiState(accountDefault);
-    return {
-      ...before,
-      afterRow: afterState,
-      afterEffective: effectiveForAccountDefault(accountDefault),
-      affectedActiveLocationCount: await countActiveInheritingLocations(db, input.accountId),
-    };
+  switch (input.operation) {
+    case 'set_account_default':
+      return accountDefaultAfter(upsertPolicyId, input.threshold);
+    case 'set_account_manual':
+      return accountDefaultAfter(upsertPolicyId, null);
+    case 'clear_account_default':
+      return { snapshot: { row: emptyApiState(), effective: noneEffective() } };
+    case 'set_location_override':
+      return locationOverrideAfter(upsertPolicyId, input.threshold);
+    case 'set_location_manual':
+      return locationOverrideAfter(upsertPolicyId, null);
+    case 'delete_location_override':
+      return {
+        snapshot: {
+          row: emptyApiState(),
+          effective: resolveEffectivePolicy(before.accountDefault, null),
+        },
+      };
   }
+}
 
-  const locationOverride = await loadLocationOverride(db, input.accountId, input.locationId);
+function accountDefaultAfter(
+  policyId: string,
+  threshold: AutoApprovalThreshold | null,
+): PolicyMutationAfterState {
   return {
-    ...before,
-    afterRow: toApiState(locationOverride),
-    afterEffective: resolveEffectivePolicy(accountDefault, locationOverride),
+    snapshot: {
+      row: { policyId, threshold, exists: true },
+      effective: { source: 'account_default', threshold, policyId },
+    },
   };
+}
+
+// A present location override shadows the account default entirely, so its
+// effective policy is the override itself.
+function locationOverrideAfter(
+  policyId: string,
+  threshold: AutoApprovalThreshold | null,
+): PolicyMutationAfterState {
+  return {
+    snapshot: {
+      row: { policyId, threshold, exists: true },
+      effective: { source: 'location_override', threshold, policyId },
+    },
+  };
+}
+
+function emptyApiState(): AutoApprovalPolicyApiState {
+  return { policyId: null, threshold: null, exists: false };
+}
+
+function noneEffective(): EffectiveAutoApprovalPolicy {
+  return { source: 'none', threshold: null, policyId: null };
 }
 
 async function applyMutation(
   db: postgres.TransactionSql,
   input: PatchAutoApprovalSettingsInput,
+  newPolicyId: string,
 ): Promise<void> {
   switch (input.operation) {
     case 'set_account_default':
-      await upsertAccountDefault(db, input.accountId, input.threshold);
+      await upsertAccountDefault(db, newPolicyId, input.accountId, input.threshold);
       return;
     case 'set_account_manual':
-      await upsertAccountDefault(db, input.accountId, null);
+      await upsertAccountDefault(db, newPolicyId, input.accountId, null);
       return;
     case 'clear_account_default':
       await db`
@@ -340,10 +442,10 @@ async function applyMutation(
       `;
       return;
     case 'set_location_override':
-      await upsertLocationOverride(db, input.accountId, input.locationId, input.threshold);
+      await upsertLocationOverride(db, newPolicyId, input.accountId, input.locationId, input.threshold);
       return;
     case 'set_location_manual':
-      await upsertLocationOverride(db, input.accountId, input.locationId, null);
+      await upsertLocationOverride(db, newPolicyId, input.accountId, input.locationId, null);
       return;
     case 'delete_location_override':
       await db`
@@ -357,6 +459,7 @@ async function applyMutation(
 
 async function upsertAccountDefault(
   db: postgres.TransactionSql,
+  policyId: string,
   accountId: string,
   threshold: AutoApprovalThreshold | null,
 ): Promise<void> {
@@ -368,7 +471,7 @@ async function upsertAccountDefault(
       auto_approve_min_star,
       updated_at
     ) VALUES (
-      ${uuidv7()}::uuid,
+      ${policyId}::uuid,
       ${accountId}::uuid,
       NULL,
       ${threshold},
@@ -383,6 +486,7 @@ async function upsertAccountDefault(
 
 async function upsertLocationOverride(
   db: postgres.TransactionSql,
+  policyId: string,
   accountId: string,
   locationId: string,
   threshold: AutoApprovalThreshold | null,
@@ -395,7 +499,7 @@ async function upsertLocationOverride(
       auto_approve_min_star,
       updated_at
     ) VALUES (
-      ${uuidv7()}::uuid,
+      ${policyId}::uuid,
       ${accountId}::uuid,
       ${locationId}::uuid,
       ${threshold},
