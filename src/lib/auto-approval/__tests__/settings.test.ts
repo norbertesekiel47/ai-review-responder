@@ -519,4 +519,37 @@ describe('auto-approval settings service', () => {
       mockSql,
     );
   });
+
+  it('performs no policy write when an expansion is blocked (gate runs before applyMutation)', async () => {
+    // Readiness is not ready, so an expansion must be rejected. The structural
+    // guarantee under test: the upsert/delete never runs and no audit row is
+    // written — proven directly via the sql call log, NOT via transaction rollback.
+    process.env.AUTO_APPROVAL_ENABLED = 'false';
+    const { AutoApprovalExpansionBlockedError, patchAutoApprovalSettings } =
+      await import('../settings');
+
+    let caught: unknown;
+    try {
+      await patchAutoApprovalSettings({
+        accountId: ACCOUNT_ID,
+        actorUserId: ACTOR_USER_ID,
+        impersonated: false,
+        operation: 'set_account_default',
+        threshold: 4,
+        confirmationLevel: 'standard',
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AutoApprovalExpansionBlockedError);
+
+    const wrotePolicy = sqlCalls.some(
+      (call) =>
+        call.text.includes('INSERT INTO auto_approval_policies') ||
+        call.text.includes('DELETE FROM auto_approval_policies'),
+    );
+    expect(wrotePolicy).toBe(false);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+  });
 });
