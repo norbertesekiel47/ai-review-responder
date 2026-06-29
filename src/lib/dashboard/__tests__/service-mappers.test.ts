@@ -229,6 +229,7 @@ describe('dashboard service mappers', () => {
         zernioRow: { status: 'disconnected', disconnect_reason: 'token_revoked' },
         queuedReconnectCount: 2,
         hasUnresolvedIncident: false,
+        ratingBreakdownRows: [{ stars: 5, count: 2 }, { stars: 4, count: 1 }],
         pendingRaw: null,
       }),
     ).toEqual({
@@ -238,6 +239,16 @@ describe('dashboard service mappers', () => {
         totalTimeSavedMinutes: 56,
         currentResponseRate: 80,
         baselineResponseRate: 25,
+      },
+      ratingBreakdown: {
+        counts: [
+          { stars: 5, count: 2 },
+          { stars: 4, count: 1 },
+          { stars: 3, count: 0 },
+          { stars: 2, count: 0 },
+          { stars: 1, count: 0 },
+        ],
+        total: 3,
       },
       reviewVelocity: [],
       ranking: [

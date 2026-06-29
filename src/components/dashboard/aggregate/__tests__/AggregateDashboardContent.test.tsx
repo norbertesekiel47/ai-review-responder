@@ -30,6 +30,7 @@ import { AggregateDashboardContent } from '@/components/dashboard/aggregate/Aggr
 const data: AggregateDashboardData = {
   scope: 'aggregate',
   valueSummary: { totalReviewsHandled: 12, totalTimeSavedMinutes: 84, currentResponseRate: 90, baselineResponseRate: null },
+  ratingBreakdown: { counts: [], total: 0 },
   reviewVelocity: [],
   perLocationVelocity: [],
   ranking: null,

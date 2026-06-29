@@ -1,6 +1,7 @@
 import { parseDbArray } from '@/lib/shared/db-array';
 import { CONNECT_PENDING_STATUSES, type ConnectPendingMarker } from '@/lib/zernio/types';
 import { mapRecentReviews, mapReviewVelocity } from './active-mappers';
+import { buildRatingBreakdown } from './rating-breakdown';
 import type { DashboardDataActive, ReputationSummary } from './types';
 import { resolveZernioConnectionState } from './zernio-banner';
 import { MINUTES_SAVED_PER_RESPONSE } from './constants';
@@ -212,6 +213,7 @@ export function buildActiveDashboardResponse(
     zernioRow: DashboardZernioConnectionRow | undefined;
     queuedReconnectCount: number;
     hasUnresolvedIncident: boolean;
+    ratingBreakdownRows: Array<{ stars: number; count: number }>;
     pendingRaw: string | null;
     reputationSummary?: ReputationSummary;
   },
@@ -226,6 +228,7 @@ export function buildActiveDashboardResponse(
       input.totalResponded,
       input.business,
     ),
+    ratingBreakdown: buildRatingBreakdown(input.ratingBreakdownRows),
     reviewVelocity: mapReviewVelocity(input.velocityRows),
     ranking: buildRanking(input.rankingRows),
     recentReviews: mapRecentReviews(input.recentReviewRows),

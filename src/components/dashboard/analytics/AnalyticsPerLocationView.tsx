@@ -28,6 +28,7 @@ export function AnalyticsPerLocationView({ active, refresh, periodToolbar }: Pro
   const reputation = active.reputationSummary;
   const trend = reputation?.trend ?? [];
   const hasRanking = (active.ranking?.length ?? 0) > 0;
+  const hasRatingBreakdown = active.ratingBreakdown.total > 0;
   const hasRatedReviews = active.recentReviews.some((review) => review.starRating != null);
   const hasAnything =
     trend.some((week) => week.starEquivalent != null) ||
@@ -66,9 +67,9 @@ export function AnalyticsPerLocationView({ active, refresh, periodToolbar }: Pro
               <VelocityCard reviewVelocity={active.reviewVelocity} />
               {hasRanking && <RankingCard ranking={active.ranking} />}
             </div>
-            {hasRatedReviews && (
+            {(hasRatingBreakdown || hasRatedReviews) && (
               <div className="section-enter section-enter-4 chart-row">
-                <RecentRatingBreakdown reviews={active.recentReviews} />
+                <RecentRatingBreakdown breakdown={active.ratingBreakdown} />
                 <RecentSentimentMix reviews={active.recentReviews} />
               </div>
             )}

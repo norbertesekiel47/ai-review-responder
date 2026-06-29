@@ -47,6 +47,18 @@ export interface ReputationSummary {
   isRamping: boolean;
 }
 
+/**
+ * Reviews-by-rating distribution across the selected analytics window (#405).
+ * A TRUE aggregate over every rated review in the window — NOT the capped
+ * `recentReviews` sample. `counts` is always 5 entries ordered 5★→1★ and
+ * zero-filled, so the card can map it without re-bucketing.
+ */
+export interface RatingBreakdown {
+  counts: Array<{ stars: number; count: number }>;
+  /** Sum of all star buckets — rated reviews in the window. */
+  total: number;
+}
+
 export interface DashboardDataActive {
   subscriptionStatus?: never;
   /**
@@ -67,6 +79,9 @@ export interface DashboardDataActive {
    *  the route requests includeReputationMetrics (single-location landing);
    *  absent on the aggregate / lighter paths. */
   reputationSummary?: ReputationSummary;
+  /** Windowed reviews-by-rating aggregate (#405) — distribution across the
+   *  selected analytics window, scoped to this location. */
+  ratingBreakdown: RatingBreakdown;
   reviewVelocity: Array<{ weekStart: string; count: number }>;
   ranking: Array<{
     keyword: string;
@@ -245,6 +260,9 @@ export interface AggregateDashboardData {
   }> | null;
   /** Per-location ranking for stacked chart mode. */
   perLocationRanking: PerLocationRanking[];
+  /** Windowed reviews-by-rating aggregate (#405) — summed across all active
+   *  locations of the account, over the selected analytics window. */
+  ratingBreakdown: RatingBreakdown;
   /** Combined recent reviews from all locations with location chips. */
   recentReviews: AggregateReviewItem[];
   /** Per-location briefs for grouped display. */
