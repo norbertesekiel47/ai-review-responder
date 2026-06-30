@@ -1,0 +1,415 @@
+/* Landing experience — the rebuilt cinematic landing page.
+ *
+ * Ported from the imported "RepWorth Landing" Claude Design comp and
+ * re-tokenised to the RepWorth island palette + the app's `next/font` stack
+ * (no Google Fonts <link> — those four families are already loaded by the root
+ * layout and exposed as --rw-font-*). Everything is scoped under `.rw-le` so it
+ * never leaks into the rest of the marketing CSS in globals.css.
+ *
+ * The background scene (aurora gradient → scroll-scrubbed video), particles,
+ * hero fade, card reveal, and final reveal are driven imperatively by
+ * LandingExperience.tsx; this file owns the static look + the keyframes,
+ * :hover, responsive, and reduced-motion rules that inline styles can't express.
+ */
+
+.rw-le {
+  --le-accent: var(--rw-teal-strong);
+  position: relative;
+  min-height: 100vh;
+  background: var(--rw-cream);
+  color: var(--rw-ink);
+  font-family: var(--rw-font-body);
+  overflow-x: hidden;
+}
+
+/* ===== Fixed background scene ===== */
+.rw-le-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: var(--rw-cream);
+  overflow: hidden;
+}
+.rw-le-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.rw-le-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Drawn to the canvas; the element itself stays hidden. */
+  display: none;
+}
+.rw-le-wash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* Cream legibility wash so hero/footer copy stays readable over the video. */
+  background: linear-gradient(
+    to top,
+    rgba(240, 238, 234, 0.92) 0%,
+    rgba(240, 238, 234, 0.35) 28%,
+    transparent 60%
+  );
+}
+
+/* ===== Particles ===== */
+.rw-le-particles {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* ===== Scroll-reveal cards ===== */
+.rw-le-cards {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  padding: 2rem 2.5rem 2.75rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.6s ease;
+}
+.rw-le-cards-grid {
+  max-width: 1140px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.5rem;
+}
+.rw-le-card {
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  color: inherit;
+  background: color-mix(in srgb, #fff 72%, transparent);
+  backdrop-filter: blur(14px);
+  border: 1px solid color-mix(in srgb, var(--rw-teal-strong) 16%, transparent);
+  border-radius: 20px;
+  padding: 28px 26px;
+  box-shadow: 0 18px 50px rgba(42, 42, 42, 0.1);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.rw-le-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 26px 60px rgba(42, 42, 42, 0.16);
+}
+.rw-le-card-num {
+  font-family: var(--rw-font-mono);
+  font-size: 12px;
+  color: var(--le-accent);
+  letter-spacing: 0.08em;
+  margin-bottom: 18px;
+}
+.rw-le-card h3 {
+  font-family: var(--rw-font-display);
+  font-weight: 700;
+  font-size: 1.35rem;
+  color: var(--rw-ink);
+  margin: 0 0 10px;
+}
+.rw-le-card p {
+  color: var(--rw-ink-soft);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  margin: 0 0 18px;
+  flex: 1;
+}
+.rw-le-card-link {
+  font-weight: 500;
+  font-size: 0.9rem;
+  color: var(--le-accent);
+}
+
+/* ===== Nav ===== */
+.rw-le-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.1rem 2.5rem;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--rw-cream) 85%, transparent),
+    transparent
+  );
+}
+.rw-le-nav-left {
+  display: flex;
+  align-items: center;
+  gap: 2.25rem;
+}
+.rw-le-brand {
+  font-family: var(--rw-font-display);
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: var(--rw-ink);
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+.rw-le-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+.rw-le-nav-links a {
+  font-size: 0.9rem;
+  color: var(--rw-ink-soft);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.rw-le-nav-links a:hover {
+  color: var(--rw-ink);
+}
+.rw-le-cta {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 500;
+  font-size: 0.875rem;
+  color: #fff;
+  background: var(--le-accent);
+  border-radius: 999px;
+  padding: 0.6rem 1.35rem;
+  text-decoration: none;
+  transition: filter 0.2s;
+}
+.rw-le-cta:hover {
+  filter: brightness(1.08);
+}
+
+@media (max-width: 640px) {
+  .rw-le-nav {
+    padding: 1rem 1.25rem;
+  }
+  .rw-le-nav-links {
+    display: none;
+  }
+}
+
+/* ===== Scrolling content ===== */
+.rw-le-scroll {
+  position: relative;
+  z-index: 2;
+  display: block;
+}
+
+/* Hero */
+.rw-le-hero {
+  position: relative;
+  height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.rw-le-hero-inner {
+  position: relative;
+  z-index: 10;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  text-align: center;
+  padding: 0 1.5rem 5.5rem;
+  will-change: opacity, transform;
+}
+.rw-le-eyebrow {
+  font-family: var(--rw-font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--le-accent);
+  margin: 0 0 1.25rem;
+}
+.rw-le-title {
+  font-family: var(--rw-font-display);
+  font-weight: 600;
+  font-size: clamp(2rem, 5.4vw, 4.25rem);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  max-width: 60rem;
+  margin: 0;
+  color: var(--rw-ink);
+}
+.rw-le-mark {
+  position: relative;
+  display: inline-block;
+}
+.rw-le-mark-bar {
+  position: absolute;
+  left: -0.04em;
+  right: -0.04em;
+  bottom: 0.1em;
+  height: 0.34em;
+  background: var(--le-accent);
+  border-radius: 5px;
+  z-index: 0;
+}
+.rw-le-mark-text {
+  position: relative;
+  z-index: 1;
+}
+.rw-le-sub {
+  max-width: 40rem;
+  margin: 1.5rem 0 0;
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: var(--rw-ink-soft);
+}
+.rw-le-hero-ctas {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 2.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.rw-le-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--le-accent);
+  color: #fff;
+  font-weight: 500;
+  border-radius: 999px;
+  padding: 0.95rem 2rem;
+  font-size: 0.95rem;
+  text-decoration: none;
+  transition: filter 0.2s;
+  box-shadow: 0 12px 30px rgba(85, 112, 105, 0.28);
+}
+.rw-le-btn-primary:hover {
+  filter: brightness(1.08);
+}
+.rw-le-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--rw-ink);
+  font-weight: 500;
+  font-size: 0.95rem;
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--rw-ink) 25%, transparent);
+  padding-bottom: 2px;
+  transition: border-color 0.2s;
+}
+.rw-le-btn-ghost:hover {
+  border-color: var(--rw-ink);
+}
+
+.rw-le-cue {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding-bottom: 1.75rem;
+  color: var(--rw-ink-soft);
+}
+.rw-le-cue-label {
+  font-family: var(--rw-font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.rw-le-cue svg {
+  animation: rw-le-bounce 1.4s infinite;
+}
+
+/* Spacers + card trigger zone (purely structural scroll distance) */
+.rw-le-spacer-a {
+  height: 60vh;
+}
+.rw-le-cards-trigger {
+  height: 150vh;
+}
+.rw-le-spacer-b {
+  height: 36vh;
+}
+
+/* Final reveal */
+.rw-le-final {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 2rem 4rem;
+}
+.rw-le-final-inner {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  opacity: 0;
+  transform: translateY(34px);
+  filter: blur(9px);
+  transition: opacity 1s ease-out, transform 1s ease-out, filter 1s ease-out;
+}
+.rw-le-final-inner.is-revealed {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+.rw-le-final-title {
+  font-family: var(--rw-font-serif);
+  font-weight: 500;
+  font-size: clamp(2.5rem, 7vw, 5.5rem);
+  line-height: 1.02;
+  letter-spacing: -0.01em;
+  color: var(--rw-ink);
+  margin: 0;
+}
+.rw-le-final-sub {
+  max-width: 34rem;
+  margin: 1.5rem 0 2.25rem;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: var(--rw-ink-soft);
+}
+.rw-le-final .rw-le-btn-primary {
+  padding: 1rem 2.25rem;
+  font-size: 1rem;
+  box-shadow: 0 14px 36px rgba(85, 112, 105, 0.3);
+}
+
+@keyframes rw-le-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-30%);
+  }
+}
+
+/* Honour reduced-motion: no bounce, no reveal transitions, no card lift.
+ * The JS loop is also short-circuited so the background renders one static
+ * frame instead of scrubbing the video on scroll. */
+@media (prefers-reduced-motion: reduce) {
+  .rw-le-cue svg {
+    animation: none;
+  }
+  .rw-le-final-inner,
+  .rw-le-card {
+    transition: none;
+  }
+}
