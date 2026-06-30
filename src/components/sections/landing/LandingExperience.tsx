@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef } from 'react';
+import { TiltCard } from '@/components/ui/be-ui-tilt-card';
 import './landing-experience.css';
 
 /**
@@ -183,28 +184,30 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
       <main id="main-content" className="rw-le-scroll">
         <section className="rw-le-hero">
           <div className="rw-le-hero-inner" ref={heroRef}>
-            <p className="rw-le-eyebrow">Review response, on autopilot</p>
-            <h1 className="rw-le-title">
-              Every review gets the reply it{' '}
-              <span className="rw-le-mark">
-                <span className="rw-le-mark-bar" aria-hidden="true" />
-                <span className="rw-le-mark-text">deserves</span>
-              </span>
-              .
-            </h1>
-            <p className="rw-le-sub">
-              RepWorth drafts a reply to every Google review in your voice, notifies you, and posts
-              it the moment you tap approve. You save about fifteen hours a week — your customers
-              feel heard within minutes.
-            </p>
-            <div className="rw-le-hero-ctas">
-              <Link className="rw-le-btn-primary" href={primaryCtaHref}>
-                {primaryCtaLabel} <span aria-hidden="true">→</span>
-              </Link>
-              <Link className="rw-le-btn-ghost" href="/how-it-works">
-                See how it works →
-              </Link>
-            </div>
+            <TiltCard className="rw-le-hero-card">
+              <p className="rw-le-eyebrow">Review response, on autopilot</p>
+              <h1 className="rw-le-title">
+                Every review gets the reply it{' '}
+                <span className="rw-le-mark">
+                  <span className="rw-le-mark-bar" aria-hidden="true" />
+                  <span className="rw-le-mark-text">deserves</span>
+                </span>
+                .
+              </h1>
+              <p className="rw-le-sub">
+                RepWorth drafts a reply to every Google review in your voice, notifies you, and
+                posts it the moment you tap approve. You save about fifteen hours a week — your
+                customers feel heard within minutes.
+              </p>
+              <div className="rw-le-hero-ctas">
+                <Link className="rw-le-btn-primary" href={primaryCtaHref}>
+                  {primaryCtaLabel} <span aria-hidden="true">→</span>
+                </Link>
+                <Link className="rw-le-btn-ghost" href="/how-it-works">
+                  See how it works →
+                </Link>
+              </div>
+            </TiltCard>
           </div>
           <div className="rw-le-cue" aria-hidden="true">
             <span className="rw-le-cue-label">Scroll</span>
