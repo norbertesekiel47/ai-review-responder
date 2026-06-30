@@ -30,43 +30,15 @@
   background: var(--rw-cream);
   overflow: hidden;
 }
-.rw-le-canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-}
 .rw-le-video {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  /* Drawn to the canvas; the element itself stays hidden. */
-  display: none;
-}
-.rw-le-wash {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  /* Cream legibility wash so hero/footer copy stays readable over the video. */
-  background: linear-gradient(
-    to top,
-    rgba(240, 238, 234, 0.92) 0%,
-    rgba(240, 238, 234, 0.35) 28%,
-    transparent 60%
-  );
-}
-
-/* ===== Particles ===== */
-.rw-le-particles {
-  position: fixed;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 3;
+  display: block;
+  /* Fully visible — no opacity, no overlay, no fade. */
+  opacity: 1;
 }
 
 /* ===== Scroll-reveal cards ===== */
@@ -143,11 +115,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 1.1rem 2.5rem;
-  background: linear-gradient(
-    to bottom,
-    color-mix(in srgb, var(--rw-cream) 85%, transparent),
-    transparent
-  );
+  /* No background — the looping video stays fully visible behind the nav. */
+  background: transparent;
 }
 .rw-le-nav-left {
   display: flex;
