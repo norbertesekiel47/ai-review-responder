@@ -41,25 +41,66 @@
   opacity: 1;
 }
 
-/* ===== Scroll-reveal cards ===== */
-.rw-le-cards {
+/* ===== Act 2: scroll-expand section ===== */
+.rw-le-expand-track {
+  position: relative;
+  /* Scroll distance that drives the expansion + the card reveal. */
+  height: 300vh;
+}
+.rw-le-expand-stage {
   position: fixed;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--rw-cream);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.25s linear;
+}
+.rw-le-expand-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.rw-le-expand-panel {
+  position: relative;
+  z-index: 1;
+  width: 44vw;
+  height: 58vh;
+  max-width: 100vw;
+  max-height: 100vh;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 30px 80px rgba(42, 42, 42, 0.35);
+}
+.rw-le-expand-panel video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.rw-le-expand-cards {
+  position: absolute;
+  z-index: 2;
   left: 0;
   right: 0;
-  bottom: 0;
-  z-index: 4;
-  padding: 2rem 2.5rem 2.75rem;
+  bottom: 6vh;
+  padding: 0 2.5rem;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.6s ease;
 }
-.rw-le-cards-grid {
+.rw-le-expand-cards-grid {
   max-width: 1140px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 1.5rem;
 }
+
+/* ===== Feature cards (revealed over the expanded media) ===== */
 .rw-le-card {
   display: flex;
   flex-direction: column;
@@ -332,17 +373,6 @@
 }
 .rw-le-cue svg {
   animation: rw-le-bounce 1.4s infinite;
-}
-
-/* Spacers + card trigger zone (purely structural scroll distance) */
-.rw-le-spacer-a {
-  height: 60vh;
-}
-.rw-le-cards-trigger {
-  height: 150vh;
-}
-.rw-le-spacer-b {
-  height: 36vh;
 }
 
 /* Final reveal */

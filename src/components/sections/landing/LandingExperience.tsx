@@ -3,23 +3,26 @@
 import Link from 'next/link';
 import { useEffect, useRef } from 'react';
 import { TiltCard } from '@/components/ui/be-ui-tilt-card';
+import { ScrollExpandSection } from '@/components/ui/scroll-expansion-hero';
 import './landing-experience.css';
 
 /**
- * RepWorth landing page — a full-bleed marketing page over a looping brand
- * video.
+ * RepWorth landing page — three scroll acts over brand video.
  *
- * The video (`/video/heroVideo.mp4`) is a fixed, full-bleed background that
- * autoplays muted on a loop from page load and is fully opaque — it is pure
- * brand atmosphere and is intentionally NOT tied to scroll (no scrubbing, no
- * fades, no overlay). The marketing content (nav, hero, reveal cards, final
- * reveal) scrolls over it; only that foreground reacts to scroll.
+ *  1. Hero: a glass tilt card over a fixed, looping `/video/heroVideo.mp4`
+ *     background (autoplays muted, not tied to scroll).
+ *  2. Expand: scrolling down pins a section where `/video/hero2Video.mp4`
+ *     expands from a card-sized panel to full-bleed (over hero2background.png),
+ *     then reveals the Features / How-it-works / Pricing cards on top of it.
+ *  3. Final: the "Every review, answered." reveal, back over the hero video.
  *
- * Same-origin `/video/*` keeps it inside the production CSP (`default-src
+ * Same-origin `/video/*` keeps the clips inside the production CSP (`default-src
  * 'self'`, no `media-src`).
  */
 
 const VIDEO_SRC = '/video/heroVideo.mp4';
+const EXPAND_VIDEO_SRC = '/video/hero2Video.mp4';
+const EXPAND_BG_SRC = '/images/hero2background.png';
 
 interface LandingExperienceProps {
   /** Where every CTA points. `/signup` when self-serve signup is live, else the
@@ -31,8 +34,6 @@ interface LandingExperienceProps {
 
 export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingExperienceProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const cardsRef = useRef<HTMLDivElement>(null);
-  const cardsTriggerRef = useRef<HTMLDivElement>(null);
   const heroRef = useRef<HTMLDivElement>(null);
   const finalInnerRef = useRef<HTMLDivElement>(null);
 
@@ -50,8 +51,8 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
       }
     }
 
-    // Foreground-only scroll reactions: fade the hero, reveal the cards, reveal
-    // the final block. None of this touches the video. rAF-coalesced.
+    // Foreground scroll reactions for acts 1 and 3 only (the expand section owns
+    // its own scroll). rAF-coalesced; never touches the fixed hero video.
     let finalShown = false;
     let frame = 0;
     const onScroll = () => {
@@ -65,16 +66,6 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
           const ho = Math.max(0, Math.min(1, 1 - scrollY / (vh * 0.82)));
           hero.style.opacity = String(ho);
           hero.style.transform = `translateY(${-(1 - ho) * 40}px)`;
-        }
-
-        const trig = cardsTriggerRef.current;
-        const cards = cardsRef.current;
-        if (trig && cards) {
-          const rect = trig.getBoundingClientRect();
-          const visible = rect.top < vh * 0.62 && rect.bottom > vh * 0.42;
-          cards.style.opacity = visible ? '1' : '0';
-          cards.style.pointerEvents = visible ? 'auto' : 'none';
-          cards.inert = !visible;
         }
 
         const fin = finalInnerRef.current;
@@ -132,39 +123,6 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
         />
       </div>
 
-      {/* Scroll-reveal cards — supplementary navigation that fades in mid-page. */}
-      <div className="rw-le-cards" ref={cardsRef} aria-label="Explore RepWorth">
-        <div className="rw-le-cards-grid">
-          <Link className="rw-le-card" href="/features">
-            <span className="rw-le-card-num">01</span>
-            <h3>Features</h3>
-            <p>
-              Everything RepWorth drafts, posts, and tracks for you — replies written in your
-              voice, sent the moment you tap approve.
-            </p>
-            <span className="rw-le-card-link">Explore features →</span>
-          </Link>
-          <Link className="rw-le-card" href="/how-it-works">
-            <span className="rw-le-card-num">02</span>
-            <h3>How it works</h3>
-            <p>
-              Connect Google, set your tone, approve. Three simple steps to staying on top of
-              every review without the busywork.
-            </p>
-            <span className="rw-le-card-link">See the flow →</span>
-          </Link>
-          <Link className="rw-le-card" href="/pricing">
-            <span className="rw-le-card-num">03</span>
-            <h3>Pricing</h3>
-            <p>
-              Simple per-location pricing with a free trial to start. Find the plan that fits your
-              business — no surprises.
-            </p>
-            <span className="rw-le-card-link">View plans →</span>
-          </Link>
-        </div>
-      </div>
-
       <nav className="rw-le-nav" aria-label="Primary">
         <div className="rw-le-nav-left">
           <Link className="rw-le-brand" href="/">
@@ -182,6 +140,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
       </nav>
 
       <main id="main-content" className="rw-le-scroll">
+        {/* Act 1 — hero */}
         <section className="rw-le-hero">
           <div className="rw-le-hero-inner" ref={heroRef}>
             <TiltCard className="rw-le-hero-card">
@@ -225,10 +184,45 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
           </div>
         </section>
 
-        <div className="rw-le-spacer-a" aria-hidden="true" />
-        <div className="rw-le-cards-trigger" ref={cardsTriggerRef} aria-hidden="true" />
-        <div className="rw-le-spacer-b" aria-hidden="true" />
+        {/* Act 2 — scroll-expand: hero2Video grows to full-bleed, then the
+            feature cards reveal over it. */}
+        <ScrollExpandSection
+          mediaSrc={EXPAND_VIDEO_SRC}
+          bgImageSrc={EXPAND_BG_SRC}
+          label="Explore RepWorth"
+        >
+          <div className="rw-le-expand-cards-grid">
+            <Link className="rw-le-card" href="/features">
+              <span className="rw-le-card-num">01</span>
+              <h3>Features</h3>
+              <p>
+                Everything RepWorth drafts, posts, and tracks for you — replies written in your
+                voice, sent the moment you tap approve.
+              </p>
+              <span className="rw-le-card-link">Explore features →</span>
+            </Link>
+            <Link className="rw-le-card" href="/how-it-works">
+              <span className="rw-le-card-num">02</span>
+              <h3>How it works</h3>
+              <p>
+                Connect Google, set your tone, approve. Three simple steps to staying on top of
+                every review without the busywork.
+              </p>
+              <span className="rw-le-card-link">See the flow →</span>
+            </Link>
+            <Link className="rw-le-card" href="/pricing">
+              <span className="rw-le-card-num">03</span>
+              <h3>Pricing</h3>
+              <p>
+                Simple per-location pricing with a free trial to start. Find the plan that fits your
+                business — no surprises.
+              </p>
+              <span className="rw-le-card-link">View plans →</span>
+            </Link>
+          </div>
+        </ScrollExpandSection>
 
+        {/* Act 3 — final reveal */}
         <section className="rw-le-final">
           <div className="rw-le-final-inner" ref={finalInnerRef}>
             <p className="rw-le-eyebrow">Ready when you are</p>
