@@ -179,7 +179,8 @@
   }
   .rw-le-hero-card {
     width: 100%;
-    max-width: 460px;
+    max-width: 520px;
+    min-height: 0;
     padding: 2rem 1.5rem 2.25rem;
   }
 }
@@ -214,11 +215,20 @@
 /* The hero copy lives inside a tilt card (see TiltCard). Solid surface so the
    text stays crisp over the video. */
 .rw-le-hero-card {
-  width: min(560px, 100%);
-  padding: 2.5rem 2.5rem 2.75rem;
+  width: min(940px, 52vw);
+  min-height: min(620px, 74vh);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 3rem 3.25rem;
   text-align: left;
-  background: #fff;
-  border: 1px solid color-mix(in srgb, var(--rw-teal-strong) 14%, transparent);
+  /* Frosted glass: translucent surface that blurs the video behind it. Tint is
+     tuned so the dark copy stays legible over the bright footage. NB: keep this
+     a bare `blur()` (matching .rw-le-card) — Lightning CSS strips the
+     declaration if `saturate()` / a manual -webkit prefix is added. */
+  background: rgba(255, 255, 255, 0.32);
+  backdrop-filter: blur(26px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
   box-shadow: 0 24px 70px rgba(42, 42, 42, 0.22);
 }
 .rw-le-eyebrow {
@@ -232,8 +242,8 @@
 .rw-le-title {
   font-family: var(--rw-font-display);
   font-weight: 600;
-  font-size: clamp(1.85rem, 2.6vw, 2.75rem);
-  line-height: 1.1;
+  font-size: clamp(2.1rem, 3.4vw, 3.6rem);
+  line-height: 1.08;
   letter-spacing: -0.02em;
   margin: 0;
   color: var(--rw-ink);
@@ -257,8 +267,9 @@
   z-index: 1;
 }
 .rw-le-sub {
-  margin: 1.25rem 0 0;
-  font-size: 1rem;
+  margin: 1.5rem 0 0;
+  max-width: 34rem;
+  font-size: 1.05rem;
   line-height: 1.6;
   color: var(--rw-ink-soft);
 }
