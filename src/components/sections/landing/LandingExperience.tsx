@@ -6,20 +6,23 @@ import { TiltCard } from '@/components/ui/be-ui-tilt-card';
 import './landing-experience.css';
 
 /**
- * RepWorth landing page — a continuous scroll morph over brand video.
+ * RepWorth landing page — one continuous, scroll-linked pinned stage.
  *
- *  Act 1 → 2 (one pinned morph): at the top it IS the hero — a frosted glass
- *  card on the right (with the hero copy) floating over the fixed, looping
- *  `/video/heroVideo.mp4`. As you scroll, that same card grows and slides to
- *  full-bleed, its copy crossfades out while `/video/hero2Video.mp4` fades in,
- *  and the Features / How-it-works / Pricing cards reveal on top.
+ * The whole page is a single fixed stage whose contents crossfade as you scroll
+ * (no section-to-section hand-off, so nothing "jumps"):
  *
- *  Act 3: the morph releases and "Every review, answered." reveals, back over
- *  the hero video.
+ *   1. Hero      — a frosted glass card on the right (copy) over the fixed,
+ *                  looping /video/heroVideo.mp4.
+ *   2. Expand    — that same card grows to full-bleed, its copy crossfades out
+ *                  and /video/hero2Video.mp4 in, then the Features / How-it-works
+ *                  / Pricing cards reveal on top.
+ *   3. Final     — the media crossfades to the mirrored /video/hero3Video.mp4,
+ *                  the feature cards fade out, and the "Every review, answered."
+ *                  glass tilt card fades in on the left.
  *
- * Geometry + cross-fades are written imperatively from one rAF-coalesced scroll
- * listener (no per-frame React state). Same-origin `/video/*` keeps the clips
- * inside the production CSP (`default-src 'self'`, no `media-src`).
+ * Geometry + every cross-fade are written imperatively from one rAF-coalesced
+ * scroll listener. Same-origin /video/* keeps the clips inside the production
+ * CSP (`default-src 'self'`, no `media-src`).
  */
 
 const HERO_VIDEO_SRC = '/video/heroVideo.mp4';
@@ -39,19 +42,19 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
   const morphVideoRef = useRef<HTMLVideoElement>(null);
   const finalVideoRef = useRef<HTMLVideoElement>(null);
   const trackRef = useRef<HTMLElement>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const glassRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const cueRef = useRef<HTMLDivElement>(null);
   const cardsRef = useRef<HTMLDivElement>(null);
-  const finalInnerRef = useRef<HTMLDivElement>(null);
+  const finalBgRef = useRef<HTMLDivElement>(null);
+  const finalHolderRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const clamp = (n: number) => Math.max(0, Math.min(1, n));
 
-    // Muted autoplay (set as property for Safari) on both clips so the morph
-    // clip is already playing when it fades in.
+    // Muted autoplay (set as property for Safari) on every clip so each is
+    // already playing when it fades in.
     for (const v of [heroVideoRef.current, morphVideoRef.current, finalVideoRef.current]) {
       if (!v) continue;
       v.muted = true;
@@ -59,105 +62,82 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
       if (playback && typeof playback.catch === 'function') playback.catch(() => {});
     }
 
-    let finalShown = false;
     let frame = 0;
     const onScroll = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
+        const track = trackRef.current;
+        const panel = panelRef.current;
+        if (!track || !panel) return;
+
         const vh = window.innerHeight || 800;
         const vw = window.innerWidth || 1200;
+        const rect = track.getBoundingClientRect();
+        const total = Math.max(1, rect.height - vh);
+        const progress = clamp(-rect.top / total);
 
-        const track = trackRef.current;
-        const stage = stageRef.current;
-        const panel = panelRef.current;
-        if (track && stage && panel) {
-          const rect = track.getBoundingClientRect();
-          const total = Math.max(1, rect.height - vh);
-          const progress = clamp(-rect.top / total);
-          const active = rect.top <= 0 && rect.bottom >= vh;
-          const near = rect.top < vh && rect.bottom > 0;
+        // ---- Act 1 → 2: the hero card grows to full-bleed ----
+        // Rest footprint (matches the hero card); centred on small screens.
+        const isMobile = vw < 820;
+        const w0 = isMobile ? Math.min(520, vw * 0.9) : Math.min(940, vw * 0.52);
+        const h0 = isMobile ? Math.min(560, vh * 0.68) : Math.min(620, vh * 0.74);
+        const left0 = isMobile ? (vw - w0) / 2 : vw * 0.95 - w0;
+        const top0 = (vh - h0) / 2;
+        const e = clamp(progress / 0.32); // expansion done at 32% of the track
+        panel.style.width = `${w0 + e * (vw - w0)}px`;
+        panel.style.height = `${h0 + e * (vh - h0)}px`;
+        panel.style.left = `${left0 * (1 - e)}px`;
+        panel.style.top = `${top0 * (1 - e)}px`;
+        panel.style.borderRadius = `${16 * (1 - e)}px`;
 
-          stage.style.visibility = near ? 'visible' : 'hidden';
-          stage.style.opacity = active ? '1' : '0';
-          stage.style.pointerEvents = active ? 'auto' : 'none';
+        const glass = glassRef.current;
+        if (glass) glass.style.opacity = String(clamp(1 - e * 2.2));
+        const morph = morphVideoRef.current;
+        if (morph) morph.style.opacity = String(clamp((e - 0.08) / 0.42));
+        const content = contentRef.current;
+        if (content) content.style.opacity = String(clamp(1 - progress / 0.12));
+        const cue = cueRef.current;
+        if (cue) cue.style.opacity = String(clamp(1 - progress / 0.05));
 
-          // The hero card's footprint at rest → full-bleed. On wide screens the
-          // card sits on the right (clear of the TV); on small screens it centres.
-          const isMobile = vw < 820;
-          const w0 = isMobile ? Math.min(520, vw * 0.9) : Math.min(940, vw * 0.52);
-          const h0 = isMobile ? Math.min(560, vh * 0.68) : Math.min(620, vh * 0.74);
-          const left0 = isMobile ? (vw - w0) / 2 : vw * 0.95 - w0;
-          const top0 = (vh - h0) / 2; // vertically centred
-          const e = clamp(progress / 0.6); // expansion done at 60% of the track
-          panel.style.width = `${w0 + e * (vw - w0)}px`;
-          panel.style.height = `${h0 + e * (vh - h0)}px`;
-          panel.style.left = `${left0 * (1 - e)}px`;
-          panel.style.top = `${top0 * (1 - e)}px`;
-          panel.style.borderRadius = `${16 * (1 - e)}px`;
+        // ---- Act 2 → 3: crossfade to the final video + card ----
+        const a3 = clamp((progress - 0.62) / 0.18); // hero3 video fades in
+        const finalP = clamp((progress - 0.72) / 0.16); // final card fades in
 
-          const glass = glassRef.current;
-          if (glass) glass.style.opacity = String(clamp(1 - e * 2.2)); // glass gone early
-          const morph = morphVideoRef.current;
-          if (morph) morph.style.opacity = String(clamp((e - 0.08) / 0.42)); // video fades in
-          const content = contentRef.current;
-          if (content) content.style.opacity = String(clamp(1 - progress / 0.16)); // copy out fast
-          const cue = cueRef.current;
-          if (cue) cue.style.opacity = String(clamp(1 - progress / 0.07));
-
-          const cards = cardsRef.current;
-          if (cards) {
-            const c = clamp((progress - 0.66) / 0.16);
-            cards.style.opacity = String(c);
-            cards.style.transform = `translateY(${(1 - c) * 28}px)`;
-            cards.style.pointerEvents = c > 0.5 ? 'auto' : 'none';
-            cards.inert = c <= 0.5;
-          }
+        const cards = cardsRef.current;
+        if (cards) {
+          const reveal = clamp((progress - 0.38) / 0.1);
+          const opacity = reveal * (1 - a3); // reveal in act 2, fade out into act 3
+          cards.style.opacity = String(opacity);
+          cards.style.transform = `translateY(${(1 - reveal) * 28}px)`;
+          cards.style.pointerEvents = opacity > 0.5 ? 'auto' : 'none';
+          cards.inert = opacity <= 0.5;
         }
 
-        // Act 3 reveal.
-        const fin = finalInnerRef.current;
-        if (fin && !finalShown) {
-          const fr = fin.getBoundingClientRect();
-          if (fr.top < vh * 0.82) {
-            finalShown = true;
-            fin.classList.add('is-revealed');
-          }
+        const finalBg = finalBgRef.current;
+        if (finalBg) finalBg.style.opacity = String(a3);
+        const finalHolder = finalHolderRef.current;
+        if (finalHolder) {
+          finalHolder.style.opacity = String(finalP);
+          finalHolder.style.pointerEvents = finalP > 0.5 ? 'auto' : 'none';
+          finalHolder.inert = finalP <= 0.5;
         }
       });
     };
 
     window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', onScroll);
-
-    let io: IntersectionObserver | null = null;
-    if (finalInnerRef.current) {
-      io = new IntersectionObserver(
-        (entries) => {
-          for (const e of entries) {
-            if (e.isIntersecting && !finalShown) {
-              finalShown = true;
-              e.target.classList.add('is-revealed');
-            }
-          }
-        },
-        { threshold: 0.32 },
-      );
-      io.observe(finalInnerRef.current);
-    }
-
     onScroll();
 
     return () => {
       window.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onScroll);
       cancelAnimationFrame(frame);
-      if (io) io.disconnect();
     };
   }, []);
 
   return (
     <div className="rw-le">
-      {/* Fixed, fully-opaque looping brand video. Decorative; behind everything. */}
+      {/* Fixed, fully-opaque looping hero video (act 1 backdrop, behind the stage). */}
       <div className="rw-le-bg" aria-hidden="true">
         <video
           className="rw-le-video"
@@ -189,9 +169,9 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
       </nav>
 
       <main id="main-content" className="rw-le-scroll">
-        {/* Acts 1 + 2 — the hero card morphs into the full-bleed hero2 video. */}
         <section ref={trackRef} className="rw-le-morph-track" aria-label="RepWorth">
-          <div ref={stageRef} className="rw-le-morph-stage">
+          <div className="rw-le-morph-stage">
+            {/* Act 1-2 — the hero card morphs into the full-bleed hero2 video. */}
             <div ref={panelRef} className="rw-le-morph-panel">
               <video
                 ref={morphVideoRef}
@@ -231,6 +211,21 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
               </div>
             </div>
 
+            {/* Act 3 backdrop — mirrored final video, crossfades in over the panel. */}
+            <div ref={finalBgRef} className="rw-le-final-bg" aria-hidden="true">
+              <video
+                className="rw-le-final-video"
+                ref={finalVideoRef}
+                src={FINAL_VIDEO_SRC}
+                muted
+                loop
+                playsInline
+                preload="auto"
+                tabIndex={-1}
+              />
+            </div>
+
+            {/* Act 2 — feature cards over the expanded media. */}
             <div ref={cardsRef} className="rw-le-morph-cards">
               <div className="rw-le-morph-cards-grid">
                 <Link className="rw-le-card" href="/features">
@@ -263,6 +258,23 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
               </div>
             </div>
 
+            {/* Act 3 — final glass tilt card, crossfades in on the left. */}
+            <div ref={finalHolderRef} className="rw-le-final-holder">
+              <TiltCard className="rw-le-final-card">
+                <div className="rw-le-final-inner">
+                  <p className="rw-le-eyebrow">Ready when you are</p>
+                  <h2 className="rw-le-final-title">Every review, answered.</h2>
+                  <p className="rw-le-final-sub">
+                    Save about fifteen hours a week. Your customers feel heard within minutes — and
+                    your rating takes care of itself.
+                  </p>
+                  <Link className="rw-le-btn-primary" href={primaryCtaHref}>
+                    Join the early access waitlist <span aria-hidden="true">→</span>
+                  </Link>
+                </div>
+              </TiltCard>
+            </div>
+
             <div ref={cueRef} className="rw-le-morph-cue" aria-hidden="true">
               <span className="rw-le-cue-label">Scroll</span>
               <svg
@@ -278,37 +290,6 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
               </svg>
             </div>
           </div>
-        </section>
-
-        {/* Act 3 — final reveal, over its own (mirrored) background video, copy
-            in the interactive glass tilt card on the left. */}
-        <section className="rw-le-final">
-          <div className="rw-le-final-bg" aria-hidden="true">
-            <video
-              className="rw-le-final-video"
-              ref={finalVideoRef}
-              src={FINAL_VIDEO_SRC}
-              autoPlay
-              muted
-              loop
-              playsInline
-              preload="auto"
-              tabIndex={-1}
-            />
-          </div>
-          <TiltCard className="rw-le-final-card">
-            <div className="rw-le-final-inner" ref={finalInnerRef}>
-              <p className="rw-le-eyebrow">Ready when you are</p>
-              <h2 className="rw-le-final-title">Every review, answered.</h2>
-              <p className="rw-le-final-sub">
-                Save about fifteen hours a week. Your customers feel heard within minutes — and
-                your rating takes care of itself.
-              </p>
-              <Link className="rw-le-btn-primary" href={primaryCtaHref}>
-                Join the early access waitlist <span aria-hidden="true">→</span>
-              </Link>
-            </div>
-          </TiltCard>
         </section>
       </main>
     </div>

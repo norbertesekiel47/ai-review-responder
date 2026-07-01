@@ -42,19 +42,19 @@
 /* ===== Acts 1 + 2: the morphing hero card → full-bleed hero2 video ===== */
 .rw-le-morph-track {
   position: relative;
-  /* Scroll distance for the whole card → full-bleed morph + the card reveal. */
-  height: 340vh;
+  /* Scroll distance for the whole hero → expand → final crossfade. */
+  height: 440vh;
 }
 .rw-le-morph-stage {
   position: fixed;
   inset: 0;
   z-index: 5;
-  /* Opaque at rest (this IS the hero); JS fades it out as act 3 arrives. */
-  opacity: 1;
-  transition: opacity 0.25s linear;
+  /* Always on — the entire page is this one pinned stage; its layers crossfade
+     on scroll instead of handing off to a separate scrolling section. */
 }
 .rw-le-morph-panel {
   position: absolute;
+  z-index: 1;
   /* Rest state = the old hero card footprint (right, vertically centred). JS
      overrides left / top / width / height / border-radius on scroll. */
   top: 13vh;
@@ -97,7 +97,7 @@
 }
 .rw-le-morph-cards {
   position: absolute;
-  z-index: 6;
+  z-index: 3;
   left: 0;
   right: 0;
   bottom: 6vh;
@@ -246,13 +246,12 @@
     bottom: 4vh;
     padding: 0 1.25rem;
   }
-  .rw-le-final {
-    justify-content: center;
-    padding: 0 1.25rem;
+  .rw-le-final-holder {
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(520px, 90vw);
   }
   .rw-le-final-card {
-    width: 100%;
-    max-width: 520px;
     padding: 2rem 1.5rem;
   }
 }
@@ -357,20 +356,13 @@
   animation: rw-le-bounce 1.4s infinite;
 }
 
-/* ===== Act 3: final reveal (own mirrored bg video + glass card on the left) ===== */
-.rw-le-final {
-  position: relative;
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  padding: 0 5vw;
-  overflow: hidden;
-}
+/* ===== Act 3: crossfade layers (mirrored final video + glass card on left) ===== */
 .rw-le-final-bg {
   position: absolute;
   inset: 0;
-  z-index: 0;
+  z-index: 2;
+  /* JS crossfades this in over the expanded hero2 video. */
+  opacity: 0;
 }
 .rw-le-final-video {
   width: 100%;
@@ -380,16 +372,23 @@
   /* Mirror the clip horizontally. */
   transform: scaleX(-1);
 }
-.rw-le-final-card {
-  position: relative;
-  z-index: 2;
+.rw-le-final-holder {
+  position: absolute;
+  z-index: 4;
+  left: 5vw;
+  top: 50%;
+  transform: translateY(-50%);
   width: min(600px, 48vw);
+  /* JS crossfades the whole card in during act 3. */
+  opacity: 0;
+}
+.rw-le-final-card {
+  width: 100%;
   padding: 2.75rem 3rem;
   text-align: left;
-  /* Frosted glass — keep a bare blur() (Lightning CSS strips backdrop-filter
-     when saturate()/a manual -webkit prefix is present). Tint is heavier than
-     the hero card (0.32) because this sits over a much darker night clip and
-     the dark copy would otherwise wash out. */
+  /* Frosted glass — bare blur() (Lightning CSS strips saturate()/-webkit).
+     Heavier tint than the hero card (0.32): this sits over a much darker night
+     clip and the dark copy would otherwise wash out. */
   background: rgba(255, 255, 255, 0.55);
   backdrop-filter: blur(26px);
   border: 1px solid rgba(255, 255, 255, 0.6);
@@ -400,15 +399,6 @@
   flex-direction: column;
   align-items: flex-start;
   text-align: left;
-  opacity: 0;
-  transform: translateY(28px);
-  filter: blur(9px);
-  transition: opacity 1s ease-out, transform 1s ease-out, filter 1s ease-out;
-}
-.rw-le-final-inner.is-revealed {
-  opacity: 1;
-  transform: translateY(0);
-  filter: blur(0);
 }
 .rw-le-final-title {
   font-family: var(--rw-font-serif);
@@ -425,7 +415,7 @@
   line-height: 1.6;
   color: var(--rw-ink-soft);
 }
-.rw-le-final .rw-le-btn-primary {
+.rw-le-final-card .rw-le-btn-primary {
   padding: 1rem 2.25rem;
   font-size: 1rem;
   box-shadow: 0 14px 36px rgba(85, 112, 105, 0.3);
