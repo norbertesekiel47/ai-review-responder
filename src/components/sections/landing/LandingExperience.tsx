@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef } from 'react';
+import { TiltCard } from '@/components/ui/be-ui-tilt-card';
 import './landing-experience.css';
 
 /**
@@ -23,6 +24,7 @@ import './landing-experience.css';
 
 const HERO_VIDEO_SRC = '/video/heroVideo.mp4';
 const MORPH_VIDEO_SRC = '/video/hero2Video.mp4';
+const FINAL_VIDEO_SRC = '/video/hero3Video.mp4';
 
 interface LandingExperienceProps {
   /** Where every CTA points. `/signup` when self-serve signup is live, else the
@@ -35,6 +37,7 @@ interface LandingExperienceProps {
 export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingExperienceProps) {
   const heroVideoRef = useRef<HTMLVideoElement>(null);
   const morphVideoRef = useRef<HTMLVideoElement>(null);
+  const finalVideoRef = useRef<HTMLVideoElement>(null);
   const trackRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -49,7 +52,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
 
     // Muted autoplay (set as property for Safari) on both clips so the morph
     // clip is already playing when it fades in.
-    for (const v of [heroVideoRef.current, morphVideoRef.current]) {
+    for (const v of [heroVideoRef.current, morphVideoRef.current, finalVideoRef.current]) {
       if (!v) continue;
       v.muted = true;
       const playback = v.play();
@@ -277,19 +280,35 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
           </div>
         </section>
 
-        {/* Act 3 — final reveal */}
+        {/* Act 3 — final reveal, over its own (mirrored) background video, copy
+            in the interactive glass tilt card on the left. */}
         <section className="rw-le-final">
-          <div className="rw-le-final-inner" ref={finalInnerRef}>
-            <p className="rw-le-eyebrow">Ready when you are</p>
-            <h2 className="rw-le-final-title">Every review, answered.</h2>
-            <p className="rw-le-final-sub">
-              Save about fifteen hours a week. Your customers feel heard within minutes — and your
-              rating takes care of itself.
-            </p>
-            <Link className="rw-le-btn-primary" href={primaryCtaHref}>
-              Join the early access waitlist <span aria-hidden="true">→</span>
-            </Link>
+          <div className="rw-le-final-bg" aria-hidden="true">
+            <video
+              className="rw-le-final-video"
+              ref={finalVideoRef}
+              src={FINAL_VIDEO_SRC}
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="auto"
+              tabIndex={-1}
+            />
           </div>
+          <TiltCard className="rw-le-final-card">
+            <div className="rw-le-final-inner" ref={finalInnerRef}>
+              <p className="rw-le-eyebrow">Ready when you are</p>
+              <h2 className="rw-le-final-title">Every review, answered.</h2>
+              <p className="rw-le-final-sub">
+                Save about fifteen hours a week. Your customers feel heard within minutes — and
+                your rating takes care of itself.
+              </p>
+              <Link className="rw-le-btn-primary" href={primaryCtaHref}>
+                Join the early access waitlist <span aria-hidden="true">→</span>
+              </Link>
+            </div>
+          </TiltCard>
         </section>
       </main>
     </div>

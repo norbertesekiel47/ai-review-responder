@@ -246,6 +246,15 @@
     bottom: 4vh;
     padding: 0 1.25rem;
   }
+  .rw-le-final {
+    justify-content: center;
+    padding: 0 1.25rem;
+  }
+  .rw-le-final-card {
+    width: 100%;
+    max-width: 520px;
+    padding: 2rem 1.5rem;
+  }
 }
 
 /* ===== Scrolling content ===== */
@@ -348,24 +357,51 @@
   animation: rw-le-bounce 1.4s infinite;
 }
 
-/* ===== Act 3: final reveal ===== */
+/* ===== Act 3: final reveal (own mirrored bg video + glass card on the left) ===== */
 .rw-le-final {
   position: relative;
   min-height: 100vh;
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 0 2rem 4rem;
+  justify-content: flex-start;
+  padding: 0 5vw;
+  overflow: hidden;
+}
+.rw-le-final-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.rw-le-final-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  /* Mirror the clip horizontally. */
+  transform: scaleX(-1);
+}
+.rw-le-final-card {
+  position: relative;
+  z-index: 2;
+  width: min(600px, 48vw);
+  padding: 2.75rem 3rem;
+  text-align: left;
+  /* Frosted glass — keep a bare blur() (Lightning CSS strips backdrop-filter
+     when saturate()/a manual -webkit prefix is present). Tint is heavier than
+     the hero card (0.32) because this sits over a much darker night clip and
+     the dark copy would otherwise wash out. */
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(26px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 24px 70px rgba(42, 42, 42, 0.28);
 }
 .rw-le-final-inner {
-  position: relative;
-  z-index: 10;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
+  align-items: flex-start;
+  text-align: left;
   opacity: 0;
-  transform: translateY(34px);
+  transform: translateY(28px);
   filter: blur(9px);
   transition: opacity 1s ease-out, transform 1s ease-out, filter 1s ease-out;
 }
@@ -377,16 +413,15 @@
 .rw-le-final-title {
   font-family: var(--rw-font-serif);
   font-weight: 500;
-  font-size: clamp(2.5rem, 7vw, 5.5rem);
-  line-height: 1.02;
+  font-size: clamp(2rem, 3.4vw, 3.2rem);
+  line-height: 1.05;
   letter-spacing: -0.01em;
   color: var(--rw-ink);
   margin: 0;
 }
 .rw-le-final-sub {
-  max-width: 34rem;
-  margin: 1.5rem 0 2.25rem;
-  font-size: 1.05rem;
+  margin: 1.25rem 0 2rem;
+  font-size: 1.02rem;
   line-height: 1.6;
   color: var(--rw-ink-soft);
 }
