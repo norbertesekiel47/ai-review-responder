@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useId, useMemo, useReducer, useState, type CSSProperties, type ReactNode } from 'react';
 import { LeadIntakeForm } from '@/components/sections/lead-intake/LeadIntakeForm';
 import { SiteShell } from '@/components/ui/SiteShell';
+import { annualPriceUsd, monthlyPriceUsd } from './pricing-derivation';
 
 type Billing = 'monthly' | 'annual';
 type TierId = 'founders' | 'basic' | 'standard' | 'premium';
@@ -31,8 +32,8 @@ const TIERS: Tier[] = [
     tag: 'Limited offer - locked-in pricing for early operators',
     swatch: 'linear-gradient(135deg, #F2C3B9, #F0DDD6)',
     icon: 'spark',
-    monthly: 19,
-    annual: 15,
+    monthly: monthlyPriceUsd('founders'),
+    annual: annualPriceUsd('founders'),
     cta: 'Claim a spot',
     ctaStyle: 'primary',
     features: [
@@ -49,8 +50,8 @@ const TIERS: Tier[] = [
     tag: 'For the owner running it solo',
     swatch: 'linear-gradient(135deg, #D2E0D3, #F0EEEA)',
     icon: 'solo',
-    monthly: 29,
-    annual: 23,
+    monthly: monthlyPriceUsd('basic'),
+    annual: annualPriceUsd('basic'),
     cta: 'Coming soon',
     ctaStyle: 'ghost',
     ctaDisabled: true,
@@ -69,8 +70,8 @@ const TIERS: Tier[] = [
     tag: 'For growing businesses and small chains',
     swatch: 'linear-gradient(135deg, #97B3AE, #D2E0D3)',
     icon: 'growth',
-    monthly: 79,
-    annual: 63,
+    monthly: monthlyPriceUsd('standard'),
+    annual: annualPriceUsd('standard'),
     cta: 'Coming soon',
     ctaStyle: 'ghost',
     ctaDisabled: true,
@@ -90,8 +91,8 @@ const TIERS: Tier[] = [
     tag: 'For multi-location operators and franchises',
     swatch: 'linear-gradient(135deg, #D6CBBF, #F0DDD6)',
     icon: 'locations',
-    monthly: 199,
-    annual: 159,
+    monthly: monthlyPriceUsd('premium'),
+    annual: annualPriceUsd('premium'),
     cta: 'Coming soon',
     ctaStyle: 'ghost',
     ctaDisabled: true,
