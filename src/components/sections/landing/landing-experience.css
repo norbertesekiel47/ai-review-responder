@@ -1,0 +1,442 @@
+/* Landing experience — the rebuilt cinematic landing page.
+ *
+ * Re-tokenised to the RepWorth island palette + the app's `next/font` stack
+ * (no Google Fonts <link> — those four families are already loaded by the root
+ * layout and exposed as --rw-font-*). Everything is scoped under `.rw-le` so it
+ * never leaks into the rest of the marketing CSS in globals.css.
+ *
+ * Acts 1+2 are ONE pinned morph (a glass hero card that grows to a full-bleed
+ * second video, then reveals the feature cards); act 3 is the final reveal.
+ * Geometry + cross-fades are driven imperatively by LandingExperience.tsx; this
+ * file owns the static look + keyframes / :hover / responsive / reduced-motion.
+ */
+
+.rw-le {
+  --le-accent: var(--rw-teal-strong);
+  position: relative;
+  min-height: 100vh;
+  background: var(--rw-cream);
+  color: var(--rw-ink);
+  font-family: var(--rw-font-body);
+  overflow-x: hidden;
+}
+
+/* ===== Fixed background scene (hero video) ===== */
+.rw-le-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: var(--rw-cream);
+  overflow: hidden;
+}
+.rw-le-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 1;
+}
+
+/* ===== Acts 1 + 2: the morphing hero card → full-bleed hero2 video ===== */
+.rw-le-morph-track {
+  position: relative;
+  /* Scroll distance for the whole hero → expand → final crossfade. */
+  height: 440vh;
+}
+.rw-le-morph-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  /* Always on — the entire page is this one pinned stage; its layers crossfade
+     on scroll instead of handing off to a separate scrolling section. */
+}
+.rw-le-morph-panel {
+  position: absolute;
+  z-index: 1;
+  /* Rest state = the old hero card footprint (right, vertically centred). JS
+     overrides left / top / width / height / border-radius on scroll. */
+  top: 13vh;
+  right: 5vw;
+  width: min(940px, 52vw);
+  height: min(620px, 74vh);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 24px 70px rgba(42, 42, 42, 0.22);
+}
+.rw-le-morph-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  /* Hidden at rest; JS fades it in as the card expands. */
+  opacity: 0;
+}
+.rw-le-morph-glass {
+  position: absolute;
+  inset: 0;
+  /* Frosted-glass surface of the card at rest; JS fades it out. Keep a bare
+     blur() — Lightning CSS strips backdrop-filter when saturate()/a manual
+     -webkit prefix is present. */
+  background: rgba(255, 255, 255, 0.32);
+  backdrop-filter: blur(26px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+.rw-le-morph-content {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 3rem 3.25rem;
+  text-align: left;
+}
+.rw-le-morph-cards {
+  position: absolute;
+  z-index: 3;
+  left: 0;
+  right: 0;
+  bottom: 6vh;
+  padding: 0 2.5rem;
+  opacity: 0;
+  pointer-events: none;
+}
+.rw-le-morph-cards-grid {
+  max-width: 1140px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.5rem;
+}
+.rw-le-morph-cue {
+  position: absolute;
+  z-index: 6;
+  left: 0;
+  right: 0;
+  bottom: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--rw-ink-soft);
+}
+
+/* ===== Feature cards (revealed over the expanded media) ===== */
+.rw-le-card {
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  color: inherit;
+  background: color-mix(in srgb, #fff 72%, transparent);
+  backdrop-filter: blur(14px);
+  border: 1px solid color-mix(in srgb, var(--rw-teal-strong) 16%, transparent);
+  border-radius: 20px;
+  padding: 28px 26px;
+  box-shadow: 0 18px 50px rgba(42, 42, 42, 0.1);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.rw-le-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 26px 60px rgba(42, 42, 42, 0.16);
+}
+.rw-le-card-num {
+  font-family: var(--rw-font-mono);
+  font-size: 12px;
+  color: var(--le-accent);
+  letter-spacing: 0.08em;
+  margin-bottom: 18px;
+}
+.rw-le-card h3 {
+  font-family: var(--rw-font-display);
+  font-weight: 700;
+  font-size: 1.35rem;
+  color: var(--rw-ink);
+  margin: 0 0 10px;
+}
+.rw-le-card p {
+  color: var(--rw-ink-soft);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  margin: 0 0 18px;
+  flex: 1;
+}
+.rw-le-card-link {
+  font-weight: 500;
+  font-size: 0.9rem;
+  color: var(--le-accent);
+}
+
+/* ===== Nav ===== */
+.rw-le-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.1rem 2.5rem;
+  /* No background — the looping video stays fully visible behind the nav. */
+  background: transparent;
+}
+.rw-le-nav-left {
+  display: flex;
+  align-items: center;
+  gap: 2.25rem;
+}
+.rw-le-brand {
+  font-family: var(--rw-font-display);
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: var(--rw-ink);
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+.rw-le-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+.rw-le-nav-links a {
+  font-size: 0.9rem;
+  color: var(--rw-ink-soft);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.rw-le-nav-links a:hover {
+  color: var(--rw-ink);
+}
+.rw-le-cta {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 500;
+  font-size: 0.875rem;
+  color: #fff;
+  background: var(--le-accent);
+  border-radius: 999px;
+  padding: 0.6rem 1.35rem;
+  text-decoration: none;
+  transition: filter 0.2s;
+}
+.rw-le-cta:hover {
+  filter: brightness(1.08);
+}
+
+@media (max-width: 640px) {
+  .rw-le-nav {
+    padding: 1rem 1.25rem;
+  }
+  .rw-le-nav-links {
+    display: none;
+  }
+}
+
+/* Smaller screens: tighter card padding + breathing room for the reveal cards.
+   The panel's rest geometry is computed mobile-aware in JS. */
+@media (max-width: 820px) {
+  .rw-le-morph-content {
+    padding: 2rem 1.5rem;
+  }
+  .rw-le-morph-cards {
+    bottom: 4vh;
+    padding: 0 1.25rem;
+  }
+  .rw-le-final-holder {
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(520px, 90vw);
+  }
+  .rw-le-final-card {
+    padding: 2rem 1.5rem;
+  }
+}
+
+/* ===== Scrolling content ===== */
+.rw-le-scroll {
+  position: relative;
+  z-index: 2;
+  display: block;
+}
+
+/* ===== Shared text (hero copy + final) ===== */
+.rw-le-eyebrow {
+  font-family: var(--rw-font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--le-accent);
+  margin: 0 0 1.25rem;
+}
+.rw-le-title {
+  font-family: var(--rw-font-display);
+  font-weight: 600;
+  font-size: clamp(2.1rem, 3.4vw, 3.6rem);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  margin: 0;
+  color: var(--rw-ink);
+}
+.rw-le-mark {
+  position: relative;
+  display: inline-block;
+}
+.rw-le-mark-bar {
+  position: absolute;
+  left: -0.04em;
+  right: -0.04em;
+  bottom: 0.1em;
+  height: 0.34em;
+  background: var(--le-accent);
+  border-radius: 5px;
+  z-index: 0;
+}
+.rw-le-mark-text {
+  position: relative;
+  z-index: 1;
+}
+.rw-le-sub {
+  margin: 1.5rem 0 0;
+  max-width: 34rem;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: var(--rw-ink-soft);
+}
+.rw-le-hero-ctas {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-top: 2rem;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+.rw-le-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--le-accent);
+  color: #fff;
+  font-weight: 500;
+  border-radius: 999px;
+  padding: 0.95rem 2rem;
+  font-size: 0.95rem;
+  text-decoration: none;
+  transition: filter 0.2s;
+  box-shadow: 0 12px 30px rgba(85, 112, 105, 0.28);
+}
+.rw-le-btn-primary:hover {
+  filter: brightness(1.08);
+}
+.rw-le-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--rw-ink);
+  font-weight: 500;
+  font-size: 0.95rem;
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--rw-ink) 25%, transparent);
+  padding-bottom: 2px;
+  transition: border-color 0.2s;
+}
+.rw-le-btn-ghost:hover {
+  border-color: var(--rw-ink);
+}
+.rw-le-cue-label {
+  font-family: var(--rw-font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.rw-le-morph-cue svg {
+  animation: rw-le-bounce 1.4s infinite;
+}
+
+/* ===== Act 3: crossfade layers (mirrored final video + glass card on left) ===== */
+.rw-le-final-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  /* JS crossfades this in over the expanded hero2 video. */
+  opacity: 0;
+}
+.rw-le-final-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  /* Mirror the clip horizontally. */
+  transform: scaleX(-1);
+}
+.rw-le-final-holder {
+  position: absolute;
+  z-index: 4;
+  left: 5vw;
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(600px, 48vw);
+  /* JS crossfades the whole card in during act 3. */
+  opacity: 0;
+}
+.rw-le-final-card {
+  width: 100%;
+  padding: 2.75rem 3rem;
+  text-align: left;
+  /* Frosted glass — bare blur() (Lightning CSS strips saturate()/-webkit).
+     Heavier tint than the hero card (0.32): this sits over a much darker night
+     clip and the dark copy would otherwise wash out. */
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(26px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 24px 70px rgba(42, 42, 42, 0.28);
+}
+.rw-le-final-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+}
+.rw-le-final-title {
+  font-family: var(--rw-font-serif);
+  font-weight: 500;
+  font-size: clamp(2rem, 3.4vw, 3.2rem);
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  color: var(--rw-ink);
+  margin: 0;
+}
+.rw-le-final-sub {
+  margin: 1.25rem 0 2rem;
+  font-size: 1.02rem;
+  line-height: 1.6;
+  color: var(--rw-ink-soft);
+}
+.rw-le-final-card .rw-le-btn-primary {
+  padding: 1rem 2.25rem;
+  font-size: 1rem;
+  box-shadow: 0 14px 36px rgba(85, 112, 105, 0.3);
+}
+
+@keyframes rw-le-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-30%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rw-le-morph-cue svg {
+    animation: none;
+  }
+  .rw-le-final-inner,
+  .rw-le-card {
+    transition: none;
+  }
+}
