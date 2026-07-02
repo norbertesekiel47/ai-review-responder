@@ -680,7 +680,10 @@ describe('AccountOffboarding TeardownWorker', () => {
     mockState.offboarding = offboardingRow({
       mode: 'cancel_only',
       status: 'scheduled',
-      access_ends_at: new Date('2026-07-01T00:00:00.000Z'),
+      // Access end must be in the future relative to the handler's real clock
+      // (it gates on `access_ends_at > Date.now()`), so express it relative to
+      // now rather than a fixed date that silently expires and fails the suite.
+      access_ends_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
       purge_cancelled_at: null,
     });
 
