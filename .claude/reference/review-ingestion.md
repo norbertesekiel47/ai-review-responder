@@ -98,7 +98,19 @@ on first encounter (before any `review_content_hash` is stored):
 ## Zernio Mode
 
 Zernio provides canonical review IDs. Use them directly — no SHA-256 fallback
-needed. Outbox dedup index (`job_outbox_ingest_zernio_review_inflight`)
+needed.
+
+> **Google-native resource name capture (migration 070):** `ZernioReview.name`
+> carries Google's review resource name
+> (`accounts/{a}/locations/{l}/reviews/{r}`). Ingest persists it to
+> `reviews.google_review_name` via `normalizeGoogleReviewName`
+> (`src/lib/reviews/zernio-normalize.ts` — fail-open to NULL; capture is
+> provenance, never a reason to fail ingest) at the review-content write sites:
+> `processReview` INSERT, the content-changed UPDATE (COALESCE — never clobbers
+> a stored value), and `insertImportedReview` (INSERT + conflict-arm backfill).
+> It is **NOT dedup identity** — that remains `(provider,
+> provider_review_name)`. Consumer: the future direct-GBP posting adapter,
+> which addresses replies by exactly this resource name. Outbox dedup index (`job_outbox_ingest_zernio_review_inflight`)
 handles duplicate webhook deliveries:
 
 ```sql

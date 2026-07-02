@@ -1673,9 +1673,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/reviews/process-review.ts",
     table: "reviews",
-    sqlSnippet: "UPDATE reviews SET reviewer_name = ${review.reviewerName}, star_rating = ${review.starRating}, review_text = ${review.reviewText}, review_date = ${review.reviewDate}, detected_language = ${review.detectedLanguage}, review_content_hash = ${contentHash}, sentiment_score = ${sentiment.score}, sentiment_label = ${sentiment.label}, sentiment_classified_at = NOW(), sentiment_source = ${sentiment.source}, status = CASE WHEN status = 'deleted' THEN 'new' ELSE status END, detected_at = CASE WHEN status = 'deleted' THEN NOW() ELSE detected_at END WHERE id = ${existing.id}",
+    sqlSnippet: "UPDATE reviews SET reviewer_name = ${review.reviewerName}, star_rating = ${review.starRating}, review_text = ${review.reviewText}, review_date = ${review.reviewDate}, detected_language = ${review.detectedLanguage}, review_content_hash = ${contentHash}, google_review_name = COALESCE(${identity.googleReviewName}, google_review_name), sentiment_score = ${sentiment.score}, sentiment_label = ${sentiment.label}, sentiment_classified_at = NOW(), sentiment_source = ${sentiment.source}, status = CASE WHEN status = 'deleted' THEN 'new' ELSE status END, detected_at = CASE WHEN status = 'deleted' THEN NOW() ELSE detected_at END WHERE id = ${existing.id}",
     category: 'worker-job-scoped',
-    reason: "Review ingest transaction receives businessId from source connection resolution; provider/review ids here are locked and mutated inside that scoped ingest. Sentiment columns are derived non-tenant metadata (deterministic star classification).",
+    reason: "Review ingest transaction receives businessId from source connection resolution; provider/review ids here are locked and mutated inside that scoped ingest. Sentiment columns are derived non-tenant metadata (deterministic star classification); google_review_name is provider-derived provenance (migration 070).",
   },
   {
     file: "src/lib/reviews/process-review.ts",

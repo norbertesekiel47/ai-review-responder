@@ -39,6 +39,7 @@ function makeMonitoredReview(overrides: Partial<{
   providerReviewId: string;
   providerReviewName: string;
   providerLocationName: string;
+  googleReviewName: string | null;
   contentHash: string;
   starRating: number;
 }> = {}) {
@@ -57,6 +58,7 @@ function makeMonitoredReview(overrides: Partial<{
       providerReviewId: overrides.providerReviewId ?? 'r1',
       providerReviewName,
       providerLocationName: overrides.providerLocationName ?? `${provider}://loc1`,
+      googleReviewName: overrides.googleReviewName ?? null,
       identityStrategy: 'zernio_id' as const,
     },
     contentHash: overrides.contentHash ?? 'hash-abc',
@@ -525,6 +527,52 @@ describe('processReview', () => {
     expect(params).toContain('deterministic_star_v1');
     // 1-star → score = (1−3)/2 = −1
     expect(params).toContain(-1);
+  });
+
+  it('new-review INSERT persists google_review_name from identity', async () => {
+    const monitored = makeMonitoredReview({
+      googleReviewName: 'accounts/A/locations/L/reviews/r1',
+    });
+
+    tx
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
+
+    const result = await processReview(monitored, 'biz-1', 'corr-1');
+    expect(result).toBe('new');
+
+    // The INSERT INTO reviews is the 2nd tx call (index 1).
+    const insertSql = (tx.mock.calls[1]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(insertSql).toContain('google_review_name');
+
+    const params = (tx.mock.calls[1] as unknown[]).slice(1);
+    expect(params).toContain('accounts/A/locations/L/reviews/r1');
+  });
+
+  it('content-changed UPDATE converges google_review_name without clobbering (COALESCE)', async () => {
+    const monitored = makeMonitoredReview({
+      contentHash: 'new-hash',
+      googleReviewName: 'accounts/A/locations/L/reviews/r1',
+    });
+
+    tx
+      .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash', status: 'new' }], 1))
+      .mockResolvedValueOnce(withCount([], 0))  // UPDATE reviews
+      .mockResolvedValueOnce(withCount([], 0))  // SELECT active response → none
+      .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
+      .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
+
+    const result = await processReview(monitored, 'biz-1', 'corr-1');
+    expect(result).toBe('updated');
+
+    // The UPDATE reviews is the 2nd tx call (index 1).
+    const updateSql = (tx.mock.calls[1]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(updateSql).toContain('google_review_name = COALESCE(');
+
+    const params = (tx.mock.calls[1] as unknown[]).slice(1);
+    expect(params).toContain('accounts/A/locations/L/reviews/r1');
   });
 
   it('status-only revival UPDATE (deleted row, same hash) does NOT include sentiment_label', async () => {

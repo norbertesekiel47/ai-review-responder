@@ -62,13 +62,13 @@ export async function processReview(
       const inserted = await tx<{ id: string }[]>`
         INSERT INTO reviews (
           id, business_id, provider, provider_review_id,
-          provider_review_name, provider_location_name,
+          provider_review_name, provider_location_name, google_review_name,
           reviewer_name, star_rating, review_text, review_date,
           detected_language, review_content_hash, status, detected_at,
           sentiment_score, sentiment_label, sentiment_classified_at, sentiment_source
         ) VALUES (
           ${reviewId}, ${businessId}, ${identity.provider}, ${identity.providerReviewId},
-          ${identity.providerReviewName}, ${identity.providerLocationName},
+          ${identity.providerReviewName}, ${identity.providerLocationName}, ${identity.googleReviewName},
           ${review.reviewerName}, ${review.starRating}, ${review.reviewText}, ${review.reviewDate},
           ${review.detectedLanguage}, ${contentHash}, 'new', NOW(),
           ${sentiment.score}, ${sentiment.label}, NOW(), ${sentiment.source}
@@ -192,7 +192,7 @@ async function processExistingReview(
   suppressNotification: boolean,
   originLane: GenerateResponseOriginLane,
 ): Promise<ProcessResult> {
-  const { review, contentHash } = monitored;
+  const { review, identity, contentHash } = monitored;
   const existingHash = existing.review_content_hash;
 
   if (existingHash === contentHash) {
@@ -244,6 +244,7 @@ async function processExistingReview(
         review_date = ${review.reviewDate},
         detected_language = ${review.detectedLanguage},
         review_content_hash = ${contentHash},
+        google_review_name = COALESCE(${identity.googleReviewName}, google_review_name),
         sentiment_score = ${sentiment.score},
         sentiment_label = ${sentiment.label},
         sentiment_classified_at = NOW(),
