@@ -72,7 +72,8 @@ export function isCompositionRoot(file: string): boolean {
  * A value re-export (`export { sql } from '@/lib/db/server'`) counts: it still
  * wires a non-root module to the singleton's runtime value. The guard covers
  * STATIC import/export declarations only; dynamic `import()` is out of scope
- * by design (none exist outside tests today). Pure — unit-tested.
+ * by design (the only live one today is in worker/index.ts, itself a
+ * composition root). Pure — unit-tested.
  */
 export function fileImportsDbServer(text: string): boolean {
   const source = ts.createSourceFile(
