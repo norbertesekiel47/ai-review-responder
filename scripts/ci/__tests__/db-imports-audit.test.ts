@@ -43,6 +43,7 @@ describe('db-imports-audit', () => {
     expect(isCompositionRoot('src/app/(authenticated)/layout.tsx')).toBe(true); // Next.js invokes layouts — no injector exists
     expect(isCompositionRoot('worker/index.ts')).toBe(true);
     expect(isCompositionRoot('worker/jobs/OnboardingDemoWorker.ts')).toBe(true);
+    expect(isCompositionRoot('worker/jobs/summary-report-helpers.ts')).toBe(false); // named exception: top-level helper, not a handler
     expect(isCompositionRoot('worker/jobs/publisher/post-reply.ts')).toBe(false); // subfolder helper ≠ root
     expect(isCompositionRoot('worker/background/pollers/OutboxPoller.ts')).toBe(true);
     expect(isCompositionRoot('worker/background/pollers/health-alert/checks.ts')).toBe(false); // poller subfolder helper ≠ root

@@ -114,6 +114,7 @@ export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([
   'worker/jobs/response-generation/analytics.ts',
   'worker/jobs/response-generation/load-context.ts',
   'worker/jobs/response-generation/persist.ts',
+  'worker/jobs/summary-report-helpers.ts',
   'worker/jobs/zernio/ZernioBackfillWorker.ts',
   'worker/jobs/zernio/ZernioReviewIngestWorker.ts',
   'worker/jobs/zernio/ingest-failed-hook.ts',

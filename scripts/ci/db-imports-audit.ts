@@ -38,6 +38,14 @@ function isDbServerSpecifier(spec: string): boolean {
 }
 
 /**
+ * Top-level files in root-classed directories that are NOT entry points —
+ * helpers that live beside the handlers they serve. Named explicitly (no
+ * filename heuristics): position grants root status; these are the known
+ * exceptions. A Stage-2 sweep migrates them onto parameter injection.
+ */
+const NON_ROOT_EXCEPTIONS = new Set(['worker/jobs/summary-report-helpers.ts']);
+
+/**
  * True when the file is a composition root that may import the db/server
  * singleton directly and pass `sql`/`supabaseServer` down (spec §2.1): the
  * singleton owner itself, `src/instrumentation.ts`, Next.js route handlers /
@@ -52,9 +60,12 @@ function isDbServerSpecifier(spec: string): boolean {
  * exemption stays a blanket on purpose: per-event ingress handlers
  * legitimately live in provider subfolders (`ingress/stripe/*.ts`, …), so
  * path shape can't separate a handler from a helper there — the ~3 shared
- * helpers that ride along are an accepted width cost. Pure — unit-tested.
+ * helpers that ride along are an accepted width cost. NON_ROOT_EXCEPTIONS
+ * overrides all positional rules for known top-level helpers.
+ * Pure — unit-tested.
  */
 export function isCompositionRoot(file: string): boolean {
+  if (NON_ROOT_EXCEPTIONS.has(file)) return false;
   if (file === 'src/lib/db/server.ts' || file === 'src/instrumentation.ts') return true;
   if (/^src\/app\/(?:.*\/)?route\.ts$/.test(file)) return true;
   if (/^src\/app\/(?:.*\/)?page\.tsx$/.test(file)) return true;
