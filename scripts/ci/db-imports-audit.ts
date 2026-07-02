@@ -25,12 +25,16 @@ function normalize(file: string): string {
 /**
  * True when `spec` (a static import/export module specifier string) points at
  * the db/server singleton module — the aliased form (`@/lib/db/server`) or any
- * relative form ending in `db/server` (e.g. `../../db/server`). A specifier
- * that merely SHARES the prefix (`@/lib/db/server-utils`) does not match: the
- * relative form requires `db/server` to be the full trailing path segment.
+ * relative form ending in `db/server` (e.g. `../../db/server`). An
+ * extension-qualified specifier (`@/lib/db/server.js` / `../../db/server.ts`)
+ * resolves to the same module, so the `.js`/`.ts` suffix is stripped before
+ * matching. A specifier that merely SHARES the prefix (`@/lib/db/server-utils`,
+ * with or without extension) does not match: the relative form requires
+ * `db/server` to be the full trailing path segment.
  */
 function isDbServerSpecifier(spec: string): boolean {
-  return spec === '@/lib/db/server' || /(^|\/)db\/server$/.test(spec);
+  const withoutExtension = spec.replace(/\.(?:js|ts)$/, '');
+  return withoutExtension === '@/lib/db/server' || /(^|\/)db\/server$/.test(withoutExtension);
 }
 
 /**
@@ -63,17 +67,61 @@ export function isCompositionRoot(file: string): boolean {
 }
 
 /**
- * True if the file's AST contains an `import`/`export ... from` of the
- * db/server singleton that is NOT type-only. Parses with the TypeScript
- * compiler (mirrors process-env-audit / response-status-audit / static-policy-
- * audit) so a `"@/lib/db/server"` string literal or comment can't false-fire,
- * and a `import type { Sql } from '@/lib/db/server'` (or `export type { ... }`)
- * is correctly excluded — it carries no runtime dependency on the singleton.
- * A value re-export (`export { sql } from '@/lib/db/server'`) counts: it still
- * wires a non-root module to the singleton's runtime value. The guard covers
- * STATIC import/export declarations only; dynamic `import()` is out of scope
- * by design (the only live one today is in worker/index.ts, itself a
- * composition root). Pure — unit-tested.
+ * True when an ImportDeclaration binds at least one RUNTIME value from its
+ * module: a default binding, a namespace binding, a named specifier without
+ * an inline `type` keyword, or no import clause at all (a bare side-effect
+ * `import '...'` still executes the module). `import { type Sql } from ...`
+ * binds only types and is runtime-free.
+ */
+function importBindsRuntimeValue(node: ts.ImportDeclaration): boolean {
+  const clause = node.importClause;
+  if (!clause) return true;
+  if (clause.isTypeOnly) return false;
+  if (clause.name) return true;
+  const bindings = clause.namedBindings;
+  if (!bindings) return false;
+  if (ts.isNamespaceImport(bindings)) return true;
+  return bindings.elements.some((specifier) => !specifier.isTypeOnly);
+}
+
+/**
+ * True when an ExportDeclaration re-exports at least one RUNTIME value from
+ * its module: `export * from`, `export * as ns from`, or a named specifier
+ * without an inline `type` keyword. `export { type Sql } from ...` re-exports
+ * only types and is runtime-free.
+ */
+function exportBindsRuntimeValue(node: ts.ExportDeclaration): boolean {
+  if (node.isTypeOnly) return false;
+  const clause = node.exportClause;
+  if (!clause) return true;
+  if (ts.isNamespaceExport(clause)) return true;
+  return clause.elements.some((specifier) => !specifier.isTypeOnly);
+}
+
+/**
+ * The specifier text of a dynamic `import('...')` with a single
+ * string-literal argument, else null (computed specifiers return null).
+ */
+function literalDynamicImportSpecifier(node: ts.Node): string | null {
+  if (!ts.isCallExpression(node) || node.expression.kind !== ts.SyntaxKind.ImportKeyword) return null;
+  if (node.arguments.length !== 1) return null;
+  const argument = node.arguments[0];
+  return argument !== undefined && ts.isStringLiteralLike(argument) ? argument.text : null;
+}
+
+/**
+ * True if the file's AST contains a RUNTIME-value dependency on the db/server
+ * singleton: an `import`/`export ... from` declaration binding at least one
+ * value (statement-level `import type`/`export type` AND inline
+ * `{ type Sql }` specifiers are excluded — they carry no runtime dependency),
+ * or a literal dynamic `import('...')` of the module. Parses with the
+ * TypeScript compiler (mirrors process-env-audit / response-status-audit /
+ * static-policy-audit) so a `"@/lib/db/server"` string literal or comment
+ * can't false-fire. A value re-export (`export { sql } from
+ * '@/lib/db/server'`) counts: it still wires a non-root module to the
+ * singleton's runtime value. Literal dynamic imports count; only COMPUTED
+ * specifiers (`import(someVar)`, concatenations) are out of scope — none
+ * exist for db/server today. Pure — unit-tested.
  */
 export function fileImportsDbServer(text: string): boolean {
   const source = ts.createSourceFile(
@@ -88,20 +136,26 @@ export function fileImportsDbServer(text: string): boolean {
     if (found) return;
     if (ts.isImportDeclaration(node)) {
       if (
-        !node.importClause?.isTypeOnly &&
         ts.isStringLiteralLike(node.moduleSpecifier) &&
-        isDbServerSpecifier(node.moduleSpecifier.text)
+        isDbServerSpecifier(node.moduleSpecifier.text) &&
+        importBindsRuntimeValue(node)
       ) {
         found = true;
         return;
       }
     } else if (ts.isExportDeclaration(node)) {
       if (
-        !node.isTypeOnly &&
         node.moduleSpecifier &&
         ts.isStringLiteralLike(node.moduleSpecifier) &&
-        isDbServerSpecifier(node.moduleSpecifier.text)
+        isDbServerSpecifier(node.moduleSpecifier.text) &&
+        exportBindsRuntimeValue(node)
       ) {
+        found = true;
+        return;
+      }
+    } else {
+      const dynamicSpecifier = literalDynamicImportSpecifier(node);
+      if (dynamicSpecifier !== null && isDbServerSpecifier(dynamicSpecifier)) {
         found = true;
         return;
       }

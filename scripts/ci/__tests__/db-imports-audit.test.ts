@@ -10,6 +10,23 @@ describe('db-imports-audit', () => {
     expect(fileImportsDbServer(`const x = "@/lib/db/server";`)).toBe(false); // string literal, not import
     expect(fileImportsDbServer(`import { db } from '@/lib/db/server-utils';`)).toBe(false); // no suffix match
   });
+  it('detects extension-qualified specifiers of db/server', () => {
+    expect(fileImportsDbServer(`import { sql } from '@/lib/db/server.js';`)).toBe(true);
+    expect(fileImportsDbServer(`import { sql } from '../../db/server.ts';`)).toBe(true);
+    expect(fileImportsDbServer(`import { db } from '@/lib/db/server-utils.js';`)).toBe(false);
+  });
+  it('detects literal dynamic imports of db/server (computed specifiers out of scope)', () => {
+    expect(fileImportsDbServer(`const m = await import('@/lib/db/server');`)).toBe(true);
+    expect(fileImportsDbServer(`const m = await import(someVar);`)).toBe(false);
+    expect(fileImportsDbServer(`const m = await import('@/lib/other');`)).toBe(false);
+  });
+  it('excludes inline-type-only specifiers but counts any runtime binding', () => {
+    expect(fileImportsDbServer(`import { type Sql } from '@/lib/db/server';`)).toBe(false); // runtime-free
+    expect(fileImportsDbServer(`import { type Sql, sql } from '@/lib/db/server';`)).toBe(true); // mixed → counts
+    expect(fileImportsDbServer(`export { type Sql } from '@/lib/db/server';`)).toBe(false); // runtime-free re-export
+    expect(fileImportsDbServer(`import db from '@/lib/db/server';`)).toBe(true); // default binding
+    expect(fileImportsDbServer(`import * as db from '@/lib/db/server';`)).toBe(true); // namespace binding
+  });
   it('exempts composition roots', () => {
     expect(isCompositionRoot('src/lib/db/server.ts')).toBe(true);
     expect(isCompositionRoot('src/instrumentation.ts')).toBe(true);
