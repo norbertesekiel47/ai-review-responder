@@ -62,7 +62,7 @@ export interface SendNotificationPayload extends BasePayload {
   failover?: {
     reason: 'all_deliveries_failed';
     // 'stale_no_delivery' was removed in Phase 0 — the poller alerts admin
-    // directly instead of re-dispatching. See docs/adr/0003-conversational-channel-seams.md.
+    // directly instead of re-dispatching. See docs/plans/adding-communication-channels.md §3.5.
   };
 }
 

@@ -66,12 +66,12 @@ const COLOR_CLASSES: Record<
 };
 
 const STATE_STYLES: Record<QueueHealthJobState, { label: string; value: string }> = {
-  waiting: { label: 'font-medium text-gray-500', value: 'text-gray-800' },
-  active: { label: 'font-medium text-blue-500', value: 'text-blue-700' },
-  delayed: { label: 'font-medium text-yellow-500', value: 'text-yellow-700' },
-  failed: { label: 'font-medium text-red-500', value: 'text-red-700' },
-  completed: { label: 'font-medium text-green-500', value: 'text-green-700' },
-  paused: { label: 'font-medium text-gray-400', value: 'text-gray-600' },
+  waiting: { label: 'text-gray-500', value: 'text-gray-800' },
+  active: { label: 'text-blue-500', value: 'text-blue-700' },
+  delayed: { label: 'text-yellow-500', value: 'text-yellow-700' },
+  failed: { label: 'text-red-500', value: 'text-red-700' },
+  completed: { label: 'text-green-500', value: 'text-green-700' },
+  paused: { label: 'text-gray-400', value: 'text-gray-600' },
 };
 
 function SummaryCard({
@@ -170,7 +170,7 @@ export default function JobsPage() {
                   <div className="grid grid-cols-6 gap-2 text-center text-xs">
                     {QUEUE_HEALTH_JOB_STATES.map((state) => (
                       <div key={state}>
-                        <p className={STATE_STYLES[state].label}>{state}</p>
+                        <p className={`font-medium ${STATE_STYLES[state].label}`}>{state}</p>
                         <p className={`mt-0.5 text-base font-bold ${STATE_STYLES[state].value}`}>
                           {counts[state] ?? 0}
                         </p>
