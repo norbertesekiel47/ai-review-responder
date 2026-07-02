@@ -26,7 +26,11 @@ import { getEligibleChannels } from '../notification/eligibility';
 import { loadAutoPostNoticeContext } from './context';
 import { dispatchAutoPostNotice } from './dispatch';
 
-// fallow-ignore-next-line complexity — entry-point orchestration (invariant #12): a flat guard-and-return sequence (context fail/skip, eligibility ok/empty, missing app-url, null google-url, systemic-failure, retryable-throw); cyclomatic count is the distinct-outcome vocabulary, not tangled logic.
+// entry-point orchestration (invariant #12): a flat guard-and-return sequence
+// (context fail/skip, eligibility ok/empty, missing app-url, null google-url,
+// systemic-failure, retryable-throw); cyclomatic count is the distinct-outcome
+// vocabulary, not tangled logic.
+// fallow-ignore-next-line complexity
 export async function handleAutoPostNotice(job: Job<AutoPostNoticePayload>): Promise<void> {
   const logger = createWorkerLogger('[AutoPostNoticeWorker]', job.data.correlation_id);
   const { response_id } = job.data;

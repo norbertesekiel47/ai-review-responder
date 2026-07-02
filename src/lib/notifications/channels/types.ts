@@ -5,7 +5,7 @@
 // one provider (Resend, Twilio, Telegram Bot API, etc.) and produces a
 // deterministic external_message_id for delivery tracking.
 //
-// See docs/adding-communication-channels.md §1 for rationale.
+// See docs/adr/0003-conversational-channel-seams.md for rationale.
 
 /** The set of notification channels. Single owner — every enumeration of
  *  channels (dispatch order, SQL filters, eligibility records) derives from
