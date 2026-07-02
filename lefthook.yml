@@ -37,3 +37,5 @@ pre-push:
       run: pnpm vitest run src/__tests__
     reviews-status:
       run: pnpm ci:reviews-status
+    outbox-topics:
+      run: pnpm ci:outbox-topics

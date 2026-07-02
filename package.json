@@ -30,6 +30,7 @@
     "ci:config-coverage": "tsx scripts/ci/config-coverage-audit.ts",
     "ci:process-env": "tsx scripts/ci/process-env-audit.ts",
     "ci:reviews-status": "tsx scripts/ci/reviews-status-audit.ts",
+    "ci:outbox-topics": "tsx scripts/ci/outbox-topics-audit.ts",
     "ci:fallow": "fallow audit --gate new-only --fail-on-issues --base ${FALLOW_BASE:-origin/main}",
     "worker": "tsx worker/index.ts",
     "redis": "tsx scripts/redis.ts",
