@@ -31,7 +31,6 @@ import {
 import { describeWithDb } from '../../../../src/__tests__/helpers/describe-with-db';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
-const RUN = Boolean(testDatabaseUrl);
 
 const WEBHOOK_SECRET = 'zernio-fanout-archived-integration-secret';
 
@@ -165,11 +164,10 @@ describeWithDb('Zernio webhook fan-out vs archived locations (live DB)', () => {
       await db.end({ timeout: 5 });
     }
     // Close the handler's shared db/server client too, or the vitest fork
-    // can hang on its open sockets.
-    if (RUN) {
-      const { sql: serverSql } = await import('../../../../src/lib/db/server');
-      await serverSql.end({ timeout: 5 });
-    }
+    // can hang on its open sockets. (Unconditional: this afterAll only runs
+    // when the DB-gated suite ran.)
+    const { sql: serverSql } = await import('../../../../src/lib/db/server');
+    await serverSql.end({ timeout: 5 });
   });
 
   it('account-wide fan-out enqueues only the active business, never the archived sibling', async () => {
