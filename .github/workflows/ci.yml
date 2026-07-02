@@ -62,6 +62,8 @@ jobs:
         run: pnpm ci:config-coverage
       - name: Run process.env baseline audit
         run: pnpm ci:process-env
+      - name: DB-imports audit
+        run: pnpm ci:db-imports
       - name: Run RLS coverage audit
         run: pnpm ci:rls-audit
       # Informational only: Dependabot owns dependency updates; this surfaces
