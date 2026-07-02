@@ -59,6 +59,14 @@ export interface RatingBreakdown {
   total: number;
 }
 
+/** Owner-facing value rollup — one wire shape for BOTH dashboard scopes. */
+export interface ValueSummary {
+  totalReviewsHandled: number;
+  totalTimeSavedMinutes: number;
+  currentResponseRate: number;
+  baselineResponseRate: number | null;
+}
+
 export interface DashboardDataActive {
   subscriptionStatus?: never;
   /**
@@ -69,12 +77,7 @@ export interface DashboardDataActive {
    */
   trialEndsAt?: string | null;
   business: { name: string; createdAt: string };
-  valueSummary: {
-    totalReviewsHandled: number;
-    totalTimeSavedMinutes: number;
-    currentResponseRate: number;
-    baselineResponseRate: number | null;
-  };
+  valueSummary: ValueSummary;
   /** Reputation-health metrics for the redesigned landing. Only populated when
    *  the route requests includeReputationMetrics (single-location landing);
    *  absent on the aggregate / lighter paths. */
@@ -243,12 +246,7 @@ export interface AggregateDashboardData {
   /** Discriminator: always 'aggregate' to distinguish from per-location DashboardData. */
   scope: 'aggregate';
   /** Aggregate value summary — sums across all active locations. */
-  valueSummary: {
-    totalReviewsHandled: number;
-    totalTimeSavedMinutes: number;
-    currentResponseRate: number;
-    baselineResponseRate: number | null;
-  };
+  valueSummary: ValueSummary;
   /** Combined review velocity (total) across all locations. */
   reviewVelocity: Array<{ weekStart: string; count: number }>;
   /** Per-location velocity for stacked chart mode. */
