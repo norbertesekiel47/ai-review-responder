@@ -64,6 +64,8 @@ jobs:
         run: pnpm ci:process-env
       - name: Run RLS coverage audit
         run: pnpm ci:rls-audit
+      - name: Run reviews-status baseline audit
+        run: pnpm ci:reviews-status
       # Informational only: Dependabot owns dependency updates; this surfaces
       # vulnerable transitive deps between Dependabot runs without gating PRs.
       - name: Dependency vulnerability audit (non-blocking)
