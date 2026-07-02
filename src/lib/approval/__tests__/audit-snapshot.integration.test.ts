@@ -1,11 +1,10 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
+import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
-const RUN = Boolean(testDatabaseUrl);
-const d = RUN ? describe : describe.skip;
 
 let db: postgresType.Sql | undefined;
 
@@ -23,7 +22,7 @@ function sql(): postgresType.Sql {
   return db;
 }
 
-d('approval audit content snapshot integration', () => {
+describeWithDb('approval audit content snapshot integration', () => {
   beforeAll(() => {
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
   });

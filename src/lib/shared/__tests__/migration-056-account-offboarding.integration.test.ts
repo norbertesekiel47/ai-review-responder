@@ -1,9 +1,10 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
 import { cleanupTenantAccount, seedTenantAccount } from './live-db-tenant';
+import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 
 // Behavioral (live-DB) companion to migration-056-account-offboarding.test.ts,
 // which only asserts the migration SQL *text*. This proves the runtime lifecycle
@@ -17,8 +18,6 @@ import { cleanupTenantAccount, seedTenantAccount } from './live-db-tenant';
 // integration tests; skips cleanly without one (e.g. in the no-DB CI test job).
 // The database is expected to already have all migrations applied.
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
-const RUN = Boolean(testDatabaseUrl);
-const d = RUN ? describe : describe.skip;
 
 let db: postgresType.Sql | undefined;
 
@@ -52,7 +51,7 @@ async function insertOffboarding(fields: {
   `;
 }
 
-d('migration 056 account_offboardings — lifecycle CHECK constraints (behavioral)', () => {
+describeWithDb('migration 056 account_offboardings — lifecycle CHECK constraints (behavioral)', () => {
   beforeAll(async () => {
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
     await seedTenantAccount(sql(), {
@@ -144,7 +143,7 @@ d('migration 056 account_offboardings — lifecycle CHECK constraints (behaviora
   });
 });
 
-d('migration 056 deny-all RLS (behavioral)', () => {
+describeWithDb('migration 056 deny-all RLS (behavioral)', () => {
   let rlsDb: postgresType.Sql | undefined;
 
   beforeAll(() => {

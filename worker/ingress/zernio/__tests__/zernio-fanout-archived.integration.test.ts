@@ -19,7 +19,7 @@
 // skips cleanly without one (e.g. in the no-DB CI test job). The database is
 // expected to already have all migrations applied.
 
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { createHmac, randomUUID } from 'node:crypto';
@@ -28,10 +28,10 @@ import {
   cleanupTenantAccount,
   seedTenantAccount,
 } from '../../../../src/lib/shared/__tests__/live-db-tenant';
+import { describeWithDb } from '../../../../src/__tests__/helpers/describe-with-db';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 const RUN = Boolean(testDatabaseUrl);
-const d = RUN ? describe : describe.skip;
 
 const WEBHOOK_SECRET = 'zernio-fanout-archived-integration-secret';
 
@@ -107,7 +107,7 @@ async function fanoutRowsByBusiness(): Promise<Map<string, number>> {
   return new Map(rows.map((row) => [row.aggregate_id, Number(row.count)]));
 }
 
-d('Zernio webhook fan-out vs archived locations (live DB)', () => {
+describeWithDb('Zernio webhook fan-out vs archived locations (live DB)', () => {
   beforeAll(async () => {
     // Point the shared db/server client at the test database BEFORE the
     // handler module (and its transitive db/server import) is first loaded —
