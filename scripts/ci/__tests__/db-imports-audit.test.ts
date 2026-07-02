@@ -19,6 +19,12 @@ describe('db-imports-audit', () => {
     expect(fileImportsDbServer(`const m = await import('@/lib/db/server');`)).toBe(true);
     expect(fileImportsDbServer(`const m = await import(someVar);`)).toBe(false);
     expect(fileImportsDbServer(`const m = await import('@/lib/other');`)).toBe(false);
+    expect(fileImportsDbServer(`const m = await import('@/lib/db/server', {});`)).toBe(true); // two-arg (import attributes)
+    expect(fileImportsDbServer(`const m = await import(someVar, {});`)).toBe(false); // computed stays out of scope
+  });
+  it('counts empty-brace imports/re-exports (module still evaluated at runtime)', () => {
+    expect(fileImportsDbServer(`import {} from '@/lib/db/server';`)).toBe(true);
+    expect(fileImportsDbServer(`export {} from '@/lib/db/server';`)).toBe(true);
   });
   it('excludes inline-type-only specifiers but counts any runtime binding', () => {
     expect(fileImportsDbServer(`import { type Sql } from '@/lib/db/server';`)).toBe(false); // runtime-free

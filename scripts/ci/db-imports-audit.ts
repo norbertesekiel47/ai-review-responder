@@ -67,11 +67,15 @@ export function isCompositionRoot(file: string): boolean {
 }
 
 /**
- * True when an ImportDeclaration binds at least one RUNTIME value from its
- * module: a default binding, a namespace binding, a named specifier without
- * an inline `type` keyword, or no import clause at all (a bare side-effect
- * `import '...'` still executes the module). `import { type Sql } from ...`
- * binds only types and is runtime-free.
+ * True when an ImportDeclaration carries a RUNTIME dependency on its module:
+ * a default binding, a namespace binding, a named specifier without an inline
+ * `type` keyword, no import clause at all (bare side-effect `import '...'`),
+ * or EMPTY braces (`import {} from '...'`) — a non-type-only import
+ * declaration always evaluates the target module regardless of bindings, and
+ * db/server constructs the pool at import. Only a statement-level
+ * `import type` or braces containing EXCLUSIVELY inline-`type` specifiers
+ * (`import { type Sql } from ...`) are runtime-free (TypeScript elides the
+ * whole declaration).
  */
 function importBindsRuntimeValue(node: ts.ImportDeclaration): boolean {
   const clause = node.importClause;
@@ -79,32 +83,39 @@ function importBindsRuntimeValue(node: ts.ImportDeclaration): boolean {
   if (clause.isTypeOnly) return false;
   if (clause.name) return true;
   const bindings = clause.namedBindings;
-  if (!bindings) return false;
+  if (!bindings) return true;
   if (ts.isNamespaceImport(bindings)) return true;
+  if (bindings.elements.length === 0) return true;
   return bindings.elements.some((specifier) => !specifier.isTypeOnly);
 }
 
 /**
- * True when an ExportDeclaration re-exports at least one RUNTIME value from
- * its module: `export * from`, `export * as ns from`, or a named specifier
- * without an inline `type` keyword. `export { type Sql } from ...` re-exports
- * only types and is runtime-free.
+ * True when an ExportDeclaration carries a RUNTIME dependency on its module:
+ * `export * from`, `export * as ns from`, a named specifier without an inline
+ * `type` keyword, or EMPTY braces (`export {} from '...'`) — a non-type-only
+ * re-export declaration always evaluates the target module regardless of
+ * bindings. Only a statement-level `export type` or braces containing
+ * EXCLUSIVELY inline-`type` specifiers (`export { type Sql } from ...`) are
+ * runtime-free.
  */
 function exportBindsRuntimeValue(node: ts.ExportDeclaration): boolean {
   if (node.isTypeOnly) return false;
   const clause = node.exportClause;
   if (!clause) return true;
   if (ts.isNamespaceExport(clause)) return true;
+  if (clause.elements.length === 0) return true;
   return clause.elements.some((specifier) => !specifier.isTypeOnly);
 }
 
 /**
- * The specifier text of a dynamic `import('...')` with a single
- * string-literal argument, else null (computed specifiers return null).
+ * The specifier text of a dynamic `import('...')` whose FIRST argument is a
+ * string literal, else null (computed specifiers return null). Accepts extra
+ * arguments so the import-attributes form `import('...', { with: {} })` is
+ * still caught.
  */
 function literalDynamicImportSpecifier(node: ts.Node): string | null {
   if (!ts.isCallExpression(node) || node.expression.kind !== ts.SyntaxKind.ImportKeyword) return null;
-  if (node.arguments.length !== 1) return null;
+  if (node.arguments.length < 1) return null;
   const argument = node.arguments[0];
   return argument !== undefined && ts.isStringLiteralLike(argument) ? argument.text : null;
 }
