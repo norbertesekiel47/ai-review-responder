@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
+import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { createGuardedPoll } from '../guarded-poll';
 import type { SendMonthlyImpactPayload } from '../../../src/lib/shared/worker-types';
@@ -64,10 +65,10 @@ async function checkAndSchedule(): Promise<void> {
       try {
         const inserted = await sql`
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          SELECT ${uuidv7()}, 'send_monthly_impact', 'business', ${biz.id}, ${jsonb(payload)}, 'pending'
+          SELECT ${uuidv7()}, ${QUEUE_NAMES.SEND_MONTHLY_IMPACT}, 'business', ${biz.id}, ${jsonb(payload)}, 'pending'
           WHERE NOT EXISTS (
             SELECT 1 FROM job_outbox jo
-            WHERE jo.topic = 'send_monthly_impact'
+            WHERE jo.topic = ${QUEUE_NAMES.SEND_MONTHLY_IMPACT}
               AND jo.aggregate_id = ${biz.id}
               AND jo.status IN ('pending', 'dispatching', 'dispatched')
               AND jo.payload->>'month_start_date' = ${monthStartDate}

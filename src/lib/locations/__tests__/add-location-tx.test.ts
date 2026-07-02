@@ -422,7 +422,9 @@ describe('addLocationTransaction', () => {
 
     const txCalls = mockSql.mock.calls.slice(1);
     const validateCall = txCalls.find(
-      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('validate_place_id'),
+      // Topic is an interpolated QUEUE_NAMES value, not a template literal —
+      // check the bound values, not the raw strings array.
+      (c: any[]) => c.slice(1).includes('validate_place_id'),
     );
     expect(validateCall).toBeDefined();
 
@@ -431,7 +433,8 @@ describe('addLocationTransaction', () => {
     // shape as the onboarding dedup guard — INSERT … SELECT … WHERE NOT EXISTS.
     expect(template).toContain('INSERT INTO job_outbox');
     expect(template).toContain('WHERE NOT EXISTS');
-    expect(template).toContain("topic = 'validate_place_id'");
+    expect(template).toContain('topic = ?');
+    expect(validateCall!.slice(1).filter((v: unknown) => v === 'validate_place_id')).toHaveLength(2);
     expect(template).toContain("status IN ('pending', 'dispatching', 'dispatched')");
   });
 
@@ -451,7 +454,9 @@ describe('addLocationTransaction', () => {
 
     const txCalls = mockSql.mock.calls.slice(1);
     const validateCall = txCalls.find(
-      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('validate_place_id'),
+      // Topic is an interpolated QUEUE_NAMES value, not a template literal —
+      // check the bound values, not the raw strings array.
+      (c: any[]) => c.slice(1).includes('validate_place_id'),
     );
     expect(validateCall).toBeDefined();
   });
@@ -471,7 +476,9 @@ describe('addLocationTransaction', () => {
 
     const txCalls = mockSql.mock.calls.slice(1);
     const validateCall = txCalls.find(
-      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('validate_place_id'),
+      // Topic is an interpolated QUEUE_NAMES value, not a template literal —
+      // check the bound values, not the raw strings array.
+      (c: any[]) => c.slice(1).includes('validate_place_id'),
     );
     expect(validateCall).toBeUndefined();
   });
@@ -490,7 +497,9 @@ describe('addLocationTransaction', () => {
 
     const txCalls = mockSql.mock.calls.slice(1);
     const validateCall = txCalls.find(
-      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('validate_place_id'),
+      // Topic is an interpolated QUEUE_NAMES value, not a template literal —
+      // check the bound values, not the raw strings array.
+      (c: any[]) => c.slice(1).includes('validate_place_id'),
     );
     expect(validateCall).toBeUndefined();
   });

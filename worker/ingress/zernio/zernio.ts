@@ -20,6 +20,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
+import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { zernioPublishingEnabled } from '../../../src/lib/publishing/flags';
 import { claimInboundEvent } from '../shared';
 import { verifyZernioSignature } from './zernio-verify';
@@ -194,7 +195,7 @@ async function processReviewEvent(
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
     SELECT
       gen_random_uuid(),
-      'ingest_zernio_review',
+      ${QUEUE_NAMES.INGEST_ZERNIO_REVIEW},
       'business',
       zc.business_id,
       jsonb_build_object(
@@ -210,7 +211,7 @@ async function processReviewEvent(
     WHERE zc.zernio_account_id = ${parsed.accountId}
       AND zc.status = 'active'
       ${locationFilter}
-    ON CONFLICT (aggregate_id, (payload->>'zernio_review_id'))
+    ON CONFLICT (aggregate_id, (payload->>'zernio_review_id')) -- topic-audit-ignore
       WHERE topic = 'ingest_zernio_review'
         AND status IN ('pending', 'dispatching', 'dispatched')
     DO NOTHING

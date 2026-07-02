@@ -246,7 +246,7 @@ export async function enqueuePublishResponse(
       ${jsonb(payload)},
       ${JOB_OUTBOX_STATUS_PENDING}
     )
-    ON CONFLICT (topic, aggregate_id)
+    ON CONFLICT (topic, aggregate_id) -- topic-audit-ignore
     WHERE topic = 'publish_response'
       AND status IN ('pending', 'dispatching', 'dispatched')
     DO NOTHING
@@ -288,7 +288,7 @@ export async function enqueueAutoPostNotice(
       ${jsonb(payload)},
       ${JOB_OUTBOX_STATUS_PENDING}
     )
-    ON CONFLICT (topic, aggregate_id)
+    ON CONFLICT (topic, aggregate_id) -- topic-audit-ignore
     WHERE topic = 'auto_post_notice'
       AND status IN ('pending', 'dispatching', 'dispatched')
     DO NOTHING
@@ -377,12 +377,12 @@ export async function enqueueValidatePlaceId(
   };
   const rows = await tx`
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    SELECT ${uuidv7()}::uuid, 'validate_place_id', 'business', ${input.businessId}::uuid,
+    SELECT ${uuidv7()}::uuid, ${QUEUE_NAMES.VALIDATE_PLACE_ID}, 'business', ${input.businessId}::uuid,
            ${jsonb(payload)}, 'pending'
     WHERE NOT EXISTS (
       SELECT 1 FROM job_outbox jo
       WHERE jo.aggregate_id = ${input.businessId}::uuid
-        AND jo.topic = 'validate_place_id'
+        AND jo.topic = ${QUEUE_NAMES.VALIDATE_PLACE_ID}
         AND jo.status IN ('pending', 'dispatching', 'dispatched')
     )
     RETURNING id

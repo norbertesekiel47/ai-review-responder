@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
+import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { createGuardedPoll } from '../guarded-poll';
 import type { WeeklySummaryPayload } from '../../../src/lib/shared/worker-types';
@@ -79,14 +80,14 @@ async function checkAndSchedule(): Promise<void> {
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
           SELECT
             ${uuidv7()},
-            'weekly_summary',
+            ${QUEUE_NAMES.WEEKLY_SUMMARY},
             'business',
             ${biz.id},
             ${jsonb(payload)},
             'pending'
           WHERE NOT EXISTS (
             SELECT 1 FROM job_outbox jo
-            WHERE jo.topic = 'weekly_summary'
+            WHERE jo.topic = ${QUEUE_NAMES.WEEKLY_SUMMARY}
               AND jo.aggregate_id = ${biz.id}
               AND jo.status IN ('pending', 'dispatching', 'dispatched')
               AND jo.payload->>'week_start_date' = ${weekStartDate}

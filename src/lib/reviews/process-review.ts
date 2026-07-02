@@ -8,6 +8,7 @@ import type {
 } from '@/lib/shared/worker-types';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
 import { enqueueGenerateResponse } from '@/lib/shared/job-outbox-helpers';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 import { classifySentiment } from '@/lib/reviews/sentiment';
@@ -354,7 +355,7 @@ async function processExistingReview(
       await tx`
         INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
         VALUES (
-          ${uuidv7()}, 'notify_admin_review_exception', 'review', ${existing.id},
+          ${uuidv7()}, ${QUEUE_NAMES.NOTIFY_ADMIN}, 'review', ${existing.id},
           ${jsonb(notifyPayload)}, 'pending'
         )
       `;

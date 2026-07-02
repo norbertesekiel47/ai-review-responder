@@ -600,7 +600,10 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
     );
     expect(callTexts.some((t: string) => /zernio_review_id_mismatch/.test(t))).toBe(true);
-    expect(callTexts.some((t: string) => /notify_admin_review_exception/.test(t))).toBe(true);
+    // notify_admin_review_exception is an interpolated QUEUE_NAMES value, not
+    // a template literal — check the bound values, not the raw strings array.
+    const callValues = (mockSql as any).mock.calls.map((c: any[]) => c.slice(1));
+    expect(callValues.some((values: unknown[]) => values.includes('notify_admin_review_exception'))).toBe(true);
   });
 
   it('skips exception/notify when response goes terminal mid-flight during review-not-found', async () => {

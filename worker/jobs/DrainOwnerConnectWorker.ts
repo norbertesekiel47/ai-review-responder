@@ -27,6 +27,7 @@
 
 import type { Job } from 'bullmq';
 import { sql } from '../../src/lib/db/server';
+import { QUEUE_NAMES } from '../../src/lib/shared/queue-names';
 import { markOutboxCompleted, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import type { DrainOwnerConnectPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
@@ -57,7 +58,7 @@ export async function handleDrainOwnerConnect(
     )
     SELECT
       gen_random_uuid(),
-      'publish_response',
+      ${QUEUE_NAMES.PUBLISH_RESPONSE},
       'response',
       stuck.id,
       jsonb_build_object('response_id', stuck.id, 'business_id', stuck.business_id),
@@ -65,11 +66,11 @@ export async function handleDrainOwnerConnect(
     FROM stuck
     WHERE NOT EXISTS (
       SELECT 1 FROM job_outbox jo
-      WHERE jo.topic = 'publish_response'
+      WHERE jo.topic = ${QUEUE_NAMES.PUBLISH_RESPONSE}
         AND jo.aggregate_id = stuck.id
         AND jo.status IN ('pending', 'dispatching', 'dispatched')
     )
-    ON CONFLICT (topic, aggregate_id)
+    ON CONFLICT (topic, aggregate_id) -- topic-audit-ignore
       WHERE topic = 'publish_response'
         AND status IN ('pending', 'dispatching', 'dispatched')
     DO NOTHING

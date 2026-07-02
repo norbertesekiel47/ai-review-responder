@@ -2,6 +2,7 @@ import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import * as Sentry from '@sentry/node';
 import { sql, jsonb } from '../../../src/lib/db/server';
+import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import {
   extractOutboxHandle,
   markOutboxFailed,
@@ -296,7 +297,7 @@ async function handleVerificationIndeterminate(
         INSERT INTO job_outbox (
           id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
         ) VALUES (
-          ${uuidv7()}, 'notify_admin_review_exception', 'review',
+          ${uuidv7()}, ${QUEUE_NAMES.NOTIFY_ADMIN}, 'review',
           ${err.meta.review_id},
           ${jsonb({ review_exception_id: exception.id, business_id: err.meta.business_id })},
           0, 5

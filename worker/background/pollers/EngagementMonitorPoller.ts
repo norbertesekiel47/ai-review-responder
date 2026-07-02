@@ -10,6 +10,7 @@
 import { v7 as uuidv7 } from 'uuid';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql, jsonb } from '../../../src/lib/db/server';
+import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { createWorkerLogger, toError, type WorkerLogger } from '../../../src/lib/shared/logger';
 import { createGuardedPoll } from '../guarded-poll';
 import type { EngagementAlertPayload, EngagementAlertType } from '../../../src/lib/shared/worker-types';
@@ -170,7 +171,7 @@ async function runEngagementCheck(logger: WorkerLogger): Promise<void> {
           const inserted = await sql`
             INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
             SELECT
-              ${uuidv7()}, 'engagement_alert', 'business', ${row.business_id},
+              ${uuidv7()}, ${QUEUE_NAMES.ENGAGEMENT_ALERT}, 'business', ${row.business_id},
               ${jsonb(payload)}, 'pending'
             WHERE NOT EXISTS (
               SELECT 1 FROM notification_deliveries
@@ -180,7 +181,7 @@ async function runEngagementCheck(logger: WorkerLogger): Promise<void> {
             )
             AND NOT EXISTS (
               SELECT 1 FROM job_outbox
-              WHERE topic = 'engagement_alert'
+              WHERE topic = ${QUEUE_NAMES.ENGAGEMENT_ALERT}
                 AND aggregate_id = ${row.business_id}
                 AND status IN ('pending', 'dispatching', 'dispatched')
                 AND payload->>'alert_type' = ${rule.type}

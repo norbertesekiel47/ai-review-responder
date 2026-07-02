@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
@@ -310,7 +311,7 @@ async function runAdminTx(args: {
         INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
         VALUES (
           ${uuidv7()},
-          'validate_place_id',
+          ${QUEUE_NAMES.VALIDATE_PLACE_ID},
           'business',
           ${businessId},
           ${jsonb(payload)},

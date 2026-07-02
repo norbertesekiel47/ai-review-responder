@@ -205,13 +205,18 @@ const {
       return [{ id: mockState.offboarding.id }];
     }
 
+    // Topic values are interpolated QUEUE_NAMES constants, not template
+    // literals — match against the bound values, not the rendered text.
     if (
       text.includes('UPDATE job_outbox')
       && text.includes("status = 'completed'")
-      && text.includes("topic IN ('generate_response', 'send_notification', 'publish_response', 'auto_post_notice')")
-      && text.includes("'account_offboarding_billing_schedule'")
-      && text.includes("'account_offboarding_reactivation'")
-      && text.includes("'account_offboarding_teardown'")
+      && values.includes('generate_response')
+      && values.includes('send_notification')
+      && values.includes('publish_response')
+      && values.includes('auto_post_notice')
+      && values.includes('account_offboarding_billing_schedule')
+      && values.includes('account_offboarding_reactivation')
+      && values.includes('account_offboarding_teardown')
     ) {
       if (!mockState.offboarding) return { count: 0 };
       mockState.offboarding.job_terminalization_step = 'success';
@@ -439,10 +444,18 @@ describe('AccountOffboarding TeardownWorker', () => {
     expect(combinedSql).toContain("COALESCE(array_length(zernio_profile_ids, 1), 0) > 0 AND zernio_profiles_step = 'success'");
     expect(combinedSql).toContain("COALESCE(array_length(location_ids, 1), 0) > 0 AND location_archival_step = 'success'");
     expect(combinedSql).toContain("job_terminalization_step = 'success'");
-    expect(combinedSql).toContain("topic IN ('generate_response', 'send_notification', 'publish_response', 'auto_post_notice')");
-    expect(combinedSql).toContain("'account_offboarding_billing_schedule'");
-    expect(combinedSql).toContain("'account_offboarding_reactivation'");
-    expect(combinedSql).toContain("'account_offboarding_teardown'");
+    // Topic values are interpolated QUEUE_NAMES constants, not template
+    // literals — match against the bound values, not the rendered text.
+    const outboxUpdateCall = sqlCalls.find(
+      (call) => call.text.includes('UPDATE job_outbox') && call.text.includes("status = 'completed'"),
+    );
+    expect(outboxUpdateCall?.values).toContain('generate_response');
+    expect(outboxUpdateCall?.values).toContain('send_notification');
+    expect(outboxUpdateCall?.values).toContain('publish_response');
+    expect(outboxUpdateCall?.values).toContain('auto_post_notice');
+    expect(outboxUpdateCall?.values).toContain('account_offboarding_billing_schedule');
+    expect(outboxUpdateCall?.values).toContain('account_offboarding_reactivation');
+    expect(outboxUpdateCall?.values).toContain('account_offboarding_teardown');
     expect(combinedSql).not.toContain('stripe_checkout_session_reconcile');
 
     expect(mockState.archivedLocations.has(LOCATION_ID)).toBe(true);
@@ -843,11 +856,16 @@ describe('AccountOffboarding TeardownWorker', () => {
     await runOutboxTerminalization(row, 'outbox-teardown-1');
 
     const updateCall = sqlCalls.find((call) => call.text.includes('UPDATE job_outbox'));
-    expect(updateCall?.text).toContain("topic IN ('generate_response', 'send_notification', 'publish_response', 'auto_post_notice')");
+    // Topic values are interpolated QUEUE_NAMES constants, not template
+    // literals — match against the bound values, not the rendered text.
+    expect(updateCall?.values).toContain('generate_response');
+    expect(updateCall?.values).toContain('send_notification');
+    expect(updateCall?.values).toContain('publish_response');
+    expect(updateCall?.values).toContain('auto_post_notice');
     expect(updateCall?.text).toContain("payload->>'business_id' = ANY(?::text[])");
-    expect(updateCall?.text).toContain("'account_offboarding_billing_schedule'");
-    expect(updateCall?.text).toContain("'account_offboarding_reactivation'");
-    expect(updateCall?.text).toContain("'account_offboarding_teardown'");
+    expect(updateCall?.values).toContain('account_offboarding_billing_schedule');
+    expect(updateCall?.values).toContain('account_offboarding_reactivation');
+    expect(updateCall?.values).toContain('account_offboarding_teardown');
     expect(updateCall?.text).toContain("aggregate_id = ?");
     expect(updateCall?.text).toContain("id <> ?");
     expect(updateCall?.text).not.toContain('stripe_checkout_session_reconcile');

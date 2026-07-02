@@ -118,7 +118,10 @@ describe('handlePublisherFailed', () => {
       expect(secondCallSql).toContain("'zernio_reply_verification_indeterminate'");
 
       const thirdCallSql = (mockTx.mock.calls[2]![0] as TemplateStringsArray).join('?');
-      expect(thirdCallSql).toContain("'notify_admin_review_exception'");
+      expect(thirdCallSql).toContain('INSERT INTO job_outbox');
+      // Topic is an interpolated QUEUE_NAMES value, not a template literal —
+      // check the bound values, not the raw strings array.
+      expect(mockTx.mock.calls[2]!.slice(1)).toContain('notify_admin_review_exception');
 
       expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();

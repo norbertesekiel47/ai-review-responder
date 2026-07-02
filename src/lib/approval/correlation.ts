@@ -1,4 +1,5 @@
 import type postgres from 'postgres';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 
 type TxClient = postgres.TransactionSql;
 
@@ -32,7 +33,7 @@ export async function recoverCorrelationId(
   const rows = await tx<{ correlation_id: string | null }[]>`
     SELECT (payload#>>'{}')::jsonb->>'correlation_id' AS correlation_id
     FROM job_outbox
-    WHERE topic = 'generate_response'
+    WHERE topic = ${QUEUE_NAMES.GENERATE_RESPONSE}
       AND aggregate_id = ${input.reviewId}
     ORDER BY created_at DESC
     LIMIT 1

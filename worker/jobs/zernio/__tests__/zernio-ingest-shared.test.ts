@@ -116,7 +116,10 @@ describe('openPhiReviewException', () => {
     }, logger as any);
 
     expect(calls[0]?.sql).toContain('INSERT INTO review_exceptions');
-    expect(calls[1]?.sql).toContain('notify_admin_review_exception');
+    expect(calls[1]?.sql).toContain('INSERT INTO job_outbox');
+    // Topic is an interpolated QUEUE_NAMES value, not a template literal —
+    // check the bound values, not the raw strings array.
+    expect(calls[1]?.values).toContain('notify_admin_review_exception');
     expect(JSON.stringify(calls)).toContain('provider_review_id');
     expect(JSON.stringify(calls[1])).not.toContain('MRN 12345');
     expect(captureMessage).toHaveBeenCalledWith(
@@ -161,7 +164,7 @@ describe('openPhiReviewException', () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.sql).toContain('INSERT INTO review_exceptions');
-    expect(calls.some((call) => call.sql.includes('notify_admin_review_exception'))).toBe(false);
+    expect(calls.some((call) => call.values.includes('notify_admin_review_exception'))).toBe(false);
     expect(captureMessage).not.toHaveBeenCalled();
   });
 });

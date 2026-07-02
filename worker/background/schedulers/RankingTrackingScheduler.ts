@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
+import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { rankingTrackingEnabled } from '../../../src/lib/ranking/flags';
 import { createWorkerLogger, toError } from '../../../src/lib/shared/logger';
 import { createGuardedPoll } from '../guarded-poll';
@@ -67,7 +68,7 @@ export async function runRankingCheck(): Promise<void> {
         )
         AND NOT EXISTS (
           SELECT 1 FROM job_outbox jo
-          WHERE jo.topic = 'track_ranking'
+          WHERE jo.topic = ${QUEUE_NAMES.TRACK_RANKING}
             AND jo.aggregate_id = b.id
             AND jo.status IN ('pending', 'dispatching', 'dispatched')
         )
@@ -94,7 +95,7 @@ export async function runRankingCheck(): Promise<void> {
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
           VALUES (
             ${uuidv7()},
-            'track_ranking',
+            ${QUEUE_NAMES.TRACK_RANKING},
             'business',
             ${biz.id},
             ${jsonb(payload)},

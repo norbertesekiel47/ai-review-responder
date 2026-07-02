@@ -1,4 +1,5 @@
 import { sql } from '../../../src/lib/db/server';
+import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import type { AccountOffboardingStepOutcome } from '../../../src/lib/account-offboarding/types';
 
 interface OutboxTeardownRow {
@@ -24,14 +25,14 @@ export async function runOutboxTerminalization(
     WHERE status = 'pending'
       AND (
         (
-          topic IN ('generate_response', 'send_notification', 'publish_response', 'auto_post_notice')
+          topic IN (${QUEUE_NAMES.GENERATE_RESPONSE}, ${QUEUE_NAMES.SEND_NOTIFICATION}, ${QUEUE_NAMES.PUBLISH_RESPONSE}, ${QUEUE_NAMES.AUTO_POST_NOTICE})
           AND payload->>'business_id' = ANY(${locationIds}::text[])
         )
         OR (
           topic IN (
-            'account_offboarding_billing_schedule',
-            'account_offboarding_reactivation',
-            'account_offboarding_teardown'
+            ${QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE},
+            ${QUEUE_NAMES.ACCOUNT_OFFBOARDING_REACTIVATION},
+            ${QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN}
           )
           AND aggregate_type = 'account_offboarding'
           AND aggregate_id = ${row.id}

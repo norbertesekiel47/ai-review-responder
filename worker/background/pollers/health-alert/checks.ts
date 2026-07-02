@@ -5,6 +5,7 @@
 // (job_outbox, notification_deliveries, flagged_responses, responses).
 import { getWorkerConfig } from '../../../../src/lib/config/worker';
 import { sql } from '../../../../src/lib/db/server';
+import { QUEUE_NAMES } from '../../../../src/lib/shared/queue-names';
 
 export interface HealthFinding {
   key: string;
@@ -50,7 +51,7 @@ export async function checkFailedOutboxByTopic(cfg: HealthAlertConfig): Promise<
     SELECT topic, COUNT(*)::int AS count
     FROM job_outbox
     WHERE status = 'failed'
-      AND topic IN ('publish_response', 'send_notification')
+      AND topic IN (${QUEUE_NAMES.PUBLISH_RESPONSE}, ${QUEUE_NAMES.SEND_NOTIFICATION})
       AND COALESCE(completed_at, dispatched_at, available_at) > NOW() - make_interval(secs => ${cfg.failedWindowS})
     GROUP BY topic
   `;
@@ -132,7 +133,7 @@ export async function checkZeroDeliveryNotifications(cfg: HealthAlertConfig): Pr
     FROM job_outbox jo
     JOIN responses r ON r.id = (jo.payload->>'response_id')::uuid
     JOIN businesses b ON b.id = r.business_id
-    WHERE jo.topic = 'send_notification'
+    WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION}
       AND jo.status = 'completed'
       AND COALESCE(jo.completed_at, jo.dispatched_at, jo.available_at) > NOW() - make_interval(secs => ${cfg.zeroDeliveryWindowS})
       AND r.status = 'pending_approval'

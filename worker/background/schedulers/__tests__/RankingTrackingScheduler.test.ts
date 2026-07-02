@@ -142,10 +142,13 @@ describe('RankingTrackingScheduler', () => {
 
     // SQL was called (the candidates query)
     expect(mockSql).toHaveBeenCalledTimes(1);
-    const queryText = Array.from(mockSql.mock.calls[0][0] as TemplateStringsArray).join('');
+    const candidatesCall = mockSql.mock.calls[0];
+    const queryText = Array.from(candidatesCall[0] as TemplateStringsArray).join('');
     expect(queryText).toContain('subscription_status');
     expect(queryText).toContain('tracked_keywords');
-    expect(queryText).toContain('track_ranking');
+    // Topic is an interpolated QUEUE_NAMES value, not a template literal —
+    // check the bound values, not the raw strings array.
+    expect(candidatesCall.slice(1)).toContain('track_ranking');
   });
 
   it('creates outbox entries for eligible businesses', async () => {
@@ -170,10 +173,11 @@ describe('RankingTrackingScheduler', () => {
     // 1 candidates query + 2 INSERT queries
     expect(mockSql).toHaveBeenCalledTimes(3);
 
-    // Verify INSERT calls contain track_ranking
+    // Verify INSERT calls contain track_ranking. Topic is an interpolated
+    // QUEUE_NAMES value, not a template literal — check the bound values.
     const insertCalls = mockSql.mock.calls.filter((call: any[]) => {
       const text = Array.from(call[0] as TemplateStringsArray).join('');
-      return text.includes('INSERT') && text.includes('track_ranking');
+      return text.includes('INSERT') && call.slice(1).includes('track_ranking');
     });
     expect(insertCalls).toHaveLength(2);
 
