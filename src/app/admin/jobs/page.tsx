@@ -4,6 +4,10 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import {
+  QUEUE_HEALTH_JOB_STATES,
+  type QueueHealthJobState,
+} from '@/lib/shared/queue-health-states';
 
 interface JobsData {
   outbox: {
@@ -59,6 +63,15 @@ const COLOR_CLASSES: Record<
     label: 'text-green-700',
     value: 'text-green-900',
   },
+};
+
+const STATE_STYLES: Record<QueueHealthJobState, { label: string; value: string }> = {
+  waiting: { label: 'font-medium text-gray-500', value: 'text-gray-800' },
+  active: { label: 'font-medium text-blue-500', value: 'text-blue-700' },
+  delayed: { label: 'font-medium text-yellow-500', value: 'text-yellow-700' },
+  failed: { label: 'font-medium text-red-500', value: 'text-red-700' },
+  completed: { label: 'font-medium text-green-500', value: 'text-green-700' },
+  paused: { label: 'font-medium text-gray-400', value: 'text-gray-600' },
 };
 
 function SummaryCard({
@@ -155,42 +168,14 @@ export default function JobsPage() {
                     {queueName}
                   </p>
                   <div className="grid grid-cols-6 gap-2 text-center text-xs">
-                    <div>
-                      <p className="font-medium text-gray-500">waiting</p>
-                      <p className="mt-0.5 text-base font-bold text-gray-800">
-                        {counts['waiting'] ?? 0}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="font-medium text-blue-500">active</p>
-                      <p className="mt-0.5 text-base font-bold text-blue-700">
-                        {counts['active'] ?? 0}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="font-medium text-yellow-500">delayed</p>
-                      <p className="mt-0.5 text-base font-bold text-yellow-700">
-                        {counts['delayed'] ?? 0}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="font-medium text-red-500">failed</p>
-                      <p className="mt-0.5 text-base font-bold text-red-700">
-                        {counts['failed'] ?? 0}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="font-medium text-green-500">completed</p>
-                      <p className="mt-0.5 text-base font-bold text-green-700">
-                        {counts['completed'] ?? 0}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-400">paused</p>
-                      <p className="mt-0.5 text-base font-bold text-gray-600">
-                        {counts['paused'] ?? 0}
-                      </p>
-                    </div>
+                    {QUEUE_HEALTH_JOB_STATES.map((state) => (
+                      <div key={state}>
+                        <p className={STATE_STYLES[state].label}>{state}</p>
+                        <p className={`mt-0.5 text-base font-bold ${STATE_STYLES[state].value}`}>
+                          {counts[state] ?? 0}
+                        </p>
+                      </div>
+                    ))}
                   </div>
                 </div>
               ))}
