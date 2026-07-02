@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
 import { nanoid } from 'nanoid';
 import { sql, jsonb } from '@/lib/db/server';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { isPlaceId, extractPlaceId } from '@/lib/reviews/url-parser';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import type { DemoJobPayload } from '@/lib/demos/types';
@@ -146,7 +147,7 @@ async function generateDemo(request: NextRequest): Promise<NextResponse> {
 
       await tx`
         INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-        VALUES (${outboxId}, 'generate_demo', 'demo', ${demoId}, ${jsonb(payload)}, 'pending')
+        VALUES (${outboxId}, ${QUEUE_NAMES.GENERATE_DEMO}, 'demo', ${demoId}, ${jsonb(payload)}, 'pending')
       `;
     });
   } catch (error) {

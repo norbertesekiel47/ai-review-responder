@@ -3,6 +3,7 @@ import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { createServerClient } from '@supabase/ssr';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { OnboardingStartSchema } from '@/lib/shared/schemas';
@@ -147,7 +148,7 @@ async function persistOnboardingStart(tx: TxClient, p: OnboardingStartTxParams):
   await tx`
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
     VALUES (
-      ${outboxId}, 'onboarding_demo_response', 'onboarding_demo', ${demoId}::uuid,
+      ${outboxId}, ${QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE}, 'onboarding_demo', ${demoId}::uuid,
       ${jsonb({
         demoId,
         googlePlaceId: p.resolvedPlaceId,

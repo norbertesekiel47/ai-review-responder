@@ -31,6 +31,7 @@ import {
   isProcessingBlocked,
 } from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { NON_TERMINAL_STATUSES } from '@/lib/shared/response-status';
 import { statusArraySql } from '@/lib/shared/response-status-sql';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
@@ -157,7 +158,7 @@ async function handler(request: NextRequest): Promise<Response> {
       //     so step 2a wouldn't catch it).
       const pendingGen = await tx<{ exists: number }[]>`
         SELECT 1 AS exists FROM job_outbox
-        WHERE topic = 'generate_response'
+        WHERE topic = ${QUEUE_NAMES.GENERATE_RESPONSE}
           AND aggregate_id = ${parsed.data.review_id}
           AND status IN ('pending', 'dispatching', 'dispatched')
         LIMIT 1

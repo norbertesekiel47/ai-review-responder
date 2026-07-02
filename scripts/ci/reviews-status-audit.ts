@@ -60,10 +60,15 @@ const SKIP_DIRS = new Set(['node_modules', '__tests__', 'dist', '.next', 'covera
 const SKIP_FILE = /\.(?:test|spec)\.[cm]?tsx?$/;
 const IGNORE_PRAGMA = 'review-status-ignore';
 
-// Tags whose template bodies are SQL in this codebase — same convention as
-// response-status-audit.ts: the Postgres.js client (`sql`) and a transaction
-// scope from `sql.begin(tx => …)` (`tx`).
-const SQL_TAG_NAMES = new Set(['sql', 'tx']);
+// Tags whose template bodies are SQL in this codebase: the Postgres.js
+// client (`sql`), a transaction scope from `sql.begin(tx => …)` (`tx`), and
+// the `db`-named SqlExecutor parameter convention (`type SqlExecutor =
+// typeof sql | postgres.TransactionSql` — helpers that accept either the
+// top-level client or a transaction handle, e.g.
+// worker/jobs/zernio/zernio-ingest-shared.ts). Matches
+// outbox-topics-audit.ts's tag set; the `exec`-named SqlExecutor spelling is
+// not scanned (no reviews-table status write uses it today).
+const SQL_TAG_NAMES = new Set(['sql', 'tx', 'db']);
 
 // The REVIEW_STATUS vocabulary (src/lib/reviews/status.ts), duplicated here
 // as literal values rather than imported — this script must scan `src/lib`

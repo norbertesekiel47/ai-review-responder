@@ -133,7 +133,9 @@ describe('POST /api/admin/businesses/[id]/zernio-queue', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, action: 'force_drain', queued: 2 });
-    expect(txCalls.some((c) => /drain_pending_owner_connect/.test(c.text))).toBe(true);
+    // Topic is an interpolated QUEUE_NAMES value, not a template literal —
+    // check the bound values, not the rendered SQL text.
+    expect(txCalls.some((c) => c.values.includes('drain_pending_owner_connect'))).toBe(true);
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId: ACCOUNT_ID,

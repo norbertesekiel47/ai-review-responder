@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
@@ -113,7 +114,7 @@ async function forceDrain(businessId: string, adminId: string): Promise<number> 
     const payload = { business_id: businessId, kind: 'drain' };
     await tx`
       INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts)
-      VALUES (${uuidv7()}, 'drain_pending_owner_connect', 'business', ${businessId}, ${jsonb(payload)}, 0, 5)
+      VALUES (${uuidv7()}, ${QUEUE_NAMES.DRAIN_OWNER_CONNECT}, 'business', ${businessId}, ${jsonb(payload)}, 0, 5)
     `;
 
     await writeAccountAuditLog(

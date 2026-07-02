@@ -32,6 +32,11 @@ describe('reviews-status-audit', () => {
     expect(fileHasRawReviewStatusPredicate(src)).toBe(true);
   });
 
+  it('detects a db-tagged template (SqlExecutor client-or-transaction param convention)', () => {
+    const src = "await db`UPDATE reviews SET status = 'deleted' WHERE id = ${id}`;";
+    expect(fileHasRawReviewStatusPredicate(src)).toBe(true);
+  });
+
   it('does NOT flag a single-status equality outside sql/tx templates entirely', () => {
     expect(fileHasRawReviewStatusPredicate(`if (review.status === 'posted') { doThing(); }`)).toBe(
       false,

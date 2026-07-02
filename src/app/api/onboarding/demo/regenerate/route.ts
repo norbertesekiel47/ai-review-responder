@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { reserveOnboardingDemoBudget, CostCeilingExceeded } from '@/lib/costs/onboarding-demo-cost-guard';
@@ -148,7 +149,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       await tx`
         INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
         VALUES (
-          ${outboxId}, 'onboarding_demo_response', 'onboarding_demo', ${newDemoId}::uuid,
+          ${outboxId}, ${QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE}, 'onboarding_demo', ${newDemoId}::uuid,
           ${jsonb({
             demoId: newDemoId,
             googlePlaceId: latestDemo.google_place_id,

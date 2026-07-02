@@ -86,9 +86,15 @@ describe('outbox-topics-audit', () => {
     expect(fileHasRawOutboxTopicLiteral(src)).toBe(false);
   });
 
-  it('does NOT flag a non-sql/tx tagged template (e.g. a SqlExecutor param named db)', () => {
+  it('detects a db-tagged template (SqlExecutor client-or-transaction param convention)', () => {
     const src =
       "await db`INSERT INTO job_outbox (id, topic) VALUES (${id}, 'generate_response')`;";
+    expect(fileHasRawOutboxTopicLiteral(src)).toBe(true);
+  });
+
+  it('does NOT flag a tagged template whose tag is not a SQL executor (e.g. html)', () => {
+    const src =
+      "const s = html`<p>job_outbox topic 'generate_response' docs</p>`;";
     expect(fileHasRawOutboxTopicLiteral(src)).toBe(false);
   });
 

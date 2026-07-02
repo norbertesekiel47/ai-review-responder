@@ -9,21 +9,18 @@
 // any new raw literal fails CI immediately, no baseline ratchet.
 //
 // Detection technique mirrors reviews-status-audit.ts: walk the AST for
-// tagged templates whose tag identifier is `sql` or `tx` (the Postgres.js
-// client and a `sql.begin(tx => …)` transaction scope, including the typed
-// `sql<Type[]>` form), then pattern-match the template's raw text. A known,
-// pre-existing boundary shared with reviews-status-audit.ts and
-// response-status-audit.ts: a `db`/`exec`-tagged `SqlExecutor` parameter
-// (`type SqlExecutor = typeof sql | postgres.TransactionSql`, used in a
-// handful of files to accept either the top-level client or a transaction
-// handle) is NOT scanned — widening tag detection to arbitrary identifiers
-// risks false-positives on unrelated tagged-template usage elsewhere in the
-// codebase. Every pre-existing `db`-tagged raw topic literal was converted by
-// hand in the A+ Q1 sweep regardless.
+// tagged templates whose tag identifier is `sql`, `tx`, or `db` (the
+// Postgres.js client, a `sql.begin(tx => …)` transaction scope, and the
+// `db`-named `SqlExecutor` parameter convention — `type SqlExecutor =
+// typeof sql | postgres.TransactionSql`, used by helpers that accept either
+// the top-level client or a transaction handle, e.g.
+// worker/jobs/zernio/zernio-ingest-shared.ts), including the typed
+// `sql<Type[]>` form; then pattern-match the template's raw text. The
+// `exec`-named SqlExecutor spelling is NOT scanned (no job_outbox topic
+// write uses it today; widen if one appears).
 //
-// SCOPE: src/lib + worker (NOT src/app). The 8 named adoption sites plus
-// every literal the A+ Q1 sweep found all live under src/lib or worker;
-// scanning src/app here would fail CI on files nobody has swept yet.
+// SCOPE: src/lib + src/app + worker — everywhere application code writes or
+// queries job_outbox rows. src/components is excluded (UI code has no SQL).
 //
 // A template COUNTS when its raw text mentions `job_outbox` AND contains a
 // quoted literal equal to ANY value of ALL_QUEUE_NAMES, on a line WITHOUT a
@@ -48,16 +45,17 @@ import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { ALL_QUEUE_NAMES } from '../../src/lib/shared/queue-names';
 
-const SCAN_DIRS = ['src/lib', 'worker'] as const;
+const SCAN_DIRS = ['src/lib', 'src/app', 'worker'] as const;
 const SCAN_EXT = /\.(?:ts|tsx)$/;
 const SKIP_DIRS = new Set(['node_modules', '__tests__', 'dist', '.next', 'coverage', '__fixtures__']);
 const SKIP_FILE = /\.(?:test|spec)\.[cm]?tsx?$/;
 const IGNORE_PRAGMA = 'topic-audit-ignore';
 
-// Tags whose template bodies are SQL in this codebase — same convention as
-// reviews-status-audit.ts / response-status-audit.ts: the Postgres.js client
-// (`sql`) and a transaction scope from `sql.begin(tx => …)` (`tx`).
-const SQL_TAG_NAMES = new Set(['sql', 'tx']);
+// Tags whose template bodies are SQL in this codebase: the Postgres.js
+// client (`sql`), a transaction scope from `sql.begin(tx => …)` (`tx`), and
+// the `db`-named SqlExecutor parameter convention (client-or-transaction
+// helpers — see module docblock).
+const SQL_TAG_NAMES = new Set(['sql', 'tx', 'db']);
 
 function normalize(file: string): string {
   return file.split(sep).join('/');
@@ -183,7 +181,7 @@ async function main(): Promise<void> {
     for (const finding of findings) console.error(`  ${finding}`);
     process.exit(1);
   }
-  console.log('outbox-topics-audit: passed (no raw job_outbox topic literals in src/lib + worker)');
+  console.log('outbox-topics-audit: passed (no raw job_outbox topic literals in src/lib + src/app + worker)');
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
