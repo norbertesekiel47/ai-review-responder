@@ -3,6 +3,7 @@ import {
   zernioReviewToNormalized,
   buildZernioMonitoredReview,
   extractLocationFromReviewName,
+  normalizeGoogleReviewName,
   ZernioReviewNormalizationError,
 } from '../zernio-normalize';
 import type { ZernioReview } from '@/lib/zernio/types';
@@ -81,6 +82,40 @@ describe('buildZernioMonitoredReview', () => {
     const a = buildZernioMonitoredReview(baseReview, 'A', 'L');
     const b = buildZernioMonitoredReview({ ...baseReview, rating: 5, starRating: 'FIVE' }, 'A', 'L');
     expect(a.contentHash).not.toBe(b.contentHash);
+  });
+
+  it('captures the Google-native review resource name from review.name', () => {
+    const out = buildZernioMonitoredReview(baseReview, 'acct-X', 'loc-Y');
+    expect(out.identity.googleReviewName).toBe('accounts/A/locations/L/reviews/rev_abc');
+  });
+
+  it('sets googleReviewName to null when review.name is malformed', () => {
+    const out = buildZernioMonitoredReview({ ...baseReview, name: 'not-a-resource-name' }, 'acct-X', 'loc-Y');
+    expect(out.identity.googleReviewName).toBeNull();
+  });
+});
+
+describe('normalizeGoogleReviewName', () => {
+  it('returns a canonical resource name unchanged', () => {
+    expect(normalizeGoogleReviewName('accounts/A/locations/L/reviews/R'))
+      .toBe('accounts/A/locations/L/reviews/R');
+  });
+
+  it('trims surrounding whitespace', () => {
+    expect(normalizeGoogleReviewName('  accounts/A/locations/L/reviews/R \n'))
+      .toBe('accounts/A/locations/L/reviews/R');
+  });
+
+  it('returns null on malformed names', () => {
+    expect(normalizeGoogleReviewName('accounts/A/locations/L')).toBeNull();
+    expect(normalizeGoogleReviewName('zernio://A/locations/L/reviews/R')).toBeNull();
+    expect(normalizeGoogleReviewName('')).toBeNull();
+  });
+
+  it('returns null on non-string input', () => {
+    expect(normalizeGoogleReviewName(undefined)).toBeNull();
+    expect(normalizeGoogleReviewName(null)).toBeNull();
+    expect(normalizeGoogleReviewName(42)).toBeNull();
   });
 });
 

@@ -42,6 +42,13 @@ export interface ReviewIdentity {
   providerReviewId: string;
   providerReviewName: string;
   providerLocationName: string;
+  /**
+   * Google-native review resource name (`accounts/{a}/locations/{l}/reviews/{r}`)
+   * when the source payload carries one; null otherwise. NOT part of dedup
+   * identity — persisted so a future direct-GBP posting adapter can address
+   * the review without a Zernio round-trip.
+   */
+  googleReviewName: string | null;
   identityStrategy: 'source_id' | 'profile_hash' | 'name_date_hash' | 'zernio_id';
 }
 

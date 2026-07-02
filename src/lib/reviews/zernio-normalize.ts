@@ -70,15 +70,20 @@ export function buildZernioMonitoredReview(
       providerReviewId: z.id,
       providerReviewName: `zernio://${accountId}/locations/${locationId}/reviews/${z.id}`,
       providerLocationName: `zernio://${accountId}/locations/${locationId}`,
+      googleReviewName: normalizeGoogleReviewName(z.name),
       identityStrategy: 'zernio_id',
     },
     contentHash: computeContentHash(review),
   };
 }
 
+// Google review resource name: `accounts/{accountId}/locations/{locationId}/reviews/{reviewId}`.
+// Single authoritative pattern — both the location extractor and the
+// google_review_name capture validate against it.
+const GOOGLE_REVIEW_RESOURCE_RE = /^accounts\/[^/]+\/locations\/([^/]+)\/reviews\/.+$/;
+
 /**
  * Extract the location id from Zernio's `review.name` field.
- * Format: `accounts/{accountId}/locations/{locationId}/reviews/{reviewId}`.
  * Returns null on any deviation — caller MUST treat null as fail-closed
  * per spec §6.3 (do NOT process a review whose location can't be parsed,
  * since fan-out across same-account-multi-location businesses would route
@@ -86,6 +91,19 @@ export function buildZernioMonitoredReview(
  */
 export function extractLocationFromReviewName(name: string): string | null {
   if (typeof name !== 'string' || !name) return null;
-  const m = name.match(/^accounts\/[^/]+\/locations\/([^/]+)\/reviews\/.+$/);
+  const m = name.match(GOOGLE_REVIEW_RESOURCE_RE);
   return m && m[1] ? m[1] : null;
+}
+
+/**
+ * Validate + normalize a Google-native review resource name for persistence
+ * (`reviews.google_review_name`, migration 070). Null on anything that isn't
+ * the canonical `accounts/…/locations/…/reviews/…` shape — capture is
+ * best-effort provenance for the future GBP posting adapter, never a reason
+ * to fail ingest.
+ */
+export function normalizeGoogleReviewName(name: unknown): string | null {
+  if (typeof name !== 'string') return null;
+  const trimmed = name.trim();
+  return GOOGLE_REVIEW_RESOURCE_RE.test(trimmed) ? trimmed : null;
 }

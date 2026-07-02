@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **069** — next migration is **070**
+Current head: **070** — next migration is **071**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -653,6 +653,23 @@ Revisit triggers:
   `ANALYTICS_EVENT_NAMES` (drift-guard: `pnpm ci:analytics-events`). Transactional
   (no CONCURRENTLY). Apply staging-first, then production, both Supabase projects
   in lockstep.
+
+- **070** — `reviews.google_review_name` Google-native resource-name capture
+  (GBP-readiness; agentic-platform design 2026-07-01 §4 launch-track item 2).
+  Adds nullable `google_review_name TEXT` + column comment. Populated at ingest
+  from `ZernioReview.name` when it matches the canonical
+  `accounts/{a}/locations/{l}/reviews/{r}` shape (`normalizeGoogleReviewName`,
+  fail-open to NULL — capture is provenance, never a reason to fail ingest).
+  Write sites: `process-review.ts` new-review INSERT + content-changed UPDATE
+  (`COALESCE` — converges NULLs, never clobbers a stored value), and
+  `insertImportedReview` INSERT + conflict-arm backfill
+  (`COALESCE(reviews.google_review_name, EXCLUDED.google_review_name)`).
+  **NOT part of dedup identity** — that remains `(provider,
+  provider_review_name)`. Additive + idempotent, transactional (no
+  CONCURRENTLY), no index, no RLS change, no in-migration backfill (historical
+  rows recoverable from `inbound_events` raw payloads if/when the GBP adapter
+  ships). Apply staging-first, then production, both Supabase projects in
+  lockstep.
 
 ## Key Tables Reference
 

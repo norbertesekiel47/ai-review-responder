@@ -26,6 +26,7 @@ import type { ZernioReview } from '../../../src/lib/zernio/types';
 import { markOutboxFailed } from '../../../src/lib/shared/outbox';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import { fromZernioReview } from '../../../src/lib/reviews/zernio-field-match';
+import { normalizeGoogleReviewName } from '../../../src/lib/reviews/zernio-normalize';
 import { classifySentiment } from '../../../src/lib/reviews/sentiment';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
 
@@ -354,7 +355,8 @@ export async function reconcileExternallyAnsweredReview(
  * id = reviews.id RETURNING id` — DO NOTHING + RETURNING leaves no row when
  * the conflicting INSERT loses the race because the snapshot can't see the
  * just-committed sibling. DO UPDATE always RETURNs whether the row was
- * inserted or pre-existing; the no-op `SET id = id` triggers no observable
+ * inserted or pre-existing; besides opportunistically backfilling a NULL
+ * `google_review_name`, the no-op `SET id = id` triggers no observable
  * change on the row content.
  */
 async function insertImportedReview(
@@ -380,7 +382,7 @@ async function insertImportedReview(
   const rows = await tx<{ id: string }[]>`
     INSERT INTO reviews (
       id, business_id, provider, provider_review_id, provider_review_name,
-      provider_location_name, reviewer_name, star_rating, review_text,
+      provider_location_name, google_review_name, reviewer_name, star_rating, review_text,
       review_date, detected_language, review_content_hash, detected_at,
       status, external_reply_ingested_at,
       sentiment_score, sentiment_label, sentiment_classified_at, sentiment_source
@@ -388,6 +390,7 @@ async function insertImportedReview(
     VALUES (
       gen_random_uuid(), ${businessId}, 'zernio', ${target.id},
       ${providerReviewName}, ${providerLocationName},
+      ${normalizeGoogleReviewName(target.name)},
       ${matchFields.reviewer_name}, ${matchFields.star_rating},
       ${matchFields.review_text_trimmed},
       to_timestamp(${matchFields.created_at_ms} / 1000.0),
@@ -396,7 +399,8 @@ async function insertImportedReview(
       ${sentiment.score}, ${sentiment.label}, NOW(), ${sentiment.source}
     )
     ON CONFLICT (provider, provider_review_name) DO UPDATE
-      SET id = reviews.id
+      SET id = reviews.id,
+          google_review_name = COALESCE(reviews.google_review_name, EXCLUDED.google_review_name)
     RETURNING id
   `;
   return rows[0]!.id;
