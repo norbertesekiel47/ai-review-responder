@@ -1,5 +1,7 @@
 import Link from 'next/link';
 
+import { MARKETING_LINKS } from './marketing-links';
+
 /**
  * Site-wide marketing footer. Self-contained (`<footer className="rw-foot">`) so
  * pages can render `<SiteFooter />` directly; SiteShell also renders it as the
@@ -20,11 +22,7 @@ interface FooterColumn {
 const FOOTER_COLUMNS: ReadonlyArray<FooterColumn> = [
   {
     heading: 'Product',
-    links: [
-      { label: 'Features', href: '/features' },
-      { label: 'Pricing', href: '/pricing' },
-      { label: 'How it works', href: '/how-it-works' },
-    ],
+    links: [MARKETING_LINKS.features, MARKETING_LINKS.pricing, MARKETING_LINKS.howItWorks],
   },
   {
     heading: 'Legal',

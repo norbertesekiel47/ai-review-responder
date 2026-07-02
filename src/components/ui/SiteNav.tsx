@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, LazyMotion, m, domAnimation } from 'motion/react';
+import { NAV_LINKS } from './marketing-links';
 
 interface SiteNavProps {
   /** When true, the right-side Log in / Sign up cluster is hidden. */
@@ -12,12 +13,6 @@ interface SiteNavProps {
   /** Controls whether owner self-serve auth links are exposed. */
   selfServeEnabled?: boolean;
 }
-
-const NAV_LINKS = [
-  { label: 'Features', href: '/features' },
-  { label: 'How it works', href: '/how-it-works' },
-  { label: 'Pricing', href: '/pricing' },
-];
 
 const MOBILE_MENU_ID = 'site-nav-mobile-menu';
 
