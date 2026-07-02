@@ -1,4 +1,6 @@
 import { Icon } from '@/components/dashboard/shell/Icon';
+import { classifySentiment, type SentimentLabel } from '@/lib/reviews/sentiment';
+import { TIER_BY_SENTIMENT } from './sentiment-tier';
 
 interface RatedReview {
   starRating: number | null;
@@ -13,14 +15,11 @@ interface Props {
   reviews: ReadonlyArray<RatedReview>;
 }
 
-type SentimentTier = 'good' | 'mid' | 'low';
-
-/** Positive 4–5★, Neutral 3★, Negative 1–2★ — the same buckets and colors as
- *  RecentRatingBreakdown, so the two cards read as one story side by side. */
-const BUCKETS: ReadonlyArray<{ label: string; tier: SentimentTier; holds: (stars: number) => boolean }> = [
-  { label: 'Positive', tier: 'good', holds: (stars) => stars >= 4 },
-  { label: 'Neutral', tier: 'mid', holds: (stars) => stars === 3 },
-  { label: 'Negative', tier: 'low', holds: (stars) => stars <= 2 },
+// Buckets derive from classifySentiment — the single owner of the star→sentiment rule.
+const BUCKETS: ReadonlyArray<{ label: string; sentiment: SentimentLabel }> = [
+  { label: 'Positive', sentiment: 'positive' },
+  { label: 'Neutral', sentiment: 'neutral' },
+  { label: 'Negative', sentiment: 'negative' },
 ];
 
 /**
@@ -49,8 +48,8 @@ export function RecentSentimentMix({ reviews }: Props) {
         Share of your {total} most recent {total === 1 ? 'review' : 'reviews'}.
       </p>
       <ul className="rating-rows">
-        {BUCKETS.map(({ label, tier, holds }) => {
-          const count = stars.filter(holds).length;
+        {BUCKETS.map(({ label, sentiment }) => {
+          const count = stars.filter((value) => classifySentiment(value).label === sentiment).length;
           const pct = Math.round((count / total) * 100);
           return (
             <li key={label} className="rating-row wide" aria-label={`${label}: ${pct}%`}>
@@ -58,7 +57,10 @@ export function RecentSentimentMix({ reviews }: Props) {
                 {label}
               </span>
               <span className="rating-track" aria-hidden="true">
-                <span className={`rating-fill rating-fill--${tier}`} style={{ width: `${pct}%` }} />
+                <span
+                  className={`rating-fill rating-fill--${TIER_BY_SENTIMENT[sentiment]}`}
+                  style={{ width: `${pct}%` }}
+                />
               </span>
               <span className="rating-row-count" aria-hidden="true">
                 {pct}%

@@ -1,5 +1,6 @@
 import { Icon } from '@/components/dashboard/shell/Icon';
 import type { RatingBreakdown } from '@/lib/dashboard/types';
+import { tierForStars } from './sentiment-tier';
 
 interface Props {
   /**
@@ -10,17 +11,11 @@ interface Props {
   breakdown: RatingBreakdown;
 }
 
-/** Sentiment-cued bar color: 4–5 positive, 3 neutral, 1–2 attention. */
-function tierClass(stars: number): 'good' | 'mid' | 'low' {
-  if (stars >= 4) return 'good';
-  if (stars === 3) return 'mid';
-  return 'low';
-}
-
 /**
  * Reviews by rating — a horizontal-bar breakdown over every rated review in the
  * selected analytics window (#405). Renders nothing when the window holds no
- * rated review, so the caller can drop the slot cleanly.
+ * rated review, so the caller can drop the slot cleanly. Bar color is
+ * sentiment-cued — tiers derive from classifySentiment.
  */
 export function RecentRatingBreakdown({ breakdown }: Props) {
   const { counts, total } = breakdown;
@@ -50,7 +45,7 @@ export function RecentRatingBreakdown({ breakdown }: Props) {
               </span>
               <span className="rating-track" aria-hidden="true">
                 <span
-                  className={`rating-fill rating-fill--${tierClass(stars)}`}
+                  className={`rating-fill rating-fill--${tierForStars(stars)}`}
                   style={{ width: `${pct}%` }}
                 />
               </span>
