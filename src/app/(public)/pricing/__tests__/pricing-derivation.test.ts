@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { monthlyPriceUsd, annualPriceUsd } from '../pricing-derivation';
+import { ANNUAL_DISCOUNT, monthlyPriceUsd, annualPriceUsd } from '../pricing-derivation';
 
 describe('pricing page derives from TIER_CONFIG', () => {
   it('monthly = baseCents/100', () => {
@@ -9,6 +9,7 @@ describe('pricing page derives from TIER_CONFIG', () => {
     expect(monthlyPriceUsd('premium')).toBe(199);
   });
   it('annual = floor(monthly × (1 − ANNUAL_DISCOUNT)) — locks today’s displayed values', () => {
+    expect(ANNUAL_DISCOUNT).toBe(0.2);
     expect(annualPriceUsd('founders')).toBe(15);
     expect(annualPriceUsd('basic')).toBe(23);
     expect(annualPriceUsd('standard')).toBe(63);

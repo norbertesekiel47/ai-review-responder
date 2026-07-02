@@ -70,7 +70,7 @@ export async function handleDrainOwnerConnect(
         AND jo.aggregate_id = stuck.id
         AND jo.status IN ('pending', 'dispatching', 'dispatched')
     )
-    ON CONFLICT (topic, aggregate_id) -- topic-audit-ignore
+    ON CONFLICT (topic, aggregate_id) -- topic-audit-ignore: partial-index inference needs a literal
       WHERE topic = 'publish_response'
         AND status IN ('pending', 'dispatching', 'dispatched')
     DO NOTHING

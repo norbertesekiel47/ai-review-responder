@@ -15,9 +15,9 @@
 // "does this file read process.env at all", not every individual read site).
 //
 // Detection technique is borrowed from response-status-audit.ts: walk the
-// AST for tagged templates whose tag identifier is `sql` or `tx` (the
-// Postgres.js client and a `sql.begin(tx => …)` transaction scope — including
-// the `sql<Type[]>` typed-tagged-template form), then pattern-match the
+// AST for tagged templates whose tag identifier is `sql`, `tx`, or `db` —
+// including the `sql<Type[]>` typed-tagged-template form (shared tag set +
+// helper: scripts/ci/lib/sql-tag-scan.ts) — then pattern-match the
 // template's raw text.
 //
 // SCOPE: src/lib + src/app + worker (broader than response-status-audit's
@@ -52,6 +52,8 @@ import { readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
+import { REVIEW_STATUS } from '../../src/lib/reviews/status';
+import { isSqlTaggedTemplate, lineHasPragma } from './lib/sql-tag-scan';
 import { REVIEWS_STATUS_BASELINE } from './reviews-status-baseline';
 
 const SCAN_DIRS = ['src/lib', 'src/app', 'worker'] as const;
@@ -60,55 +62,13 @@ const SKIP_DIRS = new Set(['node_modules', '__tests__', 'dist', '.next', 'covera
 const SKIP_FILE = /\.(?:test|spec)\.[cm]?tsx?$/;
 const IGNORE_PRAGMA = 'review-status-ignore';
 
-// Tags whose template bodies are SQL in this codebase: the Postgres.js
-// client (`sql`), a transaction scope from `sql.begin(tx => …)` (`tx`), and
-// the `db`-named SqlExecutor parameter convention (`type SqlExecutor =
-// typeof sql | postgres.TransactionSql` — helpers that accept either the
-// top-level client or a transaction handle, e.g.
-// worker/jobs/zernio/zernio-ingest-shared.ts). Matches
-// outbox-topics-audit.ts's tag set; the `exec`-named SqlExecutor spelling is
-// not scanned (no reviews-table status write uses it today).
-const SQL_TAG_NAMES = new Set(['sql', 'tx', 'db']);
-
-// The REVIEW_STATUS vocabulary (src/lib/reviews/status.ts), duplicated here
-// as literal values rather than imported — this script must scan `src/lib`
-// itself and TypeScript source imports must not create a scan-time
-// dependency cycle risk with the file it's auditing. Keep in sync with
-// REVIEW_STATUS; a unit test pins the two together.
-const REVIEW_STATUS_VALUES = [
-  'new',
-  'generating',
-  'pending_approval',
-  'approved',
-  'awaiting_manual_post',
-  'posted',
-  'failed',
-  'deleted',
-] as const;
-
 const STATUS_PREDICATE_RE = new RegExp(
-  `\\bstatus\\s*(?:=|<>|!=|\\bIN\\b|\\bNOT\\s+IN\\b)[^\`]*?'(?:${REVIEW_STATUS_VALUES.join('|')})'`,
+  `\\bstatus\\s*(?:=|<>|!=|\\bIN\\b|\\bNOT\\s+IN\\b)[^\`]*?'(?:${Object.values(REVIEW_STATUS).join('|')})'`,
   'i',
 );
 
 function normalize(file: string): string {
   return file.split(sep).join('/');
-}
-
-function isSqlTaggedTemplate(node: ts.TaggedTemplateExpression): boolean {
-  const tag = node.tag;
-  if (ts.isIdentifier(tag)) return SQL_TAG_NAMES.has(tag.text);
-  // e.g. `sql.unsafe` — key on the root identifier.
-  if (ts.isPropertyAccessExpression(tag) && ts.isIdentifier(tag.expression)) {
-    return SQL_TAG_NAMES.has(tag.expression.text);
-  }
-  return false;
-}
-
-function lineHasPragma(lines: string[], lineIndex: number): boolean {
-  const current = lines[lineIndex] ?? '';
-  const previous = lineIndex > 0 ? (lines[lineIndex - 1] ?? '') : '';
-  return current.includes(IGNORE_PRAGMA) || previous.includes(IGNORE_PRAGMA);
 }
 
 /**
@@ -129,7 +89,7 @@ function templateHasUnignoredPredicate(node: ts.TaggedTemplateExpression, source
   const matchOffset = nodeStart + match.index;
   const lineIndex = source.getLineAndCharacterOfPosition(matchOffset).line;
   const lines = source.getFullText().split('\n');
-  return !lineHasPragma(lines, lineIndex);
+  return !lineHasPragma(lines, lineIndex, IGNORE_PRAGMA);
 }
 
 /**

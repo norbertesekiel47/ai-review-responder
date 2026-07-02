@@ -9,11 +9,12 @@
 // any new raw literal fails CI immediately, no baseline ratchet.
 //
 // Detection technique mirrors reviews-status-audit.ts: walk the AST for
-// tagged templates whose tag identifier is `sql`, `tx`, or `db` (the
-// Postgres.js client, a `sql.begin(tx => …)` transaction scope, and the
-// `db`-named `SqlExecutor` parameter convention — `type SqlExecutor =
-// typeof sql | postgres.TransactionSql`, used by helpers that accept either
-// the top-level client or a transaction handle, e.g.
+// tagged templates whose tag identifier is `sql`, `tx`, or `db` (shared tag
+// set + helper: scripts/ci/lib/sql-tag-scan.ts — the Postgres.js client, a
+// `sql.begin(tx => …)` transaction scope, and the `db`-named `SqlExecutor`
+// parameter convention — `type SqlExecutor = typeof sql |
+// postgres.TransactionSql`, used by helpers that accept either the
+// top-level client or a transaction handle, e.g.
 // worker/jobs/zernio/zernio-ingest-shared.ts), including the typed
 // `sql<Type[]>` form; then pattern-match the template's raw text. The
 // `exec`-named SqlExecutor spelling is NOT scanned (no job_outbox topic
@@ -44,6 +45,7 @@ import { join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { ALL_QUEUE_NAMES } from '../../src/lib/shared/queue-names';
+import { isSqlTaggedTemplate, lineHasPragma } from './lib/sql-tag-scan';
 
 const SCAN_DIRS = ['src/lib', 'src/app', 'worker'] as const;
 const SCAN_EXT = /\.(?:ts|tsx)$/;
@@ -51,30 +53,8 @@ const SKIP_DIRS = new Set(['node_modules', '__tests__', 'dist', '.next', 'covera
 const SKIP_FILE = /\.(?:test|spec)\.[cm]?tsx?$/;
 const IGNORE_PRAGMA = 'topic-audit-ignore';
 
-// Tags whose template bodies are SQL in this codebase: the Postgres.js
-// client (`sql`), a transaction scope from `sql.begin(tx => …)` (`tx`), and
-// the `db`-named SqlExecutor parameter convention (client-or-transaction
-// helpers — see module docblock).
-const SQL_TAG_NAMES = new Set(['sql', 'tx', 'db']);
-
 function normalize(file: string): string {
   return file.split(sep).join('/');
-}
-
-function isSqlTaggedTemplate(node: ts.TaggedTemplateExpression): boolean {
-  const tag = node.tag;
-  if (ts.isIdentifier(tag)) return SQL_TAG_NAMES.has(tag.text);
-  // e.g. `sql.unsafe` — key on the root identifier.
-  if (ts.isPropertyAccessExpression(tag) && ts.isIdentifier(tag.expression)) {
-    return SQL_TAG_NAMES.has(tag.expression.text);
-  }
-  return false;
-}
-
-function lineHasPragma(lines: string[], lineIndex: number): boolean {
-  const current = lines[lineIndex] ?? '';
-  const previous = lineIndex > 0 ? (lines[lineIndex - 1] ?? '') : '';
-  return current.includes(IGNORE_PRAGMA) || previous.includes(IGNORE_PRAGMA);
 }
 
 // Queue-name values are snake_case today, but escape defensively rather than
@@ -107,7 +87,7 @@ function templateHasUnignoredTopicLiteral(
   while ((match = TOPIC_LITERAL_RE.exec(raw)) !== null) {
     const matchOffset = nodeStart + match.index;
     const lineIndex = source.getLineAndCharacterOfPosition(matchOffset).line;
-    if (!lineHasPragma(lines, lineIndex)) return true;
+    if (!lineHasPragma(lines, lineIndex, IGNORE_PRAGMA)) return true;
   }
   return false;
 }

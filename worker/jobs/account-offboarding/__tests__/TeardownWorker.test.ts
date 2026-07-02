@@ -456,7 +456,7 @@ describe('AccountOffboarding TeardownWorker', () => {
     expect(outboxUpdateCall?.values).toContain('account_offboarding_billing_schedule');
     expect(outboxUpdateCall?.values).toContain('account_offboarding_reactivation');
     expect(outboxUpdateCall?.values).toContain('account_offboarding_teardown');
-    expect(combinedSql).not.toContain('stripe_checkout_session_reconcile');
+    expect(outboxUpdateCall?.values).not.toContain('stripe_checkout_session_reconcile');
 
     expect(mockState.archivedLocations.has(LOCATION_ID)).toBe(true);
     expect(mockState.archivedLocations.has(SECOND_LOCATION_ID)).toBe(true);
@@ -868,7 +868,7 @@ describe('AccountOffboarding TeardownWorker', () => {
     expect(updateCall?.values).toContain('account_offboarding_teardown');
     expect(updateCall?.text).toContain("aggregate_id = ?");
     expect(updateCall?.text).toContain("id <> ?");
-    expect(updateCall?.text).not.toContain('stripe_checkout_session_reconcile');
+    expect(updateCall?.values).not.toContain('stripe_checkout_session_reconcile');
     expect(updateCall?.values).toContainEqual([LOCATION_ID, SECOND_LOCATION_ID]);
     expect(updateCall?.values).toContain(OFFBOARDING_ID);
     expect(updateCall?.values).toContain('outbox-teardown-1');

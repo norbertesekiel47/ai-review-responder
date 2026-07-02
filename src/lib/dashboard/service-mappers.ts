@@ -1,4 +1,5 @@
 import { parseDbArray } from '@/lib/shared/db-array';
+import type { ValueSummary } from '@/lib/dashboard/types';
 import { CONNECT_PENDING_STATUSES, type ConnectPendingMarker } from '@/lib/zernio/types';
 import { mapRecentReviews, mapReviewVelocity } from './active-mappers';
 import { buildRatingBreakdown } from './rating-breakdown';
@@ -46,7 +47,7 @@ export function buildValueSummary(
   totalReviews: number,
   totalResponded: number,
   business: DashboardBusinessRow,
-): DashboardDataActive['valueSummary'] {
+): ValueSummary {
   return {
     totalReviewsHandled: totalResponded,
     totalTimeSavedMinutes: totalResponded * MINUTES_SAVED_PER_RESPONSE,

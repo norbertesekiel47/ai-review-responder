@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fileHasRawReviewStatusPredicate } from '../reviews-status-audit';
+import { evaluateFindings, fileHasRawReviewStatusPredicate } from '../reviews-status-audit';
 
 describe('reviews-status-audit', () => {
   it('flags review-status literals in reviews-table sql templates', () => {
@@ -58,5 +58,35 @@ describe('reviews-status-audit', () => {
     const src =
       "await sql`SELECT id FROM reviews WHERE status IN ('new', 'generating')`;";
     expect(fileHasRawReviewStatusPredicate(src)).toBe(true);
+  });
+
+  // ── evaluateFindings (baseline ratchet) — mirrors process-env-audit.test.ts ──
+
+  describe('evaluateFindings', () => {
+    it('flags a NEW non-baseline file with a raw reviews.status literal', () => {
+      const findings = evaluateFindings({
+        matchingFiles: new Set(['src/lib/new-thing.ts']),
+        baseline: new Set<string>(),
+      });
+      expect(findings.some((f) => f.includes('new-thing.ts'))).toBe(true);
+    });
+
+    it('flags a STALE baseline entry that no longer has a raw reviews.status literal', () => {
+      const findings = evaluateFindings({
+        matchingFiles: new Set<string>(),
+        baseline: new Set(['src/lib/old-thing.ts']),
+      });
+      expect(findings.some((f) => f.includes('old-thing.ts') && f.toLowerCase().includes('stale'))).toBe(
+        true,
+      );
+    });
+
+    it('passes when a baseline file still has a raw reviews.status literal', () => {
+      const findings = evaluateFindings({
+        matchingFiles: new Set(['src/lib/kept.ts']),
+        baseline: new Set(['src/lib/kept.ts']),
+      });
+      expect(findings).toEqual([]);
+    });
   });
 });

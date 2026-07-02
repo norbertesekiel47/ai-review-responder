@@ -14,6 +14,12 @@ describe('outbox-topics-audit', () => {
     expect(fileHasRawOutboxTopicLiteral(src)).toBe(false);
   });
 
+  it('honors the trailing SQL pragma with a reason suffix (e.g. "-- topic-audit-ignore: partial-index inference needs a literal")', () => {
+    const src =
+      "await sql`INSERT INTO job_outbox (id, topic) VALUES (${id}, 'generate_response') -- topic-audit-ignore: partial-index inference needs a literal`;";
+    expect(fileHasRawOutboxTopicLiteral(src)).toBe(false);
+  });
+
   it('ignores a non-outbox template that mentions the same word', () => {
     const src = "await sql`SELECT 1 FROM responses WHERE kind = 'generate_response'`;";
     expect(fileHasRawOutboxTopicLiteral(src)).toBe(false);
