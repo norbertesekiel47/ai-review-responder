@@ -24,6 +24,10 @@ function safeInstanceOf(err: unknown, ctor: unknown): boolean {
   return typeof ctor === 'function' && err instanceof (ctor as new (...args: unknown[]) => unknown);
 }
 
+// Provider-error classification is a flat vocabulary of distinct transient
+// signals (network codes, 5xx, 408/429, timeouts) per provider; relocated
+// verbatim in PR 1c — refactor deferred to keep the move byte-identical.
+// fallow-ignore-next-line complexity
 export function isTransientLLMError(err: unknown): boolean {
   if (safeInstanceOf(err, OpenAI.APIConnectionError)) return true;
   if (safeInstanceOf(err, OpenAI.APIConnectionTimeoutError)) return true;

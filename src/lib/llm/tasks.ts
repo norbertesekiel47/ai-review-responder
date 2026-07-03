@@ -8,8 +8,9 @@ export const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001' as const;
 
 /** Runtime registry. 'triage' / 'judge' / 'insights' exist in the LLMTaskId
  *  vocabulary (types.ts) but get entries only when their feature lands —
- *  no dead task config ships before its tenant (spec §2.2). */
-export const LLM_TASKS: Partial<Record<LLMTaskId, LLMTaskDescriptor>> = {
+ *  no dead task config ships before its tenant (spec §2.2). Internal:
+ *  getLlmTask is the module's door. */
+const LLM_TASKS: Partial<Record<LLMTaskId, LLMTaskDescriptor>> = {
   reply_generation: {
     taskId: 'reply_generation',
     primary: { provider: 'openai', model: OPENAI_MODEL },
