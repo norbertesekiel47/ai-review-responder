@@ -1,5 +1,3 @@
-import OpenAI from 'openai';
-import Anthropic from '@anthropic-ai/sdk';
 import type { NormalizedReview } from '@/lib/reviews/types';
 import { detectResponseLanguage } from '@/lib/reviews/detect-language';
 import type {
@@ -16,35 +14,18 @@ import {
   setCachedGeneration,
 } from '@/lib/costs/tracker';
 import { withCostGuard } from '@/lib/costs/cost-guard';
-import {
-  isTransientLLMError,
-  TransientLLMError,
-  redactProviderError,
-} from './llm-error-classifier';
 import { recordApiCost, calculateCostUsd } from '@/lib/costs/audit';
 import { PROMPT_VERSION, systemPromptHash } from './prompt-policy';
+import { runLlmTask } from '@/lib/llm/run-task';
+import { OPENAI_MODEL, ANTHROPIC_MODEL } from '@/lib/llm/tasks';
+import type { LLMCallResult } from '@/lib/llm/types';
 
-export { TransientLLMError } from './llm-error-classifier';
-
-// ── Constants ────────────────────────────────────────────────────────
-
-// Pinned snapshots — never use a bare alias like 'gpt-4o-mini' for production
-// generation (silent-regression risk). Guarded by model-pinning.test.ts.
-export const OPENAI_MODEL = 'gpt-4o-mini-2024-07-18' as const;
-export const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001' as const;
-const LLM_TEMPERATURE = 0.7;
-const LLM_MAX_TOKENS = 300;
-
-// Explicit LLM client construction options (deep-scan §5.1/§5.2). Without them
-// the SDKs default to a 10-minute timeout and 2 internal retries: a provider
-// stall could pin a GENERATE_RESPONSE worker for ~20 min/attempt, and the SDK's
-// 2 retries stacked under BullMQ attempts:3 bill up to 6 real LLM attempts per
-// logical generation (×2 providers). The 30s timeout bounds the wait; maxRetries:0
-// makes the BullMQ + outbox-watchdog ladder the single source of retry truth —
-// the transient/terminal classification in generate-draft.ts is unchanged
-// (maxRetries:0 only stops the SDK's internal re-tries; the thrown error types
-// isTransientLLMError keys on are identical). Guarded by client-options.test.ts.
-export const LLM_CLIENT_OPTIONS = { timeout: 30_000, maxRetries: 0 } as const;
+// Back-compat re-exports (consumers: costs/audit.ts pricing map,
+// responses/review-summary.ts, client-options.test.ts). Retargeted and
+// removed in a Stage-2 sweep.
+export { OPENAI_MODEL, ANTHROPIC_MODEL };
+export { LLM_CLIENT_OPTIONS } from '@/lib/llm/client-options';
+export { TransientLLMError } from '@/lib/llm/error-classifier';
 
 // ── Cached generation shape (stored in Redis) ────────────────────────
 
@@ -99,7 +80,10 @@ async function runDemoMode(
     businessContext.category,
   );
 
-  const llmResult = await callLLMWithFallback(prompt.systemPrompt, prompt.userPrompt);
+  const llmResult = await runLlmTask('reply_generation', {
+    system: prompt.systemPrompt,
+    user: prompt.userPrompt,
+  });
 
   return {
     responseText: llmResult.text,
@@ -181,7 +165,10 @@ async function runProductionMode(
     async () => {
       const prompt = buildProductionPrompt(review, business, voiceExamples);
       const startedAt = Date.now();
-      const llm = await callLLMWithFallback(prompt.systemPrompt, prompt.userPrompt);
+      const llm = await runLlmTask('reply_generation', {
+        system: prompt.systemPrompt,
+        user: prompt.userPrompt,
+      });
       const ms = Date.now() - startedAt;
       const usd = calculateCostUsd(
         llm.model,
@@ -243,7 +230,7 @@ function tryParseCachedGeneration(
 async function tryWriteCache(
   reviewId: string,
   version: number,
-  llmResult: { text: string; provider: 'openai' | 'anthropic'; model: string; usage: { promptTokens: number; completionTokens: number } },
+  llmResult: LLMCallResult,
   responseLanguage: string,
 ): Promise<void> {
   try {
@@ -264,7 +251,7 @@ async function tryWriteCache(
 async function tryRecordApiCost(
   businessId: string,
   accountId: string | null,
-  llmResult: { provider: 'openai' | 'anthropic'; usage: { promptTokens: number; completionTokens: number } },
+  llmResult: LLMCallResult,
   costUsd: number,
   latencyMs: number,
 ): Promise<string | null> {
@@ -288,115 +275,3 @@ async function tryRecordApiCost(
   }
 }
 
-// ── LLM client lazy singletons ──────────────────────────────────────
-
-let _openai: OpenAI | null = null;
-function getOpenAI(): OpenAI {
-  if (!_openai) _openai = new OpenAI(LLM_CLIENT_OPTIONS);
-  return _openai;
-}
-
-let _anthropic: Anthropic | null = null;
-function getAnthropic(): Anthropic {
-  if (!_anthropic) _anthropic = new Anthropic(LLM_CLIENT_OPTIONS);
-  return _anthropic;
-}
-
-// ── LLM call with OpenAI → Anthropic fallback ───────────────────────
-
-interface LLMCallResult {
-  text: string;
-  provider: 'openai' | 'anthropic';
-  model: string;
-  usage: { promptTokens: number; completionTokens: number };
-}
-
-async function callLLMWithFallback(
-  systemPrompt: string,
-  userPrompt: string,
-): Promise<LLMCallResult> {
-  try {
-    return await callOpenAI(systemPrompt, userPrompt);
-  } catch (openaiError) {
-    console.error('[generator] OpenAI call failed, falling back to Anthropic:', redactProviderError(openaiError));
-    try {
-      return await callAnthropic(systemPrompt, userPrompt);
-    } catch (anthropicError) {
-      // Both providers failed. If either failure is transient (network, 5xx,
-      // rate-limit, timeout), surface as TransientLLMError so the worker
-      // rethrows for BullMQ/outbox retry instead of terminal-failing work
-      // that a provider outage would otherwise lose. Wrap the actually-
-      // transient cause — wrapping the wrong one would let the worker retry
-      // forever against a permanent failure (e.g. anthropic 401 after openai 503).
-      const openaiTransient = isTransientLLMError(openaiError);
-      const anthropicTransient = isTransientLLMError(anthropicError);
-      if (openaiTransient || anthropicTransient) {
-        const transientCause = anthropicTransient ? anthropicError : openaiError;
-        throw new TransientLLMError(transientCause);
-      }
-      throw anthropicError;
-    }
-  }
-}
-
-async function callOpenAI(
-  systemPrompt: string,
-  userPrompt: string,
-): Promise<LLMCallResult> {
-  const client = getOpenAI();
-  const response = await client.chat.completions.create({
-    model: OPENAI_MODEL,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-    temperature: LLM_TEMPERATURE,
-    max_tokens: LLM_MAX_TOKENS,
-  });
-
-  const text = response.choices[0]?.message?.content;
-  if (!text) throw new Error('OpenAI returned empty response');
-
-  return {
-    text,
-    provider: 'openai',
-    model: OPENAI_MODEL,
-    usage: {
-      promptTokens: response.usage?.prompt_tokens ?? 0,
-      completionTokens: response.usage?.completion_tokens ?? 0,
-    },
-  };
-}
-
-async function callAnthropic(
-  systemPrompt: string,
-  userPrompt: string,
-): Promise<LLMCallResult> {
-  const client = getAnthropic();
-  const response = await client.messages.create({
-    model: ANTHROPIC_MODEL,
-    max_tokens: LLM_MAX_TOKENS,
-    system: systemPrompt,
-    messages: [{ role: 'user', content: userPrompt }],
-  });
-
-  const text = response.content
-    .filter((b): b is { type: 'text'; text: string } & typeof b => b.type === 'text')
-    .map((b) => b.text)
-    .join('')
-    .trim();
-
-  if (!text) {
-    throw new Error('Anthropic returned empty response');
-  }
-
-  return {
-    text,
-    provider: 'anthropic',
-    model: ANTHROPIC_MODEL,
-    usage: {
-      promptTokens: response.usage.input_tokens,
-      completionTokens: response.usage.output_tokens,
-    },
-  };
-}

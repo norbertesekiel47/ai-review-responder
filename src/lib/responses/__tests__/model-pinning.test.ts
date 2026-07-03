@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { OPENAI_MODEL, ANTHROPIC_MODEL } from '../generator';
+import { OPENAI_MODEL, ANTHROPIC_MODEL } from '@/lib/llm/tasks';
 import { calculateCostUsd } from '@/lib/costs/audit';
 
 describe('LLM model pinning', () => {
@@ -15,5 +15,11 @@ describe('LLM model pinning', () => {
   it('has pricing for the pinned OpenAI model', () => {
     expect(() => calculateCostUsd(OPENAI_MODEL, 1000, 500)).not.toThrow();
     expect(calculateCostUsd(OPENAI_MODEL, 1_000_000, 0)).toBeCloseTo(0.15, 6);
+  });
+
+  it('generator re-exports stay identical to the registry (back-compat)', async () => {
+    const generator = await import('../generator');
+    expect(generator.OPENAI_MODEL).toBe(OPENAI_MODEL);
+    expect(generator.ANTHROPIC_MODEL).toBe(ANTHROPIC_MODEL);
   });
 });
