@@ -34,15 +34,20 @@
 // scoping heuristic — keeps generic words like 'new'/'failed' from
 // false-firing on other tables' predicates, e.g. channel_enrollments.status)
 // AND contains a status comparison to a quoted literal from the
-// REVIEW_STATUS vocabulary. Known boundary (same trade-off
-// response-status-audit accepts): the heuristic does not resolve which
-// COLUMN a status literal belongs to, so a query that JOINs reviews but
-// compares a DIFFERENT table's status column (e.g. `resp.status =
-// 'pending_approval'` in a query that also `JOIN reviews r`) can still
-// count, because 'pending_approval'-style words are shared vocabulary across
-// tables. Full column-attribution is disproportionate complexity for a
-// maintainability guard — the baseline absorbs today's matches (real or
-// coarse) and new entries route through review at PR time either way.
+// REVIEW_STATUS vocabulary. EVERY status-predicate match in a template is
+// walked with its own qualifier + pragma check (mirroring the
+// outbox-topics-audit's every-occurrence walk) — a pragma on the first
+// predicate must not fail-open the rest of the template.
+//
+// Column attribution: a match qualified by an alias that is NOT a reviews
+// alias (e.g. `resp.status = 'pending_approval'` in a query that also
+// `JOIN reviews r`) is SKIPPED — it is another table's status column riding
+// along in a reviews JOIN, not a reviews.status literal (see
+// REVIEWS_ALIAS_ALLOWLIST below). Known remaining boundary: the operand scan
+// between the `status` token and its quoted literal is lazy across lines, so
+// a parameterized predicate followed by a later literal can still attribute
+// coarsely — full SQL parsing is disproportionate complexity for a
+// maintainability guard; new entries route through review at PR time.
 //
 // Per-LINE escape pragma: `-- review-status-ignore` (SQL, trailing comment)
 // or `// review-status-ignore` (TS, same or preceding line) exempts that
@@ -53,7 +58,7 @@ import { join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { REVIEW_STATUS } from '../../src/lib/reviews/status';
-import { isSqlTaggedTemplate, lineHasPragma } from './lib/sql-tag-scan';
+import { escapeRegExp, isSqlTaggedTemplate, lineHasPragma } from './lib/sql-tag-scan';
 import { REVIEWS_STATUS_BASELINE } from './reviews-status-baseline';
 
 const SCAN_DIRS = ['src/lib', 'src/app', 'worker'] as const;
@@ -62,10 +67,31 @@ const SKIP_DIRS = new Set(['node_modules', '__tests__', 'dist', '.next', 'covera
 const SKIP_FILE = /\.(?:test|spec)\.[cm]?tsx?$/;
 const IGNORE_PRAGMA = 'review-status-ignore';
 
+// Group 1 captures the optional `<qualifier>.` prefix so each match can be
+// attributed to (or excluded from) the reviews table — see
+// REVIEWS_ALIAS_ALLOWLIST. Global flag: every occurrence is walked, each with
+// its own qualifier + pragma check.
 const STATUS_PREDICATE_RE = new RegExp(
-  `\\bstatus\\s*(?:=|<>|!=|\\bIN\\b|\\bNOT\\s+IN\\b)[^\`]*?'(?:${Object.values(REVIEW_STATUS).join('|')})'`,
-  'i',
+  `(?:\\b(\\w+)\\.)?\\bstatus\\b\\s*(?:=|<>|!=|\\bIN\\b|\\bNOT\\s+IN\\b)[^\`]*?'(?:${Object.values(
+    REVIEW_STATUS,
+  )
+    .map(escapeRegExp)
+    .join('|')})'`,
+  'gi',
 );
+
+/**
+ * Qualifiers that attribute a `status` column to the reviews table. Basis:
+ * `rg 'FROM reviews|JOIN reviews|UPDATE reviews'` over src/ + worker/ — the
+ * reviews table is aliased exclusively as `r` (dominant), `rev`
+ * (src/lib/dashboard/service.ts), and `r2` (src/lib/reviews/process-review.ts
+ * subquery), or referenced unaliased (`reviews.status`, or bare `status` in a
+ * single-table statement — an UNQUALIFIED match always counts). Any OTHER
+ * qualifier (`resp.`, `jo.`, `fr.`, `zc.`, …) is a different table's status
+ * column riding along in a reviews JOIN and is skipped. Grow this set if a
+ * new reviews alias convention appears in SQL.
+ */
+const REVIEWS_ALIAS_ALLOWLIST: ReadonlySet<string> = new Set(['r', 'rev', 'r2', 'reviews']);
 
 function normalize(file: string): string {
   return file.split(sep).join('/');
@@ -73,23 +99,29 @@ function normalize(file: string): string {
 
 /**
  * True when the tagged template counts as a raw review-status predicate: its
- * raw text mentions `reviews` AND contains a status comparison to a quoted
- * REVIEW_STATUS literal, on a line that does not carry the escape pragma.
- * Pragma is checked at the line of the STATUS_PREDICATE_RE match (not the
- * whole template) so a pragma trailing the offending line exempts it without
+ * raw text mentions `reviews` AND contains at least one status comparison to
+ * a quoted REVIEW_STATUS literal that is (a) attributable to the reviews
+ * table (unqualified, or qualified by a REVIEWS_ALIAS_ALLOWLIST alias) and
+ * (b) on a line that does not carry the escape pragma. EVERY match is walked
+ * — a pragma or foreign qualifier on one predicate never exempts the others.
+ * Pragma is checked at the line where the match starts (not the whole
+ * template) so a pragma trailing the offending line exempts it without
  * requiring the entire template to be pragma'd.
  */
 function templateHasUnignoredPredicate(node: ts.TaggedTemplateExpression, source: ts.SourceFile): boolean {
   const raw = node.getText(source);
   if (!/\breviews\b/.test(raw)) return false;
-  const match = STATUS_PREDICATE_RE.exec(raw);
-  if (!match) return false;
 
   const nodeStart = node.getStart(source);
-  const matchOffset = nodeStart + match.index;
-  const lineIndex = source.getLineAndCharacterOfPosition(matchOffset).line;
   const lines = source.getFullText().split('\n');
-  return !lineHasPragma(lines, lineIndex, IGNORE_PRAGMA);
+  for (const match of raw.matchAll(STATUS_PREDICATE_RE)) {
+    const qualifier = match[1]?.toLowerCase();
+    if (qualifier !== undefined && !REVIEWS_ALIAS_ALLOWLIST.has(qualifier)) continue;
+    const matchOffset = nodeStart + (match.index ?? 0);
+    const lineIndex = source.getLineAndCharacterOfPosition(matchOffset).line;
+    if (!lineHasPragma(lines, lineIndex, IGNORE_PRAGMA)) return true;
+  }
+  return false;
 }
 
 /**

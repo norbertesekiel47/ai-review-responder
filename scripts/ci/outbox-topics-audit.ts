@@ -26,13 +26,12 @@
 // A template COUNTS when its raw text mentions `job_outbox` AND contains a
 // quoted literal equal to ANY value of ALL_QUEUE_NAMES, on a line WITHOUT a
 // trailing `-- topic-audit-ignore` (SQL) / `// topic-audit-ignore` (TS)
-// pragma. Unlike reviews-status-audit.ts (which checks only the FIRST
-// status-predicate match per template), this walks EVERY quoted-literal
-// occurrence and checks each one's own line for the pragma — necessary
-// because a single job_outbox statement here routinely mixes a converted
-// `${QUEUE_NAMES.X}` INSERT value with a sanctioned raw literal in an
-// `ON CONFLICT ... WHERE` partial-unique-index predicate (a bind parameter
-// breaks index inference there — see job-outbox-helpers.ts's
+// pragma. This walks EVERY quoted-literal occurrence and checks each one's
+// own line for the pragma (reviews-status-audit.ts walks every match the
+// same way) — necessary because a single job_outbox statement here routinely
+// mixes a converted `${QUEUE_NAMES.X}` INSERT value with a sanctioned raw
+// literal in an `ON CONFLICT ... WHERE` partial-unique-index predicate (a
+// bind parameter breaks index inference there — see job-outbox-helpers.ts's
 // enqueuePublishResponse/enqueueAutoPostNotice for the canonical example).
 //
 // Per-LINE escape pragma: `-- topic-audit-ignore` (SQL, trailing comment) or
@@ -45,7 +44,7 @@ import { join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { ALL_QUEUE_NAMES } from '../../src/lib/shared/queue-names';
-import { isSqlTaggedTemplate, lineHasPragma } from './lib/sql-tag-scan';
+import { escapeRegExp, isSqlTaggedTemplate, lineHasPragma } from './lib/sql-tag-scan';
 
 const SCAN_DIRS = ['src/lib', 'src/app', 'worker'] as const;
 const SCAN_EXT = /\.(?:ts|tsx)$/;
@@ -55,12 +54,6 @@ const IGNORE_PRAGMA = 'topic-audit-ignore';
 
 function normalize(file: string): string {
   return file.split(sep).join('/');
-}
-
-// Queue-name values are snake_case today, but escape defensively rather than
-// assume that never changes.
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 const TOPIC_LITERAL_RE = new RegExp(

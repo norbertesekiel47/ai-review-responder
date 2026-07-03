@@ -211,8 +211,8 @@ async function processReviewEvent(
     WHERE zc.zernio_account_id = ${parsed.accountId}
       AND zc.status = 'active'
       ${locationFilter}
-    ON CONFLICT (aggregate_id, (payload->>'zernio_review_id')) -- topic-audit-ignore: partial-index inference needs a literal
-      WHERE topic = 'ingest_zernio_review'
+    ON CONFLICT (aggregate_id, (payload->>'zernio_review_id'))
+      WHERE topic = 'ingest_zernio_review' -- topic-audit-ignore: partial-index inference needs a literal
         AND status IN ('pending', 'dispatching', 'dispatched')
     DO NOTHING
   `;

@@ -22,7 +22,16 @@ function createMockTx() {
 }
 
 function sqlText(call: unknown[]): string {
-  return (call[0] as TemplateStringsArray).join('?').replace(/\s+/g, ' ');
+  return (
+    (call[0] as TemplateStringsArray)
+      .join('?')
+      // SQL line comments (the audit's trailing `-- topic-audit-ignore`
+      // pragma) are lexer trivia to Postgres — strip them BEFORE collapsing
+      // whitespace so the byte-for-byte predicate assertions compare the
+      // expression Postgres actually parses.
+      .replace(/--[^\n]*/g, '')
+      .replace(/\s+/g, ' ')
+  );
 }
 
 function objectArgs(tx: ReturnType<typeof createMockTx>): Record<string, unknown>[] {

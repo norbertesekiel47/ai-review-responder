@@ -60,6 +60,47 @@ describe('reviews-status-audit', () => {
     expect(fileHasRawReviewStatusPredicate(src)).toBe(true);
   });
 
+  it('flags a bare SECOND predicate even when the FIRST predicate in the template is pragma\'d', () => {
+    // Every match must be walked with its own pragma check (mirrors the
+    // outbox-topics audit) — a pragma on the first predicate must not
+    // fail-open the rest of the template.
+    const src = `await sql\`
+      UPDATE reviews
+      SET status = 'approved' -- review-status-ignore: transition guard
+      WHERE status = 'pending_approval'
+    \`;`;
+    expect(fileHasRawReviewStatusPredicate(src)).toBe(true);
+  });
+
+  // ── column attribution (reviews-alias qualifier allowlist) ──
+
+  it('does NOT flag a foreign-qualified status predicate (resp.status) inside a reviews JOIN', () => {
+    const src =
+      "await sql`SELECT r.id FROM responses resp JOIN reviews r ON r.id = resp.review_id WHERE resp.status = 'posted'`;";
+    expect(fileHasRawReviewStatusPredicate(src)).toBe(false);
+  });
+
+  it('flags an r-qualified status predicate inside a reviews JOIN', () => {
+    const src =
+      "await sql`SELECT r.id FROM responses resp JOIN reviews r ON r.id = resp.review_id WHERE r.status = 'posted'`;";
+    expect(fileHasRawReviewStatusPredicate(src)).toBe(true);
+  });
+
+  it('flags a reviews.status-qualified predicate', () => {
+    const src = "await sql`SELECT id FROM reviews WHERE reviews.status = 'posted'`;";
+    expect(fileHasRawReviewStatusPredicate(src)).toBe(true);
+  });
+
+  it('flags a rev-qualified predicate (dashboard/service.ts alias convention)', () => {
+    const src = "await sql`SELECT rev.id FROM reviews rev WHERE rev.status <> 'deleted'`;";
+    expect(fileHasRawReviewStatusPredicate(src)).toBe(true);
+  });
+
+  it('flags a bare status predicate in an UPDATE reviews template', () => {
+    const src = "await sql`UPDATE reviews SET status = 'new' WHERE id = ${id}`;";
+    expect(fileHasRawReviewStatusPredicate(src)).toBe(true);
+  });
+
   // ── evaluateFindings (baseline ratchet) — mirrors process-env-audit.test.ts ──
 
   describe('evaluateFindings', () => {

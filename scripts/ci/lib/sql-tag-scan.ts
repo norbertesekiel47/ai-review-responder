@@ -32,13 +32,37 @@ export function isSqlTaggedTemplate(node: ts.TaggedTemplateExpression): boolean 
 }
 
 /**
- * True when `lines[lineIndex]` or the line before it carries `pragma` as a
- * substring (e.g. 'review-status-ignore', 'topic-audit-ignore'). A `.includes`
- * check tolerates a trailing `: reason` suffix on the pragma without any
- * special-casing — the bare token still appears in the line.
+ * Escapes regex metacharacters so a vocabulary value (queue name, status
+ * literal) can be embedded verbatim in a dynamically-built RegExp
+ * alternation. Values are snake_case today, but escape defensively rather
+ * than assume that never changes. Shared by both audits — keep the escaping
+ * behavior identical on purpose.
+ */
+export function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * True when the finding's line is exempted by `pragma` (e.g.
+ * 'review-status-ignore', 'topic-audit-ignore'):
+ *
+ * - the finding's OWN line carries the pragma (a trailing comment exempts
+ *   only its own line), or
+ * - the PREVIOUS line is a comment-only pragma line — trimmed text starting
+ *   with `--` (SQL) or `//` (TS), i.e. a standalone pragma comment placed
+ *   directly above the finding.
+ *
+ * A CODE line that happens to carry a trailing pragma does NOT blanket the
+ * next line: that would silently exempt a DIFFERENT literal below the one
+ * the pragma was reviewed for (fail-open). A `.includes` check tolerates a
+ * trailing `: reason` suffix on the pragma without any special-casing — the
+ * bare token still appears in the line.
  */
 export function lineHasPragma(lines: string[], lineIndex: number, pragma: string): boolean {
   const current = lines[lineIndex] ?? '';
+  if (current.includes(pragma)) return true;
   const previous = lineIndex > 0 ? (lines[lineIndex - 1] ?? '') : '';
-  return current.includes(pragma) || previous.includes(pragma);
+  if (!previous.includes(pragma)) return false;
+  const trimmed = previous.trimStart();
+  return trimmed.startsWith('--') || trimmed.startsWith('//');
 }

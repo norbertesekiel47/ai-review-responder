@@ -246,8 +246,8 @@ export async function enqueuePublishResponse(
       ${jsonb(payload)},
       ${JOB_OUTBOX_STATUS_PENDING}
     )
-    ON CONFLICT (topic, aggregate_id) -- topic-audit-ignore: partial-index inference needs a literal
-    WHERE topic = 'publish_response'
+    ON CONFLICT (topic, aggregate_id)
+    WHERE topic = 'publish_response' -- topic-audit-ignore: partial-index inference needs a literal
       AND status IN ('pending', 'dispatching', 'dispatched')
     DO NOTHING
   `;
@@ -288,8 +288,8 @@ export async function enqueueAutoPostNotice(
       ${jsonb(payload)},
       ${JOB_OUTBOX_STATUS_PENDING}
     )
-    ON CONFLICT (topic, aggregate_id) -- topic-audit-ignore: partial-index inference needs a literal
-    WHERE topic = 'auto_post_notice'
+    ON CONFLICT (topic, aggregate_id)
+    WHERE topic = 'auto_post_notice' -- topic-audit-ignore: partial-index inference needs a literal
       AND status IN ('pending', 'dispatching', 'dispatched')
     DO NOTHING
   `;

@@ -20,10 +20,6 @@ export const REVIEWS_STATUS_BASELINE: ReadonlySet<string> = new Set<string>([
   'src/lib/dashboard/service.ts',
   'src/lib/kpi/service.ts',
   'src/lib/past-replies/load-replies.ts',
-  'src/lib/responses/voice-learning.ts',
   'src/lib/reviews/process-review.ts',
-  'worker/background/pollers/NotificationFailoverPoller.ts',
   'worker/background/pollers/ZernioRecentReviewPoller.ts',
-  'worker/jobs/EngagementAlertWorker.ts',
-  'worker/jobs/OnboardingDripWorker.ts',
 ]);

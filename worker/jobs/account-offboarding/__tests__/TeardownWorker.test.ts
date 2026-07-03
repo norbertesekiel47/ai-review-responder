@@ -457,6 +457,13 @@ describe('AccountOffboarding TeardownWorker', () => {
     expect(outboxUpdateCall?.values).toContain('account_offboarding_reactivation');
     expect(outboxUpdateCall?.values).toContain('account_offboarding_teardown');
     expect(outboxUpdateCall?.values).not.toContain('stripe_checkout_session_reconcile');
+    // Run-wide negative: reconcile rows must stay untouched by EVERY call in
+    // the run (text AND bound values), not just the outbox UPDATE inspected
+    // above — a second call touching them would slip past a single-call check.
+    const allSql = sqlCalls
+      .map((call) => `${call.text} ${JSON.stringify(call.values)}`)
+      .join('\n');
+    expect(allSql).not.toContain('stripe_checkout_session_reconcile');
 
     expect(mockState.archivedLocations.has(LOCATION_ID)).toBe(true);
     expect(mockState.archivedLocations.has(SECOND_LOCATION_ID)).toBe(true);
@@ -872,6 +879,13 @@ describe('AccountOffboarding TeardownWorker', () => {
     expect(updateCall?.values).toContainEqual([LOCATION_ID, SECOND_LOCATION_ID]);
     expect(updateCall?.values).toContain(OFFBOARDING_ID);
     expect(updateCall?.values).toContain('outbox-teardown-1');
+    // Run-wide negative: reconcile rows must stay untouched by EVERY call in
+    // the run (text AND bound values), not just the outbox UPDATE inspected
+    // above — a second call touching them would slip past a single-call check.
+    const allSql = sqlCalls
+      .map((call) => `${call.text} ${JSON.stringify(call.values)}`)
+      .join('\n');
+    expect(allSql).not.toContain('stripe_checkout_session_reconcile');
   });
 
   it('completes the originating outbox immediately for already-completed terminal rows', async () => {

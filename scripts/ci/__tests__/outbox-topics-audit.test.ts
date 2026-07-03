@@ -92,6 +92,26 @@ describe('outbox-topics-audit', () => {
     expect(fileHasRawOutboxTopicLiteral(src)).toBe(false);
   });
 
+  it('flags a bare literal on the line AFTER a code line carrying a trailing pragma (no next-line blanketing)', () => {
+    // A trailing pragma exempts ONLY its own line. It must not silently
+    // fail-open onto a DIFFERENT literal on the following line.
+    const src = `await sql\`
+      UPDATE job_outbox SET
+        topic = 'publish_response' -- topic-audit-ignore: reason
+      WHERE topic = 'send_notification'
+    \`;`;
+    expect(fileHasRawOutboxTopicLiteral(src)).toBe(true);
+  });
+
+  it('honors a standalone SQL comment-line pragma above the offending line', () => {
+    const src = `await sql\`
+      UPDATE job_outbox SET status = 'completed'
+      -- topic-audit-ignore: sanctioned literal below
+      WHERE topic = 'publish_response'
+    \`;`;
+    expect(fileHasRawOutboxTopicLiteral(src)).toBe(false);
+  });
+
   it('detects a db-tagged template (SqlExecutor client-or-transaction param convention)', () => {
     const src =
       "await db`INSERT INTO job_outbox (id, topic) VALUES (${id}, 'generate_response')`;";
