@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { recordApiCost, calculateCostUsd } from '@/lib/costs/audit';
 import { withCostGuard } from '@/lib/costs/cost-guard';
-import { redactProviderError } from './llm-error-classifier';
+import { redactProviderError } from '@/lib/llm/error-classifier';
 
 // ── Public types ────────────────────────────────────────────────────
 

@@ -440,6 +440,23 @@ Everything about fetching and normalising Google reviews.
 
 **Connection:** `ReviewSyncWorker` instantiates `SerpApiMonitor` → calls `process-review.ts` for each result → writes to DB → enqueues `GenerateResponsePayload` via outbox.
 
+### `llm/`
+
+The LLM task seam (A+ campaign PR 1c) — a provider-agnostic executor between
+callers (currently `responses/generator.ts`) and the OpenAI/Anthropic SDKs.
+Deliberately bounded: no streaming, tool-calls, or multi-turn loops.
+
+| File | What it does |
+|------|--------------|
+| `types.ts` | Task vocabulary (`LLMTaskId`: `reply_generation` \| `triage` \| `judge` \| `insights`), `LLMProvider` interface, `LLMTaskDescriptor`. Cost-guard contract: every `runLlmTask` call in production code must be wrapped in `withCostGuard` by its caller — the guard stays caller-side (the idempotent-cache write must happen inside the guarded closure). |
+| `tasks.ts` | `getLlmTask(taskId)` — pinned-model registry. `OPENAI_MODEL` / `ANTHROPIC_MODEL` constants (guarded by `model-pinning.test.ts`). Only `reply_generation` is registered today; the other task IDs exist in the vocabulary but get no config until their feature lands (no dead task config ships before its tenant). |
+| `run-task.ts` | `runLlmTask(taskId, prompt)` — the executor: calls the primary provider, falls back to the secondary on failure, and classifies exhausted-attempt errors as `TransientLLMError` (worker retries) vs terminal (rethrown raw). Relocated verbatim from `generator.ts`'s `callLLMWithFallback`. |
+| `openai-provider.ts` / `anthropic-provider.ts` | Thin SDK adapters implementing `LLMProvider` — lazily construct a singleton client with `LLM_CLIENT_OPTIONS` and map the SDK response to `LLMCallResult`. |
+| `client-options.ts` | `LLM_CLIENT_OPTIONS` — explicit `{ timeout: 30_000, maxRetries: 0 }`. Without it the SDKs default to a 10-minute timeout + 2 internal retries; `maxRetries: 0` makes the BullMQ + outbox-watchdog ladder the single source of retry truth. |
+| `error-classifier.ts` | `isTransientLLMError(err)`, `TransientLLMError`, `redactProviderError(err)` (strips `.body`/`.response`/`.request` before logging — some 4xx provider errors echo the prompt). Moved here from the deleted `responses/llm-error-classifier.ts` re-export shim. |
+
+**Connection:** `generator.ts` calls `runLlmTask('reply_generation', prompt)` instead of hand-rolling the primary/fallback loop. Invariant #1's ESLint ban (`@/lib/llm/*`) treats the whole directory as worker-only.
+
 ### `responses/`
 
 AI response generation.
@@ -447,7 +464,7 @@ AI response generation.
 | File | What it does |
 |------|--------------|
 | `types.ts` | `BusinessContext`, `GenerationOptions`, `GenerationResult`, `VoiceExample`. |
-| `generator.ts` | `generateResponse(review, context, options)` — full pipeline: cost guard → concurrency slot → OpenAI / Claude call → save → cache. Two modes: `demo` (fast, no cost guard) and `production`. |
+| `generator.ts` | `generateResponse(review, context, options)` — full pipeline: cost guard → idempotent cache → `runLlmTask('reply_generation')` via the LLM seam → save → cache. Two modes: `demo` (fast, no cost guard) and `production`. |
 | `prompt-builder.ts` | Builds the system prompt and user message from `BusinessContext` + `VoiceExample[]`. |
 | `voice-learning.ts` | Queries DB for recent owner-edited responses to use as few-shot examples. Returns empty array until ≥ 5 examples exist. |
 | `review-summary.ts` | Generates a one-line summary of a review for the weekly report. |
