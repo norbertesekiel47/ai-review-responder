@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { fileImportsDbServer, evaluateFindings, isCompositionRoot } from '../db-imports-audit';
+import {
+  fileImportsDbServer,
+  evaluateFindings,
+  isCompositionRoot,
+  renderBaselineModule,
+} from '../db-imports-audit';
 
 describe('db-imports-audit', () => {
   it('detects alias and relative value imports of db/server', () => {
@@ -57,5 +62,24 @@ describe('db-imports-audit', () => {
       baseline: new Set(['src/lib/gone.ts']),
     });
     expect(findings).toHaveLength(2);
+  });
+  describe('renderBaselineModule', () => {
+    it('renders a header comment followed by sorted, quoted entries', () => {
+      const source = renderBaselineModule(['src/lib/z.ts', 'src/lib/a.ts', 'src/lib/m.ts']);
+      expect(source).toContain('// scripts/ci/db-imports-baseline.ts');
+      expect(source).toContain('pnpm tsx scripts/ci/db-imports-audit.ts --emit-baseline');
+      expect(source).toContain('export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([');
+      const aIndex = source.indexOf("'src/lib/a.ts'");
+      const mIndex = source.indexOf("'src/lib/m.ts'");
+      const zIndex = source.indexOf("'src/lib/z.ts'");
+      expect(aIndex).toBeGreaterThan(-1);
+      expect(aIndex).toBeLessThan(mIndex);
+      expect(mIndex).toBeLessThan(zIndex);
+      expect(source.endsWith(']);\n\n')).toBe(true);
+    });
+    it('renders an empty Set literal for no importers', () => {
+      const source = renderBaselineModule([]);
+      expect(source).toContain('export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([\n]);');
+    });
   });
 });
