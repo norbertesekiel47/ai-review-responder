@@ -11,6 +11,10 @@ function getClient(): Anthropic {
 export const anthropicProvider: LLMProvider = {
   id: 'anthropic',
   async complete(request: LLMRequest): Promise<LLMCallResult> {
+    // temperature deliberately not forwarded — preserves pre-seam behavior
+    // (the Anthropic fallback ran at the SDK default); forwarding is a
+    // deliberate behavior change to make with the first temperature-sensitive
+    // Anthropic task.
     const response = await getClient().messages.create({
       model: request.model,
       max_tokens: request.maxTokens,

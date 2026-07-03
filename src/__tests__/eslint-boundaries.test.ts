@@ -43,6 +43,7 @@ const FORBIDDEN_RUNTIME: ReadonlyArray<readonly [string, string]> = [
   ["import { Queue } from 'bullmq';", 'bullmq'],
   ["import postgres from 'postgres';", 'postgres'],
   ["import { generateResponse } from '@/lib/responses/generator';", 'generator'],
+  ["import { runLlmTask } from '@/lib/llm/run-task';", '@/lib/llm (task seam)'],
 ];
 
 // Dynamic import() variants — must be caught by no-restricted-syntax (the
@@ -53,6 +54,7 @@ const FORBIDDEN_DYNAMIC: ReadonlyArray<readonly [string, string]> = [
   ["await import('bullmq');", 'bullmq'],
   ["await import('postgres');", 'postgres'],
   ["await import('@/lib/responses/generator');", 'generator'],
+  ["await import('@/lib/llm/run-task');", '@/lib/llm (task seam)'],
   ["await import('../../../../worker/queues');", 'worker/queues'],
 ];
 
@@ -92,6 +94,14 @@ describe('invariant #1 — Vercel UI surface may not runtime-import worker-only 
   it('app route type-only postgres import is allowed', async () => {
     const msgs = await restrictedMessages(
       "import type postgres from 'postgres';\nexport type Sql = postgres.Sql;\nexport function GET() { return new Response('ok'); }\n",
+      'src/app/api/_fixture/route.ts',
+    );
+    expect(msgs).toHaveLength(0);
+  });
+
+  it('app route type-only @/lib/llm/types import is allowed', async () => {
+    const msgs = await restrictedMessages(
+      "import type { LLMCallResult } from '@/lib/llm/types';\nexport type R = LLMCallResult;\nexport function GET() { return new Response('ok'); }\n",
       'src/app/api/_fixture/route.ts',
     );
     expect(msgs).toHaveLength(0);

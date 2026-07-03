@@ -43,6 +43,8 @@ export interface LLMTaskDescriptor {
   primary: { provider: LLMProviderId; model: string };
   fallback?: { provider: LLMProviderId; model: string };
   maxTokens: number;
+  /** Honored by the openai provider; NOT forwarded by anthropic today — see
+   *  anthropic-provider.ts. */
   temperature?: number;
   /** Structured-output contract for classification/judge tasks. Declared in
    *  the type vocabulary now; runtime enforcement lands with the first
