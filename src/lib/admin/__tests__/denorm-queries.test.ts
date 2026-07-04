@@ -1,40 +1,36 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Hoisted mocks ───────────────────────────────────────────────────
+//
+// getCostReport composes nested `sql` fragments (dateFilter,
+// optionalAccountPrefix, rollupBoundary, ...) as of the A+ campaign PR 2b
+// sql-injection refactor. A naive Proxy that eagerly records every
+// tagged-template invocation (the old approach here) can't distinguish an
+// awaited top-level query from a nested, un-awaited fragment call — each
+// nested fragment would consume its own mockSqlResults slot and corrupt
+// the alignment for every query after it. The shared `createMockSql`
+// harness (same one worker suites and cost-report-service.test.ts use)
+// mirrors real Postgres.js: nested fragments are lazy thenables that only
+// record + consume the queue when AWAITED.
 
-const { mockSqlResults, sqlCallCounter } = vi.hoisted(() => ({
-  mockSqlResults: [] as unknown[][],
-  sqlCallCounter: { value: 0 },
-}));
-
-// Captured SQL texts for asserting index-friendly queries
-const capturedSqlTexts: string[] = [];
-
-vi.mock('@/lib/db/server', () => {
-  const sqlProxy = new Proxy(() => {}, {
-    apply: (_target, _thisArg, argumentsList) => {
-      const first = argumentsList[0];
-      const isTaggedTemplate =
-        first != null && typeof first === 'object' && 'raw' in (first as object);
-      if (!isTaggedTemplate) {
-        return { __helper: true };
-      }
-      capturedSqlTexts.push((first as TemplateStringsArray).raw.join(''));
-      const result = mockSqlResults[sqlCallCounter.value] ?? [];
-      sqlCallCounter.value++;
-      return Promise.resolve(result);
-    },
-  }) as unknown;
-  // Add unsafe method for dynamic SQL queries (used by notifications route)
-  (sqlProxy as unknown as { unsafe: (...args: unknown[]) => Promise<unknown> }).unsafe = (
-    ..._args: unknown[]
-  ) => {
-    const result = mockSqlResults[sqlCallCounter.value] ?? [];
-    sqlCallCounter.value++;
-    return Promise.resolve(result);
-  };
-  return { sql: sqlProxy, jsonb: (v: unknown) => v };
+const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql } = await vi.hoisted(async () => {
+  const { createMockSql } = await import('../../../../worker/__tests__/helpers/mock-sql');
+  return { ...createMockSql() };
 });
+
+// The notifications route uses sql.unsafe() for dynamic queries — the shared
+// harness doesn't model that helper, so it's added here, sharing the same
+// queue/call-log as tagged-template queries (matching the original proxy's
+// single shared counter).
+(mockSql as unknown as { unsafe: (...args: unknown[]) => Promise<unknown> }).unsafe = (
+  ..._args: unknown[]
+) => {
+  const result = sqlReturnQueue.shift() ?? [];
+  sqlCalls.push({ text: '[sql.unsafe]', values: [] });
+  return Promise.resolve(result);
+};
+
+vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
 
 vi.mock('@/lib/db/auth', () => ({
   requireRole: vi.fn().mockResolvedValue({ id: 'admin-1', role: 'admin' }),
@@ -52,9 +48,7 @@ vi.mock('@/lib/shared/churn-score', () => ({
 describe('Admin denormalized account_id queries', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSqlResults.length = 0;
-    sqlCallCounter.value = 0;
-    capturedSqlTexts.length = 0;
+    resetMockSql();
   });
 
   // ── VAL-ADMIN-002: api_costs uses account_id ──────────────────────
@@ -68,8 +62,8 @@ describe('Admin denormalized account_id queries', () => {
       // 3. businessCount — filtered by account_id
       // 4. byDay — filtered by account_id
       // 5. todayTotal — filtered by account_id
-      mockSqlResults.push([{ provider: 'openai', total_usd: 1.5, call_count: 10 }]);
-      mockSqlResults.push([{
+      sqlReturnQueue.push([{ provider: 'openai', total_usd: 1.5, call_count: 10 }]);
+      sqlReturnQueue.push([{
         business_id: 'loc-1',
         name: 'Downtown',
         subscription_tier: 'standard',
@@ -77,9 +71,9 @@ describe('Admin denormalized account_id queries', () => {
         call_count: 10,
         today_usd: 0.1,
       }]);
-      mockSqlResults.push([{ total: 1 }]);
-      mockSqlResults.push([{ day: '2026-05-09', total_usd: 1.5, call_count: 10 }]);
-      mockSqlResults.push([{ total: 0.1 }]);
+      sqlReturnQueue.push([{ total: 1 }]);
+      sqlReturnQueue.push([{ day: '2026-05-09', total_usd: 1.5, call_count: 10 }]);
+      sqlReturnQueue.push([{ total: 0.1 }]);
 
       const { GET } = await import('@/app/api/admin/costs/route');
       const { NextRequest } = await import('next/server');
@@ -90,16 +84,16 @@ describe('Admin denormalized account_id queries', () => {
 
       // Verify that api_costs queries filter by account_id directly,
       // enabling the idx_api_costs_account index.
-      const accountFiltered = capturedSqlTexts.filter(
-        (sql) => sql.includes('account_id') && sql.includes('api_costs'),
+      const accountFiltered = sqlCalls.filter(
+        (c) => c.text.includes('account_id') && c.text.includes('api_costs'),
       );
       expect(accountFiltered.length).toBeGreaterThanOrEqual(1);
     });
 
     it('aggregates costs across all locations under an account', async () => {
       // Simulate two locations under same account
-      mockSqlResults.push([{ provider: 'openai', total_usd: 3.0, call_count: 20 }]);
-      mockSqlResults.push([
+      sqlReturnQueue.push([{ provider: 'openai', total_usd: 3.0, call_count: 20 }]);
+      sqlReturnQueue.push([
         {
           business_id: 'loc-1',
           name: 'Downtown',
@@ -117,9 +111,9 @@ describe('Admin denormalized account_id queries', () => {
           today_usd: 0.1,
         },
       ]);
-      mockSqlResults.push([{ total: 2 }]);
-      mockSqlResults.push([{ day: '2026-05-09', total_usd: 3.0, call_count: 20 }]);
-      mockSqlResults.push([{ total: 0.3 }]);
+      sqlReturnQueue.push([{ total: 2 }]);
+      sqlReturnQueue.push([{ day: '2026-05-09', total_usd: 3.0, call_count: 20 }]);
+      sqlReturnQueue.push([{ total: 0.3 }]);
 
       const { GET } = await import('@/app/api/admin/costs/route');
       const { NextRequest } = await import('next/server');
@@ -140,7 +134,7 @@ describe('Admin denormalized account_id queries', () => {
       // The route uses sql.unsafe() for dynamic queries, so captured texts
       // won't include them. But we can verify the endpoint works and returns
       // data scoped to the account.
-      mockSqlResults.push([
+      sqlReturnQueue.push([
         {
           id: 'nd-1',
           business_name: 'Downtown',
@@ -154,8 +148,8 @@ describe('Admin denormalized account_id queries', () => {
           created_at: new Date(),
         },
       ]);
-      mockSqlResults.push([{ total: '1' }]);
-      mockSqlResults.push([{ id: 'loc-1', name: 'Downtown' }]);
+      sqlReturnQueue.push([{ total: '1' }]);
+      sqlReturnQueue.push([{ id: 'loc-1', name: 'Downtown' }]);
 
       const { GET } = await import('@/app/api/admin/notifications/route');
       const { NextRequest } = await import('next/server');
@@ -183,7 +177,7 @@ describe('Admin denormalized account_id queries', () => {
       // 4. zernio_connection
       // 5. awaiting_owner_connect
       // 6. finalize_incidents
-      mockSqlResults.push([{
+      sqlReturnQueue.push([{
         id: 'loc-1',
         name: 'Test Biz',
         category: 'restaurant',
@@ -210,11 +204,11 @@ describe('Admin denormalized account_id queries', () => {
         display_label: 'Test Biz',
         is_primary: true,
       }]);
-      mockSqlResults.push([]); // reviews
-      mockSqlResults.push([]); // ranking_snapshots
-      mockSqlResults.push([]); // zernio
-      mockSqlResults.push([]); // awaiting_owner_connect
-      mockSqlResults.push([]); // finalize_incidents
+      sqlReturnQueue.push([]); // reviews
+      sqlReturnQueue.push([]); // ranking_snapshots
+      sqlReturnQueue.push([]); // zernio
+      sqlReturnQueue.push([]); // awaiting_owner_connect
+      sqlReturnQueue.push([]); // finalize_incidents
 
       // Second batch (6 parallel queries):
       // 1. metrics
@@ -223,7 +217,7 @@ describe('Admin denormalized account_id queries', () => {
       // 4. account_audit_log
       // 5. auto_approval_policies
       // 6. account readiness
-      mockSqlResults.push([{
+      sqlReturnQueue.push([{
         approval_rate: null,
         notified_count: 0,
         pending_count: 0,
@@ -232,7 +226,7 @@ describe('Admin denormalized account_id queries', () => {
         avg_hours_current: null,
         avg_hours_prev: null,
       }]);
-      mockSqlResults.push([
+      sqlReturnQueue.push([
         {
           id: 'loc-1',
           name: 'Test Biz',
@@ -248,7 +242,7 @@ describe('Admin denormalized account_id queries', () => {
           archived_at: null,
         },
       ]);
-      mockSqlResults.push([{
+      sqlReturnQueue.push([{
         id: 'audit-1',
         response_id: 'resp-1',
         action: 'approved',
@@ -257,7 +251,7 @@ describe('Admin denormalized account_id queries', () => {
         business_id: 'loc-1',
         account_id: 'acct-1',
       }]);
-      mockSqlResults.push([{
+      sqlReturnQueue.push([{
         id: 'aaudit-1',
         event_type: 'location_created',
         actor_user_id: null,
@@ -265,8 +259,8 @@ describe('Admin denormalized account_id queries', () => {
         payload: {},
         created_at: new Date(),
       }]);
-      mockSqlResults.push([]);
-      mockSqlResults.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
+      sqlReturnQueue.push([]);
+      sqlReturnQueue.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
 
       const result = await getBusinessDetail('loc-1');
       expect(result).not.toBeNull();
@@ -291,7 +285,7 @@ describe('Admin denormalized account_id queries', () => {
       const { getBusinessDetail } = await import('@/lib/admin/business-detail-service');
 
       // Queue minimal results
-      mockSqlResults.push([{
+      sqlReturnQueue.push([{
         id: 'loc-1', name: 'Test Biz', category: null, website: null, google_place_id: null,
         tone: null, products_services: null, staff_names: null, highlight_facts: null,
         avoid_facts: null, sample_responses: null, subscription_status: 'active',
@@ -300,27 +294,27 @@ describe('Admin denormalized account_id queries', () => {
         ranking_search_location: null, google_place_address: null, owner_email_bounced: false,
         account_id: 'acct-1', display_label: null, is_primary: true,
       }]);
-      mockSqlResults.push([]); // reviews
-      mockSqlResults.push([]); // ranking
-      mockSqlResults.push([]); // zernio
-      mockSqlResults.push([]); // awaiting
-      mockSqlResults.push([]); // finalize
-      mockSqlResults.push([{
+      sqlReturnQueue.push([]); // reviews
+      sqlReturnQueue.push([]); // ranking
+      sqlReturnQueue.push([]); // zernio
+      sqlReturnQueue.push([]); // awaiting
+      sqlReturnQueue.push([]); // finalize
+      sqlReturnQueue.push([{
         approval_rate: null, notified_count: 0, pending_count: 0,
         days_since_approval: null, account_age_days: 30,
         avg_hours_current: null, avg_hours_prev: null,
       }]);
-      mockSqlResults.push([]); // account locations
-      mockSqlResults.push([]); // approval audit log
-      mockSqlResults.push([]); // account audit log
-      mockSqlResults.push([]); // auto approval policies
-      mockSqlResults.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
+      sqlReturnQueue.push([]); // account locations
+      sqlReturnQueue.push([]); // approval audit log
+      sqlReturnQueue.push([]); // account audit log
+      sqlReturnQueue.push([]); // auto approval policies
+      sqlReturnQueue.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
 
       await getBusinessDetail('loc-1');
 
       // Verify the approval_audit_log query filters by account_id
-      const auditQueries = capturedSqlTexts.filter(
-        (sql) => sql.includes('approval_audit_log') && sql.includes('account_id'),
+      const auditQueries = sqlCalls.filter(
+        (c) => c.text.includes('approval_audit_log') && c.text.includes('account_id'),
       );
       expect(auditQueries.length).toBeGreaterThanOrEqual(1);
     });
@@ -329,7 +323,7 @@ describe('Admin denormalized account_id queries', () => {
       const { getBusinessDetail } = await import('@/lib/admin/business-detail-service');
 
       // Queue minimal results
-      mockSqlResults.push([{
+      sqlReturnQueue.push([{
         id: 'loc-1', name: 'Test Biz', category: null, website: null, google_place_id: null,
         tone: null, products_services: null, staff_names: null, highlight_facts: null,
         avoid_facts: null, sample_responses: null, subscription_status: 'active',
@@ -338,32 +332,32 @@ describe('Admin denormalized account_id queries', () => {
         ranking_search_location: null, google_place_address: null, owner_email_bounced: false,
         account_id: 'acct-1', display_label: null, is_primary: true,
       }]);
-      mockSqlResults.push([]);
-      mockSqlResults.push([]);
-      mockSqlResults.push([]);
-      mockSqlResults.push([]);
-      mockSqlResults.push([]);
-      mockSqlResults.push([{
+      sqlReturnQueue.push([]);
+      sqlReturnQueue.push([]);
+      sqlReturnQueue.push([]);
+      sqlReturnQueue.push([]);
+      sqlReturnQueue.push([]);
+      sqlReturnQueue.push([{
         approval_rate: null, notified_count: 0, pending_count: 0,
         days_since_approval: null, account_age_days: 30,
         avg_hours_current: null, avg_hours_prev: null,
       }]);
-      mockSqlResults.push([]);
-      mockSqlResults.push([]);
-      mockSqlResults.push([]);
-      mockSqlResults.push([]);
-      mockSqlResults.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
+      sqlReturnQueue.push([]);
+      sqlReturnQueue.push([]);
+      sqlReturnQueue.push([]);
+      sqlReturnQueue.push([]);
+      sqlReturnQueue.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
 
       await getBusinessDetail('loc-1');
 
       // Verify the account_audit_log query filters by account_id
-      const accountAuditQueries = capturedSqlTexts.filter(
-        (sql) => sql.includes('account_audit_log') && sql.includes('account_id'),
+      const accountAuditQueries = sqlCalls.filter(
+        (c) => c.text.includes('account_audit_log') && c.text.includes('account_id'),
       );
       expect(accountAuditQueries.length).toBeGreaterThanOrEqual(1);
 
-      const autoApprovalPolicyQueries = capturedSqlTexts.filter(
-        (sql) => sql.includes('auto_approval_policies') && sql.includes('account_id'),
+      const autoApprovalPolicyQueries = sqlCalls.filter(
+        (c) => c.text.includes('auto_approval_policies') && c.text.includes('account_id'),
       );
       expect(autoApprovalPolicyQueries.length).toBeGreaterThanOrEqual(1);
     });

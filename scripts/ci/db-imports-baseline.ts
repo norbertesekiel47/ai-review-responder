@@ -35,7 +35,6 @@ export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([
   'src/lib/accounts/tier-change.ts',
   'src/lib/admin/business-detail/queries.ts',
   'src/lib/admin/business-detail/update.ts',
-  'src/lib/admin/cost-report-service.ts',
   'src/lib/admin/csv-import.ts',
   'src/lib/admin/impersonation/session.ts',
   'src/lib/admin/impersonation/view.ts',
