@@ -729,9 +729,11 @@ describe('reactivateLocationTransaction', () => {
     // Should have 2 outbox INSERTs: update_stripe_overage_quantity + zernio_initial_backfill
     expect(outboxCalls.length).toBeGreaterThanOrEqual(2);
 
-    // Verify zernio_initial_backfill topic is present
+    // Verify zernio_initial_backfill topic is present. Topic is an
+    // interpolated QUEUE_NAMES value, not a template literal — check the
+    // bound values, not the raw strings array.
     const zernioCall = outboxCalls.find(
-      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('zernio_initial_backfill'),
+      (c: any[]) => c.slice(1).includes('zernio_initial_backfill'),
     );
     expect(zernioCall).toBeDefined();
   });
@@ -744,7 +746,7 @@ describe('reactivateLocationTransaction', () => {
     });
 
     const zernioCall = mockSql.mock.calls.find(
-      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('zernio_initial_backfill'),
+      (c: any[]) => c.slice(1).includes('zernio_initial_backfill'),
     );
     expect(zernioCall).toBeDefined();
     const payload = zernioCall?.find((value: unknown) =>
@@ -792,8 +794,10 @@ describe('reactivateLocationTransaction', () => {
       actorUserId: ACTOR_USER_ID,
     });
 
+    // Topic is an interpolated QUEUE_NAMES value, not a template literal —
+    // check the bound values, not the raw strings array.
     const validateCall = mockSql.mock.calls.find(
-      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('validate_place_id'),
+      (c: any[]) => c.slice(1).includes('validate_place_id'),
     );
     expect(validateCall).toBeDefined();
     // Shared helper (enqueueValidatePlaceId in job-outbox-helpers): same
@@ -801,7 +805,7 @@ describe('reactivateLocationTransaction', () => {
     const template = (validateCall![0] as TemplateStringsArray).join('?');
     expect(template).toContain('INSERT INTO job_outbox');
     expect(template).toContain('WHERE NOT EXISTS');
-    expect(template).toContain("topic = 'validate_place_id'");
+    expect(template).toContain('topic = ?');
   });
 
   it('does NOT enqueue validate_place_id when the reactivated row already has a place id', async () => {
@@ -820,7 +824,7 @@ describe('reactivateLocationTransaction', () => {
     });
 
     const validateCall = mockSql.mock.calls.find(
-      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('validate_place_id'),
+      (c: any[]) => c.slice(1).includes('validate_place_id'),
     );
     expect(validateCall).toBeUndefined();
   });

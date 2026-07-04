@@ -22,7 +22,16 @@ function createMockTx() {
 }
 
 function sqlText(call: unknown[]): string {
-  return (call[0] as TemplateStringsArray).join('?').replace(/\s+/g, ' ');
+  return (
+    (call[0] as TemplateStringsArray)
+      .join('?')
+      // SQL line comments (the audit's trailing `-- topic-audit-ignore`
+      // pragma) are lexer trivia to Postgres — strip them BEFORE collapsing
+      // whitespace so the byte-for-byte predicate assertions compare the
+      // expression Postgres actually parses.
+      .replace(/--[^\n]*/g, '')
+      .replace(/\s+/g, ' ')
+  );
 }
 
 function objectArgs(tx: ReturnType<typeof createMockTx>): Record<string, unknown>[] {
@@ -203,11 +212,15 @@ describe('job outbox helpers', () => {
     expect(tx).toHaveBeenCalledOnce();
     const text = sqlText(tx.mock.calls[0]!);
     expect(text).toContain('INSERT INTO job_outbox');
-    expect(text).toContain("'validate_place_id'");
     expect(text).toContain('WHERE NOT EXISTS');
-    expect(text).toContain("jo.topic = 'validate_place_id'");
+    expect(text).toContain('jo.topic = ?');
     expect(text).toContain("jo.status IN ('pending', 'dispatching', 'dispatched')");
     expect(text).toContain('RETURNING id');
+    // Topic is an interpolated QUEUE_NAMES value, not a template literal —
+    // check the bound values, not the raw strings array. Appears twice: once
+    // in the INSERT's SELECT list, once in the WHERE NOT EXISTS dedup guard.
+    const topicValues = tx.mock.calls[0]!.slice(1).filter((v: unknown) => v === QUEUE_NAMES.VALIDATE_PLACE_ID);
+    expect(topicValues).toHaveLength(2);
 
     const payload = objectArgs(tx).find((arg) => arg.business_id === 'business-1');
     expect(payload).toEqual({

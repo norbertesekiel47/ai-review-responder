@@ -225,8 +225,10 @@ describe('POST /api/zernio/connect/select-location account scoping', () => {
     expect(scopeQuery?.values).toContain(SECONDARY_LOCATION_ID);
     expect(scopeQuery?.values).toContain(ACCOUNT_ID);
 
+    // Topic is an interpolated QUEUE_NAMES value, not a template literal —
+    // check the bound values, not the rendered SQL text.
     const backfillInsert = txCalls.find((call) =>
-      /zernio_initial_backfill/.test(call.raw),
+      call.values.includes('zernio_initial_backfill'),
     );
     expect(backfillInsert).toBeDefined();
     expect(backfillInsert?.raw).not.toMatch(/FROM businesses WHERE id/);

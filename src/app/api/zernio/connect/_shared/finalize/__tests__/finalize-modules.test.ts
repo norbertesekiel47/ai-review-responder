@@ -641,7 +641,9 @@ describe('finalizeConnectionTx', () => {
     expect(
       txCalls.some((c) => /INSERT INTO zernio_connections/.test(c.raw)),
     ).toBe(true);
-    expect(txCalls.some((c) => /drain_pending_owner_connect/.test(c.raw))).toBe(
+    // Topic is an interpolated QUEUE_NAMES value, not a template literal —
+    // check the bound values, not the rendered SQL text.
+    expect(txCalls.some((c) => c.values.includes('drain_pending_owner_connect'))).toBe(
       true,
     );
   });
@@ -679,7 +681,9 @@ describe('finalizeConnectionTx', () => {
       locationId: 'google-location-1',
       accountId: 'zernio-account-1',
     });
-    expect(txCalls.some((c) => /zernio_initial_backfill/.test(c.raw))).toBe(
+    // Topic is a bound QUEUE_NAMES value — a raw-text regex would be
+    // vacuously false here even if the enqueue fired, so check the values.
+    expect(txCalls.some((c) => c.values.includes('zernio_initial_backfill'))).toBe(
       false,
     );
   });
@@ -692,7 +696,7 @@ describe('finalizeConnectionTx', () => {
       locationId: 'google-location-1',
       accountId: 'zernio-account-1',
     });
-    expect(txCalls.some((c) => /zernio_initial_backfill/.test(c.raw))).toBe(
+    expect(txCalls.some((c) => c.values.includes('zernio_initial_backfill'))).toBe(
       true,
     );
   });

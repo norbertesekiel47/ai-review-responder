@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
 import { jsonb, sql } from '../../../src/lib/db/server';
+import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { getReviewPublisher } from '../../../src/lib/publishing/review-publisher';
 import type { ResolvedPublishTarget } from '../../../src/lib/publishing/review-publisher';
 import { markOutboxCompleted } from '../../../src/lib/shared/outbox';
@@ -140,7 +141,7 @@ async function openReviewNotFoundException(input: {
         id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
       ) VALUES (
         ${uuidv7()},
-        'notify_admin_review_exception',
+        ${QUEUE_NAMES.NOTIFY_ADMIN},
         'review',
         ${reviewId},
         ${jsonb({

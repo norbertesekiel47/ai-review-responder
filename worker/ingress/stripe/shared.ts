@@ -1,6 +1,7 @@
 import type Stripe from 'stripe';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
+import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { zernioPublishingEnabled } from '../../../src/lib/publishing/flags';
 
 export const LOG_PREFIX = '[ingress/stripe]';
@@ -122,7 +123,7 @@ async function maybeEnqueueBackfillResume(businessId: string): Promise<void> {
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
     SELECT
       ${uuidv7()},
-      'zernio_initial_backfill',
+      ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL},
       'business',
       ${businessId}::uuid,
       ${jsonb({
@@ -137,7 +138,7 @@ async function maybeEnqueueBackfillResume(businessId: string): Promise<void> {
     WHERE NOT EXISTS (
       SELECT 1 FROM job_outbox jo
       WHERE jo.aggregate_id = ${businessId}::uuid
-        AND jo.topic = 'zernio_initial_backfill'
+        AND jo.topic = ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL}
         AND jo.status IN ('pending', 'dispatching', 'dispatched')
     )
   `;

@@ -196,10 +196,12 @@ describe('NotificationFailoverPoller', () => {
     await vi.advanceTimersByTimeAsync(0);
 
     // Find the INSERT call and inspect its payload param
+    // Topic is an interpolated QUEUE_NAMES value, not a template literal —
+    // check the bound values, not the raw strings array.
     const insertCall = mockSql.mock.calls.find(
       (call: any[]) => {
         const text = Array.from(call[0] as TemplateStringsArray).join('');
-        return text.includes('INSERT') && text.includes('send_notification');
+        return text.includes('INSERT') && call.slice(1).includes('send_notification');
       },
     );
     expect(insertCall).toBeDefined();
@@ -244,10 +246,12 @@ describe('NotificationFailoverPoller', () => {
     mod.startNotificationFailoverPoller();
     await vi.advanceTimersByTimeAsync(0);
 
+    // Topic is an interpolated QUEUE_NAMES value, not a template literal —
+    // check the bound values, not the raw strings array.
     const insertCall = mockSql.mock.calls.find(
       (call: any[]) => {
         const text = Array.from(call[0] as TemplateStringsArray).join('');
-        return text.includes('INSERT') && text.includes('send_notification');
+        return text.includes('INSERT') && call.slice(1).includes('send_notification');
       },
     );
     expect(insertCall).toBeDefined();

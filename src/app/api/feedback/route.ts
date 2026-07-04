@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { verifyFeedback } from '@/lib/shared/feedback-hmac';
 import type { EngagementAlertPayload } from '@/lib/shared/worker-types';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
@@ -204,7 +205,7 @@ export async function POST(request: NextRequest) {
       // Week-scoped dedup check
       const [existing] = await tx<{ id: string }[]>`
         SELECT id FROM job_outbox
-        WHERE topic = 'engagement_alert'
+        WHERE topic = ${QUEUE_NAMES.ENGAGEMENT_ALERT}
           AND aggregate_id = ${businessId}
           AND status <> 'failed'
           AND payload->>'alert_type' = 'partner_satisfaction_alert'
@@ -229,7 +230,7 @@ export async function POST(request: NextRequest) {
         // statement succeeds with 0 rows instead of throwing 23505.
         await tx`
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          VALUES (${uuidv7()}, 'engagement_alert', 'business', ${businessId},
+          VALUES (${uuidv7()}, ${QUEUE_NAMES.ENGAGEMENT_ALERT}, 'business', ${businessId},
                   ${jsonb(payload)}, 'pending')
           ON CONFLICT DO NOTHING
         `;

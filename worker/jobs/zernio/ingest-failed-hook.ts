@@ -2,6 +2,7 @@ import type { Job } from 'bullmq';
 import * as Sentry from '@sentry/node';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
+import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { extractOutboxHandle, markOutboxFailed } from '../../../src/lib/shared/outbox';
 import {
   ZernioIngestReviewNotFoundError,
@@ -149,7 +150,7 @@ async function handleUnparseableLocation(
     await sql`
       INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts)
       VALUES (
-        ${uuidv7()}, 'notify_admin_review_exception', 'business',
+        ${uuidv7()}, ${QUEUE_NAMES.NOTIFY_ADMIN}, 'business',
         ${err.businessId},
         ${jsonb({ review_exception_id: exception.id, business_id: err.businessId })},
         0, 5

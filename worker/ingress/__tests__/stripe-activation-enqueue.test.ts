@@ -159,9 +159,10 @@ function queueHappyPath(
 function getInsertOutboxCall() {
   // Narrowed to zernio_initial_backfill — the overage INSERT is separate
   // (update_stripe_overage_quantity) and tested by its own helper below.
+  // Topic is an interpolated value, not a template literal — check values array.
   return sqlCalls.find(
     (c) => (c.text.includes('INSERT INTO job_outbox') || (c.text.includes('INSERT') && c.text.includes('job_outbox')))
-      && c.text.includes("'zernio_initial_backfill'"),
+      && c.values.includes('zernio_initial_backfill'),
   );
 }
 
@@ -285,9 +286,10 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
   // ── Backfill-resume branch (ZERNIO_PUBLISHING_ENABLED=true) ──────────────
 
   function getBackfillInsertCalls() {
+    // Topic is an interpolated value, not a template literal — check values array.
     return sqlCalls.filter(
       (c) => c.text.includes('INSERT INTO job_outbox')
-        && c.text.includes("'zernio_initial_backfill'"),
+        && c.values.includes('zernio_initial_backfill'),
     );
   }
 
@@ -407,10 +409,11 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
 
     // The INSERT statement still ran (the WHERE NOT EXISTS dedup is
     // server-side, not skipped client-side). Pin the SQL shape: it must
-    // include "NOT EXISTS" + "zernio_initial_backfill" + "in ('pending'".
+    // include "NOT EXISTS" + "zernio_initial_backfill" (interpolated value,
+    // not a template literal) + "in ('pending'".
     const insertSql = sqlCalls.find(
       (c) => c.text.includes('INSERT INTO job_outbox')
-        && c.text.includes("'zernio_initial_backfill'"),
+        && c.values.includes('zernio_initial_backfill'),
     );
     expect(insertSql).toBeDefined();
     expect(insertSql!.text).toContain('NOT EXISTS');

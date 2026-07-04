@@ -71,7 +71,9 @@ describe('createBusinessTx — admin mode', () => {
     await createBusinessTx(input, { mode: 'admin', onboardedBy: 'admin-1' });
     const outboxCall = mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'))!;
-    expect((outboxCall[0] as TemplateStringsArray).join('?')).toContain("'validate_place_id'");
+    // Topic is an interpolated QUEUE_NAMES value, not a template literal —
+    // check the bound values, not the raw strings array.
+    expect(outboxCall.slice(1)).toContain('validate_place_id');
   });
 
   it('writes onboarded_by value to businesses row', async () => {

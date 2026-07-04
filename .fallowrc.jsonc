@@ -78,6 +78,19 @@
     {
       "file": "src/lib/shared/feedback-hmac.ts",
       "exports": ["signFeedback"]
+    },
+    // ReviewStatus is the derived union type paired with REVIEW_STATUS (the
+    // reviews.status vocabulary's single owner). No current call site needs the
+    // TYPE — only the runtime values (reviews-status-audit.ts imports
+    // REVIEW_STATUS itself, not ReviewStatus) — but the module previously read
+    // as an entirely unused FILE, masking this per-export finding; wiring
+    // reviews-status-audit.ts's import onto REVIEW_STATUS (quality-review fix
+    // round) made the file reachable and surfaced it. Kept as the module's
+    // public contract for a future typed call site (e.g. a function parameter
+    // typed `status: ReviewStatus`), not deleted.
+    {
+      "file": "src/lib/reviews/status.ts",
+      "exports": ["ReviewStatus"]
     }
   ],
   // NotificationChannel send methods are invoked via interface dispatch through the

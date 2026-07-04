@@ -274,8 +274,9 @@ describe('POST /api/onboarding/business', () => {
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'),
     );
     expect(outboxCall).toBeDefined();
-    // 'validate_place_id' is now a SQL literal in the template, not a bound value.
-    expect((outboxCall![0] as TemplateStringsArray).join('?')).toContain("'validate_place_id'");
+    // Topic is an interpolated QUEUE_NAMES value, not a template literal —
+    // check the bound values, not the raw strings array.
+    expect(outboxCall!.slice(1)).toContain('validate_place_id');
   });
 
   it('idempotency: silent no-op when FOR UPDATE re-read finds row already onboarded', async () => {

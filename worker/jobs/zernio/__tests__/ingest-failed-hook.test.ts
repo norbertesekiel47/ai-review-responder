@@ -227,11 +227,13 @@ describe('handleIngestFailed', () => {
         retries_exhausted_at: expect.any(String),
       });
 
-      // Second call: notify_admin_review_exception outbox row.
+      // Second call: notify_admin_review_exception outbox row. Topic is an
+      // interpolated QUEUE_NAMES value, not a template literal — check the
+      // bound values, not the raw strings array.
       const secondSqlCall = mockSql.mock.calls[1]!;
       const secondSql = (secondSqlCall[0] as TemplateStringsArray).join('?');
       expect(secondSql).toContain('INSERT INTO job_outbox');
-      expect(secondSql).toContain("'notify_admin_review_exception'");
+      expect(secondSqlCall.slice(1)).toContain('notify_admin_review_exception');
 
       const secondInterpolated = secondSqlCall.slice(1);
       const outboxPayload = secondInterpolated.find(

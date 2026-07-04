@@ -1,6 +1,7 @@
 import { v7 as uuidv7 } from 'uuid';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql, jsonb } from '../../../src/lib/db/server';
+import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { sendInternalEmail } from '../../../src/lib/notifications/email';
 import { escapeHtml } from '../../../src/lib/shared/html';
 import { createWorkerLogger, toError } from '../../../src/lib/shared/logger';
@@ -118,7 +119,7 @@ async function recoverFailoverCorrelationId(responseId: string): Promise<string>
   const [existingSend] = await sql<{ correlation_id: string | null }[]>`
     SELECT payload->>'correlation_id' AS correlation_id
     FROM job_outbox
-    WHERE topic = 'send_notification' AND aggregate_id = ${responseId}
+    WHERE topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND aggregate_id = ${responseId}
     ORDER BY created_at DESC
     LIMIT 1
   `;
@@ -128,7 +129,7 @@ async function recoverFailoverCorrelationId(responseId: string): Promise<string>
     SELECT jo.payload->>'correlation_id' AS correlation_id
     FROM responses r
     JOIN job_outbox jo
-      ON jo.topic = 'generate_response'
+      ON jo.topic = ${QUEUE_NAMES.GENERATE_RESPONSE}
      AND jo.aggregate_id = r.review_id
     WHERE r.id = ${responseId}
     ORDER BY jo.created_at DESC
@@ -175,7 +176,7 @@ export async function runFailoverPollerOnce(): Promise<void> {
         )
         AND NOT EXISTS (
           SELECT 1 FROM job_outbox jo
-          WHERE jo.topic = 'send_notification'
+          WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION}
             AND jo.aggregate_id = resp.id
             AND jo.status IN ('pending', 'dispatching', 'dispatched')
         )
@@ -226,14 +227,14 @@ export async function runFailoverPollerOnce(): Promise<void> {
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
           SELECT
             ${uuidv7()},
-            'send_notification',
+            ${QUEUE_NAMES.SEND_NOTIFICATION},
             'response',
             ${row.response_id},
             ${jsonb(payload)},
             'pending'
           WHERE NOT EXISTS (
             SELECT 1 FROM job_outbox jo
-            WHERE jo.topic = 'send_notification'
+            WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION}
               AND jo.aggregate_id = ${row.response_id}
               AND jo.status IN ('pending', 'dispatching', 'dispatched')
           )
@@ -287,7 +288,7 @@ export async function runFailoverPollerOnce(): Promise<void> {
         )
         AND NOT EXISTS (
           SELECT 1 FROM job_outbox jo
-          WHERE jo.topic = 'send_notification'
+          WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION}
             AND jo.aggregate_id = resp.id
             AND jo.status IN ('pending', 'dispatching', 'dispatched')
         )

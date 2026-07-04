@@ -4,13 +4,7 @@ import { Icon } from '@/components/dashboard/shell/Icon';
 import { Sparkline } from '@/components/dashboard/kpi/Sparkline';
 import { useCountUp } from '@/hooks/useCountUp';
 import { cn } from '@/lib/ui/cn';
-
-interface ValueSummary {
-  totalReviewsHandled: number;
-  totalTimeSavedMinutes: number;
-  currentResponseRate: number;
-  baselineResponseRate: number | null;
-}
+import type { ValueSummary } from '@/lib/dashboard/types';
 
 interface ValueKpiGridProps {
   valueSummary: ValueSummary;

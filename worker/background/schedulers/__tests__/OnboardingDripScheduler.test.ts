@@ -73,11 +73,13 @@ describe('OnboardingDripScheduler', () => {
     // 1 main query + 1 INSERT = 2
     expect(mockSql).toHaveBeenCalledTimes(2);
 
-    // Verify the INSERT call contains onboarding_drip
+    // Verify the INSERT call contains onboarding_drip. Topic is an
+    // interpolated QUEUE_NAMES value, not a template literal — check the
+    // bound values, not the raw strings array.
     const insertCall = mockSql.mock.calls[1];
     const insertText = Array.from(insertCall[0] as TemplateStringsArray).join('');
     expect(insertText).toContain('INSERT');
-    expect(insertText).toContain('onboarding_drip');
+    expect(insertCall.slice(1)).toContain('onboarding_drip');
 
     expect(mockLogger.log).toHaveBeenCalledWith(expect.stringContaining('Queued 1 onboarding_drip outbox entries'));
   });

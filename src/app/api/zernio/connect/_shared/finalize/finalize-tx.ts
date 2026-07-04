@@ -5,6 +5,7 @@ import {
   type ActiveOffboardingProjection,
 } from '@/lib/account-offboarding/gate';
 import { sql, jsonb } from '@/lib/db/server';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { ZernioRouteError } from '@/lib/zernio/errors';
 import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import type { AppUser } from '@/lib/db/auth';
@@ -144,7 +145,7 @@ export async function finalizeConnectionTx({
         id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
       ) VALUES (
         ${uuidv7()},
-        'drain_pending_owner_connect',
+        ${QUEUE_NAMES.DRAIN_OWNER_CONNECT},
         'business',
         ${stored.businessId},
         ${jsonb({ business_id: stored.businessId, kind: 'drain' })},
@@ -204,7 +205,7 @@ export async function finalizeConnectionTx({
             id, topic, aggregate_type, aggregate_id, payload, status
           ) VALUES (
             ${uuidv7()},
-            'zernio_initial_backfill',
+            ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL},
             'business',
             ${stored.businessId},
             ${jsonb({

@@ -13,6 +13,7 @@ import type postgres from 'postgres';
 import * as Sentry from '@sentry/node';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
+import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { externalReplyImportEnabled } from '../../../src/lib/publishing/flags';
 import {
   ZernioAuthError,
@@ -133,7 +134,7 @@ export async function openPhiReviewException(
   await db`
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts)
     VALUES (
-      ${uuidv7()}, 'notify_admin_review_exception', 'business',
+      ${uuidv7()}, ${QUEUE_NAMES.NOTIFY_ADMIN}, 'business',
       ${input.businessId},
       ${jsonb({ review_exception_id: exception.id, business_id: input.businessId })},
       0, 5

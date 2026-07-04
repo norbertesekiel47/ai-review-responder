@@ -46,6 +46,7 @@ const IGNORE_PRAGMA = 'status-audit-ignore';
 
 // Tags whose template bodies are SQL in this codebase: the Postgres.js client
 // (`sql`) and a transaction scope from `sql.begin(tx => …)` (`tx`).
+// Known gap: db-tagged templates not scanned here (see scripts/ci/lib/sql-tag-scan.ts); widening deferred to the Stage-2f sweep.
 const SQL_TAG_NAMES = new Set(['sql', 'tx']);
 
 const CANONICAL_STATUSES = new Set([

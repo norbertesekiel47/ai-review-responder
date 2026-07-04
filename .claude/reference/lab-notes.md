@@ -907,6 +907,7 @@ long-lived branch surfaces accumulated drift at once.
 snippet to the new normalized SQL (or drop the entry if the query is now
 inline-scoped), after verifying each flagged query is genuinely safe. Run
 `pnpm ci:tenant-scope` locally, not just `pnpm lint`.
+- [2026-07-02] Same trap, line-pinned flavor: local `pnpm lint` is ESLint-only — CI's lint JOB also runs the audit scripts; when a file with `file:line` allowlist pins shifts (e.g. `static-policy-audit`'s `src/lib/dashboard/types.ts` pins after an edit above them), run the audits explicitly (`pnpm ci:static-policy` etc.) and re-pin.
 
 ---
 

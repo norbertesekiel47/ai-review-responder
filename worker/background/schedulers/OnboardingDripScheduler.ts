@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
+import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { isMockMode } from '../../../src/lib/shared/mock-mode';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { createGuardedPoll } from '../guarded-poll';
@@ -46,7 +47,7 @@ export async function checkAndSchedule(): Promise<void> {
         )
         AND NOT EXISTS (
           SELECT 1 FROM job_outbox jo
-          WHERE jo.topic = 'onboarding_drip'
+          WHERE jo.topic = ${QUEUE_NAMES.ONBOARDING_DRIP}
             AND jo.aggregate_id = b.id
             AND jo.status <> 'failed'
             AND jo.payload->>'drip_type' = d.drip_type
@@ -69,7 +70,7 @@ export async function checkAndSchedule(): Promise<void> {
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
           VALUES (
             ${uuidv7()},
-            'onboarding_drip',
+            ${QUEUE_NAMES.ONBOARDING_DRIP},
             'business',
             ${row.business_id},
             ${jsonb(payload)},

@@ -21,6 +21,7 @@
 import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { getLocationById, getActiveLocationCount } from './repo';
 import { rethrowAsDuplicateLocation } from './duplicate-location';
 import { enqueueStripeOverageRecompute, enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
@@ -456,7 +457,7 @@ export async function reactivateLocationTransaction(
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
           VALUES (
             ${uuidv7()},
-            'zernio_initial_backfill',
+            ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL},
             'business',
             ${locationId}::uuid,
             ${jsonb({

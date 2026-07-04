@@ -433,6 +433,7 @@ Everything about fetching and normalising Google reviews.
 | `url-parser.ts` | `extractPlaceId()` / `isPlaceId()` — extracts or validates a Place ID from a Google Maps URL. |
 | `place-id-resolver.ts` | Resolves a canonical Place ID from a business name + address string via SerpAPI. |
 | `process-review.ts` | Processes one `NormalizedReview`: deduplication, identity-collision detection, upsert into `reviews` table. |
+| `status.ts` | `REVIEW_STATUS` — canonical `reviews.status` value vocabulary (the reviews-table sibling of `shared/response-status.ts`). Guarded by `scripts/ci/reviews-status-audit.ts` (baseline ratchet on raw status literals in reviews-table SQL). |
 | `detect-language.ts` | Detects the language of a review text (used to make AI respond in the same language). |
 | `mock-source.ts` / `mock-monitor.ts` | Canned data used when `MOCK_EXTERNAL_APIS=true`. |
 
