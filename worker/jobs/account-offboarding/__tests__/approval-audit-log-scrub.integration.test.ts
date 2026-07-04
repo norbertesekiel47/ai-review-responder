@@ -1,8 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
+import { describeWithDb } from '../../../../src/__tests__/helpers/describe-with-db';
 
 // Real-schema regression for staging dry-run defect D3. The unit PurgeWorker test
 // only asserts the scrub SQL *text*, so it never noticed that the approval_audit_log
@@ -18,8 +19,6 @@ import { v7 as uuidv7 } from 'uuid';
 // the database to already have migrations applied (like the repo's other
 // integration tests).
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
-const RUN = Boolean(testDatabaseUrl);
-const d = RUN ? describe : describe.skip;
 
 const userId = randomUUID();
 const accountId = randomUUID();
@@ -42,7 +41,7 @@ function db(): postgresType.Sql {
   return seed;
 }
 
-d('runDependentReferencePurgeStage — approval_audit_log real PII removal (D3)', () => {
+describeWithDb('runDependentReferencePurgeStage — approval_audit_log real PII removal (D3)', () => {
   beforeAll(async () => {
     // The app sql singleton reads DATABASE_POOL_URL at import; point it (and the
     // dummy Supabase env createClient needs) before dynamically importing the worker.

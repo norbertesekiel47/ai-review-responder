@@ -1,7 +1,8 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
+import { describeWithDb } from '../../../../src/__tests__/helpers/describe-with-db';
 
 // Real removal proof for the FK-independent analytics scrub (M1). The unit test
 // only asserts the SQL shape; this drives the PRODUCTION runAnalyticsPurgeStage
@@ -14,8 +15,6 @@ import { randomUUID } from 'node:crypto';
 // Both seeded rows use account_id = NULL, so no accounts/users seed is required and
 // the test only ever touches the rows it inserts.
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
-const RUN = Boolean(testDatabaseUrl);
-const d = RUN ? describe : describe.skip;
 
 const ACCOUNT_ID = randomUUID();
 const OTHER_ACCOUNT_ID = randomUUID();
@@ -30,7 +29,7 @@ function db(): postgresType.Sql {
   return seed;
 }
 
-d('runAnalyticsPurgeStage — real PII removal (M1)', () => {
+describeWithDb('runAnalyticsPurgeStage — real PII removal (M1)', () => {
   beforeAll(async () => {
     // The app sql singleton reads DATABASE_POOL_URL at import; point it (and the
     // dummy Supabase env createClient needs) before dynamically importing the worker.

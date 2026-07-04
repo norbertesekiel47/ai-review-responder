@@ -9,13 +9,12 @@
 // `responses.status` (text) column domain — proving the migrated READ
 // predicates generate behavior-identical SQL.
 
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
+import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
-const RUN = Boolean(testDatabaseUrl);
-const describeOrSkip = RUN ? describe : describe.skip;
 
 let db: postgresType.Sql | undefined;
 
@@ -23,7 +22,7 @@ afterAll(async () => {
   await db?.end({ timeout: 5 });
 });
 
-describeOrSkip('statusArraySql (integration, real Postgres text[] binding)', () => {
+describeWithDb('statusArraySql (integration, real Postgres text[] binding)', () => {
   it('ANY(statusArraySql(HANDLED_STATUSES)) matches in-group and rejects out-of-group', async () => {
     // statusArraySql binds against the module-level `sql` client in
     // response-status-sql.ts; that client reads DATABASE_POOL_URL, which CI

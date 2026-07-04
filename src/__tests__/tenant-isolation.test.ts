@@ -1,12 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
+import { describeWithDb } from './helpers/describe-with-db';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
-const RUN = Boolean(testDatabaseUrl);
-const d = RUN ? describe : describe.skip;
 
 let db: postgresType.Sql | undefined;
 let originalDatabasePoolUrl: string | undefined;
@@ -187,7 +186,7 @@ async function readTenantEvidence(accountId: string): Promise<TenantReadRow[]> {
   `;
 }
 
-d('tenant isolation integration', () => {
+describeWithDb('tenant isolation integration', () => {
   beforeAll(async () => {
     originalDatabasePoolUrl = process.env.DATABASE_POOL_URL;
     process.env.DATABASE_POOL_URL = testDatabaseUrl!;
