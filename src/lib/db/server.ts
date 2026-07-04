@@ -46,6 +46,15 @@ export const sql = postgres(process.env.DATABASE_POOL_URL!, {
  * interfaces (BasePayload / SyncReviewsPayload / etc.) are accepted at
  * compile time. At runtime Postgres.js sends the value as a parameter
  * of OID 3802 (jsonb) — serialized exactly once.
+ *
+ * Instance-bound (coupled to the `sql` singleton): this wraps the
+ * module-level `sql` singleton's `.json` — Postgres.js exposes no static
+ * jsonb-parameter constructor — so importing `jsonb` pulls in the db
+ * singleton. It is therefore a composition-root-only value import. Domain
+ * modules — which receive `sql`/`tx` as an injected parameter per the
+ * injection convention — must NOT import `jsonb`; call the injected
+ * client's `.json(value)` directly (e.g. `tx.json(payload)`), which is
+ * byte-identical to this helper. (Modularity A+ campaign, PR 2z; spec §2.1.)
  */
 export function jsonb<T>(value: T): ReturnType<typeof sql.json> {
   return sql.json(value as never);
