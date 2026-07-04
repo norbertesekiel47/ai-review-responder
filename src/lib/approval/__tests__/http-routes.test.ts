@@ -1,12 +1,14 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
+import type { Sql } from 'postgres';
 import { ArchivedLocationError, ResponseNotPendingError } from '../errors';
 
 const {
   sqlCalls,
-  sqlResults,
+  sqlReturnQueue,
   mockSql,
+  resetMockSql,
   mockRequireRole,
   mockCheckRateLimit,
   mockValidateCsrf,
@@ -15,21 +17,10 @@ const {
   mockLockValidLink,
   mockRecoverCorrelationId,
   mockHandleApprovalError,
-} = vi.hoisted(() => {
-  const sqlCalls: { raw: string; values: unknown[] }[] = [];
-  const sqlResults: unknown[][] = [];
-  const mockSql = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
-    sqlCalls.push({ raw: strings.raw.join(''), values });
-    return Promise.resolve(sqlResults.shift() ?? []);
-  }) as unknown as ReturnType<typeof vi.fn> & {
-    begin: ReturnType<typeof vi.fn>;
-  };
-  mockSql.begin = vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(mockSql));
-
+} = await vi.hoisted(async () => {
+  const { createMockSql } = await import('../../../../worker/__tests__/helpers/mock-sql');
   return {
-    sqlCalls,
-    sqlResults,
-    mockSql,
+    ...createMockSql(),
     mockRequireRole: vi.fn(),
     mockCheckRateLimit: vi.fn(),
     mockValidateCsrf: vi.fn(),
@@ -43,8 +34,12 @@ const {
 
 vi.mock('@/lib/db/server', () => ({
   sql: mockSql,
-  jsonb: (value: unknown) => value,
 }));
+
+// mockSql is a fragment-aware Postgres.js stand-in (createMockSql), not a
+// structural match for postgres.Sql's full surface (unsafe/listen/reserve/...) —
+// cast once so every call site below can pass it as the injected `sql` param.
+const sql = mockSql as unknown as Sql;
 
 vi.mock('@/lib/db/auth', () => {
   class AuthError extends Error {
@@ -164,8 +159,7 @@ function owner(overrides?: { accountId?: string | null; locationId?: string | nu
 
 beforeEach(() => {
   vi.clearAllMocks();
-  sqlCalls.length = 0;
-  sqlResults.length = 0;
+  resetMockSql();
   mockCheckRateLimit.mockResolvedValue({ allowed: true });
   mockValidateCsrf.mockReturnValue(true);
   mockVerifyDeviceCookie.mockReturnValue(true);
@@ -190,6 +184,7 @@ describe('runTokenApprovalAction', () => {
     const action = vi.fn();
 
     const res = await runTokenApprovalAction(
+      sql,
       request(),
       RAW_TOKEN,
       'approve',
@@ -214,6 +209,7 @@ describe('runTokenApprovalAction', () => {
     );
 
     const res = await runTokenApprovalAction(
+      sql,
       request(),
       RAW_TOKEN,
       'edit',
@@ -231,11 +227,12 @@ describe('runTokenApprovalAction', () => {
   });
 
   it('recovers token-action correlation and passes audit context to the action', async () => {
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
-    sqlResults.push([{ review_id: 'rev-1' }]);
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]);
+    sqlReturnQueue.push([{ review_id: 'rev-1' }]);
     const action = vi.fn();
 
     const res = await runTokenApprovalAction(
+      sql,
       request(),
       RAW_TOKEN,
       'approve',
@@ -263,11 +260,12 @@ describe('runTokenApprovalAction', () => {
   });
 
   it('preserves legacy request.ip fallback for token-action audit context', async () => {
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
-    sqlResults.push([{ review_id: 'rev-1' }]);
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]);
+    sqlReturnQueue.push([{ review_id: 'rev-1' }]);
     const action = vi.fn();
 
     const res = await runTokenApprovalAction(
+      sql,
       requestWithLegacyIp(),
       RAW_TOKEN,
       'approve',
@@ -284,10 +282,11 @@ describe('runTokenApprovalAction', () => {
   });
 
   it('can establish a token session without requiring a pre-existing verified device cookie', async () => {
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]);
     const action = vi.fn();
 
     const res = await runTokenApprovalAction(
+      sql,
       request(),
       RAW_TOKEN,
       'session',
@@ -309,10 +308,11 @@ describe('runTokenApprovalAction', () => {
   });
 
   it('returns 402 before token approval work when the link account is read-only', async () => {
-    sqlResults.push([READ_ONLY_ACCOUNT_ROW]);
+    sqlReturnQueue.push([READ_ONLY_ACCOUNT_ROW]);
     const action = vi.fn();
 
     const res = await runTokenApprovalAction(
+      sql,
       request(),
       RAW_TOKEN,
       'approve',
@@ -328,10 +328,11 @@ describe('runTokenApprovalAction', () => {
   });
 
   it('returns 403 before token approval work when the link account is not active', async () => {
-    sqlResults.push([INACTIVE_ACCOUNT_ROW]);
+    sqlReturnQueue.push([INACTIVE_ACCOUNT_ROW]);
     const action = vi.fn();
 
     const res = await runTokenApprovalAction(
+      sql,
       request(),
       RAW_TOKEN,
       'approve',
@@ -346,10 +347,11 @@ describe('runTokenApprovalAction', () => {
   });
 
   it('returns 403 before token approval work when owner offboarding blocks callbacks', async () => {
-    sqlResults.push([OFFBOARDING_ACCOUNT_ROW]);
+    sqlReturnQueue.push([OFFBOARDING_ACCOUNT_ROW]);
     const action = vi.fn();
 
     const res = await runTokenApprovalAction(
+      sql,
       request(),
       RAW_TOKEN,
       'approve',
@@ -365,10 +367,11 @@ describe('runTokenApprovalAction', () => {
   });
 
   it('returns 403 before token session work when the link business/account was deleted', async () => {
-    sqlResults.push([]);
+    sqlReturnQueue.push([]);
     const action = vi.fn();
 
     const res = await runTokenApprovalAction(
+      sql,
       request(),
       RAW_TOKEN,
       'session',
@@ -407,14 +410,15 @@ describe('requireDashboardReviewOwner', () => {
 
 describe('runDashboardReviewAction', () => {
   it('scopes the response lookup by owner account and passes the review location to the action', async () => {
-    sqlResults.push([{ id: 'resp-1', business_id: 'biz-secondary', status: 'pending_approval' }]);
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
-    sqlResults.push([]); // SELECT id ... FOR UPDATE
-    sqlResults.push([]); // hasOpenFlag → no open flag
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
+    sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-secondary', status: 'pending_approval' }]);
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]);
+    sqlReturnQueue.push([]); // SELECT id ... FOR UPDATE
+    sqlReturnQueue.push([]); // hasOpenFlag → no open flag
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
     const action = vi.fn();
 
     const res = await runDashboardReviewAction(
+      sql,
       request(),
       'rev-1',
       { id: 'owner-1', accountId: 'acct-1' },
@@ -424,7 +428,7 @@ describe('runDashboardReviewAction', () => {
     );
 
     expect(res.status).toBe(200);
-    const responseLookup = sqlCalls.find((call) => call.raw.includes('FROM responses r'));
+    const responseLookup = sqlCalls.find((call) => call.text.includes('FROM responses r'));
     expect(responseLookup?.values).toEqual(['rev-1', 'acct-1']);
     expect(mockRecoverCorrelationId).toHaveBeenCalledWith(mockSql, {
       reviewId: 'rev-1',
@@ -442,8 +446,8 @@ describe('runDashboardReviewAction', () => {
     // gate is owned by the action's claim primitive (lockPendingResponse in
     // locks.ts). The only archived_at the wrapper touches is the pre-tx
     // `b.archived_at IS NULL` lookup filter above.
-    expect(sqlCalls.some((call) => call.raw.includes('SELECT archived_at'))).toBe(false);
-    expect(sqlCalls.some((call) => call.raw.includes('FOR SHARE'))).toBe(false);
+    expect(sqlCalls.some((call) => call.text.includes('SELECT archived_at'))).toBe(false);
+    expect(sqlCalls.some((call) => call.text.includes('FOR SHARE'))).toBe(false);
   });
 
   // The archived gate itself runs inside the action's lockPendingResponse
@@ -451,14 +455,15 @@ describe('runDashboardReviewAction', () => {
   // the error mapping: ArchivedLocationError (a ResponseNotPendingError
   // subclass) thrown by the action's claim must surface as a 409 conflict.
   it('maps ArchivedLocationError thrown by the approve action to a 409 conflict', async () => {
-    sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // outer pre-tx account gate
-    sqlResults.push([]); // SELECT ... FOR UPDATE
-    sqlResults.push([]); // hasOpenFlag → no open flag
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
+    sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // outer pre-tx account gate
+    sqlReturnQueue.push([]); // SELECT ... FOR UPDATE
+    sqlReturnQueue.push([]); // hasOpenFlag → no open flag
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
     const action = vi.fn().mockRejectedValue(new ArchivedLocationError());
 
     const res = await runDashboardReviewAction(
+      sql,
       request(),
       'rev-1',
       { id: 'owner-1', accountId: 'acct-1' },
@@ -474,14 +479,15 @@ describe('runDashboardReviewAction', () => {
   });
 
   it('maps ArchivedLocationError thrown by the edit action to a 409 conflict', async () => {
-    sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // outer pre-tx account gate
-    sqlResults.push([]); // SELECT ... FOR UPDATE
-    sqlResults.push([]); // hasOpenFlag → no open flag
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
+    sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // outer pre-tx account gate
+    sqlReturnQueue.push([]); // SELECT ... FOR UPDATE
+    sqlReturnQueue.push([]); // hasOpenFlag → no open flag
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
     const action = vi.fn().mockRejectedValue(new ArchivedLocationError());
 
     const res = await runDashboardReviewAction(
+      sql,
       request(),
       'rev-1',
       { id: 'owner-1', accountId: 'acct-1' },
@@ -497,14 +503,15 @@ describe('runDashboardReviewAction', () => {
   });
 
   it('re-asserts the writable/offboarding gate inside the tx and blocks an offboarding confirmed after the pre-tx check', async () => {
-    sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // outer pre-tx account gate still sees a writable account
-    sqlResults.push([]); // SELECT ... FOR UPDATE
-    sqlResults.push([]); // hasOpenFlag → no open flag
-    sqlResults.push([OFFBOARDING_ACCOUNT_ROW]); // in-tx business gate now sees an active offboarding
+    sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // outer pre-tx account gate still sees a writable account
+    sqlReturnQueue.push([]); // SELECT ... FOR UPDATE
+    sqlReturnQueue.push([]); // hasOpenFlag → no open flag
+    sqlReturnQueue.push([OFFBOARDING_ACCOUNT_ROW]); // in-tx business gate now sees an active offboarding
     const action = vi.fn();
 
     const res = await runDashboardReviewAction(
+      sql,
       request(),
       'rev-1',
       { id: 'owner-1', accountId: 'acct-1' },
@@ -519,13 +526,14 @@ describe('runDashboardReviewAction', () => {
   });
 
   it('returns 409 and skips the action when an open moderation flag holds the draft', async () => {
-    sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // assertWritableSubscriptionForAccount
-    sqlResults.push([]); // SELECT ... FOR UPDATE
-    sqlResults.push([{ one: 1 }]); // hasOpenFlag → open flag present
+    sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // assertWritableSubscriptionForAccount
+    sqlReturnQueue.push([]); // SELECT ... FOR UPDATE
+    sqlReturnQueue.push([{ one: 1 }]); // hasOpenFlag → open flag present
     const action = vi.fn();
 
     const res = await runDashboardReviewAction(
+      sql,
       request(),
       'rev-1',
       { id: 'owner-1', accountId: 'acct-1' },
@@ -540,10 +548,11 @@ describe('runDashboardReviewAction', () => {
   });
 
   it('returns no-store 404 when no actionable response is visible to the owner', async () => {
-    sqlResults.push([]);
+    sqlReturnQueue.push([]);
     const action = vi.fn();
 
     const res = await runDashboardReviewAction(
+      sql,
       request(),
       'rev-1',
       { id: 'owner-1', accountId: 'acct-1' },
@@ -559,12 +568,13 @@ describe('runDashboardReviewAction', () => {
   });
 
   it('maps stale response and unexpected action errors without leaking internals', async () => {
-    sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]);
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
-    sqlResults.push([]); // SELECT id ... FOR UPDATE
-    sqlResults.push([]); // hasOpenFlag → no open flag
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
+    sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]);
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]);
+    sqlReturnQueue.push([]); // SELECT id ... FOR UPDATE
+    sqlReturnQueue.push([]); // hasOpenFlag → no open flag
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
     const staleRes = await runDashboardReviewAction(
+      sql,
       request(),
       'rev-1',
       { id: 'owner-1', accountId: 'acct-1' },
@@ -576,13 +586,14 @@ describe('runDashboardReviewAction', () => {
     );
     expect(staleRes.status).toBe(409);
 
-    sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]);
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
-    sqlResults.push([]); // SELECT id ... FOR UPDATE
-    sqlResults.push([]); // hasOpenFlag → no open flag
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
+    sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]);
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]);
+    sqlReturnQueue.push([]); // SELECT id ... FOR UPDATE
+    sqlReturnQueue.push([]); // hasOpenFlag → no open flag
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const unexpectedRes = await runDashboardReviewAction(
+      sql,
       request(),
       'rev-1',
       { id: 'owner-1', accountId: 'acct-1' },

@@ -4,9 +4,12 @@ import type { ModerationDecision } from '../../../../src/lib/moderation/output-f
 
 const { mockSql, mockTx, txQueue } = vi.hoisted(() => {
   const txQueue: unknown[][] = [];
-  const mockTx = vi.fn((_strings: TemplateStringsArray, ..._values: unknown[]) => {
+  const mockTx: any = vi.fn((_strings: TemplateStringsArray, ..._values: unknown[]) => {
     return Promise.resolve(txQueue.shift() ?? []);
   });
+  // Stand-in for Postgres.js's tx.json(value) (audit.ts's JSONB bind for the
+  // auto-policy audit metadata column) — identity pass-through.
+  mockTx.json = vi.fn((value: unknown) => value);
   const mockSql: any = vi.fn();
   mockSql.begin = vi.fn(async (callback: (tx: typeof mockTx) => Promise<unknown>) => callback(mockTx));
   return { mockSql, mockTx, txQueue };

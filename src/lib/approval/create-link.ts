@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import type { ChannelId } from '@/lib/notifications/channels/types';
 
 /**
@@ -17,14 +17,17 @@ import type { ChannelId } from '@/lib/notifications/channels/types';
  * rawToken immediately in a URL and never persist it. approvalLinkId is safe
  * to persist (non-sensitive).
  */
-export async function createApprovalLink(params: {
-  responseId: string;
-  businessId: string;
-  channel: ChannelId;
-  /** 'orphaned_only' (default): only revoke if no same-channel delivery exists.
-   *  'always': revoke all same-channel open links regardless. */
-  revokeMode?: 'orphaned_only' | 'always';
-}): Promise<{ rawToken: string; tokenHash: string; approvalLinkId: string }> {
+export async function createApprovalLink(
+  sql: Sql,
+  params: {
+    responseId: string;
+    businessId: string;
+    channel: ChannelId;
+    /** 'orphaned_only' (default): only revoke if no same-channel delivery exists.
+     *  'always': revoke all same-channel open links regardless. */
+    revokeMode?: 'orphaned_only' | 'always';
+  },
+): Promise<{ rawToken: string; tokenHash: string; approvalLinkId: string }> {
   const { responseId, businessId, channel } = params;
   const rawToken = randomUUID();
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');

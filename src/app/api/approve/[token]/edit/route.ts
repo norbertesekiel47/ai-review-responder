@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { sql } from '@/lib/db/server';
 import { runTokenApprovalAction } from '@/lib/approval/http-routes';
 import { edit } from '@/lib/approval/service';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
@@ -15,6 +16,7 @@ export async function POST(
   const { token } = await params;
 
   return runTokenApprovalAction<string>(
+    sql,
     request,
     token,
     'edit',

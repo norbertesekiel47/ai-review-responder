@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import type postgres from 'postgres';
-import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { recoverCorrelationId } from '@/lib/approval/correlation';
 import { getDeviceCookieHash, validateCsrf, verifyDeviceCookie } from '@/lib/approval/cookies';
@@ -23,6 +22,7 @@ import {
 } from '@/lib/shared/writable-subscription';
 
 type TxClient = postgres.TransactionSql;
+type Sql = postgres.Sql;
 
 type TokenActionName = 'approve' | 'edit' | 'regenerate' | 'session';
 
@@ -42,6 +42,7 @@ interface TokenActionOptions<TPrepared> {
 }
 
 export async function runTokenApprovalAction<TPrepared = undefined>(
+  sql: Sql,
   request: NextRequest,
   rawToken: string,
   actionName: TokenActionName,
@@ -150,6 +151,7 @@ export async function requireDashboardReviewOwner(
 }
 
 export async function runDashboardReviewAction(
+  sql: Sql,
   request: NextRequest,
   reviewId: string,
   owner: DashboardOwner,
@@ -165,7 +167,7 @@ export async function runDashboardReviewAction(
     WHERE rv.id = ${reviewId}
       AND b.account_id = ${owner.accountId}::uuid
       AND b.archived_at IS NULL
-      AND r.status NOT IN ('superseded', 'failed') -- status-audit-ignore: state-transition approval guard subset, intentionally inline per response-status.ts header
+      AND r.status NOT IN ('superseded', 'failed') -- status-audit-ignore: state-transition approval guard subset, intentionally inline per response-status.ts header; review-status-ignore: responses.status, not reviews.status (the reviews-status guard's r alias-allowlist assumes r is always the reviews alias, but here r is responses)
     ORDER BY r.version DESC LIMIT 1
   `;
 

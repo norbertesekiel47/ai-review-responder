@@ -35,6 +35,13 @@ interface MockQueryFragment {
 
 export type MockSql = Mock<(strings: TemplateStringsArray, ...values: unknown[]) => MockQueryFragment> & {
   begin: Mock<(callback: (tx: unknown) => Promise<unknown>) => Promise<unknown>>;
+  /**
+   * Stand-in for Postgres.js's `sql.json(value)` (real behavior: tags the
+   * value as a JSONB-typed bind parameter, serialized exactly once).
+   * Identity pass-through here — tests assert on the plain object the
+   * production code builds, not on any wire encoding.
+   */
+  json: Mock<(value: unknown) => unknown>;
 };
 
 export interface MockSqlHarness {
@@ -116,6 +123,7 @@ export function createMockSql(): MockSqlHarness {
 
   const mockSql = taggedTemplate as MockSql;
   mockSql.begin = vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(mockSql));
+  mockSql.json = vi.fn((value: unknown) => value);
 
   return {
     mockSql,

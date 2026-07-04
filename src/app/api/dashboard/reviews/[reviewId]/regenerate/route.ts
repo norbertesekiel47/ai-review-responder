@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { sql } from '@/lib/db/server';
 import {
   requireDashboardReviewOwner,
   runDashboardReviewAction,
@@ -31,6 +32,7 @@ async function regenerateReview(
   if (capped) return capped;
 
   return runDashboardReviewAction(
+    sql,
     request,
     reviewId,
     owner,

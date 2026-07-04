@@ -1,34 +1,28 @@
 import { describe, expect, it, vi } from 'vitest';
+import type postgres from 'postgres';
+import { createMockSql, type MockSqlHarness } from '../../../../worker/__tests__/helpers/mock-sql';
 
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'audit-uuid') }));
 
-vi.mock('@/lib/db/server', () => ({
-  jsonb: (value: unknown) => value,
-}));
-
 import { insertAuditLogAutoPolicy } from '../audit';
 
-function createMockTx(returnQueue: unknown[]) {
-  const queue = [...returnQueue];
-  const fn = vi.fn((_strings: TemplateStringsArray, ..._values: unknown[]) => {
-    const result = queue.shift() ?? [];
-    return Promise.resolve(result);
-  });
-  return fn as any;
+type TxClient = postgres.TransactionSql;
+
+function asTx(harness: MockSqlHarness): TxClient {
+  return harness.mockSql as unknown as TxClient;
 }
 
-function insertValues(tx: ReturnType<typeof createMockTx>): unknown[] {
-  return tx.mock.calls[1]!.slice(1);
+function insertValues(harness: MockSqlHarness): unknown[] {
+  return harness.mockSql.mock.calls[1]!.slice(1);
 }
 
 describe('insertAuditLogAutoPolicy', () => {
   it('writes an auto-policy audit row with no token, device, actor, or IP auth artifacts', async () => {
-    const tx = createMockTx([
-      [{ account_id: 'account-1' }],
-      [],
-    ]);
+    const harness = createMockSql();
+    harness.sqlReturnQueue.push([{ account_id: 'account-1' }]);
+    harness.sqlReturnQueue.push([]);
 
-    await insertAuditLogAutoPolicy(tx, {
+    await insertAuditLogAutoPolicy(asTx(harness), {
       responseId: 'response-1',
       businessId: 'business-1',
       responseTextAtApproval: 'Approved response text',
@@ -43,8 +37,8 @@ describe('insertAuditLogAutoPolicy', () => {
       },
     });
 
-    expect(tx).toHaveBeenCalledTimes(2);
-    const values = insertValues(tx);
+    expect(harness.mockSql).toHaveBeenCalledTimes(2);
+    const values = insertValues(harness);
     expect(values[1]).toBe('response-1');
     expect(values[2]).toBe('business-1');
     expect(values[3]).toBe('account-1');
@@ -58,12 +52,11 @@ describe('insertAuditLogAutoPolicy', () => {
   });
 
   it('persists only compact allowlisted metadata fields', async () => {
-    const tx = createMockTx([
-      [{ account_id: 'account-1' }],
-      [],
-    ]);
+    const harness = createMockSql();
+    harness.sqlReturnQueue.push([{ account_id: 'account-1' }]);
+    harness.sqlReturnQueue.push([]);
 
-    await insertAuditLogAutoPolicy(tx, {
+    await insertAuditLogAutoPolicy(asTx(harness), {
       responseId: 'response-1',
       businessId: 'business-1',
       responseTextAtApproval: 'Approved response text',
@@ -78,7 +71,7 @@ describe('insertAuditLogAutoPolicy', () => {
       } as never,
     });
 
-    const metadata = insertValues(tx)[8] as Record<string, unknown>;
+    const metadata = insertValues(harness)[8] as Record<string, unknown>;
     expect(metadata).toEqual({
       policy_id: 'policy-1',
       resolved_min_star: 4,
@@ -91,12 +84,11 @@ describe('insertAuditLogAutoPolicy', () => {
   });
 
   it('supports caller-provided auto-policy downgrade actions without a response snapshot', async () => {
-    const tx = createMockTx([
-      [{ account_id: 'account-1' }],
-      [],
-    ]);
+    const harness = createMockSql();
+    harness.sqlReturnQueue.push([{ account_id: 'account-1' }]);
+    harness.sqlReturnQueue.push([]);
 
-    await insertAuditLogAutoPolicy(tx, {
+    await insertAuditLogAutoPolicy(asTx(harness), {
       responseId: 'response-1',
       businessId: 'business-1',
       action: 'auto_policy_revoked_by_kill_switch',
@@ -110,7 +102,7 @@ describe('insertAuditLogAutoPolicy', () => {
       },
     });
 
-    const values = insertValues(tx);
+    const values = insertValues(harness);
     expect(values[6]).toBe('auto_policy_revoked_by_kill_switch');
     expect(values[8]).toEqual({
       downgrade_reason: 'auto_approval_disabled',
@@ -123,10 +115,10 @@ describe('insertAuditLogAutoPolicy', () => {
   });
 
   it('rejects an auto_approved_by_policy row without a response snapshot', async () => {
-    const tx = createMockTx([]);
+    const harness = createMockSql();
 
     await expect(
-      insertAuditLogAutoPolicy(tx, {
+      insertAuditLogAutoPolicy(asTx(harness), {
         responseId: 'response-1',
         businessId: 'business-1',
         action: 'auto_approved_by_policy',
@@ -135,6 +127,6 @@ describe('insertAuditLogAutoPolicy', () => {
     ).rejects.toThrow(/responseTextAtApproval is required/);
 
     // The guard fires before any DB work.
-    expect(tx).not.toHaveBeenCalled();
+    expect(harness.mockSql).not.toHaveBeenCalled();
   });
 });

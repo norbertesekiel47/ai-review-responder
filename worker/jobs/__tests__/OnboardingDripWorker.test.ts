@@ -255,13 +255,13 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     await handleOnboardingDrip(makeJob({ drip_type: 'day_7' }));
 
     expect(mockCreateApprovalLink).toHaveBeenCalledTimes(2);
-    expect(mockCreateApprovalLink).toHaveBeenCalledWith({
+    expect(mockCreateApprovalLink).toHaveBeenCalledWith(mockSql, {
       responseId: 'resp-p1',
       businessId: 'biz-drip-1',
       channel: 'email',
       revokeMode: 'orphaned_only',
     });
-    expect(mockCreateApprovalLink).toHaveBeenCalledWith({
+    expect(mockCreateApprovalLink).toHaveBeenCalledWith(mockSql, {
       responseId: 'resp-p2',
       businessId: 'biz-drip-1',
       channel: 'email',

@@ -295,7 +295,7 @@ export async function dispatchAll(
     let rawToken: string;
     let approvalLinkId: string;
     try {
-      const link = await createApprovalLink({
+      const link = await createApprovalLink(sql, {
         responseId: ctx.responseId,
         businessId: ctx.businessId,
         channel: channelId,

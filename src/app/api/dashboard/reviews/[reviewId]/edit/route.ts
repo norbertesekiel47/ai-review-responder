@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { sql } from '@/lib/db/server';
 import {
   requireDashboardReviewOwner,
   runDashboardReviewAction,
@@ -45,6 +46,7 @@ async function editReview(
 
   const { reviewId } = await params;
   return runDashboardReviewAction(
+    sql,
     request,
     reviewId,
     owner,

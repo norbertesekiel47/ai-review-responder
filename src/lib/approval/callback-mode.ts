@@ -9,7 +9,6 @@
 // correlation_id — we recover it from the upstream generate_response
 // outbox row via recoverCorrelationId so the chain stays linked.
 
-import { sql } from '@/lib/db/server';
 import type postgres from 'postgres';
 import {
   lockLinkByIdForCallback,
@@ -32,6 +31,7 @@ export type { CallbackApprovalInput };
 
 type TxClient = postgres.TransactionSql;
 type PendingResponse = Awaited<ReturnType<typeof lockPendingResponse>>;
+type Sql = postgres.Sql;
 
 interface ClaimedCallbackResponse {
   link: ApprovalLink;
@@ -43,7 +43,7 @@ interface ClaimedCallbackResponse {
  * Authorization is provider-signature + sender-handle bound in the ingress layer.
  * Throws typed link-state errors for caller classification.
  */
-export async function approveViaCallback(input: CallbackApprovalInput): Promise<void> {
+export async function approveViaCallback(sql: Sql, input: CallbackApprovalInput): Promise<void> {
   await sql.begin(async (tx) => {
     // FP: ordered writes inside one sql.begin tx (claim → UPDATE → revoke siblings → enqueue publish → audit); parallelizing would break tx ordering.
     // react-doctor-disable-next-line react-doctor/async-parallel
@@ -82,7 +82,7 @@ export async function approveViaCallback(input: CallbackApprovalInput): Promise<
  * Regenerate via inline-button callback. Marks current response superseded,
  * enqueues generate_response. A new approval cycle will follow.
  */
-export async function regenerateViaCallback(input: CallbackApprovalInput): Promise<void> {
+export async function regenerateViaCallback(sql: Sql, input: CallbackApprovalInput): Promise<void> {
   await sql.begin(async (tx) => {
     // FP: ordered writes inside one sql.begin tx (claim → revoke siblings → supersede → enqueue regenerate → audit); parallelizing would break tx ordering.
     // react-doctor-disable-next-line react-doctor/async-parallel
