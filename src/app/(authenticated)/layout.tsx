@@ -122,6 +122,7 @@ export default async function AuthenticatedLayout({
   // instead of duplicating the same validation logic inline.
   const cookieValue = cookieStore.get(LOCATION_SCOPE_COOKIE)?.value ?? null;
   const scope = await getRequestScope(
+    sql,
     accountId,
     cookieValue ? asLocationId(cookieValue) : null,
   );

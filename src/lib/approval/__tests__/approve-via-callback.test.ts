@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Sql } from 'postgres';
 
 // Tx mocking: push expected row sets into the queue; the mock consumes them in order.
 const txQueue: unknown[] = [];
@@ -11,8 +12,22 @@ const mockTx = Object.assign(
     const next = txQueue.shift();
     return next ?? [];
   },
-  { begin: vi.fn() },
+  {
+    begin: vi.fn(),
+    // Stand-in for Postgres.js's tx.json(value) (audit.ts's JSONB bind for
+    // the metadata column) — identity pass-through.
+    json: (v: unknown) => v,
+  },
 ) as unknown;
+
+// approveViaCallback/regenerateViaCallback take `sql` as an injected leading
+// parameter (A+ campaign 2a) — this stands in for it at every call site
+// below. Kept as a separate literal (not read by the vi.mock factory below,
+// which is hoisted above this declaration) — see the `mockTx`-only closure
+// in that factory for why a *lazy* reference is safe but a direct one isn't.
+const mockSql = {
+  begin: async (fn: (tx: unknown) => Promise<unknown>) => fn(mockTx),
+} as unknown as Sql;
 
 vi.mock('../../db/server', () => ({
   sql: {
@@ -112,7 +127,7 @@ describe('approveViaCallback', () => {
     txQueue.push([]);                        // INSERT job_outbox publish_response
     txQueue.push([{ account_id: 'acc-1' }]); // resolveAccountIdFromBusiness: SELECT account_id FROM businesses
     txQueue.push([]);                        // insertAuditLog INSERT
-    await approveViaCallback({
+    await approveViaCallback(mockSql, {
       approvalLinkId: 'link-1',
       chatHandle: '123456789',
       viaChannel: 'telegram',
@@ -141,7 +156,7 @@ describe('approveViaCallback', () => {
     txQueue.push(liveLinkRow());
     txQueue.push(readOnlyAccountRow());
 
-    await expect(approveViaCallback({
+    await expect(approveViaCallback(mockSql, {
       approvalLinkId: 'link-1',
       chatHandle: '123456789',
       viaChannel: 'telegram',
@@ -155,7 +170,7 @@ describe('approveViaCallback', () => {
     txQueue.push(liveLinkRow());
     txQueue.push(offboardingAccountRow());
 
-    await expect(approveViaCallback({
+    await expect(approveViaCallback(mockSql, {
       approvalLinkId: 'link-1',
       chatHandle: '123456789',
       viaChannel: 'telegram',
@@ -173,7 +188,7 @@ describe('approveViaCallback', () => {
     txQueue.push(liveLinkRow());
     txQueue.push([]);
 
-    await expect(approveViaCallback({
+    await expect(approveViaCallback(mockSql, {
       approvalLinkId: 'link-1',
       chatHandle: '123456789',
       viaChannel: 'telegram',
@@ -189,7 +204,7 @@ describe('approveViaCallback', () => {
 
   it('throws ConsumedLinkError when consumed_at is set', async () => {
     txQueue.push(liveLinkRow({ consumed_at: new Date() }));
-    await expect(approveViaCallback({
+    await expect(approveViaCallback(mockSql, {
       approvalLinkId: 'link-1', chatHandle: 'h', viaChannel: 'telegram',
       audit: { providerEventId: '1', ipAddress: null, telegramUpdateId: 1 },
     })).rejects.toBeInstanceOf(ConsumedLinkError);
@@ -197,7 +212,7 @@ describe('approveViaCallback', () => {
 
   it('throws RevokedLinkError when revoked_at is set', async () => {
     txQueue.push(liveLinkRow({ revoked_at: new Date() }));
-    await expect(approveViaCallback({
+    await expect(approveViaCallback(mockSql, {
       approvalLinkId: 'link-1', chatHandle: 'h', viaChannel: 'telegram',
       audit: { providerEventId: '1', ipAddress: null, telegramUpdateId: 1 },
     })).rejects.toBeInstanceOf(RevokedLinkError);
@@ -205,7 +220,7 @@ describe('approveViaCallback', () => {
 
   it('throws ExpiredLinkError when expires_at is past', async () => {
     txQueue.push(liveLinkRow({ expires_at: new Date(Date.now() - 60_000) }));
-    await expect(approveViaCallback({
+    await expect(approveViaCallback(mockSql, {
       approvalLinkId: 'link-1', chatHandle: 'h', viaChannel: 'telegram',
       audit: { providerEventId: '1', ipAddress: null, telegramUpdateId: 1 },
     })).rejects.toBeInstanceOf(ExpiredLinkError);
@@ -213,7 +228,7 @@ describe('approveViaCallback', () => {
 
   it('throws ChannelMismatchError when link.channel != viaChannel', async () => {
     txQueue.push(liveLinkRow({ channel: 'sms' }));
-    await expect(approveViaCallback({
+    await expect(approveViaCallback(mockSql, {
       approvalLinkId: 'link-1', chatHandle: 'h', viaChannel: 'telegram',
       audit: { providerEventId: '1', ipAddress: null, telegramUpdateId: 1 },
     })).rejects.toBeInstanceOf(ChannelMismatchError);
@@ -231,7 +246,7 @@ describe('approveViaCallback', () => {
     txQueue.push(pendingResponseRow());   // lockPendingResponse (claim)
     txQueue.push(archivedBusinessRow());  // archived gate inside the claim → throws
 
-    await expect(approveViaCallback({
+    await expect(approveViaCallback(mockSql, {
       approvalLinkId: 'link-1',
       chatHandle: '123456789',
       viaChannel: 'telegram',
@@ -256,7 +271,7 @@ describe('regenerateViaCallback', () => {
     txQueue.push([]); // INSERT outbox
     txQueue.push([{ account_id: 'acc-1' }]); // resolveAccountIdFromBusiness
     txQueue.push([]); // audit
-    await regenerateViaCallback({
+    await regenerateViaCallback(mockSql, {
       approvalLinkId: 'link-1',
       chatHandle: '123',
       viaChannel: 'telegram',
@@ -281,7 +296,7 @@ describe('regenerateViaCallback', () => {
     txQueue.push(liveLinkRow());
     txQueue.push(readOnlyAccountRow());
 
-    await expect(regenerateViaCallback({
+    await expect(regenerateViaCallback(mockSql, {
       approvalLinkId: 'link-1',
       chatHandle: '123',
       viaChannel: 'telegram',
@@ -295,7 +310,7 @@ describe('regenerateViaCallback', () => {
     txQueue.push(liveLinkRow());
     txQueue.push(offboardingAccountRow());
 
-    await expect(regenerateViaCallback({
+    await expect(regenerateViaCallback(mockSql, {
       approvalLinkId: 'link-1',
       chatHandle: '123',
       viaChannel: 'telegram',
@@ -313,7 +328,7 @@ describe('regenerateViaCallback', () => {
     txQueue.push(liveLinkRow());
     txQueue.push([]);
 
-    await expect(regenerateViaCallback({
+    await expect(regenerateViaCallback(mockSql, {
       approvalLinkId: 'link-1',
       chatHandle: '123',
       viaChannel: 'telegram',
@@ -337,7 +352,7 @@ describe('regenerateViaCallback', () => {
     txQueue.push(pendingResponseRow()); // lockPendingResponse (claim)
     txQueue.push(archivedBusinessRow()); // archived gate inside the claim → throws
 
-    await expect(regenerateViaCallback({
+    await expect(regenerateViaCallback(mockSql, {
       approvalLinkId: 'link-1',
       chatHandle: '123',
       viaChannel: 'telegram',

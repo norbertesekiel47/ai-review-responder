@@ -235,7 +235,7 @@ async function runButtonAction(
     ? approveViaCallback
     : regenerateViaCallback;
 
-  await fn({
+  await fn(sql, {
     approvalLinkId,
     chatHandle: ctx.senderHandle,
     viaChannel: 'whatsapp',

@@ -521,9 +521,10 @@ describe('NotificationWorker — stale channel guard (dispatch layer)', () => {
     });
 
     // createApprovalLink must NOT have been called with 'sms'
+    // (call[0] is the injected sql client; call[1] is the params object.)
     const approvalLinkCalls = mockCreateApprovalLink.mock.calls;
     const smsCalls = approvalLinkCalls.filter(
-      (call) => (call[0] as { channel: string }).channel === 'sms',
+      (call) => (call[1] as { channel: string }).channel === 'sms',
     );
     expect(smsCalls).toHaveLength(0);
 
@@ -534,7 +535,7 @@ describe('NotificationWorker — stale channel guard (dispatch layer)', () => {
 
     // createApprovalLink WAS called for 'email'
     const emailCalls = approvalLinkCalls.filter(
-      (call) => (call[0] as { channel: string }).channel === 'email',
+      (call) => (call[1] as { channel: string }).channel === 'email',
     );
     expect(emailCalls).toHaveLength(1);
   });

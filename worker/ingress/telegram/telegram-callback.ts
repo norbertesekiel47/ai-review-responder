@@ -126,7 +126,7 @@ export async function handleCallback(
   // Service call — approval or regeneration
   try {
     if (parsed.action === 'approve') {
-      await approveViaCallback({
+      await approveViaCallback(sql, {
         approvalLinkId: link.id,
         chatHandle: senderId,
         viaChannel: 'telegram',
@@ -137,7 +137,7 @@ export async function handleCallback(
         },
       });
     } else {
-      await regenerateViaCallback({
+      await regenerateViaCallback(sql, {
         approvalLinkId: link.id,
         chatHandle: senderId,
         viaChannel: 'telegram',

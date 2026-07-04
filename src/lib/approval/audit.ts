@@ -12,7 +12,6 @@
 import { v7 as uuidv7 } from 'uuid';
 import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
-import { jsonb } from '@/lib/db/server';
 import type {
   ApprovalMethod,
   AutoApprovalThreshold,
@@ -150,7 +149,7 @@ export async function insertAuditLog(
       ${audit.deviceCookieHash},
       ${action},
       ${audit.ipAddress},
-      ${jsonb(metadata ?? {})},
+      ${tx.json((metadata ?? {}) as never)},
       ${snapshot?.responseTextAtApproval ?? null}
     )
   `;
@@ -170,7 +169,7 @@ export async function insertAuditLogSession(
     INSERT INTO approval_audit_log (id, response_id, business_id, account_id, token_hash, device_cookie_hash, action, ip_address, metadata, actor_user_id, auth_method, response_text_at_approval)
     VALUES (
       ${uuidv7()}, ${responseId}, ${businessId}, ${accountId}, ${null}, ${null},
-      ${action}, ${audit.ipAddress}, ${jsonb(metadata ?? {})},
+      ${action}, ${audit.ipAddress}, ${tx.json((metadata ?? {}) as never)},
       ${audit.actorUserId}, 'owner_session', ${snapshot?.responseTextAtApproval ?? null}
     )
   `;
@@ -200,7 +199,7 @@ export async function insertAuditLogAutoPolicy(
       ${null},
       ${action},
       ${null},
-      ${jsonb(compactAutoPolicyMetadata(input.metadata))},
+      ${tx.json(compactAutoPolicyMetadata(input.metadata) as never)},
       ${null},
       ${AUTO_POLICY_AUTH_METHOD},
       ${input.responseTextAtApproval}

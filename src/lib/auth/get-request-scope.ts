@@ -9,7 +9,7 @@
 // Cookie name: 'rw_location_scope' — set by the LocationPicker UI component
 // when the owner selects a location from the switcher dropdown.
 
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import { asLocationId, isValidUuid } from '@/lib/shared/ids';
 import type { AccountId, LocationId } from '@/lib/shared/ids';
 
@@ -33,12 +33,15 @@ interface LocationRow {
  *    b. If valid, returns it as currentLocationId.
  * 3. Falls back to the primary location (or first non-archived location).
  *
+ * @param sql  Postgres.js client (composition root supplies the singleton —
+ *   this module never imports @/lib/db/server).
  * @param accountId  The owner's account ID (from users.account_id).
  * @param cookieLocationId  The value from the 'rw_location_scope' cookie, or null.
  * @returns { accountId, currentLocationId }
  * @throws Error when the account has no active locations at all.
  */
 export async function getRequestScope(
+  sql: Sql,
   accountId: AccountId,
   cookieLocationId: LocationId | null,
 ): Promise<RequestScope> {

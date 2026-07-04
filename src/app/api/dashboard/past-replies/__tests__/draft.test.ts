@@ -457,7 +457,8 @@ describe('POST /api/dashboard/past-replies/draft', () => {
     expect(res.status).toBe(200);
 
     // getRequestScope must have been called with ALT_LOCATION_ID as the cookie value.
-    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, ALT_LOCATION_ID);
+    // Leading arg is the sql client resolveOwnerScope threads through (A+ campaign 2a).
+    expect(mockGetRequestScope).toHaveBeenCalledWith(sqlProxy, ACCOUNT_ID, ALT_LOCATION_ID);
 
     // The INSERT must use ALT_LOCATION_ID as business_id — NOT LOCATION_ID.
     const insertCall = txMock.mock.calls.at(-1) as unknown as unknown[];

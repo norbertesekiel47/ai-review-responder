@@ -74,6 +74,10 @@ function createMockTx(returnQueue: unknown[]) {
     const result = queue.shift() ?? [];
     return Promise.resolve(result);
   });
+  // Stand-in for Postgres.js's tx.json(value) (audit.ts's JSONB bind for the
+  // metadata column) — identity pass-through, matching this suite's inspection
+  // of the raw metadata object via the mock's call args.
+  (fn as any).json = vi.fn((v: unknown) => v);
   return fn as any;
 }
 

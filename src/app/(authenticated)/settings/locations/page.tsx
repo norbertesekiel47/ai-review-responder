@@ -27,7 +27,7 @@ export default async function LocationsPage() {
     notFound();
   }
 
-  const access = await requireOwnerAccess();
+  const access = await requireOwnerAccess(sql);
 
   // Fetch all active and archived locations for this account
   const [locations, activeCount, archivedLocations, account] = await Promise.all([

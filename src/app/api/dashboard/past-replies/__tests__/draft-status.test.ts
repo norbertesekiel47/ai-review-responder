@@ -388,7 +388,8 @@ describe('GET /api/dashboard/past-replies/draft-status', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ status: 'generating' });
     // Verify getRequestScope was called with the ALT location from the cookie.
-    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, ALT_LOCATION_ID);
+    // Leading arg is the sql client resolveOwnerScope threads through (A+ campaign 2a).
+    expect(mockGetRequestScope).toHaveBeenCalledWith(sqlProxy, ACCOUNT_ID, ALT_LOCATION_ID);
   });
 
   it('returns 403 when polling a PRIMARY location outbox while scoped to ALT_LOCATION (cross-scope guard)', async () => {

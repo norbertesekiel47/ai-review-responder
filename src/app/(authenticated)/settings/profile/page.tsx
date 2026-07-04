@@ -1,9 +1,10 @@
+import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { ProfileClient } from './ProfileClient';
 
 export default async function ProfilePage() {
-  await requireOwnerAccess();
+  await requireOwnerAccess(sql);
   return (
     <>
       <TopBar

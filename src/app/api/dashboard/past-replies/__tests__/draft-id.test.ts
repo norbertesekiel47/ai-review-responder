@@ -395,7 +395,8 @@ describe('PATCH /api/dashboard/past-replies/draft/:responseId', () => {
     expect(res.status).toBe(204);
 
     // getRequestScope must have been called with ALT_LOCATION_ID as the cookie value.
-    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, ALT_LOCATION_ID);
+    // Leading arg is the sql client resolveOwnerScope threads through (A+ campaign 2a).
+    expect(mockGetRequestScope).toHaveBeenCalledWith(sqlProxy, ACCOUNT_ID, ALT_LOCATION_ID);
 
     // The top-level SELECT must have scoped to ALT_LOCATION_ID (not LOCATION_ID).
     // topLevelMock was called with a tagged template — the bound arg for business_id is ALT_LOCATION_ID.
@@ -516,7 +517,8 @@ describe('DELETE /api/dashboard/past-replies/draft/:responseId', () => {
     expect(res.status).toBe(204);
 
     // getRequestScope must have been called with ALT_LOCATION_ID as the cookie value.
-    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, ALT_LOCATION_ID);
+    // Leading arg is the sql client resolveOwnerScope threads through (A+ campaign 2a).
+    expect(mockGetRequestScope).toHaveBeenCalledWith(sqlProxy, ACCOUNT_ID, ALT_LOCATION_ID);
 
     // The tx SELECT FOR UPDATE must have used ALT_LOCATION_ID as business_id.
     const selectCall = txMock.mock.calls[0] as unknown as unknown[];

@@ -173,7 +173,7 @@ async function handleOwnerNudge(
   }> = [];
 
   for (const row of pendingRows) {
-    const { rawToken } = await createApprovalLink({
+    const { rawToken } = await createApprovalLink(sql, {
       responseId: row.response_id,
       businessId,
       channel: 'email',

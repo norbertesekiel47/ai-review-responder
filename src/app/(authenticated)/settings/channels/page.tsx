@@ -40,7 +40,7 @@ function telegramAvailable(): boolean {
 }
 
 export default async function ChannelsPage() {
-  const access = await requireOwnerAccess();
+  const access = await requireOwnerAccess(sql);
 
   // One owner for the override surface: overrides + locations (active AND
   // archived, one query) + verified org channels.

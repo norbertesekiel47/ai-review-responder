@@ -84,6 +84,9 @@ describe('approval audit log account_id', () => {
       const result = queue.shift() ?? [];
       return Promise.resolve(result);
     });
+    // Stand-in for Postgres.js's tx.json(value) (audit.ts's JSONB bind for
+    // the metadata column) — identity pass-through.
+    (fn as any).json = vi.fn((v: unknown) => v);
     return fn as any;
   }
 

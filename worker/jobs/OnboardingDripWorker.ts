@@ -303,7 +303,7 @@ async function buildDay7(
   }
   if (appUrl) {
     for (const row of pendingRows) {
-      const { rawToken } = await createApprovalLink({
+      const { rawToken } = await createApprovalLink(sql, {
         responseId: row.response_id,
         businessId: business.id,
         channel: 'email',

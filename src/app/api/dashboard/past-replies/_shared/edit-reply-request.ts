@@ -60,7 +60,7 @@ export async function resolveEditReplyScope(
   }
 
   try {
-    const { accountId, locationId, userId } = await resolveOwnerScope(request);
+    const { accountId, locationId, userId } = await resolveOwnerScope(sql, request);
     return { ok: true, value: { accountId, locationId, userId } };
   } catch (err) {
     if (err instanceof ScopeError) {
@@ -136,7 +136,7 @@ export async function resolveEditReplyContext(
 
   let accountId: string, locationId: string, userId: string;
   try {
-    ({ accountId, locationId, userId } = await resolveOwnerScope(request));
+    ({ accountId, locationId, userId } = await resolveOwnerScope(sql, request));
   } catch (err) {
     if (err instanceof ScopeError) {
       return {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { sql } from '@/lib/db/server';
 import {
   requireDashboardReviewOwner,
   runDashboardReviewAction,
@@ -17,6 +18,7 @@ async function approveReview(
 
   const { reviewId } = await params;
   return runDashboardReviewAction(
+    sql,
     request,
     reviewId,
     owner,

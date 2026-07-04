@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { sql } from '@/lib/db/server';
 import { runTokenApprovalAction } from '@/lib/approval/http-routes';
 import { regenerate } from '@/lib/approval/service';
 
@@ -13,6 +14,7 @@ export async function POST(
   const { token } = await params;
 
   return runTokenApprovalAction(
+    sql,
     request,
     token,
     'regenerate',

@@ -362,7 +362,7 @@ describe('handleTwilioWhatsAppInbound — button tap path', () => {
     const reply = buildReply();
     await handleTwilioWhatsAppInbound(req, reply);
 
-    expect(mockApproveViaCallback).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockApproveViaCallback).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       approvalLinkId: '019db8c1-c3f4-7668-b353-2b8b718ec603',
       chatHandle: '+15551234567',
       viaChannel: 'whatsapp',

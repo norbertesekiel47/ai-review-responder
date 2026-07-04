@@ -34,6 +34,9 @@ const {
   });
 
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<any>) => cb(mockSql));
+  // Stand-in for Postgres.js's tx.json(value) (audit.ts's JSONB bind for the
+  // auto-policy audit metadata column) — identity pass-through.
+  mockSql.json = vi.fn((v: unknown) => v);
 
   return {
     sqlReturnQueue,

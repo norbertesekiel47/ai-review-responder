@@ -328,3 +328,36 @@ describe('createBusinessTx — tier config fields in accounts row', () => {
     expect(template).toContain('base_price_cents');
   });
 });
+
+// Regression test for A+ campaign 2a (src/app/api/auth/finish-signup/route.ts).
+// finish-signup used to have a dead pre-migration-034 fallback branch for the
+// case where the owner's account_id came back null from a post-createBusinessTx
+// SELECT — its own comment admitted the fallback could only error. That branch
+// was deleted; this test pins the precondition that made it unreachable:
+// createBusinessTx ALWAYS writes a non-null account_id on the users row it
+// creates (both modes), so a subsequent SELECT for that same user can never
+// legitimately return a null account_id.
+describe('createBusinessTx — account_id regression (users row always non-null)', () => {
+  it('self_serve mode: users INSERT carries a non-null account_id', async () => {
+    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
+    const usersCallArgs = mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO users'))!;
+    // Column order is (id, auth_id, name, email, phone, role, account_id) with
+    // 'owner' written as a literal (not bound) — account_id is therefore the
+    // LAST bound value in the INSERT.
+    const accountIdArg = usersCallArgs.at(-1);
+    expect(accountIdArg).not.toBeNull();
+    expect(accountIdArg).not.toBeUndefined();
+    expect(accountIdArg).toBe('test-uuid'); // uuid mock — proves a real generated id was bound, not null
+  });
+
+  it('admin mode: users INSERT carries a non-null account_id', async () => {
+    await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const usersCallArgs = mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO users'))!;
+    const accountIdArg = usersCallArgs.at(-1);
+    expect(accountIdArg).not.toBeNull();
+    expect(accountIdArg).not.toBeUndefined();
+    expect(accountIdArg).toBe('test-uuid');
+  });
+});

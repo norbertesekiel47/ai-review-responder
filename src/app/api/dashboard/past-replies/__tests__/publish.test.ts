@@ -492,7 +492,8 @@ describe('POST /api/dashboard/past-replies/publish', () => {
       makeRequest({ body: validBody(), locationScopeCookie: ALT_LOCATION_ID }),
     );
     expect(res.status).toBe(200);
-    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, ALT_LOCATION_ID);
+    // Leading arg is the sql client resolveOwnerScope threads through (A+ campaign 2a).
+    expect(mockGetRequestScope).toHaveBeenCalledWith(sqlProxy, ACCOUNT_ID, ALT_LOCATION_ID);
 
     // assertCanEditReply called with ALT_LOCATION_ID, not LOCATION_ID.
     expect(mockAssertCanEdit).toHaveBeenCalledWith(REVIEW_ID, {
