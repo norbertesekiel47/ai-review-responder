@@ -73,7 +73,7 @@ export async function PATCH(
 
   let accountId, locationId;
   try {
-    ({ accountId, locationId } = await resolveOwnerScope(request));
+    ({ accountId, locationId } = await resolveOwnerScope(sql, request));
   } catch (err) {
     if (err instanceof ScopeError) {
       return NextResponse.json({ error: err.message }, { status: err.statusCode });
@@ -190,7 +190,7 @@ export async function DELETE(
 
   let accountId, locationId;
   try {
-    ({ accountId, locationId } = await resolveOwnerScope(request));
+    ({ accountId, locationId } = await resolveOwnerScope(sql, request));
   } catch (err) {
     if (err instanceof ScopeError) {
       return NextResponse.json({ error: err.message }, { status: err.statusCode });

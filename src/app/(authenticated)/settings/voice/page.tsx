@@ -4,6 +4,7 @@
 // single-location accounts return one voice config (no location selector),
 // multi-location accounts get the per-location selector in VoiceClient.
 
+import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { VoiceClient } from './VoiceClient';
@@ -11,7 +12,7 @@ import { VoiceClient } from './VoiceClient';
 export const dynamic = 'force-dynamic';
 
 export default async function VoicePage() {
-  await requireOwnerAccess();
+  await requireOwnerAccess(sql);
   return (
     <>
       <TopBar

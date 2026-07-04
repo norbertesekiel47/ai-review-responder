@@ -6,17 +6,19 @@
 // requireOwnerAccess() returns { accountId, currentLocationId, role } instead
 // of the old { authId, businessId, email }. It reads users.account_id (not
 // users.business_id, which was dropped in migration 034).
+//
+// requireOwnerAccess is born-injected (sql is a parameter, A+ campaign PR 2a),
+// so @/lib/db/server no longer needs mocking here — the fragment-aware
+// createMockSql harness stands in for `sql` directly.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Sql } from 'postgres';
+import { createMockSql, type MockSqlHarness } from '../../../../worker/__tests__/helpers/mock-sql';
 
 // ── Hoisted mock state ───────────────────────────────────────────────────────
 
 const { mockGetUser } = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
-}));
-
-const { mockSql } = vi.hoisted(() => ({
-  mockSql: vi.fn(),
 }));
 
 const { mockGetRequestScope } = vi.hoisted(() => ({
@@ -44,15 +46,6 @@ vi.mock('next/navigation', () => ({
   }),
 }));
 
-vi.mock('@/lib/db/server', () => ({
-  sql: Object.assign(
-    (strings: TemplateStringsArray, ...values: unknown[]) => {
-      return mockSql(strings, values);
-    },
-    { unsafe: vi.fn() },
-  ),
-}));
-
 vi.mock('@/lib/auth/get-request-scope', () => ({
   getRequestScope: mockGetRequestScope,
 }));
@@ -69,28 +62,25 @@ const ACCOUNT_ID = 'a0000000-0000-0000-0000-000000000001' as AccountId;
 const LOCATION_ID = 'b0000000-0000-0000-0000-000000000001' as LocationId;
 const EMAIL = 'owner@example.com';
 
+function defaultOwnerRow() {
+  return [{ role: 'owner', account_id: ACCOUNT_ID, subscription_status: 'active', email: EMAIL }];
+}
+
+let harness: MockSqlHarness;
+let mockSql: Sql;
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('requireOwnerAccess', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    harness = createMockSql();
+    mockSql = harness.mockSql as unknown as Sql;
 
     // Default: auth user is authenticated
     mockGetUser.mockResolvedValue({
       data: { user: { id: AUTH_ID, email: EMAIL } },
       error: null,
-    });
-
-    // Default: user is an active owner
-    mockSql.mockImplementation((strings: TemplateStringsArray) => {
-      const query = strings.join('?');
-      // First query: resolve user role + account_id + subscription_status
-      if (query.includes('u.role') || query.includes('account_id')) {
-        return Promise.resolve([
-          { role: 'owner', account_id: ACCOUNT_ID, subscription_status: 'active', email: EMAIL },
-        ]);
-      }
-      return Promise.resolve([]);
     });
 
     // Default: getRequestScope returns the primary location
@@ -101,7 +91,8 @@ describe('requireOwnerAccess', () => {
   });
 
   it('returns { accountId, currentLocationId, role } — not old { authId, businessId, email }', async () => {
-    const result = await requireOwnerAccess();
+    harness.sqlReturnQueue.push(defaultOwnerRow());
+    const result = await requireOwnerAccess(mockSql);
 
     expect(result).toHaveProperty('accountId');
     expect(result).toHaveProperty('currentLocationId');
@@ -111,105 +102,107 @@ describe('requireOwnerAccess', () => {
   });
 
   it('accountId is typed as AccountId brand', async () => {
-    const result = await requireOwnerAccess();
+    harness.sqlReturnQueue.push(defaultOwnerRow());
+    const result = await requireOwnerAccess(mockSql);
     // Runtime it's a string; the brand is compile-time only
     expect(typeof result.accountId).toBe('string');
     expect(result.accountId).toBe(ACCOUNT_ID);
   });
 
   it('currentLocationId is typed as LocationId brand', async () => {
-    const result = await requireOwnerAccess();
+    harness.sqlReturnQueue.push(defaultOwnerRow());
+    const result = await requireOwnerAccess(mockSql);
     expect(typeof result.currentLocationId).toBe('string');
     expect(result.currentLocationId).toBe(LOCATION_ID);
   });
 
   it('role is "owner" for authenticated owner users', async () => {
-    const result = await requireOwnerAccess();
+    harness.sqlReturnQueue.push(defaultOwnerRow());
+    const result = await requireOwnerAccess(mockSql);
     expect(result.role).toBe('owner');
   });
 
   it('delegates to getRequestScope for location resolution', async () => {
-    await requireOwnerAccess();
+    harness.sqlReturnQueue.push(defaultOwnerRow());
+    await requireOwnerAccess(mockSql);
 
-    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, null);
+    expect(mockGetRequestScope).toHaveBeenCalledWith(mockSql, ACCOUNT_ID, null);
   });
 
   it('redirects when no auth session exists', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
 
     const { redirect } = await import('next/navigation');
-    await expect(requireOwnerAccess()).rejects.toThrow('NEXT_REDIRECT');
+    await expect(requireOwnerAccess(mockSql)).rejects.toThrow('NEXT_REDIRECT');
     expect(redirect).toHaveBeenCalledWith('/admin/login');
   });
 
   it('redirects when no users row matches auth_id', async () => {
-    mockSql.mockImplementation(() => Promise.resolve([]));
+    harness.sqlReturnQueue.push([]);
 
     const { redirect } = await import('next/navigation');
-    await expect(requireOwnerAccess()).rejects.toThrow('NEXT_REDIRECT');
+    await expect(requireOwnerAccess(mockSql)).rejects.toThrow('NEXT_REDIRECT');
     expect(redirect).toHaveBeenCalledWith('/admin/login');
   });
 
   it('redirects when role is not owner', async () => {
-    mockSql.mockImplementation(() =>
-      Promise.resolve([{ role: 'admin', account_id: ACCOUNT_ID, subscription_status: 'active', email: EMAIL }]),
-    );
+    harness.sqlReturnQueue.push([
+      { role: 'admin', account_id: ACCOUNT_ID, subscription_status: 'active', email: EMAIL },
+    ]);
 
     const { redirect } = await import('next/navigation');
-    await expect(requireOwnerAccess()).rejects.toThrow('NEXT_REDIRECT');
+    await expect(requireOwnerAccess(mockSql)).rejects.toThrow('NEXT_REDIRECT');
     expect(redirect).toHaveBeenCalledWith('/admin/overview');
   });
 
   it('redirects sales_partner to owner login instead of admin overview', async () => {
-    mockSql.mockImplementation(() =>
-      Promise.resolve([
-        { role: 'sales_partner', account_id: ACCOUNT_ID, subscription_status: 'active', email: EMAIL },
-      ]),
-    );
+    harness.sqlReturnQueue.push([
+      { role: 'sales_partner', account_id: ACCOUNT_ID, subscription_status: 'active', email: EMAIL },
+    ]);
 
     const { redirect } = await import('next/navigation');
-    await expect(requireOwnerAccess()).rejects.toThrow('NEXT_REDIRECT');
+    await expect(requireOwnerAccess(mockSql)).rejects.toThrow('NEXT_REDIRECT');
     expect(redirect).toHaveBeenCalledWith('/login');
   });
 
   it('allows past_due owners to view read-only pages', async () => {
-    mockSql.mockImplementation(() =>
-      Promise.resolve([{ role: 'owner', account_id: ACCOUNT_ID, subscription_status: 'past_due', email: EMAIL }]),
-    );
+    harness.sqlReturnQueue.push([
+      { role: 'owner', account_id: ACCOUNT_ID, subscription_status: 'past_due', email: EMAIL },
+    ]);
 
-    const result = await requireOwnerAccess();
+    const result = await requireOwnerAccess(mockSql);
 
     expect(result.accountId).toBe(ACCOUNT_ID);
-    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, null);
+    expect(mockGetRequestScope).toHaveBeenCalledWith(mockSql, ACCOUNT_ID, null);
   });
 
   it('allows trialing owners (treated like active)', async () => {
-    mockSql.mockImplementation(() =>
-      Promise.resolve([{ role: 'owner', account_id: ACCOUNT_ID, subscription_status: 'trialing', email: EMAIL }]),
-    );
+    harness.sqlReturnQueue.push([
+      { role: 'owner', account_id: ACCOUNT_ID, subscription_status: 'trialing', email: EMAIL },
+    ]);
 
-    const result = await requireOwnerAccess();
+    const result = await requireOwnerAccess(mockSql);
 
     expect(result.accountId).toBe(ACCOUNT_ID);
-    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, null);
+    expect(mockGetRequestScope).toHaveBeenCalledWith(mockSql, ACCOUNT_ID, null);
   });
 
   it('redirects when subscription_status is neither active nor past_due', async () => {
-    mockSql.mockImplementation(() =>
-      Promise.resolve([{ role: 'owner', account_id: ACCOUNT_ID, subscription_status: 'pending_payment', email: EMAIL }]),
-    );
+    harness.sqlReturnQueue.push([
+      { role: 'owner', account_id: ACCOUNT_ID, subscription_status: 'pending_payment', email: EMAIL },
+    ]);
 
     const { redirect } = await import('next/navigation');
-    await expect(requireOwnerAccess()).rejects.toThrow('NEXT_REDIRECT');
+    await expect(requireOwnerAccess(mockSql)).rejects.toThrow('NEXT_REDIRECT');
     expect(redirect).toHaveBeenCalledWith('/onboarding/pay');
   });
 
   it('reads users.account_id instead of users.business_id', async () => {
-    await requireOwnerAccess();
+    harness.sqlReturnQueue.push(defaultOwnerRow());
+    await requireOwnerAccess(mockSql);
 
     // The SQL query should reference account_id, not business_id
-    const sqlCall = mockSql.mock.calls[0]!;
-    const queryString = sqlCall[0].join('');
+    const queryString = harness.sqlCalls[0]!.text;
     expect(queryString).toContain('account_id');
     expect(queryString).not.toContain('u.business_id');
   });

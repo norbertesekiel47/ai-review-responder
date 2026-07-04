@@ -21,7 +21,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createServerClient } from '@supabase/ssr';
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import { asAccountId, asLocationId } from '@/lib/shared/ids';
 import type { AccountId, LocationId } from '@/lib/shared/ids';
 import { subscriptionAllowsDashboardRead } from '@/lib/shared/subscription-status';
@@ -35,7 +35,11 @@ export interface OwnerAccess {
   role: string;
 }
 
-export async function requireOwnerAccess(): Promise<OwnerAccess> {
+/**
+ * @param sql  Postgres.js client (composition root supplies the singleton —
+ *   this module never imports @/lib/db/server).
+ */
+export async function requireOwnerAccess(sql: Sql): Promise<OwnerAccess> {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -83,7 +87,7 @@ export async function requireOwnerAccess(): Promise<OwnerAccess> {
   const scopeCookie = cookieStore.get(LOCATION_SCOPE_COOKIE);
   const cookieLocationId = scopeCookie?.value ? asLocationId(scopeCookie.value) : null;
 
-  const scope = await getRequestScope(accountId, cookieLocationId);
+  const scope = await getRequestScope(sql, accountId, cookieLocationId);
 
   return {
     accountId: scope.accountId,

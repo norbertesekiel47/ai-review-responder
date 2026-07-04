@@ -3,6 +3,10 @@
 // TDD assertions for getRequestScope SSR helper.
 // Validation contract: VAL-AUTH-024, VAL-AUTH-025, VAL-AUTH-026, VAL-AUTH-027.
 //
+// getRequestScope is born-injected (sql is a parameter, A+ campaign PR 2a), so
+// no module mocking is needed — the fragment-aware `createMockSql` harness
+// (shared with worker suites) stands in for `sql`.
+//
 // Tests cover:
 //   - Cookie points to valid location in user's account → returns that location
 //   - Cookie points to archived location → falls back to primary
@@ -10,29 +14,9 @@
 //   - No cookie set → falls back to primary
 //   - Cookie value is not a valid UUID → falls back to primary
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-
-// ── Hoisted mock state ───────────────────────────────────────────────────────
-
-const { mockSql } = vi.hoisted(() => ({
-  mockSql: vi.fn(),
-}));
-
-// Create a tagged-template helper that captures the query and returns
-// whatever mockSql is configured to produce for that call index.
-let callIndex = 0;
-
-vi.mock('@/lib/db/server', () => ({
-  sql: Object.assign(
-    (strings: TemplateStringsArray, ...values: unknown[]) => {
-      return mockSql(callIndex++, strings, values);
-    },
-    { unsafe: vi.fn() },
-  ),
-}));
-
-// ── Import AFTER mocks ───────────────────────────────────────────────────────
-
+import { describe, it, expect, beforeEach } from 'vitest';
+import type { Sql } from 'postgres';
+import { createMockSql, type MockSqlHarness } from '../../../../worker/__tests__/helpers/mock-sql';
 import { getRequestScope } from '../get-request-scope';
 import type { AccountId, LocationId } from '@/lib/shared/ids';
 
@@ -61,65 +45,52 @@ function defaultLocations(): LocationRow[] {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
+let harness: MockSqlHarness;
+let mockSql: Sql;
+
+beforeEach(() => {
+  harness = createMockSql();
+  mockSql = harness.mockSql as unknown as Sql;
+});
+
 describe('getRequestScope', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    callIndex = 0;
-  });
-
   it('returns cookie location when it belongs to the account and is not archived', async () => {
-    // SQL query returns the user's locations
-    mockSql.mockImplementation((idx: number) => {
-      if (idx === 0) return Promise.resolve(defaultLocations());
-      return Promise.resolve([]);
-    });
+    harness.sqlReturnQueue.push(defaultLocations());
 
-    const result = await getRequestScope(ACCOUNT_ID, SECONDARY_LOCATION_ID);
+    const result = await getRequestScope(mockSql, ACCOUNT_ID, SECONDARY_LOCATION_ID);
 
     expect(result.currentLocationId).toBe(SECONDARY_LOCATION_ID);
     expect(result.accountId).toBe(ACCOUNT_ID);
   });
 
   it('falls back to primary location when cookie points to archived location', async () => {
-    mockSql.mockImplementation((idx: number) => {
-      if (idx === 0) return Promise.resolve(defaultLocations());
-      return Promise.resolve([]);
-    });
+    harness.sqlReturnQueue.push(defaultLocations());
 
-    const result = await getRequestScope(ACCOUNT_ID, ARCHIVED_LOCATION_ID);
+    const result = await getRequestScope(mockSql, ACCOUNT_ID, ARCHIVED_LOCATION_ID);
 
     expect(result.currentLocationId).toBe(PRIMARY_LOCATION_ID);
   });
 
   it('falls back to primary location when cookie points to location not in user account', async () => {
-    mockSql.mockImplementation((idx: number) => {
-      if (idx === 0) return Promise.resolve(defaultLocations());
-      return Promise.resolve([]);
-    });
+    harness.sqlReturnQueue.push(defaultLocations());
 
-    const result = await getRequestScope(ACCOUNT_ID, OTHER_ACCOUNT_LOCATION_ID);
+    const result = await getRequestScope(mockSql, ACCOUNT_ID, OTHER_ACCOUNT_LOCATION_ID);
 
     expect(result.currentLocationId).toBe(PRIMARY_LOCATION_ID);
   });
 
   it('falls back to primary location when no cookie is set (null)', async () => {
-    mockSql.mockImplementation((idx: number) => {
-      if (idx === 0) return Promise.resolve(defaultLocations());
-      return Promise.resolve([]);
-    });
+    harness.sqlReturnQueue.push(defaultLocations());
 
-    const result = await getRequestScope(ACCOUNT_ID, null);
+    const result = await getRequestScope(mockSql, ACCOUNT_ID, null);
 
     expect(result.currentLocationId).toBe(PRIMARY_LOCATION_ID);
   });
 
   it('falls back to primary location when cookie value is not a valid UUID', async () => {
-    mockSql.mockImplementation((idx: number) => {
-      if (idx === 0) return Promise.resolve(defaultLocations());
-      return Promise.resolve([]);
-    });
+    harness.sqlReturnQueue.push(defaultLocations());
 
-    const result = await getRequestScope(ACCOUNT_ID, 'not-a-uuid' as LocationId);
+    const result = await getRequestScope(mockSql, ACCOUNT_ID, 'not-a-uuid' as LocationId);
 
     expect(result.currentLocationId).toBe(PRIMARY_LOCATION_ID);
   });
@@ -129,12 +100,9 @@ describe('getRequestScope', () => {
       { id: SECONDARY_LOCATION_ID, is_primary: false, archived_at: null },
       { id: ARCHIVED_LOCATION_ID, is_primary: false, archived_at: new Date('2026-01-01') },
     ];
-    mockSql.mockImplementation((idx: number) => {
-      if (idx === 0) return Promise.resolve(locations);
-      return Promise.resolve([]);
-    });
+    harness.sqlReturnQueue.push(locations);
 
-    const result = await getRequestScope(ACCOUNT_ID, null);
+    const result = await getRequestScope(mockSql, ACCOUNT_ID, null);
 
     // Should pick the first non-archived as fallback
     expect(result.currentLocationId).toBe(SECONDARY_LOCATION_ID);
@@ -144,12 +112,9 @@ describe('getRequestScope', () => {
     const locations: LocationRow[] = [
       { id: ARCHIVED_LOCATION_ID, is_primary: true, archived_at: new Date('2026-01-01') },
     ];
-    mockSql.mockImplementation((idx: number) => {
-      if (idx === 0) return Promise.resolve(locations);
-      return Promise.resolve([]);
-    });
+    harness.sqlReturnQueue.push(locations);
 
-    await expect(getRequestScope(ACCOUNT_ID, null)).rejects.toThrow(
+    await expect(getRequestScope(mockSql, ACCOUNT_ID, null)).rejects.toThrow(
       /no active location/i,
     );
   });

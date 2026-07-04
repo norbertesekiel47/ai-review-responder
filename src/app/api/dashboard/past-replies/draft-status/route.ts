@@ -45,7 +45,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   // Auth + current-location scope (no CSRF check — GET is exempt).
   let locationId;
   try {
-    ({ locationId } = await resolveOwnerScope(request, { allowReadOnly: true }));
+    ({ locationId } = await resolveOwnerScope(sql, request, { allowReadOnly: true }));
   } catch (err) {
     if (err instanceof ScopeError) {
       return NextResponse.json({ error: err.message }, { status: err.statusCode });

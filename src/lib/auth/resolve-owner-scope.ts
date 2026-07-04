@@ -14,9 +14,9 @@
 // (Tasks 10 & 11 should import this for any owner route that reads rw_location_scope.)
 
 import type { NextRequest } from 'next/server';
+import type { Sql } from 'postgres';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { getRequestScope } from '@/lib/auth/get-request-scope';
-import { sql } from '@/lib/db/server';
 import { asAccountId, asLocationId, isValidUuid } from '@/lib/shared/ids';
 import type { AccountId, LocationId } from '@/lib/shared/ids';
 import {
@@ -45,6 +45,9 @@ interface ResolveOwnerScopeOptions {
  * delegates to getRequestScope, which falls back to the primary location when
  * the cookie is absent or invalid.
  *
+ * @param sql  Postgres.js client (composition root supplies the singleton —
+ *   this module never imports @/lib/db/server).
+ *
  * Returns:
  * - accountId: the users.account_id (billing parent scope)
  * - locationId: the selected business_id (Google Business Profile location scope),
@@ -55,6 +58,7 @@ interface ResolveOwnerScopeOptions {
  * Throws ScopeError on auth failure (statusCode 401 or 403).
  */
 export async function resolveOwnerScope(
+  sql: Sql,
   request: NextRequest,
   options: ResolveOwnerScopeOptions = {},
 ): Promise<{ accountId: AccountId; locationId: LocationId; userId: string }> {
@@ -106,7 +110,7 @@ export async function resolveOwnerScope(
 
   const rawCookie = request.cookies.get('rw_location_scope')?.value ?? null;
   const cookieLocationId = rawCookie && isValidUuid(rawCookie) ? asLocationId(rawCookie) : null;
-  const { currentLocationId } = await getRequestScope(accountId, cookieLocationId);
+  const { currentLocationId } = await getRequestScope(sql, accountId, cookieLocationId);
 
   return { accountId, locationId: currentLocationId, userId: user.id };
 }

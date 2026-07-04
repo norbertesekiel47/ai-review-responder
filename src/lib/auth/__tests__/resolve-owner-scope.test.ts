@@ -1,19 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import type { Sql } from 'postgres';
+import { createMockSql, type MockSqlHarness } from '../../../../worker/__tests__/helpers/mock-sql';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 
-const { mockRequireRole, mockGetRequestScope, mockSql } = vi.hoisted(() => {
+const { mockRequireRole, mockGetRequestScope } = vi.hoisted(() => {
   return {
     mockRequireRole: vi.fn(),
     mockGetRequestScope: vi.fn(),
-    // Tagged-template sql`...` mock. Default resolves to an ACTIVE account so
-    // the subscription gate passes; individual tests override with mockResolvedValueOnce.
-    mockSql: vi.fn(),
   };
 });
 
 // ── Mocks ───────────────────────────────────────────────────────────
+// resolveOwnerScope is born-injected (sql is a parameter, A+ campaign PR 2a),
+// so @/lib/db/server no longer needs mocking here — the fragment-aware
+// createMockSql harness stands in for `sql` directly. getRequestScope stays
+// mocked to isolate resolveOwnerScope's own subscription-gate + delegation logic.
 
 vi.mock('@/lib/db/auth', () => {
   class AuthError extends Error {
@@ -33,10 +36,6 @@ vi.mock('@/lib/db/auth', () => {
 
 vi.mock('@/lib/auth/get-request-scope', () => ({
   getRequestScope: (...args: unknown[]) => mockGetRequestScope(...args),
-}));
-
-vi.mock('@/lib/db/server', () => ({
-  sql: (...args: unknown[]) => mockSql(...args),
 }));
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -70,12 +69,15 @@ async function importResolveOwnerScope() {
   return { resolveOwnerScope: mod.resolveOwnerScope, ScopeError: mod.ScopeError };
 }
 
+let harness: MockSqlHarness;
+let mockSql: Sql;
+
 beforeEach(() => {
   vi.clearAllMocks();
+  harness = createMockSql();
+  mockSql = harness.mockSql as unknown as Sql;
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   mockGetRequestScope.mockResolvedValue({ accountId: ACCOUNT_ID, currentLocationId: LOCATION_ID });
-  // Default: accounts subscription lookup returns ACTIVE.
-  mockSql.mockResolvedValue([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
 });
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -83,13 +85,14 @@ beforeEach(() => {
 describe('resolveOwnerScope', () => {
   it('happy path: no cookie → calls getRequestScope with null → returns primary location + userId', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
+    harness.sqlReturnQueue.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
     const { resolveOwnerScope } = await importResolveOwnerScope();
 
-    const result = await resolveOwnerScope(makeRequest());
+    const result = await resolveOwnerScope(mockSql, makeRequest());
 
     expect(result).toEqual({ accountId: ACCOUNT_ID, locationId: LOCATION_ID, userId: USER_ID });
     // null cookie → cookieLocationId is null → getRequestScope called with null
-    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, null);
+    expect(mockGetRequestScope).toHaveBeenCalledWith(mockSql, ACCOUNT_ID, null);
   });
 
   it('cookie with valid UUID → passes that UUID to getRequestScope → returns cookie location + userId', async () => {
@@ -98,22 +101,24 @@ describe('resolveOwnerScope', () => {
       accountId: ACCOUNT_ID,
       currentLocationId: ALT_LOCATION_ID,
     });
+    harness.sqlReturnQueue.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
     const { resolveOwnerScope } = await importResolveOwnerScope();
 
-    const result = await resolveOwnerScope(makeRequest({ locationScopeCookie: ALT_LOCATION_ID }));
+    const result = await resolveOwnerScope(mockSql, makeRequest({ locationScopeCookie: ALT_LOCATION_ID }));
 
     expect(result).toEqual({ accountId: ACCOUNT_ID, locationId: ALT_LOCATION_ID, userId: USER_ID });
-    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, ALT_LOCATION_ID);
+    expect(mockGetRequestScope).toHaveBeenCalledWith(mockSql, ACCOUNT_ID, ALT_LOCATION_ID);
   });
 
   it('cookie with invalid (non-UUID) value → treated as null → passes null to getRequestScope', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
+    harness.sqlReturnQueue.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
     const { resolveOwnerScope } = await importResolveOwnerScope();
 
-    const result = await resolveOwnerScope(makeRequest({ locationScopeCookie: 'not-a-uuid' }));
+    const result = await resolveOwnerScope(mockSql, makeRequest({ locationScopeCookie: 'not-a-uuid' }));
 
     expect(result).toEqual({ accountId: ACCOUNT_ID, locationId: LOCATION_ID, userId: USER_ID });
-    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, null);
+    expect(mockGetRequestScope).toHaveBeenCalledWith(mockSql, ACCOUNT_ID, null);
   });
 
   it('requireRole throws AuthError → throws ScopeError with same message + statusCode', async () => {
@@ -121,8 +126,8 @@ describe('resolveOwnerScope', () => {
     mockRequireRole.mockRejectedValue(new AuthError('Unauthorized', 401));
     const { resolveOwnerScope, ScopeError } = await importResolveOwnerScope();
 
-    await expect(resolveOwnerScope(makeRequest())).rejects.toThrow(ScopeError);
-    await expect(resolveOwnerScope(makeRequest())).rejects.toMatchObject({
+    await expect(resolveOwnerScope(mockSql, makeRequest())).rejects.toThrow(ScopeError);
+    await expect(resolveOwnerScope(mockSql, makeRequest())).rejects.toMatchObject({
       message: 'Unauthorized',
       statusCode: 401,
     });
@@ -135,8 +140,8 @@ describe('resolveOwnerScope', () => {
     mockRequireRole.mockRejectedValue(boom);
     const { resolveOwnerScope, ScopeError } = await importResolveOwnerScope();
 
-    await expect(resolveOwnerScope(makeRequest())).rejects.toThrow(ScopeError);
-    await expect(resolveOwnerScope(makeRequest())).rejects.toMatchObject({
+    await expect(resolveOwnerScope(mockSql, makeRequest())).rejects.toThrow(ScopeError);
+    await expect(resolveOwnerScope(mockSql, makeRequest())).rejects.toMatchObject({
       message: 'unauthorized',
       statusCode: 401,
     });
@@ -146,8 +151,8 @@ describe('resolveOwnerScope', () => {
     mockRequireRole.mockResolvedValue(ownerUser({ accountId: null }));
     const { resolveOwnerScope, ScopeError } = await importResolveOwnerScope();
 
-    await expect(resolveOwnerScope(makeRequest())).rejects.toThrow(ScopeError);
-    await expect(resolveOwnerScope(makeRequest())).rejects.toMatchObject({
+    await expect(resolveOwnerScope(mockSql, makeRequest())).rejects.toThrow(ScopeError);
+    await expect(resolveOwnerScope(mockSql, makeRequest())).rejects.toMatchObject({
       message: 'no_business',
       statusCode: 403,
     });
@@ -157,53 +162,53 @@ describe('resolveOwnerScope', () => {
 
   it('non-ACTIVE subscription (cancelled) → throws ScopeError 403 subscription_inactive, getRequestScope NOT called', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    mockSql.mockResolvedValueOnce([{ subscription_status: 'cancelled' }]);
+    harness.sqlReturnQueue.push([{ subscription_status: 'cancelled' }]);
     const { resolveOwnerScope, ScopeError } = await importResolveOwnerScope();
 
-    await expect(resolveOwnerScope(makeRequest())).rejects.toThrow(ScopeError);
+    await expect(resolveOwnerScope(mockSql, makeRequest())).rejects.toThrow(ScopeError);
     expect(mockGetRequestScope).not.toHaveBeenCalled();
   });
 
   it('trialing subscription resolves scope (treated like active)', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    mockSql.mockResolvedValueOnce([{ subscription_status: 'trialing', past_due_at: null, flags: {} }]);
+    harness.sqlReturnQueue.push([{ subscription_status: 'trialing', past_due_at: null, flags: {} }]);
     const { resolveOwnerScope } = await importResolveOwnerScope();
 
-    await expect(resolveOwnerScope(makeRequest())).resolves.toEqual({
+    await expect(resolveOwnerScope(mockSql, makeRequest())).resolves.toEqual({
       accountId: ACCOUNT_ID,
       locationId: LOCATION_ID,
       userId: USER_ID,
     });
-    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, null);
+    expect(mockGetRequestScope).toHaveBeenCalledWith(mockSql, ACCOUNT_ID, null);
   });
 
   it('past_due subscription inside recovery window resolves scope', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    mockSql.mockResolvedValueOnce([{
+    harness.sqlReturnQueue.push([{
       subscription_status: 'past_due',
       past_due_at: new Date(Date.now() - 2 * 86_400_000),
       flags: {},
     }]);
     const { resolveOwnerScope } = await importResolveOwnerScope();
 
-    await expect(resolveOwnerScope(makeRequest())).resolves.toEqual({
+    await expect(resolveOwnerScope(mockSql, makeRequest())).resolves.toEqual({
       accountId: ACCOUNT_ID,
       locationId: LOCATION_ID,
       userId: USER_ID,
     });
-    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, null);
+    expect(mockGetRequestScope).toHaveBeenCalledWith(mockSql, ACCOUNT_ID, null);
   });
 
   it('past_due subscription after recovery window throws 402 past_due_read_only', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    mockSql.mockResolvedValueOnce([{
+    harness.sqlReturnQueue.push([{
       subscription_status: 'past_due',
       past_due_at: new Date(Date.now() - 8 * 86_400_000),
       flags: {},
     }]);
     const { resolveOwnerScope } = await importResolveOwnerScope();
 
-    await expect(resolveOwnerScope(makeRequest())).rejects.toMatchObject({
+    await expect(resolveOwnerScope(mockSql, makeRequest())).rejects.toMatchObject({
       message: 'past_due_read_only',
       statusCode: 402,
     });
@@ -212,27 +217,27 @@ describe('resolveOwnerScope', () => {
 
   it('past_due subscription after recovery window resolves when read-only access is allowed', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    mockSql.mockResolvedValueOnce([{
+    harness.sqlReturnQueue.push([{
       subscription_status: 'past_due',
       past_due_at: new Date(Date.now() - 8 * 86_400_000),
       flags: {},
     }]);
     const { resolveOwnerScope } = await importResolveOwnerScope();
 
-    await expect(resolveOwnerScope(makeRequest(), { allowReadOnly: true })).resolves.toEqual({
+    await expect(resolveOwnerScope(mockSql, makeRequest(), { allowReadOnly: true })).resolves.toEqual({
       accountId: ACCOUNT_ID,
       locationId: LOCATION_ID,
       userId: USER_ID,
     });
-    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, null);
+    expect(mockGetRequestScope).toHaveBeenCalledWith(mockSql, ACCOUNT_ID, null);
   });
 
   it('account row missing → throws ScopeError 403 no_business, getRequestScope NOT called', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    mockSql.mockResolvedValueOnce([]);
+    harness.sqlReturnQueue.push([]);
     const { resolveOwnerScope } = await importResolveOwnerScope();
 
-    await expect(resolveOwnerScope(makeRequest())).rejects.toMatchObject({
+    await expect(resolveOwnerScope(mockSql, makeRequest())).rejects.toMatchObject({
       message: 'no_business',
       statusCode: 403,
     });

@@ -13,6 +13,7 @@
 // VAL-SETTINGS-044.
 
 import { notFound } from 'next/navigation';
+import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { currentBillingSnapshot } from '@/lib/accounts/quota';
 import { getActiveLocationCount } from '@/lib/locations/repo';
@@ -27,7 +28,7 @@ export default async function AddLocationPage() {
     notFound();
   }
 
-  const access = await requireOwnerAccess();
+  const access = await requireOwnerAccess(sql);
 
   // Fetch billing snapshot for the confirm-and-pay step
   const [billingSnapshot, activeLocationCount] = await Promise.all([

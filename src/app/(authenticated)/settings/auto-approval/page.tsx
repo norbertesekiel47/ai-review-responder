@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { IMPERSONATION_COOKIE_NAME } from '@/lib/admin/impersonation/cookie';
 import { getAutoApprovalSettings } from '@/lib/auto-approval/settings';
@@ -9,7 +10,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function AutoApprovalSettingsPage() {
   const [access, cookieStore] = await Promise.all([
-    requireOwnerAccess(),
+    requireOwnerAccess(sql),
     cookies(),
   ]);
   const impersonated = Boolean(cookieStore.get(IMPERSONATION_COOKIE_NAME)?.value);

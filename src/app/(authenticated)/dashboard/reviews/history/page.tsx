@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { ReviewsTabs } from '@/components/dashboard/reviews/ReviewsTabs';
@@ -16,7 +17,7 @@ export default async function PastRepliesPage({
 }) {
   if (!pastRepliesViewEnabled()) notFound();
 
-  const owner = await requireOwnerAccess();
+  const owner = await requireOwnerAccess(sql);
   const { page } = await searchParams;
   const view = await loadPastRepliesPageView({
     accountId: owner.accountId,
