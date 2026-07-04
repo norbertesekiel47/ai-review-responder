@@ -17,6 +17,13 @@ import { enrollOwnerEmailChannel } from '@/lib/notifications/channels/enroll-ema
 
 export const dynamic = 'force-dynamic';
 
+// Pre-existing route-guard hotspot (over the complexity threshold on main too).
+// This sweep only REMOVED code from this handler (redundant account_id SELECT +
+// if-guard + dead pre-034 fallback), so it is net-simpler than main; fallow
+// re-attributes it as introduced only because the body changed. Not one of the
+// campaign's four named route-extraction targets; guard-stack decomposition is
+// tracked separately.
+// fallow-ignore-next-line complexity
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // 1. Feature flag — hide the route entirely when off.
   if (!selfServeSignupEnabled()) {

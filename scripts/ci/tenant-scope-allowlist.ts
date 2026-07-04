@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 377;
+export const ALLOWLIST_BASELINE = 376;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -184,13 +184,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT id, response_id, business_id, expires_at, consumed_at, revoked_at FROM approval_links WHERE token_hash = ${tokenHash}",
     category: 'pre-auth-token',
     reason: "Opaque approval token or callback lookup must resolve the approval row before tenant scope is known.",
-  },
-  {
-    file: "src/app/api/auth/finish-signup/route.ts",
-    table: "businesses",
-    sqlSnippet: "INSERT INTO channel_enrollments (id, account_id, business_id, channel, handle, status, verified_at) SELECT ${uuidv7()}::uuid, b.account_id, ${businessId}::uuid, 'email', ${ownerEmail}, 'verified', NOW() FROM businesses b WHERE b.id = ${businessId}::uuid ON CONFLICT (account_id, channel, COALESCE(location_id, '00000000-0000-0000-0000-000000000000')) WHERE archived_at IS NULL DO NOTHING",
-    category: 'tenant-root-lookup',
-    reason: "Authenticated flow uses business/location id as the lookup key after owner scope has been established.",
   },
   {
     file: "src/app/api/billing/checkout/route.ts",

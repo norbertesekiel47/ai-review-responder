@@ -11,7 +11,7 @@
 // __tests__/provision-auth-user.test.ts pin each one).
 
 import type { Sql } from 'postgres';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AuthError, SupabaseClient, User } from '@supabase/supabase-js';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export type ProvisionAuthUserResult =
@@ -81,60 +81,93 @@ export async function provisionAuthUser(
     }
   }
 
-  // Anti-enumeration obfuscation guard.
-  //
-  // Supabase can return `user.identities = []` for the anti-enumeration
-  // duplicate-account response, but current hosted Auth can also return an
-  // empty identities array for a real newly-created email signup while the
-  // identity is already present in auth.identities. Do not use the response
-  // shape alone as the duplicate signal. Confirm the returned id exists in
-  // Auth before using it as users.auth_id; fake ids must still be rejected.
-  if (authUser && Array.isArray(authUser.identities) && authUser.identities.length === 0) {
-    const { data: lookupData, error: lookupError } =
-      await supabase.auth.admin.getUserById(authUser.id);
-    const lookupEmail = lookupData.user?.email?.trim().toLowerCase();
-    if (lookupError || !lookupData.user || lookupEmail !== input.ownerEmail) {
-      console.warn(
-        `[api/auth/signup] Supabase returned unconfirmed/fake user (empty identities) for ${input.ownerEmail} — treating as account_exists`,
-      );
-      return { ok: false, reason: 'account_exists' };
-    }
-    console.warn(
-      `[api/auth/signup] Supabase returned empty identities for real new user ${input.ownerEmail}; continuing signup`,
-    );
-  }
-
-  if (authError || !authUser) {
-    // Disambiguate Supabase email-send rate limits (most common during dev)
-    // from account-exists. Conflating them yields a confusing "account
-    // exists" message when in fact the inbox is just hot. The auth.users
-    // row is NOT created when this fires, so retrying after the cooldown
-    // is the right path — not "go log in".
-    const code = (authError as { code?: string; status?: number } | null)?.code;
-    const status = (authError as { code?: string; status?: number } | null)?.status;
-    const isRateLimit =
-      code === 'over_email_send_rate_limit' ||
-      code === 'email_send_rate_limit' ||
-      status === 429;
-    if (isRateLimit) {
-      console.warn(
-        `[api/auth/signup] Supabase email rate limit hit for ${input.ownerEmail} (code=${code}, status=${status})`,
-      );
-      return { ok: false, reason: 'email_rate_limited' };
-    }
-    // Supabase may return "User already registered" (status 422) if the
-    // auth_id exists even though our app users row does not — most commonly
-    // an admin-created business where the owner never confirmed. Return the
-    // same 409 body as the pre-check hit to avoid enumeration leaks.
-    if (authError) {
-      console.warn(
-        `[api/auth/signup] Supabase signUp error for ${input.ownerEmail}: code=${code} status=${status} message=${authError.message}`,
-      );
-    }
+  // Anti-enumeration obfuscation guard — see disambiguateEmptyIdentities doc
+  // comment for why the empty-identities response shape alone can't be
+  // trusted as the duplicate signal.
+  const identitiesCheck = await disambiguateEmptyIdentities(supabase, authUser, input.ownerEmail);
+  if (identitiesCheck === 'account_exists') {
     return { ok: false, reason: 'account_exists' };
   }
 
+  if (authError || !authUser) {
+    return { ok: false, reason: classifyAuthError(authError, input.ownerEmail) };
+  }
+
   return { ok: true, authId: authUser.id };
+}
+
+/**
+ * Anti-enumeration obfuscation guard.
+ *
+ * Supabase can return `user.identities = []` for the anti-enumeration
+ * duplicate-account response, but current hosted Auth can also return an
+ * empty identities array for a real newly-created email signup while the
+ * identity is already present in auth.identities. Do not use the response
+ * shape alone as the duplicate signal. Confirm the returned id exists in
+ * Auth before using it as users.auth_id; fake ids must still be rejected.
+ *
+ * A no-op ('ok') when `authUser` is absent or its identities array isn't the
+ * empty-array shape this guard exists for.
+ */
+async function disambiguateEmptyIdentities(
+  supabase: SupabaseClient,
+  authUser: User | null,
+  ownerEmail: string,
+): Promise<'ok' | 'account_exists'> {
+  if (!authUser || !Array.isArray(authUser.identities) || authUser.identities.length !== 0) {
+    return 'ok';
+  }
+  const { data: lookupData, error: lookupError } =
+    await supabase.auth.admin.getUserById(authUser.id);
+  const lookupEmail = lookupData.user?.email?.trim().toLowerCase();
+  if (lookupError || !lookupData.user || lookupEmail !== ownerEmail) {
+    console.warn(
+      `[api/auth/signup] Supabase returned unconfirmed/fake user (empty identities) for ${ownerEmail} — treating as account_exists`,
+    );
+    return 'account_exists';
+  }
+  console.warn(
+    `[api/auth/signup] Supabase returned empty identities for real new user ${ownerEmail}; continuing signup`,
+  );
+  return 'ok';
+}
+
+/**
+ * Disambiguates Supabase email-send rate limits (most common during dev)
+ * from account-exists. Conflating them yields a confusing "account exists"
+ * message when in fact the inbox is just hot. The auth.users row is NOT
+ * created when the rate limit fires, so retrying after the cooldown is the
+ * right path — not "go log in".
+ *
+ * Only called when `authError` is set or `authUser` came back empty — the
+ * `'account_exists'` fallback covers both the true-duplicate case and
+ * Supabase's "User already registered" (status 422) response, which fires
+ * when the auth_id exists even though our app `users` row does not (most
+ * commonly an admin-created business where the owner never confirmed).
+ * Returning the same reason as the pre-check hit avoids an enumeration leak.
+ */
+function classifyAuthError(
+  authError: AuthError | null,
+  ownerEmail: string,
+): 'email_rate_limited' | 'account_exists' {
+  const code = authError?.code;
+  const status = authError?.status;
+  const isRateLimit =
+    code === 'over_email_send_rate_limit' ||
+    code === 'email_send_rate_limit' ||
+    status === 429;
+  if (isRateLimit) {
+    console.warn(
+      `[api/auth/signup] Supabase email rate limit hit for ${ownerEmail} (code=${code}, status=${status})`,
+    );
+    return 'email_rate_limited';
+  }
+  if (authError) {
+    console.warn(
+      `[api/auth/signup] Supabase signUp error for ${ownerEmail}: code=${code} status=${status} message=${authError.message}`,
+    );
+  }
+  return 'account_exists';
 }
 
 /**
