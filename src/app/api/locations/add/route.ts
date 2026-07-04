@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { sql } from '@/lib/db/server';
 import { createOffboardingGate, isBillingMutationBlocked } from '@/lib/account-offboarding/gate';
 import { assertCanAddLocation } from '@/lib/accounts/quota';
 import { getAccountById, getAccountOwnerUserId } from '@/lib/accounts/repo';
@@ -107,7 +108,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // Use the quota chokepoint for tier, subscription, and overage preview.
   // Per AGENTS.md: "Never compute quota inline."
-  const quotaResult = await assertCanAddLocation(accountId);
+  const quotaResult = await assertCanAddLocation(sql, accountId);
 
   if (!quotaResult.allowed) {
     const httpStatus = QUOTA_DENIAL_STATUS[quotaResult.reason] ?? 403;
@@ -121,8 +122,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Gather pre-transaction data needed by addLocationTransaction
   const [activeLocations, account, actorUserId] = await Promise.all([
     getActiveLocationCount(accountId),
-    getAccountById(accountId),
-    getAccountOwnerUserId(accountId),
+    getAccountById(sql, accountId),
+    getAccountOwnerUserId(sql, accountId),
   ]);
 
   if (!account) {

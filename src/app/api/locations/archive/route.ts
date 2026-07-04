@@ -13,6 +13,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { sql } from '@/lib/db/server';
 import {
   assertCanArchiveLocation,
   archiveLocationTransaction,
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const actorUserId = await getAccountOwnerUserId(accountId);
+  const actorUserId = await getAccountOwnerUserId(sql, accountId);
 
   // Execute the archive transaction. The audit payload's location counts come
   // from the tx's locked snapshot, not a pre-tx read.

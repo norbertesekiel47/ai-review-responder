@@ -289,7 +289,7 @@ export async function processRow(
 ): Promise<{ businessId: string; displayLabel: string } | { reason: string }> {
   try {
     // Step 1: Quota check via the chokepoint (VAL-ADMIN-009)
-    const quotaResult = await assertCanAddLocation(accountId);
+    const quotaResult = await assertCanAddLocation(sql, accountId);
     if (!quotaResult.allowed) {
       return { reason: `Quota check failed: ${quotaResult.reason}` };
     }
@@ -297,8 +297,8 @@ export async function processRow(
     // Step 2: Gather pre-transaction data
     const [activeLocations, account, ownerUser] = await Promise.all([
       getActiveLocationCount(accountId),
-      getAccountById(accountId),
-      getAccountOwnerUser(accountId),
+      getAccountById(sql, accountId),
+      getAccountOwnerUser(sql, accountId),
     ]);
 
     if (!account) {

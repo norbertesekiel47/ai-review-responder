@@ -32,7 +32,7 @@ export default async function AddLocationPage() {
 
   // Fetch billing snapshot for the confirm-and-pay step
   const [billingSnapshot, activeLocationCount] = await Promise.all([
-    currentBillingSnapshot(access.accountId),
+    currentBillingSnapshot(sql, access.accountId),
     getActiveLocationCount(access.accountId),
   ]);
 

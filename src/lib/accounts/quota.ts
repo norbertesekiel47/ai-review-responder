@@ -7,7 +7,7 @@
 // Validation contract: VAL-BILLING-017 through VAL-BILLING-027,
 // VAL-LOC-001 through VAL-LOC-006.
 
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import {
   TIER_CONFIG,
@@ -52,8 +52,12 @@ export interface BillingSnapshot {
  * and the count of active (non-archived) locations to compute the snapshot.
  *
  * VAL-BILLING-024 through VAL-BILLING-027: per-tier snapshots tested.
+ *
+ * @param sql  Postgres.js client (composition root supplies the singleton —
+ *   this module never imports @/lib/db/server).
  */
 export async function currentBillingSnapshot(
+  sql: Sql,
   accountId: string,
 ): Promise<BillingSnapshot> {
   // Read account fields
@@ -159,8 +163,12 @@ export type QuotaCheckResult = QuotaAllowed | QuotaRejected;
  * VAL-LOC-004: allows add when within quota
  * VAL-LOC-005: allows add with overage when above included quota
  * VAL-LOC-006: no hard cap; Stripe overage jobs reconcile from committed count
+ *
+ * @param sql  Postgres.js client (composition root supplies the singleton —
+ *   this module never imports @/lib/db/server).
  */
 export async function assertCanAddLocation(
+  sql: Sql,
   accountId: string,
 ): Promise<QuotaCheckResult> {
   // 1. Read the account row. This helper is not a serialization boundary:

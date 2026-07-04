@@ -9,6 +9,7 @@
 // Validation contract: VAL-ADMIN-008 through VAL-ADMIN-014.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { sql } from '@/lib/db/server';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import {
   parseCsv,
@@ -102,7 +103,7 @@ async function importLocationsCsv(req: NextRequest): Promise<NextResponse> {
   }
 
   // ── Step 6: Verify account exists ────────────────────────────────────
-  const account = await getAccountById(accountId);
+  const account = await getAccountById(sql, accountId);
   if (!account) {
     return NextResponse.json(
       { error: 'Account not found' },

@@ -7,6 +7,7 @@
 // Validation contract: VAL-CROSS-001 through VAL-CROSS-010.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Sql } from 'postgres';
 import {
   createAccountRow,
   createLocationRow,
@@ -120,7 +121,7 @@ describe('VAL-CROSS-001: Signup-to-multi-location end-to-end', () => {
     }]);
     mockSql.mockResolvedValueOnce([{ count: 1 }]); // 1 active location
 
-    const quotaResult = await assertCanAddLocation(activeAccount.id);
+    const quotaResult = await assertCanAddLocation(mockSql as unknown as Sql, activeAccount.id);
     expect(quotaResult.allowed).toBe(true);
     if (quotaResult.allowed) {
       // Overage: 2 locations - 1 included = 1 overage unit
@@ -173,7 +174,7 @@ describe('VAL-CROSS-001: Signup-to-multi-location end-to-end', () => {
     }]);
     mockSql.mockResolvedValueOnce([{ count: 2 }]); // 2 active locations
 
-    const snapshot = await currentBillingSnapshot(activeAccount.id);
+    const snapshot = await currentBillingSnapshot(mockSql as unknown as Sql, activeAccount.id);
     expect(snapshot.basePriceCents).toBe(7900); // $79
     expect(snapshot.overageUnits).toBe(1); // 2 locations - 1 included = 1
     expect(snapshot.overagePriceCents).toBe(2500); // $25 per overage
@@ -235,7 +236,7 @@ describe('VAL-CROSS-002: Single-location regression', () => {
       base_price_cents: 2900,
     }]);
 
-    const snapshot = await currentBillingSnapshot(account.id);
+    const snapshot = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
     expect(snapshot.basePriceCents).toBe(2900); // $29
     expect(snapshot.overageUnits).toBe(0);
     expect(snapshot.overagePriceCents).toBe(0);
@@ -252,7 +253,7 @@ describe('VAL-CROSS-002: Single-location regression', () => {
       locations_paid: 0,
     }]);
 
-    const quotaResult = await assertCanAddLocation(account.id);
+    const quotaResult = await assertCanAddLocation(mockSql as unknown as Sql, account.id);
     expect(quotaResult.allowed).toBe(false);
     if (!quotaResult.allowed) {
       expect(quotaResult.reason).toBe('tier_disallows_multi_location');
@@ -470,7 +471,7 @@ describe('VAL-CROSS-006: Billing + add-location e2e ($79 → add → $104 → ar
     }]);
     mockSql.mockResolvedValueOnce([{ count: 1 }]);
 
-    const snapshot1 = await currentBillingSnapshot(account.id);
+    const snapshot1 = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
     expect(snapshot1.basePriceCents).toBe(7900);
     expect(snapshot1.overageUnits).toBe(0);
     expect(snapshot1.totalCents).toBe(7900); // $79
@@ -485,7 +486,7 @@ describe('VAL-CROSS-006: Billing + add-location e2e ($79 → add → $104 → ar
     }]);
     mockSql.mockResolvedValueOnce([{ count: 2 }]);
 
-    const snapshot2 = await currentBillingSnapshot(account.id);
+    const snapshot2 = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
     expect(snapshot2.overageUnits).toBe(1);
     expect(snapshot2.overagePriceCents).toBe(2500);
     expect(snapshot2.totalCents).toBe(10400); // $79 + $25 = $104
@@ -500,7 +501,7 @@ describe('VAL-CROSS-006: Billing + add-location e2e ($79 → add → $104 → ar
     }]);
     mockSql.mockResolvedValueOnce([{ count: 1 }]);
 
-    const snapshot3 = await currentBillingSnapshot(account.id);
+    const snapshot3 = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
     expect(snapshot3.overageUnits).toBe(0);
     expect(snapshot3.totalCents).toBe(7900); // back to $79
   });
@@ -527,7 +528,7 @@ describe('VAL-CROSS-007: Tier upgrade Standard→Premium drops overage correctly
     }]);
     mockSql.mockResolvedValueOnce([{ count: 3 }]);
 
-    const preUpgrade = await currentBillingSnapshot(account.id);
+    const preUpgrade = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
     expect(preUpgrade.overageUnits).toBe(2); // 3 - 1 = 2
     expect(preUpgrade.totalCents).toBe(7900 + 2 * 2500); // $79 + $50 = $129
 
@@ -542,7 +543,7 @@ describe('VAL-CROSS-007: Tier upgrade Standard→Premium drops overage correctly
     }]);
     mockSql.mockResolvedValueOnce([{ count: 3 }]);
 
-    const postUpgrade = await currentBillingSnapshot(account.id);
+    const postUpgrade = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
     expect(postUpgrade.overageUnits).toBe(0); // 3 - 5 < 0 → clamped to 0
     expect(postUpgrade.basePriceCents).toBe(19900); // $199
     expect(postUpgrade.overagePriceCents).toBe(2000); // Premium overage rate
@@ -681,7 +682,7 @@ Uptown Diner,ChIJ003,casual`;
     }]);
     mockSql.mockResolvedValueOnce([{ count: 4 }]); // 1 primary + 3 CSV locations
 
-    const snapshot = await currentBillingSnapshot(account.id);
+    const snapshot = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
     expect(snapshot.overageUnits).toBe(3); // 4 - 1 = 3
     expect(snapshot.totalCents).toBe(7900 + 3 * 2500); // $79 + $75 = $154
 
@@ -782,7 +783,7 @@ describe('VAL-CROSS-011: Cancelled account — read-only banner and disabled wri
       locations_paid: 0,
     }]);
 
-    const quotaResult = await assertCanAddLocation(cancelledAccount.id);
+    const quotaResult = await assertCanAddLocation(mockSql as unknown as Sql, cancelledAccount.id);
     expect(quotaResult.allowed).toBe(false);
     if (!quotaResult.allowed) {
       expect(quotaResult.reason).toBe('subscription_inactive');

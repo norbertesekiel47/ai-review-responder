@@ -12,7 +12,7 @@
 // VAL-BILLING-033 (isAccountActive reads from accounts),
 // VAL-LOC-007 (add-location tx reads account fields).
 
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import type { SubscriptionTierValue } from './tier-config';
 import type { SubscriptionStatusValue } from '@/lib/shared/subscription-status';
 
@@ -50,8 +50,12 @@ export interface AccountOwnerUserRow {
  *
  * Used by add-location flow (reads tier/status for businesses INSERT),
 // billing snapshot computation, and account-level queries.
+ *
+ * @param sql  Postgres.js client (composition root supplies the singleton —
+ *   this module never imports @/lib/db/server).
  */
 export async function getAccountById(
+  sql: Sql,
   accountId: string,
 ): Promise<AccountRow | null> {
   const [row] = await sql<AccountRow[]>`
@@ -85,8 +89,12 @@ export async function getAccountById(
  * Returns the owner_user_id for the given account.
  * Used by audit log to record actor_user_id when the caller
  * is the account owner (e.g., add-location endpoint).
+ *
+ * @param sql  Postgres.js client (composition root supplies the singleton —
+ *   this module never imports @/lib/db/server).
  */
 export async function getAccountOwnerUserId(
+  sql: Sql,
   accountId: string,
 ): Promise<string | null> {
   const [row] = await sql<{ owner_user_id: string | null }[]>`
@@ -98,7 +106,15 @@ export async function getAccountOwnerUserId(
   return row?.owner_user_id ?? null;
 }
 
+/**
+ * Returns the owner's identity (id, name, email) for the given account, by
+ * joining accounts to users on owner_user_id.
+ *
+ * @param sql  Postgres.js client (composition root supplies the singleton —
+ *   this module never imports @/lib/db/server).
+ */
 export async function getAccountOwnerUser(
+  sql: Sql,
   accountId: string,
 ): Promise<AccountOwnerUserRow | null> {
   const [row] = await sql<AccountOwnerUserRow[]>`
