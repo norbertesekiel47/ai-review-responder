@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef } from 'react';
 import { TiltCard } from '@/components/ui/be-ui-tilt-card';
+import { NAV_LINKS } from '@/components/ui/marketing-links';
 import './landing-experience.css';
 
 /**
@@ -158,9 +159,9 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
             RepWorth
           </Link>
           <div className="rw-le-nav-links">
-            <Link href="/features">Features</Link>
-            <Link href="/how-it-works">How it works</Link>
-            <Link href="/pricing">Pricing</Link>
+            {NAV_LINKS.map((link) => (
+              <Link key={link.href} href={link.href}>{link.label}</Link>
+            ))}
           </div>
         </div>
         <Link className="rw-le-cta" href={primaryCtaHref}>

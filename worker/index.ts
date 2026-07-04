@@ -102,7 +102,7 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 // the explicit NOTIFICATION_FAILOVER_DISABLED escape hatch for local-dev
 // ergonomics. RESEND_WEBHOOK_SECRET is no longer consulted here.
 //
-// See docs/adding-communication-channels.md §3.5.
+// See docs/plans/adding-communication-channels.md §3.5.
 function shouldRunFailoverPoller(): { run: boolean; reason?: string } {
   if (notificationFailoverDisabled()) {
     return { run: false, reason: 'NOTIFICATION_FAILOVER_DISABLED=true' };

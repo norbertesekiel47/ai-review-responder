@@ -58,7 +58,7 @@ Next.js App Router pages, grouped by access level.
 
 | Path | What it does |
 |------|--------------|
-| `page.tsx` | Landing page. Reads `SELF_SERVE_SIGNUP_ENABLED` + `x-coming-soon` header to decide whether to show the coming-soon screen or the full landing. Delegates to `LandingContent`. |
+| `page.tsx` | Landing page. Reads `SELF_SERVE_SIGNUP_ENABLED` + `x-coming-soon` header to decide whether to show the coming-soon screen or the full landing. Delegates to `LandingExperience`. |
 | `login/page.tsx` | Owner login page. Renders `LoginFormClient`. |
 | `login/error.tsx` | Error boundary for the login flow. |
 | `signup/page.tsx` | Self-serve signup entry. Collects email. |
@@ -86,14 +86,11 @@ Next.js App Router pages, grouped by access level.
 | `feedback/thanks/page.tsx` | Confirmation after feedback form submission. |
 | `help/contact/page.tsx` | **(Wave 2)** Public support contact page with channels and SLA expectations. External Help Scout wiring remains out-of-repo. |
 
-**Shared components under `(public)/components/`:**
+**Shared public-page components (live under `src/components/`, not `(public)/`):**
 
-- `landing/LandingContent.tsx` — hero, how-it-works carousel, CTA buttons.
-- `landing/HowItWorksCarousel.tsx` — carousel for the workflow walkthrough.
-- `landing/BookDemoForm.tsx` — demo request form.
-- `landing/ContactForm.tsx` — contact form → `/api/contact`.
-- `shared/PageShell.tsx` — header + footer wrapper used by all public pages.
-- `shared/SiteNav.tsx` — navigation bar with logo and links.
+- `sections/landing/LandingExperience.tsx` — the entire scroll-morph landing page (#436): one pinned, scroll-linked stage that crossfades hero video → full-bleed morph → final glass tilt card. Styled by its colocated `sections/landing/landing-experience.css`.
+- `ui/PageShell.tsx` — header + footer wrapper used by all public pages.
+- `ui/SiteNav.tsx` — navigation bar with logo and links.
 
 ---
 
@@ -375,6 +372,7 @@ Cross-cutting utilities imported by both Next.js and worker.
 | File | What it does |
 |------|--------------|
 | `queue-names.ts` | Canonical queue name constants. Single source of truth for `job_outbox.topic` strings and BullMQ queue names. |
+| `queue-health-states.ts` | `QUEUE_HEALTH_JOB_STATES` — the BullMQ job-count states surfaced to the admin panel. Single owner shared by `worker/internal/queue-health.ts` and the admin jobs page (`src/app/admin/jobs`). Same no-side-effect contract as `queue-names.ts` (never imports bullmq/ioredis). |
 | `worker-types.ts` | TypeScript types for every BullMQ job payload (`SyncReviewsPayload`, `GenerateResponsePayload`, etc.). |
 | `outbox.ts` | `markOutboxCompleted()`, `markOutboxFailed()`, `extractOutboxHandle()` — called at the end of every job handler. |
 | `subscription-guard.ts` | `checkSubscription(business)` — returns the subscription status and whether the worker should proceed. Checks `cancelled` / `past_due` grace window / `pending_payment`. |
@@ -604,6 +602,10 @@ Defines all BullMQ `Queue` instances (one per job type). Exports:
 - `getRedisOptions()` — Upstash Redis connection config for BullMQ.
 
 Imports queue name constants from `src/lib/shared/queue-names.ts`.
+
+### `worker/internal/queue-health.ts`
+
+First-party internal endpoint backing the admin jobs panel's per-queue depth (`GET` with `WORKER_INTERNAL_SECRET` bearer auth, constant-time compare; 503 `{disabled}` when the secret is unset). Lives in `worker/internal/` because it is not third-party webhook ingress (invariant #6). Dependency-injected (secret reader + per-queue count fetcher) so `worker/index.ts` owns the BullMQ/Redis wiring. Imports the shared job-states list from `src/lib/shared/queue-health-states.ts` (and re-exports it for its callers).
 
 ### `worker/config/startup-assert.ts`
 

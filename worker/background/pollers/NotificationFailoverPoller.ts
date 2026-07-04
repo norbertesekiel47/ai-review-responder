@@ -263,7 +263,7 @@ export async function runFailoverPollerOnce(): Promise<void> {
     // Multi-channel era: re-sending has already happened across every enrolled
     // channel on initial dispatch. If the owner hasn't approved after 4h on
     // ANY channel, resending is unlikely to help — escalate to admin instead.
-    // See docs/adding-communication-channels.md §3.5.
+    // See docs/plans/adding-communication-channels.md §3.5.
     const staleResponses = await sql<{
       response_id: string;
       business_id: string;
