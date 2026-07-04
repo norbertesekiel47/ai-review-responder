@@ -228,6 +228,7 @@ describe('POST /api/auth/finish-signup', () => {
     mockCreateBusinessTx.mockResolvedValueOnce({
       businessId: 'biz-1',
       userId: 'u-1',
+      accountId: 'acct-1',
       paymentUrl: 'https://buy.example.com',
     });
 
@@ -248,9 +249,10 @@ describe('POST /api/auth/finish-signup', () => {
       { mode: 'self_serve', authId: 'auth-uuid-123' },
     );
 
-    // Email channel enrollment must be inserted post-createBusinessTx.
-    // Without this the dispatcher has no recipient and approval emails
-    // silently disappear — the exact bug that hit the first Google signup.
+    // Email channel enrollment must be inserted post-createBusinessTx via
+    // enrollOwnerEmailChannel, reusing the accountId createBusinessTx returned
+    // (no re-query). Without this the dispatcher has no recipient and approval
+    // emails silently disappear — the exact bug that hit the first Google signup.
     const enrollCall = mockSql.mock.calls.find((c: unknown[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO channel_enrollments'),
     );
@@ -258,6 +260,11 @@ describe('POST /api/auth/finish-signup', () => {
     const template = (enrollCall![0] as TemplateStringsArray).join('?');
     expect(template).toContain("'email'");
     expect(template).toContain("'verified'");
+    expect(template).toContain(
+      "ON CONFLICT (account_id, channel, COALESCE(location_id, '00000000-0000-0000-0000-000000000000')) WHERE archived_at IS NULL DO NOTHING",
+    );
+    // Bound values: accountId (from createBusinessTx result) + businessId + email.
+    expect(enrollCall!.some((a) => a === 'acct-1')).toBe(true);
     expect(enrollCall!.some((a) => a === 'biz-1')).toBe(true);
     expect(enrollCall!.some((a) => a === 'owner@example.com')).toBe(true);
   });
@@ -266,10 +273,11 @@ describe('POST /api/auth/finish-signup', () => {
     mockCreateBusinessTx.mockResolvedValueOnce({
       businessId: 'biz-2',
       userId: 'u-2',
+      accountId: 'acct-2',
       paymentUrl: null,
     });
-    // First two calls (advisory_xact_lock + 2 SELECTs in pre-check) succeed,
-    // then the INSERT INTO channel_enrollments rejects.
+    // Pre-check SELECTs succeed; the INSERT INTO channel_enrollments (issued by
+    // enrollOwnerEmailChannel) rejects — the route must log and still 201.
     mockSql.mockImplementation((tpl: TemplateStringsArray) => {
       if (tpl.join('?').includes('INSERT INTO channel_enrollments')) {
         return Promise.reject(new Error('transient db'));

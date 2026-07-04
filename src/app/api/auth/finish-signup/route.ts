@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { createServerClient } from '@supabase/ssr';
-import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
@@ -14,6 +13,7 @@ import {
   type SelfServeBusinessTxInput,
 } from '@/lib/onboarding/create-business';
 import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
+import { enrollOwnerEmailChannel } from '@/lib/notifications/channels/enroll-email-owner';
 
 export const dynamic = 'force-dynamic';
 
@@ -162,9 +162,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //    log the owner out of a legitimate Supabase identity and break any
   //    other app sharing that Supabase project. On error we just surface it.
   let businessId: string;
+  let accountId: string;
   try {
     const result = await createBusinessTx(input, { mode: 'self_serve', authId });
     businessId = result.businessId;
+    accountId = result.accountId;
   } catch (err) {
     if (err instanceof DuplicateEmailError) {
       // Race between pre-check and tx — another request completed signup
@@ -181,44 +183,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //    `user.email_confirmed_at` above), so 'verified' is correct without
   //    an additional OTP roundtrip. Mirrors the post-OTP INSERT in
   //    /api/auth/verify-otp — without this row, NotificationWorker has no
-  //    recipient and approval emails silently disappear.
+  //    recipient and approval emails silently disappear. Reuses the accountId
+  //    createBusinessTx already returned (no re-query).
   //
-  //    Idempotent via the existing partial-unique ON CONFLICT. Failure here
-  //    leaves the owner in a broken state (active business, no channel),
-  //    so we log loudly but don't block the redirect — admin backfill is
-  //    safer than rejecting the request after createBusinessTx committed.
+  //    Idempotent via the partial-unique ON CONFLICT. Failure here leaves the
+  //    owner in a broken state (active business, no channel), so we log loudly
+  //    but don't block the redirect — admin backfill is safer than rejecting
+  //    the request after createBusinessTx committed.
   try {
-    // Look up the account_id and primary business_id for the channel enrollment.
-    // After migration 034, channel_enrollments requires account_id.
-    const [ownerRow] = await sql<{ account_id: string }[]>`
-      SELECT u.account_id
-      FROM users u
-      WHERE u.id = (SELECT id FROM users WHERE email = ${ownerEmail} LIMIT 1)
-      LIMIT 1
-    `;
-    const accountId = ownerRow?.account_id;
-
-    if (accountId) {
-      await sql`
-        INSERT INTO channel_enrollments (id, account_id, business_id, channel, handle, status, verified_at)
-        VALUES (${uuidv7()}::uuid, ${accountId}::uuid, ${businessId}::uuid, 'email', ${ownerEmail}, 'verified', NOW())
-        ON CONFLICT (account_id, channel, COALESCE(location_id, '00000000-0000-0000-0000-000000000000')) WHERE archived_at IS NULL DO NOTHING
-      `;
-    } else {
-      // Fallback: account_id not yet set (shouldn't happen after migration 034
-      // since createBusinessTx always sets it, but defensive).
-      // NOTE: ON CONFLICT (business_id, channel) references the pre-migration-034
-      // partial unique index that no longer exists. If this path ever fires,
-      // it will error with "there is no unique or exclusion constraint matching
-      // the ON CONFLICT specification". That's acceptable for an impossible
-      // edge case — the primary path above uses the correct index.
-      await sql`
-        INSERT INTO channel_enrollments (id, account_id, business_id, channel, handle, status, verified_at)
-        SELECT ${uuidv7()}::uuid, b.account_id, ${businessId}::uuid, 'email', ${ownerEmail}, 'verified', NOW()
-        FROM businesses b WHERE b.id = ${businessId}::uuid
-        ON CONFLICT (account_id, channel, COALESCE(location_id, '00000000-0000-0000-0000-000000000000')) WHERE archived_at IS NULL DO NOTHING
-      `;
-    }
+    await enrollOwnerEmailChannel(sql, { accountId, businessId, ownerEmail });
   } catch (err) {
     reportCaughtError('api/auth/finish-signup', err, {
       reason: 'channel_enrollments_insert_failed',

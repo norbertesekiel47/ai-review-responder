@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { createServerClient } from '@supabase/ssr';
-import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
@@ -11,6 +10,7 @@ import { getIpKey } from '@/lib/shared/request-ip';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
+import { enrollOwnerEmailChannel } from '@/lib/notifications/channels/enroll-email-owner';
 
 export const dynamic = 'force-dynamic';
 
@@ -186,11 +186,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //    cleanly ask them to retry — log loudly for manual backfill but
   //    don't block the redirect to /onboarding/pay.
   try {
-    await sql`
-      INSERT INTO channel_enrollments (id, account_id, business_id, channel, handle, status, verified_at)
-      VALUES (${uuidv7()}, ${row.account_id}::uuid, ${row.business_id}::uuid, 'email', ${email}, 'verified', NOW())
-      ON CONFLICT (account_id, channel, COALESCE(location_id, '00000000-0000-0000-0000-000000000000')) WHERE archived_at IS NULL DO NOTHING
-    `;
+    await enrollOwnerEmailChannel(sql, {
+      accountId: row.account_id,
+      businessId: row.business_id,
+      ownerEmail: email,
+    });
   } catch (err) {
     reportCaughtError('verify-otp', err, {
       reason: 'channel_enrollments_insert_failed',
