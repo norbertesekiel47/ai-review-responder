@@ -21,6 +21,14 @@ pre-push:
       run: pnpm ci:analytics-events
     static-policy:
       run: pnpm ci:static-policy
+    response-status:
+      run: pnpm ci:response-status
+    admin-aal2:
+      run: pnpm ci:admin-aal2
+    config-coverage:
+      run: pnpm ci:config-coverage
+    process-env:
+      run: pnpm ci:process-env
     # Affected tests only (module graph vs origin/main) to keep the hook fast.
     # CI runs the full `pnpm test` suite as the backstop for anything the
     # change graph misses (e.g. config/env-only changes run zero tests here).
@@ -39,3 +47,5 @@ pre-push:
       run: pnpm ci:reviews-status
     outbox-topics:
       run: pnpm ci:outbox-topics
+    db-imports:
+      run: pnpm ci:db-imports

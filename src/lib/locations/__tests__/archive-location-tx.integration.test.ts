@@ -7,14 +7,13 @@
 // must NOT archive the primary while another active location exists (promote_first),
 // and a non-primary archive succeeds. Deterministic; no real concurrency.
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
+import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
-const RUN = Boolean(testDatabaseUrl);
-const d = RUN ? describe : describe.skip;
 
 let db: postgresType.Sql | undefined;
 
@@ -30,7 +29,7 @@ function sql(): postgresType.Sql {
   return db;
 }
 
-d('archiveLocationTransaction primary-archive invariant integration', () => {
+describeWithDb('archiveLocationTransaction primary-archive invariant integration', () => {
   beforeAll(async () => {
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false, connection: { statement_timeout: 30_000 } });
 
@@ -143,7 +142,7 @@ const b3 = {
   hasPrimaryArchivedSecondaryId: randomUUID(),
 };
 
-d('reactivateLocationTransaction zero-primary self-heal integration', () => {
+describeWithDb('reactivateLocationTransaction zero-primary self-heal integration', () => {
   beforeAll(async () => {
     if (!db) {
       db = postgres(testDatabaseUrl!, { max: 1, prepare: false, connection: { statement_timeout: 30_000 } });
@@ -294,7 +293,7 @@ const race = {
   archivedLocationBId: randomUUID(),
 };
 
-d('reactivateLocationTransaction concurrent zero-primary race integration', () => {
+describeWithDb('reactivateLocationTransaction concurrent zero-primary race integration', () => {
   beforeAll(async () => {
     if (!db) {
       db = postgres(testDatabaseUrl!, { max: 1, prepare: false, connection: { statement_timeout: 30_000 } });

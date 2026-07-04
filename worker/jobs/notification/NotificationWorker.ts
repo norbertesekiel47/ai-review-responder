@@ -5,7 +5,7 @@
 // the outbox. Channel-level failures are isolated inside dispatch — the
 // failover poller handles the all-deliveries-failed case.
 //
-// See docs/adding-communication-channels.md §3.1.
+// See docs/plans/adding-communication-channels.md §3.1.
 
 import type { Job } from 'bullmq';
 import {

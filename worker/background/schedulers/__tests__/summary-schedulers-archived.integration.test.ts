@@ -26,7 +26,7 @@
 // skips cleanly without one (e.g. in the no-DB CI test job). The database is
 // expected to already have all migrations applied.
 
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
@@ -34,10 +34,9 @@ import {
   cleanupTenantAccount,
   seedTenantAccount,
 } from '../../../../src/lib/shared/__tests__/live-db-tenant';
+import { describeWithDb } from '../../../../src/__tests__/helpers/describe-with-db';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
-const RUN = Boolean(testDatabaseUrl);
-const d = RUN ? describe : describe.skip;
 
 // 2026-06-01 is BOTH a Monday and the 1st of the month — one seeded tenant
 // serves both schedulers' dispatch windows (Mon 8–9 AM UTC / 1st 9–10 AM UTC).
@@ -110,7 +109,7 @@ async function runSchedulerCycleAt(
   }
 }
 
-d('Summary-report schedulers vs archived locations (live DB)', () => {
+describeWithDb('Summary-report schedulers vs archived locations (live DB)', () => {
   beforeAll(async () => {
     // Point the shared db/server client at the test database BEFORE the
     // scheduler modules (and their transitive db/server import) are first
@@ -175,11 +174,10 @@ d('Summary-report schedulers vs archived locations (live DB)', () => {
       await db.end({ timeout: 5 });
     }
     // Close the schedulers' shared db/server client too, or the vitest fork
-    // can hang on its open sockets.
-    if (RUN) {
-      const { sql: serverSql } = await import('../../../../src/lib/db/server');
-      await serverSql.end({ timeout: 5 });
-    }
+    // can hang on its open sockets. (Unconditional: this afterAll only runs
+    // when the DB-gated suite ran.)
+    const { sql: serverSql } = await import('../../../../src/lib/db/server');
+    await serverSql.end({ timeout: 5 });
   });
 
   it('WeeklySummaryScheduler enqueues the active business and never the archived sibling', async () => {

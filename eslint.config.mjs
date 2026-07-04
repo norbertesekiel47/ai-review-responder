@@ -47,6 +47,7 @@ const VERCEL_FORBIDDEN_RUNTIME_IMPORTS = [
     allowTypeImports: true,
     message: invariantOne('the LLM response generator'),
   },
+  { group: ['**/lib/llm/*', '@/lib/llm/*'], allowTypeImports: true, message: invariantOne('the LLM task seam') },
   { group: ['**/worker/queues', '**/worker/queues*'], allowTypeImports: true, message: invariantOne('the worker queue registry') },
 ];
 
@@ -62,6 +63,7 @@ const VERCEL_FORBIDDEN_DYNAMIC_IMPORTS = [
   { selector: "ImportExpression[source.value=/^bullmq(\\/|$)/]", message: invariantOne('BullMQ') },
   { selector: "ImportExpression[source.value=/^postgres(\\/|$)/]", message: invariantOne('the Postgres.js client') },
   { selector: "ImportExpression[source.value=/(^|\\/)responses\\/generator/]", message: invariantOne('the LLM response generator') },
+  { selector: "ImportExpression[source.value=/(^|\\/)lib\\/llm\\//]", message: invariantOne('the LLM task seam') },
   { selector: "ImportExpression[source.value=/(^|\\/)worker\\/queues/]", message: invariantOne('the worker queue registry') },
 ];
 

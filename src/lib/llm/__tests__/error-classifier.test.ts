@@ -1,12 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
-import { TransientLLMError, redactProviderError } from '../llm-error-classifier';
+import { TransientLLMError, redactProviderError } from '../error-classifier';
 
 // Import the SUT dynamically so the safeInstanceOf regression test can
 // re-import it with a substituted openai mock.
 async function loadClassifier() {
-  const mod = await import('../llm-error-classifier');
+  const mod = await import('../error-classifier');
   return mod.isTransientLLMError;
 }
 
@@ -211,7 +211,7 @@ describe('isTransientLLMError', () => {
     vi.doMock('openai', () => ({ default: class MockOpenAI {} }));
     vi.resetModules();
 
-    const { isTransientLLMError } = await import('../llm-error-classifier');
+    const { isTransientLLMError } = await import('../error-classifier');
     expect(isTransientLLMError(new Error('boom'))).toBe(false);
 
     vi.doUnmock('openai');
@@ -222,7 +222,7 @@ describe('isTransientLLMError', () => {
     vi.doMock('@anthropic-ai/sdk', () => ({ default: class MockAnthropic {} }));
     vi.resetModules();
 
-    const { isTransientLLMError } = await import('../llm-error-classifier');
+    const { isTransientLLMError } = await import('../error-classifier');
     expect(isTransientLLMError(new Error('boom'))).toBe(false);
 
     vi.doUnmock('@anthropic-ai/sdk');

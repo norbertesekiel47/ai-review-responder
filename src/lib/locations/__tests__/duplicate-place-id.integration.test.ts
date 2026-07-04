@@ -9,14 +9,13 @@
 // Postgres 23505 unique violation must surface from addLocationTransaction as
 // the typed 'duplicate_location' error (the route maps that to HTTP 409).
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
+import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
-const RUN = Boolean(testDatabaseUrl);
-const d = RUN ? describe : describe.skip;
 
 let db: postgresType.Sql | undefined;
 
@@ -33,7 +32,7 @@ function sql(): postgresType.Sql {
   return db;
 }
 
-d('addLocationTransaction duplicate google_place_id enforcement integration', () => {
+describeWithDb('addLocationTransaction duplicate google_place_id enforcement integration', () => {
   beforeAll(async () => {
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false, connection: { statement_timeout: 30_000 } });
 

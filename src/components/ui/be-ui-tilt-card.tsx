@@ -20,13 +20,13 @@ import { cn } from '@/lib/ui/cn';
  * so touch users get a plain static card.
  */
 
-export const SPRING_MOUSE = {
+const SPRING_MOUSE = {
   stiffness: 200,
   damping: 15,
   mass: 0.3,
 } as const;
 
-export function useHoverCapable() {
+function useHoverCapable() {
   const [canHover, setCanHover] = useState(false);
 
   useEffect(() => {

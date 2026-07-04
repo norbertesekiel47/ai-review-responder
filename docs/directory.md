@@ -58,7 +58,7 @@ Next.js App Router pages, grouped by access level.
 
 | Path | What it does |
 |------|--------------|
-| `page.tsx` | Landing page. Reads `SELF_SERVE_SIGNUP_ENABLED` + `x-coming-soon` header to decide whether to show the coming-soon screen or the full landing. Delegates to `LandingContent`. |
+| `page.tsx` | Landing page. Reads `SELF_SERVE_SIGNUP_ENABLED` + `x-coming-soon` header to decide whether to show the coming-soon screen or the full landing. Delegates to `LandingExperience`. |
 | `login/page.tsx` | Owner login page. Renders `LoginFormClient`. |
 | `login/error.tsx` | Error boundary for the login flow. |
 | `signup/page.tsx` | Self-serve signup entry. Collects email. |
@@ -86,14 +86,11 @@ Next.js App Router pages, grouped by access level.
 | `feedback/thanks/page.tsx` | Confirmation after feedback form submission. |
 | `help/contact/page.tsx` | **(Wave 2)** Public support contact page with channels and SLA expectations. External Help Scout wiring remains out-of-repo. |
 
-**Shared components under `(public)/components/`:**
+**Shared public-page components (live under `src/components/`, not `(public)/`):**
 
-- `landing/LandingContent.tsx` — hero, how-it-works carousel, CTA buttons.
-- `landing/HowItWorksCarousel.tsx` — carousel for the workflow walkthrough.
-- `landing/BookDemoForm.tsx` — demo request form.
-- `landing/ContactForm.tsx` — contact form → `/api/contact`.
-- `shared/PageShell.tsx` — header + footer wrapper used by all public pages.
-- `shared/SiteNav.tsx` — navigation bar with logo and links.
+- `sections/landing/LandingExperience.tsx` — the entire scroll-morph landing page (#436): one pinned, scroll-linked stage that crossfades hero video → full-bleed morph → final glass tilt card. Styled by its colocated `sections/landing/landing-experience.css`.
+- `ui/PageShell.tsx` — header + footer wrapper used by all public pages.
+- `ui/SiteNav.tsx` — navigation bar with logo and links.
 
 ---
 
@@ -375,6 +372,7 @@ Cross-cutting utilities imported by both Next.js and worker.
 | File | What it does |
 |------|--------------|
 | `queue-names.ts` | Canonical queue name constants. Single source of truth for `job_outbox.topic` strings and BullMQ queue names. |
+| `queue-health-states.ts` | `QUEUE_HEALTH_JOB_STATES` — the BullMQ job-count states surfaced to the admin panel. Single owner shared by `worker/internal/queue-health.ts` and the admin jobs page (`src/app/admin/jobs`). Same no-side-effect contract as `queue-names.ts` (never imports bullmq/ioredis). |
 | `worker-types.ts` | TypeScript types for every BullMQ job payload (`SyncReviewsPayload`, `GenerateResponsePayload`, etc.). |
 | `outbox.ts` | `markOutboxCompleted()`, `markOutboxFailed()`, `extractOutboxHandle()` — called at the end of every job handler. |
 | `subscription-guard.ts` | `checkSubscription(business)` — returns the subscription status and whether the worker should proceed. Checks `cancelled` / `past_due` grace window / `pending_payment`. |
@@ -441,6 +439,23 @@ Everything about fetching and normalising Google reviews.
 
 **Connection:** `ReviewSyncWorker` instantiates `SerpApiMonitor` → calls `process-review.ts` for each result → writes to DB → enqueues `GenerateResponsePayload` via outbox.
 
+### `llm/`
+
+The LLM task seam (A+ campaign PR 1c) — a provider-agnostic executor between
+callers (currently `responses/generator.ts`) and the OpenAI/Anthropic SDKs.
+Deliberately bounded: no streaming, tool-calls, or multi-turn loops.
+
+| File | What it does |
+|------|--------------|
+| `types.ts` | Task vocabulary (`LLMTaskId`: `reply_generation` \| `triage` \| `judge` \| `insights`), `LLMProvider` interface, `LLMTaskDescriptor`. Cost-guard contract: every `runLlmTask` call in production code must be wrapped in `withCostGuard` by its caller — the guard stays caller-side (the idempotent-cache write must happen inside the guarded closure). |
+| `tasks.ts` | `getLlmTask(taskId)` — pinned-model registry. `OPENAI_MODEL` / `ANTHROPIC_MODEL` constants (guarded by `model-pinning.test.ts`). Only `reply_generation` is registered today; the other task IDs exist in the vocabulary but get no config until their feature lands (no dead task config ships before its tenant). |
+| `run-task.ts` | `runLlmTask(taskId, prompt)` — the executor: calls the primary provider, falls back to the secondary on failure, and classifies exhausted-attempt errors as `TransientLLMError` (worker retries) vs terminal (rethrown raw). Relocated verbatim from `generator.ts`'s `callLLMWithFallback`. |
+| `openai-provider.ts` / `anthropic-provider.ts` | Thin SDK adapters implementing `LLMProvider` — lazily construct a singleton client with `LLM_CLIENT_OPTIONS` and map the SDK response to `LLMCallResult`. |
+| `client-options.ts` | `LLM_CLIENT_OPTIONS` — explicit `{ timeout: 30_000, maxRetries: 0 }`. Without it the SDKs default to a 10-minute timeout + 2 internal retries; `maxRetries: 0` makes the BullMQ + outbox-watchdog ladder the single source of retry truth. |
+| `error-classifier.ts` | `isTransientLLMError(err)`, `TransientLLMError`, `redactProviderError(err)` (strips `.body`/`.response`/`.request` before logging — some 4xx provider errors echo the prompt). Moved here from the deleted `responses/llm-error-classifier.ts` re-export shim. |
+
+**Connection:** `generator.ts` calls `runLlmTask('reply_generation', prompt)` instead of hand-rolling the primary/fallback loop. Invariant #1's ESLint ban (`@/lib/llm/*`) treats the whole directory as worker-only.
+
 ### `responses/`
 
 AI response generation.
@@ -448,7 +463,7 @@ AI response generation.
 | File | What it does |
 |------|--------------|
 | `types.ts` | `BusinessContext`, `GenerationOptions`, `GenerationResult`, `VoiceExample`. |
-| `generator.ts` | `generateResponse(review, context, options)` — full pipeline: cost guard → concurrency slot → OpenAI / Claude call → save → cache. Two modes: `demo` (fast, no cost guard) and `production`. |
+| `generator.ts` | `generateResponse(review, context, options)` — full pipeline: cost guard → idempotent cache → `runLlmTask('reply_generation')` via the LLM seam → save → cache. Two modes: `demo` (fast, no cost guard) and `production`. |
 | `prompt-builder.ts` | Builds the system prompt and user message from `BusinessContext` + `VoiceExample[]`. |
 | `voice-learning.ts` | Queries DB for recent owner-edited responses to use as few-shot examples. Returns empty array until ≥ 5 examples exist. |
 | `review-summary.ts` | Generates a one-line summary of a review for the weekly report. |
@@ -605,6 +620,10 @@ Defines all BullMQ `Queue` instances (one per job type). Exports:
 - `getRedisOptions()` — Upstash Redis connection config for BullMQ.
 
 Imports queue name constants from `src/lib/shared/queue-names.ts`.
+
+### `worker/internal/queue-health.ts`
+
+First-party internal endpoint backing the admin jobs panel's per-queue depth (`GET` with `WORKER_INTERNAL_SECRET` bearer auth, constant-time compare; 503 `{disabled}` when the secret is unset). Lives in `worker/internal/` because it is not third-party webhook ingress (invariant #6). Dependency-injected (secret reader + per-queue count fetcher) so `worker/index.ts` owns the BullMQ/Redis wiring. Imports the shared job-states list from `src/lib/shared/queue-health-states.ts` (and re-exports it for its callers).
 
 ### `worker/config/startup-assert.ts`
 

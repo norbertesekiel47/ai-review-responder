@@ -17,21 +17,12 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ALL_QUEUE_NAMES } from '../../src/lib/shared/queue-names';
+import { QUEUE_HEALTH_JOB_STATES } from '../../src/lib/shared/queue-health-states';
 
-/**
- * The BullMQ job-count states surfaced to the admin panel — kept byte-identical to
- * the set the old in-route `getJobCounts(...)` requested so the panel UI is
- * unchanged. Exported as the single owner so the worker registration (which calls
- * `getJobCounts(...)`) and any test share one list.
- */
-export const QUEUE_HEALTH_JOB_STATES = [
-  'waiting',
-  'active',
-  'delayed',
-  'failed',
-  'completed',
-  'paused',
-] as const;
+// Single owner is src/lib/shared/queue-health-states.ts (shared with the admin
+// UI, src/app/admin/jobs); re-exported here so worker/index.ts and this
+// module's tests keep importing it from queue-health.
+export { QUEUE_HEALTH_JOB_STATES };
 
 const BEARER_PREFIX = 'Bearer ';
 
