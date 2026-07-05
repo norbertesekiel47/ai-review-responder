@@ -9,9 +9,10 @@
 // query logic and composes results at the service layer rather than
 // writing N+1-style aggregate SQL.
 
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 import { statusArraySql } from '@/lib/shared/response-status-sql';
+import { REVIEW_STATUS } from '@/lib/reviews/status';
 import {
   type DashboardWindow,
   DEFAULT_DASHBOARD_WINDOW,
@@ -49,6 +50,7 @@ const AGGREGATE_LOCATION_CONCURRENCY = 5;
  * and correct for the initial implementation.
  */
 export async function getAggregateDashboardData(
+  sql: Sql,
   accountId: string,
   window: DashboardWindow = DEFAULT_DASHBOARD_WINDOW,
 ): Promise<AggregateDashboardData> {
@@ -103,8 +105,8 @@ export async function getAggregateDashboardData(
         // pending count (no LIMIT, held/flagged excluded) together, bounded by
         // the same concurrency cap rather than a second unbounded wave (#346).
         const [data, pendingApprovalCount] = await Promise.all([
-          getActiveDashboardData(loc.id, { window }),
-          getPendingApprovalCount(loc.id),
+          getActiveDashboardData(sql, loc.id, { window }),
+          getPendingApprovalCount(sql, loc.id),
         ]);
         return { location: loc, data, pendingApprovalCount };
       } catch (err) {
@@ -140,8 +142,8 @@ export async function getAggregateDashboardData(
 
   // Aggregate response rate: weighted average across all locations
   const [totalReviewsAcrossLocations, totalRespondedAcrossLocations] = await Promise.all([
-    getTotalReviewsForAccount(accountId),
-    getTotalRespondedForAccount(accountId),
+    getTotalReviewsForAccount(sql, accountId),
+    getTotalRespondedForAccount(sql, accountId),
   ]);
   const currentResponseRate =
     totalReviewsAcrossLocations > 0
@@ -312,19 +314,19 @@ async function mapWithConcurrency<T, R>(
 
 // ── Helper queries for accurate aggregate rates ─────────────────────────────
 
-async function getTotalReviewsForAccount(accountId: string): Promise<number> {
+async function getTotalReviewsForAccount(sql: Sql, accountId: string): Promise<number> {
   const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
     FROM reviews r
     JOIN businesses b ON b.id = r.business_id
     WHERE b.account_id = ${accountId}::uuid
       AND b.archived_at IS NULL
-      AND r.status <> 'deleted'
+      AND r.status <> ${REVIEW_STATUS.DELETED}
   `;
   return row?.count ?? 0;
 }
 
-async function getTotalRespondedForAccount(accountId: string): Promise<number> {
+async function getTotalRespondedForAccount(sql: Sql, accountId: string): Promise<number> {
   const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(DISTINCT r.id)::int AS count
     FROM reviews r
@@ -332,7 +334,7 @@ async function getTotalRespondedForAccount(accountId: string): Promise<number> {
     JOIN businesses b ON b.id = r.business_id
     WHERE b.account_id = ${accountId}::uuid
       AND b.archived_at IS NULL
-      AND r.status <> 'deleted'
+      AND r.status <> ${REVIEW_STATUS.DELETED}
       AND resp.status = ANY(${statusArraySql(HANDLED_STATUSES)})
   `;
   return row?.count ?? 0;

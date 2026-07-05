@@ -129,7 +129,7 @@ async function pastDuePerLocationResponse(
     pastDueAt: subRow.past_due_at,
     accountFlags: subRow.flags,
   });
-  const data = await getActiveDashboardData(locationId, { includeReputationMetrics: true, window });
+  const data = await getActiveDashboardData(sql, locationId, { includeReputationMetrics: true, window });
   return jsonResponse({
     ...data,
     subscriptionStatus: SubscriptionStatus.PAST_DUE,
@@ -251,7 +251,7 @@ async function fetchPerLocationData(
   // renders the 4-zone reputation hero (PLAN.md PR2) instead of the legacy KPI
   // fallback. The past-due path above already opts in; this is the normal
   // active path.
-  const data = await getActiveDashboardData(locationId, { includeReputationMetrics: true, window });
+  const data = await getActiveDashboardData(sql, locationId, { includeReputationMetrics: true, window });
   const trialEndsAt = trialEndsAtIso(subRow.subscription_status, subRow.trial_ends_at);
 
   // VAL-DASH-029: Attach scopeFallback indicator if a fallback occurred
@@ -307,7 +307,7 @@ async function aggregateSubscriptionResponse(
       pastDueAt: accountRow.past_due_at,
       accountFlags: accountRow.flags,
     });
-    const data = await getAggregateDashboardData(accountId, window);
+    const data = await getAggregateDashboardData(sql, accountId, window);
     return jsonResponse({
       ...data,
       subscriptionStatus: SubscriptionStatus.PAST_DUE,
@@ -346,7 +346,7 @@ async function handleAggregateDashboard(
     if (gated) return gated;
 
     const trialEndsAt = trialEndsAtIso(accountRow.subscription_status, accountRow.trial_ends_at);
-    const data = await getAggregateDashboardData(accountId, window);
+    const data = await getAggregateDashboardData(sql, accountId, window);
     return jsonResponse({ ...data, trialEndsAt });
   } catch (error) {
     reportCaughtError('api/dashboard', error, { accountId, scope: 'aggregate' });

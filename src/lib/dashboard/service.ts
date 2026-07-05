@@ -6,12 +6,13 @@
 //
 // See docs/superpowers/specs/2026-04-26-modularization-design.md §7.1.
 
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import {
   HANDLED_STATUSES,
   RECENT_REVIEW_DISPLAY_STATUSES,
 } from '@/lib/shared/response-status';
+import { REVIEW_STATUS } from '@/lib/reviews/status';
 import {
   type DashboardWindow,
   DEFAULT_DASHBOARD_WINDOW,
@@ -52,6 +53,7 @@ export class BusinessNotFoundError extends Error {
 }
 
 export async function getActiveDashboardData(
+  sql: Sql,
   businessId: string,
   opts?: { includeReputationMetrics?: boolean; window?: DashboardWindow },
 ): Promise<DashboardDataActive> {
@@ -94,7 +96,7 @@ export async function getActiveDashboardData(
       SELECT COUNT(*)::int AS count
       FROM reviews
       WHERE business_id = ${businessId}
-        AND status <> 'deleted'
+        AND status <> ${REVIEW_STATUS.DELETED}
     `,
     // Total responded (distinct reviews with non-superseded responses)
     sql<{ count: number }[]>`
@@ -102,7 +104,7 @@ export async function getActiveDashboardData(
       FROM reviews r
       JOIN responses resp ON resp.review_id = r.id
       WHERE r.business_id = ${businessId}
-        AND r.status <> 'deleted'
+        AND r.status <> ${REVIEW_STATUS.DELETED}
         AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
     `,
     // Review velocity: last `trendWeeks` weeks (zero-filled), window-driven.
@@ -119,7 +121,7 @@ export async function getActiveDashboardData(
         FROM reviews
         WHERE business_id = ${businessId}
           AND detected_at >= NOW() - make_interval(weeks => ${trendWeeks})
-          AND status <> 'deleted'
+          AND status <> ${REVIEW_STATUS.DELETED}
         GROUP BY DATE_TRUNC('week', detected_at)
       ) r ON r.wk = gs::date
       ORDER BY week_start ASC
@@ -165,7 +167,7 @@ export async function getActiveDashboardData(
         LIMIT 1
       ) resp ON true
       WHERE rev.business_id = ${businessId}
-        AND rev.status <> 'deleted'
+        AND rev.status <> ${REVIEW_STATUS.DELETED}
       ORDER BY rev.detected_at DESC
       LIMIT 10
     `,
@@ -223,7 +225,7 @@ export async function getActiveDashboardData(
       SELECT star_rating AS stars, COUNT(*)::int AS count
       FROM reviews
       WHERE business_id = ${businessId}
-        AND status <> 'deleted'
+        AND status <> ${REVIEW_STATUS.DELETED}
         AND star_rating IS NOT NULL
         AND detected_at >= NOW() - make_interval(days => ${windowDays})
       GROUP BY star_rating
@@ -248,7 +250,7 @@ export async function getActiveDashboardData(
   // batch; its windowed queries are internally parallel (one FILTER query per
   // metric). Aggregate/connect callers omit the flag and pay nothing.
   const reputationRows = opts?.includeReputationMetrics
-    ? await fetchReputationRows(businessId, windowDays, trendWeeks)
+    ? await fetchReputationRows(sql, businessId, windowDays, trendWeeks)
     : null;
   const reputationSummary = reputationRows
     ? buildReputationSummary({
@@ -292,6 +294,7 @@ function daysSince(date: Date): number {
  * `trendWeeks` reach SQL only as bound integers via make_interval(...).
  */
 async function fetchReputationRows(
+  sql: Sql,
   businessId: string,
   windowDays: number,
   trendWeeks: number,
@@ -338,7 +341,7 @@ async function fetchReputationRows(
           )::int AS handled_prior
         FROM reviews r
         WHERE r.business_id = ${businessId}
-          AND r.status <> 'deleted'
+          AND r.status <> ${REVIEW_STATUS.DELETED}
           AND r.detected_at >= NOW() - make_interval(days => ${priorEndDays})
       `,
       sql<StarWindowRow[]>`
@@ -359,7 +362,7 @@ async function fetchReputationRows(
           )::int AS star_n_prior
         FROM reviews
         WHERE business_id = ${businessId}
-          AND status <> 'deleted'
+          AND status <> ${REVIEW_STATUS.DELETED}
           AND star_rating IS NOT NULL
           AND detected_at >= NOW() - make_interval(days => ${priorEndDays})
       `,
@@ -376,7 +379,7 @@ async function fetchReputationRows(
         JOIN reviews r ON r.id = resp.review_id
         WHERE r.business_id = ${businessId}
           AND resp.business_id = ${businessId}
-          AND r.status <> 'deleted'
+          AND r.status <> ${REVIEW_STATUS.DELETED}
           AND resp.status = ANY(${HANDLED}::text[])
           AND resp.approved_at IS NOT NULL
           AND resp.approved_at >= NOW() - make_interval(days => ${priorEndDays})
@@ -396,13 +399,13 @@ async function fetchReputationRows(
                  COUNT(*) AS cnt
           FROM reviews
           WHERE business_id = ${businessId}
-            AND status <> 'deleted'
+            AND status <> ${REVIEW_STATUS.DELETED}
             AND detected_at >= NOW() - make_interval(weeks => ${trendWeeks})
           GROUP BY DATE_TRUNC('week', detected_at)
         ) agg ON agg.wk = gs::date
         ORDER BY week_start ASC
       `,
-      getPendingApprovalCount(businessId),
+      getPendingApprovalCount(sql, businessId),
     ]);
 
   return {
