@@ -10,10 +10,10 @@
 // Validation contract: VAL-BILLING-001 through VAL-BILLING-006,
 //   VAL-BILLING-030 through VAL-BILLING-032.
 
+import type { Sql } from 'postgres';
 import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { basePriceIdForTier, overagePriceIdForTier } from '@/lib/payments/price-tier-map';
 import { computeOverageQuantity } from '@/lib/accounts/quota';
-import { sql } from '@/lib/db/server';
 import { getStripe } from '@/lib/payments/stripe-client';
 import { getServerConfig } from '@/lib/config/server';
 import { stripeTaxEnabled } from './flags';
@@ -70,8 +70,12 @@ export class CheckoutUnavailableError extends Error {
  * VAL-BILLING-005: mode=subscription, client_reference_id, customer_email,
  *   success_url, cancel_url, allow_promotion_codes
  * VAL-BILLING-031: This function does NOT reference STRIPE_PAYMENT_LINK_* env vars.
+ *
+ * @param sql  Postgres.js client (composition root supplies the singleton —
+ *   this module never imports @/lib/db/server).
  */
 export async function createCheckoutSession(
+  sql: Sql,
   accountId: string,
   tier: SubscriptionTierValue,
   ownerEmail: string,

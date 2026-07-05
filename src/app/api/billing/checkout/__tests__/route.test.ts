@@ -111,6 +111,7 @@ describe('POST /api/billing/checkout', () => {
       sessionId: 'cs_test_123',
     });
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+      mockSql,
       ACCOUNT_ID,
       'standard',
       'owner@test.com',
@@ -127,6 +128,7 @@ describe('POST /api/billing/checkout', () => {
       const res = await POST(mkRequest({ accountId: ACCOUNT_ID }));
       expect(res.status).toBe(200);
       expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+        mockSql,
         ACCOUNT_ID,
         'standard',
         'owner@test.com',
@@ -153,6 +155,7 @@ describe('POST /api/billing/checkout', () => {
       const res = await POST(mkRequest({ accountId: ACCOUNT_ID }));
       expect(res.status).toBe(200);
       expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+        mockSql,
         ACCOUNT_ID,
         'standard',
         'owner@test.com',
@@ -178,6 +181,7 @@ describe('POST /api/billing/checkout', () => {
       const res = await POST(mkRequest({ accountId: ACCOUNT_ID }));
       expect(res.status).toBe(200);
       expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+        mockSql,
         ACCOUNT_ID,
         'standard',
         'owner@test.com',
@@ -200,6 +204,7 @@ describe('POST /api/billing/checkout', () => {
       const res = await POST(mkRequest({ accountId: ACCOUNT_ID }));
       expect(res.status).toBe(200);
       expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+        mockSql,
         ACCOUNT_ID,
         'standard',
         'owner@test.com',

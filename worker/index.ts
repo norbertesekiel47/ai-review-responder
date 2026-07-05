@@ -60,7 +60,7 @@ import { handleOnboardingDrip } from './jobs/OnboardingDripWorker';
 import { handleOwnerEmail } from './jobs/OwnerEmailWorker';
 import { handleDrainOwnerConnect } from './jobs/DrainOwnerConnectWorker';
 import { handleOnboardingDemo } from './jobs/OnboardingDemoWorker';
-import { handleUpdateStripeOverage } from './jobs/billing/UpdateStripeOverageWorker';
+import { handleUpdateStripeOverage, type UpdateStripeOveragePayload } from './jobs/billing/UpdateStripeOverageWorker';
 import { handleStripeCheckoutReconcile } from './jobs/billing/StripeCheckoutReconcileWorker';
 import { handleAccountOffboardingBillingSchedule } from './jobs/account-offboarding/BillingScheduleWorker';
 import { handleAccountOffboardingEmail } from './jobs/account-offboarding/AccountOffboardingEmailWorker';
@@ -182,7 +182,11 @@ const drainOwnerConnectWorker = new Worker(QUEUE_NAMES.DRAIN_OWNER_CONNECT, hand
 
 const onboardingDemoWorker = new Worker(QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE, handleOnboardingDemo, workerOpts);
 
-const updateStripeOverageWorker = new Worker(QUEUE_NAMES.UPDATE_STRIPE_OVERAGE, handleUpdateStripeOverage, { ...workerOpts, concurrency: 1 });
+const updateStripeOverageWorker = new Worker<UpdateStripeOveragePayload>(
+  QUEUE_NAMES.UPDATE_STRIPE_OVERAGE,
+  (job) => handleUpdateStripeOverage(sql, job),
+  { ...workerOpts, concurrency: 1 },
+);
 
 // Single-consumer invariant: the operation-scoped Stripe idempotency keys
 // (overage-sync.ts) assume no two overage jobs for the same account run

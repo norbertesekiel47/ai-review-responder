@@ -12,9 +12,9 @@
 // Validation contract: VAL-BILLING-071, VAL-LOC-010, VAL-LOC-011, VAL-LOC-012.
 
 import { UnrecoverableError, type Job } from 'bullmq';
+import type { Sql } from 'postgres';
 import { captureMessage } from '@sentry/node';
 import { getStripe } from '../../../src/lib/payments/stripe-client';
-import { sql } from '../../../src/lib/db/server';
 import {
   markOutboxCompleted,
   markOutboxFailed,
@@ -37,7 +37,12 @@ export interface UpdateStripeOveragePayload {
   outbox_attempt?: number;
 }
 
+/**
+ * @param sql  Postgres.js client (composition root supplies the singleton —
+ *   this module never imports ../../../src/lib/db/server).
+ */
 export async function handleUpdateStripeOverage(
+  sql: Sql,
   job: Job<UpdateStripeOveragePayload>,
 ): Promise<void> {
   const logger = createWorkerLogger('[UpdateStripeOverageWorker]', job.data.correlation_id);

@@ -217,7 +217,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const result = await createCheckoutSession(ctx.accountId, tier, ownerEmail, {
+    const result = await createCheckoutSession(sql, ctx.accountId, tier, ownerEmail, {
       trial: ctx.trialEligible,
     });
     checkoutUrl = result.url;
