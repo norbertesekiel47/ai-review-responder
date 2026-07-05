@@ -123,14 +123,17 @@ async function flipEnrollmentStatus(
       whatsapp_invalid_recipient: null,
     };
 
-    // SET clause: the opt-out shape (with the reason literal) or the disabled shape.
-    const transitionSet =
+    // SET column body (no `SET` keyword — that stays in the main template so the
+    // tenant-scope scanner sees `UPDATE channel_enrollments SET ...` and does not
+    // read the interpolation as a table alias). Opt-out shape with the reason
+    // literal, or the disabled shape.
+    const setBody =
       transition === 'unsubscribe'
-        ? tx`SET status = 'unsubscribed',
+        ? tx`status = 'unsubscribed',
                 unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
                 unsubscribed_reason = COALESCE(unsubscribed_reason, ${reasonLiteralByKind[kind]}),
                 updated_at = NOW()`
-        : tx`SET status = 'disabled',
+        : tx`status = 'disabled',
                 disabled_at = COALESCE(disabled_at, NOW()),
                 updated_at = NOW()`;
 
@@ -141,7 +144,7 @@ async function flipEnrollmentStatus(
 
     await tx`
             UPDATE channel_enrollments
-            ${transitionSet}
+            SET ${setBody}
             WHERE account_id = ${accountId}
               AND ${channelPredicate}
               AND handle = ${handle}
