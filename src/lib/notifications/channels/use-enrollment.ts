@@ -20,6 +20,7 @@ import {
   type EnrollmentSnapshot,
 } from './enrollment-reducer';
 import { STATUS_POLL_INTERVAL_MS, TTL_TICK_INTERVAL_MS } from './constants';
+import type { MobileChannel } from '@/lib/channels/mobile-enrollment';
 
 export interface EnrollmentEndpoints {
   start: string;
@@ -29,7 +30,7 @@ export interface EnrollmentEndpoints {
 }
 
 export interface UseEnrollmentOptions {
-  channel: 'telegram' | 'whatsapp';
+  channel: MobileChannel;
   endpoints: EnrollmentEndpoints;
   /** Body to send on POSTs. Admin sends { businessId }; owner sends {}. */
   postBody?: Record<string, unknown>;

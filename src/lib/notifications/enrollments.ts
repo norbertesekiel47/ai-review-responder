@@ -2,7 +2,7 @@
 //
 // Query helpers for channel_enrollments.
 
-import { sql } from '../db/server';
+import type { Sql } from 'postgres';
 import type { ChannelId } from './channels/types';
 
 export interface VerifiedEnrollment {
@@ -17,6 +17,7 @@ export interface VerifiedEnrollment {
  * in enrollment order — useful for deterministic test + log output.
  */
 export async function getVerifiedEnrollments(
+  sql: Sql,
   businessId: string,
 ): Promise<VerifiedEnrollment[]> {
   const rows = await sql<VerifiedEnrollment[]>`

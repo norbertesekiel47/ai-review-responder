@@ -82,7 +82,7 @@ export async function runAdminChannelDisable(
   const resolved = await gateAndResolveAccount(req, config);
   if (!resolved.ok) return resolved.response;
 
-  const result = await disconnectChannel({
+  const result = await disconnectChannel(sql, {
     channel: config.channel,
     accountId: resolved.accountId,
     actorUserId: resolved.actorUserId,

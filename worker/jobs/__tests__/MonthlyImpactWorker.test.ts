@@ -216,7 +216,7 @@ describe('MonthlyImpactWorker – handleMonthlyImpact', () => {
     expect(emailArgs.subject).toBe('Monthly Impact Report — Test Biz (March 2026)');
     expect(emailArgs.to).toBe('owner@test.com');
 
-    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
+    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
       accountId: 'acc-1',
       businessId: 'biz-1',
       channel: 'email',

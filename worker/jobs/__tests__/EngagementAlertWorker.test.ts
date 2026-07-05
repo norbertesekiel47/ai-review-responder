@@ -192,7 +192,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
     });
 
     // Recorded delivery
-    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
+    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
       businessId: 'biz-1',
       channel: 'email',
       recipient: 'owner@test.com',
@@ -306,7 +306,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       category: 'internal',
     });
 
-    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
+    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
       businessId: 'biz-1',
       channel: 'email',
       recipient: 'admin@repworth.com',
@@ -363,7 +363,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       category: 'internal',
     });
 
-    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
+    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
       businessId: 'biz-1',
       channel: 'email',
       recipient: 'admin@repworth.com',
@@ -405,7 +405,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       category: 'internal',
     });
 
-    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
+    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
       businessId: 'biz-1',
       channel: 'email',
       recipient: 'admin@repworth.com',
@@ -467,7 +467,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       to: 'admin@test.com',
       subject: expect.stringContaining('Not great'),
     }));
-    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, expect.objectContaining({
       template: 'partner_satisfaction_alert:2026-04-13',
     }));
     expect(mockMarkOutboxCompleted).toHaveBeenCalled();

@@ -243,7 +243,7 @@ export async function handleMonthlyImpact(
   }
 
   // ── 14. Record notification delivery ─────────────────────────────
-  await recordNotificationDelivery({
+  await recordNotificationDelivery(sql, {
     accountId: business.account_id,
     businessId: businessId,
     channel: 'email',

@@ -120,7 +120,7 @@ describe('resolveChannels', () => {
       makeEnrollmentRow({ channel: 'telegram', handle: '@ownerbot', location_id: null }),
     ]);
 
-    const result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    const result = await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
 
     expect(result).toEqual([
       { channel: 'email', handle: 'owner@example.com', location_id: null },
@@ -135,7 +135,7 @@ describe('resolveChannels', () => {
       makeEnrollmentRow({ channel: 'telegram', handle: '@downtownbot', location_id: LOCATION_L1 }),
     ]);
 
-    const result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    const result = await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
 
     // Per-location override should be returned for telegram
     const telegramEnrollments = result.filter(c => c.channel === 'telegram');
@@ -152,7 +152,7 @@ describe('resolveChannels', () => {
       makeEnrollmentRow({ channel: 'email', handle: 'owner@example.com', location_id: null }),
     ]);
 
-    const result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    const result = await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
 
     // One entry per channel
     const channels = result.map(c => c.channel);
@@ -176,7 +176,7 @@ describe('resolveChannels', () => {
       makeEnrollmentRow({ channel: 'telegram', handle: '@ownerbot', location_id: null }),
     ]);
 
-    const result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    const result = await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
 
     const channels = result.map(c => c.channel);
     expect(channels).not.toContain('whatsapp');
@@ -192,7 +192,7 @@ describe('resolveChannels', () => {
       // and never reach the application code.
     ]);
 
-    const result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    const result = await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
 
     expect(result).toEqual([
       { channel: 'email', handle: 'owner@example.com', location_id: null },
@@ -211,7 +211,7 @@ describe('resolveChannels', () => {
       makeEnrollmentRow({ channel: 'email', handle: 'owner@example.com', location_id: null }),
     ]);
 
-    const _result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    const _result = await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
 
     // Verify the SQL query includes the status = 'verified' filter
     const enrollmentsCall = mockSql.mock.calls[1];
@@ -226,7 +226,7 @@ describe('resolveChannels', () => {
       makeEnrollmentRow({ channel: 'email', handle: 'owner@example.com', location_id: null }),
     ]);
 
-    const _result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    const _result = await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
 
     // Verify the SQL query includes the unsubscribed_at filter
     const enrollmentsCall = mockSql.mock.calls[1];
@@ -245,7 +245,7 @@ describe('resolveChannels', () => {
       { archived_at: new Date('2026-01-01') },
     ]);
 
-    const result = await resolveChannels(ACCOUNT_A, ARCHIVED_LOCATION);
+    const result = await resolveChannels(mockSql, ACCOUNT_A, ARCHIVED_LOCATION);
 
     expect(result).toEqual([]);
     // Should NOT query channel_enrollments (only 1 SQL call for archived check)
@@ -256,7 +256,7 @@ describe('resolveChannels', () => {
   it('returns empty array when account has no channel enrollments', async () => {
     seedSqlQueue([]);
 
-    const result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    const result = await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
 
     expect(result).toEqual([]);
   });
@@ -271,7 +271,7 @@ describe('resolveChannels', () => {
     ]);
 
     // Requesting channels for L1 — the L2 override is excluded by SQL
-    const result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    const result = await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
 
     const telegram = result.find(c => c.channel === 'telegram')!;
     expect(telegram.handle).toBe('@ownerbot'); // org-default, not L2 override
@@ -285,7 +285,7 @@ describe('resolveChannels', () => {
       makeEnrollmentRow({ channel: 'whatsapp', handle: '+15551234567', location_id: null }),
     ]);
 
-    const result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    const result = await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
 
     expect(result.map(c => c.channel)).toContain('whatsapp');
   });
@@ -296,7 +296,7 @@ describe('resolveChannels', () => {
       makeEnrollmentRow({ channel: 'whatsapp', handle: '+15559876543', location_id: LOCATION_L1 }),
     ]);
 
-    const result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    const result = await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
 
     const whatsapp = result.find(c => c.channel === 'whatsapp')!;
     expect(whatsapp.handle).toBe('+15559876543');
@@ -315,7 +315,7 @@ describe('resolveChannels — channel cache', () => {
       makeEnrollmentRow({ channel: 'email', handle: 'owner@example.com', location_id: null }),
     ]);
 
-    await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
 
     // Redis SET should have been called with TTL = 300 (5 minutes)
     expect(mockRedisSet).toHaveBeenCalledTimes(1);
@@ -337,7 +337,7 @@ describe('resolveChannels — channel cache', () => {
       ]),
     );
 
-    const result = await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    const result = await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
 
     // Should return cached data
     expect(result).toEqual([
@@ -389,7 +389,7 @@ describe('resolveChannels — channel cache', () => {
       makeEnrollmentRow({ channel: 'telegram', handle: '@ownerbot', location_id: null }),
     ]);
 
-    const result1 = await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    const result1 = await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
     expect(result1).toHaveLength(2);
 
     // Second call: cache hit
@@ -397,7 +397,7 @@ describe('resolveChannels — channel cache', () => {
       JSON.stringify(result1),
     );
 
-    const result2 = await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    const result2 = await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
     expect(result2).toEqual(result1);
 
     // SQL should only have been called on the first call (2 SQL calls)
@@ -411,7 +411,7 @@ describe('resolveChannels — channel cache', () => {
       { archived_at: new Date('2026-01-01') },
     ]);
 
-    await resolveChannels(ACCOUNT_A, ARCHIVED_LOCATION);
+    await resolveChannels(mockSql, ACCOUNT_A, ARCHIVED_LOCATION);
 
     // Even empty results should be cached
     expect(mockRedisSet).toHaveBeenCalledTimes(1);
@@ -433,7 +433,7 @@ describe('resolveChannels — stale channel guard', () => {
       makeEnrollmentRow({ channel: 'email', handle: 'owner@example.com', location_id: null }),
     ]);
 
-    await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
 
     // Second SQL call is the channel_enrollments query
     const enrollmentsCall = mockSql.mock.calls[1];
@@ -461,7 +461,7 @@ describe('resolveChannels — stale channel guard', () => {
       makeEnrollmentRow({ channel: 'email', handle: 'owner@example.com', location_id: null }),
     ]);
 
-    await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
 
     // Both get (cache miss) and set (cache store) must use the v2 prefix
     const getKey = mockRedisGet.mock.calls[0]![0] as string;
@@ -482,7 +482,7 @@ describe('resolveChannels — query shape', () => {
       makeEnrollmentRow({ channel: 'email', handle: 'owner@example.com', location_id: null }),
     ]);
 
-    await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
 
     // Check that the SQL query includes the right filters
     // Second SQL call is the channel_enrollments query
@@ -503,7 +503,7 @@ describe('resolveChannels — query shape', () => {
       makeEnrollmentRow({ channel: 'email', handle: 'owner@example.com', location_id: null }),
     ]);
 
-    await resolveChannels(ACCOUNT_A, LOCATION_L1);
+    await resolveChannels(mockSql, ACCOUNT_A, LOCATION_L1);
 
     // First SQL call should check archived_at on the location
     const archivedCheckCall = mockSql.mock.calls[0];

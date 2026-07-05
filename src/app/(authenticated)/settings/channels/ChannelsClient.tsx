@@ -3,9 +3,10 @@
 import { OwnerTelegramWidget } from '@/components/dashboard/channels/OwnerTelegramWidget';
 import { OwnerWhatsAppWidget } from '@/components/dashboard/channels/OwnerWhatsAppWidget';
 import { ComingSoonChannelRow } from '@/components/dashboard/channels/ComingSoonChannelRow';
+import type { ChannelId } from '@/lib/notifications/channels/types';
 
 export interface InitialEnrollment {
-  channel: 'email' | 'telegram' | 'whatsapp';
+  channel: ChannelId;
   handle: string | null;
   status: string;
   verified_at: string | null;

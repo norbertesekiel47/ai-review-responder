@@ -20,7 +20,7 @@ describe('recordNotificationDelivery', () => {
   });
 
   it('inserts a notification_deliveries row with account_id, sent_at, external_message_id', async () => {
-    await recordNotificationDelivery({
+    await recordNotificationDelivery(mockSql, {
       accountId: 'acct-1',
       businessId: 'biz-1',
       responseId: 'resp-1',
@@ -46,7 +46,7 @@ describe('recordNotificationDelivery', () => {
   });
 
   it('includes account_id in the INSERT column list', async () => {
-    await recordNotificationDelivery({
+    await recordNotificationDelivery(mockSql, {
       accountId: 'acct-42',
       businessId: 'biz-1',
       channel: 'telegram',
@@ -62,7 +62,7 @@ describe('recordNotificationDelivery', () => {
   });
 
   it('accepts null responseId for owner email delivery paths', async () => {
-    await recordNotificationDelivery({
+    await recordNotificationDelivery(mockSql, {
       accountId: 'acct-1',
       businessId: 'biz-1',
       responseId: null,
@@ -85,7 +85,7 @@ describe('insertFailedDelivery', () => {
   });
 
   it('inserts a notification_deliveries row with account_id, failed_at, failure_reason', async () => {
-    await insertFailedDelivery('acct-1', 'biz-1', 'resp-1', 'telegram', '@ownerbot', 'send_error:test');
+    await insertFailedDelivery(mockSql, 'acct-1', 'biz-1', 'resp-1', 'telegram', '@ownerbot', 'send_error:test');
 
     expect(mockSql).toHaveBeenCalledTimes(1);
     const call = sqlCalls[0]!;
@@ -102,14 +102,14 @@ describe('insertFailedDelivery', () => {
   });
 
   it('defaults template to approval_request when not provided', async () => {
-    await insertFailedDelivery('acct-1', 'biz-1', 'resp-1', 'telegram', '@ownerbot', 'cap_hit');
+    await insertFailedDelivery(mockSql, 'acct-1', 'biz-1', 'resp-1', 'telegram', '@ownerbot', 'cap_hit');
     const call = sqlCalls[0]!;
     expect(call.values).toContain('approval_request');
     expect(call.values).toContain('acct-1');
   });
 
   it('accepts custom template override', async () => {
-    await insertFailedDelivery('acct-1', 'biz-1', 'resp-1', 'email', 'owner@example.com', 'bounced', 'weekly_value_report');
+    await insertFailedDelivery(mockSql, 'acct-1', 'biz-1', 'resp-1', 'email', 'owner@example.com', 'bounced', 'weekly_value_report');
     const call = sqlCalls[0]!;
     expect(call.values).toContain('weekly_value_report');
     expect(call.values).not.toContain('approval_request');
@@ -117,7 +117,7 @@ describe('insertFailedDelivery', () => {
   });
 
   it('accepts null response_id for admin-directed deliveries', async () => {
-    await insertFailedDelivery('acct-1', 'biz-1', null, 'email', 'admin@example.com', 'bounced', 'admin_exception');
+    await insertFailedDelivery(mockSql, 'acct-1', 'biz-1', null, 'email', 'admin@example.com', 'bounced', 'admin_exception');
     const call = sqlCalls[0]!;
     expect(call.values).toContain(null);
     expect(call.values).toContain('admin_exception');
@@ -125,7 +125,7 @@ describe('insertFailedDelivery', () => {
   });
 
   it('includes account_id in the INSERT column list for failed delivery', async () => {
-    await insertFailedDelivery('acct-99', 'biz-1', 'resp-1', 'telegram', '@ownerbot', 'cap_hit');
+    await insertFailedDelivery(mockSql, 'acct-99', 'biz-1', 'resp-1', 'telegram', '@ownerbot', 'cap_hit');
     const call = sqlCalls[0]!;
     expect(call.template).toMatch(/account_id/);
     expect(call.values).toContain('acct-99');

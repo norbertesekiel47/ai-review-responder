@@ -1,21 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Sql } from 'postgres';
 import type { ResolvedChannel } from '../../../../src/lib/notifications/resolve-channels';
 
-const { sqlQueue, sqlCalls, mockGetChannel } = vi.hoisted(() => ({
-  sqlQueue: [] as unknown[],
-  sqlCalls: [] as string[],
-  mockGetChannel: vi.fn(),
-}));
-
-vi.mock('../../../../src/lib/db/server', () => {
-  const sqlFn = async (strings: TemplateStringsArray) => {
+const { sqlQueue, sqlCalls, mockSql, mockGetChannel } = vi.hoisted(() => {
+  const sqlQueue: unknown[] = [];
+  const sqlCalls: string[] = [];
+  const mockSql = async (strings: TemplateStringsArray) => {
     sqlCalls.push(strings.join('?'));
     const next = sqlQueue.shift();
     if (next instanceof Error) throw next;
     return Array.isArray(next) ? next : [];
   };
-  return { sql: sqlFn, jsonb: (v: unknown) => v };
+  return { sqlQueue, sqlCalls, mockSql, mockGetChannel: vi.fn() };
 });
+
+vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../../../src/lib/notifications/channels', () => ({ getChannel: mockGetChannel }));
 
 import { dispatchAutoPostNotice, type AutoPostNoticeDispatchInput } from '../dispatch';
@@ -54,7 +53,7 @@ describe('dispatchAutoPostNotice', () => {
     sqlQueue.push([{ id: 'd1' }]); // claim INSERT ... RETURNING id
     sqlQueue.push([]);             // finalize UPDATE
 
-    const res = await dispatchAutoPostNotice(INPUT, [email()], logger);
+    const res = await dispatchAutoPostNotice(mockSql as unknown as Sql, INPUT, [email()], logger);
 
     expect(res.sent).toBe(1);
     expect(send).toHaveBeenCalledTimes(1);
@@ -70,7 +69,7 @@ describe('dispatchAutoPostNotice', () => {
     mockGetChannel.mockReturnValue({ sendAutoPostNotice: vi.fn() });
     sqlQueue.push([]); // claim INSERT returns no rows (ON CONFLICT DO NOTHING)
 
-    const res = await dispatchAutoPostNotice(INPUT, [email()], logger);
+    const res = await dispatchAutoPostNotice(mockSql as unknown as Sql, INPUT, [email()], logger);
 
     expect(res.skipped).toBe(1);
     expect(res.sent).toBe(0);
@@ -81,14 +80,14 @@ describe('dispatchAutoPostNotice', () => {
     mockGetChannel.mockReturnValue({ sendAutoPostNotice: vi.fn() });
     sqlQueue.push(new Error('db down on claim INSERT'));
 
-    await expect(dispatchAutoPostNotice(INPUT, [email()], logger)).rejects.toThrow(/db down/);
+    await expect(dispatchAutoPostNotice(mockSql as unknown as Sql, INPUT, [email()], logger)).rejects.toThrow(/db down/);
     // Never attempted a send on a failed claim, and did not silently swallow it.
     expect(mockGetChannel).not.toHaveBeenCalled();
   });
 
   it('pre-filters WhatsApp when WHATSAPP_AUTOPOST_TEMPLATE_SID is unset (no claim, no send)', async () => {
     delete process.env.WHATSAPP_AUTOPOST_TEMPLATE_SID;
-    const res = await dispatchAutoPostNotice(INPUT, [whatsapp()], logger);
+    const res = await dispatchAutoPostNotice(mockSql as unknown as Sql, INPUT, [whatsapp()], logger);
 
     expect(res.skipped).toBe(1);
     expect(mockGetChannel).not.toHaveBeenCalled();
@@ -101,7 +100,7 @@ describe('dispatchAutoPostNotice', () => {
     sqlQueue.push([{ id: 'd1' }]); // claim
     sqlQueue.push([]);             // release DELETE
 
-    const res = await dispatchAutoPostNotice(INPUT, [whatsapp()], logger);
+    const res = await dispatchAutoPostNotice(mockSql as unknown as Sql, INPUT, [whatsapp()], logger);
 
     expect(res.retryableFailed).toBe(1);
     expect(res.terminalFailed).toBe(0);
@@ -114,7 +113,7 @@ describe('dispatchAutoPostNotice', () => {
     sqlQueue.push([{ id: 'd1' }]); // claim
     sqlQueue.push([]);             // terminal UPDATE
 
-    const res = await dispatchAutoPostNotice(INPUT, [email()], logger);
+    const res = await dispatchAutoPostNotice(mockSql as unknown as Sql, INPUT, [email()], logger);
 
     expect(res.terminalFailed).toBe(1);
     expect(res.retryableFailed).toBe(0);
@@ -128,7 +127,7 @@ describe('dispatchAutoPostNotice', () => {
     sqlQueue.push([{ id: 'd1' }]); // claim
     sqlQueue.push([]);             // release DELETE
 
-    const res = await dispatchAutoPostNotice(INPUT, [telegram()], logger);
+    const res = await dispatchAutoPostNotice(mockSql as unknown as Sql, INPUT, [telegram()], logger);
 
     expect(res.skipped).toBe(1);
     expect(res.sent).toBe(0);

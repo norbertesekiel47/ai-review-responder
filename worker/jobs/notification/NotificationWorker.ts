@@ -8,6 +8,7 @@
 // See docs/plans/adding-communication-channels.md §3.1.
 
 import type { Job } from 'bullmq';
+import type { Sql } from 'postgres';
 import {
   markOutboxCompleted,
   markOutboxFailed,
@@ -41,6 +42,7 @@ export function formatReviewDate(value: string | Date | null | undefined): strin
 }
 
 export async function handleSendNotification(
+  sql: Sql,
   job: Job<SendNotificationPayload>,
 ): Promise<void> {
   const logger = createWorkerLogger('[NotificationWorker]', job.data.correlation_id);
@@ -49,7 +51,7 @@ export async function handleSendNotification(
   const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  const ctx = await loadNotificationContext({ responseId: response_id, businessId }, logger);
+  const ctx = await loadNotificationContext(sql, { responseId: response_id, businessId }, logger);
   if (ctx.kind === 'fail') {
     await markOutboxFailed(outboxId, ctx.reason, outboxAttempt);
     return;
@@ -60,6 +62,7 @@ export async function handleSendNotification(
   }
 
   const eligibility = await getEligibleChannels(
+    sql,
     {
       accountId: ctx.business.account_id,
       locationId: businessId,
@@ -87,6 +90,7 @@ export async function handleSendNotification(
   }
 
   const { attempted, succeeded } = await dispatchAll(
+    sql,
     {
       responseId: response_id,
       businessId,

@@ -30,6 +30,8 @@ import type {
   AccountOffboardingTeardownPayload,
   StripeCheckoutReconcilePayload,
   ZernioInitialBackfillPayload,
+  SendNotificationPayload,
+  AutoPostNoticePayload,
 } from '../src/lib/shared/worker-types';
 import { handleAdminException } from './jobs/AdminExceptionWorker';
 import { handleWeeklySummary } from './jobs/WeeklySummaryWorker';
@@ -154,13 +156,13 @@ ingestZernioReviewWorker.on('failed', handleIngestFailed);
 
 const responseGenWorker = new Worker(QUEUE_NAMES.GENERATE_RESPONSE, withJobLogContext(handleResponseGeneration), workerOpts);
 
-const notificationWorker = new Worker(QUEUE_NAMES.SEND_NOTIFICATION, withJobLogContext(handleSendNotification), workerOpts);
+const notificationWorker = new Worker(QUEUE_NAMES.SEND_NOTIFICATION, withJobLogContext<SendNotificationPayload>((job) => handleSendNotification(sql, job)), workerOpts);
 
 const publisherWorker = new Worker(QUEUE_NAMES.PUBLISH_RESPONSE, withJobLogContext(handlePublishResponse), workerOpts);
 
 publisherWorker.on('failed', handlePublisherFailed);
 
-const autoPostNoticeWorker = new Worker(QUEUE_NAMES.AUTO_POST_NOTICE, withJobLogContext(handleAutoPostNotice), workerOpts);
+const autoPostNoticeWorker = new Worker(QUEUE_NAMES.AUTO_POST_NOTICE, withJobLogContext<AutoPostNoticePayload>((job) => handleAutoPostNotice(sql, job)), workerOpts);
 
 const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminException, workerOpts);
 

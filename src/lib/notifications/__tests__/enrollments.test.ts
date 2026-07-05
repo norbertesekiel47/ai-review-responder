@@ -28,7 +28,7 @@ describe('getVerifiedEnrollments', () => {
       { channel: 'telegram', handle: '@ownerbot' },
     ]);
 
-    const result = await getVerifiedEnrollments('biz-1');
+    const result = await getVerifiedEnrollments(mockSql, 'biz-1');
 
     expect(result).toEqual([
       { channel: 'email', handle: 'owner@example.com' },
@@ -54,7 +54,7 @@ describe('getVerifiedEnrollments', () => {
     // always filtered out at the SQL layer.
     sqlReturnQueue.push([{ channel: 'email', handle: 'owner@example.com' }]);
 
-    await getVerifiedEnrollments('biz-archived-check');
+    await getVerifiedEnrollments(mockSql, 'biz-archived-check');
 
     const [template] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
     const queryText = template.join('?');
@@ -63,7 +63,7 @@ describe('getVerifiedEnrollments', () => {
 
   it('returns an empty array when no enrollments match', async () => {
     sqlReturnQueue.push([]);
-    const result = await getVerifiedEnrollments('biz-with-no-channels');
+    const result = await getVerifiedEnrollments(mockSql, 'biz-with-no-channels');
     expect(result).toEqual([]);
   });
 });

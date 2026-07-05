@@ -44,7 +44,7 @@ export default async function ChannelsPage() {
 
   // One owner for the override surface: overrides + locations (active AND
   // archived, one query) + verified org channels.
-  const overridesView = await getChannelOverridesView(access.accountId);
+  const overridesView = await getChannelOverridesView(sql, access.accountId);
   const activeLocations = overridesView.locations.filter((location) => !location.archived);
 
   const featureEnabled = isMultiLocationEnabled();

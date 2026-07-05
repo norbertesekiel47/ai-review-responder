@@ -12,10 +12,15 @@ import type { SendNotificationPayload } from '../../../../src/lib/shared/worker-
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────
 
+// Shared Postgres.js mock — LAZY + fragment-flattening, so the deduped
+// flipEnrollmentStatus helper's nested `sql`` fragments flatten into ONE
+// recorded `sqlCalls[i].text`/`.values` (its `begin` runs the callback with the
+// same tagged-template mock, so the transactional flip is captured here).
 const {
   sqlReturnQueue,
   mockSql,
-  mockTx,
+  sqlCalls,
+  resetMockSql,
   mockMarkOutboxCompleted,
   mockMarkOutboxFailed,
   mockGetVerifiedEnrollments,
@@ -28,7 +33,9 @@ const {
   mockFailDelivery,
   TelegramRecipientBlockedError,
   TelegramChatNotFoundError,
-} = vi.hoisted(() => {
+} = await vi.hoisted(async () => {
+  const { createMockSql } = await import('../../../__tests__/helpers/mock-sql');
+
   class TelegramRecipientBlockedError extends Error {
     constructor() {
       super('telegram_recipient_blocked');
@@ -42,18 +49,8 @@ const {
     }
   }
 
-  const sqlReturnQueue: unknown[] = [];
-  const mockTx = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]): Promise<unknown[]> => Promise.resolve([]));
-  const mockSql: any = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => {
-    const result = sqlReturnQueue.shift() ?? [];
-    return Promise.resolve(result);
-  });
-  mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<any>) => cb(mockTx));
-
   return {
-    sqlReturnQueue,
-    mockSql,
-    mockTx,
+    ...createMockSql(),
     mockMarkOutboxCompleted: vi.fn(),
     mockMarkOutboxFailed: vi.fn(),
     mockGetVerifiedEnrollments: vi.fn(),
@@ -170,9 +167,8 @@ function stubBothChannels() {
 }
 
 function resetAll() {
-  sqlReturnQueue.length = 0;
+  resetMockSql();
   mockSql.mockClear();
-  mockTx.mockClear();
   mockSql.begin.mockClear();
   mockMarkOutboxCompleted.mockReset();
   mockMarkOutboxFailed.mockReset();
@@ -213,7 +209,7 @@ describe('NotificationWorker — Telegram flag gate', () => {
       // recordNotificationDelivery is mocked, no SQL row consumed for it
     );
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(mockSql as never, makeJob());
 
     // Telegram channel must NOT be contacted
     expect(mockGetChannel).not.toHaveBeenCalledWith('telegram');
@@ -245,12 +241,16 @@ describe('NotificationWorker — Telegram blocked recipient', () => {
       [],                   // telegram idempotency — proceed
     );
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(mockSql as never, makeJob());
 
-    // Telegram enrollment must be flipped to unsubscribed in a transaction
+    // Telegram enrollment must be flipped to unsubscribed in a transaction —
+    // and EXACTLY ONE statement runs in that tx (guards against a regression
+    // adding a second write inside the flip transaction).
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
-    expect(mockTx).toHaveBeenCalledTimes(1);
-    const updateSql = (mockTx.mock.calls[0]?.[0] as readonly string[] | undefined)?.join('?') ?? '';
+    expect(sqlCalls.filter((c) => c.text.includes('UPDATE channel_enrollments'))).toHaveLength(1);
+    const enrollmentUpdate = sqlCalls.find((c) => c.text.includes('UPDATE channel_enrollments'));
+    expect(enrollmentUpdate, 'expected a channel_enrollments UPDATE').toBeDefined();
+    const updateSql = enrollmentUpdate!.text;
     expect(updateSql).toMatch(/UPDATE channel_enrollments/);
     expect(updateSql).toMatch(/SET status = /);
     expect(updateSql).toMatch(/unsubscribed/);
@@ -263,12 +263,12 @@ describe('NotificationWorker — Telegram blocked recipient', () => {
     expect(updateSql).toMatch(/channel = 'telegram'/);
     expect(updateSql).toMatch(/location_id IS NULL/);
     expect(updateSql).not.toMatch(/business_id/);
-    const updateValues = (mockTx.mock.calls[0]?.slice(1) ?? []) as unknown[];
+    const updateValues = enrollmentUpdate!.values;
     expect(updateValues).toContain('acct-1');
     expect(updateValues).not.toContain('biz-1');
 
     // Claimed delivery flipped to failed for telegram
-    expect(mockFailDelivery).toHaveBeenCalledWith('pending-delivery-1', 'telegram_blocked');
+    expect(mockFailDelivery).toHaveBeenCalledWith(mockSql, 'pending-delivery-1', 'telegram_blocked');
 
     // Email must still succeed after telegram failure
     expect(mockEmailSend).toHaveBeenCalledTimes(1);
@@ -299,12 +299,16 @@ describe('NotificationWorker — Telegram chat not found', () => {
       [],                   // telegram idempotency — proceed
     );
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(mockSql as never, makeJob());
 
-    // Telegram enrollment must be flipped to disabled in a transaction
+    // Telegram enrollment must be flipped to disabled in a transaction —
+    // and EXACTLY ONE statement runs in that tx (guards against a regression
+    // adding a second write inside the flip transaction).
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
-    expect(mockTx).toHaveBeenCalledTimes(1);
-    const updateSql = (mockTx.mock.calls[0]?.[0] as readonly string[] | undefined)?.join('?') ?? '';
+    expect(sqlCalls.filter((c) => c.text.includes('UPDATE channel_enrollments'))).toHaveLength(1);
+    const enrollmentUpdate = sqlCalls.find((c) => c.text.includes('UPDATE channel_enrollments'));
+    expect(enrollmentUpdate, 'expected a channel_enrollments UPDATE').toBeDefined();
+    const updateSql = enrollmentUpdate!.text;
     expect(updateSql).toMatch(/UPDATE channel_enrollments/);
     expect(updateSql).toMatch(/SET status = /);
     expect(updateSql).toMatch(/disabled/);
@@ -321,12 +325,12 @@ describe('NotificationWorker — Telegram chat not found', () => {
     expect(updateSql).toMatch(/channel = 'telegram'/);
     expect(updateSql).toMatch(/location_id IS NULL/);
     expect(updateSql).not.toMatch(/business_id/);
-    const updateValues = (mockTx.mock.calls[0]?.slice(1) ?? []) as unknown[];
+    const updateValues = enrollmentUpdate!.values;
     expect(updateValues).toContain('acct-1');
     expect(updateValues).not.toContain('biz-1');
 
     // Claimed delivery flipped to failed for telegram
-    expect(mockFailDelivery).toHaveBeenCalledWith('pending-delivery-1', 'telegram_chat_not_found');
+    expect(mockFailDelivery).toHaveBeenCalledWith(mockSql, 'pending-delivery-1', 'telegram_chat_not_found');
 
     // Email must still succeed after telegram failure
     expect(mockEmailSend).toHaveBeenCalledTimes(1);

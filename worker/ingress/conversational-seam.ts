@@ -22,11 +22,12 @@
 import { sql } from '../../src/lib/db/server';
 import { maskChannelHandle } from '../../src/lib/notifications/mask-handle';
 import { checkSubscription, type AccountFlagsInput } from '../../src/lib/shared/subscription-guard';
+import type { MobileChannel } from '../../src/lib/channels/mobile-enrollment';
 
 const LOG_PREFIX = '[ingress/conversational-seam]';
 
 export interface ConversationalSeamInput {
-  channel: 'telegram' | 'whatsapp';
+  channel: MobileChannel;
   /** Provider sender id: Telegram chat_id (string) or WhatsApp E.164 handle. */
   senderHandle: string;
 }
@@ -49,7 +50,7 @@ export async function handleConversationalMessage(input: ConversationalSeamInput
  * senders. Exported so the future agent wires its response strictly behind it.
  */
 export async function isAuthorizedConversationalSender(
-  channel: 'telegram' | 'whatsapp',
+  channel: MobileChannel,
   senderHandle: string,
 ): Promise<boolean> {
   if (!senderHandle) return false;

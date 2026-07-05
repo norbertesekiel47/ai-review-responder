@@ -156,7 +156,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       category: 'marketing',
     });
 
-    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
+    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
       businessId: 'biz-drip-1',
       channel: 'email',
       recipient: 'jane@test.com',
@@ -228,7 +228,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       category: 'marketing',
     });
 
-    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
+    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
       businessId: 'biz-drip-1',
       channel: 'email',
       recipient: 'jane@test.com',
@@ -337,7 +337,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       category: 'marketing',
     });
 
-    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
+    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
       businessId: 'biz-drip-1',
       channel: 'email',
       recipient: 'jane@test.com',

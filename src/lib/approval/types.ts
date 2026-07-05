@@ -4,6 +4,8 @@
 // module so locks.ts, audit.ts, and the mode files can import these
 // shapes without forming a cycle.
 
+import type { MobileChannel } from '@/lib/channels/mobile-enrollment';
+
 export interface ApprovalLink {
   id: string;
   response_id: string;
@@ -69,6 +71,6 @@ export interface CallbackAuditArtifacts {
 export interface CallbackApprovalInput {
   approvalLinkId: string;
   chatHandle: string;
-  viaChannel: 'telegram' | 'whatsapp';
+  viaChannel: MobileChannel;
   audit: CallbackAuditContext;
 }

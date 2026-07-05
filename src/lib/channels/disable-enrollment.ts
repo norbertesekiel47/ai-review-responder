@@ -5,8 +5,7 @@
 // rows, and post-commit cache invalidation — so the four disable routes are
 // pure parse → call → status-map shells.
 
-import type postgres from 'postgres';
-import { sql } from '@/lib/db/server';
+import type { Sql, TransactionSql } from 'postgres';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
@@ -31,6 +30,7 @@ export interface DisconnectChannelInput extends DisableEnrollmentInput {
  * means nothing changed (no verified org-default and no live overrides).
  */
 export async function disconnectChannel(
+  sql: Sql,
   input: DisconnectChannelInput,
 ): Promise<{ kind: 'ok' | 'not_found' }> {
   const { channel, accountId, actorUserId, surface } = input;
@@ -74,7 +74,7 @@ export async function disconnectChannel(
  * is `ok`. Callers outside a wider transaction should use disconnectChannel.
  */
 export async function disableChannelEnrollment(
-  tx: postgres.TransactionSql,
+  tx: TransactionSql,
   input: DisableEnrollmentInput & { channel: DisableableChannel },
 ): Promise<{ kind: 'ok' | 'not_found' }> {
   const { accountId, channel } = input;

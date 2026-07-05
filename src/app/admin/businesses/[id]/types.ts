@@ -7,6 +7,7 @@ import type {
   ZernioPanelData,
 } from '@/lib/admin/business-detail-types';
 import type { ChurnScore } from '@/lib/shared/churn-score';
+import type { ChannelId } from '@/lib/notifications/channels/types';
 
 export type BusinessDetail = Omit<
   BusinessDetailResponse['business'],
@@ -44,7 +45,7 @@ export type AwaitingOwnerConnectResponse = ZernioPanelData['awaitingOwnerConnect
 export type ZernioFinalizeIncident = ZernioPanelData['unresolvedIncidents'][number];
 
 export interface ChannelEnrollmentRow {
-  channel: 'email' | 'telegram' | 'whatsapp';
+  channel: ChannelId;
   handle: string;
   status: 'pending_verification' | 'verified' | 'disabled' | 'unsubscribed';
   verified_at: string | null;

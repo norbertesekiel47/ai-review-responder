@@ -199,6 +199,7 @@ describe('VAL-CROSS-001: Signup-to-multi-location end-to-end', () => {
     ]);
 
     const channels = await resolveChannels(
+      mockSql as unknown as Sql,
       activeAccount.id as unknown as import('@/lib/shared/ids').AccountId,
       loc2Id,
     );
@@ -273,6 +274,7 @@ describe('VAL-CROSS-002: Single-location regression', () => {
     ]);
 
     const channels = await resolveChannels(
+      mockSql as unknown as Sql,
       account.id as unknown as import('@/lib/shared/ids').AccountId,
       location.id as unknown as import('@/lib/shared/ids').LocationId,
     );
@@ -347,6 +349,7 @@ describe('VAL-CROSS-004: Channel override + notification dispatch', () => {
     ]);
 
     const channelsB = await resolveChannels(
+      mockSql as unknown as Sql,
       account.id as unknown as import('@/lib/shared/ids').AccountId,
       locB.id as unknown as import('@/lib/shared/ids').LocationId,
     );
@@ -365,6 +368,7 @@ describe('VAL-CROSS-004: Channel override + notification dispatch', () => {
     ]);
 
     const channelsA = await resolveChannels(
+      mockSql as unknown as Sql,
       account.id as unknown as import('@/lib/shared/ids').AccountId,
       locA.id as unknown as import('@/lib/shared/ids').LocationId,
     );
@@ -435,6 +439,7 @@ describe('VAL-CROSS-005: Archive mid-flow', () => {
     // Step 3: Verify archived location returns empty channels (no new notifications)
     mockSql.mockResolvedValueOnce([{ archived_at: new Date() }]); // archived
     const channels = await resolveChannels(
+      mockSql as unknown as Sql,
       account.id as unknown as import('@/lib/shared/ids').AccountId,
       locB.id as unknown as import('@/lib/shared/ids').LocationId,
     );

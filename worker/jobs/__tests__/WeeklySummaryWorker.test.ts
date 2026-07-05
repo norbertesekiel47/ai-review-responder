@@ -197,7 +197,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     await handleWeeklySummary(makeJob());
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledOnce();
-    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
+    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(mockSql, {
       accountId: 'acc-1',
       businessId: 'biz-1',
       channel: 'email',

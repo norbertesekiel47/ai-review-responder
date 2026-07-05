@@ -122,7 +122,7 @@ describe('POST /api/settings/channels/override — auth + parsing', () => {
       override: { id: OVERRIDE_ID, locationId: LOCATION_ID, channel: 'telegram', handle: '@h', status: 'verified' },
     });
     await POST(makeRequest('POST', VALID_BODY));
-    expect(mockCreateOrRevive).toHaveBeenCalledWith({
+    expect(mockCreateOrRevive).toHaveBeenCalledWith(expect.any(Function), {
       accountId: ACCOUNT_ID,
       actorUserId: 'user-1',
       locationId: LOCATION_ID,
@@ -172,7 +172,7 @@ describe('DELETE /api/settings/channels/override — status mapping', () => {
     const res = await DELETE(makeRequest('DELETE', VALID_BODY));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ success: true });
-    expect(mockRemove).toHaveBeenCalledWith({
+    expect(mockRemove).toHaveBeenCalledWith(expect.any(Function), {
       accountId: ACCOUNT_ID,
       actorUserId: 'user-1',
       locationId: LOCATION_ID,

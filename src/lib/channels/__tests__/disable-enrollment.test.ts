@@ -47,6 +47,12 @@ import {
   type DisableableChannel,
 } from '../disable-enrollment';
 
+// disconnectChannel now takes `sql` as an explicit leading param; this test's
+// hand-rolled tagged-template + FIFO-queue mock (dispatches on SQL text —
+// createMockSql's generic FIFO cannot reproduce these content assertions)
+// is reused as that argument instead of being replaced.
+const typedSql = mockSql as unknown as postgres.Sql;
+
 const CHANNELS: DisableableChannel[] = ['telegram', 'whatsapp'];
 
 /** Tagged-template tx mock: returns queued result arrays in call order, records SQL text + bound values. */
@@ -178,7 +184,7 @@ describe.each(CHANNELS)('disconnectChannel (%s)', (channel) => {
       sqlQueue.push([{ id: 'org-1' }]); // org-default UPDATE
       sqlQueue.push([]); // override cascade UPDATE
 
-      const result = await disconnectChannel({
+      const result = await disconnectChannel(typedSql, {
         channel,
         accountId: 'acct-1',
         actorUserId: 'user-9',
@@ -200,7 +206,7 @@ describe.each(CHANNELS)('disconnectChannel (%s)', (channel) => {
     sqlQueue.push([]); // org-default UPDATE
     sqlQueue.push([]); // override cascade UPDATE
 
-    const result = await disconnectChannel({
+    const result = await disconnectChannel(typedSql, {
       channel,
       accountId: 'acct-1',
       actorUserId: null,
@@ -216,7 +222,7 @@ describe.each(CHANNELS)('disconnectChannel (%s)', (channel) => {
     mockWriteAccountAuditLog.mockRejectedValueOnce(new Error('audit DB error'));
 
     await expect(
-      disconnectChannel({ channel, accountId: 'acct-1', actorUserId: 'user-9', surface: 'admin' }),
+      disconnectChannel(typedSql, { channel, accountId: 'acct-1', actorUserId: 'user-9', surface: 'admin' }),
     ).rejects.toThrow('audit DB error');
     expect(mockSafeInvalidateChannelCache).not.toHaveBeenCalled();
   });

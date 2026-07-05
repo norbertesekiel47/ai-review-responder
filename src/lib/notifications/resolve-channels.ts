@@ -12,7 +12,7 @@
 // Coding convention: AGENTS.md — "Import resolveChannels(accountId, locationId)
 // from this module. Never query channel_enrollments directly for notification dispatch."
 
-import { sql } from '../db/server';
+import type { Sql } from 'postgres';
 import { getCacheRedis } from '../db/redis-cache';
 import { CHANNEL_IDS } from './channels/types';
 import type { ChannelId } from './channels/types';
@@ -60,6 +60,7 @@ function accountCachePattern(accountId: string): string {
  * - unsubscribed_at IS NULL (VAL-NOTIF-007)
  */
 export async function resolveChannels(
+  sql: Sql,
   accountId: AccountId,
   locationId: LocationId,
 ): Promise<ResolvedChannel[]> {

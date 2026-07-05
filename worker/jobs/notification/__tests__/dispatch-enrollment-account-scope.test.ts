@@ -14,14 +14,21 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
+import type { Sql } from 'postgres';
 
 // ---------------------------------------------------------------------------
 // Hoisted mutable state for the mock SQL recorder + collaborator mocks.
 // ---------------------------------------------------------------------------
+// Shared Postgres.js mock — LAZY + fragment-flattening, so the deduped
+// flipEnrollmentStatus helper's nested `sql`` fragments flatten into ONE
+// recorded `sqlCalls[i].text`/`.values` (exactly how Postgres.js composes them
+// at runtime). A non-flattening mock would split the composed UPDATE across
+// several recorded calls and hide the channel/status/location literals.
 const {
-  sqlQueue,
-  consume,
+  sqlReturnQueue,
+  mockSql,
   sqlCalls,
+  resetMockSql,
   mockInsertFailedDelivery,
   mockRecordNotificationDelivery,
   mockMarkOutboxCompleted,
@@ -30,20 +37,10 @@ const {
   mockGetVerifiedEnrollments,
   mockGetChannel,
   mockCreateApprovalLink,
-} = vi.hoisted(() => {
-  const sqlQueue: unknown[] = [];
-  const sqlCalls: Array<{ template: string; values: unknown[] }> = [];
-
-  const consume = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
-    sqlCalls.push({ template: strings.join('?'), values });
-    const next = sqlQueue.shift();
-    return Promise.resolve(Array.isArray(next) ? next : []);
-  });
-
+} = await vi.hoisted(async () => {
+  const { createMockSql } = await import('../../../__tests__/helpers/mock-sql');
   return {
-    sqlQueue,
-    consume,
-    sqlCalls,
+    ...createMockSql(),
     mockInsertFailedDelivery: vi.fn(() => Promise.resolve()),
     mockRecordNotificationDelivery: vi.fn(() => Promise.resolve()),
     mockMarkOutboxCompleted: vi.fn(() => Promise.resolve()),
@@ -58,9 +55,7 @@ const {
 });
 
 vi.mock('@/lib/db/server', () => ({
-  sql: Object.assign(consume, {
-    begin: async (fn: (tx: typeof consume) => Promise<unknown>) => fn(consume),
-  }),
+  sql: mockSql,
   jsonb: (v: unknown) => v,
 }));
 
@@ -141,7 +136,7 @@ function makeJob(): Job<any> {
 }
 
 function seedResponseAndBusiness() {
-  sqlQueue.push([{
+  sqlReturnQueue.push([{
     id: 'resp-1',
     response_text: 'Thanks for your review!',
     status: 'pending_approval',
@@ -152,7 +147,7 @@ function seedResponseAndBusiness() {
     review_text: 'Great place',
     review_date: '2026-04-20',
   }]);
-  sqlQueue.push([{
+  sqlReturnQueue.push([{
     name: 'Acme Corp',
     owner_email_bounced: false,
     archived_at: null,
@@ -163,20 +158,19 @@ function seedResponseAndBusiness() {
 }
 
 function seedNoExistingDelivery() {
-  sqlQueue.push([]);
+  sqlReturnQueue.push([]);
 }
 
 function findEnrollmentUpdate() {
   return sqlCalls.find(
-    (c) => c.template.includes('UPDATE') && c.template.includes('channel_enrollments'),
+    (c) => c.text.includes('UPDATE') && c.text.includes('channel_enrollments'),
   );
 }
 
 beforeEach(() => {
-  sqlQueue.length = 0;
-  sqlCalls.length = 0;
+  resetMockSql();
 
-  consume.mockClear();
+  mockSql.mockClear();
   mockInsertFailedDelivery.mockClear();
   mockRecordNotificationDelivery.mockClear();
   mockMarkOutboxCompleted.mockClear();
@@ -207,26 +201,26 @@ describe('dispatcher failure writes — account + location scoping', () => {
       sendApprovalRequest: vi.fn().mockRejectedValueOnce(new WhatsAppRecipientBlockedError(63014)),
     });
 
-    await expect(handleSendNotification(makeJob())).rejects.toThrow();
+    await expect(handleSendNotification(mockSql as unknown as Sql, makeJob())).rejects.toThrow();
 
     const update = findEnrollmentUpdate();
     expect(update, 'expected a channel_enrollments UPDATE').toBeDefined();
 
     // Must NOT key by business_id any more.
-    expect(update!.template).not.toMatch(/business_id/);
+    expect(update!.text).not.toMatch(/business_id/);
     expect(update!.values).not.toContain(CTX_BUSINESS_ID);
 
     // Must be account-scoped (bound value) + channel literal + handle bound.
-    expect(update!.template).toMatch(/account_id = /);
+    expect(update!.text).toMatch(/account_id = /);
     expect(update!.values).toContain(ACCOUNT_ID);
-    expect(update!.template).toMatch(/channel = 'whatsapp'/);
+    expect(update!.text).toMatch(/channel = 'whatsapp'/);
     expect(update!.values).toContain('+15550000001');
 
     // Org-default location scope is a literal IS NULL, not a bound value.
-    expect(update!.template).toMatch(/location_id IS NULL/);
-    expect(update!.template).toMatch(/archived_at IS NULL/);
+    expect(update!.text).toMatch(/location_id IS NULL/);
+    expect(update!.text).toMatch(/archived_at IS NULL/);
 
-    expect(update!.template).toMatch(/status = 'unsubscribed'/);
+    expect(update!.text).toMatch(/status = 'unsubscribed'/);
   });
 
   it('per-location override (location_id set): scopes UPDATE by account_id + location_id = <id>::uuid', async () => {
@@ -241,25 +235,25 @@ describe('dispatcher failure writes — account + location scoping', () => {
       sendApprovalRequest: vi.fn().mockRejectedValueOnce(new WhatsAppInvalidRecipientError(63024)),
     });
 
-    await expect(handleSendNotification(makeJob())).rejects.toThrow();
+    await expect(handleSendNotification(mockSql as unknown as Sql, makeJob())).rejects.toThrow();
 
     const update = findEnrollmentUpdate();
     expect(update, 'expected a channel_enrollments UPDATE').toBeDefined();
 
-    expect(update!.template).not.toMatch(/business_id/);
+    expect(update!.text).not.toMatch(/business_id/);
     expect(update!.values).not.toContain(CTX_BUSINESS_ID);
 
-    expect(update!.template).toMatch(/account_id = /);
+    expect(update!.text).toMatch(/account_id = /);
     expect(update!.values).toContain(ACCOUNT_ID);
-    expect(update!.template).toMatch(/channel = 'whatsapp'/);
+    expect(update!.text).toMatch(/channel = 'whatsapp'/);
     expect(update!.values).toContain('+15550000002');
 
     // Per-location override binds the location id (cast to uuid in SQL text).
-    expect(update!.template).toMatch(/location_id = /);
-    expect(update!.template).toMatch(/::uuid/);
-    expect(update!.template).not.toMatch(/location_id IS NULL/);
+    expect(update!.text).toMatch(/location_id = /);
+    expect(update!.text).toMatch(/::uuid/);
+    expect(update!.text).not.toMatch(/location_id IS NULL/);
     expect(update!.values).toContain(OVERRIDE_LOCATION_ID);
 
-    expect(update!.template).toMatch(/status = 'disabled'/);
+    expect(update!.text).toMatch(/status = 'disabled'/);
   });
 });

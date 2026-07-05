@@ -202,7 +202,7 @@ async function handleOwnerNudge(
     category: 'marketing',
   });
 
-  await recordNotificationDelivery({
+  await recordNotificationDelivery(sql, {
     accountId: business.account_id,
     businessId,
     channel: 'email',
@@ -286,7 +286,7 @@ async function handlePartnerAlert(
     category: 'internal',
   });
 
-  await recordNotificationDelivery({
+  await recordNotificationDelivery(sql, {
     accountId: business.account_id,
     businessId,
     channel: 'email',
@@ -407,7 +407,7 @@ async function handleSatisfactionAlert(
   });
 
   // Record delivery with week-scoped template tag for future idempotency checks
-  await recordNotificationDelivery({
+  await recordNotificationDelivery(sql, {
     accountId: business.account_id,
     businessId,
     channel: 'email',

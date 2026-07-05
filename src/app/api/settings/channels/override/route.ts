@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { jsonResponse, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { sql } from '@/lib/db/server';
 import {
   createOrReviveOverride,
   removeOverride,
@@ -64,7 +65,7 @@ async function createOverride(request: NextRequest): Promise<NextResponse> {
 
   let result;
   try {
-    result = await createOrReviveOverride(parsed.input);
+    result = await createOrReviveOverride(sql, parsed.input);
   } catch (error: unknown) {
     reportCaughtError('api/settings/channels/override POST', error, {
       accountId: parsed.input.accountId,
@@ -95,7 +96,7 @@ async function deleteOverride(request: NextRequest): Promise<NextResponse> {
 
   let result;
   try {
-    result = await removeOverride(parsed.input);
+    result = await removeOverride(sql, parsed.input);
   } catch (error: unknown) {
     reportCaughtError('api/settings/channels/override DELETE', error, {
       accountId: parsed.input.accountId,

@@ -14,7 +14,7 @@
 // CTA destination) and resp.approval_method, and does NOT require
 // pending_approval.
 
-import { sql } from '../../../src/lib/db/server';
+import type { Sql } from 'postgres';
 import {
   activeOffboardingStateFromProjection,
   isNotificationBlocked,
@@ -65,6 +65,7 @@ export type AutoPostNoticeContextResult =
 // business missing); inherent to a single-pass loader.
 // fallow-ignore-next-line complexity
 export async function loadAutoPostNoticeContext(
+  sql: Sql,
   input: AutoPostNoticeContextInput,
   logger: AutoPostNoticeContextLogger,
 ): Promise<AutoPostNoticeContextResult> {
