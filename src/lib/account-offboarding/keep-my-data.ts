@@ -231,28 +231,25 @@ async function applyKeepMyData(
     `;
   }
 
-  await writeAccountAuditLog(
-    {
-      accountId: row.account_id,
-      actorUserId: input.actorUserId,
-      eventType: 'account_offboarding_keep_my_data',
-      entityType: 'account_offboarding',
-      entityId: row.id,
-      ip: input.ip,
-      userAgent: input.userAgent,
-      requestId: input.requestId,
-      payload: {
-        mode: 'delete_data',
-        status: row.status,
-        auth_method: input.authMethod,
-        ...(input.idempotencyKeyHash
-          ? { idempotency_key_hash: input.idempotencyKeyHash }
-          : {}),
-        ...(input.tokenHash ? { token_hash: input.tokenHash } : {}),
-      },
+  await writeAccountAuditLog(tx, {
+    accountId: row.account_id,
+    actorUserId: input.actorUserId,
+    eventType: 'account_offboarding_keep_my_data',
+    entityType: 'account_offboarding',
+    entityId: row.id,
+    ip: input.ip,
+    userAgent: input.userAgent,
+    requestId: input.requestId,
+    payload: {
+      mode: 'delete_data',
+      status: row.status,
+      auth_method: input.authMethod,
+      ...(input.idempotencyKeyHash
+        ? { idempotency_key_hash: input.idempotencyKeyHash }
+        : {}),
+      ...(input.tokenHash ? { token_hash: input.tokenHash } : {}),
     },
-    tx,
-  );
+  });
 
   await enqueueAccountOffboardingEmail(tx, {
     accountOffboardingId: row.id,

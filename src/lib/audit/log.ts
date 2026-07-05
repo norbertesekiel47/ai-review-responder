@@ -1,8 +1,12 @@
-import type postgres from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
-import { jsonb, sql } from '@/lib/db/server';
 
-type SqlExecutor = typeof sql | postgres.TransactionSql;
+// Callable with either the base client (standalone, best-effort writes — e.g.
+// the MFA challenge route) or a transaction client (the SAME transaction as
+// the caller's state change — the documented contract for account-status
+// writes; CLAUDE.md "Audit writes"). Both shapes expose `.json()`, so the
+// single body below serves either.
+type SqlExecutor = Sql | TransactionSql;
 
 export interface WriteAccountAuditLogInput {
   accountId: string;
@@ -18,8 +22,8 @@ export interface WriteAccountAuditLogInput {
 }
 
 export async function writeAccountAuditLog(
+  db: SqlExecutor,
   input: WriteAccountAuditLogInput,
-  db: SqlExecutor = sql,
 ): Promise<void> {
   await db`
     INSERT INTO account_audit_log (
@@ -40,7 +44,7 @@ export async function writeAccountAuditLog(
       ${input.locationId ?? null}::uuid,
       ${input.eventType},
       ${input.actorUserId ?? null}::uuid,
-      ${jsonb(input.payload)},
+      ${db.json(input.payload as never)},
       ${input.entityType ?? null},
       ${input.entityId ?? null},
       ${input.ip ?? null},

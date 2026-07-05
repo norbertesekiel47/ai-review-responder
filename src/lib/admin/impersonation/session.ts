@@ -87,21 +87,18 @@ export async function startImpersonationSession(
       )
     `;
 
-    await writeAccountAuditLog(
-      {
-        accountId: input.accountId,
-        actorUserId: input.actorUserId,
-        eventType: 'impersonation_started',
-        entityType: 'user',
-        entityId: input.impersonatedUserId,
-        payload: {
-          ticket_id: input.ticketId,
-          reason: input.reason,
-          expires_at: expiresAt.toISOString(),
-        },
+    await writeAccountAuditLog(tx, {
+      accountId: input.accountId,
+      actorUserId: input.actorUserId,
+      eventType: 'impersonation_started',
+      entityType: 'user',
+      entityId: input.impersonatedUserId,
+      payload: {
+        ticket_id: input.ticketId,
+        reason: input.reason,
+        expires_at: expiresAt.toISOString(),
       },
-      tx,
-    );
+    });
   });
 
   return { sessionId, expiresAt };
@@ -126,17 +123,14 @@ export async function endImpersonationSession(
     const row = rows[0];
     if (!row) return false;
 
-    await writeAccountAuditLog(
-      {
-        accountId: row.account_id,
-        actorUserId: input.actorUserId,
-        eventType: 'impersonation_ended',
-        entityType: 'user',
-        entityId: row.impersonated_user_id,
-        payload: { session_id: input.sessionId },
-      },
-      tx,
-    );
+    await writeAccountAuditLog(tx, {
+      accountId: row.account_id,
+      actorUserId: input.actorUserId,
+      eventType: 'impersonation_ended',
+      entityType: 'user',
+      entityId: row.impersonated_user_id,
+      payload: { session_id: input.sessionId },
+    });
     return true;
   });
 

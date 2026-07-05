@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { v7 as uuidv7 } from 'uuid';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { isClientEnqueueableEventName, makeAnalyticsEventKey } from '@/lib/analytics/events';
+import { sql } from '@/lib/db/server';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     ? body.properties as Record<string, unknown>
     : {};
 
-  await enqueueAnalyticsEvent({
+  await enqueueAnalyticsEvent(sql, {
     eventName: body.eventName,
     eventKey,
     distinctId: anonymousId,

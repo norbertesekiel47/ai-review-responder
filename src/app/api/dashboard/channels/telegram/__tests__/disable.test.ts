@@ -17,7 +17,12 @@ const { sqlQueue, sqlCalls, mockSql } = vi.hoisted(() => {
             const next = sqlQueue.shift();
             return Promise.resolve(Array.isArray(next) ? next : []);
           },
-          { begin: undefined },
+          {
+            begin: undefined,
+            // writeAccountAuditLog (real implementation) calls the injected
+            // client's `.json()` directly instead of the removed `jsonb()` helper.
+            json: (v: unknown) => v,
+          },
         ),
       ),
     },

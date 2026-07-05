@@ -112,22 +112,19 @@ async function grantExtension(request: NextRequest): Promise<NextResponse> {
         throw new GrantExtensionError(409, 'account_not_past_due');
       }
 
-      await writeAccountAuditLog(
-        {
-          accountId,
-          actorUserId: admin.id,
-          eventType: 'past_due_extension_granted',
-          entityType: 'account',
-          entityId: accountId,
-          payload: {
-            days,
-            reason,
-            ticket_id: ticketId,
-            expires_at: extension.expires_at,
-          },
+      await writeAccountAuditLog(tx, {
+        accountId,
+        actorUserId: admin.id,
+        eventType: 'past_due_extension_granted',
+        entityType: 'account',
+        entityId: accountId,
+        payload: {
+          days,
+          reason,
+          ticket_id: ticketId,
+          expires_at: extension.expires_at,
         },
-        tx,
-      );
+      });
 
       return extension.expires_at;
     });

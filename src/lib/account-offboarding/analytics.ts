@@ -17,7 +17,7 @@ export async function enqueueOffboardingStarted(
   db: SqlExecutor,
   input: OffboardingLifecycleEventInput & { mode: AccountOffboardingMode },
 ): Promise<void> {
-  await enqueueAnalyticsEvent({
+  await enqueueAnalyticsEvent(db, {
     eventName: 'offboarding_started',
     eventKey: makeAnalyticsEventKey('offboarding_started', [input.offboardingId]),
     distinctId: input.accountId,
@@ -27,14 +27,14 @@ export async function enqueueOffboardingStarted(
       mode: input.mode,
       status: 'pending',
     },
-  }, db);
+  });
 }
 
 export async function enqueueOffboardingReactivated(
   db: SqlExecutor,
   input: OffboardingLifecycleEventInput,
 ): Promise<void> {
-  await enqueueAnalyticsEvent({
+  await enqueueAnalyticsEvent(db, {
     eventName: 'offboarding_reactivated',
     eventKey: makeAnalyticsEventKey('offboarding_reactivated', [input.offboardingId]),
     distinctId: input.accountId,
@@ -44,7 +44,7 @@ export async function enqueueOffboardingReactivated(
       mode: 'cancel_only',
       status: 'reactivated',
     },
-  }, db);
+  });
 }
 
 export async function enqueueOffboardingTeardownCompleted(
@@ -54,7 +54,7 @@ export async function enqueueOffboardingTeardownCompleted(
     status: 'churned' | 'purge_scheduled';
   },
 ): Promise<void> {
-  await enqueueAnalyticsEvent({
+  await enqueueAnalyticsEvent(db, {
     eventName: 'offboarding_teardown_completed',
     eventKey: makeAnalyticsEventKey('offboarding_teardown_completed', [input.offboardingId]),
     distinctId: input.accountId,
@@ -64,7 +64,7 @@ export async function enqueueOffboardingTeardownCompleted(
       mode: input.mode,
       status: input.status,
     },
-  }, db);
+  });
 }
 
 export async function enqueueOffboardingPurged(
@@ -72,10 +72,10 @@ export async function enqueueOffboardingPurged(
   input: { offboardingId: string },
 ): Promise<void> {
   const offboardingHash = createHash('sha256').update(input.offboardingId).digest('hex');
-  await enqueueAnalyticsEvent({
+  await enqueueAnalyticsEvent(db, {
     eventName: 'offboarding_purged',
     eventKey: makeAnalyticsEventKey('offboarding_purged', [offboardingHash]),
     distinctId: `offboarding:${offboardingHash}`,
     properties: {},
-  }, db);
+  });
 }

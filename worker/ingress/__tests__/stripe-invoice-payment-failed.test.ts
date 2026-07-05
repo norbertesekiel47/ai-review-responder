@@ -71,6 +71,7 @@ describe('invoice.payment_failed — sets account to past_due', () => {
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.text).toMatch(/past_due_at\s*=\s*NOW\(\)/i);
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
       expect.objectContaining({
         accountId: TEST_ACCOUNT_ID,
         eventType: 'subscription_status_changed',
@@ -78,7 +79,6 @@ describe('invoice.payment_failed — sets account to past_due', () => {
         entityId: TEST_ACCOUNT_ID,
         payload: { fromStatus: 'active', toStatus: 'past_due' },
       }),
-      mockSql,
     );
   });
 

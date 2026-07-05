@@ -1,78 +1,57 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-const { mockSql, mockTx, sqlCalls, txCalls } = vi.hoisted(() => {
-  const sqlCalls: { text: string; values: unknown[] }[] = [];
-  const txCalls: { text: string; values: unknown[] }[] = [];
-
-  const makeTag = (calls: { text: string; values: unknown[] }[]) =>
-    vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
-      calls.push({ text: strings.join('?'), values });
-      return Promise.resolve(Object.assign([], { count: 1 }));
-    });
-
-  return {
-    mockSql: makeTag(sqlCalls),
-    mockTx: makeTag(txCalls),
-    sqlCalls,
-    txCalls,
-  };
-});
-
-vi.mock('@/lib/db/server', () => ({
-  sql: mockSql,
-  jsonb: (value: unknown) => ({ __jsonb: value }),
-}));
+import type { Sql, TransactionSql } from 'postgres';
+import { createMockSql, type MockSqlHarness } from '../../../../worker/__tests__/helpers/mock-sql';
+import { writeAccountAuditLog } from '../log';
 
 vi.mock('uuid', () => ({
   v7: vi.fn(() => '019dc366-29ce-7000-a000-000000000043'),
 }));
 
 describe('writeAccountAuditLog', () => {
+  // Two separate harnesses model the function's two real call shapes: the
+  // base client (standalone, best-effort writes — e.g. the MFA challenge
+  // route) and a transaction client (the SAME transaction as the caller's
+  // state change — CLAUDE.md's documented contract for account-status writes).
+  let sqlHarness: MockSqlHarness;
+  let txHarness: MockSqlHarness;
+
   beforeEach(() => {
-    vi.clearAllMocks();
-    sqlCalls.length = 0;
-    txCalls.length = 0;
+    sqlHarness = createMockSql();
+    txHarness = createMockSql();
   });
 
-  it('writes required fields with default sql client', async () => {
-    const { writeAccountAuditLog } = await import('../log');
-
-    await writeAccountAuditLog({
+  it('writes required fields against the base sql client', async () => {
+    await writeAccountAuditLog(sqlHarness.mockSql as unknown as Sql, {
       accountId: 'acct-1',
       eventType: 'subscription_status_changed',
       payload: { fromStatus: 'active', toStatus: 'past_due' },
     });
 
-    expect(sqlCalls).toHaveLength(1);
-    expect(sqlCalls[0]!.text).toMatch(/INSERT INTO account_audit_log/i);
-    expect(sqlCalls[0]!.text).toMatch(/event_type/i);
-    expect(sqlCalls[0]!.values).toContain('acct-1');
-    expect(sqlCalls[0]!.values).toContain('subscription_status_changed');
-    expect(sqlCalls[0]!.values).toContainEqual({
-      __jsonb: { fromStatus: 'active', toStatus: 'past_due' },
+    expect(sqlHarness.sqlCalls).toHaveLength(1);
+    expect(sqlHarness.sqlCalls[0]!.text).toMatch(/INSERT INTO account_audit_log/i);
+    expect(sqlHarness.sqlCalls[0]!.text).toMatch(/event_type/i);
+    expect(sqlHarness.sqlCalls[0]!.values).toContain('acct-1');
+    expect(sqlHarness.sqlCalls[0]!.values).toContain('subscription_status_changed');
+    expect(sqlHarness.sqlCalls[0]!.values).toContainEqual({
+      fromStatus: 'active',
+      toStatus: 'past_due',
     });
+    expect(txHarness.sqlCalls).toHaveLength(0);
   });
 
   it('uses an injected transaction client', async () => {
-    const { writeAccountAuditLog } = await import('../log');
+    await writeAccountAuditLog(txHarness.mockSql as unknown as TransactionSql, {
+      accountId: 'acct-1',
+      eventType: 'subscription_status_changed',
+      payload: { fromStatus: 'past_due', toStatus: 'active' },
+    });
 
-    await writeAccountAuditLog(
-      {
-        accountId: 'acct-1',
-        eventType: 'subscription_status_changed',
-        payload: { fromStatus: 'past_due', toStatus: 'active' },
-      },
-      mockTx as never,
-    );
-
-    expect(sqlCalls).toHaveLength(0);
-    expect(txCalls).toHaveLength(1);
+    expect(sqlHarness.sqlCalls).toHaveLength(0);
+    expect(txHarness.sqlCalls).toHaveLength(1);
   });
 
   it('writes optional metadata fields', async () => {
-    const { writeAccountAuditLog } = await import('../log');
-
-    await writeAccountAuditLog({
+    await writeAccountAuditLog(sqlHarness.mockSql as unknown as Sql, {
       accountId: 'acct-1',
       locationId: 'biz-location-1',
       actorUserId: 'user-1',
@@ -85,7 +64,7 @@ describe('writeAccountAuditLog', () => {
       payload: { created: 3 },
     });
 
-    const values = sqlCalls[0]!.values;
+    const values = sqlHarness.sqlCalls[0]!.values;
     expect(values).toContain('biz-location-1');
     expect(values).toContain('user-1');
     expect(values).toContain('business');

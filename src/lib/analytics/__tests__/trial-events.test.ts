@@ -33,7 +33,7 @@ describe('enqueueTrialStarted', () => {
     await enqueueTrialStarted(fakeDb, { accountId: ACCOUNT_ID });
 
     expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledTimes(1);
-    const [input, db] = mockEnqueueAnalyticsEvent.mock.calls[0]!;
+    const [db, input] = mockEnqueueAnalyticsEvent.mock.calls[0]!;
     expect(input).toMatchObject({
       eventName: 'trial_started',
       eventKey: 'trial_started:' + ACCOUNT_ID,
@@ -49,7 +49,7 @@ describe('enqueueTrialConverted', () => {
     await enqueueTrialConverted(fakeDb, { accountId: ACCOUNT_ID, stripeSubscriptionId: SUB_ID });
 
     expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledTimes(1);
-    const [input] = mockEnqueueAnalyticsEvent.mock.calls[0]!;
+    const [, input] = mockEnqueueAnalyticsEvent.mock.calls[0]!;
     expect(input).toMatchObject({
       eventName: 'trial_converted',
       eventKey: 'trial_converted:' + ACCOUNT_ID + ':' + SUB_ID,
@@ -63,7 +63,7 @@ describe('enqueueTrialPaymentFailed', () => {
   it('enqueues trial_payment_failed keyed by accountId + subscriptionId', async () => {
     await enqueueTrialPaymentFailed(fakeDb, { accountId: ACCOUNT_ID, stripeSubscriptionId: SUB_ID });
 
-    const [input] = mockEnqueueAnalyticsEvent.mock.calls[0]!;
+    const [, input] = mockEnqueueAnalyticsEvent.mock.calls[0]!;
     expect(input).toMatchObject({
       eventName: 'trial_payment_failed',
       eventKey: 'trial_payment_failed:' + ACCOUNT_ID + ':' + SUB_ID,
@@ -76,7 +76,7 @@ describe('enqueueTrialCancelled', () => {
   it('enqueues trial_cancelled keyed by accountId + subscriptionId', async () => {
     await enqueueTrialCancelled(fakeDb, { accountId: ACCOUNT_ID, stripeSubscriptionId: SUB_ID });
 
-    const [input] = mockEnqueueAnalyticsEvent.mock.calls[0]!;
+    const [, input] = mockEnqueueAnalyticsEvent.mock.calls[0]!;
     expect(input).toMatchObject({
       eventName: 'trial_cancelled',
       eventKey: 'trial_cancelled:' + ACCOUNT_ID + ':' + SUB_ID,

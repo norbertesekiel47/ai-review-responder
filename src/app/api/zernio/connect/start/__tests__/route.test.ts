@@ -204,6 +204,7 @@ describe('POST /api/zernio/connect/start location targeting', () => {
 
     expect(res.status).toBe(200);
     expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         eventName: 'gbp_connect_started',
         distinctId: ACCOUNT_ID,

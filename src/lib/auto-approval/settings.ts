@@ -1,11 +1,10 @@
-import type postgres from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import {
   getOffboardingState,
   isBillingMutationBlocked,
 } from '@/lib/account-offboarding/gate';
 import { writeAccountAuditLog } from '@/lib/audit/log';
-import { sql } from '@/lib/db/server';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 import { isPreviewEnvironment } from '@/lib/config/flags';
 import {
@@ -32,7 +31,7 @@ import type {
 } from './types';
 import { isAutoApprovalThreshold } from './types';
 
-type SqlExecutor = typeof sql | postgres.TransactionSql;
+type SqlExecutor = Sql | TransactionSql;
 
 interface GetAutoApprovalSettingsInput {
   accountId: string;
@@ -122,8 +121,8 @@ export class AutoApprovalSettingsError extends Error {
 }
 
 export async function getAutoApprovalSettings(
+  db: SqlExecutor,
   input: GetAutoApprovalSettingsInput,
-  db: SqlExecutor = sql,
 ): Promise<AutoApprovalSettingsResponse> {
   const accountDefault = await loadAccountDefault(db, input.accountId);
   const locations = await loadActiveLocationSettings(db, input.accountId, accountDefault);
@@ -139,6 +138,7 @@ export async function getAutoApprovalSettings(
 }
 
 export async function patchAutoApprovalSettings(
+  sql: Sql,
   input: PatchAutoApprovalSettingsInput,
 ): Promise<AutoApprovalSettingsResponse> {
   if (input.impersonated) {
@@ -147,18 +147,15 @@ export async function patchAutoApprovalSettings(
 
   return sql.begin(async (tx) => {
     await updatePolicyInTransaction(tx, input);
-    return getAutoApprovalSettings(
-      {
-        accountId: input.accountId,
-        impersonated: input.impersonated,
-      },
-      tx,
-    );
+    return getAutoApprovalSettings(tx, {
+      accountId: input.accountId,
+      impersonated: input.impersonated,
+    });
   });
 }
 
 async function updatePolicyInTransaction(
-  tx: postgres.TransactionSql,
+  tx: TransactionSql,
   input: PatchAutoApprovalSettingsInput,
 ): Promise<void> {
   await lockAccount(tx, input.accountId);
@@ -219,7 +216,7 @@ function assertConfirmationProvided(
 // Reads readiness once (for the expansion gate) and returns it so the audit row
 // can reuse it without a second read. Throws when an expansion isn't ready.
 async function assertExpansionReady(
-  tx: postgres.TransactionSql,
+  tx: TransactionSql,
   input: PatchAutoApprovalSettingsInput,
   expansion: boolean,
 ): Promise<AutoApprovalReadiness> {
@@ -234,7 +231,7 @@ async function assertExpansionReady(
 // row needs. Throws => the caller never reaches applyMutation, so nothing is
 // written. Gate order is preserved: archived -> confirmation -> readiness.
 async function assertMutationAllowed(
-  tx: postgres.TransactionSql,
+  tx: TransactionSql,
   input: PatchAutoApprovalSettingsInput,
   before: PolicyMutationBeforeState,
   after: PolicyMutationAfterState,
@@ -258,48 +255,45 @@ async function assertMutationAllowed(
 }
 
 async function writeAudit(
-  tx: postgres.TransactionSql,
+  tx: TransactionSql,
   input: PatchAutoApprovalSettingsInput,
   before: PolicyMutationBeforeState,
   after: PolicyMutationAfterState,
   context: PolicyChangeAuditContext,
 ): Promise<void> {
-  await writeAccountAuditLog(
-    {
-      accountId: input.accountId,
+  await writeAccountAuditLog(tx, {
+    accountId: input.accountId,
+    locationId: before.locationId,
+    actorUserId: input.actorUserId,
+    eventType: 'auto_approval_policy_changed',
+    entityType: 'auto_approval_policy',
+    entityId: after.snapshot.row.policyId ?? before.snapshot.row.policyId,
+    ip: input.ip ?? null,
+    userAgent: input.userAgent ?? null,
+    requestId: input.requestId ?? null,
+    payload: {
+      operation: input.operation,
+      scope: before.scope,
       locationId: before.locationId,
-      actorUserId: input.actorUserId,
-      eventType: 'auto_approval_policy_changed',
-      entityType: 'auto_approval_policy',
-      entityId: after.snapshot.row.policyId ?? before.snapshot.row.policyId,
-      ip: input.ip ?? null,
-      userAgent: input.userAgent ?? null,
-      requestId: input.requestId ?? null,
-      payload: {
-        operation: input.operation,
-        scope: before.scope,
-        locationId: before.locationId,
-        beforeRow: before.snapshot.row,
-        afterRow: after.snapshot.row,
-        beforeEffectiveThreshold: before.snapshot.effective.threshold,
-        afterEffectiveThreshold: after.snapshot.effective.threshold,
-        beforeEffectiveSource: before.snapshot.effective.source,
-        afterEffectiveSource: after.snapshot.effective.source,
-        beforeExposureRank: context.beforeRank,
-        afterExposureRank: context.afterRank,
-        expansion: context.expansion,
-        requiredConfirmationLevel: context.requiredConfirmationLevel,
-        submittedConfirmationLevel: input.confirmationLevel ?? null,
-        readiness: context.readiness,
-        affectedActiveLocationCount: before.affectedActiveLocationCount,
-        futureDefaultApplies: before.scope === 'account_default',
-      },
+      beforeRow: before.snapshot.row,
+      afterRow: after.snapshot.row,
+      beforeEffectiveThreshold: before.snapshot.effective.threshold,
+      afterEffectiveThreshold: after.snapshot.effective.threshold,
+      beforeEffectiveSource: before.snapshot.effective.source,
+      afterEffectiveSource: after.snapshot.effective.source,
+      beforeExposureRank: context.beforeRank,
+      afterExposureRank: context.afterRank,
+      expansion: context.expansion,
+      requiredConfirmationLevel: context.requiredConfirmationLevel,
+      submittedConfirmationLevel: input.confirmationLevel ?? null,
+      readiness: context.readiness,
+      affectedActiveLocationCount: before.affectedActiveLocationCount,
+      futureDefaultApplies: before.scope === 'account_default',
     },
-    tx,
-  );
+  });
 }
 
-async function lockAccount(db: postgres.TransactionSql, accountId: string): Promise<void> {
+async function lockAccount(db: TransactionSql, accountId: string): Promise<void> {
   const [account] = await db<{ id: string }[]>`
     SELECT id
     FROM accounts
@@ -312,7 +306,7 @@ async function lockAccount(db: postgres.TransactionSql, accountId: string): Prom
 }
 
 async function readBeforeState(
-  db: postgres.TransactionSql,
+  db: TransactionSql,
   input: PatchAutoApprovalSettingsInput,
 ): Promise<PolicyMutationBeforeState> {
   const accountDefault = await loadAccountDefault(db, input.accountId);
@@ -423,7 +417,7 @@ function noneEffective(): EffectiveAutoApprovalPolicy {
 }
 
 async function applyMutation(
-  db: postgres.TransactionSql,
+  db: TransactionSql,
   input: PatchAutoApprovalSettingsInput,
   newPolicyId: string,
 ): Promise<void> {
@@ -458,7 +452,7 @@ async function applyMutation(
 }
 
 async function upsertAccountDefault(
-  db: postgres.TransactionSql,
+  db: TransactionSql,
   policyId: string,
   accountId: string,
   threshold: AutoApprovalThreshold | null,
@@ -485,7 +479,7 @@ async function upsertAccountDefault(
 }
 
 async function upsertLocationOverride(
-  db: postgres.TransactionSql,
+  db: TransactionSql,
   policyId: string,
   accountId: string,
   locationId: string,

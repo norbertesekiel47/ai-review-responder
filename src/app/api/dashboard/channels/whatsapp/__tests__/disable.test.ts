@@ -6,7 +6,12 @@ const { sqlQueue, consume } = vi.hoisted(() => {
   return { sqlQueue: q, consume: c };
 });
 vi.mock('@/lib/db/server', () => ({
-  sql: Object.assign(consume, { begin: async (fn: (tx: unknown) => Promise<unknown>) => fn(consume) }),
+  sql: Object.assign(consume, {
+    begin: async (fn: (tx: unknown) => Promise<unknown>) => fn(consume),
+    // writeAccountAuditLog (real implementation) calls the injected client's
+    // `.json()` directly instead of the removed `jsonb()` helper.
+    json: (v: unknown) => v,
+  }),
   jsonb: (v: unknown) => v,
 }));
 const requireRoleMock = vi.fn(async () => ({ userId: 'owner-1', role: 'owner', locationId: 'biz-1' }));

@@ -252,6 +252,7 @@ describe('AccountOffboardingAccessEndPoller', () => {
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledOnce();
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockTx,
       expect.objectContaining({
         accountId: row.account_id,
         eventType: 'account_offboarding_teardown_started',
@@ -262,7 +263,6 @@ describe('AccountOffboardingAccessEndPoller', () => {
           status: 'tearing_down',
         }),
       }),
-      mockTx,
     );
 
     expect(mockEnqueueAccountOffboardingTeardown).toHaveBeenCalledOnce();

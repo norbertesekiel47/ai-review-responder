@@ -128,13 +128,13 @@ describe('AccountOffboardingPurgeReminderPoller', () => {
     expect(updateCall).toBeDefined();
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockTx,
       expect.objectContaining({
         accountId: ROW.account_id,
         eventType: 'account_offboarding_purge_reminder_sent',
         entityType: 'account_offboarding',
         entityId: ROW.id,
       }),
-      mockTx,
     );
 
     expect(mockEnqueueAccountOffboardingEmail).toHaveBeenCalledWith(mockTx, {

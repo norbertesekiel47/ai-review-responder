@@ -147,6 +147,7 @@ describe('confirmCancelOnlyOffboarding', () => {
     expect(combinedSql).toContain('recipient_email');
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      tx,
       expect.objectContaining({
         accountId: ACCOUNT_ID,
         actorUserId: USER_ID,
@@ -156,9 +157,8 @@ describe('confirmCancelOnlyOffboarding', () => {
           mode: 'cancel_only',
         }),
       }),
-      tx,
     );
-    const auditInput = mockWriteAccountAuditLog.mock.calls[0]![0];
+    const auditInput = mockWriteAccountAuditLog.mock.calls[0]![1];
     expect(auditInput.payload).not.toHaveProperty('reason_code');
 
     expect(mockEnqueueOffboardingStarted).toHaveBeenCalledWith(tx, {

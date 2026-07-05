@@ -166,7 +166,7 @@ async function maybeEnqueueFirstReviewIngested(
 
   if (!row || row.earlier_exists) return;
 
-  await enqueueAnalyticsEvent({
+  await enqueueAnalyticsEvent(tx, {
     eventName: 'first_review_ingested',
     eventKey: makeAnalyticsEventKey('first_review_ingested', [row.account_id]),
     distinctId: row.account_id,
@@ -177,7 +177,7 @@ async function maybeEnqueueFirstReviewIngested(
       business_id: input.businessId,
       review_id: input.reviewId,
     },
-  }, tx);
+  });
 }
 
 // ── Existing-row state machine ────────────────────────────────────────

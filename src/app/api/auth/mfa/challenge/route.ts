@@ -60,7 +60,7 @@ async function auditMfaEvent(
       SELECT id, account_id FROM users WHERE auth_id = ${authUserId} LIMIT 1
     `;
     if (actor?.account_id) {
-      await writeAccountAuditLog({
+      await writeAccountAuditLog(sql, {
         accountId: actor.account_id,
         actorUserId: actor.id,
         eventType,

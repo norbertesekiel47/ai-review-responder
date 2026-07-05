@@ -182,20 +182,17 @@ async function runAccountOffboardingPurgeInner(
           AND t.revoked_at IS NULL
       `;
 
-      await writeAccountAuditLog(
-        {
-          accountId: claimed.account_id,
-          eventType: 'account_offboarding_purge_started',
-          entityType: 'account_offboarding',
-          entityId: claimed.id,
-          payload: {
-            mode: claimed.mode,
-            status: claimed.status,
-            purge_after: formatTimestamp(claimed.purge_after),
-          },
+      await writeAccountAuditLog(tx, {
+        accountId: claimed.account_id,
+        eventType: 'account_offboarding_purge_started',
+        entityType: 'account_offboarding',
+        entityId: claimed.id,
+        payload: {
+          mode: claimed.mode,
+          status: claimed.status,
+          purge_after: formatTimestamp(claimed.purge_after),
         },
-        tx,
-      );
+      });
 
       await enqueueAccountOffboardingPurge(tx, {
         accountOffboardingId: claimed.id,

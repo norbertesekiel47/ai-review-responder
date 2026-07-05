@@ -112,20 +112,17 @@ async function runAccountOffboardingPurgeReminderInner(
         return { kind: 'skipped' } satisfies ClaimResult;
       }
 
-      await writeAccountAuditLog(
-        {
-          accountId: claimed.account_id,
-          eventType: 'account_offboarding_purge_reminder_sent',
-          entityType: 'account_offboarding',
-          entityId: claimed.id,
-          payload: {
-            mode: claimed.mode,
-            status: claimed.status,
-            purge_after: formatTimestamp(claimed.purge_after),
-          },
+      await writeAccountAuditLog(tx, {
+        accountId: claimed.account_id,
+        eventType: 'account_offboarding_purge_reminder_sent',
+        entityType: 'account_offboarding',
+        entityId: claimed.id,
+        payload: {
+          mode: claimed.mode,
+          status: claimed.status,
+          purge_after: formatTimestamp(claimed.purge_after),
         },
-        tx,
-      );
+      });
 
       await enqueueAccountOffboardingEmail(tx, {
         accountOffboardingId: claimed.id,

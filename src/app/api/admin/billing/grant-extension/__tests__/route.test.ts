@@ -197,6 +197,7 @@ describe('POST /api/admin/billing/grant-extension', () => {
       },
     });
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockTx,
       {
         accountId: ACCOUNT_ID,
         actorUserId: ADMIN_ID,
@@ -210,7 +211,6 @@ describe('POST /api/admin/billing/grant-extension', () => {
           expires_at: '2026-05-30T12:00:00.000Z',
         },
       },
-      mockTx,
     );
     expect(sqlCalls).toHaveLength(0);
     vi.useRealTimers();

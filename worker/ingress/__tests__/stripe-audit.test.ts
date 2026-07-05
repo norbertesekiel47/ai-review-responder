@@ -82,6 +82,7 @@ describe('subscription_status_changed audit logging', () => {
     // Audit goes through the mocked writeAccountAuditLog (same as subscription.deleted,
     // invoice.paid — all other handlers already use the applier's audit path).
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
       expect.objectContaining({
         accountId: TEST_ACCOUNT_ID,
         eventType: 'subscription_status_changed',
@@ -89,7 +90,6 @@ describe('subscription_status_changed audit logging', () => {
         entityId: TEST_ACCOUNT_ID,
         payload: { fromStatus: 'pending_payment', toStatus: 'active' },
       }),
-      mockSql,
     );
   });
 
@@ -108,6 +108,7 @@ describe('subscription_status_changed audit logging', () => {
     expect(status).toHaveBeenCalledWith(200);
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
       expect.objectContaining({
         accountId: TEST_ACCOUNT_ID,
         eventType: 'subscription_status_changed',
@@ -115,7 +116,6 @@ describe('subscription_status_changed audit logging', () => {
         entityId: TEST_ACCOUNT_ID,
         payload: { fromStatus: 'active', toStatus: 'cancelled' },
       }),
-      mockSql,
     );
   });
 
@@ -134,6 +134,7 @@ describe('subscription_status_changed audit logging', () => {
     expect(status).toHaveBeenCalledWith(200);
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
       expect.objectContaining({
         accountId: TEST_ACCOUNT_ID,
         eventType: 'subscription_status_changed',
@@ -141,7 +142,6 @@ describe('subscription_status_changed audit logging', () => {
         entityId: TEST_ACCOUNT_ID,
         payload: { fromStatus: 'past_due', toStatus: 'active' },
       }),
-      mockSql,
     );
   });
 

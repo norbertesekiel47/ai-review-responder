@@ -36,7 +36,7 @@ describe('account offboarding analytics', () => {
       mode: 'delete_data',
     });
 
-    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith({
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(tx, {
       eventName: 'offboarding_started',
       eventKey: `offboarding_started:${OFFBOARDING_ID}`,
       distinctId: ACCOUNT_ID,
@@ -46,7 +46,7 @@ describe('account offboarding analytics', () => {
         mode: 'delete_data',
         status: 'pending',
       },
-    }, tx);
+    });
   });
 
   it('enqueues reactivation and teardown completion with lifecycle properties only', async () => {
@@ -64,7 +64,7 @@ describe('account offboarding analytics', () => {
       status: 'churned',
     });
 
-    expect(mockEnqueueAnalyticsEvent).toHaveBeenNthCalledWith(1, {
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenNthCalledWith(1, tx, {
       eventName: 'offboarding_reactivated',
       eventKey: `offboarding_reactivated:${OFFBOARDING_ID}`,
       distinctId: ACCOUNT_ID,
@@ -74,8 +74,8 @@ describe('account offboarding analytics', () => {
         mode: 'cancel_only',
         status: 'reactivated',
       },
-    }, tx);
-    expect(mockEnqueueAnalyticsEvent).toHaveBeenNthCalledWith(2, {
+    });
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenNthCalledWith(2, tx, {
       eventName: 'offboarding_teardown_completed',
       eventKey: `offboarding_teardown_completed:${OFFBOARDING_ID}`,
       distinctId: ACCOUNT_ID,
@@ -85,7 +85,7 @@ describe('account offboarding analytics', () => {
         mode: 'cancel_only',
         status: 'churned',
       },
-    }, tx);
+    });
   });
 
   it('de-identifies offboarding_purged and does not retain scoped identifiers or properties', async () => {
@@ -96,7 +96,7 @@ describe('account offboarding analytics', () => {
       offboardingId: OFFBOARDING_ID,
     });
 
-    const [eventInput, db] = mockEnqueueAnalyticsEvent.mock.calls[0]!;
+    const [db, eventInput] = mockEnqueueAnalyticsEvent.mock.calls[0]!;
     expect(db).toBe(tx);
     expect(eventInput).toEqual({
       eventName: 'offboarding_purged',

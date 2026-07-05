@@ -59,6 +59,7 @@ describe('impersonation session helpers', () => {
     expect(sqlCalls[1]!.text).toMatch(/FOR UPDATE/i);
     expect(sqlCalls[2]!.text).toMatch(/INSERT INTO impersonation_sessions/i);
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      sql,
       expect.objectContaining({
         accountId: 'account-id',
         actorUserId: 'admin-user-id',
@@ -66,7 +67,6 @@ describe('impersonation session helpers', () => {
         entityType: 'user',
         entityId: 'owner-user-id',
       }),
-      sql,
     );
   });
 
@@ -102,12 +102,12 @@ describe('impersonation session helpers', () => {
     expect(sqlCalls[0]!.text).toMatch(/UPDATE impersonation_sessions/i);
     expect(sqlCalls[0]!.text).toMatch(/RETURNING account_id, impersonated_user_id/i);
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      sql,
       expect.objectContaining({
         accountId: 'account-id',
         actorUserId: 'admin-user-id',
         eventType: 'impersonation_ended',
       }),
-      sql,
     );
   });
 

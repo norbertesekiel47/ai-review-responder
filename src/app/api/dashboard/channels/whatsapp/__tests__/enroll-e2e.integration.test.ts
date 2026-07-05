@@ -46,6 +46,9 @@ const { sqlCallsLog, sqlReturnQueue, mockSql } = vi.hoisted(() => {
     return Promise.resolve(arr);
   });
   mockSql.begin = vi.fn(async (cb: (tx: typeof mockSql) => Promise<unknown>) => cb(mockSql));
+  // writeAccountAuditLog (real implementation) calls the injected client's
+  // `.json()` directly instead of the removed `jsonb()` helper.
+  mockSql.json = vi.fn((v: unknown) => v);
   return { sqlCallsLog, sqlReturnQueue, mockSql };
 });
 vi.mock('@/lib/db/server', () => ({ sql: mockSql, jsonb: (x: unknown) => x }));

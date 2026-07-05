@@ -1,6 +1,8 @@
+import type { Sql } from 'postgres';
 import { failDemo } from '../../../src/lib/demos/lifecycle';
 
 export async function failOnboardingDemoTerminal(input: {
+  sql: Sql;
   demoId: string;
   outboxId: string;
   outboxAttempt: number | undefined;
@@ -10,6 +12,7 @@ export async function failOnboardingDemoTerminal(input: {
 }): Promise<void> {
   try {
     await failDemo(
+      input.sql,
       'onboarding_demos',
       input.demoId,
       input.outboxId,

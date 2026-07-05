@@ -118,16 +118,13 @@ async function runAccountOffboardingTeardownRetryInner(
 
       if (!claimed) return { kind: 'skipped' as const };
 
-      await writeAccountAuditLog(
-        {
-          accountId: candidate.account_id,
-          eventType: 'account_offboarding_teardown_retry_scheduled',
-          entityType: 'account_offboarding',
-          entityId: candidate.id,
-          payload: { mode: candidate.mode, status: 'tearing_down' },
-        },
-        tx,
-      );
+      await writeAccountAuditLog(tx, {
+        accountId: candidate.account_id,
+        eventType: 'account_offboarding_teardown_retry_scheduled',
+        entityType: 'account_offboarding',
+        entityId: candidate.id,
+        payload: { mode: candidate.mode, status: 'tearing_down' },
+      });
 
       await enqueueAccountOffboardingTeardown(tx, {
         accountOffboardingId: candidate.id,

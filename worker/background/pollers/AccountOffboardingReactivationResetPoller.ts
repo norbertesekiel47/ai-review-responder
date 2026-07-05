@@ -148,20 +148,17 @@ async function resetStaleReactivationClaim(
       return false;
     }
 
-    await writeAccountAuditLog(
-      {
-        accountId: candidate.account_id,
-        eventType: 'account_offboarding_reactivation_claim_reset',
-        entityType: 'account_offboarding',
-        entityId: candidate.id,
-        payload: {
-          mode: 'cancel_only',
-          status: 'scheduled',
-          reason: 'stale_reactivation_claim',
-        },
+    await writeAccountAuditLog(tx, {
+      accountId: candidate.account_id,
+      eventType: 'account_offboarding_reactivation_claim_reset',
+      entityType: 'account_offboarding',
+      entityId: candidate.id,
+      payload: {
+        mode: 'cancel_only',
+        status: 'scheduled',
+        reason: 'stale_reactivation_claim',
       },
-      tx,
-    );
+    });
 
     return true;
   });

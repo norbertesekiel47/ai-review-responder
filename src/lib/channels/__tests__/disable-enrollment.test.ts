@@ -27,10 +27,10 @@ const { sqlQueue, callOrder, mockSql } = vi.hoisted(() => {
 });
 vi.mock('@/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 
-const mockWriteAccountAuditLog = vi.fn(async (_input: WriteAccountAuditLogInput) => {});
+const mockWriteAccountAuditLog = vi.fn(async (_tx: unknown, _input: WriteAccountAuditLogInput) => {});
 vi.mock('@/lib/audit/log', () => ({
-  writeAccountAuditLog: (input: WriteAccountAuditLogInput, _tx?: unknown) =>
-    mockWriteAccountAuditLog(input),
+  writeAccountAuditLog: (tx: unknown, input: WriteAccountAuditLogInput) =>
+    mockWriteAccountAuditLog(tx, input),
 }));
 
 const mockSafeInvalidateChannelCache = vi.fn(async (_accountId: string, _context: string) => {
@@ -73,7 +73,7 @@ describe.each(CHANNELS)('disableChannelEnrollment (%s)', (channel) => {
     expect(result).toEqual({ kind: 'ok' });
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
-    const audit = mockWriteAccountAuditLog.mock.calls[0]![0];
+    const audit = mockWriteAccountAuditLog.mock.calls[0]![1];
     expect(audit.eventType).toBe('channel_disabled');
     expect(audit.locationId).toBeNull();
     expect(audit.payload).toEqual({ channel });
@@ -95,7 +95,7 @@ describe.each(CHANNELS)('disableChannelEnrollment (%s)', (channel) => {
     expect(result).toEqual({ kind: 'ok' }); // something changed → NOT not_found
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(2);
-    const inputs = mockWriteAccountAuditLog.mock.calls.map((call) => call[0]);
+    const inputs = mockWriteAccountAuditLog.mock.calls.map((call) => call[1]);
     expect(inputs.map((input) => input.eventType)).toEqual([
       'channel_override_disabled',
       'channel_override_disabled',
@@ -116,7 +116,7 @@ describe.each(CHANNELS)('disableChannelEnrollment (%s)', (channel) => {
     expect(result).toEqual({ kind: 'ok' });
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(3);
-    const inputs = mockWriteAccountAuditLog.mock.calls.map((call) => call[0]);
+    const inputs = mockWriteAccountAuditLog.mock.calls.map((call) => call[1]);
 
     const orgAudit = inputs.find((input) => input.eventType === 'channel_disabled')!;
     expect(orgAudit.locationId).toBeNull();
@@ -136,7 +136,7 @@ describe.each(CHANNELS)('disableChannelEnrollment (%s)', (channel) => {
   it('defaults actorUserId to null when omitted', async () => {
     const { tx } = makeTx([[{ id: 'org-1' }], []]);
     await disableChannelEnrollment(tx, { accountId: 'acct-1', channel });
-    expect(mockWriteAccountAuditLog.mock.calls[0]![0].actorUserId).toBeNull();
+    expect(mockWriteAccountAuditLog.mock.calls[0]![1].actorUserId).toBeNull();
   });
 
   it('ordering pin: call 0 is the org-default UPDATE, call 1 the override cascade; SQL + bound channel', async () => {

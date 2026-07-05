@@ -352,7 +352,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // account_id and would attribute the event to an anonymous cookie. Keyed on
       // flowId so legitimate retries are not deduped. Best-effort: never block connect.
       try {
-        await enqueueAnalyticsEvent({
+        await enqueueAnalyticsEvent(sql, {
           eventName: 'gbp_connect_started',
           eventKey: makeAnalyticsEventKey('gbp_connect_started', [locationId, flowId]),
           distinctId: user.accountId,

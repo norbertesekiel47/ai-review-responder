@@ -131,7 +131,7 @@ describe('/api/settings/auto-approval', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get('Cache-Control')).toBe('no-store, private');
-    expect(mockGetAutoApprovalSettings).toHaveBeenCalledWith({
+    expect(mockGetAutoApprovalSettings).toHaveBeenCalledWith(expect.anything(), {
       accountId: ACCOUNT_ID,
       impersonated: false,
     });

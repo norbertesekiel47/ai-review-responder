@@ -63,6 +63,10 @@ const {
     }
     return Promise.resolve([]);
   });
+  // enqueueAnalyticsEvent (real implementation, called from finalizeConnectionTx)
+  // now calls the injected client's `.json()` directly instead of the removed
+  // `jsonb()` helper — the tx mock needs the method too.
+  (mockTx as unknown as { json: (v: unknown) => unknown }).json = vi.fn((v: unknown) => v);
 
   const mockSql: any = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     const raw = strings.join('?');

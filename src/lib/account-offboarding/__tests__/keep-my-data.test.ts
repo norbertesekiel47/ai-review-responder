@@ -189,6 +189,7 @@ describe('keepMyDataForAccount', () => {
     expect(combinedSql).toContain("revoked_reason = 'keep_my_data'");
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      tx,
       expect.objectContaining({
         accountId: ACCOUNT_ID,
         actorUserId: USER_ID,
@@ -205,7 +206,6 @@ describe('keepMyDataForAccount', () => {
           idempotency_key_hash: IDEMPOTENCY_HASH,
         }),
       }),
-      tx,
     );
 
     const outboxCalls = calls.filter((call) => call.text.includes('INSERT INTO job_outbox'));
@@ -220,7 +220,7 @@ describe('keepMyDataForAccount', () => {
     }));
     expect(JSON.stringify({
       values: calls.flatMap((call) => call.values),
-      audit: mockWriteAccountAuditLog.mock.calls[0]?.[0],
+      audit: mockWriteAccountAuditLog.mock.calls[0]?.[1],
     })).not.toContain(RAW_TOKEN);
   });
 
@@ -332,6 +332,7 @@ describe('keepMyDataWithToken', () => {
     expect(calls.flatMap((call) => call.values)).toContain(TOKEN_HASH);
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      tx,
       expect.objectContaining({
         accountId: ACCOUNT_ID,
         actorUserId: null,
@@ -341,7 +342,6 @@ describe('keepMyDataWithToken', () => {
           token_hash: TOKEN_HASH,
         }),
       }),
-      tx,
     );
     expect(outboxPayloads(calls)).toContainEqual(expect.objectContaining({
       account_offboarding_id: OFFBOARDING_ID,
@@ -350,7 +350,7 @@ describe('keepMyDataWithToken', () => {
     }));
     expect(JSON.stringify({
       values: calls.flatMap((call) => call.values),
-      audit: mockWriteAccountAuditLog.mock.calls[0]?.[0],
+      audit: mockWriteAccountAuditLog.mock.calls[0]?.[1],
     })).not.toContain(RAW_TOKEN);
   });
 

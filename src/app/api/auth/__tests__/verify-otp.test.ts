@@ -215,7 +215,7 @@ describe('POST /api/auth/verify-otp', () => {
     const res = await POST(mkReq(validBody));
     expect(res.status).toBe(200);
 
-    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith({
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(mockSql, {
       eventName: 'email_verified',
       eventKey: 'email_verified:user-1',
       distinctId: 'acct-1',
