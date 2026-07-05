@@ -12,6 +12,7 @@
 //   · sent / skipped / terminal_failed / retryable_failed (dispatch).
 
 import type { Job } from 'bullmq';
+import type { Sql } from 'postgres';
 import {
   markOutboxCompleted,
   markOutboxFailed,
@@ -31,13 +32,13 @@ import { dispatchAutoPostNotice } from './dispatch';
 // systemic-failure, retryable-throw); cyclomatic count is the distinct-outcome
 // vocabulary, not tangled logic.
 // fallow-ignore-next-line complexity
-export async function handleAutoPostNotice(job: Job<AutoPostNoticePayload>): Promise<void> {
+export async function handleAutoPostNotice(sql: Sql, job: Job<AutoPostNoticePayload>): Promise<void> {
   const logger = createWorkerLogger('[AutoPostNoticeWorker]', job.data.correlation_id);
   const { response_id } = job.data;
   const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  const ctx = await loadAutoPostNoticeContext({ responseId: response_id, businessId }, logger);
+  const ctx = await loadAutoPostNoticeContext(sql, { responseId: response_id, businessId }, logger);
   if (ctx.kind === 'fail') {
     await markOutboxFailed(outboxId, ctx.reason, outboxAttempt);
     return;
@@ -51,6 +52,7 @@ export async function handleAutoPostNotice(job: Job<AutoPostNoticePayload>): Pro
   // Reuse the approval worker's subscription guard + resolveChannels + flag
   // filter. B9: if the account cancelled between post and send, this skips.
   const eligibility = await getEligibleChannels(
+    sql,
     {
       accountId: ctx.business.account_id,
       locationId: businessId,
@@ -84,6 +86,7 @@ export async function handleAutoPostNotice(job: Job<AutoPostNoticePayload>): Pro
   }
 
   const dispatch = await dispatchAutoPostNotice(
+    sql,
     {
       responseId: response_id,
       businessId,

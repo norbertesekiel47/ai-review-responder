@@ -184,7 +184,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
 
   // ── 9. Record delivery BEFORE outbox completion — ensures cooldown
   // checks in other workers can see this delivery record.
-  await recordNotificationDelivery({
+  await recordNotificationDelivery(sql, {
     accountId: business.account_id,
     businessId: businessId,
     channel: 'email',

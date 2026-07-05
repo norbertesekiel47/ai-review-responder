@@ -9,6 +9,7 @@
 //
 // VAL-NOTIF-010: Uses resolveChannels instead of getVerifiedEnrollments.
 
+import type { Sql } from 'postgres';
 import {
   checkSubscription,
   type AccountFlagsInput,
@@ -57,6 +58,7 @@ function isChannelFlagEnabled(channelId: ChannelId): boolean {
  * Skip-log lines for flag-disabled channels match the original verbatim.
  */
 export async function getEligibleChannels(
+  sql: Sql,
   input: EligibilityInput,
   logger: EligibilityLogger,
 ): Promise<EligibilityResult> {
@@ -73,7 +75,7 @@ export async function getEligibleChannels(
   const accountId: AccountId = asAccountId(input.accountId);
   const locationId: LocationId = asLocationId(input.locationId);
 
-  const enrollments = await resolveChannels(accountId, locationId);
+  const enrollments = await resolveChannels(sql, accountId, locationId);
   if (enrollments.length === 0) {
     return { ok: false, reason: 'no_verified_enrollments' };
   }

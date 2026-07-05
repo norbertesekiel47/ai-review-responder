@@ -8,6 +8,7 @@
 // (migration 067): claim (response_id, channel, recipient) BEFORE the provider
 // send, finalize with the provider id after ack.
 
+import type { Sql } from 'postgres';
 import { getChannel } from '../../../src/lib/notifications/channels';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import type { ResolvedChannel } from '../../../src/lib/notifications/resolve-channels';
@@ -44,6 +45,7 @@ export interface AutoPostNoticeDispatchResult {
 // inherent to the one-pass fan-out over the delivery.ts claim helpers it orchestrates.
 // fallow-ignore-next-line complexity
 export async function dispatchAutoPostNotice(
+  sql: Sql,
   input: AutoPostNoticeDispatchInput,
   enrollments: ResolvedChannel[],
   logger: WorkerLogger,
@@ -89,7 +91,7 @@ export async function dispatchAutoPostNotice(
     let deliveryId: string | null = null;
     try {
       // Claim BEFORE send (Codex R1 #3). null ⇒ a live claim already exists.
-      deliveryId = await claimAutoPostNoticeDelivery({
+      deliveryId = await claimAutoPostNoticeDelivery(sql, {
         accountId: input.accountId,
         businessId: input.businessId,
         responseId: input.responseId,
@@ -107,14 +109,14 @@ export async function dispatchAutoPostNotice(
       const sendResult = await getChannel(channelId).sendAutoPostNotice(params);
       if (sendResult.status === 'skipped') {
         // Channel declined after claim — release so a later config fix re-sends.
-        await releaseDeliveryClaim(deliveryId);
+        await releaseDeliveryClaim(sql, deliveryId);
         result.skipped += 1;
         logger.log(
           `auto_post_notice skipped channel=${channelId} reason=${sendResult.reason} response=${input.responseId}`,
         );
         continue;
       }
-      await finalizeDeliverySent(deliveryId, sendResult.externalMessageId);
+      await finalizeDeliverySent(sql, deliveryId, sendResult.externalMessageId);
       result.sent += 1;
       logger.log(`auto_post_notice sent channel=${channelId} response=${input.responseId}`);
     } catch (err) {
@@ -126,7 +128,7 @@ export async function dispatchAutoPostNotice(
       const classification = classifyAutoPostNoticeSendError(err);
       if (classification.retryable) {
         // RELEASE the claim so a BullMQ retry re-acquires + re-sends.
-        await releaseDeliveryClaim(deliveryId);
+        await releaseDeliveryClaim(sql, deliveryId);
         result.retryableFailed += 1;
         logger.warn(
           `auto_post_notice retryable-failed channel=${channelId} response=${input.responseId}: ${classification.reason}`,
@@ -135,7 +137,7 @@ export async function dispatchAutoPostNotice(
         // TERMINAL: keep the claim as a recorded failed delivery (NOT deleted —
         // its presence suppresses a pointless retry, and it is the
         // observability row).
-        await failDelivery(deliveryId, classification.reason);
+        await failDelivery(sql, deliveryId, classification.reason);
         result.terminalFailed += 1;
         logger.warn(
           `auto_post_notice terminal-failed channel=${channelId} response=${input.responseId}: ${classification.reason}`,

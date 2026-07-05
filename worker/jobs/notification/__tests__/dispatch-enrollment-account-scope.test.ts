@@ -14,6 +14,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
+import type { Sql } from 'postgres';
 
 // ---------------------------------------------------------------------------
 // Hoisted mutable state for the mock SQL recorder + collaborator mocks.
@@ -207,7 +208,7 @@ describe('dispatcher failure writes — account + location scoping', () => {
       sendApprovalRequest: vi.fn().mockRejectedValueOnce(new WhatsAppRecipientBlockedError(63014)),
     });
 
-    await expect(handleSendNotification(makeJob())).rejects.toThrow();
+    await expect(handleSendNotification(consume as unknown as Sql, makeJob())).rejects.toThrow();
 
     const update = findEnrollmentUpdate();
     expect(update, 'expected a channel_enrollments UPDATE').toBeDefined();
@@ -241,7 +242,7 @@ describe('dispatcher failure writes — account + location scoping', () => {
       sendApprovalRequest: vi.fn().mockRejectedValueOnce(new WhatsAppInvalidRecipientError(63024)),
     });
 
-    await expect(handleSendNotification(makeJob())).rejects.toThrow();
+    await expect(handleSendNotification(consume as unknown as Sql, makeJob())).rejects.toThrow();
 
     const update = findEnrollmentUpdate();
     expect(update, 'expected a channel_enrollments UPDATE').toBeDefined();

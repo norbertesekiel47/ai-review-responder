@@ -250,7 +250,7 @@ describe('NotificationWorker – handleSendNotification', () => {
       [],                   // 4: recordNotificationDelivery INSERT
     );
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(mockSql, makeJob());
 
     expect(mockCreateApprovalLink).toHaveBeenCalledOnce();
     expect(mockChannelSend).toHaveBeenCalledOnce();
@@ -269,7 +269,7 @@ describe('NotificationWorker – handleSendNotification', () => {
       [mockBusinessRow({ subscription_status: 'pending_payment' })],
     );
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(mockSql, makeJob());
 
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
     expect(mockChannelSend).not.toHaveBeenCalled();
@@ -292,7 +292,7 @@ describe('NotificationWorker – handleSendNotification', () => {
       })],
     );
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(mockSql, makeJob());
 
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
     expect(mockChannelSend).not.toHaveBeenCalled();
@@ -316,7 +316,7 @@ describe('NotificationWorker – handleSendNotification', () => {
       [], // recordNotificationDelivery INSERT
     );
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(mockSql, makeJob());
 
     expect(mockCreateApprovalLink).toHaveBeenCalledOnce();
     expect(mockChannelSend).toHaveBeenCalledOnce();
@@ -337,7 +337,7 @@ describe('NotificationWorker – handleSendNotification', () => {
       [{ id: 'existing-delivery-1' }], // email idempotency check → found
     );
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(mockSql, makeJob());
 
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
     expect(mockChannelSend).not.toHaveBeenCalled();
@@ -362,7 +362,7 @@ describe('NotificationWorker – handleSendNotification', () => {
       [{ id: 'pending-claim-1' }], // dedup SELECT → a prior (pending) delivery exists
     );
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(mockSql, makeJob());
 
     // No re-send, no second link, outbox completed.
     expect(mockChannelSend).not.toHaveBeenCalled();
@@ -398,7 +398,7 @@ describe('NotificationWorker – handleSendNotification', () => {
       [],  // failed_at insert (catch branch)
     );
 
-    await expect(handleSendNotification(makeJob())).rejects.toThrow(/All 1 channel send/);
+    await expect(handleSendNotification(mockSql, makeJob())).rejects.toThrow(/All 1 channel send/);
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 
@@ -420,7 +420,7 @@ describe('NotificationWorker – handleSendNotification', () => {
       [{ id: 'delivered-1' }],         // 3: failover idempotency check → delivered already
     );
 
-    await handleSendNotification(job);
+    await handleSendNotification(mockSql, job);
 
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
     expect(mockChannelSend).not.toHaveBeenCalled();
@@ -444,7 +444,7 @@ describe('NotificationWorker – handleSendNotification', () => {
       [],                    // 4: recordNotificationDelivery INSERT
     );
 
-    await handleSendNotification(job);
+    await handleSendNotification(mockSql, job);
 
     expect(mockCreateApprovalLink).toHaveBeenCalledOnce();
     expect(mockChannelSend).toHaveBeenCalledOnce();
@@ -465,7 +465,7 @@ describe('NotificationWorker – handleSendNotification', () => {
       [mockBusinessRow({ subscription_status: 'cancelled' })],
     );
 
-    await handleSendNotification(job);
+    await handleSendNotification(mockSql, job);
 
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
     expect(mockChannelSend).not.toHaveBeenCalled();
@@ -515,7 +515,7 @@ describe('NotificationWorker — stale channel guard (dispatch layer)', () => {
     const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
     // Must not throw even though 'sms' is not a valid channel
-    await expect(dispatchAll(ctx, enrollments, logger)).resolves.toMatchObject({
+    await expect(dispatchAll(mockSql, ctx, enrollments, logger)).resolves.toMatchObject({
       attempted: 1,
       succeeded: 1,
     });
@@ -566,7 +566,7 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
       [],  // telegram delivery insert
     );
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(mockSql, makeJob());
 
     expect(mockChannelSend).toHaveBeenCalledTimes(1);
     expect(telegramSend).toHaveBeenCalledTimes(1);
@@ -605,7 +605,7 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
       [],  // second telegram delivery insert
     );
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(mockSql, makeJob());
 
     expect(sendOrder).toEqual([
       'email:owner@example.com',
@@ -632,7 +632,7 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
       [],  // failed_at insert (catch branch)
     );
 
-    await expect(handleSendNotification(makeJob())).rejects.toThrow(/All 1 channel send/);
+    await expect(handleSendNotification(mockSql, makeJob())).rejects.toThrow(/All 1 channel send/);
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 
@@ -658,7 +658,7 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
       [],  // telegram failed_at insert (catch branch)
     );
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(mockSql, makeJob());
 
     expect(mockChannelSend).toHaveBeenCalledTimes(1);
     expect(telegramSend).toHaveBeenCalledTimes(1);
@@ -676,7 +676,7 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
       [{ id: 'delivery-already-exists' }],  // idempotency check HITS
     );
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(mockSql, makeJob());
 
     expect(mockChannelSend).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledTimes(1);
@@ -703,7 +703,7 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
       [],  // telegram delivery insert
     );
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(mockSql, makeJob());
 
     expect(mockChannelSend).not.toHaveBeenCalled();
     expect(telegramSend).toHaveBeenCalledTimes(1);

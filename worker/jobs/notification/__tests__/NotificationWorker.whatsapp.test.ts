@@ -11,6 +11,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
+import type { Sql } from 'postgres';
 
 // ---------------------------------------------------------------------------
 // 1. Hoist all mutable state so vi.mock factories can close over it.
@@ -43,7 +44,7 @@ const {
   const failDeliveryCalls: Array<[string, string]> = [];
   const mockInsertPendingApprovalDelivery = vi.fn(() => Promise.resolve('pending-delivery-1'));
   const mockFinalizeDeliverySent = vi.fn(() => Promise.resolve());
-  const mockFailDelivery = vi.fn((deliveryId: string, reason: string) => {
+  const mockFailDelivery = vi.fn((_sql: unknown, deliveryId: string, reason: string) => {
     failDeliveryCalls.push([deliveryId, reason]);
     return Promise.resolve();
   });
@@ -248,7 +249,7 @@ describe('NotificationWorker — WhatsApp error branches', () => {
 
     // All channels failed → the worker throws so BullMQ can retry.
     // But the enrollment flip + failed delivery must be recorded before the throw.
-    await expect(handleSendNotification(makeJob())).rejects.toThrow();
+    await expect(handleSendNotification(consume as unknown as Sql, makeJob())).rejects.toThrow();
 
     // Enrollment UPDATE must have been executed via sql.begin
     const enrollmentUpdate = sqlCalls.find(
@@ -269,7 +270,7 @@ describe('NotificationWorker — WhatsApp error branches', () => {
 
     // Failed delivery must be recorded (claim flipped to failed) with reason 'whatsapp_blocked'
     expect(mockFailDelivery).toHaveBeenCalledOnce();
-    const [deliveryId, reason] = mockFailDelivery.mock.calls[0]!;
+    const [, deliveryId, reason] = mockFailDelivery.mock.calls[0]!;
     expect(deliveryId).toBe('pending-delivery-1');
     expect(reason).toBe('whatsapp_blocked');
   });
@@ -287,7 +288,7 @@ describe('NotificationWorker — WhatsApp error branches', () => {
       ),
     });
 
-    await expect(handleSendNotification(makeJob())).rejects.toThrow();
+    await expect(handleSendNotification(consume as unknown as Sql, makeJob())).rejects.toThrow();
 
     // Enrollment UPDATE must set status='disabled' and disabled_at
     const enrollmentUpdate = sqlCalls.find(
@@ -306,7 +307,7 @@ describe('NotificationWorker — WhatsApp error branches', () => {
     expect(enrollmentUpdate!.template).not.toMatch(/business_id/);
 
     expect(mockFailDelivery).toHaveBeenCalledOnce();
-    const [deliveryId, reason] = mockFailDelivery.mock.calls[0]!;
+    const [, deliveryId, reason] = mockFailDelivery.mock.calls[0]!;
     expect(deliveryId).toBe('pending-delivery-1');
     expect(reason).toBe('whatsapp_invalid_recipient');
   });
@@ -333,7 +334,7 @@ describe('NotificationWorker — WhatsApp error branches', () => {
       ),
     });
 
-    await expect(handleSendNotification(makeJob())).rejects.toThrow();
+    await expect(handleSendNotification(consume as unknown as Sql, makeJob())).rejects.toThrow();
 
     // CRITICAL: NO channel_enrollments UPDATE should have been issued.
     const enrollmentUpdates = sqlCalls.filter((c) =>
@@ -347,7 +348,7 @@ describe('NotificationWorker — WhatsApp error branches', () => {
 
     // Failed delivery MUST be recorded with a reason prefixed whatsapp_template_config:
     expect(mockFailDelivery).toHaveBeenCalledOnce();
-    const [deliveryId, reason] = mockFailDelivery.mock.calls[0]!;
+    const [, deliveryId, reason] = mockFailDelivery.mock.calls[0]!;
     expect(deliveryId).toBe('pending-delivery-1');
     expect(reason).toMatch(/^whatsapp_template_config:/);
   });
@@ -365,7 +366,7 @@ describe('NotificationWorker — WhatsApp error branches', () => {
       ),
     });
 
-    await expect(handleSendNotification(makeJob())).rejects.toThrow();
+    await expect(handleSendNotification(consume as unknown as Sql, makeJob())).rejects.toThrow();
 
     // No enrollment mutation
     const enrollmentUpdates = sqlCalls.filter((c) =>
@@ -378,7 +379,7 @@ describe('NotificationWorker — WhatsApp error branches', () => {
     ).toHaveLength(0);
 
     expect(mockFailDelivery).toHaveBeenCalledOnce();
-    const [deliveryId, reason] = mockFailDelivery.mock.calls[0]!;
+    const [, deliveryId, reason] = mockFailDelivery.mock.calls[0]!;
     expect(deliveryId).toBe('pending-delivery-1');
     expect(reason).toMatch(/^whatsapp_session_window:/);
   });
@@ -396,7 +397,7 @@ describe('NotificationWorker — WhatsApp error branches', () => {
       ),
     });
 
-    await expect(handleSendNotification(makeJob())).rejects.toThrow();
+    await expect(handleSendNotification(consume as unknown as Sql, makeJob())).rejects.toThrow();
 
     // No enrollment mutation
     const enrollmentUpdates = sqlCalls.filter((c) =>
@@ -406,7 +407,7 @@ describe('NotificationWorker — WhatsApp error branches', () => {
     expect(enrollmentUpdates, 'TRANSIENT: channel_enrollments must NOT be updated for rate limit').toHaveLength(0);
 
     expect(mockFailDelivery).toHaveBeenCalledOnce();
-    const [deliveryId, reason] = mockFailDelivery.mock.calls[0]!;
+    const [, deliveryId, reason] = mockFailDelivery.mock.calls[0]!;
     expect(deliveryId).toBe('pending-delivery-1');
     expect(reason).toMatch(/^whatsapp_rate_limit:/);
   });
@@ -422,7 +423,7 @@ describe('NotificationWorker — WhatsApp error branches', () => {
     seedResponseAndBusiness();
     // No delivery-check row needed because we skip before that query.
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(consume as unknown as Sql, makeJob());
 
     // getChannel / sendApprovalRequest must NEVER have been called.
     expect(mockGetChannel).not.toHaveBeenCalled();

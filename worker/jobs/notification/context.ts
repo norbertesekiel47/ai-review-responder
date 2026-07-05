@@ -19,7 +19,7 @@
 // result: 'ok' continues to dispatch, 'skip' means complete outbox cleanly,
 // 'fail' carries the reason string for markOutboxFailed.
 
-import { sql } from '../../../src/lib/db/server';
+import type { Sql } from 'postgres';
 import {
   activeOffboardingStateFromProjection,
   isNotificationBlocked,
@@ -67,6 +67,7 @@ export type NotificationContextResult =
   | { kind: 'skip' };
 
 export async function loadNotificationContext(
+  sql: Sql,
   input: NotificationContextInput,
   logger: ContextLogger,
 ): Promise<NotificationContextResult> {

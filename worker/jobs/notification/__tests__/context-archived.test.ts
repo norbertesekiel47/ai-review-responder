@@ -66,7 +66,7 @@ describe('loadNotificationContext — archived location', () => {
       account_updated_at: new Date('2026-05-01'),
     }]);
 
-    const result = await loadNotificationContext(
+    const result = await loadNotificationContext(mockSql,
       { responseId: RESPONSE_ID, businessId: BUSINESS_ID },
       logger,
     );
@@ -104,7 +104,7 @@ describe('loadNotificationContext — archived location', () => {
       account_updated_at: new Date('2026-05-01'),
     }]);
 
-    const result = await loadNotificationContext(
+    const result = await loadNotificationContext(mockSql,
       { responseId: RESPONSE_ID, businessId: BUSINESS_ID },
       logger,
     );
@@ -139,7 +139,7 @@ describe('loadNotificationContext — archived location', () => {
       account_updated_at: new Date('2026-05-01'),
     }]);
 
-    await loadNotificationContext(
+    await loadNotificationContext(mockSql,
       { responseId: RESPONSE_ID, businessId: BUSINESS_ID },
       logger,
     );

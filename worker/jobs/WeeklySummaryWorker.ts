@@ -261,7 +261,7 @@ export async function handleWeeklySummary(
   }
 
   // ── 11. Record notification delivery ──────────────────────────────
-  await recordNotificationDelivery({
+  await recordNotificationDelivery(sql, {
     accountId: business.account_id,
     businessId: businessId,
     channel: 'email',

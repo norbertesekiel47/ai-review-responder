@@ -4,7 +4,7 @@
 // does not abort the rest — that's the failover poller's job. Behavior
 // is preserved verbatim from the original NotificationWorker dispatcher.
 
-import { sql } from '../../../src/lib/db/server';
+import type { Sql } from 'postgres';
 import {
   insertPendingApprovalDelivery,
   finalizeDeliverySent,
@@ -75,6 +75,7 @@ type StatusFlipKind =
  * is idempotent: COALESCE preserves the first-set timestamps/reason on re-run.
  */
 async function flipEnrollmentStatus(
+  sql: Sql,
   kind: StatusFlipKind,
   accountId: string,
   enrollment: ResolvedChannel,
@@ -210,6 +211,7 @@ async function flipEnrollmentStatus(
 // logic lives in the delivery.ts helpers.
 // fallow-ignore-next-line complexity
 export async function dispatchAll(
+  sql: Sql,
   ctx: DispatchContext,
   enrollments: ResolvedChannel[],
   logger: DispatchLogger,
@@ -281,7 +283,7 @@ export async function dispatchAll(
     // after a crash-during-send dedups on this row above and skips, instead of
     // re-sending. On send failure the claim is flipped to failed; on success it
     // is finalized with the provider message id.
-    const deliveryId = await insertPendingApprovalDelivery({
+    const deliveryId = await insertPendingApprovalDelivery(sql, {
       accountId: ctx.accountId,
       businessId: ctx.businessId,
       responseId: ctx.responseId,
@@ -305,7 +307,7 @@ export async function dispatchAll(
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       logger.error(`createApprovalLink failed for ${channelId} response ${ctx.responseId}: ${reason}`);
-      await failDelivery(deliveryId, `approval_link_error:${reason}`);
+      await failDelivery(sql, deliveryId, `approval_link_error:${reason}`);
       continue;
     }
     const approvalUrl = `${ctx.appUrl}/approve/${rawToken}`;
@@ -352,7 +354,7 @@ export async function dispatchAll(
         directive.kind === 'whatsapp_blocked' ||
         directive.kind === 'whatsapp_invalid_recipient'
       ) {
-        await flipEnrollmentStatus(directive.kind, ctx.accountId, enrollment);
+        await flipEnrollmentStatus(sql, directive.kind, ctx.accountId, enrollment);
       }
       // CONFIG-ERROR (whatsapp_template_config / whatsapp_session_window),
       // TRANSIENT (whatsapp_rate_limit / whatsapp_timeout), and 'unknown'
@@ -376,11 +378,11 @@ export async function dispatchAll(
         logger[directive.extraLog.level](directive.extraLog.message);
       }
 
-      await failDelivery(deliveryId, directive.failureReason);
+      await failDelivery(sql, deliveryId, directive.failureReason);
       continue;
     }
 
-    await finalizeDeliverySent(deliveryId, externalMessageId);
+    await finalizeDeliverySent(sql, deliveryId, externalMessageId);
     succeeded++;
     logger.log(`${channelId} approval notification sent for response ${ctx.responseId} (business ${ctx.businessId})`);
   }

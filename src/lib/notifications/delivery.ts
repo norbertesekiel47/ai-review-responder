@@ -1,5 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import type { ChannelId } from '@/lib/notifications/channels/types';
 
 /**
@@ -10,7 +10,7 @@ import type { ChannelId } from '@/lib/notifications/channels/types';
  * accountId is required — notification_deliveries.account_id is NOT NULL
  * after migration 034, so every INSERT must include it.
  */
-export async function recordNotificationDelivery(params: {
+export async function recordNotificationDelivery(sql: Sql, params: {
   accountId: string;
   businessId: string;
   responseId?: string | null;
@@ -42,6 +42,7 @@ export async function recordNotificationDelivery(params: {
  * after migration 034, so every INSERT must include it.
  */
 export async function insertFailedDelivery(
+  sql: Sql,
   accountId: string,
   businessId: string,
   responseId: string | null,
@@ -80,7 +81,7 @@ export async function insertFailedDelivery(
  * — the 'auto_post_notice' literal must stay a literal, never a bound param, or
  * Postgres won't recognise the constraint.
  */
-export async function claimAutoPostNoticeDelivery(params: {
+export async function claimAutoPostNoticeDelivery(sql: Sql, params: {
   accountId: string;
   businessId: string;
   responseId: string;
@@ -119,7 +120,7 @@ export async function claimAutoPostNoticeDelivery(params: {
  * failover poller's in-flight outbox guard), so the dispatcher's
  * select-then-insert claim is race-safe in practice.
  */
-export async function insertPendingApprovalDelivery(params: {
+export async function insertPendingApprovalDelivery(sql: Sql, params: {
   accountId: string;
   businessId: string;
   responseId: string;
@@ -139,6 +140,7 @@ export async function insertPendingApprovalDelivery(params: {
 
 /** Finalize a claimed delivery as SENT with the provider message id. */
 export async function finalizeDeliverySent(
+  sql: Sql,
   deliveryId: string,
   externalMessageId: string,
 ): Promise<void> {
@@ -150,7 +152,7 @@ export async function finalizeDeliverySent(
 }
 
 /** Record a claimed delivery as TERMINALLY failed (kept as the observability row). */
-export async function failDelivery(deliveryId: string, failureReason: string): Promise<void> {
+export async function failDelivery(sql: Sql, deliveryId: string, failureReason: string): Promise<void> {
   await sql`
     UPDATE notification_deliveries
     SET failed_at = NOW(), failure_reason = ${failureReason}
@@ -163,7 +165,7 @@ export async function failDelivery(deliveryId: string, failureReason: string): P
  * re-acquire. The external_message_id/failed_at guards ensure a concurrent
  * finalize is never clobbered.
  */
-export async function releaseDeliveryClaim(deliveryId: string): Promise<void> {
+export async function releaseDeliveryClaim(sql: Sql, deliveryId: string): Promise<void> {
   await sql`
     DELETE FROM notification_deliveries
     WHERE id = ${deliveryId} AND external_message_id IS NULL AND failed_at IS NULL

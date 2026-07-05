@@ -213,7 +213,7 @@ describe('NotificationWorker — Telegram flag gate', () => {
       // recordNotificationDelivery is mocked, no SQL row consumed for it
     );
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(mockSql, makeJob());
 
     // Telegram channel must NOT be contacted
     expect(mockGetChannel).not.toHaveBeenCalledWith('telegram');
@@ -245,7 +245,7 @@ describe('NotificationWorker — Telegram blocked recipient', () => {
       [],                   // telegram idempotency — proceed
     );
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(mockSql, makeJob());
 
     // Telegram enrollment must be flipped to unsubscribed in a transaction
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
@@ -268,7 +268,7 @@ describe('NotificationWorker — Telegram blocked recipient', () => {
     expect(updateValues).not.toContain('biz-1');
 
     // Claimed delivery flipped to failed for telegram
-    expect(mockFailDelivery).toHaveBeenCalledWith('pending-delivery-1', 'telegram_blocked');
+    expect(mockFailDelivery).toHaveBeenCalledWith(mockSql, 'pending-delivery-1', 'telegram_blocked');
 
     // Email must still succeed after telegram failure
     expect(mockEmailSend).toHaveBeenCalledTimes(1);
@@ -299,7 +299,7 @@ describe('NotificationWorker — Telegram chat not found', () => {
       [],                   // telegram idempotency — proceed
     );
 
-    await handleSendNotification(makeJob());
+    await handleSendNotification(mockSql, makeJob());
 
     // Telegram enrollment must be flipped to disabled in a transaction
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
@@ -326,7 +326,7 @@ describe('NotificationWorker — Telegram chat not found', () => {
     expect(updateValues).not.toContain('biz-1');
 
     // Claimed delivery flipped to failed for telegram
-    expect(mockFailDelivery).toHaveBeenCalledWith('pending-delivery-1', 'telegram_chat_not_found');
+    expect(mockFailDelivery).toHaveBeenCalledWith(mockSql, 'pending-delivery-1', 'telegram_chat_not_found');
 
     // Email must still succeed after telegram failure
     expect(mockEmailSend).toHaveBeenCalledTimes(1);

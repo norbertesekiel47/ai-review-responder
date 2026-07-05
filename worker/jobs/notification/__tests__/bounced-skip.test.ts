@@ -146,7 +146,7 @@ describe('NotificationWorker skips bounced owners', () => {
   it('skips approval email when owner_email_bounced is true', async () => {
     sqlFixtures.set(Q_NOTIFICATION_RESPONSE, [mockResponseRow()]);
     sqlFixtures.set(Q_NOTIFICATION_BUSINESS, [bouncedBusiness()]);
-    await handleSendNotification({
+    await handleSendNotification(mockSql, {
       id: 'job-1',
       data: { response_id: 'resp-1', business_id: 'biz-1', outbox_id: 'out-1' },
     } as any);
