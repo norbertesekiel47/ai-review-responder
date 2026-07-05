@@ -115,7 +115,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //    block the owner from re-signing up (signUp would return 422 next time)
   //    and leave the email permanently unusable until admin intervention.
   try {
-    await createBusinessTx(input, { mode: 'self_serve', authId });
+    await createBusinessTx(sql, input, { mode: 'self_serve', authId });
   } catch (err) {
     // Compensating cleanup — awaited so the in-flight delete completes before
     // the HTTP response returns. Delete failures are logged (inside

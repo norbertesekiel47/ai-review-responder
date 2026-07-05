@@ -54,7 +54,6 @@ export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([
   'src/lib/notifications/enrollments.ts',
   'src/lib/notifications/resolve-channels.ts',
   'src/lib/onboarding/admin-onboarding-service.ts',
-  'src/lib/onboarding/create-business.ts',
   'src/lib/past-replies/load-replies.ts',
   'src/lib/payments/create-checkout-session.ts',
   'src/lib/publishing/zernio-publisher.ts',

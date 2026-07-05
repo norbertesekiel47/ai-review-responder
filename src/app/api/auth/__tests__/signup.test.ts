@@ -182,6 +182,7 @@ describe('POST /api/auth/signup', () => {
     // identity fields. Business details (name, place ID, etc.) are
     // collected later via /api/onboarding/business after Stripe payment.
     expect(mockCreateBusinessTx).toHaveBeenCalledWith(
+      mockSql,
       {
         ownerEmail: 'owner@example.com',
         ownerName: 'Jane',
@@ -248,6 +249,7 @@ describe('POST /api/auth/signup', () => {
 
     expect(res.status).toBe(201);
     expect(mockCreateBusinessTx).toHaveBeenCalledWith(
+      mockSql,
       {
         ownerEmail: 'owner@example.com',
         ownerName: 'Jane',
@@ -277,6 +279,7 @@ describe('POST /api/auth/signup', () => {
 
     expect(res.status).toBe(201);
     expect(mockCreateBusinessTx).toHaveBeenCalledWith(
+      mockSql,
       {
         ownerEmail: 'owner@example.com',
         ownerName: 'Jane',
@@ -388,6 +391,7 @@ describe('POST /api/auth/signup', () => {
     const res = await POST(mkReq({ ...validBody, ownerPhone: '+1-555-0100' }));
     expect(res.status).toBe(201);
     expect(mockCreateBusinessTx).toHaveBeenCalledWith(
+      mockSql,
       {
         ownerEmail: 'owner@example.com',
         ownerName: 'Jane',

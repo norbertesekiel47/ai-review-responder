@@ -1,12 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Sql } from 'postgres';
+import {
+  createMockSql,
+  type MockSqlHarness,
+} from '../../../../worker/__tests__/helpers/mock-sql';
 
-const { mockSql } = vi.hoisted(() => {
-  const mockSql: any = vi.fn();
-  mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
-  return { mockSql };
-});
-
-vi.mock('@/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 
 import {
@@ -30,10 +28,17 @@ const selfServeInput: SelfServeBusinessTxInput = {
   ownerName: 'Jane',
 };
 
+let harness: MockSqlHarness;
+// createBusinessTx now takes `sql: Sql` as an explicit leading parameter —
+// the fragment-aware harness stands in for it. Cast once here, same
+// convention as src/lib/auth/__tests__/provision-auth-user.test.ts. Assertion
+// sites below still reach into `harness.mockSql.mock.calls` for the raw
+// TemplateStringsArray + bound-values introspection this suite relies on.
+let mockSql: Sql;
+
 beforeEach(() => {
-  mockSql.mockReset();
-  mockSql.mockResolvedValue([]);
-  mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
+  harness = createMockSql();
+  mockSql = harness.mockSql as unknown as Sql;
   // No more mockBuildPaymentLinkUrl — paymentUrl is always null now
 });
 
@@ -41,25 +46,25 @@ describe('createBusinessTx — admin mode', () => {
   it('writes users.auth_id=NULL and does NOT create outbox entry for placeIdVerified=true', async () => {
     // With placeIdVerified=true, no outbox row is inserted — review ingestion
     // is webhook-driven via Zernio. Only businesses + users + channel_enrollments are written.
-    const res = await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const res = await createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
     expect(res.businessId).toBeTruthy();
-    const calls = mockSql.mock.calls.map((c: any[]) => (c[0] as TemplateStringsArray).join('?'));
+    const calls = harness.mockSql.mock.calls.map((c: any[]) => (c[0] as TemplateStringsArray).join('?'));
     const outboxInsert = calls.find((t: string) => t.includes('INSERT INTO job_outbox'));
     expect(outboxInsert).toBeUndefined();
     const usersInsert = calls.find((t: string) => t.includes('INSERT INTO users'));
     expect(usersInsert).toBeDefined();
-    const usersCallArgs = mockSql.mock.calls.find((c: any[]) =>
+    const usersCallArgs = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO users'))!;
     // auth_id position in admin mode must be null (verified against args structure)
     expect(usersCallArgs).toContain(null);
   });
 
   it('does NOT enqueue sync_reviews when placeIdVerified=true (webhook-driven now)', async () => {
-    await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
-    const allArgs = mockSql.mock.calls.flat();
+    await createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const allArgs = harness.mockSql.mock.calls.flat();
     // sync_reviews must not appear anywhere in the call args or template text.
     expect(allArgs.some((v: unknown) => v === 'sync_reviews')).toBe(false);
-    const calls = mockSql.mock.calls.map((c: any[]) => (c[0] as TemplateStringsArray).join('?'));
+    const calls = harness.mockSql.mock.calls.map((c: any[]) => (c[0] as TemplateStringsArray).join('?'));
     expect(calls.some((t: string) => t.includes('sync_reviews'))).toBe(false);
   });
 
@@ -68,8 +73,8 @@ describe('createBusinessTx — admin mode', () => {
       ...adminInput,
       placeId: { placeIdVerified: false, googleMapsUrl: 'https://maps.google.com/?cid=1' },
     };
-    await createBusinessTx(input, { mode: 'admin', onboardedBy: 'admin-1' });
-    const outboxCall = mockSql.mock.calls.find((c: any[]) =>
+    await createBusinessTx(mockSql, input, { mode: 'admin', onboardedBy: 'admin-1' });
+    const outboxCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'))!;
     // Topic is an interpolated QUEUE_NAMES value, not a template literal —
     // check the bound values, not the raw strings array.
@@ -77,8 +82,8 @@ describe('createBusinessTx — admin mode', () => {
   });
 
   it('writes onboarded_by value to businesses row', async () => {
-    await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-xyz-123' });
-    const bizCall = mockSql.mock.calls.find((c: any[]) =>
+    await createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-xyz-123' });
+    const bizCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
     expect(bizCall.some((a: unknown) => a === 'admin-xyz-123')).toBe(true);
   });
@@ -86,27 +91,27 @@ describe('createBusinessTx — admin mode', () => {
 
 describe('createBusinessTx — self_serve mode', () => {
   it('writes users.auth_id=authId, placeholder businesses row, and skips outbox insert', async () => {
-    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
-    const calls = mockSql.mock.calls.map((c: any[]) => (c[0] as TemplateStringsArray).join('?'));
+    await createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
+    const calls = harness.mockSql.mock.calls.map((c: any[]) => (c[0] as TemplateStringsArray).join('?'));
     const outboxInsert = calls.find((t: string) => t.includes('INSERT INTO job_outbox'));
     expect(outboxInsert).toBeUndefined();
     const usersInsert = calls.find((t: string) => t.includes('INSERT INTO users'));
     expect(usersInsert).toBeDefined();
-    const usersCallArgs = mockSql.mock.calls.find((c: any[]) =>
+    const usersCallArgs = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO users'))!;
     expect(usersCallArgs.some((a: unknown) => a === 'auth-xyz')).toBe(true);
   });
 
   it('writes businesses.name as PLACEHOLDER_BUSINESS_NAME', async () => {
-    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
-    const bizCall = mockSql.mock.calls.find((c: any[]) =>
+    await createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
+    const bizCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
     expect(bizCall.some((a: unknown) => a === PLACEHOLDER_BUSINESS_NAME)).toBe(true);
   });
 
   it('writes NULL google_place_id and NULL google_maps_url on the placeholder row', async () => {
-    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
-    const bizCall = mockSql.mock.calls.find((c: any[]) =>
+    await createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
+    const bizCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
     // Both google_place_id and google_maps_url are interpolated as null;
     // ensure the values array contains at least two nulls (place id columns)
@@ -118,22 +123,22 @@ describe('createBusinessTx — self_serve mode', () => {
   });
 
   it('writes place_id_verified=false on the placeholder row', async () => {
-    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
-    const bizCall = mockSql.mock.calls.find((c: any[]) =>
+    await createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
+    const bizCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
     expect(bizCall.some((a: unknown) => a === false)).toBe(true);
   });
 
   it('does NOT enqueue outbox in self_serve mode', async () => {
-    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
-    const outboxCall = mockSql.mock.calls.find((c: any[]) =>
+    await createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
+    const outboxCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'));
     expect(outboxCall).toBeUndefined();
   });
 
   it('hardcodes subscription_tier=standard regardless of caller intent', async () => {
-    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
-    const bizCall = mockSql.mock.calls.find((c: any[]) =>
+    await createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
+    const bizCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
     expect(bizCall.some((a: unknown) => a === 'standard')).toBe(true);
   });
@@ -141,15 +146,19 @@ describe('createBusinessTx — self_serve mode', () => {
 
 describe('createBusinessTx — duplicate email', () => {
   it('throws DuplicateEmailError on PG 23505 against the users.email constraint', async () => {
-    mockSql.mockImplementation(() => {
-      const err: any = new Error('duplicate key');
-      err.code = '23505';
-      err.constraint_name = 'users_email_key';
-      throw err;
-    });
-    mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
+    const err: any = new Error('duplicate key');
+    err.code = '23505';
+    err.constraint_name = 'users_email_key';
+    // Pre-handled rejection queued for the first awaited tx query — same
+    // convention as src/lib/shared/__tests__/outbox.test.ts. Which specific
+    // INSERT "fails" doesn't matter here; this pins createBusinessTx's
+    // catch/rethrow policy, not statement ordering.
+    const rejected = Promise.reject(err);
+    rejected.catch(() => {});
+    harness.sqlReturnQueue.push(rejected);
+
     await expect(
-      createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' }),
+      createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'a' }),
     ).rejects.toThrow(DuplicateEmailError);
   });
 
@@ -163,38 +172,36 @@ describe('createBusinessTx — duplicate email', () => {
     );
     placeErr.code = '23505';
     placeErr.constraint_name = 'businesses_account_place_uniq';
-    mockSql.mockImplementation(() => {
-      throw placeErr;
-    });
-    mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
+    const rejected = Promise.reject(placeErr);
+    rejected.catch(() => {});
+    harness.sqlReturnQueue.push(rejected);
 
     await expect(
-      createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' }),
+      createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'a' }),
     ).rejects.toBe(placeErr);
   });
 
   it('re-throws non-23505 PG errors unchanged', async () => {
     const otherErr: any = new Error('connection timeout');
     otherErr.code = '08006';
-    mockSql.mockImplementation(() => {
-      throw otherErr;
-    });
-    mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
+    const rejected = Promise.reject(otherErr);
+    rejected.catch(() => {});
+    harness.sqlReturnQueue.push(rejected);
     await expect(
-      createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' }),
+      createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'a' }),
     ).rejects.toThrow('connection timeout');
   });
 });
 
 describe('createBusinessTx — field-name regression', () => {
   it('maps ownerName→users.name in self_serve mode', async () => {
-    await createBusinessTx(
+    await createBusinessTx(mockSql,
       { ...selfServeInput, ownerName: 'Jane-Owner' },
       { mode: 'self_serve', authId: 'a' },
     );
-    const bizCall = mockSql.mock.calls.find((c: any[]) =>
+    const bizCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
-    const userCall = mockSql.mock.calls.find((c: any[]) =>
+    const userCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO users'))!;
     // owner_name on businesses row + users.name both come from input.ownerName.
     expect(bizCall.some((a: unknown) => a === 'Jane-Owner')).toBe(true);
@@ -202,13 +209,13 @@ describe('createBusinessTx — field-name regression', () => {
   });
 
   it('maps businessName→businesses.name in admin mode', async () => {
-    await createBusinessTx(
+    await createBusinessTx(mockSql,
       { ...adminInput, businessName: 'Acme-Biz', ownerName: 'Jane-Owner' },
       { mode: 'admin', onboardedBy: 'a' },
     );
-    const bizCall = mockSql.mock.calls.find((c: any[]) =>
+    const bizCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
-    const userCall = mockSql.mock.calls.find((c: any[]) =>
+    const userCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO users'))!;
     expect(bizCall.some((a: unknown) => a === 'Acme-Biz')).toBe(true);
     expect(userCall.some((a: unknown) => a === 'Jane-Owner')).toBe(true);
@@ -217,13 +224,13 @@ describe('createBusinessTx — field-name regression', () => {
 
 describe('createBusinessTx — email normalization', () => {
   it('trims and lowercases ownerEmail before persisting (self_serve)', async () => {
-    await createBusinessTx(
+    await createBusinessTx(mockSql,
       { ...selfServeInput, ownerEmail: '  Owner@Example.COM  ' },
       { mode: 'self_serve', authId: 'a' },
     );
-    const bizCall = mockSql.mock.calls.find((c: any[]) =>
+    const bizCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
-    const userCall = mockSql.mock.calls.find((c: any[]) =>
+    const userCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO users'))!;
     expect(bizCall.some((a: unknown) => a === 'owner@example.com')).toBe(true);
     expect(userCall.some((a: unknown) => a === 'owner@example.com')).toBe(true);
@@ -232,8 +239,8 @@ describe('createBusinessTx — email normalization', () => {
 
 describe('createBusinessTx — channel_enrollments', () => {
   it('admin mode still inserts a verified email enrollment (admin-created accounts are pre-verified)', async () => {
-    await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
-    const enrollCall = mockSql.mock.calls.find((c: any[]) =>
+    await createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const enrollCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO channel_enrollments'))!;
     expect(enrollCall).toBeDefined();
     const enrollTemplate = (enrollCall[0] as TemplateStringsArray).join('?');
@@ -243,8 +250,8 @@ describe('createBusinessTx — channel_enrollments', () => {
   });
 
   it('self_serve mode does NOT insert channel_enrollments at signup time (deferred to /api/auth/verify-otp post-OTP)', async () => {
-    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' });
-    const enrollCall = mockSql.mock.calls.find((c: any[]) =>
+    await createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'a' });
+    const enrollCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO channel_enrollments'));
     expect(enrollCall).toBeUndefined();
   });
@@ -252,7 +259,7 @@ describe('createBusinessTx — channel_enrollments', () => {
 
 describe('createBusinessTx — result', () => {
   it('returns businessId, userId, accountId, and paymentUrl=null (checkout session created by select-plan)', async () => {
-    const res = await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' });
+    const res = await createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'a' });
     expect(res.businessId).toBeTruthy();
     expect(res.userId).toBeTruthy();
     expect(res.accountId).toBeTruthy();
@@ -262,7 +269,7 @@ describe('createBusinessTx — result', () => {
   });
 
   it('returns paymentUrl=null for admin mode too', async () => {
-    const res = await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const res = await createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
     expect(res.paymentUrl).toBeNull();
   });
 });
@@ -271,8 +278,8 @@ describe('createBusinessTx — result', () => {
 // tier-selected fields (locations_included, locations_overage_price_cents)
 describe('createBusinessTx — tier config fields in accounts row', () => {
   it('admin mode: sets locations_included=1 and locations_overage_price_cents=2500 for standard tier', async () => {
-    await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
-    const accountsCall = mockSql.mock.calls.find((c: any[]) =>
+    await createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const accountsCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
     // Standard tier: included=1, overageCents=2500
     expect(accountsCall.some((a: unknown) => a === 1)).toBe(true);
@@ -285,8 +292,8 @@ describe('createBusinessTx — tier config fields in accounts row', () => {
       ...adminInput,
       subscriptionTier: 'premium' as 'founders' | 'standard' | 'premium',
     };
-    await createBusinessTx(premiumInput as AdminBusinessTxInput, { mode: 'admin', onboardedBy: 'admin-1' });
-    const accountsCall = mockSql.mock.calls.find((c: any[]) =>
+    await createBusinessTx(mockSql, premiumInput as AdminBusinessTxInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const accountsCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
     // Premium tier: included=5, overageCents=2000
     expect(accountsCall.some((a: unknown) => a === 5)).toBe(true);
@@ -299,8 +306,8 @@ describe('createBusinessTx — tier config fields in accounts row', () => {
       ...adminInput,
       subscriptionTier: 'basic' as any,
     };
-    await createBusinessTx(basicInput, { mode: 'admin', onboardedBy: 'admin-1' });
-    const accountsCall = mockSql.mock.calls.find((c: any[]) =>
+    await createBusinessTx(mockSql, basicInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const accountsCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
     // Basic tier: included=1, overageCents=0
     expect(accountsCall.some((a: unknown) => a === 1)).toBe(true);
@@ -309,8 +316,8 @@ describe('createBusinessTx — tier config fields in accounts row', () => {
   });
 
   it('self_serve mode: sets locations_included=1 and locations_overage_price_cents=2500 for standard tier', async () => {
-    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
-    const accountsCall = mockSql.mock.calls.find((c: any[]) =>
+    await createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
+    const accountsCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
     // Self-serve defaults to standard: included=1, overageCents=2500
     expect(accountsCall.some((a: unknown) => a === 1)).toBe(true);
@@ -319,8 +326,8 @@ describe('createBusinessTx — tier config fields in accounts row', () => {
   });
 
   it('accounts INSERT includes locations_included and locations_overage_price_cents columns', async () => {
-    await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
-    const accountsCall = mockSql.mock.calls.find((c: any[]) =>
+    await createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const accountsCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
     const template = (accountsCall[0] as TemplateStringsArray).join('?');
     expect(template).toContain('locations_included');
@@ -339,8 +346,8 @@ describe('createBusinessTx — tier config fields in accounts row', () => {
 // legitimately return a null account_id.
 describe('createBusinessTx — account_id regression (users row always non-null)', () => {
   it('self_serve mode: users INSERT carries a non-null account_id', async () => {
-    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
-    const usersCallArgs = mockSql.mock.calls.find((c: any[]) =>
+    await createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
+    const usersCallArgs = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO users'))!;
     // Column order is (id, auth_id, name, email, phone, role, account_id) with
     // 'owner' written as a literal (not bound) — account_id is therefore the
@@ -352,8 +359,8 @@ describe('createBusinessTx — account_id regression (users row always non-null)
   });
 
   it('admin mode: users INSERT carries a non-null account_id', async () => {
-    await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
-    const usersCallArgs = mockSql.mock.calls.find((c: any[]) =>
+    await createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const usersCallArgs = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO users'))!;
     const accountIdArg = usersCallArgs.at(-1);
     expect(accountIdArg).not.toBeNull();

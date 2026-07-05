@@ -171,7 +171,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let businessId: string;
   let accountId: string;
   try {
-    const result = await createBusinessTx(input, { mode: 'self_serve', authId });
+    const result = await createBusinessTx(sql, input, { mode: 'self_serve', authId });
     businessId = result.businessId;
     accountId = result.accountId;
   } catch (err) {

@@ -1,5 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
@@ -99,10 +99,12 @@ export interface CreateBusinessResult {
 }
 
 export async function createBusinessTx(
+  sql: Sql,
   input: AdminBusinessTxInput,
   options: { mode: 'admin'; onboardedBy: string },
 ): Promise<CreateBusinessResult>;
 export async function createBusinessTx(
+  sql: Sql,
   input: SelfServeBusinessTxInput,
   options: { mode: 'self_serve'; authId: string },
 ): Promise<CreateBusinessResult>;
@@ -125,8 +127,12 @@ export async function createBusinessTx(
  *
  * On PG 23505 (unique_violation, typically users.email), throws
  * DuplicateEmailError so the caller can return 409.
+ *
+ * @param sql Postgres.js client (composition root supplies the singleton —
+ *   this module never imports @/lib/db/server).
  */
 export async function createBusinessTx(
+  sql: Sql,
   input: AdminBusinessTxInput | SelfServeBusinessTxInput,
   options: CreateBusinessOptions,
 ): Promise<CreateBusinessResult> {
@@ -157,7 +163,7 @@ export async function createBusinessTx(
   try {
     if (options.mode === 'admin') {
       const adminInput = input as AdminBusinessTxInput;
-      await runAdminTx({
+      await runAdminTx(sql, {
         adminInput,
         accountId,
         businessId,
@@ -167,7 +173,7 @@ export async function createBusinessTx(
       });
     } else {
       const selfServeInput = input as SelfServeBusinessTxInput;
-      await runSelfServeTx({
+      await runSelfServeTx(sql, {
         selfServeInput,
         accountId,
         businessId,
@@ -186,14 +192,17 @@ export async function createBusinessTx(
   return { businessId, userId, accountId, paymentUrl };
 }
 
-async function runAdminTx(args: {
-  adminInput: AdminBusinessTxInput;
-  accountId: string;
-  businessId: string;
-  userId: string;
-  ownerEmail: string;
-  onboardedBy: string;
-}): Promise<void> {
+async function runAdminTx(
+  sql: Sql,
+  args: {
+    adminInput: AdminBusinessTxInput;
+    accountId: string;
+    businessId: string;
+    userId: string;
+    ownerEmail: string;
+    onboardedBy: string;
+  },
+): Promise<void> {
   const { adminInput, accountId, businessId, userId, ownerEmail, onboardedBy } = args;
 
   const placeId = adminInput.placeId.placeIdVerified
@@ -314,7 +323,7 @@ async function runAdminTx(args: {
           ${QUEUE_NAMES.VALIDATE_PLACE_ID},
           'business',
           ${businessId},
-          ${jsonb(payload)},
+          ${tx.json(payload as never)},
           'pending'
         )
       `;
@@ -322,14 +331,17 @@ async function runAdminTx(args: {
   });
 }
 
-async function runSelfServeTx(args: {
-  selfServeInput: SelfServeBusinessTxInput;
-  accountId: string;
-  businessId: string;
-  userId: string;
-  ownerEmail: string;
-  authId: string;
-}): Promise<void> {
+async function runSelfServeTx(
+  sql: Sql,
+  args: {
+    selfServeInput: SelfServeBusinessTxInput;
+    accountId: string;
+    businessId: string;
+    userId: string;
+    ownerEmail: string;
+    authId: string;
+  },
+): Promise<void> {
   const { selfServeInput, accountId, businessId, userId, ownerEmail, authId } = args;
 
   await sql.begin(async (tx) => {

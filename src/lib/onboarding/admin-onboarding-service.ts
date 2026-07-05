@@ -247,7 +247,7 @@ export async function onboardBusinessAsAdmin(
 
   let createdResult: Awaited<ReturnType<typeof createBusinessTx>>;
   try {
-    createdResult = await createBusinessTx(txInput, {
+    createdResult = await createBusinessTx(sql, txInput, {
       mode: 'admin',
       onboardedBy: input.onboardedBy,
     });
