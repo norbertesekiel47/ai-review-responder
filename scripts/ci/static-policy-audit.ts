@@ -176,7 +176,7 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   //    each keeps the literal + a trailing `-- enum: SubscriptionStatus.X` comment) ──
   'src/app/api/admin/billing/grant-extension/route.ts:70',
   'src/app/api/admin/billing/grant-extension/route.ts:108',
-  'src/lib/admin/margin-service.ts:136',
+  'src/lib/admin/margin-service.ts:137',
   'worker/background/pollers/CancellationGracePoller.ts:46',
   'worker/background/pollers/EmailChannelReconcilePoller.ts:124',
   'worker/background/pollers/EngagementMonitorPoller.ts:91',

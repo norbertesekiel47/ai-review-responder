@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { sql } from '@/lib/db/server';
 import { UpdateBusinessSchema } from '@/lib/shared/schemas';
 import { asLocationId } from '@/lib/shared/ids';
 import type { LocationId } from '@/lib/shared/ids';
@@ -29,7 +30,7 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   try {
-    const detail = await getBusinessDetail(businessId);
+    const detail = await getBusinessDetail(sql, businessId);
     if (!detail) {
       return NextResponse.json({ error: 'Business not found' }, { status: 404 });
     }
@@ -88,7 +89,7 @@ async function patchBusiness(
   }
 
   try {
-    await updateBusiness(businessId, data);
+    await updateBusiness(sql, businessId, data);
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof AdminBusinessNotFoundError) {

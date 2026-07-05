@@ -13,6 +13,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { sql } from '@/lib/db/server';
 import { createOffboardingGate, isBillingMutationBlocked } from '@/lib/account-offboarding/gate';
 import { assertCanAddLocation } from '@/lib/accounts/quota';
 import { reactivateLocationTransaction } from '@/lib/locations/archive-location-tx';
@@ -93,7 +94,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // VAL-LOC-072: Check quota — for multi-location accounts, reactivation
   // always succeeds with automatic overage billing
-  const quotaCheck = await assertCanAddLocation(accountId);
+  const quotaCheck = await assertCanAddLocation(sql, accountId);
 
   if (!quotaCheck.allowed) {
     return NextResponse.json(
@@ -103,7 +104,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // Get actor user ID for audit log
-  const actorUserId = await getAccountOwnerUserId(accountId);
+  const actorUserId = await getAccountOwnerUserId(sql, accountId);
 
   // Execute the reactivation transaction
   try {

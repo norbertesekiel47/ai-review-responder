@@ -3,17 +3,13 @@
 // TDD assertions for src/lib/accounts/repo.ts.
 // Tests: getAccountById, getAccountOwnerUserId.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
+import type { Sql } from 'postgres';
+import { createMockSql, type MockSqlHarness } from '../../../../worker/__tests__/helpers/mock-sql';
 
-// ── Hoisted mock for sql ────────────────────────────────────────────────
-
-const { mockSql } = vi.hoisted(() => ({
-  mockSql: vi.fn(),
-}));
-
-vi.mock('@/lib/db/server', () => ({
-  sql: mockSql,
-}));
+// repo.ts is born-injected (sql is a parameter, A+ campaign PR 2b), so
+// @/lib/db/server no longer needs mocking here — the fragment-aware
+// createMockSql harness stands in for `sql` directly.
 
 import { getAccountById, getAccountOwnerUser, getAccountOwnerUserId } from '../repo';
 
@@ -46,9 +42,12 @@ function mkAccountRow(overrides: Record<string, unknown> = {}) {
 
 // ── Test setup ───────────────────────────────────────────────────────────────
 
+let harness: MockSqlHarness;
+let mockSql: Sql;
+
 beforeEach(() => {
-  mockSql.mockReset();
-  mockSql.mockResolvedValue([]);
+  harness = createMockSql();
+  mockSql = harness.mockSql as unknown as Sql;
 });
 
 // ── getAccountById ──────────────────────────────────────────────────────────
@@ -56,9 +55,9 @@ beforeEach(() => {
 describe('getAccountById', () => {
   it('returns account when it exists', async () => {
     const accountRow = mkAccountRow();
-    mockSql.mockResolvedValueOnce([accountRow]);
+    harness.sqlReturnQueue.push([accountRow]);
 
-    const result = await getAccountById(ACCOUNT_ID);
+    const result = await getAccountById(mockSql, ACCOUNT_ID);
 
     expect(result).toBeDefined();
     expect(result!.id).toBe(ACCOUNT_ID);
@@ -71,32 +70,32 @@ describe('getAccountById', () => {
   });
 
   it('returns null when account does not exist', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    harness.sqlReturnQueue.push([]);
 
-    const result = await getAccountById('00000000-0000-7f00-8000-000000000000');
+    const result = await getAccountById(mockSql, '00000000-0000-7f00-8000-000000000000');
 
     expect(result).toBeNull();
   });
 
   it('returns all account fields including flags', async () => {
     const accountRow = mkAccountRow({ flags: { some_flag: true } });
-    mockSql.mockResolvedValueOnce([accountRow]);
+    harness.sqlReturnQueue.push([accountRow]);
 
-    const result = await getAccountById(ACCOUNT_ID);
+    const result = await getAccountById(mockSql, ACCOUNT_ID);
 
     expect(result!.flags).toEqual({ some_flag: true });
   });
 
   it('queries accounts table by id', async () => {
-    mockSql.mockResolvedValueOnce([mkAccountRow()]);
+    harness.sqlReturnQueue.push([mkAccountRow()]);
 
-    await getAccountById(ACCOUNT_ID);
+    await getAccountById(mockSql, ACCOUNT_ID);
 
-    const call = mockSql.mock.calls[0];
-    const template = (call![0] as TemplateStringsArray).join('?');
-    expect(template).toContain('FROM accounts');
-    expect(template).toContain('WHERE id =');
-    expect(template).toContain('base_price_cents');
+    const call = harness.sqlCalls[0];
+    expect(call).toBeDefined();
+    expect(call!.text).toContain('FROM accounts');
+    expect(call!.text).toContain('WHERE id =');
+    expect(call!.text).toContain('base_price_cents');
   });
 
   it('returns account with null stripe_customer_id', async () => {
@@ -104,9 +103,9 @@ describe('getAccountById', () => {
       stripe_customer_id: null,
       stripe_subscription_id: null,
     });
-    mockSql.mockResolvedValueOnce([accountRow]);
+    harness.sqlReturnQueue.push([accountRow]);
 
-    const result = await getAccountById(ACCOUNT_ID);
+    const result = await getAccountById(mockSql, ACCOUNT_ID);
 
     expect(result!.stripe_customer_id).toBeNull();
     expect(result!.stripe_subscription_id).toBeNull();
@@ -118,9 +117,9 @@ describe('getAccountById', () => {
       locations_included: 5,
       locations_overage_price_cents: 2000,
     });
-    mockSql.mockResolvedValueOnce([accountRow]);
+    harness.sqlReturnQueue.push([accountRow]);
 
-    const result = await getAccountById(ACCOUNT_ID);
+    const result = await getAccountById(mockSql, ACCOUNT_ID);
 
     expect(result!.subscription_tier).toBe('premium');
     expect(result!.locations_included).toBe(5);
@@ -132,42 +131,42 @@ describe('getAccountById', () => {
 
 describe('getAccountOwnerUserId', () => {
   it('returns owner_user_id when account exists', async () => {
-    mockSql.mockResolvedValueOnce([{ owner_user_id: OWNER_USER_ID }]);
+    harness.sqlReturnQueue.push([{ owner_user_id: OWNER_USER_ID }]);
 
-    const result = await getAccountOwnerUserId(ACCOUNT_ID);
+    const result = await getAccountOwnerUserId(mockSql, ACCOUNT_ID);
 
     expect(result).toBe(OWNER_USER_ID);
   });
 
   it('returns null when account does not exist', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    harness.sqlReturnQueue.push([]);
 
-    const result = await getAccountOwnerUserId('00000000-0000-7f00-8000-000000000000');
+    const result = await getAccountOwnerUserId(mockSql, '00000000-0000-7f00-8000-000000000000');
 
     expect(result).toBeNull();
   });
 
   it('queries only the owner_user_id column', async () => {
-    mockSql.mockResolvedValueOnce([{ owner_user_id: OWNER_USER_ID }]);
+    harness.sqlReturnQueue.push([{ owner_user_id: OWNER_USER_ID }]);
 
-    await getAccountOwnerUserId(ACCOUNT_ID);
+    await getAccountOwnerUserId(mockSql, ACCOUNT_ID);
 
-    const call = mockSql.mock.calls[0];
-    const template = (call![0] as TemplateStringsArray).join('?');
-    expect(template).toContain('owner_user_id');
-    expect(template).toContain('FROM accounts');
+    const call = harness.sqlCalls[0];
+    expect(call).toBeDefined();
+    expect(call!.text).toContain('owner_user_id');
+    expect(call!.text).toContain('FROM accounts');
   });
 });
 
 describe('getAccountOwnerUser', () => {
   it('returns owner identity when account owner exists', async () => {
-    mockSql.mockResolvedValueOnce([{
+    harness.sqlReturnQueue.push([{
       id: OWNER_USER_ID,
       name: 'Test Owner',
       email: 'owner@test.com',
     }]);
 
-    const result = await getAccountOwnerUser(ACCOUNT_ID);
+    const result = await getAccountOwnerUser(mockSql, ACCOUNT_ID);
 
     expect(result).toEqual({
       id: OWNER_USER_ID,
@@ -177,22 +176,22 @@ describe('getAccountOwnerUser', () => {
   });
 
   it('returns null when account owner does not exist', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    harness.sqlReturnQueue.push([]);
 
-    const result = await getAccountOwnerUser('00000000-0000-7f00-8000-000000000000');
+    const result = await getAccountOwnerUser(mockSql, '00000000-0000-7f00-8000-000000000000');
 
     expect(result).toBeNull();
   });
 
   it('joins accounts to users by owner_user_id', async () => {
-    mockSql.mockResolvedValueOnce([{ id: OWNER_USER_ID, name: 'Test Owner', email: 'owner@test.com' }]);
+    harness.sqlReturnQueue.push([{ id: OWNER_USER_ID, name: 'Test Owner', email: 'owner@test.com' }]);
 
-    await getAccountOwnerUser(ACCOUNT_ID);
+    await getAccountOwnerUser(mockSql, ACCOUNT_ID);
 
-    const call = mockSql.mock.calls[0];
-    const template = (call![0] as TemplateStringsArray).join('?');
-    expect(template).toContain('FROM accounts');
-    expect(template).toContain('JOIN users');
-    expect(template).toContain('owner_user_id');
+    const call = harness.sqlCalls[0];
+    expect(call).toBeDefined();
+    expect(call!.text).toContain('FROM accounts');
+    expect(call!.text).toContain('JOIN users');
+    expect(call!.text).toContain('owner_user_id');
   });
 });

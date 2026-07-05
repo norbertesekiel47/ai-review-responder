@@ -11,6 +11,10 @@ import { NextRequest } from 'next/server';
 const { mockSql, mockRequireRole, mockRequireCurrentAal2FromSupabase } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
   sqlFn.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(sqlFn));
+  // Stand-in for Postgres.js's sql.json(value) — writeCsvImportAuditLog now
+  // calls the injected client's .json directly instead of the @/lib/db/server
+  // jsonb() helper (A+ campaign 2b, T4 / 2z).
+  sqlFn.json = vi.fn((v: unknown) => v);
   return {
     mockSql: sqlFn,
     mockRequireRole: vi.fn(),

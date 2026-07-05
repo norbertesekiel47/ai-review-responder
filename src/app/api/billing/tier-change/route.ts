@@ -12,6 +12,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { sql } from '@/lib/db/server';
 import { getOffboardingState, isBillingMutationBlocked } from '@/lib/account-offboarding/gate';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import {
@@ -91,7 +92,7 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const validation = await validateTierChange(accountId, tier);
+  const validation = await validateTierChange(sql, accountId, tier);
   if (!validation.allowed) {
     return NextResponse.json(
       { error: validation.reason ?? 'tier_change_not_allowed' },
@@ -111,7 +112,7 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const outcome = await applyTierChange({
+  const outcome = await applyTierChange(sql, {
     accountId,
     tier,
     newOverageUnits: validation.newBillingPreview?.overageUnits ?? 0,

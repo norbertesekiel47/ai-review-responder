@@ -33,6 +33,11 @@ vi.mock('@/lib/db/auth', () => {
 const { mockSql } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
   sqlFn.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(sqlFn));
+  // applyTierChange now takes sql/tx as an explicit leading param (A+ campaign
+  // PR 2b) and persistTierChangeTx calls the injected client's tx.json(...)
+  // in place of the old jsonb() import — stand in with an identity pass-through,
+  // matching the real Postgres.js sql.json semantics used elsewhere.
+  sqlFn.json = vi.fn((v: unknown) => v);
   return { mockSql: sqlFn };
 });
 

@@ -5,20 +5,14 @@
 // Validation contract: VAL-BILLING-017 through VAL-BILLING-027,
 // VAL-LOC-001 through VAL-LOC-006.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
+import type { Sql } from 'postgres';
+import { createMockSql, type MockSqlHarness } from '../../../../worker/__tests__/helpers/mock-sql';
 import type { SubscriptionTierValue } from '../tier-config';
 
-// ── Hoisted mock for sql ────────────────────────────────────────────────
-// Must be hoisted so vi.mock factory can reference it at the top of the file.
-
-const { mockSql } = vi.hoisted(() => ({
-  mockSql: vi.fn(),
-}));
-
-vi.mock('@/lib/db/server', () => ({
-  sql: mockSql,
-  jsonb: (v: unknown) => v,
-}));
+// quota.ts is born-injected (sql is a parameter, A+ campaign PR 2b), so
+// @/lib/db/server no longer needs mocking here — the fragment-aware
+// createMockSql harness stands in for `sql` directly.
 
 import {
   computeOverageQuantity,
@@ -84,12 +78,17 @@ describe('computeOverageQuantity', () => {
   });
 });
 
-// ── currentBillingSnapshot ─────────────────────────────────────────────────
+// ── Shared sql harness ────────────────────────────────────────────────────
+
+let harness: MockSqlHarness;
+let mockSql: Sql;
 
 beforeEach(() => {
-  mockSql.mockReset();
-  mockSql.mockResolvedValue([]);
+  harness = createMockSql();
+  mockSql = harness.mockSql as unknown as Sql;
 });
+
+// ── currentBillingSnapshot ─────────────────────────────────────────────────
 
 // Helper to build the account row that currentBillingSnapshot expects
 function mockAccountRow(
@@ -118,13 +117,13 @@ describe('currentBillingSnapshot', () => {
   it('returns correct snapshot for standard tier with overage', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     // First query returns account row
-    mockSql.mockResolvedValueOnce([
+    harness.sqlReturnQueue.push([
       mockAccountRow('standard', 1, 3),
     ]);
     // Second query returns active location count
-    mockSql.mockResolvedValueOnce(mockLocationCount(4));
+    harness.sqlReturnQueue.push(mockLocationCount(4));
 
-    const snapshot = await currentBillingSnapshot(accountId);
+    const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
     expect(snapshot.basePriceCents).toBe(7900);
     expect(snapshot.includedLocations).toBe(1);
@@ -135,12 +134,12 @@ describe('currentBillingSnapshot', () => {
 
   it('uses stored included quota for standard snapshot below custom quota', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([
+    harness.sqlReturnQueue.push([
       mockAccountRow('standard', 3, 0),
     ]);
-    mockSql.mockResolvedValueOnce(mockLocationCount(2));
+    harness.sqlReturnQueue.push(mockLocationCount(2));
 
-    const snapshot = await currentBillingSnapshot(accountId);
+    const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
     expect(snapshot.basePriceCents).toBe(7900);
     expect(snapshot.includedLocations).toBe(3);
@@ -151,12 +150,12 @@ describe('currentBillingSnapshot', () => {
 
   it('uses stored included quota for standard snapshot above custom quota', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([
+    harness.sqlReturnQueue.push([
       mockAccountRow('standard', 3, 0),
     ]);
-    mockSql.mockResolvedValueOnce(mockLocationCount(5));
+    harness.sqlReturnQueue.push(mockLocationCount(5));
 
-    const snapshot = await currentBillingSnapshot(accountId);
+    const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
     expect(snapshot.basePriceCents).toBe(7900);
     expect(snapshot.includedLocations).toBe(3);
@@ -167,12 +166,12 @@ describe('currentBillingSnapshot', () => {
 
   it('uses stored overage price for standard snapshot totals', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([
+    harness.sqlReturnQueue.push([
       mockAccountRow('standard', 1, 0, 3000),
     ]);
-    mockSql.mockResolvedValueOnce(mockLocationCount(3));
+    harness.sqlReturnQueue.push(mockLocationCount(3));
 
-    const snapshot = await currentBillingSnapshot(accountId);
+    const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
     expect(snapshot.basePriceCents).toBe(7900);
     expect(snapshot.includedLocations).toBe(1);
@@ -184,12 +183,12 @@ describe('currentBillingSnapshot', () => {
   // VAL-BILLING-025 — basic tier, no overage
   it('returns no overage for basic tier', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([
+    harness.sqlReturnQueue.push([
       mockAccountRow('basic', 1, 0),
     ]);
-    mockSql.mockResolvedValueOnce(mockLocationCount(1));
+    harness.sqlReturnQueue.push(mockLocationCount(1));
 
-    const snapshot = await currentBillingSnapshot(accountId);
+    const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
     expect(snapshot.basePriceCents).toBe(2900);
     expect(snapshot.includedLocations).toBe(1);
@@ -201,12 +200,12 @@ describe('currentBillingSnapshot', () => {
   // VAL-BILLING-026 — premium tier with 5 included
   it('returns correct snapshot for premium tier with 5 included', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([
+    harness.sqlReturnQueue.push([
       mockAccountRow('premium', 5, 0),
     ]);
-    mockSql.mockResolvedValueOnce(mockLocationCount(7));
+    harness.sqlReturnQueue.push(mockLocationCount(7));
 
-    const snapshot = await currentBillingSnapshot(accountId);
+    const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
     expect(snapshot.basePriceCents).toBe(19900);
     expect(snapshot.includedLocations).toBe(5);
@@ -218,12 +217,12 @@ describe('currentBillingSnapshot', () => {
   // VAL-BILLING-027 — founders tier
   it('returns correct snapshot for founders tier', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([
+    harness.sqlReturnQueue.push([
       mockAccountRow('founders', 1, 0),
     ]);
-    mockSql.mockResolvedValueOnce(mockLocationCount(3));
+    harness.sqlReturnQueue.push(mockLocationCount(3));
 
-    const snapshot = await currentBillingSnapshot(accountId);
+    const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
     expect(snapshot.basePriceCents).toBe(1900);
     expect(snapshot.includedLocations).toBe(1);
@@ -234,7 +233,7 @@ describe('currentBillingSnapshot', () => {
 
   it('throws for unknown tier', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([
+    harness.sqlReturnQueue.push([
       {
         subscription_tier: 'enterprise',
         locations_included: 1,
@@ -242,30 +241,30 @@ describe('currentBillingSnapshot', () => {
         locations_overage_price_cents: 2500,
       },
     ]);
-    mockSql.mockResolvedValueOnce(mockLocationCount(1));
+    harness.sqlReturnQueue.push(mockLocationCount(1));
 
-    await expect(currentBillingSnapshot(accountId)).rejects.toThrow(
+    await expect(currentBillingSnapshot(mockSql, accountId)).rejects.toThrow(
       /unknown subscription tier/i,
     );
   });
 
   it('throws when account not found', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([]); // no account found
+    harness.sqlReturnQueue.push([]); // no account found
 
-    await expect(currentBillingSnapshot(accountId)).rejects.toThrow(
+    await expect(currentBillingSnapshot(mockSql, accountId)).rejects.toThrow(
       /account not found/i,
     );
   });
 
   it('basic tier with 0 overage even if extra locations exist (impossible scenario, but tested)', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([
+    harness.sqlReturnQueue.push([
       mockAccountRow('basic', 1, 0),
     ]);
-    mockSql.mockResolvedValueOnce(mockLocationCount(3));
+    harness.sqlReturnQueue.push(mockLocationCount(3));
 
-    const snapshot = await currentBillingSnapshot(accountId);
+    const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
     // Basic tier has overageCents=0 and multiLocAllowed=false
     // The snapshot reports 0 overage regardless
@@ -278,12 +277,12 @@ describe('currentBillingSnapshot', () => {
   it('reads stored base_price_cents, not live TIER_CONFIG (founders price-lock)', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     // Founders row whose STORED base (1500) differs from TIER_CONFIG.founders.baseCents (1900).
-    mockSql.mockResolvedValueOnce([
+    harness.sqlReturnQueue.push([
       mockAccountRow('founders', 1, 0, 2500, 1500),
     ]);
-    mockSql.mockResolvedValueOnce(mockLocationCount(3)); // 2 overage units
+    harness.sqlReturnQueue.push(mockLocationCount(3)); // 2 overage units
 
-    const snapshot = await currentBillingSnapshot(accountId);
+    const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
     expect(snapshot.basePriceCents).toBe(1500);
     expect(snapshot.totalCents).toBe(1500 + 2 * 2500);
@@ -292,12 +291,12 @@ describe('currentBillingSnapshot', () => {
   it('reads stored base_price_cents for a no-overage (basic) snapshot', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     // Basic row with a stored base (2600) different from config (2900).
-    mockSql.mockResolvedValueOnce([
+    harness.sqlReturnQueue.push([
       mockAccountRow('basic', 1, 0, 0, 2600),
     ]);
-    mockSql.mockResolvedValueOnce(mockLocationCount(1));
+    harness.sqlReturnQueue.push(mockLocationCount(1));
 
-    const snapshot = await currentBillingSnapshot(accountId);
+    const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
     expect(snapshot.basePriceCents).toBe(2600);
     expect(snapshot.totalCents).toBe(2600);
@@ -331,9 +330,9 @@ describe('assertCanAddLocation', () => {
   it('rejects basic tier accounts (multiLocAllowed = false)', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     // Account eligibility read
-    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'basic', status: 'active' })]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'basic', status: 'active' })]);
 
-    const result = await assertCanAddLocation(accountId);
+    const result = await assertCanAddLocation(mockSql, accountId);
 
     expect(result.allowed).toBe(false);
     if (!result.allowed) {
@@ -348,9 +347,9 @@ describe('assertCanAddLocation', () => {
     for (const status of inactiveStatuses) {
       it(`rejects when subscription_status = '${status}'`, async () => {
         const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-        mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ status })]);
+        harness.sqlReturnQueue.push([mockQuotaAccountRow({ status })]);
 
-        const result = await assertCanAddLocation(accountId);
+        const result = await assertCanAddLocation(mockSql, accountId);
 
         expect(result.allowed).toBe(false);
         if (!result.allowed) {
@@ -366,11 +365,11 @@ describe('assertCanAddLocation', () => {
   it('at quota boundary (standard, 1 included, 0 paid, 1 active): allows with overage', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     // Account eligibility read
-    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1, locationsPaid: 0 })]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1, locationsPaid: 0 })]);
     // Location count query
-    mockSql.mockResolvedValueOnce([{ count: 1 }]);
+    harness.sqlReturnQueue.push([{ count: 1 }]);
 
-    const result = await assertCanAddLocation(accountId);
+    const result = await assertCanAddLocation(mockSql, accountId);
 
     expect(result.allowed).toBe(true);
     if (result.allowed) {
@@ -385,10 +384,10 @@ describe('assertCanAddLocation', () => {
   it('at quota boundary when locations_included + locations_paid == active count: allows with overage', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     // Standard tier: 1 included, 2 paid, 3 active locations → at quota
-    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1, locationsPaid: 2 })]);
-    mockSql.mockResolvedValueOnce([{ count: 3 }]); // 1 + 2 = 3 active
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1, locationsPaid: 2 })]);
+    harness.sqlReturnQueue.push([{ count: 3 }]); // 1 + 2 = 3 active
 
-    const result = await assertCanAddLocation(accountId);
+    const result = await assertCanAddLocation(mockSql, accountId);
 
     expect(result.allowed).toBe(true);
     if (result.allowed) {
@@ -400,10 +399,10 @@ describe('assertCanAddLocation', () => {
   // VAL-LOC-004: allows add when within quota
   it('allows add when within quota (premium, 5 included, 3 active)', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'premium', locationsIncluded: 5, locationsPaid: 0 })]);
-    mockSql.mockResolvedValueOnce([{ count: 3 }]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'premium', locationsIncluded: 5, locationsPaid: 0 })]);
+    harness.sqlReturnQueue.push([{ count: 3 }]);
 
-    const result = await assertCanAddLocation(accountId);
+    const result = await assertCanAddLocation(mockSql, accountId);
 
     expect(result.allowed).toBe(true);
     if (result.allowed) {
@@ -413,10 +412,10 @@ describe('assertCanAddLocation', () => {
 
   it('uses stored standard included quota when adding the second location', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 3, locationsPaid: 0 })]);
-    mockSql.mockResolvedValueOnce([{ count: 1 }]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 3, locationsPaid: 0 })]);
+    harness.sqlReturnQueue.push([{ count: 1 }]);
 
-    const result = await assertCanAddLocation(accountId);
+    const result = await assertCanAddLocation(mockSql, accountId);
 
     expect(result.allowed).toBe(true);
     if (result.allowed) {
@@ -426,10 +425,10 @@ describe('assertCanAddLocation', () => {
 
   it('uses stored standard included quota when adding the third location', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 3, locationsPaid: 0 })]);
-    mockSql.mockResolvedValueOnce([{ count: 2 }]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 3, locationsPaid: 0 })]);
+    harness.sqlReturnQueue.push([{ count: 2 }]);
 
-    const result = await assertCanAddLocation(accountId);
+    const result = await assertCanAddLocation(mockSql, accountId);
 
     expect(result.allowed).toBe(true);
     if (result.allowed) {
@@ -439,10 +438,10 @@ describe('assertCanAddLocation', () => {
 
   it('uses stored standard included quota when reporting overage above the custom quota', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 3, locationsPaid: 0 })]);
-    mockSql.mockResolvedValueOnce([{ count: 5 }]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 3, locationsPaid: 0 })]);
+    harness.sqlReturnQueue.push([{ count: 5 }]);
 
-    const result = await assertCanAddLocation(accountId);
+    const result = await assertCanAddLocation(mockSql, accountId);
 
     expect(result.allowed).toBe(true);
     if (result.allowed) {
@@ -453,10 +452,10 @@ describe('assertCanAddLocation', () => {
   // VAL-LOC-005: allows add with overage when above included quota but sub is active
   it('allows add with overage when above included quota (standard, 1 included, 0 paid, 1 active)', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1, locationsPaid: 0 })]);
-    mockSql.mockResolvedValueOnce([{ count: 1 }]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1, locationsPaid: 0 })]);
+    harness.sqlReturnQueue.push([{ count: 1 }]);
 
-    const result = await assertCanAddLocation(accountId);
+    const result = await assertCanAddLocation(mockSql, accountId);
 
     expect(result.allowed).toBe(true);
     if (result.allowed) {
@@ -467,10 +466,10 @@ describe('assertCanAddLocation', () => {
   // Premium tier with overage
   it('allows add with overage for premium at quota (5 included, 5 active)', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'premium', locationsIncluded: 5, locationsPaid: 0 })]);
-    mockSql.mockResolvedValueOnce([{ count: 5 }]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'premium', locationsIncluded: 5, locationsPaid: 0 })]);
+    harness.sqlReturnQueue.push([{ count: 5 }]);
 
-    const result = await assertCanAddLocation(accountId);
+    const result = await assertCanAddLocation(mockSql, accountId);
 
     expect(result.allowed).toBe(true);
     if (result.allowed) {
@@ -481,9 +480,9 @@ describe('assertCanAddLocation', () => {
   // Account not found
   it('rejects when account not found', async () => {
     const accountId = '00000000-0000-7f00-8000-000000000000';
-    mockSql.mockResolvedValueOnce([]); // no account row
+    harness.sqlReturnQueue.push([]); // no account row
 
-    const result = await assertCanAddLocation(accountId);
+    const result = await assertCanAddLocation(mockSql, accountId);
 
     expect(result.allowed).toBe(false);
     if (!result.allowed) {
@@ -494,7 +493,7 @@ describe('assertCanAddLocation', () => {
   // Unknown tier
   it('rejects when subscription_tier is unknown', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([{
+    harness.sqlReturnQueue.push([{
       id: accountId,
       subscription_tier: 'enterprise',
       subscription_status: 'active',
@@ -502,7 +501,7 @@ describe('assertCanAddLocation', () => {
       locations_paid: 0,
     }]);
 
-    const result = await assertCanAddLocation(accountId);
+    const result = await assertCanAddLocation(mockSql, accountId);
 
     expect(result.allowed).toBe(false);
     if (!result.allowed) {
@@ -517,10 +516,10 @@ describe('assertCanAddLocation', () => {
   it('allows even when active count > included + paid (oversold), with higher overage', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     // Standard: 1 included, 1 paid → 2 max, but 3 active (oversold)
-    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1, locationsPaid: 1 })]);
-    mockSql.mockResolvedValueOnce([{ count: 3 }]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1, locationsPaid: 1 })]);
+    harness.sqlReturnQueue.push([{ count: 3 }]);
 
-    const result = await assertCanAddLocation(accountId);
+    const result = await assertCanAddLocation(mockSql, accountId);
 
     expect(result.allowed).toBe(true);
     if (result.allowed) {
@@ -532,10 +531,10 @@ describe('assertCanAddLocation', () => {
   // Edge: zero active locations but tier allows
   it('allows when zero active locations and tier allows multi-location', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard' })]);
-    mockSql.mockResolvedValueOnce([{ count: 0 }]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard' })]);
+    harness.sqlReturnQueue.push([{ count: 0 }]);
 
-    const result = await assertCanAddLocation(accountId);
+    const result = await assertCanAddLocation(mockSql, accountId);
 
     expect(result.allowed).toBe(true);
     if (result.allowed) {
@@ -546,10 +545,10 @@ describe('assertCanAddLocation', () => {
   // Founders tier allows multi-location
   it('allows add for founders tier (multiLocAllowed = true)', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'founders' })]);
-    mockSql.mockResolvedValueOnce([{ count: 0 }]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'founders' })]);
+    harness.sqlReturnQueue.push([{ count: 0 }]);
 
-    const result = await assertCanAddLocation(accountId);
+    const result = await assertCanAddLocation(mockSql, accountId);
 
     expect(result.allowed).toBe(true);
   });
@@ -565,29 +564,27 @@ describe('assertCanAddLocation', () => {
   describe('concurrent add at quota boundary', () => {
     it('does not use standalone SELECT FOR UPDATE outside the add transaction', async () => {
       const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-      mockSql.mockResolvedValueOnce([mockQuotaAccountRow()]);
-      mockSql.mockResolvedValueOnce([{ count: 0 }]);
+      harness.sqlReturnQueue.push([mockQuotaAccountRow()]);
+      harness.sqlReturnQueue.push([{ count: 0 }]);
 
-      await assertCanAddLocation(accountId);
+      await assertCanAddLocation(mockSql, accountId);
 
-      const firstCall = mockSql.mock.calls[0];
+      const firstCall = harness.sqlCalls[0];
       expect(firstCall).toBeDefined();
-      const template = (firstCall![0] as TemplateStringsArray).join('?');
-      expect(template).not.toMatch(/\bFOR\s+UPDATE\b/i);
-      expect(template).toContain('accounts');
+      expect(firstCall!.text).not.toMatch(/\bFOR\s+UPDATE\b/i);
+      expect(firstCall!.text).toContain('accounts');
     });
 
     it('structural: location count query filters archived_at IS NULL', async () => {
       const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-      mockSql.mockResolvedValueOnce([mockQuotaAccountRow()]);
-      mockSql.mockResolvedValueOnce([{ count: 0 }]);
+      harness.sqlReturnQueue.push([mockQuotaAccountRow()]);
+      harness.sqlReturnQueue.push([{ count: 0 }]);
 
-      await assertCanAddLocation(accountId);
+      await assertCanAddLocation(mockSql, accountId);
 
-      const secondCall = mockSql.mock.calls[1];
+      const secondCall = harness.sqlCalls[1];
       expect(secondCall).toBeDefined();
-      const template = (secondCall![0] as TemplateStringsArray).join('?');
-      expect(template).toContain('archived_at IS NULL');
+      expect(secondCall!.text).toContain('archived_at IS NULL');
     });
 
     it('computes overage from the latest active count it reads', async () => {
@@ -598,18 +595,18 @@ describe('assertCanAddLocation', () => {
       const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
       // Call A sees 1 active location at quota boundary → allowed with overage
-      mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1 })]);
-      mockSql.mockResolvedValueOnce([{ count: 1 }]);
-      const resultA = await assertCanAddLocation(accountId);
+      harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1 })]);
+      harness.sqlReturnQueue.push([{ count: 1 }]);
+      const resultA = await assertCanAddLocation(mockSql, accountId);
       expect(resultA.allowed).toBe(true);
       if (resultA.allowed) {
         expect(resultA.overageUnits).toBe(1); // 1 active + 1 new = 2, over included=1 → 1 overage
       }
 
       // Call B sees the updated state if it runs after call A commits.
-      mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1 })]);
-      mockSql.mockResolvedValueOnce([{ count: 2 }]); // After call A's add, now 2 active
-      const resultB = await assertCanAddLocation(accountId);
+      harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1 })]);
+      harness.sqlReturnQueue.push([{ count: 2 }]); // After call A's add, now 2 active
+      const resultB = await assertCanAddLocation(mockSql, accountId);
       expect(resultB.allowed).toBe(true);
       if (resultB.allowed) {
         expect(resultB.overageUnits).toBe(2); // 2 active + 1 new = 3, over included=1 → 2 overage
@@ -627,14 +624,14 @@ describe('assertCanAddLocation', () => {
       // Both calls see the same state (simulating no lock / race condition)
       // Both would be allowed, but the second should see updated state
       // under the current no-hard-cap overage policy.
-      mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1 })]);
-      mockSql.mockResolvedValueOnce([{ count: 1 }]);
-      const result1 = await assertCanAddLocation(accountId);
+      harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1 })]);
+      harness.sqlReturnQueue.push([{ count: 1 }]);
+      const result1 = await assertCanAddLocation(mockSql, accountId);
       expect(result1.allowed).toBe(true);
 
-      mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1 })]);
-      mockSql.mockResolvedValueOnce([{ count: 1 }]);
-      const result2 = await assertCanAddLocation(accountId);
+      harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1 })]);
+      harness.sqlReturnQueue.push([{ count: 1 }]);
+      const result2 = await assertCanAddLocation(mockSql, accountId);
       // Billing is reconciled asynchronously from the actual committed count.
       expect(result2.allowed).toBe(true);
     });

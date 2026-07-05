@@ -6,6 +6,7 @@
 // the write path in ./business-detail/update.
 // Mirrors the src/lib/dashboard/service.ts split shipped earlier in this branch.
 
+import type { Sql } from 'postgres';
 import { fetchBusinessDetailBatch1, fetchBusinessDetailBatch2 } from './business-detail/queries';
 import { mapBusinessDetailResponse } from './business-detail/mappers';
 import type {
@@ -22,6 +23,7 @@ export { updateBusiness, FIELD_TO_COLUMN } from './business-detail/update';
  * to 404).
  */
 export async function getBusinessDetail(
+  sql: Sql,
   businessId: string,
 ): Promise<BusinessDetailResponse | null> {
   const {
@@ -31,7 +33,7 @@ export async function getBusinessDetail(
     zernioConnectionRows,
     awaitingOwnerConnectRows,
     finalizeIncidentRows,
-  } = await fetchBusinessDetailBatch1(businessId);
+  } = await fetchBusinessDetailBatch1(sql, businessId);
 
   const business = businessRows[0];
   if (!business) {
@@ -46,7 +48,7 @@ export async function getBusinessDetail(
     autoApprovalPolicyRows,
     autoApprovalAccountRows,
   } =
-    await fetchBusinessDetailBatch2(businessId, business.account_id);
+    await fetchBusinessDetailBatch2(sql, businessId, business.account_id);
 
   return mapBusinessDetailResponse({
     business,

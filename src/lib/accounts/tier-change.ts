@@ -8,7 +8,7 @@
 // Validation contract: VAL-BILLING-045, VAL-BILLING-046, VAL-BILLING-047.
 
 import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import {
   TIER_CONFIG,
@@ -42,8 +42,12 @@ export interface TierChangeValidation {
  * confirmation shows new monthly total.
  * VAL-BILLING-046: Downgrade modal calculates overage correctly for each tier transition.
  * VAL-BILLING-047: Tier downgrade to basic with >1 active locations is blocked.
+ *
+ * @param sql  Postgres.js client (composition root supplies the singleton —
+ *   this module never imports @/lib/db/server).
  */
 export async function validateTierChange(
+  sql: Sql,
   accountId: string,
   newTier: string,
 ): Promise<TierChangeValidation> {
@@ -216,14 +220,20 @@ function planOverageMutation(input: {
  * leaving e.g. a Premium account billed against the Standard base price
  * (snapshot/margin/invoice reconciliation drift). Mirrors the snapshot
  * written at select-plan/signup.
+ *
+ * @param sql  Postgres.js client (composition root supplies the singleton —
+ *   this module never imports @/lib/db/server).
  */
-async function persistTierChangeTx(input: {
-  accountId: string;
-  tier: SubscriptionTierValue;
-  oldTier: string;
-  actorUserId: string | null;
-  operationKey: string;
-}): Promise<void> {
+async function persistTierChangeTx(
+  sql: Sql,
+  input: {
+    accountId: string;
+    tier: SubscriptionTierValue;
+    oldTier: string;
+    actorUserId: string | null;
+    operationKey: string;
+  },
+): Promise<void> {
   const { accountId, tier, oldTier, actorUserId, operationKey } = input;
   const newConfig = TIER_CONFIG[tier];
 
@@ -254,7 +264,7 @@ async function persistTierChangeTx(input: {
         ${accountId}::uuid,
         'tier_changed',
         ${actorUserId ?? null}::uuid,
-        ${jsonb({
+        ${tx.json({
           old_tier: oldTier,
           new_tier: tier,
           new_base_price_cents: newConfig.baseCents,
@@ -278,8 +288,14 @@ async function persistTierChangeTx(input: {
  * webhooks remain the reconciliation path back into accounts.subscription_tier.
  * The operationKey is stable across client retries so reruns can safely
  * complete the local DB/audit update without double-applying Stripe changes.
+ *
+ * @param sql  Postgres.js client (composition root supplies the singleton —
+ *   this module never imports @/lib/db/server).
  */
-export async function applyTierChange(input: ApplyTierChangeInput): Promise<TierChangeOutcome> {
+export async function applyTierChange(
+  sql: Sql,
+  input: ApplyTierChangeInput,
+): Promise<TierChangeOutcome> {
   const { accountId, tier, newOverageUnits, operationKey } = input;
 
   const [account] = await sql<{
@@ -309,7 +325,7 @@ export async function applyTierChange(input: ApplyTierChangeInput): Promise<Tier
     };
   }
 
-  const actorUserId = await getAccountOwnerUserId(accountId);
+  const actorUserId = await getAccountOwnerUserId(sql, accountId);
   const stripeOptions = (step: string) => ({
     idempotencyKey: `tier-change:${accountId}:${operationKey}:${step}`,
   });
@@ -368,7 +384,7 @@ export async function applyTierChange(input: ApplyTierChangeInput): Promise<Tier
         break;
     }
 
-    await persistTierChangeTx({
+    await persistTierChangeTx(sql, {
       accountId,
       tier,
       oldTier: account.subscription_tier,

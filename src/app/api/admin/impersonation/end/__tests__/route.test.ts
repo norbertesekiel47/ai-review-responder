@@ -6,12 +6,19 @@ const {
   mockRequireCurrentAal2FromSupabase,
   mockVerifyImpersonationSession,
   mockEndImpersonationSession,
+  mockSql,
 } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockRequireCurrentAal2FromSupabase: vi.fn(),
   mockVerifyImpersonationSession: vi.fn(),
   mockEndImpersonationSession: vi.fn(),
+  // The route now imports the @/lib/db/server singleton to pass `sql` into
+  // endImpersonationSession (A+ campaign 2b, T4). endImpersonationSession
+  // itself is mocked below, so this identity token is never queried directly.
+  mockSql: {} as const,
 }));
+
+vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
 
 vi.mock('@supabase/ssr', () => ({
   createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),
@@ -131,7 +138,7 @@ describe('POST /api/admin/impersonation/end', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
     expect(mockVerifyImpersonationSession).toHaveBeenCalledWith('signed-cookie');
-    expect(mockEndImpersonationSession).toHaveBeenCalledWith({
+    expect(mockEndImpersonationSession).toHaveBeenCalledWith(mockSql, {
       sessionId: SESSION_ID,
       actorUserId: ADMIN_ID,
     });

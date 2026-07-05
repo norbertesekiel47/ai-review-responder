@@ -82,7 +82,7 @@ async function startImpersonation(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { sessionId, expiresAt } = await startImpersonationSession({
+    const { sessionId, expiresAt } = await startImpersonationSession(sql, {
       actorUserId: admin.id,
       impersonatedUserId,
       accountId,

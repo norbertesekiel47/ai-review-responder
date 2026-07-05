@@ -4,6 +4,8 @@
 // Validation contract: VAL-ADMIN-008, VAL-ADMIN-012, VAL-ADMIN-013.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Sql } from 'postgres';
+import { createMockSql } from '../../../../worker/__tests__/helpers/mock-sql';
 
 // ── Hoisted mocks (only needed by processRow tests) ─────────────────────────
 
@@ -37,12 +39,13 @@ vi.mock('@/lib/locations/add-location-tx', () => ({
   addLocationTransaction: mockAddLocationTransaction,
 }));
 
-vi.mock('@/lib/db/server', () => ({
-  sql: Object.assign(vi.fn(async () => []), {
-    begin: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(undefined)),
-  }),
-  jsonb: (v: unknown) => v,
-}));
+// csv-import.ts no longer imports the @/lib/db/server singleton — sql is an
+// explicit parameter (A+ campaign 2b, T4). processRow's other dependencies
+// (assertCanAddLocation, getAccountById, getAccountOwnerUser,
+// addLocationTransaction) are all mocked above, so this mock client is never
+// queried directly here — it only needs a stable identity to pass through.
+const { mockSql } = createMockSql();
+const sql = mockSql as unknown as Sql;
 
 import {
   parseCsv,
@@ -273,7 +276,7 @@ describe('processRow duplicate handling', () => {
     // re-throws a plain Error('duplicate_location') (no code/constraint_name).
     mockAddLocationTransaction.mockRejectedValueOnce(new Error('duplicate_location'));
 
-    const result = await processRow(happyRow(), accountId);
+    const result = await processRow(sql, happyRow(), accountId);
 
     expect('reason' in result).toBe(true);
     if ('reason' in result) {
@@ -284,7 +287,7 @@ describe('processRow duplicate handling', () => {
   it('returns a generic Transaction error for an unrelated add failure (regression)', async () => {
     mockAddLocationTransaction.mockRejectedValueOnce(new Error('connection reset'));
 
-    const result = await processRow(happyRow(), accountId);
+    const result = await processRow(sql, happyRow(), accountId);
 
     expect('reason' in result).toBe(true);
     if ('reason' in result) {
@@ -307,7 +310,7 @@ describe('processRow duplicate handling', () => {
     raw.constraint_name = 'businesses_account_place_uniq';
     mockAddLocationTransaction.mockRejectedValueOnce(raw);
 
-    const result = await processRow(happyRow(), accountId);
+    const result = await processRow(sql, happyRow(), accountId);
 
     expect('reason' in result).toBe(true);
     if ('reason' in result) {

@@ -1,25 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const { mockSqlResults, sqlCallCounter, capturedSqlTexts } = vi.hoisted(() => ({
-  mockSqlResults: [] as unknown[][],
-  sqlCallCounter: { value: 0 },
-  capturedSqlTexts: [] as string[],
-}));
-
-vi.mock('@/lib/db/server', () => ({
-  sql: new Proxy(() => {}, {
-    apply: (_t, _a, args: unknown[]) => {
-      const first = args[0];
-      if (first != null && typeof first === 'object' && 'raw' in (first as object)) {
-        capturedSqlTexts.push((first as TemplateStringsArray).raw.join('?'));
-      }
-      const result = mockSqlResults[sqlCallCounter.value] ?? [];
-      sqlCallCounter.value++;
-      return Promise.resolve(result);
-    },
-  }),
-}));
-
+import { beforeEach, describe, expect, it } from 'vitest';
+import type { Sql } from 'postgres';
+import { createMockSql } from '../../../../worker/__tests__/helpers/mock-sql';
 import {
   getMarginReport,
   monthlyMrrCents,
@@ -27,12 +8,15 @@ import {
   classifyPlatformRisk,
 } from '../margin-service';
 
+// margin-service no longer imports the @/lib/db/server singleton — sql is an
+// explicit parameter (A+ campaign 2b, T4) — so tests hand the shared mock
+// client directly to getMarginReport instead of vi.mock'ing a module import.
+const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql } = createMockSql();
+const sql = mockSql as unknown as Sql;
+
 beforeEach(() => {
-  mockSqlResults.length = 0;
-  capturedSqlTexts.length = 0;
-  sqlCallCounter.value = 0;
+  resetMockSql();
 });
-afterEach(() => vi.clearAllMocks());
 
 describe('monthlyMrrCents (mirrors currentBillingSnapshot)', () => {
   it('standard tier base only when at included count', () => {
@@ -85,20 +69,20 @@ describe('risk classifiers', () => {
 
 describe('getMarginReport', () => {
   function seed() {
-    mockSqlResults[0] = [
+    sqlReturnQueue.push([
       { id: 'acct-1', display_name: 'Acme', subscription_tier: 'standard', subscription_status: 'active', locations_included: 1, locations_overage_price_cents: 2500, base_price_cents: 7900, active_locations: 1 },
       { id: 'acct-2', display_name: 'Beta', subscription_tier: 'premium', subscription_status: 'active', locations_included: 5, locations_overage_price_cents: 2000, base_price_cents: 19900, active_locations: 5 },
-    ];
-    mockSqlResults[1] = [
+    ]);
+    sqlReturnQueue.push([
       { account_id: 'acct-1', api_cost_usd: 39.5, generation_count: 100, openai_count: 90, anthropic_count: 10, generation_cost_usd: 38, flagged_count: 2 },
       { account_id: 'acct-2', api_cost_usd: 1.0, generation_count: 20, openai_count: 20, anthropic_count: 0, generation_cost_usd: 1, flagged_count: 0 },
-    ];
-    mockSqlResults[2] = [{ total_cost_usd: 40.5 }];
+    ]);
+    sqlReturnQueue.push([{ total_cost_usd: 40.5 }]);
   }
 
   it('computes per-account margin rows sorted by cost desc with risk levels', async () => {
     seed();
-    const data = await getMarginReport({ limit: 10 });
+    const data = await getMarginReport(sql, { limit: 10 });
     expect(data.windowDays).toBe(30);
     const acme = data.topAccountsByCost[0]!;
     expect(acme.accountId).toBe('acct-1');
@@ -113,17 +97,17 @@ describe('getMarginReport', () => {
 
   it('scopes flagged_count to the generation providers (same population as generation_count)', async () => {
     seed();
-    await getMarginReport({ limit: 10 });
+    await getMarginReport(sql, { limit: 10 });
     // The per-account cost-aggregate query (index 1) must count flags only over
     // openai/anthropic rows so flaggedRatePct shares responseCount's population.
-    expect(capturedSqlTexts[1]).toContain(
+    expect(sqlCalls[1]!.text).toContain(
       "FILTER (WHERE provider IN ('openai', 'anthropic') AND flagged)",
     );
   });
 
   it('computes platform gross margin and risk', async () => {
     seed();
-    const data = await getMarginReport({ limit: 10 });
+    const data = await getMarginReport(sql, { limit: 10 });
     expect(data.platform.totalRevenueUsd).toBe(278);
     expect(data.platform.variableApiCogsUsd).toBe(40.5);
     expect(data.platform.grossMarginPct).toBeCloseTo(85.4, 1);
@@ -135,17 +119,17 @@ describe('getMarginReport', () => {
     // add $79 to totalRevenueUsd (it is charged $0 during the trial), and its
     // costPctOfMrr must be null (no revenue to compare against) — but its cost
     // still appears in the row and in platform COGS.
-    mockSqlResults[0] = [
+    sqlReturnQueue.push([
       { id: 'acct-paid', display_name: 'Paid', subscription_tier: 'standard', subscription_status: 'active', locations_included: 1, locations_overage_price_cents: 2500, base_price_cents: 7900, active_locations: 1 },
       { id: 'acct-trial', display_name: 'Trial', subscription_tier: 'standard', subscription_status: 'trialing', locations_included: 1, locations_overage_price_cents: 2500, base_price_cents: 7900, active_locations: 1 },
-    ];
-    mockSqlResults[1] = [
+    ]);
+    sqlReturnQueue.push([
       { account_id: 'acct-paid', api_cost_usd: 10, generation_count: 50, openai_count: 50, anthropic_count: 0, generation_cost_usd: 10, flagged_count: 0 },
       { account_id: 'acct-trial', api_cost_usd: 8, generation_count: 40, openai_count: 40, anthropic_count: 0, generation_cost_usd: 8, flagged_count: 0 },
-    ];
-    mockSqlResults[2] = [{ total_cost_usd: 18 }];
+    ]);
+    sqlReturnQueue.push([{ total_cost_usd: 18 }]);
 
-    const data = await getMarginReport({ limit: 10 });
+    const data = await getMarginReport(sql, { limit: 10 });
 
     // Only the paid account's $79 counts toward revenue.
     expect(data.platform.totalRevenueUsd).toBe(79);
@@ -162,12 +146,12 @@ describe('getMarginReport', () => {
   });
 
   it('handles an account with cost but zero MRR (costPct null, risk none)', async () => {
-    mockSqlResults[0] = [
+    sqlReturnQueue.push([
       { id: 'acct-x', display_name: 'X', subscription_tier: 'mystery', subscription_status: 'active', locations_included: 1, locations_overage_price_cents: 0, base_price_cents: 7900, active_locations: 1 },
-    ];
-    mockSqlResults[1] = [{ account_id: 'acct-x', api_cost_usd: 5, generation_count: 10, openai_count: 10, anthropic_count: 0, generation_cost_usd: 5, flagged_count: 0 }];
-    mockSqlResults[2] = [{ total_cost_usd: 5 }];
-    const data = await getMarginReport({ limit: 10 });
+    ]);
+    sqlReturnQueue.push([{ account_id: 'acct-x', api_cost_usd: 5, generation_count: 10, openai_count: 10, anthropic_count: 0, generation_cost_usd: 5, flagged_count: 0 }]);
+    sqlReturnQueue.push([{ total_cost_usd: 5 }]);
+    const data = await getMarginReport(sql, { limit: 10 });
     expect(data.topAccountsByCost[0]!.mrrUsd).toBe(0);
     expect(data.topAccountsByCost[0]!.costPctOfMrr).toBeNull();
     expect(data.topAccountsByCost[0]!.riskLevel).toBe('none');

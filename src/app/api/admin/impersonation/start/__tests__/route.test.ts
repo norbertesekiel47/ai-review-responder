@@ -242,7 +242,7 @@ describe('POST /api/admin/impersonation/start', () => {
     expect(sqlCalls[0]!.text).toMatch(/FROM users u/i);
     expect(sqlCalls[0]!.text).toMatch(/u\.role = 'owner'/i);
     expect(sqlCalls[0]!.text).toMatch(/u\.account_id =/i);
-    expect(mockStartImpersonationSession).toHaveBeenCalledWith({
+    expect(mockStartImpersonationSession).toHaveBeenCalledWith(mockSql, {
       actorUserId: ADMIN_ID,
       impersonatedUserId: OWNER_ID,
       accountId: ACCOUNT_ID,
