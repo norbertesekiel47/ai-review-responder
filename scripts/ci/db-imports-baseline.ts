@@ -39,7 +39,6 @@ export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([
   'src/lib/dashboard/service.ts',
   'src/lib/db/account-guard.ts',
   'src/lib/db/auth.ts',
-  'src/lib/kpi/service.ts',
   'src/lib/locations/add-location-tx.ts',
   'src/lib/locations/archive-location-tx.ts',
   'src/lib/locations/promote-primary-tx.ts',

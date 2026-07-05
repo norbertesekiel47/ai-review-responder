@@ -146,7 +146,7 @@ describe('GET /api/dashboard/kpis', () => {
 
     expect(mockGetLocationKpiSummary).toHaveBeenCalledOnce();
     // #403: the route always resolves + passes the validated window (default here).
-    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
+    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(expect.any(Function), BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
     expect(mockGetAccountKpiSummary).not.toHaveBeenCalled();
 
     const body = await res.json();
@@ -171,7 +171,7 @@ describe('GET /api/dashboard/kpis', () => {
       expect(res.status).toBe(200);
 
       expect(mockGetAccountKpiSummary).toHaveBeenCalledOnce();
-      expect(mockGetAccountKpiSummary).toHaveBeenCalledWith(ACCOUNT_ID, DEFAULT_DASHBOARD_WINDOW);
+      expect(mockGetAccountKpiSummary).toHaveBeenCalledWith(expect.any(Function), ACCOUNT_ID, DEFAULT_DASHBOARD_WINDOW);
       expect(mockGetLocationKpiSummary).not.toHaveBeenCalled();
 
       const body = await res.json();
@@ -312,7 +312,7 @@ describe('GET /api/dashboard/kpis', () => {
       expect(res.status).toBe(200);
 
       // scope=all without multi-location → falls back to user's locationId
-      expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
+      expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(expect.any(Function), BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
       expect(mockGetAccountKpiSummary).not.toHaveBeenCalled();
     } finally {
       process.env.MULTI_LOCATION_ENABLED = previous;
@@ -399,7 +399,7 @@ describe('GET /api/dashboard/kpis', () => {
 
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
-    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
+    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(expect.any(Function), BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
   });
 
   it('malformed scope (not a UUID) → 400 Invalid scope; no KPI service / location call', async () => {
@@ -438,7 +438,7 @@ describe('GET /api/dashboard/kpis', () => {
 
     const res = await GET(makeRequest('/api/dashboard/kpis?window=7d'));
     expect(res.status).toBe(200);
-    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(BUSINESS_ID, '7d');
+    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(expect.any(Function), BUSINESS_ID, '7d');
   });
 
   it('invalid ?window= clamps to the default window before reaching the service', async () => {
@@ -449,7 +449,7 @@ describe('GET /api/dashboard/kpis', () => {
     const res = await GET(makeRequest('/api/dashboard/kpis?window=not-a-window'));
     expect(res.status).toBe(200);
     // The untrusted value never reaches the service — it is clamped to default.
-    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
+    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(expect.any(Function), BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
   });
 
   it('valid ?window=90d in aggregate scope → threaded to getAccountKpiSummary', async () => {
@@ -461,7 +461,7 @@ describe('GET /api/dashboard/kpis', () => {
 
       const res = await GET(makeRequest('/api/dashboard/kpis?scope=all&window=90d'));
       expect(res.status).toBe(200);
-      expect(mockGetAccountKpiSummary).toHaveBeenCalledWith(ACCOUNT_ID, '90d');
+      expect(mockGetAccountKpiSummary).toHaveBeenCalledWith(expect.any(Function), ACCOUNT_ID, '90d');
     } finally {
       process.env.MULTI_LOCATION_ENABLED = previous;
     }
