@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
 import { requireCurrentAal2FromSupabase, mfaChallengePath, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
+import { sql } from '@/lib/db/server';
 import { IMPERSONATION_COOKIE_NAME } from '@/lib/admin/impersonation/cookie';
 import {
   loadImpersonationAccountLocations,
@@ -41,7 +42,7 @@ export default async function AdminImpersonationViewPage({ params }: PageProps) 
 
   const { data: { user } } = await supabase.auth.getUser();
   const aal = await requireCurrentAal2FromSupabase(supabase as unknown as SupabaseMfaAalClient);
-  const resolution = await resolveImpersonationViewSession({
+  const resolution = await resolveImpersonationViewSession(sql, {
     routeSessionId: sessionId,
     signedCookieValue: cookieStore.get(IMPERSONATION_COOKIE_NAME)?.value ?? null,
     authUserId: user?.id ?? null,
@@ -59,7 +60,7 @@ export default async function AdminImpersonationViewPage({ params }: PageProps) 
   }
 
   const { session, admin } = resolution;
-  const locations = await loadImpersonationAccountLocations(session.accountId);
+  const locations = await loadImpersonationAccountLocations(sql, session.accountId);
   const expiresAt = IMPERSONATION_EXPIRES_FORMATTER.format(session.expiresAt);
 
   return (

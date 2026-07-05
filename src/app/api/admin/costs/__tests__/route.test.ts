@@ -522,7 +522,7 @@ describe('GET /api/admin/costs', () => {
     // Margin key must equal the mocked getMarginReport return
     expect(body.margin).toEqual(STUB_MARGIN);
     expect(mockGetMarginReport).toHaveBeenCalledOnce();
-    expect(mockGetMarginReport).toHaveBeenCalledWith({ limit: 20 });
+    expect(mockGetMarginReport).toHaveBeenCalledWith(mockSql, { limit: 20 });
   });
 
   it('non-admin auth rejection: neither getCostReport nor getMarginReport is called', async () => {

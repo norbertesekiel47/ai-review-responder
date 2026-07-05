@@ -1,6 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
+import type { Sql } from 'postgres';
 import { writeAccountAuditLog } from '@/lib/audit/log';
-import { sql } from '@/lib/db/server';
 
 const SESSION_TTL_MS = 60 * 60 * 1000;
 
@@ -33,6 +33,7 @@ export interface ActiveImpersonationSession {
 }
 
 export async function startImpersonationSession(
+  sql: Sql,
   input: StartImpersonationSessionInput,
 ): Promise<{ sessionId: string; expiresAt: Date }> {
   const sessionId = uuidv7();
@@ -106,10 +107,13 @@ export async function startImpersonationSession(
   return { sessionId, expiresAt };
 }
 
-export async function endImpersonationSession(input: {
-  sessionId: string;
-  actorUserId: string;
-}): Promise<{ ended: boolean }> {
+export async function endImpersonationSession(
+  sql: Sql,
+  input: {
+    sessionId: string;
+    actorUserId: string;
+  },
+): Promise<{ ended: boolean }> {
   const ended = await sql.begin(async (tx) => {
     const rows = await tx<{ account_id: string; impersonated_user_id: string }[]>`
       UPDATE impersonation_sessions
@@ -139,11 +143,14 @@ export async function endImpersonationSession(input: {
   return { ended };
 }
 
-export async function loadActiveImpersonationSession(input: {
-  sessionId: string;
-  actorUserId: string;
-  now?: Date;
-}): Promise<ActiveImpersonationSession | null> {
+export async function loadActiveImpersonationSession(
+  sql: Sql,
+  input: {
+    sessionId: string;
+    actorUserId: string;
+    now?: Date;
+  },
+): Promise<ActiveImpersonationSession | null> {
   const rows = await sql<{
     id: string;
     actor_user_id: string;

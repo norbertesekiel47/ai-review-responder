@@ -4,7 +4,7 @@
 // Extracted verbatim from business-detail-service.ts; only export/import
 // wiring changed. No edits to SQL, column names, or result shapes.
 
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 import type { AutoApprovalThreshold } from '@/lib/auto-approval/types';
@@ -80,7 +80,10 @@ export interface BusinessDetailBatch1 {
   finalizeIncidentRows: ZernioFinalizeIncidentRow[];
 }
 
-export async function fetchBusinessDetailBatch1(businessId: string): Promise<BusinessDetailBatch1> {
+export async function fetchBusinessDetailBatch1(
+  sql: Sql,
+  businessId: string,
+): Promise<BusinessDetailBatch1> {
   const [
     businessRows,
     reviewRows,
@@ -187,6 +190,7 @@ export interface BusinessDetailBatch2 {
 }
 
 export async function fetchBusinessDetailBatch2(
+  sql: Sql,
   businessId: string,
   accountId: string,
 ): Promise<BusinessDetailBatch2> {

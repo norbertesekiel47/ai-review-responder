@@ -5,12 +5,12 @@
 // Mocking pattern modelled on denorm-queries.test.ts.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Sql } from 'postgres';
+import { createMockSql } from '../../../../worker/__tests__/helpers/mock-sql';
 
 // ── Hoisted mocks ───────────────────────────────────────────────────
 
-const { mockSqlResults, sqlCallCounter, mockComputeChurnRiskScore } = vi.hoisted(() => ({
-  mockSqlResults: [] as unknown[][],
-  sqlCallCounter: { value: 0 },
+const { mockComputeChurnRiskScore } = vi.hoisted(() => ({
   mockComputeChurnRiskScore: vi.fn(() => ({
     score: 42,
     level: 'watch',
@@ -18,33 +18,16 @@ const { mockSqlResults, sqlCallCounter, mockComputeChurnRiskScore } = vi.hoisted
   })),
 }));
 
-vi.mock('@/lib/db/server', () => {
-  const sqlProxy = new Proxy(() => {}, {
-    apply: (_target, _thisArg, argumentsList) => {
-      const first = argumentsList[0];
-      const isTaggedTemplate =
-        first != null && typeof first === 'object' && 'raw' in (first as object);
-      if (!isTaggedTemplate) {
-        return { __helper: true };
-      }
-      const result = mockSqlResults[sqlCallCounter.value] ?? [];
-      sqlCallCounter.value++;
-      return Promise.resolve(result);
-    },
-  }) as unknown;
-  (sqlProxy as unknown as { unsafe: (...args: unknown[]) => Promise<unknown> }).unsafe = (
-    ..._args: unknown[]
-  ) => {
-    const result = mockSqlResults[sqlCallCounter.value] ?? [];
-    sqlCallCounter.value++;
-    return Promise.resolve(result);
-  };
-  return { sql: sqlProxy, jsonb: (v: unknown) => v };
-});
-
 vi.mock('@/lib/shared/churn-score', () => ({
   computeChurnRiskScore: mockComputeChurnRiskScore,
 }));
+
+// business-detail-service.ts (and the queries/update modules it composes)
+// no longer import the @/lib/db/server singleton — sql is an explicit
+// parameter (A+ campaign 2b, T4) — so getBusinessDetail is handed the
+// shared mock client directly instead of vi.mock'ing a module import.
+const { mockSql, sqlReturnQueue, resetMockSql } = createMockSql();
+const sql = mockSql as unknown as Sql;
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -202,19 +185,19 @@ const AUTO_APPROVAL_ACCOUNT_ROW = {
  */
 function queueAllResults() {
   // Batch 1 (6 parallel queries)
-  mockSqlResults.push([BUSINESS_ROW]);            // 0: business
-  mockSqlResults.push([REVIEW_ROW]);              // 1: reviews
-  mockSqlResults.push([RANKING_ROW]);             // 2: ranking_snapshots
-  mockSqlResults.push([ZERNIO_CONNECTION_ROW]);   // 3: zernio_connections
-  mockSqlResults.push([AWAITING_ROW]);            // 4: awaiting_owner_connect
-  mockSqlResults.push([FINALIZE_INCIDENT_ROW]);   // 5: finalize_incidents
+  sqlReturnQueue.push([BUSINESS_ROW]);            // 0: business
+  sqlReturnQueue.push([REVIEW_ROW]);              // 1: reviews
+  sqlReturnQueue.push([RANKING_ROW]);             // 2: ranking_snapshots
+  sqlReturnQueue.push([ZERNIO_CONNECTION_ROW]);   // 3: zernio_connections
+  sqlReturnQueue.push([AWAITING_ROW]);            // 4: awaiting_owner_connect
+  sqlReturnQueue.push([FINALIZE_INCIDENT_ROW]);   // 5: finalize_incidents
   // Batch 2 (4 parallel queries)
-  mockSqlResults.push([METRICS_ROW]);             // 6: metrics CTE
-  mockSqlResults.push(ACCOUNT_LOCATION_ROWS);     // 7: account locations
-  mockSqlResults.push([APPROVAL_AUDIT_ROW]);      // 8: approval_audit_log
-  mockSqlResults.push([ACCOUNT_AUDIT_ROW]);       // 9: account_audit_log
-  mockSqlResults.push(AUTO_APPROVAL_POLICY_ROWS); // 10: auto_approval_policies
-  mockSqlResults.push([AUTO_APPROVAL_ACCOUNT_ROW]); // 11: account readiness
+  sqlReturnQueue.push([METRICS_ROW]);             // 6: metrics CTE
+  sqlReturnQueue.push(ACCOUNT_LOCATION_ROWS);     // 7: account locations
+  sqlReturnQueue.push([APPROVAL_AUDIT_ROW]);      // 8: approval_audit_log
+  sqlReturnQueue.push([ACCOUNT_AUDIT_ROW]);       // 9: account_audit_log
+  sqlReturnQueue.push(AUTO_APPROVAL_POLICY_ROWS); // 10: auto_approval_policies
+  sqlReturnQueue.push([AUTO_APPROVAL_ACCOUNT_ROW]); // 11: account readiness
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -222,8 +205,7 @@ function queueAllResults() {
 describe('getBusinessDetail — full DTO characterization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSqlResults.length = 0;
-    sqlCallCounter.value = 0;
+    resetMockSql();
   });
 
   it('returns the full BusinessDetailResponse DTO for a populated fixture', async () => {
@@ -231,7 +213,7 @@ describe('getBusinessDetail — full DTO characterization', () => {
 
     queueAllResults();
 
-    const result = await getBusinessDetail('biz-abc');
+    const result = await getBusinessDetail(sql, 'biz-abc');
 
     expect(result).not.toBeNull();
     const res = result!;
@@ -421,15 +403,15 @@ describe('getBusinessDetail — full DTO characterization', () => {
 
     // Batch 1 — business query returns empty; remaining batch-1 results won't
     // be consumed because Promise.all resolves before the null guard fires.
-    mockSqlResults.push([]);   // 0: business → empty → returns null
-    mockSqlResults.push([]);   // 1: reviews (consumed in parallel)
-    mockSqlResults.push([]);   // 2: ranking_snapshots
-    mockSqlResults.push([]);   // 3: zernio
-    mockSqlResults.push([]);   // 4: awaiting_owner_connect
-    mockSqlResults.push([]);   // 5: finalize_incidents
+    sqlReturnQueue.push([]);   // 0: business → empty → returns null
+    sqlReturnQueue.push([]);   // 1: reviews (consumed in parallel)
+    sqlReturnQueue.push([]);   // 2: ranking_snapshots
+    sqlReturnQueue.push([]);   // 3: zernio
+    sqlReturnQueue.push([]);   // 4: awaiting_owner_connect
+    sqlReturnQueue.push([]);   // 5: finalize_incidents
     // Batch 2 never runs when business is null
 
-    const result = await getBusinessDetail('non-existent-id');
+    const result = await getBusinessDetail(sql, 'non-existent-id');
 
     expect(result).toBeNull();
   });
@@ -441,17 +423,16 @@ describe('getBusinessDetail — full DTO characterization', () => {
     // Override the metrics row (index 6) with slower trend data.
     // We queued 12 results; replace index 6 (already queued) — easier to
     // just re-queue all with the override.
-    mockSqlResults.length = 0;
-    sqlCallCounter.value = 0;
+    sqlReturnQueue.length = 0;
 
-    mockSqlResults.push([BUSINESS_ROW]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
+    sqlReturnQueue.push([BUSINESS_ROW]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
     // metrics: current=10h, prev=4h → 10 > 4*1.5=6 → 'slower'
-    mockSqlResults.push([{
+    sqlReturnQueue.push([{
       approval_rate: 0.5,
       notified_count: 5,
       pending_count: 1,
@@ -460,13 +441,13 @@ describe('getBusinessDetail — full DTO characterization', () => {
       avg_hours_current: 10.0,
       avg_hours_prev: 4.0,
     }]);
-    mockSqlResults.push([{ id: 'biz-abc', name: 'Main Street Cafe', display_label: 'Main St', is_primary: true, archived_at: null }]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([AUTO_APPROVAL_ACCOUNT_ROW]);
+    sqlReturnQueue.push([{ id: 'biz-abc', name: 'Main Street Cafe', display_label: 'Main St', is_primary: true, archived_at: null }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([AUTO_APPROVAL_ACCOUNT_ROW]);
 
-    const result = await getBusinessDetail('biz-abc');
+    const result = await getBusinessDetail(sql, 'biz-abc');
     expect(result).not.toBeNull();
     // responseTimeTrend is fed into computeChurnRiskScore; assert the derived value.
     expect(mockComputeChurnRiskScore).toHaveBeenCalledWith(
@@ -477,13 +458,13 @@ describe('getBusinessDetail — full DTO characterization', () => {
   it('maps responseTimeTrend=stopped when pending > 0 and days_since_approval > 7 (no current/prev hours)', async () => {
     const { getBusinessDetail } = await import('@/lib/admin/business-detail-service');
 
-    mockSqlResults.push([BUSINESS_ROW]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([{
+    sqlReturnQueue.push([BUSINESS_ROW]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{
       approval_rate: null,
       notified_count: 0,
       pending_count: 3,
@@ -492,13 +473,13 @@ describe('getBusinessDetail — full DTO characterization', () => {
       avg_hours_current: null,
       avg_hours_prev: null,
     }]);
-    mockSqlResults.push([{ id: 'biz-abc', name: 'Main Street Cafe', display_label: null, is_primary: true, archived_at: null }]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([AUTO_APPROVAL_ACCOUNT_ROW]);
+    sqlReturnQueue.push([{ id: 'biz-abc', name: 'Main Street Cafe', display_label: null, is_primary: true, archived_at: null }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([AUTO_APPROVAL_ACCOUNT_ROW]);
 
-    const result = await getBusinessDetail('biz-abc');
+    const result = await getBusinessDetail(sql, 'biz-abc');
     expect(result).not.toBeNull();
     // 'stopped' trend: pending > 0, days_since_approval > 7, no current/prev hours.
     expect(mockComputeChurnRiskScore).toHaveBeenCalledWith(
@@ -512,20 +493,20 @@ describe('getBusinessDetail — full DTO characterization', () => {
     const businessWithNullDates = { ...BUSINESS_ROW, last_sync_at: null };
     const reviewWithNullDates = { ...REVIEW_ROW, detected_at: null };
 
-    mockSqlResults.push([businessWithNullDates]);
-    mockSqlResults.push([reviewWithNullDates]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([{ ...METRICS_ROW }]);
-    mockSqlResults.push([{ id: 'biz-abc', name: 'Main Street Cafe', display_label: null, is_primary: true, archived_at: null }]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([AUTO_APPROVAL_ACCOUNT_ROW]);
+    sqlReturnQueue.push([businessWithNullDates]);
+    sqlReturnQueue.push([reviewWithNullDates]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ ...METRICS_ROW }]);
+    sqlReturnQueue.push([{ id: 'biz-abc', name: 'Main Street Cafe', display_label: null, is_primary: true, archived_at: null }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([AUTO_APPROVAL_ACCOUNT_ROW]);
 
-    const result = await getBusinessDetail('biz-abc');
+    const result = await getBusinessDetail(sql, 'biz-abc');
     expect(result).not.toBeNull();
     expect(result!.business.lastSyncAt).toBeNull();
     expect(result!.reviews[0]!.detectedAt).toBeNull();
@@ -534,20 +515,20 @@ describe('getBusinessDetail — full DTO characterization', () => {
   it('handles null zernio connection (no zernio rows) — connection field is null', async () => {
     const { getBusinessDetail } = await import('@/lib/admin/business-detail-service');
 
-    mockSqlResults.push([BUSINESS_ROW]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]); // no zernio connection row
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([{ ...METRICS_ROW }]);
-    mockSqlResults.push([{ id: 'biz-abc', name: 'Main Street Cafe', display_label: null, is_primary: true, archived_at: null }]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([]);
-    mockSqlResults.push([AUTO_APPROVAL_ACCOUNT_ROW]);
+    sqlReturnQueue.push([BUSINESS_ROW]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]); // no zernio connection row
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ ...METRICS_ROW }]);
+    sqlReturnQueue.push([{ id: 'biz-abc', name: 'Main Street Cafe', display_label: null, is_primary: true, archived_at: null }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([AUTO_APPROVAL_ACCOUNT_ROW]);
 
-    const result = await getBusinessDetail('biz-abc');
+    const result = await getBusinessDetail(sql, 'biz-abc');
     expect(result).not.toBeNull();
     expect(result!.zernio.connection).toBeNull();
   });

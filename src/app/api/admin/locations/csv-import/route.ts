@@ -112,7 +112,7 @@ async function importLocationsCsv(req: NextRequest): Promise<NextResponse> {
   }
 
   // ── Step 7: Import rows (policy owned by csv-import.importCsvRows) ──
-  const { successes, failures } = await importCsvRows(rows, accountId);
+  const { successes, failures } = await importCsvRows(sql, rows, accountId);
 
   const report: CsvImportReport = {
     created: successes.length,
@@ -123,6 +123,7 @@ async function importLocationsCsv(req: NextRequest): Promise<NextResponse> {
   // ── Step 8: Write aggregate audit log (VAL-ADMIN-014) ──────────────
   try {
     await writeCsvImportAuditLog(
+      sql,
       accountId,
       authUser.id,
       successes.length,
@@ -142,7 +143,7 @@ async function importLocationsCsv(req: NextRequest): Promise<NextResponse> {
   // Step 9: Enqueue aggregate billing update after audit logging.
   if (successes.length > 0) {
     try {
-      await enqueueCsvImportStripeOverageUpdate(accountId);
+      await enqueueCsvImportStripeOverageUpdate(sql, accountId);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       return NextResponse.json(

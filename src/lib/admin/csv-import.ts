@@ -5,11 +5,11 @@
 //
 // Validation contract: VAL-ADMIN-008 through VAL-ADMIN-014.
 
+import type { Sql } from 'postgres';
 import { assertCanAddLocation } from '@/lib/accounts/quota';
 import { getAccountById, getAccountOwnerUser } from '@/lib/accounts/repo';
 import { addLocationTransaction } from '@/lib/locations/add-location-tx';
 import { getActiveLocationCount } from '@/lib/locations/repo';
-import { sql, jsonb } from '@/lib/db/server';
 import { v7 as uuidv7 } from 'uuid';
 import { DUPLICATE_LOCATION } from '@/lib/locations/duplicate-location';
 import { enqueueStripeOverageRecompute } from '@/lib/shared/job-outbox-helpers';
@@ -235,6 +235,7 @@ export interface CsvImportOutcome {
  * fix-and-keep-both-rows pattern).
  */
 export async function importCsvRows(
+  sql: Sql,
   rows: ParsedCsvRow[],
   accountId: string,
 ): Promise<CsvImportOutcome> {
@@ -255,7 +256,7 @@ export async function importCsvRows(
     }
 
     // react-doctor-disable-next-line react-doctor/async-await-in-loop -- loop-carried state: importedPlaceIds and the per-row quota check (assertCanAddLocation) depend on prior rows having committed; rows must import in file order
-    const result = await processRow(row, accountId, {
+    const result = await processRow(sql, row, accountId, {
       enqueueStripeOverageUpdate: false,
     });
     if ('reason' in result) {
@@ -283,6 +284,7 @@ export async function importCsvRows(
  * Does NOT throw — errors are captured for the partial-success report.
  */
 export async function processRow(
+  sql: Sql,
   row: ParsedCsvRow,
   accountId: string,
   options: ProcessRowOptions = {},
@@ -353,7 +355,7 @@ export async function processRow(
   }
 }
 
-export async function enqueueCsvImportStripeOverageUpdate(accountId: string): Promise<void> {
+export async function enqueueCsvImportStripeOverageUpdate(sql: Sql, accountId: string): Promise<void> {
   await sql.begin((tx) => enqueueStripeOverageRecompute(tx, accountId));
 }
 
@@ -364,6 +366,7 @@ export async function enqueueCsvImportStripeOverageUpdate(accountId: string): Pr
  * VAL-ADMIN-014: Records the total created/failed counts.
  */
 export async function writeCsvImportAuditLog(
+  sql: Sql,
   accountId: string,
   actorUserId: string | null,
   created: number,
@@ -379,7 +382,7 @@ export async function writeCsvImportAuditLog(
       NULL,
       'csv_bulk_import',
       ${actorUserId ?? null}::uuid,
-      ${jsonb({
+      ${sql.json({
         created,
         failed_count: failedCount,
         failed_reasons: failedReasons,

@@ -1,30 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Sql } from 'postgres';
+import { createMockSql, mkTaggedResult } from '../../../../../worker/__tests__/helpers/mock-sql';
 
-const { mockSql, mockTx, sqlCalls, txCalls, txResults, mockWriteAccountAuditLog } = vi.hoisted(() => {
-  const sqlCalls: { text: string; values: unknown[] }[] = [];
-  const txCalls: { text: string; values: unknown[] }[] = [];
-  const txResults: unknown[] = [];
-  const mockTx = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
-    txCalls.push({ text: strings.join('?'), values });
-    return Promise.resolve(txResults.shift() ?? Object.assign([], { count: 1 }));
-  });
-  const mockSql: any = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
-    sqlCalls.push({ text: strings.join('?'), values });
-    return Promise.resolve([]);
-  });
-  mockSql.begin = vi.fn(async (cb: (tx: typeof mockTx) => Promise<unknown>) => cb(mockTx));
-  return {
-    mockSql,
-    mockTx,
-    sqlCalls,
-    txCalls,
-    txResults,
-    mockWriteAccountAuditLog: vi.fn(),
-  };
-});
+// session.ts no longer imports the @/lib/db/server singleton — sql is an
+// explicit parameter (A+ campaign 2b, T4) — so tests hand the shared mock
+// client directly to each function instead of vi.mock'ing a module import.
+// sql.begin(cb) invokes cb with the SAME mock client (see createMockSql),
+// so `sql` below stands in for both the top-level client and the tx passed
+// to writeAccountAuditLog.
+const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql } = createMockSql();
+const sql = mockSql as unknown as Sql;
 
-vi.mock('@/lib/db/server', () => ({
-  sql: mockSql,
+const { mockWriteAccountAuditLog } = vi.hoisted(() => ({
+  mockWriteAccountAuditLog: vi.fn(),
 }));
 
 vi.mock('@/lib/audit/log', () => ({
@@ -38,9 +26,7 @@ vi.mock('uuid', () => ({
 describe('impersonation session helpers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    sqlCalls.length = 0;
-    txCalls.length = 0;
-    txResults.length = 0;
+    resetMockSql();
     mockWriteAccountAuditLog.mockResolvedValue(undefined);
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-26T12:00:00.000Z'));
@@ -48,8 +34,11 @@ describe('impersonation session helpers', () => {
 
   it('starts a one-hour audited impersonation session', async () => {
     const { startImpersonationSession } = await import('../session');
+    sqlReturnQueue.push(mkTaggedResult([])); // reap expired-but-unended sessions
+    sqlReturnQueue.push([]); // active pre-check SELECT — no existing session
+    sqlReturnQueue.push(mkTaggedResult([])); // INSERT
 
-    const result = await startImpersonationSession({
+    const result = await startImpersonationSession(sql, {
       actorUserId: 'admin-user-id',
       impersonatedUserId: 'owner-user-id',
       accountId: 'account-id',
@@ -61,14 +50,14 @@ describe('impersonation session helpers', () => {
     expect(result.expiresAt.toISOString()).toBe('2026-05-26T13:00:00.000Z');
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
     // First reaps expired-but-unended sessions, then checks for an active one, then inserts.
-    expect(txCalls[0]!.text).toMatch(/UPDATE impersonation_sessions/i);
-    expect(txCalls[0]!.text).toMatch(/SET ended_at/i);
-    expect(txCalls[0]!.text).toMatch(/expires_at <= NOW\(\)/i);
-    expect(txCalls[0]!.text).toMatch(/ended_at IS NULL/i);
-    expect(txCalls[1]!.text).toMatch(/SELECT id\s+FROM impersonation_sessions/i);
-    expect(txCalls[1]!.text).toMatch(/ended_at IS NULL/i);
-    expect(txCalls[1]!.text).toMatch(/FOR UPDATE/i);
-    expect(txCalls[2]!.text).toMatch(/INSERT INTO impersonation_sessions/i);
+    expect(sqlCalls[0]!.text).toMatch(/UPDATE impersonation_sessions/i);
+    expect(sqlCalls[0]!.text).toMatch(/SET ended_at/i);
+    expect(sqlCalls[0]!.text).toMatch(/expires_at <= NOW\(\)/i);
+    expect(sqlCalls[0]!.text).toMatch(/ended_at IS NULL/i);
+    expect(sqlCalls[1]!.text).toMatch(/SELECT id\s+FROM impersonation_sessions/i);
+    expect(sqlCalls[1]!.text).toMatch(/ended_at IS NULL/i);
+    expect(sqlCalls[1]!.text).toMatch(/FOR UPDATE/i);
+    expect(sqlCalls[2]!.text).toMatch(/INSERT INTO impersonation_sessions/i);
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId: 'account-id',
@@ -77,18 +66,18 @@ describe('impersonation session helpers', () => {
         entityType: 'user',
         entityId: 'owner-user-id',
       }),
-      mockTx,
+      sql,
     );
   });
 
   it('rejects starting a second active session for the same actor', async () => {
     // First tx call is the expired-session reap; second is the active pre-check
     // SELECT, which here finds a still-active (non-expired) session.
-    txResults.push(Object.assign([], { count: 0 }));
-    txResults.push([{ id: 'existing-session-id' }]);
+    sqlReturnQueue.push(mkTaggedResult([]));
+    sqlReturnQueue.push([{ id: 'existing-session-id' }]);
     const { startImpersonationSession, ImpersonationStartError } = await import('../session');
 
-    await expect(startImpersonationSession({
+    await expect(startImpersonationSession(sql, {
       actorUserId: 'admin-user-id',
       impersonatedUserId: 'owner-user-id',
       accountId: 'account-id',
@@ -97,41 +86,41 @@ describe('impersonation session helpers', () => {
     })).rejects.toBeInstanceOf(ImpersonationStartError);
 
     // No INSERT, no audit row when an active session already exists.
-    expect(txCalls.some((c) => /INSERT INTO impersonation_sessions/i.test(c.text))).toBe(false);
+    expect(sqlCalls.some((c) => /INSERT INTO impersonation_sessions/i.test(c.text))).toBe(false);
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });
 
   it('ends an active session and writes an audit row', async () => {
-    txResults.push([{ account_id: 'account-id', impersonated_user_id: 'owner-user-id' }]);
+    sqlReturnQueue.push([{ account_id: 'account-id', impersonated_user_id: 'owner-user-id' }]);
     const { endImpersonationSession } = await import('../session');
 
-    await expect(endImpersonationSession({
+    await expect(endImpersonationSession(sql, {
       sessionId: 'session-id',
       actorUserId: 'admin-user-id',
     })).resolves.toEqual({ ended: true });
 
-    expect(txCalls[0]!.text).toMatch(/UPDATE impersonation_sessions/i);
-    expect(txCalls[0]!.text).toMatch(/RETURNING account_id, impersonated_user_id/i);
+    expect(sqlCalls[0]!.text).toMatch(/UPDATE impersonation_sessions/i);
+    expect(sqlCalls[0]!.text).toMatch(/RETURNING account_id, impersonated_user_id/i);
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId: 'account-id',
         actorUserId: 'admin-user-id',
         eventType: 'impersonation_ended',
       }),
-      mockTx,
+      sql,
     );
   });
 
   it('reports ended=false when no active session row was updated', async () => {
-    txResults.push([]);
+    sqlReturnQueue.push([]);
     const { endImpersonationSession } = await import('../session');
 
-    await expect(endImpersonationSession({
+    await expect(endImpersonationSession(sql, {
       sessionId: 'session-id',
       actorUserId: 'admin-user-id',
     })).resolves.toEqual({ ended: false });
 
-    expect(txCalls[0]!.text).toMatch(/UPDATE impersonation_sessions/i);
+    expect(sqlCalls[0]!.text).toMatch(/UPDATE impersonation_sessions/i);
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });
 });

@@ -6,7 +6,7 @@
 // queries are cross-account aggregates (no per-tenant filter) — allowlisted in
 // the tenant-scope audit.
 
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import { computeOverageQuantity } from '@/lib/accounts/quota';
 import { TIER_CONFIG, isSubscriptionTier } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
@@ -122,6 +122,7 @@ interface CostAggRow {
 }
 
 export async function getMarginReport(
+  sql: Sql,
   opts: { limit?: number } = {},
 ): Promise<MarginData> {
   const limit = opts.limit ?? 20;

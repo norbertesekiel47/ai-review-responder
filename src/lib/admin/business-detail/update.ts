@@ -4,7 +4,7 @@
 // business-detail-service.ts. Only export/import wiring changed.
 
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
 import type { BusinessPatch } from '../business-detail-types';
@@ -45,6 +45,7 @@ export const FIELD_TO_COLUMN = {
  *     is the only caller.
  */
 export async function updateBusiness(
+  sql: Sql,
   businessId: string,
   patch: BusinessPatch,
 ): Promise<void> {

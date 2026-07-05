@@ -1,10 +1,10 @@
+import type { Sql } from 'postgres';
 import { verifyImpersonationSession } from '@/lib/admin/impersonation/cookie';
 import { assertImpersonatedActionAllowed } from '@/lib/admin/impersonation/guard';
 import {
   loadActiveImpersonationSession,
   type ActiveImpersonationSession,
 } from '@/lib/admin/impersonation/session';
-import { sql } from '@/lib/db/server';
 
 export type ImpersonationViewResolution =
   | {
@@ -25,14 +25,17 @@ export interface ImpersonationAccountLocation {
   archivedAt: Date | null;
 }
 
-export async function resolveImpersonationViewSession(input: {
-  routeSessionId: string;
-  signedCookieValue: string | null;
-  authUserId: string | null;
-  isAal2: boolean;
-  action?: string;
-  now?: Date;
-}): Promise<ImpersonationViewResolution> {
+export async function resolveImpersonationViewSession(
+  sql: Sql,
+  input: {
+    routeSessionId: string;
+    signedCookieValue: string | null;
+    authUserId: string | null;
+    isAal2: boolean;
+    action?: string;
+    now?: Date;
+  },
+): Promise<ImpersonationViewResolution> {
   if (!input.authUserId) {
     return { status: 'unauthenticated' };
   }
@@ -70,7 +73,7 @@ export async function resolveImpersonationViewSession(input: {
     return { status: 'forbidden' };
   }
 
-  const session = await loadActiveImpersonationSession({
+  const session = await loadActiveImpersonationSession(sql, {
     sessionId: signedSessionId,
     actorUserId: admin.id,
     now: input.now,
@@ -88,6 +91,7 @@ export async function resolveImpersonationViewSession(input: {
 }
 
 export async function loadImpersonationAccountLocations(
+  sql: Sql,
   accountId: string,
 ): Promise<ImpersonationAccountLocation[]> {
   const rows = await sql<{

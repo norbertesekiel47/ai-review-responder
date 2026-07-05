@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Sql } from 'postgres';
 
 // ── Hoisted mocks ───────────────────────────────────────────────────
 //
@@ -31,6 +32,12 @@ const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql } = await vi.hoisted(asy
 };
 
 vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
+
+// getBusinessDetail (business-detail-service.ts) no longer imports the
+// @/lib/db/server singleton — sql is an explicit parameter (A+ campaign 2b,
+// T4) — so calls below pass the SAME mock client used for the routes above,
+// which still import the singleton (composition roots).
+const sql = mockSql as unknown as Sql;
 
 vi.mock('@/lib/db/auth', () => ({
   requireRole: vi.fn().mockResolvedValue({ id: 'admin-1', role: 'admin' }),
@@ -262,7 +269,7 @@ describe('Admin denormalized account_id queries', () => {
       sqlReturnQueue.push([]);
       sqlReturnQueue.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
 
-      const result = await getBusinessDetail('loc-1');
+      const result = await getBusinessDetail(sql, 'loc-1');
       expect(result).not.toBeNull();
       expect(result!.account).toBeDefined();
       expect(result!.account.id).toBe('acct-1');
@@ -310,7 +317,7 @@ describe('Admin denormalized account_id queries', () => {
       sqlReturnQueue.push([]); // auto approval policies
       sqlReturnQueue.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
 
-      await getBusinessDetail('loc-1');
+      await getBusinessDetail(sql, 'loc-1');
 
       // Verify the approval_audit_log query filters by account_id
       const auditQueries = sqlCalls.filter(
@@ -348,7 +355,7 @@ describe('Admin denormalized account_id queries', () => {
       sqlReturnQueue.push([]);
       sqlReturnQueue.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
 
-      await getBusinessDetail('loc-1');
+      await getBusinessDetail(sql, 'loc-1');
 
       // Verify the account_audit_log query filters by account_id
       const accountAuditQueries = sqlCalls.filter(

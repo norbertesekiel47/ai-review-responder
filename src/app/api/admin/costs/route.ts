@@ -22,7 +22,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // Margin is best-effort: a fault in the new finance query must NOT take
       // down the pre-existing cost report. On failure, return the cost report
       // with `margin: null` (the admin costs page guards for a missing margin).
-      getMarginReport({ limit: 20 }).catch((marginErr) => {
+      getMarginReport(sql, { limit: 20 }).catch((marginErr) => {
         reportCaughtError('api/admin/costs', marginErr, {
           failure: 'margin_report_cost_report_still_returned',
         });

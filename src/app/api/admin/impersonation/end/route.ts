@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { sql } from '@/lib/db/server';
 import { IMPERSONATION_COOKIE_NAME, verifyImpersonationSession } from '@/lib/admin/impersonation/cookie';
 import { endImpersonationSession } from '@/lib/admin/impersonation/session';
 import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
@@ -28,7 +29,7 @@ async function endImpersonation(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    await endImpersonationSession({ sessionId, actorUserId: admin.id });
+    await endImpersonationSession(sql, { sessionId, actorUserId: admin.id });
   } catch (err) {
     return internalError('[api/admin/impersonation/end] Failed:', err);
   }

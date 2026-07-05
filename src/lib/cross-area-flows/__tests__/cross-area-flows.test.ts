@@ -20,7 +20,10 @@ import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 // ── Hoisted mocks ────────────────────────────────────────────────────────
 
 const { mockSql, mockRedis } = vi.hoisted(() => ({
-  mockSql: vi.fn() as ReturnType<typeof vi.fn> & { begin: ReturnType<typeof vi.fn> },
+  mockSql: vi.fn() as ReturnType<typeof vi.fn> & {
+    begin: ReturnType<typeof vi.fn>;
+    json: ReturnType<typeof vi.fn>;
+  },
   mockRedis: {
     get: vi.fn().mockResolvedValue(null),
     set: vi.fn().mockResolvedValue('OK'),
@@ -29,8 +32,12 @@ const { mockSql, mockRedis } = vi.hoisted(() => ({
   },
 }));
 
-// Add .begin mock to mockSql
+// Add .begin/.json mocks to mockSql. .json stands in for Postgres.js's
+// sql.json(value) (writeCsvImportAuditLog calls the injected client's
+// .json directly instead of the @/lib/db/server jsonb() helper — A+
+// campaign 2b, T4 / 2z).
 mockSql.begin = vi.fn();
+mockSql.json = vi.fn((v: unknown) => v);
 
 vi.mock('@/lib/db/server', () => ({
   sql: mockSql,
@@ -664,7 +671,7 @@ Uptown Diner,ChIJ003,casual`;
     if ('rows' in parsed) {
       const results = [];
       for (const row of parsed.rows) {
-        const result = await processRow(row, account.id);
+        const result = await processRow(mockSql as unknown as Sql, row, account.id);
         results.push(result);
       }
 
@@ -688,7 +695,7 @@ Uptown Diner,ChIJ003,casual`;
 
     // Step 5: Verify audit log for csv_bulk_import
     mockSql.mockResolvedValueOnce(undefined); // INSERT succeeds
-    await writeCsvImportAuditLog(account.id, 'admin-user', 3, 0, []);
+    await writeCsvImportAuditLog(mockSql as unknown as Sql, account.id, 'admin-user', 3, 0, []);
     expect(mockSql).toHaveBeenCalled();
   });
 });
