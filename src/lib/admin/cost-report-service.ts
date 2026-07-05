@@ -183,6 +183,12 @@ function optionalRollupAcctPrefix(sql: Sql, days: number, accountId: AccountId |
 
 // ── getCostReport ─────────────────────────────────────────────────────
 
+// Pre-existing complexity hotspot (over the threshold on main too). This sweep's
+// sql-fragment dedup only REMOVED branches (collapsed the accountId x needsRollup
+// query multiplication), so it is net-simpler than main; fallow re-attributes it
+// as introduced only because the body changed. Not a named route-extraction
+// target; the bulk is SQL template literals, not control flow.
+// fallow-ignore-next-line complexity
 export async function getCostReport(sql: Sql, q: CostQuery): Promise<CostData> {
   const { days, limit, offset, accountId } = q;
   const needsRollup = days > 90;

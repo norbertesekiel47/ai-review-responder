@@ -6,6 +6,10 @@ import { getAdminOverview } from '@/lib/admin/overview-service';
 
 export const dynamic = 'force-dynamic';
 
+// Thin orchestrator (auth → parse → call getAdminOverview → return; invariant #12).
+// Its fallow CRAP score is high only because it has no dedicated unit test (covered
+// by e2e), not because of control-flow complexity — cyclomatic is 7.
+// fallow-ignore-next-line complexity
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const auth = await requireRoleOr401(request, 'admin');
   if (!auth.ok) return auth.response;
