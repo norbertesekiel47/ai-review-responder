@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OnboardBusinessSchema } from '@/lib/shared/schemas';
-import { sql } from '@/lib/db/server';
+import { sql, supabaseServer } from '@/lib/db/server';
 import {
   onboardBusinessAsAdmin,
   AdminOnboardingError,
@@ -105,7 +105,7 @@ async function createBusiness(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const result = await onboardBusinessAsAdmin({
+    const result = await onboardBusinessAsAdmin(sql, supabaseServer, {
       ...parsed.data,
       onboardedBy: admin.id,
     });
