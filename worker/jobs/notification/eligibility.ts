@@ -15,7 +15,7 @@ import {
   type AccountFlagsInput,
 } from '../../../src/lib/shared/subscription-guard';
 import { resolveChannels, type ResolvedChannel } from '../../../src/lib/notifications/resolve-channels';
-import { channelsTelegramEnabled, channelsWhatsappEnabled } from '../../../src/lib/notifications/channels/flags';
+import { channelNotificationEnabled } from '../../../src/lib/notifications/channels/flags';
 import type { ChannelId } from '../../../src/lib/notifications/channels/types';
 import type { AccountId, LocationId } from '../../../src/lib/shared/ids';
 import { asAccountId, asLocationId } from '../../../src/lib/shared/ids';
@@ -37,17 +37,22 @@ export type EligibilityResult =
   | { ok: false; reason: string };
 
 /**
- * Per-channel feature-flag check. Email is always allowed if enrolled;
- * Telegram / WhatsApp each require their respective env flag to equal the
- * literal string `"true"`. Names + defaults match the original
- * NotificationWorker (default off — must be explicitly enabled).
+ * Display labels for the flag-disabled skip-log line. Exhaustive over the
+ * channel registry so adding a channel forces a label decision here.
+ *
+ * Only telegram/whatsapp are observable: the label is reached solely inside the
+ * `!channelNotificationEnabled(channel)` branch, and email always returns true
+ * from that check — so `email` never reaches this map. The `email` entry exists
+ * only to satisfy `Record<ChannelId, string>`; it is unobservable. This
+ * preserves the old ternary's behavior, whose only reachable inputs were
+ * telegram → 'Telegram' and whatsapp → 'WhatsApp' (its raw-value else branch
+ * was likewise unreachable).
  */
-function isChannelFlagEnabled(channelId: ChannelId): boolean {
-  if (channelId === 'email') return true;
-  if (channelId === 'telegram') return channelsTelegramEnabled();
-  if (channelId === 'whatsapp') return channelsWhatsappEnabled();
-  return false;
-}
+const CHANNEL_LABELS: Record<ChannelId, string> = {
+  email: 'Email',
+  telegram: 'Telegram',
+  whatsapp: 'WhatsApp',
+};
 
 /**
  * Subscription gate + per-channel flag filter + channel resolution via
@@ -82,15 +87,9 @@ export async function getEligibleChannels(
 
   const filtered: ResolvedChannel[] = [];
   for (const enrollment of enrollments) {
-    if (!isChannelFlagEnabled(enrollment.channel)) {
-      const channelLabel =
-        enrollment.channel === 'telegram'
-          ? 'Telegram'
-          : enrollment.channel === 'whatsapp'
-            ? 'WhatsApp'
-            : enrollment.channel;
+    if (!channelNotificationEnabled(enrollment.channel)) {
       logger.log(
-        `${channelLabel} channel disabled by flag — skipping enrollment for location ${input.locationId}`,
+        `${CHANNEL_LABELS[enrollment.channel]} channel disabled by flag — skipping enrollment for location ${input.locationId}`,
       );
       continue;
     }

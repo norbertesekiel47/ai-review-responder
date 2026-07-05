@@ -14,6 +14,7 @@
  * companion; the browser learns the state through API responses / props.
  */
 import { readFlag } from '@/lib/config/flags';
+import type { ChannelId } from './types';
 
 export function channelsTelegramEnabled(): boolean {
   return readFlag('CHANNELS_TELEGRAM_ENABLED');
@@ -21,6 +22,23 @@ export function channelsTelegramEnabled(): boolean {
 
 export function channelsWhatsappEnabled(): boolean {
   return readFlag('CHANNELS_WHATSAPP_ENABLED');
+}
+
+/**
+ * Single authoritative channel→flag map. Email has no flag gate (always on);
+ * Telegram / WhatsApp each require their `*_ENABLED` flag. The
+ * `Record<ChannelId, …>` makes this exhaustive: adding a channel to the registry
+ * forces a per-channel enablement decision at THIS one site, rather than in each
+ * consumer's own if/else. Byte-identical to the prior inline checks
+ * (email → true, telegram → channelsTelegramEnabled(), whatsapp → channelsWhatsappEnabled()).
+ */
+export function channelNotificationEnabled(channel: ChannelId): boolean {
+  const enabled: Record<ChannelId, () => boolean> = {
+    email: () => true, // email is always on (no flag gate)
+    telegram: channelsTelegramEnabled,
+    whatsapp: channelsWhatsappEnabled,
+  };
+  return enabled[channel]();
 }
 
 export function emailChannelReconcileDisabled(): boolean {
