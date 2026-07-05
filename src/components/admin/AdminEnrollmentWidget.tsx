@@ -10,9 +10,10 @@
 
 import Image from 'next/image';
 import { useEnrollment } from '@/lib/notifications/channels/use-enrollment';
+import type { MobileChannel } from '@/lib/channels/mobile-enrollment';
 
 export interface AdminEnrollmentPresentation {
-  channel: 'telegram' | 'whatsapp';
+  channel: MobileChannel;
   /** Display name, e.g. "Telegram" / "WhatsApp". */
   label: string;
   /** Root container class (preserves the existing per-channel hook class). */

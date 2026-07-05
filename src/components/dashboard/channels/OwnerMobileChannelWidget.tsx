@@ -11,6 +11,7 @@
 import Image from 'next/image';
 import { useEnrollment } from '@/lib/notifications/channels/use-enrollment';
 import type { EnrollmentSnapshot } from '@/lib/notifications/channels/enrollment-reducer';
+import type { MobileChannel } from '@/lib/channels/mobile-enrollment';
 
 export interface OwnerChannelInitialRow {
   channel: string;
@@ -19,7 +20,7 @@ export interface OwnerChannelInitialRow {
 }
 
 export interface OwnerChannelPresentation {
-  channel: 'telegram' | 'whatsapp';
+  channel: MobileChannel;
   /** Display name, e.g. "Telegram" / "WhatsApp". */
   label: string;
   /** Icon CSS class, e.g. "ch-tg" / "ch-wa". */

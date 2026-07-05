@@ -17,8 +17,9 @@ import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels
 import { asAccountId } from '@/lib/shared/ids';
 import { shouldUseMultiLocationSettings } from '@/lib/locations/multi-location-mode';
 import { multiLocationEnabled } from '@/lib/locations/flags';
+import type { MobileChannel } from './mobile-enrollment';
 
-export type OverridableChannel = 'email' | 'telegram' | 'whatsapp';
+export type OverridableChannel = 'email' | MobileChannel;
 
 export interface OverrideInput {
   accountId: string;

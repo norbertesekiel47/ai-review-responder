@@ -10,6 +10,8 @@
 // State transitions are documented in
 // docs/superpowers/specs/2026-04-28-phase-4-owner-channel-dashboard-design.md §2.
 
+import type { ChannelId } from './types';
+
 export type EnrollmentState =
   | 'idle'
   | 'generating'
@@ -21,7 +23,7 @@ export type EnrollmentState =
   | 'error';
 
 export interface ChannelEnrollmentRow {
-  channel: 'email' | 'telegram' | 'whatsapp';
+  channel: ChannelId;
   handle: string | null;
   status: 'verified' | 'pending_verification' | 'disabled' | 'unsubscribed';
   verified_at: string | null;
