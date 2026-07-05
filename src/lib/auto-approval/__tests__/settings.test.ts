@@ -2,174 +2,168 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AutoApprovalThreshold } from '../types';
 
 const {
-  mockSql,
-  sqlCalls,
   mockAssertWritableSubscriptionForAccount,
   mockWriteAccountAuditLog,
-  dbState,
-} = vi.hoisted(() => {
-  type Policy = { id: string; threshold: AutoApprovalThreshold | null };
-  type Location = {
-    id: string;
-    name: string;
-    displayLabel: string | null;
-    archivedAt: Date | null;
-  };
-  type Offboarding = {
-    id: string;
-    account_id: string;
-    mode: string;
-    status: string;
-    failed_step: string | null;
-    terminal_at: null;
-    access_ends_at: Date | null;
-    teardown_started_at: Date | null;
-    purge_after: Date | null;
-    purge_started_at: Date | null;
-    purge_cancelled_at: Date | null;
-  };
-  const sqlCalls: { text: string; values: unknown[] }[] = [];
-  const dbState = {
-    accountExists: true,
-    accountDefault: null as Policy | null,
-    locations: [] as Location[],
-    overrides: new Map<string, Policy>(),
-    offboarding: null as Offboarding | null,
-  };
+} = vi.hoisted(() => ({
+  mockAssertWritableSubscriptionForAccount: vi.fn(),
+  mockWriteAccountAuditLog: vi.fn(),
+}));
 
-  const policyRow = (
-    policy: Policy,
-    accountId: string,
-    locationId: string | null,
-  ) => ({
-    id: policy.id,
-    account_id: accountId,
-    location_id: locationId,
-    auto_approve_min_star: policy.threshold,
-  });
+type Policy = { id: string; threshold: AutoApprovalThreshold | null };
+type Location = {
+  id: string;
+  name: string;
+  displayLabel: string | null;
+  archivedAt: Date | null;
+};
+type Offboarding = {
+  id: string;
+  account_id: string;
+  mode: string;
+  status: string;
+  failed_step: string | null;
+  terminal_at: null;
+  access_ends_at: Date | null;
+  teardown_started_at: Date | null;
+  purge_after: Date | null;
+  purge_started_at: Date | null;
+  purge_cancelled_at: Date | null;
+};
+const sqlCalls: { text: string; values: unknown[] }[] = [];
+const dbState = {
+  accountExists: true,
+  accountDefault: null as Policy | null,
+  locations: [] as Location[],
+  overrides: new Map<string, Policy>(),
+  offboarding: null as Offboarding | null,
+};
 
-  const sqlFn: any = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
-    const text = strings.join('?');
-    sqlCalls.push({ text, values });
-    const accountId = values[0] as string;
-
-    if (text.includes('FROM accounts') && text.includes('FOR UPDATE')) {
-      return dbState.accountExists ? [{ id: accountId }] : [];
-    }
-
-    if (text.includes('FROM account_offboardings')) {
-      return dbState.offboarding ? [dbState.offboarding] : [];
-    }
-
-    if (
-      text.includes('FROM auto_approval_policies') &&
-      text.includes('location_id IS NULL') &&
-      text.includes('LIMIT 1')
-    ) {
-      return dbState.accountDefault
-        ? [policyRow(dbState.accountDefault, accountId, null)]
-        : [];
-    }
-
-    if (
-      text.includes('FROM auto_approval_policies') &&
-      text.includes('location_id =') &&
-      text.includes('LIMIT 1')
-    ) {
-      const locationId = values[1] as string;
-      const override = dbState.overrides.get(locationId);
-      return override ? [policyRow(override, accountId, locationId)] : [];
-    }
-
-    if (
-      text.includes('FROM businesses b') &&
-      text.includes('LEFT JOIN auto_approval_policies p') &&
-      !text.includes('COUNT(*)')
-    ) {
-      return dbState.locations
-        .filter((location) => location.archivedAt === null)
-        .map((location) => {
-          const override = dbState.overrides.get(location.id);
-          return {
-            location_id: location.id,
-            display_name: location.displayLabel ?? location.name,
-            policy_id: override?.id ?? null,
-            policy_account_id: override ? accountId : null,
-            auto_approve_min_star: override?.threshold ?? null,
-          };
-        });
-    }
-
-    if (text.includes('SELECT id, name, display_label, archived_at') && text.includes('FROM businesses')) {
-      const locationId = values[1] as string;
-      const location = dbState.locations.find((candidate) => candidate.id === locationId);
-      return location
-        ? [{
-            id: location.id,
-            name: location.name,
-            display_label: location.displayLabel,
-            archived_at: location.archivedAt,
-          }]
-        : [];
-    }
-
-    if (text.includes('COUNT(*)::int AS count') && text.includes('p.id IS NULL')) {
-      const count = dbState.locations.filter(
-        (location) => location.archivedAt === null && !dbState.overrides.has(location.id),
-      ).length;
-      return [{ count }];
-    }
-
-    if (
-      text.includes('INSERT INTO auto_approval_policies') &&
-      text.includes('ON CONFLICT (account_id) WHERE location_id IS NULL')
-    ) {
-      dbState.accountDefault = {
-        id: dbState.accountDefault?.id ?? 'policy-account-default',
-        threshold: values[2] as AutoApprovalThreshold | null,
-      };
-      return [];
-    }
-
-    if (
-      text.includes('INSERT INTO auto_approval_policies') &&
-      text.includes('ON CONFLICT (account_id, location_id) WHERE location_id IS NOT NULL')
-    ) {
-      const locationId = values[1] as string;
-      dbState.overrides.set(locationId, {
-        id: dbState.overrides.get(locationId)?.id ?? `policy-${locationId}`,
-        threshold: values[3] as AutoApprovalThreshold | null,
-      });
-      return [];
-    }
-
-    if (text.includes('DELETE FROM auto_approval_policies') && text.includes('location_id IS NULL')) {
-      dbState.accountDefault = null;
-      return [];
-    }
-
-    if (text.includes('DELETE FROM auto_approval_policies') && text.includes('location_id =')) {
-      dbState.overrides.delete(values[1] as string);
-      return [];
-    }
-
-    return [];
-  });
-  sqlFn.begin = vi.fn(async (cb: (tx: typeof sqlFn) => Promise<unknown>) => cb(sqlFn));
-
-  return {
-    mockSql: sqlFn,
-    sqlCalls,
-    dbState,
-    mockAssertWritableSubscriptionForAccount: vi.fn(),
-    mockWriteAccountAuditLog: vi.fn(),
-  };
+const policyRow = (
+  policy: Policy,
+  accountId: string,
+  locationId: string | null,
+) => ({
+  id: policy.id,
+  account_id: accountId,
+  location_id: locationId,
+  auto_approve_min_star: policy.threshold,
 });
 
-vi.mock('@/lib/db/server', () => ({
-  sql: mockSql,
-  jsonb: (value: unknown) => ({ __jsonb: value }),
-}));
+// Content-routing mock (not the generic FIFO `createMockSql` harness): the
+// flows under test interleave many distinct reads/writes against mutable
+// `dbState`, so each query must resolve based on WHICH query it is, not just
+// "next queued result" — precise, not permissive (spec §2.1's target is
+// killing hand-rolled mocks that weaken assertions; this one is stricter).
+// `settings.ts` now takes `sql` as an explicit parameter, so this stands in
+// for that argument directly — no `vi.mock('@/lib/db/server', ...)` needed.
+const mockSql: any = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+  const text = strings.join('?');
+  sqlCalls.push({ text, values });
+  const accountId = values[0] as string;
+
+  if (text.includes('FROM accounts') && text.includes('FOR UPDATE')) {
+    return dbState.accountExists ? [{ id: accountId }] : [];
+  }
+
+  if (text.includes('FROM account_offboardings')) {
+    return dbState.offboarding ? [dbState.offboarding] : [];
+  }
+
+  if (
+    text.includes('FROM auto_approval_policies') &&
+    text.includes('location_id IS NULL') &&
+    text.includes('LIMIT 1')
+  ) {
+    return dbState.accountDefault
+      ? [policyRow(dbState.accountDefault, accountId, null)]
+      : [];
+  }
+
+  if (
+    text.includes('FROM auto_approval_policies') &&
+    text.includes('location_id =') &&
+    text.includes('LIMIT 1')
+  ) {
+    const locationId = values[1] as string;
+    const override = dbState.overrides.get(locationId);
+    return override ? [policyRow(override, accountId, locationId)] : [];
+  }
+
+  if (
+    text.includes('FROM businesses b') &&
+    text.includes('LEFT JOIN auto_approval_policies p') &&
+    !text.includes('COUNT(*)')
+  ) {
+    return dbState.locations
+      .filter((location) => location.archivedAt === null)
+      .map((location) => {
+        const override = dbState.overrides.get(location.id);
+        return {
+          location_id: location.id,
+          display_name: location.displayLabel ?? location.name,
+          policy_id: override?.id ?? null,
+          policy_account_id: override ? accountId : null,
+          auto_approve_min_star: override?.threshold ?? null,
+        };
+      });
+  }
+
+  if (text.includes('SELECT id, name, display_label, archived_at') && text.includes('FROM businesses')) {
+    const locationId = values[1] as string;
+    const location = dbState.locations.find((candidate) => candidate.id === locationId);
+    return location
+      ? [{
+          id: location.id,
+          name: location.name,
+          display_label: location.displayLabel,
+          archived_at: location.archivedAt,
+        }]
+      : [];
+  }
+
+  if (text.includes('COUNT(*)::int AS count') && text.includes('p.id IS NULL')) {
+    const count = dbState.locations.filter(
+      (location) => location.archivedAt === null && !dbState.overrides.has(location.id),
+    ).length;
+    return [{ count }];
+  }
+
+  if (
+    text.includes('INSERT INTO auto_approval_policies') &&
+    text.includes('ON CONFLICT (account_id) WHERE location_id IS NULL')
+  ) {
+    dbState.accountDefault = {
+      id: dbState.accountDefault?.id ?? 'policy-account-default',
+      threshold: values[2] as AutoApprovalThreshold | null,
+    };
+    return [];
+  }
+
+  if (
+    text.includes('INSERT INTO auto_approval_policies') &&
+    text.includes('ON CONFLICT (account_id, location_id) WHERE location_id IS NOT NULL')
+  ) {
+    const locationId = values[1] as string;
+    dbState.overrides.set(locationId, {
+      id: dbState.overrides.get(locationId)?.id ?? `policy-${locationId}`,
+      threshold: values[3] as AutoApprovalThreshold | null,
+    });
+    return [];
+  }
+
+  if (text.includes('DELETE FROM auto_approval_policies') && text.includes('location_id IS NULL')) {
+    dbState.accountDefault = null;
+    return [];
+  }
+
+  if (text.includes('DELETE FROM auto_approval_policies') && text.includes('location_id =')) {
+    dbState.overrides.delete(values[1] as string);
+    return [];
+  }
+
+  return [];
+});
+mockSql.begin = vi.fn(async (cb: (tx: typeof mockSql) => Promise<unknown>) => cb(mockSql));
 
 vi.mock('@/lib/shared/writable-subscription', () => ({
   assertWritableSubscriptionForAccount: (...args: unknown[]) =>
@@ -223,7 +217,7 @@ describe('auto-approval settings service', () => {
 
     const { getAutoApprovalSettings } = await import('../settings');
 
-    const result = await getAutoApprovalSettings({
+    const result = await getAutoApprovalSettings(mockSql, {
       accountId: ACCOUNT_ID,
       impersonated: false,
     });
@@ -264,7 +258,7 @@ describe('auto-approval settings service', () => {
 
     let caught: unknown;
     try {
-      await patchAutoApprovalSettings({
+      await patchAutoApprovalSettings(mockSql, {
         accountId: ACCOUNT_ID,
         actorUserId: ACTOR_USER_ID,
         impersonated: false,
@@ -285,7 +279,7 @@ describe('auto-approval settings service', () => {
     dbState.locations = [];
     const { patchAutoApprovalSettings } = await import('../settings');
 
-    const result = await patchAutoApprovalSettings({
+    const result = await patchAutoApprovalSettings(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
       impersonated: false,
@@ -309,7 +303,7 @@ describe('auto-approval settings service', () => {
 
     const { patchAutoApprovalSettings } = await import('../settings');
 
-    const result = await patchAutoApprovalSettings({
+    const result = await patchAutoApprovalSettings(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
       impersonated: false,
@@ -325,6 +319,7 @@ describe('auto-approval settings service', () => {
     expect(result.readiness.blockReasons).toContain('provider_moderation_disabled');
     expect(result.readiness.blockReasons).toContain('subscription_not_writable');
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
       expect.objectContaining({
         accountId: ACCOUNT_ID,
         actorUserId: ACTOR_USER_ID,
@@ -334,7 +329,6 @@ describe('auto-approval settings service', () => {
           expansion: false,
         }),
       }),
-      mockSql,
     );
   });
 
@@ -358,7 +352,7 @@ describe('auto-approval settings service', () => {
 
     let caught: unknown;
     try {
-      await patchAutoApprovalSettings({
+      await patchAutoApprovalSettings(mockSql, {
         accountId: ACCOUNT_ID,
         actorUserId: ACTOR_USER_ID,
         impersonated: false,
@@ -382,7 +376,7 @@ describe('auto-approval settings service', () => {
     const { patchAutoApprovalSettings } = await import('../settings');
 
     await expect(
-      patchAutoApprovalSettings({
+      patchAutoApprovalSettings(mockSql, {
         accountId: ACCOUNT_ID,
         actorUserId: ACTOR_USER_ID,
         impersonated: false,
@@ -403,7 +397,7 @@ describe('auto-approval settings service', () => {
 
     let caught: unknown;
     try {
-      await patchAutoApprovalSettings({
+      await patchAutoApprovalSettings(mockSql, {
         accountId: ACCOUNT_ID,
         actorUserId: ACTOR_USER_ID,
         impersonated: false,
@@ -428,7 +422,7 @@ describe('auto-approval settings service', () => {
     const { patchAutoApprovalSettings } = await import('../settings');
 
     await expect(
-      patchAutoApprovalSettings({
+      patchAutoApprovalSettings(mockSql, {
         accountId: ACCOUNT_ID,
         actorUserId: ACTOR_USER_ID,
         impersonated: false,
@@ -437,13 +431,13 @@ describe('auto-approval settings service', () => {
       }),
     ).resolves.toBeDefined();
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
       expect.objectContaining({
         payload: expect.objectContaining({
           operation: 'delete_location_override',
           expansion: false,
         }),
       }),
-      mockSql,
     );
   });
 
@@ -453,7 +447,7 @@ describe('auto-approval settings service', () => {
 
     let caught: unknown;
     try {
-      await patchAutoApprovalSettings({
+      await patchAutoApprovalSettings(mockSql, {
         accountId: ACCOUNT_ID,
         actorUserId: ACTOR_USER_ID,
         impersonated: false,
@@ -473,7 +467,7 @@ describe('auto-approval settings service', () => {
     dbState.overrides.set(LOCATION_1, { id: 'policy-main', threshold: 4 });
     const { patchAutoApprovalSettings } = await import('../settings');
 
-    const result = await patchAutoApprovalSettings({
+    const result = await patchAutoApprovalSettings(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
       impersonated: false,
@@ -485,20 +479,20 @@ describe('auto-approval settings service', () => {
     expect(location?.override).toEqual({ policyId: null, threshold: null, exists: false });
     expect(location?.effective.threshold).toBeNull();
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
       expect.objectContaining({
         payload: expect.objectContaining({
           operation: 'delete_location_override',
           expansion: false,
         }),
       }),
-      mockSql,
     );
   });
 
   it('records affectedActiveLocationCount across inheriting active locations', async () => {
     const { patchAutoApprovalSettings } = await import('../settings');
 
-    await patchAutoApprovalSettings({
+    await patchAutoApprovalSettings(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
       impersonated: false,
@@ -508,6 +502,7 @@ describe('auto-approval settings service', () => {
     });
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
       expect.objectContaining({
         payload: expect.objectContaining({
           operation: 'set_account_default',
@@ -516,7 +511,6 @@ describe('auto-approval settings service', () => {
           futureDefaultApplies: true,
         }),
       }),
-      mockSql,
     );
   });
 
@@ -530,7 +524,7 @@ describe('auto-approval settings service', () => {
 
     let caught: unknown;
     try {
-      await patchAutoApprovalSettings({
+      await patchAutoApprovalSettings(mockSql, {
         accountId: ACCOUNT_ID,
         actorUserId: ACTOR_USER_ID,
         impersonated: false,

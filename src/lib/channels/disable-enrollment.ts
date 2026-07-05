@@ -109,32 +109,26 @@ export async function disableChannelEnrollment(
 
   for (const _row of orgDefaultRows) {
     // react-doctor-disable-next-line react-doctor/async-await-in-loop -- inside a Postgres.js transaction (tx): single connection, queries must stay sequential; Promise.all inside a tx is a known repo footgun
-    await writeAccountAuditLog(
-      {
-        accountId,
-        locationId: null,
-        actorUserId: input.actorUserId ?? null,
-        eventType: 'channel_disabled',
-        payload: { channel },
-      },
-      tx,
-    );
+    await writeAccountAuditLog(tx, {
+      accountId,
+      locationId: null,
+      actorUserId: input.actorUserId ?? null,
+      eventType: 'channel_disabled',
+      payload: { channel },
+    });
   }
 
   for (const row of overrideRows) {
     // react-doctor-disable-next-line react-doctor/async-await-in-loop -- inside a Postgres.js transaction (tx): single connection, queries must stay sequential; Promise.all inside a tx is a known repo footgun
-    await writeAccountAuditLog(
-      {
-        accountId,
-        locationId: row.location_id,
-        actorUserId: input.actorUserId ?? null,
-        eventType: 'channel_override_disabled',
-        payload: { channel },
-        entityType: 'channel_enrollment',
-        entityId: row.id,
-      },
-      tx,
-    );
+    await writeAccountAuditLog(tx, {
+      accountId,
+      locationId: row.location_id,
+      actorUserId: input.actorUserId ?? null,
+      eventType: 'channel_override_disabled',
+      payload: { channel },
+      entityType: 'channel_enrollment',
+      entityId: row.id,
+    });
   }
 
   const changed = orgDefaultRows.length + overrideRows.length;

@@ -154,7 +154,7 @@ export async function finalizeConnectionTx({
       )
     `;
 
-    await enqueueAnalyticsEvent({
+    await enqueueAnalyticsEvent(tx, {
       eventName: 'gbp_connected',
       eventKey: makeAnalyticsEventKey('gbp_connected', [stored.businessId]),
       distinctId: ownerAccountId,
@@ -165,7 +165,7 @@ export async function finalizeConnectionTx({
         business_id: stored.businessId,
         location_count: stored.locations.length,
       },
-    }, tx);
+    });
 
     // Backfill-needed predicate (spec §6.8 round-final M2). Fires when
     // EITHER (a) no prior connect existed for this business OR

@@ -1,5 +1,6 @@
 import type { z } from 'zod';
-import { sql, supabaseServer } from '@/lib/db/server';
+import type { Sql } from 'postgres';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { isPlaceId, extractPlaceId } from '@/lib/reviews/url-parser';
 import type { OnboardBusinessSchema } from '@/lib/shared/schemas';
 import {
@@ -220,6 +221,35 @@ function buildTxInput(
 }
 
 /**
+ * Compensating rollback for a provisioning failure after createBusinessTx has
+ * already committed (invite-send failure, or auth_id link failure). Runs the
+ * 4 deletes atomically, in FK-cascade-significant order:
+ *   1. job_outbox first — no FK CASCADE from businesses to job_outbox
+ *      (aggregate_id is just a UUID, not a foreign key — see migration
+ *      001 line 301), so leaving these rows in place would orphan
+ *      pending jobs that the OutboxPoller would then dispatch into
+ *      a void (no business_id to look up).
+ *   2. users next — users.account_id is a FK to accounts.id without
+ *      CASCADE so users must be deleted before accounts.
+ *   3. accounts — the accounts row links everything together.
+ *   4. businesses last — channel_enrollments cascade-deletes via
+ *      businesses.id ON DELETE CASCADE.
+ *
+ * @param sql Postgres.js client (composition root supplies the singleton).
+ */
+export async function rollbackProvisionedBusiness(
+  sql: Sql,
+  createdResult: { businessId: string; userId: string; accountId: string },
+): Promise<void> {
+  await sql.begin(async (tx) => {
+    await tx`DELETE FROM job_outbox WHERE aggregate_id = ${createdResult.businessId}::uuid`;
+    await tx`DELETE FROM users WHERE id = ${createdResult.userId}::uuid`;
+    await tx`DELETE FROM accounts WHERE id = ${createdResult.accountId}::uuid`;
+    await tx`DELETE FROM businesses WHERE id = ${createdResult.businessId}::uuid`;
+  });
+}
+
+/**
  * Admin onboarding orchestration. Runs (in order):
  *   1. Place ID input resolution (autocomplete vs Google Maps URL)
  *   2. NEXT_PUBLIC_APP_URL validation (fail-fast before any DB write)
@@ -233,8 +263,13 @@ function buildTxInput(
  * admin-created users.auth_id must NEVER stay NULL because that locks the
  * owner out (no Supabase Auth identity → no login, reset, or signup
  * recourse via the email-collision pre-check).
+ *
+ * `sql` + `supabase` are injected (the composition root supplies the
+ * singletons) — this module never imports `@/lib/db/server`.
  */
 export async function onboardBusinessAsAdmin(
+  sql: Sql,
+  supabase: SupabaseClient,
   input: AdminOnboardingInput,
 ): Promise<AdminOnboardingResult> {
   const placeIdInput = resolvePlaceIdInput(input);
@@ -247,7 +282,7 @@ export async function onboardBusinessAsAdmin(
 
   let createdResult: Awaited<ReturnType<typeof createBusinessTx>>;
   try {
-    createdResult = await createBusinessTx(txInput, {
+    createdResult = await createBusinessTx(sql, txInput, {
       mode: 'admin',
       onboardedBy: input.onboardedBy,
     });
@@ -281,7 +316,7 @@ export async function onboardBusinessAsAdmin(
   // copy — make sure it points at:
   //   {{ .SiteURL }}/api/auth/callback?token_hash={{ .TokenHash }}&type=invite&flow=owner&next=/reset-password
   const { data: invited, error: inviteErr } =
-    await supabaseServer.auth.admin.inviteUserByEmail(ownerEmailLower, {
+    await supabase.auth.admin.inviteUserByEmail(ownerEmailLower, {
       redirectTo: inviteRedirectTo,
     });
 
@@ -307,24 +342,7 @@ export async function onboardBusinessAsAdmin(
     };
 
     try {
-      // Wrap rollback in a transaction so all 3 deletes succeed-or-fail
-      // together. Order matters:
-      //   1. job_outbox first — no FK CASCADE from businesses to job_outbox
-      //      (aggregate_id is just a UUID, not a foreign key — see migration
-      //      001 line 301), so leaving these rows in place would orphan
-      //      pending jobs that the OutboxPoller would then dispatch into
-      //      a void (no business_id to look up).
-      //   2. users next — users.account_id is a FK to accounts.id without
-      //      CASCADE so users must be deleted before accounts.
-      //   3. accounts — the accounts row links everything together.
-      //   4. businesses last — channel_enrollments cascade-deletes via
-      //      businesses.id ON DELETE CASCADE.
-      await sql.begin(async (tx) => {
-        await tx`DELETE FROM job_outbox WHERE aggregate_id = ${createdResult.businessId}::uuid`;
-        await tx`DELETE FROM users WHERE id = ${createdResult.userId}::uuid`;
-        await tx`DELETE FROM accounts WHERE id = ${createdResult.accountId}::uuid`;
-        await tx`DELETE FROM businesses WHERE id = ${createdResult.businessId}::uuid`;
-      });
+      await rollbackProvisionedBusiness(sql, createdResult);
       delete rollback.orphanBusinessId;
       delete rollback.orphanUserId;
     } catch (rollbackErr) {
@@ -400,7 +418,7 @@ export async function onboardBusinessAsAdmin(
     // (email collision) without any log breadcrumb.
     try {
       const { error: deleteErr } =
-        await supabaseServer.auth.admin.deleteUser(invited.user.id);
+        await supabase.auth.admin.deleteUser(invited.user.id);
       if (deleteErr) {
         console.error(
           `[admin-onboarding-service] Supabase deleteUser returned error for invited auth user ${invited.user.id} during link-failure rollback:`,
@@ -416,12 +434,7 @@ export async function onboardBusinessAsAdmin(
       );
     }
     try {
-      await sql.begin(async (tx) => {
-        await tx`DELETE FROM job_outbox WHERE aggregate_id = ${createdResult.businessId}::uuid`;
-        await tx`DELETE FROM users WHERE id = ${createdResult.userId}::uuid`;
-        await tx`DELETE FROM accounts WHERE id = ${createdResult.accountId}::uuid`;
-        await tx`DELETE FROM businesses WHERE id = ${createdResult.businessId}::uuid`;
-      });
+      await rollbackProvisionedBusiness(sql, createdResult);
       delete rollback.orphanBusinessId;
       delete rollback.orphanUserId;
     } catch (rollbackErr) {

@@ -200,14 +200,11 @@ async function applyAccountSubscriptionUpdate(
   }
 
   if (Object.keys(auditPayload).length > 0) {
-    await writeAccountAuditLog(
-      {
-        accountId: acctRow.id,
-        eventType: 'subscription_updated',
-        payload: auditPayload,
-      },
-      tx,
-    );
+    await writeAccountAuditLog(tx, {
+      accountId: acctRow.id,
+      eventType: 'subscription_updated',
+      payload: auditPayload,
+    });
   }
 
   // Also update businesses deprecated column

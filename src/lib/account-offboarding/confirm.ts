@@ -396,20 +396,17 @@ async function writeConfirmAuditAndAnalytics(
   mode: AccountOffboardingMode,
   auditPayload: Record<string, unknown>,
 ): Promise<void> {
-  await writeAccountAuditLog(
-    {
-      accountId: input.accountId,
-      actorUserId: input.actorUserId,
-      eventType: 'account_offboarding_requested',
-      entityType: 'account_offboarding',
-      entityId: offboardingId,
-      ip: input.ip ?? null,
-      userAgent: input.userAgent ?? null,
-      requestId: input.requestId ?? null,
-      payload: auditPayload,
-    },
-    tx,
-  );
+  await writeAccountAuditLog(tx, {
+    accountId: input.accountId,
+    actorUserId: input.actorUserId,
+    eventType: 'account_offboarding_requested',
+    entityType: 'account_offboarding',
+    entityId: offboardingId,
+    ip: input.ip ?? null,
+    userAgent: input.userAgent ?? null,
+    requestId: input.requestId ?? null,
+    payload: auditPayload,
+  });
 
   await enqueueOffboardingStarted(tx, {
     accountId: input.accountId,

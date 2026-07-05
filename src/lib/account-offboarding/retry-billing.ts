@@ -82,24 +82,21 @@ export async function retryCancelOnlyBillingSchedule(
     `;
     if (reset.length === 0) return { ok: false, reason: 'not_retryable' };
 
-    await writeAccountAuditLog(
-      {
-        accountId: input.accountId,
-        actorUserId: input.actorUserId,
-        eventType: 'account_offboarding_billing_retry',
-        entityType: 'account_offboarding',
-        entityId: row.id,
-        ip: input.ip ?? null,
-        userAgent: input.userAgent ?? null,
-        requestId: input.requestId ?? null,
-        payload: {
-          mode: 'cancel_only',
-          status: 'pending',
-          idempotency_key_hash: idempotencyKeyHash,
-        },
+    await writeAccountAuditLog(tx, {
+      accountId: input.accountId,
+      actorUserId: input.actorUserId,
+      eventType: 'account_offboarding_billing_retry',
+      entityType: 'account_offboarding',
+      entityId: row.id,
+      ip: input.ip ?? null,
+      userAgent: input.userAgent ?? null,
+      requestId: input.requestId ?? null,
+      payload: {
+        mode: 'cancel_only',
+        status: 'pending',
+        idempotency_key_hash: idempotencyKeyHash,
       },
-      tx,
-    );
+    });
 
     await enqueueAccountOffboardingBillingSchedule(tx, {
       accountOffboardingId: row.id,

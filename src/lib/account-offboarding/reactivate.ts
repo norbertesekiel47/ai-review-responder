@@ -303,25 +303,22 @@ async function finalizeReactivation(
 
     // sequential within sql.begin transaction (Postgres.js serializes tx queries on one connection)
     // react-doctor-disable-next-line react-doctor/async-parallel
-    await writeAccountAuditLog(
-      {
-        accountId: input.accountId,
-        actorUserId: input.actorUserId,
-        eventType: 'account_offboarding_reactivated',
-        entityType: 'account_offboarding',
-        entityId: offboarding.id,
-        ip: input.ip ?? null,
-        userAgent: input.userAgent ?? null,
-        requestId: input.requestId ?? null,
-        payload: {
-          mode: 'cancel_only',
-          status: 'reactivated',
-          idempotency_key_hash: idempotencyKeyHash,
-          stripe_subscription_id: offboarding.stripe_subscription_id,
-        },
+    await writeAccountAuditLog(tx, {
+      accountId: input.accountId,
+      actorUserId: input.actorUserId,
+      eventType: 'account_offboarding_reactivated',
+      entityType: 'account_offboarding',
+      entityId: offboarding.id,
+      ip: input.ip ?? null,
+      userAgent: input.userAgent ?? null,
+      requestId: input.requestId ?? null,
+      payload: {
+        mode: 'cancel_only',
+        status: 'reactivated',
+        idempotency_key_hash: idempotencyKeyHash,
+        stripe_subscription_id: offboarding.stripe_subscription_id,
       },
-      tx,
-    );
+    });
 
     await enqueueOffboardingReactivated(tx, {
       accountId: input.accountId,

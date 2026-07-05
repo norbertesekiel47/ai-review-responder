@@ -117,20 +117,17 @@ async function runAccountOffboardingAccessEndInner(
         return { kind: 'skipped' } satisfies ClaimResult;
       }
 
-      await writeAccountAuditLog(
-        {
-          accountId: claimed.account_id,
-          eventType: 'account_offboarding_teardown_started',
-          entityType: 'account_offboarding',
-          entityId: claimed.id,
-          payload: {
-            mode: claimed.mode,
-            status: 'tearing_down',
-            access_ends_at: formatTimestamp(claimed.access_ends_at),
-          },
+      await writeAccountAuditLog(tx, {
+        accountId: claimed.account_id,
+        eventType: 'account_offboarding_teardown_started',
+        entityType: 'account_offboarding',
+        entityId: claimed.id,
+        payload: {
+          mode: claimed.mode,
+          status: 'tearing_down',
+          access_ends_at: formatTimestamp(claimed.access_ends_at),
         },
-        tx,
-      );
+      });
 
       await enqueueAccountOffboardingTeardown(tx, {
         accountOffboardingId: claimed.id,

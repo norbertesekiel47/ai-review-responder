@@ -10,6 +10,10 @@ const {
 } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
   sqlFn.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(sqlFn));
+  // writeAccountAuditLog (real implementation, not mocked in this file) now
+  // calls the injected client's `.json()` directly instead of the removed
+  // `jsonb()` helper — the mock client needs the method too.
+  sqlFn.json = vi.fn((v: unknown) => v);
   return {
     mockSql: sqlFn,
     mockClaimInboundEvent: vi.fn(),

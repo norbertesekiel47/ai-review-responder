@@ -14,7 +14,7 @@ export default async function AutoApprovalSettingsPage() {
     cookies(),
   ]);
   const impersonated = Boolean(cookieStore.get(IMPERSONATION_COOKIE_NAME)?.value);
-  const initialState = await getAutoApprovalSettings({
+  const initialState = await getAutoApprovalSettings(sql, {
     accountId: access.accountId,
     impersonated,
   });

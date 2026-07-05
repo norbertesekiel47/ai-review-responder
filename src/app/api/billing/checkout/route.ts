@@ -159,7 +159,7 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
   // VAL-BILLING-066: Returns 502 with user-facing error when Stripe API fails
   // (network timeout, rate limit, invalid key, Stripe 500).
   try {
-    const result = await createCheckoutSession(accountId, tier, account.owner_email, {
+    const result = await createCheckoutSession(sql, accountId, tier, account.owner_email, {
       trial: trialEligible,
     });
     return NextResponse.json(

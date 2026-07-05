@@ -190,29 +190,26 @@ export async function recordProviderDisposition(
         AND account_id = ${row.account_id}::uuid
     `;
 
-    await writeAccountAuditLog(
-      {
-        accountId: row.account_id,
-        actorUserId: input.adminUserId,
-        eventType: 'account_offboarding_provider_disposition_recorded',
-        entityType: 'account_offboarding',
-        entityId: row.id,
-        ip: input.ip ?? null,
-        userAgent: input.userAgent ?? null,
-        requestId: input.requestId ?? null,
-        payload: {
-          provider: disposition.provider,
-          resource_type: disposition.resource_type,
-          scrubbed_resource_reference: disposition.scrubbed_resource_reference,
-          reason: disposition.reason,
-          ticket: disposition.ticket,
-          previous_status: row.status,
-          failed_step: row.failed_step,
-          transitioned_to_purge_scheduled: transitionedToPurgeScheduled,
-        },
+    await writeAccountAuditLog(tx, {
+      accountId: row.account_id,
+      actorUserId: input.adminUserId,
+      eventType: 'account_offboarding_provider_disposition_recorded',
+      entityType: 'account_offboarding',
+      entityId: row.id,
+      ip: input.ip ?? null,
+      userAgent: input.userAgent ?? null,
+      requestId: input.requestId ?? null,
+      payload: {
+        provider: disposition.provider,
+        resource_type: disposition.resource_type,
+        scrubbed_resource_reference: disposition.scrubbed_resource_reference,
+        reason: disposition.reason,
+        ticket: disposition.ticket,
+        previous_status: row.status,
+        failed_step: row.failed_step,
+        transitioned_to_purge_scheduled: transitionedToPurgeScheduled,
       },
-      tx,
-    );
+    });
 
     return {
       offboardingId: row.id,

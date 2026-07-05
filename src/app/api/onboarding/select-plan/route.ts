@@ -7,7 +7,7 @@ import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { SelectPlanSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
 import { createCheckoutSession, CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
-import { trialEnabled } from '@/lib/payments/flags';
+import { applyTierSnapshot, resolveCheckoutContext } from '@/lib/payments/plan-activation';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
@@ -137,19 +137,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Lock-then-read pattern.
-  //
-  // Earlier version read status BEFORE taking the activation lock and ran
-  // an unguarded UPDATE — racing a Stripe activation in the gap between
-  // SELECT and lock could let this route return a payment-link URL for
-  // an already-active business, prompting the owner to start a duplicate
-  // Stripe subscription. Fix: take the activation lock FIRST so any
-  // in-flight webhook commits before our re-read; SELECT FOR UPDATE the
-  // business row; check status under the lock; verify UPDATE.count > 0.
-  //
-  // We need the business_id to take the per-business lock, but we don't
-  // know it yet — a single round to find it doesn't need locking because
-  // we re-validate everything once we own the lock.
+  // We need the business_id before applyTierSnapshot can take the per-business
+  // activation lock, but we don't know it yet — this single round to find it
+  // doesn't need locking because applyTierSnapshot re-validates everything once
+  // it owns the lock (lock-then-read mechanism documented in its JSDoc).
   // Owner-only filter at the SQL boundary. Proxy does NOT gate
   // `/api/onboarding/*` on role, so an admin session calling this directly
   // would otherwise hit whichever business their account points at via the
@@ -183,60 +174,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const result = await sql.begin(async (tx) => {
-    // Lock first, THEN re-read state. Any pending Stripe webhook taking the
-    // same key (worker/ingress/stripe.ts processCheckoutSessionCompleted)
-    // commits before we proceed.
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${businessId + ':activation'}))`;
-
-    // Read subscription_status from accounts (source of truth after migration 034).
-    // Also lock the accounts row FOR UPDATE to prevent concurrent writes.
-    const [row] = await tx<{ subscription_status: string }[]>`
-      SELECT a.subscription_status
-      FROM accounts a
-      JOIN businesses b ON b.account_id = a.id
-      WHERE b.id = ${businessId}::uuid
-      FOR UPDATE OF a
-    `;
-    if (!row) {
-      // The row vanished between the lookup above and now (e.g., cleanup
-      // poller deleted it). Surface as account_incomplete.
-      return { kind: 'not_found' as const };
-    }
-    if (row.subscription_status !== SubscriptionStatus.PENDING_PAYMENT) {
-      return {
-        kind: 'wrong_status' as const,
-        status: row.subscription_status,
-      };
-    }
-
-    // UPDATE accounts (source of truth) and businesses (deprecated column
-    // retained for backward compat per VAL-SCHEMA-037). Verify count > 0
-    // as defense-in-depth.
-    // VAL-BILLING-065: Also snapshot locations_included,
-    // locations_overage_price_cents, base_price_cents from TIER_CONFIG so the
-    // account's billing snapshot is self-consistent from this point forward.
-    const update = await tx`
-      UPDATE accounts
-      SET subscription_tier = ${tier},
-          locations_included = ${tierConfig.included},
-          locations_overage_price_cents = ${tierConfig.overageCents},
-          base_price_cents = ${tierConfig.baseCents},
-          updated_at = NOW()
-      WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid)
-        AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}
-    `;
-    if (update.count === 0) {
-      return { kind: 'race_lost' as const };
-    }
-    // Also write to businesses.subscription_tier (deprecated, retained).
-    await tx`
-      UPDATE businesses
-      SET subscription_tier = ${tier}, updated_at = NOW()
-      WHERE id = ${businessId}::uuid
-    `;
-    return { kind: 'ok' as const };
-  });
+  const result = await applyTierSnapshot(sql, { businessId, tier, tierConfig });
 
   if (result.kind === 'not_found') {
     return NextResponse.json(
@@ -267,31 +205,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // The session includes the correct base + overage line items.
   let checkoutUrl: string;
   try {
-    // Resolve the account_id for this owner, plus onboarded_by (the self-serve
-    // discriminator: NULL = self-serve, non-null = admin/partner handoff).
-    const [accountRow] = await sql<{ account_id: string; onboarded_by: string | null }[]>`
-      SELECT account_id, onboarded_by FROM businesses WHERE id = ${businessId}::uuid
-    `;
-    if (!accountRow) {
+    // Resolve the account_id for this owner, plus trial eligibility (PLAN.md
+    // §0.2): TRIAL_ENABLED on AND a self-serve account (onboarded_by IS
+    // NULL) — an admin/partner-onboarded business must not receive a $0
+    // trial via direct POST. Server-authoritative flag; no NEXT_PUBLIC_*.
+    const ctx = await resolveCheckoutContext(sql, businessId);
+    if (!ctx) {
       return NextResponse.json(
         { error: 'account_incomplete' },
         { status: 404, headers: NO_STORE },
       );
     }
 
-    // Trial eligibility (PLAN.md §0.2): TRIAL_ENABLED on AND a self-serve
-    // pending_payment account (status gated above). This is the default
-    // self-serve onboarding checkout path. Server-authoritative flag; no
-    // NEXT_PUBLIC_*.
-    //
-    // FIX 2: per-account self-serve gate. An admin/partner-onboarded business
-    // (onboarded_by non-null) must NOT receive a $0 trial via direct POST — it
-    // falls back to a normal paid checkout. Only self-serve businesses
-    // (onboarded_by IS NULL) are trial-eligible.
-    const trialEligible =
-      trialEnabled() && accountRow.onboarded_by === null;
-    const result = await createCheckoutSession(accountRow.account_id, tier, ownerEmail, {
-      trial: trialEligible,
+    const result = await createCheckoutSession(sql, ctx.accountId, tier, ownerEmail, {
+      trial: ctx.trialEligible,
     });
     checkoutUrl = result.url;
   } catch (err) {

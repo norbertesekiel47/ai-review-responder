@@ -124,6 +124,7 @@ describe('processReview', () => {
 
     expect(result).toBe('new');
     expect(enqueueAnalyticsEvent).toHaveBeenCalledWith(
+      tx,
       expect.objectContaining({
         eventName: 'first_review_ingested',
         eventKey: 'first_review_ingested:acct-1',
@@ -131,7 +132,6 @@ describe('processReview', () => {
         accountId: 'acct-1',
         businessId: 'biz-1',
       }),
-      tx,
     );
   });
 

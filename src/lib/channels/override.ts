@@ -202,24 +202,21 @@ async function reviveOrInsertOverride(
     throw new Error('Override INSERT/revive returned no rows');
   }
 
-  await writeAccountAuditLog(
-    {
-      accountId,
-      locationId,
-      actorUserId,
-      eventType: 'channel_override_created',
-      entityType: 'channel_enrollment',
-      entityId: upserted.id,
-      payload: {
-        channel,
-        override_enrollment_id: upserted.id,
-        cloned_handle: orgDefault.handle,
-        cloned_status: orgDefault.status,
-        revived: Boolean(existing),
-      },
+  await writeAccountAuditLog(tx, {
+    accountId,
+    locationId,
+    actorUserId,
+    eventType: 'channel_override_created',
+    entityType: 'channel_enrollment',
+    entityId: upserted.id,
+    payload: {
+      channel,
+      override_enrollment_id: upserted.id,
+      cloned_handle: orgDefault.handle,
+      cloned_status: orgDefault.status,
+      revived: Boolean(existing),
     },
-    tx,
-  );
+  });
 
   return {
     kind: existing ? 'revived' : 'created',
@@ -294,21 +291,18 @@ export async function removeOverride(input: OverrideInput): Promise<RemoveOverri
     `;
     if (!archived) return { kind: 'not_found' };
 
-    await writeAccountAuditLog(
-      {
-        accountId,
-        locationId,
-        actorUserId,
-        eventType: 'channel_override_removed',
-        entityType: 'channel_enrollment',
-        entityId: archived.id,
-        payload: {
-          channel,
-          archived_enrollment_id: archived.id,
-        },
+    await writeAccountAuditLog(tx, {
+      accountId,
+      locationId,
+      actorUserId,
+      eventType: 'channel_override_removed',
+      entityType: 'channel_enrollment',
+      entityId: archived.id,
+      payload: {
+        channel,
+        archived_enrollment_id: archived.id,
       },
-      tx,
-    );
+    });
 
     return { kind: 'ok' };
   });

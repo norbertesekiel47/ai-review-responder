@@ -53,13 +53,13 @@ describe('lifecycle', () => {
   });
 
   it('claimDemo returns not_found for missing row', async () => {
-    const result = await claimDemo('prospect_demos', '00000000-0000-0000-0000-000000000000', console);
+    const result = await claimDemo(sql, 'prospect_demos', '00000000-0000-0000-0000-000000000000', console);
     expect(result).toBe('not_found');
   });
 
   it('claimDemo claims queued → running', async () => {
     const id = await insertProspectDemo({ generation_status: 'queued' });
-    const result = await claimDemo('prospect_demos', id, console);
+    const result = await claimDemo(sql, 'prospect_demos', id, console);
     expect(result).toBe('claimed');
     const [row] = await sql<{ generation_status: string }[]>`
       SELECT generation_status FROM prospect_demos WHERE id = ${id}
@@ -69,13 +69,13 @@ describe('lifecycle', () => {
 
   it('claimDemo returns already_terminal for completed', async () => {
     const id = await insertProspectDemo({ generation_status: 'completed' });
-    const result = await claimDemo('prospect_demos', id, console);
+    const result = await claimDemo(sql, 'prospect_demos', id, console);
     expect(result).toBe('already_terminal');
   });
 
   it('claimDemo returns already_terminal for failed', async () => {
     const id = await insertProspectDemo({ generation_status: 'failed' });
-    const result = await claimDemo('prospect_demos', id, console);
+    const result = await claimDemo(sql, 'prospect_demos', id, console);
     expect(result).toBe('already_terminal');
   });
 
@@ -84,7 +84,7 @@ describe('lifecycle', () => {
       generation_status: 'running',
       started_at: new Date(Date.now() - 6 * 60 * 1000),
     });
-    const result = await claimDemo('prospect_demos', id, console);
+    const result = await claimDemo(sql, 'prospect_demos', id, console);
     expect(result).toBe('reset_to_queued');
     const [row] = await sql<{ generation_status: string; started_at: Date | null }[]>`
       SELECT generation_status, started_at FROM prospect_demos WHERE id = ${id}
@@ -95,13 +95,13 @@ describe('lifecycle', () => {
 
   it('claimDemo throws for non-stale running', async () => {
     const id = await insertProspectDemo({ generation_status: 'running', started_at: new Date() });
-    await expect(claimDemo('prospect_demos', id, console)).rejects.toThrow('is running');
+    await expect(claimDemo(sql, 'prospect_demos', id, console)).rejects.toThrow('is running');
   });
 
   it('completeDemo writes reviews, responses, status=completed', async () => {
     const id = await insertProspectDemo({ generation_status: 'running' });
     const outboxId = await insertOutboxRow();
-    await completeDemo('prospect_demos', id, outboxId, 0, {
+    await completeDemo(sql, 'prospect_demos', id, outboxId, 0, {
       reviews: [makeReview({ reviewerName: 'A', starRating: 5, reviewText: 'Great' })],
       responses: [makeGenerationResult({ responseText: 'Thanks!' })],
     });
@@ -127,7 +127,7 @@ describe('lifecycle', () => {
   it('completeDemo handles outboxAttempt=undefined (legacy branch)', async () => {
     const id = await insertProspectDemo({ generation_status: 'running' });
     const outboxId = await insertOutboxRow();
-    await completeDemo('prospect_demos', id, outboxId, undefined, {
+    await completeDemo(sql, 'prospect_demos', id, outboxId, undefined, {
       reviews: [makeReview({ reviewerName: 'A', starRating: 5, reviewText: 'Great' })],
       responses: [makeGenerationResult({ responseText: 'Thanks!' })],
     });
@@ -142,7 +142,7 @@ describe('lifecycle', () => {
   it('failDemo writes error and status=failed', async () => {
     const id = await insertProspectDemo({ generation_status: 'running' });
     const outboxId = await insertOutboxRow();
-    await failDemo('prospect_demos', id, outboxId, 0, new Error('SerpAPI down'));
+    await failDemo(sql, 'prospect_demos', id, outboxId, 0, new Error('SerpAPI down'));
     const [row] = await sql<{ generation_status: string; generation_error: string }[]>`
       SELECT generation_status, generation_error FROM prospect_demos WHERE id = ${id}
     `;
@@ -234,7 +234,7 @@ describe('lifecycle', () => {
       });
       const outboxId = await insertOutboxRow();
 
-      await completeDemo('onboarding_demos', loserId, outboxId, 0, {
+      await completeDemo(sql, 'onboarding_demos', loserId, outboxId, 0, {
         reviews: [makeReview({ reviewerName: 'X', starRating: 5, reviewText: 'Hi' })],
         responses: [makeGenerationResult({ responseText: 'Thanks' })],
         source: 'serpapi',
@@ -277,7 +277,7 @@ describe('lifecycle', () => {
   it('failDemo handles outboxAttempt=undefined (legacy branch)', async () => {
     const id = await insertProspectDemo({ generation_status: 'running' });
     const outboxId = await insertOutboxRow();
-    await failDemo('prospect_demos', id, outboxId, undefined, new Error('Place ID resolution failed'));
+    await failDemo(sql, 'prospect_demos', id, outboxId, undefined, new Error('Place ID resolution failed'));
     const [row] = await sql<{ generation_status: string; generation_error: string }[]>`
       SELECT generation_status, generation_error FROM prospect_demos WHERE id = ${id}
     `;

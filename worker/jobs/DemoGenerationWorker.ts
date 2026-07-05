@@ -1,5 +1,6 @@
 import type { Job } from 'bullmq';
 import type { DemoJobPayload } from '../../src/lib/demos/types';
+import { sql } from '../../src/lib/db/server';
 import { generateDemo } from '../../src/lib/demos/generator';
 import { claimDemo, completeDemo, failDemo } from '../../src/lib/demos/lifecycle';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
@@ -16,7 +17,7 @@ export async function handleDemoGeneration(
   const googleMapsUrl = job.data.googleMapsUrl;
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  const claimResult = await claimDemo('prospect_demos', demoId, logger);
+  const claimResult = await claimDemo(sql, 'prospect_demos', demoId, logger);
 
   if (
     claimResult === 'not_found' ||
@@ -48,7 +49,7 @@ export async function handleDemoGeneration(
       category: category ?? null,
     });
 
-    await completeDemo('prospect_demos', demoId, outboxId, outboxAttempt, {
+    await completeDemo(sql, 'prospect_demos', demoId, outboxId, outboxAttempt, {
       reviews: result.reviews,
       responses: result.responses,
       // No `source` — prospect_demos has no `source` column (it has its own
@@ -64,6 +65,7 @@ export async function handleDemoGeneration(
     logger.error(`Demo ${demoId} failed: ${message}`);
     try {
       await failDemo(
+        sql,
         'prospect_demos',
         demoId,
         outboxId,

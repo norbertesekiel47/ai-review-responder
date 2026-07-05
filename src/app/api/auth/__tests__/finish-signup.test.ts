@@ -241,6 +241,7 @@ describe('POST /api/auth/finish-signup', () => {
     // Identity-only contract: business details are deferred to
     // /api/onboarding/business after Stripe payment.
     expect(mockCreateBusinessTx).toHaveBeenCalledWith(
+      mockSql,
       {
         ownerEmail: 'owner@example.com',
         ownerName: 'Jane Google',
@@ -358,6 +359,7 @@ describe('POST /api/auth/finish-signup', () => {
     const res = await POST(mkReq({ ownerName: 'Jane', ownerPhone: '+1-555-0100' }));
     expect(res.status).toBe(201);
     expect(mockCreateBusinessTx).toHaveBeenCalledWith(
+      mockSql,
       {
         ownerEmail: 'owner@example.com',
         ownerName: 'Jane',
@@ -387,6 +389,7 @@ describe('POST /api/auth/finish-signup', () => {
     const res = await POST(mkReq(validBody));
     expect(res.status).toBe(201);
     expect(mockCreateBusinessTx).toHaveBeenCalledWith(
+      mockSql,
       expect.objectContaining({ ownerEmail: 'owner@example.com' }),
       { mode: 'self_serve', authId: 'auth-mixed' },
     );
@@ -413,7 +416,7 @@ describe('POST /api/auth/finish-signup — schema tolerance', () => {
     const res = await POST(mkReq(legacyBody));
     expect(res.status).toBe(201);
     // Critical: createBusinessTx must NOT receive businessName / googlePlaceId.
-    const callArgs = mockCreateBusinessTx.mock.calls[0]![0] as Record<string, unknown>;
+    const callArgs = mockCreateBusinessTx.mock.calls[0]![1] as Record<string, unknown>;
     expect(callArgs).not.toHaveProperty('businessName');
     expect(callArgs).not.toHaveProperty('googlePlaceId');
     expect(callArgs).not.toHaveProperty('placeId');

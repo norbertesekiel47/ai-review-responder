@@ -153,6 +153,7 @@ describe('recordProviderDisposition', () => {
     expect(txCalls.flatMap((call) => call.values)).toContain('purge_scheduled');
     expect(mockJsonb).toHaveBeenCalledWith([result.disposition]);
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockTx,
       expect.objectContaining({
         accountId: ACCOUNT_ID,
         actorUserId: ADMIN_ID,
@@ -170,11 +171,10 @@ describe('recordProviderDisposition', () => {
           transitioned_to_purge_scheduled: true,
         }),
       }),
-      mockTx,
     );
     expect(JSON.stringify({
       values: txCalls.flatMap((call) => call.values),
-      audit: mockWriteAccountAuditLog.mock.calls[0]?.[0],
+      audit: mockWriteAccountAuditLog.mock.calls[0]?.[1],
     })).not.toContain(RAW_RESOURCE_REFERENCE);
     vi.useRealTimers();
   });

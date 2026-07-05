@@ -99,13 +99,13 @@ describe('AccountOffboardingReactivationResetPoller', () => {
     expect(clearCall!.values).toContain(CLAIM_TOKEN);
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         accountId: ACCOUNT_ID,
         eventType: 'account_offboarding_reactivation_claim_reset',
         entityType: 'account_offboarding',
         entityId: OFFBOARDING_ID,
       }),
-      expect.anything(),
     );
   });
 

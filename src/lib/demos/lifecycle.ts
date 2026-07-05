@@ -1,4 +1,4 @@
-import { sql, jsonb } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import { markOutboxCompleted } from '@/lib/shared/outbox';
 import type { WorkerLogger } from '@/lib/shared/logger';
 import type { DemoTable, ClaimResult, CompleteDemoArgs } from './types';
@@ -18,6 +18,7 @@ const STALE_THRESHOLD_MS = 5 * 60 * 1000;
  * @throws if the row is `running` and NOT stale (active worker, retry later)
  */
 export async function claimDemo(
+  sql: Sql,
   table: DemoTable,
   demoId: string,
   logger: WorkerLogger,
@@ -100,6 +101,7 @@ export async function claimDemo(
  * the most-recent row the demo page renders.
  */
 export async function completeDemo(
+  sql: Sql,
   table: DemoTable,
   demoId: string,
   outboxId: string,
@@ -114,8 +116,8 @@ export async function completeDemo(
       if (isOnboarding && source) {
         await tx`
           UPDATE ${tx(table)}
-          SET reviews_snapshot = ${jsonb(reviews)},
-              generated_responses = ${jsonb(responses)},
+          SET reviews_snapshot = ${tx.json(reviews as never)},
+              generated_responses = ${tx.json(responses as never)},
               generation_status = 'completed',
               completed_at = NOW(),
               source = ${source}
@@ -124,8 +126,8 @@ export async function completeDemo(
       } else {
         await tx`
           UPDATE ${tx(table)}
-          SET reviews_snapshot = ${jsonb(reviews)},
-              generated_responses = ${jsonb(responses)},
+          SET reviews_snapshot = ${tx.json(reviews as never)},
+              generated_responses = ${tx.json(responses as never)},
               generation_status = 'completed',
               completed_at = NOW()
           WHERE id = ${demoId}
@@ -168,6 +170,7 @@ export async function completeDemo(
  * Fails a demo row + outbox in a single transaction.
  */
 export async function failDemo(
+  sql: Sql,
   table: DemoTable,
   demoId: string,
   outboxId: string,

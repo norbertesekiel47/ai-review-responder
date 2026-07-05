@@ -72,6 +72,7 @@ describe('invoice.paid — active recovery from past_due', () => {
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.text).toMatch(/past_due_at\s*=\s*NULL/i);
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
       expect.objectContaining({
         accountId: TEST_ACCOUNT_ID,
         eventType: 'subscription_status_changed',
@@ -79,7 +80,6 @@ describe('invoice.paid — active recovery from past_due', () => {
         entityId: TEST_ACCOUNT_ID,
         payload: { fromStatus: 'past_due', toStatus: 'active' },
       }),
-      mockSql,
     );
   });
 

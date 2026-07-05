@@ -199,7 +199,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    await enqueueAnalyticsEvent({
+    await enqueueAnalyticsEvent(sql, {
       eventName: 'email_verified',
       eventKey: makeAnalyticsEventKey('email_verified', [row.user_id]),
       distinctId: row.account_id,

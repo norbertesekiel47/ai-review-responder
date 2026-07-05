@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Sql } from 'postgres';
 import { releaseOnboardingDemoReservation } from '../reservation';
 import { resolveOnboardingDemoPlaceId } from '../place-resolution';
 import { buildOnboardingDemoSource } from '../demo-source';
@@ -275,6 +276,8 @@ describe('buildOnboardingDemoSource', () => {
 });
 
 describe('failOnboardingDemoTerminal', () => {
+  const mockSql = {} as unknown as Sql;
+
   beforeEach(() => {
     vi.mocked(failDemo).mockReset();
   });
@@ -284,6 +287,7 @@ describe('failOnboardingDemoTerminal', () => {
     vi.mocked(failDemo).mockResolvedValue(undefined);
 
     await failOnboardingDemoTerminal({
+      sql: mockSql,
       demoId: 'demo_123',
       outboxId: 'outbox_123',
       outboxAttempt: 2,
@@ -292,6 +296,7 @@ describe('failOnboardingDemoTerminal', () => {
     });
 
     expect(failDemo).toHaveBeenCalledWith(
+      mockSql,
       'onboarding_demos',
       'demo_123',
       'outbox_123',
@@ -306,6 +311,7 @@ describe('failOnboardingDemoTerminal', () => {
 
     await expect(
       failOnboardingDemoTerminal({
+        sql: mockSql,
         demoId: 'demo_123',
         outboxId: 'outbox_123',
         outboxAttempt: undefined,
@@ -326,6 +332,7 @@ describe('failOnboardingDemoTerminal', () => {
 
     await expect(
       failOnboardingDemoTerminal({
+        sql: mockSql,
         demoId: 'demo_123',
         outboxId: 'outbox_123',
         outboxAttempt: undefined,
@@ -345,6 +352,7 @@ describe('failOnboardingDemoTerminal', () => {
 
     await expect(
       failOnboardingDemoTerminal({
+        sql: mockSql,
         demoId: 'demo_123',
         outboxId: 'outbox_123',
         outboxAttempt: 1,

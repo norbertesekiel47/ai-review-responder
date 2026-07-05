@@ -657,6 +657,7 @@ describe('finalizeConnectionTx', () => {
     });
 
     expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(
+      mockTx,
       {
         eventName: 'gbp_connected',
         eventKey: `gbp_connected:${SECONDARY_LOCATION_ID}`,
@@ -669,7 +670,6 @@ describe('finalizeConnectionTx', () => {
           location_count: 1,
         },
       },
-      mockTx,
     );
   });
 

@@ -193,6 +193,7 @@ describe('POST /api/auth/mfa/challenge', () => {
 
     expect(res.status).toBe(400);
     expect(mockWriteAudit).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         accountId: 'acct-1',
         actorUserId: 'user-1',
@@ -218,6 +219,7 @@ describe('POST /api/auth/mfa/challenge', () => {
     expect(await res.json()).toEqual({ ok: true });
     expect(mockUnenroll).toHaveBeenCalledWith({ factorId: 'factor-1' });
     expect(mockWriteAudit).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         accountId: 'acct-1',
         actorUserId: 'user-1',

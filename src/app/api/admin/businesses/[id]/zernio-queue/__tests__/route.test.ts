@@ -137,6 +137,7 @@ describe('POST /api/admin/businesses/[id]/zernio-queue', () => {
     // check the bound values, not the rendered SQL text.
     expect(txCalls.some((c) => c.values.includes('drain_pending_owner_connect'))).toBe(true);
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockTx,
       expect.objectContaining({
         accountId: ACCOUNT_ID,
         actorUserId: ADMIN_ID,
@@ -145,7 +146,6 @@ describe('POST /api/admin/businesses/[id]/zernio-queue', () => {
         entityId: BUSINESS_ID,
         payload: { stuck_count: 2 },
       }),
-      mockTx,
     );
   });
 
@@ -162,6 +162,7 @@ describe('POST /api/admin/businesses/[id]/zernio-queue', () => {
       true,
     );
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockTx,
       expect.objectContaining({
         accountId: ACCOUNT_ID,
         actorUserId: ADMIN_ID,
@@ -170,7 +171,6 @@ describe('POST /api/admin/businesses/[id]/zernio-queue', () => {
         entityId: RESPONSE_ID,
         payload: { business_id: BUSINESS_ID },
       }),
-      mockTx,
     );
   });
 

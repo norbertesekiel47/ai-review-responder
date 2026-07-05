@@ -193,16 +193,13 @@ export async function applyStripeSubscriptionState(
   await writeStatusColumns(tx, account.id, target, trialEndIso, stripeCustomerId, stripeSubscriptionId);
   await writeBusinessesMirror(tx, account.id, target);
 
-  await writeAccountAuditLog(
-    {
-      accountId: account.id,
-      eventType: 'subscription_status_changed',
-      entityType: 'account',
-      entityId: account.id,
-      payload: { fromStatus: current, toStatus: target },
-    },
-    tx,
-  );
+  await writeAccountAuditLog(tx, {
+    accountId: account.id,
+    eventType: 'subscription_status_changed',
+    entityType: 'account',
+    entityId: account.id,
+    payload: { fromStatus: current, toStatus: target },
+  });
 
   // Overage recompute on entering an entitled (billable) state.
   if (target === SubscriptionStatus.TRIALING || target === SubscriptionStatus.ACTIVE) {

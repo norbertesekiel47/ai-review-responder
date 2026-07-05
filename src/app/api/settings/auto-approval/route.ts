@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { IMPERSONATION_COOKIE_NAME } from '@/lib/admin/impersonation/cookie';
 import { getOffboardingState, isOperationalUIBlocked } from '@/lib/account-offboarding/gate';
 import { jsonResponse, requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
+import { sql } from '@/lib/db/server';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import {
   AutoApprovalConfirmationRequiredError,
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!owner.ok) return owner.response;
 
   try {
-    const state = await getAutoApprovalSettings({
+    const state = await getAutoApprovalSettings(sql, {
       accountId: owner.accountId,
       impersonated: hasImpersonationCookie(request),
     });
@@ -55,7 +56,7 @@ async function patchSettings(request: NextRequest): Promise<NextResponse> {
   if (!parsed.ok) return parsed.response;
 
   try {
-    const state = await patchAutoApprovalSettings({
+    const state = await patchAutoApprovalSettings(sql, {
       ...parsed.body,
       accountId: owner.accountId,
       actorUserId: owner.user.id,

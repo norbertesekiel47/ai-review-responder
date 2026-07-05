@@ -334,6 +334,7 @@ describe('AccountOffboardingPurgePoller', () => {
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledOnce();
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockTx,
       expect.objectContaining({
         accountId: 'account-1',
         eventType: 'account_offboarding_purge_started',
@@ -345,7 +346,6 @@ describe('AccountOffboardingPurgePoller', () => {
           purge_after: '2026-06-06T12:00:00.000Z',
         },
       }),
-      mockTx,
     );
 
     expect(mockEnqueueAccountOffboardingPurge).toHaveBeenCalledOnce();

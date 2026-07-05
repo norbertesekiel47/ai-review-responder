@@ -46,7 +46,7 @@ export async function maybeEnqueueFirstResponseDrafted(input: {
       ? Math.max(0, (Date.now() - new Date(row.email_verified_at).getTime()) / 60_000)
       : null;
 
-    await enqueueAnalyticsEvent({
+    await enqueueAnalyticsEvent(sql, {
       eventName: 'first_response_drafted',
       eventKey: makeAnalyticsEventKey('first_response_drafted', [input.accountId]),
       distinctId: input.accountId,

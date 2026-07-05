@@ -151,6 +151,7 @@ describe('confirmDeleteDataOffboarding', () => {
     expect(combinedSql).toContain('account_offboarding_delete_data');
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      tx,
       expect.objectContaining({
         accountId: ACCOUNT_ID,
         actorUserId: USER_ID,
@@ -165,7 +166,6 @@ describe('confirmDeleteDataOffboarding', () => {
           reason_code: 'switched_service',
         }),
       }),
-      tx,
     );
 
     expect(mockEnqueueOffboardingStarted).toHaveBeenCalledWith(tx, {

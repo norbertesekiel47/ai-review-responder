@@ -131,12 +131,12 @@ describe('transition: → trialing', () => {
     expect(updateBiz!.text).toMatch(/archived_at\s+IS\s+NULL/i);
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
       expect.objectContaining({
         accountId: ACCOUNT_ID,
         eventType: 'subscription_status_changed',
         payload: { fromStatus: 'pending_payment', toStatus: 'trialing' },
       }),
-      mockSql,
     );
     expect(mockEnqueueStripeOverageRecompute).toHaveBeenCalledWith(mockSql, ACCOUNT_ID);
     expect(mockEnqueueTrialStarted).toHaveBeenCalledWith(mockSql, expect.objectContaining({ accountId: ACCOUNT_ID }));

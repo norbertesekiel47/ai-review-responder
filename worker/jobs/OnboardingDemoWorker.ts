@@ -71,6 +71,7 @@ export async function handleOnboardingDemo(
     logger.warn(`Demo ${demoId} account status=${biz.subscription_status}, marking failed`);
     try {
       await failOnboardingDemoTerminal({
+        sql,
         demoId,
         outboxId,
         outboxAttempt,
@@ -84,7 +85,7 @@ export async function handleOnboardingDemo(
     return;
   }
 
-  const claimResult = await claimDemo('onboarding_demos', demoId, logger);
+  const claimResult = await claimDemo(sql, 'onboarding_demos', demoId, logger);
 
   if (
     claimResult === 'not_found' ||
@@ -115,7 +116,7 @@ export async function handleOnboardingDemo(
       logger,
     });
 
-    await completeDemo('onboarding_demos', demoId, outboxId, outboxAttempt, {
+    await completeDemo(sql, 'onboarding_demos', demoId, outboxId, outboxAttempt, {
       reviews: result.reviews,
       responses: result.responses,
       source,
@@ -159,6 +160,7 @@ export async function handleOnboardingDemo(
     logger.error(`Onboarding demo ${demoId} failed: ${message}`);
     try {
       await failOnboardingDemoTerminal({
+        sql,
         demoId,
         outboxId,
         outboxAttempt,

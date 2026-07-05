@@ -1,10 +1,9 @@
-import type postgres from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '@/lib/db/server';
 import type { AnalyticsEventName } from './events';
 import { isAnalyticsEventName, sanitizeAnalyticsProperties } from './events';
 
-type SqlExecutor = typeof sql | postgres.TransactionSql;
+type SqlExecutor = Sql | TransactionSql;
 
 export interface EnqueueAnalyticsEventInput {
   eventName: AnalyticsEventName;
@@ -19,8 +18,8 @@ export interface EnqueueAnalyticsEventInput {
 }
 
 export async function enqueueAnalyticsEvent(
+  db: SqlExecutor,
   input: EnqueueAnalyticsEventInput,
-  db: SqlExecutor = sql,
 ): Promise<void> {
   if (!isAnalyticsEventName(input.eventName)) {
     throw new Error(`Invalid analytics event name: ${input.eventName}`);
@@ -48,7 +47,7 @@ export async function enqueueAnalyticsEvent(
       ${input.accountId ?? null}::uuid,
       ${input.userId ?? null}::uuid,
       ${input.businessId ?? null}::uuid,
-      ${jsonb(properties)},
+      ${db.json(properties as never)},
       ${input.occurredAt ?? new Date()}
     )
     ON CONFLICT (event_key) DO NOTHING

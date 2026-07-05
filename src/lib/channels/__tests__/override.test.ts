@@ -32,11 +32,11 @@ const { sqlQueue, sqlCalls, callOrder, mockSql } = vi.hoisted(() => {
 vi.mock('@/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 
 const mockWriteAccountAuditLog = vi.fn(
-  async (_input: WriteAccountAuditLogInput, _tx?: unknown) => {},
+  async (_tx: unknown, _input: WriteAccountAuditLogInput) => {},
 );
 vi.mock('@/lib/audit/log', () => ({
-  writeAccountAuditLog: (input: WriteAccountAuditLogInput, tx?: unknown) =>
-    mockWriteAccountAuditLog(input, tx),
+  writeAccountAuditLog: (tx: unknown, input: WriteAccountAuditLogInput) =>
+    mockWriteAccountAuditLog(tx, input),
 }));
 
 const mockSafeInvalidateChannelCache = vi.fn(async (_accountId: string, _context: string) => {
@@ -192,7 +192,7 @@ describe('createOrReviveOverride — created', () => {
 
     // Audit rides the SAME tx handle (rolls back with the enrollment).
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
-    const [auditInput, auditTx] = mockWriteAccountAuditLog.mock.calls[0]!;
+    const [auditTx, auditInput] = mockWriteAccountAuditLog.mock.calls[0]!;
     expect(auditInput.eventType).toBe('channel_override_created');
     expect(auditInput.accountId).toBe(ACCOUNT_ID);
     expect(auditInput.locationId).toBe(LOCATION_ID);
@@ -255,7 +255,7 @@ describe('createOrReviveOverride — revived', () => {
     );
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
-    expect(mockWriteAccountAuditLog.mock.calls[0]![0].payload).toMatchObject({ revived: true });
+    expect(mockWriteAccountAuditLog.mock.calls[0]![1].payload).toMatchObject({ revived: true });
     expect(mockSafeInvalidateChannelCache).toHaveBeenCalledWith(
       ACCOUNT_ID,
       'settings.channels.override.upsert',
@@ -306,7 +306,7 @@ describe('removeOverride', () => {
     );
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
-    const [auditInput, auditTx] = mockWriteAccountAuditLog.mock.calls[0]!;
+    const [auditTx, auditInput] = mockWriteAccountAuditLog.mock.calls[0]!;
     expect(auditInput.eventType).toBe('channel_override_removed');
     expect(auditInput.accountId).toBe(ACCOUNT_ID);
     expect(auditInput.locationId).toBe(LOCATION_ID);

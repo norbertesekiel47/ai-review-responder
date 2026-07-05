@@ -71,7 +71,7 @@ describe('POST /api/analytics/enqueue', () => {
       properties: { signup_source: 'homepage' },
     }));
     expect(res.status).toBe(202);
-    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       eventName: 'signup_started',
       eventKey: expect.stringMatching(/^signup_started:/),
       properties: { signup_source: 'homepage' },
@@ -87,7 +87,7 @@ describe('POST /api/analytics/enqueue', () => {
     }));
 
     expect(res.status).toBe(202);
-    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       distinctId: expect.not.stringContaining('bad:cookie'),
       eventKey: expect.not.stringContaining('bad:cookie'),
     }));

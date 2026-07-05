@@ -90,6 +90,7 @@ describe('retryCancelOnlyBillingSchedule', () => {
     expect(combined).toContain("stripe_step = 'not_applicable'");
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      tx,
       expect.objectContaining({
         accountId: ACCOUNT_ID,
         actorUserId: USER_ID,
@@ -97,7 +98,6 @@ describe('retryCancelOnlyBillingSchedule', () => {
         entityType: 'account_offboarding',
         entityId: OFFBOARDING_ID,
       }),
-      tx,
     );
     expect(mockEnqueueBillingSchedule).toHaveBeenCalledWith(
       tx,

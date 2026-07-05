@@ -117,17 +117,14 @@ async function forceDrain(businessId: string, adminId: string): Promise<number> 
       VALUES (${uuidv7()}, ${QUEUE_NAMES.DRAIN_OWNER_CONNECT}, 'business', ${businessId}, ${jsonb(payload)}, 0, 5)
     `;
 
-    await writeAccountAuditLog(
-      {
-        accountId: conn.account_id,
-        actorUserId: adminId,
-        eventType: 'zernio_queue_force_drained',
-        entityType: 'business',
-        entityId: businessId,
-        payload: { stuck_count: stuckCount },
-      },
-      tx,
-    );
+    await writeAccountAuditLog(tx, {
+      accountId: conn.account_id,
+      actorUserId: adminId,
+      eventType: 'zernio_queue_force_drained',
+      entityType: 'business',
+      entityId: businessId,
+      payload: { stuck_count: stuckCount },
+    });
 
     return stuckCount;
   });
@@ -159,19 +156,16 @@ async function dismiss(businessId: string, responseId: string, adminId: string):
       WHERE id = ${responseId} AND status = 'awaiting_owner_connect'
     `;
 
-    await writeAccountAuditLog(
-      {
-        accountId: row.account_id,
-        actorUserId: adminId,
-        eventType: 'zernio_queue_response_dismissed',
-        entityType: 'response',
-        entityId: responseId,
-        // entityId already records the response; carry the location so the
-        // audit row is self-describing without a join back to responses.
-        payload: { business_id: businessId },
-      },
-      tx,
-    );
+    await writeAccountAuditLog(tx, {
+      accountId: row.account_id,
+      actorUserId: adminId,
+      eventType: 'zernio_queue_response_dismissed',
+      entityType: 'response',
+      entityId: responseId,
+      // entityId already records the response; carry the location so the
+      // audit row is self-describing without a join back to responses.
+      payload: { business_id: businessId },
+    });
   });
 }
 

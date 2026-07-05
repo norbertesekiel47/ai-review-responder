@@ -182,6 +182,7 @@ describe('POST /api/onboarding/select-plan', () => {
     const body = await res.json();
     expect(body.paymentUrl).toBe('https://checkout.stripe.com/test/premium');
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+      mockSql,
       expect.any(String), // accountId
       'premium',
       'owner@example.com',
@@ -201,6 +202,7 @@ describe('POST /api/onboarding/select-plan', () => {
     const body = await res.json();
     expect(body.paymentUrl).toBe('https://checkout.stripe.com/test/basic');
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+      mockSql,
       expect.any(String),
       'basic',
       'owner@example.com',
@@ -330,6 +332,7 @@ describe('POST /api/onboarding/select-plan', () => {
     const body = await res.json();
     expect(body.paymentUrl).toBe('https://checkout.stripe.com/test/session-1');
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+      mockSql,
       expect.any(String), // accountId
       'founders',
       'owner@example.com',
@@ -362,6 +365,7 @@ describe('POST /api/onboarding/select-plan', () => {
     const body = await res.json();
     expect(body.paymentUrl).toBe('https://checkout.stripe.com/test/standard');
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+      mockSql,
       expect.any(String), // accountId
       'standard',
       'owner@example.com',
@@ -376,6 +380,7 @@ describe('POST /api/onboarding/select-plan', () => {
       const res = await POST(mkReq({ tier: 'standard' }));
       expect(res.status).toBe(200);
       expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+        mockSql,
         expect.any(String),
         'standard',
         'owner@example.com',
@@ -405,6 +410,7 @@ describe('POST /api/onboarding/select-plan', () => {
       const res = await POST(mkReq({ tier: 'standard' }));
       expect(res.status).toBe(200);
       expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+        mockSql,
         expect.any(String),
         'standard',
         'owner@example.com',

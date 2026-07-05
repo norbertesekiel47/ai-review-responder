@@ -92,12 +92,12 @@ describe('AccountOffboardingTeardownRetryPoller', () => {
     expect(claimCall!.text).toContain('retry_count <');
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         accountId: ACCOUNT_ID,
         eventType: 'account_offboarding_teardown_retry_scheduled',
         entityId: OFFBOARDING_ID,
       }),
-      expect.anything(),
     );
     expect(mockEnqueueTeardown).toHaveBeenCalledWith(
       expect.anything(),

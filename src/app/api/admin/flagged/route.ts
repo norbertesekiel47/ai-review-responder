@@ -222,17 +222,14 @@ async function dispositionFlaggedResponse(request: NextRequest): Promise<NextRes
         }
       }
 
-      await writeAccountAuditLog(
-        {
-          accountId: flag.account_id,
-          actorUserId: admin.id,
-          eventType: 'flagged_response_dispositioned',
-          entityType: 'flagged_response',
-          entityId: flaggedId,
-          payload: { action, response_id: flag.response_id },
-        },
-        tx,
-      );
+      await writeAccountAuditLog(tx, {
+        accountId: flag.account_id,
+        actorUserId: admin.id,
+        eventType: 'flagged_response_dispositioned',
+        entityType: 'flagged_response',
+        entityId: flaggedId,
+        payload: { action, response_id: flag.response_id },
+      });
     });
   } catch (err) {
     if (err instanceof DispositionError) {

@@ -192,6 +192,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     expect(combinedSql).toContain('terminal_at = NOW()');
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      tx,
       expect.objectContaining({
         accountId: ACCOUNT_ID,
         actorUserId: USER_ID,
@@ -208,7 +209,6 @@ describe('reactivateCancelOnlyOffboarding', () => {
           stripe_subscription_id: 'sub_snapshot_123',
         },
       }),
-      tx,
     );
 
     expect(mockEnqueueOffboardingReactivated).toHaveBeenCalledWith(tx, {

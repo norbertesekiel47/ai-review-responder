@@ -337,7 +337,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
 
     await handleResponseGeneration(makeJob());
 
-    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(mockSql, expect.objectContaining({
       eventName: 'first_response_drafted',
       eventKey: 'first_response_drafted:acct-1',
       distinctId: 'acct-1',
@@ -357,7 +357,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     expect(mockGenerateResponse).not.toHaveBeenCalled();
     expect(persistResponseAndNotify).not.toHaveBeenCalled();
     expect(mockSql.begin).not.toHaveBeenCalled();
-    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(mockSql, expect.objectContaining({
       eventName: 'first_response_drafted',
       eventKey: 'first_response_drafted:acct-1',
       distinctId: 'acct-1',
@@ -497,7 +497,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     await handleResponseGeneration(makeJob());
 
     expect(mockGenerateResponse).not.toHaveBeenCalled();
-    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(mockSql, expect.objectContaining({
       eventName: 'first_response_drafted',
       eventKey: 'first_response_drafted:acct-1',
     }));

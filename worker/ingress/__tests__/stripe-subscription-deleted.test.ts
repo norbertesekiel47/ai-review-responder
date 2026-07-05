@@ -73,6 +73,7 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
     expect(updateAcct!.text).toMatch(/cancelled_at\s*=\s*NOW\(\)/i);
     expect(updateAcct!.text).toMatch(/past_due_at\s*=\s*NULL/i);
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
       expect.objectContaining({
         accountId: TEST_ACCOUNT_ID,
         eventType: 'subscription_status_changed',
@@ -80,7 +81,6 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
         entityId: TEST_ACCOUNT_ID,
         payload: { fromStatus: 'active', toStatus: 'cancelled' },
       }),
-      mockSql,
     );
   });
 
