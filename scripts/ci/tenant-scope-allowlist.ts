@@ -228,7 +228,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
   },
   {
-    file: "src/app/api/onboarding/select-plan/route.ts",
+    file: "src/lib/payments/plan-activation.ts",
     table: "businesses",
     sqlSnippet: "SELECT account_id, onboarded_by FROM businesses WHERE id = ${businessId}::uuid",
     category: 'tenant-root-lookup',
@@ -1496,7 +1496,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
   },
   {
-    file: "src/app/api/onboarding/select-plan/route.ts",
+    file: "src/lib/payments/plan-activation.ts",
     table: "accounts",
     sqlSnippet: "UPDATE accounts SET subscription_tier = ${tier}, locations_included = ${tierConfig.included}, locations_overage_price_cents = ${tierConfig.overageCents}, base_price_cents = ${tierConfig.baseCents}, updated_at = NOW() WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid) AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}",
     category: 'supabase-auth-id',
@@ -1790,7 +1790,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
   },
   {
-    file: "src/app/api/onboarding/select-plan/route.ts",
+    file: "src/lib/payments/plan-activation.ts",
     table: "businesses",
     sqlSnippet: "UPDATE accounts SET subscription_tier = ${tier}, locations_included = ${tierConfig.included}, locations_overage_price_cents = ${tierConfig.overageCents}, base_price_cents = ${tierConfig.baseCents}, updated_at = NOW() WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid) AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}",
     category: 'supabase-auth-id',
