@@ -15,10 +15,6 @@
 // sweep as reads migrate onto the constant.
 
 export const REVIEWS_STATUS_BASELINE: ReadonlySet<string> = new Set<string>([
-  'src/lib/dashboard/aggregate-service.ts',
-  'src/lib/dashboard/service.ts',
-  'src/lib/kpi/service.ts',
-  'src/lib/past-replies/load-replies.ts',
   'src/lib/reviews/process-review.ts',
   'worker/background/pollers/ZernioRecentReviewPoller.ts',
 ]);

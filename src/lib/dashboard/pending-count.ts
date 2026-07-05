@@ -6,9 +6,9 @@
 // PendingCountProvider seed, so the approvals strip and the mobile tab badge
 // can never disagree or over-count (PLAN.md PR2 A.4).
 
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 
-export async function getPendingApprovalCount(businessId: string): Promise<number> {
+export async function getPendingApprovalCount(sql: Sql, businessId: string): Promise<number> {
   const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
     FROM responses resp

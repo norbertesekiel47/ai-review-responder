@@ -1,4 +1,4 @@
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import {
   DELETE_FAILED_PREFIX,
   POST_AFTER_DELETE_FAILED_PREFIX,
@@ -35,15 +35,18 @@ export interface PastRepliesPageView {
  * lookup additionally asserts account_id ownership. The aggregating queries are
  * allowlisted in the tenant-scope audit (scripts/ci/tenant-scope-allowlist.ts).
  */
-export async function loadPastRepliesPageView({
-  accountId,
-  locationId,
-  page,
-}: {
-  accountId: string;
-  locationId: string;
-  page: number;
-}): Promise<PastRepliesPageView | null> {
+export async function loadPastRepliesPageView(
+  sql: Sql,
+  {
+    accountId,
+    locationId,
+    page,
+  }: {
+    accountId: string;
+    locationId: string;
+    page: number;
+  },
+): Promise<PastRepliesPageView | null> {
   const offset = (page - 1) * PAGE_SIZE;
 
   // ── Biz display + tier/activation from accounts ───────────────────────────
@@ -124,7 +127,7 @@ export async function loadPastRepliesPageView({
         SELECT id, posting_error
         FROM responses
         WHERE review_id = r.id
-          AND status = 'failed'
+          AND status = 'failed' -- review-status-ignore: responses.status, not reviews.status (unqualified inside this nested FROM-responses subquery — the reviews-status guard's coarse regex flags any unqualified status literal in a template that also mentions reviews elsewhere)
           AND posting_error LIKE ${deletePfx}
         ORDER BY created_at DESC
         LIMIT 1
@@ -170,7 +173,7 @@ export async function loadPastRepliesPageView({
         SELECT id, posting_error
         FROM responses
         WHERE review_id = r.id
-          AND status = 'failed'
+          AND status = 'failed' -- review-status-ignore: responses.status, not reviews.status (unqualified inside this nested FROM-responses subquery — the reviews-status guard's coarse regex flags any unqualified status literal in a template that also mentions reviews elsewhere)
           AND posting_error LIKE ${postAfterPfx}
         ORDER BY created_at DESC
         LIMIT 1
@@ -181,7 +184,7 @@ export async function loadPastRepliesPageView({
         SELECT COALESCE(approved_text, response_text) AS approved_text
         FROM responses
         WHERE review_id = r.id
-          AND status = 'superseded'
+          AND status = 'superseded' -- review-status-ignore: responses.status, not reviews.status (unqualified; the guard's lazy cross-line scan also attributes this line to the later posted_check.status = 'posted' match a few lines down, which is likewise responses.status)
         ORDER BY created_at DESC
         LIMIT 1
       ) superseded ON true

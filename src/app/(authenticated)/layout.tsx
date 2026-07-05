@@ -144,7 +144,7 @@ export default async function AuthenticatedLayout({
     `,
     // Shared authoritative pending count (excludes held/flagged) — same helper
     // the dashboard response uses, so the tab badge and approvals strip agree.
-    getPendingApprovalCount(currentLocationId),
+    getPendingApprovalCount(sql, currentLocationId),
     multiLocationEnabled
       ? getLocationsForAccount(accountId)
       : Promise.resolve([]),

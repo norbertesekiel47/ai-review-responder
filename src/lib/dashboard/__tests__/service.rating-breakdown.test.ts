@@ -1,29 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Sql } from 'postgres';
+import { createMockSql, type MockSqlHarness } from '../../../../worker/__tests__/helpers/mock-sql';
+import { REVIEW_STATUS } from '@/lib/reviews/status';
 
-// Captures the windowed rating-breakdown query text + bound values so we can
-// prove it is tenant-scoped and that the window reaches SQL as a bound
-// make_interval param (issue #403), never interpolated text.
-const { mockSqlResults, sqlCallCounter, capturedSqlTexts, capturedSqlValues } = vi.hoisted(() => ({
-  mockSqlResults: [] as unknown[][],
-  sqlCallCounter: { value: 0 },
-  capturedSqlTexts: [] as string[],
-  capturedSqlValues: [] as unknown[][],
-}));
-
-vi.mock('@/lib/db/server', () => ({
-  sql: new Proxy(() => {}, {
-    apply: (_t, _a, args: unknown[]) => {
-      const first = args[0];
-      if (first != null && typeof first === 'object' && 'raw' in (first as object)) {
-        capturedSqlTexts.push((first as TemplateStringsArray).raw.join('?'));
-        capturedSqlValues.push(args.slice(1));
-      }
-      const result = mockSqlResults[sqlCallCounter.value] ?? [];
-      sqlCallCounter.value++;
-      return Promise.resolve(result);
-    },
-  }),
-}));
+// dashboard/service is born-injected (sql is a parameter, A+ campaign PR 2d), so
+// @/lib/db/server no longer needs mocking here — the fragment-aware
+// createMockSql harness stands in for `sql` directly (worker/__tests__/helpers/mock-sql.ts).
 
 // readPendingMarker reads Redis; tests don't exercise the connect flow.
 vi.mock('@/lib/db/redis-cache', () => ({
@@ -31,6 +13,9 @@ vi.mock('@/lib/db/redis-cache', () => ({
 }));
 
 import { getActiveDashboardData } from '../service';
+
+let harness: MockSqlHarness;
+let mockSql: Sql;
 
 const BUSINESS_ID = 'biz-rating-1';
 
@@ -41,26 +26,31 @@ const BUSINESS_ID = 'biz-rating-1';
 const RATING_BREAKDOWN_CALL = 11;
 
 function seed(ratingRows: Array<{ stars: number; count: number }>) {
-  mockSqlResults.length = 0;
-  capturedSqlTexts.length = 0;
-  capturedSqlValues.length = 0;
-  sqlCallCounter.value = 0;
-  mockSqlResults[0] = [{ name: 'Biz', created_at: new Date('2026-01-01T00:00:00Z') }];
-  mockSqlResults[1] = [{ count: 0 }];
-  mockSqlResults[2] = [{ count: 0 }];
-  mockSqlResults[RATING_BREAKDOWN_CALL] = ratingRows;
+  harness.resetMockSql();
+  harness.sqlReturnQueue.push(
+    [{ name: 'Biz', created_at: new Date('2026-01-01T00:00:00Z') }], // 0 business
+    [{ count: 0 }], // 1 totalReviews
+    [{ count: 0 }], // 2 totalResponded
+    [], // 3 velocity
+    [], // 4 ranking
+    [], // 5 recentReviews
+    [], // 6 monthlyBrief
+    [], // 7 weeklyBrief
+    [], // 8 zernioConn
+    [], // 9 queuedReconnect
+    [], // 10 unresolvedIncident
+    ratingRows, // 11 ratingBreakdown
+  );
 }
 
 function ratingBreakdownSql(): string {
-  return capturedSqlTexts.find((text) => text.includes('GROUP BY star_rating')) ?? '';
+  return harness.sqlCalls.find((call) => call.text.includes('GROUP BY star_rating'))?.text ?? '';
 }
 
 describe('getActiveDashboardData — ratingBreakdown (#405)', () => {
   beforeEach(() => {
-    mockSqlResults.length = 0;
-    capturedSqlTexts.length = 0;
-    capturedSqlValues.length = 0;
-    sqlCallCounter.value = 0;
+    harness = createMockSql();
+    mockSql = harness.mockSql as unknown as Sql;
   });
 
   it('returns zero-filled 5★→1★ counts and total from the GROUP BY rows', async () => {
@@ -69,7 +59,7 @@ describe('getActiveDashboardData — ratingBreakdown (#405)', () => {
       { stars: 4, count: 1 },
       { stars: 1, count: 2 },
     ]);
-    const data = await getActiveDashboardData(BUSINESS_ID);
+    const data = await getActiveDashboardData(mockSql, BUSINESS_ID);
     expect(data.ratingBreakdown.counts).toEqual([
       { stars: 5, count: 3 },
       { stars: 4, count: 0 + 1 },
@@ -82,38 +72,41 @@ describe('getActiveDashboardData — ratingBreakdown (#405)', () => {
 
   it('returns an all-zero breakdown (total 0) when the window holds no rated review', async () => {
     seed([]);
-    const data = await getActiveDashboardData(BUSINESS_ID);
+    const data = await getActiveDashboardData(mockSql, BUSINESS_ID);
     expect(data.ratingBreakdown.total).toBe(0);
     expect(data.ratingBreakdown.counts.map((c) => c.count)).toEqual([0, 0, 0, 0, 0]);
   });
 
   it('scopes the breakdown query by business_id and excludes deleted/unrated rows', async () => {
     seed([{ stars: 5, count: 1 }]);
-    await getActiveDashboardData(BUSINESS_ID);
+    await getActiveDashboardData(mockSql, BUSINESS_ID);
     const text = ratingBreakdownSql();
     expect(text).toContain('business_id = ?');
-    expect(text).toContain("status <> 'deleted'");
+    // REVIEW_STATUS.DELETED is now a bound param, not an inline literal (A+ campaign 2d).
+    expect(text).toContain('status <> ?');
     expect(text).toContain('star_rating IS NOT NULL');
-    expect(capturedSqlValues[RATING_BREAKDOWN_CALL]).toContain(BUSINESS_ID);
+    const call = harness.sqlCalls[RATING_BREAKDOWN_CALL];
+    expect(call?.values).toContain(BUSINESS_ID);
+    expect(call?.values).toContain(REVIEW_STATUS.DELETED);
   });
 
   it('windows the breakdown via a bound make_interval(days => ?) param, not interpolated text', async () => {
     seed([{ stars: 5, count: 1 }]);
-    await getActiveDashboardData(BUSINESS_ID, { window: '30d' });
+    await getActiveDashboardData(mockSql, BUSINESS_ID, { window: '30d' });
     const text = ratingBreakdownSql();
     expect(text).toContain('make_interval(days => ?)');
     expect(text).not.toMatch(/INTERVAL\s+'\d+\s+days'/i);
     // windowDays=30 (default) reaches SQL as a bound integer.
-    expect(capturedSqlValues[RATING_BREAKDOWN_CALL]).toContain(30);
+    expect(harness.sqlCalls[RATING_BREAKDOWN_CALL]?.values).toContain(30);
   });
 
   it('honors the selected window (7d / 90d) as the bound interval days', async () => {
     seed([{ stars: 5, count: 1 }]);
-    await getActiveDashboardData(BUSINESS_ID, { window: '7d' });
-    expect(capturedSqlValues[RATING_BREAKDOWN_CALL]).toContain(7);
+    await getActiveDashboardData(mockSql, BUSINESS_ID, { window: '7d' });
+    expect(harness.sqlCalls[RATING_BREAKDOWN_CALL]?.values).toContain(7);
 
     seed([{ stars: 5, count: 1 }]);
-    await getActiveDashboardData(BUSINESS_ID, { window: '90d' });
-    expect(capturedSqlValues[RATING_BREAKDOWN_CALL]).toContain(90);
+    await getActiveDashboardData(mockSql, BUSINESS_ID, { window: '90d' });
+    expect(harness.sqlCalls[RATING_BREAKDOWN_CALL]?.values).toContain(90);
   });
 });

@@ -45,7 +45,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const { window, scopePolicy } = resolveDashboardRequest(request, user.locationId);
 
     if (scopePolicy.mode === 'aggregate') {
-      const summary = await getAccountKpiSummary(accountId, window);
+      const summary = await getAccountKpiSummary(sql, accountId, window);
       return jsonResponse(summary);
     }
 
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return errorResponse('No active location available', 404);
     }
 
-    const summary = await getLocationKpiSummary(locationId, window);
+    const summary = await getLocationKpiSummary(sql, locationId, window);
     return jsonResponse(summary);
   } catch (err) {
     reportCaughtError('api/dashboard/kpis', err, { accountId });

@@ -227,7 +227,7 @@ describe('GET /api/dashboard scope parameter', () => {
     expect(body.locationKpis).toHaveLength(2);
 
     // #403: the route resolves + passes the validated window (default here).
-    expect(mockGetAggregateDashboardData).toHaveBeenCalledWith(ACCOUNT_ID, '30d');
+    expect(mockGetAggregateDashboardData).toHaveBeenCalledWith(expect.any(Function), ACCOUNT_ID, '30d');
 
     process.env.MULTI_LOCATION_ENABLED = originalEnv;
   });
@@ -250,7 +250,7 @@ describe('GET /api/dashboard scope parameter', () => {
     // Regression guard: the active landing MUST request reputation metrics so
     // DashboardContent renders the 4-zone hero, not the legacy KPI fallback.
     // (A missing flag here is invisible to the CSS/component tests.)
-    expect(mockGetActiveDashboardData).toHaveBeenCalledWith(LOCATION_ID, {
+    expect(mockGetActiveDashboardData).toHaveBeenCalledWith(expect.any(Function), LOCATION_ID, {
       includeReputationMetrics: true,
       window: '30d',
     });

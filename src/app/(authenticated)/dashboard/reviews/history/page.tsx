@@ -19,7 +19,7 @@ export default async function PastRepliesPage({
 
   const owner = await requireOwnerAccess(sql);
   const { page } = await searchParams;
-  const view = await loadPastRepliesPageView({
+  const view = await loadPastRepliesPageView(sql, {
     accountId: owner.accountId,
     locationId: owner.currentLocationId,
     page: parsePageParam(page),

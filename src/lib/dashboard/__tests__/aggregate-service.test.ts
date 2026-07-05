@@ -1,22 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Sql } from 'postgres';
+import { createMockSql, type MockSqlHarness } from '../../../../worker/__tests__/helpers/mock-sql';
 
-// ── Hoisted shared state ──────────────────────────────────────────────
-const { mockSqlResults, sqlCallCounter } = vi.hoisted(() => ({
-  mockSqlResults: [] as unknown[][],
-  sqlCallCounter: { value: 0 },
-}));
-
-// sql is called 3x inside getAggregateDashboardData (account billing, total
-// reviews, total responded). Return queued results by call order.
-vi.mock('@/lib/db/server', () => ({
-  sql: new Proxy(() => {}, {
-    apply: () => {
-      const result = mockSqlResults[sqlCallCounter.value] ?? [];
-      sqlCallCounter.value++;
-      return Promise.resolve(result);
-    },
-  }),
-}));
+// aggregate-service is born-injected (sql is a parameter, A+ campaign PR 2d), so
+// @/lib/db/server no longer needs mocking here — the fragment-aware
+// createMockSql harness stands in for `sql` directly (worker/__tests__/helpers/mock-sql.ts).
 
 const { mockGetActiveDashboardData } = vi.hoisted(() => ({
   mockGetActiveDashboardData: vi.fn(),
@@ -27,10 +15,10 @@ vi.mock('@/lib/dashboard/service', () => ({
 
 // The unit under test: the authoritative per-location pending count source.
 const { mockGetPendingApprovalCount } = vi.hoisted(() => ({
-  mockGetPendingApprovalCount: vi.fn<(businessId: string) => Promise<number>>(),
+  mockGetPendingApprovalCount: vi.fn<(sql: unknown, businessId: string) => Promise<number>>(),
 }));
 vi.mock('@/lib/dashboard/pending-count', () => ({
-  getPendingApprovalCount: (id: string) => mockGetPendingApprovalCount(id),
+  getPendingApprovalCount: (sql: unknown, id: string) => mockGetPendingApprovalCount(sql, id),
 }));
 
 vi.mock('@/lib/locations/repo', () => ({
@@ -45,6 +33,9 @@ import { getAggregateDashboardData } from '../aggregate-service';
 import { authoritativePendingCount } from '../scope';
 import { buildRatingBreakdown } from '../rating-breakdown';
 import type { DashboardDataActive, RatingBreakdown } from '../types';
+
+let harness: MockSqlHarness;
+let mockSql: Sql;
 
 /** A per-location dashboard payload whose recentReviews slice has `slicePending`
  *  pending rows — deliberately SMALLER than the authoritative count, to prove
@@ -85,10 +76,10 @@ function locationData(
 
 describe('getAggregateDashboardData — authoritative per-location pending count (#346)', () => {
   beforeEach(() => {
-    sqlCallCounter.value = 0;
-    mockSqlResults.length = 0;
+    harness = createMockSql();
+    mockSql = harness.mockSql as unknown as Sql;
     // sql call order: [account billing, total reviews, total responded]
-    mockSqlResults.push(
+    harness.sqlReturnQueue.push(
       [{ locations_included: 5, locations_paid: 0 }],
       [{ count: 100 }],
       [{ count: 80 }],
@@ -98,13 +89,13 @@ describe('getAggregateDashboardData — authoritative per-location pending count
     // authoritative counts below — so any derivation from recentReviews fails.
     mockGetActiveDashboardData.mockResolvedValue(locationData(2));
     mockGetPendingApprovalCount.mockReset();
-    mockGetPendingApprovalCount.mockImplementation(async (id: string) =>
+    mockGetPendingApprovalCount.mockImplementation(async (_sql: unknown, id: string) =>
       id === 'loc-1' ? 25 : 13,
     );
   });
 
   it('reads locationKpis.pendingApprovalCount from getPendingApprovalCount, not the capped slice', async () => {
-    const result = await getAggregateDashboardData('acc-1');
+    const result = await getAggregateDashboardData(mockSql, 'acc-1');
 
     const loc1 = result.locationKpis.find((k) => k.locationId === 'loc-1');
     const loc2 = result.locationKpis.find((k) => k.locationId === 'loc-2');
@@ -113,12 +104,12 @@ describe('getAggregateDashboardData — authoritative per-location pending count
     // recentReviewCount still reflects the displayed slice (2) — proving the two
     // fields diverge and pending is NOT derived from recentReviews.
     expect(loc1?.recentReviewCount).toBe(2);
-    expect(mockGetPendingApprovalCount).toHaveBeenCalledWith('loc-1');
-    expect(mockGetPendingApprovalCount).toHaveBeenCalledWith('loc-2');
+    expect(mockGetPendingApprovalCount).toHaveBeenCalledWith(expect.any(Function), 'loc-1');
+    expect(mockGetPendingApprovalCount).toHaveBeenCalledWith(expect.any(Function), 'loc-2');
   });
 
   it('aggregate badge total sums the authoritative per-location counts (>10 regression)', async () => {
-    const result = await getAggregateDashboardData('acc-1');
+    const result = await getAggregateDashboardData(mockSql, 'acc-1');
     // 25 + 13 = 38 authoritative — not 2 + 2 = 4 from the capped slices.
     expect(authoritativePendingCount(result)).toBe(38);
   });
@@ -126,10 +117,10 @@ describe('getAggregateDashboardData — authoritative per-location pending count
 
 describe('getAggregateDashboardData — ratingBreakdown (#405)', () => {
   beforeEach(() => {
-    sqlCallCounter.value = 0;
-    mockSqlResults.length = 0;
+    harness = createMockSql();
+    mockSql = harness.mockSql as unknown as Sql;
     // sql call order: [account billing, total reviews, total responded]
-    mockSqlResults.push(
+    harness.sqlReturnQueue.push(
       [{ locations_included: 5, locations_paid: 0 }],
       [{ count: 100 }],
       [{ count: 80 }],
@@ -142,13 +133,13 @@ describe('getAggregateDashboardData — ratingBreakdown (#405)', () => {
     // getLocationsForAccount (mocked) yields loc-1 + loc-2 of acc-1, so the
     // summed breakdown is tenant-scoped to the account's active locations.
     mockGetActiveDashboardData.mockReset();
-    mockGetActiveDashboardData.mockImplementation(async (id: string) =>
+    mockGetActiveDashboardData.mockImplementation(async (_sql: unknown, id: string) =>
       id === 'loc-1'
         ? locationData(0, buildRatingBreakdown([{ stars: 5, count: 2 }, { stars: 1, count: 1 }]))
         : locationData(0, buildRatingBreakdown([{ stars: 5, count: 3 }, { stars: 4, count: 4 }])),
     );
 
-    const result = await getAggregateDashboardData('acc-1');
+    const result = await getAggregateDashboardData(mockSql, 'acc-1');
 
     expect(result.ratingBreakdown.counts).toEqual([
       { stars: 5, count: 5 },
@@ -163,16 +154,16 @@ describe('getAggregateDashboardData — ratingBreakdown (#405)', () => {
 
 describe('getAggregateDashboardData — no active locations', () => {
   beforeEach(() => {
-    sqlCallCounter.value = 0;
-    mockSqlResults.length = 0;
+    harness = createMockSql();
+    mockSql = harness.mockSql as unknown as Sql;
   });
 
   it('returns an all-zero rating breakdown when the account has no active locations', async () => {
     const { getLocationsForAccount } = await import('@/lib/locations/repo');
     vi.mocked(getLocationsForAccount).mockResolvedValueOnce([]);
-    mockSqlResults.push([{ locations_included: 1, locations_paid: 0 }]);
+    harness.sqlReturnQueue.push([{ locations_included: 1, locations_paid: 0 }]);
 
-    const result = await getAggregateDashboardData('acc-empty');
+    const result = await getAggregateDashboardData(mockSql, 'acc-empty');
 
     expect(result.activeLocationCount).toBe(0);
     expect(result.ratingBreakdown.total).toBe(0);

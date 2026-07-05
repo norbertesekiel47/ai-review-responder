@@ -4,8 +4,9 @@
 // or per-account (active locations). Mirrors dashboard/service.ts query style.
 // Does NOT overload valueSummary (lifetime). No real-DB test — keep SQL standard.
 
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
+import { REVIEW_STATUS } from '@/lib/reviews/status';
 import {
   DashboardKpiSummary,
   DashboardWindow,
@@ -78,7 +79,65 @@ function assembleSummary(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Shared, non-scope query fragments.
+//
+// Each factory below returns a lazy Postgres.js fragment (a nested sql``
+// template — never awaited on its own; it only composes into a caller's
+// template's text + bound params, exactly like the mock in
+// worker/__tests__/helpers/mock-sql.ts emulates). None of them spell a
+// `FROM`/`JOIN` of a tenant table, so none of them can hide — or need — a
+// tenant-scope predicate of their own.
+//
+// getLocationKpiSummary/getAccountKpiSummary keep their own FROM/JOIN +
+// tenant-scope WHERE predicate (`r.business_id = `, `b.account_id = ` +
+// `b.archived_at IS NULL`) written out literally in every query template:
+// scripts/ci/tenant-scope-audit.ts reads only the raw, un-evaluated template
+// text, so extracting that predicate (or its FROM/JOIN) into a fragment here
+// would hide it from the scanner. Do not do that.
+// ---------------------------------------------------------------------------
+
+/** reviews soft-delete filter — every scope, every metric query. */
+function notDeletedFilter(sql: Sql, prefix: '' | 'r.') {
+  return prefix === 'r.'
+    ? sql`r.status <> ${REVIEW_STATUS.DELETED}`
+    : sql`status <> ${REVIEW_STATUS.DELETED}`;
+}
+
+/** Rolling `detected_at` lookback shared by the response-rate and avg-star queries. */
+function detectedAtWindowFilter(sql: Sql, prefix: '' | 'r.', windowDays: number) {
+  return prefix === 'r.'
+    ? sql`r.detected_at >= NOW() - make_interval(days => ${windowDays})`
+    : sql`detected_at >= NOW() - make_interval(days => ${windowDays})`;
+}
+
+/** responses.status membership check against the handled-status vocabulary. */
+function handledStatusFilter(sql: Sql, handled: string[]) {
+  return sql`resp.status = ANY(${handled}::text[])`;
+}
+
+/**
+ * Time-to-respond metric expression — identical for both scopes (always the
+ * responses+reviews join). The `SELECT` keyword itself stays literal in each
+ * caller's own template — never folded into this fragment — because
+ * scripts/ci/tenant-scope-audit.ts's `hasReadOrMutationStatement` gate looks
+ * for a literal select/update/delete keyword in the OUTER template text
+ * before it will even look for a tenant-scope predicate; hiding it here would
+ * make the audit silently skip scanning the caller's query altogether.
+ */
+function ttrSelectExpr(sql: Sql) {
+  return sql`AVG(EXTRACT(EPOCH FROM (resp.approved_at - r.detected_at)) / 3600.0)::float AS avg_hours`;
+}
+
+/** Trailing time-to-respond filters after the tenant-scope predicate. */
+function ttrHandledWindowFilter(sql: Sql, handled: string[], windowDays: number) {
+  return sql`${handledStatusFilter(sql, handled)}
+        AND resp.approved_at IS NOT NULL
+        AND resp.approved_at >= NOW() - make_interval(days => ${windowDays})`;
+}
+
 export async function getLocationKpiSummary(
+  sql: Sql,
   businessId: string,
   window: DashboardWindow = DEFAULT_DASHBOARD_WINDOW,
 ): Promise<DashboardKpiSummary> {
@@ -97,21 +156,21 @@ export async function getLocationKpiSummary(
           WHERE EXISTS (
             SELECT 1 FROM responses resp
             WHERE resp.review_id = r.id
-              AND resp.status = ANY(${HANDLED}::text[])
+              AND ${handledStatusFilter(sql, HANDLED)}
           )
         )::int AS handled
       FROM reviews r
       WHERE r.business_id = ${businessId}
-        AND r.status <> 'deleted'
-        AND r.detected_at >= NOW() - make_interval(days => ${windowDays})
+        AND ${notDeletedFilter(sql, 'r.')}
+        AND ${detectedAtWindowFilter(sql, 'r.', windowDays)}
     `,
     sql<StarRow[]>`
       SELECT AVG(star_rating)::float AS avg
       FROM reviews
       WHERE business_id = ${businessId}
-        AND status <> 'deleted'
+        AND ${notDeletedFilter(sql, '')}
         AND star_rating IS NOT NULL
-        AND detected_at >= NOW() - make_interval(days => ${windowDays})
+        AND ${detectedAtWindowFilter(sql, '', windowDays)}
     `,
     sql<VolumeRow[]>`
       SELECT
@@ -124,17 +183,15 @@ export async function getLocationKpiSummary(
         )::int AS prior_month
       FROM reviews
       WHERE business_id = ${businessId}
-        AND status <> 'deleted'
+        AND ${notDeletedFilter(sql, '')}
     `,
     sql<TtrRow[]>`
-      SELECT AVG(EXTRACT(EPOCH FROM (resp.approved_at - r.detected_at)) / 3600.0)::float AS avg_hours
+      SELECT ${ttrSelectExpr(sql)}
       FROM responses resp
       JOIN reviews r ON r.id = resp.review_id
       WHERE r.business_id = ${businessId}
-        AND r.status <> 'deleted'
-        AND resp.status = ANY(${HANDLED}::text[])
-        AND resp.approved_at IS NOT NULL
-        AND resp.approved_at >= NOW() - make_interval(days => ${windowDays})
+        AND ${notDeletedFilter(sql, 'r.')}
+        AND ${ttrHandledWindowFilter(sql, HANDLED, windowDays)}
     `,
     sql<TrendRow[]>`
       SELECT gs::date AS week_start,
@@ -151,7 +208,7 @@ export async function getLocationKpiSummary(
                COUNT(*) AS cnt
         FROM reviews
         WHERE business_id = ${businessId}
-          AND status <> 'deleted'
+          AND ${notDeletedFilter(sql, '')}
           AND detected_at >= NOW() - make_interval(weeks => ${trendWeeks})
         GROUP BY DATE_TRUNC('week', detected_at)
       ) agg ON agg.wk = gs::date
@@ -167,6 +224,7 @@ export async function getLocationKpiSummary(
 }
 
 export async function getAccountKpiSummary(
+  sql: Sql,
   accountId: string,
   window: DashboardWindow = DEFAULT_DASHBOARD_WINDOW,
 ): Promise<DashboardKpiSummary> {
@@ -183,15 +241,15 @@ export async function getAccountKpiSummary(
           WHERE EXISTS (
             SELECT 1 FROM responses resp
             WHERE resp.review_id = r.id
-              AND resp.status = ANY(${HANDLED}::text[])
+              AND ${handledStatusFilter(sql, HANDLED)}
           )
         )::int AS handled
       FROM reviews r
       JOIN businesses b ON b.id = r.business_id
       WHERE b.account_id = ${accountId}
         AND b.archived_at IS NULL
-        AND r.status <> 'deleted'
-        AND r.detected_at >= NOW() - make_interval(days => ${windowDays})
+        AND ${notDeletedFilter(sql, 'r.')}
+        AND ${detectedAtWindowFilter(sql, 'r.', windowDays)}
     `,
     sql<StarRow[]>`
       SELECT AVG(r.star_rating)::float AS avg
@@ -199,9 +257,9 @@ export async function getAccountKpiSummary(
       JOIN businesses b ON b.id = r.business_id
       WHERE b.account_id = ${accountId}
         AND b.archived_at IS NULL
-        AND r.status <> 'deleted'
+        AND ${notDeletedFilter(sql, 'r.')}
         AND r.star_rating IS NOT NULL
-        AND r.detected_at >= NOW() - make_interval(days => ${windowDays})
+        AND ${detectedAtWindowFilter(sql, 'r.', windowDays)}
     `,
     sql<VolumeRow[]>`
       SELECT
@@ -214,19 +272,17 @@ export async function getAccountKpiSummary(
       JOIN businesses b ON b.id = r.business_id
       WHERE b.account_id = ${accountId}
         AND b.archived_at IS NULL
-        AND r.status <> 'deleted'
+        AND ${notDeletedFilter(sql, 'r.')}
     `,
     sql<TtrRow[]>`
-      SELECT AVG(EXTRACT(EPOCH FROM (resp.approved_at - r.detected_at)) / 3600.0)::float AS avg_hours
+      SELECT ${ttrSelectExpr(sql)}
       FROM responses resp
       JOIN reviews r ON r.id = resp.review_id
       JOIN businesses b ON b.id = r.business_id
       WHERE b.account_id = ${accountId}
         AND b.archived_at IS NULL
-        AND r.status <> 'deleted'
-        AND resp.status = ANY(${HANDLED}::text[])
-        AND resp.approved_at IS NOT NULL
-        AND resp.approved_at >= NOW() - make_interval(days => ${windowDays})
+        AND ${notDeletedFilter(sql, 'r.')}
+        AND ${ttrHandledWindowFilter(sql, HANDLED, windowDays)}
     `,
     sql<TrendRow[]>`
       SELECT gs::date AS week_start,
@@ -245,7 +301,7 @@ export async function getAccountKpiSummary(
         JOIN businesses b ON b.id = r.business_id
         WHERE b.account_id = ${accountId}
           AND b.archived_at IS NULL
-          AND r.status <> 'deleted'
+          AND ${notDeletedFilter(sql, 'r.')}
           AND r.detected_at >= NOW() - make_interval(weeks => ${trendWeeks})
         GROUP BY DATE_TRUNC('week', r.detected_at)
       ) agg ON agg.wk = gs::date
