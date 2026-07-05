@@ -17,15 +17,7 @@ import { withCostGuard } from '@/lib/costs/cost-guard';
 import { recordApiCost, calculateCostUsd } from '@/lib/costs/audit';
 import { PROMPT_VERSION, systemPromptHash } from './prompt-policy';
 import { runLlmTask } from '@/lib/llm/run-task';
-import { OPENAI_MODEL, ANTHROPIC_MODEL } from '@/lib/llm/tasks';
 import type { LLMCallResult } from '@/lib/llm/types';
-
-// Back-compat re-exports (consumers: costs/audit.ts pricing map,
-// responses/review-summary.ts, client-options.test.ts). Retargeted and
-// removed in a Stage-2 sweep.
-export { OPENAI_MODEL, ANTHROPIC_MODEL };
-export { LLM_CLIENT_OPTIONS } from '@/lib/llm/client-options';
-export { TransientLLMError } from '@/lib/llm/error-classifier';
 
 // ── Cached generation shape (stored in Redis) ────────────────────────
 

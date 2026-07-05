@@ -2,6 +2,7 @@ import { getLlmTask } from './tasks';
 import { openaiProvider } from './openai-provider';
 import { anthropicProvider } from './anthropic-provider';
 import { isTransientLLMError, TransientLLMError, redactProviderError } from './error-classifier';
+import { createWorkerLogger } from '@/lib/shared/logger';
 import type { ChatPrompt, LLMCallResult, LLMProvider, LLMProviderId, LLMTaskId } from './types';
 
 const PROVIDERS: Record<LLMProviderId, LLMProvider> = {
@@ -44,9 +45,9 @@ export async function runLlmTask(taskId: LLMTaskId, prompt: ChatPrompt): Promise
     return await PROVIDERS[task.primary.provider].complete({ ...request, model: task.primary.model });
   } catch (primaryError) {
     if (!task.fallback) throwExhaustedAttempts([primaryError]);
-    console.error(
-      `[llm:${taskId}] ${task.primary.provider} call failed, falling back to ${task.fallback.provider}:`,
-      redactProviderError(primaryError),
+    createWorkerLogger(`[llm:${taskId}]`).error(
+      `${task.primary.provider} call failed, falling back to ${task.fallback.provider}`,
+      { error: redactProviderError(primaryError) },
     );
     try {
       return await PROVIDERS[task.fallback.provider].complete({ ...request, model: task.fallback.model });

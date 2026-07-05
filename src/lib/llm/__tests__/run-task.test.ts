@@ -75,9 +75,10 @@ describe('runLlmTask', () => {
 
     expect(result.provider).toBe('anthropic');
     expect(result.text).toBe('Merci, Jane!');
+    // The structured logger (createWorkerLogger) emits one JSON line to
+    // console.error; the failover message is embedded in that line.
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringContaining('falling back to anthropic'),
-      expect.anything(),
     );
 
     consoleErrorSpy.mockRestore();

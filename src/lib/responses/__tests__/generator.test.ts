@@ -398,7 +398,8 @@ describe('generateResponse', () => {
     openaiCreate.mockRejectedValueOnce(openaiTransient);
     anthropicCreate.mockRejectedValueOnce(anthropicPermanent);
 
-    const { generateResponse, TransientLLMError } = await import('../generator');
+    const { generateResponse } = await import('../generator');
+    const { TransientLLMError } = await import('@/lib/llm/error-classifier');
 
     try {
       await generateResponse(review, businessContext, [], demoOptions);
@@ -416,7 +417,8 @@ describe('generateResponse', () => {
     openaiCreate.mockRejectedValueOnce(openaiPermanent);
     anthropicCreate.mockRejectedValueOnce(anthropicTransient);
 
-    const { generateResponse, TransientLLMError } = await import('../generator');
+    const { generateResponse } = await import('../generator');
+    const { TransientLLMError } = await import('@/lib/llm/error-classifier');
 
     try {
       await generateResponse(review, businessContext, [], demoOptions);
@@ -434,7 +436,8 @@ describe('generateResponse', () => {
     openaiCreate.mockRejectedValueOnce(openaiTransient);
     anthropicCreate.mockRejectedValueOnce(anthropicTransient);
 
-    const { generateResponse, TransientLLMError } = await import('../generator');
+    const { generateResponse } = await import('../generator');
+    const { TransientLLMError } = await import('@/lib/llm/error-classifier');
 
     try {
       await generateResponse(review, businessContext, [], demoOptions);

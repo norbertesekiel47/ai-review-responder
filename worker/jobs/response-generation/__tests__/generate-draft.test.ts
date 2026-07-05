@@ -4,7 +4,8 @@ import type { NormalizedReview } from '../../../../src/lib/reviews/types';
 import type { WorkerLogger } from '../../../../src/lib/shared/logger';
 import { asLocationId } from '../../../../src/lib/shared/ids';
 
-// ── Hoisted mocks (TransientLLMError must be shared by the factory + tests) ──
+// ── Hoisted mocks (TransientLLMError must be shared by the error-classifier
+//    mock factory + tests so `instanceof` matches across module boundaries) ──
 const {
   mockGenerateResponse,
   mockGenerateMockResponse,
@@ -38,8 +39,15 @@ vi.mock('@sentry/node', () => ({
 
 vi.mock('../../../../src/lib/responses/generator', () => ({
   generateResponse: mockGenerateResponse,
-  TransientLLMError,
 }));
+// generate-draft.ts now imports TransientLLMError from the LLM seam's
+// error-classifier (not the retired generator re-export). Swap only that class
+// for the hoisted one so the test and the module under test share its identity;
+// keep the real isTransientLLMError/redactProviderError.
+vi.mock('../../../../src/lib/llm/error-classifier', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/lib/llm/error-classifier')>();
+  return { ...actual, TransientLLMError };
+});
 vi.mock('../../../../src/lib/responses/mock-generator', () => ({
   generateMockResponse: mockGenerateMockResponse,
 }));

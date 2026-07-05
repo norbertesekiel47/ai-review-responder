@@ -9,7 +9,8 @@
 // reason the caller writes to the outbox.
 
 import * as Sentry from '@sentry/node';
-import { generateResponse, TransientLLMError } from '../../../src/lib/responses/generator';
+import { generateResponse } from '../../../src/lib/responses/generator';
+import { TransientLLMError } from '../../../src/lib/llm/error-classifier';
 import { generateMockResponse } from '../../../src/lib/responses/mock-generator';
 import { getApprovedResponsePairs } from '../../../src/lib/responses/voice-learning';
 import { isMockMode } from '../../../src/lib/shared/mock-mode';
