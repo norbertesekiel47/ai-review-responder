@@ -1,3 +1,4 @@
+import type { Sql } from 'postgres';
 import { fetchSerpApiReviews } from '../../../src/lib/demos/fetch-reviews';
 import { getFallbackDemo } from '../../../src/lib/demos/fallback-content';
 import { generateResponsesForReviews } from '../../../src/lib/demos/generate-responses';
@@ -14,7 +15,7 @@ export interface OnboardingDemoSourceResult {
   source: 'serpapi' | 'curated_fallback';
 }
 
-export async function buildOnboardingDemoSource(input: {
+export async function buildOnboardingDemoSource(sql: Sql, input: {
   demoId: string;
   googlePlaceId: string;
   businessName: string;
@@ -40,7 +41,7 @@ export async function buildOnboardingDemoSource(input: {
 
   const hasAnchor = selected.some((r) => r.starRating >= 4);
   if (serpapiOk && hasAnchor) {
-    const result = await generateResponsesForReviews(selected, {
+    const result = await generateResponsesForReviews(sql, selected, {
       name: input.businessName,
       category: input.category ?? null,
     });

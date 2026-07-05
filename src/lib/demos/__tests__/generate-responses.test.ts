@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import type { Sql } from 'postgres';
 import { makeReview } from './fixtures';
+
+// generateResponsesForReviews now takes the injected client as its leading arg;
+// in demo/mock mode it is never used to issue a query, so a bare stub suffices.
+const mockSql = {} as unknown as Sql;
 
 // `generate-responses.ts` captures `MOCK_EXTERNAL_APIS` at module-load time
 // (mirroring `generator.ts`). To toggle the flag per-test we must
@@ -29,6 +34,7 @@ describe('generateResponsesForReviews', () => {
     );
 
     const result = await generateResponsesForReviews(
+      mockSql,
       [
         makeReview({ reviewerName: 'A', starRating: 5, reviewText: 'Great' }),
         makeReview({ reviewerName: 'B', starRating: 4, reviewText: 'Good', reviewDate: '2026-01-02T00:00:00Z' }),

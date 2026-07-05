@@ -3,6 +3,7 @@
 // Optional live eval path. Imported dynamically by run.ts only when --live is
 // passed, so the offline path never loads the generator's heavy deps and never
 // needs provider keys.
+import { sql } from '../../src/lib/db/server';
 import { generateResponse } from '../../src/lib/responses/generator';
 import type { NormalizedReview } from '../../src/lib/reviews/types';
 import type { EvalRow } from './types';
@@ -30,6 +31,7 @@ export function createLiveGenerator(): (row: EvalRow) => Promise<string> {
       detectedLanguage: row.input.detectedLanguage,
     };
     const result = await generateResponse(
+      sql,
       review,
       { name: row.input.businessName, category: row.input.businessCategory },
       [],

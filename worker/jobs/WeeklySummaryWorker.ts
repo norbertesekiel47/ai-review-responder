@@ -184,6 +184,7 @@ export async function handleWeeklySummary(
 
   if (!intelligenceBrief && reviewsForSummary.length > 0) {
     const summaryResult = await generateReviewSummary(
+      sql,
       mapSummaryReviews(reviewsForSummary),
       businessId,
       business.subscription_tier,

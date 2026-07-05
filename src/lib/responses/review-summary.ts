@@ -1,3 +1,4 @@
+import type { Sql } from 'postgres';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { recordApiCost, calculateCostUsd } from '@/lib/costs/audit';
 import { withCostGuard } from '@/lib/costs/cost-guard';
@@ -44,12 +45,13 @@ const MOCK_SUMMARY =
   'Overall customer sentiment is positive with recurring praise for service quality and responsiveness. A few reviews mention wait times as an area for improvement. Recommendation: consider streamlining peak-hour workflows to reduce wait times.';
 
 async function tryRecordApiCost(
+  sql: Sql,
   businessId: string,
   llm: { provider: 'openai' | 'anthropic'; usage: { promptTokens: number; completionTokens: number } },
   costUsd: number,
 ): Promise<void> {
   try {
-    await recordApiCost({
+    await recordApiCost(sql, {
       businessId,
       provider: llm.provider,
       endpoint: 'review-summary',
@@ -64,6 +66,7 @@ async function tryRecordApiCost(
 }
 
 export async function generateReviewSummary(
+  sql: Sql,
   reviews: ReviewForSummary[],
   businessId: string,
   subscriptionTier: string = 'standard',
@@ -101,7 +104,7 @@ export async function generateReviewSummary(
     return null;
   }
 
-  await tryRecordApiCost(businessId, result.llm, result.costUsd);
+  await tryRecordApiCost(sql, businessId, result.llm, result.costUsd);
 
   return {
     summaryText: result.llm.text,

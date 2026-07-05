@@ -13,7 +13,7 @@
 // here — not in the caller — to preserve the original worker's log-field
 // ordering across all outcome paths.
 
-import { sql } from '../../../src/lib/db/server';
+import type { Sql } from 'postgres';
 import {
   activeOffboardingStateFromProjection,
   isProcessingBlocked,
@@ -85,7 +85,7 @@ export type LoadOutcome =
       processingBlocked: boolean;
     };
 
-export async function loadGenerationContext(input: {
+export async function loadGenerationContext(sql: Sql, input: {
   reviewId: string;
   businessId: LocationId;
   version: number;

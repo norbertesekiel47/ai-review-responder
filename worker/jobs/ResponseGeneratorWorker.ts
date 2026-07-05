@@ -1,4 +1,5 @@
 import type { Job } from 'bullmq';
+import { sql } from '../../src/lib/db/server';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import { moderateResponse } from '../../src/lib/moderation/moderate';
 import type { GenerateResponsePayload } from '../../src/lib/shared/worker-types';
@@ -28,7 +29,7 @@ export async function handleResponseGeneration(
   }
 
   // ── Load review + business, guard subscription, check idempotency ────
-  const loaded = await loadGenerationContext({ reviewId, businessId, version });
+  const loaded = await loadGenerationContext(sql, { reviewId, businessId, version });
   switch (loaded.kind) {
     case 'review_not_found':
       logger.warn(`Review ${reviewId} not found`);
@@ -56,7 +57,7 @@ export async function handleResponseGeneration(
           business_id: businessId,
         });
       } else {
-        await maybeEnqueueFirstResponseDrafted({
+        await maybeEnqueueFirstResponseDrafted(sql, {
           accountId: loaded.existing.accountId,
           businessId: loaded.existing.businessId,
           responseId: loaded.existing.id,
@@ -73,7 +74,7 @@ export async function handleResponseGeneration(
   // ── Generate draft (cost-guard → generate → avoid-facts guardrail) ───
   // Retryable errors (concurrency / transient LLM) throw out of generateDraft
   // and propagate to BullMQ for retry. Permanent failures return { kind: 'failed' }.
-  const draft = await generateDraft(ctx, { reviewId, version, businessId }, logger);
+  const draft = await generateDraft(sql, ctx, { reviewId, version, businessId }, logger);
   if (draft.kind === 'failed') {
     await markOutboxFailed(outboxId, draft.reason, outboxAttempt);
     return;
@@ -85,7 +86,7 @@ export async function handleResponseGeneration(
   // ── Persist response + outbox + cost link + moderation hold in one tx ─
   // (invariant #4: a high-severity flag holds the draft + skips notification,
   // atomically with response persistence). DB failure throws → BullMQ retry.
-  const responseId = await persistResponseAndNotify({
+  const responseId = await persistResponseAndNotify(sql, {
     result: draft.result,
     retryCostId: draft.retryCostId,
     reviewId,
@@ -100,7 +101,7 @@ export async function handleResponseGeneration(
     logger,
   });
 
-  await maybeEnqueueFirstResponseDrafted({
+  await maybeEnqueueFirstResponseDrafted(sql, {
     accountId: ctx.accountId,
     businessId,
     responseId,

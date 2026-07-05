@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { sql } from '@/lib/db/server';
 import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { getIpKey } from '@/lib/shared/request-ip';
@@ -75,7 +76,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   // 4. Fetch prefill — never throws; worst case returns all-null.
-  const prefill = await fetchBusinessDetails(placeId);
+  const prefill = await fetchBusinessDetails(sql, placeId);
 
   return NextResponse.json(prefill, { status: 200, headers: NO_STORE });
 }

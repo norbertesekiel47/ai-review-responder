@@ -118,7 +118,7 @@ function queuePersistRows(input: {
   }
 }
 
-function baseInput(overrides: Partial<Parameters<typeof persistResponseAndNotify>[0]> = {}) {
+function baseInput(overrides: Partial<Parameters<typeof persistResponseAndNotify>[1]> = {}) {
   return {
     result: RESULT,
     retryCostId: undefined,
@@ -157,7 +157,7 @@ function assertManualNotificationFallback() {
   expect(sendNotificationPayloads()).toHaveLength(1);
 }
 
-type PersistInputOverrides = Partial<Parameters<typeof persistResponseAndNotify>[0]>;
+type PersistInputOverrides = Partial<Parameters<typeof persistResponseAndNotify>[1]>;
 
 interface ManualFallbackScenario {
   input?: PersistInputOverrides;
@@ -212,7 +212,7 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
   it('auto-approves eligible live-ingest-new drafts and enqueues publish without notifying owner', async () => {
     queuePersistRows({ autoApprove: true });
 
-    const responseId = await persistResponseAndNotify(baseInput());
+    const responseId = await persistResponseAndNotify(mockSql, baseInput());
 
     expect(responseId).toBe('deterministic-uuid-v7');
     const texts = txTexts();
@@ -239,7 +239,7 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
     process.env.AUTO_APPROVAL_ENABLED = 'false';
     queuePersistRows();
 
-    await persistResponseAndNotify(baseInput());
+    await persistResponseAndNotify(mockSql, baseInput());
 
     assertManualNotificationFallback();
   });
@@ -249,7 +249,7 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
     const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
     queuePersistRows();
 
-    await persistResponseAndNotify(baseInput({ logger } as never));
+    await persistResponseAndNotify(mockSql, baseInput({ logger } as never));
 
     expect(logger.log).toHaveBeenCalledWith(
       'Auto-approval fallback to owner review',
@@ -278,7 +278,7 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
     const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
     queuePersistRows();
 
-    await persistResponseAndNotify(baseInput({ originLane: 'regenerate', logger } as never));
+    await persistResponseAndNotify(mockSql, baseInput({ originLane: 'regenerate', logger } as never));
 
     expect(logger.log).not.toHaveBeenCalled();
     assertManualNotificationFallback();
@@ -294,7 +294,7 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
       connection: scenario.connection,
     });
 
-    await persistResponseAndNotify(baseInput(scenario.input ?? {}));
+    await persistResponseAndNotify(mockSql, baseInput(scenario.input ?? {}));
 
     assertManualNotificationFallback();
   });
@@ -302,7 +302,7 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
   it('suppressed backfill fallback stays pending without owner notification or publish', async () => {
     queuePersistRows({ notify: false });
 
-    await persistResponseAndNotify(baseInput({ suppressNotification: true }));
+    await persistResponseAndNotify(mockSql, baseInput({ suppressNotification: true }));
 
     expect(txArgs()).not.toContain(QUEUE_NAMES.SEND_NOTIFICATION);
     expect(txArgs()).not.toContain(QUEUE_NAMES.PUBLISH_RESPONSE);
@@ -313,7 +313,7 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
   it('held high-severity moderation fallback writes a hold and skips owner notification', async () => {
     queuePersistRows({ flaggedHigh: true, notify: false });
 
-    await persistResponseAndNotify(baseInput({
+    await persistResponseAndNotify(mockSql, baseInput({
       moderation: {
         ...CLEAN_MODERATION,
         flagged: true,

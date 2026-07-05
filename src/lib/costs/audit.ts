@@ -1,5 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 
 // ── Model pricing ────────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ export function calculateCostUsd(
  * rollups depend on it); platform-level calls leave it null. Prompt metadata
  * and latency are recorded for production LLM generations.
  */
-export async function recordApiCost(params: {
+export async function recordApiCost(sql: Sql, params: {
   businessId: string | null;
   accountId?: string | null;
   provider: string;
