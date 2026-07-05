@@ -59,20 +59,42 @@ type StatusFlipKind =
   | 'whatsapp_invalid_recipient';
 
 /**
+ * Static shape of each status-flip kind: which channel row it targets and which
+ * SET-clause it writes. `unsubscribe` records the owner's opt-out (with a reason
+ * literal equal to the kind); `disable` records a dead recipient. Adding a
+ * channel or kind is a single descriptor entry — the UPDATE below is one
+ * template, not one block per kind.
+ */
+interface FlipDescriptor {
+  channel: 'telegram' | 'whatsapp';
+  transition: 'unsubscribe' | 'disable';
+}
+
+const FLIP_DESCRIPTORS: Record<StatusFlipKind, FlipDescriptor> = {
+  telegram_blocked: { channel: 'telegram', transition: 'unsubscribe' },
+  telegram_chat_not_found: { channel: 'telegram', transition: 'disable' },
+  whatsapp_blocked: { channel: 'whatsapp', transition: 'unsubscribe' },
+  whatsapp_invalid_recipient: { channel: 'whatsapp', transition: 'disable' },
+};
+
+/**
  * Flip a single channel_enrollments row to unsubscribed/disabled after a
- * permanent send failure.
+ * permanent send failure. One parameterized UPDATE covers all four kinds ×
+ * both location scopes (was eight near-identical inline blocks).
  *
  * Scoping contract (see CLAUDE.md "Owner channel enrollment org-default is
- * account-scoped"): the row is keyed by
- * `account_id` + the enrollment's location, NOT by `business_id`. On a
- * multi-location account the org-default row (`location_id IS NULL`) carries a
- * legacy `business_id` from its original INSERT, so a `business_id`-keyed UPDATE
- * could miss it. `handle` is kept in the predicate so a stale failure cannot
- * stomp a freshly re-enrolled handle.
+ * account-scoped"): the row is keyed by `account_id` + the enrollment's
+ * location, NOT by `business_id`. On a multi-location account the org-default
+ * row (`location_id IS NULL`) carries a legacy `business_id` from its original
+ * INSERT, so a `business_id`-keyed UPDATE could miss it. `handle` is kept in the
+ * predicate so a stale failure cannot stomp a freshly re-enrolled handle.
  *
- * Channel names and the unsubscribed_reason are written as SQL literals (not
- * bound params) to keep the unit-test SQL-text assertions stable. Each branch
- * is idempotent: COALESCE preserves the first-set timestamps/reason on re-run.
+ * The channel name and the unsubscribed_reason are composed as raw `sql``
+ * fragments (NOT bound params) so they stay SQL literals in the produced text
+ * (`channel = 'telegram'`, `unsubscribed_reason = COALESCE(..., 'telegram_blocked')`);
+ * the dispatcher's SQL-text unit assertions rely on that. Only `account_id`,
+ * `handle`, and (per-location) `location_id` are bound. Idempotent: COALESCE
+ * preserves the first-set timestamps/reason on re-run.
  */
 async function flipEnrollmentStatus(
   sql: Sql,
@@ -80,122 +102,52 @@ async function flipEnrollmentStatus(
   accountId: string,
   enrollment: ResolvedChannel,
 ): Promise<void> {
-  const locationId = enrollment.location_id;
+  const { channel, transition } = FLIP_DESCRIPTORS[kind];
+  const { handle, location_id: locationId } = enrollment;
+
   await sql.begin(async (tx) => {
-    switch (kind) {
-      case 'telegram_blocked':
-        if (locationId === null) {
-          await tx`
-            UPDATE channel_enrollments
-            SET status = 'unsubscribed',
+    // Channel literal — a raw fragment picked from the closed kind set so the
+    // text reads `channel = 'telegram'`, not a bound `?`.
+    const channelPredicate =
+      channel === 'telegram' ? tx`channel = 'telegram'` : tx`channel = 'whatsapp'`;
+
+    // unsubscribed_reason is written as a SQL LITERAL (raw fragment, not a bound
+    // param) so `.text` reads `COALESCE(..., 'telegram_blocked')`. The map is
+    // exhaustive over StatusFlipKind — adding a kind forces declaring its reason
+    // here, matching FLIP_DESCRIPTORS. `disable` transitions carry no reason
+    // (null, only read in the `unsubscribe` branch below, never for those kinds).
+    const reasonLiteralByKind: Record<StatusFlipKind, ReturnType<typeof tx> | null> = {
+      telegram_blocked: tx`'telegram_blocked'`,
+      whatsapp_blocked: tx`'whatsapp_blocked'`,
+      telegram_chat_not_found: null,
+      whatsapp_invalid_recipient: null,
+    };
+
+    // SET clause: the opt-out shape (with the reason literal) or the disabled shape.
+    const transitionSet =
+      transition === 'unsubscribe'
+        ? tx`SET status = 'unsubscribed',
                 unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
-                unsubscribed_reason = COALESCE(unsubscribed_reason, 'telegram_blocked'),
-                updated_at = NOW()
-            WHERE account_id = ${accountId}
-              AND channel = 'telegram'
-              AND handle = ${enrollment.handle}
-              AND location_id IS NULL
-              AND archived_at IS NULL
-          `;
-        } else {
-          await tx`
-            UPDATE channel_enrollments
-            SET status = 'unsubscribed',
-                unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
-                unsubscribed_reason = COALESCE(unsubscribed_reason, 'telegram_blocked'),
-                updated_at = NOW()
-            WHERE account_id = ${accountId}
-              AND channel = 'telegram'
-              AND handle = ${enrollment.handle}
-              AND location_id = ${locationId}::uuid
-              AND archived_at IS NULL
-          `;
-        }
-        return;
-      case 'telegram_chat_not_found':
-        if (locationId === null) {
-          await tx`
-            UPDATE channel_enrollments
-            SET status = 'disabled',
+                unsubscribed_reason = COALESCE(unsubscribed_reason, ${reasonLiteralByKind[kind]}),
+                updated_at = NOW()`
+        : tx`SET status = 'disabled',
                 disabled_at = COALESCE(disabled_at, NOW()),
-                updated_at = NOW()
-            WHERE account_id = ${accountId}
-              AND channel = 'telegram'
-              AND handle = ${enrollment.handle}
-              AND location_id IS NULL
-              AND archived_at IS NULL
-          `;
-        } else {
-          await tx`
+                updated_at = NOW()`;
+
+    // Org-default rows scope on `location_id IS NULL`; per-location overrides
+    // bind the id (cast to uuid).
+    const locationPredicate =
+      locationId === null ? tx`location_id IS NULL` : tx`location_id = ${locationId}::uuid`;
+
+    await tx`
             UPDATE channel_enrollments
-            SET status = 'disabled',
-                disabled_at = COALESCE(disabled_at, NOW()),
-                updated_at = NOW()
+            ${transitionSet}
             WHERE account_id = ${accountId}
-              AND channel = 'telegram'
-              AND handle = ${enrollment.handle}
-              AND location_id = ${locationId}::uuid
+              AND ${channelPredicate}
+              AND handle = ${handle}
+              AND ${locationPredicate}
               AND archived_at IS NULL
           `;
-        }
-        return;
-      case 'whatsapp_blocked':
-        if (locationId === null) {
-          await tx`
-            UPDATE channel_enrollments
-            SET status = 'unsubscribed',
-                unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
-                unsubscribed_reason = COALESCE(unsubscribed_reason, 'whatsapp_blocked'),
-                updated_at = NOW()
-            WHERE account_id = ${accountId}
-              AND channel = 'whatsapp'
-              AND handle = ${enrollment.handle}
-              AND location_id IS NULL
-              AND archived_at IS NULL
-          `;
-        } else {
-          await tx`
-            UPDATE channel_enrollments
-            SET status = 'unsubscribed',
-                unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
-                unsubscribed_reason = COALESCE(unsubscribed_reason, 'whatsapp_blocked'),
-                updated_at = NOW()
-            WHERE account_id = ${accountId}
-              AND channel = 'whatsapp'
-              AND handle = ${enrollment.handle}
-              AND location_id = ${locationId}::uuid
-              AND archived_at IS NULL
-          `;
-        }
-        return;
-      case 'whatsapp_invalid_recipient':
-        if (locationId === null) {
-          await tx`
-            UPDATE channel_enrollments
-            SET status = 'disabled',
-                disabled_at = COALESCE(disabled_at, NOW()),
-                updated_at = NOW()
-            WHERE account_id = ${accountId}
-              AND channel = 'whatsapp'
-              AND handle = ${enrollment.handle}
-              AND location_id IS NULL
-              AND archived_at IS NULL
-          `;
-        } else {
-          await tx`
-            UPDATE channel_enrollments
-            SET status = 'disabled',
-                disabled_at = COALESCE(disabled_at, NOW()),
-                updated_at = NOW()
-            WHERE account_id = ${accountId}
-              AND channel = 'whatsapp'
-              AND handle = ${enrollment.handle}
-              AND location_id = ${locationId}::uuid
-              AND archived_at IS NULL
-          `;
-        }
-        return;
-    }
   });
 }
 
