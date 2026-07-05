@@ -6,7 +6,7 @@
 // pure parse → call → status-map shells.
 
 import type postgres from 'postgres';
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
@@ -31,6 +31,7 @@ export interface DisconnectChannelInput extends DisableEnrollmentInput {
  * means nothing changed (no verified org-default and no live overrides).
  */
 export async function disconnectChannel(
+  sql: Sql,
   input: DisconnectChannelInput,
 ): Promise<{ kind: 'ok' | 'not_found' }> {
   const { channel, accountId, actorUserId, surface } = input;

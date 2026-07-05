@@ -10,8 +10,7 @@
 // VAL-SETTINGS-033: Per-location override uniqueness is enforced.
 
 import { v7 as uuidv7 } from 'uuid';
-import type postgres from 'postgres';
-import { sql } from '@/lib/db/server';
+import type { Sql, TransactionSql } from 'postgres';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
@@ -45,7 +44,7 @@ export type CreateOverrideResult =
 
 export type RemoveOverrideResult = { kind: 'ok' } | { kind: 'not_found' };
 
-type TxClient = postgres.TransactionSql;
+type TxClient = TransactionSql;
 
 interface OrgDefaultEnrollment {
   id: string;
@@ -242,7 +241,10 @@ async function reviveOrInsertOverride(
  * client sends. A concurrent duplicate INSERT surfaces as `conflict` via the
  * partial-unique index (23505), same as the in-tx pre-check.
  */
-export async function createOrReviveOverride(input: OverrideInput): Promise<CreateOverrideResult> {
+export async function createOrReviveOverride(
+  sql: Sql,
+  input: OverrideInput,
+): Promise<CreateOverrideResult> {
   const { accountId, locationId, channel } = input;
 
   let result: CreateOverrideResult;
@@ -277,7 +279,10 @@ export async function createOrReviveOverride(input: OverrideInput): Promise<Crea
  * (location_id IS NOT NULL via the locationId match) are archived — never
  * org-defaults. No audit row is written for a no-op (`not_found`).
  */
-export async function removeOverride(input: OverrideInput): Promise<RemoveOverrideResult> {
+export async function removeOverride(
+  sql: Sql,
+  input: OverrideInput,
+): Promise<RemoveOverrideResult> {
   const { accountId, actorUserId, locationId, channel } = input;
 
   const result = await sql.begin(async (tx): Promise<RemoveOverrideResult> => {

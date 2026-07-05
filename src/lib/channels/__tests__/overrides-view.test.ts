@@ -1,12 +1,13 @@
+// getChannelOverridesView takes `sql` as an explicit leading param (A+
+// campaign 2e-2b); the fragment-aware createMockSql harness stands in for it
+// directly (worker/__tests__/helpers/mock-sql.ts) — no more @/lib/db/server mock.
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Sql } from 'postgres';
+import { createMockSql, type MockSqlHarness } from '../../../../worker/__tests__/helpers/mock-sql';
 
-const { mockSql, mockGetAllLocationsForAccount } = vi.hoisted(() => ({
-  mockSql: vi.fn(),
+const { mockGetAllLocationsForAccount } = vi.hoisted(() => ({
   mockGetAllLocationsForAccount: vi.fn(),
-}));
-
-vi.mock('@/lib/db/server', () => ({
-  sql: (...args: unknown[]) => mockSql(...args),
 }));
 
 vi.mock('@/lib/locations/repo', () => ({
@@ -48,14 +49,18 @@ function enrollmentRow(overrides: Record<string, unknown>) {
 }
 
 describe('getChannelOverridesView', () => {
+  let harness: MockSqlHarness;
+  let mockSql: Sql;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSql.mockResolvedValue([]);
+    harness = createMockSql();
+    mockSql = harness.mockSql as unknown as Sql;
     mockGetAllLocationsForAccount.mockResolvedValue([]);
   });
 
   it('maps override rows to DTOs: display label, archived flag, ISO timestamps', async () => {
-    mockSql.mockResolvedValueOnce([
+    harness.sqlReturnQueue.push([
       enrollmentRow({ id: 'enrollment-active', location_id: ACTIVE_LOCATION_ID }),
       enrollmentRow({
         id: 'enrollment-archived',
@@ -74,10 +79,10 @@ describe('getChannelOverridesView', () => {
       }),
     ]);
 
-    const view = await getChannelOverridesView(ACCOUNT_ID);
+    const view = await getChannelOverridesView(mockSql, ACCOUNT_ID);
 
     expect(mockGetAllLocationsForAccount).toHaveBeenCalledExactlyOnceWith(ACCOUNT_ID);
-    expect(mockSql).toHaveBeenCalledTimes(1);
+    expect(harness.mockSql).toHaveBeenCalledTimes(1);
     expect(view.overrides).toEqual([
       {
         enrollmentId: 'enrollment-active',
@@ -113,7 +118,7 @@ describe('getChannelOverridesView', () => {
       }),
     ]);
 
-    const view = await getChannelOverridesView(ACCOUNT_ID);
+    const view = await getChannelOverridesView(mockSql, ACCOUNT_ID);
 
     expect(view.locations).toEqual([
       { id: ACTIVE_LOCATION_ID, displayName: 'No Label Cafe', isPrimary: true, archived: false },
@@ -122,11 +127,11 @@ describe('getChannelOverridesView', () => {
   });
 
   it('falls back to the raw UUID and archived=false for a truly-unknown location id', async () => {
-    mockSql.mockResolvedValueOnce([
+    harness.sqlReturnQueue.push([
       enrollmentRow({ id: 'enrollment-orphan', location_id: UNKNOWN_LOCATION_ID }),
     ]);
 
-    const view = await getChannelOverridesView(ACCOUNT_ID);
+    const view = await getChannelOverridesView(mockSql, ACCOUNT_ID);
 
     expect(view.overrides).toHaveLength(1);
     expect(view.overrides[0]).toMatchObject({
@@ -137,7 +142,7 @@ describe('getChannelOverridesView', () => {
   });
 
   it('partitions org-default rows out of overrides and reports only VERIFIED ones as verifiedOrgChannels, in CHANNEL_IDS order', async () => {
-    mockSql.mockResolvedValueOnce([
+    harness.sqlReturnQueue.push([
       enrollmentRow({ id: 'org-telegram', channel: 'telegram', location_id: null, status: 'verified' }),
       enrollmentRow({ id: 'org-email', channel: 'email', location_id: null, status: 'verified' }),
       enrollmentRow({ id: 'org-whatsapp', channel: 'whatsapp', location_id: null, status: 'pending' }),
@@ -147,7 +152,7 @@ describe('getChannelOverridesView', () => {
       locationRow({ id: ACTIVE_LOCATION_ID, display_label: 'Downtown' }),
     ]);
 
-    const view = await getChannelOverridesView(ACCOUNT_ID);
+    const view = await getChannelOverridesView(mockSql, ACCOUNT_ID);
 
     // Org-level rows never appear as overrides.
     expect(view.overrides.map((o) => o.enrollmentId)).toEqual(['enrollment-1']);
@@ -156,14 +161,14 @@ describe('getChannelOverridesView', () => {
   });
 
   it('handles a null verified_at on an override row', async () => {
-    mockSql.mockResolvedValueOnce([
+    harness.sqlReturnQueue.push([
       enrollmentRow({ status: 'pending', verified_at: null }),
     ]);
     mockGetAllLocationsForAccount.mockResolvedValueOnce([
       locationRow({ id: ACTIVE_LOCATION_ID, display_label: 'Downtown' }),
     ]);
 
-    const view = await getChannelOverridesView(ACCOUNT_ID);
+    const view = await getChannelOverridesView(mockSql, ACCOUNT_ID);
 
     expect(view.overrides[0]).toMatchObject({ status: 'pending', verified_at: null });
   });

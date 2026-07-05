@@ -79,7 +79,7 @@ describe('GET /api/settings/channels/overrides', () => {
     const res = await GET(makeRequest());
 
     expect(res.status).toBe(200);
-    expect(mockGetChannelOverridesView).toHaveBeenCalledExactlyOnceWith(ACCOUNT_ID);
+    expect(mockGetChannelOverridesView).toHaveBeenCalledExactlyOnceWith(expect.any(Function), ACCOUNT_ID);
     await expect(res.json()).resolves.toEqual(FULL_VIEW);
   });
 

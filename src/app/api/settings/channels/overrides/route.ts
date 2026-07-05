@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { jsonResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
+import { sql } from '@/lib/db/server';
 import { getChannelOverridesView } from '@/lib/channels/overrides-view';
 
 export const dynamic = 'force-dynamic';
@@ -19,6 +20,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const owner = await requireOwnerWithAccount(request);
   if (!owner.ok) return owner.response;
 
-  const view = await getChannelOverridesView(owner.accountId);
+  const view = await getChannelOverridesView(sql, owner.accountId);
   return jsonResponse(view);
 }

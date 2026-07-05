@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { resolveWritableAccountForLocation } from '@/lib/shared/writable-subscription';
 import { requireRoleOr401, withSameOrigin, errorResponse } from '@/lib/auth/route-helpers';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
+import { sql } from '@/lib/db/server';
 import { disconnectChannel } from '@/lib/channels/disable-enrollment';
 
 async function handler(req: NextRequest): Promise<NextResponse> {
@@ -21,7 +22,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   if (gate.kind === 'blocked') return errorResponse(gate.error, gate.status);
   if (gate.kind === 'no_account') return errorResponse('subscription_not_active', 403);
 
-  const result = await disconnectChannel({
+  const result = await disconnectChannel(sql, {
     channel: 'telegram',
     accountId: gate.accountId,
     actorUserId: user.id,

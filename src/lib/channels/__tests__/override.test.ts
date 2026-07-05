@@ -6,6 +6,7 @@
 // commit-then-invalidate ordering.
 
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import type { Sql } from 'postgres';
 import type { WriteAccountAuditLogInput } from '@/lib/audit/log';
 
 const { sqlQueue, sqlCalls, callOrder, mockSql } = vi.hoisted(() => {
@@ -48,6 +49,12 @@ vi.mock('@/lib/notifications/resolve-channels', () => ({
 }));
 
 import { createOrReviveOverride, removeOverride } from '../override';
+
+// The module now takes `sql` as an explicit leading param; this test's
+// hand-rolled tagged-template + FIFO-queue mock (dispatches on SQL text —
+// createMockSql's generic FIFO cannot reproduce these content assertions)
+// is reused as that argument instead of being replaced.
+const typedSql = mockSql as unknown as Sql;
 
 const ACCOUNT_ID = 'a0000000-0000-4000-8000-000000000001';
 const LOCATION_ID = 'b1111111-0000-4000-8000-000000000001';
@@ -104,7 +111,7 @@ describe('createOrReviveOverride — eligibility (server-side tightening)', () =
     process.env.MULTI_LOCATION_ENABLED = 'false';
     sqlQueue.push([{ count: 5 }]); // count alone cannot make it eligible
 
-    const result = await createOrReviveOverride(INPUT);
+    const result = await createOrReviveOverride(typedSql, INPUT);
     expect(result).toEqual({ kind: 'not_eligible' });
     expect(sqlCalls).toHaveLength(1); // only the count query ran
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
@@ -114,7 +121,7 @@ describe('createOrReviveOverride — eligibility (server-side tightening)', () =
   it('returns not_eligible for a single-location account even with the flag on', async () => {
     sqlQueue.push([{ count: 1 }]);
 
-    const result = await createOrReviveOverride(INPUT);
+    const result = await createOrReviveOverride(typedSql, INPUT);
     expect(result).toEqual({ kind: 'not_eligible' });
     expect(sqlCalls).toHaveLength(1);
   });
@@ -122,7 +129,7 @@ describe('createOrReviveOverride — eligibility (server-side tightening)', () =
   it('counts only active (non-archived) locations scoped by account_id, inside the tx', async () => {
     queuePreChecks();
     sqlQueue.push([{ id: OVERRIDE_ID }]); // INSERT
-    await createOrReviveOverride(INPUT);
+    await createOrReviveOverride(typedSql, INPUT);
 
     const countQuery = sqlCalls[0]!;
     expect(countQuery.text).toContain('COUNT(*)');
@@ -137,7 +144,7 @@ describe('createOrReviveOverride — pre-checks (all inside the tx)', () => {
   it('returns location_not_found when the location is not owned/active', async () => {
     queuePreChecks({ locationFound: false });
     // queue holds extra entries; the module must stop at the location check
-    const result = await createOrReviveOverride(INPUT);
+    const result = await createOrReviveOverride(typedSql, INPUT);
     expect(result).toEqual({ kind: 'location_not_found' });
     expect(sqlCalls).toHaveLength(2);
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
@@ -146,7 +153,7 @@ describe('createOrReviveOverride — pre-checks (all inside the tx)', () => {
 
   it('returns no_org_default when no VERIFIED org-default exists (lookup filters status)', async () => {
     queuePreChecks({ orgDefault: null });
-    const result = await createOrReviveOverride(INPUT);
+    const result = await createOrReviveOverride(typedSql, INPUT);
     expect(result).toEqual({ kind: 'no_org_default' });
 
     // The org-default lookup must require a verified row so non-verified
@@ -160,7 +167,7 @@ describe('createOrReviveOverride — pre-checks (all inside the tx)', () => {
 
   it('returns conflict when an ACTIVE (non-disabled) override already exists', async () => {
     queuePreChecks({ existing: { id: OVERRIDE_ID, status: 'verified' } });
-    const result = await createOrReviveOverride(INPUT);
+    const result = await createOrReviveOverride(typedSql, INPUT);
     expect(result).toEqual({ kind: 'conflict' });
     expect(sqlCalls).toHaveLength(4); // no INSERT/UPDATE attempted
     expect(mockSafeInvalidateChannelCache).not.toHaveBeenCalled();
@@ -172,7 +179,7 @@ describe('createOrReviveOverride — created', () => {
     queuePreChecks();
     sqlQueue.push([{ id: OVERRIDE_ID }]); // INSERT RETURNING
 
-    const result = await createOrReviveOverride(INPUT);
+    const result = await createOrReviveOverride(typedSql, INPUT);
     expect(result).toEqual({
       kind: 'created',
       override: {
@@ -219,7 +226,7 @@ describe('createOrReviveOverride — created', () => {
   it('throws when the INSERT returns no rows (impossible state surfaced, not swallowed)', async () => {
     queuePreChecks();
     sqlQueue.push([]); // INSERT returns nothing
-    await expect(createOrReviveOverride(INPUT)).rejects.toThrow(
+    await expect(createOrReviveOverride(typedSql, INPUT)).rejects.toThrow(
       'Override INSERT/revive returned no rows',
     );
     expect(mockSafeInvalidateChannelCache).not.toHaveBeenCalled();
@@ -231,7 +238,7 @@ describe('createOrReviveOverride — revived', () => {
     queuePreChecks({ existing: { id: OVERRIDE_ID, status: 'disabled' } });
     sqlQueue.push([{ id: OVERRIDE_ID }]); // revive UPDATE RETURNING
 
-    const result = await createOrReviveOverride(INPUT);
+    const result = await createOrReviveOverride(typedSql, INPUT);
     expect(result).toEqual({
       kind: 'revived',
       override: {
@@ -268,7 +275,7 @@ describe('createOrReviveOverride — failure modes', () => {
     queuePreChecks();
     sqlQueue.push({ __throw: { code: '23505', constraint: 'uniq' } });
 
-    const result = await createOrReviveOverride(INPUT);
+    const result = await createOrReviveOverride(typedSql, INPUT);
     expect(result).toEqual({ kind: 'conflict' });
     expect(mockSafeInvalidateChannelCache).not.toHaveBeenCalled();
   });
@@ -276,7 +283,7 @@ describe('createOrReviveOverride — failure modes', () => {
   it('propagates non-23505 errors unchanged', async () => {
     queuePreChecks();
     sqlQueue.push({ __throw: new Error('connection reset') });
-    await expect(createOrReviveOverride(INPUT)).rejects.toThrow('connection reset');
+    await expect(createOrReviveOverride(typedSql, INPUT)).rejects.toThrow('connection reset');
     expect(mockSafeInvalidateChannelCache).not.toHaveBeenCalled();
   });
 
@@ -285,7 +292,7 @@ describe('createOrReviveOverride — failure modes', () => {
     sqlQueue.push([{ id: OVERRIDE_ID }]);
     mockWriteAccountAuditLog.mockRejectedValueOnce(new Error('audit DB error'));
 
-    await expect(createOrReviveOverride(INPUT)).rejects.toThrow('audit DB error');
+    await expect(createOrReviveOverride(typedSql, INPUT)).rejects.toThrow('audit DB error');
     expect(mockSafeInvalidateChannelCache).not.toHaveBeenCalled();
   });
 });
@@ -294,7 +301,7 @@ describe('removeOverride', () => {
   it('archives the override, audits in-tx, invalidates cache after commit', async () => {
     sqlQueue.push([{ id: OVERRIDE_ID }]); // UPDATE … SET archived_at RETURNING
 
-    const result = await removeOverride(INPUT);
+    const result = await removeOverride(typedSql, INPUT);
     expect(result).toEqual({ kind: 'ok' });
 
     const archive = sqlCalls[0]!;
@@ -329,7 +336,7 @@ describe('removeOverride', () => {
   it('returns not_found (no sentinel throw) when nothing matched; no audit, no invalidation', async () => {
     sqlQueue.push([]); // UPDATE matches nothing
 
-    const result = await removeOverride(INPUT);
+    const result = await removeOverride(typedSql, INPUT);
     expect(result).toEqual({ kind: 'not_found' });
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
     expect(mockSafeInvalidateChannelCache).not.toHaveBeenCalled();
@@ -339,7 +346,7 @@ describe('removeOverride', () => {
     sqlQueue.push([{ id: OVERRIDE_ID }]);
     mockWriteAccountAuditLog.mockRejectedValueOnce(new Error('audit DB error'));
 
-    await expect(removeOverride(INPUT)).rejects.toThrow('audit DB error');
+    await expect(removeOverride(typedSql, INPUT)).rejects.toThrow('audit DB error');
     expect(mockSafeInvalidateChannelCache).not.toHaveBeenCalled();
   });
 });

@@ -9,7 +9,7 @@
 //
 // VAL-SETTINGS-015: Per-location override displays location name label.
 
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import { CHANNEL_IDS, type ChannelId } from '@/lib/notifications/channels/types';
 import { getAllLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel } from '@/lib/locations/display-label';
@@ -48,7 +48,10 @@ export interface ChannelOverridesView {
  * active and archived together), and the set of verified org-default channels
  * that are eligible to spawn new overrides.
  */
-export async function getChannelOverridesView(accountId: string): Promise<ChannelOverridesView> {
+export async function getChannelOverridesView(
+  sql: Sql,
+  accountId: string,
+): Promise<ChannelOverridesView> {
   const [enrollments, locationRows] = await Promise.all([
     sql<{
       id: string;
