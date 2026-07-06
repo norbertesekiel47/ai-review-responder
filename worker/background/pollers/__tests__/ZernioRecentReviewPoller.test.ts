@@ -56,6 +56,7 @@ vi.mock('../../../../src/lib/zernio/auth-error-fallback', () => ({
 
 import { ZernioAuthError } from '../../../../src/lib/zernio/errors';
 import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
+import { REVIEW_STATUS } from '../../../../src/lib/reviews/status';
 import { runOnce, poll, resetConnectionCursorForTests } from '../ZernioRecentReviewPoller';
 
 function makeReview(overrides: Partial<Record<string, unknown>> = {}) {
@@ -123,8 +124,8 @@ describe('ZernioRecentReviewPoller', () => {
     expect(result.reviewsSeen).toBe(2);
     expect(result.reviewsProcessed).toBe(1);
     expect(mockProcessReview).toHaveBeenCalledTimes(1);
-    expect(mockProcessReview.mock.calls[0]?.[1]).toBe('business-1');
-    expect(mockProcessReview.mock.calls[0]?.[2]).toContain('zernio-poll:');
+    expect(mockProcessReview.mock.calls[0]?.[2]).toBe('business-1');
+    expect(mockProcessReview.mock.calls[0]?.[3]).toContain('zernio-poll:');
   });
 
   it('reconciles recent reviews that already have external replies', async () => {
@@ -225,7 +226,8 @@ describe('ZernioRecentReviewPoller', () => {
     expect(result.reviewsDeleted).toBe(1);
     expect(sqlCalls.some((call) =>
       call.template.includes('UPDATE reviews') &&
-      call.template.includes("status = 'deleted'"),
+      call.template.includes('SET status =') &&
+      call.values.includes(REVIEW_STATUS.DELETED),
     )).toBe(true);
     expect(sqlCalls.some((call) =>
       call.template.includes('UPDATE responses') &&
@@ -259,7 +261,8 @@ describe('ZernioRecentReviewPoller', () => {
     expect(result.reviewsDeleted).toBe(1);
     expect(sqlCalls.some((call) =>
       call.template.includes('UPDATE reviews') &&
-      call.template.includes("status = 'deleted'"),
+      call.template.includes('SET status =') &&
+      call.values.includes(REVIEW_STATUS.DELETED),
     )).toBe(true);
   });
 

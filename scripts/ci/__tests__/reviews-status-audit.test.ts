@@ -101,31 +101,28 @@ describe('reviews-status-audit', () => {
     expect(fileHasRawReviewStatusPredicate(src)).toBe(true);
   });
 
-  // ── evaluateFindings (baseline ratchet) — mirrors process-env-audit.test.ts ──
+  // ── evaluateFindings (strict — no baseline) ──
 
   describe('evaluateFindings', () => {
-    it('flags a NEW non-baseline file with a raw reviews.status literal', () => {
+    it('flags ANY file with a raw reviews.status literal', () => {
       const findings = evaluateFindings({
         matchingFiles: new Set(['src/lib/new-thing.ts']),
-        baseline: new Set<string>(),
       });
       expect(findings.some((f) => f.includes('new-thing.ts'))).toBe(true);
     });
 
-    it('flags a STALE baseline entry that no longer has a raw reviews.status literal', () => {
+    it('flags every offending file', () => {
       const findings = evaluateFindings({
-        matchingFiles: new Set<string>(),
-        baseline: new Set(['src/lib/old-thing.ts']),
+        matchingFiles: new Set(['src/lib/a.ts', 'worker/b.ts']),
       });
-      expect(findings.some((f) => f.includes('old-thing.ts') && f.toLowerCase().includes('stale'))).toBe(
-        true,
-      );
+      expect(findings).toHaveLength(2);
+      expect(findings.some((f) => f.includes('a.ts'))).toBe(true);
+      expect(findings.some((f) => f.includes('b.ts'))).toBe(true);
     });
 
-    it('passes when a baseline file still has a raw reviews.status literal', () => {
+    it('passes (no findings) when no file has a raw reviews.status literal', () => {
       const findings = evaluateFindings({
-        matchingFiles: new Set(['src/lib/kept.ts']),
-        baseline: new Set(['src/lib/kept.ts']),
+        matchingFiles: new Set<string>(),
       });
       expect(findings).toEqual([]);
     });

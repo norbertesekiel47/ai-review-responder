@@ -4,7 +4,7 @@
 // through the full ingest→response→notification chain:
 //
 //   ingest_zernio_review [corr-X]
-//     → ZernioReviewIngestWorker / processReview(monitored, bizId, corr-X)
+//     → ZernioReviewIngestWorker / processReview(sql, monitored, bizId, corr-X)
 //     → generate_response [corr-X]                   ← asserted in Part A
 //       → ResponseGeneratorWorker / persistResponseAndNotify
 //       → send_notification [corr-X]                 ← asserted in Part B
@@ -36,7 +36,7 @@ const {
   mockSqlA.begin = vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(mockSqlA));
 
   const mockMarkOutboxCompletedA = vi.fn();
-  const mockProcessReview = vi.fn<(monitored: unknown, bizId: string, corrId?: string) => Promise<string>>();
+  const mockProcessReview = vi.fn<(sql: unknown, monitored: unknown, bizId: string, corrId?: string) => Promise<string>>();
   const mockZernioClient = {
     listReviews: vi.fn<() => Promise<{ reviews: unknown[]; nextPageToken?: string }>>(),
   };
@@ -176,7 +176,8 @@ describe('correlation chain — Part A: ZernioReviewIngestWorker propagates to p
 
     // The ingest worker must call processReview with the upstream correlation_id.
     expect(mockProcessReview).toHaveBeenCalledTimes(1);
-    const [, , capturedCorrelationId] = mockProcessReview.mock.calls[0]!;
+    // Signature: processReview(sql, monitored, businessId, correlationId)
+    const [, , , capturedCorrelationId] = mockProcessReview.mock.calls[0]!;
     expect(capturedCorrelationId).toBe(UPSTREAM_CORRELATION);
 
     // Outbox should be marked completed.

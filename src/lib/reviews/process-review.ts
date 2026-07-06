@@ -1,7 +1,8 @@
 import { v7 as uuidv7 } from 'uuid';
 import type postgres from 'postgres';
-import { sql, jsonb } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import type { MonitoredReview } from './types';
+import { REVIEW_STATUS } from '@/lib/reviews/status';
 import type {
   GenerateResponseOriginLane,
   NotifyAdminExceptionPayload,
@@ -31,6 +32,7 @@ type TxClient = postgres.TransactionSql;
 // Postgres.js transaction.
 
 export async function processReview(
+  sql: Sql,
   monitored: MonitoredReview,
   businessId: string,
   correlationId?: string,
@@ -71,7 +73,7 @@ export async function processReview(
           ${reviewId}, ${businessId}, ${identity.provider}, ${identity.providerReviewId},
           ${identity.providerReviewName}, ${identity.providerLocationName}, ${identity.googleReviewName},
           ${review.reviewerName}, ${review.starRating}, ${review.reviewText}, ${review.reviewDate},
-          ${review.detectedLanguage}, ${contentHash}, 'new', NOW(),
+          ${review.detectedLanguage}, ${contentHash}, ${REVIEW_STATUS.NEW}, NOW(),
           ${sentiment.score}, ${sentiment.label}, NOW(), ${sentiment.source}
         )
         ON CONFLICT (provider, provider_review_name) DO NOTHING
@@ -197,10 +199,10 @@ async function processExistingReview(
   const existingHash = existing.review_content_hash;
 
   if (existingHash === contentHash) {
-    if (existing.status === 'deleted') {
+    if (existing.status === REVIEW_STATUS.DELETED) {
       await tx`
         UPDATE reviews
-        SET status = 'new',
+        SET status = ${REVIEW_STATUS.NEW},
             detected_at = NOW()
         WHERE id = ${existing.id}
       `;
@@ -250,8 +252,8 @@ async function processExistingReview(
         sentiment_label = ${sentiment.label},
         sentiment_classified_at = NOW(),
         sentiment_source = ${sentiment.source},
-        status = CASE WHEN status = 'deleted' THEN 'new' ELSE status END,
-        detected_at = CASE WHEN status = 'deleted' THEN NOW() ELSE detected_at END
+        status = CASE WHEN status = ${REVIEW_STATUS.DELETED} THEN ${REVIEW_STATUS.NEW} ELSE status END,
+        detected_at = CASE WHEN status = ${REVIEW_STATUS.DELETED} THEN NOW() ELSE detected_at END
     WHERE id = ${existing.id}
   `;
 
@@ -335,11 +337,11 @@ async function processExistingReview(
       VALUES (
         ${exceptionId}, ${businessId}, ${existing.id}, ${activeResponse.id},
         'review_edited_after_post', 'open',
-        ${jsonb({
+        ${tx.json({
           old_content_hash: existingHash,
           new_content_hash: contentHash,
           response_status: activeResponse.status,
-        })}
+        } as never)}
       )
       ON CONFLICT (review_id, type) WHERE status = 'open'
       DO NOTHING
@@ -356,7 +358,7 @@ async function processExistingReview(
         INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
         VALUES (
           ${uuidv7()}, ${QUEUE_NAMES.NOTIFY_ADMIN}, 'review', ${existing.id},
-          ${jsonb(notifyPayload)}, 'pending'
+          ${tx.json(notifyPayload as never)}, 'pending'
         )
       `;
     }

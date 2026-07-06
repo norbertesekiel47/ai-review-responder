@@ -171,7 +171,7 @@ describe('ZernioBackfillWorker', () => {
     expect(mockProcessReview).toHaveBeenCalledTimes(5);
     // Every processReview call must have suppressNotification: true
     for (const call of mockProcessReview.mock.calls) {
-      expect(call[3]).toMatchObject({ suppressNotification: true });
+      expect(call[4]).toMatchObject({ suppressNotification: true });
     }
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-backfill-1', undefined);
   });
@@ -311,7 +311,7 @@ describe('ZernioBackfillWorker', () => {
     // All 10 should be processed (under cap of 50)
     expect(mockProcessReview).toHaveBeenCalledTimes(10);
     for (const call of mockProcessReview.mock.calls) {
-      expect(call[3]).toMatchObject({ suppressNotification: true });
+      expect(call[4]).toMatchObject({ suppressNotification: true });
     }
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-backfill-1', undefined);
   });
@@ -361,7 +361,7 @@ describe('ZernioBackfillWorker', () => {
     pushCompletedUpdate();
 
     const processedIds: string[] = [];
-    mockProcessReview.mockImplementation(async (monitored: any) => {
+    mockProcessReview.mockImplementation(async (_sql: any, monitored: any) => {
       processedIds.push(monitored.identity.providerReviewId);
     });
 
@@ -401,8 +401,8 @@ describe('ZernioBackfillWorker', () => {
 
     expect(mockProcessReview).toHaveBeenCalledTimes(3);
     for (const call of mockProcessReview.mock.calls) {
-      // call signature: (monitored, business_id, correlation_id?, options?)
-      const options = call[3];
+      // call signature: (sql, monitored, business_id, correlation_id?, options?)
+      const options = call[4];
       expect(options).toEqual(expect.objectContaining({ suppressNotification: true }));
     }
   });
@@ -420,7 +420,7 @@ describe('ZernioBackfillWorker', () => {
     await handleZernioBackfill(sqlArg, makeJob());
 
     expect(mockProcessReview).toHaveBeenCalledTimes(1);
-    expect(mockProcessReview.mock.calls[0]?.[0].identity.providerReviewId).toBe('ordinary-review');
+    expect(mockProcessReview.mock.calls[0]?.[1].identity.providerReviewId).toBe('ordinary-review');
     expect(mockOpenPhiReviewException).toHaveBeenCalledWith(
       mockSql,
       expect.objectContaining({

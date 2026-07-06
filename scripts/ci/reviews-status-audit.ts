@@ -1,18 +1,14 @@
 // scripts/ci/reviews-status-audit.ts
 //
-// Baseline ratchet guard for reviews.status literals — the reviews-table
-// sibling of response-status-audit.ts. src/lib/reviews/status.ts is the
-// single owner of the reviews.status vocabulary (REVIEW_STATUS); this guard
-// stops NEW raw status literals from creeping into reviews-table SQL instead
-// of importing from there. Adoption of the constant across today's baseline
-// entries is a LATER Stage-2 sweep — this guard only prevents growth.
-//
-// Structure mirrors process-env-audit.ts (baseline ratchet: a pure per-file
-// predicate + a Set-of-files baseline + evaluateFindings comparing live vs.
-// baseline), NOT response-status-audit.ts's per-line findings array — a
-// reviews.status write/read is a one-off per file today, so a coarser
-// per-file ratchet is the right grain (matches how process-env-audit tracks
-// "does this file read process.env at all", not every individual read site).
+// Strict guard for reviews.status literals — the reviews-table sibling of
+// response-status-audit.ts. src/lib/reviews/status.ts is the single owner of
+// the reviews.status vocabulary (REVIEW_STATUS); this guard FAILS on ANY
+// reviews-table SQL that compares status to a raw quoted literal instead of
+// importing from there. There is no baseline: every offending file is a
+// failure, and the only escape is the per-line `review-status-ignore` pragma
+// for an intentionally-inline state-transition write guard. (Stage-2 adopted
+// the constant across the last two baselined files in sweep 2f-D and removed
+// the ratchet — the guard is now absolute.)
 //
 // Detection technique is borrowed from response-status-audit.ts: walk the
 // AST for tagged templates whose tag identifier is `sql`, `tx`, or `db` —
@@ -23,12 +19,12 @@
 // SCOPE: src/lib + src/app + worker (broader than response-status-audit's
 // `src/` and explicitly INCLUDES worker/**, unlike response-status-audit
 // which deferred worker to a later stage). reviews.status is written from a
-// worker poller TODAY — ZernioRecentReviewPoller.ts sets
-// `status = 'deleted'` directly — so excluding worker would leave the
-// highest-risk write path (the soft-delete transition) unguarded from day
-// one. src/app is included because API routes can carry inline SQL too
-// (none currently touch reviews.status, but nothing structurally prevents
-// it); src/components is excluded — UI code has no SQL.
+// worker poller TODAY — ZernioRecentReviewPoller.ts soft-deletes a review by
+// writing status = 'deleted' — so excluding worker would leave the
+// highest-risk write path (the soft-delete transition) unguarded. src/app is
+// included because API routes can carry inline SQL too (none currently touch
+// reviews.status, but nothing structurally prevents it); src/components is
+// excluded — UI code has no SQL.
 //
 // A template COUNTS when its raw text mentions `reviews` (a table-mention
 // scoping heuristic — keeps generic words like 'new'/'failed' from
@@ -53,13 +49,12 @@
 // or `// review-status-ignore` (TS, same or preceding line) exempts that
 // match — for state-transition write guards and one-off subsets that must
 // stay inline, mirroring response-status-audit's `status-audit-ignore`.
-import { readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { REVIEW_STATUS } from '../../src/lib/reviews/status';
 import { escapeRegExp, isSqlTaggedTemplate, lineHasPragma } from './lib/sql-tag-scan';
-import { REVIEWS_STATUS_BASELINE } from './reviews-status-baseline';
 
 const SCAN_DIRS = ['src/lib', 'src/app', 'worker'] as const;
 const SCAN_EXT = /\.(?:ts|tsx)$/;
@@ -127,8 +122,7 @@ function templateHasUnignoredPredicate(node: ts.TaggedTemplateExpression, source
 /**
  * True if the file's text contains an un-pragma'd reviews-table SQL/tx
  * tagged template comparing status to a raw REVIEW_STATUS literal. Pure —
- * unit-tested. Mirrors process-env-audit's fileReadsProcessEnv shape (a
- * single boolean predicate over the file's full text).
+ * unit-tested. A single boolean predicate over the file's full text.
  */
 export function fileHasRawReviewStatusPredicate(text: string): boolean {
   const source = ts.createSourceFile('scan.tsx', text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -149,30 +143,22 @@ export function fileHasRawReviewStatusPredicate(text: string): boolean {
 
 export interface EvaluateInput {
   matchingFiles: ReadonlySet<string>;
-  baseline?: ReadonlySet<string>;
 }
 
-/** Compare the live matching-file set against the baseline. Pure — unit-tested. */
+/**
+ * Strict evaluation: every file with a raw reviews.status literal is a
+ * failure. No baseline — the only escape is the per-line pragma (already
+ * applied before a file reaches `matchingFiles`). Pure — unit-tested.
+ */
 export function evaluateFindings(input: EvaluateInput): string[] {
-  const baseline = input.baseline ?? REVIEWS_STATUS_BASELINE;
   const findings: string[] = [];
   for (const file of input.matchingFiles) {
-    if (!baseline.has(file)) {
-      findings.push(
-        `${file} has a raw reviews.status literal but is NOT in REVIEWS_STATUS_BASELINE — ` +
-          `import REVIEW_STATUS from src/lib/reviews/status.ts instead of adding a new raw literal, ` +
-          `or add a trailing '-- review-status-ignore' / '// review-status-ignore' pragma for an ` +
-          `intentionally-inline state-transition write guard`,
-      );
-    }
-  }
-  for (const file of baseline) {
-    if (!input.matchingFiles.has(file)) {
-      findings.push(
-        `${file} is in REVIEWS_STATUS_BASELINE but no longer has a raw reviews.status literal — ` +
-          `remove the stale baseline entry`,
-      );
-    }
+    findings.push(
+      `${file} has a raw reviews.status literal — import REVIEW_STATUS from ` +
+        `src/lib/reviews/status.ts instead of a raw literal, or add a trailing ` +
+        `'-- review-status-ignore' / '// review-status-ignore' pragma for an ` +
+        `intentionally-inline state-transition write guard`,
+    );
   }
   return findings;
 }
@@ -203,52 +189,8 @@ export async function collectMatchingFiles(root: string): Promise<Set<string>> {
   return matching;
 }
 
-/**
- * Renders the committed baseline module's full source from a file set. Pure
- * — used both by --emit-baseline and (indirectly, via the printed command)
- * by whoever regenerates the baseline after a Stage-2 migration batch.
- */
-export function renderBaselineModule(files: readonly string[]): string {
-  const sorted = [...files].sort();
-  const entries = sorted.map((file) => `  '${file}',`).join('\n');
-  return `// scripts/ci/reviews-status-baseline.ts
-//
-// Committed baseline: in-scope files (src/lib/**, src/app/**, worker/**) that
-// have a raw reviews.status literal in a reviews-table sql/tx tagged
-// template TODAY. Generated by the audit's own scan — do NOT hand-edit
-// entries; regenerate with:
-//
-//   pnpm tsx scripts/ci/reviews-status-audit.ts --emit-baseline
-//
-// (writes to a .tmp file then atomically renames over this file). Adding a
-// NEW raw literal requires either importing REVIEW_STATUS from
-// src/lib/reviews/status.ts, adding a '// review-status-ignore' /
-// '-- review-status-ignore' pragma, or landing in a reviewed PR that grows
-// this baseline on purpose. The baseline shrinks over the Stage-2 adoption
-// sweep as reads migrate onto the constant.
-
-export const REVIEWS_STATUS_BASELINE: ReadonlySet<string> = new Set<string>([
-${entries}
-]);
-`;
-}
-
-async function emitBaseline(root: string): Promise<void> {
-  const matching = await collectMatchingFiles(root);
-  const targetPath = resolve(root, 'scripts/ci/reviews-status-baseline.ts');
-  const tmpPath = `${targetPath}.tmp`;
-  await writeFile(tmpPath, renderBaselineModule([...matching]), 'utf8');
-  await rename(tmpPath, targetPath);
-  console.log(`reviews-status-audit: baseline emitted (${matching.size} files) → ${targetPath}`);
-}
-
 async function main(): Promise<void> {
   const root = process.cwd();
-
-  if (process.argv.includes('--emit-baseline')) {
-    await emitBaseline(root);
-    return;
-  }
 
   const matching = await collectMatchingFiles(root);
   const findings = evaluateFindings({ matchingFiles: matching });
@@ -257,9 +199,7 @@ async function main(): Promise<void> {
     for (const finding of findings) console.error(`  ${finding}`);
     process.exit(1);
   }
-  console.log(
-    `reviews-status-audit: passed (baseline ${REVIEWS_STATUS_BASELINE.size} files with a raw reviews.status literal)`,
-  );
+  console.log('reviews-status-audit: passed (no raw reviews.status literals)');
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {

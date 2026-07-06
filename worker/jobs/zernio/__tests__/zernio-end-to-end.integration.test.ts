@@ -120,7 +120,7 @@ describe('Zernio end-to-end: webhook → ingest → processReview', () => {
 
     // Assert the MonitoredReview passed to processReview has the right
     // location-scoped resource names.
-    const monitored = mockProcessReview.mock.calls[0]![0] as {
+    const monitored = mockProcessReview.mock.calls[0]![1] as {
       identity: { providerReviewName: string; providerLocationName: string };
     };
     expect(monitored.identity.providerReviewName).toBe(
@@ -180,6 +180,7 @@ describe('Zernio end-to-end: webhook → ingest → processReview', () => {
     await handleZernioReviewIngest(mockSql, makeJob({ correlation_id: 'corr-e2e-1' }));
 
     expect(mockProcessReview).toHaveBeenCalledWith(
+      mockSql,
       expect.anything(),
       'biz-1',
       'corr-e2e-1',

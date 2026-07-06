@@ -233,7 +233,7 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
       }
       throw err;
     }
-    await processReview(monitored, business_id, job.data.correlation_id, {
+    await processReview(sql, monitored, business_id, job.data.correlation_id, {
       suppressNotification: true,
       originLane: GENERATE_RESPONSE_ORIGIN_LANE.BACKFILL,
     });

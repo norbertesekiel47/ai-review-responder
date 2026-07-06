@@ -39,7 +39,6 @@ export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([
   'src/lib/locations/update-display-label.ts',
   'src/lib/publishing/zernio-publisher.ts',
   'src/lib/publishing/zernio-review-publisher.ts',
-  'src/lib/reviews/process-review.ts',
   'src/lib/shared/job-outbox-helpers.ts',
   'src/lib/shared/outbox.ts',
   'src/lib/shared/response-status-sql.ts',

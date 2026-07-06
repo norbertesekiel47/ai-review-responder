@@ -12,6 +12,7 @@ import {
   ZernioReviewNormalizationError,
 } from '../../../src/lib/reviews/zernio-normalize';
 import { processReview } from '../../../src/lib/reviews/process-review';
+import { REVIEW_STATUS } from '../../../src/lib/reviews/status';
 import { zernioClient } from '../../../src/lib/zernio/client';
 import { ZernioAuthError } from '../../../src/lib/zernio/errors';
 import { applyIngestionAuthErrorFallback } from '../../../src/lib/zernio/auth-error-fallback';
@@ -191,7 +192,7 @@ async function processZernioReview(
     connection.zernio_account_id,
     connection.zernio_location_id,
   );
-  await processReview(monitored, connection.business_id, `zernio-poll:${review.id}`);
+  await processReview(sql, monitored, connection.business_id, `zernio-poll:${review.id}`);
   return 'processed';
 }
 
@@ -212,7 +213,7 @@ async function tombstoneMissingSourceReviews(
     WHERE business_id = ${connection.business_id}
       AND provider = 'zernio'
       AND provider_location_name = ${providerLocationName}
-      AND status <> 'deleted'
+      AND status <> ${REVIEW_STATUS.DELETED}
       AND review_date >= ${cutoff}
       AND provider_review_id <> ALL(${[...sourceReviewIds]}::text[])
   `;
@@ -222,9 +223,9 @@ async function tombstoneMissingSourceReviews(
 
   await sql`
     UPDATE reviews
-    SET status = 'deleted'
+    SET status = ${REVIEW_STATUS.DELETED}
     WHERE id = ANY(${reviewIds}::uuid[])
-      AND status <> 'deleted'
+      AND status <> ${REVIEW_STATUS.DELETED}
   `;
 
   await sql`

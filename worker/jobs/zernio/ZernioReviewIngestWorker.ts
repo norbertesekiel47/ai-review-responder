@@ -247,6 +247,6 @@ export async function handleZernioReviewIngest(sql: Sql, job: Job<IngestZernioRe
     throw err;
   }
 
-  await processReview(monitored, business_id, job.data.correlation_id);
+  await processReview(sql, monitored, business_id, job.data.correlation_id);
   await markOutboxCompleted(outboxId, attempt);
 }
