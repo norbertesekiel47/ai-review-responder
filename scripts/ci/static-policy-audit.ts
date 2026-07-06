@@ -1,6 +1,7 @@
-import { readFile, readdir } from 'node:fs/promises';
-import { join, resolve, relative } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { normalize, walk } from './lib/ratchet-harness';
 
 /**
  * Enforces CLAUDE.md architecture invariants that are otherwise pure
@@ -34,12 +35,13 @@ export const ALLOWED_NEXT_PUBLIC: ReadonlySet<string> = new Set([
 ]);
 
 const SCAN_DIRS = ['src', 'worker', 'scripts'] as const;
+// Overrides the harness defaults: this audit also scans .js/.mjs/.cjs, and it
+// keeps __fixtures__ in scope. SKIP_FILE uses the harness default.
 const SCAN_EXT = /\.(?:ts|tsx|mjs|cjs|js)$/;
 const SKIP_DIRS = new Set(['node_modules', '__tests__', 'dist', '.next', 'coverage']);
-const SKIP_FILE = /\.(?:test|spec)\.[cm]?tsx?$/;
 // This audit names its own forbidden patterns in source/messages; skip it
-// so it never flags itself.
-const SELF = join('scripts', 'ci', 'static-policy-audit.ts');
+// so it never flags itself. Normalized to match walk()'s forward-slash paths.
+const SELF = normalize(join('scripts', 'ci', 'static-policy-audit.ts'));
 
 export type PolicyRule =
   | 'crypto-js'
@@ -332,27 +334,10 @@ export function auditPackageJson(pkg: {
   return [];
 }
 
-async function collectFiles(dir: string, root: string, out: string[]): Promise<void> {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return; // directory absent — nothing to scan
-  }
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name)) await collectFiles(join(dir, entry.name), root, out);
-    } else if (entry.isFile() && SCAN_EXT.test(entry.name) && !SKIP_FILE.test(entry.name)) {
-      out.push(relative(root, join(dir, entry.name)));
-    }
-  }
-}
-
 async function main(): Promise<void> {
   const root = process.cwd();
 
-  const files: string[] = [];
-  for (const dir of SCAN_DIRS) await collectFiles(resolve(root, dir), root, files);
+  const files = await walk(root, { scanDirs: SCAN_DIRS, scanExt: SCAN_EXT, skipDirs: SKIP_DIRS });
 
   const findings: PolicyFinding[] = [];
   for (const file of files) {
