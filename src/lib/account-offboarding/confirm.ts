@@ -7,7 +7,7 @@ import {
   enqueueAccountOffboardingBillingSchedule,
   enqueueAccountOffboardingEmail,
   enqueueAccountOffboardingTeardown,
-} from '@/lib/shared/job-outbox-helpers';
+} from '@/lib/account-offboarding/outbox';
 import {
   captureAccountOffboardingSnapshot,
   type AccountOffboardingSnapshotMissingField,

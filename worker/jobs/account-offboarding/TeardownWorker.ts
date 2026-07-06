@@ -10,7 +10,7 @@ import {
 } from '../../../src/lib/shared/outbox';
 import type { AccountOffboardingTeardownPayload } from '../../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
-import { enqueueAccountOffboardingEmail } from '../../../src/lib/shared/job-outbox-helpers';
+import { enqueueAccountOffboardingEmail } from '../../../src/lib/account-offboarding/outbox';
 import type {
   AccountOffboardingMode,
   AccountOffboardingStatus,

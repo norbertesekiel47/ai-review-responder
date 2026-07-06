@@ -105,7 +105,7 @@ vi.mock('../../../../src/lib/audit/log', () => ({
   writeAccountAuditLog: mockWriteAccountAuditLog,
 }));
 
-vi.mock('../../../../src/lib/shared/job-outbox-helpers', () => ({
+vi.mock('../../../../src/lib/account-offboarding/outbox', () => ({
   enqueueAccountOffboardingPurge: mockEnqueueAccountOffboardingPurge,
 }));
 

@@ -16,7 +16,7 @@ const { mockEnqueueBillingSchedule } = vi.hoisted(() => ({
 
 vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
 vi.mock('@/lib/audit/log', () => ({ writeAccountAuditLog: mockWriteAccountAuditLog }));
-vi.mock('@/lib/shared/job-outbox-helpers', () => ({
+vi.mock('@/lib/account-offboarding/outbox', () => ({
   enqueueAccountOffboardingBillingSchedule: mockEnqueueBillingSchedule,
 }));
 

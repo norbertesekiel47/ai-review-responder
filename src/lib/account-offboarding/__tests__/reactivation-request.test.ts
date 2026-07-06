@@ -14,7 +14,7 @@ vi.mock('@/lib/db/server', () => ({
   sql: mockSql,
 }));
 
-vi.mock('@/lib/shared/job-outbox-helpers', () => ({
+vi.mock('@/lib/account-offboarding/outbox', () => ({
   enqueueAccountOffboardingReactivation: mockEnqueueAccountOffboardingReactivation,
 }));
 

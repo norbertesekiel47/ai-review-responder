@@ -18,6 +18,7 @@ const {
     return Promise.resolve(sqlReturnQueue.shift() ?? []);
   });
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
+  mockSql.json = vi.fn((value: unknown) => value);
 
   return {
     sqlCalls,

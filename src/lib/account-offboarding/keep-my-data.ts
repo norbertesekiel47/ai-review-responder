@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import { sql } from '@/lib/db/server';
 import { writeAccountAuditLog } from '@/lib/audit/log';
-import { enqueueAccountOffboardingEmail } from '@/lib/shared/job-outbox-helpers';
+import { enqueueAccountOffboardingEmail } from '@/lib/account-offboarding/outbox';
 import { hashAccountOffboardingToken } from './tokens';
 import type { AccountOffboardingStatus } from './types';
 

@@ -103,6 +103,7 @@ function makeTx(options: TxOptions = {}) {
     return [];
   });
 
+  (tx as any).json = mockSql.json;
   return { tx, calls };
 }
 
@@ -258,6 +259,7 @@ describe('confirmDeleteDataOffboarding', () => {
 
       return [];
     });
+    (tx as any).json = mockSql.json;
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => {
       const snapshot = {
         offboardings: [...persistedState.offboardings],

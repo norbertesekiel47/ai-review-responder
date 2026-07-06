@@ -111,6 +111,7 @@ function makeTx(options: TxOptions = {}) {
     return [];
   });
 
+  (tx as any).json = mockSql.json;
   mockSql.mockImplementation(tx);
   return { tx, calls };
 }

@@ -7,7 +7,7 @@ import {
   unresolvedApplicableTeardownProviders,
 } from '../../../src/lib/account-offboarding/provider-disposition';
 import { enqueueOffboardingPurged } from '../../../src/lib/account-offboarding/analytics';
-import { enqueueAccountOffboardingEmail } from '../../../src/lib/shared/job-outbox-helpers';
+import { enqueueAccountOffboardingEmail } from '../../../src/lib/account-offboarding/outbox';
 import {
   deleteByBusiness,
   impersonationSessionScrubScopeRecord,

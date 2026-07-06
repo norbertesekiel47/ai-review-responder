@@ -2,7 +2,7 @@ import { accountOffboardingEnabled } from '../../../src/lib/account-offboarding/
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
-import { enqueueAccountOffboardingTeardown } from '../../../src/lib/shared/job-outbox-helpers';
+import { enqueueAccountOffboardingTeardown } from '../../../src/lib/account-offboarding/outbox';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { maybeLogPollerHeartbeat, notePollerActivity } from '../poller-heartbeat';
 import { createGuardedPoll } from '../guarded-poll';

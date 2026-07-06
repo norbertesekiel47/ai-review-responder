@@ -121,6 +121,7 @@ const {
     const tx: any = vi.fn((strings: any, ...values: unknown[]) =>
       identifierFragment(strings) ?? execute('tx', strings, ...values)
     );
+    tx.json = mockSql.json;
     return cb(tx);
   });
   mockSql.json = vi.fn((value: unknown) => value);

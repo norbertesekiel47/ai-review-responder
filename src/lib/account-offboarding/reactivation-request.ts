@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { sql } from '@/lib/db/server';
-import { enqueueAccountOffboardingReactivation } from '@/lib/shared/job-outbox-helpers';
+import { enqueueAccountOffboardingReactivation } from '@/lib/account-offboarding/outbox';
 
 interface ReactivationRequestRow {
   id: string;

@@ -4,7 +4,7 @@ import type postgres from 'postgres';
 import { sql } from '@/lib/db/server';
 import { getStripe } from '@/lib/payments/stripe-client';
 import { writeAccountAuditLog } from '@/lib/audit/log';
-import { enqueueAccountOffboardingEmail } from '@/lib/shared/job-outbox-helpers';
+import { enqueueAccountOffboardingEmail } from '@/lib/account-offboarding/outbox';
 import { enqueueOffboardingReactivated } from './analytics';
 
 type SqlExecutor = typeof sql | postgres.TransactionSql;

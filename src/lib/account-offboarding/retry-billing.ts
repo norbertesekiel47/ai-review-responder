@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { sql } from '@/lib/db/server';
 import { writeAccountAuditLog } from '@/lib/audit/log';
-import { enqueueAccountOffboardingBillingSchedule } from '@/lib/shared/job-outbox-helpers';
+import { enqueueAccountOffboardingBillingSchedule } from '@/lib/account-offboarding/outbox';
 
 /**
  * Self-service recovery for a cancel_only offboarding whose billing-schedule step
