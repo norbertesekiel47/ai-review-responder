@@ -161,7 +161,7 @@ describe('POST /api/account/offboarding/keep-my-data', () => {
     expect(mockRequireOwnerWithAccount).toHaveBeenCalledOnce();
     expect(mockRequireWritableOwner).not.toHaveBeenCalled();
     expect(mockKeepMyDataWithToken).not.toHaveBeenCalled();
-    expect(mockKeepMyDataForAccount).toHaveBeenCalledWith({
+    expect(mockKeepMyDataForAccount).toHaveBeenCalledWith(expect.anything(), {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: 'keep-key-1',
@@ -199,7 +199,7 @@ describe('POST /api/account/offboarding/keep-my-data', () => {
     expect(mockRequireOwnerWithAccount).not.toHaveBeenCalled();
     expect(mockRequireWritableOwner).not.toHaveBeenCalled();
     expect(mockKeepMyDataForAccount).not.toHaveBeenCalled();
-    expect(mockKeepMyDataWithToken).toHaveBeenCalledWith({
+    expect(mockKeepMyDataWithToken).toHaveBeenCalledWith(expect.anything(), {
       rawToken: RAW_TOKEN,
       requestId: 'req-token-1',
       ip: '203.0.113.31',
@@ -218,7 +218,7 @@ describe('POST /api/account/offboarding/keep-my-data', () => {
     expect(res.status).toBe(200);
     expect(mockRequireOwnerWithAccount).not.toHaveBeenCalled();
     expect(mockKeepMyDataForAccount).not.toHaveBeenCalled();
-    expect(mockKeepMyDataWithToken).toHaveBeenCalledWith({
+    expect(mockKeepMyDataWithToken).toHaveBeenCalledWith(expect.anything(), {
       rawToken: RAW_TOKEN,
       requestId: 'req-token-form-1',
       ip: null,

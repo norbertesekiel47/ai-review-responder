@@ -142,7 +142,7 @@ d('owner offboarding — DB-backed lifecycle (integration)', { timeout: 30_000 }
   it('cancel_only confirm creates pending offboarding and billing-schedule outbox', async () => {
     const seed = await seedOwnerOffboardingAccount();
     try {
-      const result = await confirmCancelOnlyOffboarding({
+      const result = await confirmCancelOnlyOffboarding(getE2eSql(), {
         accountId: seed.accountId,
         actorUserId: seed.userId,
         idempotencyKey: randomUUID(),
@@ -185,7 +185,7 @@ d('owner offboarding — DB-backed lifecycle (integration)', { timeout: 30_000 }
   it('pre-teardown reactivation queues same-subscription reversal work', async () => {
     const seed = await seedOwnerOffboardingAccount();
     try {
-      const created = await confirmCancelOnlyOffboarding({
+      const created = await confirmCancelOnlyOffboarding(getE2eSql(), {
         accountId: seed.accountId,
         actorUserId: seed.userId,
         idempotencyKey: randomUUID(),
@@ -203,7 +203,7 @@ d('owner offboarding — DB-backed lifecycle (integration)', { timeout: 30_000 }
         WHERE id = ${created.offboarding.id}::uuid
       `;
 
-      const result = await requestCancelOnlyReactivation({
+      const result = await requestCancelOnlyReactivation(getE2eSql(), {
         accountId: seed.accountId,
         actorUserId: seed.userId,
         idempotencyKey: randomUUID(),
@@ -237,7 +237,7 @@ d('owner offboarding — DB-backed lifecycle (integration)', { timeout: 30_000 }
   it('delete_data confirm schedules teardown and keep-my-data email', async () => {
     const seed = await seedOwnerOffboardingAccount();
     try {
-      const result = await confirmDeleteDataOffboarding({
+      const result = await confirmDeleteDataOffboarding(getE2eSql(), {
         accountId: seed.accountId,
         actorUserId: seed.userId,
         idempotencyKey: randomUUID(),
@@ -328,7 +328,7 @@ d('owner offboarding — DB-backed lifecycle (integration)', { timeout: 30_000 }
         `;
       });
 
-      const result = await keepMyDataWithToken({
+      const result = await keepMyDataWithToken(getE2eSql(), {
         rawToken,
         requestId: 'int-keep-my-data',
       });

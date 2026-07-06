@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { sql } from '@/lib/db/server';
+import type postgres from 'postgres';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { enqueueAccountOffboardingBillingSchedule } from '@/lib/account-offboarding/outbox';
 
@@ -36,6 +36,7 @@ interface RetryableOffboardingRow {
 }
 
 export async function retryCancelOnlyBillingSchedule(
+  sql: postgres.Sql,
   input: RetryCancelOnlyBillingInput,
 ): Promise<RetryCancelOnlyBillingResult> {
   const idempotencyKeyHash = hashIdempotencyKey(input.idempotencyKey);

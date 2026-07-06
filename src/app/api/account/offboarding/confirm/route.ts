@@ -1,6 +1,7 @@
 import { v7 as uuidv7 } from 'uuid';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { sql } from '@/lib/db/server';
 import {
   jsonResponse,
   requireOwnerWithAccount,
@@ -107,7 +108,7 @@ async function confirmCancelOnly(
   const owner = await requireOwnerWithAccount(req);
   if (!owner.ok) return owner.response;
 
-  return confirmCancelOnlyOffboarding({
+  return confirmCancelOnlyOffboarding(sql, {
     accountId: owner.accountId,
     actorUserId: owner.user.id,
     idempotencyKey,
@@ -126,7 +127,7 @@ async function confirmDeleteData(
   const owner = await requireDeleteDataDestructiveAuth(req);
   if (!owner.ok) return owner.response;
 
-  return confirmDeleteDataOffboarding({
+  return confirmDeleteDataOffboarding(sql, {
     accountId: owner.accountId,
     actorUserId: owner.user.id,
     idempotencyKey,

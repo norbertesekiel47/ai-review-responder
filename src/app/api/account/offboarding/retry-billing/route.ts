@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
 import { NextRequest, NextResponse } from 'next/server';
+import { sql } from '@/lib/db/server';
 import {
   jsonResponse,
   requireOwnerWithAccount,
@@ -23,7 +24,7 @@ async function retryOffboardingBilling(req: NextRequest): Promise<NextResponse> 
     return jsonResponse({ error: idempotencyKey.error }, 400);
   }
 
-  const result = await retryCancelOnlyBillingSchedule({
+  const result = await retryCancelOnlyBillingSchedule(sql, {
     accountId: owner.accountId,
     actorUserId: owner.user.id,
     idempotencyKey: idempotencyKey.value,

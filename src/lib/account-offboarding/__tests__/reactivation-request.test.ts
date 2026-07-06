@@ -10,10 +10,6 @@ const { mockSql, mockEnqueueAccountOffboardingReactivation } = vi.hoisted(() => 
   };
 });
 
-vi.mock('@/lib/db/server', () => ({
-  sql: mockSql,
-}));
-
 vi.mock('@/lib/account-offboarding/outbox', () => ({
   enqueueAccountOffboardingReactivation: mockEnqueueAccountOffboardingReactivation,
 }));
@@ -56,7 +52,7 @@ describe('requestCancelOnlyReactivation', () => {
   it('locks the scheduled cancel-only row and enqueues reactivation with only the idempotency hash', async () => {
     const { tx, calls } = makeTx();
 
-    const result = await requestCancelOnlyReactivation({
+    const result = await requestCancelOnlyReactivation(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -96,7 +92,7 @@ describe('requestCancelOnlyReactivation', () => {
   it('does not enqueue when no same-subscription scheduled row exists', async () => {
     makeTx([]);
 
-    const result = await requestCancelOnlyReactivation({
+    const result = await requestCancelOnlyReactivation(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
