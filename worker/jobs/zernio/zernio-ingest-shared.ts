@@ -12,7 +12,6 @@ import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import * as Sentry from '@sentry/node';
 import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '../../../src/lib/db/server';
 import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { externalReplyImportEnabled } from '../../../src/lib/publishing/flags';
 import {
@@ -32,7 +31,7 @@ import { classifySentiment } from '../../../src/lib/reviews/sentiment';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
 
 type TxClient = postgres.TransactionSql;
-type SqlExecutor = typeof sql | TxClient;
+type SqlExecutor = postgres.Sql | TxClient;
 
 const FLAG_ON = (): boolean =>
   externalReplyImportEnabled();
@@ -61,6 +60,7 @@ interface PhiReviewExceptionInput {
  *   hook decides; spec §6.3 says treat unknown as a code bug to investigate).
  */
 export async function handleZernioIngestError(
+  sql: postgres.Sql,
   err: unknown,
   outboxId: string,
   attempt: number,
@@ -71,7 +71,7 @@ export async function handleZernioIngestError(
     const reason = err.message;
     logger.warn(`ZernioAuthError on ingest — running connection fallback: ${reason}`);
     await applyIngestionAuthErrorFallback(
-      ctx.business_id, ctx.zernio_account_id, ctx.zernio_location_id, reason,
+      sql, ctx.business_id, ctx.zernio_account_id, ctx.zernio_location_id, reason,
     );
     await markOutboxFailed(outboxId, 'zernio_auth_error_on_ingest', attempt);
     return;
@@ -110,7 +110,7 @@ export async function openPhiReviewException(
     INSERT INTO review_exceptions (id, business_id, type, status, payload)
     VALUES (
       ${uuidv7()}, ${input.businessId}, 'zernio_likely_phi_review', 'open',
-      ${jsonb({
+      ${db.json({
         provider: 'zernio',
         provider_review_id: input.review.id,
         zernio_account_id: input.accountId,
@@ -118,7 +118,7 @@ export async function openPhiReviewException(
         phi_reasons: input.reasons,
         source: input.source,
         detected_at: new Date().toISOString(),
-      })}
+      } as never)}
     )
     ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
       WHERE status = 'open' AND review_id IS NULL
@@ -136,7 +136,7 @@ export async function openPhiReviewException(
     VALUES (
       ${uuidv7()}, ${QUEUE_NAMES.NOTIFY_ADMIN}, 'business',
       ${input.businessId},
-      ${jsonb({ review_exception_id: exception.id, business_id: input.businessId })},
+      ${db.json({ review_exception_id: exception.id, business_id: input.businessId } as never)},
       0, 5
     )
   `;
@@ -178,6 +178,7 @@ export async function openPhiReviewException(
  * criterion enforces this.
  */
 export async function reconcileExternallyAnsweredReview(
+  sql: postgres.Sql,
   target: ZernioReview,
   businessId: string,
   accountId: string,

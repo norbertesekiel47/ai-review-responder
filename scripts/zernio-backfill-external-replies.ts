@@ -72,6 +72,7 @@ async function main(): Promise<void> {
   for (const r of answered) {
     try {
       await reconcileExternallyAnsweredReview(
+        sql,
         r,
         businessId,
         conn.zernio_account_id,

@@ -99,7 +99,7 @@ export async function authorizeEditReplyResponse(
   }
 
   try {
-    await assertCanEditReply(responseRow.review_id, scope);
+    await assertCanEditReply(sql, responseRow.review_id, scope);
   } catch (err) {
     const mapped = mapEditReplyError(err);
     if (mapped) return { ok: false, response: mapped };

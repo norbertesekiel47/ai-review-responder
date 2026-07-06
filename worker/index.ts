@@ -140,7 +140,7 @@ const demoWorker = new Worker(QUEUE_NAMES.GENERATE_DEMO, handleDemoGeneration, w
 // connection at the firing Zernio account, fanned out by worker/ingress/zernio/zernio.ts.
 const ingestZernioReviewWorker = new Worker<IngestZernioReviewPayload>(
   QUEUE_NAMES.INGEST_ZERNIO_REVIEW,
-  withJobLogContext(handleZernioReviewIngest),
+  withJobLogContext<IngestZernioReviewPayload>((job) => handleZernioReviewIngest(sql, job)),
   workerOpts,
 );
 
@@ -148,11 +148,11 @@ const ingestZernioReviewWorker = new Worker<IngestZernioReviewPayload>(
 // (up to 4× listAllReviews pages + up to 75 processReview calls).
 const zernioBackfillWorker = new Worker<ZernioInitialBackfillPayload>(
   QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL,
-  handleZernioBackfill,
+  (job) => handleZernioBackfill(sql, job),
   { ...workerOpts, concurrency: 1 },
 );
 
-ingestZernioReviewWorker.on('failed', handleIngestFailed);
+ingestZernioReviewWorker.on('failed', (job, err) => handleIngestFailed(sql, job, err));
 
 const responseGenWorker = new Worker(QUEUE_NAMES.GENERATE_RESPONSE, withJobLogContext(handleResponseGeneration), workerOpts);
 

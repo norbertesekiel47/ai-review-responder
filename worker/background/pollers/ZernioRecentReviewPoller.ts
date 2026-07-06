@@ -158,6 +158,7 @@ async function processZernioReview(
 
   if (review.reviewReply != null) {
     await reconcileExternallyAnsweredReview(
+      sql,
       review,
       connection.business_id,
       connection.zernio_account_id,
@@ -273,6 +274,7 @@ async function fetchConnectionReviews(
   } catch (err) {
     if (err instanceof ZernioAuthError) {
       await applyIngestionAuthErrorFallback(
+        sql,
         connection.business_id,
         connection.zernio_account_id,
         connection.zernio_location_id,

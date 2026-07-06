@@ -7,7 +7,7 @@
 // See spec §6.5b.
 
 import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import type { SendOwnerEmailPayload } from '@/lib/shared/worker-types';
 
 /** Strip credential-bearing patterns from the persisted reason. Mirrors
@@ -22,6 +22,7 @@ function redactSensitiveError(body: string): string {
 }
 
 export async function applyIngestionAuthErrorFallback(
+  sql: Sql,
   businessId: string,
   accountId: string,
   locationId: string,
@@ -69,7 +70,7 @@ export async function applyIngestionAuthErrorFallback(
         'notify_owner_connection_lost',
         'business',
         ${businessId},
-        ${jsonb(lostPayload)},
+        ${tx.json(lostPayload as never)},
         0, 5
       )
     `;

@@ -1,17 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ── Mock the sql client (vi.mock hoists; use vi.hoisted to share state) ──
-
-const { sqlReturnQueue, sqlMock } = vi.hoisted(() => {
-  const sqlReturnQueue: unknown[][] = [];
-  const sqlMock = vi.fn(async () => sqlReturnQueue.shift() ?? []);
-  return { sqlReturnQueue, sqlMock };
-});
-
-vi.mock('@/lib/db/server', () => ({
-  sql: sqlMock,
-}));
-
 import {
   assertCanEditReply,
   validateOptimisticConcurrency,
@@ -23,9 +11,15 @@ import {
   NotFoundError,
 } from '../edit-existing';
 
+// ── sql is now an explicit leading param (spec §2.1) — no module mock needed ──
+
+const sqlReturnQueue: unknown[][] = [];
+const sqlMockFn = vi.fn(async () => sqlReturnQueue.shift() ?? []);
+const sqlMock = sqlMockFn as unknown as Parameters<typeof assertCanEditReply>[0];
+
 beforeEach(() => {
   sqlReturnQueue.length = 0;
-  sqlMock.mockClear();
+  sqlMockFn.mockClear();
 });
 
 // Tx mock — captures calls to a fake "transaction client". The validate
@@ -68,7 +62,7 @@ describe('assertCanEditReply', () => {
         ...activeSubscription,
       },
     ]);
-    await expect(assertCanEditReply('rev-1', ctx)).resolves.toBeUndefined();
+    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).resolves.toBeUndefined();
   });
 
   it('standard owner + non-historical (review after activation) → passes', async () => {
@@ -81,7 +75,7 @@ describe('assertCanEditReply', () => {
         ...activeSubscription,
       },
     ]);
-    await expect(assertCanEditReply('rev-1', ctx)).resolves.toBeUndefined();
+    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).resolves.toBeUndefined();
   });
 
   it('standard owner + historical → throws PremiumRequiredError', async () => {
@@ -94,7 +88,7 @@ describe('assertCanEditReply', () => {
         ...activeSubscription,
       },
     ]);
-    await expect(assertCanEditReply('rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
+    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
   });
 
   it('basic owner + historical → throws PremiumRequiredError', async () => {
@@ -107,7 +101,7 @@ describe('assertCanEditReply', () => {
         ...activeSubscription,
       },
     ]);
-    await expect(assertCanEditReply('rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
+    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
   });
 
   it('founders owner + historical → throws PremiumRequiredError', async () => {
@@ -120,7 +114,7 @@ describe('assertCanEditReply', () => {
         ...activeSubscription,
       },
     ]);
-    await expect(assertCanEditReply('rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
+    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
   });
 
   it('NULL activation + non-premium (standard) → fails closed (PremiumRequiredError)', async () => {
@@ -133,7 +127,7 @@ describe('assertCanEditReply', () => {
         ...activeSubscription,
       },
     ]);
-    await expect(assertCanEditReply('rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
+    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
   });
 
   it('NULL activation + non-premium (basic) → fails closed (PremiumRequiredError)', async () => {
@@ -146,7 +140,7 @@ describe('assertCanEditReply', () => {
         ...activeSubscription,
       },
     ]);
-    await expect(assertCanEditReply('rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
+    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
   });
 
   it('NULL activation + non-premium (founders) → fails closed (PremiumRequiredError)', async () => {
@@ -159,7 +153,7 @@ describe('assertCanEditReply', () => {
         ...activeSubscription,
       },
     ]);
-    await expect(assertCanEditReply('rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
+    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
   });
 
   it('NULL activation + premium → passes (premium always allowed regardless of activation)', async () => {
@@ -172,7 +166,7 @@ describe('assertCanEditReply', () => {
         ...activeSubscription,
       },
     ]);
-    await expect(assertCanEditReply('rev-1', ctx)).resolves.toBeUndefined();
+    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).resolves.toBeUndefined();
   });
 
   it('owner of different location → throws ForbiddenError', async () => {
@@ -185,13 +179,13 @@ describe('assertCanEditReply', () => {
         ...activeSubscription,
       },
     ]);
-    await expect(assertCanEditReply('rev-1', ctx)).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).rejects.toBeInstanceOf(ForbiddenError);
   });
 
   it('non-existent review → throws NotFoundError', async () => {
     sqlReturnQueue.push([]);
     await expect(
-      assertCanEditReply('rev-MISSING', ctx),
+      assertCanEditReply(sqlMock, 'rev-MISSING', ctx),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 
@@ -200,7 +194,7 @@ describe('assertCanEditReply', () => {
     // so the query returns empty — same "no row" path as a missing review.
     sqlReturnQueue.push([]);
     await expect(
-      assertCanEditReply('rev-cross-account', { accountId: 'acc-OTHER', locationId: ownerLocationId }),
+      assertCanEditReply(sqlMock, 'rev-cross-account', { accountId: 'acc-OTHER', locationId: ownerLocationId }),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 
@@ -215,7 +209,7 @@ describe('assertCanEditReply', () => {
         ...activeSubscription,
       },
     ]);
-    await expect(assertCanEditReply('rev-1', ctx)).resolves.toBeUndefined();
+    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).resolves.toBeUndefined();
   });
 
   it('throws SubscriptionReadOnlyError when the account is past-due read-only', async () => {
@@ -231,7 +225,7 @@ describe('assertCanEditReply', () => {
       },
     ]);
 
-    await expect(assertCanEditReply('rev-1', ctx)).rejects.toBeInstanceOf(SubscriptionReadOnlyError);
+    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).rejects.toBeInstanceOf(SubscriptionReadOnlyError);
   });
 
   it('throws SubscriptionReadOnlyError when the account subscription is inactive', async () => {
@@ -247,7 +241,7 @@ describe('assertCanEditReply', () => {
       },
     ]);
 
-    await expect(assertCanEditReply('rev-1', ctx)).rejects.toMatchObject({
+    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).rejects.toMatchObject({
       name: 'SubscriptionReadOnlyError',
       message: 'subscription_inactive',
       status: 403,

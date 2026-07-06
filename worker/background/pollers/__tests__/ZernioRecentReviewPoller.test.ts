@@ -310,6 +310,7 @@ describe('ZernioRecentReviewPoller', () => {
 
     expect(result.errors).toBe(1);
     expect(mockApplyAuthErrorFallback).toHaveBeenCalledWith(
+      mockSql,
       'business-1',
       'zernio-account-1',
       'location-1',

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
+import type { Sql } from 'postgres';
 import { SKIP_REASON_ARCHIVED_LOCATION, type ZernioInitialBackfillPayload } from '../../../../src/lib/shared/worker-types';
 import type { ZernioReview } from '../../../../src/lib/zernio/types';
 
@@ -67,6 +68,12 @@ vi.mock('../../../../src/lib/shared/logger', () => ({
 }));
 
 import { handleZernioBackfill } from '../ZernioBackfillWorker';
+
+// handleZernioBackfill now takes the injected client as its leading arg;
+// mockSql (createMockSql()'s tagged-template mock) doesn't structurally match
+// postgres.Sql, so pass a cast view while assertions keep referencing mockSql
+// (same runtime object).
+const sqlArg = mockSql as unknown as Sql;
 
 // ── Fixtures ─────────────────────────────────────────────────────────────
 
@@ -154,7 +161,7 @@ describe('ZernioBackfillWorker', () => {
     );
     mockListAllReviews.mockResolvedValueOnce(reviews);
 
-    await handleZernioBackfill(makeJob());
+    await handleZernioBackfill(sqlArg, makeJob());
 
     expect(mockListAllReviews).toHaveBeenCalledWith('acct-1', {
       locationId: 'loc-1',
@@ -183,7 +190,7 @@ describe('ZernioBackfillWorker', () => {
       makeReview('rev-reactivated', ACTIVATED_MS + 60_000),
     ]);
 
-    await handleZernioBackfill(makeJob({ backfill_reason: 'reactivation' }));
+    await handleZernioBackfill(sqlArg, makeJob({ backfill_reason: 'reactivation' }));
 
     expect(mockListAllReviews).toHaveBeenCalled();
     expect(mockProcessReview).toHaveBeenCalledTimes(1);
@@ -212,7 +219,7 @@ describe('ZernioBackfillWorker', () => {
       archived_at: '2026-06-01T00:00:00Z',
     }]));
 
-    await handleZernioBackfill(makeJob());
+    await handleZernioBackfill(sqlArg, makeJob());
 
     expect(mockListAllReviews).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();
@@ -245,7 +252,7 @@ describe('ZernioBackfillWorker', () => {
     // 3. SELECT business → no row
     sqlReturnQueue.push(mkTaggedResult([]));
 
-    await handleZernioBackfill(makeJob());
+    await handleZernioBackfill(sqlArg, makeJob());
 
     expect(mockListAllReviews).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();
@@ -267,7 +274,7 @@ describe('ZernioBackfillWorker', () => {
     );
     mockListAllReviews.mockResolvedValueOnce(reviews);
 
-    await handleZernioBackfill(makeJob({ subscription_tier: 'standard' }));
+    await handleZernioBackfill(sqlArg, makeJob({ subscription_tier: 'standard' }));
 
     // No processing since all are historical and tier is standard
     expect(mockProcessReview).not.toHaveBeenCalled();
@@ -299,7 +306,7 @@ describe('ZernioBackfillWorker', () => {
     );
     mockListAllReviews.mockResolvedValueOnce(reviews);
 
-    await handleZernioBackfill(makeJob({ subscription_tier: 'premium' }));
+    await handleZernioBackfill(sqlArg, makeJob({ subscription_tier: 'premium' }));
 
     // All 10 should be processed (under cap of 50)
     expect(mockProcessReview).toHaveBeenCalledTimes(10);
@@ -324,7 +331,7 @@ describe('ZernioBackfillWorker', () => {
     );
     mockListAllReviews.mockResolvedValueOnce([...gapReviews, ...histReviews]);
 
-    await handleZernioBackfill(makeJob({ subscription_tier: 'premium' }));
+    await handleZernioBackfill(sqlArg, makeJob({ subscription_tier: 'premium' }));
 
     // gap=25 (capped) + historical=30 (under cap 50) = 55 total processReview calls
     expect(mockProcessReview).toHaveBeenCalledTimes(55);
@@ -365,7 +372,7 @@ describe('ZernioBackfillWorker', () => {
     );
     mockListAllReviews.mockResolvedValueOnce(reviews);
 
-    await handleZernioBackfill(makeJob());
+    await handleZernioBackfill(sqlArg, makeJob());
 
     expect(mockProcessReview).toHaveBeenCalledTimes(25);
 
@@ -390,7 +397,7 @@ describe('ZernioBackfillWorker', () => {
     );
     mockListAllReviews.mockResolvedValueOnce(reviews);
 
-    await handleZernioBackfill(makeJob());
+    await handleZernioBackfill(sqlArg, makeJob());
 
     expect(mockProcessReview).toHaveBeenCalledTimes(3);
     for (const call of mockProcessReview.mock.calls) {
@@ -410,7 +417,7 @@ describe('ZernioBackfillWorker', () => {
     const ordinaryReview = makeReview('ordinary-review', ACTIVATED_MS + 120_000);
     mockListAllReviews.mockResolvedValueOnce([phiReview, ordinaryReview]);
 
-    await handleZernioBackfill(makeJob());
+    await handleZernioBackfill(sqlArg, makeJob());
 
     expect(mockProcessReview).toHaveBeenCalledTimes(1);
     expect(mockProcessReview.mock.calls[0]?.[0].identity.providerReviewId).toBe('ordinary-review');
@@ -452,7 +459,7 @@ describe('ZernioBackfillWorker', () => {
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error('DB timeout'));
 
-    await expect(handleZernioBackfill(makeJob())).rejects.toThrow(
+    await expect(handleZernioBackfill(sqlArg, makeJob())).rejects.toThrow(
       'Backfill reconciliation failed for 1 review(s)',
     );
 

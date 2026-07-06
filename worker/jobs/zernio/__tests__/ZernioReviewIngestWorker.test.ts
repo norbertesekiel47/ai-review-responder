@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
+import type { Sql } from 'postgres';
 import { SKIP_REASON_ARCHIVED_LOCATION, type IngestZernioReviewPayload } from '../../../../src/lib/shared/worker-types';
 import type { ZernioReview } from '../../../../src/lib/zernio/types';
 import { ZernioAuthError } from '../../../../src/lib/zernio/errors';
@@ -69,6 +70,12 @@ import {
 } from '../ZernioReviewIngestWorker';
 import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
 
+// handleZernioReviewIngest now takes the injected client as its leading arg;
+// mockSql (createMockSql()'s tagged-template mock) doesn't structurally match
+// postgres.Sql, so pass a cast view while assertions keep referencing mockSql
+// (same runtime object).
+const sqlArg = mockSql as unknown as Sql;
+
 // ── Fixtures ─────────────────────────────────────────────────────────────
 
 function makeJob(overrides: Partial<IngestZernioReviewPayload> = {}): Job<IngestZernioReviewPayload> {
@@ -132,7 +139,7 @@ describe('ZernioReviewIngestWorker', () => {
     mockListReviews.mockResolvedValueOnce({ reviews: [review], nextPageToken: undefined });
     mockProcessReview.mockResolvedValueOnce(undefined);
 
-    await handleZernioReviewIngest(makeJob());
+    await handleZernioReviewIngest(sqlArg, makeJob());
 
     expect(mockListReviews).toHaveBeenCalledTimes(1);
     expect(mockListReviews).toHaveBeenCalledWith('acct-1', {
@@ -158,7 +165,7 @@ describe('ZernioReviewIngestWorker', () => {
 
     mockProcessReview.mockResolvedValueOnce(undefined);
 
-    await handleZernioReviewIngest(makeJob());
+    await handleZernioReviewIngest(sqlArg, makeJob());
 
     expect(mockListReviews).toHaveBeenCalledTimes(2);
     expect(mockListReviews).toHaveBeenNthCalledWith(1, 'acct-1', {
@@ -189,7 +196,7 @@ describe('ZernioReviewIngestWorker', () => {
       // Last page returns no nextPageToken → feed truly exhausted.
       .mockResolvedValueOnce({ reviews: [], nextPageToken: undefined });
 
-    await expect(handleZernioReviewIngest(makeJob())).rejects.toMatchObject({
+    await expect(handleZernioReviewIngest(sqlArg, makeJob())).rejects.toMatchObject({
       name: 'ZernioIngestReviewNotFoundError',
       pagesWalked: 2,
       reviewsSeen: 1,
@@ -222,7 +229,7 @@ describe('ZernioReviewIngestWorker', () => {
       .mockResolvedValueOnce(otherPage('page4'))
       .mockResolvedValueOnce(otherPage('page5'));  // still has more pages
 
-    await expect(handleZernioReviewIngest(makeJob())).rejects.toMatchObject({
+    await expect(handleZernioReviewIngest(sqlArg, makeJob())).rejects.toMatchObject({
       name: 'ZernioIngestPaginationCapExhaustedError',
       cap: 4,
       reviewsSeen: 200,
@@ -246,7 +253,7 @@ describe('ZernioReviewIngestWorker', () => {
         .mockResolvedValueOnce({ reviews: [], nextPageToken: 'page2' })
         .mockResolvedValueOnce({ reviews: [], nextPageToken: 'page3' });
 
-      await expect(handleZernioReviewIngest(makeJob())).rejects.toMatchObject({
+      await expect(handleZernioReviewIngest(sqlArg, makeJob())).rejects.toMatchObject({
         name: 'ZernioIngestPaginationCapExhaustedError',
         cap: 2,
       });
@@ -269,7 +276,7 @@ describe('ZernioReviewIngestWorker', () => {
     });
     mockListReviews.mockResolvedValueOnce({ reviews: [review], nextPageToken: undefined });
 
-    await handleZernioReviewIngest(makeJob());
+    await handleZernioReviewIngest(sqlArg, makeJob());
 
     expect(mockProcessReview).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
@@ -283,7 +290,7 @@ describe('ZernioReviewIngestWorker', () => {
     const review = makeZernioReview({ name: 'not-a-valid-resource-name' });
     mockListReviews.mockResolvedValueOnce({ reviews: [review], nextPageToken: undefined });
 
-    await expect(handleZernioReviewIngest(makeJob())).rejects.toMatchObject({
+    await expect(handleZernioReviewIngest(sqlArg, makeJob())).rejects.toMatchObject({
       name: 'ZernioIngestUnparseableLocationError',
     });
 
@@ -299,7 +306,7 @@ describe('ZernioReviewIngestWorker', () => {
       account_flags: {},
     }]);
 
-    await handleZernioReviewIngest(makeJob());
+    await handleZernioReviewIngest(sqlArg, makeJob());
 
     expect(mockListReviews).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();
@@ -325,7 +332,7 @@ describe('ZernioReviewIngestWorker', () => {
       archived_at: '2026-06-01T00:00:00Z',
     }]);
 
-    await handleZernioReviewIngest(makeJob());
+    await handleZernioReviewIngest(sqlArg, makeJob());
 
     expect(mockListReviews).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();
@@ -350,7 +357,7 @@ describe('ZernioReviewIngestWorker', () => {
       archived_at: '2026-06-01T00:00:00Z',
     }]);
 
-    await handleZernioReviewIngest(makeJob());
+    await handleZernioReviewIngest(sqlArg, makeJob());
 
     expect(mockLogger.log).toHaveBeenCalledWith(
       expect.any(String),
@@ -367,7 +374,7 @@ describe('ZernioReviewIngestWorker', () => {
     pushActiveBiz();
     sqlReturnQueue.push([]); // empty conn result
 
-    await handleZernioReviewIngest(makeJob());
+    await handleZernioReviewIngest(sqlArg, makeJob());
 
     expect(mockListReviews).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();
@@ -383,7 +390,7 @@ describe('ZernioReviewIngestWorker', () => {
       pushActiveBiz();
       pushActiveConn();
 
-      await handleZernioReviewIngest(makeJob());
+      await handleZernioReviewIngest(sqlArg, makeJob());
 
       expect(mockListReviews).not.toHaveBeenCalled();
       expect(mockProcessReview).not.toHaveBeenCalled();
@@ -408,7 +415,7 @@ describe('ZernioReviewIngestWorker', () => {
     mockListReviews.mockResolvedValueOnce({ reviews: [review], nextPageToken: undefined });
     mockReconcileExternallyAnsweredReview.mockResolvedValueOnce(undefined);
 
-    await handleZernioReviewIngest(makeJob());
+    await handleZernioReviewIngest(sqlArg, makeJob());
 
     expect(mockReconcileExternallyAnsweredReview).toHaveBeenCalledTimes(1);
     expect(mockProcessReview).not.toHaveBeenCalled();
@@ -426,7 +433,7 @@ describe('ZernioReviewIngestWorker', () => {
     mockListReviews.mockResolvedValueOnce({ reviews: [review], nextPageToken: undefined });
     mockReconcileExternallyAnsweredReview.mockResolvedValueOnce(undefined);
 
-    await handleZernioReviewIngest(makeJob());
+    await handleZernioReviewIngest(sqlArg, makeJob());
 
     expect(mockReconcileExternallyAnsweredReview).toHaveBeenCalledTimes(1);
     expect(mockProcessReview).not.toHaveBeenCalled();
@@ -442,7 +449,7 @@ describe('ZernioReviewIngestWorker', () => {
     });
     mockListReviews.mockResolvedValueOnce({ reviews: [review], nextPageToken: undefined });
 
-    await handleZernioReviewIngest(makeJob());
+    await handleZernioReviewIngest(sqlArg, makeJob());
 
     expect(mockReconcileExternallyAnsweredReview).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();
@@ -470,9 +477,10 @@ describe('ZernioReviewIngestWorker', () => {
     mockListReviews.mockRejectedValueOnce(authError);
     mockHandleZernioIngestError.mockResolvedValueOnce(undefined);
 
-    await handleZernioReviewIngest(makeJob());
+    await handleZernioReviewIngest(sqlArg, makeJob());
 
     expect(mockHandleZernioIngestError).toHaveBeenCalledWith(
+      mockSql,
       authError,
       'outbox-ingest-1',
       undefined,
@@ -495,7 +503,7 @@ describe('ZernioReviewIngestWorker', () => {
     const malformedReview = makeZernioReview({ rating: 0 }); // invalid: rating < 1
     mockListReviews.mockResolvedValueOnce({ reviews: [malformedReview], nextPageToken: undefined });
 
-    await handleZernioReviewIngest(makeJob());
+    await handleZernioReviewIngest(sqlArg, makeJob());
 
     expect(mockProcessReview).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);

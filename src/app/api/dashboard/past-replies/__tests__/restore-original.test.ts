@@ -490,7 +490,8 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
       (call) => !(call[0] as TemplateStringsArray).join('').includes('subscription_status'),
     ) as unknown as unknown[];
     expect(topLevelCall).toContain(ALT_LOCATION_ID);
-    expect(mockAssertCanEdit).toHaveBeenCalledWith(REVIEW_ID, {
+    // Leading arg is the sql client edit-reply-request.ts threads through (A+ campaign 2f-C).
+    expect(mockAssertCanEdit).toHaveBeenCalledWith(sqlProxy, REVIEW_ID, {
       accountId: ACCOUNT_ID,
       locationId: ALT_LOCATION_ID,
     });

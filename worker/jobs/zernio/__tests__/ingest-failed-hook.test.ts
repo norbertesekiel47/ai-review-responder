@@ -8,6 +8,8 @@ const { sqlReturnQueue, mockSql, mockMarkOutboxFailed } = vi.hoisted(() => {
     const result = sqlReturnQueue.shift() ?? Object.assign([], { count: 0 });
     return Promise.resolve(result);
   });
+  // Identity pass-through for sql.json(...) (mirrors mock-sql.ts's createMockSql().json).
+  mockSql.json = vi.fn((v: unknown) => v);
   return { sqlReturnQueue, mockSql, mockMarkOutboxFailed: vi.fn() };
 });
 
@@ -57,7 +59,7 @@ describe('handleIngestFailed', () => {
         'biz-1', 'acct-1', 'loc-1', 'rev-abc', 2, 78,
       );
 
-      await handleIngestFailed(makeJob(), err);
+      await handleIngestFailed(mockSql, makeJob(), err);
 
       // Verify the SQL template structure.
       expect(mockSql).toHaveBeenCalledTimes(1);
@@ -99,7 +101,7 @@ describe('handleIngestFailed', () => {
         'biz-1', 'acct-1', 'loc-1', 'rev-abc', 1, 25,
       );
 
-      await handleIngestFailed(makeJob({}, 2, 5), err);
+      await handleIngestFailed(mockSql, makeJob({}, 2, 5), err);
 
       expect(mockSql).not.toHaveBeenCalled();
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
@@ -114,7 +116,7 @@ describe('handleIngestFailed', () => {
         'biz-1', 'acct-1', 'loc-1', 'rev-abc', 3, 100,
       );
 
-      await handleIngestFailed(makeJob({}, 4, 5), err);
+      await handleIngestFailed(mockSql, makeJob({}, 4, 5), err);
 
       expect(mockSql).not.toHaveBeenCalled();
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
@@ -131,7 +133,7 @@ describe('handleIngestFailed', () => {
         'biz-1', 'acct-1', 'loc-1', 'rev-abc', 4, 200,
       );
 
-      await handleIngestFailed(makeJob(), err);
+      await handleIngestFailed(mockSql, makeJob(), err);
 
       expect(mockSql).toHaveBeenCalledTimes(1);
       const sqlCall = mockSql.mock.calls[0]!;
@@ -201,7 +203,7 @@ describe('handleIngestFailed', () => {
         'biz-1', 'acct-1', 'loc-1', 'rev-abc', 'malformed/review/name',
       );
 
-      await handleIngestFailed(makeJob(), err);
+      await handleIngestFailed(mockSql, makeJob(), err);
 
       expect(mockSql).toHaveBeenCalledTimes(2);
 
@@ -262,7 +264,7 @@ describe('handleIngestFailed', () => {
         'biz-1', 'acct-1', 'loc-1', 'rev-abc', 'malformed/review/name',
       );
 
-      await handleIngestFailed(makeJob(), err);
+      await handleIngestFailed(mockSql, makeJob(), err);
 
       expect(mockSql).toHaveBeenCalledTimes(1);
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
@@ -284,7 +286,7 @@ describe('handleIngestFailed', () => {
         'biz-1', 'acct-1', 'loc-1', 'rev-abc', longName,
       );
 
-      await handleIngestFailed(makeJob(), err);
+      await handleIngestFailed(mockSql, makeJob(), err);
 
       const firstSqlCall = mockSql.mock.calls[0]!;
       const interpolated = firstSqlCall.slice(1);
@@ -301,7 +303,7 @@ describe('handleIngestFailed', () => {
     it('marks outbox failed with the error message for unknown error types', async () => {
       const err = new Error('something unexpected blew up');
 
-      await handleIngestFailed(makeJob(), err);
+      await handleIngestFailed(mockSql, makeJob(), err);
 
       expect(mockSql).not.toHaveBeenCalled();
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
@@ -312,7 +314,7 @@ describe('handleIngestFailed', () => {
     });
 
     it('stringifies non-Error throwables', async () => {
-      await handleIngestFailed(makeJob(), 'plain string error');
+      await handleIngestFailed(mockSql, makeJob(), 'plain string error');
 
       expect(mockSql).not.toHaveBeenCalled();
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
@@ -323,7 +325,7 @@ describe('handleIngestFailed', () => {
     });
 
     it('returns without action when job is undefined', async () => {
-      await handleIngestFailed(undefined, new Error('whatever'));
+      await handleIngestFailed(mockSql, undefined, new Error('whatever'));
       expect(mockSql).not.toHaveBeenCalled();
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
     });

@@ -172,7 +172,7 @@ describe('correlation chain — Part A: ZernioReviewIngestWorker propagates to p
     // We capture the correlationId argument passed to it.
     mockProcessReview.mockResolvedValue('new');
 
-    await handleZernioReviewIngest(makeIngestJob(UPSTREAM_CORRELATION));
+    await handleZernioReviewIngest(mockSqlA, makeIngestJob(UPSTREAM_CORRELATION));
 
     // The ingest worker must call processReview with the upstream correlation_id.
     expect(mockProcessReview).toHaveBeenCalledTimes(1);
