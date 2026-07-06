@@ -80,7 +80,7 @@ async function requireSettingsOwner(request: NextRequest): Promise<SettingsOwner
   const owner = await requireOwnerWithAccount(request);
   if (!owner.ok) return owner;
 
-  const offboardingState = await getOffboardingState(owner.accountId);
+  const offboardingState = await getOffboardingState(owner.accountId, sql);
   if (isOperationalUIBlocked(offboardingState)) {
     return { ok: false, response: jsonResponse({ error: 'account_offboarding_blocked' }, 403) };
   }

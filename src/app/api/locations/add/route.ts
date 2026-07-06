@@ -84,7 +84,7 @@ const QUOTA_DENIAL_STATUS: Record<string, number> = {
  * Gated by MULTI_LOCATION_ENABLED — returns 404 when disabled (VAL-LOC-041).
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const offboardingGate = createOffboardingGate();
+  const offboardingGate = createOffboardingGate(sql);
   const owner = await readOwnerForMultiLocationRoute(req, offboardingGate);
   if (!owner.ok) return owner.response;
   const { user } = owner;

@@ -74,7 +74,7 @@ async function startImpersonation(request: NextRequest): Promise<NextResponse> {
     // impersonatable so support can still assist a paid-through account.
     // Admin-scoped → standalone state read; operational-UI maps to the
     // full-block predicate (the status-page intent is never blocked by design).
-    const offboardingState = await getOffboardingState(accountId);
+    const offboardingState = await getOffboardingState(accountId, sql);
     if (isOperationalUIBlocked(offboardingState)) {
       return NextResponse.json(
         { error: 'account_offboarding_blocked' },

@@ -88,7 +88,7 @@ async function handler(request: NextRequest): Promise<Response> {
     throw err;
   }
 
-  const offboardingState = await getOffboardingState(accountId);
+  const offboardingState = await getOffboardingState(accountId, sql);
   const blocked = parsed.data.mode === 'regenerate'
     ? isProcessingBlocked(offboardingState)
     : isOperationalUIBlocked(offboardingState);

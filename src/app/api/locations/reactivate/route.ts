@@ -51,7 +51,7 @@ const ReactivateSchema = z.object({
  * VAL-LOC-071: Enqueues zernio_initial_backfill + sync_reviews jobs.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const offboardingGate = createOffboardingGate();
+  const offboardingGate = createOffboardingGate(sql);
   const reqCtx = await readLocationActionRequest(req, ReactivateSchema, offboardingGate);
   if (!reqCtx.ok) return reqCtx.response;
   const { locationId, accountId } = reqCtx.data;

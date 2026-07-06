@@ -100,7 +100,7 @@ export async function PATCH(
   if (!authorized.ok) return authorized.response;
   const { reviewId } = authorized.value;
 
-  const offboardingState = await getOffboardingState(accountId);
+  const offboardingState = await getOffboardingState(accountId, sql);
   if (isOperationalUIBlocked(offboardingState)) {
     return NextResponse.json({ error: 'account_offboarding_blocked' }, { status: 403 });
   }

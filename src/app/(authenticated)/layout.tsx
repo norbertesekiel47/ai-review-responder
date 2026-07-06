@@ -93,7 +93,7 @@ export default async function AuthenticatedLayout({
   const accountId = asAccountId(appUser.account_id);
 
   if (accountOffboardingEnabled()) {
-    const activeOffboarding = await getOffboardingState(accountId);
+    const activeOffboarding = await getOffboardingState(accountId, sql);
     if (isOperationalUIBlocked(activeOffboarding)) {
       if (pathname !== null && pathname !== ACCOUNT_OFFBOARDING_STATUS_PATH) {
         redirect(ACCOUNT_OFFBOARDING_STATUS_PATH);

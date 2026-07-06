@@ -21,7 +21,6 @@ export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([
   'src/app/api/zernio/connect/_shared/finalize/authorize.ts',
   'src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts',
   'src/app/api/zernio/connect/_shared/finalize/finalize-unknown.ts',
-  'src/lib/account-offboarding/gate.ts',
   'src/lib/db/account-guard.ts',
   'src/lib/db/auth.ts',
   'src/lib/shared/job-outbox-helpers.ts',
