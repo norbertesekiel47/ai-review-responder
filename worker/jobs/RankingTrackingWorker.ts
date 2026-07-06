@@ -117,7 +117,7 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // ── Step 1: Load business + account context via account-guard ──────
-  const ctx = await getLocationContext(businessId);
+  const ctx = await getLocationContext(sql, businessId);
 
   if (!ctx) {
     logger.warn(`Business ${businessId} not found or has no account`);

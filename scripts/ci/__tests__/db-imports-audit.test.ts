@@ -41,6 +41,8 @@ describe('db-imports-audit', () => {
   it('exempts composition roots', () => {
     expect(isCompositionRoot('src/lib/db/server.ts')).toBe(true);
     expect(isCompositionRoot('src/instrumentation.ts')).toBe(true);
+    expect(isCompositionRoot('src/lib/db/auth.ts')).toBe(true); // owner-decided 2i classification: db-layer auth gate + Supabase client factory + single identity SELECT
+    expect(isCompositionRoot('src/lib/db/account-guard.ts')).toBe(false); // db-layer domain module — injected in 2i-T6, NOT classified as a root
     expect(isCompositionRoot('src/app/api/dashboard/kpis/route.ts')).toBe(true);
     expect(isCompositionRoot('src/app/admin/jobs/page.tsx')).toBe(true);
     expect(isCompositionRoot('src/app/page.tsx')).toBe(true); // app-root page
@@ -48,7 +50,7 @@ describe('db-imports-audit', () => {
     expect(isCompositionRoot('src/app/(authenticated)/layout.tsx')).toBe(true); // Next.js invokes layouts — no injector exists
     expect(isCompositionRoot('worker/index.ts')).toBe(true);
     expect(isCompositionRoot('worker/jobs/OnboardingDemoWorker.ts')).toBe(true);
-    expect(isCompositionRoot('worker/jobs/summary-report-helpers.ts')).toBe(false); // named exception: top-level helper, not a handler
+    expect(isCompositionRoot('worker/jobs/summary-report-helpers.ts')).toBe(true); // NON_ROOT_EXCEPTIONS emptied in 2i-T6 after the T4 injection — now classed as a root by top-level worker-job position
     expect(isCompositionRoot('worker/jobs/publisher/post-reply.ts')).toBe(false); // subfolder helper ≠ root
     expect(isCompositionRoot('worker/background/pollers/OutboxPoller.ts')).toBe(true);
     expect(isCompositionRoot('worker/background/pollers/health-alert/checks.ts')).toBe(false); // poller subfolder helper ≠ root

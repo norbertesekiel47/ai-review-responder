@@ -6,8 +6,15 @@
 // VAL-LOC-033, VAL-LOC-034, VAL-LOC-060, VAL-LOC-076, VAL-LOC-077.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Sql } from 'postgres';
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────
+//
+// account-guard is injected (A+ campaign 2i-T6): the 3 exports take `sql` as
+// their leading parameter, so the tests pass `mockSql` explicitly. The
+// `vi.mock('@/lib/db/server')` below is a retained shield — the module no
+// longer imports the singleton at runtime, but the mock stays as a guard
+// against an accidental transitive import reconstructing the real pool.
 
 const { mockSql } = vi.hoisted(() => ({
   mockSql: vi.fn(),
@@ -19,6 +26,9 @@ vi.mock('@/lib/db/server', () => ({
 }));
 
 import { isAccountActive, getLocationContext, getLocationContextForAccount } from '../account-guard';
+
+// Cast the mock to the injected `sql` parameter type at each call site.
+const sqlArg = mockSql as unknown as Sql;
 
 const TEST_ACCOUNT_ID = '019dc366-29ce-7000-a000-000000000001';
 const TEST_LOCATION_ID = '019dc366-29ce-7000-b000-000000000002';
@@ -37,7 +47,7 @@ describe('isAccountActive', () => {
       { subscription_status: 'active' },
     ]);
 
-    const result = await isAccountActive(TEST_ACCOUNT_ID);
+    const result = await isAccountActive(sqlArg, TEST_ACCOUNT_ID);
 
     expect(result).toEqual({ active: true });
   });
@@ -48,7 +58,7 @@ describe('isAccountActive', () => {
       { subscription_status: 'pending_payment' },
     ]);
 
-    const result = await isAccountActive(TEST_ACCOUNT_ID);
+    const result = await isAccountActive(sqlArg, TEST_ACCOUNT_ID);
 
     expect(result).toEqual({ active: false, reason: 'pending_payment' });
   });
@@ -59,7 +69,7 @@ describe('isAccountActive', () => {
       { subscription_status: 'past_due' },
     ]);
 
-    const result = await isAccountActive(TEST_ACCOUNT_ID);
+    const result = await isAccountActive(sqlArg, TEST_ACCOUNT_ID);
 
     expect(result).toEqual({ active: false, reason: 'past_due' });
   });
@@ -70,7 +80,7 @@ describe('isAccountActive', () => {
       { subscription_status: 'cancelled' },
     ]);
 
-    const result = await isAccountActive(TEST_ACCOUNT_ID);
+    const result = await isAccountActive(sqlArg, TEST_ACCOUNT_ID);
 
     expect(result).toEqual({ active: false, reason: 'cancelled' });
   });
@@ -79,7 +89,7 @@ describe('isAccountActive', () => {
   it('queries accounts.subscription_status (not businesses)', async () => {
     mockSql.mockResolvedValueOnce([{ subscription_status: 'active' }]);
 
-    await isAccountActive(TEST_ACCOUNT_ID);
+    await isAccountActive(sqlArg, TEST_ACCOUNT_ID);
 
     // Verify the SQL template references accounts table
     const call = mockSql.mock.calls[0]!;
@@ -93,7 +103,7 @@ describe('isAccountActive', () => {
   it('returns { active: false, reason: "not_found" } when account not found', async () => {
     mockSql.mockResolvedValueOnce([]); // no rows
 
-    const result = await isAccountActive(TEST_ACCOUNT_ID);
+    const result = await isAccountActive(sqlArg, TEST_ACCOUNT_ID);
 
     expect(result).toEqual({ active: false, reason: 'not_found' });
   });
@@ -120,7 +130,7 @@ describe('getLocationContext', () => {
       archived_at: archivedAt,
     }]);
 
-    const result = await getLocationContext(TEST_LOCATION_ID);
+    const result = await getLocationContext(sqlArg, TEST_LOCATION_ID);
 
     expect(result).not.toBeNull();
     expect(result!.account).toEqual({
@@ -147,7 +157,7 @@ describe('getLocationContext', () => {
     // so archived locations return 0 rows → null
     mockSql.mockResolvedValueOnce([]);
 
-    const result = await getLocationContext(TEST_LOCATION_ID);
+    const result = await getLocationContext(sqlArg, TEST_LOCATION_ID);
 
     expect(result).toBeNull();
   });
@@ -169,7 +179,7 @@ describe('getLocationContext', () => {
       archived_at: null,
     }]);
 
-    const result = await getLocationContext(TEST_LOCATION_ID);
+    const result = await getLocationContext(sqlArg, TEST_LOCATION_ID);
 
     expect(result).not.toBeNull();
     // The account returned is the one from the JOIN (b.account_id = a.id),
@@ -180,7 +190,7 @@ describe('getLocationContext', () => {
   it('returns null when location does not exist', async () => {
     mockSql.mockResolvedValueOnce([]);
 
-    const result = await getLocationContext('00000000-0000-0000-0000-000000000000');
+    const result = await getLocationContext(sqlArg, '00000000-0000-0000-0000-000000000000');
 
     expect(result).toBeNull();
   });
@@ -188,7 +198,7 @@ describe('getLocationContext', () => {
   it('SQL query filters with archived_at IS NULL', async () => {
     mockSql.mockResolvedValueOnce([]);
 
-    await getLocationContext(TEST_LOCATION_ID);
+    await getLocationContext(sqlArg, TEST_LOCATION_ID);
 
     const call = mockSql.mock.calls[0]!;
     const template = call[0] as TemplateStringsArray;
@@ -216,7 +226,7 @@ describe('getLocationContext', () => {
       archived_at: null,
     }]);
 
-    const result = await getLocationContext(TEST_LOCATION_ID);
+    const result = await getLocationContext(sqlArg, TEST_LOCATION_ID);
 
     expect(result).not.toBeNull();
     expect(result!.location.displayLabel).toBeNull();
@@ -251,7 +261,7 @@ describe('getLocationContextForAccount', () => {
       archived_at: null,
     }]);
 
-    const result = await getLocationContextForAccount(TEST_LOCATION_ID, TEST_ACCOUNT_ID);
+    const result = await getLocationContextForAccount(sqlArg, TEST_LOCATION_ID, TEST_ACCOUNT_ID);
 
     expect(result).not.toBeNull();
     expect(result).not.toEqual(expect.objectContaining({ kind: 'account_mismatch' }));
@@ -279,7 +289,7 @@ describe('getLocationContextForAccount', () => {
       archived_at: null,
     }]);
 
-    const result = await getLocationContextForAccount(TEST_LOCATION_ID, TEST_ACCOUNT_ID);
+    const result = await getLocationContextForAccount(sqlArg, TEST_LOCATION_ID, TEST_ACCOUNT_ID);
 
     // The location exists (SQL returned a row) but its account_id doesn't
     // match the requested accountId → specific mismatch error
@@ -290,7 +300,7 @@ describe('getLocationContextForAccount', () => {
   it('returns null when location does not exist', async () => {
     mockSql.mockResolvedValueOnce([]);
 
-    const result = await getLocationContextForAccount('00000000-0000-0000-0000-000000000000', TEST_ACCOUNT_ID);
+    const result = await getLocationContextForAccount(sqlArg, '00000000-0000-0000-0000-000000000000', TEST_ACCOUNT_ID);
 
     expect(result).toBeNull();
   });
@@ -299,7 +309,7 @@ describe('getLocationContextForAccount', () => {
   it('returns null for archived location', async () => {
     mockSql.mockResolvedValueOnce([]);
 
-    const result = await getLocationContextForAccount(TEST_LOCATION_ID, TEST_ACCOUNT_ID);
+    const result = await getLocationContextForAccount(sqlArg, TEST_LOCATION_ID, TEST_ACCOUNT_ID);
 
     expect(result).toBeNull();
   });
@@ -308,7 +318,7 @@ describe('getLocationContextForAccount', () => {
   it('SQL query reads location with account data, validates account_id in application code', async () => {
     mockSql.mockResolvedValueOnce([]);
 
-    await getLocationContextForAccount(TEST_LOCATION_ID, TEST_ACCOUNT_ID);
+    await getLocationContextForAccount(sqlArg, TEST_LOCATION_ID, TEST_ACCOUNT_ID);
 
     const call = mockSql.mock.calls[0]!;
     const template = call[0] as TemplateStringsArray;

@@ -14,7 +14,5 @@
 // instead — that is the point of this guard.
 
 export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([
-  'src/lib/db/account-guard.ts',
-  'src/lib/db/auth.ts',
 ]);
 

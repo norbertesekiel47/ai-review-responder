@@ -41,9 +41,18 @@ function isDbServerSpecifier(spec: string): boolean {
  * Top-level files in root-classed directories that are NOT entry points —
  * helpers that live beside the handlers they serve. Named explicitly (no
  * filename heuristics): position grants root status; these are the known
- * exceptions. A Stage-2 sweep migrates them onto parameter injection.
+ * exceptions. Now EMPTY — the Stage-2 sweeps migrated the last member
+ * (`worker/jobs/summary-report-helpers.ts`, injected in 2i-T4) onto parameter
+ * injection. The mechanism stays in place until Stage 3 (a later PR).
+ * NOTE for Stage 3: with the set empty, the positional `worker/jobs/<File>.ts`
+ * rule below now grants root status to EVERY top-level file there, including a
+ * non-handler helper that isn't registered in `worker/index.ts`. Harmless while
+ * no such helper imports db/server, but at the strict flip this over-grants —
+ * so Stage 3's job is NOT just deleting this empty set (a no-op): it must
+ * REPLACE the positional heuristic with root status derived from
+ * `worker/index.ts` registration. See plan §4 (2026-07-04-modularity-aplus-stage2-4).
  */
-const NON_ROOT_EXCEPTIONS = new Set(['worker/jobs/summary-report-helpers.ts']);
+const NON_ROOT_EXCEPTIONS = new Set<string>([]);
 
 /**
  * True when the file is a composition root that may import the db/server
@@ -67,6 +76,12 @@ const NON_ROOT_EXCEPTIONS = new Set(['worker/jobs/summary-report-helpers.ts']);
 export function isCompositionRoot(file: string): boolean {
   if (NON_ROOT_EXCEPTIONS.has(file)) return false;
   if (file === 'src/lib/db/server.ts' || file === 'src/instrumentation.ts') return true;
+  // Owner-decided classification (A+ campaign sweep 2i): auth.ts is a db-layer
+  // auth gate — it owns a Supabase SSR client factory plus a single identity
+  // SELECT and serves ~14 callers — so it is a composition root, not a domain
+  // module. Named EXPLICITLY (not a `src/lib/db/*` blanket) so account-guard.ts
+  // and other db-layer domain modules stay in scope for the baseline sweep.
+  if (file === 'src/lib/db/auth.ts') return true;
   if (/^src\/app\/(?:.*\/)?route\.ts$/.test(file)) return true;
   if (/^src\/app\/(?:.*\/)?page\.tsx$/.test(file)) return true;
   if (/^src\/app\/(?:.*\/)?layout\.tsx$/.test(file)) return true;
