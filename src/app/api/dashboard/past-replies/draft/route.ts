@@ -134,7 +134,7 @@ async function handler(request: NextRequest): Promise<Response> {
                status
         FROM responses
         WHERE review_id = ${parsed.data.review_id}
-          AND status = ANY(${statusArraySql(NON_TERMINAL_STATUSES)})
+          AND status = ANY(${statusArraySql(sql, NON_TERMINAL_STATUSES)})
         ORDER BY version DESC
         LIMIT 1
       `;

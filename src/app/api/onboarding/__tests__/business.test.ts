@@ -11,6 +11,9 @@ const {
 } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
   sqlFn.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(sqlFn));
+  // Enqueue helpers now bind JSONB via `tx.json(x)` (identity here, matching the
+  // module `jsonb` mock) instead of the module `jsonb` helper.
+  sqlFn.json = (v: unknown) => v;
   const getUser = vi.fn();
   return {
     mockCheckRateLimit: vi.fn(),

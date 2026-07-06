@@ -82,11 +82,16 @@ describe('processReview', () => {
     capturedJsonbPayloads.splice(0);
 
     tx = vi.fn();
-    // process-review interpolates review_exceptions / job_outbox JSONB payloads
-    // via the transaction client's `.json()` (was the `jsonb()` helper before
-    // DB injection). Passthrough so the payload flows into the tagged-template
-    // params exactly as the old helper mock did.
-    (tx as unknown as { json: ReturnType<typeof vi.fn> }).json = vi.fn((v: unknown) => v);
+    // process-review + the enqueue helpers now bind JSONB payloads via the
+    // transaction client's `.json()` (was the module `jsonb()` helper before DB
+    // injection). Capture here — as the old `jsonb` mock did — so the payload
+    // assertions below keep observing the generate_response outbox payload, and
+    // pass the value through unchanged so it still flows into the tagged-template
+    // params.
+    (tx as unknown as { json: ReturnType<typeof vi.fn> }).json = vi.fn((v: unknown) => {
+      capturedJsonbPayloads.push(v);
+      return v;
+    });
 
     // Make sql.begin invoke its callback synchronously with the tx stub.
     (sql as unknown as { begin: ReturnType<typeof vi.fn> }).begin =

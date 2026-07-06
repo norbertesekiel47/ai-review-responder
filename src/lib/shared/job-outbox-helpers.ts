@@ -1,6 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
 import type postgres from 'postgres';
-import { jsonb } from '@/lib/db/server';
 import { QUEUE_NAMES } from './queue-names';
 import {
   GENERATE_RESPONSE_ORIGIN_LANES,
@@ -155,7 +154,7 @@ export async function enqueueGenerateResponse(
       ${QUEUE_NAMES.GENERATE_RESPONSE},
       ${AGGREGATE_TYPE_REVIEW},
       ${input.reviewId},
-      ${jsonb(payload)},
+      ${tx.json(payload as never)},
       ${JOB_OUTBOX_STATUS_PENDING}
     )
   `;
@@ -188,7 +187,7 @@ export async function enqueuePublishResponse(
       ${QUEUE_NAMES.PUBLISH_RESPONSE},
       ${AGGREGATE_TYPE_RESPONSE},
       ${input.responseId},
-      ${jsonb(payload)},
+      ${tx.json(payload as never)},
       ${JOB_OUTBOX_STATUS_PENDING}
     )
     ON CONFLICT (topic, aggregate_id)
@@ -230,7 +229,7 @@ export async function enqueueAutoPostNotice(
       ${QUEUE_NAMES.AUTO_POST_NOTICE},
       ${AGGREGATE_TYPE_RESPONSE},
       ${input.responseId},
-      ${jsonb(payload)},
+      ${tx.json(payload as never)},
       ${JOB_OUTBOX_STATUS_PENDING}
     )
     ON CONFLICT (topic, aggregate_id)
@@ -267,7 +266,7 @@ export async function enqueueSendNotification(
       ${QUEUE_NAMES.SEND_NOTIFICATION},
       ${AGGREGATE_TYPE_RESPONSE},
       ${input.responseId},
-      ${jsonb(payload)},
+      ${tx.json(payload as never)},
       ${JOB_OUTBOX_STATUS_PENDING}
     )
   `;
@@ -295,10 +294,10 @@ export async function enqueueStripeOverageRecompute(
       ${QUEUE_NAMES.UPDATE_STRIPE_OVERAGE},
       'account',
       ${accountId}::uuid,
-      ${jsonb({
+      ${tx.json({
         account_id: accountId,
         correlation_id: correlationId ?? uuidv7(),
-      })},
+      } as never)},
       ${JOB_OUTBOX_STATUS_PENDING}
     )
   `;
@@ -323,7 +322,7 @@ export async function enqueueValidatePlaceId(
   const rows = await tx`
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
     SELECT ${uuidv7()}::uuid, ${QUEUE_NAMES.VALIDATE_PLACE_ID}, 'business', ${input.businessId}::uuid,
-           ${jsonb(payload)}, 'pending'
+           ${tx.json(payload as never)}, 'pending'
     WHERE NOT EXISTS (
       SELECT 1 FROM job_outbox jo
       WHERE jo.aggregate_id = ${input.businessId}::uuid

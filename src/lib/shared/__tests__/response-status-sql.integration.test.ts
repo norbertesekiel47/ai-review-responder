@@ -24,22 +24,22 @@ afterAll(async () => {
 
 describeWithDb('statusArraySql (integration, real Postgres text[] binding)', () => {
   it('ANY(statusArraySql(HANDLED_STATUSES)) matches in-group and rejects out-of-group', async () => {
-    // statusArraySql binds against the module-level `sql` client in
-    // response-status-sql.ts; that client reads DATABASE_POOL_URL, which CI
-    // points at the Postgres service. Import lazily so the local skip path
-    // never constructs it.
+    // statusArraySql now takes its client explicitly (injection convention).
+    // Import lazily so the local skip path never constructs a DB client.
     const { statusArraySql } = await import('../response-status-sql');
     const { HANDLED_STATUSES } = await import('../response-status');
 
     db = postgres(testDatabaseUrl!, { prepare: false });
 
-    // Use the SAME client the helper binds against so the fragment composes.
+    // Pass the SAME client that executes the query so the fragment composes
+    // against the live Postgres service (DATABASE_POOL_URL, which CI points at
+    // the Postgres service).
     const { sql } = await import('@/lib/db/server');
     const [row] = await sql<{ hit: boolean; miss: boolean; allposted: boolean }[]>`
       SELECT
-        'approved'::text = ANY(${statusArraySql(HANDLED_STATUSES)}) AS hit,
-        'pending_approval'::text = ANY(${statusArraySql(HANDLED_STATUSES)}) AS miss,
-        'posted'::text = ANY(${statusArraySql(HANDLED_STATUSES)}) AS allposted
+        'approved'::text = ANY(${statusArraySql(sql, HANDLED_STATUSES)}) AS hit,
+        'pending_approval'::text = ANY(${statusArraySql(sql, HANDLED_STATUSES)}) AS miss,
+        'posted'::text = ANY(${statusArraySql(sql, HANDLED_STATUSES)}) AS allposted
     `;
 
     expect(row?.hit).toBe(true);

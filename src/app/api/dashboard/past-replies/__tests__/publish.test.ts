@@ -23,6 +23,10 @@ const {
   // Each call to tx`...` returns the next array from the queue.
   const txQueue: unknown[][] = [];
   const txMock = vi.fn(async () => txQueue.shift() ?? []);
+  // Enqueue helpers now bind JSONB via `tx.json(x)` (Postgres.js identity JSONB
+  // constructor) instead of the module `jsonb` helper. Mirror the module mock's
+  // identity passthrough so payloads flow into the tagged-template params as before.
+  (txMock as unknown as { json: (v: unknown) => unknown }).json = (v: unknown) => v;
 
   // sql.begin runs the callback synchronously with the tx mock.
   const beginMock = vi.fn(async (cb: (tx: unknown) => Promise<Response>) => cb(txMock));

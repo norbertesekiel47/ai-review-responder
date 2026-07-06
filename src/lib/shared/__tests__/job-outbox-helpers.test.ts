@@ -16,7 +16,13 @@ import {
 import { QUEUE_NAMES } from '../queue-names';
 
 function createMockTx() {
-  return vi.fn((_strings: TemplateStringsArray, ..._values: unknown[]) => Promise.resolve([])) as any;
+  const tx = vi.fn((_strings: TemplateStringsArray, ..._values: unknown[]) => Promise.resolve([])) as any;
+  // Production now binds JSONB via `tx.json(x)` (Postgres.js's identity JSONB
+  // constructor) instead of the module-level `jsonb` helper. Mirror that with an
+  // identity stub so the payload object flows through as a bound value and
+  // objectArgs() still finds it — bind shape unchanged.
+  tx.json = (value: unknown) => value;
+  return tx;
 }
 
 function sqlText(call: unknown[]): string {
