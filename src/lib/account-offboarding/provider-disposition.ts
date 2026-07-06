@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
+import type postgres from 'postgres';
 import { z } from 'zod';
-import { jsonb, sql } from '@/lib/db/server';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 
 const ADMIN_PROVIDER_DISPOSITION_TYPE = 'admin_provider_disposition';
@@ -146,7 +146,7 @@ function isConcreteAdminProviderDisposition(
 
 export async function recordProviderDisposition(
   input: RecordProviderDispositionInput,
-  db: typeof sql = sql,
+  db: postgres.Sql,
 ): Promise<RecordProviderDispositionResult> {
   const disposition = buildAdminProviderDispositionRecord(input);
 
@@ -181,7 +181,7 @@ export async function recordProviderDisposition(
 
     await tx`
       UPDATE account_offboardings
-      SET provider_dispositions = provider_dispositions || ${jsonb([disposition])},
+      SET provider_dispositions = provider_dispositions || ${tx.json([disposition] as never)},
           status = ${nextStatus},
           failed_step = ${nextFailedStep},
           last_error = CASE WHEN ${transitionedToPurgeScheduled} THEN NULL ELSE last_error END,

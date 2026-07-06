@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { sql } from '@/lib/db/server';
 import {
   ProviderDispositionError,
   ProviderDispositionInputSchema,
@@ -45,14 +46,17 @@ async function postProviderDisposition(
   }
 
   try {
-    const result = await recordProviderDisposition({
-      offboardingId: parsedParams.data.offboardingId,
-      adminUserId: gate.admin.id,
-      ...parsedBody.data,
-      ip: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
-      userAgent: request.headers.get('user-agent') ?? null,
-      requestId: request.headers.get('x-request-id') ?? null,
-    });
+    const result = await recordProviderDisposition(
+      {
+        offboardingId: parsedParams.data.offboardingId,
+        adminUserId: gate.admin.id,
+        ...parsedBody.data,
+        ip: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
+        userAgent: request.headers.get('user-agent') ?? null,
+        requestId: request.headers.get('x-request-id') ?? null,
+      },
+      sql,
+    );
 
     return NextResponse.json({ ok: true, ...result }, { headers: NO_STORE });
   } catch (err) {

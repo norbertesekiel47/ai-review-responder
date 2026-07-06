@@ -4,15 +4,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { mockSql, mockJsonb, txCalls, txResults, mockTx } = vi.hoisted(() => {
   const txCalls: { text: string; values: unknown[] }[] = [];
   const txResults: unknown[] = [];
-  const mockTx = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+  const mockJsonb = vi.fn((value: unknown) => ({ __jsonb: value }));
+  const mockTx: any = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     txCalls.push({ text: strings.join('?'), values });
     return Promise.resolve(txResults.shift() ?? Object.assign([], { count: 1 }));
   });
+  mockTx.json = mockJsonb;
   const mockSql: any = vi.fn();
   mockSql.begin = vi.fn(async (cb: (tx: typeof mockTx) => Promise<unknown>) => cb(mockTx));
   return {
     mockSql,
-    mockJsonb: vi.fn((value: unknown) => ({ __jsonb: value })),
+    mockJsonb,
     txCalls,
     txResults,
     mockTx,
@@ -142,7 +144,7 @@ describe('recordProviderDisposition', () => {
       requestId: 'req-123',
       ip: '203.0.113.10',
       userAgent: 'vitest',
-    });
+    }, mockSql);
 
     expect(result.transitionedToPurgeScheduled).toBe(true);
     expect(result.disposition.scrubbed_resource_reference).toBe(`sha256:${RESOURCE_HASH}`);
@@ -194,7 +196,7 @@ describe('recordProviderDisposition', () => {
       resourceType: 'account',
       resourceReference: RAW_RESOURCE_REFERENCE,
       reason: 'Provider support confirmed teardown.',
-    });
+    }, mockSql);
 
     expect(result.transitionedToPurgeScheduled).toBe(false);
   });
@@ -218,7 +220,7 @@ describe('recordProviderDisposition', () => {
       resourceType: 'subscription',
       resourceReference: 'sub_live_1',
       reason: 'Stripe support voided the subscription manually.',
-    });
+    }, mockSql);
 
     expect(result.transitionedToPurgeScheduled).toBe(false);
   });
@@ -245,7 +247,7 @@ describe('recordProviderDisposition', () => {
       resourceType: 'account',
       resourceReference: RAW_RESOURCE_REFERENCE,
       reason: 'Zernio support confirmed remote account teardown.',
-    });
+    }, mockSql);
 
     expect(result.transitionedToPurgeScheduled).toBe(true);
   });
@@ -268,7 +270,7 @@ describe('recordProviderDisposition', () => {
       resourceType: 'subscription',
       resourceReference: 'sub_live_1',
       reason: 'Stripe support voided the subscription manually.',
-    });
+    }, mockSql);
 
     expect(result.transitionedToPurgeScheduled).toBe(true);
   });
@@ -283,7 +285,7 @@ describe('recordProviderDisposition', () => {
       resourceType: 'account',
       resourceReference: RAW_RESOURCE_REFERENCE,
       reason: 'Zernio support confirmed remote account teardown.',
-    })).rejects.toMatchObject(new ProviderDispositionError(404, 'offboarding_not_found'));
+    }, mockSql)).rejects.toMatchObject(new ProviderDispositionError(404, 'offboarding_not_found'));
 
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });

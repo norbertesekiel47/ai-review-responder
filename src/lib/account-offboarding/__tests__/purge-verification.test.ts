@@ -87,7 +87,7 @@ describe('purge verification', () => {
     const result = await verifyAccountOffboardingPurge({
       accountId: '00000000-0000-7000-8000-000000000001',
       offboardingId: '00000000-0000-7000-8000-000000000002',
-    });
+    }, mockSql);
 
     expect(result.ok).toBe(false);
     expect(result.issues).toEqual([
@@ -114,7 +114,7 @@ describe('purge verification', () => {
       stripeSubscriptionId: 'sub_123',
       zernioAccountIds: ['zernio-account-1'],
       zernioProfileIds: ['zernio-profile-1'],
-    });
+    }, mockSql);
 
     const sqlText = calls.map((call) => call.text).join('\n');
     expect(sqlText).toContain('WITH account_businesses AS');
@@ -150,7 +150,7 @@ describe('purge verification', () => {
       stripeSubscriptionId: 'sub_123',
       zernioAccountIds: ['zernio-account-1'],
       zernioProfileIds: ['zernio-profile-1'],
-    });
+    }, mockSql);
 
     const payloadQueries = calls
       .filter((call) =>
@@ -175,7 +175,7 @@ describe('purge verification', () => {
     await verifyAccountOffboardingPurge({
       accountId: '00000000-0000-7000-8000-000000000001',
       offboardingId: '00000000-0000-7000-8000-000000000002',
-    });
+    }, mockSql);
 
     const notificationQuery = calls.find((call) => call.text.includes('FROM notification_deliveries'));
     expect(notificationQuery?.text).toContain('account_id =');
