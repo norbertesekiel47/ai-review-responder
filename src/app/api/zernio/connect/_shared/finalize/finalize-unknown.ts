@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/nextjs';
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '@/lib/db/server';
+import type postgres from 'postgres';
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { ZernioRouteError } from '@/lib/zernio/errors';
 import {
@@ -31,11 +31,14 @@ interface RecordFinalizeUnknownArgs {
  * and reported to Sentry; NEITHER may rethrow / bubble as a 500. The function
  * never returns normally (`Promise<never>`).
  */
-export async function recordFinalizeUnknownAndThrow({
-  redis,
-  stored,
-  zernioErr,
-}: RecordFinalizeUnknownArgs): Promise<never> {
+export async function recordFinalizeUnknownAndThrow(
+  sql: postgres.Sql,
+  {
+    redis,
+    stored,
+    zernioErr,
+  }: RecordFinalizeUnknownArgs,
+): Promise<never> {
   // OUTCOME UNKNOWN — round-15 + round-16 + round-17 sequence:
   //   Step 1: Redis CAS finalizing → finalize_unknown (7-day TTL).
   //   Step 2: INSERT INTO zernio_finalize_incidents (durable record).

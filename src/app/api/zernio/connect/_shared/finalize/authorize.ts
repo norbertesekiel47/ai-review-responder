@@ -1,10 +1,10 @@
 import type { NextRequest } from 'next/server';
+import type postgres from 'postgres';
 import {
   activeOffboardingStateFromProjection,
   isConnectBlocked,
   type ActiveOffboardingProjection,
 } from '@/lib/account-offboarding/gate';
-import { sql } from '@/lib/db/server';
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
@@ -43,6 +43,7 @@ export interface SelectLocationContext {
  * parser: it would silently change validation and the wire response.
  */
 export async function authorizeSelectLocation(
+  sql: postgres.Sql,
   req: NextRequest,
 ): Promise<SelectLocationContext> {
   // Feature flag — subsystem A is gated by ZERNIO_PUBLISHING_ENABLED (§1.1).

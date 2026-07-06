@@ -1,10 +1,10 @@
 import { v7 as uuidv7 } from 'uuid';
+import type postgres from 'postgres';
 import {
   activeOffboardingStateFromProjection,
   isConnectBlocked,
   type ActiveOffboardingProjection,
 } from '@/lib/account-offboarding/gate';
-import { sql, jsonb } from '@/lib/db/server';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { ZernioRouteError } from '@/lib/zernio/errors';
 import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
@@ -29,12 +29,15 @@ interface FinalizeConnectionTxArgs {
  * `ZernioRouteError(403, ...)` for scope/subscription failures; any DB error
  * propagates to the caller's orphan-recovery branch.
  */
-export async function finalizeConnectionTx({
-  user,
-  stored,
-  locationId,
-  accountId,
-}: FinalizeConnectionTxArgs): Promise<void> {
+export async function finalizeConnectionTx(
+  sql: postgres.Sql,
+  {
+    user,
+    stored,
+    locationId,
+    accountId,
+  }: FinalizeConnectionTxArgs,
+): Promise<void> {
   const newConnectionId = uuidv7();
   const ownerAccountId = user.accountId;
   if (!ownerAccountId) {
@@ -148,7 +151,7 @@ export async function finalizeConnectionTx({
         ${QUEUE_NAMES.DRAIN_OWNER_CONNECT},
         'business',
         ${stored.businessId},
-        ${jsonb({ business_id: stored.businessId, kind: 'drain' })},
+        ${tx.json({ business_id: stored.businessId, kind: 'drain' } as never)},
         0,
         5
       )
@@ -208,7 +211,7 @@ export async function finalizeConnectionTx({
             ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL},
             'business',
             ${stored.businessId},
-            ${jsonb({
+            ${tx.json({
               business_id: stored.businessId,
               zernio_account_id: accountId,
               zernio_location_id: locationId,
@@ -216,7 +219,7 @@ export async function finalizeConnectionTx({
               subscription_activated_at:
                 accountLocation.subscription_activated_at.toISOString(),
               correlation_id: uuidv7(),
-            })},
+            } as never)},
             'pending'
           )
         `;

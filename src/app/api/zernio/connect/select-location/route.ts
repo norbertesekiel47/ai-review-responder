@@ -5,6 +5,7 @@ import {
 } from '@/lib/zernio/errors';
 import { zernioRouteErrorResponse } from '@/app/api/zernio/_shared/error-response';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { sql } from '@/lib/db/server';
 import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // ZernioRouteError; untyped errors propagate to errorToResponse below.
   let ctx;
   try {
-    ctx = await authorizeSelectLocation(req);
+    ctx = await authorizeSelectLocation(sql, req);
   } catch (err) {
     return errorToResponse(err);
   }
@@ -89,13 +90,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }
 
         // OUTCOME UNKNOWN — record incident (non-fatal) and always 409.
-        return recordFinalizeUnknownAndThrow({ redis, stored, zernioErr });
+        return recordFinalizeUnknownAndThrow(sql, { redis, stored, zernioErr });
       }
 
       // 8d. Single durable finalize transaction (connection upsert + outbox
       // drain + conditional initial-backfill enqueue).
       try {
-        await finalizeConnectionTx({ user, stored, locationId, accountId });
+        await finalizeConnectionTx(sql, { user, stored, locationId, accountId });
       } catch (dbErr) {
         // 8e. Post-accountId orphan recovery (best-effort cleanup; 23505 → 409
         // already_connected_by_parallel_flow, otherwise rethrow).
