@@ -29,14 +29,7 @@ export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([
   'src/lib/shared/writable-subscription.ts',
   'worker/background/pollers/billing-reconciliation/reconcile-account.ts',
   'worker/background/pollers/health-alert/checks.ts',
-  'worker/jobs/account-offboarding/AccountOffboardingEmailWorker.ts',
-  'worker/jobs/account-offboarding/BillingScheduleWorker.ts',
-  'worker/jobs/account-offboarding/TeardownWorker.ts',
   'worker/jobs/account-offboarding/purge-stages.ts',
-  'worker/jobs/account-offboarding/teardown-locations.ts',
-  'worker/jobs/account-offboarding/teardown-outbox.ts',
-  'worker/jobs/account-offboarding/teardown-stripe.ts',
-  'worker/jobs/account-offboarding/teardown-zernio.ts',
   'worker/jobs/summary-report-helpers.ts',
 ]);
 

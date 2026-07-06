@@ -414,7 +414,7 @@ describe('AccountOffboarding TeardownWorker', () => {
       summary: { inspected: 0, finalized: 0, voided: 0, retained: 0, skipped: 0 },
     });
 
-    await handleAccountOffboardingTeardown(makeJob());
+    await handleAccountOffboardingTeardown(mockSql, makeJob());
 
     expect(mockStripeSubscriptionsCancel).toHaveBeenCalledWith(
       'sub_live_123',
@@ -498,7 +498,7 @@ describe('AccountOffboarding TeardownWorker', () => {
       summary: { inspected: 0, finalized: 0, voided: 0, retained: 0, skipped: 0 },
     });
 
-    await handleAccountOffboardingTeardown(makeJob());
+    await handleAccountOffboardingTeardown(mockSql, makeJob());
 
     expect(mockStripeSubscriptionsRetrieve).toHaveBeenCalledWith('sub_live_123');
     expect(mockCleanupSubscriptionInvoices).toHaveBeenCalled();
@@ -523,7 +523,7 @@ describe('AccountOffboarding TeardownWorker', () => {
       summary: { inspected: 0, finalized: 0, voided: 0, retained: 0, skipped: 0 },
     });
 
-    await handleAccountOffboardingTeardown(makeJob());
+    await handleAccountOffboardingTeardown(mockSql, makeJob());
 
     expect(mockStripeSubscriptionsRetrieve).not.toHaveBeenCalled();
     const combinedSql = sqlCalls.map((call) => call.text).join('\n');
@@ -540,7 +540,7 @@ describe('AccountOffboarding TeardownWorker', () => {
       }),
     );
 
-    await expect(handleAccountOffboardingTeardown(makeJob())).rejects.toThrow();
+    await expect(handleAccountOffboardingTeardown(mockSql, makeJob())).rejects.toThrow();
 
     expect(mockStripeSubscriptionsRetrieve).not.toHaveBeenCalled();
     expect(mockCleanupSubscriptionInvoices).not.toHaveBeenCalled();
@@ -555,7 +555,7 @@ describe('AccountOffboarding TeardownWorker', () => {
       purge_cancelled_at: new Date('2026-06-05T00:00:00.000Z'),
     });
 
-    await handleAccountOffboardingTeardown(makeJob());
+    await handleAccountOffboardingTeardown(mockSql, makeJob());
 
     expect(mockStripeSubscriptionsCancel).not.toHaveBeenCalled();
     expect(mockCleanupSubscriptionInvoices).not.toHaveBeenCalled();
@@ -593,7 +593,7 @@ describe('AccountOffboarding TeardownWorker', () => {
       };
     });
 
-    await handleAccountOffboardingTeardown(makeJob());
+    await handleAccountOffboardingTeardown(mockSql, makeJob());
 
     // Completion must reflect the live cancellation: terminal churned, not purge_scheduled.
     // Otherwise the row strands non-terminal and the account can never offboard again.
@@ -649,7 +649,7 @@ describe('AccountOffboarding TeardownWorker', () => {
       purge_cancelled_at: null,
     });
 
-    await handleAccountOffboardingTeardown(makeJob());
+    await handleAccountOffboardingTeardown(mockSql, makeJob());
 
     const accountLockCall = sqlCalls.find((call) => call.text.includes('FROM accounts') && call.text.includes('FOR UPDATE'));
     expect(accountLockCall).toBeDefined();
@@ -688,7 +688,7 @@ describe('AccountOffboarding TeardownWorker', () => {
       .mockRejectedValueOnce(new ZernioPermanentError('http_404', {}))
       .mockRejectedValueOnce(new ZernioPermanentError('http_410', {}));
 
-    await handleAccountOffboardingTeardown(makeJob());
+    await handleAccountOffboardingTeardown(mockSql, makeJob());
 
     expect(mockDeleteAccount).toHaveBeenCalledTimes(2);
     expect(mockDeleteProfile).toHaveBeenCalledTimes(2);
@@ -708,7 +708,7 @@ describe('AccountOffboarding TeardownWorker', () => {
       purge_cancelled_at: null,
     });
 
-    await expect(handleAccountOffboardingTeardown(makeJob())).rejects.toThrow(
+    await expect(handleAccountOffboardingTeardown(mockSql, makeJob())).rejects.toThrow(
       'account_offboarding_access_end_not_reached',
     );
 
@@ -740,7 +740,7 @@ describe('AccountOffboarding TeardownWorker', () => {
     });
     mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({ status: 'active' });
 
-    await expect(handleAccountOffboardingTeardown(makeJob())).rejects.toThrow(
+    await expect(handleAccountOffboardingTeardown(mockSql, makeJob())).rejects.toThrow(
       'account_offboarding_natural_cancellation_not_observed',
     );
 
@@ -767,7 +767,7 @@ describe('AccountOffboarding TeardownWorker', () => {
       summary: { inspected: 0, finalized: 0, voided: 0, retained: 0, skipped: 0 },
     });
 
-    await handleAccountOffboardingTeardown(makeJob());
+    await handleAccountOffboardingTeardown(mockSql, makeJob());
 
     expect(mockStripeSubscriptionsRetrieve).toHaveBeenCalledWith('sub_live_123');
     expect(mockStripeSubscriptionsCancel).not.toHaveBeenCalled();
@@ -811,6 +811,7 @@ describe('AccountOffboarding TeardownWorker', () => {
 
     await expect(
       handleAccountOffboardingTeardown(
+        mockSql,
         makeJob({}, { attemptsMade: 2, opts: { attempts: 3 } } as Partial<Job<AccountOffboardingTeardownPayload>>),
       ),
     ).rejects.toThrow('outbox completion lost connection');
@@ -833,7 +834,7 @@ describe('AccountOffboarding TeardownWorker', () => {
       new Error('access_token=tok1 refresh_token=tok2 client_secret=sec3 token=tok4 password=hunter2'),
     );
 
-    await expect(handleAccountOffboardingTeardown(makeJob())).rejects.toThrow(
+    await expect(handleAccountOffboardingTeardown(mockSql, makeJob())).rejects.toThrow(
       'access_token=[REDACTED] refresh_token=[REDACTED] client_secret=[REDACTED] token=[REDACTED] password=[REDACTED]',
     );
 
@@ -861,7 +862,7 @@ describe('AccountOffboarding TeardownWorker', () => {
       job_terminalization_step: 'not_applicable',
     });
 
-    await runOutboxTerminalization(row, 'outbox-teardown-1');
+    await runOutboxTerminalization(mockSql, row, 'outbox-teardown-1');
 
     const updateCall = sqlCalls.find((call) => call.text.includes('UPDATE job_outbox'));
     // Topic values are interpolated QUEUE_NAMES constants, not template
@@ -901,7 +902,7 @@ describe('AccountOffboarding TeardownWorker', () => {
       job_terminalization_step: 'success',
     });
 
-    await handleAccountOffboardingTeardown(makeJob());
+    await handleAccountOffboardingTeardown(mockSql, makeJob());
 
     expect(mockStripeSubscriptionsCancel).not.toHaveBeenCalled();
     expect(mockDeleteAccount).not.toHaveBeenCalled();
@@ -917,6 +918,7 @@ describe('AccountOffboarding TeardownWorker', () => {
     );
 
     await handleAccountOffboardingTeardown(
+      mockSql,
       makeJob({}, { attemptsMade: 2, opts: { attempts: 3 } } as Partial<Job<AccountOffboardingTeardownPayload>>),
     );
 

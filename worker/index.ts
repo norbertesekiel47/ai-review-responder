@@ -207,13 +207,13 @@ const stripeCheckoutReconcileWorker = new Worker<StripeCheckoutReconcilePayload>
 
 const accountOffboardingBillingScheduleWorker = new Worker<AccountOffboardingBillingSchedulePayload>(
   QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE,
-  withJobLogContext(handleAccountOffboardingBillingSchedule),
+  withJobLogContext<AccountOffboardingBillingSchedulePayload>((job) => handleAccountOffboardingBillingSchedule(sql, job)),
   workerOpts,
 );
 
 const accountOffboardingEmailWorker = new Worker<AccountOffboardingEmailPayload>(
   QUEUE_NAMES.ACCOUNT_OFFBOARDING_EMAIL,
-  withJobLogContext(handleAccountOffboardingEmail),
+  withJobLogContext<AccountOffboardingEmailPayload>((job) => handleAccountOffboardingEmail(sql, job)),
   workerOpts,
 );
 
@@ -225,7 +225,7 @@ const accountOffboardingReactivationWorker = new Worker<AccountOffboardingReacti
 
 const accountOffboardingTeardownWorker = new Worker<AccountOffboardingTeardownPayload>(
   QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN,
-  withJobLogContext(handleAccountOffboardingTeardown),
+  withJobLogContext<AccountOffboardingTeardownPayload>((job) => handleAccountOffboardingTeardown(sql, job)),
   workerOpts,
 );
 

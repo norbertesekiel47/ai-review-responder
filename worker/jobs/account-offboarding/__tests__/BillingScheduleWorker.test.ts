@@ -114,7 +114,7 @@ describe('AccountOffboarding BillingScheduleWorker', () => {
     sqlReturnQueue.push([{ id: OFFBOARDING_ID }]);
     mockStripeSubscriptionsUpdate.mockResolvedValueOnce({ current_period_end: 1_798_761_600 });
 
-    await handleAccountOffboardingBillingSchedule(makeJob());
+    await handleAccountOffboardingBillingSchedule(mockSql, makeJob());
 
     expect(mockStripeSubscriptionsUpdate).toHaveBeenCalledWith(
       'sub_cancel_123',
@@ -147,7 +147,7 @@ describe('AccountOffboarding BillingScheduleWorker', () => {
       items: { data: [{ current_period_end: 1_798_761_600 }] },
     });
 
-    await handleAccountOffboardingBillingSchedule(makeJob());
+    await handleAccountOffboardingBillingSchedule(mockSql, makeJob());
 
     const updateCall = sqlCalls.find((call) => call.text.includes('billing_cancel_confirmed_at'));
     expect(updateCall?.text).toContain("status = 'scheduled'");
@@ -160,7 +160,7 @@ describe('AccountOffboarding BillingScheduleWorker', () => {
     sqlReturnQueue.push([offboardingRow()]);
     mockStripeSubscriptionsUpdate.mockResolvedValueOnce({});
 
-    await expect(handleAccountOffboardingBillingSchedule(makeJob())).rejects.toThrow(
+    await expect(handleAccountOffboardingBillingSchedule(mockSql, makeJob())).rejects.toThrow(
       'Stripe subscription update did not return a valid current_period_end',
     );
 
@@ -187,7 +187,7 @@ describe('AccountOffboarding BillingScheduleWorker', () => {
       new Error('Stripe auth failed token=sk_live_secret password=hunter2'),
     );
 
-    await handleAccountOffboardingBillingSchedule(
+    await handleAccountOffboardingBillingSchedule(mockSql,
       makeJob({}, { attemptsMade: 2, opts: { attempts: 3 } } as Partial<Job<AccountOffboardingBillingSchedulePayload>>),
     );
 
@@ -210,7 +210,7 @@ describe('AccountOffboarding BillingScheduleWorker', () => {
     mockStripeSubscriptionsUpdate.mockRejectedValueOnce(new Error('Stripe temporarily unavailable'));
 
     await expect(
-      handleAccountOffboardingBillingSchedule(
+      handleAccountOffboardingBillingSchedule(mockSql,
         makeJob({}, { attemptsMade: 1, opts: { attempts: 3 } } as Partial<Job<AccountOffboardingBillingSchedulePayload>>),
       ),
     ).rejects.toThrow('Stripe temporarily unavailable');
@@ -222,7 +222,7 @@ describe('AccountOffboarding BillingScheduleWorker', () => {
   it('keeps the offboarding pending while non-terminal billing validation errors retry', async () => {
     sqlReturnQueue.push([offboardingRow({ stripe_subscription_id: null })]);
 
-    await expect(handleAccountOffboardingBillingSchedule(makeJob())).rejects.toThrow(
+    await expect(handleAccountOffboardingBillingSchedule(mockSql, makeJob())).rejects.toThrow(
       'account_offboarding_missing_stripe_subscription_id',
     );
 
@@ -243,7 +243,7 @@ describe('AccountOffboarding BillingScheduleWorker', () => {
   it('marks the offboarding failed on exhausted billing validation errors', async () => {
     sqlReturnQueue.push([offboardingRow({ stripe_subscription_id: null })]);
 
-    await handleAccountOffboardingBillingSchedule(
+    await handleAccountOffboardingBillingSchedule(mockSql,
       makeJob({}, { attemptsMade: 2, opts: { attempts: 3 } } as Partial<Job<AccountOffboardingBillingSchedulePayload>>),
     );
 

@@ -1,6 +1,6 @@
 import type Stripe from 'stripe';
+import type postgres from 'postgres';
 import { getStripe } from '../../../src/lib/payments/stripe-client';
-import { sql } from '../../../src/lib/db/server';
 import { cleanupSubscriptionInvoices } from '../../../src/lib/account-offboarding/stripe-invoices';
 import type { AccountOffboardingMode, AccountOffboardingStepOutcome } from '../../../src/lib/account-offboarding/types';
 
@@ -21,6 +21,7 @@ function accountOffboardingTeardownStripeIdempotencyKey(
 }
 
 export async function verifyCancelOnlyNaturalCancellation(
+  sql: postgres.Sql,
   row: StripeTeardownRow,
 ): Promise<void> {
   const subscriptionId = row.stripe_subscription_id?.trim();
@@ -31,7 +32,10 @@ export async function verifyCancelOnlyNaturalCancellation(
   }
 }
 
-export async function runStripeTeardown(row: StripeTeardownRow): Promise<void> {
+export async function runStripeTeardown(
+  sql: postgres.Sql,
+  row: StripeTeardownRow,
+): Promise<void> {
   const subscriptionId = row.stripe_subscription_id?.trim();
   const requiresStripeTeardown = Boolean(subscriptionId);
 

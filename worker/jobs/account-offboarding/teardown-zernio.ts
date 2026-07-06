@@ -1,4 +1,4 @@
-import { sql } from '../../../src/lib/db/server';
+import type postgres from 'postgres';
 import type { AccountOffboardingStepOutcome } from '../../../src/lib/account-offboarding/types';
 import { zernioClient } from '../../../src/lib/zernio/client';
 import { ZernioPermanentError } from '../../../src/lib/zernio/errors';
@@ -12,7 +12,10 @@ interface ZernioTeardownRow {
   zernio_profiles_step: AccountOffboardingStepOutcome | null;
 }
 
-export async function runZernioTeardown(row: ZernioTeardownRow): Promise<void> {
+export async function runZernioTeardown(
+  sql: postgres.Sql,
+  row: ZernioTeardownRow,
+): Promise<void> {
   const accountIds = normalizeIds(row.zernio_account_ids);
   if (row.zernio_accounts_step !== 'success') {
     if (accountIds.length === 0) {

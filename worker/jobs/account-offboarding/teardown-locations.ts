@@ -1,8 +1,8 @@
+import type postgres from 'postgres';
 import type { AccountOffboardingStepOutcome } from '../../../src/lib/account-offboarding/types';
 import {
   archiveLocationForAccountOffboardingTeardownTransaction,
 } from '../../../src/lib/locations/archive-location-tx';
-import { sql } from '../../../src/lib/db/server';
 
 interface LocationTeardownRow {
   id: string;
@@ -11,7 +11,10 @@ interface LocationTeardownRow {
   location_archival_step: AccountOffboardingStepOutcome | null;
 }
 
-export async function runLocationTeardown(row: LocationTeardownRow): Promise<void> {
+export async function runLocationTeardown(
+  sql: postgres.Sql,
+  row: LocationTeardownRow,
+): Promise<void> {
   const locationIds = normalizeIds(row.location_ids);
   if (row.location_archival_step === 'success') {
     return;
