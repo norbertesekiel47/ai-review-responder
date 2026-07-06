@@ -57,7 +57,7 @@ export async function POST(
   if (!ctx.ok) return ctx.response;
   const { accountId, locationId, responseId, reviewId, audit } = ctx.value;
 
-  const offboardingState = await getOffboardingState(accountId);
+  const offboardingState = await getOffboardingState(accountId, sql);
   if (isPublishingBlocked(offboardingState)) {
     return NextResponse.json({ error: 'account_offboarding_blocked' }, { status: 403 });
   }

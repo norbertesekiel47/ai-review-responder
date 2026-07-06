@@ -1,4 +1,4 @@
-import { sql } from '../../../src/lib/db/server';
+import type postgres from 'postgres';
 import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import type { AccountOffboardingStepOutcome } from '../../../src/lib/account-offboarding/types';
 
@@ -10,6 +10,7 @@ interface OutboxTeardownRow {
 }
 
 export async function runOutboxTerminalization(
+  sql: postgres.Sql,
   row: OutboxTeardownRow,
   currentOutboxId: string,
 ): Promise<void> {

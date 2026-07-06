@@ -1,13 +1,12 @@
 import { createHash } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
 import type postgres from 'postgres';
-import { sql } from '@/lib/db/server';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import {
   enqueueAccountOffboardingBillingSchedule,
   enqueueAccountOffboardingEmail,
   enqueueAccountOffboardingTeardown,
-} from '@/lib/shared/job-outbox-helpers';
+} from '@/lib/account-offboarding/outbox';
 import {
   captureAccountOffboardingSnapshot,
   type AccountOffboardingSnapshotMissingField,
@@ -92,6 +91,7 @@ export type ConfirmDeleteDataOffboardingResult =
   };
 
 export async function confirmCancelOnlyOffboarding(
+  sql: postgres.Sql,
   input: ConfirmCancelOnlyOffboardingInput,
 ): Promise<ConfirmCancelOnlyOffboardingResult> {
   const idempotencyKeyHash = hashIdempotencyKey(input.idempotencyKey);
@@ -185,6 +185,7 @@ export async function confirmCancelOnlyOffboarding(
 }
 
 export async function confirmDeleteDataOffboarding(
+  sql: postgres.Sql,
   input: ConfirmDeleteDataOffboardingInput,
 ): Promise<ConfirmDeleteDataOffboardingResult> {
   const idempotencyKeyHash = hashIdempotencyKey(input.idempotencyKey);

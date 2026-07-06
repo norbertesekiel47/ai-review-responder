@@ -11,15 +11,15 @@ const { mockSql } = vi.hoisted(() => ({
   mockSql: vi.fn(),
 }));
 
-vi.mock('@/lib/db/server', () => ({
-  sql: mockSql,
-}));
-
+import type { Sql } from 'postgres';
 import {
   getActiveLocationCount,
   getLocationsForAccount,
   getLocationById,
 } from '../repo';
+
+// The injected sql client IS the mock — assertions still read mockSql.mock.calls.
+const sql = mockSql as unknown as Sql;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -55,7 +55,7 @@ describe('getActiveLocationCount', () => {
   it('returns correct count excluding archived locations', async () => {
     mockSql.mockResolvedValueOnce([{ count: 2 }]);
 
-    const count = await getActiveLocationCount(ACCOUNT_ID);
+    const count = await getActiveLocationCount(sql, ACCOUNT_ID);
 
     expect(count).toBe(2);
 
@@ -69,7 +69,7 @@ describe('getActiveLocationCount', () => {
   it('returns 0 when no locations exist', async () => {
     mockSql.mockResolvedValueOnce([{ count: 0 }]);
 
-    const count = await getActiveLocationCount(ACCOUNT_ID);
+    const count = await getActiveLocationCount(sql, ACCOUNT_ID);
 
     expect(count).toBe(0);
   });
@@ -77,7 +77,7 @@ describe('getActiveLocationCount', () => {
   it('returns 0 when all locations are archived', async () => {
     mockSql.mockResolvedValueOnce([{ count: 0 }]);
 
-    const count = await getActiveLocationCount(ACCOUNT_ID);
+    const count = await getActiveLocationCount(sql, ACCOUNT_ID);
 
     expect(count).toBe(0);
   });
@@ -85,7 +85,7 @@ describe('getActiveLocationCount', () => {
   it('returns correct count for single active location', async () => {
     mockSql.mockResolvedValueOnce([{ count: 1 }]);
 
-    const count = await getActiveLocationCount(ACCOUNT_ID);
+    const count = await getActiveLocationCount(sql, ACCOUNT_ID);
 
     expect(count).toBe(1);
   });
@@ -117,7 +117,7 @@ describe('getLocationsForAccount', () => {
     ];
     mockSql.mockResolvedValueOnce(locations);
 
-    const result = await getLocationsForAccount(ACCOUNT_ID);
+    const result = await getLocationsForAccount(sql, ACCOUNT_ID);
 
     expect(result).toHaveLength(3);
 
@@ -135,7 +135,7 @@ describe('getLocationsForAccount', () => {
     ];
     mockSql.mockResolvedValueOnce(activeLocations);
 
-    const result = await getLocationsForAccount(ACCOUNT_ID);
+    const result = await getLocationsForAccount(sql, ACCOUNT_ID);
 
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe(LOCATION_ID_1);
@@ -149,7 +149,7 @@ describe('getLocationsForAccount', () => {
   it('returns empty array when no locations exist', async () => {
     mockSql.mockResolvedValueOnce([]);
 
-    const result = await getLocationsForAccount(ACCOUNT_ID);
+    const result = await getLocationsForAccount(sql, ACCOUNT_ID);
 
     expect(result).toHaveLength(0);
   });
@@ -164,7 +164,7 @@ describe('getLocationsForAccount', () => {
     ];
     mockSql.mockResolvedValueOnce(locations);
 
-    const result = await getLocationsForAccount(ACCOUNT_ID);
+    const result = await getLocationsForAccount(sql, ACCOUNT_ID);
 
     expect(result[0]!.display_label).toBe('Downtown Cafe');
   });
@@ -180,7 +180,7 @@ describe('getLocationsForAccount', () => {
     ];
     mockSql.mockResolvedValueOnce(locations);
 
-    const result = await getLocationsForAccount(ACCOUNT_ID);
+    const result = await getLocationsForAccount(sql, ACCOUNT_ID);
 
     expect(result[0]!.display_label).toBeNull();
     expect(result[0]!.name).toBe('Downtown Cafe');
@@ -194,7 +194,7 @@ describe('getLocationById', () => {
     const location = mkLocationRow({ id: LOCATION_ID_1, name: 'Downtown Cafe' });
     mockSql.mockResolvedValueOnce([location]);
 
-    const result = await getLocationById(LOCATION_ID_1);
+    const result = await getLocationById(sql, LOCATION_ID_1);
 
     expect(result).toBeDefined();
     expect(result!.id).toBe(LOCATION_ID_1);
@@ -204,7 +204,7 @@ describe('getLocationById', () => {
   it('returns null when location does not exist', async () => {
     mockSql.mockResolvedValueOnce([]);
 
-    const result = await getLocationById('00000000-0000-7f00-8000-000000000000');
+    const result = await getLocationById(sql, '00000000-0000-7f00-8000-000000000000');
 
     expect(result).toBeNull();
   });
@@ -216,7 +216,7 @@ describe('getLocationById', () => {
     });
     mockSql.mockResolvedValueOnce([location]);
 
-    const result = await getLocationById(LOCATION_ID_1);
+    const result = await getLocationById(sql, LOCATION_ID_1);
 
     expect(result).toBeDefined();
     expect(result!.archived_at).toBeTruthy();
@@ -226,7 +226,7 @@ describe('getLocationById', () => {
     const location = mkLocationRow({ id: LOCATION_ID_1, account_id: ACCOUNT_ID });
     mockSql.mockResolvedValueOnce([location]);
 
-    const result = await getLocationById(LOCATION_ID_1);
+    const result = await getLocationById(sql, LOCATION_ID_1);
 
     expect(result).toBeDefined();
     expect(result!.account_id).toBe(ACCOUNT_ID);

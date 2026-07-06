@@ -78,6 +78,7 @@ describe('PUT /api/locations/display-label', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ success: true, displayLabel: 'Downtown' });
     expect(mockUpdateDisplayLabel).toHaveBeenCalledWith(
+      expect.anything(),
       LOCATION_ID,
       ACCOUNT_ID,
       'Downtown',

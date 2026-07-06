@@ -283,7 +283,7 @@ describe('POST /api/admin/offboardings/[offboardingId]/provider-disposition', ()
       requestId: null,
       ip: '203.0.113.10',
       userAgent: 'vitest',
-    });
+    }, mockSql);
     expect(JSON.stringify(await res.json())).not.toContain('zernio-secret-id');
   });
 });

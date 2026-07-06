@@ -1,5 +1,5 @@
 import type postgres from 'postgres';
-import { jsonb, sql, supabaseServer } from '../../../src/lib/db/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { verifyAccountOffboardingPurge } from '../../../src/lib/account-offboarding/purge-verification';
 import {
   extractConcreteAdminProviderDispositions,
@@ -7,7 +7,7 @@ import {
   unresolvedApplicableTeardownProviders,
 } from '../../../src/lib/account-offboarding/provider-disposition';
 import { enqueueOffboardingPurged } from '../../../src/lib/account-offboarding/analytics';
-import { enqueueAccountOffboardingEmail } from '../../../src/lib/shared/job-outbox-helpers';
+import { enqueueAccountOffboardingEmail } from '../../../src/lib/account-offboarding/outbox';
 import {
   deleteByBusiness,
   impersonationSessionScrubScopeRecord,
@@ -56,6 +56,7 @@ export function isStaleOutboxAttemptError(err: unknown): boolean {
 }
 
 export async function loadPurgeOffboarding(
+  sql: postgres.Sql,
   accountOffboardingId: string,
   accountId: string,
 ): Promise<AccountOffboardingPurgeRow | null> {
@@ -105,12 +106,14 @@ export function validatePurgeableOffboarding(
 }
 
 export async function runAuthBindingPurgeStage(
+  sql: postgres.Sql,
+  supabaseServer: SupabaseClient,
   row: AccountOffboardingPurgeRow,
 ): Promise<void> {
   if (!row.auth_user_id?.trim()) return;
 
   const authUserId = row.auth_user_id;
-  const resolution = await revalidateAuthBinding(row, authUserId);
+  const resolution = await revalidateAuthBinding(sql, row, authUserId);
   if (resolution === 'already_detached') return;
 
   const result = await supabaseServer.auth.admin.deleteUser(authUserId);
@@ -130,6 +133,7 @@ export async function runAuthBindingPurgeStage(
 }
 
 async function revalidateAuthBinding(
+  sql: postgres.Sql,
   row: AccountOffboardingPurgeRow,
   authUserId: string,
 ): Promise<'delete_required' | 'already_detached'> {
@@ -161,7 +165,7 @@ async function revalidateAuthBinding(
   throw new Error('account_offboarding_auth_revalidation_failed');
 }
 
-export async function runDependentReferencePurgeStage(row: AccountOffboardingPurgeRow): Promise<void> {
+export async function runDependentReferencePurgeStage(sql: postgres.Sql, row: AccountOffboardingPurgeRow): Promise<void> {
   await sql.begin(async (tx) => {
     // Sequential awaits share one Postgres.js transaction connection (sql.begin); they execute
     // serially on a single connection and cannot be parallelized.
@@ -227,7 +231,7 @@ export async function runDependentReferencePurgeStage(row: AccountOffboardingPur
   });
 }
 
-export async function runContentPurgeStage(row: AccountOffboardingPurgeRow): Promise<void> {
+export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboardingPurgeRow): Promise<void> {
   await sql.begin(async (tx) => {
     // Sequential awaits share one Postgres.js transaction connection (sql.begin); they execute
     // serially on a single connection and cannot be parallelized.
@@ -264,6 +268,7 @@ export async function runContentPurgeStage(row: AccountOffboardingPurgeRow): Pro
 // twin (purge-verification.ts) checks the same scope shape on the read side so the
 // purge cannot stamp purged_at while a matching raw identifier survives.
 export async function runRawPayloadPurgeStage(
+  sql: postgres.Sql,
   row: AccountOffboardingPurgeRow,
   currentOutboxId: string,
 ): Promise<void> {
@@ -359,7 +364,7 @@ export async function runRawPayloadPurgeStage(
     if (scopedOutboxRows.length > 0) {
       await tx`
         UPDATE account_offboardings
-        SET provider_dispositions = provider_dispositions || ${jsonb(scopedOutboxRows.map(jobOutboxScrubScopeRecord))},
+        SET provider_dispositions = provider_dispositions || ${tx.json(scopedOutboxRows.map(jobOutboxScrubScopeRecord) as never)},
             updated_at = NOW()
         WHERE id = ${row.id}::uuid
           AND account_id = ${row.account_id}::uuid
@@ -384,7 +389,7 @@ export async function runRawPayloadPurgeStage(
   });
 }
 
-export async function runAnalyticsPurgeStage(row: AccountOffboardingPurgeRow): Promise<void> {
+export async function runAnalyticsPurgeStage(sql: postgres.Sql, row: AccountOffboardingPurgeRow): Promise<void> {
   // One scrub over a single account-scope predicate: every analytics row owned by this
   // account by FK (account/business/user) OR by a raw account identifier still sitting in
   // `distinct_id` (the FK-independent case the unenforced "raw UUID implies FK" invariant
@@ -408,7 +413,7 @@ export async function runAnalyticsPurgeStage(row: AccountOffboardingPurgeRow): P
   `;
 }
 
-export async function runProviderIdentifierPurgeStage(row: AccountOffboardingPurgeRow): Promise<void> {
+export async function runProviderIdentifierPurgeStage(sql: postgres.Sql, row: AccountOffboardingPurgeRow): Promise<void> {
   await sql.begin(async (tx) => {
     // Sequential awaits share one Postgres.js transaction connection (sql.begin); they execute
     // serially on a single connection and cannot be parallelized.
@@ -452,7 +457,7 @@ export async function runProviderIdentifierPurgeStage(row: AccountOffboardingPur
   });
 }
 
-export async function runAuditAndCostPayloadPurgeStage(row: AccountOffboardingPurgeRow): Promise<void> {
+export async function runAuditAndCostPayloadPurgeStage(sql: postgres.Sql, row: AccountOffboardingPurgeRow): Promise<void> {
   await sql.begin(async (tx) => {
     const impersonationSessionIds = await scopedImpersonationSessionIds(tx, row);
     await tx`
@@ -469,7 +474,7 @@ export async function runAuditAndCostPayloadPurgeStage(row: AccountOffboardingPu
     if (impersonationSessionIds.length > 0) {
       await tx`
         UPDATE account_offboardings
-        SET provider_dispositions = provider_dispositions || ${jsonb(impersonationSessionIds.map(impersonationSessionScrubScopeRecord))},
+        SET provider_dispositions = provider_dispositions || ${tx.json(impersonationSessionIds.map(impersonationSessionScrubScopeRecord) as never)},
             updated_at = NOW()
         WHERE id = ${row.id}::uuid
           AND account_id = ${row.account_id}::uuid
@@ -488,7 +493,7 @@ export async function runAuditAndCostPayloadPurgeStage(row: AccountOffboardingPu
   });
 }
 
-export async function runParentTombstonePurgeStage(row: AccountOffboardingPurgeRow): Promise<void> {
+export async function runParentTombstonePurgeStage(sql: postgres.Sql, row: AccountOffboardingPurgeRow): Promise<void> {
   await sql.begin(async (tx) => {
     // Sequential awaits share one Postgres.js transaction connection (sql.begin) and tombstone
     // account-scoped rows ending on the shared accounts row; parallel = lock contention/deadlock.
@@ -543,6 +548,7 @@ export async function runParentTombstonePurgeStage(row: AccountOffboardingPurgeR
 }
 
 export async function finalizePurgeInTransaction(
+  sql: postgres.Sql,
   row: AccountOffboardingPurgeRow,
   outboxId: string,
   outboxAttempt: number | undefined,
@@ -556,7 +562,7 @@ export async function finalizePurgeInTransaction(
     await tx`
       UPDATE job_outbox
       SET aggregate_id = NULL,
-          payload = ${jsonb({})},
+          payload = ${tx.json({} as never)},
           last_error = NULL
       WHERE id = ${outboxId}::uuid
     `;
@@ -671,7 +677,7 @@ async function lockCurrentOutboxAttempt(
 }
 
 async function scrubLifecycleReceiptInTransaction(
-  exec: typeof sql | postgres.TransactionSql,
+  exec: postgres.Sql | postgres.TransactionSql,
   row: AccountOffboardingPurgeRow,
 ): Promise<void> {
   await exec`
@@ -720,6 +726,7 @@ async function completeCurrentOutboxAttempt(
 }
 
 export async function markPurgeRetryableFailure(
+  sql: postgres.Sql,
   row: AccountOffboardingPurgeRow,
   safeMessage: string,
 ): Promise<void> {
@@ -736,6 +743,7 @@ export async function markPurgeRetryableFailure(
 }
 
 export async function markPurgeTerminalFailure(
+  sql: postgres.Sql,
   row: AccountOffboardingPurgeRow,
   safeMessage: string,
 ): Promise<void> {

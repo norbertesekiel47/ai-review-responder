@@ -2,10 +2,9 @@ import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
-import { sql } from '@/lib/db/server';
 import type { AccountOffboardingMode } from './types';
 
-type SqlExecutor = typeof sql | postgres.TransactionSql;
+type SqlExecutor = postgres.Sql | postgres.TransactionSql;
 
 interface OffboardingLifecycleEventInput {
   accountId: string;

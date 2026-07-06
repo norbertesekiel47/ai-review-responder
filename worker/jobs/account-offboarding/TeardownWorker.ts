@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
+import type postgres from 'postgres';
 import * as Sentry from '@sentry/node';
-import { sql } from '../../../src/lib/db/server';
 import {
   errorMessage,
   extractOutboxHandle,
@@ -10,7 +10,7 @@ import {
 } from '../../../src/lib/shared/outbox';
 import type { AccountOffboardingTeardownPayload } from '../../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
-import { enqueueAccountOffboardingEmail } from '../../../src/lib/shared/job-outbox-helpers';
+import { enqueueAccountOffboardingEmail } from '../../../src/lib/account-offboarding/outbox';
 import type {
   AccountOffboardingMode,
   AccountOffboardingStatus,
@@ -52,6 +52,7 @@ type FailureStepColumn =
   | 'job_terminalization_step';
 
 export async function handleAccountOffboardingTeardown(
+  sql: postgres.Sql,
   job: Job<AccountOffboardingTeardownPayload>,
 ): Promise<void> {
   const logger = createWorkerLogger(
@@ -88,31 +89,31 @@ export async function handleAccountOffboardingTeardown(
     if (!isTerminalAttempt(job)) {
       throw new Error(safeMessage);
     }
-    await markTeardownFailed(offboarding, safeMessage, undefined);
+    await markTeardownFailed(sql, offboarding, safeMessage, undefined);
     await markOutboxFailed(outboxId, safeMessage, outboxAttempt);
     return;
   }
 
   try {
     if (offboarding.mode === 'cancel_only') {
-      await verifyCancelOnlyTeardownReady(offboarding);
+      await verifyCancelOnlyTeardownReady(sql, offboarding);
     }
 
-    await markTeardownStarted(offboarding);
+    await markTeardownStarted(sql, offboarding);
     offboarding.status = 'tearing_down';
     offboarding.teardown_started_at ??= new Date();
 
-    await runStripeTeardown(offboarding);
+    await runStripeTeardown(sql, offboarding);
     offboarding.stripe_step = resolveStripeStepOutcome(offboarding);
-    await runZernioTeardown(offboarding);
+    await runZernioTeardown(sql, offboarding);
     offboarding.zernio_accounts_step = resolveArrayStepOutcome(offboarding.zernio_account_ids);
     offboarding.zernio_profiles_step = resolveArrayStepOutcome(offboarding.zernio_profile_ids);
-    await runLocationTeardown(offboarding);
+    await runLocationTeardown(sql, offboarding);
     offboarding.location_archival_step = resolveArrayStepOutcome(offboarding.location_ids);
-    await runOutboxTerminalization(offboarding, outboxId);
+    await runOutboxTerminalization(sql, offboarding, outboxId);
     offboarding.job_terminalization_step = 'success';
 
-    const completed = await finalizeTeardown(offboarding);
+    const completed = await finalizeTeardown(sql, offboarding);
     if (!completed) {
       throw new Error('account_offboarding_teardown_incomplete');
     }
@@ -124,7 +125,7 @@ export async function handleAccountOffboardingTeardown(
       throw new Error(safeMessage);
     }
 
-    await markTeardownFailed(offboarding, safeMessage, failureColumnForErrorStep(offboarding));
+    await markTeardownFailed(sql, offboarding, safeMessage, failureColumnForErrorStep(offboarding));
     await markOutboxFailed(outboxId, safeMessage, outboxAttempt);
     return;
   }
@@ -132,7 +133,10 @@ export async function handleAccountOffboardingTeardown(
   await markOutboxCompleted(outboxId, outboxAttempt);
 }
 
-async function markTeardownStarted(row: AccountOffboardingTeardownRow): Promise<void> {
+async function markTeardownStarted(
+  sql: postgres.Sql,
+  row: AccountOffboardingTeardownRow,
+): Promise<void> {
   await sql`
     UPDATE account_offboardings
     SET status = 'tearing_down',
@@ -146,7 +150,10 @@ async function markTeardownStarted(row: AccountOffboardingTeardownRow): Promise<
   `;
 }
 
-async function finalizeTeardown(row: AccountOffboardingTeardownRow): Promise<boolean> {
+async function finalizeTeardown(
+  sql: postgres.Sql,
+  row: AccountOffboardingTeardownRow,
+): Promise<boolean> {
   // Derive the terminal status from the LIVE purge_cancelled_at column, not the
   // in-memory snapshot loaded at the start of the job. A keep-my-data request can
   // cancel the purge while teardown is mid-flight; reading the stale snapshot would
@@ -214,6 +221,7 @@ async function finalizeTeardown(row: AccountOffboardingTeardownRow): Promise<boo
 }
 
 async function markTeardownFailed(
+  sql: postgres.Sql,
   row: AccountOffboardingTeardownRow,
   safeMessage: string,
   failedColumn: FailureStepColumn | undefined,
@@ -267,12 +275,13 @@ function validateTeardownableOffboarding(row: AccountOffboardingTeardownRow): st
 }
 
 async function verifyCancelOnlyTeardownReady(
+  sql: postgres.Sql,
   row: AccountOffboardingTeardownRow,
 ): Promise<void> {
   if (!row.access_ends_at || new Date(row.access_ends_at).getTime() > Date.now()) {
     throw new Error('account_offboarding_access_end_not_reached');
   }
-  await verifyCancelOnlyNaturalCancellation(row);
+  await verifyCancelOnlyNaturalCancellation(sql, row);
 }
 
 function failureColumnForErrorStep(

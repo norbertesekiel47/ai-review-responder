@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { sql } from '@/lib/db/server';
-import { enqueueAccountOffboardingReactivation } from '@/lib/shared/job-outbox-helpers';
+import type postgres from 'postgres';
+import { enqueueAccountOffboardingReactivation } from '@/lib/account-offboarding/outbox';
 
 interface ReactivationRequestRow {
   id: string;
@@ -32,6 +32,7 @@ export type RequestCancelOnlyReactivationResult =
   | { ok: false; reason: 'not_reactivatable' };
 
 export async function requestCancelOnlyReactivation(
+  sql: postgres.Sql,
   input: RequestCancelOnlyReactivationInput,
 ): Promise<RequestCancelOnlyReactivationResult> {
   const idempotencyKeyHash = createHash('sha256').update(input.idempotencyKey).digest('hex');

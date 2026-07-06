@@ -35,8 +35,8 @@
 // at commit time, so both approaches work. The two-UPDATE approach is
 // clearer and easier to reason about.
 
+import type { Sql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '@/lib/db/server';
 
 // ── Input / Output types ───────────────────────────────────────────────────
 
@@ -76,6 +76,7 @@ export interface PromotePrimaryTxResult {
  * 'already_primary') — see src/lib/locations/owner-route.ts.
  */
 export async function promotePrimaryTransaction(
+  sql: Sql,
   input: PromotePrimaryTxInput,
 ): Promise<PromotePrimaryTxResult> {
   const { accountId, newPrimaryId, actorUserId } = input;
@@ -145,7 +146,7 @@ export async function promotePrimaryTransaction(
         ${newPrimaryId}::uuid,
         'primary_promoted',
         ${actorUserId ?? null}::uuid,
-        ${jsonb({
+        ${tx.json({
           old_primary_id: oldPrimaryId,
           new_primary_id: newPrimaryId,
         })}

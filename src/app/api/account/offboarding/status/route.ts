@@ -5,6 +5,7 @@ import {
 } from '@/lib/auth/route-helpers';
 import { accountOffboardingEnabled } from '@/lib/account-offboarding/flags';
 import { getAccountOffboardingStatus } from '@/lib/account-offboarding/status';
+import { sql } from '@/lib/db/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +21,7 @@ async function readOffboardingStatus(req: NextRequest): Promise<NextResponse> {
   const owner = await requireOwnerWithAccount(req);
   if (!owner.ok) return owner.response;
 
-  const status = await getAccountOffboardingStatus(owner.accountId);
+  const status = await getAccountOffboardingStatus(owner.accountId, sql);
   return jsonResponse({
     enabled: true,
     // The current account schema has no persisted IANA timezone. Keep the

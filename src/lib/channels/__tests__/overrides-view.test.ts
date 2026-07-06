@@ -81,7 +81,7 @@ describe('getChannelOverridesView', () => {
 
     const view = await getChannelOverridesView(mockSql, ACCOUNT_ID);
 
-    expect(mockGetAllLocationsForAccount).toHaveBeenCalledExactlyOnceWith(ACCOUNT_ID);
+    expect(mockGetAllLocationsForAccount).toHaveBeenCalledExactlyOnceWith(mockSql, ACCOUNT_ID);
     expect(harness.mockSql).toHaveBeenCalledTimes(1);
     expect(view.overrides).toEqual([
       {

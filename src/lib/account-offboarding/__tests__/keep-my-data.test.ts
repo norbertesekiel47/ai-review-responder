@@ -1,23 +1,17 @@
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockSql, mockJsonb } = vi.hoisted(() => {
+const { mockSql } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
   sqlFn.begin = vi.fn();
   sqlFn.json = vi.fn((value: unknown) => value);
   return {
     mockSql: sqlFn,
-    mockJsonb: vi.fn((value: unknown) => value),
   };
 });
 
 const { mockWriteAccountAuditLog } = vi.hoisted(() => ({
   mockWriteAccountAuditLog: vi.fn(),
-}));
-
-vi.mock('@/lib/db/server', () => ({
-  sql: mockSql,
-  jsonb: mockJsonb,
 }));
 
 vi.mock('@/lib/audit/log', () => ({
@@ -91,6 +85,7 @@ function makeTx(options: TxOptions = {}) {
     return [];
   });
 
+  (tx as any).json = mockSql.json;
   return { tx, calls };
 }
 
@@ -160,7 +155,7 @@ describe('keepMyDataForAccount', () => {
     const { tx, calls } = makeTx();
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await keepMyDataForAccount({
+    const result = await keepMyDataForAccount(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -233,7 +228,7 @@ describe('keepMyDataForAccount', () => {
     });
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await keepMyDataForAccount({
+    const result = await keepMyDataForAccount(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -258,7 +253,7 @@ describe('keepMyDataForAccount', () => {
     });
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await keepMyDataForAccount({
+    const result = await keepMyDataForAccount(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -286,7 +281,7 @@ describe('keepMyDataForAccount', () => {
     });
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await keepMyDataForAccount({
+    const result = await keepMyDataForAccount(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -311,7 +306,7 @@ describe('keepMyDataWithToken', () => {
     const { tx, calls } = makeTx();
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await keepMyDataWithToken({
+    const result = await keepMyDataWithToken(mockSql, {
       rawToken: RAW_TOKEN,
       requestId: 'req-token-1',
       ip: '203.0.113.21',
@@ -362,7 +357,7 @@ describe('keepMyDataWithToken', () => {
     const { tx, calls } = makeTx({ token: row });
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await keepMyDataWithToken({ rawToken: RAW_TOKEN });
+    const result = await keepMyDataWithToken(mockSql, { rawToken: RAW_TOKEN });
 
     expect(result).toEqual({ ok: false, reason });
     expect(sqlText(calls)).not.toContain('SET consumed_at = NOW()');
@@ -375,7 +370,7 @@ describe('keepMyDataWithToken', () => {
     const { tx } = makeTx({ token: null });
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    await expect(keepMyDataWithToken({ rawToken: RAW_TOKEN })).resolves.toEqual({
+    await expect(keepMyDataWithToken(mockSql, { rawToken: RAW_TOKEN })).resolves.toEqual({
       ok: false,
       reason: 'token_invalid',
     });
@@ -389,7 +384,7 @@ describe('keepMyDataWithToken', () => {
     });
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await keepMyDataWithToken({ rawToken: RAW_TOKEN });
+    const result = await keepMyDataWithToken(mockSql, { rawToken: RAW_TOKEN });
 
     expect(result).toEqual({ ok: false, reason: 'not_available' });
     expect(sqlText(calls)).not.toContain('SET consumed_at = NOW()');
@@ -402,7 +397,7 @@ describe('keepMyDataWithToken', () => {
     const { tx, calls } = makeTx({ consumeWins: false });
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await keepMyDataWithToken({ rawToken: RAW_TOKEN });
+    const result = await keepMyDataWithToken(mockSql, { rawToken: RAW_TOKEN });
 
     expect(result).toEqual({ ok: false, reason: 'not_available' });
     expect(sqlText(calls)).toContain('SET consumed_at = NOW()');

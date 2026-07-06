@@ -79,7 +79,7 @@ describeWithDb('addLocationTransaction duplicate google_place_id enforcement int
     const { addLocationTransaction } = await import('../add-location-tx');
 
     await expect(
-      addLocationTransaction({
+      addLocationTransaction(sql(), {
         accountId: ids.accountId,
         displayLabel: 'Duplicate Cafe',
         googlePlaceId: DUP_PLACE_ID,

@@ -343,7 +343,7 @@ Westside Grill,ChIJ9012`;
     await POST(req);
 
     expect(mockAddLocationTransaction).toHaveBeenCalledTimes(3);
-    for (const [input] of mockAddLocationTransaction.mock.calls) {
+    for (const [, input] of mockAddLocationTransaction.mock.calls) {
       expect(input).toMatchObject({ enqueueStripeOverageUpdate: false });
     }
 
@@ -547,7 +547,7 @@ Downtown Cafe,ChIJ1234,friendly,"Coffee and pastries","Bad coffee|Overpriced"`;
 
     expect(res.status).toBe(200);
     expect(mockAddLocationTransaction).toHaveBeenCalledTimes(1);
-    const txInput = mockAddLocationTransaction.mock.calls[0]![0];
+    const txInput = mockAddLocationTransaction.mock.calls[0]![1];
     expect(txInput.voiceConfig).toBeDefined();
     expect(txInput.voiceConfig.tone).toBe('friendly');
     expect(txInput.voiceConfig.productsServices).toBe('Coffee and pastries');
@@ -647,7 +647,7 @@ Duplicate Cafe,ChIJsame`;
     expect(body.failed[0].reason).toBe('duplicate_location_in_file');
     // The later duplicate must NOT reach the add-location transaction.
     expect(mockAddLocationTransaction).toHaveBeenCalledTimes(2);
-    for (const [input] of mockAddLocationTransaction.mock.calls) {
+    for (const [, input] of mockAddLocationTransaction.mock.calls) {
       expect(input.googlePlaceId).not.toBe(undefined);
     }
   });
@@ -679,7 +679,7 @@ Fixed Cafe,ChIJpoisoned`;
     // The corrected row reached the transaction — it was NOT rejected as an
     // in-file duplicate of the failed first occurrence.
     expect(mockAddLocationTransaction).toHaveBeenCalledTimes(1);
-    expect(mockAddLocationTransaction.mock.calls[0]![0].googlePlaceId).toBe('ChIJpoisoned');
+    expect(mockAddLocationTransaction.mock.calls[0]![1].googlePlaceId).toBe('ChIJpoisoned');
   });
 
   it('attempts a later identical row when the first occurrence failed inside processRow', async () => {

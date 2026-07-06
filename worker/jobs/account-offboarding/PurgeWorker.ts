@@ -1,4 +1,6 @@
 import type { Job } from 'bullmq';
+import type postgres from 'postgres';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/node';
 import {
   errorMessage,
@@ -28,6 +30,8 @@ import {
 import { scrubOffboardingErrorForStorage } from '../../../src/lib/account-offboarding/scrub-error';
 
 export async function handleAccountOffboardingPurge(
+  sql: postgres.Sql,
+  supabaseServer: SupabaseClient,
   job: Job<AccountOffboardingPurgePayload>,
 ): Promise<void> {
   const logger = createWorkerLogger(
@@ -37,6 +41,7 @@ export async function handleAccountOffboardingPurge(
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   const offboarding = await loadPurgeOffboarding(
+    sql,
     job.data.account_offboarding_id,
     job.data.account_id,
   );
@@ -56,10 +61,10 @@ export async function handleAccountOffboardingPurge(
     const safeMessage = scrubOffboardingErrorForStorage(validationError);
     alertPurgeFailure(job.data, safeMessage, isTerminalAttempt(job));
     if (!isTerminalAttempt(job)) {
-      await markPurgeRetryableFailure(offboarding, safeMessage);
+      await markPurgeRetryableFailure(sql, offboarding, safeMessage);
       throw new Error(safeMessage);
     }
-    await markPurgeTerminalFailure(offboarding, safeMessage);
+    await markPurgeTerminalFailure(sql, offboarding, safeMessage);
     await markOutboxFailed(outboxId, safeMessage, outboxAttempt);
     return;
   }
@@ -69,19 +74,19 @@ export async function handleAccountOffboardingPurge(
     // finalize); each is its own transaction taking FOR UPDATE locks on the shared accounts row,
     // so running them in parallel would deadlock and violate the dependency ordering.
     // react-doctor-disable-next-line react-doctor/async-parallel
-    await runAuthBindingPurgeStage(offboarding);
-    await runDependentReferencePurgeStage(offboarding);
-    await runRawPayloadPurgeStage(offboarding, outboxId);
-    await runContentPurgeStage(offboarding);
-    await runAnalyticsPurgeStage(offboarding);
-    await runProviderIdentifierPurgeStage(offboarding);
-    await runAuditAndCostPayloadPurgeStage(offboarding);
-    await runParentTombstonePurgeStage(offboarding);
+    await runAuthBindingPurgeStage(sql, supabaseServer, offboarding);
+    await runDependentReferencePurgeStage(sql, offboarding);
+    await runRawPayloadPurgeStage(sql, offboarding, outboxId);
+    await runContentPurgeStage(sql, offboarding);
+    await runAnalyticsPurgeStage(sql, offboarding);
+    await runProviderIdentifierPurgeStage(sql, offboarding);
+    await runAuditAndCostPayloadPurgeStage(sql, offboarding);
+    await runParentTombstonePurgeStage(sql, offboarding);
 
     // finalizePurgeInTransaction enqueues the purge-receipt email durably inside
     // its transaction (see M2), so there is no best-effort post-commit send to
     // lose on a crash.
-    await finalizePurgeInTransaction(offboarding, outboxId, outboxAttempt);
+    await finalizePurgeInTransaction(sql, offboarding, outboxId, outboxAttempt);
   } catch (err) {
     if (isStaleOutboxAttemptError(err)) {
       logger.log(`Skipping stale purge outbox attempt for offboarding ${offboarding.id}`);
@@ -92,11 +97,11 @@ export async function handleAccountOffboardingPurge(
     logger.error(`Purge failed for offboarding ${offboarding.id}: ${safeMessage}`);
     alertPurgeFailure(job.data, safeMessage, isTerminalAttempt(job));
     if (!isTerminalAttempt(job)) {
-      await markPurgeRetryableFailure(offboarding, safeMessage);
+      await markPurgeRetryableFailure(sql, offboarding, safeMessage);
       throw new Error(safeMessage);
     }
 
-    await markPurgeTerminalFailure(offboarding, safeMessage);
+    await markPurgeTerminalFailure(sql, offboarding, safeMessage);
     await markOutboxFailed(outboxId, safeMessage, outboxAttempt);
   }
 }

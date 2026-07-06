@@ -23,18 +23,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { mockSql } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
   sqlFn.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(sqlFn));
+  // Identity .json stub: the module now binds jsonb via the injected client's
+  // tx.json(...) (byte-identical to the old jsonb() helper).
+  sqlFn.json = (v: unknown) => v;
   return { mockSql: sqlFn };
 });
-
-vi.mock('@/lib/db/server', () => ({
-  sql: mockSql,
-  jsonb: (v: unknown) => v,
-}));
 
 vi.mock('uuid', () => ({
   v7: vi.fn(() => 'mock-uuid-v7-archive-000000000001'),
 }));
 
+import type { Sql } from 'postgres';
 import {
   assertCanArchiveLocation,
   archiveLocationTransaction,
@@ -42,6 +41,9 @@ import {
   reactivateLocationTransaction,
   type ArchiveLocationTxInput,
 } from '../archive-location-tx';
+
+// The injected sql client IS the mock — assertions still read mockSql.mock.calls.
+const sql = mockSql as unknown as Sql;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -155,7 +157,7 @@ describe('assertCanArchiveLocation', () => {
     // getLocationById returns null
     mockSql.mockResolvedValueOnce([]); // getLocationById
 
-    const result = await assertCanArchiveLocation(SECONDARY_LOCATION_ID, ACCOUNT_ID);
+    const result = await assertCanArchiveLocation(sql,SECONDARY_LOCATION_ID, ACCOUNT_ID);
 
     expect(result.allowed).toBe(false);
     if (!result.allowed) {
@@ -170,7 +172,7 @@ describe('assertCanArchiveLocation', () => {
       mkLocationRow({ account_id: 'different-account-0000-0000-0000' }),
     ]);
 
-    const result = await assertCanArchiveLocation(SECONDARY_LOCATION_ID, ACCOUNT_ID);
+    const result = await assertCanArchiveLocation(sql,SECONDARY_LOCATION_ID, ACCOUNT_ID);
 
     expect(result.allowed).toBe(false);
     if (!result.allowed) {
@@ -185,7 +187,7 @@ describe('assertCanArchiveLocation', () => {
       mkLocationRow({ archived_at: new Date('2026-04-01') }),
     ]);
 
-    const result = await assertCanArchiveLocation(SECONDARY_LOCATION_ID, ACCOUNT_ID);
+    const result = await assertCanArchiveLocation(sql,SECONDARY_LOCATION_ID, ACCOUNT_ID);
 
     expect(result.allowed).toBe(false);
     if (!result.allowed) {
@@ -200,7 +202,7 @@ describe('assertCanArchiveLocation', () => {
     mockSql.mockResolvedValueOnce([mkLocationRow()]); // getLocationById
     mockSql.mockResolvedValueOnce([{ count: 1 }]);    // getActiveLocationCount
 
-    const result = await assertCanArchiveLocation(SECONDARY_LOCATION_ID, ACCOUNT_ID);
+    const result = await assertCanArchiveLocation(sql,SECONDARY_LOCATION_ID, ACCOUNT_ID);
 
     expect(result.allowed).toBe(false);
     if (!result.allowed) {
@@ -218,7 +220,7 @@ describe('assertCanArchiveLocation', () => {
     ]); // getLocationById
     mockSql.mockResolvedValueOnce([{ count: 3 }]); // getActiveLocationCount
 
-    const result = await assertCanArchiveLocation(PRIMARY_LOCATION_ID, ACCOUNT_ID);
+    const result = await assertCanArchiveLocation(sql,PRIMARY_LOCATION_ID, ACCOUNT_ID);
 
     expect(result.allowed).toBe(false);
     if (!result.allowed) {
@@ -236,7 +238,7 @@ describe('assertCanArchiveLocation', () => {
     ]); // getLocationById
     mockSql.mockResolvedValueOnce([{ count: 1 }]); // getActiveLocationCount
 
-    const result = await assertCanArchiveLocation(PRIMARY_LOCATION_ID, ACCOUNT_ID);
+    const result = await assertCanArchiveLocation(sql,PRIMARY_LOCATION_ID, ACCOUNT_ID);
 
     expect(result.allowed).toBe(false);
     if (!result.allowed) {
@@ -252,7 +254,7 @@ describe('assertCanArchiveLocation', () => {
     ]); // getLocationById
     mockSql.mockResolvedValueOnce([{ count: 3 }]); // getActiveLocationCount
 
-    const result = await assertCanArchiveLocation(SECONDARY_LOCATION_ID, ACCOUNT_ID);
+    const result = await assertCanArchiveLocation(sql,SECONDARY_LOCATION_ID, ACCOUNT_ID);
 
     expect(result.allowed).toBe(true);
     if (result.allowed) {
@@ -268,7 +270,7 @@ describe('assertCanArchiveLocation', () => {
     ]); // getLocationById
     mockSql.mockResolvedValueOnce([{ count: 2 }]); // getActiveLocationCount
 
-    const result = await assertCanArchiveLocation(PRIMARY_LOCATION_ID, ACCOUNT_ID);
+    const result = await assertCanArchiveLocation(sql,PRIMARY_LOCATION_ID, ACCOUNT_ID);
 
     expect(result.allowed).toBe(false);
     if (!result.allowed) {
@@ -284,7 +286,7 @@ describe('assertCanArchiveLocation', () => {
 describe('archiveLocationTransaction', () => {
   // VAL-LOC-043: Archive transaction is atomic — businesses + audit + outbox
   it('executes UPDATE businesses + INSERT audit_log + INSERT outbox in a transaction', async () => {
-    const result = await archiveLocationTransaction(mkInput());
+    const result = await archiveLocationTransaction(sql, mkInput());
 
     // Verify sql.begin was called (atomic transaction)
     expect(mockSql.begin).toHaveBeenCalled();
@@ -295,7 +297,7 @@ describe('archiveLocationTransaction', () => {
 
   // Sets archived_at on the businesses row
   it('sets archived_at = NOW() on the businesses row', async () => {
-    await archiveLocationTransaction(mkInput());
+    await archiveLocationTransaction(sql, mkInput());
 
     // Find the UPDATE businesses call inside the tx
     const txCalls = mockSql.mock.calls;
@@ -309,7 +311,7 @@ describe('archiveLocationTransaction', () => {
   });
 
   it('filters archive UPDATE by both location id and account id', async () => {
-    await archiveLocationTransaction(mkInput());
+    await archiveLocationTransaction(sql, mkInput());
 
     const updateCall = mockSql.mock.calls.find(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),
@@ -320,7 +322,7 @@ describe('archiveLocationTransaction', () => {
   });
 
   it('locks the account and re-checks active count inside the archive transaction', async () => {
-    await archiveLocationTransaction(mkInput());
+    await archiveLocationTransaction(sql, mkInput());
 
     const lockIndex = mockSql.mock.calls.findIndex(
       (c: any[]) => {
@@ -346,7 +348,7 @@ describe('archiveLocationTransaction', () => {
   it('throws last_active_location inside the transaction before update/audit/outbox', async () => {
     driveArchiveDb({ activeCount: 1 });
 
-    await expect(archiveLocationTransaction(mkInput())).rejects.toThrow(
+    await expect(archiveLocationTransaction(sql, mkInput())).rejects.toThrow(
       'last_active_location',
     );
 
@@ -367,7 +369,7 @@ describe('archiveLocationTransaction', () => {
   it('throws and skips audit/outbox when archive UPDATE affects no rows', async () => {
     driveArchiveDb({ updateRows: [] });
 
-    await expect(archiveLocationTransaction(mkInput())).rejects.toThrow(
+    await expect(archiveLocationTransaction(sql, mkInput())).rejects.toThrow(
       'location_archive_conflict',
     );
 
@@ -384,7 +386,7 @@ describe('archiveLocationTransaction', () => {
 
   // Also sets is_primary = FALSE when archiving a primary
   it('sets is_primary = FALSE when archiving a primary location', async () => {
-    await archiveLocationTransaction(mkInput());
+    await archiveLocationTransaction(sql, mkInput());
 
     const txCalls = mockSql.mock.calls;
     const updateCall = txCalls.find(
@@ -398,7 +400,7 @@ describe('archiveLocationTransaction', () => {
 
   // Inserts account_audit_log with event_type 'location_archived'
   it('inserts account_audit_log with event_type location_archived', async () => {
-    await archiveLocationTransaction(mkInput({ actorUserId: ACTOR_USER_ID }));
+    await archiveLocationTransaction(sql, mkInput({ actorUserId: ACTOR_USER_ID }));
 
     const txCalls = mockSql.mock.calls;
     const auditCall = txCalls.find(
@@ -411,7 +413,7 @@ describe('archiveLocationTransaction', () => {
 
   // Audit log includes actor_user_id
   it('audit log includes actor_user_id', async () => {
-    await archiveLocationTransaction(mkInput({ actorUserId: ACTOR_USER_ID }));
+    await archiveLocationTransaction(sql, mkInput({ actorUserId: ACTOR_USER_ID }));
 
     const txCalls = mockSql.mock.calls;
     const auditCall = txCalls.find(
@@ -424,7 +426,7 @@ describe('archiveLocationTransaction', () => {
 
   // Enqueues Stripe overage decrement via job_outbox
   it('enqueues job_outbox row with topic update_stripe_overage_quantity', async () => {
-    await archiveLocationTransaction(mkInput());
+    await archiveLocationTransaction(sql, mkInput());
 
     const txCalls = mockSql.mock.calls;
     const outboxCall = txCalls.find(
@@ -441,7 +443,7 @@ describe('archiveLocationTransaction', () => {
       throw new Error('outbox INSERT failed: constraint violation');
     });
 
-    await expect(archiveLocationTransaction(mkInput())).rejects.toThrow(
+    await expect(archiveLocationTransaction(sql, mkInput())).rejects.toThrow(
       'outbox INSERT failed',
     );
   });
@@ -450,7 +452,7 @@ describe('archiveLocationTransaction', () => {
   // (structural test: the archive transaction does NOT delete or modify
   // responses/reviews — it only sets archived_at on the businesses row)
   it('does not delete or modify reviews/responses (only sets archived_at)', async () => {
-    await archiveLocationTransaction(mkInput());
+    await archiveLocationTransaction(sql, mkInput());
 
     const txCalls = mockSql.mock.calls;
     // Should NOT contain DELETE or UPDATE on reviews/responses tables
@@ -466,7 +468,7 @@ describe('archiveLocationTransaction', () => {
   // Audit payload includes relevant archive info (counts come from the
   // tx's locked snapshot, not a caller-supplied pre-tx read)
   it('audit log payload includes location_id and active_locations_before', async () => {
-    await archiveLocationTransaction(mkInput());
+    await archiveLocationTransaction(sql, mkInput());
 
     // The audit INSERT's payload should contain location_id and active_locations_before.
     // jsonb is mocked to pass through.
@@ -479,7 +481,7 @@ describe('archiveLocationTransaction', () => {
 
   // All three operations in the same sql.begin() call
   it('all operations (UPDATE, audit, outbox) run in the same sql.begin() call', async () => {
-    await archiveLocationTransaction(mkInput());
+    await archiveLocationTransaction(sql, mkInput());
 
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
 
@@ -512,7 +514,7 @@ describe('archiveLocationTransaction — B1 race-proof primary guard', () => {
     driveArchiveDb({ activeCount: 2, isPrimary: true });
 
     await expect(
-      archiveLocationTransaction(mkInput({ locationId: PRIMARY_LOCATION_ID })),
+      archiveLocationTransaction(sql, mkInput({ locationId: PRIMARY_LOCATION_ID })),
     ).rejects.toThrow('promote_first');
 
     // The archive UPDATE must NOT have been reached.
@@ -535,7 +537,7 @@ describe('archiveLocationTransaction — B1 race-proof primary guard', () => {
     driveArchiveDb({ activeCount: 1, isPrimary: true });
 
     await expect(
-      archiveLocationTransaction(mkInput({ locationId: PRIMARY_LOCATION_ID })),
+      archiveLocationTransaction(sql, mkInput({ locationId: PRIMARY_LOCATION_ID })),
     ).rejects.toThrow('last_active_location');
   });
 
@@ -546,7 +548,7 @@ describe('archiveLocationTransaction — B1 race-proof primary guard', () => {
     driveArchiveDb({ activeCount: 1, archivedAt: new Date('2026-06-01T00:00:00Z') });
 
     await expect(
-      archiveLocationTransaction(mkInput({ locationId: SECONDARY_LOCATION_ID })),
+      archiveLocationTransaction(sql, mkInput({ locationId: SECONDARY_LOCATION_ID })),
     ).rejects.toThrow('location_archive_conflict');
 
     const updateCall = mockSql.mock.calls.find(
@@ -560,7 +562,7 @@ describe('archiveLocationTransaction — B1 race-proof primary guard', () => {
     driveArchiveDb({ activeCount: 2, updateRows: [] });
 
     await expect(
-      archiveLocationTransaction(mkInput({ locationId: SECONDARY_LOCATION_ID })),
+      archiveLocationTransaction(sql, mkInput({ locationId: SECONDARY_LOCATION_ID })),
     ).rejects.toThrow('location_archive_conflict');
   });
 });
@@ -569,7 +571,7 @@ describe('archiveLocationForAccountOffboardingTeardownTransaction — B1 teardow
   it('archives the primary location during teardown without throwing promote_first', async () => {
     driveArchiveDb({ activeCount: 1, isPrimary: true });
 
-    const result = await archiveLocationForAccountOffboardingTeardownTransaction({
+    const result = await archiveLocationForAccountOffboardingTeardownTransaction(sql, {
       locationId: PRIMARY_LOCATION_ID,
       accountId: ACCOUNT_ID,
       accountOffboardingId: 'offboarding-123',
@@ -585,7 +587,7 @@ describe('archiveLocationForAccountOffboardingTeardownTransaction — B1 teardow
 
 describe('archiveLocationForAccountOffboardingTeardownTransaction', () => {
   it('reuses the shared archive transaction body and still enqueues Stripe overage updates', async () => {
-    const result = await archiveLocationForAccountOffboardingTeardownTransaction({
+    const result = await archiveLocationForAccountOffboardingTeardownTransaction(sql, {
       locationId: SECONDARY_LOCATION_ID,
       accountId: ACCOUNT_ID,
       accountOffboardingId: 'offboarding-123',
@@ -613,7 +615,7 @@ describe('archiveLocationForAccountOffboardingTeardownTransaction', () => {
   it('treats already-archived snapshot locations as idempotent success without rewriting audit/outbox', async () => {
     driveArchiveDb({ activeCount: 1, archivedAt: new Date('2026-05-01T00:00:00.000Z') });
 
-    const result = await archiveLocationForAccountOffboardingTeardownTransaction({
+    const result = await archiveLocationForAccountOffboardingTeardownTransaction(sql, {
       locationId: SECONDARY_LOCATION_ID,
       accountId: ACCOUNT_ID,
       accountOffboardingId: 'offboarding-123',
@@ -641,7 +643,7 @@ describe('archiveLocationForAccountOffboardingTeardownTransaction', () => {
 
 describe('reactivateLocationTransaction', () => {
   it('sets archived_at = NULL on the businesses row', async () => {
-    const result = await reactivateLocationTransaction({
+    const result = await reactivateLocationTransaction(sql, {
       locationId: SECONDARY_LOCATION_ID,
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
@@ -664,7 +666,7 @@ describe('reactivateLocationTransaction', () => {
   it('throws and skips audit/outbox when reactivate UPDATE affects no rows', async () => {
     driveArchiveDb({ updateRows: [] });
 
-    await expect(reactivateLocationTransaction({
+    await expect(reactivateLocationTransaction(sql, {
       locationId: SECONDARY_LOCATION_ID,
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
@@ -682,7 +684,7 @@ describe('reactivateLocationTransaction', () => {
   });
 
   it('inserts audit log with event_type location_reactivated', async () => {
-    await reactivateLocationTransaction({
+    await reactivateLocationTransaction(sql, {
       locationId: SECONDARY_LOCATION_ID,
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
@@ -698,7 +700,7 @@ describe('reactivateLocationTransaction', () => {
   });
 
   it('enqueues Stripe overage update via job_outbox', async () => {
-    await reactivateLocationTransaction({
+    await reactivateLocationTransaction(sql, {
       locationId: SECONDARY_LOCATION_ID,
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
@@ -715,7 +717,7 @@ describe('reactivateLocationTransaction', () => {
 
   // VAL-LOC-071: Zernio backfill enqueued on reactivation
   it('enqueues zernio_initial_backfill outbox row for the reactivated location', async () => {
-    await reactivateLocationTransaction({
+    await reactivateLocationTransaction(sql, {
       locationId: SECONDARY_LOCATION_ID,
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
@@ -739,7 +741,7 @@ describe('reactivateLocationTransaction', () => {
   });
 
   it('enqueues reactivation backfill with the full Zernio/account payload', async () => {
-    await reactivateLocationTransaction({
+    await reactivateLocationTransaction(sql, {
       locationId: SECONDARY_LOCATION_ID,
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
@@ -765,7 +767,7 @@ describe('reactivateLocationTransaction', () => {
   });
 
   it('runs all operations inside sql.begin()', async () => {
-    await reactivateLocationTransaction({
+    await reactivateLocationTransaction(sql, {
       locationId: SECONDARY_LOCATION_ID,
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
@@ -788,7 +790,7 @@ describe('reactivateLocationTransaction', () => {
       }],
     });
 
-    await reactivateLocationTransaction({
+    await reactivateLocationTransaction(sql, {
       locationId: SECONDARY_LOCATION_ID,
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
@@ -817,7 +819,7 @@ describe('reactivateLocationTransaction', () => {
       }],
     });
 
-    await reactivateLocationTransaction({
+    await reactivateLocationTransaction(sql, {
       locationId: SECONDARY_LOCATION_ID,
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
@@ -843,7 +845,7 @@ describe('reactivateLocationTransaction', () => {
     });
 
     await expect(
-      reactivateLocationTransaction({
+      reactivateLocationTransaction(sql, {
         locationId: SECONDARY_LOCATION_ID,
         accountId: ACCOUNT_ID,
         actorUserId: ACTOR_USER_ID,
@@ -864,7 +866,7 @@ describe('reactivateLocationTransaction', () => {
     });
 
     await expect(
-      reactivateLocationTransaction({
+      reactivateLocationTransaction(sql, {
         locationId: SECONDARY_LOCATION_ID,
         accountId: ACCOUNT_ID,
         actorUserId: ACTOR_USER_ID,
@@ -901,7 +903,7 @@ describe('reactivateLocationTransaction — B3 zero-primary self-heal', () => {
   it('self-promotes the reactivated location when the account has no active primary', async () => {
     driveArchiveDb({ activePrimaryCount: 0, zernio: null });
 
-    const result = await reactivateLocationTransaction({
+    const result = await reactivateLocationTransaction(sql, {
       locationId: SECONDARY_LOCATION_ID,
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
@@ -923,7 +925,7 @@ describe('reactivateLocationTransaction — B3 zero-primary self-heal', () => {
     driveArchiveDb({ activePrimaryCount: 0, selfPromoteRows: [], zernio: null });
 
     await expect(
-      reactivateLocationTransaction({
+      reactivateLocationTransaction(sql, {
         locationId: SECONDARY_LOCATION_ID,
         accountId: ACCOUNT_ID,
         actorUserId: ACTOR_USER_ID,
@@ -936,7 +938,7 @@ describe('reactivateLocationTransaction — B3 zero-primary self-heal', () => {
   it('does NOT self-promote when the account already has an active primary', async () => {
     driveArchiveDb({ activePrimaryCount: 1, zernio: null });
 
-    const result = await reactivateLocationTransaction({
+    const result = await reactivateLocationTransaction(sql, {
       locationId: SECONDARY_LOCATION_ID,
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
@@ -953,7 +955,7 @@ describe('reactivateLocationTransaction — B3 zero-primary self-heal', () => {
   it('takes the account FOR UPDATE lock FIRST, before the un-archive UPDATE', async () => {
     driveArchiveDb({ activePrimaryCount: 0, zernio: null });
 
-    await reactivateLocationTransaction({
+    await reactivateLocationTransaction(sql, {
       locationId: SECONDARY_LOCATION_ID,
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
@@ -982,7 +984,7 @@ describe('reactivateLocationTransaction — B3 zero-primary self-heal', () => {
 
 describe('concurrent safety (VAL-LOC-047)', () => {
   it('archiveLocationTransaction locks the account and target location before archive update', async () => {
-    await archiveLocationTransaction(mkInput());
+    await archiveLocationTransaction(sql, mkInput());
 
     const txCalls = mockSql.mock.calls;
     const accountLockCall = txCalls.find(

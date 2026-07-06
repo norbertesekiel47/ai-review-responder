@@ -15,22 +15,24 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { mockSql } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
   sqlFn.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(sqlFn));
+  // Identity .json stub: the module now binds jsonb via the injected client's
+  // tx.json(...) (byte-identical to the old jsonb() helper).
+  sqlFn.json = (v: unknown) => v;
   return { mockSql: sqlFn };
 });
-
-vi.mock('@/lib/db/server', () => ({
-  sql: mockSql,
-  jsonb: (v: unknown) => v,
-}));
 
 vi.mock('uuid', () => ({
   v7: vi.fn(() => 'mock-uuid-v7-promote-000000000001'),
 }));
 
+import type { Sql } from 'postgres';
 import {
   promotePrimaryTransaction,
   type PromotePrimaryTxInput,
 } from '../promote-primary-tx';
+
+// The injected sql client IS the mock — assertions still read mockSql.mock.calls.
+const sql = mockSql as unknown as Sql;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -80,7 +82,7 @@ describe('promotePrimaryTransaction', () => {
   it('sets is_primary = FALSE on old primary and is_primary = TRUE on new primary atomically', async () => {
     setupPromoteMocks();
 
-    const result = await promotePrimaryTransaction(mkInput());
+    const result = await promotePrimaryTransaction(sql, mkInput());
 
     expect(result.oldPrimaryId).toBe(OLD_PRIMARY_ID);
     expect(result.newPrimaryId).toBe(NEW_PRIMARY_ID);
@@ -99,7 +101,7 @@ describe('promotePrimaryTransaction', () => {
     mockSql.mockResolvedValueOnce([{ id: NEW_PRIMARY_ID }]); // promotion UPDATE RETURNING
     mockSql.mockResolvedValueOnce([]); // audit INSERT
 
-    const result = await promotePrimaryTransaction(mkInput());
+    const result = await promotePrimaryTransaction(sql, mkInput());
 
     expect(result.oldPrimaryId).toBeNull();
     expect(result.newPrimaryId).toBe(NEW_PRIMARY_ID);
@@ -115,7 +117,7 @@ describe('promotePrimaryTransaction', () => {
   it('both UPDATEs run in the same sql.begin() call', async () => {
     setupPromoteMocks();
 
-    await promotePrimaryTransaction(mkInput());
+    await promotePrimaryTransaction(sql, mkInput());
 
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
 
@@ -132,7 +134,7 @@ describe('promotePrimaryTransaction', () => {
   it('first UPDATE sets is_primary = FALSE on the old primary', async () => {
     setupPromoteMocks();
 
-    await promotePrimaryTransaction(mkInput());
+    await promotePrimaryTransaction(sql, mkInput());
 
     const txCalls = mockSql.mock.calls;
     const updateCall = txCalls.find(
@@ -148,7 +150,7 @@ describe('promotePrimaryTransaction', () => {
   it('second UPDATE sets is_primary = TRUE on the new primary', async () => {
     setupPromoteMocks();
 
-    await promotePrimaryTransaction(mkInput());
+    await promotePrimaryTransaction(sql, mkInput());
 
     const txCalls = mockSql.mock.calls;
     const updateCall = txCalls.find(
@@ -165,7 +167,7 @@ describe('promotePrimaryTransaction', () => {
     mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
     mockSql.mockResolvedValueOnce([]); // in-tx target lock returns no rows
 
-    await expect(promotePrimaryTransaction(mkInput())).rejects.toThrow(
+    await expect(promotePrimaryTransaction(sql, mkInput())).rejects.toThrow(
       'location_not_found',
     );
   });
@@ -178,7 +180,7 @@ describe('promotePrimaryTransaction', () => {
       is_primary: true, // already primary
     }]); // in-tx target lock
 
-    await expect(promotePrimaryTransaction(mkInput())).rejects.toThrow(
+    await expect(promotePrimaryTransaction(sql, mkInput())).rejects.toThrow(
       'already_primary',
     );
   });
@@ -190,7 +192,7 @@ describe('promotePrimaryTransaction', () => {
     mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
     mockSql.mockResolvedValueOnce([]); // archived target filtered out by archived_at IS NULL
 
-    await expect(promotePrimaryTransaction(mkInput())).rejects.toThrow(
+    await expect(promotePrimaryTransaction(sql, mkInput())).rejects.toThrow(
       'location_not_found',
     );
   });
@@ -199,7 +201,7 @@ describe('promotePrimaryTransaction', () => {
   it('inserts audit log with event_type primary_promoted', async () => {
     setupPromoteMocks();
 
-    await promotePrimaryTransaction(mkInput());
+    await promotePrimaryTransaction(sql, mkInput());
 
     const txCalls = mockSql.mock.calls;
     const auditCall = txCalls.find(
@@ -214,7 +216,7 @@ describe('promotePrimaryTransaction', () => {
   it('audit payload includes old_primary_id and new_primary_id', async () => {
     setupPromoteMocks();
 
-    await promotePrimaryTransaction(mkInput());
+    await promotePrimaryTransaction(sql, mkInput());
 
     const txCalls = mockSql.mock.calls;
     const auditCall = txCalls.find(
@@ -230,7 +232,7 @@ describe('promotePrimaryTransaction', () => {
       throw new Error('audit INSERT failed');
     });
 
-    await expect(promotePrimaryTransaction(mkInput())).rejects.toThrow(
+    await expect(promotePrimaryTransaction(sql, mkInput())).rejects.toThrow(
       'audit INSERT failed',
     );
   });
@@ -239,7 +241,7 @@ describe('promotePrimaryTransaction', () => {
     mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
     mockSql.mockResolvedValueOnce([]); // target archived under the lock → filtered out
 
-    await expect(promotePrimaryTransaction(mkInput())).rejects.toThrow(
+    await expect(promotePrimaryTransaction(sql, mkInput())).rejects.toThrow(
       'location_not_found',
     );
 

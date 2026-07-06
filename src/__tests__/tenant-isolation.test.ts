@@ -252,7 +252,7 @@ describeWithDb('tenant isolation integration', () => {
       { id: tenantA.channelEnrollmentId, account_id: tenantA.accountId },
     ]);
 
-    const tenantALocations = await helpers.getLocationsForAccount(tenantA.accountId);
+    const tenantALocations = await helpers.getLocationsForAccount(sql(), tenantA.accountId);
     expect(tenantALocations).toHaveLength(2);
     expect(tenantALocations.map((location) => location.account_id)).toEqual([
       tenantA.accountId,
@@ -276,6 +276,7 @@ describeWithDb('tenant isolation integration', () => {
 
     await expect(
       helpers.updateDisplayLabel(
+        sql(),
         tenantAPrimaryBusinessId,
         tenantA.accountId,
         'Tenant A verified update',
@@ -288,6 +289,7 @@ describeWithDb('tenant isolation integration', () => {
 
     await expect(
       helpers.updateDisplayLabel(
+        sql(),
         tenantBPrimaryBusinessId,
         tenantA.accountId,
         'cross-account leak',

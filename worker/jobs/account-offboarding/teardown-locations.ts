@@ -1,8 +1,8 @@
+import type postgres from 'postgres';
 import type { AccountOffboardingStepOutcome } from '../../../src/lib/account-offboarding/types';
 import {
   archiveLocationForAccountOffboardingTeardownTransaction,
 } from '../../../src/lib/locations/archive-location-tx';
-import { sql } from '../../../src/lib/db/server';
 
 interface LocationTeardownRow {
   id: string;
@@ -11,7 +11,10 @@ interface LocationTeardownRow {
   location_archival_step: AccountOffboardingStepOutcome | null;
 }
 
-export async function runLocationTeardown(row: LocationTeardownRow): Promise<void> {
+export async function runLocationTeardown(
+  sql: postgres.Sql,
+  row: LocationTeardownRow,
+): Promise<void> {
   const locationIds = normalizeIds(row.location_ids);
   if (row.location_archival_step === 'success') {
     return;
@@ -34,7 +37,7 @@ export async function runLocationTeardown(row: LocationTeardownRow): Promise<voi
     // Each archival is its own transaction taking a FOR UPDATE lock on the shared account-scoped
     // accounts row; running them in parallel would deadlock/contend on that row.
     // react-doctor-disable-next-line react-doctor/async-await-in-loop
-    await archiveLocationForAccountOffboardingTeardownTransaction({
+    await archiveLocationForAccountOffboardingTeardownTransaction(sql, {
       accountId: row.account_id,
       locationId,
       accountOffboardingId: row.id,

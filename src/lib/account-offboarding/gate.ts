@@ -1,9 +1,8 @@
 import type postgres from 'postgres';
 
-import { sql } from '@/lib/db/server';
 import type { ActiveOffboardingState } from './types';
 
-type SqlExecutor = typeof sql | postgres.TransactionSql;
+type SqlExecutor = postgres.Sql | postgres.TransactionSql;
 
 export const OFFBOARDING_INTENTS = [
   'processing',
@@ -51,7 +50,7 @@ interface ActiveOffboardingRow {
 
 export async function getOffboardingState(
   accountId: string,
-  db: SqlExecutor = sql,
+  db: SqlExecutor,
 ): Promise<ActiveOffboardingState | null> {
   const [row] = await db<ActiveOffboardingRow[]>`
     SELECT
@@ -109,7 +108,7 @@ export function activeOffboardingStateFromProjection(
  * unrelated requests.
  */
 export function createOffboardingGate(
-  db: SqlExecutor = sql,
+  db: SqlExecutor,
 ): OffboardingGate {
   const stateCache = new Map<string, Promise<ActiveOffboardingState | null>>();
   return {

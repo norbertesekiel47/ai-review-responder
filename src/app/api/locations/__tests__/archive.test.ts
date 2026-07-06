@@ -363,7 +363,7 @@ describe('POST /api/locations/archive', () => {
     await POST(req);
 
     expect(archiveLocationTransaction).toHaveBeenCalledTimes(1);
-    const txInput = (archiveLocationTransaction as ReturnType<typeof vi.fn>).mock.calls[0]![0];
+    const txInput = (archiveLocationTransaction as ReturnType<typeof vi.fn>).mock.calls[0]![1];
     expect(txInput.locationId).toBe(SECONDARY_LOCATION_ID);
     expect(txInput.accountId).toBe(ACCOUNT_ID);
     expect(txInput.actorUserId).toBe(ACTOR_USER_ID);

@@ -14,9 +14,8 @@ const { mockEnqueueBillingSchedule } = vi.hoisted(() => ({
   mockEnqueueBillingSchedule: vi.fn(),
 }));
 
-vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
 vi.mock('@/lib/audit/log', () => ({ writeAccountAuditLog: mockWriteAccountAuditLog }));
-vi.mock('@/lib/shared/job-outbox-helpers', () => ({
+vi.mock('@/lib/account-offboarding/outbox', () => ({
   enqueueAccountOffboardingBillingSchedule: mockEnqueueBillingSchedule,
 }));
 
@@ -70,7 +69,7 @@ describe('retryCancelOnlyBillingSchedule', () => {
     const { tx, calls } = makeTx();
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await retryCancelOnlyBillingSchedule({
+    const result = await retryCancelOnlyBillingSchedule(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -109,7 +108,7 @@ describe('retryCancelOnlyBillingSchedule', () => {
     const { tx, calls } = makeTx({ failedRow: null });
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await retryCancelOnlyBillingSchedule({
+    const result = await retryCancelOnlyBillingSchedule(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -125,7 +124,7 @@ describe('retryCancelOnlyBillingSchedule', () => {
     const { tx } = makeTx({ resetWins: false });
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await retryCancelOnlyBillingSchedule({
+    const result = await retryCancelOnlyBillingSchedule(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,

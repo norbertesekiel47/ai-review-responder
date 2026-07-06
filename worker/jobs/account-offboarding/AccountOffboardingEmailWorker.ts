@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
+import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '../../../src/lib/db/server';
 import {
   errorMessage,
   extractOutboxHandle,
@@ -207,6 +207,7 @@ const TERMINAL_ROW_EMAIL_TYPES: ReadonlySet<AccountOffboardingEmailPayload['emai
 );
 
 export async function handleAccountOffboardingEmail(
+  sql: postgres.Sql,
   job: Job<AccountOffboardingEmailPayload>,
 ): Promise<void> {
   const logger = createWorkerLogger('[AccountOffboardingEmailWorker]', job.data.correlation_id);
@@ -216,7 +217,7 @@ export async function handleAccountOffboardingEmail(
   // purge_receipt is sent AFTER the account row is scrubbed, so it carries its
   // recipient in the outbox payload and cannot use the row-backed dedup path.
   if (emailType === 'purge_receipt') {
-    await handlePurgeReceipt(job, outboxId, outboxAttempt);
+    await handlePurgeReceipt(sql, job, outboxId, outboxAttempt);
     return;
   }
   const descriptor = EMAIL_DESCRIPTORS[emailType];
@@ -249,7 +250,7 @@ export async function handleAccountOffboardingEmail(
       job.data.account_offboarding_id,
       emailType,
     );
-    if (await offboardingEmailAlreadySent(sentDeliveryId, job.data.account_id)) {
+    if (await offboardingEmailAlreadySent(sql, sentDeliveryId, job.data.account_id)) {
       logger.log(`Dedup hit for already-sent terminal-row email ${sentDeliveryId}`);
       await markOutboxCompleted(outboxId, outboxAttempt);
       return;
@@ -281,7 +282,7 @@ export async function handleAccountOffboardingEmail(
     emailType,
   );
 
-  const claimResult = await claimDelivery({
+  const claimResult = await claimDelivery(sql, {
     deliveryId,
     accountId: job.data.account_id,
     businessId,
@@ -302,7 +303,7 @@ export async function handleAccountOffboardingEmail(
   let keepMyDataToken: KeepMyDataToken | null = null;
   try {
     keepMyDataToken = descriptor.needsKeepMyDataToken
-      ? await ensureKeepMyDataToken(offboarding, deliveryId)
+      ? await ensureKeepMyDataToken(sql, offboarding, deliveryId)
       : null;
     const bodyHtml = descriptor.buildBody(offboarding, keepMyDataToken);
     const result = await sendInternalEmail({
@@ -357,7 +358,7 @@ export async function handleAccountOffboardingEmail(
   // Best-effort transient-PII cleanup AFTER the email is durably sent. A failure
   // here must not flip an already-completed send to failed (log-and-swallow).
   try {
-    await scrubRecipientAfterTerminalEmail(job.data);
+    await scrubRecipientAfterTerminalEmail(sql, job.data);
   } catch (err) {
     logger.error(
       `recipient scrub after terminal email failed: ${scrubOffboardingErrorForStorage(errorMessage(err))}`,
@@ -374,6 +375,7 @@ export async function handleAccountOffboardingEmail(
  * recipient until teardown completes; the purge path scrubs it independently.
  */
 async function scrubRecipientAfterTerminalEmail(
+  sql: postgres.Sql,
   payload: AccountOffboardingEmailPayload,
 ): Promise<void> {
   if (!TERMINAL_ROW_EMAIL_TYPES.has(payload.email_type)) return;
@@ -389,6 +391,7 @@ async function scrubRecipientAfterTerminalEmail(
 }
 
 async function handlePurgeReceipt(
+  sql: postgres.Sql,
   job: Job<AccountOffboardingEmailPayload>,
   outboxId: string,
   outboxAttempt: number | undefined,
@@ -425,10 +428,11 @@ async function handlePurgeReceipt(
   // scrub) leaves a raw email in job_outbox past purged_at. If this update fails the
   // outbox stays 'dispatched' and the job retries — the Resend idempotency key makes
   // the re-send a no-op, and the payload is only cleared once the row is completed.
-  await completePurgeReceiptOutbox(outboxId, outboxAttempt);
+  await completePurgeReceiptOutbox(sql, outboxId, outboxAttempt);
 }
 
 async function completePurgeReceiptOutbox(
+  sql: postgres.Sql,
   outboxId: string,
   attempt: number | undefined,
 ): Promise<void> {
@@ -451,6 +455,7 @@ async function completePurgeReceiptOutbox(
 }
 
 async function offboardingEmailAlreadySent(
+  sql: postgres.Sql,
   deliveryId: string,
   accountId: string,
 ): Promise<boolean> {
@@ -466,14 +471,14 @@ async function offboardingEmailAlreadySent(
   return Boolean(existing?.sent_at || existing?.external_message_id);
 }
 
-async function claimDelivery(input: {
+async function claimDelivery(sql: postgres.Sql, input: {
   deliveryId: string;
   accountId: string;
   businessId: string;
   recipient: string;
   template: string;
 }): Promise<DeliveryClaimResult> {
-  const claimed = await insertDeliveryClaim(input);
+  const claimed = await insertDeliveryClaim(sql, input);
   if (claimed.length > 0) return 'claimed';
 
   const [existing] = await sql<{
@@ -498,11 +503,11 @@ async function claimDelivery(input: {
   `;
   if (reclaimed.length === 0) return 'in_progress';
 
-  const retryClaimed = await insertDeliveryClaim(input);
+  const retryClaimed = await insertDeliveryClaim(sql, input);
   return retryClaimed.length > 0 ? 'claimed' : 'in_progress';
 }
 
-async function insertDeliveryClaim(input: {
+async function insertDeliveryClaim(sql: postgres.Sql, input: {
   deliveryId: string;
   accountId: string;
   businessId: string;
@@ -552,6 +557,7 @@ function isEmailableKeepMyDataStatus(status: string): boolean {
 }
 
 async function ensureKeepMyDataToken(
+  sql: postgres.Sql,
   row: AccountOffboardingEmailRow,
   deliveryId: string,
 ): Promise<KeepMyDataToken> {

@@ -275,7 +275,7 @@ describe('POST /api/locations/promote-primary', () => {
     await POST(req);
 
     expect(mockPromotePrimaryTransaction).toHaveBeenCalledTimes(1);
-    const txInput = mockPromotePrimaryTransaction.mock.calls[0]![0];
+    const txInput = mockPromotePrimaryTransaction.mock.calls[0]![1];
     expect(txInput.newPrimaryId).toBe(NEW_PRIMARY_ID);
     expect(txInput.accountId).toBe(ACCOUNT_ID);
   });

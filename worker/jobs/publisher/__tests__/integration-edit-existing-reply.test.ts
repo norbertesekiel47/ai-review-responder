@@ -28,7 +28,7 @@
 // because we point `DATABASE_POOL_URL` at the test DB in the vi.hoisted block
 // below — so the locking we assert on is the exact client the publisher holds.
 
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { Job } from 'bullmq';
 
 // ── Point the production `sql` singleton at the test DB BEFORE app imports ───
@@ -135,9 +135,12 @@ import { POST as restorePOST } from '@/app/api/dashboard/past-replies/[responseI
 import type { WorkerLogger } from '@/lib/shared/logger';
 import type { PublishResponsePayload } from '@/lib/shared/worker-types';
 import { NextRequest } from 'next/server';
+import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 
+// The hoisted block above already parsed .env.local and set DATABASE_POOL_URL,
+// so `RUN` is the authoritative gate — passed to describeWithDb as `enabled`.
+// It is also read in beforeAll/afterAll below, so it stays a named const.
 const RUN = !!testDbUrl;
-const d = RUN ? describe : describe.skip;
 
 const noopLogger: WorkerLogger = {
   info: () => {},
@@ -328,7 +331,7 @@ afterAll(async () => {
   }
 });
 
-d('HARD-GATE: edit-publisher + recovery against real Postgres', () => {
+describeWithDb('HARD-GATE: edit-publisher + recovery against real Postgres', { enabled: RUN }, () => {
   // ── Scenario 1: DELETE-success + POST permanent-failure → orphan ───────────
   it('1. DELETE ok then POST fails permanently → candidate failed w/ orphan marker, sibling superseded, NO posted row', async () => {
     const { seed, postedResponseId } = await seedReviewWithExistingReply();

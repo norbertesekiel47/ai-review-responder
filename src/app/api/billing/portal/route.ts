@@ -69,7 +69,7 @@ async function createBillingPortal(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const offboardingState = await getOffboardingState(accountId);
+  const offboardingState = await getOffboardingState(accountId, sql);
   if (isBillingManagementBlocked(offboardingState)) {
     return NextResponse.json(
       { error: 'account_offboarding_blocked' },

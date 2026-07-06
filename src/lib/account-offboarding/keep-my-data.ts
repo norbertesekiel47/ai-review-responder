@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
-import { sql } from '@/lib/db/server';
 import { writeAccountAuditLog } from '@/lib/audit/log';
-import { enqueueAccountOffboardingEmail } from '@/lib/shared/job-outbox-helpers';
+import { enqueueAccountOffboardingEmail } from '@/lib/account-offboarding/outbox';
 import { hashAccountOffboardingToken } from './tokens';
 import type { AccountOffboardingStatus } from './types';
 
@@ -73,6 +72,7 @@ export type KeepMyDataResult =
   };
 
 export async function keepMyDataForAccount(
+  sql: postgres.Sql,
   input: KeepMyDataAuthenticatedInput,
 ): Promise<KeepMyDataResult> {
   const idempotencyKeyHash = hashIdempotencyKey(input.idempotencyKey);
@@ -114,6 +114,7 @@ export async function keepMyDataForAccount(
 }
 
 export async function keepMyDataWithToken(
+  sql: postgres.Sql,
   input: KeepMyDataTokenInput,
 ): Promise<KeepMyDataResult> {
   const tokenHash = hashAccountOffboardingToken(input.rawToken);

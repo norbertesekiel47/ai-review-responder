@@ -359,7 +359,7 @@ describe('POST /api/locations/add', () => {
     await POST(req);
 
     expect(mockAddLocationTransaction).toHaveBeenCalledTimes(1);
-    const txInput = mockAddLocationTransaction.mock.calls[0]![0];
+    const txInput = mockAddLocationTransaction.mock.calls[0]![1];
     expect(txInput.accountId).toBe(ACCOUNT_ID);
     expect(txInput.displayLabel).toBe('Downtown Cafe');
     expect(txInput.googlePlaceId).toBe('ChIJN1t_tDeuEmsRUsoyG83frY4');
@@ -547,7 +547,7 @@ describe('POST /api/locations/add', () => {
 
     expect(res.status).toBe(201);
     expect(mockAddLocationTransaction).toHaveBeenCalledTimes(1);
-    expect(mockAddLocationTransaction.mock.calls[0]![0].googlePlaceId).toBe('ChIJx');
+    expect(mockAddLocationTransaction.mock.calls[0]![1].googlePlaceId).toBe('ChIJx');
   });
 
   // Transaction failure

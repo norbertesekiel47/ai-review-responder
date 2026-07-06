@@ -84,7 +84,7 @@ const QUOTA_DENIAL_STATUS: Record<string, number> = {
  * Gated by MULTI_LOCATION_ENABLED — returns 404 when disabled (VAL-LOC-041).
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const offboardingGate = createOffboardingGate();
+  const offboardingGate = createOffboardingGate(sql);
   const owner = await readOwnerForMultiLocationRoute(req, offboardingGate);
   if (!owner.ok) return owner.response;
   const { user } = owner;
@@ -121,7 +121,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // Gather pre-transaction data needed by addLocationTransaction
   const [activeLocations, account, actorUserId] = await Promise.all([
-    getActiveLocationCount(accountId),
+    getActiveLocationCount(sql, accountId),
     getAccountById(sql, accountId),
     getAccountOwnerUserId(sql, accountId),
   ]);
@@ -135,7 +135,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // Execute the add-location atomic transaction
   try {
-    const result = await addLocationTransaction({
+    const result = await addLocationTransaction(sql, {
       accountId,
       displayLabel,
       googlePlaceId,

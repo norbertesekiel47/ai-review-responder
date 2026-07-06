@@ -1,12 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockSql, mockJsonb } = vi.hoisted(() => {
+const { mockSql } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
   sqlFn.begin = vi.fn();
   sqlFn.json = vi.fn((value: unknown) => value);
   return {
     mockSql: sqlFn,
-    mockJsonb: vi.fn((value: unknown) => value),
   };
 });
 
@@ -16,11 +15,6 @@ const { mockWriteAccountAuditLog } = vi.hoisted(() => ({
 
 const { mockEnqueueOffboardingStarted } = vi.hoisted(() => ({
   mockEnqueueOffboardingStarted: vi.fn(),
-}));
-
-vi.mock('@/lib/db/server', () => ({
-  sql: mockSql,
-  jsonb: mockJsonb,
 }));
 
 vi.mock('@/lib/audit/log', () => ({
@@ -103,6 +97,7 @@ function makeTx(options: TxOptions = {}) {
     return [];
   });
 
+  (tx as any).json = mockSql.json;
   return { tx, calls };
 }
 
@@ -122,7 +117,7 @@ describe('confirmCancelOnlyOffboarding', () => {
     const { tx, calls } = makeTx();
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await confirmCancelOnlyOffboarding({
+    const result = await confirmCancelOnlyOffboarding(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -184,7 +179,7 @@ describe('confirmCancelOnlyOffboarding', () => {
     });
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await confirmCancelOnlyOffboarding({
+    const result = await confirmCancelOnlyOffboarding(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -212,7 +207,7 @@ describe('confirmCancelOnlyOffboarding', () => {
     });
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await confirmCancelOnlyOffboarding({
+    const result = await confirmCancelOnlyOffboarding(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -245,7 +240,7 @@ describe('confirmCancelOnlyOffboarding', () => {
     });
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await confirmCancelOnlyOffboarding({
+    const result = await confirmCancelOnlyOffboarding(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: 'different-key',

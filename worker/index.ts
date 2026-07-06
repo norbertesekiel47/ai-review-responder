@@ -85,7 +85,7 @@ import { startAccountOffboardingTeardownRetryPoller, stopAccountOffboardingTeard
 import { isMockMode } from '../src/lib/shared/mock-mode';
 import { createWorkerLogger } from '../src/lib/shared/logger';
 import { runReadinessProbes } from '../src/lib/shared/readiness';
-import { sql } from '../src/lib/db/server';
+import { sql, supabaseServer } from '../src/lib/db/server';
 import { getCacheRedis } from '../src/lib/db/redis-cache';
 import { isCrashNetRecoverableDbError } from '../src/lib/db/transient-error';
 import { errorStringProperty } from '../src/lib/payments/stripe-error-inspect';
@@ -207,31 +207,31 @@ const stripeCheckoutReconcileWorker = new Worker<StripeCheckoutReconcilePayload>
 
 const accountOffboardingBillingScheduleWorker = new Worker<AccountOffboardingBillingSchedulePayload>(
   QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE,
-  withJobLogContext(handleAccountOffboardingBillingSchedule),
+  withJobLogContext<AccountOffboardingBillingSchedulePayload>((job) => handleAccountOffboardingBillingSchedule(sql, job)),
   workerOpts,
 );
 
 const accountOffboardingEmailWorker = new Worker<AccountOffboardingEmailPayload>(
   QUEUE_NAMES.ACCOUNT_OFFBOARDING_EMAIL,
-  withJobLogContext(handleAccountOffboardingEmail),
+  withJobLogContext<AccountOffboardingEmailPayload>((job) => handleAccountOffboardingEmail(sql, job)),
   workerOpts,
 );
 
 const accountOffboardingReactivationWorker = new Worker<AccountOffboardingReactivationPayload>(
   QUEUE_NAMES.ACCOUNT_OFFBOARDING_REACTIVATION,
-  withJobLogContext(handleAccountOffboardingReactivation),
+  withJobLogContext<AccountOffboardingReactivationPayload>((job) => handleAccountOffboardingReactivation(sql, job)),
   workerOpts,
 );
 
 const accountOffboardingTeardownWorker = new Worker<AccountOffboardingTeardownPayload>(
   QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN,
-  withJobLogContext(handleAccountOffboardingTeardown),
+  withJobLogContext<AccountOffboardingTeardownPayload>((job) => handleAccountOffboardingTeardown(sql, job)),
   workerOpts,
 );
 
 const accountOffboardingPurgeWorker = new Worker<AccountOffboardingPurgePayload>(
   QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE,
-  withJobLogContext(handleAccountOffboardingPurge),
+  withJobLogContext<AccountOffboardingPurgePayload>((job) => handleAccountOffboardingPurge(sql, supabaseServer, job)),
   workerOpts,
 );
 

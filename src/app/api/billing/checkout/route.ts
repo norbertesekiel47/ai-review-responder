@@ -103,7 +103,7 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const offboardingState = await getOffboardingState(accountId);
+  const offboardingState = await getOffboardingState(accountId, sql);
   if (isCheckoutBlocked(offboardingState)) {
     return NextResponse.json(
       { error: 'account_offboarding_blocked' },

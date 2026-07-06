@@ -23,7 +23,7 @@
 // mock transport short-circuits both. All env mutations are restored in
 // afterAll so later files in the same worker see the original values.
 
-import { describe, it, expect, afterAll, vi } from 'vitest';
+import { it, expect, afterAll, vi } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
 
 // ── Point the production `sql` singleton at the test DB BEFORE app imports ───
@@ -84,15 +84,19 @@ import { keepMyDataWithToken } from '../../../../src/lib/account-offboarding/kee
 import { hashAccountOffboardingToken } from '../../../../src/lib/account-offboarding/tokens';
 import { runAccountOffboardingPurgeOnce } from '../../../../worker/background/pollers/AccountOffboardingPurgePoller';
 import { handleAccountOffboardingPurge } from '../PurgeWorker';
+import { supabaseServer } from '../../../../src/lib/db/server';
 import {
   cleanupOwnerOffboardingSeed,
   closeSeedDb,
   getE2eSql,
   seedOwnerOffboardingAccount,
 } from '../../../../e2e/seed';
+import { describeWithDb } from '../../../../src/__tests__/helpers/describe-with-db';
 
+// The hoisted block above already parsed .env.local and set DATABASE_POOL_URL,
+// so `RUN` is the authoritative gate — passed to describeWithDb as `enabled`.
+// It is also read in afterAll below, so it stays a named const.
 const RUN = !!testDbUrl;
-const d = RUN ? describe : describe.skip;
 
 afterAll(async () => {
   if (RUN) await closeSeedDb();
@@ -138,11 +142,11 @@ function parsePayload(
 // 30s per test: TEST_DATABASE_POOL_URL may be a remote Supabase pooler where
 // the purge's fan-out of DELETEs pays per-round-trip latency (local container
 // runs finish in <1s).
-d('owner offboarding — DB-backed lifecycle (integration)', { timeout: 30_000 }, () => {
+describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enabled: RUN, timeout: 30_000 }, () => {
   it('cancel_only confirm creates pending offboarding and billing-schedule outbox', async () => {
     const seed = await seedOwnerOffboardingAccount();
     try {
-      const result = await confirmCancelOnlyOffboarding({
+      const result = await confirmCancelOnlyOffboarding(getE2eSql(), {
         accountId: seed.accountId,
         actorUserId: seed.userId,
         idempotencyKey: randomUUID(),
@@ -185,7 +189,7 @@ d('owner offboarding — DB-backed lifecycle (integration)', { timeout: 30_000 }
   it('pre-teardown reactivation queues same-subscription reversal work', async () => {
     const seed = await seedOwnerOffboardingAccount();
     try {
-      const created = await confirmCancelOnlyOffboarding({
+      const created = await confirmCancelOnlyOffboarding(getE2eSql(), {
         accountId: seed.accountId,
         actorUserId: seed.userId,
         idempotencyKey: randomUUID(),
@@ -203,7 +207,7 @@ d('owner offboarding — DB-backed lifecycle (integration)', { timeout: 30_000 }
         WHERE id = ${created.offboarding.id}::uuid
       `;
 
-      const result = await requestCancelOnlyReactivation({
+      const result = await requestCancelOnlyReactivation(getE2eSql(), {
         accountId: seed.accountId,
         actorUserId: seed.userId,
         idempotencyKey: randomUUID(),
@@ -237,7 +241,7 @@ d('owner offboarding — DB-backed lifecycle (integration)', { timeout: 30_000 }
   it('delete_data confirm schedules teardown and keep-my-data email', async () => {
     const seed = await seedOwnerOffboardingAccount();
     try {
-      const result = await confirmDeleteDataOffboarding({
+      const result = await confirmDeleteDataOffboarding(getE2eSql(), {
         accountId: seed.accountId,
         actorUserId: seed.userId,
         idempotencyKey: randomUUID(),
@@ -328,7 +332,7 @@ d('owner offboarding — DB-backed lifecycle (integration)', { timeout: 30_000 }
         `;
       });
 
-      const result = await keepMyDataWithToken({
+      const result = await keepMyDataWithToken(getE2eSql(), {
         rawToken,
         requestId: 'int-keep-my-data',
       });
@@ -437,7 +441,7 @@ d('owner offboarding — DB-backed lifecycle (integration)', { timeout: 30_000 }
         WHERE id = ${outbox!.id}::uuid
       `;
 
-      await handleAccountOffboardingPurge({
+      await handleAccountOffboardingPurge(sql, supabaseServer, {
         id: outbox!.id,
         data: {
           ...parsePayload(outbox!.payload),
@@ -446,7 +450,7 @@ d('owner offboarding — DB-backed lifecycle (integration)', { timeout: 30_000 }
         },
         attemptsMade: 0,
         opts: { attempts: 3 },
-      } as Parameters<typeof handleAccountOffboardingPurge>[0]);
+      } as Parameters<typeof handleAccountOffboardingPurge>[2]);
 
       const [purged] = await sql<{
         status: string;

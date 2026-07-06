@@ -1,8 +1,8 @@
 import type { Job } from 'bullmq';
 import type Stripe from 'stripe';
+import type postgres from 'postgres';
 import * as Sentry from '@sentry/node';
 import { getStripe } from '../../../src/lib/payments/stripe-client';
-import { sql } from '../../../src/lib/db/server';
 import {
   errorMessage,
   extractOutboxHandle,
@@ -12,7 +12,7 @@ import {
 } from '../../../src/lib/shared/outbox';
 import type { AccountOffboardingBillingSchedulePayload } from '../../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
-import { enqueueAccountOffboardingEmail } from '../../../src/lib/shared/job-outbox-helpers';
+import { enqueueAccountOffboardingEmail } from '../../../src/lib/account-offboarding/outbox';
 import { scrubOffboardingErrorForStorage } from '../../../src/lib/account-offboarding/scrub-error';
 
 interface AccountOffboardingBillingRow {
@@ -37,6 +37,7 @@ function accountOffboardingBillingIdempotencyKey(
 }
 
 export async function handleAccountOffboardingBillingSchedule(
+  sql: postgres.Sql,
   job: Job<AccountOffboardingBillingSchedulePayload>,
 ): Promise<void> {
   const logger = createWorkerLogger(
@@ -69,7 +70,7 @@ export async function handleAccountOffboardingBillingSchedule(
     if (!isTerminalAttempt(job)) {
       throw new Error(safeMessage);
     }
-    await markBillingStepFailed(job.data, safeMessage);
+    await markBillingStepFailed(sql, job.data, safeMessage);
     await markOutboxFailed(outboxId, safeMessage, outboxAttempt);
     return;
   }
@@ -130,12 +131,13 @@ export async function handleAccountOffboardingBillingSchedule(
       throw err;
     }
 
-    await markBillingStepFailed(job.data, safeMessage);
+    await markBillingStepFailed(sql, job.data, safeMessage);
     await markOutboxFailed(outboxId, safeMessage, outboxAttempt);
   }
 }
 
 async function markBillingStepFailed(
+  sql: postgres.Sql,
   payload: AccountOffboardingBillingSchedulePayload,
   safeMessage: string,
 ): Promise<void> {

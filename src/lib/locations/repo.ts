@@ -12,7 +12,7 @@
 // Validation contract: indirectly covers location query assertions in
 // VAL-LOC-001 through VAL-LOC-012 (quota checks depend on accurate counts).
 
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 
 // ── Location row type ──────────────────────────────────────────────────────
 
@@ -38,6 +38,7 @@ export interface LocationRow {
  * computation.
  */
 export async function getActiveLocationCount(
+  sql: Sql,
   accountId: string,
 ): Promise<number> {
   const [row] = await sql<{ count: number }[]>`
@@ -60,6 +61,7 @@ export async function getActiveLocationCount(
  * Used by the location switcher, settings page, and dashboard aggregate view.
  */
 export async function getLocationsForAccount(
+  sql: Sql,
   accountId: string,
 ): Promise<LocationRow[]> {
   const rows = await sql<LocationRow[]>`
@@ -91,6 +93,7 @@ export async function getLocationsForAccount(
  * Used by the Settings → Locations tab to display the "Archived" section.
  */
 export async function getArchivedLocationsForAccount(
+  sql: Sql,
   accountId: string,
 ): Promise<LocationRow[]> {
   const rows = await sql<LocationRow[]>`
@@ -122,6 +125,7 @@ export async function getArchivedLocationsForAccount(
  * use this instead of getLocationsForAccount + getArchivedLocationsForAccount.
  */
 export async function getAllLocationsForAccount(
+  sql: Sql,
   accountId: string,
 ): Promise<LocationRow[]> {
   const rows = await sql<LocationRow[]>`
@@ -153,6 +157,7 @@ export async function getAllLocationsForAccount(
  * Used by getLocationContext, approval flow, and admin detail pages.
  */
 export async function getLocationById(
+  sql: Sql,
   locationId: string,
 ): Promise<LocationRow | null> {
   const [row] = await sql<LocationRow[]>`

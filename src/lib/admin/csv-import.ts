@@ -298,7 +298,7 @@ export async function processRow(
 
     // Step 2: Gather pre-transaction data
     const [activeLocations, account, ownerUser] = await Promise.all([
-      getActiveLocationCount(accountId),
+      getActiveLocationCount(sql, accountId),
       getAccountById(sql, accountId),
       getAccountOwnerUser(sql, accountId),
     ]);
@@ -323,7 +323,7 @@ export async function processRow(
     if (row.sampleResponses && row.sampleResponses.length > 0) voiceConfig.sampleResponses = row.sampleResponses;
 
     // Step 4: Execute the add-location transaction
-    const result = await addLocationTransaction({
+    const result = await addLocationTransaction(sql, {
       accountId,
       displayLabel: row.name,
       googlePlaceId: row.placeId,

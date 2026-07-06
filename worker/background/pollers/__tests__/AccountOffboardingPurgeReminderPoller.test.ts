@@ -42,7 +42,7 @@ vi.mock('../../../../src/lib/account-offboarding/flags', () => ({
   accountOffboardingEnabled: mockAccountOffboardingEnabled,
 }));
 vi.mock('../../../../src/lib/audit/log', () => ({ writeAccountAuditLog: mockWriteAccountAuditLog }));
-vi.mock('../../../../src/lib/shared/job-outbox-helpers', () => ({
+vi.mock('../../../../src/lib/account-offboarding/outbox', () => ({
   enqueueAccountOffboardingEmail: mockEnqueueAccountOffboardingEmail,
 }));
 vi.mock('../../../../src/lib/shared/logger', () => ({

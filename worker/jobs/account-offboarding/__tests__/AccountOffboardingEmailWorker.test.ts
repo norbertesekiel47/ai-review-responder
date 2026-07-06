@@ -121,7 +121,7 @@ describe('AccountOffboardingEmailWorker', () => {
     sqlReturnQueue.push([{ id: accountOffboardingDeliveryId(OFFBOARDING_ID, 'cancel_only_confirmation') }]);
     sqlReturnQueue.push([]);
 
-    await handleAccountOffboardingEmail(makeJob());
+    await handleAccountOffboardingEmail(mockSql, makeJob());
 
     expect(mockBuildAccountOffboardingEmailHtml).toHaveBeenCalledWith({
       accessEndsAt: new Date('2027-01-01T00:00:00.000Z'),
@@ -153,7 +153,7 @@ describe('AccountOffboardingEmailWorker', () => {
     })]);
     sqlReturnQueue.push([{ sent_at: new Date('2026-06-06T12:00:00.000Z'), external_message_id: 'msg-sent-1' }]);
 
-    await handleAccountOffboardingEmail(makeJob({ email_type: 'keep_my_data_confirmation' }));
+    await handleAccountOffboardingEmail(mockSql, makeJob({ email_type: 'keep_my_data_confirmation' }));
 
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
@@ -174,7 +174,7 @@ describe('AccountOffboardingEmailWorker', () => {
     }]);
     sqlReturnQueue.push([]);
 
-    await handleAccountOffboardingEmail(makeJob({
+    await handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: 'cancel_only_reactivation_confirmation',
     }));
 
@@ -211,7 +211,7 @@ describe('AccountOffboardingEmailWorker', () => {
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
 
-    await handleAccountOffboardingEmail(makeJob({
+    await handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: 'delete_data_confirmation',
     }));
 
@@ -263,7 +263,7 @@ describe('AccountOffboardingEmailWorker', () => {
     }]);
     sqlReturnQueue.push([]);
 
-    await handleAccountOffboardingEmail(makeJob({
+    await handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: 'keep_my_data_confirmation',
     }));
 
@@ -301,7 +301,7 @@ describe('AccountOffboardingEmailWorker', () => {
     sqlReturnQueue.push([{ id: deliveryId }]);
     sqlReturnQueue.push([]);
 
-    await handleAccountOffboardingEmail(makeJob({
+    await handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: 'keep_my_data_confirmation',
     }));
 
@@ -326,7 +326,7 @@ describe('AccountOffboardingEmailWorker', () => {
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ sent_at: new Date('2026-06-06T12:00:00.000Z'), external_message_id: 'msg-sent-1' }]);
 
-    await handleAccountOffboardingEmail(makeJob());
+    await handleAccountOffboardingEmail(mockSql, makeJob());
 
     const claimCall = sqlCalls.find((call) => call.text.includes('INSERT INTO notification_deliveries'));
     expect(claimCall?.values).toContain(accountOffboardingDeliveryId(OFFBOARDING_ID, 'cancel_only_confirmation'));
@@ -358,7 +358,7 @@ describe('AccountOffboardingEmailWorker', () => {
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ sent_at: new Date('2026-06-06T12:00:00.000Z'), external_message_id: null }]);
 
-    await handleAccountOffboardingEmail(makeJob({
+    await handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: emailType,
     }));
 
@@ -371,7 +371,7 @@ describe('AccountOffboardingEmailWorker', () => {
   it('sends a purge receipt and atomically completes + scrubs the payload in one outbox update (M2)', async () => {
     mockSendInternalEmail.mockResolvedValueOnce({ messageId: 'msg-purge-receipt-1' });
 
-    await handleAccountOffboardingEmail(makeJob({
+    await handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: 'purge_receipt' as AccountOffboardingEmailPayload['email_type'],
       recipient_email: 'owner@example.com',
       purged_at: '2026-07-06T00:00:00.000Z',
@@ -399,7 +399,7 @@ describe('AccountOffboardingEmailWorker', () => {
   });
 
   it('fails the purge receipt when the outbox payload carries no recipient', async () => {
-    await handleAccountOffboardingEmail(makeJob({
+    await handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: 'purge_receipt' as AccountOffboardingEmailPayload['email_type'],
     }));
 
@@ -421,7 +421,7 @@ describe('AccountOffboardingEmailWorker', () => {
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ sent_at: new Date('2026-06-06T12:00:00.000Z'), external_message_id: 'msg-sent-1' }]);
 
-    await handleAccountOffboardingEmail(makeJob({
+    await handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: 'delete_data_confirmation',
     }));
 
@@ -443,7 +443,7 @@ describe('AccountOffboardingEmailWorker', () => {
     sqlReturnQueue.push([{ sent_at: null, external_message_id: null }]);
     sqlReturnQueue.push([]);
 
-    await expect(handleAccountOffboardingEmail(makeJob({
+    await expect(handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: 'delete_data_confirmation',
     }))).rejects.toThrow(`account_offboarding_email_claim_in_progress:${deliveryId}`);
 
@@ -471,7 +471,7 @@ describe('AccountOffboardingEmailWorker', () => {
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
 
-    await handleAccountOffboardingEmail(makeJob({
+    await handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: 'delete_data_confirmation',
     }));
 
@@ -508,7 +508,7 @@ describe('AccountOffboardingEmailWorker', () => {
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
 
-    await handleAccountOffboardingEmail(makeJob({
+    await handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: 'delete_data_confirmation',
     }));
 
@@ -532,7 +532,7 @@ describe('AccountOffboardingEmailWorker', () => {
     sqlReturnQueue.push([]);
     mockSendInternalEmail.mockRejectedValueOnce(new Error('Resend unavailable'));
 
-    await expect(handleAccountOffboardingEmail(makeJob())).rejects.toThrow('Resend unavailable');
+    await expect(handleAccountOffboardingEmail(mockSql, makeJob())).rejects.toThrow('Resend unavailable');
 
     const rollbackCall = sqlCalls.find((call) => call.text.includes('DELETE FROM notification_deliveries'));
     expect(rollbackCall?.text).toContain('external_message_id IS NULL');
@@ -556,7 +556,7 @@ describe('AccountOffboardingEmailWorker', () => {
     sqlReturnQueue.push([]);
     mockSendInternalEmail.mockRejectedValueOnce(new Error('Resend unavailable'));
 
-    await expect(handleAccountOffboardingEmail(makeJob({
+    await expect(handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: 'delete_data_confirmation',
     }))).rejects.toThrow('Resend unavailable');
 
@@ -575,7 +575,7 @@ describe('AccountOffboardingEmailWorker', () => {
   it('does not send the scheduled confirmation while billing is still pending', async () => {
     sqlReturnQueue.push([offboardingRow({ status: 'pending', access_ends_at: null })]);
 
-    await handleAccountOffboardingEmail(makeJob());
+    await handleAccountOffboardingEmail(mockSql, makeJob());
 
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
@@ -588,7 +588,7 @@ describe('AccountOffboardingEmailWorker', () => {
   it('does not send the reactivation confirmation before the row is terminal reactivated', async () => {
     sqlReturnQueue.push([offboardingRow({ status: 'scheduled' })]);
 
-    await handleAccountOffboardingEmail(makeJob({
+    await handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: 'cancel_only_reactivation_confirmation',
     }));
 
@@ -609,7 +609,7 @@ describe('AccountOffboardingEmailWorker', () => {
       purge_after: new Date('2026-07-06T00:00:00.000Z'),
     })]);
 
-    await handleAccountOffboardingEmail(makeJob({
+    await handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: 'delete_data_confirmation',
     }));
 
@@ -633,7 +633,7 @@ describe('AccountOffboardingEmailWorker', () => {
       purge_after: new Date('2026-07-06T00:00:00.000Z'),
     })]);
 
-    await handleAccountOffboardingEmail(makeJob({
+    await handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: 'delete_data_confirmation',
     }));
 
@@ -657,7 +657,7 @@ describe('AccountOffboardingEmailWorker', () => {
       purge_started_at: new Date('2026-07-06T00:00:01.000Z'),
     })]);
 
-    await handleAccountOffboardingEmail(makeJob({
+    await handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: 'delete_data_confirmation',
     }));
 
@@ -678,7 +678,7 @@ describe('AccountOffboardingEmailWorker', () => {
       purge_cancelled_at: null,
     })]);
 
-    await handleAccountOffboardingEmail(makeJob({
+    await handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: 'keep_my_data_confirmation',
     }));
 

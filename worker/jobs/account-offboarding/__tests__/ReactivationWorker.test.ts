@@ -6,10 +6,12 @@ const {
   mockReactivateCancelOnlyOffboarding,
   mockMarkOutboxCompleted,
   mockMarkOutboxFailed,
+  mockSql,
 } = vi.hoisted(() => ({
   mockReactivateCancelOnlyOffboarding: vi.fn(),
   mockMarkOutboxCompleted: vi.fn(),
   mockMarkOutboxFailed: vi.fn(),
+  mockSql: {},
 }));
 
 vi.mock('../../../../src/lib/account-offboarding/reactivate', () => ({
@@ -56,9 +58,9 @@ describe('AccountOffboarding ReactivationWorker', () => {
   });
 
   it('runs Stripe-backed reactivation on the worker and completes the outbox', async () => {
-    await handleAccountOffboardingReactivation(makeJob());
+    await handleAccountOffboardingReactivation(mockSql as never, makeJob());
 
-    expect(mockReactivateCancelOnlyOffboarding).toHaveBeenCalledWith({
+    expect(mockReactivateCancelOnlyOffboarding).toHaveBeenCalledWith(mockSql, {
       accountId: ACCOUNT_ID,
       accountOffboardingId: OFFBOARDING_ID,
       actorUserId: USER_ID,
@@ -77,7 +79,7 @@ describe('AccountOffboarding ReactivationWorker', () => {
       reason: 'not_reactivatable',
     });
 
-    await handleAccountOffboardingReactivation(makeJob());
+    await handleAccountOffboardingReactivation(mockSql as never, makeJob());
 
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
@@ -92,7 +94,7 @@ describe('AccountOffboarding ReactivationWorker', () => {
       new Error('account_offboarding_stripe_reactivation_retryable'),
     );
 
-    await expect(handleAccountOffboardingReactivation(makeJob())).rejects.toThrow(
+    await expect(handleAccountOffboardingReactivation(mockSql as never, makeJob())).rejects.toThrow(
       'account_offboarding_stripe_reactivation_retryable',
     );
 

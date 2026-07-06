@@ -1,13 +1,12 @@
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockSql, mockJsonb, mockStripeSubscriptionsUpdate } = vi.hoisted(() => {
+const { mockSql, mockStripeSubscriptionsUpdate } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
   sqlFn.begin = vi.fn();
   sqlFn.json = vi.fn((value: unknown) => value);
   return {
     mockSql: sqlFn,
-    mockJsonb: vi.fn((value: unknown) => value),
     mockStripeSubscriptionsUpdate: vi.fn(),
   };
 });
@@ -18,11 +17,6 @@ const { mockWriteAccountAuditLog } = vi.hoisted(() => ({
 
 const { mockEnqueueOffboardingReactivated } = vi.hoisted(() => ({
   mockEnqueueOffboardingReactivated: vi.fn(),
-}));
-
-vi.mock('@/lib/db/server', () => ({
-  sql: mockSql,
-  jsonb: mockJsonb,
 }));
 
 vi.mock('@/lib/audit/log', () => ({
@@ -111,6 +105,7 @@ function makeTx(options: TxOptions = {}) {
     return [];
   });
 
+  (tx as any).json = mockSql.json;
   mockSql.mockImplementation(tx);
   return { tx, calls };
 }
@@ -152,7 +147,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     const { tx, calls } = makeTx();
     mockSql.begin.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await reactivateCancelOnlyOffboarding({
+    const result = await reactivateCancelOnlyOffboarding(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -229,7 +224,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     const { tx } = makeTx({ active: null });
     mockSql.begin.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await reactivateCancelOnlyOffboarding({
+    const result = await reactivateCancelOnlyOffboarding(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -252,7 +247,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     });
     mockSql.begin.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await reactivateCancelOnlyOffboarding({
+    const result = await reactivateCancelOnlyOffboarding(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -280,7 +275,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     mockSql.begin.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
     mockStripeSubscriptionsUpdate.mockRejectedValueOnce(new Error('No such subscription'));
 
-    const result = await reactivateCancelOnlyOffboarding({
+    const result = await reactivateCancelOnlyOffboarding(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -309,7 +304,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
       { type: 'StripeAPIConnectionError' },
     ));
 
-    await expect(reactivateCancelOnlyOffboarding({
+    await expect(reactivateCancelOnlyOffboarding(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -330,7 +325,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
       status: 'active',
     });
 
-    const result = await reactivateCancelOnlyOffboarding({
+    const result = await reactivateCancelOnlyOffboarding(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -361,7 +356,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     });
     mockSql.begin.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await reactivateCancelOnlyOffboarding({
+    const result = await reactivateCancelOnlyOffboarding(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -382,7 +377,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     });
     mockSql.begin.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await reactivateCancelOnlyOffboarding({
+    const result = await reactivateCancelOnlyOffboarding(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -416,7 +411,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     mockSql.begin.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
     mockWriteAccountAuditLog.mockRejectedValueOnce(new Error('audit insert failed'));
 
-    await expect(reactivateCancelOnlyOffboarding({
+    await expect(reactivateCancelOnlyOffboarding(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -440,7 +435,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     const { tx, calls } = makeTx();
     mockSql.begin.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    await reactivateCancelOnlyOffboarding({
+    await reactivateCancelOnlyOffboarding(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -466,7 +461,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     const { tx, calls } = makeTx();
     mockSql.begin.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await reactivateCancelOnlyOffboarding({
+    const result = await reactivateCancelOnlyOffboarding(mockSql, {
       accountId: ACCOUNT_ID,
       accountOffboardingId: OFFBOARDING_ID,
       actorUserId: USER_ID,
@@ -483,7 +478,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     const { tx } = makeTx({ updateWins: false });
     mockSql.begin.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await reactivateCancelOnlyOffboarding({
+    const result = await reactivateCancelOnlyOffboarding(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -513,7 +508,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     });
     mockSql.begin.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
-    const result = await reactivateCancelOnlyOffboarding({
+    const result = await reactivateCancelOnlyOffboarding(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: IDEMPOTENCY_KEY,

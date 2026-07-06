@@ -1,6 +1,7 @@
 import { v7 as uuidv7 } from 'uuid';
 import { z } from 'zod';
 import { NextRequest, NextResponse } from 'next/server';
+import { sql } from '@/lib/db/server';
 import { accountOffboardingEnabled } from '@/lib/account-offboarding/flags';
 import {
   keepMyDataForAccount,
@@ -33,7 +34,7 @@ async function keepMyData(req: NextRequest): Promise<NextResponse> {
 
   const tokenBody = TokenBodySchema.safeParse(body.value);
   if (tokenBody.success) {
-    return resultResponse(await keepMyDataWithToken({
+    return resultResponse(await keepMyDataWithToken(sql, {
       rawToken: tokenBody.data.token,
       requestId: req.headers.get('x-request-id') ?? uuidv7(),
       ip: clientIp(req),
@@ -54,7 +55,7 @@ async function keepMyData(req: NextRequest): Promise<NextResponse> {
     return jsonResponse({ error: idempotencyKey.error }, 400);
   }
 
-  return resultResponse(await keepMyDataForAccount({
+  return resultResponse(await keepMyDataForAccount(sql, {
     accountId: owner.accountId,
     actorUserId: owner.user.id,
     idempotencyKey: idempotencyKey.value,

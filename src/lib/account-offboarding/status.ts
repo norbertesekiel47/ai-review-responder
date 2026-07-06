@@ -1,3 +1,5 @@
+import type postgres from 'postgres';
+
 import { getOffboardingState, isOperationalUIBlocked } from './gate';
 
 export interface AccountOffboardingStatusSummary {
@@ -18,8 +20,9 @@ export interface AccountOffboardingStatusResult {
 
 export async function getAccountOffboardingStatus(
   accountId: string,
+  db: postgres.Sql,
 ): Promise<AccountOffboardingStatusResult> {
-  const state = await getOffboardingState(accountId);
+  const state = await getOffboardingState(accountId, db);
   return {
     activeOffboarding: state
       ? {

@@ -84,7 +84,7 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const offboardingState = await getOffboardingState(accountId);
+  const offboardingState = await getOffboardingState(accountId, sql);
   if (isBillingMutationBlocked(offboardingState)) {
     return NextResponse.json(
       { error: 'account_offboarding_blocked' },

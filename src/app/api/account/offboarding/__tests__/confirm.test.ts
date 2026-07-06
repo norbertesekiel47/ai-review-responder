@@ -296,7 +296,7 @@ describe('POST /api/account/offboarding/confirm', () => {
     expect(mockRequireDeleteDataDestructiveAuth).toHaveBeenCalledOnce();
     expect(mockRequireWritableOwner).not.toHaveBeenCalled();
     expect(mockConfirmCancelOnlyOffboarding).not.toHaveBeenCalled();
-    expect(mockConfirmDeleteDataOffboarding).toHaveBeenCalledWith({
+    expect(mockConfirmDeleteDataOffboarding).toHaveBeenCalledWith(expect.anything(), {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: 'delete-key',
@@ -482,7 +482,7 @@ describe('POST /api/account/offboarding/confirm', () => {
     ));
 
     expect(res.status).toBe(202);
-    expect(mockConfirmCancelOnlyOffboarding).toHaveBeenCalledWith({
+    expect(mockConfirmCancelOnlyOffboarding).toHaveBeenCalledWith(expect.anything(), {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: 'key with spaces',
@@ -559,7 +559,7 @@ describe('POST /api/account/offboarding/reactivate', () => {
     });
     expect(mockRequireOwnerWithAccount).toHaveBeenCalledOnce();
     expect(mockRequireWritableOwner).not.toHaveBeenCalled();
-    expect(mockRequestCancelOnlyReactivation).toHaveBeenCalledWith({
+    expect(mockRequestCancelOnlyReactivation).toHaveBeenCalledWith(expect.anything(), {
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: 'reactivate-key-1',

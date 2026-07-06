@@ -1,5 +1,4 @@
 import type postgres from 'postgres';
-import { sql } from '../db/server';
 import {
   PURGE_VERIFICATION_TABLES,
   type AccountOffboardingDisposition,
@@ -31,7 +30,7 @@ export interface PurgeVerificationResult {
 }
 
 type VerificationRow = { violation_count: number | string | bigint };
-type SqlExecutor = typeof sql | postgres.TransactionSql;
+type SqlExecutor = postgres.Sql | postgres.TransactionSql;
 
 export const PURGE_VERIFICATION_SQL_TABLES = Object.freeze(
   PURGE_VERIFICATION_TABLES.map((entry) => entry.table),
@@ -39,7 +38,7 @@ export const PURGE_VERIFICATION_SQL_TABLES = Object.freeze(
 
 export async function verifyAccountOffboardingPurge(
   input: VerifyAccountOffboardingPurgeInput,
-  exec: SqlExecutor = sql,
+  exec: SqlExecutor,
 ): Promise<PurgeVerificationResult> {
   const issues: PurgeVerificationIssue[] = [];
 
