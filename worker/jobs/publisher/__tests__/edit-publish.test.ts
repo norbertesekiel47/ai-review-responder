@@ -43,6 +43,9 @@ const {
   // sql.begin runs cb with mockSql as `tx`. If cb throws, the throw escapes
   // (the module's catch-around-sql.begin sees it) — same as Postgres.js.
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<any>) => cb(mockSql));
+  // tx.json — identity pass-through for the JSONB binds in the in-tx writers
+  // (applyAuthErrorTerminalInTx reconnect/lost payloads, 409-mismatch exception).
+  mockSql.json = vi.fn((v: unknown) => v);
 
   return {
     sqlReturnQueue,
@@ -160,7 +163,7 @@ describe('runEditPublishIfApplicable — Phase A', () => {
   it('no sibling AND no orphan-marker → continue_to_fresh, NO DELETE, NO tx', async () => {
     sqlReturnQueue.push([]);  // Phase A probe: no sibling
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result).toEqual({ outcome: 'continue_to_fresh' });
     expect(mockDeleteReply).not.toHaveBeenCalled();
@@ -182,6 +185,7 @@ describe('runEditPublishIfApplicable — Phase A', () => {
     mockPostReply.mockResolvedValueOnce(okReply);
 
     const result = await runEditPublishIfApplicable(
+      mockSql,
       makeContext({ responsePostingError: 'pending_after_delete_succeeded' }),
       deps(),
     );
@@ -200,7 +204,7 @@ describe('runEditPublishIfApplicable — Phase A', () => {
     mockDeleteReply.mockResolvedValueOnce(undefined);
     mockPostReply.mockResolvedValueOnce(okReply);
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result).toMatchObject({ outcome: 'completed' });
     expect(mockDeleteReply).toHaveBeenCalledWith({
@@ -218,7 +222,7 @@ describe('runEditPublishIfApplicable — Phase A', () => {
     pushPhaseAProbe(true);  // Phase A saw a sibling...
     pushPhaseBLockSequence({ existingPosted: null });  // ...but it's gone under lock
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result).toEqual({ outcome: 'continue_to_fresh' });
     expect(mockDeleteReply).not.toHaveBeenCalled();
@@ -229,7 +233,7 @@ describe('runEditPublishIfApplicable — Phase A', () => {
     pushPhaseAProbe(true);
     pushPhaseBLockSequence({ candidate: null });  // status guard caught it
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result).toEqual({ outcome: 'completed' });
     expect(mockDeleteReply).not.toHaveBeenCalled();
@@ -240,7 +244,7 @@ describe('runEditPublishIfApplicable — Phase A', () => {
     pushPhaseAProbe(true);
     pushPhaseBLockSequence({ reviewLockFound: false });
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result).toEqual({ outcome: 'failed', reason: 'publish_orphan_response_review' });
   });
@@ -258,7 +262,7 @@ describe('runEditPublishIfApplicable — DELETE branch', () => {
     mockDeleteReply.mockRejectedValueOnce(new ZernioReplyAlreadyDeletedError('zernio-rev-id-1'));
     mockPostReply.mockResolvedValueOnce(okReply);
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result).toMatchObject({ outcome: 'completed' });
     expect(mockPostReply).toHaveBeenCalledTimes(1);
@@ -279,7 +283,7 @@ describe('runEditPublishIfApplicable — DELETE branch', () => {
     );
     mockPostReply.mockResolvedValueOnce(okReply);
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result).toMatchObject({ outcome: 'completed' });
     expect(mockPostReply).toHaveBeenCalledTimes(1);
@@ -297,7 +301,7 @@ describe('runEditPublishIfApplicable — DELETE branch', () => {
       new ZernioPermanentError('http_404', { endpointKind: 'publish_reply', body: {} }),
     );
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result).toEqual({ outcome: 'failed', reason: 'zernio_permanent_after_edit_publish' });
     expect(mockPostReply).not.toHaveBeenCalled();
@@ -314,7 +318,7 @@ describe('runEditPublishIfApplicable — DELETE branch', () => {
       new ZernioPermanentError('inbox_addon_required', { endpointKind: 'delete_reply' }),
     );
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result).toEqual({ outcome: 'failed', reason: 'zernio_permanent_after_edit_publish' });
     expect(mockPostReply).not.toHaveBeenCalled();
@@ -333,7 +337,7 @@ describe('runEditPublishIfApplicable — DELETE branch', () => {
 
     mockDeleteReply.mockRejectedValueOnce(new ZernioAuthError(401, 'Unauthorized'));
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result).toEqual({ outcome: 'completed' });  // drain re-enqueues
     expect(mockPostReply).not.toHaveBeenCalled();
@@ -353,7 +357,7 @@ describe('runEditPublishIfApplicable — DELETE branch', () => {
       new ZernioTransientError('http_503', { status: 503, body: 'down' }),
     );
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result.outcome).toBe('throw');
     if (result.outcome === 'throw') {
@@ -377,7 +381,7 @@ describe('runEditPublishIfApplicable — POST branch after DELETE success', () =
       new ZernioPermanentError('http_400', { status: 400, body: { code: 'invalid' }, endpointKind: 'publish_reply' }),
     );
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result).toEqual({ outcome: 'failed', reason: 'zernio_permanent_after_edit_publish' });
     const callTexts = callTextsWithValues();
@@ -396,7 +400,7 @@ describe('runEditPublishIfApplicable — POST branch after DELETE success', () =
       new ZernioTransientError('http_503', { status: 503, body: 'down' }),
     );
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result.outcome).toBe('throw');
     if (result.outcome === 'throw') {
@@ -419,7 +423,7 @@ describe('runEditPublishIfApplicable — POST branch after DELETE success', () =
     mockDeleteReply.mockResolvedValueOnce(undefined);
     mockPostReply.mockRejectedValueOnce(new ZernioAuthError(401, 'Unauthorized'));
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result).toEqual({ outcome: 'completed' });
     const callTexts = callTextsWithValues();
@@ -436,7 +440,7 @@ describe('runEditPublishIfApplicable — POST branch after DELETE success', () =
     mockDeleteReply.mockResolvedValueOnce(undefined);
     mockPostReply.mockResolvedValueOnce(okReply);
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result).toEqual({
       outcome: 'completed',
@@ -470,7 +474,7 @@ describe('runEditPublishIfApplicable — POST 409 via verify409InTx', () => {
       verifierText: 'thank you for your kind review!',
     });
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result).toEqual({
       outcome: 'completed',
@@ -501,7 +505,7 @@ describe('runEditPublishIfApplicable — POST 409 via verify409InTx', () => {
       verifierText: 'some completely different reply',
     });
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result).toEqual({ outcome: 'failed', reason: 'edit_publish_409_mismatch_after_delete' });
     const callTexts = callTextsWithValues();
@@ -523,7 +527,7 @@ describe('runEditPublishIfApplicable — POST 409 via verify409InTx', () => {
       meta: { pages_walked: 4, reviews_seen: 3 },
     });
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result.outcome).toBe('throw');
     if (result.outcome === 'throw') {
@@ -556,6 +560,7 @@ describe('runEditPublishIfApplicable — POST 409 via verify409InTx', () => {
     });
 
     const result = await runEditPublishIfApplicable(
+      mockSql,
       makeContext({ responsePostingError: 'pending_after_delete_succeeded' }),
       deps(),
     );
@@ -584,6 +589,7 @@ describe('runEditPublishIfApplicable — orphan retry', () => {
     );
 
     const result = await runEditPublishIfApplicable(
+      mockSql,
       makeContext({ responsePostingError: 'pending_after_delete_succeeded' }),
       deps(),
     );
@@ -608,6 +614,7 @@ describe('runEditPublishIfApplicable — orphan retry', () => {
     mockPostReply.mockResolvedValueOnce(okReply);
 
     const result = await runEditPublishIfApplicable(
+      mockSql,
       makeContext({ responsePostingError: 'pending_after_delete_succeeded' }),
       deps(),
     );
@@ -643,6 +650,7 @@ describe('runEditPublishIfApplicable — orphan retry', () => {
     );
 
     const result = await runEditPublishIfApplicable(
+      mockSql,
       makeContext({ responsePostingError: 'pending_after_delete_succeeded' }),
       deps(),
     );
@@ -665,7 +673,7 @@ describe('runEditPublishIfApplicable — affected-row assertions', () => {
     mockDeleteReply.mockResolvedValueOnce(undefined);
     mockPostReply.mockResolvedValueOnce(okReply);
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result.outcome).toBe('throw');
     if (result.outcome === 'throw') {
@@ -682,7 +690,7 @@ describe('runEditPublishIfApplicable — affected-row assertions', () => {
     mockDeleteReply.mockResolvedValueOnce(undefined);
     mockPostReply.mockResolvedValueOnce(okReply);
 
-    const result = await runEditPublishIfApplicable(makeContext(), deps());
+    const result = await runEditPublishIfApplicable(mockSql, makeContext(), deps());
 
     expect(result.outcome).toBe('throw');
     if (result.outcome === 'throw') {

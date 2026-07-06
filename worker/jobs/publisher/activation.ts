@@ -1,6 +1,6 @@
+import type { Sql } from 'postgres';
 import { captureAnalyticsEvent } from '../../../src/lib/analytics/posthog';
 import { buildActivationCompletedEvent } from '../../../src/lib/analytics/activation-event';
-import { sql } from '../../../src/lib/db/server';
 
 export interface PostedResponseActivationInput {
   responseId: string;
@@ -33,6 +33,7 @@ function errorMessage(error: unknown): string {
  * this contract to keep analytics from blocking outbox completion.
  */
 export async function maybeCaptureActivationCompleted(
+  sql: Sql,
   input: PostedResponseActivationInput,
 ): Promise<void> {
   try {

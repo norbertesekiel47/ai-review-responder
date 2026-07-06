@@ -8,7 +8,6 @@
 
 import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
-import { jsonb } from '../../../src/lib/db/server';
 import { redactSensitiveError } from './publisher-error-handlers';
 import {
   PENDING_AFTER_DELETE,
@@ -172,7 +171,7 @@ export async function applyAuthErrorTerminalInTx(
       id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
     ) VALUES (
       ${uuidv7()}, 'notify_owner_reconnect', 'response', ${responseId},
-      ${jsonb(reconnectPayload)}, 0, 5
+      ${tx.json(reconnectPayload as never)}, 0, 5
     )
   `;
 
@@ -186,7 +185,7 @@ export async function applyAuthErrorTerminalInTx(
         id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
       ) VALUES (
         ${uuidv7()}, 'notify_owner_connection_lost', 'business', ${businessId},
-        ${jsonb(lostPayload)}, 0, 5
+        ${tx.json(lostPayload as never)}, 0, 5
       )
     `;
   }

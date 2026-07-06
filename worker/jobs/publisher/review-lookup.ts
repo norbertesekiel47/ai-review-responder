@@ -1,5 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
-import { jsonb, sql } from '../../../src/lib/db/server';
+import type { Sql } from 'postgres';
 import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { getReviewPublisher } from '../../../src/lib/publishing/review-publisher';
 import type { ResolvedPublishTarget } from '../../../src/lib/publishing/review-publisher';
@@ -17,7 +17,7 @@ import type { WorkerLogger } from '../../../src/lib/shared/logger';
  *   - transient       → rethrow with attempt context so BullMQ retries
  * On success returns the ResolvedPublishTarget for the caller to publish.
  */
-export async function resolvePublishTarget(input: {
+export async function resolvePublishTarget(sql: Sql, input: {
   responseId: string;
   businessId: string;
   reviewId: string;
@@ -36,11 +36,11 @@ export async function resolvePublishTarget(input: {
     logger,
   } = input;
 
-  const resolution = await getReviewPublisher().resolveTarget({ responseId, reviewId, businessId });
+  const resolution = await getReviewPublisher(sql).resolveTarget({ responseId, reviewId, businessId });
 
   switch (resolution.kind) {
     case 'no_connection':
-      await parkResponseForOwnerReconnect({
+      await parkResponseForOwnerReconnect(sql, {
         responseId,
         businessId,
         outboxId,
@@ -51,7 +51,7 @@ export async function resolvePublishTarget(input: {
       return 'completed';
 
     case 'review_not_found':
-      await openReviewNotFoundException({
+      await openReviewNotFoundException(sql, {
         responseId,
         businessId,
         reviewId,
@@ -81,7 +81,7 @@ export async function resolvePublishTarget(input: {
  * and enqueue the admin notify — all in one tx, status-guarded so a row already
  * moved terminal by a parallel worker is left alone.
  */
-async function openReviewNotFoundException(input: {
+async function openReviewNotFoundException(sql: Sql, input: {
   responseId: string;
   businessId: string;
   reviewId: string;
@@ -118,11 +118,11 @@ async function openReviewNotFoundException(input: {
         ${reviewId},
         ${responseId},
         'zernio_review_id_mismatch',
-        ${jsonb({
+        ${tx.json({
           our_review_id: reviewId,
           response_id: responseId,
           error_meta: errorMeta,
-        })}
+        } as never)}
       )
       ON CONFLICT (review_id, type) WHERE status = 'open'
       DO UPDATE SET payload = review_exceptions.payload
@@ -144,10 +144,10 @@ async function openReviewNotFoundException(input: {
         ${QUEUE_NAMES.NOTIFY_ADMIN},
         'review',
         ${reviewId},
-        ${jsonb({
+        ${tx.json({
           review_exception_id: exception.id,
           business_id: businessId,
-        })},
+        } as never)},
         0,
         5
       )

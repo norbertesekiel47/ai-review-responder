@@ -32,17 +32,17 @@ describe('isHeldForModerationReview (F-5 publisher hold gate)', () => {
 
   it('returns true when an open moderation flag exists', async () => {
     mockHasOpenFlag.mockResolvedValue(true);
-    await expect(isHeldForModerationReview('resp-1', 'biz-1')).resolves.toBe(true);
+    await expect(isHeldForModerationReview(mockSql as never, 'resp-1', 'biz-1')).resolves.toBe(true);
   });
 
   it('returns false when no open flag exists', async () => {
     mockHasOpenFlag.mockResolvedValue(false);
-    await expect(isHeldForModerationReview('resp-1', 'biz-1')).resolves.toBe(false);
+    await expect(isHeldForModerationReview(mockSql as never, 'resp-1', 'biz-1')).resolves.toBe(false);
   });
 
   it('locks the business-scoped response row FOR UPDATE and delegates to hasOpenFlag in-tx', async () => {
     mockHasOpenFlag.mockResolvedValue(false);
-    await isHeldForModerationReview('resp-1', 'biz-1');
+    await isHeldForModerationReview(mockSql as never, 'resp-1', 'biz-1');
     expect(mockSql.begin).toHaveBeenCalledOnce();
     expect(
       sqlCalls.some((q) => /FOR UPDATE/.test(q) && /responses/.test(q) && /business_id/.test(q)),

@@ -339,7 +339,7 @@ d('HARD-GATE: edit-publisher + recovery against real Postgres', () => {
       .mockReset()
       .mockRejectedValueOnce(new ZernioPermanentError('http_400', { endpointKind: 'post_reply' }));
 
-    const result = await runEditPublishIfApplicable(buildContext(seed, candidateId, null));
+    const result = await runEditPublishIfApplicable(sql, buildContext(seed, candidateId, null));
 
     expect(result).toEqual({ outcome: 'failed', reason: 'zernio_permanent_after_edit_publish' });
     expect(mockDeleteReply).toHaveBeenCalledTimes(1);
@@ -404,7 +404,7 @@ d('HARD-GATE: edit-publisher + recovery against real Postgres', () => {
       },
     );
 
-    await handlePublisherFailed(job, transientErr);
+    await handlePublisherFailed(sql, job, transientErr);
 
     const candidate = await getResponse(candidateId);
     expect(candidate?.status).toBe('failed');

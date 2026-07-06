@@ -13,6 +13,9 @@ const {
     const result = txReturnQueue.shift() ?? Object.assign([], { count: 0 });
     return Promise.resolve(result);
   });
+  // tx.json stands in for Postgres.js's JSONB bind (identity pass-through) —
+  // handleVerificationIndeterminate builds review_exception + outbox payloads.
+  mockTx.json = vi.fn((v: unknown) => v);
 
   const mockSql: any = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => {
     const result = txReturnQueue.shift() ?? Object.assign([], { count: 0 });
@@ -75,8 +78,9 @@ function makeJob(
 beforeEach(() => {
   vi.resetAllMocks();
   txReturnQueue.length = 0;
-  // Re-wire sql.begin since vi.resetAllMocks clears its implementation
+  // Re-wire sql.begin + tx.json since vi.resetAllMocks clears their implementations
   mockSql.begin.mockImplementation(async (cb: (tx: any) => Promise<any>) => cb(mockTx));
+  mockTx.json.mockImplementation((v: unknown) => v);
   // Default: flag OFF, so the orphan-conversion block is skipped entirely and
   // these legacy tests exercise today's byte-for-byte behavior.
   delete process.env.EDIT_REPLIES_ENABLED;
@@ -103,7 +107,7 @@ describe('handlePublisherFailed', () => {
         underlying_error: 'connection refused',
       });
 
-      await handlePublisherFailed(makeJob(), err);
+      await handlePublisherFailed(mockSql, makeJob(), err);
 
       expect(mockSql.begin).toHaveBeenCalledTimes(1);
       expect(mockTx).toHaveBeenCalledTimes(3);
@@ -141,7 +145,7 @@ describe('handlePublisherFailed', () => {
         reason: 'review_not_found_after_pagination',
       });
 
-      await handlePublisherFailed(makeJob(), err);
+      await handlePublisherFailed(mockSql, makeJob(), err);
 
       expect(mockTx).toHaveBeenCalledTimes(1); // only the UPDATE
       expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
@@ -155,7 +159,7 @@ describe('handlePublisherFailed', () => {
 
       const err = new ZernioTransientError('http_5xx', { httpStatus: 503 });
 
-      await handlePublisherFailed(makeJob(), err);
+      await handlePublisherFailed(mockSql, makeJob(), err);
 
       expect(consoleErrSpy).toHaveBeenCalledWith(
         expect.stringContaining('bare ZernioTransientError reached failed-hook'),
@@ -190,9 +194,9 @@ describe('handlePublisherFailed', () => {
         location_id: 'loc-Y',
       });
 
-      await handlePublisherFailed(makeJob(), wrapped);
+      await handlePublisherFailed(mockSql, makeJob(), wrapped);
 
-      expect(mockApplyTransientExhaustionFallback).toHaveBeenCalledWith({
+      expect(mockApplyTransientExhaustionFallback).toHaveBeenCalledWith(mockSql, {
         response_id: 'resp-1',
         business_id: 'biz-1',
         correlation_id: 'corr-1',
@@ -220,7 +224,7 @@ describe('handlePublisherFailed', () => {
         location_id: 'loc-Y',
       });
 
-      await handlePublisherFailed(makeJob(), wrapped);
+      await handlePublisherFailed(mockSql, makeJob(), wrapped);
 
       expect(Sentry.captureException).toHaveBeenCalledWith(
         fallbackErr,
@@ -241,7 +245,7 @@ describe('handlePublisherFailed', () => {
   describe('generic fall-through', () => {
     it('marks outbox failed with the error message for unknown error types', async () => {
       const err = new Error('something else broke');
-      await handlePublisherFailed(makeJob(), err);
+      await handlePublisherFailed(mockSql, makeJob(), err);
 
       expect(mockSql.begin).not.toHaveBeenCalled();
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
@@ -253,14 +257,14 @@ describe('handlePublisherFailed', () => {
 
     it('does not act when attemptsMade < max attempts', async () => {
       const err = new Error('transient retry not exhausted');
-      await handlePublisherFailed(makeJob({}, 0, 5), err);
+      await handlePublisherFailed(mockSql, makeJob({}, 0, 5), err);
 
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
       expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
     });
 
     it('returns silently when job is undefined', async () => {
-      await handlePublisherFailed(undefined, new Error('whatever'));
+      await handlePublisherFailed(mockSql, undefined, new Error('whatever'));
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
     });
   });
@@ -291,7 +295,7 @@ describe('handlePublisherFailed', () => {
       // Step 5: UPDATE responses RETURNING 1 → 1 row affected.
       txReturnQueue.push(Object.assign([{ '?column?': 1 }], { count: 1 }));
 
-      await handlePublisherFailed(makeJob(), makeWrappedTransient());
+      await handlePublisherFailed(mockSql, makeJob(), makeWrappedTransient());
 
       expect(mockApplyTransientExhaustionFallback).not.toHaveBeenCalled();
       expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
@@ -319,7 +323,7 @@ describe('handlePublisherFailed', () => {
       ]);
       txReturnQueue.push(Object.assign([{ '?column?': 1 }], { count: 1 }));
 
-      await handlePublisherFailed(makeJob(), makeWrappedTransient());
+      await handlePublisherFailed(mockSql, makeJob(), makeWrappedTransient());
 
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
         'outbox-1',
@@ -335,7 +339,7 @@ describe('handlePublisherFailed', () => {
       txReturnQueue.push([{ id: 'rev-1' }]);
       txReturnQueue.push([{ status: 'superseded', posting_error: 'pending_after_delete_succeeded' }]);
 
-      await handlePublisherFailed(makeJob(), makeWrappedTransient());
+      await handlePublisherFailed(mockSql, makeJob(), makeWrappedTransient());
 
       expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
@@ -348,10 +352,10 @@ describe('handlePublisherFailed', () => {
       txReturnQueue.push([{ id: 'rev-1' }]);
       txReturnQueue.push([{ status: 'approved', posting_error: null }]);
 
-      await handlePublisherFailed(makeJob(), makeWrappedTransient());
+      await handlePublisherFailed(mockSql, makeJob(), makeWrappedTransient());
 
       expect(mockApplyTransientExhaustionFallback).toHaveBeenCalledTimes(1);
-      expect(mockApplyTransientExhaustionFallback).toHaveBeenCalledWith({
+      expect(mockApplyTransientExhaustionFallback).toHaveBeenCalledWith(mockSql, {
         response_id: 'resp-1',
         business_id: 'biz-1',
         correlation_id: 'corr-1',
@@ -363,7 +367,7 @@ describe('handlePublisherFailed', () => {
       process.env.EDIT_REPLIES_ENABLED = 'true';
       txReturnQueue.push([]); // step 1: no row.
 
-      await handlePublisherFailed(makeJob(), makeWrappedTransient());
+      await handlePublisherFailed(mockSql, makeJob(), makeWrappedTransient());
 
       expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
@@ -376,7 +380,7 @@ describe('handlePublisherFailed', () => {
       txReturnQueue.push([{ review_id: 'rev-1' }]);
       txReturnQueue.push([]); // review not found under FOR UPDATE.
 
-      await handlePublisherFailed(makeJob(), makeWrappedTransient());
+      await handlePublisherFailed(mockSql, makeJob(), makeWrappedTransient());
 
       expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
@@ -393,7 +397,7 @@ describe('handlePublisherFailed', () => {
       txReturnQueue.push([{ id: 'rev-1' }]);
       txReturnQueue.push([]); // race: response gone under FOR UPDATE.
 
-      await handlePublisherFailed(makeJob(), makeWrappedTransient());
+      await handlePublisherFailed(mockSql, makeJob(), makeWrappedTransient());
 
       expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
@@ -402,7 +406,7 @@ describe('handlePublisherFailed', () => {
 
     it('FLAG OFF + orphan marker would match → block skipped entirely, straight to transient fallback', async () => {
       // Flag is unset by the outer beforeEach.
-      await handlePublisherFailed(makeJob(), makeWrappedTransient());
+      await handlePublisherFailed(mockSql, makeJob(), makeWrappedTransient());
 
       // The orphan-conversion tx never ran.
       expect(mockSql.begin).not.toHaveBeenCalled();
@@ -435,7 +439,7 @@ describe('handlePublisherFailed', () => {
       // Step 5: UPDATE responses RETURNING 1 → 1 row affected.
       txReturnQueue.push(Object.assign([{ '?column?': 1 }], { count: 1 }));
 
-      await handlePublisherFailed(makeJob(), makeIndeterminate());
+      await handlePublisherFailed(mockSql, makeJob(), makeIndeterminate());
 
       // Converted via the recoverable orphan path — NOT the indeterminate path.
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
@@ -467,7 +471,7 @@ describe('handlePublisherFailed', () => {
       txReturnQueue.push(Object.assign([{ id: 'exc-1' }], { count: 1 }));
       txReturnQueue.push(Object.assign([], { count: 1 }));
 
-      await handlePublisherFailed(makeJob(), makeIndeterminate());
+      await handlePublisherFailed(mockSql, makeJob(), makeIndeterminate());
 
       // The indeterminate terminal sequence ran and completed the outbox.
       expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
@@ -490,7 +494,7 @@ describe('handlePublisherFailed', () => {
         .mockRejectedValueOnce(new Error('outbox write exploded'))
         .mockResolvedValueOnce(undefined);
 
-      await handlePublisherFailed(makeJob(), new Error('initial'));
+      await handlePublisherFailed(mockSql, makeJob(), new Error('initial'));
 
       expect(Sentry.captureException).toHaveBeenCalledWith(
         expect.any(Error),

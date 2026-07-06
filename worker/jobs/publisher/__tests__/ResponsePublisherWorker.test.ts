@@ -188,7 +188,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push([mockResponseRow({ status: 'posted' })]);
     sqlReturnQueue.push([mockBusinessRow()]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
@@ -207,7 +207,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push([mockResponseRow({ status })]);
     sqlReturnQueue.push([mockBusinessRow()]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
@@ -220,7 +220,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push([mockResponseRow()]);
     sqlReturnQueue.push([mockBusinessRow({ subscription_status: 'cancelled' })]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
@@ -231,7 +231,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push([mockResponseRow()]);
     sqlReturnQueue.push([mockBusinessRow({ archived_at: new Date('2026-05-09T00:00:00Z') })]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
@@ -248,9 +248,9 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push([mockResponseRow()]);  // response (load-context)
     sqlReturnQueue.push([mockBusinessRow()]);   // business (load-context)
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
-    expect(mockIsHeldForModerationReview).toHaveBeenCalledWith('resp-1', 'biz-1');
+    expect(mockIsHeldForModerationReview).toHaveBeenCalledWith(mockSql, 'resp-1', 'biz-1');
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
     expect(mockMaybeCaptureActivationCompleted).not.toHaveBeenCalled();
@@ -270,7 +270,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push([]); // audit INSERT
     sqlReturnQueue.push([]); // send_notification INSERT
 
-    await handlePublishResponse(makeJob({
+    await handlePublishResponse(mockSql, makeJob({
       correlation_id: 'corr-1',
       outbox_id: 'outbox-auto-1',
       outbox_attempt: 2,
@@ -330,7 +330,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push([]); // downgrade UPDATE RETURNING no rows
     sqlReturnQueue.push(Object.assign([], { count: 1 })); // complete publish outbox
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     const callTexts = (mockSql as any).mock.calls.map(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
@@ -349,7 +349,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     const callTexts = (mockSql as any).mock.calls.map(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
@@ -365,7 +365,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]);
     sqlReturnQueue.push([mockBusinessRow({ archived_at: new Date('2026-05-09T00:00:00Z') })]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     const callTexts = (mockSql as any).mock.calls.map(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
@@ -383,7 +383,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push(Object.assign([], { count: 1 })); // UPDATE awaiting_owner_connect
     sqlReturnQueue.push(Object.assign([], { count: 1 })); // reconnect notify INSERT
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     const callTexts = (mockSql as any).mock.calls.map(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
@@ -397,7 +397,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
   it('marks outbox failed when response not found', async () => {
     sqlReturnQueue.push([]);  // response query returns empty
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
       'outbox-pub-1',
@@ -409,7 +409,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
   it('marks outbox failed on business_id mismatch', async () => {
     sqlReturnQueue.push([mockResponseRow({ business_id: 'biz-other' })]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
       'outbox-pub-1',
@@ -427,7 +427,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push(Object.assign([], { count: 1 }));        // 4: UPDATE awaiting_owner_connect
     sqlReturnQueue.push(Object.assign([], { count: 1 }));        // 5: INSERT job_outbox
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
@@ -452,7 +452,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push([]);                                            // 3: no connection
     sqlReturnQueue.push(Object.assign([], { count: 0 }));               // 4: UPDATE no-op (terminal mid-flight)
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
     const callTexts = (mockSql as any).mock.calls.map(
@@ -475,13 +475,13 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
     ]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
-    expect(mockLookupZernioReviewId).toHaveBeenCalledWith('biz-1', 'rev-1', 'acct-1', 'loc-1');
+    expect(mockLookupZernioReviewId).toHaveBeenCalledWith(mockSql, 'biz-1', 'rev-1', 'acct-1', 'loc-1');
     expect(mockPostReply).toHaveBeenCalledWith('acct-1', 'zernio-rev-id-1', {
       comment: 'Thank you for your kind review!',
     });
-    expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledWith({
+    expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledWith(mockSql, {
       responseId: 'resp-1',
       businessId: 'biz-1',
       reviewId: 'rev-1',
@@ -519,7 +519,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
     ]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     const markPostedUpdate = (mockSql as any).mock.calls
       .map((c: any[]) => (c[0] as TemplateStringsArray).join('?'))
@@ -549,7 +549,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
     ]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     const callTexts = (mockSql as any).mock.calls.map(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
@@ -571,7 +571,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
     ]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     const callTexts = (mockSql as any).mock.calls.map(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
@@ -594,7 +594,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       new ZernioReviewNotFoundError({ ourReviewId: 'rev-1', accountId: 'acct-1' }),
     );
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockPostReply).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
@@ -620,7 +620,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       new ZernioReviewNotFoundError({ ourReviewId: 'rev-1' }),
     );
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
     const callTexts = (mockSql as any).mock.calls.map(
@@ -644,7 +644,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
     mockPostReply.mockRejectedValueOnce(new ZernioAuthError(401, 'Unauthorized'));
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
 
@@ -667,7 +667,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
     mockPostReply.mockRejectedValueOnce(new ZernioAuthError(403, 'Forbidden'));
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
     const callTexts = (mockSql as any).mock.calls.map(
@@ -694,7 +694,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       new ZernioPermanentError('http_400', { status: 400, body: { code: 'invalid' }, endpointKind: 'publish_reply' }),
     );
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
     const callTexts = (mockSql as any).mock.calls.map(
@@ -717,7 +717,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       new ZernioTransientError('http_503', { status: 503, body: 'down' }),
     );
 
-    await expect(handlePublishResponse(makeJob())).rejects.toBeInstanceOf(PublisherTransientWithContext);
+    await expect(handlePublishResponse(mockSql, makeJob())).rejects.toBeInstanceOf(PublisherTransientWithContext);
 
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
@@ -731,7 +731,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
     mockPostReply.mockRejectedValueOnce(new Error('unexpected network kaboom'));
 
-    await expect(handlePublishResponse(makeJob())).rejects.toThrow('unexpected network kaboom');
+    await expect(handlePublishResponse(mockSql, makeJob())).rejects.toThrow('unexpected network kaboom');
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
@@ -750,7 +750,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
     ]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
     const callTexts = (mockSql as any).mock.calls.map(
@@ -775,7 +775,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
     ]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     const callTexts = (mockSql as any).mock.calls.map(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
@@ -797,7 +797,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       makeZernioReview('some-other-review-id', 'Some reply'),
     ]);
 
-    await expect(handlePublishResponse(makeJob())).rejects.toMatchObject({
+    await expect(handlePublishResponse(mockSql, makeJob())).rejects.toMatchObject({
       name: 'ZernioReplyVerificationIndeterminateError',
       meta: { reason: 'review_not_found_after_pagination' },
     });
@@ -823,7 +823,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       makeZernioReview('zernio-rev-id-1', null),
     ]);
 
-    await expect(handlePublishResponse(makeJob())).rejects.toMatchObject({
+    await expect(handlePublishResponse(mockSql, makeJob())).rejects.toMatchObject({
       name: 'ZernioReplyVerificationIndeterminateError',
       meta: { reason: 'review_found_but_reply_null' },
     });
@@ -845,7 +845,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       makeZernioReview('zernio-rev-id-1', 'A completely different reply posted by someone else'),
     ]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
     const callTexts = (mockSql as any).mock.calls.map(
@@ -867,7 +867,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       new ZernioTransientError('http_503', { status: 503, body: 'unavailable' }),
     );
 
-    const err = await handlePublishResponse(makeJob()).catch((e) => e);
+    const err = await handlePublishResponse(mockSql, makeJob()).catch((e) => e);
 
     expect(err).toBeInstanceOf(PublisherTransientWithContext);
     // Must NOT be a bare ZernioTransientError without context
@@ -895,7 +895,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!\r\n'),
     ]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
     const callTexts = (mockSql as any).mock.calls.map(
@@ -935,10 +935,10 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
     mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
     mockRunEditPublishIfApplicable.mockResolvedValueOnce({ outcome: 'completed' });
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockRunEditPublishIfApplicable).toHaveBeenCalledTimes(1);
-    const ctx = mockRunEditPublishIfApplicable.mock.calls[0]![0];
+    const ctx = mockRunEditPublishIfApplicable.mock.calls[0]![1];
     expect(ctx).toMatchObject({
       responseId: 'resp-1',
       businessId: 'biz-1',
@@ -980,9 +980,9 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
       },
     });
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
-    expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledWith({
+    expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledWith(mockSql, {
       responseId: 'resp-1',
       businessId: 'biz-1',
       reviewId: 'rev-1',
@@ -1004,10 +1004,10 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
     mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
     mockRunEditPublishIfApplicable.mockResolvedValueOnce({ outcome: 'completed' });
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockRunEditPublishIfApplicable).toHaveBeenCalledTimes(1);
-    expect(mockRunEditPublishIfApplicable.mock.calls[0]![0]).toMatchObject({
+    expect(mockRunEditPublishIfApplicable.mock.calls[0]![1]).toMatchObject({
       responsePostingError: 'pending_after_delete_succeeded',
     });
     expect(mockPostReply).not.toHaveBeenCalled();
@@ -1026,7 +1026,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
       makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
     ]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockRunEditPublishIfApplicable).not.toHaveBeenCalled();
     expect(mockPostReply).toHaveBeenCalledTimes(1);
@@ -1052,7 +1052,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
       makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
     ]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockRunEditPublishIfApplicable).not.toHaveBeenCalled();
     expect(mockPostReply).toHaveBeenCalledTimes(1);
@@ -1075,7 +1075,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
     // Must NOT throw the edit-publish invariant assertion: auto_policy never
     // entered the edit path (no sibling, no orphan), so it falls through to the
     // fresh POST. (The assertion now lives INSIDE the edit-path branch.)
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockRunEditPublishIfApplicable).not.toHaveBeenCalled();
     expect(mockPostReply).toHaveBeenCalledTimes(1);
@@ -1097,7 +1097,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
     );
     mockRunEditPublishIfApplicable.mockResolvedValueOnce({ outcome: 'throw', error: retryErr });
 
-    await expect(handlePublishResponse(makeJob())).rejects.toBe(retryErr);
+    await expect(handlePublishResponse(mockSql, makeJob())).rejects.toBe(retryErr);
 
     expect(mockPostReply).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
@@ -1114,7 +1114,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
       reason: 'zernio_permanent_after_edit_publish',
     });
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockPostReply).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
@@ -1140,7 +1140,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
       makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
     ]);
 
-    await handlePublishResponse(makeJob());
+    await handlePublishResponse(mockSql, makeJob());
 
     expect(mockRunEditPublishIfApplicable).toHaveBeenCalledTimes(1);
     expect(mockPostReply).toHaveBeenCalledTimes(1);

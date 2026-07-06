@@ -1,4 +1,4 @@
-import { sql } from '../../../src/lib/db/server';
+import type { Sql } from 'postgres';
 import { markOutboxFailed } from '../../../src/lib/shared/outbox';
 import type { AccountFlagsInput } from '../../../src/lib/shared/subscription-guard';
 import type { ActiveOffboardingProjection } from '../../../src/lib/account-offboarding/gate';
@@ -25,7 +25,7 @@ export interface PublishResponseContext {
   } & ActiveOffboardingProjection;
 }
 
-export async function loadPublishResponseContext(input: {
+export async function loadPublishResponseContext(sql: Sql, input: {
   responseId: string;
   businessId: string;
   outboxId: string;

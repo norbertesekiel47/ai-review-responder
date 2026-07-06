@@ -22,7 +22,7 @@
 //              is re-surfaced from the catch and delivered as `outcome:'throw'`.
 
 import * as Sentry from '@sentry/node';
-import { sql } from '../../../src/lib/db/server';
+import type { Sql } from 'postgres';
 import { getReviewPublisher } from '../../../src/lib/publishing/review-publisher';
 import type { ReviewLocator, ReviewPublisher } from '../../../src/lib/publishing/review-publisher';
 import {
@@ -119,6 +119,7 @@ function postedResponseActivationInput(args: {
 }
 
 export async function runEditPublishIfApplicable(
+  sql: Sql,
   context: EditPublishContext,
   deps: EditPublishDeps = {},
 ): Promise<EditPublishOutcome> {
@@ -133,7 +134,7 @@ export async function runEditPublishIfApplicable(
     zernioReviewId,
     logger,
   } = context;
-  const publisher = deps.publisher ?? getReviewPublisher();
+  const publisher = deps.publisher ?? getReviewPublisher(sql);
   const verify409InTx = deps.verify409InTx ?? defaultVerify409InTx;
   const locator: ReviewLocator = {
     accountId: zernioAccountId,
@@ -293,6 +294,7 @@ export async function runEditPublishIfApplicable(
         await publisher.publishReply(locator, approvedText);
       } catch (err) {
         const outcome = await handlePostError(
+          sql,
           tx,
           err,
           {

@@ -51,7 +51,7 @@ describe('maybeCaptureActivationCompleted', () => {
   it('captures activation_completed for the first posted response within 7 days', async () => {
     sqlReturnQueue.push([activationRow()]);
 
-    await maybeCaptureActivationCompleted(INPUT);
+    await maybeCaptureActivationCompleted(mockSql, INPUT);
 
     expect(mockCaptureAnalyticsEvent).toHaveBeenCalledWith({
       event: 'activation_completed',
@@ -78,7 +78,7 @@ describe('maybeCaptureActivationCompleted', () => {
       activationRow({ first_response_id: '00000000-0000-0000-0000-000000000099' }),
     ]);
 
-    await maybeCaptureActivationCompleted(INPUT);
+    await maybeCaptureActivationCompleted(mockSql, INPUT);
 
     expect(mockCaptureAnalyticsEvent).not.toHaveBeenCalled();
   });
@@ -88,7 +88,7 @@ describe('maybeCaptureActivationCompleted', () => {
       activationRow({ posted_at: new Date('2026-05-08T00:00:01.000Z') }),
     ]);
 
-    await maybeCaptureActivationCompleted(INPUT);
+    await maybeCaptureActivationCompleted(mockSql, INPUT);
 
     expect(mockCaptureAnalyticsEvent).not.toHaveBeenCalled();
   });
@@ -101,7 +101,7 @@ describe('maybeCaptureActivationCompleted', () => {
     });
 
     await expect(
-      maybeCaptureActivationCompleted({ ...INPUT, logger }),
+      maybeCaptureActivationCompleted(mockSql, { ...INPUT, logger }),
     ).resolves.toBeUndefined();
 
     expect(logger.warn).toHaveBeenCalledWith(
@@ -114,7 +114,7 @@ describe('maybeCaptureActivationCompleted', () => {
   it('does not throw or capture when SQL returns no row', async () => {
     sqlReturnQueue.push([]);
 
-    await expect(maybeCaptureActivationCompleted(INPUT)).resolves.toBeUndefined();
+    await expect(maybeCaptureActivationCompleted(mockSql, INPUT)).resolves.toBeUndefined();
 
     expect(mockCaptureAnalyticsEvent).not.toHaveBeenCalled();
   });
@@ -125,7 +125,7 @@ describe('maybeCaptureActivationCompleted', () => {
       activationRow({ review_id: '00000000-0000-0000-0000-0000000000ff' }),
     ]);
 
-    await maybeCaptureActivationCompleted({ ...INPUT, logger });
+    await maybeCaptureActivationCompleted(mockSql, { ...INPUT, logger });
 
     expect(mockCaptureAnalyticsEvent).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(

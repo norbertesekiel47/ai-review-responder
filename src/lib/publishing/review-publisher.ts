@@ -12,6 +12,7 @@
 // real GBP adapter forces (and validates) its shape. See
 // docs/superpowers/plans/2026-06-26-audit-stage5-review-publisher-seam.md.
 
+import type { Sql } from 'postgres';
 import type { ZernioTransientError } from '@/lib/zernio/errors';
 import { ZernioReviewPublisher } from './zernio-review-publisher';
 
@@ -118,11 +119,12 @@ export interface ReviewPublisher {
 let cached: ReviewPublisher | null = null;
 
 /**
- * The active publishing adapter. A lazy singleton (the adapter is stateless and
- * delegates to module-level clients). The factory shape is the selection seam: when
- * the direct-GBP adapter lands it is chosen here, not at every call-site.
+ * The active publishing adapter. A lazy singleton: every call-site passes the
+ * same composition-root `sql` client, so caching the first-constructed instance
+ * is correct. The factory shape is the selection seam: when the direct-GBP
+ * adapter lands it is chosen here, not at every call-site.
  */
-export function getReviewPublisher(): ReviewPublisher {
-  if (cached === null) cached = new ZernioReviewPublisher();
+export function getReviewPublisher(sql: Sql): ReviewPublisher {
+  if (cached === null) cached = new ZernioReviewPublisher(sql);
   return cached;
 }

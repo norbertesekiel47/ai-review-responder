@@ -29,7 +29,7 @@ describe('applyTransientExhaustionFallback', () => {
     const mockSql = sql as unknown as ReturnType<typeof vi.fn>;
     mockSql.mockResolvedValue([]);
 
-    await applyTransientExhaustionFallback({
+    await applyTransientExhaustionFallback(sql, {
       response_id: 'resp-1',
       business_id: 'biz-1',
       correlation_id: 'corr-1',
@@ -57,13 +57,14 @@ describe('lookupZernioReviewId', () => {
 
   it('returns cached value on hit', async () => {
     const { getCacheRedis } = await import('@/lib/db/redis-cache');
+    const { sql } = await import('@/lib/db/server');
     const setex = vi.fn();
     (getCacheRedis as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       get: vi.fn().mockResolvedValue('cached-zernio-id'),
       setex,
     });
 
-    const result = await lookupZernioReviewId('biz1', 'our1', 'acct1', 'loc1');
+    const result = await lookupZernioReviewId(sql, 'biz1', 'our1', 'acct1', 'loc1');
 
     expect(result).toBe('cached-zernio-id');
     expect(setex).not.toHaveBeenCalled();
@@ -79,7 +80,7 @@ describe('lookupZernioReviewId', () => {
     (sql as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
     await expect(
-      lookupZernioReviewId('biz1', 'our1', 'acct1', 'loc1'),
+      lookupZernioReviewId(sql, 'biz1', 'our1', 'acct1', 'loc1'),
     ).rejects.toMatchObject({ name: 'ZernioReviewNotFoundError' });
   });
 
@@ -133,7 +134,7 @@ describe('lookupZernioReviewId', () => {
         nextPageToken: undefined,
       });
 
-    const result = await lookupZernioReviewId('biz1', 'our1', 'acct1', 'loc1');
+    const result = await lookupZernioReviewId(sql, 'biz1', 'our1', 'acct1', 'loc1');
 
     expect(result).toBe('zernio-match');
     // review-id map cache
@@ -181,7 +182,7 @@ describe('lookupZernioReviewId', () => {
         nextPageToken: undefined,
       });
 
-    await lookupZernioReviewId('biz2', 'our2', 'acctA', 'locB');
+    await lookupZernioReviewId(sql, 'biz2', 'our2', 'acctA', 'locB');
 
     // Page key must include locationId.
     const pageKey = 'zernio_review_page:acctA:locB:zr-page-test';
@@ -229,7 +230,7 @@ describe('lookupZernioReviewId', () => {
       });
 
     await expect(
-      lookupZernioReviewId('biz1', 'our1', 'acct1', 'loc1'),
+      lookupZernioReviewId(sql, 'biz1', 'our1', 'acct1', 'loc1'),
     ).rejects.toMatchObject({ name: 'ZernioReviewNotFoundError' });
   });
 });

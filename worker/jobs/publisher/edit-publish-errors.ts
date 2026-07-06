@@ -8,7 +8,6 @@
 
 import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
-import { jsonb } from '../../../src/lib/db/server';
 import {
   ZernioAuthError,
   ZernioPermanentError,
@@ -137,7 +136,7 @@ async function handle409Disposition(
         ) VALUES (
           ${uuidv7()}, ${businessId}, ${reviewId}, ${responseId},
           'edit_publish_409_mismatch_after_delete',
-          ${jsonb({ verifier_text: disp.verifierText, expected_text: approvedText })}
+          ${tx.json({ verifier_text: disp.verifierText, expected_text: approvedText } as never)}
         )
         ON CONFLICT (review_id, type) WHERE status = 'open'
         DO UPDATE SET payload = review_exceptions.payload
@@ -342,6 +341,7 @@ export async function handleDeleteError(
  * Programming/unknown errors are re-thrown to bubble to the outer catch.
  */
 export async function handlePostError(
+  sql: postgres.Sql,
   tx: postgres.TransactionSql,
   err: unknown,
   args: EditPublishCatchArgs,
@@ -361,7 +361,7 @@ export async function handlePostError(
   } = args;
 
   if (err instanceof ZernioReplyAlreadyExistsError) {
-    const disp = await verify409InTx({
+    const disp = await verify409InTx(sql, {
       tx,
       account_id: zernioAccountId,
       location_id: zernioLocationId,
