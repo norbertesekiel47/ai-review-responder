@@ -81,7 +81,7 @@ async function handler(request: NextRequest): Promise<Response> {
 
   // Tier + ownership gate BEFORE any side effects.
   try {
-    await assertCanEditReply(parsed.data.review_id, { accountId, locationId });
+    await assertCanEditReply(sql, parsed.data.review_id, { accountId, locationId });
   } catch (err) {
     const mapped = mapEditReplyError(err);
     if (mapped) return mapped;

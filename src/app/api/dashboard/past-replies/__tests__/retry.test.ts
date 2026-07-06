@@ -462,7 +462,8 @@ describe('POST /api/dashboard/past-replies/:responseId/retry', () => {
     ) as unknown as unknown[];
     expect(topLevelCall).toContain(ALT_LOCATION_ID);
     // assertCanEditReply receives the ALT location, not the primary.
-    expect(mockAssertCanEdit).toHaveBeenCalledWith(REVIEW_ID, {
+    // Leading arg is the sql client edit-reply-request.ts threads through (A+ campaign 2f-C).
+    expect(mockAssertCanEdit).toHaveBeenCalledWith(sqlProxy, REVIEW_ID, {
       accountId: ACCOUNT_ID,
       locationId: ALT_LOCATION_ID,
     });

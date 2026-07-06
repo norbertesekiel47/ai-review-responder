@@ -167,6 +167,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
 
     expect(mockGenerateReviewSummary).toHaveBeenCalledOnce();
     expect(mockGenerateReviewSummary).toHaveBeenCalledWith(
+      mockSql,
       [
         { starRating: 5, reviewText: 'Excellent!' },
         { starRating: 2, reviewText: 'Could be better' },

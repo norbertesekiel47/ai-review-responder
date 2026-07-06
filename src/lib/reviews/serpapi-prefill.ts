@@ -1,4 +1,5 @@
 import { getJson } from 'serpapi';
+import type { Sql } from 'postgres';
 import { getServerConfig } from '@/lib/config/server';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { recordApiCost } from '@/lib/costs/audit';
@@ -41,7 +42,7 @@ const MOCK_PREFILL: BusinessPrefill = {
  *   for malformed URLs.
  * - `hours` is a comma-separated list formatted from `operating_hours`.
  */
-export async function fetchBusinessDetails(placeId: string): Promise<BusinessPrefill> {
+export async function fetchBusinessDetails(sql: Sql, placeId: string): Promise<BusinessPrefill> {
   // 1. Mock mode short-circuit
   if (isMockMode()) {
     console.log(`${LOG_PREFIX} [MOCK] Returning canned prefill for ${placeId}`);
@@ -111,7 +112,7 @@ export async function fetchBusinessDetails(placeId: string): Promise<BusinessPre
   //    is returned, so fire-and-forget silently corrupts cost accounting.
   //    Promise.allSettled never rejects; individual failures get logged.
   const tasks: Promise<unknown>[] = [
-    recordApiCost({
+    recordApiCost(sql, {
       businessId: null,
       provider: 'serpapi',
       endpoint: callFailed

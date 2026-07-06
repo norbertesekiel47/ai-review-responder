@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { Sql } from 'postgres';
 
 // ── Hoisted shared sql mock (worker/__tests__/helpers/mock-sql) ──────────
 const { sqlReturnQueue, mockSql, resetMockSql } = await vi.hoisted(async () => {
@@ -6,10 +7,15 @@ const { sqlReturnQueue, mockSql, resetMockSql } = await vi.hoisted(async () => {
   return { ...createMockSql() };
 });
 
+// loadGenerationContext now takes the injected client as its leading arg; the
+// db/server mock is retained for load-context's transitive imports (e.g. the
+// offboarding gate), and the same mock drives the FIFO return queue.
 vi.mock('../../../../src/lib/db/server', () => ({
   sql: mockSql,
   jsonb: (v: unknown) => v,
 }));
+
+const sqlArg = mockSql as unknown as Sql;
 
 import { loadGenerationContext } from '../load-context';
 import { SKIP_REASON_ARCHIVED_LOCATION } from '../../../../src/lib/shared/worker-types';
@@ -32,7 +38,7 @@ describe('loadGenerationContext', () => {
     sqlReturnQueue.push([makeLoadContextBusinessRow({ archived_at: new Date('2026-06-01T00:00:00Z') })]);
     sqlReturnQueue.push([]); // existing-response idempotency lookup → none
 
-    const out = await loadGenerationContext({
+    const out = await loadGenerationContext(sqlArg, {
       reviewId: FIXTURE_REVIEW_ID,
       businessId: FIXTURE_BUSINESS_ID,
       version: 1,
@@ -46,7 +52,7 @@ describe('loadGenerationContext', () => {
     sqlReturnQueue.push([makeLoadContextBusinessRow({ subscription_status: 'cancelled' })]);
     sqlReturnQueue.push([]); // existing-response idempotency lookup → none
 
-    const out = await loadGenerationContext({
+    const out = await loadGenerationContext(sqlArg, {
       reviewId: FIXTURE_REVIEW_ID,
       businessId: FIXTURE_BUSINESS_ID,
       version: 1,
@@ -68,7 +74,7 @@ describe('loadGenerationContext', () => {
       account_id: FIXTURE_ACCOUNT_ID,
     }]);
 
-    const out = await loadGenerationContext({
+    const out = await loadGenerationContext(sqlArg, {
       reviewId: FIXTURE_REVIEW_ID,
       businessId: FIXTURE_BUSINESS_ID,
       version: 1,
@@ -98,7 +104,7 @@ describe('loadGenerationContext', () => {
       account_id: FIXTURE_ACCOUNT_ID,
     }]);
 
-    const out = await loadGenerationContext({
+    const out = await loadGenerationContext(sqlArg, {
       reviewId: FIXTURE_REVIEW_ID,
       businessId: FIXTURE_BUSINESS_ID,
       version: 1,
@@ -140,7 +146,7 @@ describe('loadGenerationContext', () => {
       account_id: FIXTURE_ACCOUNT_ID,
     }]);
 
-    const out = await loadGenerationContext({
+    const out = await loadGenerationContext(sqlArg, {
       reviewId: FIXTURE_REVIEW_ID,
       businessId: FIXTURE_BUSINESS_ID,
       version: 1,
@@ -162,7 +168,7 @@ describe('loadGenerationContext', () => {
     sqlReturnQueue.push([makeLoadContextBusinessRow()]);
     sqlReturnQueue.push([]); // existing-response idempotency lookup → none
 
-    const out = await loadGenerationContext({
+    const out = await loadGenerationContext(sqlArg, {
       reviewId: FIXTURE_REVIEW_ID,
       businessId: FIXTURE_BUSINESS_ID,
       version: 1,

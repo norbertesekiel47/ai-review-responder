@@ -9,7 +9,6 @@
 // See docs/superpowers/specs/2026-05-01-edit-existing-replies-design.md §4.1, §4.6.
 
 import type postgres from 'postgres';
-import { sql as defaultSql } from '@/lib/db/server';
 import { SubscriptionTier } from '@/lib/accounts/tier-config';
 import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 import {
@@ -85,10 +84,11 @@ export interface EditContext {
  * NOT on `businesses`. We resolve them by joining businesses → accounts.
  */
 export async function assertCanEditReply(
+  sql: postgres.Sql,
   reviewId: string,
   ctx: EditContext,
 ): Promise<void> {
-  const rows = await defaultSql<{
+  const rows = await sql<{
     review_business_id: string;
     review_date: Date;
     activated_at: Date | null;

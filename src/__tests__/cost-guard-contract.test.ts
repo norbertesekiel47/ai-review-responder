@@ -20,6 +20,9 @@ import { describe, expect, it } from 'vitest';
 
 const CALLER_ALLOWLIST = new Set([
   'src/lib/responses/generator.ts',
+  // insights tenant (review-summary) — wraps runLlmTask in withCostGuard with
+  // reserve/finalize (see generateReviewSummary). A+ campaign 2f-A.
+  'src/lib/responses/review-summary.ts',
 ]);
 
 const SCAN_ROOTS = ['src', 'worker'];

@@ -352,7 +352,8 @@ describe('POST /api/dashboard/past-replies/publish', () => {
     expect(body.outbox_id).toMatch(/^[0-9a-f-]{36}$/);
 
     // assertCanEditReply called with { accountId, locationId } scope.
-    expect(mockAssertCanEdit).toHaveBeenCalledWith(REVIEW_ID, {
+    // Leading arg is the sql client edit-reply-request.ts threads through (A+ campaign 2f-C).
+    expect(mockAssertCanEdit).toHaveBeenCalledWith(sqlProxy, REVIEW_ID, {
       accountId: ACCOUNT_ID,
       locationId: LOCATION_ID,
     });
@@ -496,7 +497,7 @@ describe('POST /api/dashboard/past-replies/publish', () => {
     expect(mockGetRequestScope).toHaveBeenCalledWith(sqlProxy, ACCOUNT_ID, ALT_LOCATION_ID);
 
     // assertCanEditReply called with ALT_LOCATION_ID, not LOCATION_ID.
-    expect(mockAssertCanEdit).toHaveBeenCalledWith(REVIEW_ID, {
+    expect(mockAssertCanEdit).toHaveBeenCalledWith(sqlProxy, REVIEW_ID, {
       accountId: ACCOUNT_ID,
       locationId: ALT_LOCATION_ID,
     });

@@ -18,7 +18,7 @@
 
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '../../../src/lib/db/server';
+import type { Sql } from 'postgres';
 import { extractOutboxHandle, markOutboxCompleted } from '../../../src/lib/shared/outbox';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
@@ -40,7 +40,7 @@ import type { ZernioInitialBackfillPayload } from '../../../src/lib/shared/worke
 import type { MonitoredReview } from '../../../src/lib/reviews/types';
 import type { ZernioReview } from '../../../src/lib/zernio/types';
 
-export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload>): Promise<void> {
+export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackfillPayload>): Promise<void> {
   const logger = createWorkerLogger('[ZernioBackfillWorker]', job.data.correlation_id);
   const {
     business_id,
@@ -119,7 +119,7 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
   // deserves a backfill at that point. A future reconnect (or ops-triggered
   // re-enqueue) retries via the same zernio_backfill_runs row
   // (completed_at IS NULL → idempotent re-entry).
-  const eligibility = await guardZernioJobEligibility({
+  const eligibility = await guardZernioJobEligibility(sql, {
     businessId: business_id,
     outboxId,
     attempt,
@@ -139,7 +139,7 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
     });
   } catch (err) {
     await handleZernioIngestError(
-      err, outboxId, attempt as number,
+      sql, err, outboxId, attempt as number,
       { business_id, zernio_account_id, zernio_location_id }, logger,
     );
     return;
@@ -176,7 +176,7 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
   for (const z of answered) {
     try {
       await reconcileExternallyAnsweredReview(
-        z, business_id, zernio_account_id, zernio_location_id, logger,
+        sql, z, business_id, zernio_account_id, zernio_location_id, logger,
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -233,7 +233,7 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
       }
       throw err;
     }
-    await processReview(monitored, business_id, job.data.correlation_id, {
+    await processReview(sql, monitored, business_id, job.data.correlation_id, {
       suppressNotification: true,
       originLane: GENERATE_RESPONSE_ORIGIN_LANE.BACKFILL,
     });

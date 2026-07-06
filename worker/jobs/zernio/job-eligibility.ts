@@ -5,7 +5,7 @@
 // businesses⋈accounts lookup followed by the same two guards; this module is
 // the single owner of that sequence and of the guard-ordering convention.
 
-import { sql } from '../../../src/lib/db/server';
+import type { Sql } from 'postgres';
 import {
   checkSubscription,
   type AccountFlagsInput,
@@ -48,7 +48,7 @@ export type ZernioJobEligibility =
  * (zernio_backfill_runs.completed_at) is deliberately untouched on skip —
  * un-archiving or restored billing re-enters the same run row idempotently.
  */
-export async function guardZernioJobEligibility(input: {
+export async function guardZernioJobEligibility(sql: Sql, input: {
   businessId: string;
   outboxId: string;
   attempt: number | undefined;

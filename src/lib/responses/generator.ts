@@ -1,3 +1,4 @@
+import type { Sql } from 'postgres';
 import type { NormalizedReview } from '@/lib/reviews/types';
 import { detectResponseLanguage } from '@/lib/reviews/detect-language';
 import type {
@@ -17,15 +18,7 @@ import { withCostGuard } from '@/lib/costs/cost-guard';
 import { recordApiCost, calculateCostUsd } from '@/lib/costs/audit';
 import { PROMPT_VERSION, systemPromptHash } from './prompt-policy';
 import { runLlmTask } from '@/lib/llm/run-task';
-import { OPENAI_MODEL, ANTHROPIC_MODEL } from '@/lib/llm/tasks';
 import type { LLMCallResult } from '@/lib/llm/types';
-
-// Back-compat re-exports (consumers: costs/audit.ts pricing map,
-// responses/review-summary.ts, client-options.test.ts). Retargeted and
-// removed in a Stage-2 sweep.
-export { OPENAI_MODEL, ANTHROPIC_MODEL };
-export { LLM_CLIENT_OPTIONS } from '@/lib/llm/client-options';
-export { TransientLLMError } from '@/lib/llm/error-classifier';
 
 // ── Cached generation shape (stored in Redis) ────────────────────────
 
@@ -49,6 +42,7 @@ function isBusinessContext(
 // ── Main entry point ─────────────────────────────────────────────────
 
 export async function generateResponse(
+  sql: Sql,
   review: NormalizedReview,
   businessContext: DemoBusinessContext | BusinessContext,
   voiceExamples: VoiceExample[],
@@ -64,7 +58,7 @@ export async function generateResponse(
     );
   }
 
-  return runProductionMode(review, businessContext, voiceExamples, options);
+  return runProductionMode(sql, review, businessContext, voiceExamples, options);
 }
 
 // ── Demo mode (no cost guard, no caching) ────────────────────────────
@@ -114,6 +108,7 @@ function validateProductionOptions(
 }
 
 async function runProductionMode(
+  sql: Sql,
   review: NormalizedReview,
   business: BusinessContext,
   voiceExamples: VoiceExample[],
@@ -199,6 +194,7 @@ async function runProductionMode(
   };
 
   result.apiCostId = await tryRecordApiCost(
+    sql,
     businessId,
     options.accountId ?? null,
     llmResult,
@@ -249,6 +245,7 @@ async function tryWriteCache(
 }
 
 async function tryRecordApiCost(
+  sql: Sql,
   businessId: string,
   accountId: string | null,
   llmResult: LLMCallResult,
@@ -256,7 +253,7 @@ async function tryRecordApiCost(
   latencyMs: number,
 ): Promise<string | null> {
   try {
-    return await recordApiCost({
+    return await recordApiCost(sql, {
       businessId,
       accountId,
       provider: llmResult.provider,

@@ -31,6 +31,7 @@ vi.mock('@/lib/analytics/enqueue', () => ({
 import { processReview } from '../process-review';
 import { sql } from '@/lib/db/server';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
+import { REVIEW_STATUS } from '@/lib/reviews/status';
 
 // ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -81,6 +82,11 @@ describe('processReview', () => {
     capturedJsonbPayloads.splice(0);
 
     tx = vi.fn();
+    // process-review interpolates review_exceptions / job_outbox JSONB payloads
+    // via the transaction client's `.json()` (was the `jsonb()` helper before
+    // DB injection). Passthrough so the payload flows into the tagged-template
+    // params exactly as the old helper mock did.
+    (tx as unknown as { json: ReturnType<typeof vi.fn> }).json = vi.fn((v: unknown) => v);
 
     // Make sql.begin invoke its callback synchronously with the tx stub.
     (sql as unknown as { begin: ReturnType<typeof vi.fn> }).begin =
@@ -100,7 +106,7 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
 
-    const result = await processReview(monitored, 'biz-1', 'corr-1');
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
 
     expect(result).toBe('new');
     expect(tx).toHaveBeenCalledTimes(4);
@@ -120,7 +126,7 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
 
-    const result = await processReview(monitored, 'biz-1', 'corr-1');
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
 
     expect(result).toBe('new');
     expect(enqueueAnalyticsEvent).toHaveBeenCalledWith(
@@ -151,7 +157,7 @@ describe('processReview', () => {
         status: 'new',
       }], 1));
 
-    const result = await processReview(monitored, 'biz-1', 'corr-1');
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
 
     expect(result).toBe('unchanged');
     expect(tx).toHaveBeenCalledTimes(3);
@@ -174,11 +180,15 @@ describe('processReview', () => {
       }], 1))
       .mockResolvedValueOnce(withCount([], 0));
 
-    const result = await processReview(monitored, 'biz-1', 'corr-1');
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
 
     expect(result).toBe('updated');
-    const restoreSql = (tx.mock.calls[1]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
-    expect(restoreSql).toContain("status = 'new'");
+    const restoreCall = tx.mock.calls[1] as unknown[];
+    const restoreSql = (restoreCall[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    // status='new' is now a bound param (REVIEW_STATUS.NEW), so it appears in
+    // the interpolated params rather than as an inline SQL literal.
+    expect(restoreSql).toContain('SET status =');
+    expect(restoreCall.slice(1)).toContain(REVIEW_STATUS.NEW);
     expect(restoreSql).toContain('WHERE id =');
   });
 
@@ -191,7 +201,7 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
 
-    const result = await processReview(monitored, 'biz-1', 'corr-1', { suppressNotification: true });
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1', { suppressNotification: true });
 
     expect(result).toBe('new');
 
@@ -212,7 +222,7 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
 
     // No options argument — default is false
-    const result = await processReview(monitored, 'biz-1');
+    const result = await processReview(sql, monitored, 'biz-1');
 
     expect(result).toBe('new');
     expect(capturedJsonbPayloads).toHaveLength(1);
@@ -230,7 +240,7 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
 
-    const result = await processReview(monitored, 'biz-1', 'corr-1', {
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1', {
       suppressNotification: true,
       originLane: 'backfill',
     } as never);
@@ -292,7 +302,7 @@ describe('processReview', () => {
         .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
         .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
 
-      const result = await processReview(monitored, 'biz-1', 'corr-1');
+      const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
 
       expect(result).toBe('updated');
       expect(tx).toHaveBeenCalledTimes(6);
@@ -328,7 +338,7 @@ describe('processReview', () => {
         .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
         .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
 
-      const result = await processReview(monitored, 'biz-1', 'corr-1');
+      const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
 
       expect(result).toBe('updated');
 
@@ -355,7 +365,7 @@ describe('processReview', () => {
         .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
         .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
 
-      const result = await processReview(monitored, 'biz-1', 'corr-1');
+      const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
       expect(result).toBe('updated');
 
       const staleCall = findStaleMarkingCall(tx.mock.calls as unknown[][]);
@@ -391,7 +401,7 @@ describe('processReview', () => {
         .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
         .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
 
-      const result = await processReview(monitored, 'biz-1', 'corr-1');
+      const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
       expect(result).toBe('updated');
 
       const allParams = (tx.mock.calls as unknown[][]).flatMap((call) => call.slice(1));
@@ -425,7 +435,7 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([], 0))  // INSERT job_outbox
       .mockResolvedValueOnce(withCount([], 0)); // UPDATE responses superseded
 
-    const result = await processReview(monitored, 'biz-1', 'corr-1');
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
 
     expect(result).toBe('updated');
 
@@ -459,7 +469,7 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([{ id: 'exc-1' }], 1))  // INSERT review_exceptions
       .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
 
-    const result = await processReview(monitored, 'biz-1', 'corr-1');
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
 
     expect(result).toBe('updated');
 
@@ -487,7 +497,7 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
 
-    const result = await processReview(monitored, 'biz-1', 'corr-1');
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
     expect(result).toBe('new');
 
     // The INSERT INTO reviews is the 2nd tx call (index 1).
@@ -514,7 +524,7 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
       .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
 
-    const result = await processReview(monitored, 'biz-1', 'corr-1');
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
     expect(result).toBe('updated');
 
     // The UPDATE reviews is the 2nd tx call (index 1).
@@ -540,7 +550,7 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
 
-    const result = await processReview(monitored, 'biz-1', 'corr-1');
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
     expect(result).toBe('new');
 
     // The INSERT INTO reviews is the 2nd tx call (index 1).
@@ -564,7 +574,7 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
       .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
 
-    const result = await processReview(monitored, 'biz-1', 'corr-1');
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
     expect(result).toBe('updated');
 
     // The UPDATE reviews is the 2nd tx call (index 1).
@@ -587,12 +597,15 @@ describe('processReview', () => {
       }], 1))
       .mockResolvedValueOnce(withCount([], 0));  // UPDATE reviews SET status='new'
 
-    const result = await processReview(monitored, 'biz-1', 'corr-1');
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
     expect(result).toBe('updated');
 
     // The UPDATE is the 2nd tx call (index 1).
-    const updateSql = (tx.mock.calls[1]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
-    expect(updateSql).toContain("status = 'new'");
+    const updateCall = tx.mock.calls[1] as unknown[];
+    const updateSql = (updateCall[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    // status='new' is now a bound param (REVIEW_STATUS.NEW).
+    expect(updateSql).toContain('SET status =');
+    expect(updateCall.slice(1)).toContain(REVIEW_STATUS.NEW);
     expect(updateSql).not.toContain('sentiment_label');
   });
 });

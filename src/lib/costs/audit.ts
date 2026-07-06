@@ -1,5 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 
 // ── Model pricing ────────────────────────────────────────────────────
 
@@ -9,7 +9,7 @@ interface ModelPricing {
 }
 
 const MODEL_PRICING: Record<string, ModelPricing> = {
-  // Pinned snapshot used for production generation (see generator.ts OPENAI_MODEL).
+  // Pinned snapshot used for production generation (see @/lib/llm/tasks OPENAI_MODEL).
   'gpt-4o-mini-2024-07-18': { inputPer1M: 0.15, outputPer1M: 0.60 },
   // Bare alias retained only so calculateCostUsd still resolves historical rows.
   'gpt-4o-mini': { inputPer1M: 0.15, outputPer1M: 0.60 },
@@ -40,7 +40,7 @@ export function calculateCostUsd(
  * rollups depend on it); platform-level calls leave it null. Prompt metadata
  * and latency are recorded for production LLM generations.
  */
-export async function recordApiCost(params: {
+export async function recordApiCost(sql: Sql, params: {
   businessId: string | null;
   accountId?: string | null;
   provider: string;

@@ -2,12 +2,13 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
+import { isSqlTaggedTemplate } from './lib/sql-tag-scan';
 
 /**
  * Flags hardcoded response-status GROUP literals — 2+ distinct canonical
  * status values co-located in a JS/TS array literal, or in a SQL
- * `IN (...)` / `ANY (...)` predicate inside a `sql` / `tx` tagged template — in
- * TS files under `src/`, outside the two exempt modules.
+ * `IN (...)` / `ANY (...)` predicate inside a `sql` / `tx` / `db` tagged
+ * template — in TS files under `src/`, outside the two exempt modules.
  *
  * Counting/display READ callsites must import the named groups from
  * `@/lib/shared/response-status` and bind them via `statusArraySql()`
@@ -21,9 +22,9 @@ import ts from 'typescript';
  * `static-policy-audit.ts`: a pure `scanSource` (unit-tested) + a thin
  * filesystem `main`.
  *
- * SQL detection is scoped to `sql` / `tx` tagged templates so plain template
- * strings that merely mention statuses (UI copy, log lines) are NOT false-
- * flagged, and it counts canonical values across the WHOLE `IN(...)` / `ANY(...)`
+ * SQL detection is scoped to `sql` / `tx` / `db` tagged templates so plain
+ * template strings that merely mention statuses (UI copy, log lines) are NOT
+ * false-flagged, and it counts canonical values across the WHOLE `IN(...)` / `ANY(...)`
  * predicate (balanced parens) so a group split across `ARRAY[...] || ARRAY[...]`
  * is still caught. Spread composition of array literals
  * (`[...['approved'], 'edited']`) is detected.
@@ -44,10 +45,11 @@ const EXEMPT = new Set([
 ]);
 const IGNORE_PRAGMA = 'status-audit-ignore';
 
-// Tags whose template bodies are SQL in this codebase: the Postgres.js client
-// (`sql`) and a transaction scope from `sql.begin(tx => …)` (`tx`).
-// Known gap: db-tagged templates not scanned here (see scripts/ci/lib/sql-tag-scan.ts); widening deferred to the Stage-2f sweep.
-const SQL_TAG_NAMES = new Set(['sql', 'tx']);
+// SQL-tag detection (`sql` / `tx` / `db`, incl. property access like
+// `sql.unsafe`) is shared with reviews-status-audit.ts and
+// outbox-topics-audit.ts via ./lib/sql-tag-scan's isSqlTaggedTemplate — see
+// that module for the full tag rationale, including the `db`-named
+// SqlExecutor parameter convention this audit now also scans.
 
 const CANONICAL_STATUSES = new Set([
   'pending_approval',
@@ -148,16 +150,6 @@ function sqlPredicateGroups(sqlText: string): { body: string; index: number }[] 
     groups.push({ body: sqlText.slice(open + 1, end), index: match.index });
   }
   return groups;
-}
-
-function isSqlTaggedTemplate(node: ts.TaggedTemplateExpression): boolean {
-  const tag = node.tag;
-  if (ts.isIdentifier(tag)) return SQL_TAG_NAMES.has(tag.text);
-  // e.g. `sql.unsafe` — key on the root identifier.
-  if (ts.isPropertyAccessExpression(tag) && ts.isIdentifier(tag.expression)) {
-    return SQL_TAG_NAMES.has(tag.expression.text);
-  }
-  return false;
 }
 
 function lineHasPragma(lines: string[], lineIndex: number): boolean {

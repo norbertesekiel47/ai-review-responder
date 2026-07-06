@@ -1,15 +1,15 @@
 // scripts/ci/lib/sql-tag-scan.ts
 //
-// Shared SQL-tagged-template scanning primitives for the reviews-status and
-// outbox-topics guards (scripts/ci/reviews-status-audit.ts,
-// scripts/ci/outbox-topics-audit.ts). Both walk the AST for tagged templates
-// whose tag identifier is `sql`, `tx`, or `db` — the Postgres.js client, a
-// `sql.begin(tx => …)` transaction scope, and the `db`-named SqlExecutor
-// parameter convention (`type SqlExecutor = typeof sql | postgres.TransactionSql`,
-// used by helpers that accept either the top-level client or a transaction
-// handle, e.g. worker/jobs/zernio/zernio-ingest-shared.ts) — then honor a
-// per-line ignore pragma. response-status-audit.ts is NOT wired to this
-// module; see its SQL_TAG_NAMES comment for the known gap.
+// Shared SQL-tagged-template scanning primitives for the reviews-status,
+// outbox-topics, and response-status guards (scripts/ci/reviews-status-audit.ts,
+// scripts/ci/outbox-topics-audit.ts, scripts/ci/response-status-audit.ts). All
+// three walk the AST for tagged templates whose tag identifier is `sql`,
+// `tx`, or `db` — the Postgres.js client, a `sql.begin(tx => …)` transaction
+// scope, and the `db`-named SqlExecutor parameter convention
+// (`type SqlExecutor = typeof sql | postgres.TransactionSql`, used by helpers
+// that accept either the top-level client or a transaction handle, e.g.
+// worker/jobs/zernio/zernio-ingest-shared.ts) — then honor a per-line ignore
+// pragma.
 import ts from 'typescript';
 
 /** Tags whose template bodies are SQL in this codebase. Not exported — only

@@ -19,7 +19,7 @@
 //   9. processReview + markOutboxCompleted.
 
 import type { Job } from 'bullmq';
-import { sql } from '../../../src/lib/db/server';
+import type { Sql } from 'postgres';
 import { extractOutboxHandle, markOutboxCompleted } from '../../../src/lib/shared/outbox';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
@@ -92,7 +92,7 @@ export class ZernioIngestUnparseableLocationError extends Error {
 // guards for guardZernioJobEligibility) — decomposition tracked in the
 // multi-location fast-follow spec, not done here to keep the hardening PR surgical.
 // fallow-ignore-next-line complexity
-export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayload>): Promise<void> {
+export async function handleZernioReviewIngest(sql: Sql, job: Job<IngestZernioReviewPayload>): Promise<void> {
   const logger = createWorkerLogger('[ZernioReviewIngestWorker]', job.data.correlation_id);
   const { business_id, zernio_account_id, zernio_location_id, zernio_review_id } = job.data;
   const { outboxId, attempt } = extractOutboxHandle(job.data, job.id!);
@@ -102,7 +102,7 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
   // Defense-in-depth for jobs already queued when the location was archived:
   // the webhook fan-out no longer enqueues ingest for archived locations, but
   // in-flight jobs must skip too.
-  const eligibility = await guardZernioJobEligibility({
+  const eligibility = await guardZernioJobEligibility(sql, {
     businessId: business_id,
     outboxId,
     attempt,
@@ -173,7 +173,7 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
     }
   } catch (err) {
     await handleZernioIngestError(
-      err, outboxId, attempt as number,
+      sql, err, outboxId, attempt as number,
       { business_id, zernio_account_id, zernio_location_id }, logger,
     );
     return;
@@ -211,7 +211,7 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
   //    Code Review fix Medium 1 (2026-05-02).
   if (target.reviewReply != null) {
     await reconcileExternallyAnsweredReview(
-      target, business_id, zernio_account_id, zernio_location_id, logger,
+      sql, target, business_id, zernio_account_id, zernio_location_id, logger,
     );
     await markOutboxCompleted(outboxId, attempt);
     return;
@@ -247,6 +247,6 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
     throw err;
   }
 
-  await processReview(monitored, business_id, job.data.correlation_id);
+  await processReview(sql, monitored, business_id, job.data.correlation_id);
   await markOutboxCompleted(outboxId, attempt);
 }

@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
-import { OPENAI_MODEL, ANTHROPIC_MODEL } from '@/lib/llm/tasks';
+import { OPENAI_MODEL, ANTHROPIC_MODEL, getLlmTask } from '@/lib/llm/tasks';
 import { calculateCostUsd } from '@/lib/costs/audit';
 
 describe('LLM model pinning', () => {
@@ -17,9 +18,22 @@ describe('LLM model pinning', () => {
     expect(calculateCostUsd(OPENAI_MODEL, 1_000_000, 0)).toBeCloseTo(0.15, 6);
   });
 
-  it('generator re-exports stay identical to the registry (back-compat)', async () => {
-    const generator = await import('../generator');
-    expect(generator.OPENAI_MODEL).toBe(OPENAI_MODEL);
-    expect(generator.ANTHROPIC_MODEL).toBe(ANTHROPIC_MODEL);
+  it('pins the reply_generation task to the snapshot models (no bare alias)', () => {
+    const task = getLlmTask('reply_generation');
+    expect(task.primary).toEqual({ provider: 'openai', model: OPENAI_MODEL });
+    expect(task.fallback).toEqual({ provider: 'anthropic', model: ANTHROPIC_MODEL });
+  });
+
+  it('pins the insights task (review-summary tenant) to the snapshot models (no bare alias)', () => {
+    const task = getLlmTask('insights');
+    expect(task.primary).toEqual({ provider: 'openai', model: OPENAI_MODEL });
+    expect(task.primary.model).not.toBe('gpt-4o-mini');
+    expect(task.fallback).toEqual({ provider: 'anthropic', model: ANTHROPIC_MODEL });
+  });
+
+  it('review-summary drives the seam and never hard-codes a bare gpt-4o-mini alias', () => {
+    const source = readFileSync(new URL('../review-summary.ts', import.meta.url), 'utf8');
+    expect(source).not.toContain("'gpt-4o-mini'");
+    expect(source).toContain("runLlmTask('insights'");
   });
 });

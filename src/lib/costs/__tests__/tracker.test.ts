@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import type { Sql } from 'postgres';
 
 // Set env vars BEFORE any tracker imports trigger getCacheRedisOptions()
 beforeAll(() => {
@@ -303,7 +304,7 @@ describe('recordApiCost', () => {
 
   it('calls sql to insert into api_costs', async () => {
     const { recordApiCost } = await import('../audit');
-    await recordApiCost({
+    await recordApiCost(mockSqlTagged as unknown as Sql, {
       businessId: 'biz-001',
       provider: 'openai',
       endpoint: 'chat.completions',

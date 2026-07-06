@@ -1,9 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('@/lib/db/server', () => ({
-  sql: { begin: vi.fn() },
-  jsonb: (v: unknown) => v,
-}));
 vi.mock('@/lib/zernio/auth-error-fallback', () => ({
   applyIngestionAuthErrorFallback: vi.fn(),
 }));
@@ -31,6 +27,12 @@ import type { ZernioReview } from '@/lib/zernio/types';
 const mkLogger = () => ({ log: vi.fn(), warn: vi.fn(), error: vi.fn() });
 const ctx = { business_id: 'B', zernio_account_id: 'A', zernio_location_id: 'L' };
 
+/** sql is now an explicit leading param (spec §2.1) — build a minimal
+ * `Sql`-shaped mock per test instead of mocking the `@/lib/db/server` module. */
+function makeSqlMock() {
+  return { begin: vi.fn() } as unknown as Parameters<typeof handleZernioIngestError>[0];
+}
+
 describe('handleZernioIngestError — dispatch matrix', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -40,31 +42,32 @@ describe('handleZernioIngestError — dispatch matrix', () => {
     const { applyIngestionAuthErrorFallback } = await import('@/lib/zernio/auth-error-fallback');
     const { markOutboxFailed } = await import('@/lib/shared/outbox');
 
+    const sql = makeSqlMock();
     const err = new ZernioAuthError(401, 'expired token');
-    await handleZernioIngestError(err, 'outbox-1', 1, ctx, mkLogger() as any);
+    await handleZernioIngestError(sql, err, 'outbox-1', 1, ctx, mkLogger() as any);
 
-    expect(applyIngestionAuthErrorFallback).toHaveBeenCalledWith('B', 'A', 'L', expect.stringContaining('401'));
+    expect(applyIngestionAuthErrorFallback).toHaveBeenCalledWith(sql, 'B', 'A', 'L', expect.stringContaining('401'));
     expect(markOutboxFailed).toHaveBeenCalledWith('outbox-1', 'zernio_auth_error_on_ingest', 1);
   });
 
   it('ZernioPermanentError → markOutboxFailed permanent', async () => {
     const { markOutboxFailed } = await import('@/lib/shared/outbox');
     const err = new ZernioPermanentError('500 fatal', {});
-    await handleZernioIngestError(err, 'outbox-1', 1, ctx, mkLogger() as any);
+    await handleZernioIngestError(makeSqlMock(), err, 'outbox-1', 1, ctx, mkLogger() as any);
     expect(markOutboxFailed).toHaveBeenCalledWith('outbox-1', expect.stringContaining('zernio_permanent_error'), 1);
   });
 
   it('ZernioValidationError → markOutboxFailed permanent', async () => {
     const { markOutboxFailed } = await import('@/lib/shared/outbox');
     const err = new ZernioValidationError('bad_payload', { raw: 'data' });
-    await handleZernioIngestError(err, 'outbox-1', 1, ctx, mkLogger() as any);
+    await handleZernioIngestError(makeSqlMock(), err, 'outbox-1', 1, ctx, mkLogger() as any);
     expect(markOutboxFailed).toHaveBeenCalledWith('outbox-1', expect.stringContaining('zernio_validation_error'), 1);
   });
 
   it('ZernioTransientError → rethrow', async () => {
     await expect(
       handleZernioIngestError(
-        new ZernioTransientError('timeout', {}),
+        makeSqlMock(), new ZernioTransientError('timeout', {}),
         'outbox-1', 1, ctx, mkLogger() as any,
       ),
     ).rejects.toBeInstanceOf(ZernioTransientError);
@@ -73,7 +76,7 @@ describe('handleZernioIngestError — dispatch matrix', () => {
   it('unknown Error → rethrow', async () => {
     await expect(
       handleZernioIngestError(
-        new Error('boom'), 'outbox-1', 1, ctx, mkLogger() as any,
+        makeSqlMock(), new Error('boom'), 'outbox-1', 1, ctx, mkLogger() as any,
       ),
     ).rejects.toThrow('boom');
   });
@@ -93,6 +96,7 @@ describe('openPhiReviewException', () => {
       calls.push({ sql: strings.join('?'), values });
       return Promise.resolve(calls.length === 1 ? [{ id: 'exc-1' }] : []);
     });
+    (db as unknown as { json: ReturnType<typeof vi.fn> }).json = vi.fn((v: unknown) => v);
     const logger = mkLogger();
     const review: ZernioReview = {
       id: 'rev-phi',
@@ -140,6 +144,7 @@ describe('openPhiReviewException', () => {
       calls.push({ sql: strings.join('?'), values });
       return Promise.resolve([]);
     });
+    (db as unknown as { json: ReturnType<typeof vi.fn> }).json = vi.fn((v: unknown) => v);
     const logger = mkLogger();
     const review: ZernioReview = {
       id: 'rev-phi-dup',
@@ -194,16 +199,16 @@ describe('reconcileExternallyAnsweredReview', () => {
   };
 
   it('no matched review rows → log + early return', async () => {
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     const tx = vi.fn(() => Promise.resolve(mkTaggedResult([])));
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
     const logger = mkLogger();
-    await reconcileExternallyAnsweredReview(mkReview(), 'B', 'A', 'L', logger as any);
+    await reconcileExternallyAnsweredReview(sql, mkReview(), 'B', 'A', 'L', logger as any);
     expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('previously-unseen'));
   });
 
   it('all-protected (canonicalized text matches all active responses) → no supersession', async () => {
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     let callIdx = 0;
     const tx = vi.fn((_strings: TemplateStringsArray, ..._values: unknown[]) => {
       callIdx += 1;
@@ -217,14 +222,14 @@ describe('reconcileExternallyAnsweredReview', () => {
     });
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
     const logger = mkLogger();
-    await reconcileExternallyAnsweredReview(mkReview(), 'B', 'A', 'L', logger as any);
+    await reconcileExternallyAnsweredReview(sql, mkReview(), 'B', 'A', 'L', logger as any);
     // Only 2 tx calls: SELECT matchedRows + SELECT activeResponses. NO UPDATE.
     expect(callIdx).toBe(2);
     expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('matches every active response'));
   });
 
   it('all-stale (no active response matches external reply) → supersedes all', async () => {
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     let callIdx = 0;
     const tx = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => {
       callIdx += 1;
@@ -237,13 +242,13 @@ describe('reconcileExternallyAnsweredReview', () => {
     });
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
     const logger = mkLogger();
-    await reconcileExternallyAnsweredReview(mkReview(), 'B', 'A', 'L', logger as any);
+    await reconcileExternallyAnsweredReview(sql, mkReview(), 'B', 'A', 'L', logger as any);
     expect(callIdx).toBe(3);  // SELECT matched, SELECT active, UPDATE supersede
     expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('Superseded 1 active response'));
   });
 
   it('pending_approval response (approved_text=NULL) is always superseded when external reply detected', async () => {
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     let callIdx = 0;
     const tx = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => {
       callIdx += 1;
@@ -255,12 +260,12 @@ describe('reconcileExternallyAnsweredReview', () => {
     });
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
     const logger = mkLogger();
-    await reconcileExternallyAnsweredReview(mkReview(), 'B', 'A', 'L', logger as any);
+    await reconcileExternallyAnsweredReview(sql, mkReview(), 'B', 'A', 'L', logger as any);
     expect(callIdx).toBe(3);
   });
 
   it('SQL filter for active responses excludes awaiting_manual_post (decommissioned status)', async () => {
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     let activeResponseSql = '';
     let callIdx = 0;
     const tx = vi.fn((strings: TemplateStringsArray, ..._v: unknown[]) => {
@@ -273,7 +278,7 @@ describe('reconcileExternallyAnsweredReview', () => {
       return Promise.resolve(mkTaggedResult([]));
     });
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
-    await reconcileExternallyAnsweredReview(mkReview(), 'B', 'A', 'L', mkLogger() as any);
+    await reconcileExternallyAnsweredReview(sql, mkReview(), 'B', 'A', 'L', mkLogger() as any);
     expect(activeResponseSql).not.toContain('awaiting_manual_post');
     expect(activeResponseSql).toContain('pending_approval');
     expect(activeResponseSql).toContain('approved');
@@ -330,19 +335,22 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
       const rows = handler ? handler(rec) : [];
       return Promise.resolve(mkTaggedResult(rows));
     });
+    // Identity pass-through for the openPhiReviewException PHI branches'
+    // `db.json(...)` bind (mirrors mock-sql.ts's createMockSql().json).
+    (tx as unknown as { json: ReturnType<typeof vi.fn> }).json = vi.fn((v: unknown) => v);
     return { tx, calls };
   };
 
   it('flag OFF + no-match: silent no-op (today\'s behavior unchanged)', async () => {
     delete process.env.EXTERNAL_REPLY_IMPORT_ENABLED;
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     const { tx, calls } = mkRecordingTx([
       // 1. SELECT matched rows → none.
       () => [],
     ]);
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
     const logger = mkLogger();
-    await reconcileExternallyAnsweredReview(mkReview(), 'B', 'A', 'L', logger as any);
+    await reconcileExternallyAnsweredReview(sql, mkReview(), 'B', 'A', 'L', logger as any);
     // Only 1 SELECT — no INSERTs at all.
     expect(calls).toHaveLength(1);
     expect(calls[0]!.sql).toContain('SELECT');
@@ -351,7 +359,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
 
   it('flag ON + no-match: INSERTs reviews row + posted response + bumps counter', async () => {
     process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     const { tx, calls } = mkRecordingTx([
       // 1. SELECT matched rows → none.
       () => [],
@@ -364,7 +372,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     ]);
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
     const logger = mkLogger();
-    await reconcileExternallyAnsweredReview(mkReview(), 'B', 'A', 'L', logger as any);
+    await reconcileExternallyAnsweredReview(sql, mkReview(), 'B', 'A', 'L', logger as any);
 
     expect(calls).toHaveLength(4);
     // INSERT into reviews with provider='zernio' and external_reply_ingested_at NOT NULL.
@@ -389,7 +397,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
 
   it('flag ON + no-match + likely PHI review text: skips review and response inserts', async () => {
     process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     const { tx, calls } = mkRecordingTx([
       // 1. SELECT matched rows → none.
       () => [],
@@ -398,6 +406,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     const logger = mkLogger();
 
     await reconcileExternallyAnsweredReview(
+      sql,
       mkReview({ comment: 'Patient MRN 12345 needs diabetes treatment follow up' }),
       'B',
       'A',
@@ -417,7 +426,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
 
   it('flag ON + matched but no active responses: INSERTs response only, version > 1 if prior terminals exist', async () => {
     process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     const { tx, calls } = mkRecordingTx([
       // 1. SELECT matched rows → 1 row.
       () => [{ id: 'rev-row-1', provider: 'zernio' }],
@@ -430,7 +439,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     ]);
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
     const logger = mkLogger();
-    await reconcileExternallyAnsweredReview(mkReview(), 'B', 'A', 'L', logger as any);
+    await reconcileExternallyAnsweredReview(sql, mkReview(), 'B', 'A', 'L', logger as any);
 
     expect(calls).toHaveLength(4);
     // No INSERT INTO reviews (the row already exists).
@@ -447,7 +456,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
 
   it('flag ON + matched but no active responses + likely PHI review text: skips response import', async () => {
     process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     const { tx, calls } = mkRecordingTx([
       // 1. SELECT matched rows → 1 row.
       () => [{ id: 'rev-row-1', provider: 'zernio' }],
@@ -458,6 +467,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     const logger = mkLogger();
 
     await reconcileExternallyAnsweredReview(
+      sql,
       mkReview({ comment: 'Patient MRN 12345 needs diabetes treatment follow up' }),
       'B',
       'A',
@@ -476,7 +486,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
 
   it('flag ON + matched WITH active response: today\'s supersede/protect logic, no new INSERTs, no counter bump', async () => {
     process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     const { tx, calls } = mkRecordingTx([
       // 1. SELECT matched rows → 1 row.
       () => [{ id: 'rev-row-1', provider: 'zernio' }],
@@ -487,7 +497,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     ]);
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
     const logger = mkLogger();
-    await reconcileExternallyAnsweredReview(mkReview(), 'B', 'A', 'L', logger as any);
+    await reconcileExternallyAnsweredReview(sql, mkReview(), 'B', 'A', 'L', logger as any);
 
     expect(calls).toHaveLength(3);
     // Existing supersede behavior preserved — no INSERTs added.
@@ -500,7 +510,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
 
   it('reply text is canonicalized (BOM, NFC, CRLF stripped)', async () => {
     process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     const { tx, calls } = mkRecordingTx([
       // 1. SELECT matched rows → none (forces the import branch).
       () => [],
@@ -515,6 +525,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     const dirtyReply = '﻿Thanks!\r\nWe appreciate it.\r\n';
     const logger = mkLogger();
     await reconcileExternallyAnsweredReview(
+      sql,
       mkReview({ reviewReply: { comment: dirtyReply, updateTime: '2026-04-02T00:00:00Z' } }),
       'B', 'A', 'L', logger as any,
     );
@@ -531,7 +542,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
 
   it('idempotent: re-running on same Zernio review is a no-op AND skips counter bump', async () => {
     process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     // Simulate the second run: the reviews row now exists (matched) AND a
     // 'posted' response already exists (NOT in active set). Today's flag-ON
     // behavior on this state goes through the "matched + no active" branch
@@ -549,7 +560,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
       // (no counter-bump call expected — the gate skipped it)
     ]);
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
-    await reconcileExternallyAnsweredReview(mkReview(), 'B', 'A', 'L', logger as any);
+    await reconcileExternallyAnsweredReview(sql, mkReview(), 'B', 'A', 'L', logger as any);
 
     // Only 3 calls — counter bump is skipped because INSERT was a no-op.
     expect(calls).toHaveLength(3);
@@ -566,7 +577,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
 
   it('does not fire when reviewReply === null', async () => {
     process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     // The calling workers (ingest + backfill) only invoke this helper when
     // reviewReply !== null. We assert the helper itself does not crash if
     // that contract is violated AND does not insert anything when reviewReply
@@ -579,6 +590,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
     const logger = mkLogger();
     await reconcileExternallyAnsweredReview(
+      sql,
       mkReview({ reviewReply: null }),
       'B', 'A', 'L', logger as any,
     );
@@ -592,7 +604,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     // A 5-star review (rating=5) → label='positive', source='deterministic_star_v1'.
     // Uses the no-match path (flag ON) which invokes insertImportedReview directly.
     process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     const { tx, calls } = mkRecordingTx([
       // 1. SELECT matched rows → none.
       () => [],
@@ -606,6 +618,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
     const logger = mkLogger();
     await reconcileExternallyAnsweredReview(
+      sql,
       // rating=5 maps to label='positive'
       mkReview({ rating: 5, starRating: 'FIVE' }),
       'B', 'A', 'L', logger as any,

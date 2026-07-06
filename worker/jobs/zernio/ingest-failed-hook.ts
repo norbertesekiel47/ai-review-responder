@@ -1,7 +1,7 @@
 import type { Job } from 'bullmq';
 import * as Sentry from '@sentry/node';
 import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '../../../src/lib/db/server';
+import type { Sql } from 'postgres';
 import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { extractOutboxHandle, markOutboxFailed } from '../../../src/lib/shared/outbox';
 import {
@@ -19,6 +19,7 @@ import type { IngestZernioReviewPayload } from '../../../src/lib/shared/worker-t
  * during Zernio outages would spam admin email; ops watches the table).
  */
 export async function handleIngestFailed(
+  sql: Sql,
   job: Job<IngestZernioReviewPayload> | undefined,
   err: unknown,
 ): Promise<void> {
@@ -28,17 +29,17 @@ export async function handleIngestFailed(
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   if (err instanceof ZernioIngestReviewNotFoundError) {
-    await handleReviewNotFound(err, outboxId, outboxAttempt);
+    await handleReviewNotFound(sql, err, outboxId, outboxAttempt);
     return;
   }
 
   if (err instanceof ZernioIngestPaginationCapExhaustedError) {
-    await handlePaginationCapExhausted(err, outboxId, outboxAttempt);
+    await handlePaginationCapExhausted(sql, err, outboxId, outboxAttempt);
     return;
   }
 
   if (err instanceof ZernioIngestUnparseableLocationError) {
-    await handleUnparseableLocation(err, outboxId, outboxAttempt);
+    await handleUnparseableLocation(sql, err, outboxId, outboxAttempt);
     return;
   }
 
@@ -48,6 +49,7 @@ export async function handleIngestFailed(
 }
 
 async function handleReviewNotFound(
+  sql: Sql,
   err: ZernioIngestReviewNotFoundError,
   outboxId: string,
   outboxAttempt: number | undefined,
@@ -56,7 +58,7 @@ async function handleReviewNotFound(
     INSERT INTO review_exceptions (id, business_id, type, status, payload)
     VALUES (
       ${uuidv7()}, ${err.businessId}, 'zernio_review_not_found', 'open',
-      ${jsonb({
+      ${sql.json({
         provider: 'zernio',
         provider_review_id: err.zernioReviewId,
         zernio_account_id: err.zernioAccountId,
@@ -64,7 +66,7 @@ async function handleReviewNotFound(
         pages_walked: err.pagesWalked,
         reviews_seen: err.reviewsSeen,
         retries_exhausted_at: new Date().toISOString(),
-      })}
+      } as never)}
     )
     ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
       WHERE status = 'open' AND review_id IS NULL
@@ -74,6 +76,7 @@ async function handleReviewNotFound(
 }
 
 async function handlePaginationCapExhausted(
+  sql: Sql,
   err: ZernioIngestPaginationCapExhaustedError,
   outboxId: string,
   outboxAttempt: number | undefined,
@@ -82,7 +85,7 @@ async function handlePaginationCapExhausted(
     INSERT INTO review_exceptions (id, business_id, type, status, payload)
     VALUES (
       ${uuidv7()}, ${err.businessId}, 'zernio_pagination_cap_exhausted', 'open',
-      ${jsonb({
+      ${sql.json({
         provider: 'zernio',
         provider_review_id: err.zernioReviewId,
         zernio_account_id: err.zernioAccountId,
@@ -94,7 +97,7 @@ async function handlePaginationCapExhausted(
         pages_walked: err.cap,
         reviews_seen: err.reviewsSeen,
         retries_exhausted_at: new Date().toISOString(),
-      })}
+      } as never)}
     )
     ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
       WHERE status = 'open' AND review_id IS NULL
@@ -122,6 +125,7 @@ async function handlePaginationCapExhausted(
 }
 
 async function handleUnparseableLocation(
+  sql: Sql,
   err: ZernioIngestUnparseableLocationError,
   outboxId: string,
   outboxAttempt: number | undefined,
@@ -130,14 +134,14 @@ async function handleUnparseableLocation(
     INSERT INTO review_exceptions (id, business_id, type, status, payload)
     VALUES (
       ${uuidv7()}, ${err.businessId}, 'zernio_unparseable_review_name', 'open',
-      ${jsonb({
+      ${sql.json({
         provider: 'zernio',
         provider_review_id: err.zernioReviewId,
         zernio_account_id: err.zernioAccountId,
         zernio_location_id: err.zernioLocationId,
         review_name_truncated: err.reviewName.slice(0, 500),
         retries_exhausted_at: new Date().toISOString(),
-      })}
+      } as never)}
     )
     ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
       WHERE status = 'open' AND review_id IS NULL
@@ -152,7 +156,7 @@ async function handleUnparseableLocation(
       VALUES (
         ${uuidv7()}, ${QUEUE_NAMES.NOTIFY_ADMIN}, 'business',
         ${err.businessId},
-        ${jsonb({ review_exception_id: exception.id, business_id: err.businessId })},
+        ${sql.json({ review_exception_id: exception.id, business_id: err.businessId } as never)},
         0, 5
       )
     `;

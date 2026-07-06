@@ -25,6 +25,9 @@ const {
   const mockTx = vi.fn((_strings: TemplateStringsArray, ..._values: unknown[]): Promise<unknown[]> => {
     return Promise.resolve([]);
   });
+  // persist.ts binds the JSONB moderation_categories via tx.json(...) now
+  // (was the module-level jsonb() helper) — identity pass-through in the mock.
+  (mockTx as unknown as { json: (v: unknown) => unknown }).json = vi.fn((v: unknown) => v);
 
   const mockSql: any = vi.fn((_strings: TemplateStringsArray, ..._values: unknown[]) => {
     const result = sqlReturnQueue.shift() ?? [];
@@ -267,7 +270,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
       extra_key: 'allowed',
     }));
 
-    expect(persistResponseAndNotify).toHaveBeenCalledWith(expect.objectContaining({
+    expect(persistResponseAndNotify).toHaveBeenCalledWith(mockSql, expect.objectContaining({
       originLane: 'live_ingest_new',
       suppressNotification: true,
     }));
@@ -286,7 +289,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     delete (legacyJob.data as unknown as Record<string, unknown>).origin_lane;
     await handleResponseGeneration(legacyJob);
 
-    expect(persistResponseAndNotify).toHaveBeenCalledWith(expect.objectContaining({
+    expect(persistResponseAndNotify).toHaveBeenCalledWith(mockSql, expect.objectContaining({
       originLane: null,
     }));
     expect(warnSpy).not.toHaveBeenCalled();
@@ -301,7 +304,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
 
     await handleResponseGeneration(makeJob({ origin_lane: ' live ingest:surprise! ' }));
 
-    expect(persistResponseAndNotify).toHaveBeenCalledWith(expect.objectContaining({
+    expect(persistResponseAndNotify).toHaveBeenCalledWith(mockSql, expect.objectContaining({
       originLane: null,
     }));
     expect(warnSpy).toHaveBeenCalledTimes(1);
@@ -323,7 +326,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
 
     const reviewSelect = (mockSql.mock.calls[0]?.[0] as TemplateStringsArray).join(' ');
     expect(reviewSelect).toContain('review_content_hash');
-    expect(persistResponseAndNotify).toHaveBeenCalledWith(expect.objectContaining({
+    expect(persistResponseAndNotify).toHaveBeenCalledWith(mockSql, expect.objectContaining({
       loadedReviewContentHash: 'fresh-hash',
     }));
   });
@@ -558,10 +561,11 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     // The retry call must use skipCache: true so the cached violating
     // response doesn't short-circuit the regeneration
     const calls = mockGenerateResponse.mock.calls as unknown[][];
-    const retryCallOpts = calls[1]?.[3] as Record<string, unknown> | undefined;
+    // options is arg[4] now that `sql` leads the generateResponse signature.
+    const retryCallOpts = calls[1]?.[4] as Record<string, unknown> | undefined;
     expect(retryCallOpts).toMatchObject({ skipCache: true });
     // First call should NOT have skipCache
-    const firstCallOpts = calls[0]?.[3] as Record<string, unknown> | undefined;
+    const firstCallOpts = calls[0]?.[4] as Record<string, unknown> | undefined;
     expect(firstCallOpts?.skipCache).toBeFalsy();
     // Cache must be overwritten with the clean retry result
     expect(mockSetCachedGeneration).toHaveBeenCalledWith(

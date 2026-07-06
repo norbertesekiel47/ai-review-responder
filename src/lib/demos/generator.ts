@@ -1,3 +1,4 @@
+import type { Sql } from 'postgres';
 import type { DemoGeneratorInput, DemoGeneratorResult } from './types';
 import { fetchSerpApiReviews } from './fetch-reviews';
 import { generateResponsesForReviews } from './generate-responses';
@@ -17,6 +18,7 @@ import { generateResponsesForReviews } from './generate-responses';
  * persistence.
  */
 export async function generateDemo(
+  sql: Sql,
   input: DemoGeneratorInput,
 ): Promise<DemoGeneratorResult> {
   const startTime = Date.now();
@@ -27,7 +29,7 @@ export async function generateDemo(
     throw new Error('No reviews found for this business');
   }
 
-  const result = await generateResponsesForReviews(reviews, {
+  const result = await generateResponsesForReviews(sql, reviews, {
     name: input.businessName,
     category: input.category,
   });

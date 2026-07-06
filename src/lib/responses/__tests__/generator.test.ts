@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Sql } from 'postgres';
 import type { NormalizedReview } from '@/lib/reviews/types';
 import type { GenerationOptions } from '../types';
+
+// generateResponse now takes an injected `sql` as its leading arg; in these
+// tests it is only forwarded to the mocked recordApiCost, so a bare stub
+// suffices (demo/production paths never issue a real query through it).
+const mockSql = {} as unknown as Sql;
 
 // ── Mock all external dependencies ───────────────────────────────────
 
@@ -130,7 +136,7 @@ describe('generateResponse', () => {
         openaiCreate.mockResolvedValueOnce(openAIResponse('Thank you, Jane!'));
 
     const { generateResponse } = await import('../generator');
-    const result = await generateResponse(review, businessContext, [], demoOptions);
+    const result = await generateResponse(mockSql, review, businessContext, [], demoOptions);
 
     expect(result.provider).toBe('openai');
     expect(result.model).toBe('gpt-4o-mini-2024-07-18');
@@ -144,7 +150,7 @@ describe('generateResponse', () => {
     anthropicCreate.mockResolvedValueOnce(anthropicResponse('Merci, Jane!'));
 
     const { generateResponse } = await import('../generator');
-    const result = await generateResponse(review, businessContext, [], demoOptions);
+    const result = await generateResponse(mockSql, review, businessContext, [], demoOptions);
 
     expect(result.provider).toBe('anthropic');
     expect(result.model).toBe('claude-haiku-4-5-20251001');
@@ -158,7 +164,7 @@ describe('generateResponse', () => {
 
     const { generateResponse } = await import('../generator');
     await expect(
-      generateResponse(review, businessContext, [], demoOptions),
+      generateResponse(mockSql, review, businessContext, [], demoOptions),
     ).rejects.toThrow('Anthropic down');
   });
 
@@ -166,7 +172,7 @@ describe('generateResponse', () => {
         openaiCreate.mockResolvedValueOnce(openAIResponse('Thanks!'));
 
     const { generateResponse } = await import('../generator');
-    const result = await generateResponse(review, businessContext, [], demoOptions);
+    const result = await generateResponse(mockSql, review, businessContext, [], demoOptions);
 
     expect(result.usage.promptTokens).toBe(100);
     expect(result.usage.completionTokens).toBe(50);
@@ -178,7 +184,7 @@ describe('generateResponse', () => {
     anthropicCreate.mockResolvedValueOnce(anthropicResponse('Thanks!'));
 
     const { generateResponse } = await import('../generator');
-    const result = await generateResponse(review, businessContext, [], demoOptions);
+    const result = await generateResponse(mockSql, review, businessContext, [], demoOptions);
 
     expect(result.usage.promptTokens).toBe(100);
     expect(result.usage.completionTokens).toBe(50);
@@ -191,7 +197,7 @@ describe('generateResponse', () => {
     const concurrencyGuard = await import('@/lib/costs/concurrency-guard');
     const audit = await import('@/lib/costs/audit');
     const { generateResponse } = await import('../generator');
-    await generateResponse(review, businessContext, [], demoOptions);
+    await generateResponse(mockSql, review, businessContext, [], demoOptions);
 
     expect(tracker.reserveCost).not.toHaveBeenCalled();
     expect(concurrencyGuard.acquireConcurrencySlot).not.toHaveBeenCalled();
@@ -206,7 +212,7 @@ describe('generateResponse', () => {
     const concurrencyGuard = await import('@/lib/costs/concurrency-guard');
     const audit = await import('@/lib/costs/audit');
     const { generateResponse } = await import('../generator');
-    await generateResponse(review, businessContext, [], productionOptions);
+    await generateResponse(mockSql, review, businessContext, [], productionOptions);
 
     expect(tracker.reserveCost).toHaveBeenCalledWith('biz-001', 'standard');
     expect(concurrencyGuard.acquireConcurrencySlot).toHaveBeenCalledWith('biz-001');
@@ -221,9 +227,10 @@ describe('generateResponse', () => {
 
     const audit = await import('@/lib/costs/audit');
     const { generateResponse } = await import('../generator');
-    await generateResponse(review, businessContext, [], productionOptions);
+    await generateResponse(mockSql, review, businessContext, [], productionOptions);
 
     expect(audit.recordApiCost).toHaveBeenCalledWith(
+      mockSql,
       expect.objectContaining({
         accountId: 'acc-001',
         promptVersion: expect.any(String),
@@ -247,7 +254,7 @@ describe('generateResponse', () => {
     );
 
     const { generateResponse } = await import('../generator');
-    const result = await generateResponse(review, businessContext, [], productionOptions);
+    const result = await generateResponse(mockSql, review, businessContext, [], productionOptions);
 
     expect(result.responseText).toBe('Cached response');
     expect(result.costUsd).toBe(0);
@@ -259,7 +266,7 @@ describe('generateResponse', () => {
     const opts: GenerationOptions = { mode: 'production', version: 1, businessId: 'b', subscriptionTier: 'standard' };
 
     await expect(
-      generateResponse(review, businessContext, [], opts),
+      generateResponse(mockSql, review, businessContext, [], opts),
     ).rejects.toThrow(TypeError);
   });
 
@@ -268,7 +275,7 @@ describe('generateResponse', () => {
     const opts: GenerationOptions = { mode: 'production', reviewId: 'r', version: 1, subscriptionTier: 'standard' };
 
     await expect(
-      generateResponse(review, businessContext, [], opts),
+      generateResponse(mockSql, review, businessContext, [], opts),
     ).rejects.toThrow(TypeError);
   });
 
@@ -281,7 +288,7 @@ describe('generateResponse', () => {
     const { generateResponse } = await import('../generator');
 
     await expect(
-      generateResponse(review, businessContext, [], productionOptions),
+      generateResponse(mockSql, review, businessContext, [], productionOptions),
     ).rejects.toThrow();
 
     expect(concurrencyGuard.releaseConcurrencySlot).toHaveBeenCalledWith('biz-001');
@@ -293,7 +300,7 @@ describe('generateResponse', () => {
     const demoCtx = { name: 'Test', category: 'restaurant' };
 
     await expect(
-      generateResponse(review, demoCtx, [], productionOptions),
+      generateResponse(mockSql, review, demoCtx, [], productionOptions),
     ).rejects.toThrow(TypeError);
   });
 
@@ -306,7 +313,7 @@ describe('generateResponse', () => {
     );
 
     const { generateResponse } = await import('../generator');
-    const result = await generateResponse(review, businessContext, [], productionOptions);
+    const result = await generateResponse(mockSql, review, businessContext, [], productionOptions);
 
     expect(result.responseText).toBe('Thanks!');
     expect(tracker.finalizeCost).toHaveBeenCalled();
@@ -321,7 +328,7 @@ describe('generateResponse', () => {
 
     const { generateResponse } = await import('../generator');
     await expect(
-      generateResponse(review, businessContext, [], productionOptions),
+      generateResponse(mockSql, review, businessContext, [], productionOptions),
     ).rejects.toThrow('Concurrency limit exceeded');
 
     expect(tracker.releaseCost).toHaveBeenCalledWith('biz-001', '2025-06-15');
@@ -337,7 +344,7 @@ describe('generateResponse', () => {
     );
 
     const { generateResponse } = await import('../generator');
-    const result = await generateResponse(review, businessContext, [], productionOptions);
+    const result = await generateResponse(mockSql, review, businessContext, [], productionOptions);
 
     expect(result.responseText).toBe('Good response');
   });
@@ -357,7 +364,7 @@ describe('generateResponse', () => {
     // generation path uses onFinalizeError:'log-and-return-value', so the error
     // is logged and the draft is returned. (Was: propagated → terminal draft loss.)
     const { generateResponse } = await import('../generator');
-    const result = await generateResponse(review, businessContext, [], productionOptions);
+    const result = await generateResponse(mockSql, review, businessContext, [], productionOptions);
     expect(result.responseText).toBe('Thanks!');
 
     // releaseCost only fires when !finalized; the finalize attempt sets
@@ -382,7 +389,7 @@ describe('generateResponse', () => {
 
     // Regardless of the finalize error's shape, the paid-for draft is returned,
     // not lost. (Was: asserted propagation as a plain Error.)
-    const result = await generateResponse(review, businessContext, [], productionOptions);
+    const result = await generateResponse(mockSql, review, businessContext, [], productionOptions);
     expect(result.responseText).toBe('Thanks!');
   });
 
@@ -398,10 +405,11 @@ describe('generateResponse', () => {
     openaiCreate.mockRejectedValueOnce(openaiTransient);
     anthropicCreate.mockRejectedValueOnce(anthropicPermanent);
 
-    const { generateResponse, TransientLLMError } = await import('../generator');
+    const { generateResponse } = await import('../generator');
+    const { TransientLLMError } = await import('@/lib/llm/error-classifier');
 
     try {
-      await generateResponse(review, businessContext, [], demoOptions);
+      await generateResponse(mockSql, review, businessContext, [], demoOptions);
       throw new Error('expected throw');
     } catch (err) {
       expect(err).toBeInstanceOf(TransientLLMError);
@@ -416,10 +424,11 @@ describe('generateResponse', () => {
     openaiCreate.mockRejectedValueOnce(openaiPermanent);
     anthropicCreate.mockRejectedValueOnce(anthropicTransient);
 
-    const { generateResponse, TransientLLMError } = await import('../generator');
+    const { generateResponse } = await import('../generator');
+    const { TransientLLMError } = await import('@/lib/llm/error-classifier');
 
     try {
-      await generateResponse(review, businessContext, [], demoOptions);
+      await generateResponse(mockSql, review, businessContext, [], demoOptions);
       throw new Error('expected throw');
     } catch (err) {
       expect(err).toBeInstanceOf(TransientLLMError);
@@ -434,10 +443,11 @@ describe('generateResponse', () => {
     openaiCreate.mockRejectedValueOnce(openaiTransient);
     anthropicCreate.mockRejectedValueOnce(anthropicTransient);
 
-    const { generateResponse, TransientLLMError } = await import('../generator');
+    const { generateResponse } = await import('../generator');
+    const { TransientLLMError } = await import('@/lib/llm/error-classifier');
 
     try {
-      await generateResponse(review, businessContext, [], demoOptions);
+      await generateResponse(mockSql, review, businessContext, [], demoOptions);
       throw new Error('expected throw');
     } catch (err) {
       expect(err).toBeInstanceOf(TransientLLMError);

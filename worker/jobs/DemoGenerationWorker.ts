@@ -43,7 +43,7 @@ export async function handleDemoGeneration(
       throw new Error('Invalid Place ID and no URL available for resolution');
     }
 
-    const result = await generateDemo({
+    const result = await generateDemo(sql, {
       placeId: googlePlaceId,
       businessName,
       category: category ?? null,

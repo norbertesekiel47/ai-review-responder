@@ -106,6 +106,18 @@ describe('response-status-audit scanSource', () => {
     expect(scanSource('src/x.ts', src).length).toBeGreaterThanOrEqual(1);
   });
 
+  it('flags a SQL IN list inside a db (SqlExecutor-param) tagged template', () => {
+    const src = "const q = db`UPDATE responses SET x = 1 WHERE status IN ('approved','posted')`;";
+    expect(scanSource('src/x.ts', src).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('honors // status-audit-ignore on the preceding line for a db-tagged template', () => {
+    const src =
+      "// status-audit-ignore: one-off admin backfill subset\n" +
+      "const q = db`UPDATE responses SET x = 1 WHERE status IN ('approved','posted')`;";
+    expect(scanSource('src/x.ts', src)).toEqual([]);
+  });
+
   it('does NOT flag a non-SQL (untagged) template string mentioning statuses', () => {
     // A UI/help/log string is not SQL — it must not trip CI just for naming
     // statuses in a parenthesised list.

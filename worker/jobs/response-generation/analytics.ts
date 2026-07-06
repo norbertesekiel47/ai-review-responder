@@ -8,11 +8,11 @@
 // NOTHING in enqueueAnalyticsEvent, so a re-run cannot double-count. Analytics
 // must never fail response generation, hence the swallowed catch.
 
-import { sql } from '../../../src/lib/db/server';
+import type { Sql } from 'postgres';
 import { enqueueAnalyticsEvent } from '../../../src/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '../../../src/lib/analytics/events';
 
-export async function maybeEnqueueFirstResponseDrafted(input: {
+export async function maybeEnqueueFirstResponseDrafted(sql: Sql, input: {
   accountId: string;
   businessId: string;
   responseId: string;

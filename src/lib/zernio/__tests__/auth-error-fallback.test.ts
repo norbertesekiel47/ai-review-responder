@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@/lib/db/server', () => ({
-  sql: { begin: vi.fn() },
-  jsonb: (v: unknown) => v,  // pass-through so tests can inspect the payload object
-}));
-
 import { applyIngestionAuthErrorFallback } from '../auth-error-fallback';
+
+/** Minimal `Sql`-shaped mock: only `.begin` is exercised by this module. */
+function makeSqlMock() {
+  return { begin: vi.fn() } as unknown as Parameters<typeof applyIngestionAuthErrorFallback>[0];
+}
 
 describe('applyIngestionAuthErrorFallback', () => {
   beforeEach(() => {
@@ -13,7 +13,7 @@ describe('applyIngestionAuthErrorFallback', () => {
   });
 
   it('disconnects only the matching active connection (account+location pinned) and enqueues connection_lost notify', async () => {
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     const txCalls: Array<{ args: unknown[]; returnValue: unknown }> = [];
 
     // Build a tagged-template `tx` mock. First call (UPDATE zernio_connections)
@@ -29,9 +29,10 @@ describe('applyIngestionAuthErrorFallback', () => {
       // Return updated.count=1 on the first UPDATE call; count=1 on insert.
       return Promise.resolve(mkTaggedResult(1));
     });
+    (tx as unknown as { json: ReturnType<typeof vi.fn> }).json = vi.fn((v: unknown) => v);
     (sql as unknown as { begin: ReturnType<typeof vi.fn> }).begin = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx));
 
-    await applyIngestionAuthErrorFallback('biz1', 'acctA', 'locL', '401 expired');
+    await applyIngestionAuthErrorFallback(sql, 'biz1', 'acctA', 'locL', '401 expired');
 
     // Assert the UPDATE call carried biz1, acctA, locL, and reason in its args.
     const updateCallArgs = txCalls[0]?.args ?? [];
@@ -50,7 +51,7 @@ describe('applyIngestionAuthErrorFallback', () => {
   });
 
   it('no-ops when matching connection is already disconnected (UPDATE returns count=0)', async () => {
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     const txCalls: Array<{ args: unknown[] }> = [];
 
     const mkTaggedResult = (count: number) => {
@@ -65,13 +66,13 @@ describe('applyIngestionAuthErrorFallback', () => {
     });
     (sql as unknown as { begin: ReturnType<typeof vi.fn> }).begin = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx));
 
-    await applyIngestionAuthErrorFallback('biz1', 'acctA', 'locL', '401 expired');
+    await applyIngestionAuthErrorFallback(sql, 'biz1', 'acctA', 'locL', '401 expired');
 
     expect(txCalls.length).toBe(1);  // only the UPDATE; no INSERT
   });
 
   it('UPDATE filters by status=active', async () => {
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     let updateSql = '';
     const mkTaggedResult = (count: number) => {
       const arr: unknown[] & { count: number } = [] as unknown as unknown[] & { count: number };
@@ -84,13 +85,13 @@ describe('applyIngestionAuthErrorFallback', () => {
     });
     (sql as unknown as { begin: ReturnType<typeof vi.fn> }).begin = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx));
 
-    await applyIngestionAuthErrorFallback('biz1', 'acctA', 'locL', 'r');
+    await applyIngestionAuthErrorFallback(sql, 'biz1', 'acctA', 'locL', 'r');
     expect(updateSql).toMatch(/status\s*=\s*'active'/);
     expect(updateSql).toMatch(/disconnect_reason\s*=\s*'auth_error_on_ingest'/);
   });
 
   it('disconnect_reason is "auth_error_on_ingest" (not "auth_error_on_post")', async () => {
-    const { sql } = await import('@/lib/db/server');
+    const sql = makeSqlMock();
     let updateSql = '';
     const mkTaggedResult = (count: number) => {
       const arr: unknown[] & { count: number } = [] as unknown as unknown[] & { count: number };
@@ -101,9 +102,10 @@ describe('applyIngestionAuthErrorFallback', () => {
       if (!updateSql) updateSql = strings.join('');
       return Promise.resolve(mkTaggedResult(1));
     });
+    (tx as unknown as { json: ReturnType<typeof vi.fn> }).json = vi.fn((v: unknown) => v);
     (sql as unknown as { begin: ReturnType<typeof vi.fn> }).begin = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx));
 
-    await applyIngestionAuthErrorFallback('biz1', 'acctA', 'locL', 'r');
+    await applyIngestionAuthErrorFallback(sql, 'biz1', 'acctA', 'locL', 'r');
     expect(updateSql).toContain("'auth_error_on_ingest'");
     expect(updateSql).not.toContain("'auth_error_on_post'");
   });

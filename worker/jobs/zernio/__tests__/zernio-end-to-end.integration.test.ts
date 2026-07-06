@@ -110,7 +110,7 @@ describe('Zernio end-to-end: webhook → ingest → processReview', () => {
       nextPageToken: undefined,
     });
 
-    await handleZernioReviewIngest(makeJob());
+    await handleZernioReviewIngest(mockSql, makeJob());
 
     expect(mockListReviews).toHaveBeenCalledWith(
       'acct-1',
@@ -120,7 +120,7 @@ describe('Zernio end-to-end: webhook → ingest → processReview', () => {
 
     // Assert the MonitoredReview passed to processReview has the right
     // location-scoped resource names.
-    const monitored = mockProcessReview.mock.calls[0]![0] as {
+    const monitored = mockProcessReview.mock.calls[0]![1] as {
       identity: { providerReviewName: string; providerLocationName: string };
     };
     expect(monitored.identity.providerReviewName).toBe(
@@ -141,7 +141,7 @@ describe('Zernio end-to-end: webhook → ingest → processReview', () => {
       nextPageToken: undefined,
     });
 
-    await handleZernioReviewIngest(makeJob());
+    await handleZernioReviewIngest(mockSql, makeJob());
 
     // listReviews was called (fetch happens before location check)
     expect(mockListReviews).toHaveBeenCalledOnce();
@@ -152,7 +152,7 @@ describe('Zernio end-to-end: webhook → ingest → processReview', () => {
   it('subscription cancelled → no Zernio API call, no processReview', async () => {
     sqlReturnQueue.push([{ subscription_status: 'cancelled', past_due_at: null, account_flags: {} }]);
 
-    await handleZernioReviewIngest(makeJob());
+    await handleZernioReviewIngest(mockSql, makeJob());
 
     expect(mockListReviews).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();
@@ -162,7 +162,7 @@ describe('Zernio end-to-end: webhook → ingest → processReview', () => {
     sqlReturnQueue.push([activeAccountRow()]);
     sqlReturnQueue.push([]);  // no active connection
 
-    await handleZernioReviewIngest(makeJob());
+    await handleZernioReviewIngest(mockSql, makeJob());
 
     expect(mockListReviews).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();
@@ -177,9 +177,10 @@ describe('Zernio end-to-end: webhook → ingest → processReview', () => {
       nextPageToken: undefined,
     });
 
-    await handleZernioReviewIngest(makeJob({ correlation_id: 'corr-e2e-1' }));
+    await handleZernioReviewIngest(mockSql, makeJob({ correlation_id: 'corr-e2e-1' }));
 
     expect(mockProcessReview).toHaveBeenCalledWith(
+      mockSql,
       expect.anything(),
       'biz-1',
       'corr-e2e-1',
@@ -200,7 +201,7 @@ describe('Zernio end-to-end: webhook → ingest → processReview', () => {
     sqlReturnQueue.push(mkTagged([{ id: 'rev-row-1', provider: 'zernio' }]));
     sqlReturnQueue.push(mkTagged([]));  // no active responses
 
-    await handleZernioReviewIngest(makeJob());
+    await handleZernioReviewIngest(mockSql, makeJob());
 
     // processReview is NOT called — reconcile branched
     expect(mockProcessReview).not.toHaveBeenCalled();

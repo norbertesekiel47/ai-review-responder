@@ -67,7 +67,8 @@ describe('createLiveGenerator', () => {
 
     expect(text).toBe('live reply');
     expect(generateResponseMock).toHaveBeenCalledTimes(1);
-    const [review, business, voice, options] = generateResponseMock.mock.calls[0]!;
+    // arg[0] is the injected `sql`; the eval inputs follow it.
+    const [, review, business, voice, options] = generateResponseMock.mock.calls[0]!;
     expect(review).toMatchObject({ reviewerName: 'Maria', starRating: 5, reviewText: 'Great!' });
     expect(business).toEqual({ name: 'Acme', category: 'cafe' });
     expect(voice).toEqual([]);

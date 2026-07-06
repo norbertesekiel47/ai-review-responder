@@ -168,6 +168,9 @@ describe('resolveOnboardingDemoPlaceId', () => {
 describe('buildOnboardingDemoSource', () => {
   const fallbackReview = review({ reviewerName: 'Fallback' });
   const fallbackResponse = response({ responseText: 'Fallback response' });
+  // buildOnboardingDemoSource now takes the injected client as its leading arg;
+  // it is only forwarded to the mocked generateResponsesForReviews here.
+  const mockSql = {} as unknown as Sql;
 
   beforeEach(() => {
     vi.mocked(fetchSerpApiReviews).mockReset();
@@ -184,7 +187,7 @@ describe('buildOnboardingDemoSource', () => {
     const logger = { warn: vi.fn() };
     vi.mocked(fetchSerpApiReviews).mockRejectedValue(new Error('serp down'));
 
-    const result = await buildOnboardingDemoSource({
+    const result = await buildOnboardingDemoSource(mockSql, {
       demoId: 'demo_123',
       googlePlaceId: validPlaceId,
       businessName: 'RepWorth Cafe',
@@ -212,7 +215,7 @@ describe('buildOnboardingDemoSource', () => {
       throw new Error('selection failed');
     });
 
-    const result = await buildOnboardingDemoSource({
+    const result = await buildOnboardingDemoSource(mockSql, {
       demoId: 'demo_123',
       googlePlaceId: validPlaceId,
       businessName: 'RepWorth Cafe',
@@ -242,7 +245,7 @@ describe('buildOnboardingDemoSource', () => {
     vi.mocked(selectQualifyingReviews).mockReturnValue(selected);
     vi.mocked(generateResponsesForReviews).mockResolvedValue(generated);
 
-    const result = await buildOnboardingDemoSource({
+    const result = await buildOnboardingDemoSource(mockSql, {
       demoId: 'demo_123',
       googlePlaceId: validPlaceId,
       businessName: 'RepWorth Cafe',
@@ -250,7 +253,7 @@ describe('buildOnboardingDemoSource', () => {
       logger: { warn: vi.fn() },
     });
 
-    expect(generateResponsesForReviews).toHaveBeenCalledWith(selected, {
+    expect(generateResponsesForReviews).toHaveBeenCalledWith(mockSql, selected, {
       name: 'RepWorth Cafe',
       category: 'Cafe',
     });
@@ -261,7 +264,7 @@ describe('buildOnboardingDemoSource', () => {
     vi.mocked(fetchSerpApiReviews).mockResolvedValue([review()]);
     vi.mocked(selectQualifyingReviews).mockReturnValue([review({ starRating: 3 })]);
 
-    const result = await buildOnboardingDemoSource({
+    const result = await buildOnboardingDemoSource(mockSql, {
       demoId: 'demo_123',
       googlePlaceId: validPlaceId,
       businessName: 'RepWorth Cafe',

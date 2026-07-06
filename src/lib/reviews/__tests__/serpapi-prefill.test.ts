@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Sql } from 'postgres';
+
+// fetchBusinessDetails now takes an injected `sql` as its leading arg; it is
+// only forwarded to the mocked recordApiCost here, so a bare stub suffices.
+const mockSql = {} as unknown as Sql;
 
 // ── Hoisted mocks ───────────────────────────────────────────────────
 
@@ -71,7 +76,7 @@ describe('fetchBusinessDetails', () => {
 
   it('extracts category, phone, website, hours, and fullAddress from a complete response', async () => {
     mockGetJson.mockResolvedValue(FULL_SERPAPI_RESPONSE);
-    const result = await fetchBusinessDetails('ChIJ_test123');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_test123');
     expect(result).toEqual({
       category: 'Mexican restaurant',
       phone: '+1 408-555-1234',
@@ -83,7 +88,7 @@ describe('fetchBusinessDetails', () => {
 
   it('returns partial data (nulls for missing fields) without throwing', async () => {
     mockGetJson.mockResolvedValue(PARTIAL_SERPAPI_RESPONSE);
-    const result = await fetchBusinessDetails('ChIJ_test456');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_test456');
     expect(result).toEqual({
       category: 'Coffee shop',
       phone: null,
@@ -95,7 +100,7 @@ describe('fetchBusinessDetails', () => {
 
   it('returns all-null on SerpAPI failure (never throws)', async () => {
     mockGetJson.mockRejectedValue(new Error('API error'));
-    const result = await fetchBusinessDetails('ChIJ_bad');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_bad');
     expect(result).toEqual({
       category: null,
       phone: null,
@@ -107,7 +112,7 @@ describe('fetchBusinessDetails', () => {
 
   it('returns all-null when SerpAPI returns malformed payload (no place_results)', async () => {
     mockGetJson.mockResolvedValue({ unexpected: 'shape' });
-    const result = await fetchBusinessDetails('ChIJ_malformed');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_malformed');
     expect(result).toEqual({
       category: null,
       phone: null,
@@ -125,7 +130,7 @@ describe('fetchBusinessDetails', () => {
         phone: '+1 408-000-0000',
       },
     });
-    const result = await fetchBusinessDetails('ChIJ_types_array');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_types_array');
     expect(result.category).toBe('Warehouse store');
   });
 
@@ -133,7 +138,7 @@ describe('fetchBusinessDetails', () => {
     mockGetJson.mockResolvedValue({
       place_results: { category: 'Dentist' },
     });
-    const result = await fetchBusinessDetails('ChIJ_category_str');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_category_str');
     expect(result.category).toBe('Dentist');
   });
 
@@ -141,7 +146,7 @@ describe('fetchBusinessDetails', () => {
     mockGetJson.mockResolvedValue({
       place_results: { categories: ['Law firm', 'Legal services'] },
     });
-    const result = await fetchBusinessDetails('ChIJ_categories_array');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_categories_array');
     expect(result.category).toBe('Law firm');
   });
 
@@ -152,7 +157,7 @@ describe('fetchBusinessDetails', () => {
         types: ['Cafe', 'Restaurant'],
       },
     });
-    const result = await fetchBusinessDetails('ChIJ_type_wins');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_type_wins');
     expect(result.category).toBe('Coffee shop');
   });
 
@@ -160,7 +165,7 @@ describe('fetchBusinessDetails', () => {
     mockGetJson.mockResolvedValue({
       place_results: { types: ['', '   ', 'Hardware store'] },
     });
-    const result = await fetchBusinessDetails('ChIJ_trim_skip');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_trim_skip');
     expect(result.category).toBe('Hardware store');
   });
 
@@ -171,7 +176,7 @@ describe('fetchBusinessDetails', () => {
         hours: ['Monday: 9 AM - 9 PM', 'Tuesday: 9 AM - 9 PM'],
       },
     });
-    const result = await fetchBusinessDetails('ChIJ_hours_array');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_hours_array');
     expect(result.hours).toBe('Monday: 9 AM - 9 PM, Tuesday: 9 AM - 9 PM');
   });
 
@@ -184,7 +189,7 @@ describe('fetchBusinessDetails', () => {
         },
       },
     });
-    const result = await fetchBusinessDetails('ChIJ_hours_nested');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_hours_nested');
     expect(result.hours).toBe('monday: 9am-9pm, tuesday: 10am-6pm');
   });
 
@@ -192,7 +197,7 @@ describe('fetchBusinessDetails', () => {
     mockGetJson.mockResolvedValue({
       place_results: { type: 'Shop', website: 'example.com' },
     });
-    const result = await fetchBusinessDetails('ChIJ_bare');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_bare');
     expect(result.website).toBe('https://example.com');
   });
 
@@ -200,7 +205,7 @@ describe('fetchBusinessDetails', () => {
     mockGetJson.mockResolvedValue({
       place_results: { type: 'Shop', website: 'not a url at all' },
     });
-    const result = await fetchBusinessDetails('ChIJ_bad_url');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_bad_url');
     expect(result.website).toBeNull();
   });
 
@@ -208,16 +213,16 @@ describe('fetchBusinessDetails', () => {
     mockGetJson.mockResolvedValue({
       place_results: { type: 'Shop', website: 'http://example.com' },
     });
-    const result = await fetchBusinessDetails('ChIJ_http');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_http');
     expect(result.website).toBe('http://example.com');
   });
 
   it('records an api_costs row with business_id=NULL after a successful call', async () => {
     mockGetJson.mockResolvedValue(FULL_SERPAPI_RESPONSE);
-    await fetchBusinessDetails('ChIJ_cost');
+    await fetchBusinessDetails(mockSql, 'ChIJ_cost');
     // Wait for fire-and-forget to resolve
     await new Promise((r) => setImmediate(r));
-    expect(mockRecordApiCost).toHaveBeenCalledWith({
+    expect(mockRecordApiCost).toHaveBeenCalledWith(mockSql, {
       businessId: null,
       provider: 'serpapi',
       endpoint: 'google_maps_prefill',
@@ -230,7 +235,7 @@ describe('fetchBusinessDetails', () => {
 
   it('returns canned data in mock mode without calling SerpAPI', async () => {
     mockIsMockMode.mockReturnValue(true);
-    const result = await fetchBusinessDetails('ChIJ_mock');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_mock');
     expect(result.category).toBeTruthy();
     expect(result.phone).toBeTruthy();
     expect(mockGetJson).not.toHaveBeenCalled();
@@ -246,7 +251,7 @@ describe('fetchBusinessDetails', () => {
     });
     mockGetCacheRedis.mockReturnValue(makeRedisMock(cached));
 
-    const result = await fetchBusinessDetails('ChIJ_cached');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_cached');
     expect(result.category).toBe('Cached category');
     expect(mockGetJson).not.toHaveBeenCalled();
   });
@@ -257,7 +262,7 @@ describe('fetchBusinessDetails', () => {
     redisMock.setex.mockRejectedValue(new Error('Redis down'));
     mockGetCacheRedis.mockReturnValue(redisMock);
 
-    const result = await fetchBusinessDetails('ChIJ_cache_fail');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_cache_fail');
     expect(result.category).toBe('Mexican restaurant');
   });
 
@@ -266,7 +271,7 @@ describe('fetchBusinessDetails', () => {
     resetServerConfigForTests();
     mockGetJson.mockResolvedValue(FULL_SERPAPI_RESPONSE);
 
-    const result = await fetchBusinessDetails('ChIJ_no_redis');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_no_redis');
     expect(result.category).toBe('Mexican restaurant');
     expect(mockGetCacheRedis).not.toHaveBeenCalled();
   });
@@ -274,7 +279,7 @@ describe('fetchBusinessDetails', () => {
   it('returns all-null when SERPAPI_API_KEY is not set', async () => {
     delete process.env.SERPAPI_API_KEY;
     resetServerConfigForTests();
-    const result = await fetchBusinessDetails('ChIJ_no_key');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_no_key');
     expect(result.category).toBeNull();
     expect(mockGetJson).not.toHaveBeenCalled();
   });
@@ -284,7 +289,7 @@ describe('fetchBusinessDetails', () => {
     mockGetJson.mockResolvedValue({
       place_results: { type: 'Sketchy shop', website: 'javascript:alert(1)' },
     });
-    const result = await fetchBusinessDetails('ChIJ_js');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_js');
     expect(result.website).toBeNull();
   });
 
@@ -292,7 +297,7 @@ describe('fetchBusinessDetails', () => {
     mockGetJson.mockResolvedValue({
       place_results: { type: 'Shop', website: 'ftp://example.com' },
     });
-    const result = await fetchBusinessDetails('ChIJ_ftp');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_ftp');
     expect(result.website).toBeNull();
   });
 
@@ -300,7 +305,7 @@ describe('fetchBusinessDetails', () => {
     mockGetJson.mockResolvedValue({
       place_results: { type: 'Shop', website: 'data:text/html,<script>alert(1)</script>' },
     });
-    const result = await fetchBusinessDetails('ChIJ_data');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_data');
     expect(result.website).toBeNull();
   });
 
@@ -308,7 +313,7 @@ describe('fetchBusinessDetails', () => {
     mockGetJson.mockResolvedValue({
       place_results: { type: 'Shop', website: 'mailto:owner@example.com' },
     });
-    const result = await fetchBusinessDetails('ChIJ_mailto');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_mailto');
     expect(result.website).toBeNull();
   });
 
@@ -322,7 +327,7 @@ describe('fetchBusinessDetails', () => {
       () => new Promise(() => { /* never resolves */ }),
     );
 
-    const result = await fetchBusinessDetails('ChIJ_timeout');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_timeout');
     expect(result).toEqual({
       category: null,
       phone: null,
@@ -338,12 +343,12 @@ describe('fetchBusinessDetails', () => {
       () => new Promise(() => { /* never resolves */ }),
     );
 
-    await fetchBusinessDetails('ChIJ_timeout_cost');
+    await fetchBusinessDetails(mockSql, 'ChIJ_timeout_cost');
 
     // Cost row recorded with the :failed endpoint variant so dashboards
     // can distinguish successful prefills from quota burn on failures.
     expect(mockRecordApiCost).toHaveBeenCalledOnce();
-    const args = mockRecordApiCost.mock.calls[0]![0] as Record<string, unknown>;
+    const args = mockRecordApiCost.mock.calls[0]![1] as Record<string, unknown>;
     expect(args.provider).toBe('serpapi');
     expect(args.endpoint).toBe('google_maps_prefill:failed');
     expect(args.businessId).toBeNull();
@@ -352,10 +357,10 @@ describe('fetchBusinessDetails', () => {
   it('records api_costs row when SerpAPI rejects with an error', async () => {
     mockGetJson.mockRejectedValue(new Error('SerpAPI 5xx'));
 
-    await fetchBusinessDetails('ChIJ_err_cost');
+    await fetchBusinessDetails(mockSql, 'ChIJ_err_cost');
 
     expect(mockRecordApiCost).toHaveBeenCalledOnce();
-    const args = mockRecordApiCost.mock.calls[0]![0] as Record<string, unknown>;
+    const args = mockRecordApiCost.mock.calls[0]![1] as Record<string, unknown>;
     expect(args.endpoint).toBe('google_maps_prefill:failed');
   });
 
@@ -364,7 +369,7 @@ describe('fetchBusinessDetails', () => {
     const redisMock = makeRedisMock();
     mockGetCacheRedis.mockReturnValue(redisMock);
 
-    await fetchBusinessDetails('ChIJ_no_cache_on_fail');
+    await fetchBusinessDetails(mockSql, 'ChIJ_no_cache_on_fail');
 
     expect(redisMock.setex).not.toHaveBeenCalled();
   });
@@ -396,7 +401,7 @@ describe('fetchBusinessDetails', () => {
     );
     mockGetCacheRedis.mockReturnValue(redisMock);
 
-    await fetchBusinessDetails('ChIJ_await_bg');
+    await fetchBusinessDetails(mockSql, 'ChIJ_await_bg');
     returnedAt = Date.now();
 
     // Both background operations must have resolved BEFORE the function returned.
@@ -413,7 +418,7 @@ describe('fetchBusinessDetails', () => {
     redisMock.setex.mockRejectedValue(new Error('Redis down'));
     mockGetCacheRedis.mockReturnValue(redisMock);
 
-    const result = await fetchBusinessDetails('ChIJ_bg_fails');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_bg_fails');
     // Prefill data still returned even though both background writes failed.
     expect(result.category).toBe('Mexican restaurant');
   });
@@ -425,7 +430,7 @@ describe('fetchBusinessDetails', () => {
     mockGetCacheRedis.mockReturnValue(redisMock);
     mockGetJson.mockResolvedValue(FULL_SERPAPI_RESPONSE);
 
-    const result = await fetchBusinessDetails('ChIJ_bad_cache');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_bad_cache');
 
     // Cache was ignored — SerpAPI was called — and result is normalized.
     expect(mockGetJson).toHaveBeenCalled();
@@ -439,7 +444,7 @@ describe('fetchBusinessDetails', () => {
     mockGetCacheRedis.mockReturnValue(redisMock);
     mockGetJson.mockResolvedValue(FULL_SERPAPI_RESPONSE);
 
-    const result = await fetchBusinessDetails('ChIJ_bad_json');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_bad_json');
 
     expect(mockGetJson).toHaveBeenCalled();
     expect(result.category).toBe('Mexican restaurant');
@@ -460,7 +465,7 @@ describe('fetchBusinessDetails', () => {
     const redisMock = makeRedisMock(unsafeCache);
     mockGetCacheRedis.mockReturnValue(redisMock);
 
-    const result = await fetchBusinessDetails('ChIJ_unsafe_cache');
+    const result = await fetchBusinessDetails(mockSql, 'ChIJ_unsafe_cache');
 
     // Cache was used (SerpAPI not called), but the unsafe URL was stripped.
     expect(mockGetJson).not.toHaveBeenCalled();

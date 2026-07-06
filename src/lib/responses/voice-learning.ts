@@ -1,4 +1,4 @@
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import type { VoiceExample } from './types';
 
 const MIN_EXAMPLES_FOR_ACTIVATION = 5;
@@ -15,6 +15,7 @@ const MIN_EXAMPLES_FOR_ACTIVATION = 5;
  *   WHERE status = 'posted' AND edited_text IS NOT NULL
  */
 export async function getApprovedResponsePairs(
+  sql: Sql,
   businessId: string,
 ): Promise<VoiceExample[]> {
   const rows = await sql<{

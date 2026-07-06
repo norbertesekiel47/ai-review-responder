@@ -94,6 +94,6 @@ describe('GET /api/signup/place-prefill', () => {
     const json = await res.json();
     expect(json.category).toBe('Restaurant');
     expect(json.website).toBe('https://example.com');
-    expect(mockFetchBusinessDetails).toHaveBeenCalledWith('ChIJtest1234567890ab');
+    expect(mockFetchBusinessDetails).toHaveBeenCalledWith(expect.anything(), 'ChIJtest1234567890ab');
   });
 });

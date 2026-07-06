@@ -9,7 +9,9 @@
 // reason the caller writes to the outbox.
 
 import * as Sentry from '@sentry/node';
-import { generateResponse, TransientLLMError } from '../../../src/lib/responses/generator';
+import type { Sql } from 'postgres';
+import { generateResponse } from '../../../src/lib/responses/generator';
+import { TransientLLMError } from '../../../src/lib/llm/error-classifier';
 import { generateMockResponse } from '../../../src/lib/responses/mock-generator';
 import { getApprovedResponsePairs } from '../../../src/lib/responses/voice-learning';
 import { isMockMode } from '../../../src/lib/shared/mock-mode';
@@ -69,6 +71,7 @@ function alertCostCapExhausted(
 // the residual is the distinct-outcome vocabulary, not tangled logic.
 // fallow-ignore-next-line complexity
 export async function generateDraft(
+  sql: Sql,
   ctx: GenerationContext,
   ids: DraftIds,
   logger: WorkerLogger,
@@ -77,7 +80,7 @@ export async function generateDraft(
   const { reviewId, version, businessId } = ids;
 
   // ── Voice learning ──────────────────────────────────────────────────
-  const voiceExamples: VoiceExample[] = await getApprovedResponsePairs(businessId);
+  const voiceExamples: VoiceExample[] = await getApprovedResponsePairs(sql, businessId);
 
   // ── Regeneration budget check ───────────────────────────────────────
   if (version > 1) {
@@ -106,7 +109,7 @@ export async function generateDraft(
   try {
     result = isMockMode()
       ? await generateMockResponse(normalizedReview, businessContext, voiceExamples, genOpts)
-      : await generateResponse(normalizedReview, businessContext, voiceExamples, genOpts);
+      : await generateResponse(sql, normalizedReview, businessContext, voiceExamples, genOpts);
   } catch (err) {
     if (isCostCapError(err)) {
       logger.warn(`Cost limit exceeded for business ${businessId}: ${err.message}`);
@@ -146,6 +149,7 @@ export async function generateDraft(
   // won't resolve on its own (the avoid_facts config needs an admin fix).
   try {
     const guarded = await applyAvoidFactsGuardrail(
+      sql,
       result,
       businessContext,
       normalizedReview,
@@ -176,6 +180,7 @@ export async function generateDraft(
 // retry+recheck pass, not tangled logic.
 // fallow-ignore-next-line complexity
 async function applyAvoidFactsGuardrail(
+  sql: Sql,
   result: GenerationResult,
   businessContext: BusinessContext,
   normalizedReview: NormalizedReview,
@@ -203,7 +208,7 @@ async function applyAvoidFactsGuardrail(
     };
     const retryResult = isMockMode()
       ? await generateMockResponse(normalizedReview, businessContext, voiceExamples, retryOpts)
-      : await generateResponse(normalizedReview, businessContext, voiceExamples, retryOpts);
+      : await generateResponse(sql, normalizedReview, businessContext, voiceExamples, retryOpts);
 
     const merged: GenerationResult = {
       ...retryResult,

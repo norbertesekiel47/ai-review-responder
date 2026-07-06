@@ -1,3 +1,4 @@
+import type { Sql } from 'postgres';
 import { generateResponse } from '@/lib/responses/generator';
 import { generateMockResponse } from '@/lib/responses/mock-generator';
 import type { NormalizedReview } from '@/lib/reviews/types';
@@ -33,16 +34,17 @@ export interface GenerateResponsesResult {
  * identical to the inline version it replaces.
  */
 export async function generateResponsesForReviews(
+  sql: Sql,
   reviews: NormalizedReview[],
   businessContext: { name: string; category: string | null },
 ): Promise<GenerateResponsesResult> {
   const startTime = Date.now();
 
-  const generateFn = useMocks ? generateMockResponse : generateResponse;
-
   const settled = await Promise.allSettled(
     reviews.map((review) =>
-      generateFn(review, businessContext, [], { mode: 'demo' }),
+      useMocks
+        ? generateMockResponse(review, businessContext, [], { mode: 'demo' })
+        : generateResponse(sql, review, businessContext, [], { mode: 'demo' }),
     ),
   );
 

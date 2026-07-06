@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Sql } from 'postgres';
 import type { GenerationResult, BusinessContext } from '../../../../src/lib/responses/types';
 import type { NormalizedReview } from '../../../../src/lib/reviews/types';
 import type { WorkerLogger } from '../../../../src/lib/shared/logger';
 import { asLocationId } from '../../../../src/lib/shared/ids';
 
-// ── Hoisted mocks (TransientLLMError must be shared by the factory + tests) ──
+// ── Hoisted mocks (TransientLLMError must be shared by the error-classifier
+//    mock factory + tests so `instanceof` matches across module boundaries) ──
 const {
   mockGenerateResponse,
   mockGenerateMockResponse,
@@ -38,8 +40,15 @@ vi.mock('@sentry/node', () => ({
 
 vi.mock('../../../../src/lib/responses/generator', () => ({
   generateResponse: mockGenerateResponse,
-  TransientLLMError,
 }));
+// generate-draft.ts now imports TransientLLMError from the LLM seam's
+// error-classifier (not the retired generator re-export). Swap only that class
+// for the hoisted one so the test and the module under test share its identity;
+// keep the real isTransientLLMError/redactProviderError.
+vi.mock('../../../../src/lib/llm/error-classifier', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/lib/llm/error-classifier')>();
+  return { ...actual, TransientLLMError };
+});
 vi.mock('../../../../src/lib/responses/mock-generator', () => ({
   generateMockResponse: mockGenerateMockResponse,
 }));
@@ -113,6 +122,11 @@ function ctx(overrides: Partial<BusinessContext> = {}): GenerationContext {
 
 const IDS = { reviewId: 'rev-1', version: 1, businessId: asLocationId('biz-1') };
 
+// generateDraft now takes the injected client as its leading arg; here it is
+// only forwarded to the mocked getApprovedResponsePairs / generateResponse, so
+// a bare stub suffices (no real query is issued through it).
+const mockSql = {} as unknown as Sql;
+
 function makeLogger(): WorkerLogger {
   return { log: vi.fn(), warn: vi.fn(), error: vi.fn() } as unknown as WorkerLogger;
 }
@@ -126,7 +140,7 @@ describe('generateDraft', () => {
 
   it('returns ok with the result on a clean generation', async () => {
     mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
-    const outcome = await generateDraft(ctx(), IDS, makeLogger());
+    const outcome = await generateDraft(mockSql, ctx(), IDS, makeLogger());
     expect(outcome).toEqual({ kind: 'ok', result: MOCK_RESULT, retryCostId: undefined });
     // version === 1 must skip the regen-budget check entirely.
     expect(mockCheckRegenBudget).not.toHaveBeenCalled();
@@ -134,14 +148,14 @@ describe('generateDraft', () => {
 
   it('classifies CostLimitExceededError as failed (no throw)', async () => {
     mockGenerateResponse.mockRejectedValueOnce(new CostLimitExceededError('biz-1'));
-    const outcome = await generateDraft(ctx(), IDS, makeLogger());
+    const outcome = await generateDraft(mockSql, ctx(), IDS, makeLogger());
     expect(outcome.kind).toBe('failed');
     if (outcome.kind === 'failed') expect(outcome.reason).toContain('cost limit exceeded');
   });
 
   it('emits a Sentry alert when a cost cap is exhausted (dropped paid work must not be silent)', async () => {
     mockGenerateResponse.mockRejectedValueOnce(new GlobalCostLimitExceededError());
-    await generateDraft(ctx(), IDS, makeLogger());
+    await generateDraft(mockSql, ctx(), IDS, makeLogger());
     expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
     const callArgs = mockCaptureMessage.mock.calls[0] as unknown[];
     const opts = callArgs[1] as { level?: string; tags?: Record<string, string> };
@@ -151,7 +165,7 @@ describe('generateDraft', () => {
 
   it('does NOT emit a cost alert on a clean generation', async () => {
     mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
-    await generateDraft(ctx(), IDS, makeLogger());
+    await generateDraft(mockSql, ctx(), IDS, makeLogger());
     expect(mockCaptureMessage).not.toHaveBeenCalled();
   });
 
@@ -164,7 +178,7 @@ describe('generateDraft', () => {
       .mockResolvedValueOnce(violating)
       .mockRejectedValueOnce(new GlobalCostLimitExceededError());
 
-    const outcome = await generateDraft(ctx({ avoidFacts: ['bad word'] }), IDS, makeLogger());
+    const outcome = await generateDraft(mockSql, ctx({ avoidFacts: ['bad word'] }), IDS, makeLogger());
 
     expect(outcome.kind).toBe('failed');
     if (outcome.kind === 'failed') expect(outcome.reason).toContain('Global');
@@ -175,7 +189,7 @@ describe('generateDraft', () => {
 
   it('classifies GlobalCostLimitExceededError as failed', async () => {
     mockGenerateResponse.mockRejectedValueOnce(new GlobalCostLimitExceededError());
-    const outcome = await generateDraft(ctx(), IDS, makeLogger());
+    const outcome = await generateDraft(mockSql, ctx(), IDS, makeLogger());
     expect(outcome.kind).toBe('failed');
     // Distinct from the per-business cost path — carries the global message.
     if (outcome.kind === 'failed') expect(outcome.reason).toContain('Global');
@@ -183,12 +197,12 @@ describe('generateDraft', () => {
 
   it('re-throws ConcurrencyLimitExceededError for BullMQ retry', async () => {
     mockGenerateResponse.mockRejectedValueOnce(new ConcurrencyLimitExceededError('biz-1'));
-    await expect(generateDraft(ctx(), IDS, makeLogger())).rejects.toBeInstanceOf(ConcurrencyLimitExceededError);
+    await expect(generateDraft(mockSql, ctx(), IDS, makeLogger())).rejects.toBeInstanceOf(ConcurrencyLimitExceededError);
   });
 
   it('re-throws TransientLLMError for BullMQ retry', async () => {
     mockGenerateResponse.mockRejectedValueOnce(new TransientLLMError('rate limited'));
-    await expect(generateDraft(ctx(), IDS, makeLogger())).rejects.toBeInstanceOf(TransientLLMError);
+    await expect(generateDraft(mockSql, ctx(), IDS, makeLogger())).rejects.toBeInstanceOf(TransientLLMError);
   });
 
   it('re-throws CostInfraUnavailableError for BullMQ retry (pre-LLM Redis infra blip, NOT terminal)', async () => {
@@ -196,19 +210,19 @@ describe('generateDraft', () => {
     // surfaces out of generateResponse as CostInfraUnavailableError — it must be
     // re-thrown (retry), not classified { kind: 'failed' } like a budget decision.
     mockGenerateResponse.mockRejectedValueOnce(new CostInfraUnavailableError('reserveCost'));
-    await expect(generateDraft(ctx(), IDS, makeLogger())).rejects.toBeInstanceOf(CostInfraUnavailableError);
+    await expect(generateDraft(mockSql, ctx(), IDS, makeLogger())).rejects.toBeInstanceOf(CostInfraUnavailableError);
   });
 
   it('classifies a permanent generation error as failed with generation_failed reason', async () => {
     mockGenerateResponse.mockRejectedValueOnce(new Error('bad request'));
-    const outcome = await generateDraft(ctx(), IDS, makeLogger());
+    const outcome = await generateDraft(mockSql, ctx(), IDS, makeLogger());
     expect(outcome.kind).toBe('failed');
     if (outcome.kind === 'failed') expect(outcome.reason).toContain('generation_failed');
   });
 
   it('classifies RegenBudgetExceededError (version > 1) as failed without calling the LLM', async () => {
     mockCheckRegenBudget.mockRejectedValueOnce(new RegenBudgetExceededError('rev-1'));
-    const outcome = await generateDraft(ctx(), { ...IDS, version: 2 }, makeLogger());
+    const outcome = await generateDraft(mockSql, ctx(), { ...IDS, version: 2 }, makeLogger());
     expect(outcome.kind).toBe('failed');
     expect(mockGenerateResponse).not.toHaveBeenCalled();
   });
@@ -218,11 +232,12 @@ describe('generateDraft', () => {
     const clean: GenerationResult = { ...MOCK_RESULT, responseText: 'Thank you so much!', apiCostId: 'cost-2', costUsd: 0.002 };
     mockGenerateResponse.mockResolvedValueOnce(violating).mockResolvedValueOnce(clean);
 
-    const outcome = await generateDraft(ctx({ avoidFacts: ['bad word'] }), IDS, makeLogger());
+    const outcome = await generateDraft(mockSql, ctx({ avoidFacts: ['bad word'] }), IDS, makeLogger());
 
     expect(mockGenerateResponse).toHaveBeenCalledTimes(2);
     const calls = mockGenerateResponse.mock.calls as unknown[][];
-    const retryOpts = calls[1]?.[3] as Record<string, unknown> | undefined;
+    // options is arg[4] now that `sql` leads the generateResponse signature.
+    const retryOpts = calls[1]?.[4] as Record<string, unknown> | undefined;
     expect(retryOpts).toMatchObject({ skipCache: true });
     expect(mockSetCachedGeneration).toHaveBeenCalledWith('rev-1', 1, expect.stringContaining('Thank you so much!'));
     expect(outcome.kind).toBe('ok');
@@ -238,7 +253,7 @@ describe('generateDraft', () => {
     const stillViolating: GenerationResult = { ...MOCK_RESULT, responseText: 'still bad word here', apiCostId: 'cost-2' };
     mockGenerateResponse.mockResolvedValueOnce(violating).mockResolvedValueOnce(stillViolating);
 
-    const outcome = await generateDraft(ctx({ avoidFacts: ['bad word'] }), IDS, makeLogger());
+    const outcome = await generateDraft(mockSql, ctx({ avoidFacts: ['bad word'] }), IDS, makeLogger());
     expect(outcome.kind).toBe('failed');
     if (outcome.kind === 'failed') expect(outcome.reason).toContain('guardrail_failed');
   });

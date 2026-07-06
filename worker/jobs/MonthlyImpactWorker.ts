@@ -164,6 +164,7 @@ export async function handleMonthlyImpact(
 
     if (reviewsForSummary.length > 0) {
       const summaryResult = await generateReviewSummary(
+        sql,
         mapSummaryReviews(reviewsForSummary),
         businessId,
         business.subscription_tier,

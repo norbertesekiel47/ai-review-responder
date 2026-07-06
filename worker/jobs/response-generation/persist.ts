@@ -9,7 +9,6 @@
 
 import { v7 as uuidv7 } from 'uuid';
 import type postgres from 'postgres';
-import { sql, jsonb } from '../../../src/lib/db/server';
 import type { ModerationDecision } from '../../../src/lib/moderation/output-filter';
 import type { GenerationResult } from '../../../src/lib/responses/types';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
@@ -50,7 +49,7 @@ export interface PersistResponseInput {
   logger: Pick<WorkerLogger, 'log'>;
 }
 
-export async function persistResponseAndNotify(input: PersistResponseInput): Promise<string> {
+export async function persistResponseAndNotify(sql: postgres.Sql, input: PersistResponseInput): Promise<string> {
   const {
     result, retryCostId, reviewId, businessId, version,
     correlationId, suppressNotification, originLane, loadedReviewContentHash,
@@ -293,7 +292,7 @@ async function recordModerationAndHold(
     await tx`
       UPDATE api_costs SET
         moderation_score = ${moderation.score},
-        moderation_categories = ${jsonb(moderation.categories)},
+        moderation_categories = ${tx.json(moderation.categories as never)},
         flagged = ${moderation.flagged},
         flag_reason = ${moderation.reason},
         output_excerpt = ${outputExcerpt}

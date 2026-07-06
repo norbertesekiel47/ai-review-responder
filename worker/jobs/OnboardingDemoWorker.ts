@@ -108,7 +108,7 @@ export async function handleOnboardingDemo(
       googleMapsUrl,
       mockMode: isMockMode(),
     });
-    const { result, source } = await buildOnboardingDemoSource({
+    const { result, source } = await buildOnboardingDemoSource(sql, {
       demoId,
       googlePlaceId: resolvedGooglePlaceId,
       businessName,
