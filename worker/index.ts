@@ -219,7 +219,7 @@ const accountOffboardingEmailWorker = new Worker<AccountOffboardingEmailPayload>
 
 const accountOffboardingReactivationWorker = new Worker<AccountOffboardingReactivationPayload>(
   QUEUE_NAMES.ACCOUNT_OFFBOARDING_REACTIVATION,
-  withJobLogContext(handleAccountOffboardingReactivation),
+  withJobLogContext<AccountOffboardingReactivationPayload>((job) => handleAccountOffboardingReactivation(sql, job)),
   workerOpts,
 );
 

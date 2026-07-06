@@ -1,13 +1,12 @@
 import { createHash } from 'node:crypto';
 import type Stripe from 'stripe';
 import type postgres from 'postgres';
-import { sql } from '@/lib/db/server';
 import { getStripe } from '@/lib/payments/stripe-client';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { enqueueAccountOffboardingEmail } from '@/lib/account-offboarding/outbox';
 import { enqueueOffboardingReactivated } from './analytics';
 
-type SqlExecutor = typeof sql | postgres.TransactionSql;
+type SqlExecutor = postgres.Sql | postgres.TransactionSql;
 const STALE_REACTIVATION_CLAIM_MS = 5 * 60 * 1000;
 
 interface ReactivatableOffboardingRow {
@@ -65,11 +64,13 @@ export type ReactivateCancelOnlyOffboardingResult =
   };
 
 export async function reactivateCancelOnlyOffboarding(
+  sql: postgres.Sql,
   input: ReactivateCancelOnlyOffboardingInput,
 ): Promise<ReactivateCancelOnlyOffboardingResult> {
   const idempotencyKeyHash = resolveIdempotencyKeyHash(input);
 
   const claim = await claimReactivation(
+    sql,
     input.accountId,
     idempotencyKeyHash,
     input.accountOffboardingId,
@@ -107,7 +108,7 @@ export async function reactivateCancelOnlyOffboarding(
       },
     );
     if (!isSameReactivatedSubscription(subscription, offboarding.stripe_subscription_id!)) {
-      await clearReactivationClaim(offboarding, input.accountId, idempotencyKeyHash);
+      await clearReactivationClaim(sql, offboarding, input.accountId, idempotencyKeyHash);
       return stripeRecoveryResult();
     }
   } catch (err) {
@@ -117,13 +118,13 @@ export async function reactivateCancelOnlyOffboarding(
     if (isRetryableStripeReactivationError(err)) {
       throw new Error('account_offboarding_stripe_reactivation_retryable');
     }
-    await clearReactivationClaim(offboarding, input.accountId, idempotencyKeyHash);
+    await clearReactivationClaim(sql, offboarding, input.accountId, idempotencyKeyHash);
     return stripeRecoveryResult();
   }
 
   let finalized: ReactivateCancelOnlyOffboardingResult;
   try {
-    finalized = await finalizeReactivation(input, offboarding, idempotencyKeyHash);
+    finalized = await finalizeReactivation(sql, input, offboarding, idempotencyKeyHash);
   } catch (err) {
     const idempotent = await getIdempotentReactivatedOffboarding(
       sql,
@@ -147,25 +148,25 @@ export async function reactivateCancelOnlyOffboarding(
     // throws, the claim is intentionally left set and we rethrow. The row is not
     // stranded — AccountOffboardingReactivationResetPoller detects the stale claim
     // (>5min), idempotently re-applies the Stripe reversal, and releases it.
-    if (await shouldCompensateReactivation(offboarding, input.accountId, idempotencyKeyHash)) {
+    if (await shouldCompensateReactivation(sql, offboarding, input.accountId, idempotencyKeyHash)) {
       await compensateReactivationStripeReversal(
         offboarding,
         input.accountId,
         idempotencyKeyHash,
       );
-      await clearReactivationClaim(offboarding, input.accountId, idempotencyKeyHash);
+      await clearReactivationClaim(sql, offboarding, input.accountId, idempotencyKeyHash);
     }
     throw err;
   }
 
   if (!finalized.ok && finalized.reason === 'state_changed') {
-    if (await shouldCompensateReactivation(offboarding, input.accountId, idempotencyKeyHash)) {
+    if (await shouldCompensateReactivation(sql, offboarding, input.accountId, idempotencyKeyHash)) {
       await compensateReactivationStripeReversal(
         offboarding,
         input.accountId,
         idempotencyKeyHash,
       );
-      await clearReactivationClaim(offboarding, input.accountId, idempotencyKeyHash);
+      await clearReactivationClaim(sql, offboarding, input.accountId, idempotencyKeyHash);
     }
   }
   return finalized;
@@ -178,6 +179,7 @@ type ReactivationClaim =
   | { kind: 'state_changed' };
 
 async function claimReactivation(
+  sql: postgres.Sql,
   accountId: string,
   idempotencyKeyHash: string,
   accountOffboardingId?: string,
@@ -255,6 +257,7 @@ async function claimReactivation(
 }
 
 async function finalizeReactivation(
+  sql: postgres.Sql,
   input: ReactivateCancelOnlyOffboardingInput,
   offboarding: ReactivatableOffboardingRow,
   idempotencyKeyHash: string,
@@ -372,6 +375,7 @@ async function compensateReactivationStripeReversal(
 }
 
 async function clearReactivationClaim(
+  sql: postgres.Sql,
   offboarding: ReactivatableOffboardingRow,
   accountId: string,
   idempotencyKeyHash: string,
@@ -392,11 +396,12 @@ async function clearReactivationClaim(
 }
 
 async function shouldCompensateReactivation(
+  sql: postgres.Sql,
   offboarding: ReactivatableOffboardingRow,
   accountId: string,
   idempotencyKeyHash: string,
 ): Promise<boolean> {
-  if (await isTerminalReactivatedOffboarding(offboarding, accountId)) {
+  if (await isTerminalReactivatedOffboarding(sql, offboarding, accountId)) {
     return false;
   }
 
@@ -530,6 +535,7 @@ async function getIdempotentReactivatedOffboarding(
 }
 
 async function isTerminalReactivatedOffboarding(
+  sql: postgres.Sql,
   offboarding: ReactivatableOffboardingRow,
   accountId: string,
 ): Promise<boolean> {

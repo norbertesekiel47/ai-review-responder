@@ -1,4 +1,5 @@
 import type { Job } from 'bullmq';
+import type postgres from 'postgres';
 import {
   extractOutboxHandle,
   markOutboxCompleted,
@@ -9,6 +10,7 @@ import { reactivateCancelOnlyOffboarding } from '../../../src/lib/account-offboa
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 
 export async function handleAccountOffboardingReactivation(
+  sql: postgres.Sql,
   job: Job<AccountOffboardingReactivationPayload>,
 ): Promise<void> {
   const logger = createWorkerLogger(
@@ -17,7 +19,7 @@ export async function handleAccountOffboardingReactivation(
   );
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  const result = await reactivateCancelOnlyOffboarding({
+  const result = await reactivateCancelOnlyOffboarding(sql, {
     accountId: job.data.account_id,
     accountOffboardingId: job.data.account_offboarding_id,
     actorUserId: job.data.actor_user_id,

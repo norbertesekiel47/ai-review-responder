@@ -25,7 +25,6 @@ export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([
   'src/lib/account-offboarding/gate.ts',
   'src/lib/account-offboarding/provider-disposition.ts',
   'src/lib/account-offboarding/purge-verification.ts',
-  'src/lib/account-offboarding/reactivate.ts',
   'src/lib/db/account-guard.ts',
   'src/lib/db/auth.ts',
   'src/lib/shared/job-outbox-helpers.ts',
