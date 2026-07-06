@@ -124,7 +124,7 @@ const VOICE_FIELD_TO_COLUMN = {
 type VoiceField = keyof typeof VOICE_FIELD_TO_COLUMN;
 
 async function putVoiceConfig(request: NextRequest): Promise<NextResponse> {
-  const owner = await requireWritableOwner(request);
+  const owner = await requireWritableOwner(sql, request);
   if (!owner.ok) return owner.response;
   const user = owner.user;
 

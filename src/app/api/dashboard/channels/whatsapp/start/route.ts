@@ -32,7 +32,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   const locationId = user.locationId;
   if (!locationId) return errorResponse('no_business', 403);
 
-  const gate = await resolveWritableAccountForLocation(locationId);
+  const gate = await resolveWritableAccountForLocation(locationId, sql);
   if (gate.kind === 'no_account') return errorResponse('not_found', 404);
   if (gate.kind === 'blocked') return errorResponse(gate.error, gate.status);
   const accountId = gate.accountId;

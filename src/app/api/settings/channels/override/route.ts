@@ -30,7 +30,7 @@ type ParsedOverrideRequest =
   | { ok: false; response: NextResponse };
 
 async function parseOverrideRequest(request: NextRequest): Promise<ParsedOverrideRequest> {
-  const owner = await requireWritableOwner(request);
+  const owner = await requireWritableOwner(sql, request);
   if (!owner.ok) return { ok: false, response: owner.response };
 
   let body: unknown;

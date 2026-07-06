@@ -101,7 +101,7 @@ describe('POST /api/settings/channels/override — auth + parsing', () => {
     const res = await POST(makeRequest('POST', VALID_BODY));
     expect(res.status).toBe(402);
     expect(await res.json()).toEqual({ error: 'past_due_read_only' });
-    expect(mockAssertWritableSubscriptionForAccount).toHaveBeenCalledWith(ACCOUNT_ID);
+    expect(mockAssertWritableSubscriptionForAccount).toHaveBeenCalledWith(ACCOUNT_ID, expect.anything());
     expect(mockCreateOrRevive).not.toHaveBeenCalled();
   });
 

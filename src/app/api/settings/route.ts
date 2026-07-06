@@ -113,7 +113,7 @@ async function putSettings(request: NextRequest): Promise<NextResponse> {
   const locationId = user.locationId;
   const accountId = user.accountId;
 
-  const writable = await assertWritableSubscriptionForAccount(accountId);
+  const writable = await assertWritableSubscriptionForAccount(accountId, sql);
   if (!writable.ok) {
     return jsonResponse({ error: writable.error }, writable.status);
   }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type postgres from 'postgres';
 import type { User } from '@supabase/supabase-js';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
@@ -182,11 +183,14 @@ export type WritableOwnerResult = OwnerAccountResult;
  * 402|403 not-writable) on failure. Unexpected non-auth failures propagate as
  * 5xx (see requireRoleOr401).
  */
-export async function requireWritableOwner(request: NextRequest): Promise<WritableOwnerResult> {
+export async function requireWritableOwner(
+  sql: postgres.Sql,
+  request: NextRequest,
+): Promise<WritableOwnerResult> {
   const owner = await requireOwnerWithAccount(request);
   if (!owner.ok) return owner;
 
-  const writable = await assertWritableSubscriptionForAccount(owner.accountId);
+  const writable = await assertWritableSubscriptionForAccount(owner.accountId, sql);
   if (!writable.ok) {
     return { ok: false, response: jsonResponse({ error: writable.error }, writable.status) };
   }

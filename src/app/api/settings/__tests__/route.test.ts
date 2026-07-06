@@ -182,7 +182,7 @@ describe('PUT /api/settings', () => {
     const res = await PUT(makeRequest({ tone: 'friendly' }));
     expect(res.status).toBe(402);
     expect(await res.json()).toEqual({ error: 'past_due_read_only' });
-    expect(mockAssertWritableSubscriptionForAccount).toHaveBeenCalledWith(ACCOUNT_ID);
+    expect(mockAssertWritableSubscriptionForAccount).toHaveBeenCalledWith(ACCOUNT_ID, expect.anything());
     expect(mockSqlBegin).not.toHaveBeenCalled();
   });
 

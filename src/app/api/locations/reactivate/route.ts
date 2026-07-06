@@ -52,7 +52,7 @@ const ReactivateSchema = z.object({
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const offboardingGate = createOffboardingGate(sql);
-  const reqCtx = await readLocationActionRequest(req, ReactivateSchema, offboardingGate);
+  const reqCtx = await readLocationActionRequest(sql, req, ReactivateSchema, offboardingGate);
   if (!reqCtx.ok) return reqCtx.response;
   const { locationId, accountId } = reqCtx.data;
 

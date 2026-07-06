@@ -45,7 +45,7 @@ const PromotePrimarySchema = z.object({
  *   3. Inserts account_audit_log with event_type 'primary_promoted'
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const reqCtx = await readLocationActionRequest(req, PromotePrimarySchema);
+  const reqCtx = await readLocationActionRequest(sql, req, PromotePrimarySchema);
   if (!reqCtx.ok) return reqCtx.response;
   const { user } = reqCtx;
   const { newPrimaryId, accountId } = reqCtx.data;
