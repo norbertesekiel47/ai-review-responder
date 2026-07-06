@@ -146,7 +146,7 @@ export default async function AuthenticatedLayout({
     // the dashboard response uses, so the tab badge and approvals strip agree.
     getPendingApprovalCount(sql, currentLocationId),
     multiLocationEnabled
-      ? getLocationsForAccount(accountId)
+      ? getLocationsForAccount(sql, accountId)
       : Promise.resolve([]),
   ]);
 

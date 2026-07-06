@@ -75,7 +75,7 @@ describeWithDb('archiveLocationTransaction primary-archive invariant integration
     const { archiveLocationTransaction } = await import('../archive-location-tx');
 
     await expect(
-      archiveLocationTransaction({
+      archiveLocationTransaction(sql(), {
         locationId: ids.primaryLocationId,
         accountId: ids.accountId,
         actorUserId: ids.ownerUserId,
@@ -94,7 +94,7 @@ describeWithDb('archiveLocationTransaction primary-archive invariant integration
   it('archives a non-primary location successfully', async () => {
     const { archiveLocationTransaction } = await import('../archive-location-tx');
 
-    const result = await archiveLocationTransaction({
+    const result = await archiveLocationTransaction(sql(), {
       locationId: ids.secondaryLocationId,
       accountId: ids.accountId,
       actorUserId: ids.ownerUserId,
@@ -208,7 +208,7 @@ describeWithDb('reactivateLocationTransaction zero-primary self-heal integration
   it('self-promotes the reactivated location to sole primary when the account has zero active primaries', async () => {
     const { reactivateLocationTransaction } = await import('../archive-location-tx');
 
-    const result = await reactivateLocationTransaction({
+    const result = await reactivateLocationTransaction(sql(), {
       locationId: b3.zeroPrimarySecondaryId,
       accountId: b3.zeroPrimaryAccountId,
       actorUserId: b3.zeroPrimaryOwnerUserId,
@@ -244,7 +244,7 @@ describeWithDb('reactivateLocationTransaction zero-primary self-heal integration
   it('leaves the existing primary untouched when the account already has an active primary', async () => {
     const { reactivateLocationTransaction } = await import('../archive-location-tx');
 
-    const result = await reactivateLocationTransaction({
+    const result = await reactivateLocationTransaction(sql(), {
       locationId: b3.hasPrimaryArchivedSecondaryId,
       accountId: b3.hasPrimaryAccountId,
       actorUserId: b3.hasPrimaryOwnerUserId,
@@ -342,12 +342,12 @@ describeWithDb('reactivateLocationTransaction concurrent zero-primary race integ
     // Start both reactivations together — the module pool (max > 1) runs them
     // on separate connections, so they genuinely contend for the account lock.
     const [resultA, resultB] = await Promise.all([
-      reactivateLocationTransaction({
+      reactivateLocationTransaction(sql(), {
         locationId: race.archivedLocationAId,
         accountId: race.accountId,
         actorUserId: race.ownerUserId,
       }),
-      reactivateLocationTransaction({
+      reactivateLocationTransaction(sql(), {
         locationId: race.archivedLocationBId,
         accountId: race.accountId,
         actorUserId: race.ownerUserId,

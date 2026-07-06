@@ -31,9 +31,9 @@ export default async function LocationsPage() {
 
   // Fetch all active and archived locations for this account
   const [locations, activeCount, archivedLocations, account] = await Promise.all([
-    getLocationsForAccount(access.accountId),
-    getActiveLocationCount(access.accountId),
-    getArchivedLocationsForAccount(access.accountId),
+    getLocationsForAccount(sql, access.accountId),
+    getActiveLocationCount(sql, access.accountId),
+    getArchivedLocationsForAccount(sql, access.accountId),
     sql<{ subscription_tier: string; subscription_status: string }[]>`
       SELECT subscription_tier, subscription_status
       FROM accounts

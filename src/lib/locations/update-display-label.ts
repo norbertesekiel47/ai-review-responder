@@ -4,7 +4,7 @@
 // Separated from display-label.ts to keep that module client-safe
 // (it only exports pure functions with no Node.js-only imports).
 
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 
 // ── updateDisplayLabel ───────────────────────────────────────────────────
@@ -23,6 +23,7 @@ import { v7 as uuidv7 } from 'uuid';
  * invalidation is needed beyond standard query revalidation.
  */
 export async function updateDisplayLabel(
+  sql: Sql,
   locationId: string,
   accountId: string,
   newLabel: string | null,

@@ -13,6 +13,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { sql } from '@/lib/db/server';
 import { promotePrimaryTransaction } from '@/lib/locations/promote-primary-tx';
 import { getLocationById } from '@/lib/locations/repo';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const { newPrimaryId, accountId } = reqCtx.data;
 
   // ── Ownership: verify the target location belongs to this account ───────
-  const targetLocation = await getLocationById(newPrimaryId);
+  const targetLocation = await getLocationById(sql, newPrimaryId);
   if (!targetLocation) {
     return NextResponse.json(
       { error: 'location_not_found' },
@@ -65,7 +66,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const result = await promotePrimaryTransaction({
+    const result = await promotePrimaryTransaction(sql, {
       accountId,
       newPrimaryId,
     });

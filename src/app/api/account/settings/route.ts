@@ -54,7 +54,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   // Fetch independent account metrics after the account existence check.
   const [activeLocations, billingSnapshot] = await Promise.all([
-    getActiveLocationCount(owner.accountId),
+    getActiveLocationCount(sql, owner.accountId),
     currentBillingSnapshot(sql, owner.accountId),
   ]);
 

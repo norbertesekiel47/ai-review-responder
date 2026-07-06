@@ -68,7 +68,7 @@ export async function getChannelOverridesView(
         AND e.channel = ANY(${[...CHANNEL_IDS] as string[]}::text[])
       ORDER BY e.location_id NULLS FIRST, e.channel
     `,
-    getAllLocationsForAccount(accountId),
+    getAllLocationsForAccount(sql, accountId),
   ]);
 
   const locations: OverrideViewLocation[] = locationRows.map((location) => ({

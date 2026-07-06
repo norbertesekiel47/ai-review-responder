@@ -14,19 +14,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { mockSql } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
   sqlFn.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(sqlFn));
+  // Identity .json stub: the module now binds jsonb via the injected client's
+  // tx.json(...) (byte-identical to the old jsonb() helper).
+  sqlFn.json = (v: unknown) => v;
   return { mockSql: sqlFn };
 });
-
-vi.mock('@/lib/db/server', () => ({
-  sql: mockSql,
-  jsonb: (v: unknown) => v,
-}));
 
 vi.mock('uuid', () => ({
   v7: vi.fn(() => 'mock-uuid-v7-00000000-000000000001'),
 }));
 
+import type { Sql } from 'postgres';
 import { addLocationTransaction, type AddLocationTxInput } from '../add-location-tx';
+
+// The injected sql client IS the mock — assertions still read mockSql.mock.calls.
+const sql = mockSql as unknown as Sql;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -80,7 +82,7 @@ describe('addLocationTransaction', () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
     // Step 2: Transaction (3 INSERTs via tx which is the same mockSql)
 
-    const result = await addLocationTransaction(mkInput());
+    const result = await addLocationTransaction(sql, mkInput());
 
     // Verify sql.begin was called
     expect(mockSql.begin).toHaveBeenCalled();
@@ -100,7 +102,7 @@ describe('addLocationTransaction', () => {
   it('sets is_primary = FALSE on the new businesses row', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    await addLocationTransaction(mkInput());
+    await addLocationTransaction(sql, mkInput());
 
     // Find the businesses INSERT inside the tx
     const txCalls = mockSql.mock.calls.slice(1); // skip primary voice lookup
@@ -116,7 +118,7 @@ describe('addLocationTransaction', () => {
   it('inserts owner_name and owner_email for businesses NOT NULL constraints', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    await addLocationTransaction(mkInput({
+    await addLocationTransaction(sql, mkInput({
       ownerName: 'Norbert Sunn',
       ownerEmail: 'nsunn@usc.edu',
     } as any));
@@ -134,7 +136,7 @@ describe('addLocationTransaction', () => {
   it('inserts account_audit_log with event_type location_created and actor_user_id', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    await addLocationTransaction(mkInput({ actorUserId: ACTOR_USER_ID }));
+    await addLocationTransaction(sql, mkInput({ actorUserId: ACTOR_USER_ID }));
 
     // Find the audit log INSERT
     const txCalls = mockSql.mock.calls.slice(1);
@@ -151,7 +153,7 @@ describe('addLocationTransaction', () => {
   it('inserts audit log with null actor_user_id when no actor provided', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    await addLocationTransaction(mkInput({ actorUserId: null }));
+    await addLocationTransaction(sql, mkInput({ actorUserId: null }));
 
     const txCalls = mockSql.mock.calls.slice(1);
     const auditCall = txCalls.find(
@@ -164,7 +166,7 @@ describe('addLocationTransaction', () => {
   it('enqueues job_outbox row with topic update_stripe_overage_quantity', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    await addLocationTransaction(mkInput());
+    await addLocationTransaction(sql, mkInput());
 
     const txCalls = mockSql.mock.calls.slice(1);
     const outboxCall = txCalls.find(
@@ -187,7 +189,7 @@ describe('addLocationTransaction', () => {
     });
     mockSql.mockResolvedValueOnce([primaryVoice]);
 
-    const result = await addLocationTransaction(mkInput());
+    const result = await addLocationTransaction(sql, mkInput());
 
     expect(result.voiceClonedFromPrimary).toBe(true);
 
@@ -204,7 +206,7 @@ describe('addLocationTransaction', () => {
     // No primary voice row found
     mockSql.mockResolvedValueOnce([]);
 
-    const result = await addLocationTransaction(mkInput());
+    const result = await addLocationTransaction(sql, mkInput());
 
     expect(result.voiceClonedFromPrimary).toBe(false);
     expect(result.businessId).toBeDefined();
@@ -221,7 +223,7 @@ describe('addLocationTransaction', () => {
     });
     mockSql.mockResolvedValueOnce([primaryVoice]);
 
-    const result = await addLocationTransaction(mkInput());
+    const result = await addLocationTransaction(sql, mkInput());
 
     expect(result.voiceClonedFromPrimary).toBe(true);
   });
@@ -230,7 +232,7 @@ describe('addLocationTransaction', () => {
   it('stores display_label from user input', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    const result = await addLocationTransaction(mkInput({ displayLabel: 'Westside Bakery' }));
+    const result = await addLocationTransaction(sql, mkInput({ displayLabel: 'Westside Bakery' }));
 
     expect(result.displayLabel).toBe('Westside Bakery');
   });
@@ -239,7 +241,7 @@ describe('addLocationTransaction', () => {
   it('uses display_label as both display_label and name columns', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    const result = await addLocationTransaction(mkInput({ displayLabel: 'Eastside Diner' }));
+    const result = await addLocationTransaction(sql, mkInput({ displayLabel: 'Eastside Diner' }));
 
     expect(result.displayLabel).toBe('Eastside Diner');
   });
@@ -257,7 +259,7 @@ describe('addLocationTransaction', () => {
       throw new Error('audit_log INSERT failed: constraint violation');
     });
 
-    await expect(addLocationTransaction(mkInput())).rejects.toThrow(
+    await expect(addLocationTransaction(sql, mkInput())).rejects.toThrow(
       'audit_log INSERT failed',
     );
 
@@ -280,7 +282,7 @@ describe('addLocationTransaction', () => {
     });
 
     await expect(
-      addLocationTransaction(mkInput({ googlePlaceId: 'PLACE_DUP', placeIdVerified: true })),
+      addLocationTransaction(sql, mkInput({ googlePlaceId: 'PLACE_DUP', placeIdVerified: true })),
     ).rejects.toThrow('duplicate_location');
   });
 
@@ -299,8 +301,8 @@ describe('addLocationTransaction', () => {
       throw original;
     });
 
-    await expect(addLocationTransaction(mkInput())).rejects.toThrow(original);
-    await expect(addLocationTransaction(mkInput())).rejects.not.toThrow('duplicate_location');
+    await expect(addLocationTransaction(sql, mkInput())).rejects.toThrow(original);
+    await expect(addLocationTransaction(sql, mkInput())).rejects.not.toThrow('duplicate_location');
   });
 
   // isDuplicateLocationViolation must narrow safely: a non-object thrown from
@@ -313,7 +315,7 @@ describe('addLocationTransaction', () => {
       throw 'connection terminated unexpectedly';
     });
 
-    await expect(addLocationTransaction(mkInput())).rejects.toBe(
+    await expect(addLocationTransaction(sql, mkInput())).rejects.toBe(
       'connection terminated unexpectedly',
     );
   });
@@ -322,7 +324,7 @@ describe('addLocationTransaction', () => {
   it('audit log payload includes display_label, active_locations_before, voice_cloned_from_primary', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    await addLocationTransaction(mkInput({
+    await addLocationTransaction(sql, mkInput({
       displayLabel: 'Northside Grill',
       activeLocationsBefore: 2,
     }));
@@ -341,7 +343,7 @@ describe('addLocationTransaction', () => {
   it('stores google_place_id and place_id_verified when provided', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    await addLocationTransaction(mkInput({
+    await addLocationTransaction(sql, mkInput({
       googlePlaceId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
       placeIdVerified: true,
     }));
@@ -358,7 +360,7 @@ describe('addLocationTransaction', () => {
   it('all INSERTs (businesses, audit, outbox) run in the same sql.begin() call', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    await addLocationTransaction(mkInput());
+    await addLocationTransaction(sql, mkInput());
 
     // sql.begin should have been called exactly once
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
@@ -377,7 +379,7 @@ describe('addLocationTransaction', () => {
   it('does not enqueue zernio_initial_backfill before the new location is connected', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    await addLocationTransaction(mkInput());
+    await addLocationTransaction(sql, mkInput());
 
     const txCalls = mockSql.mock.calls.slice(1);
     const outboxCalls = txCalls.filter(
@@ -395,7 +397,7 @@ describe('addLocationTransaction', () => {
   it('only enqueues Stripe overage from add-location; Zernio backfill waits for connect finalize', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    await addLocationTransaction(mkInput());
+    await addLocationTransaction(sql, mkInput());
 
     const txCalls = mockSql.mock.calls.slice(1);
     const outboxCalls = txCalls.filter(
@@ -414,7 +416,7 @@ describe('addLocationTransaction', () => {
   it('enqueues validate_place_id when a Maps URL is supplied without a verified place id', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    await addLocationTransaction(mkInput({
+    await addLocationTransaction(sql, mkInput({
       googleMapsUrl: 'https://maps.google.com/?q=Cafe+Test',
       placeIdVerified: false,
       googlePlaceId: null,
@@ -446,7 +448,7 @@ describe('addLocationTransaction', () => {
   it('still enqueues validate_place_id when placeIdVerified is true but no place id is supplied', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    await addLocationTransaction(mkInput({
+    await addLocationTransaction(sql, mkInput({
       googleMapsUrl: 'https://maps.google.com/?q=Cafe+Test',
       placeIdVerified: true,
       googlePlaceId: null,
@@ -468,7 +470,7 @@ describe('addLocationTransaction', () => {
   it('does NOT enqueue validate_place_id when an unverified place id accompanies the URL', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    await addLocationTransaction(mkInput({
+    await addLocationTransaction(sql, mkInput({
       googleMapsUrl: 'https://maps.google.com/?q=Cafe+Test',
       placeIdVerified: false,
       googlePlaceId: 'ChIJExplicitButUnverified1',
@@ -489,7 +491,7 @@ describe('addLocationTransaction', () => {
   it('does NOT enqueue validate_place_id when the place id is already verified', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    await addLocationTransaction(mkInput({
+    await addLocationTransaction(sql, mkInput({
       googlePlaceId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
       placeIdVerified: true,
       googleMapsUrl: null,
@@ -525,7 +527,7 @@ describe('voice config independence (VAL-LOC-032)', () => {
   it('clones voice via one-time SELECT (not ongoing inheritance)', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    await addLocationTransaction(mkInput());
+    await addLocationTransaction(sql, mkInput());
 
     // Verify: only one SELECT for primary voice before the tx begins
     const selectCalls = mockSql.mock.calls.filter(

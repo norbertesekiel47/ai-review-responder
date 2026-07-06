@@ -20,7 +20,6 @@
 
 import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '@/lib/db/server';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { getLocationById, getActiveLocationCount } from './repo';
 import { rethrowAsDuplicateLocation } from './duplicate-location';
@@ -63,11 +62,12 @@ export type ArchiveGuardResult = ArchiveAllowed | ArchiveRejected;
  * of whether it's primary.
  */
 export async function assertCanArchiveLocation(
+  sql: postgres.Sql,
   locationId: string,
   accountId: string,
 ): Promise<ArchiveGuardResult> {
   // 1. Look up the location
-  const location = await getLocationById(locationId);
+  const location = await getLocationById(sql, locationId);
 
   if (!location) {
     return { allowed: false, reason: 'location_not_found' };
@@ -84,7 +84,7 @@ export async function assertCanArchiveLocation(
   }
 
   // 4. Count active locations for the account
-  const activeCount = await getActiveLocationCount(accountId);
+  const activeCount = await getActiveLocationCount(sql, accountId);
 
   // 5. Cannot archive the last active location
   if (activeCount <= 1) {
@@ -148,6 +148,7 @@ export interface ArchiveLocationForOffboardingTeardownTxResult extends ArchiveLo
  * check (separate change) will skip dispatch for archived locations.
  */
 export async function archiveLocationTransaction(
+  sql: postgres.Sql,
   input: ArchiveLocationTxInput,
 ): Promise<ArchiveLocationTxResult> {
   const { locationId, accountId, actorUserId } = input;
@@ -185,6 +186,7 @@ export async function archiveLocationTransaction(
 }
 
 export async function archiveLocationForAccountOffboardingTeardownTransaction(
+  sql: postgres.Sql,
   input: ArchiveLocationForOffboardingTeardownTxInput,
 ): Promise<ArchiveLocationForOffboardingTeardownTxResult> {
   const { locationId, accountId, accountOffboardingId } = input;
@@ -300,11 +302,11 @@ async function applyArchiveLocationUpdate(
       ${input.locationId}::uuid,
       'location_archived',
       ${input.actorUserId ?? null}::uuid,
-      ${jsonb(input.auditPayload ?? {
+      ${tx.json((input.auditPayload ?? {
         location_id: input.locationId,
         active_locations_before: input.activeLocationsBefore,
         active_locations_after: input.activeLocationsBefore - 1,
-      })}
+      }) as never)}
     )
   `;
 
@@ -360,6 +362,7 @@ export interface ReactivateLocationTxResult {
  * recalculates the overage quantity (increment).
  */
 export async function reactivateLocationTransaction(
+  sql: postgres.Sql,
   input: ReactivateLocationTxInput,
 ): Promise<ReactivateLocationTxResult> {
   const { locationId, accountId, actorUserId } = input;
@@ -419,7 +422,7 @@ export async function reactivateLocationTransaction(
           ${locationId}::uuid,
           'location_reactivated',
           ${actorUserId ?? null}::uuid,
-          ${jsonb({
+          ${tx.json({
             location_id: locationId,
           })}
         )
@@ -460,7 +463,7 @@ export async function reactivateLocationTransaction(
             ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL},
             'business',
             ${locationId}::uuid,
-            ${jsonb({
+            ${tx.json({
               business_id: locationId,
               zernio_account_id: backfillContext.zernio_account_id,
               zernio_location_id: backfillContext.zernio_location_id,
@@ -525,7 +528,7 @@ async function selfHealPrimaryIfMissing(
   await tx`
     INSERT INTO account_audit_log (id, account_id, location_id, event_type, actor_user_id, payload)
     VALUES (${uuidv7()}::uuid, ${accountId}::uuid, ${locationId}::uuid, 'primary_promoted', ${actorUserId ?? null}::uuid,
-            ${jsonb({ old_primary_id: null, new_primary_id: locationId, reason: 'reactivation_self_heal' })})
+            ${tx.json({ old_primary_id: null, new_primary_id: locationId, reason: 'reactivation_self_heal' })})
   `;
   return true;
 }

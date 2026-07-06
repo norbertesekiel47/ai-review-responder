@@ -16,17 +16,16 @@ const { mockSql } = vi.hoisted(() => {
   return { mockSql: sqlFn };
 });
 
-vi.mock('@/lib/db/server', () => ({
-  sql: mockSql,
-  jsonb: (v: unknown) => v,
-}));
-
 vi.mock('uuid', () => ({
   v7: vi.fn(() => 'mock-uuid-v7-00000000-000000000002'),
 }));
 
+import type { Sql } from 'postgres';
 import { getDisplayLabel } from '../display-label';
 import { updateDisplayLabel } from '../update-display-label';
+
+// The injected sql client IS the mock — assertions still read mockSql.mock.calls.
+const sql = mockSql as unknown as Sql;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -105,6 +104,7 @@ describe('updateDisplayLabel', () => {
     mockSql.mockResolvedValueOnce([{ id: LOCATION_ID }]);
 
     const result = await updateDisplayLabel(
+      sql,
       LOCATION_ID,
       ACCOUNT_ID,
       'New Downtown Cafe',
@@ -120,6 +120,7 @@ describe('updateDisplayLabel', () => {
     mockSql.mockResolvedValueOnce([]);
 
     const result = await updateDisplayLabel(
+      sql,
       LOCATION_ID,
       'wrong-account-id',
       'New Name',
@@ -133,6 +134,7 @@ describe('updateDisplayLabel', () => {
     mockSql.mockResolvedValueOnce([{ id: LOCATION_ID }]);
 
     const result = await updateDisplayLabel(
+      sql,
       LOCATION_ID,
       ACCOUNT_ID,
       null,
@@ -146,7 +148,7 @@ describe('updateDisplayLabel', () => {
   it('validates account ownership via WHERE clause', async () => {
     mockSql.mockResolvedValueOnce([{ id: LOCATION_ID }]);
 
-    await updateDisplayLabel(LOCATION_ID, ACCOUNT_ID, 'New Name');
+    await updateDisplayLabel(sql, LOCATION_ID, ACCOUNT_ID, 'New Name');
 
     // Verify the UPDATE WHERE clause includes account_id
     const txCalls = mockSql.mock.calls;
@@ -162,6 +164,7 @@ describe('updateDisplayLabel', () => {
     mockSql.mockResolvedValueOnce([{ id: LOCATION_ID }]);
 
     await updateDisplayLabel(
+      sql,
       LOCATION_ID,
       ACCOUNT_ID,
       'New Downtown Cafe',
@@ -181,6 +184,7 @@ describe('updateDisplayLabel', () => {
     mockSql.mockResolvedValueOnce([{ id: LOCATION_ID }]);
 
     const result = await updateDisplayLabel(
+      sql,
       LOCATION_ID,
       ACCOUNT_ID,
       'New Name',
@@ -192,7 +196,7 @@ describe('updateDisplayLabel', () => {
   it('excludes archived locations from update', async () => {
     mockSql.mockResolvedValueOnce([{ id: LOCATION_ID }]);
 
-    await updateDisplayLabel(LOCATION_ID, ACCOUNT_ID, 'New Name');
+    await updateDisplayLabel(sql, LOCATION_ID, ACCOUNT_ID, 'New Name');
 
     const updateCall = mockSql.mock.calls.find(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),

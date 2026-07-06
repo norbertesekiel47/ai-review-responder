@@ -372,7 +372,7 @@ async function handlePerLocationDashboard(
     // IDOR protection: verify the location belongs to the authenticated user's account.
     // getLocationById fetches the row via service-role SQL (bypasses RLS), so we must
     // explicitly check account ownership before returning any data.
-    const location = await getLocationById(locationId);
+    const location = await getLocationById(sql, locationId);
 
     if (!location) {
       // Location not found — fall back to primary, else 404.

@@ -69,7 +69,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // Verify the location exists, is owned by this account, and is archived
-  const location = await getLocationById(locationId);
+  const location = await getLocationById(sql, locationId);
 
   if (!location) {
     return NextResponse.json(
@@ -108,7 +108,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // Execute the reactivation transaction
   try {
-    const result = await reactivateLocationTransaction({
+    const result = await reactivateLocationTransaction(sql, {
       locationId,
       accountId,
       actorUserId,

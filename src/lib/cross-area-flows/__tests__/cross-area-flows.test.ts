@@ -152,10 +152,12 @@ describe('VAL-CROSS-001: Signup-to-multi-location end-to-end', () => {
     // Mock sql.begin transaction
     (mockSql.begin as ReturnType<typeof vi.fn>) = vi.fn().mockImplementation(async (cb: Function) => {
       const mockTx = vi.fn().mockResolvedValue(undefined);
+      // Identity .json stub: injected tx.json(...) now fires on this mock tx.
+      Object.assign(mockTx, { json: (v: unknown) => v });
       await cb(mockTx);
     });
 
-    const addResult = await addLocationTransaction({
+    const addResult = await addLocationTransaction(mockSql as unknown as Sql, {
       accountId: activeAccount.id,
       displayLabel: 'Westside Bakery',
       googlePlaceId: 'ChIJ_west',
@@ -405,7 +407,7 @@ describe('VAL-CROSS-005: Archive mid-flow', () => {
     });
     vi.mocked(getActiveLocationCount).mockResolvedValue(2);
 
-    const archiveGuard = await assertCanArchiveLocation(locB.id, account.id);
+    const archiveGuard = await assertCanArchiveLocation(mockSql as unknown as Sql, locB.id, account.id);
     expect(archiveGuard.allowed).toBe(true);
 
     // Step 2: Execute archive transaction
@@ -426,10 +428,12 @@ describe('VAL-CROSS-005: Archive mid-flow', () => {
         }
         return Promise.resolve([]);
       });
+      // Identity .json stub: injected tx.json(...) now fires on this mock tx.
+      Object.assign(mockTx, { json: (v: unknown) => v });
       await cb(mockTx);
     });
 
-    const archiveResult = await archiveLocationTransaction({
+    const archiveResult = await archiveLocationTransaction(mockSql as unknown as Sql, {
       locationId: locB.id,
       accountId: account.id,
       actorUserId: 'user-001',
@@ -670,6 +674,8 @@ Uptown Diner,ChIJ003,casual`;
     mockSql.mockResolvedValue([{ tone: 'professional', products_services: null, staff_names: [], highlight_facts: [], avoid_facts: [], sample_responses: [] }]);
     (mockSql.begin as ReturnType<typeof vi.fn>) = vi.fn().mockImplementation(async (cb: Function) => {
       const mockTx = vi.fn().mockResolvedValue(undefined);
+      // Identity .json stub: injected tx.json(...) now fires on this mock tx.
+      Object.assign(mockTx, { json: (v: unknown) => v });
       await cb(mockTx);
     });
 

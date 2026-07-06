@@ -225,6 +225,7 @@ describe('POST /api/locations/reactivate', () => {
     expect(res.status).toBe(200);
     expect(body.reactivated).toBe(true);
     expect(mockReactivateLocationTransaction).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         locationId: LOCATION_ID,
         accountId: ACCOUNT_ID,

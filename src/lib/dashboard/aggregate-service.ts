@@ -55,7 +55,7 @@ export async function getAggregateDashboardData(
   window: DashboardWindow = DEFAULT_DASHBOARD_WINDOW,
 ): Promise<AggregateDashboardData> {
   const [locations, accountRows] = await Promise.all([
-    getLocationsForAccount(accountId),
+    getLocationsForAccount(sql, accountId),
     // VAL-DASH-028: Fetch account billing data to determine billingPending flag.
     // A location's KPI shows "Billing update pending" when the Stripe overage
     // webhook has not yet confirmed the quantity update (i.e., the active

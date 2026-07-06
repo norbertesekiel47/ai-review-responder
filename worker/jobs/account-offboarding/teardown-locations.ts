@@ -34,7 +34,7 @@ export async function runLocationTeardown(row: LocationTeardownRow): Promise<voi
     // Each archival is its own transaction taking a FOR UPDATE lock on the shared account-scoped
     // accounts row; running them in parallel would deadlock/contend on that row.
     // react-doctor-disable-next-line react-doctor/async-await-in-loop
-    await archiveLocationForAccountOffboardingTeardownTransaction({
+    await archiveLocationForAccountOffboardingTeardownTransaction(sql, {
       accountId: row.account_id,
       locationId,
       accountOffboardingId: row.id,

@@ -66,7 +66,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // IDOR protection: verify the location belongs to the authenticated user's account.
     // getLocationById fetches via service-role SQL (bypasses RLS), so ownership
     // and archived state must be checked explicitly before returning any data.
-    const location = await getLocationById(locationId);
+    const location = await getLocationById(sql, locationId);
 
     if (!location) {
       return errorResponse('Business not found', 404);

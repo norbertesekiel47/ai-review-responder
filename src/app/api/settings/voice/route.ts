@@ -60,7 +60,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   // Fetch voice config for all active locations in the account
-  const locations = await getLocationsForAccount(owner.accountId);
+  const locations = await getLocationsForAccount(sql, owner.accountId);
 
   if (locations.length === 0) {
     return jsonResponse({ locations: [] });

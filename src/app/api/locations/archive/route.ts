@@ -65,7 +65,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const { locationId, accountId } = reqCtx.data;
 
   // Run guard checks
-  const guardResult = await assertCanArchiveLocation(locationId, accountId);
+  const guardResult = await assertCanArchiveLocation(sql, locationId, accountId);
 
   if (!guardResult.allowed) {
     const httpStatus = LOCATION_DENIAL_STATUS[guardResult.reason] ?? 403;
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Execute the archive transaction. The audit payload's location counts come
   // from the tx's locked snapshot, not a pre-tx read.
   try {
-    const result = await archiveLocationTransaction({
+    const result = await archiveLocationTransaction(sql, {
       locationId,
       accountId,
       actorUserId,

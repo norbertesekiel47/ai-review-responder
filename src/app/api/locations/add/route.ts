@@ -121,7 +121,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // Gather pre-transaction data needed by addLocationTransaction
   const [activeLocations, account, actorUserId] = await Promise.all([
-    getActiveLocationCount(accountId),
+    getActiveLocationCount(sql, accountId),
     getAccountById(sql, accountId),
     getAccountOwnerUserId(sql, accountId),
   ]);
@@ -135,7 +135,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // Execute the add-location atomic transaction
   try {
-    const result = await addLocationTransaction({
+    const result = await addLocationTransaction(sql, {
       accountId,
       displayLabel,
       googlePlaceId,

@@ -13,8 +13,8 @@
 // VAL-LOC-024 (location_created audit event), VAL-LOC-031 (voice cloning),
 // VAL-LOC-032 (voice independence), VAL-LOC-036 (display_label from input).
 
+import type { Sql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '@/lib/db/server';
 import { rethrowAsDuplicateLocation } from './duplicate-location';
 import { enqueueValidatePlaceId, enqueueStripeOverageRecompute } from '@/lib/shared/job-outbox-helpers';
 
@@ -88,6 +88,7 @@ interface PrimaryVoiceRow {
  * VAL-LOC-036: display_label set from user input.
  */
 export async function addLocationTransaction(
+  sql: Sql,
   input: AddLocationTxInput,
 ): Promise<AddLocationTxResult> {
   const {
@@ -227,7 +228,7 @@ export async function addLocationTransaction(
           ${businessId}::uuid,
           'location_created',
           ${actorUserId ?? null}::uuid,
-          ${jsonb({
+          ${tx.json({
             display_label: displayLabel,
             google_place_id: googlePlaceId ?? null,
             active_locations_before: activeLocationsBefore,
