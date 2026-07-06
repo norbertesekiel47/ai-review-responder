@@ -84,6 +84,7 @@ import { keepMyDataWithToken } from '../../../../src/lib/account-offboarding/kee
 import { hashAccountOffboardingToken } from '../../../../src/lib/account-offboarding/tokens';
 import { runAccountOffboardingPurgeOnce } from '../../../../worker/background/pollers/AccountOffboardingPurgePoller';
 import { handleAccountOffboardingPurge } from '../PurgeWorker';
+import { supabaseServer } from '../../../../src/lib/db/server';
 import {
   cleanupOwnerOffboardingSeed,
   closeSeedDb,
@@ -437,7 +438,7 @@ d('owner offboarding — DB-backed lifecycle (integration)', { timeout: 30_000 }
         WHERE id = ${outbox!.id}::uuid
       `;
 
-      await handleAccountOffboardingPurge({
+      await handleAccountOffboardingPurge(sql, supabaseServer, {
         id: outbox!.id,
         data: {
           ...parsePayload(outbox!.payload),
@@ -446,7 +447,7 @@ d('owner offboarding — DB-backed lifecycle (integration)', { timeout: 30_000 }
         },
         attemptsMade: 0,
         opts: { attempts: 3 },
-      } as Parameters<typeof handleAccountOffboardingPurge>[0]);
+      } as Parameters<typeof handleAccountOffboardingPurge>[2]);
 
       const [purged] = await sql<{
         status: string;

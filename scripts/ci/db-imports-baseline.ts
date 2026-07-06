@@ -29,7 +29,6 @@ export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([
   'src/lib/shared/writable-subscription.ts',
   'worker/background/pollers/billing-reconciliation/reconcile-account.ts',
   'worker/background/pollers/health-alert/checks.ts',
-  'worker/jobs/account-offboarding/purge-stages.ts',
   'worker/jobs/summary-report-helpers.ts',
 ]);
 

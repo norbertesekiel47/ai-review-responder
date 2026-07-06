@@ -85,7 +85,7 @@ import { startAccountOffboardingTeardownRetryPoller, stopAccountOffboardingTeard
 import { isMockMode } from '../src/lib/shared/mock-mode';
 import { createWorkerLogger } from '../src/lib/shared/logger';
 import { runReadinessProbes } from '../src/lib/shared/readiness';
-import { sql } from '../src/lib/db/server';
+import { sql, supabaseServer } from '../src/lib/db/server';
 import { getCacheRedis } from '../src/lib/db/redis-cache';
 import { isCrashNetRecoverableDbError } from '../src/lib/db/transient-error';
 import { errorStringProperty } from '../src/lib/payments/stripe-error-inspect';
@@ -231,7 +231,7 @@ const accountOffboardingTeardownWorker = new Worker<AccountOffboardingTeardownPa
 
 const accountOffboardingPurgeWorker = new Worker<AccountOffboardingPurgePayload>(
   QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE,
-  withJobLogContext(handleAccountOffboardingPurge),
+  withJobLogContext<AccountOffboardingPurgePayload>((job) => handleAccountOffboardingPurge(sql, supabaseServer, job)),
   workerOpts,
 );
 

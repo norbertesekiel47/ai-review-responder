@@ -40,6 +40,7 @@ const {
   calls,
   mockState,
   mockSql,
+  mockSupabaseServer,
   mockDeleteUser,
   mockMarkOutboxCompleted,
   mockMarkOutboxFailed,
@@ -126,11 +127,21 @@ const {
   });
   mockSql.json = vi.fn((value: unknown) => value);
 
+  const mockDeleteUser = vi.fn(async () => ({ data: {}, error: null }));
+  const mockSupabaseServer: any = {
+    auth: {
+      admin: {
+        deleteUser: mockDeleteUser,
+      },
+    },
+  };
+
   return {
     calls,
     mockState,
     mockSql,
-    mockDeleteUser: vi.fn(async () => ({ data: {}, error: null })),
+    mockSupabaseServer,
+    mockDeleteUser,
     mockMarkOutboxCompleted: vi.fn(),
     mockMarkOutboxFailed: vi.fn(),
     mockVerifyAccountOffboardingPurge: vi.fn(async () => ({ ok: true, issues: [] })),
@@ -140,16 +151,14 @@ const {
   };
 });
 
+// Transitive-import shield: the SUT (PurgeWorker + purge-stages) no longer
+// imports the db/server singletons — they are injected below via mockSql +
+// mockSupabaseServer. This mock only stops any transitive importer from
+// constructing a real Postgres/Supabase client at module load.
 vi.mock('../../../../src/lib/db/server', () => ({
   sql: mockSql,
   jsonb: (value: unknown) => value,
-  supabaseServer: {
-    auth: {
-      admin: {
-        deleteUser: mockDeleteUser,
-      },
-    },
-  },
+  supabaseServer: mockSupabaseServer,
 }));
 
 vi.mock('../../../../src/lib/shared/outbox', async (importOriginal) => {
@@ -237,7 +246,7 @@ describe('AccountOffboarding PurgeWorker', () => {
   });
 
   it('revalidates the captured auth binding, deletes the auth user outside a transaction, then terminalizes after verification', async () => {
-    await handleAccountOffboardingPurge(makeJob());
+    await handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob());
 
     const revalidateIdx = calls.findIndex((call) =>
       call.text.includes('FROM users u') && call.text.includes('u.auth_id =')
@@ -363,7 +372,7 @@ describe('AccountOffboarding PurgeWorker', () => {
   it('does not call deleteUser when immediate auth revalidation fails', async () => {
     mockState.authRevalidationPasses = false;
 
-    await expect(handleAccountOffboardingPurge(makeJob({ attemptsMade: 0 }))).rejects.toThrow(
+    await expect(handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob({ attemptsMade: 0 }))).rejects.toThrow(
       'account_offboarding_auth_revalidation_failed',
     );
 
@@ -379,7 +388,7 @@ describe('AccountOffboarding PurgeWorker', () => {
       error: { message: 'User not found', status: 404 },
     } as never);
 
-    await handleAccountOffboardingPurge(makeJob());
+    await handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob());
 
     expect(mockDeleteUser).toHaveBeenCalledWith(AUTH_USER_ID);
     expect(mockState.offboarding?.status).toBe('purged');
@@ -404,7 +413,7 @@ describe('AccountOffboarding PurgeWorker', () => {
       }],
     };
 
-    await handleAccountOffboardingPurge(makeJob());
+    await handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob());
 
     expect(mockVerifyAccountOffboardingPurge).toHaveBeenCalledOnce();
     expect(mockState.offboarding?.status).toBe('purged');
@@ -431,7 +440,7 @@ describe('AccountOffboarding PurgeWorker', () => {
       }],
     };
 
-    await expect(handleAccountOffboardingPurge(makeJob({ attemptsMade: 0 }))).rejects.toThrow(
+    await expect(handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob({ attemptsMade: 0 }))).rejects.toThrow(
       'account_offboarding_teardown_incomplete',
     );
 
@@ -446,7 +455,7 @@ describe('AccountOffboarding PurgeWorker', () => {
       provider_dispositions: [{ provider: 'zernio', disposition: 'admin_recorded' }],
     };
 
-    await expect(handleAccountOffboardingPurge(makeJob({ attemptsMade: 0 }))).rejects.toThrow(
+    await expect(handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob({ attemptsMade: 0 }))).rejects.toThrow(
       'account_offboarding_teardown_incomplete',
     );
 
@@ -467,7 +476,7 @@ describe('AccountOffboarding PurgeWorker', () => {
       }],
     };
 
-    await expect(handleAccountOffboardingPurge(makeJob({ attemptsMade: 0 }))).rejects.toThrow(
+    await expect(handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob({ attemptsMade: 0 }))).rejects.toThrow(
       'account_offboarding_teardown_incomplete',
     );
 
@@ -491,7 +500,7 @@ describe('AccountOffboarding PurgeWorker', () => {
       ],
     } as never);
 
-    await handleAccountOffboardingPurge(makeJob({ attemptsMade: 2, attempts: 3 }));
+    await handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob({ attemptsMade: 2, attempts: 3 }));
 
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
       OUTBOX_ID,

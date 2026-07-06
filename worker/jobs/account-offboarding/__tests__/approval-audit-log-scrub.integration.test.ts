@@ -29,7 +29,7 @@ const ownerEmail = `purge-d3-${accountId}@test.local`;
 
 let seed: postgresType.Sql | undefined;
 let appSql: postgresType.Sql | undefined;
-let runDependentReferencePurgeStage: (row: { id: string; account_id: string }) => Promise<void>;
+let runDependentReferencePurgeStage: (sql: postgresType.Sql, row: { id: string; account_id: string }) => Promise<void>;
 let verificationQuery: (
   table: string,
   input: Record<string, unknown>,
@@ -88,7 +88,7 @@ describeWithDb('runDependentReferencePurgeStage — approval_audit_log real PII 
 
   it('scrubs approval_audit_log PII against the real schema and passes verification', async () => {
     // Throws here on a column-name drift (the D3 failure mode) before any assertion.
-    await runDependentReferencePurgeStage({ id: offboardingId, account_id: accountId });
+    await runDependentReferencePurgeStage(appSql!, { id: offboardingId, account_id: accountId });
 
     const [row] = await db()<Array<{
       token_hash: string | null;

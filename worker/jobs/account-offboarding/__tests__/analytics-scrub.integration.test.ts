@@ -21,7 +21,7 @@ const OTHER_ACCOUNT_ID = randomUUID();
 
 let seed: postgresType.Sql | undefined;
 let appSql: postgresType.Sql | undefined;
-let runAnalyticsPurgeStage: (row: { account_id: string }) => Promise<void>;
+let runAnalyticsPurgeStage: (sql: postgresType.Sql, row: { account_id: string }) => Promise<void>;
 const insertedIds: string[] = [];
 
 function db(): postgresType.Sql {
@@ -69,7 +69,7 @@ describeWithDb('runAnalyticsPurgeStage — real PII removal (M1)', () => {
          '{"email":"other@example.com"}'::jsonb, 'anon-other', NULL)
     `;
 
-    await runAnalyticsPurgeStage({ account_id: ACCOUNT_ID });
+    await runAnalyticsPurgeStage(appSql!, { account_id: ACCOUNT_ID });
 
     const [fragile] = await db()<{
       distinct_id: string;
