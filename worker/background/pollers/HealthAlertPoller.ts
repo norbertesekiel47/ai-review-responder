@@ -7,6 +7,7 @@
 // dispatching (watchdog down), and the held-flag backlog. Each cycle also emits
 // a Sentry Cron check-in so the probe's own death is detected (dead-man switch).
 import { getWorkerConfig } from '../../../src/lib/config/worker';
+import { sql } from '../../../src/lib/db/server';
 import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 import { withTimeout } from '../../../src/lib/shared/with-timeout';
 import { notePollerActivity, maybeLogPollerHeartbeat } from '../poller-heartbeat';
@@ -40,7 +41,7 @@ export async function pollHealthAlerts(): Promise<void> {
   const pollIntervalMs = readPollIntervalMs();
   try {
     const findings = await withTimeout(
-      runHealthChecks(),
+      runHealthChecks(sql),
       HEALTH_CHECK_TIMEOUT_MS,
       'health-alert-checks',
     );

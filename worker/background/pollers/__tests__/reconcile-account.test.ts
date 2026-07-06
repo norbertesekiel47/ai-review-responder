@@ -99,13 +99,13 @@ describe('reconcileAccount', () => {
 
   it('returns checked:1 with no drift for a matching account', async () => {
     const stripe = makeStripe({ retrieve: makeSubscription(2), createPreview: makePreview(2) });
-    const outcome = await reconcileAccount(stripe, makeAccount());
+    const outcome = await reconcileAccount(mockSql, stripe, makeAccount());
     expect(outcome).toEqual({ accountsChecked: 1, drifts: [], errors: 0 });
   });
 
   it('returns errors:1 checked:0 for an unknown tier', async () => {
     const stripe = makeStripe({});
-    const outcome = await reconcileAccount(stripe, makeAccount({ subscription_tier: 'nope' }));
+    const outcome = await reconcileAccount(mockSql, stripe, makeAccount({ subscription_tier: 'nope' }));
     expect(outcome.accountsChecked).toBe(0);
     expect(outcome.errors).toBe(1);
     expect(outcome.drifts).toEqual([]);
@@ -114,7 +114,7 @@ describe('reconcileAccount', () => {
 
   it('reports missing_subscription when stripe_subscription_id is null', async () => {
     const stripe = makeStripe({});
-    const outcome = await reconcileAccount(stripe, makeAccount({ stripe_subscription_id: null }));
+    const outcome = await reconcileAccount(mockSql, stripe, makeAccount({ stripe_subscription_id: null }));
     expect(outcome.accountsChecked).toBe(1);
     expect(outcome.errors).toBe(0);
     expect(outcome.drifts).toHaveLength(1);
@@ -125,7 +125,7 @@ describe('reconcileAccount', () => {
   it('reports missing_subscription (handled) when Stripe 404s the subscription', async () => {
     const err = Object.assign(new Error('No such subscription'), { code: 'resource_missing', statusCode: 404 });
     const stripe = makeStripe({ retrieveError: err });
-    const outcome = await reconcileAccount(stripe, makeAccount());
+    const outcome = await reconcileAccount(mockSql, stripe, makeAccount());
     expect(outcome).toMatchObject({ accountsChecked: 1, errors: 0 });
     expect(outcome.drifts).toHaveLength(1);
     expect(outcome.drifts[0]!.driftType).toBe('missing_subscription');
@@ -133,7 +133,7 @@ describe('reconcileAccount', () => {
 
   it('re-throws a non-missing Stripe retrieve error', async () => {
     const stripe = makeStripe({ retrieveError: new Error('Stripe API timeout') });
-    await expect(reconcileAccount(stripe, makeAccount())).rejects.toThrow('Stripe API timeout');
+    await expect(reconcileAccount(mockSql, stripe, makeAccount())).rejects.toThrow('Stripe API timeout');
   });
 
   it('counts a duplicate-list failure as a handled error and still checks the account', async () => {
@@ -141,7 +141,7 @@ describe('reconcileAccount', () => {
       retrieve: makeSubscription(2), createPreview: makePreview(2),
       listError: new Error('list failed'),
     });
-    const outcome = await reconcileAccount(stripe, makeAccount());
+    const outcome = await reconcileAccount(mockSql, stripe, makeAccount());
     expect(outcome.accountsChecked).toBe(1);
     expect(outcome.errors).toBe(1);
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Error listing Stripe subscriptions'));
@@ -152,7 +152,7 @@ describe('reconcileAccount', () => {
       retrieve: makeSubscription(5),
       createPreviewError: new Error('preview timeout'),
     });
-    const outcome = await reconcileAccount(stripe, makeAccount({ active_location_count: 3, locations_included: 1 }));
+    const outcome = await reconcileAccount(mockSql, stripe, makeAccount({ active_location_count: 3, locations_included: 1 }));
     expect(outcome.accountsChecked).toBe(1);
     expect(outcome.errors).toBe(1);
     expect(outcome.drifts.some((d) => d.driftType === 'quantity_mismatch')).toBe(true);
@@ -161,7 +161,7 @@ describe('reconcileAccount', () => {
 
   it('passes a bounded per-request timeout to subscriptions.retrieve', async () => {
     const stripe = makeStripe({ retrieve: makeSubscription(2), createPreview: makePreview(2) });
-    await reconcileAccount(stripe, makeAccount());
+    await reconcileAccount(mockSql, stripe, makeAccount());
     // The Stripe SDK retrieve overload is (id, params?, options?), so the
     // RequestOptions carrying `timeout` is the THIRD positional arg.
     expect(stripe.subscriptions.retrieve).toHaveBeenCalledWith(
@@ -173,7 +173,7 @@ describe('reconcileAccount', () => {
 
   it('passes a bounded per-request timeout to subscriptions.list', async () => {
     const stripe = makeStripe({ retrieve: makeSubscription(2), createPreview: makePreview(2) });
-    await reconcileAccount(stripe, makeAccount());
+    await reconcileAccount(mockSql, stripe, makeAccount());
     // SDK overload is list(params?, options?) — timeout rides the SECOND arg.
     expect(stripe.subscriptions.list).toHaveBeenCalledWith(
       expect.objectContaining({ customer: 'cus_123' }),
@@ -183,7 +183,7 @@ describe('reconcileAccount', () => {
 
   it('passes a bounded per-request timeout to invoices.createPreview', async () => {
     const stripe = makeStripe({ retrieve: makeSubscription(2), createPreview: makePreview(2) });
-    await reconcileAccount(stripe, makeAccount());
+    await reconcileAccount(mockSql, stripe, makeAccount());
     // SDK overload is createPreview(params?, options?) — timeout rides the SECOND arg.
     expect(stripe.invoices.createPreview).toHaveBeenCalledWith(
       expect.objectContaining({ customer: 'cus_123', subscription: 'sub_123' }),
@@ -194,13 +194,13 @@ describe('reconcileAccount', () => {
   it('emits a locations_paid_mirror drift when the DB mirror disagrees with Stripe overage qty', async () => {
     // Stripe overage quantity = 2, but the DB mirror says 5 → drift.
     const stripe = makeStripe({ retrieve: makeSubscription(2), createPreview: makePreview(2) });
-    const outcome = await reconcileAccount(stripe, makeAccount({ locations_paid: 5, active_location_count: 3 }));
+    const outcome = await reconcileAccount(mockSql, stripe, makeAccount({ locations_paid: 5, active_location_count: 3 }));
     expect(outcome.drifts.some((d) => d.driftType === 'locations_paid_mirror')).toBe(true);
   });
 
   it('does NOT emit a locations_paid_mirror drift when the mirror matches Stripe overage qty', async () => {
     const stripe = makeStripe({ retrieve: makeSubscription(2), createPreview: makePreview(2) });
-    const outcome = await reconcileAccount(stripe, makeAccount({ locations_paid: 2, active_location_count: 3 }));
+    const outcome = await reconcileAccount(mockSql, stripe, makeAccount({ locations_paid: 2, active_location_count: 3 }));
     expect(outcome.drifts.some((d) => d.driftType === 'locations_paid_mirror')).toBe(false);
   });
 
@@ -210,7 +210,7 @@ describe('reconcileAccount', () => {
       list: { data: [ { id: 'sub_123', status: 'active' }, { id: 'sub_dup', status: 'active' } ] },
     });
     sqlReturnQueue.push([]); // lineage query: no subs belong to another account
-    const outcome = await reconcileAccount(stripe, makeAccount());
+    const outcome = await reconcileAccount(mockSql, stripe, makeAccount());
     expect(outcome.drifts.some((d) => d.driftType === 'duplicate_subscription')).toBe(true);
   });
 
@@ -225,7 +225,7 @@ describe('reconcileAccount', () => {
       createPreview: makePreview(2),
     });
     sqlReturnQueue.push([{ stripe_subscription_id: 'sub_other' }]); // lineage query: sub_other belongs to a DIFFERENT account
-    const outcome = await reconcileAccount(stripe, makeAccount());
+    const outcome = await reconcileAccount(mockSql, stripe, makeAccount());
     expect(outcome.drifts.some((d) => d.driftType === 'duplicate_subscription')).toBe(false);
   });
 
@@ -250,7 +250,7 @@ describe('reconcileAccount', () => {
       ] },
     };
     const stripe = makeStripe({ retrieve: legacySubscription, createPreview: makePreview(2) });
-    const outcome = await reconcileAccount(stripe, makeAccount());
+    const outcome = await reconcileAccount(mockSql, stripe, makeAccount());
     const priceDrift = outcome.drifts.find((d) => d.driftType === 'price_mismatch');
     expect(priceDrift).toBeDefined();
     expect(priceDrift?.expectedCents).toBe(7900);
@@ -267,7 +267,7 @@ describe('reconcileAccount', () => {
       createPreview: makePreview(2),
     });
     sqlReturnQueue.push([]); // lineage query: neither maps to another account
-    const outcome = await reconcileAccount(stripe, makeAccount());
+    const outcome = await reconcileAccount(mockSql, stripe, makeAccount());
     expect(outcome.drifts.some((d) => d.driftType === 'duplicate_subscription')).toBe(true);
   });
 });

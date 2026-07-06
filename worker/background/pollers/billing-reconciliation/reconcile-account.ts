@@ -8,7 +8,7 @@
 // orchestrator's per-account catch records it without marking the account checked.
 
 import Stripe from 'stripe';
-import { sql } from '../../../../src/lib/db/server';
+import type postgres from 'postgres';
 import { applyStripeSubscriptionState } from '../../../ingress/stripe/apply-subscription-state';
 import { SubscriptionStatus } from '../../../../src/lib/shared/subscription-status';
 import { isSubscriptionTier, TIER_CONFIG } from '../../../../src/lib/accounts/tier-config';
@@ -45,6 +45,7 @@ export interface AccountReconcileOutcome {
 }
 
 export async function reconcileAccount(
+  sql: postgres.Sql,
   stripe: Stripe,
   account: AccountWithLocations,
 ): Promise<AccountReconcileOutcome> {

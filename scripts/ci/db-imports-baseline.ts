@@ -16,7 +16,5 @@
 export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([
   'src/lib/db/account-guard.ts',
   'src/lib/db/auth.ts',
-  'worker/background/pollers/billing-reconciliation/reconcile-account.ts',
-  'worker/background/pollers/health-alert/checks.ts',
 ]);
 
