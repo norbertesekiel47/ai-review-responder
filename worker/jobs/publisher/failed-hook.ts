@@ -1,7 +1,7 @@
 import type { Job } from 'bullmq';
+import type { Sql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import * as Sentry from '@sentry/node';
-import { sql, jsonb } from '../../../src/lib/db/server';
 import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import {
   extractOutboxHandle,
@@ -29,6 +29,7 @@ const PUBLISHABLE_STATUSES = ['approved', 'edited', 'awaiting_owner_connect'] as
  * the outbox row so it doesn't sit in `dispatched` forever.
  */
 export async function handlePublisherFailed(
+  sql: Sql,
   job: Job<PublishResponsePayload> | undefined,
   err: unknown,
 ): Promise<void> {
@@ -63,14 +64,14 @@ export async function handlePublisherFailed(
     // `handleVerificationIndeterminate` exactly as before. Flag-gated so Phase A
     // (flag off) behaves byte-for-byte as today — the block is skipped entirely.
     if (replyEditingFlagEnabled()) {
-      const handled = await attemptOrphanConversion(job.data, outboxId, outboxAttempt);
+      const handled = await attemptOrphanConversion(sql, job.data, outboxId, outboxAttempt);
       if (handled) return;
       // Not an orphan (or row moved on benignly with a non-terminal disposition
       // that already closed the outbox): fall through to today's behavior.
     }
 
     if (err instanceof ZernioReplyVerificationIndeterminateError) {
-      await handleVerificationIndeterminate(err, outboxId, outboxAttempt);
+      await handleVerificationIndeterminate(sql, err, outboxId, outboxAttempt);
       return;
     }
 
@@ -96,7 +97,7 @@ export async function handlePublisherFailed(
       }
       const ctx = err.attemptContext;
       try {
-        await applyTransientExhaustionFallback({
+        await applyTransientExhaustionFallback(sql, {
           response_id: ctx.response_id,
           business_id: ctx.business_id,
           correlation_id: job.data.correlation_id,
@@ -153,6 +154,7 @@ export async function handlePublisherFailed(
  * fallback (today's behavior, unchanged).
  */
 async function attemptOrphanConversion(
+  sql: Sql,
   data: PublishResponsePayload,
   outboxId: string,
   outboxAttempt: number | undefined,
@@ -253,6 +255,7 @@ async function attemptOrphanConversion(
 }
 
 async function handleVerificationIndeterminate(
+  sql: Sql,
   err: ZernioReplyVerificationIndeterminateError,
   outboxId: string,
   outboxAttempt: number | undefined,
@@ -276,7 +279,7 @@ async function handleVerificationIndeterminate(
       ) VALUES (
         ${uuidv7()}, ${err.meta.business_id}, ${err.meta.review_id},
         ${err.meta.response_id}, 'zernio_reply_verification_indeterminate',
-        ${jsonb({
+        ${tx.json({
           reason: err.meta.reason,
           zernio_account_id: err.meta.account_id,
           zernio_location_id: err.meta.location_id,
@@ -285,7 +288,7 @@ async function handleVerificationIndeterminate(
           reviews_seen: err.meta.reviews_seen,
           underlying_error: err.meta.underlying_error,
           retries_exhausted_at: new Date().toISOString(),
-        })}
+        } as never)}
       )
       ON CONFLICT (review_id, type) WHERE status = 'open'
       DO UPDATE SET payload = review_exceptions.payload
@@ -299,7 +302,7 @@ async function handleVerificationIndeterminate(
         ) VALUES (
           ${uuidv7()}, ${QUEUE_NAMES.NOTIFY_ADMIN}, 'review',
           ${err.meta.review_id},
-          ${jsonb({ review_exception_id: exception.id, business_id: err.meta.business_id })},
+          ${tx.json({ review_exception_id: exception.id, business_id: err.meta.business_id } as never)},
           0, 5
         )
       `;

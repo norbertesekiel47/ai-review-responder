@@ -17,7 +17,6 @@
 import { createHash } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
 import type postgres from 'postgres';
-import { sql, jsonb } from '../../../src/lib/db/server';
 import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import {
   ZernioAuthError,
@@ -124,7 +123,7 @@ interface AuthErrorTerminalArgs {
  *
  * Idempotent — re-call on already-disconnected / already-parked no-ops.
  */
-export async function handlePublisherAuthErrorTerminal(args: AuthErrorTerminalArgs): Promise<void> {
+export async function handlePublisherAuthErrorTerminal(sql: postgres.Sql, args: AuthErrorTerminalArgs): Promise<void> {
   const {
     response_id, business_id, account_id, location_id,
     error_body, outboxId, outboxAttempt, logger,
@@ -187,7 +186,7 @@ export async function handlePublisherAuthErrorTerminal(args: AuthErrorTerminalAr
         id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
       ) VALUES (
         ${uuidv7()}, 'notify_owner_reconnect', 'response', ${response_id},
-        ${jsonb(reconnectPayload)}, 0, 5
+        ${tx.json(reconnectPayload as never)}, 0, 5
       )
     `;
 
@@ -201,7 +200,7 @@ export async function handlePublisherAuthErrorTerminal(args: AuthErrorTerminalAr
           id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
         ) VALUES (
           ${uuidv7()}, 'notify_owner_connection_lost', 'business', ${business_id},
-          ${jsonb(lostPayload)}, 0, 5
+          ${tx.json(lostPayload as never)}, 0, 5
         )
       `;
     }
@@ -231,7 +230,7 @@ interface PermanentErrorTerminalArgs {
  *   3. Enqueue notify_admin_review_exception.
  *   4. markOutboxCompleted.
  */
-export async function handlePublisherPermanentErrorTerminal(args: PermanentErrorTerminalArgs): Promise<void> {
+export async function handlePublisherPermanentErrorTerminal(sql: postgres.Sql, args: PermanentErrorTerminalArgs): Promise<void> {
   const {
     response_id, business_id, review_id, endpoint_kind, http_status,
     error_body, outboxId, outboxAttempt, logger,
@@ -268,12 +267,12 @@ export async function handlePublisherPermanentErrorTerminal(args: PermanentError
       VALUES (
         ${uuidv7()}, ${business_id}, ${review_id}, ${response_id},
         'zernio_permanent_4xx',
-        ${jsonb({
+        ${tx.json({
           endpoint_kind,
           http_status,
           error_body: safeErrorBody,
           retries_exhausted_at: new Date().toISOString(),
-        })}
+        } as never)}
       )
       ON CONFLICT (review_id, type) WHERE status = 'open'
       DO UPDATE SET payload = review_exceptions.payload
@@ -287,7 +286,7 @@ export async function handlePublisherPermanentErrorTerminal(args: PermanentError
         ) VALUES (
           ${uuidv7()}, ${QUEUE_NAMES.NOTIFY_ADMIN}, 'review',
           ${review_id},
-          ${jsonb({ review_exception_id: exception.id, business_id })},
+          ${tx.json({ review_exception_id: exception.id, business_id } as never)},
           0, 5
         )
       `;
@@ -359,7 +358,7 @@ interface Verify409Args {
  * When the walk hits the cap without finding the target, captures a Sentry
  * warning for ops visibility (cap tuning).
  */
-export async function verify409AndDispose(args: Verify409Args): Promise<Verify409Result> {
+export async function verify409AndDispose(sql: postgres.Sql, args: Verify409Args): Promise<Verify409Result> {
   const {
     response_id, business_id, review_id,
     account_id, location_id, zernio_review_id,
@@ -374,7 +373,7 @@ export async function verify409AndDispose(args: Verify409Args): Promise<Verify40
 
   let findResult: FindReplyResult;
   try {
-    findResult = await getReviewPublisher().findReply(locator);
+    findResult = await getReviewPublisher(sql).findReply(locator);
   } catch (lookupErr) {
     if (lookupErr instanceof ZernioTransientError) {
       logger.warn(
@@ -462,7 +461,7 @@ export async function verify409AndDispose(args: Verify409Args): Promise<Verify40
       });
     });
     logger.log(`Response ${response_id} already posted on Zernio (409, text match), marked posted`);
-    await maybeCaptureActivationCompleted({
+    await maybeCaptureActivationCompleted(sql, {
       responseId: response_id,
       businessId: business_id,
       reviewId: review_id,
@@ -563,7 +562,7 @@ interface Verify409InTxArgs {
  * - 'indeterminate': review not found / reply null / unknown error
  * - 'auth' / 'permanent' / 'transient': Zernio lookup error classifications
  */
-export async function verify409InTx(args: Verify409InTxArgs): Promise<Verify409Disposition> {
+export async function verify409InTx(sql: postgres.Sql, args: Verify409InTxArgs): Promise<Verify409Disposition> {
   const { account_id, location_id, zernio_review_id, approved_text, logger } = args;
 
   const locator: ReviewLocator = {
@@ -574,7 +573,7 @@ export async function verify409InTx(args: Verify409InTxArgs): Promise<Verify409D
 
   let findResult: FindReplyResult;
   try {
-    findResult = await getReviewPublisher().findReply(locator);
+    findResult = await getReviewPublisher(sql).findReply(locator);
   } catch (lookupErr) {
     if (lookupErr instanceof ZernioAuthError) {
       return { disposition: 'auth', lookupErr };

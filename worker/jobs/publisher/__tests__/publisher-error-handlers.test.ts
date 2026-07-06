@@ -28,6 +28,7 @@ vi.mock('../mark-posted', () => ({
   markPostedAndMaybeEnqueueAutoPostNotice: vi.fn(),
 }));
 
+import { sql } from '@/lib/db/server';
 import {
   handlePublisherAuthErrorTerminal,
   handlePublisherPermanentErrorTerminal,
@@ -112,9 +113,10 @@ describe('handlePublisherAuthErrorTerminal', () => {
       // Calls 3-4: INSERT job_outbox rows.
       return Promise.resolve(mkTaggedResult([]));
     });
+    (tx as any).json = (v: unknown) => v;
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
 
-    await handlePublisherAuthErrorTerminal({
+    await handlePublisherAuthErrorTerminal(sql, {
       response_id: 'R', business_id: 'B', account_id: 'A', location_id: 'L',
       error_body: '401 expired', outboxId: 'outbox-1', outboxAttempt: 1, logger: mkLogger() as any,
     });
@@ -133,9 +135,10 @@ describe('handlePublisherAuthErrorTerminal', () => {
       if (callIdx === 2) return Promise.resolve(mkTaggedResult([]));
       return Promise.resolve(mkTaggedResult([]));
     });
+    (tx as any).json = (v: unknown) => v;
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
 
-    await handlePublisherAuthErrorTerminal({
+    await handlePublisherAuthErrorTerminal(sql, {
       response_id: 'R', business_id: 'B', account_id: 'A', location_id: 'L',
       error_body: '401', outboxId: 'outbox-1', outboxAttempt: 1, logger: mkLogger() as any,
     });
@@ -152,9 +155,10 @@ describe('handlePublisherAuthErrorTerminal', () => {
       if (callIdx === 2) return Promise.resolve(mkTaggedResult([{ review_id: 'rev-1' }]));
       return Promise.resolve(mkTaggedResult([]));
     });
+    (tx as any).json = (v: unknown) => v;
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
 
-    await handlePublisherAuthErrorTerminal({
+    await handlePublisherAuthErrorTerminal(sql, {
       response_id: 'R', business_id: 'B', account_id: 'A', location_id: 'L',
       error_body: '401', outboxId: 'outbox-1', outboxAttempt: 1, logger: mkLogger() as any,
     });
@@ -170,9 +174,10 @@ describe('handlePublisherAuthErrorTerminal', () => {
       if (callIdx === 1) disconnectSql = strings.join('');
       return Promise.resolve(mkTaggedResult([]));
     });
+    (tx as any).json = (v: unknown) => v;
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
 
-    await handlePublisherAuthErrorTerminal({
+    await handlePublisherAuthErrorTerminal(sql, {
       response_id: 'R', business_id: 'B', account_id: 'A', location_id: 'L',
       error_body: '401', outboxId: 'outbox-1', outboxAttempt: 1, logger: mkLogger() as any,
     });
@@ -235,7 +240,7 @@ describe('verify409AndDispose', () => {
     const tx = (() => Promise.resolve(mkTaggedResult([]))) as any;
     (sql as any).begin = vi.fn(async (cb: (t: any) => Promise<unknown>) => cb(tx));
 
-    const result = await verify409AndDispose(baseArgs);
+    const result = await verify409AndDispose(sql, baseArgs);
 
     expect(result.outcome).toBe('posted');
     // Codex R1 #1: the retry-after-409 recovery MUST route the posted-transition
@@ -249,7 +254,7 @@ describe('verify409AndDispose', () => {
       correlationId: 'corr-409', // Codex review #2: correlation_id threaded for trace continuity
       logger: expect.any(Object),
     });
-    expect(maybeCaptureActivationCompleted).toHaveBeenCalledWith({
+    expect(maybeCaptureActivationCompleted).toHaveBeenCalledWith(sql, {
       responseId: 'R',
       businessId: 'B',
       reviewId: 'rev',
@@ -270,7 +275,7 @@ describe('verify409AndDispose', () => {
     ]);
     (sql as any).mockResolvedValue(Object.assign([], { count: 1 }));
 
-    const result = await verify409AndDispose(baseArgs);
+    const result = await verify409AndDispose(sql, baseArgs);
 
     expect(result.outcome).toBe('superseded');
     // The superseded path does NOT mark posted → it must NOT touch the FYI helper.
@@ -295,9 +300,10 @@ describe('handlePublisherPermanentErrorTerminal', () => {
       if (callIdx === 2) return Promise.resolve(mkTaggedResult([{ id: 'exc-1' }]));
       return Promise.resolve(mkTaggedResult([]));
     });
+    (tx as any).json = (v: unknown) => v;
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
 
-    await handlePublisherPermanentErrorTerminal({
+    await handlePublisherPermanentErrorTerminal(sql, {
       response_id: 'R', business_id: 'B', review_id: 'rev', endpoint_kind: 'publish_reply',
       http_status: 422, error_body: { msg: 'bad' },
       outboxId: 'outbox-1', outboxAttempt: 1, logger: mkLogger() as any,
@@ -315,9 +321,10 @@ describe('handlePublisherPermanentErrorTerminal', () => {
       if (callIdx === 1) return Promise.resolve(mkTaggedResult([]));
       return Promise.resolve(mkTaggedResult([]));
     });
+    (tx as any).json = (v: unknown) => v;
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
 
-    await handlePublisherPermanentErrorTerminal({
+    await handlePublisherPermanentErrorTerminal(sql, {
       response_id: 'R', business_id: 'B', review_id: 'rev', endpoint_kind: 'x',
       http_status: 422, error_body: {},
       outboxId: 'outbox-1', outboxAttempt: 1, logger: mkLogger() as any,
@@ -365,7 +372,7 @@ describe('verify409InTx — tx-aware verifier', () => {
       makeZernioReviewWith('Thanks!\n\n'),
     ]);
 
-    const result = await verify409InTx(baseInTxArgs());
+    const result = await verify409InTx(sql, baseInTxArgs());
 
     expect(result.disposition).toBe('matches_our_text');
     if (result.disposition === 'matches_our_text') {
@@ -381,7 +388,7 @@ describe('verify409InTx — tx-aware verifier', () => {
       makeZernioReviewWith('Someone else replied here'),
     ]);
 
-    const result = await verify409InTx(baseInTxArgs());
+    const result = await verify409InTx(sql, baseInTxArgs());
 
     expect(result.disposition).toBe('mismatch');
     if (result.disposition === 'mismatch') {
@@ -399,7 +406,7 @@ describe('verify409InTx — tx-aware verifier', () => {
       { ...makeZernioReviewWith('whatever'), id: 'other-b' },
     ]);
 
-    const result = await verify409InTx(baseInTxArgs());
+    const result = await verify409InTx(sql, baseInTxArgs());
 
     expect(result.disposition).toBe('indeterminate');
     if (result.disposition === 'indeterminate') {
@@ -417,7 +424,7 @@ describe('verify409InTx — tx-aware verifier', () => {
       makeZernioReviewWith(null),
     ]);
 
-    const result = await verify409InTx(baseInTxArgs());
+    const result = await verify409InTx(sql, baseInTxArgs());
 
     expect(result.disposition).toBe('indeterminate');
     if (result.disposition === 'indeterminate') {
@@ -432,7 +439,7 @@ describe('verify409InTx — tx-aware verifier', () => {
     const authErr = new ZernioAuthError(401, 'expired');
     (zernioClient as any).listAllReviews = vi.fn().mockRejectedValue(authErr);
 
-    const result = await verify409InTx(baseInTxArgs());
+    const result = await verify409InTx(sql, baseInTxArgs());
 
     expect(result.disposition).toBe('auth');
     if (result.disposition === 'auth') {
@@ -447,7 +454,7 @@ describe('verify409InTx — tx-aware verifier', () => {
     const transErr = new ZernioTransientError('timeout', { httpStatus: 504 });
     (zernioClient as any).listAllReviews = vi.fn().mockRejectedValue(transErr);
 
-    const result = await verify409InTx(baseInTxArgs());
+    const result = await verify409InTx(sql, baseInTxArgs());
 
     expect(result.disposition).toBe('transient');
     if (result.disposition === 'transient') {
@@ -462,7 +469,7 @@ describe('verify409InTx — tx-aware verifier', () => {
     const permErr = new ZernioPermanentError('bad_input', { httpStatus: 422 });
     (zernioClient as any).listAllReviews = vi.fn().mockRejectedValue(permErr);
 
-    const result = await verify409InTx(baseInTxArgs());
+    const result = await verify409InTx(sql, baseInTxArgs());
 
     expect(result.disposition).toBe('permanent');
     if (result.disposition === 'permanent') {
@@ -477,7 +484,7 @@ describe('verify409InTx — tx-aware verifier', () => {
     const valErr = new ZernioValidationError('schema_invalid', { issues: ['bad payload'] });
     (zernioClient as any).listAllReviews = vi.fn().mockRejectedValue(valErr);
 
-    const result = await verify409InTx(baseInTxArgs());
+    const result = await verify409InTx(sql, baseInTxArgs());
 
     expect(result.disposition).toBe('permanent');
     if (result.disposition === 'permanent') {
@@ -491,7 +498,7 @@ describe('verify409InTx — tx-aware verifier', () => {
     (getCachedZernioReviewPage as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     (zernioClient as any).listAllReviews = vi.fn().mockRejectedValue(new Error('connection refused'));
 
-    const result = await verify409InTx(baseInTxArgs());
+    const result = await verify409InTx(sql, baseInTxArgs());
 
     expect(result.disposition).toBe('indeterminate');
     if (result.disposition === 'indeterminate') {
@@ -509,7 +516,7 @@ describe('verify409InTx — tx-aware verifier', () => {
       makeZernioReviewWith('Thanks!'),
     ]);
 
-    await verify409InTx(baseInTxArgs());
+    await verify409InTx(sql, baseInTxArgs());
 
     expect(markOutboxCompleted).not.toHaveBeenCalled();
   });
@@ -527,7 +534,7 @@ describe('verify409InTx — tx-aware verifier', () => {
     sqlMock.mockClear();
 
     const args = baseInTxArgs();
-    await verify409InTx(args);
+    await verify409InTx(sql, args);
 
     // Module-level sql tagged-template never called.
     expect(sqlMock).not.toHaveBeenCalled();

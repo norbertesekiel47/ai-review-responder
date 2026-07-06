@@ -74,7 +74,7 @@ describe('loadPublishResponseContext', () => {
     sqlReturnQueue.push([mockResponseRow({ posting_error: 'post_after_delete_failed_x' })]);
     sqlReturnQueue.push([mockBusinessRow()]);
 
-    const result = await loadPublishResponseContext(BASE_INPUT);
+    const result = await loadPublishResponseContext(mockSql, BASE_INPUT);
 
     expect(result).not.toBe('terminal');
     if (result === 'terminal') return; // type narrowing only
@@ -86,7 +86,7 @@ describe('loadPublishResponseContext', () => {
     sqlReturnQueue.push([mockResponseRow({ posting_error: null })]);
     sqlReturnQueue.push([mockBusinessRow()]);
 
-    const result = await loadPublishResponseContext(BASE_INPUT);
+    const result = await loadPublishResponseContext(mockSql, BASE_INPUT);
 
     expect(result).not.toBe('terminal');
     if (result === 'terminal') return;
@@ -98,7 +98,7 @@ describe('loadPublishResponseContext', () => {
     sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]);
     sqlReturnQueue.push([mockBusinessRow()]);
 
-    const result = await loadPublishResponseContext(BASE_INPUT);
+    const result = await loadPublishResponseContext(mockSql, BASE_INPUT);
 
     expect(result).not.toBe('terminal');
     if (result === 'terminal') return;
@@ -109,7 +109,7 @@ describe('loadPublishResponseContext', () => {
   it('returns terminal and marks outbox failed when response not found', async () => {
     sqlReturnQueue.push([]); // empty → not found
 
-    const result = await loadPublishResponseContext(BASE_INPUT);
+    const result = await loadPublishResponseContext(mockSql, BASE_INPUT);
 
     expect(result).toBe('terminal');
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
@@ -122,7 +122,7 @@ describe('loadPublishResponseContext', () => {
   it('returns terminal and marks outbox failed on business_id mismatch', async () => {
     sqlReturnQueue.push([mockResponseRow({ business_id: 'biz-other' })]);
 
-    const result = await loadPublishResponseContext(BASE_INPUT);
+    const result = await loadPublishResponseContext(mockSql, BASE_INPUT);
 
     expect(result).toBe('terminal');
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-1', 'business_id_mismatch', undefined);
@@ -132,7 +132,7 @@ describe('loadPublishResponseContext', () => {
     sqlReturnQueue.push([mockResponseRow()]);
     sqlReturnQueue.push([mockBusinessRow({ archived_at: new Date('2026-05-01T00:00:00Z') })]);
 
-    const result = await loadPublishResponseContext(BASE_INPUT);
+    const result = await loadPublishResponseContext(mockSql, BASE_INPUT);
 
     expect(result).not.toBe('terminal');
     if (result === 'terminal') return;

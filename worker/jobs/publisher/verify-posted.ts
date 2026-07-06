@@ -20,6 +20,7 @@
 // failed-hook (handleVerificationIndeterminate): status=failed +
 // review_exception + notify_admin_review_exception. No silent success.
 
+import type { Sql } from 'postgres';
 import { canonicalizeReplyText } from '../../../src/lib/zernio/canonicalize-reply';
 import { getReviewPublisher } from '../../../src/lib/publishing/review-publisher';
 import type {
@@ -55,14 +56,14 @@ interface VerifyOwnReplyArgs {
  * exception + admin alert; PublisherTransientWithContext → BullMQ retry (→ next
  * attempt 409 → verify409AndDispose).
  */
-export async function verifyOwnReplyAttached(args: VerifyOwnReplyArgs): Promise<void> {
+export async function verifyOwnReplyAttached(sql: Sql, args: VerifyOwnReplyArgs): Promise<void> {
   const { target, approvedText, logger } = args;
   const { responseId, businessId, reviewId } = target.ref;
   const { accountId, locationId, providerReviewId } = target.locator;
 
   let result: FindReplyResult;
   try {
-    result = await getReviewPublisher().findReply(target.locator);
+    result = await getReviewPublisher(sql).findReply(target.locator);
   } catch (err) {
     // The reply may already be on Google (postReply returned 2xx) — we just
     // can't confirm it right now. Retry rather than mark failed: the next

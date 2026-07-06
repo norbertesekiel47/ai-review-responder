@@ -32,6 +32,7 @@ import type {
   ZernioInitialBackfillPayload,
   SendNotificationPayload,
   AutoPostNoticePayload,
+  PublishResponsePayload,
 } from '../src/lib/shared/worker-types';
 import { handleAdminException } from './jobs/AdminExceptionWorker';
 import { handleWeeklySummary } from './jobs/WeeklySummaryWorker';
@@ -158,9 +159,9 @@ const responseGenWorker = new Worker(QUEUE_NAMES.GENERATE_RESPONSE, withJobLogCo
 
 const notificationWorker = new Worker(QUEUE_NAMES.SEND_NOTIFICATION, withJobLogContext<SendNotificationPayload>((job) => handleSendNotification(sql, job)), workerOpts);
 
-const publisherWorker = new Worker(QUEUE_NAMES.PUBLISH_RESPONSE, withJobLogContext(handlePublishResponse), workerOpts);
+const publisherWorker = new Worker(QUEUE_NAMES.PUBLISH_RESPONSE, withJobLogContext<PublishResponsePayload>((job) => handlePublishResponse(sql, job)), workerOpts);
 
-publisherWorker.on('failed', handlePublisherFailed);
+publisherWorker.on('failed', (job, err) => handlePublisherFailed(sql, job, err));
 
 const autoPostNoticeWorker = new Worker(QUEUE_NAMES.AUTO_POST_NOTICE, withJobLogContext<AutoPostNoticePayload>((job) => handleAutoPostNotice(sql, job)), workerOpts);
 

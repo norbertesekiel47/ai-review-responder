@@ -1,5 +1,5 @@
 import type { Job } from 'bullmq';
-import { sql } from '../../../src/lib/db/server';
+import type { Sql } from 'postgres';
 import {
   activeOffboardingStateFromProjection,
   isPublishingBlocked,
@@ -24,6 +24,7 @@ import { markPostedAndMaybeEnqueueAutoPostNotice } from './mark-posted';
 import { isHeldForModerationReview } from './held-flag-gate';
 
 export async function handlePublishResponse(
+  sql: Sql,
   job: Job<PublishResponsePayload>,
 ): Promise<void> {
   const logger = createWorkerLogger('[ResponsePublisherWorker]', job.data.correlation_id);
@@ -32,7 +33,7 @@ export async function handlePublishResponse(
   const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  const context = await loadPublishResponseContext({
+  const context = await loadPublishResponseContext(sql, {
     responseId: response_id,
     businessId,
     outboxId,
@@ -77,7 +78,7 @@ export async function handlePublishResponse(
     response.approval_method === APPROVAL_METHOD.AUTO_POLICY &&
     !autoApprovalRuntimeEnabled()
   ) {
-    await downgradeAutoApprovedResponseForManualReview({
+    await downgradeAutoApprovedResponseForManualReview(sql, {
       responseId: response_id,
       businessId,
       outboxId,
@@ -117,7 +118,7 @@ export async function handlePublishResponse(
   // Refuse to post when an open moderation flag holds the draft. Non-exploitable
   // today (flagged drafts stay `pending_approval` and never reach here), but this
   // makes the moderation veto binding on the publish path, not just the owner UI.
-  if (await isHeldForModerationReview(response_id, businessId)) {
+  if (await isHeldForModerationReview(sql, response_id, businessId)) {
     logger.warn(
       `Response ${response_id} has an open moderation flag; refusing to publish (F-5).`,
     );
@@ -137,7 +138,7 @@ export async function handlePublishResponse(
     );
   }
 
-  const target = await resolvePublishTarget({
+  const target = await resolvePublishTarget(sql, {
     responseId: response_id,
     businessId,
     reviewId: response.review_id,
@@ -187,7 +188,7 @@ export async function handlePublishResponse(
           `Invariant violation: auto_policy response ${response_id} reached the edit-publish path`,
         );
       }
-      const result = await runEditPublishIfApplicable({
+      const result = await runEditPublishIfApplicable(sql, {
         responseId: response_id,
         businessId,
         reviewId: response.review_id,
@@ -203,7 +204,7 @@ export async function handlePublishResponse(
       switch (result.outcome) {
         case 'completed':
           if (result.postedResponse) {
-            await maybeCaptureActivationCompleted(result.postedResponse);
+            await maybeCaptureActivationCompleted(sql, result.postedResponse);
           }
           await markOutboxCompleted(outboxId, outboxAttempt);
           return;
@@ -218,7 +219,7 @@ export async function handlePublishResponse(
     }
   }
 
-  const postOutcome = await postReplyAndHandleTerminalOutcomes({
+  const postOutcome = await postReplyAndHandleTerminalOutcomes(sql, {
     target,
     approvedText,
     outboxId,
@@ -247,7 +248,7 @@ export async function handlePublishResponse(
     `Response ${response_id} posted via Zernio for business ${businessId}`,
   );
 
-  await maybeCaptureActivationCompleted({
+  await maybeCaptureActivationCompleted(sql, {
     responseId: response_id,
     businessId,
     reviewId: response.review_id,

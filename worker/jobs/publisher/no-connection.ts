@@ -1,9 +1,9 @@
 import { v7 as uuidv7 } from 'uuid';
-import { jsonb, sql } from '../../../src/lib/db/server';
+import type { Sql } from 'postgres';
 import { markOutboxCompleted } from '../../../src/lib/shared/outbox';
 import type { SendOwnerEmailPayload } from '../../../src/lib/shared/worker-types';
 
-export async function parkResponseForOwnerReconnect(input: {
+export async function parkResponseForOwnerReconnect(sql: Sql, input: {
   responseId: string;
   businessId: string;
   outboxId: string;
@@ -43,7 +43,7 @@ export async function parkResponseForOwnerReconnect(input: {
         'notify_owner_reconnect',
         'response',
         ${responseId},
-        ${jsonb(reconnectPayload)},
+        ${tx.json(reconnectPayload as never)},
         0,
         5
       )

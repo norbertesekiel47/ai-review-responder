@@ -8,7 +8,6 @@
 
 import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
-import { jsonb } from '../../../src/lib/db/server';
 import { redactSensitiveError } from './publisher-error-handlers';
 import {
   PENDING_AFTER_DELETE,
@@ -44,6 +43,40 @@ export async function setOrphanMarker(
     RETURNING 1
   `;
   if (cand.count !== 1) {
+    throw new Error('candidate_lost_during_publish');
+  }
+}
+
+/**
+ * Guarded candidate-row mutation shared by the edit-publisher 409 dispositions
+ * (edit-publish-errors.ts `handle409Disposition`): apply the disposition's
+ * `setBody` to the publishable candidate row and assert exactly one publishable
+ * row was hit — else throw `candidate_lost_during_publish`, forcing the tx to
+ * ROLLBACK. The publishable-status WHERE guard + `RETURNING 1` + affected-row
+ * assertion live here once; each caller supplies only its SET body.
+ *
+ * `setBody` is the SET column list as a raw `tx`` fragment (no `SET` keyword —
+ * that stays in the template so the tenant-scope scanner reads
+ * `UPDATE responses SET …`, not an interpolated table alias). The template
+ * whitespace is byte-matched to the two inline blocks it replaced (409
+ * `matches_our_text` → posted, and `mismatch`-no-DELETE → superseded); the
+ * `mismatch`-after-DELETE block sits one nesting level deeper and is NOT routed
+ * here (its SQL text carries a 2-space-deeper indent — see edit-publish-errors.ts).
+ */
+export async function markCandidateOrThrow(
+  tx: postgres.TransactionSql,
+  args: { responseId: string; businessId: string; setBody: postgres.Fragment },
+): Promise<void> {
+  const { responseId, businessId, setBody } = args;
+  const updated = await tx`
+      UPDATE responses
+      SET ${setBody}
+      WHERE id = ${responseId}
+        AND business_id = ${businessId}
+        AND status IN ('approved', 'edited', 'awaiting_owner_connect')
+      RETURNING 1
+    `;
+  if (updated.count !== 1) {
     throw new Error('candidate_lost_during_publish');
   }
 }
@@ -172,7 +205,7 @@ export async function applyAuthErrorTerminalInTx(
       id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
     ) VALUES (
       ${uuidv7()}, 'notify_owner_reconnect', 'response', ${responseId},
-      ${jsonb(reconnectPayload)}, 0, 5
+      ${tx.json(reconnectPayload as never)}, 0, 5
     )
   `;
 
@@ -186,7 +219,7 @@ export async function applyAuthErrorTerminalInTx(
         id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
       ) VALUES (
         ${uuidv7()}, 'notify_owner_connection_lost', 'business', ${businessId},
-        ${jsonb(lostPayload)}, 0, 5
+        ${tx.json(lostPayload as never)}, 0, 5
       )
     `;
   }

@@ -1,4 +1,4 @@
-import { sql } from '../../../src/lib/db/server';
+import type { Sql } from 'postgres';
 import { insertAuditLogAutoPolicy } from '../../../src/lib/approval/audit';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { enqueueSendNotification } from '../../../src/lib/shared/job-outbox-helpers';
@@ -9,7 +9,7 @@ const AUTO_POLICY_REVOKED_BY_KILL_SWITCH =
 
 export type AutoPolicyDowngradeOutcome = 'downgraded' | 'no-op';
 
-export async function downgradeAutoApprovedResponseForManualReview(input: {
+export async function downgradeAutoApprovedResponseForManualReview(sql: Sql, input: {
   responseId: string;
   businessId: string;
   outboxId: string;

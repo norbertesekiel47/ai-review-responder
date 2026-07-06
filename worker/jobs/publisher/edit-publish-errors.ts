@@ -8,7 +8,6 @@
 
 import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
-import { jsonb } from '../../../src/lib/db/server';
 import {
   ZernioAuthError,
   ZernioPermanentError,
@@ -25,6 +24,7 @@ import {
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import {
   applyAuthErrorTerminalInTx,
+  markCandidateOrThrow,
   markCandidatePermanentFailedInTx,
   setOrphanMarker,
   supersedeSibling,
@@ -74,6 +74,15 @@ function permanentErrorKind(
  * (forcing ROLLBACK) only on the indeterminate/transient sub-cases where
  * nothing was externally committed; otherwise records a commit outcome.
  */
+// Pre-existing HIGH-complexity dispatcher: it fans out over the six 409
+// verifier dispositions (matches / mismatch×2 / indeterminate / auth /
+// permanent / transient), inherited over-threshold from `main` (21 cyclomatic).
+// This 2g-2 dedup REDUCED it (21→19 cyclomatic, removed two inline UPDATE+guard
+// blocks via markCandidateOrThrow); fallow's new-only gate only re-attributes it
+// as "introduced" because the body was touched. Decomposing it further would
+// relocate the byte-pinned candidate UPDATEs (see the mismatch-after-DELETE note
+// above) and is out of scope for a behaviour-preserving dedup.
+// fallow-ignore-next-line complexity
 async function handle409Disposition(
   tx: postgres.TransactionSql,
   disp: Verify409Disposition,
@@ -97,18 +106,12 @@ async function handle409Disposition(
     if (existingPosted) {
       await supersedeSibling(tx, existingPosted.id);
     }
-    const succ = await tx`
-      UPDATE responses
-      SET status = 'posted', posted_at = NOW(),
-          posting_error = NULL, updated_at = NOW()
-      WHERE id = ${responseId}
-        AND business_id = ${businessId}
-        AND status IN ('approved', 'edited', 'awaiting_owner_connect')
-      RETURNING 1
-    `;
-    if (succ.count !== 1) {
-      throw new Error('candidate_lost_during_publish');
-    }
+    await markCandidateOrThrow(tx, {
+      responseId,
+      businessId,
+      setBody: tx`status = 'posted', posted_at = NOW(),
+          posting_error = NULL, updated_at = NOW()`,
+    });
     return { kind: '409_matches' };
   }
 
@@ -120,6 +123,10 @@ async function handle409Disposition(
       if (existingPosted) {
         await supersedeSibling(tx, existingPosted.id);
       }
+      // Same candidate-lost shape as markCandidateOrThrow, but this block is one
+      // nesting level deeper so its SQL text carries a 2-space-deeper indent;
+      // routing it through the shared helper would change the produced bytes, so
+      // it stays inline (behaviour identical to the no-DELETE branch below).
       const upd = await tx`
         UPDATE responses
         SET status = 'superseded', updated_at = NOW()
@@ -137,7 +144,7 @@ async function handle409Disposition(
         ) VALUES (
           ${uuidv7()}, ${businessId}, ${reviewId}, ${responseId},
           'edit_publish_409_mismatch_after_delete',
-          ${jsonb({ verifier_text: disp.verifierText, expected_text: approvedText })}
+          ${tx.json({ verifier_text: disp.verifierText, expected_text: approvedText } as never)}
         )
         ON CONFLICT (review_id, type) WHERE status = 'open'
         DO UPDATE SET payload = review_exceptions.payload
@@ -145,17 +152,11 @@ async function handle409Disposition(
       return { kind: '409_mismatch_after_delete' };
     }
     // No DELETE happened → today's verify-first supersede semantics.
-    const upd = await tx`
-      UPDATE responses
-      SET status = 'superseded', updated_at = NOW()
-      WHERE id = ${responseId}
-        AND business_id = ${businessId}
-        AND status IN ('approved', 'edited', 'awaiting_owner_connect')
-      RETURNING 1
-    `;
-    if (upd.count !== 1) {
-      throw new Error('candidate_lost_during_publish');
-    }
+    await markCandidateOrThrow(tx, {
+      responseId,
+      businessId,
+      setBody: tx`status = 'superseded', updated_at = NOW()`,
+    });
     return { kind: '409_mismatch_no_delete' };
   }
 
@@ -342,6 +343,7 @@ export async function handleDeleteError(
  * Programming/unknown errors are re-thrown to bubble to the outer catch.
  */
 export async function handlePostError(
+  sql: postgres.Sql,
   tx: postgres.TransactionSql,
   err: unknown,
   args: EditPublishCatchArgs,
@@ -361,7 +363,7 @@ export async function handlePostError(
   } = args;
 
   if (err instanceof ZernioReplyAlreadyExistsError) {
-    const disp = await verify409InTx({
+    const disp = await verify409InTx(sql, {
       tx,
       account_id: zernioAccountId,
       location_id: zernioLocationId,

@@ -15,6 +15,7 @@ vi.mock('../zernio-publisher', () => ({
   getCachedZernioReviewPage: vi.fn(),
 }));
 
+import { sql } from '@/lib/db/server';
 import { ZernioReviewPublisher } from '../zernio-review-publisher';
 import type { ReviewLocator, ReviewRef } from '../review-publisher';
 import {
@@ -46,7 +47,7 @@ function makeZernioReview(overrides: Record<string, unknown> = {}) {
 }
 
 describe('ZernioReviewPublisher', () => {
-  const adapter = new ZernioReviewPublisher();
+  const adapter = new ZernioReviewPublisher(sql);
 
   beforeEach(() => {
     vi.resetAllMocks();
@@ -76,7 +77,7 @@ describe('ZernioReviewPublisher', () => {
         kind: 'resolved',
         target: { ref: REF, locator: { accountId: 'acct1', locationId: 'loc1', providerReviewId: 'z-rev-1' } },
       });
-      expect(lookupZernioReviewId).toHaveBeenCalledWith('biz1', 'rev1', 'acct1', 'loc1');
+      expect(lookupZernioReviewId).toHaveBeenCalledWith(sql, 'biz1', 'rev1', 'acct1', 'loc1');
     });
 
     it('returns review_not_found (carrying meta) when the lookup cannot match', async () => {

@@ -1,4 +1,4 @@
-import { sql } from '../../../src/lib/db/server';
+import type { Sql } from 'postgres';
 import { hasOpenFlag } from '../../../src/lib/moderation/held-draft';
 
 /**
@@ -23,6 +23,7 @@ import { hasOpenFlag } from '../../../src/lib/moderation/held-draft';
  * defense-in-depth (only act on a response belonging to this job's business).
  */
 export async function isHeldForModerationReview(
+  sql: Sql,
   responseId: string,
   businessId: string,
 ): Promise<boolean> {

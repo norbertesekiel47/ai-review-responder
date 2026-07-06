@@ -1,3 +1,4 @@
+import type { Sql } from 'postgres';
 import { getReviewPublisher } from '../../../src/lib/publishing/review-publisher';
 import type { ResolvedPublishTarget } from '../../../src/lib/publishing/review-publisher';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
@@ -17,7 +18,7 @@ import {
 } from './publisher-error-handlers';
 import { verifyOwnReplyAttached } from './verify-posted';
 
-export async function postReplyAndHandleTerminalOutcomes(input: {
+export async function postReplyAndHandleTerminalOutcomes(sql: Sql, input: {
   target: ResolvedPublishTarget;
   approvedText: string;
   outboxId: string;
@@ -37,11 +38,11 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
   const { accountId, locationId, providerReviewId } = target.locator;
 
   try {
-    await getReviewPublisher().publishReply(target.locator, approvedText);
+    await getReviewPublisher(sql).publishReply(target.locator, approvedText);
     // Fall through to post-verification below — do NOT return 'posted' yet.
   } catch (err) {
     if (err instanceof ZernioReplyAlreadyExistsError) {
-      const result = await verify409AndDispose({
+      const result = await verify409AndDispose(sql, {
         response_id: responseId,
         business_id: businessId,
         review_id: reviewId,
@@ -70,7 +71,7 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
 
         case 'auth': {
           const lookupErr = result.lookupErr;
-          await handlePublisherAuthErrorTerminal({
+          await handlePublisherAuthErrorTerminal(sql, {
             response_id: responseId,
             business_id: businessId,
             account_id: accountId,
@@ -94,7 +95,7 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
             lookupErr instanceof ZernioPermanentError
               ? lookupErr.meta
               : { code: lookupErr.code, body: lookupErr.body };
-          await handlePublisherPermanentErrorTerminal({
+          await handlePublisherPermanentErrorTerminal(sql, {
             response_id: responseId,
             business_id: businessId,
             review_id: reviewId,
@@ -123,7 +124,7 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
     }
 
     if (err instanceof ZernioAuthError) {
-      await handlePublisherAuthErrorTerminal({
+      await handlePublisherAuthErrorTerminal(sql, {
         response_id: responseId,
         business_id: businessId,
         account_id: accountId,
@@ -145,7 +146,7 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
       const errBody =
         err instanceof ZernioPermanentError ? err.meta : { code: err.code, body: err.body };
 
-      await handlePublisherPermanentErrorTerminal({
+      await handlePublisherPermanentErrorTerminal(sql, {
         response_id: responseId,
         business_id: businessId,
         review_id: reviewId,
@@ -177,6 +178,6 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
   // when unconfirmed: ZernioReplyVerificationIndeterminateError → failed +
   // review_exception + admin alert at retry exhaustion; PublisherTransientWith-
   // Context → BullMQ retry, whose next attempt 409s into verify409AndDispose.
-  await verifyOwnReplyAttached({ target, approvedText, logger });
+  await verifyOwnReplyAttached(sql, { target, approvedText, logger });
   return 'posted';
 }

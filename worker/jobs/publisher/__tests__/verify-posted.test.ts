@@ -22,6 +22,7 @@ vi.mock('../../../../src/lib/publishing/zernio-publisher', () => ({
   lookupZernioReviewId: vi.fn(),
 }));
 
+import { sql } from '../../../../src/lib/db/server';
 import { verifyOwnReplyAttached } from '../verify-posted';
 import {
   PublisherTransientWithContext,
@@ -65,7 +66,7 @@ describe('verifyOwnReplyAttached', () => {
   // feed (stale/phantom id). We must NOT treat that as posted.
   it('throws indeterminate(review_not_found_after_pagination) when our review id is absent from the feed', async () => {
     mockListAllReviews.mockResolvedValue([zReview('ZID-other-1', 'someone elses reply'), zReview('ZID-other-2')]);
-    await expect(verifyOwnReplyAttached(baseArgs)).rejects.toMatchObject({
+    await expect(verifyOwnReplyAttached(sql, baseArgs)).rejects.toMatchObject({
       name: 'ZernioReplyVerificationIndeterminateError',
       meta: { reason: 'review_not_found_after_pagination' },
     });
@@ -73,24 +74,24 @@ describe('verifyOwnReplyAttached', () => {
 
   it('resolves (confirmed) when our review is found with a reply matching our text', async () => {
     mockListAllReviews.mockResolvedValue([zReview('ZID-ours', 'Dear guest, thank you for the kind words!')]);
-    await expect(verifyOwnReplyAttached(baseArgs)).resolves.toBeUndefined();
+    await expect(verifyOwnReplyAttached(sql, baseArgs)).resolves.toBeUndefined();
   });
 
   it('matches across whitespace/CRLF differences (canonicalized compare)', async () => {
     mockListAllReviews.mockResolvedValue([zReview('ZID-ours', 'Dear guest, thank you for the kind words!\r\n')]);
-    await expect(verifyOwnReplyAttached(baseArgs)).resolves.toBeUndefined();
+    await expect(verifyOwnReplyAttached(sql, baseArgs)).resolves.toBeUndefined();
   });
 
   it('throws indeterminate(review_found_but_reply_null) when the review exists but has no reply', async () => {
     mockListAllReviews.mockResolvedValue([zReview('ZID-ours', null)]);
-    await expect(verifyOwnReplyAttached(baseArgs)).rejects.toMatchObject({
+    await expect(verifyOwnReplyAttached(sql, baseArgs)).rejects.toMatchObject({
       meta: { reason: 'review_found_but_reply_null' },
     });
   });
 
   it('throws indeterminate(reply_text_mismatch) when the attached reply is not ours', async () => {
     mockListAllReviews.mockResolvedValue([zReview('ZID-ours', 'A completely different reply')]);
-    await expect(verifyOwnReplyAttached(baseArgs)).rejects.toMatchObject({
+    await expect(verifyOwnReplyAttached(sql, baseArgs)).rejects.toMatchObject({
       meta: { reason: 'reply_text_mismatch' },
     });
   });
@@ -100,13 +101,13 @@ describe('verifyOwnReplyAttached', () => {
   // existing verify409 path.
   it('throws PublisherTransientWithContext when the verification list call errors', async () => {
     mockListAllReviews.mockRejectedValue(new ZernioTransientError('http_503', { status: 503 }));
-    await expect(verifyOwnReplyAttached(baseArgs)).rejects.toBeInstanceOf(PublisherTransientWithContext);
+    await expect(verifyOwnReplyAttached(sql, baseArgs)).rejects.toBeInstanceOf(PublisherTransientWithContext);
   });
 
   it('bounds the walk using the cached page index', async () => {
     mockGetCachedZernioReviewPage.mockResolvedValue(0);
     mockListAllReviews.mockResolvedValue([zReview('ZID-ours', 'Dear guest, thank you for the kind words!')]);
-    await verifyOwnReplyAttached(baseArgs);
+    await verifyOwnReplyAttached(sql, baseArgs);
     expect(mockListAllReviews).toHaveBeenCalledWith('acct-1', expect.objectContaining({ maxPages: 1 }));
   });
 });

@@ -11,7 +11,7 @@
 // the review-id resolution + Redis cache, and the page-cache bounding for the
 // verify walk — all pure Zernio concerns the worker should not know about.
 
-import { sql } from '@/lib/db/server';
+import type { Sql } from 'postgres';
 import { zernioClient } from '@/lib/zernio/client';
 import {
   ZernioReviewNotFoundError,
@@ -76,8 +76,10 @@ interface ActiveConnectionRow {
 }
 
 export class ZernioReviewPublisher implements ReviewPublisher {
+  constructor(private readonly sql: Sql) {}
+
   async resolveTarget(ref: ReviewRef): Promise<ResolveTargetResult> {
-    const [connection] = await sql<ActiveConnectionRow[]>`
+    const [connection] = await this.sql<ActiveConnectionRow[]>`
       SELECT zernio_account_id, zernio_location_id
       FROM zernio_connections
       WHERE business_id = ${ref.businessId} AND status = 'active'
@@ -91,6 +93,7 @@ export class ZernioReviewPublisher implements ReviewPublisher {
 
     try {
       const providerReviewId = await lookupZernioReviewId(
+        this.sql,
         ref.businessId,
         ref.reviewId,
         accountId,
