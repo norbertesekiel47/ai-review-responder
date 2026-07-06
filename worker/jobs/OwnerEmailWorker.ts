@@ -75,7 +75,7 @@ export async function handleOwnerEmail(
 
   if (!business) {
     logger.error(`Business ${businessId} not found`);
-    await markOutboxFailed(outboxId, `business_not_found: ${businessId}`, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, `business_not_found: ${businessId}`, outboxAttempt);
     return;
   }
 
@@ -90,7 +90,7 @@ export async function handleOwnerEmail(
     logger.warn(
       `Business ${businessId} subscription blocked: ${subCheck.reason}`,
     );
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -98,14 +98,14 @@ export async function handleOwnerEmail(
     logger.log(
       `Business ${businessId} owner email bounced — skipping owner email`,
     );
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
   const appUrl = getWorkerConfig().NEXT_PUBLIC_APP_URL;
   if (!appUrl) {
     logger.error('NEXT_PUBLIC_APP_URL not set — cannot construct reconnect URL');
-    await markOutboxFailed(outboxId, 'NEXT_PUBLIC_APP_URL not configured', outboxAttempt);
+    await markOutboxFailed(sql, outboxId, 'NEXT_PUBLIC_APP_URL not configured', outboxAttempt);
     return;
   }
   const dashboardConnectUrl = `${appUrl}/dashboard/connect`;
@@ -155,7 +155,7 @@ async function sendReconnectRequired(
     logger.warn(
       `Response ${payload.response_id} not found — completing outbox`,
     );
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -163,7 +163,7 @@ async function sendReconnectRequired(
     logger.log(
       `Response ${payload.response_id} status=${response.status} (not awaiting_owner_connect) — skipping`,
     );
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -194,7 +194,7 @@ async function sendReconnectRequired(
     logger.log(
       `reconnect_required: dedup hit for response ${payload.response_id} — already claimed`,
     );
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -235,6 +235,7 @@ async function sendReconnectRequired(
       const sendReason = err instanceof Error ? err.message : String(err);
       const delReason = deleteError instanceof Error ? deleteError.message : String(deleteError);
       await markOutboxFailed(
+        sql,
         outboxId,
         `send_failed_and_rollback_failed: send=${sendReason} rollback=${delReason}`,
         outboxAttempt,
@@ -254,7 +255,7 @@ async function sendReconnectRequired(
     `reconnect_required email sent for response ${payload.response_id} (business ${business.id})`,
   );
 
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
 }
 
 // ─── connection_lost ────────────────────────────────────────────────────
@@ -302,7 +303,7 @@ async function sendConnectionLost(
     logger.log(
       `connection_lost: dedup hit for business ${business.id} — already sent today`,
     );
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -339,6 +340,7 @@ async function sendConnectionLost(
       const sendReason = err instanceof Error ? err.message : String(err);
       const delReason = deleteError instanceof Error ? deleteError.message : String(deleteError);
       await markOutboxFailed(
+        sql,
         outboxId,
         `send_failed_and_rollback_failed: send=${sendReason} rollback=${delReason}`,
         outboxAttempt,
@@ -358,5 +360,5 @@ async function sendConnectionLost(
     `connection_lost email sent for business ${business.id} (queued=${queuedCount})`,
   );
 
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
 }

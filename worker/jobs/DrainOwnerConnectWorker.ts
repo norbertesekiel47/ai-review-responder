@@ -80,5 +80,5 @@ export async function handleDrainOwnerConnect(
     `Drained business ${businessId}: ${result.count} new publish_response row(s) enqueued`,
   );
 
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
 }

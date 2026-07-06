@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Sql } from 'postgres';
 
 const {
   mockCheckoutSessionRetrieve,
@@ -52,6 +53,10 @@ function mockJob(overrides: Record<string, unknown> = {}) {
 }
 
 describe('StripeCheckoutReconcileWorker', () => {
+  // The handler only FORWARDS `sql` to the (mocked) outbox writers here — it runs
+  // no query itself — so a sentinel suffices; assertions pin it as the leading arg.
+  const fakeSql = {} as unknown as Sql;
+
   beforeEach(() => {
     mockCheckoutSessionRetrieve.mockReset();
     mockProcessCheckoutSessionCompleted.mockReset();
@@ -68,11 +73,11 @@ describe('StripeCheckoutReconcileWorker', () => {
     };
     mockCheckoutSessionRetrieve.mockResolvedValueOnce(session);
 
-    await handleStripeCheckoutReconcile(mockJob());
+    await handleStripeCheckoutReconcile(fakeSql, mockJob());
 
     expect(mockCheckoutSessionRetrieve).toHaveBeenCalledWith('cs_test_paid');
     expect(mockProcessCheckoutSessionCompleted).toHaveBeenCalledWith(session);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(fakeSql, 'outbox-1', 1);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -84,10 +89,11 @@ describe('StripeCheckoutReconcileWorker', () => {
       payment_status: 'paid',
     });
 
-    await handleStripeCheckoutReconcile(mockJob());
+    await handleStripeCheckoutReconcile(fakeSql, mockJob());
 
     expect(mockProcessCheckoutSessionCompleted).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      fakeSql,
       'outbox-1',
       'checkout_session_account_mismatch',
       1,
@@ -98,10 +104,11 @@ describe('StripeCheckoutReconcileWorker', () => {
   it('marks the outbox failed and rethrows when Stripe retrieval fails', async () => {
     mockCheckoutSessionRetrieve.mockRejectedValueOnce(new Error('Stripe unavailable'));
 
-    await expect(handleStripeCheckoutReconcile(mockJob())).rejects.toThrow('Stripe unavailable');
+    await expect(handleStripeCheckoutReconcile(fakeSql, mockJob())).rejects.toThrow('Stripe unavailable');
 
     expect(mockProcessCheckoutSessionCompleted).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      fakeSql,
       'outbox-1',
       'Stripe unavailable',
       1,

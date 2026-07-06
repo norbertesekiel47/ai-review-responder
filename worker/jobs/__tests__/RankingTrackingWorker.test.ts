@@ -132,7 +132,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-rank-1', 'business_not_found', undefined);
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(mockSql, 'outbox-rank-1', 'business_not_found', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -142,7 +142,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -152,7 +152,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -161,7 +161,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -170,7 +170,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -200,7 +200,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -212,7 +212,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -223,7 +223,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -233,7 +233,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -246,7 +246,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -379,6 +379,6 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(job);
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('custom-outbox-id', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'custom-outbox-id', undefined);
   });
 });

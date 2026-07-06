@@ -121,7 +121,7 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
 
   if (!ctx) {
     logger.warn(`Business ${businessId} not found or has no account`);
-    await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
+    await markOutboxFailed(sql, outboxId, 'business_not_found', outboxAttempt);
     return;
   }
 
@@ -140,7 +140,7 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
 
   if (!business) {
     logger.warn(`Business ${businessId} not found`);
-    await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
+    await markOutboxFailed(sql, outboxId, 'business_not_found', outboxAttempt);
     return;
   }
 
@@ -149,14 +149,14 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
   // ranking requires strictly active — no paid API calls for non-paying businesses.
   if (ctx.account.subscriptionStatus !== SubscriptionStatus.ACTIVE) {
     logger.log(`Business ${businessId} skipped: subscription_status=${ctx.account.subscriptionStatus}`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
   // Re-check google_place_id — may have been cleared or changed since scheduling
   if (!business.google_place_id) {
     logger.log(`Business ${businessId} skipped: no google_place_id`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -165,7 +165,7 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
 
   if (rawKeywords.length === 0) {
     logger.log(`Business ${businessId} has no tracked keywords`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -178,7 +178,7 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
 
   if (!hasCoords && !hasSearchLocation) {
     logger.log(`Business ${businessId} has no location data for ranking search`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -196,7 +196,7 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
       budgetCheck = await checkRateLimit('serpapi:ranking:monthly', 100, 30 * 24 * 3600, { strict: true });
     } catch (err) {
       logger.warn(`Cannot enforce SerpAPI budget (Redis unavailable or not configured), skipping:`, err instanceof Error ? err.message : err);
-      await markOutboxCompleted(outboxId, outboxAttempt);
+      await markOutboxCompleted(sql, outboxId, outboxAttempt);
       return;
     }
 
@@ -217,6 +217,6 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
     `;
   }
 
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
   logger.log(`Ranking tracking complete for business ${businessId}`);
 }

@@ -106,14 +106,14 @@ export async function handleAdminException(
 
   if (!exception) {
     logger.warn(`Exception ${review_exception_id} not found`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
   // Already resolved — another worker got there first
   if (exception.status !== 'open') {
     logger.log(`Exception ${review_exception_id} already ${exception.status}`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -125,7 +125,7 @@ export async function handleAdminException(
   const adminEmail = getWorkerConfig().ADMIN_NOTIFICATION_EMAIL;
   if (!adminEmail) {
     logger.error(`ADMIN_NOTIFICATION_EMAIL not set — cannot send alert`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -148,6 +148,6 @@ export async function handleAdminException(
     throw err;
   }
 
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
   logger.log(`Alert sent for exception ${review_exception_id} (${exception.type})`);
 }

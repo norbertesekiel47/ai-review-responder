@@ -113,6 +113,7 @@ describe('loadPublishResponseContext', () => {
 
     expect(result).toBe('terminal');
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-1',
       'response_not_found: resp-1',
       undefined,
@@ -125,7 +126,7 @@ describe('loadPublishResponseContext', () => {
     const result = await loadPublishResponseContext(mockSql, BASE_INPUT);
 
     expect(result).toBe('terminal');
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-1', 'business_id_mismatch', undefined);
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(mockSql, 'outbox-1', 'business_id_mismatch', undefined);
   });
 
   it('returns context when business is archived so the worker can handle terminal behavior', async () => {

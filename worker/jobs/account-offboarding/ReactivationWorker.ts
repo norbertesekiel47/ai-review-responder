@@ -30,15 +30,15 @@ export async function handleAccountOffboardingReactivation(
   });
 
   if (result.ok) {
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
   if (result.reason === 'stripe_reversal_unavailable') {
     logger.warn(`Stripe reversal unavailable for offboarding ${job.data.account_offboarding_id}`);
-    await markOutboxFailed(outboxId, 'account_offboarding_stripe_reversal_unavailable', outboxAttempt);
+    await markOutboxFailed(sql, outboxId, 'account_offboarding_stripe_reversal_unavailable', outboxAttempt);
     return;
   }
 
-  await markOutboxFailed(outboxId, `account_offboarding_reactivation_${result.reason}`, outboxAttempt);
+  await markOutboxFailed(sql, outboxId, `account_offboarding_reactivation_${result.reason}`, outboxAttempt);
 }

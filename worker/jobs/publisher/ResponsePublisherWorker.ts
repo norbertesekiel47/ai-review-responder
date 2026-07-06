@@ -49,7 +49,7 @@ export async function handlePublishResponse(
     logger.warn(
       `Business ${businessId} account is offboarding; skipping public publish for response ${response_id}`,
     );
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -69,7 +69,7 @@ export async function handlePublishResponse(
     logger.log(
       `Response ${response_id} not in publishable state (status=${response.status}), skipping`,
     );
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -94,7 +94,7 @@ export async function handlePublishResponse(
     logger.warn(
       `Business ${businessId} is archived; skipping public publish for response ${response_id}`,
     );
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -110,7 +110,7 @@ export async function handlePublishResponse(
     logger.warn(
       `Business ${businessId} subscription blocked: ${subCheck.reason}`,
     );
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -122,7 +122,7 @@ export async function handlePublishResponse(
     logger.warn(
       `Response ${response_id} has an open moderation flag; refusing to publish (F-5).`,
     );
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -206,10 +206,10 @@ export async function handlePublishResponse(
           if (result.postedResponse) {
             await maybeCaptureActivationCompleted(sql, result.postedResponse);
           }
-          await markOutboxCompleted(outboxId, outboxAttempt);
+          await markOutboxCompleted(sql, outboxId, outboxAttempt);
           return;
         case 'failed':
-          await markOutboxFailed(outboxId, result.reason, outboxAttempt);
+          await markOutboxFailed(sql, outboxId, result.reason, outboxAttempt);
           return;
         case 'throw':
           throw result.error;
@@ -255,5 +255,5 @@ export async function handlePublishResponse(
     logger,
   });
 
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
 }

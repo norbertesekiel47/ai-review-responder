@@ -68,7 +68,7 @@ export async function guardZernioJobEligibility(sql: Sql, input: {
     if (jobKind === 'backfill') {
       logger.log(`Backfill skipped for business=${businessId}: subscription_status=missing`);
     }
-    await markOutboxCompleted(outboxId, attempt);
+    await markOutboxCompleted(sql, outboxId, attempt);
     return { kind: 'skipped' };
   }
 
@@ -77,7 +77,7 @@ export async function guardZernioJobEligibility(sql: Sql, input: {
       reason: SKIP_REASON_ARCHIVED_LOCATION,
       business_id: businessId,
     });
-    await markOutboxCompleted(outboxId, attempt);
+    await markOutboxCompleted(sql, outboxId, attempt);
     return { kind: 'skipped' };
   }
 
@@ -92,7 +92,7 @@ export async function guardZernioJobEligibility(sql: Sql, input: {
         `Backfill skipped for business=${businessId}: subscription_status=${acct.subscription_status}`,
       );
     }
-    await markOutboxCompleted(outboxId, attempt);
+    await markOutboxCompleted(sql, outboxId, attempt);
     return { kind: 'skipped' };
   }
 

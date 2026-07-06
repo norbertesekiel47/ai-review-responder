@@ -122,7 +122,7 @@ describe('handlePublisherAuthErrorTerminal', () => {
     });
 
     expect(callIdx).toBe(4);  // disconnect, park, notify_reconnect, notify_lost
-    expect(markOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+    expect(markOutboxCompleted).toHaveBeenCalledWith(sql, 'outbox-1', 1);
   });
 
   it('skips notify enqueue when response already terminal', async () => {
@@ -260,7 +260,7 @@ describe('verify409AndDispose', () => {
       reviewId: 'rev',
       logger: expect.any(Object),
     });
-    expect(markOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+    expect(markOutboxCompleted).toHaveBeenCalledWith(sql, 'outbox-1', 1);
   });
 
   it('superseded: text mismatch → UPDATE superseded + markOutboxCompleted, returns { outcome: superseded }', async () => {
@@ -281,7 +281,7 @@ describe('verify409AndDispose', () => {
     // The superseded path does NOT mark posted → it must NOT touch the FYI helper.
     expect(markPostedAndMaybeEnqueueAutoPostNotice).not.toHaveBeenCalled();
     expect(maybeCaptureActivationCompleted).not.toHaveBeenCalled();
-    expect(markOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+    expect(markOutboxCompleted).toHaveBeenCalledWith(sql, 'outbox-1', 1);
   });
 });
 
@@ -310,7 +310,7 @@ describe('handlePublisherPermanentErrorTerminal', () => {
     });
 
     expect(callIdx).toBe(3);  // mark failed, insert exception, notify enqueue
-    expect(markOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+    expect(markOutboxCompleted).toHaveBeenCalledWith(sql, 'outbox-1', 1);
   });
 
   it('skips work when response already terminal (count=0)', async () => {

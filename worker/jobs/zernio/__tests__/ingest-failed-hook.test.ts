@@ -90,6 +90,7 @@ describe('handleIngestFailed', () => {
 
       // Verify outbox closure.
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
         'outbox-1',
         'zernio_review_not_found_after_retries',
         1,
@@ -182,6 +183,7 @@ describe('handleIngestFailed', () => {
       );
 
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
         'outbox-1',
         'zernio_pagination_cap_exhausted',
         1,
@@ -248,6 +250,7 @@ describe('handleIngestFailed', () => {
       });
 
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
         'outbox-1',
         'zernio_unparseable_review_name',
         1,
@@ -268,6 +271,7 @@ describe('handleIngestFailed', () => {
 
       expect(mockSql).toHaveBeenCalledTimes(1);
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
         'outbox-1',
         'zernio_unparseable_review_name',
         1,
@@ -307,6 +311,7 @@ describe('handleIngestFailed', () => {
 
       expect(mockSql).not.toHaveBeenCalled();
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
         'outbox-1',
         'something unexpected blew up',
         1,
@@ -318,6 +323,7 @@ describe('handleIngestFailed', () => {
 
       expect(mockSql).not.toHaveBeenCalled();
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
         'outbox-1',
         'plain string error',
         1,

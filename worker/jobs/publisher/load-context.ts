@@ -42,13 +42,13 @@ export async function loadPublishResponseContext(sql: Sql, input: {
 
   if (!response) {
     logger.error(`Response ${responseId} not found`);
-    await markOutboxFailed(outboxId, `response_not_found: ${responseId}`, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, `response_not_found: ${responseId}`, outboxAttempt);
     return 'terminal';
   }
 
   if (response.business_id !== businessId) {
     logger.error(`Response ${responseId} belongs to business ${response.business_id}, not ${businessId}`);
-    await markOutboxFailed(outboxId, 'business_id_mismatch', outboxAttempt);
+    await markOutboxFailed(sql, outboxId, 'business_id_mismatch', outboxAttempt);
     return 'terminal';
   }
 
@@ -77,7 +77,7 @@ export async function loadPublishResponseContext(sql: Sql, input: {
 
   if (!business) {
     logger.error(`Business ${businessId} not found`);
-    await markOutboxFailed(outboxId, `business_not_found: ${businessId}`, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, `business_not_found: ${businessId}`, outboxAttempt);
     return 'terminal';
   }
 

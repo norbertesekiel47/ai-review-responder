@@ -54,12 +54,12 @@ export async function handleAccountOffboardingBillingSchedule(
   `;
 
   if (!offboarding) {
-    await markOutboxFailed(outboxId, 'account_offboarding_not_found', outboxAttempt);
+    await markOutboxFailed(sql, outboxId, 'account_offboarding_not_found', outboxAttempt);
     return;
   }
 
   if (offboarding.status === 'scheduled' && offboarding.access_ends_at) {
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -71,7 +71,7 @@ export async function handleAccountOffboardingBillingSchedule(
       throw new Error(safeMessage);
     }
     await markBillingStepFailed(sql, job.data, safeMessage);
-    await markOutboxFailed(outboxId, safeMessage, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, safeMessage, outboxAttempt);
     return;
   }
 
@@ -121,7 +121,7 @@ export async function handleAccountOffboardingBillingSchedule(
         idempotencyKeyHash: job.data.idempotency_key_hash,
         correlationId: job.data.correlation_id,
       });
-      await markOutboxCompleted(outboxId, outboxAttempt, tx);
+      await markOutboxCompleted(tx, outboxId, outboxAttempt);
     });
   } catch (err) {
     const safeMessage = scrubOffboardingErrorForStorage(errorMessage(err));
@@ -132,7 +132,7 @@ export async function handleAccountOffboardingBillingSchedule(
     }
 
     await markBillingStepFailed(sql, job.data, safeMessage);
-    await markOutboxFailed(outboxId, safeMessage, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, safeMessage, outboxAttempt);
   }
 }
 

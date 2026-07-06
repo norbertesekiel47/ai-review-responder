@@ -231,7 +231,7 @@ export async function handleAccountOffboardingEmail(
   `;
 
   if (!offboarding) {
-    await markOutboxFailed(outboxId, 'account_offboarding_not_found', outboxAttempt);
+    await markOutboxFailed(sql, outboxId, 'account_offboarding_not_found', outboxAttempt);
     return;
   }
 
@@ -252,25 +252,25 @@ export async function handleAccountOffboardingEmail(
     );
     if (await offboardingEmailAlreadySent(sql, sentDeliveryId, job.data.account_id)) {
       logger.log(`Dedup hit for already-sent terminal-row email ${sentDeliveryId}`);
-      await markOutboxCompleted(outboxId, outboxAttempt);
+      await markOutboxCompleted(sql, outboxId, outboxAttempt);
       return;
     }
   }
 
   const validationError = validateEmailOffboarding(offboarding, emailType);
   if (validationError) {
-    await markOutboxFailed(outboxId, validationError, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, validationError, outboxAttempt);
     return;
   }
   if (descriptor.needsKeepMyDataToken && !getWorkerConfig().NEXT_PUBLIC_APP_URL) {
-    await markOutboxFailed(outboxId, 'NEXT_PUBLIC_APP_URL not configured', outboxAttempt);
+    await markOutboxFailed(sql, outboxId, 'NEXT_PUBLIC_APP_URL not configured', outboxAttempt);
     return;
   }
   if (descriptor.needsKeepMyDataToken) {
     try {
       assertKeepMyDataTokenSecretConfigured();
     } catch {
-      await markOutboxFailed(outboxId, 'SESSION_COOKIE_SECRET not configured', outboxAttempt);
+      await markOutboxFailed(sql, outboxId, 'SESSION_COOKIE_SECRET not configured', outboxAttempt);
       return;
     }
   }
@@ -292,7 +292,7 @@ export async function handleAccountOffboardingEmail(
 
   if (claimResult === 'already_sent') {
     logger.log(`Dedup hit for sent account offboarding email ${deliveryId}`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
   if (claimResult === 'in_progress') {
@@ -341,7 +341,7 @@ export async function handleAccountOffboardingEmail(
     if (rollbackError !== null) {
       const message = `send_failed_and_rollback_failed: send=${scrubOffboardingErrorForStorage(errorMessage(err))} rollback=${scrubOffboardingErrorForStorage(errorMessage(rollbackError))}`;
       logger.error(message);
-      await markOutboxFailed(outboxId, message, outboxAttempt);
+      await markOutboxFailed(sql, outboxId, message, outboxAttempt);
       return;
     }
     throw err;
@@ -365,7 +365,7 @@ export async function handleAccountOffboardingEmail(
     );
   }
 
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
 }
 
 /**
@@ -399,6 +399,7 @@ async function handlePurgeReceipt(
   const recipient = job.data.recipient_email?.trim();
   if (!recipient) {
     await markOutboxFailed(
+      sql,
       outboxId,
       'account_offboarding_purge_receipt_missing_recipient',
       outboxAttempt,

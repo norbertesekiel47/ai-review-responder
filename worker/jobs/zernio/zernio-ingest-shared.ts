@@ -73,17 +73,17 @@ export async function handleZernioIngestError(
     await applyIngestionAuthErrorFallback(
       sql, ctx.business_id, ctx.zernio_account_id, ctx.zernio_location_id, reason,
     );
-    await markOutboxFailed(outboxId, 'zernio_auth_error_on_ingest', attempt);
+    await markOutboxFailed(sql, outboxId, 'zernio_auth_error_on_ingest', attempt);
     return;
   }
   if (err instanceof ZernioPermanentError) {
     logger.error(`ZernioPermanentError on ingest: ${err.message}`);
-    await markOutboxFailed(outboxId, `zernio_permanent_error: ${err.message}`, attempt);
+    await markOutboxFailed(sql, outboxId, `zernio_permanent_error: ${err.message}`, attempt);
     return;
   }
   if (err instanceof ZernioValidationError) {
     logger.error(`ZernioValidationError on ingest: ${err.message}`);
-    await markOutboxFailed(outboxId, `zernio_validation_error: ${err.message}`, attempt);
+    await markOutboxFailed(sql, outboxId, `zernio_validation_error: ${err.message}`, attempt);
     return;
   }
   if (err instanceof ZernioTransientError) {

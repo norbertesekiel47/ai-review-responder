@@ -148,7 +148,7 @@ describe('ZernioReviewIngestWorker', () => {
       pageToken: undefined,
     });
     expect(mockProcessReview).toHaveBeenCalledTimes(1);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-ingest-1', undefined);
   });
 
   // 2. Page 2 hit → processReview called
@@ -179,7 +179,7 @@ describe('ZernioReviewIngestWorker', () => {
       pageToken: 'page2token',
     });
     expect(mockProcessReview).toHaveBeenCalledTimes(1);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-ingest-1', undefined);
   });
 
   // 3a. Walked entire feed without finding → durable ZernioIngestReviewNotFoundError.
@@ -279,7 +279,7 @@ describe('ZernioReviewIngestWorker', () => {
     await handleZernioReviewIngest(sqlArg, makeJob());
 
     expect(mockProcessReview).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-ingest-1', undefined);
   });
 
   // 5. Location unparseable → throws ZernioIngestUnparseableLocationError
@@ -310,7 +310,7 @@ describe('ZernioReviewIngestWorker', () => {
 
     expect(mockListReviews).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-ingest-1', undefined);
   });
 
   // 6b. Location archived → markOutboxCompleted (skip-as-success), NO listReviews call.
@@ -340,7 +340,7 @@ describe('ZernioReviewIngestWorker', () => {
       expect.any(String),
       expect.objectContaining({ reason: SKIP_REASON_ARCHIVED_LOCATION, business_id: 'biz-1' }),
     );
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-ingest-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -365,7 +365,7 @@ describe('ZernioReviewIngestWorker', () => {
     );
     expect(mockListReviews).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-ingest-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -378,7 +378,7 @@ describe('ZernioReviewIngestWorker', () => {
 
     expect(mockListReviews).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-ingest-1', undefined);
   });
 
   // 8. MOCK_EXTERNAL_APIS=true → short-circuit
@@ -394,7 +394,7 @@ describe('ZernioReviewIngestWorker', () => {
 
       expect(mockListReviews).not.toHaveBeenCalled();
       expect(mockProcessReview).not.toHaveBeenCalled();
-      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-ingest-1', undefined);
     } finally {
       if (original === undefined) {
         delete process.env.MOCK_EXTERNAL_APIS;
@@ -419,7 +419,7 @@ describe('ZernioReviewIngestWorker', () => {
 
     expect(mockReconcileExternallyAnsweredReview).toHaveBeenCalledTimes(1);
     expect(mockProcessReview).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-ingest-1', undefined);
   });
 
   it('still reconciles external replies when review text likely contains PHI', async () => {
@@ -437,7 +437,7 @@ describe('ZernioReviewIngestWorker', () => {
 
     expect(mockReconcileExternallyAnsweredReview).toHaveBeenCalledTimes(1);
     expect(mockProcessReview).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-ingest-1', undefined);
   });
 
   it('marks outbox completed and skips processing when target review likely contains PHI', async () => {
@@ -465,7 +465,7 @@ describe('ZernioReviewIngestWorker', () => {
       }),
       expect.anything(),
     );
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-ingest-1', undefined);
   });
 
   // 10. ZernioAuthError on listReviews → handleZernioIngestError called
@@ -506,6 +506,6 @@ describe('ZernioReviewIngestWorker', () => {
     await handleZernioReviewIngest(sqlArg, makeJob());
 
     expect(mockProcessReview).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-ingest-1', undefined);
   });
 });

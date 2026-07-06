@@ -127,7 +127,7 @@ describe('handlePublisherFailed', () => {
       // check the bound values, not the raw strings array.
       expect(mockTx.mock.calls[2]!.slice(1)).toContain('notify_admin_review_exception');
 
-      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
     });
 
@@ -148,7 +148,7 @@ describe('handlePublisherFailed', () => {
       await handlePublisherFailed(mockSql, makeJob(), err);
 
       expect(mockTx).toHaveBeenCalledTimes(1); // only the UPDATE
-      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
     });
   });
 
@@ -173,6 +173,7 @@ describe('handlePublisherFailed', () => {
         }),
       );
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
         'outbox-1',
         expect.stringMatching(/^unwrapped_transient_no_context: /),
         1,
@@ -202,6 +203,7 @@ describe('handlePublisherFailed', () => {
         correlation_id: 'corr-1',
       });
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
         'outbox-1',
         'zernio_transient_max_attempts',
         1,
@@ -233,6 +235,7 @@ describe('handlePublisherFailed', () => {
         }),
       );
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
         'outbox-1',
         'zernio_transient_max_attempts_fallback_failed: disconnect call exploded',
         1,
@@ -249,6 +252,7 @@ describe('handlePublisherFailed', () => {
 
       expect(mockSql.begin).not.toHaveBeenCalled();
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
         'outbox-1',
         'something else broke',
         1,
@@ -300,6 +304,7 @@ describe('handlePublisherFailed', () => {
       expect(mockApplyTransientExhaustionFallback).not.toHaveBeenCalled();
       expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
         'outbox-1',
         'post_after_delete_failed_retry_exhausted',
         1,
@@ -326,6 +331,7 @@ describe('handlePublisherFailed', () => {
       await handlePublisherFailed(mockSql, makeJob(), makeWrappedTransient());
 
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
         'outbox-1',
         'post_after_delete_failed_retry_exhausted',
         1,
@@ -341,7 +347,7 @@ describe('handlePublisherFailed', () => {
 
       await handlePublisherFailed(mockSql, makeJob(), makeWrappedTransient());
 
-      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
       expect(mockApplyTransientExhaustionFallback).not.toHaveBeenCalled();
     });
@@ -360,7 +366,7 @@ describe('handlePublisherFailed', () => {
         business_id: 'biz-1',
         correlation_id: 'corr-1',
       });
-      expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-1', 'zernio_transient_max_attempts', 1);
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(mockSql, 'outbox-1', 'zernio_transient_max_attempts', 1);
     });
 
     it('FLAG ON + response row not visible to business (tenant mismatch) → markOutboxCompleted, no fallback', async () => {
@@ -369,7 +375,7 @@ describe('handlePublisherFailed', () => {
 
       await handlePublisherFailed(mockSql, makeJob(), makeWrappedTransient());
 
-      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
       expect(mockApplyTransientExhaustionFallback).not.toHaveBeenCalled();
     });
@@ -382,7 +388,7 @@ describe('handlePublisherFailed', () => {
 
       await handlePublisherFailed(mockSql, makeJob(), makeWrappedTransient());
 
-      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
       expect(mockApplyTransientExhaustionFallback).not.toHaveBeenCalled();
       expect(Sentry.captureMessage).toHaveBeenCalledWith(
@@ -399,7 +405,7 @@ describe('handlePublisherFailed', () => {
 
       await handlePublisherFailed(mockSql, makeJob(), makeWrappedTransient());
 
-      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
       expect(mockApplyTransientExhaustionFallback).not.toHaveBeenCalled();
     });
@@ -411,7 +417,7 @@ describe('handlePublisherFailed', () => {
       // The orphan-conversion tx never ran.
       expect(mockSql.begin).not.toHaveBeenCalled();
       expect(mockApplyTransientExhaustionFallback).toHaveBeenCalledTimes(1);
-      expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-1', 'zernio_transient_max_attempts', 1);
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(mockSql, 'outbox-1', 'zernio_transient_max_attempts', 1);
     });
 
     function makeIndeterminate() {
@@ -443,6 +449,7 @@ describe('handlePublisherFailed', () => {
 
       // Converted via the recoverable orphan path — NOT the indeterminate path.
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockSql,
         'outbox-1',
         'post_after_delete_failed_retry_exhausted',
         1,
@@ -474,7 +481,7 @@ describe('handlePublisherFailed', () => {
       await handlePublisherFailed(mockSql, makeJob(), makeIndeterminate());
 
       // The indeterminate terminal sequence ran and completed the outbox.
-      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
       const indeterminateUpdate = mockTx.mock.calls.find((c: any[]) => {
         const text = (c[0] as TemplateStringsArray).join('?');
         return /posting_error = 'zernio_reply_verification_indeterminate'/.test(text);
@@ -504,6 +511,7 @@ describe('handlePublisherFailed', () => {
       );
       // Best-effort second call uses the on_failed_crash prefix.
       expect(mockMarkOutboxFailed).toHaveBeenLastCalledWith(
+        mockSql,
         'outbox-1',
         expect.stringMatching(/^on_failed_crash: /),
         1,

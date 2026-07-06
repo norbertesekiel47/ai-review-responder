@@ -1,4 +1,5 @@
 import type { Job } from 'bullmq';
+import type { Sql } from 'postgres';
 import type Stripe from 'stripe';
 import { getStripe } from '../../../src/lib/payments/stripe-client';
 import {
@@ -11,6 +12,7 @@ import type { StripeCheckoutReconcilePayload } from '../../../src/lib/shared/wor
 import { processCheckoutSessionCompleted } from '../../ingress/stripe/checkout-completed';
 
 export async function handleStripeCheckoutReconcile(
+  sql: Sql,
   job: Job<StripeCheckoutReconcilePayload>,
 ): Promise<void> {
   const logger = createWorkerLogger(
@@ -26,18 +28,18 @@ export async function handleStripeCheckoutReconcile(
       logger.warn(
         `Checkout Session ${checkout_session_id} client_reference_id mismatch for account=${account_id}`,
       );
-      await markOutboxFailed(outboxId, 'checkout_session_account_mismatch', attempt);
+      await markOutboxFailed(sql, outboxId, 'checkout_session_account_mismatch', attempt);
       return;
     }
 
     await processCheckoutSessionCompleted(session as Stripe.Checkout.Session);
-    await markOutboxCompleted(outboxId, attempt);
+    await markOutboxCompleted(sql, outboxId, attempt);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error(
       `Checkout Session reconciliation failed for account=${account_id}: ${message}`,
     );
-    await markOutboxFailed(outboxId, message, attempt);
+    await markOutboxFailed(sql, outboxId, message, attempt);
     throw err;
   }
 }

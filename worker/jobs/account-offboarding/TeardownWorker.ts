@@ -73,12 +73,12 @@ export async function handleAccountOffboardingTeardown(
   `;
 
   if (!offboarding) {
-    await markOutboxFailed(outboxId, 'account_offboarding_not_found', outboxAttempt);
+    await markOutboxFailed(sql, outboxId, 'account_offboarding_not_found', outboxAttempt);
     return;
   }
 
   if (offboarding.teardown_completed_at !== null || offboarding.terminal_at !== null) {
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -90,7 +90,7 @@ export async function handleAccountOffboardingTeardown(
       throw new Error(safeMessage);
     }
     await markTeardownFailed(sql, offboarding, safeMessage, undefined);
-    await markOutboxFailed(outboxId, safeMessage, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, safeMessage, outboxAttempt);
     return;
   }
 
@@ -126,11 +126,11 @@ export async function handleAccountOffboardingTeardown(
     }
 
     await markTeardownFailed(sql, offboarding, safeMessage, failureColumnForErrorStep(offboarding));
-    await markOutboxFailed(outboxId, safeMessage, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, safeMessage, outboxAttempt);
     return;
   }
 
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
 }
 
 async function markTeardownStarted(

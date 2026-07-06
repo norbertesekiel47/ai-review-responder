@@ -503,6 +503,7 @@ describe('AccountOffboarding PurgeWorker', () => {
     await handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob({ attemptsMade: 2, attempts: 3 }));
 
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       OUTBOX_ID,
       'account_offboarding_purge_verification_failed:responses',
       2,

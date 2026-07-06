@@ -133,7 +133,7 @@ describe('AccountOffboarding BillingScheduleWorker', () => {
     const emailOutboxCall = sqlCalls.find((call) => call.text.includes('INSERT INTO job_outbox'));
     expect(emailOutboxCall?.values).toContain(QUEUE_NAMES.ACCOUNT_OFFBOARDING_EMAIL);
     expect(emailOutboxCall?.values).toContain(OFFBOARDING_ID);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-billing-1', 2, mockSql);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-billing-1', 2);
   });
 
   it('reads current_period_end from the subscription item (Stripe Basil/Dahlia API shape)', async () => {
@@ -152,7 +152,7 @@ describe('AccountOffboarding BillingScheduleWorker', () => {
     const updateCall = sqlCalls.find((call) => call.text.includes('billing_cancel_confirmed_at'));
     expect(updateCall?.text).toContain("status = 'scheduled'");
     expect(updateCall?.values).toContainEqual(new Date('2027-01-01T00:00:00.000Z'));
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-billing-1', 2, mockSql);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-billing-1', 2);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -199,6 +199,7 @@ describe('AccountOffboarding BillingScheduleWorker', () => {
     expect(failedUpdate?.values.join(' ')).not.toContain('sk_live_secret');
     expect(failedUpdate?.values.join(' ')).not.toContain('hunter2');
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-billing-1',
       expect.stringContaining('token=[REDACTED]'),
       2,
@@ -253,6 +254,7 @@ describe('AccountOffboarding BillingScheduleWorker', () => {
     expect(failedUpdate?.text).toContain("stripe_step = 'failed'");
     expect(failedUpdate?.values).toContain('account_offboarding_missing_stripe_subscription_id');
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-billing-1',
       'account_offboarding_missing_stripe_subscription_id',
       2,

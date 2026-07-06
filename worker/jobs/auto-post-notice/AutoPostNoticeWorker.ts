@@ -40,12 +40,12 @@ export async function handleAutoPostNotice(sql: Sql, job: Job<AutoPostNoticePayl
 
   const ctx = await loadAutoPostNoticeContext(sql, { responseId: response_id, businessId }, logger);
   if (ctx.kind === 'fail') {
-    await markOutboxFailed(outboxId, ctx.reason, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, ctx.reason, outboxAttempt);
     return;
   }
   if (ctx.kind === 'skip') {
     logger.log(`auto_post_notice skip response=${response_id} reason=${ctx.reason}`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -64,19 +64,19 @@ export async function handleAutoPostNotice(sql: Sql, job: Job<AutoPostNoticePayl
   );
   if (!eligibility.ok) {
     logger.log(`auto_post_notice no-eligible-channels response=${response_id} reason=${eligibility.reason}`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
   if (eligibility.enrollments.length === 0) {
     logger.log(`auto_post_notice no-eligible-channels response=${response_id} reason=all_channels_flag_disabled`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
   const appUrl = getWorkerConfig().NEXT_PUBLIC_APP_URL;
   if (!appUrl) {
     logger.error('NEXT_PUBLIC_APP_URL not set — cannot construct the FYI view URL');
-    await markOutboxFailed(outboxId, 'NEXT_PUBLIC_APP_URL not configured', outboxAttempt);
+    await markOutboxFailed(sql, outboxId, 'NEXT_PUBLIC_APP_URL not configured', outboxAttempt);
     return;
   }
   const viewUrl = `${appUrl.replace(/\/$/, '')}/r/google/${response_id}`;
@@ -130,5 +130,5 @@ export async function handleAutoPostNotice(sql: Sql, job: Job<AutoPostNoticePayl
     );
   }
 
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
 }

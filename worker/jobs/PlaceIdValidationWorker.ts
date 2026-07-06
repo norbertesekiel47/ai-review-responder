@@ -107,7 +107,7 @@ async function applyPlaceIdAndFinalize(input: {
       input.placeId,
     );
   }
-  await markOutboxCompleted(input.outboxId, input.outboxAttempt);
+  await markOutboxCompleted(sql, input.outboxId, input.outboxAttempt);
   return outcome;
 }
 
@@ -132,7 +132,7 @@ export async function handlePlaceIdValidation(
 
   if (!business) {
     logger.warn(`Business ${businessId} not found`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -201,7 +201,7 @@ export async function handlePlaceIdValidation(
       )
     `;
 
-    await markOutboxFailed(outboxId, message, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, message, outboxAttempt);
   }
 }
 

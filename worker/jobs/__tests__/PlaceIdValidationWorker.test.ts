@@ -112,7 +112,7 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
 
     // Verify UPDATE ran and outbox completed — no sync_reviews insertion.
     expect(hasSyncReviewsInsert()).toBe(false);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-test-place-id-001', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
     // sql.begin should NOT be called — UPDATE now runs directly, not in a tx.
     expect(mockSql.begin).not.toHaveBeenCalled();
@@ -163,6 +163,7 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
 
     // Failure path should fail the outbox + insert a review_exception
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-test-place-id-001',
       expect.stringContaining('Could not verify business location'), undefined);
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
@@ -242,7 +243,7 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
     );
     expect(payload.resolved_place_id).toBe('ChIJgUbEo8cfqokR5lP9_Wh_DaM');
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-test-place-id-001', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -267,7 +268,7 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
     expect(payload.resolved_place_id).toBe('ChIJgUbEo8cfqokR5lP9_Wh_DaM');
 
     // Skip-as-success: completed, never failed, no retry.
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-test-place-id-001', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -294,7 +295,7 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
     expect(payload.reason).toBe('duplicate_location');
     expect(payload.resolved_place_id).toBe('ChIJResolvedDuplicate12345');
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-test-place-id-001', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -373,7 +374,7 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
 
     // Applied: verified, no review_exceptions, skip-as-success completion.
     expect(hasReviewExceptionInsert()).toBe(false);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-test-place-id-001', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -404,7 +405,7 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
 
     const payload = reviewExceptionPayload();
     expect(payload.reason).toBe('place_id_mismatch');
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-test-place-id-001', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -428,7 +429,7 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
     expect(payload.reason).toBe('duplicate_location');
     expect(payload.resolved_place_id).toBe('ChIJResolvedDuplicate12345');
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-test-place-id-001', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 

@@ -107,7 +107,7 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
   }
   if (run.completed_at !== null) {
     logger.log(`Backfill already completed for business=${business_id} — skipping`);
-    await markOutboxCompleted(outboxId, attempt);
+    await markOutboxCompleted(sql, outboxId, attempt);
     return;
   }
 
@@ -283,5 +283,5 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
     `gap=${gap.length}/${gapAll.length} historical=${historical.length}/${histAll.length}`,
   );
 
-  await markOutboxCompleted(outboxId, attempt);
+  await markOutboxCompleted(sql, outboxId, attempt);
 }

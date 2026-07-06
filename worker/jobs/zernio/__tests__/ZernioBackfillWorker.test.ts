@@ -173,7 +173,7 @@ describe('ZernioBackfillWorker', () => {
     for (const call of mockProcessReview.mock.calls) {
       expect(call[4]).toMatchObject({ suppressNotification: true });
     }
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-backfill-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
   });
 
   it('reactivation backfill does not skip when an initial backfill completed earlier', async () => {
@@ -228,7 +228,7 @@ describe('ZernioBackfillWorker', () => {
       expect.any(String),
       expect.objectContaining({ reason: SKIP_REASON_ARCHIVED_LOCATION, business_id: 'biz-1' }),
     );
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-backfill-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
 
     // completed_at must NOT be stamped — un-archiving re-enters the same
     // zernio_backfill_runs row idempotently (same rule as the subscription skip).
@@ -259,7 +259,7 @@ describe('ZernioBackfillWorker', () => {
     expect(mockLogger.log).toHaveBeenCalledWith(
       expect.stringContaining('subscription_status=missing'),
     );
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-backfill-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
   });
 
   // Test 2: Historical fixture, non-premium tier → historical=0
@@ -278,7 +278,7 @@ describe('ZernioBackfillWorker', () => {
 
     // No processing since all are historical and tier is standard
     expect(mockProcessReview).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-backfill-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
 
     // Verify counts update call — the 3rd SQL call after insert + select_run + select_biz is counts update
     const sqlCalls = mockSql.mock.calls;
@@ -313,7 +313,7 @@ describe('ZernioBackfillWorker', () => {
     for (const call of mockProcessReview.mock.calls) {
       expect(call[4]).toMatchObject({ suppressNotification: true });
     }
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-backfill-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
   });
 
   // Test 4: Mixed 30 gap + 30 historical, premium → gap=25 (cap), historical=30, gapSkipped=5
@@ -351,7 +351,7 @@ describe('ZernioBackfillWorker', () => {
     expect(values).toContain(5);  // gap skipped
     expect(values).toContain(0);  // historical skipped
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-backfill-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
   });
 
   // Test 5: createTime DESC sort applied BEFORE slice — newest 25 processed, not first 25 returned
@@ -439,7 +439,7 @@ describe('ZernioBackfillWorker', () => {
     });
     expect(countsCall?.slice(1)).toContain(1);
     expect(countsCall?.slice(1)).not.toContain(2);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-backfill-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
   });
 
   // Test 7: Reconcile failure → counts written, completed_at NOT set, worker throws

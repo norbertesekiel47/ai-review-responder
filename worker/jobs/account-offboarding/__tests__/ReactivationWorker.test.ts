@@ -69,7 +69,7 @@ describe('AccountOffboarding ReactivationWorker', () => {
       ip: '203.0.113.20',
       userAgent: 'vitest',
     });
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-reactivate-1', 2);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-reactivate-1', 2);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -83,6 +83,7 @@ describe('AccountOffboarding ReactivationWorker', () => {
 
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-reactivate-1',
       'account_offboarding_reactivation_not_reactivatable',
       2,

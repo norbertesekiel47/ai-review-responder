@@ -53,11 +53,11 @@ export async function handleSendNotification(
 
   const ctx = await loadNotificationContext(sql, { responseId: response_id, businessId }, logger);
   if (ctx.kind === 'fail') {
-    await markOutboxFailed(outboxId, ctx.reason, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, ctx.reason, outboxAttempt);
     return;
   }
   if (ctx.kind === 'skip') {
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -78,14 +78,14 @@ export async function handleSendNotification(
     } else {
       logger.log(`Location ${businessId} skipped: ${eligibility.reason}`);
     }
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
   const appUrl = getWorkerConfig().NEXT_PUBLIC_APP_URL;
   if (!appUrl) {
     logger.error('NEXT_PUBLIC_APP_URL not set — cannot construct approval URLs');
-    await markOutboxFailed(outboxId, 'NEXT_PUBLIC_APP_URL not configured', outboxAttempt);
+    await markOutboxFailed(sql, outboxId, 'NEXT_PUBLIC_APP_URL not configured', outboxAttempt);
     return;
   }
 
@@ -125,5 +125,5 @@ export async function handleSendNotification(
     );
   }
 
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
 }

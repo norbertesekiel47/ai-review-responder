@@ -30,8 +30,8 @@ export async function handleMonthlyImpact(
   const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  const business = await loadSummaryReportBusiness(businessId);
-  const skipped = await completeOrFailSkippedSummaryReport({
+  const business = await loadSummaryReportBusiness(sql, businessId);
+  const skipped = await completeOrFailSkippedSummaryReport(sql, {
     business,
     businessId,
     outboxId,
@@ -62,7 +62,7 @@ export async function handleMonthlyImpact(
     `;
     if (existing?.sent_at) {
       logger.log(`Monthly impact for ${businessId} month ${month_start_date} already sent`);
-      await markOutboxCompleted(outboxId, outboxAttempt);
+      await markOutboxCompleted(sql, outboxId, outboxAttempt);
     } else {
       logger.log(`Monthly impact for ${businessId} month ${month_start_date} claimed by another worker, will retry`);
       throw new Error('Report claimed by another worker');
@@ -182,11 +182,11 @@ export async function handleMonthlyImpact(
   }
 
   // ── 8. Ranking snapshot (conditional) ─────────────────────────────
-  const ranking = await loadLatestRankingSummary(businessId);
+  const ranking = await loadLatestRankingSummary(sql, businessId);
 
   // ── 9. Dashboard eligibility ─────────────────────────────────────
   const dashboardUrl = buildDashboardUrl(
-    await ownerHasDashboardAuth(businessId),
+    await ownerHasDashboardAuth(sql, businessId),
     getWorkerConfig().NEXT_PUBLIC_APP_URL,
   );
 
@@ -239,7 +239,7 @@ export async function handleMonthlyImpact(
     logger.error(`Failed to send monthly impact report for business ${businessId} (month ${month_start_date}): ${err instanceof Error ? err.message : err}`);
     // Keep sent_at set — Resend may have accepted the email before the error.
     // Clearing would risk a duplicate if the scheduler re-queues this business.
-    await markOutboxFailed(outboxId, err instanceof Error ? err.message : String(err), outboxAttempt);
+    await markOutboxFailed(sql, outboxId, err instanceof Error ? err.message : String(err), outboxAttempt);
     return;
   }
 
@@ -253,6 +253,6 @@ export async function handleMonthlyImpact(
     externalMessageId: messageId,
   });
 
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
   logger.log(`Monthly impact report sent for business ${businessId} (month ${month_start_date})`);
 }

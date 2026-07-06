@@ -24,7 +24,7 @@ export async function handleDemoGeneration(
     claimResult === 'already_terminal' ||
     claimResult === 'race_lost'
   ) {
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
