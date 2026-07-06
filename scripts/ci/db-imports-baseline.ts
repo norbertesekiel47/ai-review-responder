@@ -14,10 +14,6 @@
 // instead — that is the point of this guard.
 
 export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([
-  'src/app/api/admin/channels/_shared/account.ts',
-  'src/app/api/admin/channels/_shared/action.ts',
-  'src/app/api/admin/channels/_shared/start.ts',
-  'src/app/api/dashboard/past-replies/_shared/edit-reply-request.ts',
   'src/lib/db/account-guard.ts',
   'src/lib/db/auth.ts',
   'src/lib/shared/job-outbox-helpers.ts',

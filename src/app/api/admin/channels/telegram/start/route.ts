@@ -10,6 +10,7 @@
 // shared with the owner route at /api/dashboard/channels/telegram/start.
 
 import { NextRequest } from 'next/server';
+import { sql } from '@/lib/db/server';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { runAdminChannelStart } from '@/app/api/admin/channels/_shared/start';
@@ -21,7 +22,7 @@ function buildTelegramDeepLink(rawToken: string): string {
 }
 
 export const POST = withSameOrigin()((req: NextRequest) =>
-  runAdminChannelStart(req, {
+  runAdminChannelStart(sql, req, {
     channel: 'telegram',
     isEnabled: isTelegramEnabled,
     flagOff,

@@ -16,7 +16,7 @@
 //     bad auth still 403s (same-origin) before owner scope runs.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db/server';
+import type postgres from 'postgres';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
 import { assertCanEditReply } from '@/lib/responses/edit-existing';
@@ -50,6 +50,7 @@ export interface EditReplyContext {
  * not inline). Returns the inline 503/scope-error response on failure.
  */
 export async function resolveEditReplyScope(
+  sql: postgres.Sql,
   request: NextRequest,
 ): Promise<EditReplyGuard<{ accountId: string; locationId: string; userId: string }>> {
   if (!editRepliesEnabled()) {
@@ -82,6 +83,7 @@ export async function resolveEditReplyScope(
  * does not run inside a lock.
  */
 export async function authorizeEditReplyResponse(
+  sql: postgres.Sql,
   responseId: string,
   scope: { accountId: string; locationId: string },
 ): Promise<EditReplyGuard<{ reviewId: string }>> {
@@ -115,6 +117,7 @@ export async function authorizeEditReplyResponse(
  * resolved owner scope + reviewId + session audit context on success.
  */
 export async function resolveEditReplyContext(
+  sql: postgres.Sql,
   request: NextRequest,
   paramsPromise: Promise<{ responseId: string }>,
 ): Promise<EditReplyGuard<EditReplyContext>> {
@@ -155,7 +158,7 @@ export async function resolveEditReplyContext(
     };
   }
 
-  const authorized = await authorizeEditReplyResponse(responseId, { accountId, locationId });
+  const authorized = await authorizeEditReplyResponse(sql, responseId, { accountId, locationId });
   if (!authorized.ok) return authorized;
 
   const ip = request.headers.get('x-forwarded-for') ?? null;

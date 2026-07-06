@@ -54,7 +54,7 @@ export async function POST(
   request: NextRequest,
   context: ResponseIdRouteContext,
 ): Promise<Response> {
-  const ctx = await resolveEditReplyContext(request, context.params);
+  const ctx = await resolveEditReplyContext(sql, request, context.params);
   if (!ctx.ok) return ctx.response;
   const { accountId, locationId, responseId, reviewId, audit } = ctx.value;
 

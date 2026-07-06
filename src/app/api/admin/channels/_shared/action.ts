@@ -8,7 +8,7 @@
 // (./start.ts), which owns the heavier enrollment-start flow.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db/server';
+import type postgres from 'postgres';
 import { resolveAdminChannelAccount, type AdminChannelAccount } from './account';
 import { cancelMobileEnrollment, type MobileChannel } from '@/lib/channels/mobile-enrollment';
 import { disconnectChannel } from '@/lib/channels/disable-enrollment';
@@ -26,6 +26,7 @@ export interface AdminChannelActionConfig {
 
 /** Flag gate → env gate → admin auth + businessId → account resolve. */
 async function gateAndResolveAccount(
+  sql: postgres.Sql,
   req: NextRequest,
   config: AdminChannelActionConfig,
 ): Promise<AdminChannelAccount> {
@@ -34,7 +35,7 @@ async function gateAndResolveAccount(
   const envErr = config.assertEnvReady();
   if (envErr) return { ok: false, response: envErr };
 
-  return resolveAdminChannelAccount(req);
+  return resolveAdminChannelAccount(sql, req);
 }
 
 /**
@@ -50,10 +51,11 @@ async function gateAndResolveAccount(
  * transition back to 'pending_verification'.
  */
 export async function runAdminChannelCancel(
+  sql: postgres.Sql,
   req: NextRequest,
   config: AdminChannelActionConfig,
 ): Promise<NextResponse> {
-  const resolved = await gateAndResolveAccount(req, config);
+  const resolved = await gateAndResolveAccount(sql, req, config);
   if (!resolved.ok) return resolved.response;
   const { accountId } = resolved;
 
@@ -76,10 +78,11 @@ export async function runAdminChannelCancel(
  * post-commit cache invalidation.
  */
 export async function runAdminChannelDisable(
+  sql: postgres.Sql,
   req: NextRequest,
   config: AdminChannelActionConfig,
 ): Promise<NextResponse> {
-  const resolved = await gateAndResolveAccount(req, config);
+  const resolved = await gateAndResolveAccount(sql, req, config);
   if (!resolved.ok) return resolved.response;
 
   const result = await disconnectChannel(sql, {

@@ -6,12 +6,13 @@
 // bindings. The disable cascade itself is owned by disconnectChannel.
 
 import { NextRequest } from 'next/server';
+import { sql } from '@/lib/db/server';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { runAdminChannelDisable } from '@/app/api/admin/channels/_shared/action';
 
 export const POST = withSameOrigin()((req: NextRequest) =>
-  runAdminChannelDisable(req, {
+  runAdminChannelDisable(sql, req, {
     channel: 'whatsapp',
     isEnabled: isWhatsAppEnabled,
     flagOff,

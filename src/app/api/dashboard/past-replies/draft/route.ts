@@ -66,7 +66,7 @@ const bodySchema = z.discriminatedUnion('mode', [
 ]);
 
 async function handler(request: NextRequest): Promise<Response> {
-  const scope = await resolveEditReplyScope(request);
+  const scope = await resolveEditReplyScope(sql, request);
   if (!scope.ok) return scope.response;
   const { accountId, locationId } = scope.value;
 

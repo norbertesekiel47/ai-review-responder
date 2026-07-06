@@ -73,7 +73,7 @@ function computePublishMode(
 
 async function handler(request: NextRequest): Promise<Response> {
   // Feature gate + owner scope. CSRF handled by withSameOrigin wrapper.
-  const scope = await resolveEditReplyScope(request);
+  const scope = await resolveEditReplyScope(sql, request);
   if (!scope.ok) return scope.response;
   const { accountId, locationId, userId } = scope.value;
 
@@ -87,7 +87,7 @@ async function handler(request: NextRequest): Promise<Response> {
   }
 
   // Location-scoped review lookup + tier/ownership gate BEFORE any side effects.
-  const authorized = await authorizeEditReplyResponse(parsed.data.response_id, { accountId, locationId });
+  const authorized = await authorizeEditReplyResponse(sql, parsed.data.response_id, { accountId, locationId });
   if (!authorized.ok) return authorized.response;
   const { reviewId } = authorized.value;
 
