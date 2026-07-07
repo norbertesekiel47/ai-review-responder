@@ -46,10 +46,10 @@ const SCAN_DIRS = ['src/lib', 'src/app', 'src/components', 'worker'] as const;
  * in a browser-shipped route/page/component). Reading it directly at a call site
  * is the sanctioned pattern, so the audit must not count it. This matters now
  * that the scan covers src/app + src/components, where NEXT_PUBLIC_* reads are
- * common (simple member reads `process.env.NEXT_PUBLIC_X ?? '…'` resolve to the
- * literal name via staticallyAccessedVarName → this name-based exemption catches
- * them). `ci:static-policy` remains the separate guard that allowlists the SET of
- * legal NEXT_PUBLIC_* vars.
+ * common (a simple member read of a NEXT_PUBLIC_* name off `process.env`, with a
+ * `?? '…'` default, resolves to the literal name via staticallyAccessedVarName →
+ * this name-based exemption catches it). `ci:static-policy` remains the separate
+ * guard that allowlists the SET of legal NEXT_PUBLIC_* vars.
  */
 function isExemptIndicatorName(name: string): boolean {
   return (
