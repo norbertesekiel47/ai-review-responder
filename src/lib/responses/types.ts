@@ -1,3 +1,5 @@
+import type { TriageSeverity } from '@/lib/reviews/triage-schema';
+
 // ── Demo-mode business context (minimal) ────────────────────────────
 
 export interface DemoBusinessContext {
@@ -45,6 +47,8 @@ export interface GenerationOptions {
   /** Skip idempotent cache read AND write. Used by avoid-facts retry so a
    *  cached violating response doesn't short-circuit the regeneration. */
   skipCache?: boolean;
+  /** WS2 triage severity for tone guidance; null/undefined = not triaged. */
+  triageSeverity?: TriageSeverity | null;
 }
 
 // ── Generation result ───────────────────────────────────────────────
