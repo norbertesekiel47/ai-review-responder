@@ -26,8 +26,13 @@ ALTER TABLE reviews
   ADD COLUMN IF NOT EXISTS triaged_at TIMESTAMPTZ;
 
 -- A triage result is written atomically or not at all: either every column is
--- NULL (never triaged) or the core trio is present. model/issues/hash stay
--- individually nullable (fallback has no model; hash can be legitimately NULL).
+-- NULL (never triaged) or the mandatory quartet is present — severity, source,
+-- suggested_action, triaged_at. Every writer (llm, fallback, mock) always sets
+-- suggested_action and WS3 escalation reads it, so a triaged row without it is
+-- unrepresentable. model/issues/hash stay individually nullable (fallback has
+-- no model; hash can be legitimately NULL).
+-- DROP IF EXISTS first so a double-apply is a no-op (migration 069 precedent).
+ALTER TABLE reviews DROP CONSTRAINT IF EXISTS reviews_triage_consistency;
 ALTER TABLE reviews ADD CONSTRAINT reviews_triage_consistency CHECK (
   (
     triage_severity IS NULL AND triage_issues IS NULL
@@ -37,7 +42,7 @@ ALTER TABLE reviews ADD CONSTRAINT reviews_triage_consistency CHECK (
   )
   OR (
     triage_severity IS NOT NULL AND triage_source IS NOT NULL
-    AND triaged_at IS NOT NULL
+    AND triage_suggested_action IS NOT NULL AND triaged_at IS NOT NULL
   )
 );
 
