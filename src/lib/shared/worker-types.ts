@@ -84,6 +84,16 @@ export interface AutoPostNoticePayload extends BasePayload {
   business_id: string;
 }
 
+/**
+ * EscalationNoticePayload — emitted ONLY by raiseEscalation
+ * (src/lib/escalations/raise.ts) in the same tx that inserts the
+ * review_escalations row (WS3 spec §2.2). ids only — never review text.
+ */
+export interface EscalationNoticePayload extends BasePayload {
+  escalation_id: string;
+  business_id: string;
+}
+
 export interface NotifyAdminExceptionPayload extends BasePayload {
   review_exception_id: string;
   business_id: string;

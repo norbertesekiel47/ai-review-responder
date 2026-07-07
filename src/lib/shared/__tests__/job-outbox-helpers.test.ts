@@ -8,6 +8,7 @@ vi.mock('@/lib/db/server', () => ({
 
 import {
   enqueueAutoPostNotice,
+  enqueueEscalationNotice,
   enqueueGenerateResponse,
   enqueuePublishResponse,
   enqueueValidatePlaceId,
@@ -198,6 +199,42 @@ describe('job outbox helpers', () => {
       business_id: 'business-1',
       correlation_id: 'corr-1',
     });
+  });
+
+  it('enqueues escalation_notice with the in-flight conflict guard matching migration 073 byte-for-byte', async () => {
+    const tx = createMockTx();
+
+    await enqueueEscalationNotice(tx, {
+      escalationId: 'esc-1',
+      businessId: 'biz-1',
+      correlationId: 'corr-1',
+    });
+
+    expect(tx).toHaveBeenCalledOnce();
+    const text = sqlText(tx.mock.calls[0]!);
+    expect(text).toContain('INSERT INTO job_outbox');
+    expect(text).toContain('ON CONFLICT (topic, aggregate_id)');
+    // Byte-for-byte the predicate of idx_jo_escalation_notice_inflight (073).
+    expect(text).toContain(
+      "WHERE topic = 'escalation_notice' AND status IN ('pending', 'dispatching', 'dispatched')",
+    );
+    expect(tx.mock.calls[0]).toContain(QUEUE_NAMES.ESCALATION_NOTICE);
+
+    const payload = objectArgs(tx).find((arg) => arg.escalation_id === 'esc-1');
+    expect(payload).toEqual({
+      escalation_id: 'esc-1',
+      business_id: 'biz-1',
+      correlation_id: 'corr-1',
+    });
+  });
+
+  it('omits correlation_id from escalation_notice payload when not provided', async () => {
+    const tx = createMockTx();
+
+    await enqueueEscalationNotice(tx, { escalationId: 'esc-1', businessId: 'biz-1' });
+
+    const payload = objectArgs(tx).find((arg) => arg.escalation_id === 'esc-1');
+    expect(payload).toEqual({ escalation_id: 'esc-1', business_id: 'biz-1' });
   });
 
   it('enqueues validate_place_id with the in-flight WHERE NOT EXISTS dedup guard', async () => {
