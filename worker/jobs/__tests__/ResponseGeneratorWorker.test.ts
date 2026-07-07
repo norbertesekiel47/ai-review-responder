@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
 import type { GenerateResponsePayload } from '../../../src/lib/shared/worker-types';
 import type { GenerationResult } from '../../../src/lib/responses/types';
+import type { TriageSeverity } from '../../../src/lib/reviews/triage-schema';
 
 // ── Hoisted state shared between mock factories and tests ──────────────
 const {
@@ -19,6 +20,7 @@ const {
   mockSetCachedGeneration,
   mockEnqueueAnalyticsEvent,
   mockModerateResponse,
+  mockRunTriagePhase,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
 
@@ -53,6 +55,9 @@ const {
     mockSetCachedGeneration: vi.fn(),
     mockEnqueueAnalyticsEvent: vi.fn(),
     mockModerateResponse: vi.fn(),
+    // Default null (flag off / positive lane) so every pre-triage test's
+    // behavior is unchanged; clearAllMocks keeps this implementation.
+    mockRunTriagePhase: vi.fn<() => Promise<TriageSeverity | null>>(async () => null),
   };
 });
 
@@ -116,6 +121,10 @@ vi.mock('../../../src/lib/analytics/enqueue', () => ({
 
 vi.mock('../../../src/lib/moderation/moderate', () => ({
   moderateResponse: mockModerateResponse,
+}));
+
+vi.mock('../response-generation/triage', () => ({
+  runTriagePhase: mockRunTriagePhase,
 }));
 
 vi.mock('uuid', () => ({
@@ -623,6 +632,43 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     expect(txArgs).toContain('open');
 
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-gen-1', undefined);
+  });
+
+  // 7. Triage phase (WS2)
+  it('runs the triage phase after context load and threads its severity into generation options', async () => {
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+    mockRunTriagePhase.mockResolvedValueOnce('high');
+
+    await handleResponseGeneration(makeJob());
+
+    expect(mockRunTriagePhase).toHaveBeenCalledOnce();
+    // This suite runs the REAL generateDraft, so the severity is observed at
+    // the generateResponse seam: options is arg[4].
+    expect(mockGenerateResponse).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), expect.anything(), expect.anything(),
+      expect.objectContaining({ triageSeverity: 'high' }),
+    );
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-gen-1', undefined);
+  });
+
+  it('does not reach the triage phase on skip paths (cancelled subscription, existing response)', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    // Skipped: cancelled subscription
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow({ subscription_status: 'cancelled' })]);
+    await handleResponseGeneration(makeJob());
+    expect(mockRunTriagePhase).not.toHaveBeenCalled();
+
+    // already_exists: idempotent retry with a committed response
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    sqlReturnQueue.push([mockExistingResponseRow()]);
+    sqlReturnQueue.push([mockFirstDraftLookup()]);
+    await handleResponseGeneration(makeJob());
+    expect(mockRunTriagePhase).not.toHaveBeenCalled();
+    logSpy.mockRestore();
   });
 
   it('sends the normal notification when moderation does not flag (default)', async () => {
