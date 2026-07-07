@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 372;
+export const ALLOWLIST_BASELINE = 373;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -486,6 +486,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT subscription_status FROM accounts WHERE id = ${accountId}::uuid",
     category: 'tenant-root-lookup',
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
+  },
+  {
+    file: "src/lib/escalations/transitions.ts",
+    table: "reviews",
+    sqlSnippet: "SELECT id FROM reviews WHERE id = ${pre.review_id} FOR UPDATE",
+    category: 'tenant-root-lookup',
+    reason: "Lock-ordering statement (run-spine contract: review row FOR UPDATE first); tenant scope is established by the account-filtered escalation pre-check in the same function, which supplies the review_id.",
   },
   {
     file: "src/lib/locations/add-location-tx.ts",
