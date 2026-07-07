@@ -7,6 +7,9 @@
 -- a SNAPSHOT of what Guardian acted on (reviews.triage_* is rewritable by
 -- re-triage). agent_run_id is captured at raise so escalation_resolved can be
 -- attributed days later, after the run completed (ON DELETE SET NULL).
+-- review_id has no ON DELETE action by design — the offboarding purge deletes
+-- review_escalations explicitly before the reviews delete (purge-stages, WS3
+-- Task 2).
 --
 -- RLS: deny-all (enable, no policies — agent_outcomes/migration-071 posture).
 -- All access via server routes/workers, app-enforced account scoping.
@@ -90,6 +93,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS notification_deliveries_escalation_notice_clai
 
 COMMENT ON INDEX notification_deliveries_escalation_notice_claim IS
   'Claim-before-send dedup for the escalation notice: at most one delivery per (escalation_id, channel, recipient). Backs claimEscalationNoticeDelivery ON CONFLICT (escalation_id, channel, recipient) WHERE escalation_id IS NOT NULL AND template = escalation_notice, byte-for-byte.';
+
+-- RI support for the escalation_id ON DELETE SET NULL FK: the claim index's
+-- predicate includes template = 'escalation_notice', which the FK trigger's
+-- plain equality lookup cannot use — without this, every escalation delete
+-- would seq-scan notification_deliveries (mirrors idx_nd_response in 001).
+CREATE INDEX IF NOT EXISTS idx_nd_escalation
+  ON notification_deliveries (escalation_id)
+  WHERE escalation_id IS NOT NULL;
 
 -- In-flight outbox dedup (mirrors idx_jo_auto_post_notice_inflight, migration 067).
 CREATE UNIQUE INDEX IF NOT EXISTS idx_jo_escalation_notice_inflight

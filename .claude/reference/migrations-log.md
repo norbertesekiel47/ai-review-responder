@@ -753,8 +753,14 @@ Revisit triggers:
   status IN ('pending', 'dispatching', 'dispatched')` — in-flight outbox
   dedup mirroring `idx_jo_auto_post_notice_inflight` (067), backing
   `enqueueEscalationNotice`'s ON CONFLICT byte-for-byte
-  (`src/lib/shared/job-outbox-helpers.ts`). All three writers land in later
-  WS3 tasks on this branch — this migration is the schema foundation only.
+  (`src/lib/shared/job-outbox-helpers.ts`); and `idx_nd_escalation` on
+  `notification_deliveries (escalation_id) WHERE escalation_id IS NOT NULL`
+  — plain RI-support index for the `ON DELETE SET NULL` FK (the claim
+  index's `template = 'escalation_notice'` predicate is unusable by the FK
+  trigger's equality lookup; without it, every escalation delete would
+  seq-scan `notification_deliveries` — mirrors `idx_nd_response` in 001).
+  All three ON CONFLICT writers land in later WS3 tasks on this branch —
+  this migration is the schema foundation only.
   Additive, fully re-runnable (`CREATE TABLE IF NOT EXISTS`, `CREATE [UNIQUE]
   INDEX IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP CONSTRAINT IF
   EXISTS` before every `ADD CONSTRAINT`); no CONCURRENTLY (brand-new table +
