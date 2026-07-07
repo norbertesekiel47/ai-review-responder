@@ -67,6 +67,21 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
   const moderatedCostId = retryCostId ?? result.apiCostId;
 
   await sql.begin(async (tx) => {
+    // Take the review row lock as the transaction's FIRST statement
+    // (run-spine.ts lock-ordering contract). It must precede the responses
+    // INSERT below: that INSERT's FK on review_id takes an implicit
+    // FOR KEY SHARE on the reviews tuple, and upgrading share → FOR UPDATE
+    // later deadlocks against concurrent FOR UPDATE waiters (content-changed
+    // ingest, edit-publish/failed-hook, or another persist for the same
+    // review). Taking FOR UPDATE first subsumes the later KEY SHARE. Bonus:
+    // the auto-approval content-hash re-read further down happens under this
+    // lock, so it cannot race a concurrent content-changed ingest.
+    await tx`
+      SELECT 1 FROM reviews
+      WHERE id = ${reviewId} AND business_id = ${businessId}
+      FOR UPDATE
+    `;
+
     await tx`
       INSERT INTO responses (
         id, review_id, business_id, response_text, response_language,
@@ -100,18 +115,6 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       reviewId,
       outputExcerpt: result.responseText.slice(0, 200),
     });
-
-    // Serialize at the review row before the first spine write (run-spine.ts
-    // lock-ordering contract): the ingest path holds reviews-lock →
-    // agent_runs-lock, so this tx must take the review lock before recordStep
-    // locks the run row — otherwise the two transactions can deadlock. Bonus:
-    // the runtime-state content-hash re-read below happens under the same
-    // lock, so it cannot race a concurrent content-changed ingest.
-    await tx`
-      SELECT 1 FROM reviews
-      WHERE id = ${reviewId} AND business_id = ${businessId}
-      FOR UPDATE
-    `;
 
     const activeRun = await findActiveReviewRun(tx, reviewId);
     if (activeRun) {

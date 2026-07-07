@@ -101,6 +101,7 @@ function queuePersistRows(input: {
   autoApprove?: boolean;
 } = {}) {
   txQueue.push(
+    [], // SELECT 1 FROM reviews … FOR UPDATE (lock ordering — FIRST tx statement)
     [], // INSERT responses
     [], // UPDATE api_costs response_id
     [], // UPDATE api_costs moderation metadata
@@ -108,7 +109,6 @@ function queuePersistRows(input: {
   if (input.flaggedHigh) {
     txQueue.push([]); // INSERT flagged_responses
   }
-  txQueue.push([]); // SELECT 1 FROM reviews … FOR UPDATE (spine lock ordering)
   txQueue.push(
     [currentState(input.state)],
     input.policies ?? [enabledPolicy()],
@@ -157,7 +157,8 @@ function txArgs(): unknown[] {
 }
 
 function assertManualNotificationFallback() {
-  expect(txTexts()[0]).toContain('approval_method');
+  // txTexts()[0] is the review row lock; the responses INSERT follows it.
+  expect(txTexts()[1]).toContain('approval_method');
   expect(txArgs()).toContain(QUEUE_NAMES.SEND_NOTIFICATION);
   expect(txArgs()).not.toContain(QUEUE_NAMES.PUBLISH_RESPONSE);
   expect(txArgs()).not.toContain('auto_approved_by_policy');
@@ -224,7 +225,7 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
 
     expect(responseId).toBe('deterministic-uuid-v7');
     const texts = txTexts();
-    expect(texts[0]).toContain('approval_method');
+    expect(texts[1]).toContain('approval_method');
     expect(texts.some((text) => text.includes('UPDATE responses') && text.includes('approved_text'))).toBe(true);
     expect(txArgs()).toContain('auto_policy');
     expect(txArgs()).toContain('auto_approved_by_policy');
@@ -340,7 +341,9 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
 });
 
 describe('persistResponseAndNotify run-spine instrumentation', () => {
-  const ACTIVE_RUN = { id: 'run-1', account_id: 'acct-1' };
+  // account_id deliberately differs from the job input's accountId ('acct-1')
+  // so the outcome assertion pins that attribution comes from the run row.
+  const ACTIVE_RUN = { id: 'run-1', account_id: 'run-acct-1' };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -377,22 +380,34 @@ describe('persistResponseAndNotify run-spine instrumentation', () => {
     }));
     expect(recordOutcome).toHaveBeenCalledWith(mockTx, {
       runId: 'run-1',
-      accountId: 'acct-1',
+      accountId: 'run-acct-1', // from the run row, NOT the job input's 'acct-1'
       businessId: 'biz-1',
       attributedAgent: 'reply',
       outcomeKind: 'reply_drafted',
     });
   });
 
-  it('locks the review row (FOR UPDATE) inside the persist tx before spine writes', async () => {
+  it('locks the review row FOR UPDATE as the FIRST tx statement, before the responses INSERT and spine writes', async () => {
     vi.mocked(findActiveReviewRun).mockResolvedValue(ACTIVE_RUN);
     queuePersistRows();
 
     await persistResponseAndNotify(mockSql, baseInput());
 
-    expect(
-      txTexts().some((text) => text.includes('FROM reviews') && text.includes('FOR UPDATE')),
-    ).toBe(true);
+    const texts = txTexts();
+    const lockIndex = texts.findIndex(
+      (text) => text.includes('FROM reviews') && text.includes('FOR UPDATE'),
+    );
+    const insertIndex = texts.findIndex((text) => text.includes('INSERT INTO responses'));
+    // First statement of the tx: the responses INSERT's FK takes an implicit
+    // FOR KEY SHARE on the reviews tuple, so a later FOR UPDATE would be a
+    // deadlock-prone lock upgrade.
+    expect(lockIndex).toBe(0);
+    expect(insertIndex).toBeGreaterThan(lockIndex);
+
+    // And the lock precedes the first spine write (cross-mock global order).
+    const lockInvocation = mockTx.mock.invocationCallOrder[lockIndex]!;
+    const firstSpineWriteInvocation = vi.mocked(recordStep).mock.invocationCallOrder[0]!;
+    expect(lockInvocation).toBeLessThan(firstSpineWriteInvocation);
   });
 
   it('records a policy_gate step with the auto-approval decision on the auto-approved path', async () => {

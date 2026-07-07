@@ -12,6 +12,9 @@
 // makes the relative run/response lock order irrelevant. (The ingest path
 // locks the review row at the top of processReview; other checkpoints must
 // do the same before their first spine write.)
+// "First" means before ANY statement that locks the review row, including the
+// implicit FOR KEY SHARE taken by inserting/updating child rows that
+// FK-reference it — take the review lock as the transaction's first statement.
 
 import { v7 as uuidv7 } from 'uuid';
 import type { TransactionSql } from 'postgres';
