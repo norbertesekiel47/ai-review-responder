@@ -36,4 +36,12 @@ describe('LLM model pinning', () => {
     expect(source).not.toContain("'gpt-4o-mini'");
     expect(source).toContain("runLlmTask('insights'");
   });
+
+  it('triage task pins both providers to the pinned snapshots', () => {
+    const task = getLlmTask('triage');
+    expect(task.primary).toEqual({ provider: 'openai', model: OPENAI_MODEL });
+    expect(task.fallback).toEqual({ provider: 'anthropic', model: ANTHROPIC_MODEL });
+    expect(task.temperature).toBe(0);
+    expect(task.outputSchema).toBeDefined();
+  });
 });
