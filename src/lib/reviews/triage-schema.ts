@@ -6,6 +6,9 @@
 // task registry (src/lib/llm/tasks.ts) and the triage domain module can
 // import it without a cycle. Values must stay in lockstep with migration
 // 072's CHECK constraints.
+//
+// Per-field types derive from TriageOutput; only add standalone type aliases
+// when a non-test consumer exists (fallow dead-code gate).
 
 import { z } from 'zod';
 
@@ -19,7 +22,6 @@ export const TRIAGE_ISSUES = [
   'cleanliness', 'staff_conduct', 'order_accuracy', 'communication',
   'safety_or_health', 'billing_or_refund', 'other',
 ] as const;
-export type TriageIssue = (typeof TRIAGE_ISSUES)[number];
 
 export const TRIAGE_SUGGESTED_ACTIONS = ['respond', 'escalate', 'respond_and_escalate'] as const;
 
@@ -30,9 +32,9 @@ export const TRIAGE_SOURCE = {
 } as const;
 export type TriageSource = (typeof TRIAGE_SOURCE)[keyof typeof TRIAGE_SOURCE];
 
-export const TriageOutputSchema = z.object({
+export const TriageOutputSchema = z.strictObject({
   severity: z.enum(TRIAGE_SEVERITIES),
   issues: z.array(z.enum(TRIAGE_ISSUES)).max(3),
   suggested_action: z.enum(TRIAGE_SUGGESTED_ACTIONS),
-}).strict();
+});
 export type TriageOutput = z.infer<typeof TriageOutputSchema>;

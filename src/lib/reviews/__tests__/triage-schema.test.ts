@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   TRIAGE_ISSUES,
+  TRIAGE_SEVERITIES,
   TRIAGE_SOURCE,
+  TRIAGE_SUGGESTED_ACTIONS,
   TriageOutputSchema,
 } from '../triage-schema';
 
@@ -13,6 +15,15 @@ describe('TriageOutputSchema', () => {
       suggested_action: 'respond_and_escalate',
     });
     expect(parsed.severity).toBe('high');
+  });
+
+  it('accepts exactly 3 issues (max boundary)', () => {
+    const parsed = TriageOutputSchema.parse({
+      severity: 'medium',
+      issues: ['pricing', 'wait_time', 'other'],
+      suggested_action: 'respond',
+    });
+    expect(parsed.issues).toHaveLength(3);
   });
 
   it('rejects unknown severity, unknown issue, and >3 issues', () => {
@@ -37,6 +48,10 @@ describe('TriageOutputSchema', () => {
   });
 
   it('pins the taxonomy and source vocabulary (migration 072 + spec §2.3/§2.4)', () => {
+    expect(TRIAGE_SEVERITIES).toEqual(['low', 'medium', 'high']);
+    expect(TRIAGE_SUGGESTED_ACTIONS).toEqual([
+      'respond', 'escalate', 'respond_and_escalate',
+    ]);
     expect(TRIAGE_ISSUES).toEqual([
       'service_quality', 'product_quality', 'wait_time', 'pricing',
       'cleanliness', 'staff_conduct', 'order_accuracy', 'communication',
