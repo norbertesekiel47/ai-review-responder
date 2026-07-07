@@ -1,6 +1,14 @@
 # SaaS 2.0: Vertical AI Agent Platform — Meta-Mission Design
 
-**Status:** Draft for review (revised 2026-05-23 — single committed program; Reply first, Solicitation built and kept launch-ready)
+> **SUPERSEDED (2026-07-01):** This doc is superseded by
+> [2026-07-01-agentic-reputation-platform-design.md](2026-07-01-agentic-reputation-platform-design.md),
+> the design of record for the agentic platform. The product is unlaunched, so the
+> migration/shadow-billing machinery here (§8) is deleted, not deferred. Two parts
+> remain live reference material: **§4 (trust-dial enforcement — the safety
+> architecture)** and **§6 (Solicitation agent design)** — the 2026-07-01 doc
+> points back to them explicitly.
+
+**Status:** SUPERSEDED by [2026-07-01-agentic-reputation-platform-design.md](2026-07-01-agentic-reputation-platform-design.md) (was: draft for review, revised 2026-05-23 — single committed program; Reply first, Solicitation built and kept launch-ready)
 **Author:** Orchestrator (brainstorming session)
 **Date:** 2026-05-22
 **Scope:** Meta-design covering V1 (substrate + Reply + Solicitation + outcome pricing), V1.5 (WhatsApp + QR), and V2 (POS connectors + Complaint-Recovery). Each sub-mission listed in Section 9 will have its own spec → plan → mission cycle.
