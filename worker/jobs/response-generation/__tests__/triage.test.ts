@@ -156,7 +156,7 @@ describe('runTriagePhase', () => {
     expect(persistTriage).not.toHaveBeenCalled();
   });
 
-  it('re-triages when the review content hash changed, persisting the CURRENT hash', async () => {
+  it('re-triages when the review content hash changed, persisting the CLASSIFIED-text hash', async () => {
     sqlReturnQueue.push(mkTaggedResult([{
       triage_severity: 'low',
       triage_source: TRIAGE_SOURCE.LLM,
@@ -169,8 +169,14 @@ describe('runTriagePhase', () => {
 
     expect(severity).toBe('high');
     expect(classifyReviewTriage).toHaveBeenCalledTimes(1);
+    // The stamped hash must be the hash of the text the LLM actually saw
+    // (ctx.loadedReviewContentHash), NOT the fresher state-read hash: if a
+    // content-changed ingest commits between context load and the state read,
+    // stamping the newer hash would falsely mark the NEW content as triaged
+    // with an old-text classification. Stamping the loaded hash keeps every
+    // divergence self-healing — mismatch → next job re-triages.
     expect(persistTriage).toHaveBeenCalledWith(mockSql, expect.objectContaining({
-      contentHash: 'new-hash',
+      contentHash: 'hash-1',
     }));
   });
 

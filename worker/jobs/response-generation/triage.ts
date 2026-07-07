@@ -6,6 +6,12 @@
 // Returns the severity for tone guidance (null = not triaged). Transient
 // classification errors propagate so BullMQ retries the whole job — the
 // committed-triage hash check makes the retry spend-free.
+//
+// Accepted race: two concurrent generation jobs for the same review can both
+// pass the skip-check → double classify (sub-cent, temperature 0) → both
+// append a triage step (timeline noise only). reviews.triage_* stays correct
+// via persistTriage's review-row lock serialization + the hash model.
+// Dedup-under-lock is deferred until WS5 needs clean timelines.
 
 import type { Sql } from 'postgres';
 import { classifyReviewTriage, persistTriage } from '../../../src/lib/reviews/triage';
@@ -73,7 +79,13 @@ export async function runTriagePhase(
       reviewId: ids.reviewId,
       businessId: ids.businessId,
       classification,
-      contentHash: state.review_content_hash,
+      // Hash of the text the LLM actually classified (loaded with the
+      // generation context) — NOT the fresher state-read hash. If a
+      // content-changed ingest commits between context load and the state
+      // read, stamping the newer hash would falsely mark the new content as
+      // triaged with an old-text classification; the loaded hash keeps every
+      // divergence self-healing (mismatch → next job re-triages).
+      contentHash: ctx.loadedReviewContentHash,
     });
   });
 
