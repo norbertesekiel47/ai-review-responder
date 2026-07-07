@@ -43,14 +43,21 @@ export function personaForStep(stepKey: AgentStepKey): AgentPersona {
   return STEP_PERSONA[stepKey];
 }
 
-export interface StartRunInput {
-  kind: AgentRunKind;
-  subjectType: 'review' | 'account_week';
+interface StartRunBase {
   subjectId: string;
   accountId: string;
   businessId: string | null;
   correlationId?: string;
 }
+
+// Discriminated on kind so the DB's agent_runs_kind_subject_type_pairing
+// CHECK (migration 071) is unrepresentable to violate in TS: review_handler
+// only pairs with a 'review' subject, weekly_insights with 'account_week'.
+export type StartRunInput = StartRunBase &
+  (
+    | { kind: 'review_handler'; subjectType: 'review' }
+    | { kind: 'weekly_insights'; subjectType: 'account_week' }
+  );
 
 export interface StartRunResult {
   runId: string;
@@ -110,31 +117,34 @@ export interface RecordStepInput {
 }
 
 /**
- * Append a step to a run. Serializes concurrent appenders by locking the run
- * row before computing the next step_index (UNIQUE (agent_run_id, step_index)
- * is the backstop). Persona comes from STEP_PERSONA — callers cannot
- * mis-attribute a step.
+ * Append a step to a run. Serializes concurrent appenders: the run row is
+ * locked in its OWN statement, and only a subsequent statement — whose READ
+ * COMMITTED snapshot is taken AFTER the lock wait, so it sees every committed
+ * step — computes the next step_index (UNIQUE (agent_run_id, step_index) is
+ * the backstop). A single lock+aggregate statement would snapshot before the
+ * wait and hand two appenders the same index. Persona comes from
+ * STEP_PERSONA — callers cannot mis-attribute a step.
  */
 export async function recordStep(tx: TxClient, input: RecordStepInput): Promise<void> {
-  const [row] = await tx<{ next_index: number }[]>`
-    SELECT COALESCE(
-        (SELECT MAX(s.step_index) FROM agent_run_steps s WHERE s.agent_run_id = r.id),
-        0
-      ) + 1 AS next_index
-    FROM agent_runs r
-    WHERE r.id = ${input.runId}
-    FOR UPDATE OF r
+  const lock = await tx<{ ok: number }[]>`
+    SELECT 1 AS ok FROM agent_runs WHERE id = ${input.runId} FOR UPDATE
   `;
-  if (!row) {
+  if (lock.count === 0) {
     throw new Error(`run-spine: run not found for recordStep(${input.runId}, ${input.stepKey})`);
   }
+
+  const [row] = await tx<{ next_index: number }[]>`
+    SELECT COALESCE(MAX(step_index), 0) + 1 AS next_index
+    FROM agent_run_steps
+    WHERE agent_run_id = ${input.runId}
+  `;
 
   await tx`
     INSERT INTO agent_run_steps (
       id, agent_run_id, step_index, step_key, attributed_agent,
       status, detail, latency_ms
     ) VALUES (
-      ${uuidv7()}, ${input.runId}, ${row.next_index}, ${input.stepKey},
+      ${uuidv7()}, ${input.runId}, ${row!.next_index}, ${input.stepKey},
       ${personaForStep(input.stepKey)}, ${input.status ?? 'completed'},
       ${tx.json((input.detail ?? {}) as never)}, ${input.latencyMs ?? null}
     )
@@ -142,7 +152,14 @@ export async function recordStep(tx: TxClient, input: RecordStepInput): Promise<
 }
 
 export interface RecordOutcomeInput {
-  runId: string | null;
+  /**
+   * Always a real run id: a null agent_run_id would silently escape the
+   * ON CONFLICT dedup (the partial index is WHERE agent_run_id IS NOT NULL).
+   * The DB column stays nullable only for ON DELETE SET NULL orphaning of
+   * historical outcomes; widen this type only when a genuinely run-less
+   * outcome caller arrives.
+   */
+  runId: string;
   accountId: string;
   businessId: string | null;
   attributedAgent: AgentPersona;
@@ -172,7 +189,8 @@ export async function recordOutcome(tx: TxClient, input: RecordOutcomeInput): Pr
 /**
  * Terminal transition. Only 'running' runs transition (idempotent: a retry
  * that re-completes an already-terminal run is a no-op, matching the
- * agent_runs_terminal_consistency CHECK).
+ * agent_runs_terminal_consistency CHECK). A runId that matches NO run at all
+ * throws — that is a caller bug, not a replay.
  */
 export async function completeRun(
   tx: TxClient,
@@ -180,12 +198,24 @@ export async function completeRun(
   status: 'completed' | 'failed',
   error?: Record<string, unknown>,
 ): Promise<void> {
-  await tx`
+  const updated = await tx<{ id: string }[]>`
     UPDATE agent_runs
     SET status = ${status},
         ended_at = NOW(),
         error = ${error ? tx.json(error as never) : null}
     WHERE id = ${runId}
       AND status = 'running'
+    RETURNING id
   `;
+  if (updated.count > 0) {
+    return;
+  }
+
+  const [existing] = await tx<{ status: string }[]>`
+    SELECT status FROM agent_runs WHERE id = ${runId}
+  `;
+  if (!existing) {
+    throw new Error(`run-spine: run not found for completeRun(${runId}, ${status})`);
+  }
+  // Row exists but is already terminal — a replayed completion is a no-op.
 }

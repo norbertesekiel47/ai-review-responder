@@ -118,7 +118,8 @@ describe('recordStep', () => {
   beforeEach(() => { tx = makeMockTx(); });
 
   it('locks the run, computes the next index, and inserts with the mapped persona', async () => {
-    tx.mockResolvedValueOnce(withCount([{ next_index: 3 }], 1)); // lock + MAX(step_index)+1
+    tx.mockResolvedValueOnce(withCount([{ ok: 1 }], 1));         // lock (own statement)
+    tx.mockResolvedValueOnce(withCount([{ next_index: 3 }], 1)); // MAX(step_index)+1 after lock
     tx.mockResolvedValueOnce(withCount([], 0));                  // INSERT step
 
     await recordStep(tx as never, {
@@ -131,12 +132,16 @@ describe('recordStep', () => {
     const lockSql = (tx.mock.calls[0]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
     expect(lockSql).toContain('FOR UPDATE');
 
-    const insertSql = (tx.mock.calls[1]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    const nextIndexSql = (tx.mock.calls[1]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(nextIndexSql).toContain('MAX(step_index)');
+    expect(nextIndexSql).not.toContain('FOR UPDATE'); // fresh snapshot AFTER the lock statement
+
+    const insertSql = (tx.mock.calls[2]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
     expect(insertSql).toContain('INSERT INTO agent_run_steps');
-    const params = (tx.mock.calls[1] as unknown[]).slice(1);
+    const params = (tx.mock.calls[2] as unknown[]).slice(1);
     expect(params).toContain('draft_generated');
     expect(params).toContain('reply');   // persona from STEP_PERSONA, not caller input
-    expect(params).toContain(3);         // next_index from the locked read
+    expect(params).toContain(3);         // next_index from the post-lock read
   });
 
   it('throws when the run row does not exist', async () => {
@@ -182,11 +187,21 @@ describe('completeRun', () => {
     expect(sqlText).toContain('UPDATE agent_runs');
     expect(sqlText).toContain("status = 'running'"); // only running runs transition
     expect(sqlText).toContain('ended_at = NOW()');
+    expect(sqlText).toContain('RETURNING id');
+    expect(tx).toHaveBeenCalledTimes(1); // updated → no follow-up existence probe
   });
 
   it('is a no-op (not an error) when the run is already terminal', async () => {
-    tx.mockResolvedValueOnce(withCount([], 0));
+    tx.mockResolvedValueOnce(withCount([], 0));                        // UPDATE hit nothing
+    tx.mockResolvedValueOnce(withCount([{ status: 'completed' }], 1)); // probe: exists, terminal
     await expect(completeRun(tx as never, 'run-1', 'failed', { reason: 'llm_terminal' }))
       .resolves.toBeUndefined();
+  });
+
+  it('throws when the run does not exist at all', async () => {
+    tx.mockResolvedValueOnce(withCount([], 0)); // UPDATE hit nothing
+    tx.mockResolvedValueOnce(withCount([], 0)); // probe: no row
+    await expect(completeRun(tx as never, 'missing', 'completed'))
+      .rejects.toThrow(/run not found/i);
   });
 });
