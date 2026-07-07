@@ -647,9 +647,6 @@ export default function ApprovalClient({ token }: { token: string }) {
   // full-island) branch. A GET failure leaves `data` null → full error island.
   useEffect(() => {
     let cancelled = false;
-    // Idiomatic load-then-bind effect: sequential fetch + cancellation guard
-    // branches. (Prose kept off the directive line so fallow does not parse it.)
-    // fallow-ignore-next-line complexity
     void (async () => {
       try {
         const res = await fetch(`/api/approve/${token}`);

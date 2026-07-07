@@ -26,7 +26,10 @@ jobs:
   fallow:
     name: fallow
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Bumped from 10 → 15: the job now runs a full `vitest run --coverage` before
+    # the audit (the static-only scan was sub-second). Coverage gen ~2-3 min on CI
+    # + fallow ~40s leaves comfortable headroom; 15 absorbs runner variance.
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -39,10 +42,15 @@ jobs:
         uses: ./.github/actions/setup
       - name: Install fallow
         run: npm install -g fallow@2.88.2
-      - name: Fallow audit (new findings only)
+      - name: Generate coverage
+        # Produces coverage/coverage-final.json (v8 json reporter) for the audit's
+        # runtime layer. Runs WITHOUT TEST_DATABASE_POOL_URL, so integration suites
+        # skip — no DB, no collision with ci.yml's test job.
+        run: pnpm test:coverage
+      - name: Fallow audit (new findings only, coverage-informed)
         env:
           # Stacked PRs target a non-main base. Compare against the PR's actual
           # base branch so we never re-count the parent branch's findings as new.
           # Normal PRs (base = main) resolve to origin/main, the prior behaviour.
           FALLOW_BASE: origin/${{ github.event.pull_request.base.ref }}
-        run: pnpm ci:fallow
+        run: pnpm ci:fallow:coverage
