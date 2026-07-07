@@ -1,7 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { buildEscalationNoticeEmailHtml, escalationNoticeSubject } from '../escalation-notice';
-
-afterEach(() => vi.unstubAllEnvs());
 
 const baseParams = {
   to: 'owner@example.com',
@@ -13,10 +11,8 @@ const baseParams = {
   reviewText: 'Terrible experience, found a hair in my food.',
   severity: 'high' as const,
   issues: ['safety_or_health' as const],
-  suggestedAction: 'respond_and_escalate' as const,
   isFallback: false,
   dashboardUrl: 'https://app.repworth.com/dashboard/reviews',
-  escalationId: 'esc-1',
 };
 
 describe('escalation notice email', () => {
@@ -51,5 +47,16 @@ describe('escalation notice email', () => {
   it('handles rating-less reviews without rendering stars', () => {
     const html = buildEscalationNoticeEmailHtml({ ...baseParams, starRating: null });
     expect(html).toContain('No star rating');
+  });
+
+  it('shows severity but omits the Flagged-for fragment when issues are empty (non-fallback)', () => {
+    const html = buildEscalationNoticeEmailHtml({ ...baseParams, issues: [] });
+    expect(html).toContain('High severity');
+    expect(html).not.toContain('Flagged for:');
+  });
+
+  it('renders the no-review-text placeholder when review text is null', () => {
+    const html = buildEscalationNoticeEmailHtml({ ...baseParams, reviewText: null });
+    expect(html).toContain('(no review text)');
   });
 });

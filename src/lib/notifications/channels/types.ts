@@ -103,7 +103,6 @@ export interface SendEscalationNoticeParams {
   reviewText: string | null;
   severity: TriageSeverity;
   issues: TriageIssue[];
-  suggestedAction: 'escalate' | 'respond_and_escalate';
   /** triage_source === 'fallback_high_v1' ⇒ "couldn't assess" copy, no severity claim. */
   isFallback: boolean;
   /** `${APP_URL}/dashboard/reviews` — the acknowledge surface (spec §2.7). */

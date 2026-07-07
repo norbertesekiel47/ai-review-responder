@@ -81,10 +81,8 @@ export class EmailChannel implements NotificationChannel {
       reviewText: p.reviewText,
       severity: p.severity,
       issues: p.issues,
-      suggestedAction: p.suggestedAction,
       isFallback: p.isFallback,
       dashboardUrl: p.dashboardUrl,
-      escalationId: p.escalationId,
       idempotencyKey: `escalation_notice:${p.escalationId}`,
     });
 

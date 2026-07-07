@@ -16,18 +16,18 @@ import type { TransactionSql } from 'postgres';
 import { recordOutcome, recordStep } from '@/lib/agents/run-spine';
 import { enqueueEscalationNotice } from '@/lib/shared/job-outbox-helpers';
 import type { TriageClassification } from '@/lib/reviews/triage';
-import type { TriageOutput } from '@/lib/reviews/triage-schema';
+import { ESCALATING_ACTIONS, type TriageOutput } from '@/lib/reviews/triage-schema';
 import { ESCALATION_STATUS } from './types';
 
-// Schema-typed so a renamed suggested_action value fails typecheck instead of
-// silently never escalating.
-const ESCALATING_ACTIONS: ReadonlyArray<TriageOutput['suggested_action']> =
-  ['escalate', 'respond_and_escalate'];
+// Widened readonly view of the taxonomy-owned tuple so `.includes` accepts
+// any suggested_action value (the literal tuple's element type would reject
+// non-escalating members at the call site).
+const escalatingActions: ReadonlyArray<TriageOutput['suggested_action']> = ESCALATING_ACTIONS;
 
 /** Trigger predicate (spec §2.1): source-agnostic — fallback rows escalate
  *  immediately; mock rows never reach here (mock always suggests 'respond'). */
 export function shouldEscalate(classification: TriageClassification): boolean {
-  return ESCALATING_ACTIONS.includes(classification.output.suggested_action);
+  return escalatingActions.includes(classification.output.suggested_action);
 }
 
 export interface RaiseEscalationInput {

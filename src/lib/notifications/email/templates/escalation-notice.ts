@@ -12,11 +12,16 @@ import { isMockMode } from '@/lib/shared/mock-mode';
 import { escapeHtml } from '@/lib/shared/html';
 import { sendEmail } from '../send-email';
 import { getEmailTags, type EmailCategory } from '../headers';
-import { LOG_PREFIX, renderStars, escapeHrefUrl, buildEmailShell } from './shared';
+import { LOG_PREFIX, renderStars, truncate, escapeHrefUrl, buildEmailShell } from './shared';
 import { sanitizeLocationLabelForPrefix } from '@/lib/notifications/channels/template-prefix';
 import { TRIAGE_ISSUE_LABELS, type TriageIssue, type TriageSeverity } from '@/lib/reviews/triage-schema';
 
 const REVIEW_TEXT_PREVIEW_CHARS = 400;
+
+// Single owner for the notice title copy — used by BOTH the subject line and
+// the body <h1> so they can't drift.
+const URGENT_NOTICE_TITLE = '🚨 A review needs your attention';
+const FALLBACK_NOTICE_TITLE = '⚠️ A review needs a look';
 
 const SEVERITY_LABELS: Record<TriageSeverity, string> = {
   low: 'Low severity',
@@ -34,10 +39,8 @@ export interface EscalationNoticeEmailParams {
   reviewText: string | null;
   severity: TriageSeverity;
   issues: TriageIssue[];
-  suggestedAction: 'escalate' | 'respond_and_escalate';
   isFallback: boolean;
   dashboardUrl: string;
-  escalationId: string;
   idempotencyKey?: string;
 }
 
@@ -46,8 +49,8 @@ export function escalationNoticeSubject(
 ): string {
   const safeLabel = sanitizeLocationLabelForPrefix(params.locationLabel);
   return params.isFallback
-    ? `[${safeLabel}] ⚠️ A review needs a look`
-    : `[${safeLabel}] 🚨 A review needs your attention`;
+    ? `[${safeLabel}] ${FALLBACK_NOTICE_TITLE}`
+    : `[${safeLabel}] ${URGENT_NOTICE_TITLE}`;
 }
 
 export function buildEscalationNoticeEmailHtml(
@@ -59,11 +62,7 @@ export function buildEscalationNoticeEmailHtml(
     ? `<p style="margin:0 0 4px;font-size:24px;letter-spacing:2px;">${renderStars(params.starRating)}</p>`
     : '<p style="margin:0 0 4px;font-size:13px;color:#6b7280;">No star rating</p>';
   const preview = params.reviewText
-    ? escapeHtml(
-        params.reviewText.length > REVIEW_TEXT_PREVIEW_CHARS
-          ? `${params.reviewText.slice(0, REVIEW_TEXT_PREVIEW_CHARS)}…`
-          : params.reviewText,
-      )
+    ? escapeHtml(truncate(params.reviewText, REVIEW_TEXT_PREVIEW_CHARS))
     : '(no review text)';
 
   const assessment = params.isFallback
@@ -75,7 +74,7 @@ export function buildEscalationNoticeEmailHtml(
       } A reply draft follows the usual approval flow — this alert is about the underlying issue.</p>`;
 
   return buildEmailShell(`        <tr><td style="padding:32px 24px 0;">
-          <h1 style="margin:0 0 4px;font-size:20px;color:#111;">[${safeLabel}] ${params.isFallback ? '⚠️ A review needs a look' : '🚨 A review needs your attention'}</h1>
+          <h1 style="margin:0 0 4px;font-size:20px;color:#111;">[${safeLabel}] ${params.isFallback ? FALLBACK_NOTICE_TITLE : URGENT_NOTICE_TITLE}</h1>
           ${assessment}
         </td></tr>
         <tr><td style="padding:0 24px;">
