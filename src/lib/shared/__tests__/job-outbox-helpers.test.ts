@@ -219,6 +219,9 @@ describe('job outbox helpers', () => {
       "WHERE topic = 'escalation_notice' AND status IN ('pending', 'dispatching', 'dispatched')",
     );
     expect(tx.mock.calls[0]).toContain(QUEUE_NAMES.ESCALATION_NOTICE);
+    // Aggregate vocabulary: aggregate_type 'escalation' keyed by the escalation id.
+    expect(tx.mock.calls[0]).toContain('escalation');
+    expect(tx.mock.calls[0]).toContain('esc-1');
 
     const payload = objectArgs(tx).find((arg) => arg.escalation_id === 'esc-1');
     expect(payload).toEqual({
