@@ -232,7 +232,8 @@ describe('formatEscalationNoticeWhatsApp', () => {
         businessName: 'Acme Diner',
         reviewerName: 'Jane D',
         starRating: 1,
-        severityLabel: 'High severity',
+        severity: 'high',
+        isFallback: false,
         escalationId: 'esc-1',
       },
       'HXescalation',
@@ -249,9 +250,25 @@ describe('formatEscalationNoticeWhatsApp', () => {
 
   it('renders a rating-less review as "–"', () => {
     const { contentVariables } = formatEscalationNoticeWhatsApp(
-      { businessName: 'A', reviewerName: 'B', starRating: null, severityLabel: 'Needs a look', escalationId: 'e' },
+      { businessName: 'A', reviewerName: 'B', starRating: null, severity: 'low', isFallback: true, escalationId: 'e' },
       'HX1',
     );
     expect(contentVariables['3']).toBe('–');
+  });
+
+  it('renders the humanized severity label for a non-fallback escalation', () => {
+    const { contentVariables } = formatEscalationNoticeWhatsApp(
+      { businessName: 'A', reviewerName: 'B', starRating: 5, severity: 'high', isFallback: false, escalationId: 'e' },
+      'HX1',
+    );
+    expect(contentVariables['4']).toBe('High severity');
+  });
+
+  it('renders "Needs a look" for a fallback-sourced escalation regardless of severity', () => {
+    const { contentVariables } = formatEscalationNoticeWhatsApp(
+      { businessName: 'A', reviewerName: 'B', starRating: 5, severity: 'high', isFallback: true, escalationId: 'e' },
+      'HX1',
+    );
+    expect(contentVariables['4']).toBe('Needs a look');
   });
 });

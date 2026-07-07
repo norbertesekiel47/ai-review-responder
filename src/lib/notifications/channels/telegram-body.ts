@@ -9,7 +9,7 @@
 // VAL-NOTIF-019: Template prefix escapes brackets, colons, long display_labels.
 
 import { sanitizeLocationLabelForPrefix } from './template-prefix';
-import { TRIAGE_ISSUE_LABELS, type TriageIssue, type TriageSeverity } from '@/lib/reviews/triage-schema';
+import { TRIAGE_ISSUE_LABELS, TRIAGE_SEVERITY_LABELS, type TriageIssue, type TriageSeverity } from '@/lib/reviews/triage-schema';
 
 export interface TelegramApprovalParams {
   /** Resolved location label: display_label ?? businesses.name. Always non-null. */
@@ -126,12 +126,6 @@ export interface TelegramEscalationNoticeParams {
   dashboardUrl: string;
 }
 
-const TELEGRAM_SEVERITY_LABELS: Record<TriageSeverity, string> = {
-  low: 'Low severity',
-  medium: 'Medium severity',
-  high: 'High severity',
-};
-
 /**
  * Pure formatter for the Guardian escalation notice (WS3). No approve/
  * regenerate buttons — a single "Open dashboard" URL button is the
@@ -149,7 +143,7 @@ export function formatEscalationNoticeTelegram(
     : '(no review text)';
   const assessment = p.isFallback
     ? "We couldn't assess this review automatically — please take a look."
-    : `${TELEGRAM_SEVERITY_LABELS[p.severity]}.${
+    : `${TRIAGE_SEVERITY_LABELS[p.severity]}.${
         p.issues.length > 0
           ? ` Flagged for: ${escapeHtml(p.issues.map((i) => TRIAGE_ISSUE_LABELS[i]).join(', '))}.`
           : ''

@@ -84,15 +84,13 @@ export class WhatsAppChannel implements NotificationChannel {
       return { status: 'skipped', reason: 'whatsapp_escalation_template_unset' };
     }
 
-    const severityLabel = p.isFallback
-      ? 'Needs a look'
-      : `${p.severity.charAt(0).toUpperCase()}${p.severity.slice(1)} severity`;
     const { contentVariables } = formatEscalationNoticeWhatsApp(
       {
         businessName: p.businessName,
         reviewerName: p.reviewerName,
         starRating: p.starRating,
-        severityLabel,
+        severity: p.severity,
+        isFallback: p.isFallback,
         escalationId: p.escalationId,
       },
       contentSid,

@@ -14,7 +14,7 @@ import { sendEmail } from '../send-email';
 import { getEmailTags, type EmailCategory } from '../headers';
 import { LOG_PREFIX, renderStars, truncate, escapeHrefUrl, buildEmailShell } from './shared';
 import { sanitizeLocationLabelForPrefix } from '@/lib/notifications/channels/template-prefix';
-import { TRIAGE_ISSUE_LABELS, type TriageIssue, type TriageSeverity } from '@/lib/reviews/triage-schema';
+import { TRIAGE_ISSUE_LABELS, TRIAGE_SEVERITY_LABELS, type TriageIssue, type TriageSeverity } from '@/lib/reviews/triage-schema';
 
 const REVIEW_TEXT_PREVIEW_CHARS = 400;
 
@@ -22,12 +22,6 @@ const REVIEW_TEXT_PREVIEW_CHARS = 400;
 // the body <h1> so they can't drift.
 const URGENT_NOTICE_TITLE = '🚨 A review needs your attention';
 const FALLBACK_NOTICE_TITLE = '⚠️ A review needs a look';
-
-const SEVERITY_LABELS: Record<TriageSeverity, string> = {
-  low: 'Low severity',
-  medium: 'Medium severity',
-  high: 'High severity',
-};
 
 export interface EscalationNoticeEmailParams {
   to: string;
@@ -67,7 +61,7 @@ export function buildEscalationNoticeEmailHtml(
 
   const assessment = params.isFallback
     ? `<p style="margin:0 0 20px;font-size:14px;color:#666;">We couldn&#39;t assess this review automatically — please take a look.</p>`
-    : `<p style="margin:0 0 20px;font-size:14px;color:#666;"><strong>${SEVERITY_LABELS[params.severity]}.</strong>${
+    : `<p style="margin:0 0 20px;font-size:14px;color:#666;"><strong>${TRIAGE_SEVERITY_LABELS[params.severity]}.</strong>${
         params.issues.length > 0
           ? ` Flagged for: ${escapeHtml(params.issues.map((i) => TRIAGE_ISSUE_LABELS[i]).join(', '))}.`
           : ''

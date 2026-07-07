@@ -337,10 +337,20 @@ promotion). If Meta reclassifies as MARKETING, the copy may need a rework; the
 **Proposed body text:**
 
 ```
-🚨 {{1}}: a review from {{2}} ({{3}}★) was assessed as {{4}} and needs your attention.
+🚨 {{1}}: a review from {{2}} ({{3}}★) was flagged as "{{4}}" and requires a look.
 
 Open your RepWorth dashboard to acknowledge.
 ```
+
+> **Static 🚨, unlike email/Telegram.** Email and Telegram vary the leading
+> emoji/title copy between an urgent notice (🚨) and a fallback "couldn't
+> assess" notice (⚠️) — see `URGENT_NOTICE_TITLE`/`FALLBACK_NOTICE_TITLE` in
+> `escalation-notice.ts` and the equivalent branch in
+> `formatEscalationNoticeTelegram`. This template's body is a single
+> Meta-approved string with no emoji variable, so a fallback-sourced
+> escalation (`{{4}}` = "Needs a look") still renders with the same static
+> 🚨 — WhatsApp cannot downgrade to ⚠️ without a second approved template
+> variant.
 
 **Variables:** (must match `formatEscalationNoticeWhatsApp` in
 `src/lib/notifications/channels/whatsapp-body.ts` — keys `"1"`–`"5"`, passed
@@ -380,7 +390,7 @@ send); it is **NOT** a startup-required var.
   },
   "types": {
     "whatsapp/card": {
-      "body": "🚨 {{1}}: a review from {{2}} ({{3}}★) was assessed as {{4}} and needs your attention.\n\nOpen your RepWorth dashboard to acknowledge."
+      "body": "🚨 {{1}}: a review from {{2}} ({{3}}★) was flagged as \"{{4}}\" and requires a look.\n\nOpen your RepWorth dashboard to acknowledge."
     }
   }
 }
@@ -389,9 +399,13 @@ send); it is **NOT** a startup-required var.
 **Variable-map validation gate (before submitting):** diff `{{1}}`–`{{5}}`
 against `formatEscalationNoticeWhatsApp` — `"1"`=businessName, `"2"`=reviewerName
 (`|| 'Reviewer'`), `"3"`=`String(starRating)` or `'–'` when rating-less,
-`"4"`=severityLabel (computed in `WhatsAppChannel.sendEscalationNotice`:
+`"4"`=severity label (computed inside `formatEscalationNoticeWhatsApp` from the
+single-owner `TRIAGE_SEVERITY_LABELS` map in `src/lib/reviews/triage-schema.ts`:
 `'Needs a look'` for fallback-sourced escalations, else `'<Severity> severity'`),
-`"5"`=escalationId (unused by the v1 body; reserved).
+`"5"`=escalationId — the formatter always sends this, but the v1 body above
+does not render it anywhere; Twilio tolerates an unrendered variable, but
+confirm that on the staging template before flipping prod (an unused variable
+some Content API versions reject at submission time).
 
 **What triggers a resubmission:** body wording, adding/removing a button, the
 category, or the variable count/order — same rules as the other two templates.

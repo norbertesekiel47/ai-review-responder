@@ -40,6 +40,13 @@ export const TRIAGE_ISSUE_LABELS: Record<TriageIssue, string> = {
   other: 'Other',
 };
 
+/** Humanized severity labels for owner-facing escalation notices (WS3). Single owner. */
+export const TRIAGE_SEVERITY_LABELS: Record<TriageSeverity, string> = {
+  low: 'Low severity',
+  medium: 'Medium severity',
+  high: 'High severity',
+};
+
 export const TRIAGE_SUGGESTED_ACTIONS = ['respond', 'escalate', 'respond_and_escalate'] as const;
 
 /** The suggested_action values that raise a Guardian escalation (WS3).
