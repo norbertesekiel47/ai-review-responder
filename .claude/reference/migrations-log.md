@@ -738,7 +738,11 @@ Revisit triggers:
   duplicate-triage race, while allowing a fresh escalation once the prior one
   resolves; `idx_review_escalations_account_status` — plain
   `(account_id, status)` for the dashboard's open-escalations-per-account
-  read. Deny-all RLS (enabled, NO policies — `agent_outcomes`/migration-071
+  read; `idx_review_escalations_agent_run` — partial
+  `(agent_run_id) WHERE agent_run_id IS NOT NULL`, RI support for the
+  `agent_run_id ON DELETE SET NULL` FK trigger (without it every
+  `agent_runs` delete would seq-scan `review_escalations` — same reasoning
+  as `idx_nd_escalation`). Deny-all RLS (enabled, NO policies — `agent_outcomes`/migration-071
   posture); server reaches it only via the RLS-bypassing `postgres` role.
   Also adds `notification_deliveries.escalation_id UUID REFERENCES
   review_escalations(id) ON DELETE SET NULL` (nullable — NULL for every

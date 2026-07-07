@@ -75,6 +75,13 @@ COMMENT ON INDEX review_escalations_one_open_per_review IS
 CREATE INDEX IF NOT EXISTS idx_review_escalations_account_status
   ON review_escalations (account_id, status);
 
+-- RI support for the agent_run_id ON DELETE SET NULL FK trigger — without
+-- this, every agent_runs delete would seq-scan review_escalations (same
+-- reasoning as idx_nd_escalation below).
+CREATE INDEX IF NOT EXISTS idx_review_escalations_agent_run
+  ON review_escalations (agent_run_id)
+  WHERE agent_run_id IS NOT NULL;
+
 -- Deny-all RLS (no policies): server-only access, app-enforced scoping.
 ALTER TABLE review_escalations ENABLE ROW LEVEL SECURITY;
 

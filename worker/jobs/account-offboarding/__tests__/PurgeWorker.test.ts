@@ -339,6 +339,20 @@ describe('AccountOffboarding PurgeWorker', () => {
     expect(calls.findIndex((call) => call.text.includes('DELETE FROM agent_outcomes')))
       .toBeLessThan(calls.findIndex((call) => call.text.includes('DELETE FROM agent_runs')));
     expect(sqlText).not.toContain('DELETE FROM agent_run_steps');
+    // Guardian escalations (migration 073) are hard_delete/must_be_absent and
+    // review_id has NO cascade — the escalations DELETE must run before the
+    // reviews DELETE or the purge dies on an FK violation. The reviews delete
+    // goes through deleteByBusiness, so its table name arrives as an identifier
+    // fragment value (see identifierFragment above), not in the query text.
+    const escalationsDelete = calls.find((call) => call.text.includes('DELETE FROM review_escalations'));
+    expect(escalationsDelete?.text).toContain('account_id =');
+    expect(escalationsDelete?.scope).toBe('tx');
+    const isReviewsByBusinessDelete = (call: QueryCall) =>
+      call.text.includes('DELETE FROM ?')
+      && call.values.some((value) => (value as { __id?: string } | null)?.__id === 'reviews');
+    expect(calls.findIndex(isReviewsByBusinessDelete)).toBeGreaterThan(-1);
+    expect(calls.findIndex((call) => call.text.includes('DELETE FROM review_escalations')))
+      .toBeLessThan(calls.findIndex(isReviewsByBusinessDelete));
     expect(sqlText).toContain('recipient_email = NULL');
     expect(sqlText).toContain('stripe_customer_id = NULL');
     expect(sqlText).toContain('stripe_subscription_id = NULL');
