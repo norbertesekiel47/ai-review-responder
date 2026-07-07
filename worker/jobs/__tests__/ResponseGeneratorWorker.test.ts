@@ -217,6 +217,11 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     sqlReturnQueue.length = 0;
     mockTx.mockImplementation((strings: TemplateStringsArray) => {
       const text = strings.join(' ');
+      // persist.ts's review FOR UPDATE lock (tx statement #1) — return a row
+      // so the orphan-review warn path stays off in these worker-level tests.
+      if (text.includes('FROM reviews') && text.includes('FOR UPDATE')) {
+        return Promise.resolve([{ id: 'rev-1' }]);
+      }
       if (text.includes('FROM reviews r')) {
         return Promise.resolve([{
           star_rating: 5,

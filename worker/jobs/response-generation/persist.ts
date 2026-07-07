@@ -8,6 +8,7 @@
 // skip must never split from the INSERT. See CLAUDE.md invariant #4.
 
 import { v7 as uuidv7 } from 'uuid';
+import * as Sentry from '@sentry/node';
 import type postgres from 'postgres';
 import type { ModerationDecision } from '../../../src/lib/moderation/output-filter';
 import type { GenerationResult } from '../../../src/lib/responses/types';
@@ -51,7 +52,7 @@ export interface PersistResponseInput {
   loadedReviewContentHash: string | null;
   moderation: ModerationDecision;
   accountId: string;
-  logger: Pick<WorkerLogger, 'log'>;
+  logger: Pick<WorkerLogger, 'log' | 'warn'>;
 }
 
 export async function persistResponseAndNotify(sql: postgres.Sql, input: PersistResponseInput): Promise<string> {
@@ -76,11 +77,29 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
     // review). Taking FOR UPDATE first subsumes the later KEY SHARE. Bonus:
     // the auto-approval content-hash re-read further down happens under this
     // lock, so it cannot race a concurrent content-changed ingest.
-    await tx`
-      SELECT 1 FROM reviews
+    const [reviewLock] = await tx<{ id: string }[]>`
+      SELECT id FROM reviews
       WHERE id = ${reviewId} AND business_id = ${businessId}
       FOR UPDATE
     `;
+    if (!reviewLock) {
+      // Review not visible to its business — impossible if FKs hold (caller
+      // bug / corrupt state only). The lock no-oped, so the ordering contract
+      // is void for this tx; surface loudly (same posture as mark-posted.ts)
+      // but proceed — control flow is unchanged.
+      Sentry.captureMessage('orphan_response_review', {
+        level: 'warning',
+        extra: {
+          response_id: responseId,
+          review_id: reviewId,
+          business_id: businessId,
+          site: 'persist',
+        },
+      });
+      logger.warn(
+        `Review ${reviewId} not found for business ${businessId} — persist review lock no-oped (response ${responseId})`,
+      );
+    }
 
     await tx`
       INSERT INTO responses (

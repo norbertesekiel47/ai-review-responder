@@ -99,9 +99,11 @@ function queuePersistRows(input: {
   flaggedHigh?: boolean;
   notify?: boolean;
   autoApprove?: boolean;
+  reviewLockRows?: unknown[];
 } = {}) {
   txQueue.push(
-    [], // SELECT 1 FROM reviews … FOR UPDATE (lock ordering — FIRST tx statement)
+    // SELECT id FROM reviews … FOR UPDATE (lock ordering — FIRST tx statement)
+    input.reviewLockRows ?? [{ id: 'rev-1' }],
     [], // INSERT responses
     [], // UPDATE api_costs response_id
     [], // UPDATE api_costs moderation metadata
@@ -139,7 +141,7 @@ function baseInput(overrides: Partial<Parameters<typeof persistResponseAndNotify
     loadedReviewContentHash: 'hash-1',
     moderation: CLEAN_MODERATION,
     accountId: 'acct-1',
-    logger: { log: () => {} },
+    logger: { log: () => {}, warn: () => {} },
     ...overrides,
   };
 }
@@ -242,6 +244,20 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
           && (arg as Record<string, unknown>).correlation_id === 'corr-1',
       ),
     ).toBe(true);
+  });
+
+  it('warns but proceeds when the review lock matches zero rows (orphan response)', async () => {
+    // Same posture as mark-posted.ts: the lock SELECT no-oping is a caller
+    // bug / corrupt state — surface loudly, keep control flow unchanged.
+    process.env.AUTO_APPROVAL_ENABLED = 'false';
+    const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    queuePersistRows({ reviewLockRows: [] });
+
+    await persistResponseAndNotify(mockSql, baseInput({ logger } as never));
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn.mock.calls[0]![0]).toContain('review lock no-oped');
+    assertManualNotificationFallback();
   });
 
   it('falls back to pending approval and notification when the runtime flag is disabled', async () => {

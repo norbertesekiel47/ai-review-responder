@@ -143,6 +143,25 @@ describeWithDb('run-spine writers against live Postgres', { timeout: 30_000 }, (
     expect(after.map((row) => row.step_index)).toEqual([1, 2, 3, 4, 5]);
   });
 
+  it('accepts a non-UUID correlation id (poller/ingest lanes pass logging strings)', async () => {
+    // Live callers pass free-form correlation strings — the poller lane passes
+    // `zernio-poll:<review-uuid>` and the ingest lane passes the provider event
+    // id (TEXT). correlation_id must be TEXT: a UUID column aborts the WHOLE
+    // ingest transaction with 22P02 on these inputs.
+    const subjectId = randomUUID();
+    const correlationId = `zernio-poll:${randomUUID()}`;
+
+    const { runId, created } = await sql().begin((tx) =>
+      startOrGetActiveRun(tx, { ...startInput(subjectId), correlationId }),
+    );
+    expect(created).toBe(true);
+
+    const [row] = await sql()<{ correlation_id: string | null }[]>`
+      SELECT correlation_id FROM agent_runs WHERE id = ${runId}
+    `;
+    expect(row!.correlation_id).toBe(correlationId);
+  });
+
   it('replayed recordOutcome for the same (run, kind) stays one row', async () => {
     const runId = await startRun(randomUUID());
     const outcome = {

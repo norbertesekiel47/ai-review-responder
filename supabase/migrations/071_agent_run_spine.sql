@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   subject_id TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'running'
     CHECK (status IN ('running', 'completed', 'failed')),
-  correlation_id UUID,
+  correlation_id TEXT,
   started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ended_at TIMESTAMPTZ,
   error JSONB,
@@ -93,6 +93,8 @@ COMMENT ON TABLE agent_runs IS
   'One attributed agent run per pipeline pass over a subject (review or account-week). Written by the existing pipeline in the same transactions as the state changes it describes; not an execution engine. Application code should pass UUIDv7 ids.';
 COMMENT ON COLUMN agent_runs.subject_id IS
   'Polymorphic subject key, no FK by design: a review UUID as a string when subject_type=''review''; a synthetic account-week key when subject_type=''account_week''.';
+COMMENT ON COLUMN agent_runs.correlation_id IS
+  'Free-form correlation string for log/trace joins, NOT a UUID: live callers pass logging ids like ''zernio-poll:<review-uuid>'' (poller lane) or the provider event id (ingest lane).';
 COMMENT ON COLUMN agent_runs.error IS
   'Failure context as ids/enums/counts only — never raw review/response text (logging rules).';
 
