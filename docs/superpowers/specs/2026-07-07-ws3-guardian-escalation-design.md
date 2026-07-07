@@ -353,3 +353,22 @@ sections above are unchanged; on any conflict, these amendments win.
 - **§2.3:** migration 073 gained two RI-support indexes beyond the spec's
   list — `idx_nd_escalation` (notification_deliveries → escalation FK path)
   and `idx_review_escalations_agent_run` (agent_runs FK path).
+- **§2.7:** no `escalationsEnabled` UI flag threading shipped — the review
+  card renders escalation actions data-driven off the payload's escalation
+  field, resolving §2.7's flag-gating language toward §2.4's kill-switch
+  semantics: flipping `ESCALATION_ENABLED` off stops new raises and notices
+  while already-raised escalations stay visible and actionable.
+- **§2.4:** escalation-notice outbox rows use `aggregate_type='escalation'`
+  + `aggregate_id=escalation_id`, not `aggregate_type='review'` as §2.4's
+  auto-post-notice mirroring line implied.
+- **§2.6:** the `escalation_sent` step detail is
+  `{escalation_id, sent, skipped, terminal_failed}` per-attempt counts, not
+  `{channels, escalation_id}`; the `notification_deliveries` rows are the
+  authoritative per-channel delivery record.
+- **§2.4:** email-channel enrollments are skipped pre-claim when
+  `businesses.owner_email_bounced` is set (counted as skipped, ids-only log
+  line) — same rule as the approval dispatcher; a known-bounced owner never
+  gets a per-raise email.
+- **§2.7:** the acknowledge/resolve routes run the writable-subscription
+  check before (not inside) the transition transaction — an accepted TOCTOU
+  window, matching the dashboard-action precedent.

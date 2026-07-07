@@ -373,9 +373,11 @@ requires a fresh Meta review cycle.
 
 Submit via the Content Editor UI or `POST /v1/Content`. After Meta approves,
 Twilio returns an `HX...` Content SID — set it as
-`WHATSAPP_ESCALATION_TEMPLATE_SID` on **both** Vercel and Railway. If unset,
-the WhatsApp escalation notice is skipped gracefully (email + Telegram still
-send); it is **NOT** a startup-required var.
+`WHATSAPP_ESCALATION_TEMPLATE_SID` on the **Railway worker only** (read via
+`getWorkerConfig()` in the escalation-notice dispatcher; no Vercel route or UI
+reads it — see `env-vars.md`). If unset, the WhatsApp escalation notice is
+skipped gracefully (email + Telegram still send); it is **NOT** a
+startup-required var.
 
 ```json
 {

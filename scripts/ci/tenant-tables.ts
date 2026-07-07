@@ -40,9 +40,9 @@ export const TENANT_TABLES = [
   'agent_run_steps',
   'agent_outcomes',
   // Deny-all RLS (migration 073, WS3 Guardian escalation) — carries account_id/
-  // business_id; will be written by src/lib/escalations/* inside pipeline
-  // transactions (module lands in WS3 Tasks 3-4); non-owner-scoped statements
-  // would be exempted via tenant-scope-allowlist.ts as touchpoints land.
+  // business_id; written by src/lib/escalations/* inside pipeline transactions
+  // that already carry account/business scope; non-owner-scoped statements
+  // exempted via tenant-scope-allowlist.ts.
   'review_escalations',
 ] as const;
 
