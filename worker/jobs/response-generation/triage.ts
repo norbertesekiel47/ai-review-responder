@@ -4,8 +4,10 @@
 // (non-positive sentiment only) → durable idempotency check (triage_content_hash)
 // → cost-guarded classification → transactional persist + guardian step.
 // Returns the severity for tone guidance (null = not triaged). Transient
-// classification errors propagate so BullMQ retries the whole job — the
-// committed-triage hash check makes the retry spend-free.
+// classification errors propagate so BullMQ retries the whole job — once the
+// triage tx has COMMITTED, the hash check makes the retry spend-free. (A
+// transient failure between the LLM call and the commit re-spends on retry:
+// bounded at ≤3 attempts × sub-cent at temperature 0 — accepted, no cache.)
 //
 // Accepted race: two concurrent generation jobs for the same review can both
 // pass the skip-check → double classify (sub-cent, temperature 0) → both
@@ -45,7 +47,7 @@ export async function runTriagePhase(
   sql: Sql,
   ctx: GenerationContext,
   ids: { reviewId: string; businessId: string },
-  logger: Pick<WorkerLogger, 'log' | 'warn'>,
+  logger: Pick<WorkerLogger, 'log'>,
 ): Promise<TriageSeverity | null> {
   if (!triageEnabled()) return null;
   if (classifySentiment(ctx.normalizedReview.starRating).label === 'positive') return null;
