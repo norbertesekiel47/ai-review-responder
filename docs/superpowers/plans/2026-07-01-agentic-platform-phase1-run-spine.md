@@ -53,7 +53,7 @@ Naming note: the design doc's `billable_outcomes` ships as **`agent_outcomes`** 
 **Files:**
 - Create: `supabase/migrations/071_agent_run_spine.sql`
 
-- [ ] **Step 1: Write the migration file**
+- [x] **Step 1: Write the migration file**
 
 ```sql
 -- Migration 071: agent run spine — agent_runs, agent_run_steps, agent_outcomes
@@ -148,7 +148,7 @@ ALTER TABLE agent_outcomes ENABLE ROW LEVEL SECURITY;
 -- RLS-bypassing postgres role only (same as analytics_events, migration 049).
 ```
 
-- [ ] **Step 2: Verify the migration applies cleanly against a throwaway Postgres**
+- [x] **Step 2: Verify the migration applies cleanly against a throwaway Postgres**
 
 Run (repo precedent from migrations 062/063 verification):
 
@@ -167,7 +167,7 @@ Expected: every file applies; the three `\d` outputs show the tables with `agent
 
 (If earlier migrations fail on Supabase-specific objects like `auth.uid()`, verify from 071 alone against a schema dump instead — the gate that matters is 071's own syntax + index predicates.)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add supabase/migrations/071_agent_run_spine.sql
@@ -182,7 +182,7 @@ git commit -m "feat(agents): migration 071 — agent run spine tables"
 - Create: `src/lib/agents/run-spine.ts`
 - Create: `src/lib/agents/__tests__/run-spine.test.ts`
 
-- [ ] **Step 1: Write the failing tests** (constants + persona-map totality)
+- [x] **Step 1: Write the failing tests** (constants + persona-map totality)
 
 ```typescript
 // src/lib/agents/__tests__/run-spine.test.ts
@@ -238,12 +238,12 @@ describe('persona map', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm vitest run src/lib/agents/__tests__/run-spine.test.ts`
 Expected: FAIL — cannot resolve `../run-spine` (module does not exist).
 
-- [ ] **Step 3: Write the constants half of the module**
+- [x] **Step 3: Write the constants half of the module**
 
 ```typescript
 // src/lib/agents/run-spine.ts
@@ -295,12 +295,12 @@ export function personaForStep(stepKey: AgentStepKey): AgentPersona {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify the constant tests pass**
+- [x] **Step 4: Run tests to verify the constant tests pass**
 
 Run: `pnpm vitest run src/lib/agents/__tests__/run-spine.test.ts`
 Expected: PASS (all tests written so far).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/agents/run-spine.ts src/lib/agents/__tests__/run-spine.test.ts
@@ -315,7 +315,7 @@ git commit -m "feat(agents): run-spine constants + tested persona map"
 - Modify: `src/lib/agents/run-spine.ts`
 - Modify: `src/lib/agents/__tests__/run-spine.test.ts`
 
-- [ ] **Step 1: Write the failing tests** (append to the test file; reuse the repo's mocked-tx pattern from `process-review.test.ts`)
+- [x] **Step 1: Write the failing tests** (append to the test file; reuse the repo's mocked-tx pattern from `process-review.test.ts`)
 
 ```typescript
 import { startOrGetActiveRun } from '../run-spine';
@@ -379,12 +379,12 @@ describe('startOrGetActiveRun', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify the new tests fail**
+- [x] **Step 2: Run to verify the new tests fail**
 
 Run: `pnpm vitest run src/lib/agents/__tests__/run-spine.test.ts`
 Expected: FAIL — `startOrGetActiveRun` is not exported.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```typescript
 export interface StartRunInput {
@@ -445,12 +445,12 @@ export async function startOrGetActiveRun(
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm vitest run src/lib/agents/__tests__/run-spine.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/agents/run-spine.ts src/lib/agents/__tests__/run-spine.test.ts
@@ -465,7 +465,7 @@ git commit -m "feat(agents): startOrGetActiveRun — race-safe run start"
 - Modify: `src/lib/agents/run-spine.ts`
 - Modify: `src/lib/agents/__tests__/run-spine.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```typescript
 import { recordStep } from '../run-spine';
@@ -504,12 +504,12 @@ describe('recordStep', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `pnpm vitest run src/lib/agents/__tests__/run-spine.test.ts`
 Expected: FAIL — `recordStep` is not exported.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```typescript
 export interface RecordStepInput {
@@ -553,12 +553,12 @@ export async function recordStep(tx: TxClient, input: RecordStepInput): Promise<
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm vitest run src/lib/agents/__tests__/run-spine.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/agents/run-spine.ts src/lib/agents/__tests__/run-spine.test.ts
@@ -573,7 +573,7 @@ git commit -m "feat(agents): recordStep — serialized, persona-mapped step appe
 - Modify: `src/lib/agents/run-spine.ts`
 - Modify: `src/lib/agents/__tests__/run-spine.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```typescript
 import { recordOutcome, completeRun } from '../run-spine';
@@ -624,12 +624,12 @@ describe('completeRun', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `pnpm vitest run src/lib/agents/__tests__/run-spine.test.ts`
 Expected: FAIL — `recordOutcome` / `completeRun` not exported.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```typescript
 export interface RecordOutcomeInput {
@@ -682,12 +682,12 @@ export async function completeRun(
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm vitest run src/lib/agents/__tests__/run-spine.test.ts`
 Expected: PASS (whole file).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/agents/run-spine.ts src/lib/agents/__tests__/run-spine.test.ts
@@ -702,7 +702,7 @@ git commit -m "feat(agents): recordOutcome + completeRun — retry-safe spine wr
 - Modify: `src/lib/reviews/process-review.ts`
 - Modify: `src/lib/reviews/__tests__/process-review.test.ts`
 
-- [ ] **Step 1: Write the failing tests** (same tx-call assertion pattern the file already uses for sentiment; add a `vi.mock` for the spine so assertions target the seam, not SQL internals)
+- [x] **Step 1: Write the failing tests** (same tx-call assertion pattern the file already uses for sentiment; add a `vi.mock` for the spine so assertions target the seam, not SQL internals)
 
 At the top of the test file, alongside the existing mocks:
 
@@ -774,12 +774,12 @@ it('unchanged review does NOT touch the run spine', async () => {
 
 Note: pre-existing tests in this file gain one extra mocked tx result wherever the new-review or content-changed paths run (the account lookup). Update their `mockResolvedValueOnce` chains and `toHaveBeenCalledTimes` counts accordingly — the RED run tells you exactly which ones.
 
-- [ ] **Step 2: Run to verify the new tests fail**
+- [x] **Step 2: Run to verify the new tests fail**
 
 Run: `pnpm vitest run src/lib/reviews/__tests__/process-review.test.ts`
 Expected: new tests FAIL (`startOrGetActiveRun` never called).
 
-- [ ] **Step 3: Implement the instrumentation**
+- [x] **Step 3: Implement the instrumentation**
 
 In `src/lib/reviews/process-review.ts`:
 
@@ -836,12 +836,12 @@ In `processExistingReview`, in the CONTENT CHANGED block — directly after the 
 
 (The unchanged/status-only paths get no spine writes — mirroring the sentiment discipline.)
 
-- [ ] **Step 4: Run the whole file; fix pre-existing tests' mock chains flagged by RED**
+- [x] **Step 4: Run the whole file; fix pre-existing tests' mock chains flagged by RED**
 
 Run: `pnpm vitest run src/lib/reviews/__tests__/process-review.test.ts`
 Expected: PASS (all tests, after adjusting the extra account-lookup mock in affected pre-existing tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/reviews/process-review.ts src/lib/reviews/__tests__/process-review.test.ts
@@ -856,7 +856,7 @@ git commit -m "feat(agents): instrument processReview with run start + ingest/up
 - Modify: `worker/jobs/response-generation/persist.ts`
 - Test: extend the existing persist test file in `worker/jobs/response-generation/__tests__/` (locate the file covering `persistResponseAndNotify`; follow its established mock pattern)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Mock the spine seam in the persist test file, mirroring Task 6:
 
@@ -902,12 +902,12 @@ it('skips spine writes when no running review_handler run exists (legacy rows)',
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `pnpm vitest run worker/jobs/response-generation/__tests__/`
 Expected: new tests FAIL (spine seam never called).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `persist.ts`, add the import:
 
@@ -973,12 +973,12 @@ And in the auto-approval decision branch (the ordered approve-UPDATE → audit �
 
 (Adapt local variable names — `flaggedHigh`, `moderation`, `autoApproved`, `responseId` — to the file's actual identifiers at the insertion points; the persist tx already has all of these in scope. The legacy-row guard is the `if (activeRun)` — pre-071 reviews regenerating simply skip the spine.)
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm vitest run worker/jobs/response-generation/__tests__/`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add worker/jobs/response-generation/persist.ts worker/jobs/response-generation/__tests__/
@@ -993,7 +993,7 @@ git commit -m "feat(agents): instrument response persist with draft/moderation/g
 - Modify: `worker/jobs/publisher/mark-posted.ts`
 - Modify: `worker/jobs/publisher/__tests__/mark-posted.test.ts`
 
-- [ ] **Step 1: Write the failing tests** (same seam-mock pattern; the file's existing tests already drive `markPostedAndMaybeEnqueueAutoPostNotice` with a mocked tx)
+- [x] **Step 1: Write the failing tests** (same seam-mock pattern; the file's existing tests already drive `markPostedAndMaybeEnqueueAutoPostNotice` with a mocked tx)
 
 ```typescript
 vi.mock('../../../src/lib/agents/run-spine', () => ({
@@ -1028,12 +1028,12 @@ it('skips spine writes when no running run exists (legacy rows)', async () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `pnpm vitest run worker/jobs/publisher/__tests__/mark-posted.test.ts`
 Expected: new tests FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `mark-posted.ts` (the function already receives the tx and RETURNS `approval_method` from its UPDATE), after the successful one-row UPDATE and before returning:
 
@@ -1073,12 +1073,12 @@ In `mark-posted.ts` (the function already receives the tx and RETURNS `approval_
 
 (`reviewId`/`businessId`/`responseId` are already parameters/locals of the function; the `agent_outcomes_once_per_run_kind` index makes the two `recordOutcome` calls retry-safe. Note `reply_auto_posted` dedups independently of `reply_posted` because they are distinct kinds.)
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm vitest run worker/jobs/publisher/__tests__/mark-posted.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add worker/jobs/publisher/mark-posted.ts worker/jobs/publisher/__tests__/mark-posted.test.ts
@@ -1095,19 +1095,19 @@ git commit -m "feat(agents): instrument mark-posted with posted step, outcomes, 
 - Modify: `docs/security/rls-inventory.md` (three new deny-all rows, citing migration 071)
 - Modify: `.claude/reference/migrations-log.md`
 
-- [ ] **Step 1: Add the three tables to `TENANT_TABLES`** in `scripts/ci/tenant-tables.ts`, following the file's existing entry format (deny-all RLS, service-role access only).
+- [x] **Step 1: Add the three tables to `TENANT_TABLES`** in `scripts/ci/tenant-tables.ts`, following the file's existing entry format (deny-all RLS, service-role access only).
 
-- [ ] **Step 2: Run the audits and add allowlist entries for the spine's by-id queries**
+- [x] **Step 2: Run the audits and add allowlist entries for the spine's by-id queries**
 
 Run: `pnpm ci:rls-audit && pnpm ci:tenant-scope`
 
 Expected: rls-audit passes (migration 071 enables RLS on all three). tenant-scope flags the run-spine queries that are keyed by `run.id`/subject rather than `account_id`/`business_id` — add one allowlist entry per flagged query in `scripts/ci/tenant-scope-allowlist.ts` with `category: 'worker-job-scoped'` and reason: `"Run-spine writers execute inside ingest/persist/publish transactions that already carry businessId from source connection resolution; runs are keyed by id/subject within that scoped tx (migration 071)."` Re-run until green with the baseline bumped by exactly the added entries.
 
-- [ ] **Step 3: Add three deny-all rows to `docs/security/rls-inventory.md`** following the `analytics_events` row format, citing migration 071.
+- [x] **Step 3: Add three deny-all rows to `docs/security/rls-inventory.md`** following the `analytics_events` row format, citing migration 071.
 
-- [ ] **Step 4: Update `.claude/reference/migrations-log.md`**: header → `Current head: **071** — next migration is **072**`; append a `- **071** —` entry summarizing the three tables, the two byte-for-byte ON CONFLICT/index pairings (`agent_runs_one_active_per_subject` ↔ `startOrGetActiveRun`, `agent_outcomes_once_per_run_kind` ↔ `recordOutcome`), deny-all RLS, and staging-first application. Add the three tables to the Key Tables Reference.
+- [x] **Step 4: Update `.claude/reference/migrations-log.md`**: header → `Current head: **071** — next migration is **072**`; append a `- **071** —` entry summarizing the three tables, the two byte-for-byte ON CONFLICT/index pairings (`agent_runs_one_active_per_subject` ↔ `startOrGetActiveRun`, `agent_outcomes_once_per_run_kind` ↔ `recordOutcome`), deny-all RLS, and staging-first application. Add the three tables to the Key Tables Reference.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/ci/tenant-tables.ts scripts/ci/tenant-scope-allowlist.ts docs/security/rls-inventory.md .claude/reference/migrations-log.md
@@ -1118,12 +1118,12 @@ git commit -m "chore(agents): spine tables in RLS/tenant audits + migration log"
 
 ### Task 10: Full gates + PR
 
-- [ ] **Step 1: Run the full verification set**
+- [x] **Step 1: Run the full verification set**
 
 Run: `pnpm lint && pnpm typecheck && pnpm test && pnpm ci:tenant-scope && pnpm ci:rls-audit && pnpm ci:analytics-events && pnpm ci:static-policy`
 Expected: all green.
 
-- [ ] **Step 2: Push and open the PR**
+- [x] **Step 2: Push and open the PR**
 
 ```bash
 git push -u origin feat/agent-run-spine
@@ -1131,9 +1131,30 @@ gh pr create --base main --title "feat(agents): agent run spine — migration 07
   --body "WS1 of agentic-platform Phase 1 (design doc 2026-07-01 §3.2). Run/step/outcome attribution tables + transactional writer lib; ingest/persist/mark-posted instrumented in-tx. No execution engine, no behavior change to the pipeline. Apply migration 071 staging-first, both projects in lockstep."
 ```
 
-- [ ] **Step 3: After merge — apply migration 071 to staging Supabase, verify (`\d agent_runs` + deny-all RLS check), then production, per deployment-guide.**
+- [x] **Step 3: After merge — apply migration 071 to staging Supabase, verify (`\d agent_runs` + deny-all RLS check), then production, per deployment-guide.**
 
 ---
+
+## Implementation record (2026-07-07 — PR #459, subagent-driven with per-task spec + quality review)
+
+**Status: WS1 implemented.** All tasks executed; every commit passed a spec-compliance review and a code-quality review, with fixes applied before proceeding. Full gates green (7461 tests, all CI audits).
+
+### Amendments made during implementation (plan → shipped deltas)
+
+1. **`jsonb()` import dropped (invariant #15 / `ci:db-imports` strict, post-dates this plan):** `run-spine.ts` uses `tx.json()` and never imports `@/lib/db/server`.
+2. **`recordStep`'s planned single-statement `GROUP BY … FOR UPDATE` was invalid Postgres** — and the corrected single-statement form still had a READ COMMITTED stale-snapshot race. Shipped as lock-then-count (two statements: `SELECT … FOR UPDATE`, then `MAX(step_index)+1` on a post-lock snapshot).
+3. **`agent_runs.correlation_id` is TEXT, not UUID** — live callers pass `zernio-poll:<id>` / provider event ids; UUID typing would have aborted live ingest (22P02).
+4. **`findActiveReviewRun` lives exported in `run-spine.ts`** (single owner) instead of private copies in persist/mark-posted.
+5. **Lock-ordering rule added** (`run-spine.ts` header): any tx locking an `agent_runs` row for a review-subject run takes that review's `reviews` row `FOR UPDATE` as its FIRST statement (before implicit FK KEY SHARE from child-row writes). Persist + mark-posted comply; prevents an upgrade-deadlock found in review.
+6. **Migration 071 hardening beyond the plan SQL:** kind↔subject_type pairing CHECK, `ended_at >= started_at` CHECK, COMMENT ONs, redundant step index dropped. `RecordOutcomeInput.runId` narrowed to `string`; `StartRunInput` is a discriminated union; `completeRun` distinguishes already-terminal (no-op) from missing run (throw).
+7. **Offboarding coverage (found in final review):** all three tables classified in `table-disposition.ts` (hard_delete); purge stages delete outcomes before runs (outcomes FK is ON DELETE SET NULL), steps cascade; fail-closed verification branches added.
+8. **Test hardening beyond the plan:** migration-071 drift-guard test (pins both ON CONFLICT↔index pairings), live-DB integration suite for the writer lib (self-applies 071 idempotently until it ships), failure-propagation tests at ingest/persist/mark-posted checkpoints.
+
+### Named follow-ups (not WS1 scope)
+
+- **Edit-publish spine gap:** the `EDIT_REPLIES_ENABLED` posted path bypasses the mark-posted checkpoint → its run stays `running`. Fix shape: route `edit-publish`'s posted flip through the same checkpoint (its tx already locks the review first). Natural home: WS4/WS5 cycle.
+- **Terminal-failure completion:** publisher failed-hook + superseded branches are the natural future `completeRun('failed')` checkpoints; until then WS5's timeline must render stale `running` runs sensibly.
+- Post-while-regenerating interleaving leaves a v2 draft with no spine trace (run completed by v1's post) — disambiguated by `reply_posted.detail.response_id`.
 
 ## Self-review notes
 
