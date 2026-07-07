@@ -333,6 +333,8 @@ function buildAutoApprovalDecisionSummary(input: {
       : autoDecision.publisherSubscription.reason,
     active_zernio_connection: runtimeState.activeZernioConnectionNow,
     active_location: runtimeState.activeLocationNow,
+    triage_severity: runtimeState.triageSeverity,
+    triage_source: runtimeState.triageSource,
     runtime_enabled: autoDecision.runtimeEnabled,
     provider_moderation_enabled: autoDecision.providerModerationEnabled,
   };

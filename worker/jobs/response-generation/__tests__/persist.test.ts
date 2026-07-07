@@ -293,6 +293,8 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
         provider_moderation_enabled: false,
         policy_source: 'account_default',
         resolved_min_star: 4,
+        triage_severity: null,
+        triage_source: null,
       }),
     );
     const logged = logger.log.mock.calls[0]![1] as Record<string, unknown>;
@@ -326,6 +328,22 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
     await persistResponseAndNotify(mockSql, baseInput(scenario.input ?? {}));
 
     assertManualNotificationFallback();
+  });
+
+  it('re-reads triage_severity and triage_source in the runtime-state SELECT (column-drift pin)', async () => {
+    // Fail-open guard: if a refactor drops these columns from the projection,
+    // every mocked test stays green while the veto silently never fires. Pin
+    // the captured query text so the drift breaks here instead.
+    queuePersistRows({ autoApprove: true });
+
+    await persistResponseAndNotify(mockSql, baseInput());
+
+    const runtimeStateSelect = txTexts().find(
+      (text) => text.includes('FROM reviews r') && text.includes('JOIN accounts a'),
+    );
+    expect(runtimeStateSelect).toBeDefined();
+    expect(runtimeStateSelect).toContain('triage_severity');
+    expect(runtimeStateSelect).toContain('triage_source');
   });
 
   it('suppressed backfill fallback stays pending without owner notification or publish', async () => {

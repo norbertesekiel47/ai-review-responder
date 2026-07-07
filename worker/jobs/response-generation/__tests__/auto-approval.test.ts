@@ -139,10 +139,12 @@ describe('evaluateAutoApprovalCandidate', () => {
     process.env.AUTO_APPROVAL_ENABLED = 'true';
     process.env.OPENAI_MODERATION_ENABLED = 'true';
 
-    expect(evaluateAutoApprovalCandidate(baseInput({
+    const mediumDecision = evaluateAutoApprovalCandidate(baseInput({
       triageSeverity: 'medium',
       triageSource: TRIAGE_SOURCE.LLM,
-    })).blockReasons).not.toContain('triage_high_severity');
+    }));
+    expect(mediumDecision.approved).toBe(true);
+    expect(mediumDecision.blockReasons).not.toContain('triage_high_severity');
     expect(evaluateAutoApprovalCandidate(baseInput({
       triageSeverity: null,
       triageSource: null,
