@@ -99,3 +99,44 @@ export async function startOrGetActiveRun(
   }
   return { runId: existing.id, created: false };
 }
+
+export interface RecordStepInput {
+  runId: string;
+  stepKey: AgentStepKey;
+  status?: 'completed' | 'failed' | 'skipped';
+  /** ids/enums/counts ONLY — never raw review/response text. */
+  detail?: Record<string, unknown>;
+  latencyMs?: number;
+}
+
+/**
+ * Append a step to a run. Serializes concurrent appenders by locking the run
+ * row before computing the next step_index (UNIQUE (agent_run_id, step_index)
+ * is the backstop). Persona comes from STEP_PERSONA — callers cannot
+ * mis-attribute a step.
+ */
+export async function recordStep(tx: TxClient, input: RecordStepInput): Promise<void> {
+  const [row] = await tx<{ next_index: number }[]>`
+    SELECT COALESCE(
+        (SELECT MAX(s.step_index) FROM agent_run_steps s WHERE s.agent_run_id = r.id),
+        0
+      ) + 1 AS next_index
+    FROM agent_runs r
+    WHERE r.id = ${input.runId}
+    FOR UPDATE OF r
+  `;
+  if (!row) {
+    throw new Error(`run-spine: run not found for recordStep(${input.runId}, ${input.stepKey})`);
+  }
+
+  await tx`
+    INSERT INTO agent_run_steps (
+      id, agent_run_id, step_index, step_key, attributed_agent,
+      status, detail, latency_ms
+    ) VALUES (
+      ${uuidv7()}, ${input.runId}, ${row.next_index}, ${input.stepKey},
+      ${personaForStep(input.stepKey)}, ${input.status ?? 'completed'},
+      ${tx.json((input.detail ?? {}) as never)}, ${input.latencyMs ?? null}
+    )
+  `;
+}

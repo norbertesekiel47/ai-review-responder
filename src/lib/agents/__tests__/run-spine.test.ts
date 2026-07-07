@@ -7,7 +7,15 @@ import {
   STEP_PERSONA,
   personaForStep,
   startOrGetActiveRun,
+  recordStep,
 } from '../run-spine';
+
+/** Mocked tx with the Postgres.js `.json()` surface domain modules use (invariant #15). */
+type MockTx = ReturnType<typeof vi.fn> & { json: ReturnType<typeof vi.fn> };
+
+function makeMockTx(): MockTx {
+  return Object.assign(vi.fn(), { json: vi.fn((value: unknown) => value) }) as MockTx;
+}
 
 function withCount<T extends unknown[]>(arr: T, count: number): T & { count: number } {
   return Object.assign(arr, { count });
@@ -100,5 +108,38 @@ describe('startOrGetActiveRun', () => {
       accountId: 'acct-1',
       businessId: 'biz-1',
     })).rejects.toThrow(/active run/i);
+  });
+});
+
+describe('recordStep', () => {
+  let tx: MockTx;
+  beforeEach(() => { tx = makeMockTx(); });
+
+  it('locks the run, computes the next index, and inserts with the mapped persona', async () => {
+    tx.mockResolvedValueOnce(withCount([{ next_index: 3 }], 1)); // lock + MAX(step_index)+1
+    tx.mockResolvedValueOnce(withCount([], 0));                  // INSERT step
+
+    await recordStep(tx as never, {
+      runId: 'run-1',
+      stepKey: 'draft_generated',
+      detail: { response_id: 'resp-1', version: 1 },
+      latencyMs: 1200,
+    });
+
+    const lockSql = (tx.mock.calls[0]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(lockSql).toContain('FOR UPDATE');
+
+    const insertSql = (tx.mock.calls[1]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(insertSql).toContain('INSERT INTO agent_run_steps');
+    const params = (tx.mock.calls[1] as unknown[]).slice(1);
+    expect(params).toContain('draft_generated');
+    expect(params).toContain('reply');   // persona from STEP_PERSONA, not caller input
+    expect(params).toContain(3);         // next_index from the locked read
+  });
+
+  it('throws when the run row does not exist', async () => {
+    tx.mockResolvedValueOnce(withCount([], 0));
+    await expect(recordStep(tx as never, { runId: 'missing', stepKey: 'policy_gate' }))
+      .rejects.toThrow(/run not found/i);
   });
 });
