@@ -1,5 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
+import type { TransactionSql } from 'postgres';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
+import {
+  createMockSql,
+  mkTaggedResult,
+  type MockSqlHarness,
+} from '../../../../worker/__tests__/helpers/mock-sql';
 import {
   AGENT_PERSONAS,
   AGENT_RUN_KINDS,
@@ -11,17 +19,6 @@ import {
   recordOutcome,
   completeRun,
 } from '../run-spine';
-
-/** Mocked tx with the Postgres.js `.json()` surface domain modules use (invariant #15). */
-type MockTx = ReturnType<typeof vi.fn> & { json: ReturnType<typeof vi.fn> };
-
-function makeMockTx(): MockTx {
-  return Object.assign(vi.fn(), { json: vi.fn((value: unknown) => value) }) as MockTx;
-}
-
-function withCount<T extends unknown[]>(arr: T, count: number): T & { count: number } {
-  return Object.assign(arr, { count });
-}
 
 describe('run-spine constants', () => {
   it('exposes the three customer personas plus system', () => {
@@ -59,14 +56,47 @@ describe('persona map', () => {
   });
 });
 
+// Drift guard: the module's ON CONFLICT clauses must pair byte-for-byte with
+// the partial unique indexes in migration 071 (Postgres only recognizes the
+// arbiter when column list + predicate match). The startOrGetActiveRun /
+// recordOutcome suites below pin the module side of each pairing; these pin
+// the migration side, so either half drifting fails a test instead of only
+// falsifying a comment. (Pattern precedent: migration-038-structure.test.ts.)
+describe('migration 071 pairing (drift guard)', () => {
+  const migrationSql = readFileSync(
+    resolve(process.cwd(), 'supabase/migrations/071_agent_run_spine.sql'),
+    'utf-8',
+  );
+
+  it('agent_runs_one_active_per_subject matches startOrGetActiveRun ON CONFLICT', () => {
+    expect(migrationSql).toMatch(
+      /CREATE UNIQUE INDEX IF NOT EXISTS agent_runs_one_active_per_subject\s+ON agent_runs \(kind, subject_type, subject_id\)\s+WHERE status = 'running'/,
+    );
+  });
+
+  it('agent_outcomes_once_per_run_kind matches recordOutcome ON CONFLICT', () => {
+    expect(migrationSql).toMatch(
+      /CREATE UNIQUE INDEX IF NOT EXISTS agent_outcomes_once_per_run_kind\s+ON agent_outcomes \(agent_run_id, outcome_kind\)\s+WHERE agent_run_id IS NOT NULL/,
+    );
+  });
+});
+
+// Writer suites run against the shared fragment-aware Postgres.js mock
+// (worker/__tests__/helpers/mock-sql), the same harness the audit-log unit
+// tests use — no hand-rolled tagged-template shim. The harness already
+// provides the `.json()` surface injected domain modules use (invariant #15).
+function tx(harness: MockSqlHarness): TransactionSql {
+  return harness.mockSql as unknown as TransactionSql;
+}
+
 describe('startOrGetActiveRun', () => {
-  let tx: ReturnType<typeof vi.fn>;
-  beforeEach(() => { tx = vi.fn(); });
+  let harness: MockSqlHarness;
+  beforeEach(() => { harness = createMockSql(); });
 
   it('inserts a new running run and returns its id with created=true', async () => {
-    tx.mockResolvedValueOnce(withCount([{ id: 'run-1' }], 1)); // INSERT … RETURNING id
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: 'run-1' }])); // INSERT … RETURNING id
 
-    const out = await startOrGetActiveRun(tx as never, {
+    const out = await startOrGetActiveRun(tx(harness), {
       kind: 'review_handler',
       subjectType: 'review',
       subjectId: 'rev-1',
@@ -77,17 +107,18 @@ describe('startOrGetActiveRun', () => {
 
     expect(out.created).toBe(true);
     expect(out.runId).toBe('run-1');
-    const insertSql = (tx.mock.calls[0]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(harness.sqlCalls).toHaveLength(1);
+    const insertSql = harness.sqlCalls[0]!.text;
     expect(insertSql).toContain('INSERT INTO agent_runs');
     expect(insertSql).toContain('ON CONFLICT (kind, subject_type, subject_id)');
     expect(insertSql).toContain("WHERE status = 'running'");
   });
 
   it('returns the existing active run with created=false when the INSERT conflicts', async () => {
-    tx.mockResolvedValueOnce(withCount([], 0)); // INSERT DO NOTHING → no row
-    tx.mockResolvedValueOnce(withCount([{ id: 'run-existing' }], 1)); // SELECT active
+    harness.sqlReturnQueue.push(mkTaggedResult([])); // INSERT DO NOTHING → no row
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: 'run-existing' }])); // SELECT active
 
-    const out = await startOrGetActiveRun(tx as never, {
+    const out = await startOrGetActiveRun(tx(harness), {
       kind: 'review_handler',
       subjectType: 'review',
       subjectId: 'rev-1',
@@ -97,13 +128,14 @@ describe('startOrGetActiveRun', () => {
 
     expect(out.created).toBe(false);
     expect(out.runId).toBe('run-existing');
+    expect(harness.sqlCalls[1]!.text).toContain('FOR UPDATE');
   });
 
   it('throws when the conflict path finds no active run (impossible state)', async () => {
-    tx.mockResolvedValueOnce(withCount([], 0));
-    tx.mockResolvedValueOnce(withCount([], 0));
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
 
-    await expect(startOrGetActiveRun(tx as never, {
+    await expect(startOrGetActiveRun(tx(harness), {
       kind: 'review_handler',
       subjectType: 'review',
       subjectId: 'rev-1',
@@ -114,51 +146,53 @@ describe('startOrGetActiveRun', () => {
 });
 
 describe('recordStep', () => {
-  let tx: MockTx;
-  beforeEach(() => { tx = makeMockTx(); });
+  let harness: MockSqlHarness;
+  beforeEach(() => { harness = createMockSql(); });
 
   it('locks the run, computes the next index, and inserts with the mapped persona', async () => {
-    tx.mockResolvedValueOnce(withCount([{ ok: 1 }], 1));         // lock (own statement)
-    tx.mockResolvedValueOnce(withCount([{ next_index: 3 }], 1)); // MAX(step_index)+1 after lock
-    tx.mockResolvedValueOnce(withCount([], 0));                  // INSERT step
+    harness.sqlReturnQueue.push(mkTaggedResult([{ ok: 1 }]));         // lock (own statement)
+    harness.sqlReturnQueue.push(mkTaggedResult([{ next_index: 3 }])); // MAX(step_index)+1 after lock
+    harness.sqlReturnQueue.push(mkTaggedResult([]));                  // INSERT step
 
-    await recordStep(tx as never, {
+    await recordStep(tx(harness), {
       runId: 'run-1',
       stepKey: 'draft_generated',
       detail: { response_id: 'resp-1', version: 1 },
       latencyMs: 1200,
     });
 
-    const lockSql = (tx.mock.calls[0]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
-    expect(lockSql).toContain('FOR UPDATE');
+    expect(harness.sqlCalls).toHaveLength(3);
+    expect(harness.sqlCalls[0]!.text).toContain('FOR UPDATE');
 
-    const nextIndexSql = (tx.mock.calls[1]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    const nextIndexSql = harness.sqlCalls[1]!.text;
     expect(nextIndexSql).toContain('MAX(step_index)');
     expect(nextIndexSql).not.toContain('FOR UPDATE'); // fresh snapshot AFTER the lock statement
 
-    const insertSql = (tx.mock.calls[2]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
-    expect(insertSql).toContain('INSERT INTO agent_run_steps');
-    const params = (tx.mock.calls[2] as unknown[]).slice(1);
-    expect(params).toContain('draft_generated');
-    expect(params).toContain('reply');   // persona from STEP_PERSONA, not caller input
-    expect(params).toContain(3);         // next_index from the post-lock read
+    const insert = harness.sqlCalls[2]!;
+    expect(insert.text).toContain('INSERT INTO agent_run_steps');
+    expect(insert.values).toContain('draft_generated');
+    expect(insert.values).toContain('reply');  // persona from STEP_PERSONA, not caller input
+    expect(insert.values).toContain(3);        // next_index from the post-lock read
+    expect(insert.values).toContainEqual({ response_id: 'resp-1', version: 1 });
+    expect(insert.values).toContain(1200);
   });
 
   it('throws when the run row does not exist', async () => {
-    tx.mockResolvedValueOnce(withCount([], 0));
-    await expect(recordStep(tx as never, { runId: 'missing', stepKey: 'policy_gate' }))
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+    await expect(recordStep(tx(harness), { runId: 'missing', stepKey: 'policy_gate' }))
       .rejects.toThrow(/run not found/i);
+    expect(harness.sqlCalls).toHaveLength(1); // no index read, no insert
   });
 });
 
 describe('recordOutcome', () => {
-  let tx: MockTx;
-  beforeEach(() => { tx = makeMockTx(); });
+  let harness: MockSqlHarness;
+  beforeEach(() => { harness = createMockSql(); });
 
   it('inserts with retry-safe ON CONFLICT dedup per (run, kind)', async () => {
-    tx.mockResolvedValueOnce(withCount([], 0));
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
 
-    await recordOutcome(tx as never, {
+    await recordOutcome(tx(harness), {
       runId: 'run-1',
       accountId: 'acct-1',
       businessId: 'biz-1',
@@ -166,7 +200,7 @@ describe('recordOutcome', () => {
       outcomeKind: 'reply_posted',
     });
 
-    const sqlText = (tx.mock.calls[0]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    const sqlText = harness.sqlCalls[0]!.text;
     expect(sqlText).toContain('INSERT INTO agent_outcomes');
     expect(sqlText).toContain('ON CONFLICT (agent_run_id, outcome_kind)');
     expect(sqlText).toContain('WHERE agent_run_id IS NOT NULL');
@@ -175,33 +209,33 @@ describe('recordOutcome', () => {
 });
 
 describe('completeRun', () => {
-  let tx: MockTx;
-  beforeEach(() => { tx = makeMockTx(); });
+  let harness: MockSqlHarness;
+  beforeEach(() => { harness = createMockSql(); });
 
   it('flips a running run to a terminal status and stamps ended_at', async () => {
-    tx.mockResolvedValueOnce(withCount([{ id: 'run-1' }], 1));
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: 'run-1' }]));
 
-    await completeRun(tx as never, 'run-1', 'completed');
+    await completeRun(tx(harness), 'run-1', 'completed');
 
-    const sqlText = (tx.mock.calls[0]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(harness.sqlCalls).toHaveLength(1); // updated → no follow-up existence probe
+    const sqlText = harness.sqlCalls[0]!.text;
     expect(sqlText).toContain('UPDATE agent_runs');
     expect(sqlText).toContain("status = 'running'"); // only running runs transition
     expect(sqlText).toContain('ended_at = NOW()');
     expect(sqlText).toContain('RETURNING id');
-    expect(tx).toHaveBeenCalledTimes(1); // updated → no follow-up existence probe
   });
 
   it('is a no-op (not an error) when the run is already terminal', async () => {
-    tx.mockResolvedValueOnce(withCount([], 0));                        // UPDATE hit nothing
-    tx.mockResolvedValueOnce(withCount([{ status: 'completed' }], 1)); // probe: exists, terminal
-    await expect(completeRun(tx as never, 'run-1', 'failed', { reason: 'llm_terminal' }))
+    harness.sqlReturnQueue.push(mkTaggedResult([]));                        // UPDATE hit nothing
+    harness.sqlReturnQueue.push(mkTaggedResult([{ status: 'completed' }])); // probe: exists, terminal
+    await expect(completeRun(tx(harness), 'run-1', 'failed', { reason: 'llm_terminal' }))
       .resolves.toBeUndefined();
   });
 
   it('throws when the run does not exist at all', async () => {
-    tx.mockResolvedValueOnce(withCount([], 0)); // UPDATE hit nothing
-    tx.mockResolvedValueOnce(withCount([], 0)); // probe: no row
-    await expect(completeRun(tx as never, 'missing', 'completed'))
+    harness.sqlReturnQueue.push(mkTaggedResult([])); // UPDATE hit nothing
+    harness.sqlReturnQueue.push(mkTaggedResult([])); // probe: no row
+    await expect(completeRun(tx(harness), 'missing', 'completed'))
       .rejects.toThrow(/run not found/i);
   });
 });
