@@ -4,7 +4,7 @@
 // logic (template builders, categories, tags) stays in src/lib/notifications/email.ts;
 // this class just adapts that call to the NotificationChannel interface.
 
-import { sendApprovalEmail, sendAutoPostNoticeEmail } from '../email';
+import { sendApprovalEmail, sendAutoPostNoticeEmail, sendEscalationNoticeEmail } from '../email';
 import { getWorkerConfig } from '@/lib/config/worker';
 import type {
   NotificationChannel,
@@ -12,6 +12,8 @@ import type {
   SendApprovalResult,
   SendAutoPostNoticeParams,
   SendAutoPostNoticeResult,
+  SendEscalationNoticeParams,
+  SendEscalationNoticeResult,
 } from './types';
 
 export class EmailChannel implements NotificationChannel {
@@ -58,6 +60,32 @@ export class EmailChannel implements NotificationChannel {
       googleMapsUrl: p.googleMapsUrl,
       viewUrl: p.viewUrl,
       idempotencyKey: `auto_post_notice:${p.responseId}`,
+    });
+
+    return { status: 'sent', externalMessageId: messageId };
+  }
+
+  async sendEscalationNotice(p: SendEscalationNoticeParams): Promise<SendEscalationNoticeResult> {
+    const from = getWorkerConfig().RESEND_FROM_EMAIL;
+    if (!from) {
+      throw new Error('RESEND_FROM_EMAIL not configured');
+    }
+
+    const { messageId } = await sendEscalationNoticeEmail({
+      to: p.handle,
+      from,
+      locationLabel: p.locationLabel,
+      businessName: p.businessName,
+      reviewerName: p.reviewerName,
+      starRating: p.starRating,
+      reviewText: p.reviewText,
+      severity: p.severity,
+      issues: p.issues,
+      suggestedAction: p.suggestedAction,
+      isFallback: p.isFallback,
+      dashboardUrl: p.dashboardUrl,
+      escalationId: p.escalationId,
+      idempotencyKey: `escalation_notice:${p.escalationId}`,
     });
 
     return { status: 'sent', externalMessageId: messageId };

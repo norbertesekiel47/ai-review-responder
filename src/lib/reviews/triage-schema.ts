@@ -22,6 +22,23 @@ export const TRIAGE_ISSUES = [
   'cleanliness', 'staff_conduct', 'order_accuracy', 'communication',
   'safety_or_health', 'billing_or_refund', 'other',
 ] as const;
+export type TriageIssue = (typeof TRIAGE_ISSUES)[number];
+
+/** Humanized labels for owner-facing escalation notices (WS3). Single owner —
+ *  exhaustive over TriageIssue so adding a taxonomy value forces a label. */
+export const TRIAGE_ISSUE_LABELS: Record<TriageIssue, string> = {
+  service_quality: 'Service quality',
+  product_quality: 'Product quality',
+  wait_time: 'Wait time',
+  pricing: 'Pricing',
+  cleanliness: 'Cleanliness',
+  staff_conduct: 'Staff conduct',
+  order_accuracy: 'Order accuracy',
+  communication: 'Communication',
+  safety_or_health: 'Safety or health',
+  billing_or_refund: 'Billing or refund',
+  other: 'Other',
+};
 
 export const TRIAGE_SUGGESTED_ACTIONS = ['respond', 'escalate', 'respond_and_escalate'] as const;
 
