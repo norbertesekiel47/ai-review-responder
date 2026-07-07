@@ -65,6 +65,40 @@ describe('process-env-audit (pure)', () => {
     expect(fileReadsProcessEnv('const x = process.env.MOCK_OTHER_THING;')).toBe(true);
   });
 
+  // ── NEXT_PUBLIC_* exemption (PR3-T2) ──
+  // NEXT_PUBLIC_* is build-time-inlined PUBLIC client config that can never route
+  // through the server-only config accessor, so it is exempt everywhere. Matters
+  // now that the scan covers src/app + src/components where these reads are common.
+
+  it('does NOT count a sole process.env.NEXT_PUBLIC_* read (exempt prefix)', () => {
+    expect(fileReadsProcessEnv("const u = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';")).toBe(false);
+    expect(fileReadsProcessEnv("const a = process.env.NEXT_PUBLIC_APP_URL ?? '';")).toBe(false);
+  });
+
+  it('does NOT count a bracket access of a NEXT_PUBLIC_* var', () => {
+    expect(fileReadsProcessEnv("const k = process.env['NEXT_PUBLIC_GOOGLE_MAPS_API_KEY'];")).toBe(false);
+  });
+
+  it('STILL counts a non-NEXT_PUBLIC read even when a NEXT_PUBLIC_* read is also present', () => {
+    expect(
+      fileReadsProcessEnv(
+        "const pub = process.env.NEXT_PUBLIC_APP_URL;\nconst secret = process.env.RESEND_API_KEY;",
+      ),
+    ).toBe(true);
+  });
+
+  // ── src/app admin env-readiness reads are GENUINE (counted) ──
+  // The admin channel _shared.ts files test required-secret presence via a
+  // COMPUTED key (process.env[k], k a loop variable). staticallyAccessedVarName
+  // can't resolve a computed key to a name, so it is conservatively counted — this
+  // is the genuine src/app read PR3-T2 grandfathers into the baseline.
+
+  it('counts the admin env-readiness computed-key pattern (src/app genuine read)', () => {
+    expect(
+      fileReadsProcessEnv("const missing = required.filter((k) => !process.env[k]);"),
+    ).toBe(true);
+  });
+
   it('STILL counts a non-exempt read even when an exempt read is also present', () => {
     expect(
       fileReadsProcessEnv(
@@ -101,6 +135,14 @@ describe('process-env-audit (pure)', () => {
       baseline: new Set<string>(),
     });
     expect(findings.some((f) => f.includes('new-thing.ts'))).toBe(true);
+  });
+
+  it('flags a NEW non-baseline src/app file that reads process.env (widened scan)', () => {
+    const findings = evaluateFindings({
+      readingFiles: new Set(['src/app/api/admin/channels/telegram/_shared.ts']),
+      baseline: new Set<string>(),
+    });
+    expect(findings.some((f) => f.includes('src/app/api/admin/channels/telegram/_shared.ts'))).toBe(true);
   });
 
   it('flags a STALE baseline entry that no longer reads process.env', () => {

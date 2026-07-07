@@ -1,19 +1,22 @@
 // scripts/ci/lib/ratchet-harness.ts
 //
 // Shared filesystem-walk + baseline-ratchet primitives for the scripts/ci
-// baseline/scan audits (db-imports, process-env, reviews-status, outbox-topics,
+// baseline/scan audits (process-env, reviews-status, outbox-topics,
 // response-status, static-policy). Each audit still OWNS its SCAN_DIRS, its
 // per-file predicate, and its evaluator — the mechanism they all re-spelled is
 // what lives here once:
-//   - the recursive directory walker with skip-sets (`walk`),
-//   - the two-loop baseline diff (`evaluateAgainstBaseline`), and
-//   - the atomic baseline emit (`assembleBaselineModule` + `emitBaselineFile`).
+//   - the recursive directory walker with skip-sets (`walk`), and
+//   - the two-loop baseline diff (`evaluateAgainstBaseline`).
+//
+// (The atomic baseline emit primitives were removed once db-imports flipped to
+// strict — its baseline was the only in-script consumer; process-env keeps a
+// committed baseline but has no in-script emitter.)
 //
 // The walk defaults (SCAN_EXT / SKIP_DIRS / SKIP_FILE) match the DB-injection
 // and process-env sweeps. Callers that scan a wider surface override them per
 // call: static-policy adds js/mjs/cjs to the extension set, and both
 // response-status and static-policy drop __fixtures__ from the skip set.
-import { readdir, rename, writeFile } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 
 /** Default source-file extensions scanned by the ratchet audits (walk's fallback). */
@@ -116,34 +119,4 @@ export function evaluateAgainstBaseline(found: ReadonlySet<string>, diff: Baseli
     if (!found.has(file)) findings.push(diff.onStale(file));
   }
   return findings;
-}
-
-/**
- * Assemble a committed-baseline module's source: the given `header` lines
- * (through the opening `... = new Set([`), then the entries sorted and quoted,
- * then the closing `]);` and a trailing blank line — joined by newlines with a
- * final newline. The header carries the module's identity (path comment, regen
- * command, const name + type) so this stays generic across baselines. Pure —
- * unit-tested.
- */
-export function assembleBaselineModule(header: readonly string[], entries: readonly string[]): string {
-  const lines = [
-    ...header,
-    ...[...entries].sort().map((entry) => `  '${entry}',`),
-    ']);',
-    '',
-  ];
-  return `${lines.join('\n')}\n`;
-}
-
-/**
- * Write `source` to `targetPath` atomically: the full source is written to a
- * co-located `.tmp` file, then `rename`d into place. A crash mid-write leaves
- * only the `.tmp` — never a half-written baseline — since `rename` is a single
- * filesystem operation.
- */
-export async function emitBaselineFile(targetPath: string, source: string): Promise<void> {
-  const tmp = `${targetPath}.tmp`;
-  await writeFile(tmp, source);
-  await rename(tmp, targetPath);
 }

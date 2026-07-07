@@ -1,18 +1,21 @@
 // scripts/ci/db-imports-audit.ts
 //
-// Ratchet guard for the A+ campaign's DB-injection convention (spec
+// STRICT guard for the A+ campaign's DB-injection convention (spec
 // docs/superpowers/specs/2026-07-01-modularity-aplus-campaign-design.md §2.1):
 // domain modules receive `sql` / `supabaseServer` as explicit parameters; only
-// COMPOSITION ROOTS may import the singleton module src/lib/db/server. Every
-// current non-root importer is in DB_IMPORTS_BASELINE; CI fails on a NEW
-// importer or a stale entry. The baseline shrinks to 0 over the Stage-2 domain
-// sweeps; Stage 3 then deletes it and the allowlist becomes strict.
+// COMPOSITION ROOTS may import the singleton module src/lib/db/server. The
+// Stage-2 domain sweeps drove the baseline to 0; Stage 3 (this guard) deleted
+// the baseline and now fails CI on ANY non-composition-root file that imports
+// db/server. Worker composition roots are DERIVED from worker/index.ts
+// registration (see readRegisteredWorkerRoots) — a top-level worker helper that
+// sits beside handlers but is not registered there is NOT a root. Adding a NEW
+// importer requires migrating it to parameter injection instead — that is the
+// point of this guard.
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
-import { DB_IMPORTS_BASELINE } from './db-imports-baseline';
-import { assembleBaselineModule, emitBaselineFile, evaluateAgainstBaseline, walk } from './lib/ratchet-harness';
+import { walk } from './lib/ratchet-harness';
 
 const SCAN_DIRS = ['src', 'worker'] as const;
 
@@ -32,56 +35,86 @@ function isDbServerSpecifier(spec: string): boolean {
 }
 
 /**
- * Top-level files in root-classed directories that are NOT entry points —
- * helpers that live beside the handlers they serve. Named explicitly (no
- * filename heuristics): position grants root status; these are the known
- * exceptions. Now EMPTY — the Stage-2 sweeps migrated the last member
- * (`worker/jobs/summary-report-helpers.ts`, injected in 2i-T4) onto parameter
- * injection. The mechanism stays in place until Stage 3 (a later PR).
- * NOTE for Stage 3: with the set empty, the positional `worker/jobs/<File>.ts`
- * rule below now grants root status to EVERY top-level file there, including a
- * non-handler helper that isn't registered in `worker/index.ts`. Harmless while
- * no such helper imports db/server, but at the strict flip this over-grants —
- * so Stage 3's job is NOT just deleting this empty set (a no-op): it must
- * REPLACE the positional heuristic with root status derived from
- * `worker/index.ts` registration. See plan §4 (2026-07-04-modularity-aplus-stage2-4).
+ * The module specifier of a worker composition root as it appears in a
+ * `worker/index.ts` import: one directory segment (`jobs`,
+ * `background/pollers`, or `background/schedulers`) followed by exactly ONE
+ * more path segment (`[^/]+$`, no extension). The single-segment tail excludes
+ * a subfolder handler (`./jobs/publisher/ResponsePublisherWorker` — already a
+ * non-root) while capturing every top-level registered handler/poller/scheduler.
  */
-const NON_ROOT_EXCEPTIONS = new Set<string>([]);
+const REGISTERED_WORKER_ROOT_SPECIFIER = /^\.\/(?:jobs|background\/pollers|background\/schedulers)\/[^/]+$/;
+
+/**
+ * The set of worker composition roots DERIVED from `worker/index.ts`
+ * registration: the repo-relative path of every top-level job handler, poller,
+ * and scheduler module the entry point imports. Parses `worker/index.ts` with
+ * the TypeScript compiler (mirrors `fileImportsDbServer` — never regex the raw
+ * text, which would false-fire on a comment or a string literal) and, for each
+ * top-level import declaration whose string-literal specifier matches
+ * REGISTERED_WORKER_ROOT_SPECIFIER, maps `./<dir>/<Name>` → `worker/<dir>/<Name>.ts`.
+ * This is why root status for a worker module is EARNED by registration, not
+ * granted by file position: a top-level helper beside the handlers can never
+ * silently gain root status without being wired into the entry point. Only a
+ * direct top-level `import … from './jobs|background/…'` counts — a barrel
+ * re-export or a dynamic `import()` registration is NOT credited. That bias is
+ * deliberate and fail-safe: an un-credited real handler produces a LOUD CI
+ * failure (fix by importing it directly in worker/index.ts), never a silent
+ * root grant to an unregistered helper. Pure — unit-tested.
+ */
+export function readRegisteredWorkerRoots(indexText: string): Set<string> {
+  const source = ts.createSourceFile(
+    'worker/index.ts',
+    indexText,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ false,
+    ts.ScriptKind.TS,
+  );
+  const roots = new Set<string>();
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    if (!ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
+    const spec = statement.moduleSpecifier.text;
+    if (!REGISTERED_WORKER_ROOT_SPECIFIER.test(spec)) continue;
+    // Strip any explicit extension (mirrors isDbServerSpecifier) so an
+    // extension-qualified specifier still maps to the real `.ts` file.
+    const specifierPath = spec.slice(2).replace(/\.(?:js|ts)$/, '');
+    roots.add(`worker/${specifierPath}.ts`);
+  }
+  return roots;
+}
 
 /**
  * True when the file is a composition root that may import the db/server
  * singleton directly and pass `sql`/`supabaseServer` down (spec §2.1): the
  * singleton owner itself, `src/instrumentation.ts`, Next.js route handlers /
  * server-component pages / layouts (Next.js invokes all three — no caller
- * exists that could inject a client, incl. at the `src/app/` root), and
- * worker entry points — top-level job handlers (`worker/jobs/<File>.ts`, NOT
- * a subfolder helper like `worker/jobs/publisher/post-reply.ts`),
- * `worker/index.ts` / `worker/queues.ts`, top-level poller/scheduler boot
- * files (`worker/background/{pollers,schedulers}/<File>.ts` — subfolder
- * helpers like `pollers/health-alert/checks.ts` are domain modules and belong
- * in the baseline), and every file under `worker/ingress/`. The ingress
- * exemption stays a blanket on purpose: per-event ingress handlers
- * legitimately live in provider subfolders (`ingress/stripe/*.ts`, …), so
- * path shape can't separate a handler from a helper there — the ~3 shared
- * helpers that ride along are an accepted width cost. NON_ROOT_EXCEPTIONS
- * overrides all positional rules for known top-level helpers.
- * Pure — unit-tested.
+ * exists that could inject a client, incl. at the `src/app/` root),
+ * `worker/index.ts` / `worker/queues.ts`, every file under `worker/ingress/`,
+ * and every worker module REGISTERED in `worker/index.ts` (the
+ * `registeredWorkerRoots` set — the top-level job handlers, pollers, and
+ * schedulers the entry point imports). Root status for a worker module is
+ * EARNED by registration, not granted by position: a top-level helper that
+ * lives beside the handlers (e.g. `worker/jobs/summary-report-helpers.ts`) is a
+ * domain module, not a root, and must take `sql`/`supabaseServer` as an
+ * explicit parameter. The ingress exemption stays a blanket on purpose:
+ * per-event ingress handlers legitimately live in provider subfolders
+ * (`ingress/stripe/*.ts`, …), so path shape can't separate a handler from a
+ * helper there — the ~3 shared helpers that ride along are an accepted width
+ * cost. Pure (the registered-root set is passed in) — unit-tested.
  */
-export function isCompositionRoot(file: string): boolean {
-  if (NON_ROOT_EXCEPTIONS.has(file)) return false;
+export function isCompositionRoot(file: string, registeredWorkerRoots: ReadonlySet<string>): boolean {
   if (file === 'src/lib/db/server.ts' || file === 'src/instrumentation.ts') return true;
   // Owner-decided classification (A+ campaign sweep 2i): auth.ts is a db-layer
   // auth gate — it owns a Supabase SSR client factory plus a single identity
   // SELECT and serves ~14 callers — so it is a composition root, not a domain
   // module. Named EXPLICITLY (not a `src/lib/db/*` blanket) so account-guard.ts
-  // and other db-layer domain modules stay in scope for the baseline sweep.
+  // and other db-layer domain modules stay in scope.
   if (file === 'src/lib/db/auth.ts') return true;
   if (/^src\/app\/(?:.*\/)?route\.ts$/.test(file)) return true;
   if (/^src\/app\/(?:.*\/)?page\.tsx$/.test(file)) return true;
   if (/^src\/app\/(?:.*\/)?layout\.tsx$/.test(file)) return true;
   if (/^worker\/(?:index|queues)\.ts$/.test(file)) return true;
-  if (/^worker\/jobs\/[^/]+\.ts$/.test(file)) return true;
-  if (/^worker\/background\/(?:pollers|schedulers)\/[^/]+\.ts$/.test(file)) return true;
+  if (registeredWorkerRoots.has(file)) return true;
   if (/^worker\/ingress\//.test(file)) return true;
   return false;
 }
@@ -201,89 +234,48 @@ export function fileImportsDbServer(text: string): boolean {
 
 export interface EvaluateInput {
   importingFiles: ReadonlySet<string>;
-  baseline?: ReadonlySet<string>;
 }
 
-/** Compare the live importing-file set against the baseline. Pure — unit-tested. */
+/**
+ * Strict evaluation: `importingFiles` is already filtered to
+ * non-composition-roots by `collectImportingFiles`, so EVERY entry is a
+ * failure — a non-root module that imports the db/server singleton instead of
+ * taking `sql`/`supabaseServer` as an explicit parameter. Emits one "new
+ * importer" message per offender. Pure — unit-tested.
+ */
 export function evaluateFindings(input: EvaluateInput): string[] {
-  return evaluateAgainstBaseline(input.importingFiles, {
-    baseline: input.baseline ?? DB_IMPORTS_BASELINE,
-    skip: isCompositionRoot,
-    onNew: (file) =>
-      `${file} imports @/lib/db/server but is not a composition root — accept sql/supabaseServer as an explicit parameter instead (spec §2.1 — docs/superpowers/specs/2026-07-01-modularity-aplus-campaign-design.md)`,
-    onStale: (file) =>
-      `${file} is in DB_IMPORTS_BASELINE but no longer imports @/lib/db/server — remove the stale baseline entry (the baseline shrinks to 0 over the Stage-2 domain sweeps)`,
-  });
+  const findings: string[] = [];
+  for (const file of input.importingFiles) {
+    findings.push(
+      `${file} imports @/lib/db/server but is not a composition root — accept sql/supabaseServer as an explicit parameter instead, OR if this IS a top-level worker handler/poller/scheduler, register it directly in worker/index.ts to earn root status (spec §2.1 — docs/superpowers/specs/2026-07-01-modularity-aplus-campaign-design.md)`,
+    );
+  }
+  return findings;
 }
 
 export async function collectImportingFiles(root: string): Promise<Set<string>> {
   const files = await walk(root, { scanDirs: SCAN_DIRS });
+  const registeredWorkerRoots = readRegisteredWorkerRoots(
+    await readFile(resolve(root, 'worker/index.ts'), 'utf8'),
+  );
   const importing = new Set<string>();
   for (const file of files) {
-    if (isCompositionRoot(file)) continue;
+    if (isCompositionRoot(file, registeredWorkerRoots)) continue;
     if (fileImportsDbServer(await readFile(resolve(root, file), 'utf8'))) importing.add(file);
   }
   return importing;
 }
 
-/**
- * Renders the full `db-imports-baseline.ts` module source from the given
- * non-composition-root importer files: header comment (spec reference,
- * regeneration command, do-not-hand-edit notice) followed by the sorted,
- * quoted `DB_IMPORTS_BASELINE` entries. Pure — unit-tested; `emitBaseline`
- * writes the result to disk.
- */
-const BASELINE_HEADER = [
-  '// scripts/ci/db-imports-baseline.ts',
-  '//',
-  '// Committed baseline: non-composition-root files (spec',
-  '// docs/superpowers/specs/2026-07-01-modularity-aplus-campaign-design.md §2.1)',
-  '// that import the src/lib/db/server singleton TODAY. Generated by the audit\'s',
-  '// own scan — regenerate with:',
-  '//   pnpm tsx scripts/ci/db-imports-audit.ts --emit-baseline',
-  '// (writes this file atomically — tmp file + rename — so a partial run never',
-  '// leaves a half-written baseline).',
-  '// Do NOT hand-edit entries. Shrinks to 0 over the Stage-2 domain sweeps as each domain',
-  '// module is converted to take `sql`/`supabaseServer` as an explicit parameter;',
-  '// Stage 3 then deletes this file and the guard becomes a strict',
-  '// composition-root allowlist. Adding a NEW importer requires migrating it',
-  '// instead — that is the point of this guard.',
-  '',
-  'export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([',
-];
-
-export function renderBaselineModule(files: readonly string[]): string {
-  return assembleBaselineModule(BASELINE_HEADER, files);
-}
-
-/**
- * Writes the regenerated baseline module to `scripts/ci/db-imports-baseline.ts`
- * atomically (via the harness's `emitBaselineFile`: tmp file + rename), so a
- * crash mid-write never leaves a half-written baseline.
- */
-async function emitBaseline(importing: ReadonlySet<string>, root: string): Promise<void> {
-  const source = renderBaselineModule([...importing]);
-  const target = resolve(root, 'scripts/ci/db-imports-baseline.ts');
-  await emitBaselineFile(target, source);
-  console.log(`db-imports-audit: baseline regenerated (${importing.size} entries)`);
-}
-
 async function main(): Promise<void> {
   const root = process.cwd();
   const importing = await collectImportingFiles(root);
-  if (process.argv.includes('--emit-baseline')) {
-    await emitBaseline(importing, root);
-    return;
-  }
   const findings = evaluateFindings({ importingFiles: importing });
   if (findings.length > 0) {
     console.error('db-imports-audit: failed');
     for (const finding of findings) console.error(`  ${finding}`);
     process.exit(1);
   }
-  console.log(
-    `db-imports-audit: passed (baseline ${DB_IMPORTS_BASELINE.size} files importing db/server outside composition roots)`,
-  );
+  console.log('db-imports-audit: passed (strict — no non-composition-root file imports db/server)');
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {

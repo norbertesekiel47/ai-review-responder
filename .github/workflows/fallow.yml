@@ -26,7 +26,10 @@ jobs:
   fallow:
     name: fallow
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Bumped from 10 → 15: the job now runs a full `vitest run --coverage` before
+    # the audit (the static-only scan was sub-second). Coverage gen ~2-3 min on CI
+    # + fallow ~40s leaves comfortable headroom; 15 absorbs runner variance.
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -39,10 +42,26 @@ jobs:
         uses: ./.github/actions/setup
       - name: Install fallow
         run: npm install -g fallow@2.88.2
-      - name: Fallow audit (new findings only)
+      - name: Generate coverage
+        # Produces coverage/coverage-final.json (v8 json reporter) for the audit's
+        # runtime layer. Runs WITHOUT TEST_DATABASE_POOL_URL, so integration suites
+        # skip — no DB, no collision with ci.yml's test job.
+        #
+        # KNOWN LIMITATION (owner-accepted, PR 3): this is a SECOND, DB-less suite
+        # run dedicated to fallow — it double-runs the suite per PR and the coverage
+        # handed to fallow excludes every DB/integration path (those read as cold).
+        # Acceptable because the current gate is `new-only` complexity/duplication,
+        # which barely uses runtime coverage (it drove zero pragma removals — the
+        # static complexity metric binds), and this check is advisory/non-required.
+        # If the gate is ever promoted to cold-path/dead-code rules, replace this
+        # with DB-complete coverage from ci.yml's DB-inclusive test job (upload the
+        # artifact + move this job into ci.yml `needs: test`) — a standalone DB run
+        # HERE is unsafe (two workflows on the shared test DB → stale-row poisoning).
+        run: pnpm test:coverage
+      - name: Fallow audit (new findings only, coverage-informed)
         env:
           # Stacked PRs target a non-main base. Compare against the PR's actual
           # base branch so we never re-count the parent branch's findings as new.
           # Normal PRs (base = main) resolve to origin/main, the prior behaviour.
           FALLOW_BASE: origin/${{ github.event.pull_request.base.ref }}
-        run: pnpm ci:fallow
+        run: pnpm ci:fallow:coverage

@@ -137,9 +137,9 @@ Per spec §2.1: domain modules receive the DB client as an explicit parameter; o
 
 ### PR 3 — ratchet strict
 
-- [ ] `ci:db-imports`: delete the baseline file + baseline logic; the audit fails on ANY non-composition-root importer. Revisit `NON_ROOT_EXCEPTIONS` (should be empty after 2i — delete the mechanism if so, or deepen per the final-review note: derive job-root status from `worker/index.ts` registration if any exception remains).
-- [ ] Widen `ci:process-env` scanning to `src/app` + `src/components` (expect only exempt indicators/NEXT_PUBLIC literals; baseline anything genuine and empty it here).
-- [ ] Update spec §2.1's "ratchet" framing + lab-notes + CLAUDE.md if any wording references baselines.
+- [x] `ci:db-imports`: delete the baseline file + baseline logic; the audit fails on ANY non-composition-root importer. Revisit `NON_ROOT_EXCEPTIONS` (should be empty after 2i — delete the mechanism if so, or deepen per the final-review note: derive job-root status from `worker/index.ts` registration if any exception remains). **DONE (PR 3):** baseline file + `--emit-baseline` deleted; strict. `NON_ROOT_EXCEPTIONS` DEEPENED, not just deleted — the positional `worker/jobs|background/…` rules were replaced with roots DERIVED from `worker/index.ts` registration (F15), so no top-level helper can silently regain root status.
+- [x] Widen `ci:process-env` scanning to `src/app` + `src/components` (expect only exempt indicators/NEXT_PUBLIC literals; baseline anything genuine and empty it here). **DONE (PR 3):** widened; `NEXT_PUBLIC_*` made an exempt indicator; baseline 14 → 10 (2 genuine admin-channel reads added, 6 NEXT_PUBLIC-only readers dropped as newly-exempt).
+- [x] Update spec §2.1's "ratchet" framing + lab-notes + CLAUDE.md if any wording references baselines. **DONE (PR 3):** spec §2.1 + lab-notes updated for the strict flip + F15 + process-env widening + fallow `--coverage`; CLAUDE.md carried no baseline wording, so no change needed. (Also landed in PR 3: real `fallow --coverage` in CI — plan §3.9's deferred item.)
 
 ### PR 4 — exit re-audit + retrospective
 

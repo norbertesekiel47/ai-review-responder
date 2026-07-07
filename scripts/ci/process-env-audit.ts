@@ -2,10 +2,11 @@
 //
 // Baseline guard: the sanctioned process.env home is src/lib/config/** (plus
 // worker/env.ts and worker/config/startup-assert.ts). Every OTHER in-scope file
-// (src/lib/**, worker/**) that reads process.env today is in PROCESS_ENV_BASELINE.
-// CI fails when a NEW (non-baseline, non-allowlisted) file reads process.env, or
-// when a baseline entry no longer reads it (stale — remove it). The baseline
-// shrinks to 0 over Stage 3 as reads migrate onto the config accessors.
+// (src/lib/**, src/app/**, src/components/**, worker/**) that reads process.env
+// today is in PROCESS_ENV_BASELINE. CI fails when a NEW (non-baseline,
+// non-allowlisted) file reads process.env, or when a baseline entry no longer
+// reads it (stale — remove it). The baseline shrinks to 0 over Stage 3 as reads
+// migrate onto the config accessors.
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -15,7 +16,7 @@ import { evaluateAgainstBaseline, walk } from './lib/ratchet-harness';
 
 export { isAllowlisted };
 
-const SCAN_DIRS = ['src/lib', 'worker'] as const;
+const SCAN_DIRS = ['src/lib', 'src/app', 'src/components', 'worker'] as const;
 
 /**
  * Env INDICATORS are exempt (Stage-3 convention #2): they describe WHICH
@@ -37,13 +38,26 @@ const SCAN_DIRS = ['src/lib', 'worker'] as const;
  * through the production config schema would add a never-used-in-prod field with
  * mock-specific clamp logic. It therefore stays a direct process.env read and the
  * audit must not count it.
+ *
+ * NEXT_PUBLIC_* is exempt (PREFIX). These are build-time-inlined PUBLIC client
+ * config (Next.js literally substitutes the value into the bundle at build) —
+ * never subsystem/server config, and never routed through the server config
+ * accessor (getServerConfig is server-only; a NEXT_PUBLIC value must be readable
+ * in a browser-shipped route/page/component). Reading it directly at a call site
+ * is the sanctioned pattern, so the audit must not count it. This matters now
+ * that the scan covers src/app + src/components, where NEXT_PUBLIC_* reads are
+ * common (a simple member read of a NEXT_PUBLIC_* name off `process.env`, with a
+ * `?? '…'` default, resolves to the literal name via staticallyAccessedVarName →
+ * this name-based exemption catches it). `ci:static-policy` remains the separate
+ * guard that allowlists the SET of legal NEXT_PUBLIC_* vars.
  */
 function isExemptIndicatorName(name: string): boolean {
   return (
     name === 'NODE_ENV' ||
     name === 'MOCK_EXTERNAL_APIS' ||
     name === 'MOCK_ZERNIO_LOCATION_COUNT' ||
-    name.startsWith('VERCEL_')
+    name.startsWith('VERCEL_') ||
+    name.startsWith('NEXT_PUBLIC_')
   );
 }
 
