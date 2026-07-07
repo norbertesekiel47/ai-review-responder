@@ -179,7 +179,7 @@ export async function reconcileCycle(signal: AbortSignal): Promise<ReconcileResu
     }
     try {
       const outcome = await withTimeout(
-        reconcileAccount(stripe, account),
+        reconcileAccount(sql, stripe, account),
         ACCOUNT_TIMEOUT_MS,
         `reconcile account ${account.id}`,
       );

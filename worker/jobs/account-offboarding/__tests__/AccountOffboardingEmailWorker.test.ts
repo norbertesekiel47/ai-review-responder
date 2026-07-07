@@ -136,7 +136,7 @@ describe('AccountOffboardingEmailWorker', () => {
     const sqlText = sqlCalls.map((call) => call.text).join('\n');
     expect(sqlText).not.toContain('FROM businesses');
     expect(sqlText).not.toContain('subscription_status');
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-email-1', 4);
   });
 
   it('completes a terminal-row email retry after the recipient was scrubbed post-send instead of failing it (M3)', async () => {
@@ -157,7 +157,7 @@ describe('AccountOffboardingEmailWorker', () => {
 
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-email-1', 4);
   });
 
   it('sends cancel-only reactivation confirmation for a terminal reactivated offboarding', async () => {
@@ -194,7 +194,7 @@ describe('AccountOffboardingEmailWorker', () => {
       accountOffboardingDeliveryId(OFFBOARDING_ID, 'cancel_only_reactivation_confirmation'),
     );
     expect(claimCall?.values).toContain('account_offboarding_cancel_only_reactivation_confirmation');
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-email-1', 4);
   });
 
   it('sends delete-data confirmation with a hashed keep-my-data token created at send time', async () => {
@@ -247,7 +247,7 @@ describe('AccountOffboardingEmailWorker', () => {
       category: 'transactional',
       idempotencyKey: `repworth:account-offboarding-email-send:v1:${accountOffboardingDeliveryId(OFFBOARDING_ID, 'delete_data_confirmation')}`,
     });
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-email-1', 4);
   });
 
   it('sends keep-my-data confirmation after a delete-data purge is cancelled', async () => {
@@ -283,7 +283,7 @@ describe('AccountOffboardingEmailWorker', () => {
       category: 'transactional',
       idempotencyKey: `repworth:account-offboarding-email-send:v1:${accountOffboardingDeliveryId(OFFBOARDING_ID, 'keep_my_data_confirmation')}`,
     });
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-email-1', 4);
   });
 
   it('reclaims a stale unsent keep-my-data delivery claim before sending confirmation', async () => {
@@ -318,7 +318,7 @@ describe('AccountOffboardingEmailWorker', () => {
       category: 'transactional',
       idempotencyKey: `repworth:account-offboarding-email-send:v1:${deliveryId}`,
     });
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-email-1', 4);
   });
 
   it('dedupes by deterministic delivery id and completes the outbox without sending', async () => {
@@ -331,7 +331,7 @@ describe('AccountOffboardingEmailWorker', () => {
     const claimCall = sqlCalls.find((call) => call.text.includes('INSERT INTO notification_deliveries'));
     expect(claimCall?.values).toContain(accountOffboardingDeliveryId(OFFBOARDING_ID, 'cancel_only_confirmation'));
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-email-1', 4);
   });
 
   it.each([
@@ -365,7 +365,7 @@ describe('AccountOffboardingEmailWorker', () => {
     const claimCall = sqlCalls.find((call) => call.text.includes('INSERT INTO notification_deliveries'));
     expect(claimCall?.values).toContain(accountOffboardingDeliveryId(OFFBOARDING_ID, emailType));
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-email-1', 4);
   });
 
   it('sends a purge receipt and atomically completes + scrubs the payload in one outbox update (M2)', async () => {
@@ -404,6 +404,7 @@ describe('AccountOffboardingEmailWorker', () => {
     }));
 
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-email-1',
       'account_offboarding_purge_receipt_missing_recipient',
       4,
@@ -428,7 +429,7 @@ describe('AccountOffboardingEmailWorker', () => {
     const sqlText = sqlCalls.map((call) => call.text).join('\n');
     expect(sqlText).not.toContain('INSERT INTO account_offboarding_tokens');
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-email-1', 4);
   });
 
   it('retries instead of completing when a delete-data delivery claim exists but is not sent', async () => {
@@ -488,7 +489,7 @@ describe('AccountOffboardingEmailWorker', () => {
       category: 'transactional',
       idempotencyKey: `repworth:account-offboarding-email-send:v1:${deliveryId}`,
     });
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-email-1', 4);
   });
 
   it('reclaims a stale unsent delete-data claim and reuses the deterministic token row', async () => {
@@ -523,7 +524,7 @@ describe('AccountOffboardingEmailWorker', () => {
       category: 'transactional',
       idempotencyKey: `repworth:account-offboarding-email-send:v1:${deliveryId}`,
     });
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-email-1', 4);
   });
 
   it('rolls back an unsent claim on send failure so BullMQ can retry', async () => {
@@ -579,6 +580,7 @@ describe('AccountOffboardingEmailWorker', () => {
 
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-email-1',
       'account_offboarding_status_not_emailable:pending',
       4,
@@ -594,6 +596,7 @@ describe('AccountOffboardingEmailWorker', () => {
 
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-email-1',
       'account_offboarding_status_not_reactivated:scheduled',
       4,
@@ -618,6 +621,7 @@ describe('AccountOffboardingEmailWorker', () => {
     expect(sqlText).not.toContain('INSERT INTO account_offboarding_tokens');
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-email-1',
       'NEXT_PUBLIC_APP_URL not configured',
       4,
@@ -642,6 +646,7 @@ describe('AccountOffboardingEmailWorker', () => {
     expect(sqlText).not.toContain('INSERT INTO account_offboarding_tokens');
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-email-1',
       'SESSION_COOKIE_SECRET not configured',
       4,
@@ -663,6 +668,7 @@ describe('AccountOffboardingEmailWorker', () => {
 
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-email-1',
       'account_offboarding_purge_already_started',
       4,
@@ -686,6 +692,7 @@ describe('AccountOffboardingEmailWorker', () => {
     expect(sqlText).not.toContain('INSERT INTO notification_deliveries');
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-email-1',
       'account_offboarding_missing_purge_cancelled_at',
       4,

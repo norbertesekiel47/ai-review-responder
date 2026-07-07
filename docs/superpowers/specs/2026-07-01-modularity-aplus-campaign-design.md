@@ -49,7 +49,11 @@ behavior change, verified by a fresh independent re-audit at campaign end.
   `supabase-js` stay separate clients, never collapsed into a `{sql, supabase}` bag.
 - **Composition roots** may import the singleton: route handlers (`src/app/api/**`),
   worker job handlers at their registration point, poller/scheduler boot, ingress
-  handlers, `src/instrumentation.ts`. They pass the client down.
+  handlers, `src/instrumentation.ts`, and `src/lib/db/auth.ts`. They pass the client
+  down. (`src/lib/db/auth.ts` is an owner-decided 2i classification: it is a
+  db-layer auth gate — a Supabase SSR client factory plus a single identity SELECT
+  serving ~14 callers — not a domain business-logic module, so it is named
+  explicitly as a root in the `ci:db-imports` guard rather than injected.)
 - **Domain modules** (`src/lib/**` business logic) receive `sql: Sql` — or
   `tx: TransactionSql` inside transactions, which is already the repo convention for
   helpers like `job-outbox-helpers` — as an explicit leading parameter. They never

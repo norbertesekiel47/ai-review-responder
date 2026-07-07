@@ -256,7 +256,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     // with the cost ID from MOCK_RESULT.apiCostId ('cost-1')
     const txCallArgs = mockTx.mock.calls.map((c) => c.slice(1)).flat();
     expect(txCallArgs).toContain('cost-1');
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-gen-1', undefined);
   });
 
   it('passes a normalized valid origin lane and suppress flag to persistence', async () => {
@@ -367,7 +367,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
       accountId: 'acct-1',
       businessId: 'biz-1',
     }));
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-gen-1', undefined);
     const analyticsCallOrder = mockEnqueueAnalyticsEvent.mock.invocationCallOrder[0];
     const completedCallOrder = mockMarkOutboxCompleted.mock.invocationCallOrder[0];
     expect(analyticsCallOrder).toBeDefined();
@@ -400,7 +400,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
 
     expect(mockGenerateResponse).not.toHaveBeenCalled();
     expect(mockEnqueueAnalyticsEvent).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-gen-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
 
     const record = findLogRecord(logSpy, 'suppressing first_response_drafted enqueue');
@@ -419,7 +419,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     await handleResponseGeneration(makeJob());
 
     expect(mockEnqueueAnalyticsEvent).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-gen-1', undefined);
   });
 
   it('completes outbox when first_response_drafted enqueue fails after normal response commit', async () => {
@@ -433,7 +433,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     await handleResponseGeneration(makeJob());
 
     expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledOnce();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-gen-1', undefined);
   });
 
   // 1b. Correlation propagation into send_notification payload
@@ -459,7 +459,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
 
     await handleResponseGeneration(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-gen-1', undefined);
     expect(mockGenerateResponse).not.toHaveBeenCalled();
     expect(mockGenerateMockResponse).not.toHaveBeenCalled();
     const skipRecord = findSkipLogRecord(logSpy);
@@ -478,7 +478,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
 
     expect(mockGenerateResponse).not.toHaveBeenCalled();
     expect(mockGenerateMockResponse).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-gen-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
 
     const skipRecord = findSkipLogRecord(logSpy);
@@ -504,7 +504,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
       eventName: 'first_response_drafted',
       eventKey: 'first_response_drafted:acct-1',
     }));
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-gen-1', undefined);
   });
 
   // 3. Cost limit exceeded
@@ -516,6 +516,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     await handleResponseGeneration(makeJob());
 
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-gen-1',
       expect.stringContaining('cost limit exceeded'), undefined);
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
@@ -532,7 +533,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
 
     expect(mockGenerateMockResponse).toHaveBeenCalledOnce();
     expect(mockGenerateResponse).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-gen-1', undefined);
   });
 
   // 5. Avoid-facts violation triggers retry
@@ -573,7 +574,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
       1,
       expect.stringContaining('Thank you for the kind review!'),
     );
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-gen-1', undefined);
   });
 
   // 6. suppress_notification flag (spec §4.6, §6.7)
@@ -585,7 +586,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     await handleResponseGeneration(makeJob({ suppress_notification: true }));
 
     expect(findSendNotificationPayloads()).toHaveLength(0);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-gen-1', undefined);
   });
 
   it('enqueues send_notification when suppress_notification is omitted (default false)', async () => {
@@ -616,7 +617,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     expect(txArgs).toContain('local_regex');
     expect(txArgs).toContain('open');
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-gen-1', undefined);
   });
 
   it('sends the normal notification when moderation does not flag (default)', async () => {

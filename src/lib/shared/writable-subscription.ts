@@ -6,7 +6,6 @@ import {
   type ActiveOffboardingProjection,
   type OffboardingGate,
 } from '@/lib/account-offboarding/gate';
-import { sql } from '@/lib/db/server';
 import {
   computePastDueRecoveryState,
   type AccountFlagsInput,
@@ -82,7 +81,7 @@ async function assertNoBlockingOffboardingForAccount(
 
 export async function assertWritableSubscriptionForAccount(
   accountId: string,
-  db: SubscriptionSql = sql,
+  db: SubscriptionSql,
   offboardingGate?: Pick<OffboardingGate, 'getOffboardingState'>,
 ): Promise<WritableSubscriptionResult> {
   const [account] = await db<Array<{
@@ -138,7 +137,7 @@ export async function assertWritableSubscriptionForAccount(
 
 export async function assertWritableSubscriptionForBusiness(
   businessId: string,
-  db: SubscriptionSql = sql,
+  db: SubscriptionSql,
   offboardingGate?: Pick<OffboardingGate, 'getOffboardingState'>,
 ): Promise<WritableSubscriptionResult> {
   const [account] = await db<Array<{
@@ -215,7 +214,7 @@ export type WritableAccountForLocation =
  */
 export async function resolveWritableAccountForLocation(
   locationId: string,
-  db: SubscriptionSql = sql,
+  db: SubscriptionSql,
   offboardingGate?: Pick<OffboardingGate, 'getOffboardingState'>,
 ): Promise<WritableAccountForLocation> {
   const [accountRow] = await db<Array<{

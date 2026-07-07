@@ -192,7 +192,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
   });
 
   // Defense-in-depth: regression tests for non-publishable terminal states.
@@ -212,7 +212,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
     expect(mockMaybeCaptureActivationCompleted).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -224,7 +224,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
   });
 
   it('completes outbox without action when location is archived before publishing', async () => {
@@ -235,7 +235,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -254,7 +254,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
     expect(mockMaybeCaptureActivationCompleted).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -280,7 +280,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(mockPostReply).not.toHaveBeenCalled();
     // Publish outbox completion now flows through the canonical markOutboxCompleted
     // helper (tx-aware), not inline tx SQL.
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-auto-1', 2, expect.anything());
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-auto-1', 2);
 
     const calls = (mockSql as any).mock.calls as unknown[][];
     const downgradeCall = calls.find((call) => {
@@ -356,7 +356,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     );
     expect(callTexts.some((t: string) => /pending_approval/.test(t))).toBe(true);
     expect((mockSql as any).mock.calls.some((call: unknown[]) => call.includes('send_notification'))).toBe(true);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined, expect.anything());
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
   });
 
@@ -373,7 +373,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(callTexts.some((t: string) => /pending_approval/.test(t))).toBe(false);
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
   });
 
   it('keeps owner-approved rows on the normal publisher path when runtime flag is off', async () => {
@@ -391,7 +391,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(callTexts.some((t: string) => /auto_policy_revoked_by_kill_switch/.test(t))).toBe(false);
     expect(callTexts.some((t: string) => /awaiting_owner_connect/.test(t))).toBe(true);
     expect(callTexts.some((t: string) => /notify_owner_reconnect/.test(t))).toBe(true);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
   });
 
   it('marks outbox failed when response not found', async () => {
@@ -400,6 +400,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     await handlePublishResponse(mockSql, makeJob());
 
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-pub-1',
       'response_not_found: resp-1',
       undefined,
@@ -412,6 +413,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     await handlePublishResponse(mockSql, makeJob());
 
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-pub-1',
       'business_id_mismatch',
       undefined,
@@ -431,7 +433,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
 
     // Verify both an UPDATE awaiting_owner_connect and a notify_owner_reconnect
     // INSERT were issued.
@@ -454,7 +456,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     await handlePublishResponse(mockSql, makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
     const callTexts = (mockSql as any).mock.calls.map(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
     );
@@ -488,7 +490,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       logger: expect.any(Object),
     });
     expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledTimes(1);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
     // Contract: activation capture runs before the outbox is marked complete.
     expect(
       mockMaybeCaptureActivationCompleted.mock.invocationCallOrder[0]!,
@@ -530,7 +532,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     );
     // Guard matched zero rows → idempotent completion, no failure, no re-post.
     expect(mockPostReply).toHaveBeenCalledTimes(1);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -557,7 +559,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     // The in-flight ON CONFLICT predicate carries the literal topic in the
     // template text, so exactly one enqueue is observable here.
     expect(callTexts.filter((t: string) => /topic = 'auto_post_notice'/.test(t))).toHaveLength(1);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
   });
 
   it('fresh 2xx success for an owner-approved response enqueues NO FYI', async () => {
@@ -577,7 +579,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
     );
     expect(callTexts.some((t: string) => /topic = 'auto_post_notice'/.test(t))).toBe(false);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
   });
 
   // ── Branch B: ZernioReviewNotFoundError → terminal failed + exception
@@ -597,7 +599,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     await handlePublishResponse(mockSql, makeJob());
 
     expect(mockPostReply).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
 
     const callTexts = (mockSql as any).mock.calls.map(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
@@ -622,7 +624,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     await handlePublishResponse(mockSql, makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
     const callTexts = (mockSql as any).mock.calls.map(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
     );
@@ -646,7 +648,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     await handlePublishResponse(mockSql, makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
 
     const callTexts = (mockSql as any).mock.calls.map(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
@@ -669,7 +671,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     await handlePublishResponse(mockSql, makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
     const callTexts = (mockSql as any).mock.calls.map(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
     );
@@ -696,7 +698,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     await handlePublishResponse(mockSql, makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
     const callTexts = (mockSql as any).mock.calls.map(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
     );
@@ -752,7 +754,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     await handlePublishResponse(mockSql, makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
     const callTexts = (mockSql as any).mock.calls.map(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
     );
@@ -781,7 +783,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
     );
     expect(callTexts.filter((t: string) => /topic = 'auto_post_notice'/.test(t))).toHaveLength(1);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
   });
 
   it('409 + target NOT found → throws ZernioReplyVerificationIndeterminateError reason=review_not_found_after_pagination', async () => {
@@ -847,7 +849,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     await handlePublishResponse(mockSql, makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
     const callTexts = (mockSql as any).mock.calls.map(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
     );
@@ -897,7 +899,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     await handlePublishResponse(mockSql, makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
     const callTexts = (mockSql as any).mock.calls.map(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
     );
@@ -957,7 +959,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
     expect((probeCall![0] as TemplateStringsArray).join('?')).toMatch(/business_id =/);
     // 'completed' → outbox completed, POST-only path NOT taken.
     expect(mockPostReply).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
   });
 
   it('captures activation before completing outbox when edit-publish posts a response', async () => {
@@ -989,7 +991,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
       logger: activationLogger,
     });
     expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledTimes(1);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
     // Contract: activation capture runs before the outbox is marked complete.
     expect(
       mockMaybeCaptureActivationCompleted.mock.invocationCallOrder[0]!,
@@ -1011,7 +1013,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
       responsePostingError: 'pending_after_delete_succeeded',
     });
     expect(mockPostReply).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
   });
 
   it('does NOT dispatch (uses POST-only path) when flag OFF even if a posted sibling exists', async () => {
@@ -1035,7 +1037,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
     );
     expect(callTexts.some((t: string) => /status = 'posted'[\s\S]*id <>/m.test(t))).toBe(false);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
   });
 
   it('does NOT dispatch for a normal first publish (flag on, no sibling, no orphan marker)', async () => {
@@ -1056,7 +1058,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
 
     expect(mockRunEditPublishIfApplicable).not.toHaveBeenCalled();
     expect(mockPostReply).toHaveBeenCalledTimes(1);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
   });
 
   it('P1 regression: flag ON + auto_policy + no sibling/orphan → falls through to fresh POST (NO throw) and enqueues the FYI', async () => {
@@ -1083,7 +1085,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
       (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
     );
     expect(callTexts.filter((t: string) => /topic = 'auto_post_notice'/.test(t))).toHaveLength(1);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
   });
 
   it("'throw' outcome propagates so BullMQ retries", async () => {
@@ -1118,6 +1120,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
 
     expect(mockPostReply).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-pub-1',
       'zernio_permanent_after_edit_publish',
       undefined,
@@ -1144,7 +1147,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
 
     expect(mockRunEditPublishIfApplicable).toHaveBeenCalledTimes(1);
     expect(mockPostReply).toHaveBeenCalledTimes(1);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 });

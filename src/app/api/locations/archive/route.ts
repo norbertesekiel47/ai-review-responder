@@ -60,7 +60,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // gate on add/reactivate freezes billing-EXPANDING mutations during offboarding.
   // Archive is billing-CONTRACTING (it decrements overage quantity) — gating it
   // would trap an offboarding customer at a higher bill. Exempt by design.
-  const reqCtx = await readLocationActionRequest(req, ArchiveLocationSchema);
+  const reqCtx = await readLocationActionRequest(sql, req, ArchiveLocationSchema);
   if (!reqCtx.ok) return reqCtx.response;
   const { locationId, accountId } = reqCtx.data;
 

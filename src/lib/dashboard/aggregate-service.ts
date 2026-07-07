@@ -335,7 +335,7 @@ async function getTotalRespondedForAccount(sql: Sql, accountId: string): Promise
     WHERE b.account_id = ${accountId}::uuid
       AND b.archived_at IS NULL
       AND r.status <> ${REVIEW_STATUS.DELETED}
-      AND resp.status = ANY(${statusArraySql(HANDLED_STATUSES)})
+      AND resp.status = ANY(${statusArraySql(sql, HANDLED_STATUSES)})
   `;
   return row?.count ?? 0;
 }

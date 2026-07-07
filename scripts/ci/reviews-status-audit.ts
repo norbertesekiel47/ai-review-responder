@@ -49,17 +49,15 @@
 // or `// review-status-ignore` (TS, same or preceding line) exempts that
 // match — for state-transition write guards and one-off subsets that must
 // stay inline, mirroring response-status-audit's `status-audit-ignore`.
-import { readdir, readFile } from 'node:fs/promises';
-import { join, relative, resolve, sep } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { REVIEW_STATUS } from '../../src/lib/reviews/status';
 import { escapeRegExp, isSqlTaggedTemplate, lineHasPragma } from './lib/sql-tag-scan';
+import { walk } from './lib/ratchet-harness';
 
 const SCAN_DIRS = ['src/lib', 'src/app', 'worker'] as const;
-const SCAN_EXT = /\.(?:ts|tsx)$/;
-const SKIP_DIRS = new Set(['node_modules', '__tests__', 'dist', '.next', 'coverage', '__fixtures__']);
-const SKIP_FILE = /\.(?:test|spec)\.[cm]?tsx?$/;
 const IGNORE_PRAGMA = 'review-status-ignore';
 
 // Group 1 captures the optional `<qualifier>.` prefix so each match can be
@@ -87,10 +85,6 @@ const STATUS_PREDICATE_RE = new RegExp(
  * new reviews alias convention appears in SQL.
  */
 const REVIEWS_ALIAS_ALLOWLIST: ReadonlySet<string> = new Set(['r', 'rev', 'r2', 'reviews']);
-
-function normalize(file: string): string {
-  return file.split(sep).join('/');
-}
 
 /**
  * True when the tagged template counts as a raw review-status predicate: its
@@ -163,25 +157,8 @@ export function evaluateFindings(input: EvaluateInput): string[] {
   return findings;
 }
 
-async function collectFiles(dir: string, root: string, out: string[]): Promise<void> {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return; // directory absent — nothing to scan
-  }
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name)) await collectFiles(join(dir, entry.name), root, out);
-    } else if (entry.isFile() && SCAN_EXT.test(entry.name) && !SKIP_FILE.test(entry.name)) {
-      out.push(normalize(relative(root, join(dir, entry.name))));
-    }
-  }
-}
-
 export async function collectMatchingFiles(root: string): Promise<Set<string>> {
-  const files: string[] = [];
-  for (const dir of SCAN_DIRS) await collectFiles(resolve(root, dir), root, files);
+  const files = await walk(root, { scanDirs: SCAN_DIRS });
   const matching = new Set<string>();
   for (const file of files) {
     if (fileHasRawReviewStatusPredicate(await readFile(resolve(root, file), 'utf8'))) matching.add(file);

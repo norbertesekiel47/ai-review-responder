@@ -217,7 +217,7 @@ describe('NotificationWorker — Telegram flag gate', () => {
 
     // Email must still go through
     expect(mockEmailSend).toHaveBeenCalledTimes(1);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-notif-1', undefined);
   });
 });
 
@@ -275,7 +275,7 @@ describe('NotificationWorker — Telegram blocked recipient', () => {
     expect(mockFinalizeDeliverySent).toHaveBeenCalledTimes(1);
 
     // Dispatcher must NOT throw — outbox completed
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-notif-1', undefined);
   });
 });
 
@@ -337,6 +337,6 @@ describe('NotificationWorker — Telegram chat not found', () => {
     expect(mockFinalizeDeliverySent).toHaveBeenCalledTimes(1);
 
     // Dispatcher must NOT throw — outbox completed
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-notif-1', undefined);
   });
 });

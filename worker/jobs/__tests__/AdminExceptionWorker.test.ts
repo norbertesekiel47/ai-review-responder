@@ -88,7 +88,7 @@ describe('AdminExceptionWorker – handleAdminException', () => {
     expect(emailArgs.subject).toContain('Review exception');
     expect(emailArgs.subject).toContain('Test Biz');
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-exc-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-exc-1', undefined);
   });
 
   // 2. Already resolved — idempotent skip
@@ -97,7 +97,7 @@ describe('AdminExceptionWorker – handleAdminException', () => {
 
     await handleAdminException(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-exc-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-exc-1', undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 

@@ -75,7 +75,7 @@ beforeEach(() => {
 describe('reconcileAccount — trial correction', () => {
   it('DB trialing + Stripe active → corrects via applier, no status_mismatch drift', async () => {
     const stripe = makeStripe('active');
-    const outcome = await reconcileAccount(stripe, makeAccount());
+    const outcome = await reconcileAccount(mockSql, stripe, makeAccount());
 
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
     const [, ref] = mockApplyStripeSubscriptionState.mock.calls[0]!;
@@ -90,20 +90,20 @@ describe('reconcileAccount — trial correction', () => {
 
   it('DB trialing + Stripe canceled → corrects via applier', async () => {
     const stripe = makeStripe('canceled');
-    await reconcileAccount(stripe, makeAccount());
+    await reconcileAccount(mockSql, stripe, makeAccount());
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
   });
 
   it('DB trialing + Stripe still trialing → no correction, no drift (expected steady state)', async () => {
     const stripe = makeStripe('trialing');
-    const outcome = await reconcileAccount(stripe, makeAccount());
+    const outcome = await reconcileAccount(mockSql, stripe, makeAccount());
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
     expect(outcome.drifts.find((d) => d.driftType === 'status_mismatch')).toBeUndefined();
   });
 
   it('DB active + Stripe active → no correction (not a trial row)', async () => {
     const stripe = makeStripe('active');
-    await reconcileAccount(stripe, makeAccount({ subscription_status: 'active' }));
+    await reconcileAccount(mockSql, stripe, makeAccount({ subscription_status: 'active' }));
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
   });
 
@@ -112,7 +112,7 @@ describe('reconcileAccount — trial correction', () => {
       accountResolved: true, fromStatus: 'trialing', toStatus: 'active',
       changed: true, activated: true, primaryBusinessId: null,
     });
-    await reconcileAccount(makeStripe('active'), makeAccount());
+    await reconcileAccount(mockSql, makeStripe('active'), makeAccount());
     expect(mockLoggerWarn).toHaveBeenCalledWith(
       'Corrected stuck trialing row to match Stripe',
       expect.objectContaining({ account_id: 'acct-1' }),
@@ -124,7 +124,7 @@ describe('reconcileAccount — trial correction', () => {
       accountResolved: true, fromStatus: 'trialing', toStatus: 'trialing',
       changed: false, activated: false, primaryBusinessId: null,
     });
-    await reconcileAccount(makeStripe('active'), makeAccount());
+    await reconcileAccount(mockSql, makeStripe('active'), makeAccount());
     expect(mockLoggerWarn).not.toHaveBeenCalledWith(
       'Corrected stuck trialing row to match Stripe',
       expect.anything(),
@@ -133,7 +133,7 @@ describe('reconcileAccount — trial correction', () => {
 
   it('DB active + Stripe trialing → surfaces status_mismatch drift (PLAN §15, not silently hidden)', async () => {
     const stripe = makeStripe('trialing');
-    const outcome = await reconcileAccount(stripe, makeAccount({ subscription_status: 'active' }));
+    const outcome = await reconcileAccount(mockSql, stripe, makeAccount({ subscription_status: 'active' }));
     // Not a DB-`trialing` row → the corrective applier must NOT run.
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
     // The anomaly (DB active vs Stripe trialing) must be SURFACED, not suppressed

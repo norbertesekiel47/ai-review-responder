@@ -254,7 +254,7 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     expect(mockCreateApprovalLink).toHaveBeenCalledOnce();
     expect(mockChannelSend).toHaveBeenCalledOnce();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-notif-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -271,7 +271,7 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     await handleSendNotification(mockSql, makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-notif-1', undefined);
     expect(mockChannelSend).not.toHaveBeenCalled();
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
   });
@@ -294,7 +294,7 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     await handleSendNotification(mockSql, makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-notif-1', undefined);
     expect(mockChannelSend).not.toHaveBeenCalled();
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
   });
@@ -320,7 +320,7 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     expect(mockCreateApprovalLink).toHaveBeenCalledOnce();
     expect(mockChannelSend).toHaveBeenCalledOnce();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-notif-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -339,7 +339,7 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     await handleSendNotification(mockSql, makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-notif-1', undefined);
     expect(mockChannelSend).not.toHaveBeenCalled();
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
   });
@@ -367,7 +367,7 @@ describe('NotificationWorker – handleSendNotification', () => {
     // No re-send, no second link, outbox completed.
     expect(mockChannelSend).not.toHaveBeenCalled();
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-notif-1', undefined);
 
     // The approval_request dedup SELECT must catch pending claims.
     const dedupSelect = mockSql.mock.calls.find((c: unknown[]) => {
@@ -422,7 +422,7 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     await handleSendNotification(mockSql, job);
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-notif-1', undefined);
     expect(mockChannelSend).not.toHaveBeenCalled();
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
   });
@@ -448,7 +448,7 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     expect(mockCreateApprovalLink).toHaveBeenCalledOnce();
     expect(mockChannelSend).toHaveBeenCalledOnce();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-notif-1', undefined);
   });
 
   // 7. Failover respects subscription guard
@@ -467,7 +467,7 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     await handleSendNotification(mockSql, job);
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-notif-1', undefined);
     expect(mockChannelSend).not.toHaveBeenCalled();
   });
 });

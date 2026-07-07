@@ -24,7 +24,7 @@ const UpdateDisplayLabelSchema = z.object({
 });
 
 async function updateLocationDisplayLabel(request: NextRequest): Promise<NextResponse> {
-  const owner = await requireWritableOwner(request);
+  const owner = await requireWritableOwner(sql, request);
   if (!owner.ok) return owner.response;
   const user = owner.user;
 

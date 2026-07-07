@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type postgres from 'postgres';
 import type { OffboardingGate } from '@/lib/account-offboarding/gate';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import type { AppUser } from '@/lib/db/auth';
@@ -23,6 +24,7 @@ export type LocationRouteBodyResult<T> =
   | { ok: false; response: NextResponse };
 
 export async function readOwnerForMultiLocationRoute(
+  sql: postgres.Sql,
   req: NextRequest,
   offboardingGate?: Pick<OffboardingGate, 'getOffboardingState'>,
 ): Promise<LocationOwnerRouteResult> {
@@ -84,8 +86,8 @@ export async function readOwnerForMultiLocationRoute(
   }
 
   const writable = offboardingGate
-    ? await assertWritableSubscriptionForAccount(user.accountId, undefined, offboardingGate)
-    : await assertWritableSubscriptionForAccount(user.accountId);
+    ? await assertWritableSubscriptionForAccount(user.accountId, sql, offboardingGate)
+    : await assertWritableSubscriptionForAccount(user.accountId, sql);
   if (!writable.ok) {
     return {
       ok: false,
@@ -106,6 +108,7 @@ export async function readOwnerForMultiLocationRoute(
  * an `accountId` field.
  */
 export async function readLocationActionRequest<TSchema extends z.ZodTypeAny>(
+  sql: postgres.Sql,
   req: NextRequest,
   schema: TSchema,
   offboardingGate?: Pick<OffboardingGate, 'getOffboardingState'>,
@@ -113,7 +116,7 @@ export async function readLocationActionRequest<TSchema extends z.ZodTypeAny>(
   | { ok: true; user: LocationOwnerRouteUser; data: z.output<TSchema> }
   | { ok: false; response: NextResponse }
 > {
-  const owner = await readOwnerForMultiLocationRoute(req, offboardingGate);
+  const owner = await readOwnerForMultiLocationRoute(sql, req, offboardingGate);
   if (!owner.ok) return owner;
 
   const body = await readLocationRouteJson(req, schema);

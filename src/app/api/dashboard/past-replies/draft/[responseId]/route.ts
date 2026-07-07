@@ -96,7 +96,7 @@ export async function PATCH(
   }
 
   // Location-scoped review lookup + tier/ownership gate BEFORE any side effects.
-  const authorized = await authorizeEditReplyResponse(responseId, { accountId, locationId });
+  const authorized = await authorizeEditReplyResponse(sql, responseId, { accountId, locationId });
   if (!authorized.ok) return authorized.response;
   const { reviewId } = authorized.value;
 

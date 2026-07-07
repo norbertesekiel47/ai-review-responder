@@ -47,12 +47,12 @@ export async function handleAccountOffboardingPurge(
   );
 
   if (!offboarding) {
-    await markOutboxFailed(outboxId, 'account_offboarding_not_found', outboxAttempt);
+    await markOutboxFailed(sql, outboxId, 'account_offboarding_not_found', outboxAttempt);
     return;
   }
 
   if (offboarding.status === 'purged' || offboarding.terminal_at !== null) {
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -65,7 +65,7 @@ export async function handleAccountOffboardingPurge(
       throw new Error(safeMessage);
     }
     await markPurgeTerminalFailure(sql, offboarding, safeMessage);
-    await markOutboxFailed(outboxId, safeMessage, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, safeMessage, outboxAttempt);
     return;
   }
 
@@ -102,7 +102,7 @@ export async function handleAccountOffboardingPurge(
     }
 
     await markPurgeTerminalFailure(sql, offboarding, safeMessage);
-    await markOutboxFailed(outboxId, safeMessage, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, safeMessage, outboxAttempt);
   }
 }
 

@@ -206,7 +206,7 @@ export async function handlePublisherAuthErrorTerminal(sql: postgres.Sql, args: 
     }
   });
 
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
 }
 
 interface PermanentErrorTerminalArgs {
@@ -293,7 +293,7 @@ export async function handlePublisherPermanentErrorTerminal(sql: postgres.Sql, a
     }
   });
 
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
   logger.warn(`Response ${response_id} permanently failed (${endpoint_kind} ${http_status}) — exception opened`);
 }
 
@@ -467,7 +467,7 @@ export async function verify409AndDispose(sql: postgres.Sql, args: Verify409Args
       reviewId: review_id,
       logger,
     });
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return { outcome: 'posted' };
   }
 
@@ -487,7 +487,7 @@ export async function verify409AndDispose(sql: postgres.Sql, args: Verify409Args
     `ours(len=${ourText.length},fp=${fp(ourText)}) ` +
     `— superseded as already_replied_external`,
   );
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
   return { outcome: 'superseded' };
 }
 

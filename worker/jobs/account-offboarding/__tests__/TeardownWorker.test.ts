@@ -476,7 +476,7 @@ describe('AccountOffboarding TeardownWorker', () => {
       mode: 'delete_data',
       status: 'purge_scheduled',
     });
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-teardown-1', 4);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-teardown-1', 4);
     expect(mockCaptureMessage).not.toHaveBeenCalled();
   });
 
@@ -575,7 +575,7 @@ describe('AccountOffboarding TeardownWorker', () => {
       mode: 'delete_data',
       status: 'churned',
     });
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-teardown-1', 4);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-teardown-1', 4);
   });
 
   it('lands churned, not purge_scheduled, when keep-my-data cancels purge mid-teardown', async () => {
@@ -605,7 +605,7 @@ describe('AccountOffboarding TeardownWorker', () => {
     });
     expect(mockState.offboarding?.status).toBe('churned');
     expect(mockState.offboarding?.terminal_at).not.toBeNull();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-teardown-1', 4);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-teardown-1', 4);
   });
 
   it.each([
@@ -671,7 +671,7 @@ describe('AccountOffboarding TeardownWorker', () => {
       mode: 'delete_data',
       status: 'purge_scheduled',
     });
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-teardown-1', 4);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-teardown-1', 4);
   });
 
   it('treats Zernio 404 and 410 deletes as idempotent success', async () => {
@@ -694,7 +694,7 @@ describe('AccountOffboarding TeardownWorker', () => {
     expect(mockDeleteProfile).toHaveBeenCalledTimes(2);
     expect(mockState.offboarding?.zernio_accounts_step).toBe('success');
     expect(mockState.offboarding?.zernio_profiles_step).toBe('success');
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-teardown-1', 4);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-teardown-1', 4);
   });
 
   it('fails retryably instead of tearing down a cancel-only row before access end', async () => {
@@ -907,7 +907,7 @@ describe('AccountOffboarding TeardownWorker', () => {
     expect(mockStripeSubscriptionsCancel).not.toHaveBeenCalled();
     expect(mockDeleteAccount).not.toHaveBeenCalled();
     expect(mockDeleteProfile).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-teardown-1', 4);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-teardown-1', 4);
     expect(mockEnqueueOffboardingTeardownCompleted).not.toHaveBeenCalled();
     expect(sqlCalls.some((call) => call.text.includes("SET status = 'tearing_down'"))).toBe(false);
   });
@@ -932,6 +932,7 @@ describe('AccountOffboarding TeardownWorker', () => {
     expect(mockState.offboarding?.status).toBe('failed');
     expect(mockEnqueueOffboardingTeardownCompleted).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-teardown-1',
       expect.stringContaining('token=[REDACTED]'),
       4,

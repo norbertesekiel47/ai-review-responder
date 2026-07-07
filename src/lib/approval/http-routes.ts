@@ -176,7 +176,7 @@ export async function runDashboardReviewAction(
     return NextResponse.json({ error: 'No actionable response found for this review' }, { status: 404, headers: NO_STORE_HEADERS });
   }
 
-  const writable = await assertWritableSubscriptionForAccount(owner.accountId);
+  const writable = await assertWritableSubscriptionForAccount(owner.accountId, sql);
   if (!writable.ok) {
     return NextResponse.json(
       { error: writable.error },

@@ -123,14 +123,14 @@ export async function handleZernioReviewIngest(sql: Sql, job: Job<IngestZernioRe
   `;
   if (!conn) {
     logger.warn(`Connection mismatch — skipping`);
-    await markOutboxCompleted(outboxId, attempt);
+    await markOutboxCompleted(sql, outboxId, attempt);
     return;
   }
 
   // 3. Mock-mode short-circuit (spec §7)
   if (process.env.MOCK_EXTERNAL_APIS === 'true') {
     logger.log(`Mock mode — short-circuiting ingest for ${zernio_review_id}`);
-    await markOutboxCompleted(outboxId, attempt);
+    await markOutboxCompleted(sql, outboxId, attempt);
     return;
   }
 
@@ -202,7 +202,7 @@ export async function handleZernioReviewIngest(sql: Sql, job: Job<IngestZernioRe
   }
   if (reviewLocationId !== zernio_location_id) {
     logger.log(`Review belongs to different location (${reviewLocationId} vs ${zernio_location_id}) — no-op`);
-    await markOutboxCompleted(outboxId, attempt);
+    await markOutboxCompleted(sql, outboxId, attempt);
     return;
   }
 
@@ -213,7 +213,7 @@ export async function handleZernioReviewIngest(sql: Sql, job: Job<IngestZernioRe
     await reconcileExternallyAnsweredReview(
       sql, target, business_id, zernio_account_id, zernio_location_id, logger,
     );
-    await markOutboxCompleted(outboxId, attempt);
+    await markOutboxCompleted(sql, outboxId, attempt);
     return;
   }
 
@@ -230,7 +230,7 @@ export async function handleZernioReviewIngest(sql: Sql, job: Job<IngestZernioRe
       reasons: phi.reasons,
       source: 'webhook',
     }, logger));
-    await markOutboxCompleted(outboxId, attempt);
+    await markOutboxCompleted(sql, outboxId, attempt);
     return;
   }
 
@@ -241,12 +241,12 @@ export async function handleZernioReviewIngest(sql: Sql, job: Job<IngestZernioRe
   } catch (err) {
     if (err instanceof ZernioReviewNormalizationError) {
       logger.warn(`Skipping malformed review ${zernio_review_id}: ${err.message}`);
-      await markOutboxCompleted(outboxId, attempt);
+      await markOutboxCompleted(sql, outboxId, attempt);
       return;
     }
     throw err;
   }
 
   await processReview(sql, monitored, business_id, job.data.correlation_id);
-  await markOutboxCompleted(outboxId, attempt);
+  await markOutboxCompleted(sql, outboxId, attempt);
 }

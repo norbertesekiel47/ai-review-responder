@@ -109,7 +109,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
 
     await handleOnboardingDrip(makeJob());
 
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-drip-1', 'business_not_found', undefined);
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(mockSql, 'outbox-drip-1', 'business_not_found', undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
@@ -118,7 +118,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
 
     await handleOnboardingDrip(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-drip-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-drip-1', undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
@@ -127,7 +127,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
 
     await handleOnboardingDrip(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-drip-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-drip-1', undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
@@ -147,7 +147,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       dashboardUrl: 'https://app.repworth.com/dashboard',
     });
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-drip-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-drip-1', undefined);
 
     expect(mockSendInternalEmail).toHaveBeenCalledWith({
       to: 'jane@test.com',
@@ -409,7 +409,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_1' }));
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-drip-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-drip-1', undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
   });

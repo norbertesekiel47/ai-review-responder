@@ -92,7 +92,7 @@ export async function handlePublisherFailed(
         });
         // Still close the outbox so the row doesn't stay dispatched.
         const reason = err instanceof Error ? err.message : String(err);
-        await markOutboxFailed(outboxId, `unwrapped_transient_no_context: ${reason}`, outboxAttempt);
+        await markOutboxFailed(sql, outboxId, `unwrapped_transient_no_context: ${reason}`, outboxAttempt);
         return;
       }
       const ctx = err.attemptContext;
@@ -102,7 +102,7 @@ export async function handlePublisherFailed(
           business_id: ctx.business_id,
           correlation_id: job.data.correlation_id,
         });
-        await markOutboxFailed(outboxId, 'zernio_transient_max_attempts', outboxAttempt);
+        await markOutboxFailed(sql, outboxId, 'zernio_transient_max_attempts', outboxAttempt);
       } catch (fallbackErr) {
         // Fallback itself failed — surface the reason so ops can see it,
         // and still close the outbox so the row doesn't stay `dispatched`.
@@ -112,6 +112,7 @@ export async function handlePublisherFailed(
           tags: { worker: 'publisher', kind: 'transient_exhaustion_fallback' },
         });
         await markOutboxFailed(
+          sql,
           outboxId,
           `zernio_transient_max_attempts_fallback_failed: ${reason}`,
           outboxAttempt,
@@ -122,7 +123,7 @@ export async function handlePublisherFailed(
 
     // Non-transient unhandled error: just close the outbox row.
     const reason = err instanceof Error ? err.message : String(err);
-    await markOutboxFailed(outboxId, reason, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, reason, outboxAttempt);
   } catch (handlerErr) {
     // Last-resort: even the markOutboxFailed call (or extractOutboxHandle,
     // or anything else above) threw. Capture loudly so the row stuck in
@@ -134,7 +135,7 @@ export async function handlePublisherFailed(
     });
     if (outboxId) {
       const reason = handlerErr instanceof Error ? handlerErr.message : String(handlerErr);
-      await markOutboxFailed(outboxId, `on_failed_crash: ${reason}`, outboxAttempt).catch(
+      await markOutboxFailed(sql, outboxId, `on_failed_crash: ${reason}`, outboxAttempt).catch(
         (markErr) => {
           console.error('[publisherWorker.on(failed)] best-effort markOutboxFailed failed:', markErr);
         },
@@ -244,11 +245,11 @@ async function attemptOrphanConversion(
   });
 
   if (dispositionRef.value === 'completed') {
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return true;
   }
   if (dispositionRef.value === 'failed') {
-    await markOutboxFailed(outboxId, POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED, outboxAttempt);
     return true;
   }
   return false;
@@ -308,5 +309,5 @@ async function handleVerificationIndeterminate(
       `;
     }
   });
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
 }

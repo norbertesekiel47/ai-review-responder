@@ -160,5 +160,5 @@ async function openReviewNotFoundException(sql: Sql, input: {
       `Zernio review id not found for response ${responseId}; opened review_exception`,
     );
   }
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
 }

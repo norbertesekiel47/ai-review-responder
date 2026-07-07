@@ -31,8 +31,8 @@ export async function handleWeeklySummary(
   const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  const business = await loadSummaryReportBusiness(businessId);
-  const skipped = await completeOrFailSkippedSummaryReport({
+  const business = await loadSummaryReportBusiness(sql, businessId);
+  const skipped = await completeOrFailSkippedSummaryReport(sql, {
     business,
     businessId,
     outboxId,
@@ -109,13 +109,13 @@ export async function handleWeeklySummary(
   const fourWeekAvgReviews = parseFloat(avgRow?.avg ?? '0');
 
   // 4c. Ranking snapshot (conditional, no SerpAPI calls)
-  const ranking = await loadLatestRankingSummary(businessId);
+  const ranking = await loadLatestRankingSummary(sql, businessId);
 
   // 4d. Dashboard link eligibility
   const cfg = getWorkerConfig();
   const appUrl = cfg.NEXT_PUBLIC_APP_URL;
   const dashboardUrl = buildDashboardUrl(
-    await ownerHasDashboardAuth(businessId),
+    await ownerHasDashboardAuth(sql, businessId),
     appUrl,
   );
 
@@ -150,7 +150,7 @@ export async function handleWeeklySummary(
     `;
     if (existing?.sent_at) {
       logger.log(`Weekly summary for ${businessId} week ${week_start_date} already sent`);
-      await markOutboxCompleted(outboxId, outboxAttempt);
+      await markOutboxCompleted(sql, outboxId, outboxAttempt);
     } else {
       // Freshly claimed by another worker — throw so BullMQ retries after backoff
       logger.log(`Weekly summary for ${businessId} week ${week_start_date} claimed by another worker, will retry`);
@@ -257,7 +257,7 @@ export async function handleWeeklySummary(
     // Keep sent_at set — Resend may have accepted the email before the error.
     // Clearing would risk a duplicate if the scheduler re-queues this business.
     // Prompt 19a accepts the rare missed-email risk over duplicate sends.
-    await markOutboxFailed(outboxId, err instanceof Error ? err.message : String(err), outboxAttempt);
+    await markOutboxFailed(sql, outboxId, err instanceof Error ? err.message : String(err), outboxAttempt);
     return;
   }
 
@@ -271,6 +271,6 @@ export async function handleWeeklySummary(
     externalMessageId: messageId,
   });
 
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
   logger.log(`Weekly value report sent for business ${businessId} (week ${week_start_date})`);
 }

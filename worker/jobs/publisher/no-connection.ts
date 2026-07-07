@@ -52,12 +52,12 @@ export async function parkResponseForOwnerReconnect(sql: Sql, input: {
   });
 
   if (!parked) {
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
   logger.log(
     `No active Zernio connection for business ${businessId}; response ${responseId} parked at awaiting_owner_connect`,
   );
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
 }

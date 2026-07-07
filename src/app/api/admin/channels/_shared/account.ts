@@ -7,7 +7,7 @@
 // drift on auth role, error strings, or status codes.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db/server';
+import type postgres from 'postgres';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 
 export type AdminChannelAccount =
@@ -20,7 +20,10 @@ export type AdminChannelAccount =
  * `actorUserId` for audit attribution. Returns the inline Response on any
  * failure (auth error, missing businessId → 400, unknown business → 404).
  */
-export async function resolveAdminChannelAccount(req: NextRequest): Promise<AdminChannelAccount> {
+export async function resolveAdminChannelAccount(
+  sql: postgres.Sql,
+  req: NextRequest,
+): Promise<AdminChannelAccount> {
   const gate = await requireAdminWithAal2(req);
   if (!gate.ok) return { ok: false, response: gate.response };
   const actorUserId = gate.admin.id;

@@ -1,4 +1,4 @@
-import { sql } from '../../src/lib/db/server';
+import type postgres from 'postgres';
 import {
   checkSubscription,
   type AccountFlagsInput,
@@ -43,6 +43,7 @@ export interface RankingSummary {
 }
 
 export async function loadSummaryReportBusiness(
+  sql: postgres.Sql,
   businessId: LocationId,
 ): Promise<SummaryReportBusiness | null> {
   const [business] = await sql<SummaryReportBusiness[]>`
@@ -58,7 +59,7 @@ export async function loadSummaryReportBusiness(
   return business ?? null;
 }
 
-export async function completeOrFailSkippedSummaryReport(input: {
+export async function completeOrFailSkippedSummaryReport(sql: postgres.Sql, input: {
   business: SummaryReportBusiness | null;
   businessId: LocationId;
   outboxId: string;
@@ -68,7 +69,7 @@ export async function completeOrFailSkippedSummaryReport(input: {
   const { business, businessId, outboxId, outboxAttempt, logger } = input;
   if (!business) {
     logger.warn(`Business ${businessId} not found`);
-    await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
+    await markOutboxFailed(sql, outboxId, 'business_not_found', outboxAttempt);
     return true;
   }
 
@@ -77,7 +78,7 @@ export async function completeOrFailSkippedSummaryReport(input: {
       reason: SKIP_REASON_ARCHIVED_LOCATION,
       business_id: businessId,
     });
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return true;
   }
 
@@ -90,13 +91,13 @@ export async function completeOrFailSkippedSummaryReport(input: {
 
   if (!subCheck.allowed) {
     logger.log(`Business ${businessId} skipped: ${subCheck.reason}`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return true;
   }
 
   if (business.owner_email_bounced) {
     logger.log(`Business ${businessId} owner email bounced — skipping`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return true;
   }
 
@@ -110,7 +111,7 @@ export function mapSummaryReviews(rows: SummaryReviewRow[]): Array<{ starRating:
   }));
 }
 
-export async function loadLatestRankingSummary(businessId: LocationId): Promise<RankingSummary | null> {
+export async function loadLatestRankingSummary(sql: postgres.Sql, businessId: LocationId): Promise<RankingSummary | null> {
   const [latestRanking] = await sql<{
     keyword: string;
     rank_position: number;
@@ -135,7 +136,7 @@ export async function loadLatestRankingSummary(businessId: LocationId): Promise<
   };
 }
 
-export async function ownerHasDashboardAuth(businessId: LocationId): Promise<Array<{ exists: number }>> {
+export async function ownerHasDashboardAuth(sql: postgres.Sql, businessId: LocationId): Promise<Array<{ exists: number }>> {
   return sql<{ exists: number }[]>`
     SELECT 1 AS exists FROM users
     WHERE business_id = ${businessId} AND role = 'owner' AND auth_id IS NOT NULL

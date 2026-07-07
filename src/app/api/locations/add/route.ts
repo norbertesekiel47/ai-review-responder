@@ -85,7 +85,7 @@ const QUOTA_DENIAL_STATUS: Record<string, number> = {
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const offboardingGate = createOffboardingGate(sql);
-  const owner = await readOwnerForMultiLocationRoute(req, offboardingGate);
+  const owner = await readOwnerForMultiLocationRoute(sql, req, offboardingGate);
   if (!owner.ok) return owner.response;
   const { user } = owner;
 

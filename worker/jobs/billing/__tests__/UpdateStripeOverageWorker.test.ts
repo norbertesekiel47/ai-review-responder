@@ -170,7 +170,7 @@ describe('UpdateStripeOverageWorker', () => {
       },
     );
     expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
   });
 
   // VAL-LOC-011: Computes overage quantity from active location count
@@ -224,7 +224,7 @@ describe('UpdateStripeOverageWorker', () => {
     );
     expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
     expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
   });
 
   it('creates standard overage quantity from active locations minus custom included quota', async () => {
@@ -255,7 +255,7 @@ describe('UpdateStripeOverageWorker', () => {
     );
     expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
     expect(mockStripeSubscriptionItemsDel).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
   });
 
   // VAL-LOC-012: Deletes overage item when locations fit in included quota
@@ -283,7 +283,7 @@ describe('UpdateStripeOverageWorker', () => {
     );
     expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
     expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
   });
 
   // VAL-BILLING-071: Creates overage subscription item when none exists
@@ -313,7 +313,7 @@ describe('UpdateStripeOverageWorker', () => {
       },
     );
     expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
   });
 
   // Grandfathering: a legacy/rotated overage price (not in the env set) matched
@@ -345,7 +345,7 @@ describe('UpdateStripeOverageWorker', () => {
     // The legacy update must NOT switch the price.
     expect(mockStripeSubscriptionItemsUpdate.mock.calls[0]?.[1]).not.toHaveProperty('price');
     expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
   });
 
   it('skips when account has no Stripe subscription', async () => {
@@ -354,7 +354,7 @@ describe('UpdateStripeOverageWorker', () => {
     await handleUpdateStripeOverage(mockSql, mockJob());
 
     expect(mockStripeSubscriptionsRetrieve).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
   });
 
   it('skips when subscription is not active', async () => {
@@ -363,7 +363,7 @@ describe('UpdateStripeOverageWorker', () => {
     await handleUpdateStripeOverage(mockSql, mockJob());
 
     expect(mockStripeSubscriptionsRetrieve).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
   });
 
   it('skips for basic tier (no overage allowed)', async () => {
@@ -372,7 +372,7 @@ describe('UpdateStripeOverageWorker', () => {
     await handleUpdateStripeOverage(mockSql, mockJob());
 
     expect(mockStripeSubscriptionsRetrieve).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
   });
 
   it('marks outbox failed when account not found', async () => {
@@ -381,6 +381,7 @@ describe('UpdateStripeOverageWorker', () => {
     await handleUpdateStripeOverage(mockSql, mockJob());
 
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-1',
       expect.stringContaining('Account not found'),
       1,
@@ -396,6 +397,7 @@ describe('UpdateStripeOverageWorker', () => {
 
     await expect(handleUpdateStripeOverage(mockSql, mockJob())).rejects.toThrow('Stripe rate limit');
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-1',
       'Stripe rate limit',
       1,
@@ -444,7 +446,7 @@ describe('UpdateStripeOverageWorker', () => {
         idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_idem:2:outbox:outbox-1:corr:corr-1',
       },
     );
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
   });
 
   it('uses different idempotency keys for different outbox jobs with the same target quantity', async () => {
@@ -531,6 +533,7 @@ describe('UpdateStripeOverageWorker', () => {
     // Observability without status change: the real Stripe error lands on the
     // row's last_error while it stays 'dispatched' for the watchdog.
     expect(mockRecordOutboxTransientError).toHaveBeenCalledWith(
+      mockSql,
       'outbox-1',
       expect.stringContaining('Too many requests'),
       1,
@@ -628,6 +631,7 @@ describe('UpdateStripeOverageWorker — confidence gate + outbox isolation', () 
     expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
       'outbox-1',
       expect.stringContaining('ambiguous_overage_item'),
       1,

@@ -33,18 +33,18 @@ export async function handleResponseGeneration(
   switch (loaded.kind) {
     case 'review_not_found':
       logger.warn(`Review ${reviewId} not found`);
-      await markOutboxFailed(outboxId, 'review_not_found', outboxAttempt);
+      await markOutboxFailed(sql, outboxId, 'review_not_found', outboxAttempt);
       return;
     case 'business_not_found':
       logger.warn(`Business ${businessId} not found`);
-      await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
+      await markOutboxFailed(sql, outboxId, 'business_not_found', outboxAttempt);
       return;
     case 'skipped':
       // Object arg so `reason` (archived_location, subscription-guard
       // reasons, account_offboarding_blocked) is queryable in the structured
       // log record (string args are logged verbatim, not as fields).
       logger.log('skipping generation', { reason: loaded.reason, business_id: businessId });
-      await markOutboxCompleted(outboxId, outboxAttempt);
+      await markOutboxCompleted(sql, outboxId, outboxAttempt);
       return;
     case 'already_exists':
       logger.log(`Response already exists for review ${reviewId} v${version}, completing outbox`);
@@ -65,7 +65,7 @@ export async function handleResponseGeneration(
           logger,
         });
       }
-      await markOutboxCompleted(outboxId, outboxAttempt);
+      await markOutboxCompleted(sql, outboxId, outboxAttempt);
       return;
   }
 
@@ -76,7 +76,7 @@ export async function handleResponseGeneration(
   // and propagate to BullMQ for retry. Permanent failures return { kind: 'failed' }.
   const draft = await generateDraft(sql, ctx, { reviewId, version, businessId }, logger);
   if (draft.kind === 'failed') {
-    await markOutboxFailed(outboxId, draft.reason, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, draft.reason, outboxAttempt);
     return;
   }
 
@@ -110,6 +110,6 @@ export async function handleResponseGeneration(
   });
 
   // ── Complete outbox ──────────────────────────────────────────────────
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
   logger.log(`Response ${responseId} generated for review ${reviewId} (v${version})`);
 }

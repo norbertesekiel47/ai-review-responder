@@ -6,12 +6,13 @@
 // runAdminChannelCancel; this route supplies the Telegram bindings.
 
 import { NextRequest } from 'next/server';
+import { sql } from '@/lib/db/server';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { runAdminChannelCancel } from '@/app/api/admin/channels/_shared/action';
 
 export const POST = withSameOrigin()((req: NextRequest) =>
-  runAdminChannelCancel(req, {
+  runAdminChannelCancel(sql, req, {
     channel: 'telegram',
     isEnabled: isTelegramEnabled,
     flagOff,

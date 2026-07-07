@@ -43,7 +43,7 @@ export async function downgradeAutoApprovedResponseForManualReview(sql: Sql, inp
     `;
 
     if (!downgraded) {
-      await markOutboxCompleted(outboxId, outboxAttempt, tx);
+      await markOutboxCompleted(tx, outboxId, outboxAttempt);
       return 'no-op';
     }
 
@@ -69,7 +69,7 @@ export async function downgradeAutoApprovedResponseForManualReview(sql: Sql, inp
       correlationId,
     });
 
-    await markOutboxCompleted(outboxId, outboxAttempt, tx);
+    await markOutboxCompleted(tx, outboxId, outboxAttempt);
     logger.warn(
       `Auto-approved response ${responseId} downgraded to owner review because auto-approval runtime is disabled`,
     );

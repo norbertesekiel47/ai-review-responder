@@ -1,8 +1,9 @@
-import { readdir, readFile } from 'node:fs/promises';
-import { join, relative, resolve, sep } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { isSqlTaggedTemplate } from './lib/sql-tag-scan';
+import { normalize, walk } from './lib/ratchet-harness';
 
 /**
  * Flags hardcoded response-status GROUP literals — 2+ distinct canonical
@@ -35,10 +36,11 @@ import { isSqlTaggedTemplate } from './lib/sql-tag-scan';
  * arbitrary call-chains is disproportionate for a maintainability guard.
  */
 
-const SCAN_DIR = 'src';
-const SCAN_EXT = /\.(?:ts|tsx)$/;
+const SCAN_DIRS = ['src'] as const;
+// Overrides the harness default skip-set to KEEP __fixtures__ in scope (this
+// audit scans fixture SQL for hardcoded status groups); SCAN_EXT / SKIP_FILE
+// use the harness defaults.
 const SKIP_DIRS = new Set(['node_modules', '__tests__', 'dist', '.next', 'coverage']);
-const SKIP_FILE = /\.(?:test|spec)\.[cm]?tsx?$/;
 const EXEMPT = new Set([
   'src/lib/shared/response-status.ts',
   'src/lib/shared/response-status-sql.ts',
@@ -88,10 +90,6 @@ interface ScanContext {
   source: ts.SourceFile;
   lines: string[];
   lineOf: (pos: number) => number;
-}
-
-function normalizePath(file: string): string {
-  return file.split(sep).join('/');
 }
 
 // A single quoted canonical-status literal, e.g. 'approved' or "posted".
@@ -188,7 +186,7 @@ function sqlFindings(
 
 /** Pure scan of one file's text. Exported for unit tests. */
 export function scanSource(file: string, text: string): ResponseStatusFinding[] {
-  const normalized = normalizePath(file);
+  const normalized = normalize(file);
   if (EXEMPT.has(normalized)) return [];
 
   const source = ts.createSourceFile(
@@ -220,26 +218,9 @@ export function scanSource(file: string, text: string): ResponseStatusFinding[] 
   return findings;
 }
 
-async function collectFiles(dir: string, root: string, out: string[]): Promise<void> {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return; // directory absent — nothing to scan
-  }
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name)) await collectFiles(join(dir, entry.name), root, out);
-    } else if (entry.isFile() && SCAN_EXT.test(entry.name) && !SKIP_FILE.test(entry.name)) {
-      out.push(normalizePath(relative(root, join(dir, entry.name))));
-    }
-  }
-}
-
 async function main(): Promise<void> {
   const root = process.cwd();
-  const files: string[] = [];
-  await collectFiles(resolve(root, SCAN_DIR), root, files);
+  const files = await walk(root, { scanDirs: SCAN_DIRS, skipDirs: SKIP_DIRS });
 
   const findings: ResponseStatusFinding[] = [];
   for (const file of files.sort()) {

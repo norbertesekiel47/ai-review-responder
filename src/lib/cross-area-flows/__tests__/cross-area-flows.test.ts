@@ -114,7 +114,7 @@ describe('VAL-CROSS-001: Signup-to-multi-location end-to-end', () => {
 
     // Step 3: Verify account is now active
     mockSql.mockResolvedValueOnce([{ subscription_status: SubscriptionStatus.ACTIVE }]);
-    const activeCheck = await isAccountActive(activeAccount.id);
+    const activeCheck = await isAccountActive(mockSql as unknown as Sql, activeAccount.id);
     expect(activeCheck).toEqual({ active: true });
 
     // Step 4: Add 2nd location via add-location flow
@@ -233,7 +233,7 @@ describe('VAL-CROSS-002: Single-location regression', () => {
 
     // Step 1: Verify isAccountActive works
     mockSql.mockResolvedValueOnce([{ subscription_status: SubscriptionStatus.ACTIVE }]);
-    const activeCheck = await isAccountActive(account.id);
+    const activeCheck = await isAccountActive(mockSql as unknown as Sql, account.id);
     expect(activeCheck).toEqual({ active: true });
 
     // Step 2: Verify billing snapshot — basic tier, no overage
@@ -321,7 +321,7 @@ describe('VAL-CROSS-003: Switcher + approval attribution', () => {
     }]);
 
     const { getLocationContext } = await import('@/lib/db/account-guard');
-    const ctx = await getLocationContext(locB.id);
+    const ctx = await getLocationContext(mockSql as unknown as Sql, locB.id);
     expect(ctx).not.toBeNull();
     expect(ctx!.location.id).toBe(locB.id);
     expect(ctx!.location.displayLabel).toBe('Branch 1');
@@ -726,7 +726,7 @@ describe('VAL-CROSS-010: RLS cross-account isolation e2e', () => {
 
     // Step 1: User A's isAccountActive only reads from their own account
     mockSql.mockResolvedValueOnce([{ subscription_status: SubscriptionStatus.ACTIVE }]);
-    const checkA = await isAccountActive(accountA.id);
+    const checkA = await isAccountActive(mockSql as unknown as Sql, accountA.id);
     expect(checkA).toEqual({ active: true });
 
     // The SQL query uses WHERE id = ${accountId}::uuid, which is scoped
@@ -755,7 +755,7 @@ describe('VAL-CROSS-010: RLS cross-account isolation e2e', () => {
     }]);
 
     const { getLocationContextForAccount } = await import('@/lib/db/account-guard');
-    const ctx = await getLocationContextForAccount(locB.id, accountA.id);
+    const ctx = await getLocationContextForAccount(mockSql as unknown as Sql, locB.id, accountA.id);
     expect(ctx).not.toBeNull();
     if (ctx && 'kind' in ctx) {
       expect(ctx.kind).toBe('account_mismatch');
@@ -784,7 +784,7 @@ describe('VAL-CROSS-011: Cancelled account — read-only banner and disabled wri
     });
 
     mockSql.mockResolvedValueOnce([{ subscription_status: SubscriptionStatus.CANCELLED }]);
-    const check = await isAccountActive(cancelledAccount.id);
+    const check = await isAccountActive(mockSql as unknown as Sql, cancelledAccount.id);
     expect(check).toEqual({ active: false, reason: 'cancelled' });
   });
 
@@ -841,7 +841,7 @@ describe('VAL-CROSS-012: past_due account payment warning banner', () => {
     });
 
     mockSql.mockResolvedValueOnce([{ subscription_status: SubscriptionStatus.PAST_DUE }]);
-    const check = await isAccountActive(pastDueAccount.id);
+    const check = await isAccountActive(mockSql as unknown as Sql, pastDueAccount.id);
     expect(check).toEqual({ active: false, reason: 'past_due' });
   });
 

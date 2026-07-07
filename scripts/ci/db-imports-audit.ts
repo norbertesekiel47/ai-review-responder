@@ -7,20 +7,14 @@
 // current non-root importer is in DB_IMPORTS_BASELINE; CI fails on a NEW
 // importer or a stale entry. The baseline shrinks to 0 over the Stage-2 domain
 // sweeps; Stage 3 then deletes it and the allowlist becomes strict.
-import { readdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { join, relative, resolve, sep } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { DB_IMPORTS_BASELINE } from './db-imports-baseline';
+import { assembleBaselineModule, emitBaselineFile, evaluateAgainstBaseline, walk } from './lib/ratchet-harness';
 
 const SCAN_DIRS = ['src', 'worker'] as const;
-const SCAN_EXT = /\.(?:ts|tsx)$/;
-const SKIP_DIRS = new Set(['node_modules', '__tests__', 'dist', '.next', 'coverage', '__fixtures__']);
-const SKIP_FILE = /\.(?:test|spec)\.[cm]?tsx?$/;
-
-function normalize(file: string): string {
-  return file.split(sep).join('/');
-}
 
 /**
  * True when `spec` (a static import/export module specifier string) points at
@@ -41,9 +35,18 @@ function isDbServerSpecifier(spec: string): boolean {
  * Top-level files in root-classed directories that are NOT entry points —
  * helpers that live beside the handlers they serve. Named explicitly (no
  * filename heuristics): position grants root status; these are the known
- * exceptions. A Stage-2 sweep migrates them onto parameter injection.
+ * exceptions. Now EMPTY — the Stage-2 sweeps migrated the last member
+ * (`worker/jobs/summary-report-helpers.ts`, injected in 2i-T4) onto parameter
+ * injection. The mechanism stays in place until Stage 3 (a later PR).
+ * NOTE for Stage 3: with the set empty, the positional `worker/jobs/<File>.ts`
+ * rule below now grants root status to EVERY top-level file there, including a
+ * non-handler helper that isn't registered in `worker/index.ts`. Harmless while
+ * no such helper imports db/server, but at the strict flip this over-grants —
+ * so Stage 3's job is NOT just deleting this empty set (a no-op): it must
+ * REPLACE the positional heuristic with root status derived from
+ * `worker/index.ts` registration. See plan §4 (2026-07-04-modularity-aplus-stage2-4).
  */
-const NON_ROOT_EXCEPTIONS = new Set(['worker/jobs/summary-report-helpers.ts']);
+const NON_ROOT_EXCEPTIONS = new Set<string>([]);
 
 /**
  * True when the file is a composition root that may import the db/server
@@ -67,6 +70,12 @@ const NON_ROOT_EXCEPTIONS = new Set(['worker/jobs/summary-report-helpers.ts']);
 export function isCompositionRoot(file: string): boolean {
   if (NON_ROOT_EXCEPTIONS.has(file)) return false;
   if (file === 'src/lib/db/server.ts' || file === 'src/instrumentation.ts') return true;
+  // Owner-decided classification (A+ campaign sweep 2i): auth.ts is a db-layer
+  // auth gate — it owns a Supabase SSR client factory plus a single identity
+  // SELECT and serves ~14 callers — so it is a composition root, not a domain
+  // module. Named EXPLICITLY (not a `src/lib/db/*` blanket) so account-guard.ts
+  // and other db-layer domain modules stay in scope for the baseline sweep.
+  if (file === 'src/lib/db/auth.ts') return true;
   if (/^src\/app\/(?:.*\/)?route\.ts$/.test(file)) return true;
   if (/^src\/app\/(?:.*\/)?page\.tsx$/.test(file)) return true;
   if (/^src\/app\/(?:.*\/)?layout\.tsx$/.test(file)) return true;
@@ -197,45 +206,18 @@ export interface EvaluateInput {
 
 /** Compare the live importing-file set against the baseline. Pure — unit-tested. */
 export function evaluateFindings(input: EvaluateInput): string[] {
-  const baseline = input.baseline ?? DB_IMPORTS_BASELINE;
-  const findings: string[] = [];
-  for (const file of input.importingFiles) {
-    if (isCompositionRoot(file)) continue;
-    if (!baseline.has(file)) {
-      findings.push(
-        `${file} imports @/lib/db/server but is not a composition root — accept sql/supabaseServer as an explicit parameter instead (spec §2.1 — docs/superpowers/specs/2026-07-01-modularity-aplus-campaign-design.md)`,
-      );
-    }
-  }
-  for (const file of baseline) {
-    if (!input.importingFiles.has(file)) {
-      findings.push(
-        `${file} is in DB_IMPORTS_BASELINE but no longer imports @/lib/db/server — remove the stale baseline entry (the baseline shrinks to 0 over the Stage-2 domain sweeps)`,
-      );
-    }
-  }
-  return findings;
-}
-
-async function collectFiles(dir: string, root: string, out: string[]): Promise<void> {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name)) await collectFiles(join(dir, entry.name), root, out);
-    } else if (entry.isFile() && SCAN_EXT.test(entry.name) && !SKIP_FILE.test(entry.name)) {
-      out.push(normalize(relative(root, join(dir, entry.name))));
-    }
-  }
+  return evaluateAgainstBaseline(input.importingFiles, {
+    baseline: input.baseline ?? DB_IMPORTS_BASELINE,
+    skip: isCompositionRoot,
+    onNew: (file) =>
+      `${file} imports @/lib/db/server but is not a composition root — accept sql/supabaseServer as an explicit parameter instead (spec §2.1 — docs/superpowers/specs/2026-07-01-modularity-aplus-campaign-design.md)`,
+    onStale: (file) =>
+      `${file} is in DB_IMPORTS_BASELINE but no longer imports @/lib/db/server — remove the stale baseline entry (the baseline shrinks to 0 over the Stage-2 domain sweeps)`,
+  });
 }
 
 export async function collectImportingFiles(root: string): Promise<Set<string>> {
-  const files: string[] = [];
-  for (const dir of SCAN_DIRS) await collectFiles(resolve(root, dir), root, files);
+  const files = await walk(root, { scanDirs: SCAN_DIRS });
   const importing = new Set<string>();
   for (const file of files) {
     if (isCompositionRoot(file)) continue;
@@ -251,44 +233,38 @@ export async function collectImportingFiles(root: string): Promise<Set<string>> 
  * quoted `DB_IMPORTS_BASELINE` entries. Pure — unit-tested; `emitBaseline`
  * writes the result to disk.
  */
+const BASELINE_HEADER = [
+  '// scripts/ci/db-imports-baseline.ts',
+  '//',
+  '// Committed baseline: non-composition-root files (spec',
+  '// docs/superpowers/specs/2026-07-01-modularity-aplus-campaign-design.md §2.1)',
+  '// that import the src/lib/db/server singleton TODAY. Generated by the audit\'s',
+  '// own scan — regenerate with:',
+  '//   pnpm tsx scripts/ci/db-imports-audit.ts --emit-baseline',
+  '// (writes this file atomically — tmp file + rename — so a partial run never',
+  '// leaves a half-written baseline).',
+  '// Do NOT hand-edit entries. Shrinks to 0 over the Stage-2 domain sweeps as each domain',
+  '// module is converted to take `sql`/`supabaseServer` as an explicit parameter;',
+  '// Stage 3 then deletes this file and the guard becomes a strict',
+  '// composition-root allowlist. Adding a NEW importer requires migrating it',
+  '// instead — that is the point of this guard.',
+  '',
+  'export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([',
+];
+
 export function renderBaselineModule(files: readonly string[]): string {
-  const entries = [...files].sort();
-  const lines = [
-    '// scripts/ci/db-imports-baseline.ts',
-    '//',
-    '// Committed baseline: non-composition-root files (spec',
-    '// docs/superpowers/specs/2026-07-01-modularity-aplus-campaign-design.md §2.1)',
-    '// that import the src/lib/db/server singleton TODAY. Generated by the audit\'s',
-    '// own scan — regenerate with:',
-    '//   pnpm tsx scripts/ci/db-imports-audit.ts --emit-baseline',
-    '// (writes this file atomically — tmp file + rename — so a partial run never',
-    '// leaves a half-written baseline).',
-    '// Do NOT hand-edit entries. Shrinks to 0 over the Stage-2 domain sweeps as each domain',
-    '// module is converted to take `sql`/`supabaseServer` as an explicit parameter;',
-    '// Stage 3 then deletes this file and the guard becomes a strict',
-    '// composition-root allowlist. Adding a NEW importer requires migrating it',
-    '// instead — that is the point of this guard.',
-    '',
-    'export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([',
-    ...entries.map((entry) => `  '${entry}',`),
-    ']);',
-    '',
-  ];
-  return `${lines.join('\n')}\n`;
+  return assembleBaselineModule(BASELINE_HEADER, files);
 }
 
 /**
  * Writes the regenerated baseline module to `scripts/ci/db-imports-baseline.ts`
- * atomically: the full source is written to a co-located `.tmp` file, then
- * `rename`d into place. A crash mid-write leaves only the `.tmp` file — never
- * a half-written baseline — since `rename` is a single filesystem operation.
+ * atomically (via the harness's `emitBaselineFile`: tmp file + rename), so a
+ * crash mid-write never leaves a half-written baseline.
  */
 async function emitBaseline(importing: ReadonlySet<string>, root: string): Promise<void> {
   const source = renderBaselineModule([...importing]);
   const target = resolve(root, 'scripts/ci/db-imports-baseline.ts');
-  const tmp = `${target}.tmp`;
-  await writeFile(tmp, source);
-  await rename(tmp, target);
+  await emitBaselineFile(target, source);
   console.log(`db-imports-audit: baseline regenerated (${importing.size} entries)`);
 }
 

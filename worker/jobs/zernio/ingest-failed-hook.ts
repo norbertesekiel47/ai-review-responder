@@ -45,7 +45,7 @@ export async function handleIngestFailed(
 
   // Anything else: bare markOutboxFailed (existing behavior).
   const reason = err instanceof Error ? err.message : String(err);
-  await markOutboxFailed(outboxId, reason, outboxAttempt);
+  await markOutboxFailed(sql, outboxId, reason, outboxAttempt);
 }
 
 async function handleReviewNotFound(
@@ -72,7 +72,7 @@ async function handleReviewNotFound(
       WHERE status = 'open' AND review_id IS NULL
     DO NOTHING
   `;
-  await markOutboxFailed(outboxId, 'zernio_review_not_found_after_retries', outboxAttempt);
+  await markOutboxFailed(sql, outboxId, 'zernio_review_not_found_after_retries', outboxAttempt);
 }
 
 async function handlePaginationCapExhausted(
@@ -121,7 +121,7 @@ async function handlePaginationCapExhausted(
       reviews_seen: err.reviewsSeen,
     },
   });
-  await markOutboxFailed(outboxId, 'zernio_pagination_cap_exhausted', outboxAttempt);
+  await markOutboxFailed(sql, outboxId, 'zernio_pagination_cap_exhausted', outboxAttempt);
 }
 
 async function handleUnparseableLocation(
@@ -161,5 +161,5 @@ async function handleUnparseableLocation(
       )
     `;
   }
-  await markOutboxFailed(outboxId, 'zernio_unparseable_review_name', outboxAttempt);
+  await markOutboxFailed(sql, outboxId, 'zernio_unparseable_review_name', outboxAttempt);
 }

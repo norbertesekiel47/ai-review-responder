@@ -55,14 +55,14 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
 
   if (!business) {
     logger.warn(`Business ${businessId} not found`);
-    await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
+    await markOutboxFailed(sql, outboxId, 'business_not_found', outboxAttempt);
     return;
   }
 
   // ── 2. Only entitled (active or trialing) subscriptions get drip emails ──
   if (!subscriptionGrantsFullAccess(business.subscription_status)) {
     logger.log(`Business ${businessId} not entitled (${business.subscription_status}) — skipping ${drip_type}`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -74,7 +74,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   });
   if (!subCheck.allowed) {
     logger.log(`Business ${businessId} skipped: ${subCheck.reason}`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -83,14 +83,14 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   // Admin verifies and clears owner_email_bounced manually from /admin/businesses/[id].
   if (business.owner_email_bounced) {
     logger.log(`Business ${businessId} owner email bounced — skipping ${drip_type}`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
   // ── 3. Validate subscription_activated_at for day_7/day_30 ─────────
   if ((drip_type === 'day_7' || drip_type === 'day_30') && !business.subscription_activated_at) {
     logger.warn(`${drip_type} skipped: subscription_activated_at is null for ${businessId}`);
-    await markOutboxFailed(outboxId, 'subscription_activated_at is null', outboxAttempt);
+    await markOutboxFailed(sql, outboxId, 'subscription_activated_at is null', outboxAttempt);
     return;
   }
 
@@ -133,7 +133,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     } else {
       // Either already sent or owned by another active job — skip
       logger.log(`${drip_type} already claimed/sent for ${businessId} — skipping`);
-      await markOutboxCompleted(outboxId, outboxAttempt);
+      await markOutboxCompleted(sql, outboxId, outboxAttempt);
       return;
     }
   }
@@ -164,7 +164,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
       break;
     default: {
       logger.warn(`Unknown drip_type: ${drip_type}`);
-      await markOutboxFailed(outboxId, `unknown drip_type: ${drip_type}`, outboxAttempt);
+      await markOutboxFailed(sql, outboxId, `unknown drip_type: ${drip_type}`, outboxAttempt);
       return;
     }
   }
@@ -193,7 +193,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     externalMessageId: messageId,
   });
 
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
 
   logger.log(`${drip_type} sent for business ${businessId}`);
 }

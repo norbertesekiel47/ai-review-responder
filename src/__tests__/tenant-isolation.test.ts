@@ -266,6 +266,7 @@ describeWithDb('tenant isolation integration', () => {
     ).toBe(false);
 
     const crossAccountLocationContext = await helpers.getLocationContextForAccount(
+      sql(),
       tenantBPrimaryBusinessId,
       tenantA.accountId,
     );

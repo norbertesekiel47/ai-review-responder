@@ -7,7 +7,7 @@
 //
 // Validation contract: VAL-BILLING-033 through VAL-BILLING-037, VAL-BILLING-044.
 
-import { sql } from '@/lib/db/server';
+import type postgres from 'postgres';
 import {
   SubscriptionStatus,
   subscriptionGrantsFullAccess,
@@ -39,6 +39,7 @@ export type AccountActiveCheck = AccountActiveResult | AccountInactiveResult;
  * VAL-BILLING-037: returns true for active.
  */
 export async function isAccountActive(
+  sql: postgres.Sql,
   accountId: string,
 ): Promise<AccountActiveCheck> {
   const [row] = await sql<{ subscription_status: string }[]>`
@@ -108,6 +109,7 @@ interface LocationContextRow {
  * both public accessors treat archived locations as missing.
  */
 async function selectLocationContextRow(
+  sql: postgres.Sql,
   locationId: string,
 ): Promise<LocationContextRow | undefined> {
   const [row] = await sql<LocationContextRow[]>`
@@ -159,9 +161,10 @@ function mapLocationContextRow(row: LocationContextRow): LocationContext {
  * Returns null if the location doesn't exist or is archived.
  */
 export async function getLocationContext(
+  sql: postgres.Sql,
   locationId: string,
 ): Promise<LocationContext | null> {
-  const row = await selectLocationContextRow(locationId);
+  const row = await selectLocationContextRow(sql, locationId);
   return row ? mapLocationContextRow(row) : null;
 }
 
@@ -187,10 +190,11 @@ export interface AccountMismatchResult {
  *   - null when the location doesn't exist or is archived
  */
 export async function getLocationContextForAccount(
+  sql: postgres.Sql,
   locationId: string,
   accountId: string,
 ): Promise<LocationContext | AccountMismatchResult | null> {
-  const row = await selectLocationContextRow(locationId);
+  const row = await selectLocationContextRow(sql, locationId);
 
   // Location doesn't exist or is archived
   if (!row) return null;

@@ -3,8 +3,8 @@
 // schema and compares to an env-tunable threshold, returning HealthFinding(s) or
 // null. No writes. Column references verified against supabase/migrations
 // (job_outbox, notification_deliveries, flagged_responses, responses).
+import type postgres from 'postgres';
 import { getWorkerConfig } from '../../../../src/lib/config/worker';
-import { sql } from '../../../../src/lib/db/server';
 import { QUEUE_NAMES } from '../../../../src/lib/shared/queue-names';
 
 export interface HealthFinding {
@@ -42,7 +42,7 @@ function resolveHealthAlertConfig(): HealthAlertConfig {
 
 // Public-path outbox topics that exhausted all retries (status='failed') — a
 // failed publish/notify is a customer-visible stall, not a transient blip.
-export async function checkFailedOutboxByTopic(cfg: HealthAlertConfig): Promise<HealthFinding[]> {
+export async function checkFailedOutboxByTopic(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding[]> {
   // Window on completed_at: markOutboxFailed sets completed_at = NOW() when a row
   // terminates, so a watchdog-terminated long-dispatched row (old dispatched_at)
   // is still inside the window by its failure time. (Codex review: window by
@@ -67,7 +67,7 @@ export async function checkFailedOutboxByTopic(cfg: HealthAlertConfig): Promise<
 
 // Oldest claimable pending row — a climbing age means dispatch is backed up or
 // the OutboxPoller has stalled.
-export async function checkOldestPendingOutbox(cfg: HealthAlertConfig): Promise<HealthFinding | null> {
+export async function checkOldestPendingOutbox(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding | null> {
   const [row] = await sql<{ age: number | null }[]>`
     SELECT EXTRACT(EPOCH FROM (NOW() - MIN(available_at)))::int AS age
     FROM job_outbox
@@ -85,7 +85,7 @@ export async function checkOldestPendingOutbox(cfg: HealthAlertConfig): Promise<
 
 // Rows stuck mid-dispatch far longer than the OutboxPoller watchdog's 2-min
 // recovery window — a sign the watchdog itself isn't running.
-export async function checkStaleDispatching(cfg: HealthAlertConfig): Promise<HealthFinding | null> {
+export async function checkStaleDispatching(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding | null> {
   const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
     FROM job_outbox
@@ -104,7 +104,7 @@ export async function checkStaleDispatching(cfg: HealthAlertConfig): Promise<Hea
 
 // Unreviewed high-severity held drafts. A growing backlog means nobody is
 // working /admin/flagged, so safe-but-held drafts never reach owners.
-export async function checkOpenFlaggedResponses(cfg: HealthAlertConfig): Promise<HealthFinding | null> {
+export async function checkOpenFlaggedResponses(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding | null> {
   const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count FROM flagged_responses WHERE status = 'open'
   `;
@@ -127,7 +127,7 @@ export async function checkOpenFlaggedResponses(cfg: HealthAlertConfig): Promise
 // the worker's intentional skip paths (response superseded/posted, business
 // archived/offboarding) which legitimately complete with no delivery row, while
 // keeping the genuine "owner has no channel / never notified" signal.
-export async function checkZeroDeliveryNotifications(cfg: HealthAlertConfig): Promise<HealthFinding | null> {
+export async function checkZeroDeliveryNotifications(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding | null> {
   const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
     FROM job_outbox jo
@@ -153,14 +153,14 @@ export async function checkZeroDeliveryNotifications(cfg: HealthAlertConfig): Pr
   };
 }
 
-export async function runHealthChecks(): Promise<HealthFinding[]> {
+export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[]> {
   const cfg = resolveHealthAlertConfig();
   const results = await Promise.all([
-    checkFailedOutboxByTopic(cfg),
-    checkOldestPendingOutbox(cfg),
-    checkStaleDispatching(cfg),
-    checkOpenFlaggedResponses(cfg),
-    checkZeroDeliveryNotifications(cfg),
+    checkFailedOutboxByTopic(sql, cfg),
+    checkOldestPendingOutbox(sql, cfg),
+    checkStaleDispatching(sql, cfg),
+    checkOpenFlaggedResponses(sql, cfg),
+    checkZeroDeliveryNotifications(sql, cfg),
   ]);
   const findings: HealthFinding[] = [];
   for (const result of results) {

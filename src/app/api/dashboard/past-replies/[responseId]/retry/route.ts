@@ -53,7 +53,7 @@ export async function POST(
   request: NextRequest,
   context: ResponseIdRouteContext,
 ): Promise<Response> {
-  const ctx = await resolveEditReplyContext(request, context.params);
+  const ctx = await resolveEditReplyContext(sql, request, context.params);
   if (!ctx.ok) return ctx.response;
   const { accountId, locationId, responseId, reviewId, audit } = ctx.value;
 
@@ -106,7 +106,7 @@ export async function POST(
         SELECT 1 FROM responses
         WHERE review_id = ${reviewId}
           AND business_id = ${locationId}
-          AND status = ANY(${statusArraySql(NON_TERMINAL_STATUSES)})
+          AND status = ANY(${statusArraySql(sql, NON_TERMINAL_STATUSES)})
         LIMIT 1
       `;
       if (nonTermRows.length > 0) {

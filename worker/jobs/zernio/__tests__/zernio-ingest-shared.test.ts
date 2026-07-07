@@ -47,21 +47,23 @@ describe('handleZernioIngestError — dispatch matrix', () => {
     await handleZernioIngestError(sql, err, 'outbox-1', 1, ctx, mkLogger() as any);
 
     expect(applyIngestionAuthErrorFallback).toHaveBeenCalledWith(sql, 'B', 'A', 'L', expect.stringContaining('401'));
-    expect(markOutboxFailed).toHaveBeenCalledWith('outbox-1', 'zernio_auth_error_on_ingest', 1);
+    expect(markOutboxFailed).toHaveBeenCalledWith(sql, 'outbox-1', 'zernio_auth_error_on_ingest', 1);
   });
 
   it('ZernioPermanentError → markOutboxFailed permanent', async () => {
     const { markOutboxFailed } = await import('@/lib/shared/outbox');
     const err = new ZernioPermanentError('500 fatal', {});
-    await handleZernioIngestError(makeSqlMock(), err, 'outbox-1', 1, ctx, mkLogger() as any);
-    expect(markOutboxFailed).toHaveBeenCalledWith('outbox-1', expect.stringContaining('zernio_permanent_error'), 1);
+    const sql = makeSqlMock();
+    await handleZernioIngestError(sql, err, 'outbox-1', 1, ctx, mkLogger() as any);
+    expect(markOutboxFailed).toHaveBeenCalledWith(sql, 'outbox-1', expect.stringContaining('zernio_permanent_error'), 1);
   });
 
   it('ZernioValidationError → markOutboxFailed permanent', async () => {
     const { markOutboxFailed } = await import('@/lib/shared/outbox');
     const err = new ZernioValidationError('bad_payload', { raw: 'data' });
-    await handleZernioIngestError(makeSqlMock(), err, 'outbox-1', 1, ctx, mkLogger() as any);
-    expect(markOutboxFailed).toHaveBeenCalledWith('outbox-1', expect.stringContaining('zernio_validation_error'), 1);
+    const sql = makeSqlMock();
+    await handleZernioIngestError(sql, err, 'outbox-1', 1, ctx, mkLogger() as any);
+    expect(markOutboxFailed).toHaveBeenCalledWith(sql, 'outbox-1', expect.stringContaining('zernio_validation_error'), 1);
   });
 
   it('ZernioTransientError → rethrow', async () => {

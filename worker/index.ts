@@ -201,7 +201,7 @@ assertSingleConcurrencyWorker(QUEUE_NAMES.UPDATE_STRIPE_OVERAGE, updateStripeOve
 
 const stripeCheckoutReconcileWorker = new Worker<StripeCheckoutReconcilePayload>(
   QUEUE_NAMES.STRIPE_CHECKOUT_RECONCILE,
-  handleStripeCheckoutReconcile,
+  (job) => handleStripeCheckoutReconcile(sql, job),
   workerOpts,
 );
 

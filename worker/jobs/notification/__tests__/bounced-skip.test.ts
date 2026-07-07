@@ -151,7 +151,7 @@ describe('NotificationWorker skips bounced owners', () => {
       data: { response_id: 'resp-1', business_id: 'biz-1', outbox_id: 'out-1' },
     } as any);
     expect(mockSendApprovalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('out-1', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'out-1', undefined);
     expect(queryIssued(Q_NOTIFICATION_BUSINESS)).toBe(true);
   });
 });
@@ -170,7 +170,7 @@ describe('WeeklySummaryWorker skips bounced owners', () => {
       data: { business_id: 'biz-1', week_start_date: '2026-04-13', outbox_id: 'out-2' },
     } as any);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('out-2', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'out-2', undefined);
     expect(queryIssued(Q_SUMMARY_BUSINESS)).toBe(true);
   });
 });
@@ -189,7 +189,7 @@ describe('MonthlyImpactWorker skips bounced owners', () => {
       data: { business_id: 'biz-1', month_start_date: '2026-04-01', outbox_id: 'out-3' },
     } as any);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('out-3', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'out-3', undefined);
     expect(queryIssued(Q_SUMMARY_BUSINESS)).toBe(true);
   });
 });
@@ -208,7 +208,7 @@ describe('OnboardingDripWorker skips bounced owners', () => {
       data: { business_id: 'biz-1', drip_type: 'day_1', outbox_id: 'out-4' },
     } as any);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('out-4', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'out-4', undefined);
     expect(queryIssued(Q_DRIP_BUSINESS)).toBe(true);
   });
 });

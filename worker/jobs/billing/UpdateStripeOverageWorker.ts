@@ -72,14 +72,14 @@ export async function handleUpdateStripeOverage(
 
   if (!account) {
     logger.error(`Account not found: ${account_id}`);
-    await markOutboxFailed(outboxId, `Account not found: ${account_id}`, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, `Account not found: ${account_id}`, outboxAttempt);
     return;
   }
 
   // Skip if no Stripe subscription exists
   if (!account.stripe_subscription_id) {
     logger.log(`No Stripe subscription for account ${account_id} — skipping overage update`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -89,7 +89,7 @@ export async function handleUpdateStripeOverage(
   // verified trial-safe, $0 until trial_end).
   if (!subscriptionGrantsFullAccess(account.subscription_status)) {
     logger.log(`Account ${account_id} subscription status is ${account.subscription_status} — skipping overage update`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -97,14 +97,14 @@ export async function handleUpdateStripeOverage(
   const config = TIER_CONFIG[tier];
   if (!config) {
     logger.error(`Unknown tier ${account.subscription_tier} for account ${account_id}`);
-    await markOutboxFailed(outboxId, `Unknown tier: ${account.subscription_tier}`, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, `Unknown tier: ${account.subscription_tier}`, outboxAttempt);
     return;
   }
 
   // Basic tier has no overage
   if (!config.multiLocAllowed) {
     logger.log(`Account ${account_id} is on basic tier — no overage to update`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
@@ -112,7 +112,7 @@ export async function handleUpdateStripeOverage(
 
   if (!overagePriceId) {
     logger.error(`No overage price ID for tier ${tier}`);
-    await markOutboxFailed(outboxId, `Missing overage price ID for tier: ${tier}`, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, `Missing overage price ID for tier: ${tier}`, outboxAttempt);
     return;
   }
 
@@ -166,7 +166,7 @@ export async function handleUpdateStripeOverage(
       // watchdog re-dispatches. Do NOT markOutboxFailed — that forfeits the
       // watchdog. Best-effort: surface the real error on the row for ops
       // visibility during a sustained outage (status untouched).
-      await recordOutboxTransientError(outboxId, message, outboxAttempt);
+      await recordOutboxTransientError(sql, outboxId, message, outboxAttempt);
       logger.error(`Transient overage sync error for account ${account_id} (will retry): ${message}`);
       throw err;
     }
@@ -174,7 +174,7 @@ export async function handleUpdateStripeOverage(
     // UnrecoverableError stops BullMQ from re-running a failure the code just
     // declared deterministic (a plain throw would re-execute the Stripe calls).
     logger.error(`Terminal Stripe overage error for account ${account_id}: ${message}`);
-    await markOutboxFailed(outboxId, message, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, message, outboxAttempt);
     throw new UnrecoverableError(message);
   }
 
@@ -196,7 +196,7 @@ export async function handleUpdateStripeOverage(
         },
       },
     );
-    await markOutboxFailed(outboxId, outcome.detail, outboxAttempt);
+    await markOutboxFailed(sql, outboxId, outcome.detail, outboxAttempt);
     return;
   }
 
@@ -205,5 +205,5 @@ export async function handleUpdateStripeOverage(
   // operation as terminal and flip the row to 'failed'). Letting it throw
   // fails the job → BullMQ retries → the idempotency keys dedup the Stripe
   // re-run → completion is re-attempted. Convergent either way.
-  await markOutboxCompleted(outboxId, outboxAttempt);
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
 }

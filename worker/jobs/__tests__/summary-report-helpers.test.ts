@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import type postgres from 'postgres';
 
 const { mockMarkOutboxCompleted, mockMarkOutboxFailed } = vi.hoisted(() => ({
   mockMarkOutboxCompleted: vi.fn(() => Promise.resolve()),
@@ -71,13 +72,17 @@ describe('summary report helpers', () => {
 
 describe('completeOrFailSkippedSummaryReport — archived locations', () => {
   const fakeLogger = { warn: vi.fn(), log: vi.fn() };
+  // The skip branches only FORWARD `sql` to the (mocked) outbox writers; they
+  // never run a query on it, so a sentinel is enough and each assertion pins
+  // that the same client is threaded through as the leading arg.
+  const fakeSql = {} as unknown as postgres.Sql;
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it('skips an archived business as success (completes outbox, never fails)', async () => {
-    const skipped = await completeOrFailSkippedSummaryReport({
+    const skipped = await completeOrFailSkippedSummaryReport(fakeSql, {
       business: makeSummaryReportBusiness({ archived_at: new Date('2026-06-01T00:00:00Z') }),
       businessId: asLocationId('biz-1'),
       outboxId: 'o1',
@@ -86,12 +91,12 @@ describe('completeOrFailSkippedSummaryReport — archived locations', () => {
     });
 
     expect(skipped).toBe(true);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('o1', 1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(fakeSql, 'o1', 1);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
   it('checks archived before subscription — pinned via the structured skip log', async () => {
-    const skipped = await completeOrFailSkippedSummaryReport({
+    const skipped = await completeOrFailSkippedSummaryReport(fakeSql, {
       business: makeSummaryReportBusiness({
         archived_at: new Date('2026-06-01T00:00:00Z'),
         subscription_status: 'cancelled',
@@ -103,7 +108,7 @@ describe('completeOrFailSkippedSummaryReport — archived locations', () => {
     });
 
     expect(skipped).toBe(true);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('o2', undefined);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(fakeSql, 'o2', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
     // Pins ordering: only the archived branch logs the structured
     // { reason: archived_location } object arg. If the subscription check
@@ -116,7 +121,7 @@ describe('completeOrFailSkippedSummaryReport — archived locations', () => {
   });
 
   it('proceeds (returns false) for a non-archived active business — regression', async () => {
-    const skipped = await completeOrFailSkippedSummaryReport({
+    const skipped = await completeOrFailSkippedSummaryReport(fakeSql, {
       business: makeSummaryReportBusiness({ archived_at: null }),
       businessId: asLocationId('biz-1'),
       outboxId: 'o3',

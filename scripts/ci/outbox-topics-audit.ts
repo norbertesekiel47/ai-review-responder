@@ -39,22 +39,16 @@
 // literal — reserved for ON CONFLICT / partial-unique-index predicates that
 // must stay literal, mirroring how response-status-audit / reviews-status-audit
 // use explicit, reviewed escape hatches.
-import { readdir, readFile } from 'node:fs/promises';
-import { join, relative, resolve, sep } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { ALL_QUEUE_NAMES } from '../../src/lib/shared/queue-names';
 import { escapeRegExp, isSqlTaggedTemplate, lineHasPragma } from './lib/sql-tag-scan';
+import { walk } from './lib/ratchet-harness';
 
 const SCAN_DIRS = ['src/lib', 'src/app', 'worker'] as const;
-const SCAN_EXT = /\.(?:ts|tsx)$/;
-const SKIP_DIRS = new Set(['node_modules', '__tests__', 'dist', '.next', 'coverage', '__fixtures__']);
-const SKIP_FILE = /\.(?:test|spec)\.[cm]?tsx?$/;
 const IGNORE_PRAGMA = 'topic-audit-ignore';
-
-function normalize(file: string): string {
-  return file.split(sep).join('/');
-}
 
 const TOPIC_LITERAL_RE = new RegExp(
   `(['"])(${ALL_QUEUE_NAMES.map(escapeRegExp).join('|')})\\1`,
@@ -117,25 +111,8 @@ export function evaluateFindings(matchingFiles: readonly string[]): string[] {
   return matchingFiles.map((file) => `${file}: ${FINDING_DETAIL}`);
 }
 
-async function collectFiles(dir: string, root: string, out: string[]): Promise<void> {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return; // directory absent — nothing to scan
-  }
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name)) await collectFiles(join(dir, entry.name), root, out);
-    } else if (entry.isFile() && SCAN_EXT.test(entry.name) && !SKIP_FILE.test(entry.name)) {
-      out.push(normalize(relative(root, join(dir, entry.name))));
-    }
-  }
-}
-
 export async function collectMatchingFiles(root: string): Promise<string[]> {
-  const files: string[] = [];
-  for (const dir of SCAN_DIRS) await collectFiles(resolve(root, dir), root, files);
+  const files = await walk(root, { scanDirs: SCAN_DIRS });
   const matching: string[] = [];
   for (const file of files.sort()) {
     if (fileHasRawOutboxTopicLiteral(await readFile(resolve(root, file), 'utf8'))) {

@@ -15,6 +15,10 @@ const {
     txCalls.push({ text: strings.join('?'), values });
     return Promise.resolve(txResults.shift() ?? Object.assign([], { count: 1 }));
   });
+  // Enqueue helpers now bind JSONB via `tx.json(x)` instead of the module
+  // `jsonb` helper. Wrap identically to the module mock below (`{ __jsonb: v }`)
+  // so the `__jsonb` payload filter in the assertions still matches.
+  (mockTx as unknown as { json: (v: unknown) => unknown }).json = (v: unknown) => ({ __jsonb: v });
   const mockSql: any = vi.fn(() => Promise.resolve([]));
   mockSql.begin = vi.fn(async (cb: (tx: typeof mockTx) => Promise<unknown>) => cb(mockTx));
   return {

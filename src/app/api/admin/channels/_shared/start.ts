@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash, randomUUID } from 'node:crypto';
 import QRCode from 'qrcode';
-import { sql } from '@/lib/db/server';
+import type postgres from 'postgres';
 import { startMobileEnrollment, type MobileChannel } from '@/lib/channels/mobile-enrollment';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
@@ -35,6 +35,7 @@ export interface AdminChannelStartConfig {
 }
 
 export async function runAdminChannelStart(
+  sql: postgres.Sql,
   req: NextRequest,
   config: AdminChannelStartConfig,
 ): Promise<NextResponse> {

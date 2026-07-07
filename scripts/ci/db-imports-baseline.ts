@@ -14,21 +14,5 @@
 // instead — that is the point of this guard.
 
 export const DB_IMPORTS_BASELINE: ReadonlySet<string> = new Set([
-  'src/app/api/admin/channels/_shared/account.ts',
-  'src/app/api/admin/channels/_shared/action.ts',
-  'src/app/api/admin/channels/_shared/start.ts',
-  'src/app/api/dashboard/past-replies/_shared/edit-reply-request.ts',
-  'src/app/api/zernio/connect/_shared/finalize/authorize.ts',
-  'src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts',
-  'src/app/api/zernio/connect/_shared/finalize/finalize-unknown.ts',
-  'src/lib/db/account-guard.ts',
-  'src/lib/db/auth.ts',
-  'src/lib/shared/job-outbox-helpers.ts',
-  'src/lib/shared/outbox.ts',
-  'src/lib/shared/response-status-sql.ts',
-  'src/lib/shared/writable-subscription.ts',
-  'worker/background/pollers/billing-reconciliation/reconcile-account.ts',
-  'worker/background/pollers/health-alert/checks.ts',
-  'worker/jobs/summary-report-helpers.ts',
 ]);
 

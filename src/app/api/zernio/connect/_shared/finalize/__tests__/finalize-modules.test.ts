@@ -74,6 +74,12 @@ const {
       return Promise.resolve([]);
     },
   );
+  // finalizeConnectionTx now binds its outbox JSONB via the injected client's
+  // `.json()` (byte-identical to the removed `jsonb()` helper) instead of
+  // importing the db/server singleton — the tx mock needs the method too.
+  (mockTx as unknown as { json: (v: unknown) => unknown }).json = vi.fn(
+    (v: unknown) => v,
+  );
 
   const mockSql: any = vi.fn(
     (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -302,7 +308,7 @@ beforeEach(() => {
 
 describe('authorizeSelectLocation', () => {
   it('returns a context on the happy path', async () => {
-    const ctx = await authorizeSelectLocation(makeRequest());
+    const ctx = await authorizeSelectLocation(mockSql, makeRequest());
     expect(ctx.user).toBe(USER);
     expect(ctx.sessionId).toBe('session-1');
     expect(ctx.locationId).toBe('google-location-1');
@@ -312,7 +318,7 @@ describe('authorizeSelectLocation', () => {
   it('throws 503 feature_disabled when the flag is off', async () => {
     process.env.ZERNIO_PUBLISHING_ENABLED = 'false';
     await expectRouteError(
-      authorizeSelectLocation(makeRequest()),
+      authorizeSelectLocation(mockSql, makeRequest()),
       503,
       'feature_disabled',
     );
@@ -323,7 +329,7 @@ describe('authorizeSelectLocation', () => {
       throw new SameOriginError('bad origin');
     });
     await expectRouteError(
-      authorizeSelectLocation(makeRequest()),
+      authorizeSelectLocation(mockSql, makeRequest()),
       403,
       'forbidden',
     );
@@ -334,19 +340,19 @@ describe('authorizeSelectLocation', () => {
     mockAssertSameOrigin.mockImplementation(() => {
       throw boom;
     });
-    await expect(authorizeSelectLocation(makeRequest())).rejects.toBe(boom);
+    await expect(authorizeSelectLocation(mockSql, makeRequest())).rejects.toBe(boom);
   });
 
   it('maps AuthError 401 → unauthorized and 403 → forbidden', async () => {
     mockRequireRole.mockRejectedValueOnce(new AuthError('nope', 401));
     await expectRouteError(
-      authorizeSelectLocation(makeRequest()),
+      authorizeSelectLocation(mockSql, makeRequest()),
       401,
       'unauthorized',
     );
     mockRequireRole.mockRejectedValueOnce(new AuthError('nope', 403));
     await expectRouteError(
-      authorizeSelectLocation(makeRequest()),
+      authorizeSelectLocation(mockSql, makeRequest()),
       403,
       'forbidden',
     );
@@ -355,7 +361,7 @@ describe('authorizeSelectLocation', () => {
   it('throws 403 unscoped_owner when the user has no accountId', async () => {
     mockRequireRole.mockResolvedValueOnce({ ...USER, accountId: null });
     await expectRouteError(
-      authorizeSelectLocation(makeRequest()),
+      authorizeSelectLocation(mockSql, makeRequest()),
       403,
       'unscoped_owner',
     );
@@ -363,7 +369,7 @@ describe('authorizeSelectLocation', () => {
 
   it('throws 400 invalid_body only for unparseable JSON', async () => {
     await expectRouteError(
-      authorizeSelectLocation(makeRequest('{not json')),
+      authorizeSelectLocation(mockSql, makeRequest('{not json')),
       400,
       'invalid_body',
     );
@@ -371,7 +377,7 @@ describe('authorizeSelectLocation', () => {
 
   it('throws 400 invalid_body for a literal null JSON body (not 500)', async () => {
     await expectRouteError(
-      authorizeSelectLocation(makeRequest('null')),
+      authorizeSelectLocation(mockSql, makeRequest('null')),
       400,
       'invalid_body',
     );
@@ -379,7 +385,7 @@ describe('authorizeSelectLocation', () => {
 
   it('throws 400 invalid_body for a scalar JSON body (was invalid_location_id)', async () => {
     await expectRouteError(
-      authorizeSelectLocation(makeRequest('42')),
+      authorizeSelectLocation(mockSql, makeRequest('42')),
       400,
       'invalid_body',
     );
@@ -387,7 +393,7 @@ describe('authorizeSelectLocation', () => {
 
   it('throws 400 invalid_location_id for an empty-string locationId (permissive parser)', async () => {
     await expectRouteError(
-      authorizeSelectLocation(makeRequest({ locationId: '' })),
+      authorizeSelectLocation(mockSql, makeRequest({ locationId: '' })),
       400,
       'invalid_location_id',
     );
@@ -395,7 +401,7 @@ describe('authorizeSelectLocation', () => {
 
   it('throws 400 invalid_location_id for a missing locationId (not invalid_body)', async () => {
     await expectRouteError(
-      authorizeSelectLocation(makeRequest({})),
+      authorizeSelectLocation(mockSql, makeRequest({})),
       400,
       'invalid_location_id',
     );
@@ -403,6 +409,7 @@ describe('authorizeSelectLocation', () => {
 
   it('accepts any non-empty string locationId (not just UUIDs)', async () => {
     const ctx = await authorizeSelectLocation(
+      mockSql,
       makeRequest({ locationId: 'google-location-1' }),
     );
     expect(ctx.locationId).toBe('google-location-1');
@@ -411,7 +418,7 @@ describe('authorizeSelectLocation', () => {
   it('throws 401 connect_session_missing when the cookie is absent', async () => {
     mockReadConnectSessionCookie.mockReturnValue(null);
     await expectRouteError(
-      authorizeSelectLocation(makeRequest()),
+      authorizeSelectLocation(mockSql, makeRequest()),
       401,
       'connect_session_missing',
     );
@@ -420,7 +427,7 @@ describe('authorizeSelectLocation', () => {
   it('throws 410 connect_session_expired when the locations blob is missing', async () => {
     mockRedis.get.mockResolvedValue(null);
     await expectRouteError(
-      authorizeSelectLocation(makeRequest()),
+      authorizeSelectLocation(mockSql, makeRequest()),
       410,
       'connect_session_expired',
     );
@@ -429,7 +436,7 @@ describe('authorizeSelectLocation', () => {
   it('throws 410 connect_session_expired when the locations blob is unparseable', async () => {
     mockRedis.get.mockResolvedValue('{not json');
     await expectRouteError(
-      authorizeSelectLocation(makeRequest()),
+      authorizeSelectLocation(mockSql, makeRequest()),
       410,
       'connect_session_expired',
     );
@@ -438,7 +445,7 @@ describe('authorizeSelectLocation', () => {
   it('throws 403 user_mismatch when the stored userId differs', async () => {
     mockRequireRole.mockResolvedValueOnce({ ...USER, id: 'someone-else' });
     await expectRouteError(
-      authorizeSelectLocation(makeRequest()),
+      authorizeSelectLocation(mockSql, makeRequest()),
       403,
       'user_mismatch',
     );
@@ -447,7 +454,7 @@ describe('authorizeSelectLocation', () => {
   it('throws 403 business_mismatch when the business is not owned by the account', async () => {
     sqlScenario.businessExists = false;
     await expectRouteError(
-      authorizeSelectLocation(makeRequest()),
+      authorizeSelectLocation(mockSql, makeRequest()),
       403,
       'business_mismatch',
     );
@@ -455,7 +462,7 @@ describe('authorizeSelectLocation', () => {
 
   it('throws 400 invalid_location_id when the location is not in the cached blob', async () => {
     await expectRouteError(
-      authorizeSelectLocation(makeRequest({ locationId: 'unknown-location' })),
+      authorizeSelectLocation(mockSql, makeRequest({ locationId: 'unknown-location' })),
       400,
       'invalid_location_id',
     );
@@ -552,7 +559,7 @@ describe('recordFinalizeUnknownAndThrow', () => {
 
   it('always throws 409 finalize_unknown_admin_required on the happy path', async () => {
     await expectRouteError(
-      recordFinalizeUnknownAndThrow({
+      recordFinalizeUnknownAndThrow(mockSql, {
         redis,
         stored: STORED,
         zernioErr: new Error('transient'),
@@ -566,7 +573,7 @@ describe('recordFinalizeUnknownAndThrow', () => {
     mockRedis.eval.mockRejectedValue(new Error('redis down'));
     sqlScenario.incidentInsertError = new Error('db down');
     await expectRouteError(
-      recordFinalizeUnknownAndThrow({
+      recordFinalizeUnknownAndThrow(mockSql, {
         redis,
         stored: STORED,
         zernioErr: new Error('transient'),
@@ -591,7 +598,7 @@ describe('recordFinalizeUnknownAndThrow', () => {
   it('alerts zernio_finalize_unknown_redis_cas_failed when the CAS returns a non-OK value', async () => {
     mockRedis.eval.mockResolvedValue(0);
     await expectRouteError(
-      recordFinalizeUnknownAndThrow({
+      recordFinalizeUnknownAndThrow(mockSql, {
         redis,
         stored: STORED,
         zernioErr: new Error('transient'),
@@ -610,7 +617,7 @@ describe('recordFinalizeUnknownAndThrow', () => {
       code: '23505',
     });
     await expectRouteError(
-      recordFinalizeUnknownAndThrow({
+      recordFinalizeUnknownAndThrow(mockSql, {
         redis,
         stored: STORED,
         zernioErr: new Error('transient'),
@@ -631,7 +638,7 @@ describe('recordFinalizeUnknownAndThrow', () => {
 
 describe('finalizeConnectionTx', () => {
   it('inserts the connection + drain outbox in a single sql.begin', async () => {
-    await finalizeConnectionTx({
+    await finalizeConnectionTx(mockSql, {
       user: USER,
       stored: STORED,
       locationId: 'google-location-1',
@@ -649,7 +656,7 @@ describe('finalizeConnectionTx', () => {
   });
 
   it('enqueues gbp_connected inside the finalize transaction', async () => {
-    await finalizeConnectionTx({
+    await finalizeConnectionTx(mockSql, {
       user: USER,
       stored: STORED,
       locationId: 'google-location-1',
@@ -675,7 +682,7 @@ describe('finalizeConnectionTx', () => {
 
   it('does NOT enqueue initial backfill when needs_backfill is false', async () => {
     txScenario.needsBackfill = false;
-    await finalizeConnectionTx({
+    await finalizeConnectionTx(mockSql, {
       user: USER,
       stored: STORED,
       locationId: 'google-location-1',
@@ -690,7 +697,7 @@ describe('finalizeConnectionTx', () => {
 
   it('enqueues initial backfill only when needs_backfill is true', async () => {
     txScenario.needsBackfill = true;
-    await finalizeConnectionTx({
+    await finalizeConnectionTx(mockSql, {
       user: USER,
       stored: STORED,
       locationId: 'google-location-1',
@@ -703,7 +710,7 @@ describe('finalizeConnectionTx', () => {
 
   it('updates an existing connection instead of inserting', async () => {
     txScenario.existingConnectionId = 'existing-1';
-    await finalizeConnectionTx({
+    await finalizeConnectionTx(mockSql, {
       user: USER,
       stored: STORED,
       locationId: 'google-location-1',
@@ -720,7 +727,7 @@ describe('finalizeConnectionTx', () => {
   it('throws 403 business_mismatch when the locked row is absent', async () => {
     txScenario.businessFound = false;
     await expectRouteError(
-      finalizeConnectionTx({
+      finalizeConnectionTx(mockSql, {
         user: USER,
         stored: STORED,
         locationId: 'google-location-1',
@@ -734,7 +741,7 @@ describe('finalizeConnectionTx', () => {
   it('throws 403 subscription_inactive when the account is inactive', async () => {
     txScenario.accountSubscriptionStatus = 'cancelled';
     await expectRouteError(
-      finalizeConnectionTx({
+      finalizeConnectionTx(mockSql, {
         user: USER,
         stored: STORED,
         locationId: 'google-location-1',

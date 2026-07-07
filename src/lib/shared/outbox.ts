@@ -1,9 +1,8 @@
 import type { Job } from 'bullmq';
 import type postgres from 'postgres';
-import { sql } from '@/lib/db/server';
 
 /** Either the standalone `sql` client or an open `sql.begin()` transaction handle. */
-type SqlExecutor = typeof sql | postgres.TransactionSql;
+type SqlExecutor = postgres.Sql | postgres.TransactionSql;
 
 const hasAttempt = (attempt?: number): attempt is number =>
   typeof attempt === 'number' && Number.isFinite(attempt);
@@ -50,9 +49,9 @@ export function extractOutboxHandle(
  * Marks an outbox entry as completed. Used by every worker on the
  * success path when the work is done outside a transaction.
  *
- * Pass `exec` (a `sql.begin()` transaction handle) to complete the entry
- * INSIDE an open transaction — atomic with the state change it accompanies.
- * Defaults to the standalone `sql` client for the common out-of-tx case.
+ * `exec` is the caller's `sql` client for the common out-of-tx case, or an
+ * open `sql.begin()` transaction handle to complete the entry INSIDE that
+ * transaction — atomic with the state change it accompanies.
  *
  * `attempt` is the outbox_attempt the BullMQ job was dispatched under.
  * When provided, the UPDATE is attempt-guarded so a stale BullMQ worker
@@ -65,9 +64,9 @@ export function extractOutboxHandle(
  * for the loser of an attempt race, not a bug.
  */
 export async function markOutboxCompleted(
+  exec: SqlExecutor,
   outboxId: string,
   attempt?: number,
-  exec: SqlExecutor = sql,
 ): Promise<void> {
   const res = await exec`
     UPDATE job_outbox
@@ -85,14 +84,15 @@ export async function markOutboxCompleted(
  * semantics.
  */
 export async function markOutboxFailed(
+  exec: SqlExecutor,
   outboxId: string,
   error: string,
   attempt?: number,
 ): Promise<void> {
-  const res = await sql`
+  const res = await exec`
     UPDATE job_outbox
     SET status = 'failed', last_error = ${error}, completed_at = NOW()
-    WHERE ${dispatchedRow(sql, outboxId, attempt)}
+    WHERE ${dispatchedRow(exec, outboxId, attempt)}
   `;
   if (hasAttempt(attempt) && res.count === 0) {
     warnOutboxNoop('markOutboxFailed', outboxId, attempt);
@@ -106,15 +106,16 @@ export async function markOutboxFailed(
  * path, so any failure here is logged and swallowed.
  */
 export async function recordOutboxTransientError(
+  exec: SqlExecutor,
   outboxId: string,
   error: string,
   attempt?: number,
 ): Promise<void> {
   try {
-    await sql`
+    await exec`
       UPDATE job_outbox
       SET last_error = ${error}
-      WHERE ${dispatchedRow(sql, outboxId, attempt)}
+      WHERE ${dispatchedRow(exec, outboxId, attempt)}
     `;
   } catch (recordErr) {
     console.warn(

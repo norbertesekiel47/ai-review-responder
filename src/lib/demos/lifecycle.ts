@@ -134,7 +134,7 @@ export async function completeDemo(
         `;
       }
 
-      await markOutboxCompleted(outboxId, outboxAttempt, tx);
+      await markOutboxCompleted(tx, outboxId, outboxAttempt);
     });
   } catch (err) {
     // 23505 race-loser recovery for onboarding_demos. The partial unique
@@ -158,7 +158,7 @@ export async function completeDemo(
           WHERE id = ${demoId}
         `;
 
-        await markOutboxCompleted(outboxId, outboxAttempt, tx);
+        await markOutboxCompleted(tx, outboxId, outboxAttempt);
       });
       return;
     }

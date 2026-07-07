@@ -92,7 +92,7 @@ export async function handleOnboardingDemo(
     claimResult === 'already_terminal' ||
     claimResult === 'race_lost'
   ) {
-    await markOutboxCompleted(outboxId, outboxAttempt);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
     await releaseReservation();
     return;
   }

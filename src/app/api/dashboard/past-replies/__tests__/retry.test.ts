@@ -34,6 +34,10 @@ const {
 
   const txQueue: unknown[][] = [];
   const txMock = vi.fn(async () => txQueue.shift() ?? []);
+  // Enqueue helpers now bind JSONB via `tx.json(x)` (Postgres.js identity JSONB
+  // constructor) instead of the module `jsonb` helper. Mirror the module mock's
+  // identity passthrough so payloads flow into the tagged-template params as before.
+  (txMock as unknown as { json: (v: unknown) => unknown }).json = (v: unknown) => v;
 
   const beginMock = vi.fn(async (cb: (tx: unknown) => Promise<Response>) => cb(txMock));
 

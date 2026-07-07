@@ -42,6 +42,10 @@ import { AuthError } from '@/lib/db/auth';
 const ACCOUNT_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
 const APP_URL = 'http://localhost:3000';
 
+// The SUT threads `sql` into assertWritableSubscriptionForAccount, which is
+// mocked above and ignores it — a sentinel stand-in is sufficient.
+const fakeSql = {} as never;
+
 function req(opts: { origin?: string | null } = {}) {
   const headers: Record<string, string> = {};
   const origin = opts.origin === undefined ? APP_URL : opts.origin;
@@ -74,7 +78,7 @@ describe('location owner route helpers', () => {
   it('returns 404 before auth when multi-location is disabled', async () => {
     process.env.MULTI_LOCATION_ENABLED = 'false';
 
-    const result = await readOwnerForMultiLocationRoute(req());
+    const result = await readOwnerForMultiLocationRoute(fakeSql, req());
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -87,7 +91,7 @@ describe('location owner route helpers', () => {
   it('maps AuthError to the route response status and message', async () => {
     mockRequireRole.mockRejectedValueOnce(new AuthError('Forbidden', 403));
 
-    const result = await readOwnerForMultiLocationRoute(req());
+    const result = await readOwnerForMultiLocationRoute(fakeSql, req());
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -99,7 +103,7 @@ describe('location owner route helpers', () => {
   it('returns 403 before auth when Origin header is absent', async () => {
     mockRequireRole.mockResolvedValueOnce({ id: 'user-1', accountId: ACCOUNT_ID, role: 'owner' });
 
-    const result = await readOwnerForMultiLocationRoute(req({ origin: null }));
+    const result = await readOwnerForMultiLocationRoute(fakeSql, req({ origin: null }));
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -112,11 +116,11 @@ describe('location owner route helpers', () => {
   it('returns an owner when auth succeeds and account is scoped', async () => {
     mockRequireRole.mockResolvedValueOnce({ id: 'user-1', accountId: ACCOUNT_ID, role: 'owner' });
 
-    const result = await readOwnerForMultiLocationRoute(req());
+    const result = await readOwnerForMultiLocationRoute(fakeSql, req());
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.user.accountId).toBe(ACCOUNT_ID);
-    expect(mockAssertWritableSubscriptionForAccount).toHaveBeenCalledWith(ACCOUNT_ID);
+    expect(mockAssertWritableSubscriptionForAccount).toHaveBeenCalledWith(ACCOUNT_ID, expect.anything());
   });
 
   it('returns 402 when the account is past-due read-only', async () => {
@@ -127,7 +131,7 @@ describe('location owner route helpers', () => {
       error: 'past_due_read_only',
     });
 
-    const result = await readOwnerForMultiLocationRoute(req());
+    const result = await readOwnerForMultiLocationRoute(fakeSql, req());
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -139,7 +143,7 @@ describe('location owner route helpers', () => {
   it('returns 403 when the authenticated user has no account', async () => {
     mockRequireRole.mockResolvedValueOnce({ id: 'user-1', accountId: null, role: 'owner' });
 
-    const result = await readOwnerForMultiLocationRoute(req());
+    const result = await readOwnerForMultiLocationRoute(fakeSql, req());
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -153,7 +157,7 @@ describe('location owner route helpers', () => {
   it('falls back to 401 when auth rejects with a non-AuthError', async () => {
     mockRequireRole.mockRejectedValueOnce(new Error('redis down'));
 
-    const result = await readOwnerForMultiLocationRoute(req());
+    const result = await readOwnerForMultiLocationRoute(fakeSql, req());
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
