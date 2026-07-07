@@ -26,6 +26,7 @@ import { ConcurrencyLimitExceededError } from '../../../src/lib/costs/concurrenc
 import { CostInfraUnavailableError } from '../../../src/lib/costs/errors';
 import type { BusinessContext, GenerationResult, VoiceExample } from '../../../src/lib/responses/types';
 import type { NormalizedReview } from '../../../src/lib/reviews/types';
+import type { TriageSeverity } from '../../../src/lib/reviews/triage-schema';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import type { LocationId } from '../../../src/lib/shared/ids';
 import type { GenerationContext } from './load-context';
@@ -38,6 +39,9 @@ interface DraftIds {
   reviewId: string;
   version: number;
   businessId: LocationId;
+  // WS2 triage outcome for tone guidance (null = not triaged: flag off,
+  // positive lane, or legacy). Required so every caller decides explicitly.
+  triageSeverity: TriageSeverity | null;
 }
 
 function isCostCapError(err: unknown): err is CostLimitExceededError | GlobalCostLimitExceededError {
@@ -103,6 +107,7 @@ export async function generateDraft(
     businessId,
     subscriptionTier: businessContext.subscriptionTier,
     accountId,
+    triageSeverity: ids.triageSeverity,
   };
 
   let result: GenerationResult;
@@ -154,7 +159,7 @@ export async function generateDraft(
       businessContext,
       normalizedReview,
       voiceExamples,
-      { reviewId, version, businessId, accountId },
+      { reviewId, version, businessId, accountId, triageSeverity: ids.triageSeverity },
       logger,
     );
     return { kind: 'ok', result: guarded.result, retryCostId: guarded.retryCostId };
@@ -185,7 +190,7 @@ async function applyAvoidFactsGuardrail(
   businessContext: BusinessContext,
   normalizedReview: NormalizedReview,
   voiceExamples: VoiceExample[],
-  ids: { reviewId: string; version: number; businessId: string; accountId: string },
+  ids: { reviewId: string; version: number; businessId: string; accountId: string; triageSeverity: TriageSeverity | null },
   logger: WorkerLogger,
 ): Promise<{ result: GenerationResult; retryCostId?: string }> {
   const { avoidFacts } = businessContext;
@@ -204,6 +209,7 @@ async function applyAvoidFactsGuardrail(
       businessId: ids.businessId,
       subscriptionTier: businessContext.subscriptionTier,
       accountId: ids.accountId,
+      triageSeverity: ids.triageSeverity,
       skipCache: true,
     };
     const retryResult = isMockMode()

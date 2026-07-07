@@ -8,6 +8,7 @@ import { createWorkerLogger } from '../../src/lib/shared/logger';
 import { mergeLogContext } from '../../src/lib/shared/log-context';
 import { asLocationId } from '../../src/lib/shared/ids';
 import { loadGenerationContext } from './response-generation/load-context';
+import { runTriagePhase } from './response-generation/triage';
 import { generateDraft } from './response-generation/generate-draft';
 import { persistResponseAndNotify } from './response-generation/persist';
 import { maybeEnqueueFirstResponseDrafted } from './response-generation/analytics';
@@ -71,10 +72,15 @@ export async function handleResponseGeneration(
 
   const { ctx } = loaded;
 
+  // ── Triage phase (WS2): severity for tone + Guardian step ────────────
+  // Transient errors throw → BullMQ retry; committed triage makes the
+  // retry spend-free. Flag-off / positive lane / legacy → null.
+  const triageSeverity = await runTriagePhase(sql, ctx, { reviewId, businessId }, logger);
+
   // ── Generate draft (cost-guard → generate → avoid-facts guardrail) ───
   // Retryable errors (concurrency / transient LLM) throw out of generateDraft
   // and propagate to BullMQ for retry. Permanent failures return { kind: 'failed' }.
-  const draft = await generateDraft(sql, ctx, { reviewId, version, businessId }, logger);
+  const draft = await generateDraft(sql, ctx, { reviewId, version, businessId, triageSeverity }, logger);
   if (draft.kind === 'failed') {
     await markOutboxFailed(sql, outboxId, draft.reason, outboxAttempt);
     return;

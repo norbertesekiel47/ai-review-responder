@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **071** — next migration is **072**
+Current head: **072** — next migration is **073**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -689,6 +689,26 @@ Revisit triggers:
   app-supplied UUIDv7 (no DB default). Additive, transactional (no
   CONCURRENTLY — new tables, instant index builds). Apply staging-first, then
   production, both Supabase projects in lockstep.
+
+- **072** — WS2 Guardian triage: seven nullable `triage_*` columns on `reviews`
+  (`triage_severity`, `triage_issues`, `triage_suggested_action`,
+  `triage_source`, `triage_model`, `triage_content_hash`, `triaged_at`) +
+  `reviews_triage_consistency` CHECK — all-NULL (never triaged) or the
+  mandatory quartet present: severity, source, suggested_action, triaged_at
+  (every writer sets suggested_action and WS3 reads it, so a triaged row
+  without it is unrepresentable); issues/model/hash stay individually
+  nullable. Constraint is re-runnable (`DROP CONSTRAINT IF EXISTS` before
+  ADD — migration-069 precedent). Vocabulary (severities, issue taxonomy,
+  suggested actions, sources) is owned by `src/lib/reviews/triage-schema.ts`
+  — keep it in lockstep with the column CHECKs. Hash invalidation:
+  `triage_content_hash` stamps the hash of the text actually classified
+  (the generation job's LOADED `review_content_hash`, not a re-read);
+  mismatch with the current `review_content_hash` → re-triage. Fallback rows
+  (`triage_source='fallback_high_v1'`) and `mock_v1` rows outside mock mode
+  are re-attempted on the next generation job. No new index — WS3 defines
+  its query shape. Columns ride `reviews`' existing RLS/offboarding posture
+  (no new table, no policy changes). Additive, transactional. Apply staging
+  first, then production, both Supabase projects in lockstep.
 
 ## Key Tables Reference
 

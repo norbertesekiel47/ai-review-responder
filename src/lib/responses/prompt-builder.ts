@@ -1,4 +1,5 @@
 import type { NormalizedReview } from '@/lib/reviews/types';
+import type { TriageSeverity } from '@/lib/reviews/triage-schema';
 import type { BusinessContext, VoiceExample, BuiltPrompt } from './types';
 import { SYSTEM_PROMPT_BASE } from './prompt-policy';
 
@@ -191,6 +192,7 @@ export function buildProductionPrompt(
   review: NormalizedReview,
   business: BusinessContext,
   voiceExamples: VoiceExample[],
+  triageSeverity: TriageSeverity | null = null,
 ): BuiltPrompt {
   const categoryClause = business.category ? `, a ${business.category}` : '';
 
@@ -203,6 +205,17 @@ export function buildProductionPrompt(
     '- Never use placeholder text like [Business Name] or [specific detail]',
     '- Never invent facts not mentioned in the review',
   ];
+
+  if (triageSeverity === 'medium' || triageSeverity === 'high') {
+    rules.push(
+      '- This review describes a serious issue: open with a sincere apology for their experience, acknowledge the specific problem without admitting fault, wrongdoing, or liability, and invite the reviewer to continue the conversation offline',
+    );
+  }
+  if (triageSeverity === 'high') {
+    rules.push(
+      "- Keep the response short and measured — this guidance takes priority over the base tone above: no excuses, never dispute the reviewer's account, and do not repeat accusations back",
+    );
+  }
 
   if (business.staffNames.length > 0) {
     rules.push(

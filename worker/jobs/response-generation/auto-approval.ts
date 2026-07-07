@@ -20,6 +20,7 @@ import {
   GENERATE_RESPONSE_ORIGIN_LANE,
   type GenerateResponseOriginLane,
 } from '../../../src/lib/shared/worker-types';
+import { TRIAGE_SOURCE, type TriageSeverity } from '../../../src/lib/reviews/triage-schema';
 import type postgres from 'postgres';
 
 type TxClient = postgres.TransactionSql;
@@ -40,7 +41,9 @@ export type AutoApprovalBlockReason =
   | 'publisher_subscription_denied'
   | 'archived_location'
   | 'active_zernio_connection_missing'
-  | 'auto_approval_disabled';
+  | 'auto_approval_disabled'
+  | 'triage_high_severity'
+  | 'triage_fallback';
 
 export interface AutoApprovalCandidateInput {
   originLane: GenerateResponseOriginLane | null;
@@ -57,6 +60,8 @@ export interface AutoApprovalCandidateInput {
   accountFlags: AccountFlagsInput;
   activeLocationNow: boolean;
   activeZernioConnectionNow: boolean;
+  triageSeverity: TriageSeverity | null;
+  triageSource: string | null;
   now?: Date;
 }
 
@@ -76,6 +81,8 @@ interface AutoApprovalCurrentStateRow {
   subscription_status: string;
   account_past_due_at: Date | null;
   account_flags: AccountFlagsInput | null;
+  triage_severity: TriageSeverity | null;
+  triage_source: string | null;
 }
 
 interface AutoApprovalPolicyRow {
@@ -94,6 +101,8 @@ export interface AutoApprovalRuntimeState {
   accountFlags: AccountFlagsInput;
   activeLocationNow: boolean;
   activeZernioConnectionNow: boolean;
+  triageSeverity: TriageSeverity | null;
+  triageSource: string | null;
 }
 
 function policyRowsToEffectivePolicy(
@@ -129,7 +138,8 @@ export async function loadAutoApprovalRuntimeState(
   const [state] = await tx<AutoApprovalCurrentStateRow[]>`
     SELECT r.star_rating, r.review_content_hash, b.archived_at,
            a.subscription_status, a.past_due_at AS account_past_due_at,
-           a.flags AS account_flags
+           a.flags AS account_flags,
+           r.triage_severity, r.triage_source
     FROM reviews r
     JOIN businesses b ON b.id = r.business_id
     JOIN accounts a ON a.id = b.account_id
@@ -172,6 +182,8 @@ export async function loadAutoApprovalRuntimeState(
     accountFlags: state.account_flags ?? {},
     activeLocationNow: state.archived_at === null,
     activeZernioConnectionNow: Boolean(activeConnection),
+    triageSeverity: state.triage_severity,
+    triageSource: state.triage_source,
   };
 }
 
@@ -204,6 +216,8 @@ export function evaluateAutoApprovalCandidate(input: AutoApprovalCandidateInput)
     when(!runtimeEnabled, 'auto_approval_disabled'),
     when(input.version !== 1, 'unsupported_version'),
     when(input.suppressNotification, 'suppressed_notification'),
+    when(input.triageSeverity === 'high', 'triage_high_severity'),
+    when(input.triageSource === TRIAGE_SOURCE.FALLBACK, 'triage_fallback'),
   ]);
 
   return {

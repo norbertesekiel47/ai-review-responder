@@ -158,7 +158,7 @@ async function runProductionMode(
     // reservation ages out via the 24h Redis TTL. Mirrors review-summary.ts.
     { businessId, subscriptionTier, withConcurrency: true, onFinalizeError: 'log-and-return-value' },
     async () => {
-      const prompt = buildProductionPrompt(review, business, voiceExamples);
+      const prompt = buildProductionPrompt(review, business, voiceExamples, options.triageSeverity ?? null);
       const startedAt = Date.now();
       const llm = await runLlmTask('reply_generation', {
         system: prompt.systemPrompt,

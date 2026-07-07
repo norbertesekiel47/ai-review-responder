@@ -120,7 +120,7 @@ function ctx(overrides: Partial<BusinessContext> = {}): GenerationContext {
   };
 }
 
-const IDS = { reviewId: 'rev-1', version: 1, businessId: asLocationId('biz-1') };
+const IDS = { reviewId: 'rev-1', version: 1, businessId: asLocationId('biz-1'), triageSeverity: null };
 
 // generateDraft now takes the injected client as its leading arg; here it is
 // only forwarded to the mocked getApprovedResponsePairs / generateResponse, so
@@ -246,6 +246,32 @@ describe('generateDraft', () => {
       expect(outcome.result.responseText).toBe('Thank you so much!');
       expect(outcome.result.apiCostId).toBe('cost-1'); // original cost id retained on merged
     }
+  });
+
+  it('threads triageSeverity into generation options', async () => {
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+    await generateDraft(mockSql, ctx(), { ...IDS, triageSeverity: 'high' }, makeLogger());
+    expect(mockGenerateResponse).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), expect.anything(), expect.anything(),
+      expect.objectContaining({ triageSeverity: 'high' }),
+    );
+  });
+
+  it('threads triageSeverity into the avoid-facts guardrail retry options too', async () => {
+    const violating: GenerationResult = { ...MOCK_RESULT, responseText: 'has bad word', apiCostId: 'cost-1' };
+    const clean: GenerationResult = { ...MOCK_RESULT, responseText: 'All good!', apiCostId: 'cost-2' };
+    mockGenerateResponse.mockResolvedValueOnce(violating).mockResolvedValueOnce(clean);
+
+    const outcome = await generateDraft(
+      mockSql, ctx({ avoidFacts: ['bad word'] }), { ...IDS, triageSeverity: 'medium' }, makeLogger(),
+    );
+
+    expect(outcome.kind).toBe('ok');
+    expect(mockGenerateResponse).toHaveBeenCalledTimes(2);
+    const calls = mockGenerateResponse.mock.calls as unknown[][];
+    // options is arg[4]; the retry must carry the same severity as the primary call.
+    expect(calls[0]?.[4]).toMatchObject({ triageSeverity: 'medium' });
+    expect(calls[1]?.[4]).toMatchObject({ triageSeverity: 'medium', skipCache: true });
   });
 
   it('fails when the avoid-facts violation persists after retry', async () => {

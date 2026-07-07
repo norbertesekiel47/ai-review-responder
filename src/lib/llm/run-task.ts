@@ -3,12 +3,79 @@ import { openaiProvider } from './openai-provider';
 import { anthropicProvider } from './anthropic-provider';
 import { isTransientLLMError, TransientLLMError, redactProviderError } from './error-classifier';
 import { createWorkerLogger } from '@/lib/shared/logger';
-import type { ChatPrompt, LLMCallResult, LLMProvider, LLMProviderId, LLMTaskId } from './types';
+import type { z } from 'zod';
+import type {
+  ChatPrompt,
+  LLMCallResult,
+  LLMProvider,
+  LLMProviderId,
+  LLMRequest,
+  LLMTaskDescriptor,
+  LLMTaskId,
+} from './types';
 
 const PROVIDERS: Record<LLMProviderId, LLMProvider> = {
   openai: openaiProvider,
   anthropic: anthropicProvider,
 };
+
+/**
+ * Terminal: the completion did not satisfy the task's outputSchema.
+ * Deliberately NOT transient — at temperature 0 the same provider returns the
+ * same shape, so the FALLBACK provider is the retry; when every attempt fails
+ * validation, retrying the job would spend without converging. The message
+ * carries no completion text (logging rules); the cause has detail for local
+ * debugging and passes through redactProviderError in the failover log.
+ */
+export class LLMStructuredOutputError extends Error {
+  constructor(taskId: LLMTaskId, provider: LLMProviderId, cause: unknown) {
+    super(`llm: structured output invalid for task ${taskId} from ${provider}`, { cause });
+    this.name = 'LLMStructuredOutputError';
+  }
+}
+
+function stripCodeFences(text: string): string {
+  const trimmed = text.trim();
+  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/.exec(trimmed);
+  return fenced ? fenced[1]! : trimmed;
+}
+
+function validateStructured(
+  taskId: LLMTaskId,
+  schema: z.ZodTypeAny,
+  result: LLMCallResult,
+): LLMCallResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripCodeFences(result.text));
+  } catch (err) {
+    // Never carry the raw SyntaxError: its message embeds a snippet of the
+    // completion text ("Unexpected token 'S', \"Sorry, I c\"...") and Sentry's
+    // linkedErrors integration walks error.cause into exception values that
+    // the scrubber doesn't touch.
+    throw new LLMStructuredOutputError(
+      taskId,
+      result.provider,
+      new Error(`JSON.parse failed: ${err instanceof Error ? err.name : 'unknown'}`),
+    );
+  }
+  const validated = schema.safeParse(parsed);
+  if (!validated.success) {
+    throw new LLMStructuredOutputError(taskId, result.provider, validated.error);
+  }
+  return { ...result, structured: validated.data };
+}
+
+async function completeAttempt(
+  provider: LLMProvider,
+  request: LLMRequest,
+  task: LLMTaskDescriptor,
+): Promise<LLMCallResult> {
+  const result = await provider.complete(request);
+  return task.outputSchema
+    ? validateStructured(task.taskId, task.outputSchema, result)
+    : result;
+}
 
 /**
  * Every provider attempt failed — decide what the worker retry ladder sees.
@@ -33,16 +100,18 @@ function throwExhaustedAttempts(attemptErrors: readonly unknown[]): never {
  * (relocated verbatim from generator.ts callLLMWithFallback — A+ PR 1c).
  * COST-GUARD CONTRACT: production callers wrap this in withCostGuard — see
  * types.ts header.
+ *
+ * USAGE ACCOUNTING (structured tasks): a validation-failed attempt's token
+ * spend is NOT accumulated into the returned usage — finalizeCost under-reports
+ * on failover, and on all-invalid terminal the reservation is released.
+ * Bounded by the pessimistic reserve + small structured-task maxTokens;
+ * revisit if margin data shows it matters.
  */
 export async function runLlmTask(taskId: LLMTaskId, prompt: ChatPrompt): Promise<LLMCallResult> {
   const task = getLlmTask(taskId);
-  // Honesty guard: outputSchema is declared-but-unenforced until the first
-  // structured task (triage) lands. Fail loudly rather than silently return
-  // unvalidated text a caller believes is schema-checked.
-  if (task.outputSchema) throw new Error(`structured output not yet implemented: ${taskId}`);
   const request = { ...prompt, maxTokens: task.maxTokens, temperature: task.temperature };
   try {
-    return await PROVIDERS[task.primary.provider].complete({ ...request, model: task.primary.model });
+    return await completeAttempt(PROVIDERS[task.primary.provider], { ...request, model: task.primary.model }, task);
   } catch (primaryError) {
     if (!task.fallback) throwExhaustedAttempts([primaryError]);
     createWorkerLogger(`[llm:${taskId}]`).error(
@@ -50,7 +119,7 @@ export async function runLlmTask(taskId: LLMTaskId, prompt: ChatPrompt): Promise
       { error: redactProviderError(primaryError) },
     );
     try {
-      return await PROVIDERS[task.fallback.provider].complete({ ...request, model: task.fallback.model });
+      return await completeAttempt(PROVIDERS[task.fallback.provider], { ...request, model: task.fallback.model }, task);
     } catch (fallbackError) {
       throwExhaustedAttempts([primaryError, fallbackError]);
     }
