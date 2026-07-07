@@ -46,6 +46,17 @@ jobs:
         # Produces coverage/coverage-final.json (v8 json reporter) for the audit's
         # runtime layer. Runs WITHOUT TEST_DATABASE_POOL_URL, so integration suites
         # skip — no DB, no collision with ci.yml's test job.
+        #
+        # KNOWN LIMITATION (owner-accepted, PR 3): this is a SECOND, DB-less suite
+        # run dedicated to fallow — it double-runs the suite per PR and the coverage
+        # handed to fallow excludes every DB/integration path (those read as cold).
+        # Acceptable because the current gate is `new-only` complexity/duplication,
+        # which barely uses runtime coverage (it drove zero pragma removals — the
+        # static complexity metric binds), and this check is advisory/non-required.
+        # If the gate is ever promoted to cold-path/dead-code rules, replace this
+        # with DB-complete coverage from ci.yml's DB-inclusive test job (upload the
+        # artifact + move this job into ci.yml `needs: test`) — a standalone DB run
+        # HERE is unsafe (two workflows on the shared test DB → stale-row poisoning).
         run: pnpm test:coverage
       - name: Fallow audit (new findings only, coverage-informed)
         env:
