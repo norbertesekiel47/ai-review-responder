@@ -31,6 +31,14 @@ export const TENANT_TABLES = [
   'inbound_events',
   'prospect_demos',
   'google_connections',
+  // Deny-all RLS (migration 071, agent run spine) — listed so ci:rls-audit
+  // guards them. Written ONLY by src/lib/agents/run-spine.ts inside pipeline
+  // transactions that already carry account/business scope; run-keyed spine
+  // queries are exempt via tenant-scope-allowlist.ts (worker-job-scoped), not
+  // because they lack a tenant id (agent_runs/agent_outcomes carry account_id).
+  'agent_runs',
+  'agent_run_steps',
+  'agent_outcomes',
 ] as const;
 
 export type TenantTable = (typeof TENANT_TABLES)[number];
