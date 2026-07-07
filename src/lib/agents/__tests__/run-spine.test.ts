@@ -8,6 +8,8 @@ import {
   personaForStep,
   startOrGetActiveRun,
   recordStep,
+  recordOutcome,
+  completeRun,
 } from '../run-spine';
 
 /** Mocked tx with the Postgres.js `.json()` surface domain modules use (invariant #15). */
@@ -141,5 +143,50 @@ describe('recordStep', () => {
     tx.mockResolvedValueOnce(withCount([], 0));
     await expect(recordStep(tx as never, { runId: 'missing', stepKey: 'policy_gate' }))
       .rejects.toThrow(/run not found/i);
+  });
+});
+
+describe('recordOutcome', () => {
+  let tx: MockTx;
+  beforeEach(() => { tx = makeMockTx(); });
+
+  it('inserts with retry-safe ON CONFLICT dedup per (run, kind)', async () => {
+    tx.mockResolvedValueOnce(withCount([], 0));
+
+    await recordOutcome(tx as never, {
+      runId: 'run-1',
+      accountId: 'acct-1',
+      businessId: 'biz-1',
+      attributedAgent: 'reply',
+      outcomeKind: 'reply_posted',
+    });
+
+    const sqlText = (tx.mock.calls[0]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(sqlText).toContain('INSERT INTO agent_outcomes');
+    expect(sqlText).toContain('ON CONFLICT (agent_run_id, outcome_kind)');
+    expect(sqlText).toContain('WHERE agent_run_id IS NOT NULL');
+    expect(sqlText).toContain('DO NOTHING');
+  });
+});
+
+describe('completeRun', () => {
+  let tx: MockTx;
+  beforeEach(() => { tx = makeMockTx(); });
+
+  it('flips a running run to a terminal status and stamps ended_at', async () => {
+    tx.mockResolvedValueOnce(withCount([{ id: 'run-1' }], 1));
+
+    await completeRun(tx as never, 'run-1', 'completed');
+
+    const sqlText = (tx.mock.calls[0]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(sqlText).toContain('UPDATE agent_runs');
+    expect(sqlText).toContain("status = 'running'"); // only running runs transition
+    expect(sqlText).toContain('ended_at = NOW()');
+  });
+
+  it('is a no-op (not an error) when the run is already terminal', async () => {
+    tx.mockResolvedValueOnce(withCount([], 0));
+    await expect(completeRun(tx as never, 'run-1', 'failed', { reason: 'llm_terminal' }))
+      .resolves.toBeUndefined();
   });
 });

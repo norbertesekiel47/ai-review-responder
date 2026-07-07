@@ -140,3 +140,52 @@ export async function recordStep(tx: TxClient, input: RecordStepInput): Promise<
     )
   `;
 }
+
+export interface RecordOutcomeInput {
+  runId: string | null;
+  accountId: string;
+  businessId: string | null;
+  attributedAgent: AgentPersona;
+  outcomeKind: AgentOutcomeKind;
+  unitCount?: number;
+}
+
+/**
+ * Emit an outcome. Retry-safe: the ON CONFLICT clause matches the
+ * agent_outcomes_once_per_run_kind partial unique index byte-for-byte
+ * (migration 071), so a BullMQ retry after commit cannot double-emit.
+ */
+export async function recordOutcome(tx: TxClient, input: RecordOutcomeInput): Promise<void> {
+  await tx`
+    INSERT INTO agent_outcomes (
+      id, account_id, business_id, agent_run_id, attributed_agent,
+      outcome_kind, unit_count
+    ) VALUES (
+      ${uuidv7()}, ${input.accountId}, ${input.businessId}, ${input.runId},
+      ${input.attributedAgent}, ${input.outcomeKind}, ${input.unitCount ?? 1}
+    )
+    ON CONFLICT (agent_run_id, outcome_kind) WHERE agent_run_id IS NOT NULL
+    DO NOTHING
+  `;
+}
+
+/**
+ * Terminal transition. Only 'running' runs transition (idempotent: a retry
+ * that re-completes an already-terminal run is a no-op, matching the
+ * agent_runs_terminal_consistency CHECK).
+ */
+export async function completeRun(
+  tx: TxClient,
+  runId: string,
+  status: 'completed' | 'failed',
+  error?: Record<string, unknown>,
+): Promise<void> {
+  await tx`
+    UPDATE agent_runs
+    SET status = ${status},
+        ended_at = NOW(),
+        error = ${error ? tx.json(error as never) : null}
+    WHERE id = ${runId}
+      AND status = 'running'
+  `;
+}
