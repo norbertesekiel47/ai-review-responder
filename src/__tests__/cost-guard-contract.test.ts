@@ -23,6 +23,9 @@ const CALLER_ALLOWLIST = new Set([
   // insights tenant (review-summary) — wraps runLlmTask in withCostGuard with
   // reserve/finalize (see generateReviewSummary). A+ campaign 2f-A.
   'src/lib/responses/review-summary.ts',
+  // triage tenant (WS2 Guardian) — wraps runLlmTask in withCostGuard with
+  // withConcurrency:false (see classifyReviewTriage). WS2 triage Task 6.
+  'src/lib/reviews/triage.ts',
 ]);
 
 const SCAN_ROOTS = ['src', 'worker'];
