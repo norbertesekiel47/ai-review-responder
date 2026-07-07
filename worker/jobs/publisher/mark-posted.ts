@@ -13,7 +13,13 @@
 // it is also backed by the per-response in-flight outbox uniqueness guard in
 // enqueueAutoPostNotice (migration 067). Owner-approved posts get NO FYI — the
 // owner clicked Approve, so they already know.
+//
+// This module also owns the run spine's terminal checkpoint: on a real
+// transition it records the reply_posted step, the reply_posted (and, for
+// auto_policy, reply_auto_posted) outcome, and completes the review's run —
+// all in the same tx, behind the reviews FOR UPDATE lock taken first.
 
+import * as Sentry from '@sentry/node';
 import type postgres from 'postgres';
 import { enqueueAutoPostNotice } from '../../../src/lib/shared/job-outbox-helpers';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
@@ -55,11 +61,30 @@ export async function markPostedAndMaybeEnqueueAutoPostNotice(
   // #1: it precedes the responses UPDATE below (whose row FK-references the
   // review) and the agent_runs row locks taken by recordStep/completeRun,
   // serializing at the review row against concurrent ingest/persist/edit txs.
-  await tx`
-    SELECT 1 FROM reviews
+  const [reviewLock] = await tx<{ id: string }[]>`
+    SELECT id FROM reviews
     WHERE id = ${reviewId} AND business_id = ${businessId}
     FOR UPDATE
   `;
+  if (!reviewLock) {
+    // Response references a review not visible to its business — impossible if
+    // FKs hold (caller bug / corrupt state only). The lock no-oped, so the
+    // ordering contract is void for this tx; surface loudly (same posture as
+    // failed-hook.ts's orphan_response_review) but proceed — the status-guarded
+    // UPDATE below safely matches zero-or-one rows regardless.
+    Sentry.captureMessage('orphan_response_review', {
+      level: 'warning',
+      extra: {
+        response_id: responseId,
+        review_id: reviewId,
+        business_id: businessId,
+        site: 'mark-posted',
+      },
+    });
+    logger.warn(
+      `Review ${reviewId} not found for business ${businessId} — mark-posted review lock no-oped (response ${responseId})`,
+    );
+  }
 
   const rows = await tx<{ id: string; approval_method: string | null }[]>`
     UPDATE responses

@@ -28,14 +28,23 @@ import {
 } from '../../../../src/lib/agents/run-spine';
 
 // A tx is a tagged-template fn. The helper issues the reviews FOR UPDATE lock
-// (result ignored) then the one UPDATE ... RETURNING, so returning a fixed
-// array for every call models both. vi.fn so tests can inspect statement order.
+// then the one UPDATE ... RETURNING, so returning a fixed array for every call
+// models both. vi.fn so tests can inspect statement order.
 function makeTx(updateResult: unknown[]) {
   return vi.fn(
     async (_strings: TemplateStringsArray, ..._values: unknown[]) => updateResult,
   ) as never;
 }
-const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() } as never;
+
+// Per-call result queue, for tests where the lock and the UPDATE must differ.
+function makeTxQueue(results: unknown[][]) {
+  return vi.fn(
+    async (_strings: TemplateStringsArray, ..._values: unknown[]) => results.shift() ?? [],
+  ) as never;
+}
+
+const loggerMocks = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
+const logger = loggerMocks as never;
 
 // Distinct from any input id so tests observe that outcome attribution comes
 // from the run row, not from the caller's payload.
@@ -173,6 +182,21 @@ describe('markPostedAndMaybeEnqueueAutoPostNotice', () => {
       const lockInvocation = (tx as ReturnType<typeof vi.fn>).mock.invocationCallOrder[lockIndex]!;
       const firstSpineWriteInvocation = vi.mocked(recordStep).mock.invocationCallOrder[0]!;
       expect(lockInvocation).toBeLessThan(firstSpineWriteInvocation);
+    });
+
+    it('warns but proceeds when the review lock matches zero rows (orphan response)', async () => {
+      // Lock SELECT no-ops (caller bug / corrupt state), UPDATE still transitions.
+      const tx = makeTxQueue([
+        [],
+        [{ id: 'resp-1', approval_method: APPROVAL_METHOD.OWNER }],
+      ]);
+      const res = await markPostedAndMaybeEnqueueAutoPostNotice(baseInput(tx));
+
+      expect(loggerMocks.warn).toHaveBeenCalledTimes(1);
+      expect(loggerMocks.warn.mock.calls[0]![0]).toContain('review lock no-oped');
+      // Control flow unchanged: UPDATE ran and the transition completed.
+      expect(res.transitioned).toBe(true);
+      expect(completeRun).toHaveBeenCalledWith(expect.anything(), 'run-1', 'completed');
     });
 
     it('propagates a spine write failure (fails the job — BullMQ retries)', async () => {
