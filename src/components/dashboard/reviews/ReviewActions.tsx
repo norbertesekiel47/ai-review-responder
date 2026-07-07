@@ -19,6 +19,59 @@ export interface ReviewEscalation {
   severity: TriageSeverity;
 }
 
+/**
+ * Failed dashboard POST — carries the HTTP status + parsed error body so
+ * callers can distinguish expected outcomes (e.g. the regenerate daily cap)
+ * from real failures. `message` is the server's error code or a generic
+ * `Failed (status)` fallback, matching what the error panel should show.
+ */
+class DashboardActionError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: { error?: string; message?: string },
+  ) {
+    super(body.error ?? `Failed (${status})`);
+  }
+}
+
+/** POST a dashboard action; throws DashboardActionError on a non-OK response. */
+async function postDashboardAction(url: string, init?: RequestInit): Promise<void> {
+  const res = await fetch(url, { method: 'POST', ...init });
+  if (!res.ok) {
+    const body: { error?: string; message?: string } = await res.json().catch(() => ({}));
+    throw new DashboardActionError(res.status, body);
+  }
+}
+
+/** Dismissible message panel shared by the limit and error states. */
+function ActionNotice({
+  message,
+  color,
+  role,
+  dismissLabel,
+  onDismiss,
+}: {
+  message: string;
+  color: string;
+  role?: string;
+  dismissLabel: string;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="mt-1">
+      <p className="text-xs" role={role} style={{ color }}>{message}</p>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="text-xs mt-0.5"
+        style={{ color: 'var(--rw-sage-deep)' }}
+      >
+        {dismissLabel}
+      </button>
+    </div>
+  );
+}
+
 export function ReviewActions({
   reviewId,
   responseText,
@@ -31,65 +84,33 @@ export function ReviewActions({
   const [state, setState] = useState<ActionState>({ kind: 'idle' });
   const [editText, setEditText] = useState(responseText ?? '');
 
-  async function handleApprove() {
-    setState({ kind: 'loading', action: 'approve' });
+  async function runDraftAction(
+    action: 'approve' | 'edit' | 'regenerate',
+    successMessage: string,
+    failureMessage: string,
+    init?: RequestInit,
+  ) {
+    setState({ kind: 'loading', action });
     try {
-      const res = await fetch(`/api/dashboard/reviews/${reviewId}/approve`, {
-        method: 'POST',
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Failed (${res.status})`);
-      }
-      setState({ kind: 'success', message: 'Approved!' });
+      await postDashboardAction(`/api/dashboard/reviews/${reviewId}/${action}`, init);
+      setState({ kind: 'success', message: successMessage });
       onSuccess();
     } catch (err) {
-      setState({ kind: 'error', message: err instanceof Error ? err.message : 'Approval failed' });
-    }
-  }
-
-  async function handleSaveEdit() {
-    setState({ kind: 'loading', action: 'edit' });
-    try {
-      const res = await fetch(`/api/dashboard/reviews/${reviewId}/edit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ editedText: editText }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Failed (${res.status})`);
+      // The per-review daily cap is an expected outcome, not an error — show
+      // the server's friendly message instead of a red failure (issue #335).
+      // Only the regenerate endpoint emits this code.
+      if (
+        err instanceof DashboardActionError &&
+        err.status === 429 &&
+        err.body.error === 'regen_limit_reached'
+      ) {
+        setState({
+          kind: 'limit',
+          message: err.body.message ?? 'Daily regenerate limit reached — you can try again tomorrow.',
+        });
+        return;
       }
-      setState({ kind: 'success', message: 'Approved with edits!' });
-      onSuccess();
-    } catch (err) {
-      setState({ kind: 'error', message: err instanceof Error ? err.message : 'Edit failed' });
-    }
-  }
-
-  async function handleRegenerate() {
-    setState({ kind: 'loading', action: 'regenerate' });
-    try {
-      const res = await fetch(`/api/dashboard/reviews/${reviewId}/regenerate`, {
-        method: 'POST',
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        // The per-review daily cap is an expected outcome, not an error — show
-        // the server's friendly message instead of a red failure (issue #335).
-        if (res.status === 429 && body.error === 'regen_limit_reached') {
-          setState({
-            kind: 'limit',
-            message: body.message ?? 'Daily regenerate limit reached — you can try again tomorrow.',
-          });
-          return;
-        }
-        throw new Error(body.error ?? `Failed (${res.status})`);
-      }
-      setState({ kind: 'success', message: 'New draft requested — check your email' });
-      onSuccess();
-    } catch (err) {
-      setState({ kind: 'error', message: err instanceof Error ? err.message : 'Regenerate failed' });
+      setState({ kind: 'error', message: err instanceof Error ? err.message : failureMessage });
     }
   }
 
@@ -99,33 +120,24 @@ export function ReviewActions({
 
   if (state.kind === 'limit') {
     return (
-      <div className="mt-1">
-        <p className="text-xs" role="status" style={{ color: 'var(--rw-blush-deep)' }}>{state.message}</p>
-        <button
-          type="button"
-          onClick={() => setState({ kind: 'idle' })}
-          className="text-xs mt-0.5"
-          style={{ color: 'var(--rw-sage-deep)' }}
-        >
-          Back
-        </button>
-      </div>
+      <ActionNotice
+        message={state.message}
+        color="var(--rw-blush-deep)"
+        role="status"
+        dismissLabel="Back"
+        onDismiss={() => setState({ kind: 'idle' })}
+      />
     );
   }
 
   if (state.kind === 'error') {
     return (
-      <div className="mt-1">
-        <p className="text-xs" style={{ color: 'var(--rw-danger)' }}>{state.message}</p>
-        <button
-          type="button"
-          onClick={() => setState({ kind: 'idle' })}
-          className="text-xs mt-0.5"
-          style={{ color: 'var(--rw-sage-deep)' }}
-        >
-          Try again
-        </button>
-      </div>
+      <ActionNotice
+        message={state.message}
+        color="var(--rw-danger)"
+        dismissLabel="Try again"
+        onDismiss={() => setState({ kind: 'idle' })}
+      />
     );
   }
 
@@ -145,7 +157,10 @@ export function ReviewActions({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={handleSaveEdit}
+            onClick={() => runDraftAction('edit', 'Approved with edits!', 'Edit failed', {
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ editedText: editText }),
+            })}
             className="btn btn-primary"
           >
             Save &amp; Approve
@@ -166,7 +181,7 @@ export function ReviewActions({
     <div className="mt-2 flex flex-wrap items-center gap-2">
       <button
         type="button"
-        onClick={handleApprove}
+        onClick={() => runDraftAction('approve', 'Approved!', 'Approval failed')}
         disabled={isLoading}
         className="btn btn-primary"
       >
@@ -182,7 +197,7 @@ export function ReviewActions({
       </button>
       <button
         type="button"
-        onClick={handleRegenerate}
+        onClick={() => runDraftAction('regenerate', 'New draft requested — check your email', 'Regenerate failed')}
         disabled={isLoading}
         className="btn btn-tertiary"
       >
@@ -215,13 +230,7 @@ export function EscalationActions({
   async function handleTransition(action: 'acknowledge' | 'resolve') {
     setState({ kind: 'loading', action });
     try {
-      const res = await fetch(`/api/dashboard/escalations/${escalation.id}/${action}`, {
-        method: 'POST',
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Failed (${res.status})`);
-      }
+      await postDashboardAction(`/api/dashboard/escalations/${escalation.id}/${action}`);
       onSuccess();
       // Back to idle, NOT a terminal success panel: the refreshed escalation
       // badge is the confirmation, and Resolve must stay reachable after an
@@ -239,17 +248,12 @@ export function EscalationActions({
 
   if (state.kind === 'error') {
     return (
-      <div className="mt-1">
-        <p className="text-xs" style={{ color: 'var(--rw-danger)' }}>{state.message}</p>
-        <button
-          type="button"
-          onClick={() => setState({ kind: 'idle' })}
-          className="text-xs mt-0.5"
-          style={{ color: 'var(--rw-sage-deep)' }}
-        >
-          Try again
-        </button>
-      </div>
+      <ActionNotice
+        message={state.message}
+        color="var(--rw-danger)"
+        dismissLabel="Try again"
+        onDismiss={() => setState({ kind: 'idle' })}
+      />
     );
   }
 

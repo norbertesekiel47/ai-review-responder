@@ -54,6 +54,125 @@ describe('ReviewActions regenerate cap (issue #335)', () => {
   });
 });
 
+describe('ReviewActions approve and save-edit', () => {
+  it('POSTs approve and shows the success message', async () => {
+    const onSuccess = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({ ok: true, status: 200, body: { success: true, message: 'ok' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<ReviewActions reviewId="rev-1" responseText="hi" onSuccess={onSuccess} />);
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+
+    await waitFor(() => screen.getByText('Approved!'));
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/dashboard/reviews/rev-1/approve',
+      { method: 'POST' },
+    );
+    expect(onSuccess).toHaveBeenCalledOnce();
+  });
+
+  it('surfaces the server error on a failed approve and resets on Try again', async () => {
+    const onSuccess = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ ok: false, status: 409, body: { error: 'Response is not pending' } }),
+      ),
+    );
+
+    render(<ReviewActions reviewId="rev-1" responseText="hi" onSuccess={onSuccess} />);
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+
+    await waitFor(() => screen.getByText(/not pending/i));
+    expect(onSuccess).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+    expect(screen.getByRole('button', { name: /approve/i })).toBeEnabled();
+  });
+
+  it('falls back to a generic Failed (status) message when the error body is unparseable', async () => {
+    const onSuccess = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: async () => { throw new Error('not json'); },
+      }),
+    );
+
+    render(<ReviewActions reviewId="rev-1" responseText="hi" onSuccess={onSuccess} />);
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+
+    await waitFor(() => screen.getByText('Failed (500)'));
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it('POSTs the edited text and shows the edited-approval success message', async () => {
+    const onSuccess = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({ ok: true, status: 200, body: { success: true, message: 'ok' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<ReviewActions reviewId="rev-2" responseText="original" onSuccess={onSuccess} />);
+    fireEvent.click(screen.getByRole('button', { name: /edit/i }));
+    fireEvent.change(screen.getByLabelText(/edit reply text/i), {
+      target: { value: 'better reply' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save & approve/i }));
+
+    await waitFor(() => screen.getByText(/approved with edits/i));
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/dashboard/reviews/rev-2/edit',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ editedText: 'better reply' }),
+      },
+    );
+    expect(onSuccess).toHaveBeenCalledOnce();
+  });
+
+  it('surfaces the server error on a failed save-edit', async () => {
+    const onSuccess = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ ok: false, status: 400, body: { error: 'Edited response must not be empty' } }),
+      ),
+    );
+
+    render(<ReviewActions reviewId="rev-2" responseText="original" onSuccess={onSuccess} />);
+    fireEvent.click(screen.getByRole('button', { name: /edit/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save & approve/i }));
+
+    await waitFor(() => screen.getByText(/must not be empty/i));
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it('Cancel restores the original text and returns to the action buttons', () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<ReviewActions reviewId="rev-2" responseText="original" onSuccess={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /edit/i }));
+    fireEvent.change(screen.getByLabelText(/edit reply text/i), {
+      target: { value: 'scrapped edit' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /approve/i })).toBeEnabled();
+
+    // Re-entering edit mode starts from the original response text again.
+    fireEvent.click(screen.getByRole('button', { name: /edit/i }));
+    expect(screen.getByLabelText(/edit reply text/i)).toHaveValue('original');
+  });
+});
+
 describe('EscalationActions (WS3)', () => {
   it('ReviewActions renders draft actions only — escalation buttons live in EscalationActions', () => {
     render(<ReviewActions reviewId="rev-1" responseText="hi" onSuccess={vi.fn()} />);
