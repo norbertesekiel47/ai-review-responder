@@ -42,3 +42,60 @@ export type AgentStepKey = keyof typeof STEP_PERSONA;
 export function personaForStep(stepKey: AgentStepKey): AgentPersona {
   return STEP_PERSONA[stepKey];
 }
+
+export interface StartRunInput {
+  kind: AgentRunKind;
+  subjectType: 'review' | 'account_week';
+  subjectId: string;
+  accountId: string;
+  businessId: string | null;
+  correlationId?: string;
+}
+
+export interface StartRunResult {
+  runId: string;
+  created: boolean;
+}
+
+/**
+ * Start a run for a subject, or return the already-running one. Race-safe via
+ * the agent_runs_one_active_per_subject partial unique index — the ON CONFLICT
+ * clause below must match its predicate byte-for-byte (migration 071).
+ */
+export async function startOrGetActiveRun(
+  tx: TxClient,
+  input: StartRunInput,
+): Promise<StartRunResult> {
+  const runId = uuidv7();
+  const inserted = await tx<{ id: string }[]>`
+    INSERT INTO agent_runs (
+      id, account_id, business_id, kind, subject_type, subject_id,
+      status, correlation_id
+    ) VALUES (
+      ${runId}, ${input.accountId}, ${input.businessId}, ${input.kind},
+      ${input.subjectType}, ${input.subjectId}, 'running',
+      ${input.correlationId ?? null}
+    )
+    ON CONFLICT (kind, subject_type, subject_id) WHERE status = 'running'
+    DO NOTHING
+    RETURNING id
+  `;
+  if (inserted.count > 0) {
+    return { runId: inserted[0]!.id, created: true };
+  }
+
+  const [existing] = await tx<{ id: string }[]>`
+    SELECT id FROM agent_runs
+    WHERE kind = ${input.kind}
+      AND subject_type = ${input.subjectType}
+      AND subject_id = ${input.subjectId}
+      AND status = 'running'
+    FOR UPDATE
+  `;
+  if (!existing) {
+    throw new Error(
+      `run-spine: INSERT conflicted but no active run found for ${input.kind}/${input.subjectType}/${input.subjectId}`,
+    );
+  }
+  return { runId: existing.id, created: false };
+}
