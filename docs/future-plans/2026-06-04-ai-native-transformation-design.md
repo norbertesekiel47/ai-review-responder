@@ -1,6 +1,12 @@
 # RepWorth → SaaS 2.0 / AI-Native Service Company — Transformation Map
 
-**Status:** North-star design (strategic). Approved in brainstorming session 2026-06-04.
+> **SUPERSEDED (2026-07-01):** This doc is superseded by
+> [2026-07-01-agentic-reputation-platform-design.md](2026-07-01-agentic-reputation-platform-design.md),
+> the design of record for the agentic platform. The **§1.1 asset inventory**
+> (evolution-not-rebuild) remains live reference material; the two-phase
+> journey framing and outcome-pricing destination do not survive.
+
+**Status:** SUPERSEDED by [2026-07-01-agentic-reputation-platform-design.md](2026-07-01-agentic-reputation-platform-design.md) (was: north-star strategic design, approved 2026-06-04)
 **Author:** Brainstorming session (Norbert + Claude)
 **Date:** 2026-06-04
 **Altitude:** Strategy / roadmap. This sits *above* the execution-level program design and points to it for mechanics.
