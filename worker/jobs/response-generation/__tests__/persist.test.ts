@@ -62,6 +62,8 @@ function currentState(overrides = {}) {
     subscription_status: 'active',
     account_past_due_at: null,
     account_flags: {},
+    triage_severity: null,
+    triage_source: null,
     ...overrides,
   };
 }
@@ -205,6 +207,8 @@ const manualFallbackCases: Array<[string, ManualFallbackScenario]> = [
   ['publisher subscription denied', { state: { subscription_status: 'pending_payment' } }],
   ['missing active connection', { connection: null }],
   ['archived location', { state: { archived_at: new Date('2026-06-04T00:00:00.000Z') } }],
+  ['triage high severity', { state: { triage_severity: 'high', triage_source: 'llm_triage_v1' } }],
+  ['triage fallback source', { state: { triage_severity: 'low', triage_source: 'fallback_high_v1' } }],
 ];
 
 describe('persistResponseAndNotify auto approval runtime branch', () => {

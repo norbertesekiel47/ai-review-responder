@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ModerationDecision } from '../../../../src/lib/moderation/output-filter';
 import type { EffectiveAutoApprovalPolicy } from '../../../../src/lib/auto-approval/types';
+import { TRIAGE_SOURCE } from '../../../../src/lib/reviews/triage-schema';
 import {
   evaluateAutoApprovalCandidate,
   type AutoApprovalBlockReason,
@@ -50,6 +51,8 @@ function baseInput(overrides: Partial<AutoApprovalCandidateInput> = {}): AutoApp
     accountFlags: {},
     activeLocationNow: true,
     activeZernioConnectionNow: true,
+    triageSeverity: null,
+    triageSource: null,
     now: new Date('2026-06-04T00:00:00.000Z'),
     ...overrides,
   };
@@ -102,5 +105,47 @@ describe('evaluateAutoApprovalCandidate', () => {
 
     expect(decision.approved).toBe(false);
     expect(decision.blockReasons).toContain(reason);
+  });
+
+  it('blocks with triage_high_severity when triage says high', () => {
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+
+    const decision = evaluateAutoApprovalCandidate(baseInput({
+      triageSeverity: 'high',
+      triageSource: TRIAGE_SOURCE.LLM,
+    }));
+
+    expect(decision.approved).toBe(false);
+    expect(decision.blockReasons).toContain('triage_high_severity');
+  });
+
+  it('blocks with triage_fallback when triage fell back (inconclusive → hold lane)', () => {
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+
+    const decision = evaluateAutoApprovalCandidate(baseInput({
+      triageSeverity: 'high',
+      triageSource: TRIAGE_SOURCE.FALLBACK,
+    }));
+
+    expect(decision.approved).toBe(false);
+    expect(decision.blockReasons).toEqual(
+      expect.arrayContaining(['triage_high_severity', 'triage_fallback']),
+    );
+  });
+
+  it('does not block on low/medium or untriaged reviews', () => {
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+
+    expect(evaluateAutoApprovalCandidate(baseInput({
+      triageSeverity: 'medium',
+      triageSource: TRIAGE_SOURCE.LLM,
+    })).blockReasons).not.toContain('triage_high_severity');
+    expect(evaluateAutoApprovalCandidate(baseInput({
+      triageSeverity: null,
+      triageSource: null,
+    })).blockReasons.filter((reason) => reason.startsWith('triage'))).toHaveLength(0);
   });
 });

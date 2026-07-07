@@ -179,6 +179,8 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       accountFlags: runtimeState.accountFlags,
       activeLocationNow: runtimeState.activeLocationNow,
       activeZernioConnectionNow: runtimeState.activeZernioConnectionNow,
+      triageSeverity: runtimeState.triageSeverity,
+      triageSource: runtimeState.triageSource,
     });
 
     logAutoApprovalFallbackIfNeeded({
