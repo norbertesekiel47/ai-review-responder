@@ -38,6 +38,7 @@ export type AgentOutcomeKind = (typeof AGENT_OUTCOME_KINDS)[number];
 export const STEP_PERSONA = {
   review_ingested: 'system',
   review_updated: 'system',
+  triage: 'guardian',
   draft_generated: 'reply',
   moderation_checked: 'system',
   policy_gate: 'reply',
