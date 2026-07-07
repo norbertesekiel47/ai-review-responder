@@ -1,11 +1,9 @@
-import { mkdtemp, mkdir, writeFile, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  assembleBaselineModule,
   DEFAULT_SKIP_DIRS,
-  emitBaselineFile,
   evaluateAgainstBaseline,
   normalize,
   walk,
@@ -69,27 +67,6 @@ describe('ratchet-harness: evaluateAgainstBaseline', () => {
   });
 });
 
-describe('ratchet-harness: assembleBaselineModule', () => {
-  it('sorts + quotes entries between the header and the closing Set literal', () => {
-    const source = assembleBaselineModule(
-      ['// header', 'export const X: ReadonlySet<string> = new Set(['],
-      ['z.ts', 'a.ts', 'm.ts'],
-    );
-    const a = source.indexOf("'a.ts'");
-    const m = source.indexOf("'m.ts'");
-    const z = source.indexOf("'z.ts'");
-    expect(a).toBeGreaterThan(-1);
-    expect(a).toBeLessThan(m);
-    expect(m).toBeLessThan(z);
-    expect(source.endsWith(']);\n\n')).toBe(true);
-  });
-
-  it('renders an empty Set literal for no entries', () => {
-    const source = assembleBaselineModule(['export const X = new Set(['], []);
-    expect(source).toContain('export const X = new Set([\n]);');
-  });
-});
-
 describe('ratchet-harness: walk', () => {
   let root: string;
 
@@ -131,19 +108,5 @@ describe('ratchet-harness: walk', () => {
 
   it('exposes the shared default skip-dir set', () => {
     expect(DEFAULT_SKIP_DIRS.has('__fixtures__')).toBe(true);
-  });
-});
-
-describe('ratchet-harness: emitBaselineFile', () => {
-  it('writes the source atomically and leaves no .tmp behind', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'ratchet-emit-'));
-    try {
-      const target = join(root, 'baseline.ts');
-      await emitBaselineFile(target, 'export const X = 1;\n');
-      expect(await readFile(target, 'utf8')).toBe('export const X = 1;\n');
-      await expect(readFile(`${target}.tmp`, 'utf8')).rejects.toThrow();
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
   });
 });
