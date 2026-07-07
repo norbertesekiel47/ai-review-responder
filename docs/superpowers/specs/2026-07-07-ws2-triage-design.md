@@ -219,3 +219,34 @@ Migration 072 staging-first, both Supabase projects in lockstep. `TRIAGE_ENABLED
 on staging worker → observe a few negative-lane runs (`agent_run_steps.step_key='triage'`,
 `reviews.triage_*`, `api_costs.endpoint='review-triage'`) → enable in prod. Kill switch
 is the same flag.
+
+## 6. Implementation amendments (2026-07-07, review-driven)
+
+Where per-task reviews tightened the spec during implementation. The original
+sections above are unchanged; on any conflict, these amendments win.
+
+- **§2.3:** the consistency CHECK ships as a mandatory QUARTET (severity,
+  source, **suggested_action**, triaged_at) — every writer always sets
+  suggested_action and WS3 reads it, so a triaged row without it is
+  unrepresentable. Constraint is re-runnable (`DROP CONSTRAINT IF EXISTS`
+  + ADD).
+- **§2.3 idempotency:** additionally, `mock_v1` rows are re-attempted when NOT
+  in mock mode (a dev-persisted mock row never satisfies a real run's
+  skip-check).
+- **§2.3:** `triage_content_hash` stamps the generation job's LOADED content
+  hash (the text the LLM actually saw), not a re-read — closes a mid-job
+  content-change staleness window; every divergence self-heals.
+- **§2.6:** fallback classifications carry a `failureReason` (error NAME only)
+  into the triage step's detail (`reason`), and the fallback path logs a warn
+  — fallbacks are observable, never silent. A post-guard revalidation failure
+  also maps to the fallback (reason `StructuredOutputMissing`).
+- **§2.8:** ships severity-only tone threading (the drafts see the review text
+  itself; issue-category injection deferred to WS3's escalation context).
+  Prompt rules fold in a no-fault carve-out and explicit precedence over the
+  owner-configured base tone.
+- **§2.9:** auto-approval audit metadata now records `triage_severity` /
+  `triage_source` on both the durable audit row and the fallback log.
+  Operational coupling documented in env-vars.md: flag off ⇒ veto inert for
+  new reviews.
+- **§2.4:** `LLMStructuredOutputError`'s JSON-parse cause is sanitized (no
+  completion-text snippets can reach Sentry via cause-chain walking).
