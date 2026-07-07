@@ -60,10 +60,21 @@ behavior change, verified by a fresh independent re-audit at campaign end.
   import the singleton. This generalizes an existing pattern; it does not invent one.
 - Pass exactly the client a module needs (`sql` and/or `supabase`), never a bag.
 
-**Enforcement ratchet.** New AST-based `ci:db-imports` guard (same family as the
-existing audits) with a checked-in baseline of current importer files. Every domain
-sweep shrinks the baseline; Stage 3 flips it to a strict composition-root allowlist.
-The ratchet is what makes the grade permanent.
+**Enforcement ratchet — now STRICT (Stage 3 done).** AST-based `ci:db-imports`
+guard (same family as the existing audits). It shipped in Stage 1 with a checked-in
+baseline of current importer files; every domain sweep shrank that baseline, and
+Stage 3 (PR 3) drove it to zero and **flipped the guard to strict** — the baseline
+file (`scripts/ci/db-imports-baseline.ts`) is deleted, and CI now fails on ANY
+non-composition-root file that imports `@/lib/db/server` (no baseline, no
+`--emit-baseline`). Composition roots are the fixed set above, plus worker roots
+that are **registration-derived, not positional**: `isCompositionRoot` reads
+`worker/index.ts` and credits a top-level `worker/jobs/<X>.ts`,
+`worker/background/pollers/<X>.ts`, or `worker/background/schedulers/<X>.ts` as a
+root ONLY if the entry point imports (registers) it. A top-level helper beside the
+handlers (e.g. `summary-report-helpers.ts`) is a domain module, not a root, unless
+registered; an un-credited real handler is a loud CI failure (fix by registering it
+in `worker/index.ts`), never a silent root grant. The ratchet is what makes the
+grade permanent.
 
 **Test migration rule.** Tests move from `vi.mock('@/lib/db/server')` to passing the
 repo's existing shared mock-sql fixture (single-sourced in #426) — mandated, so no
@@ -131,10 +142,18 @@ not plumbing.
 | 2h | Workers/outbox | Migrate the 5-function offboarding enqueue cluster out of `job-outbox-helpers.ts` into the offboarding domain; inject pollers via `createGuardedPoll` deps |
 | 2i | Locations/offboarding + remainder | Sweep the baseline tail to zero |
 
-### Stage 3 — Ratchet strict (1 PR)
+### Stage 3 — Ratchet strict (1 PR) — DONE (PR 3)
 
-Flip `ci:db-imports` from baseline to strict composition-root allowlist; extend
-`ci:process-env` scanning to `src/app` + `src/components`.
+Flipped `ci:db-imports` from baseline to a strict composition-root allowlist —
+baseline file deleted, and worker roots are now registration-derived from
+`worker/index.ts` (not positional; `NON_ROOT_EXCEPTIONS` deleted). Widened
+`ci:process-env` scanning to `src/app` + `src/components` and made `NEXT_PUBLIC_*`
+an exempt indicator (build-inlined public client config), taking its baseline
+14 → 10 (2 genuine admin-channel reads added; 6 `NEXT_PUBLIC`-only readers dropped
+as newly-exempt) — still baseline-mode, not strict. Also gave `ci:fallow` real
+`--coverage` in CI (`.github/workflows/fallow.yml` runs `pnpm test:coverage` then
+`ci:fallow:coverage`, which first normalizes the vitest-4 v8 `-1` branch-count
+sentinel); local/manual `ci:fallow` stays static.
 
 ### Stage 4 — Exit gate (1 PR + audit)
 
@@ -173,7 +192,8 @@ residual" notes).
 ## 6. Risks → mitigations
 
 1. **DI churn through billing/approval paths** → full pipeline per PR + per-domain
-   batching + baseline ratchet; no big-bang moment exists.
+   batching + the `ci:db-imports` ratchet (baseline-shrinking through Stage 2, now
+   flipped strict in Stage 3); no big-bang moment exists.
 2. **Conflicts with in-flight work** (migration-070 ingest wiring; agentic Phase 1)
    → 2f rebases on 070's wiring; Phase 1 starts after campaign end (Decision 5
    chose foundation-first over pivot-first for exactly this reason).
@@ -187,8 +207,8 @@ residual" notes).
 
 ## 7. Exit criteria (measurable A+)
 
-1. All 11 guards green and strict: existing 8 + `ci:db-imports` (baseline emptied)
-   + reviews-status extension + topic-name guard.
+1. All 11 guards green and strict: existing 8 + `ci:db-imports` (strict; baseline
+   deleted in Stage 3) + reviews-status extension + topic-name guard.
 2. fallow: 0 cycles, 0 boundary violations, duplication ≤ 1.4%, none of the four
    extracted routes remains a critical/high hotspot.
 3. Fresh five-questions re-audit: **A or better on all five, zero unaccepted
