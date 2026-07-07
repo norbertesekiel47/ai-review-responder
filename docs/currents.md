@@ -7,7 +7,17 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-06-26 (Modularity-audit remediation COMPLETE — Stages 5–6 #397/#398; worker transient-DB resilience #399; Dependabot security patches #400. See the simple-words summary directly below. Earlier: 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15 #319/#320/#322; Multi-location launch hardening 2026-06-11 #262–#273; Rate-limiting & abuse hardening 2026-06-09 #254–#257; Launch readiness sweep 2026-05-29 #152–#186; Wave 3 #93–#96; Wave 2 #87.)
+Last updated: 2026-07-06 (Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are now permanent CI-enforced invariants, all five audit questions at A/A+ (Q4 A+), PRs #438–#456; see the summary directly below and the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE — Stages 5–6 #397/#398; worker transient-DB resilience #399; Dependabot security patches #400. See the simple-words summary further below. Earlier: 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15 #319/#320/#322; Multi-location launch hardening 2026-06-11 #262–#273; Rate-limiting & abuse hardening 2026-06-09 #254–#257; Launch readiness sweep 2026-05-29 #152–#186; Wave 3 #93–#96; Wave 2 #87.)
+
+## Quick summary — Modularity A+ campaign complete (2026-07-06, PR #438–#456)
+
+In simple words: a follow-on **codebase-health** campaign (no customer-visible change) that took the five modularity questions from A−/B+ up to **A on four and A+ on "are dependencies explicit?"**. The two things the June audit had *deliberately left* as residuals are now closed, permanently:
+
+1. **Every module now gets its database client handed to it, instead of reaching for a global.** Business-logic code used to `import` the shared `sql`/`supabaseServer` clients directly (105 files did). Now those modules take `sql` as an explicit parameter; only the "entry points" (routes, worker registrations, pollers) hold the real client and pass it down. A CI guard (`ci:db-imports`) enforces this **strictly** — root status is even derived from what `worker/index.ts` actually registers, so a stray helper can't sneak the global back in. This makes any module trivially testable in isolation (pass a mock) and is now a stated architecture invariant (#15).
+
+2. **All AI-model calls go through one small seam.** Generation and insights used to construct OpenAI/Anthropic clients inline. Now they call `runLlmTask(...)`; the provider adapters, per-task pinned models, fallback, and cost-guard live in `src/lib/llm/`. Swapping or adding a model provider is an adapter change, not a caller rewrite.
+
+Nine domain sweeps, **zero behavior regressions, zero migrations**, clean staging rides throughout. The strict guard + the seam are the permanent proof — this is convention now, not a one-time cleanup. Full grades, the 105→0 arc, and the per-PR ledger are in the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md); the #1 follow-up it names is the worker crash-net "zombie-pool" liveness-escalator (a separate resilience PR).
 
 ## Quick summary — Modularity hardening complete + worker resilience + dep security (2026-06-26, PR #397–#400)
 
@@ -35,11 +45,16 @@ worker/jobs/publisher/{ResponsePublisherWorker,review-lookup,post-reply,verify-p
 worker/index.ts  ← the unhandledRejection crash-net now classifies transient-DB errors via isCrashNetRecoverableDbError + the governor.
 ```
 
-### Where the five audit questions landed (and two deliberate residuals)
+### Where the five audit questions landed (both residuals since CLOSED by the A+ campaign)
 
-The audit's full campaign was Stages 1–6: Stages 1–4 (prior sessions, #376–#396) introduced the **typed config layer** (env reads owned in one place, CI-guarded) and routed **all feature flags** through per-feature `flags.ts` accessors; Stages 5–6 (this session) added the publishing seam + hygiene. Net grades: Q1 modify-without-touching **A−**, Q2 test-in-isolation **A−**, Q3 single-responsibility **A−**, Q4 dependencies-explicit **B+** (was the weak C+), Q5 replace-a-component **A−**.
+The audit's full campaign was Stages 1–6: Stages 1–4 (prior sessions, #376–#396) introduced the **typed config layer** (env reads owned in one place, CI-guarded) and routed **all feature flags** through per-feature `flags.ts` accessors; Stages 5–6 (this session) added the publishing seam + hygiene. Grades at the close of that remediation (2026-06-26): Q1 modify-without-touching **A−**, Q2 test-in-isolation **A−**, Q3 single-responsibility **A−**, Q4 dependencies-explicit **B+** (was the weak C+), Q5 replace-a-component **A−**.
 
-Two residuals were scoped **out** on purpose (documented, low-priority, not blocking): the `sql`/`supabaseServer` DB singletons are still ambient (injecting them is a 200+-file refactor; test isolation is already met via mocking), and the LLM provider fallback stays inline `callOpenAI`/`callAnthropic` (an interface would be speculative at two pinned providers).
+Two residuals were left open at that point (documented, low-priority, not blocking): the `sql`/`supabaseServer` DB singletons remained ambient, and the LLM provider fallback remained inline (`callOpenAI`/`callAnthropic`). **Both were subsequently CLOSED by the Modularity A+ campaign (2026-07, PRs #438–#456)** — see [`docs/audits/2026-07-06-modularity-aplus-exit-audit.md`](audits/2026-07-06-modularity-aplus-exit-audit.md):
+
+- **DB singletons → explicit-parameter injection.** Every domain module under `src/lib/**` + every worker helper now receives its DB client (`sql`/`supabaseServer`, or `tx` inside a transaction) as an explicit parameter; only **composition roots** import `@/lib/db/server`. The db-imports importer set went **105 → 0** (baseline deleted) and the **strict `ci:db-imports` guard** (registration-derived worker roots, AST-parsed from `worker/index.ts`) makes regression structurally impossible.
+- **Inline LLM calls → the `src/lib/llm/` task seam.** `LLMProvider` adapters + the `LLM_TASKS` registry + `runLlmTask` as the single executor; both reply generation and review-insight summaries route through it.
+
+Net effect per the exit audit: **Q1 A, Q2 A, Q3 A, Q4 A+ (the campaign's headline), Q5 A** — A or better on all five, zero unaccepted caveats. The injection convention is now a permanent, CI-enforced invariant (CLAUDE.md #15), not a campaign artifact.
 
 ### One thing to remember
 
