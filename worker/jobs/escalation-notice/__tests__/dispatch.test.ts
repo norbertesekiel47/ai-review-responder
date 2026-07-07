@@ -28,7 +28,7 @@ const INPUT: EscalationNoticeDispatchInput = {
   businessId: 'biz-1',
   accountId: 'acct-1',
   dashboardUrl: 'https://app.example.com/dashboard/reviews',
-  business: { name: 'Acme Co', displayLabel: null },
+  business: { name: 'Acme Co', displayLabel: null, ownerEmailBounced: false },
   review: { reviewerName: 'Jane', starRating: 1, reviewText: 'terrible visit' },
   triage: { severity: 'high', issues: ['safety_or_health'], isFallback: false },
 };
@@ -94,6 +94,27 @@ describe('dispatchEscalationNotice', () => {
     await expect(dispatchEscalationNotice(mockSql as unknown as Sql, INPUT, [email()], logger as never)).rejects.toThrow(/db down/);
     // Never attempted a send on a failed claim, and did not silently swallow it.
     expect(mockGetChannel).not.toHaveBeenCalled();
+  });
+
+  it('pre-filters email when owner_email_bounced is set (no claim, no send) — other channels unaffected', async () => {
+    const send = vi.fn(async () => ({ status: 'sent', externalMessageId: 'm1' }));
+    mockGetChannel.mockReturnValue({ sendEscalationNotice: send });
+    sqlQueue.push([{ id: 'd1' }]); // telegram claim
+    sqlQueue.push([]);             // telegram finalize
+
+    const bounced = { ...INPUT, business: { ...INPUT.business, ownerEmailBounced: true } };
+    const res = await dispatchEscalationNotice(mockSql as unknown as Sql, bounced, [email(), telegram()], logger as never);
+
+    expect(res.skipped).toBe(1);
+    expect(res.sent).toBe(1); // telegram still delivers
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(mockGetChannel).toHaveBeenCalledTimes(1);
+    expect(mockGetChannel).toHaveBeenCalledWith('telegram');
+    // Skipped BEFORE any claim: exactly one notification_deliveries touch (telegram's).
+    expect(sqlCalls.filter((s) => s.includes('notification_deliveries'))).toHaveLength(2); // claim + finalize
+    expect(logger.log).toHaveBeenCalledWith(
+      'escalation_notice skipped channel=email reason=owner_email_bounced escalation=esc-1',
+    );
   });
 
   it('pre-filters WhatsApp when WHATSAPP_ESCALATION_TEMPLATE_SID is unset (no claim, no send)', async () => {

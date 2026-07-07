@@ -53,7 +53,6 @@ export const TRIAGE_SUGGESTED_ACTIONS = ['respond', 'escalate', 'respond_and_esc
  *  Single owner — the raise predicate derives from this so the taxonomy and
  *  the escalation trigger can't drift. */
 export const ESCALATING_ACTIONS = ['escalate', 'respond_and_escalate'] as const;
-export type EscalatingAction = (typeof ESCALATING_ACTIONS)[number];
 
 export const TRIAGE_SOURCE = {
   LLM: 'llm_triage_v1',

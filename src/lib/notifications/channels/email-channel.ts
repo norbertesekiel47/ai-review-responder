@@ -65,6 +65,9 @@ export class EmailChannel implements NotificationChannel {
     return { status: 'sent', externalMessageId: messageId };
   }
 
+  // Interface-dispatched via getChannel(id).sendEscalationNotice in the
+  // escalation-notice worker; fallow's member graph misses interface dispatch.
+  // fallow-ignore-next-line unused-class-member
   async sendEscalationNotice(p: SendEscalationNoticeParams): Promise<SendEscalationNoticeResult> {
     const from = getWorkerConfig().RESEND_FROM_EMAIL;
     if (!from) {
@@ -75,7 +78,6 @@ export class EmailChannel implements NotificationChannel {
       to: p.handle,
       from,
       locationLabel: p.locationLabel,
-      businessName: p.businessName,
       reviewerName: p.reviewerName,
       starRating: p.starRating,
       reviewText: p.reviewText,

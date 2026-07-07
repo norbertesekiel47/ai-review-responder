@@ -27,7 +27,6 @@ export interface EscalationNoticeEmailParams {
   to: string;
   from: string;
   locationLabel: string;
-  businessName: string;
   reviewerName: string;
   starRating: number | null;
   reviewText: string | null;

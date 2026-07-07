@@ -18,7 +18,6 @@ const ESCALATION: EscalationRow = {
   review_id: 'rev-1',
   triage_severity: 'high',
   triage_source: 'llm_triage_v1',
-  triage_suggested_action: 'escalate',
   triage_issues: ['safety_or_health'],
   reviewer_name: 'Jane',
   star_rating: 1,
@@ -29,6 +28,7 @@ const BUSINESS = {
   account_id: 'acct-1',
   name: 'Acme Co',
   display_label: null,
+  owner_email_bounced: false,
   subscription_status: 'active',
   account_past_due_at: null,
   account_flags: {},
@@ -133,5 +133,8 @@ describe('loadEscalationNoticeContext', () => {
     // select google_maps_url (no Google CTA on the escalation notice).
     expect(sqlCalls[0]!.text).toContain('JOIN reviews r ON r.id = e.review_id');
     expect(sqlCalls[1]!.text).not.toContain('google_maps_url');
+    // The business query projects the bounce flag the dispatcher's email
+    // pre-filter consumes (skip email for a known-bounced owner).
+    expect(sqlCalls[1]!.text).toContain('owner_email_bounced');
   });
 });

@@ -32,7 +32,7 @@ export interface EscalationNoticeDispatchInput {
   accountId: string;
   /** `${APP_URL}/dashboard/reviews` — the acknowledge surface (spec §2.7). */
   dashboardUrl: string;
-  business: { name: string; displayLabel: string | null };
+  business: { name: string; displayLabel: string | null; ownerEmailBounced: boolean };
   review: { reviewerName: string; starRating: number | null; reviewText: string | null };
   triage: {
     severity: TriageSeverity;
@@ -84,6 +84,17 @@ export async function dispatchEscalationNotice(
   for (const enrollment of enrollments) {
     const channelId = enrollment.channel;
     const recipient = enrollment.handle;
+
+    // Pre-filter: a known-bounced owner email skips cleanly BEFORE any claim —
+    // same rule as the approval dispatcher (worker/jobs/notification/dispatch.ts);
+    // the admin clears owner_email_bounced from /admin/businesses/[id].
+    if (channelId === 'email' && input.business.ownerEmailBounced) {
+      result.skipped += 1;
+      logger.log(
+        `escalation_notice skipped channel=email reason=owner_email_bounced escalation=${input.escalationId}`,
+      );
+      continue;
+    }
 
     // Pre-filter: WhatsApp without its escalation template SID skips cleanly,
     // without constructing the client or recording a delivery row.

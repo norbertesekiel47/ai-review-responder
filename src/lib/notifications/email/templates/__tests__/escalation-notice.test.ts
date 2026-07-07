@@ -5,7 +5,6 @@ const baseParams = {
   to: 'owner@example.com',
   from: 'noreply@repworth.com',
   locationLabel: 'Main St',
-  businessName: 'Acme Diner',
   reviewerName: 'Jane D',
   starRating: 1 as number | null,
   reviewText: 'Terrible experience, found a hair in my food.',

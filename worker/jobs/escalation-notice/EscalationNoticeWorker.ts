@@ -110,6 +110,7 @@ export async function handleEscalationNotice(sql: Sql, job: Job<EscalationNotice
       business: {
         name: ctx.business.name,
         displayLabel: ctx.business.display_label,
+        ownerEmailBounced: ctx.business.owner_email_bounced,
       },
       review: {
         reviewerName: ctx.escalation.reviewer_name,

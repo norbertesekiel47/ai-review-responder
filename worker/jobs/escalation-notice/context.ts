@@ -11,8 +11,8 @@
 //   - business not found                 → fail outbox
 //   - archived / offboarding             → skip
 //
-// The triage snapshot (severity/source/suggested_action/issues) comes from
-// the review_escalations row persisted at raise time — no LLM call here.
+// The triage snapshot (severity/source/issues) comes from the
+// review_escalations row persisted at raise time — no LLM call here.
 
 import type { Sql } from 'postgres';
 import {
@@ -21,7 +21,7 @@ import {
   type ActiveOffboardingProjection,
 } from '../../../src/lib/account-offboarding/gate';
 import type { AccountFlagsInput } from '../../../src/lib/shared/subscription-guard';
-import type { EscalatingAction, TriageIssue, TriageSeverity } from '../../../src/lib/reviews/triage-schema';
+import type { TriageIssue, TriageSeverity } from '../../../src/lib/reviews/triage-schema';
 import { ESCALATION_STATUS } from '../../../src/lib/escalations/types';
 
 export interface EscalationNoticeContextInput {
@@ -42,7 +42,6 @@ export interface EscalationRow {
   review_id: string;
   triage_severity: TriageSeverity;
   triage_source: string;
-  triage_suggested_action: EscalatingAction;
   triage_issues: TriageIssue[] | null;
   reviewer_name: string;
   star_rating: number | null;
@@ -53,6 +52,7 @@ export interface EscalationNoticeBusinessRow extends ActiveOffboardingProjection
   account_id: string;
   name: string;
   display_label: string | null;
+  owner_email_bounced: boolean;
   subscription_status: string;
   account_past_due_at: Date | null;
   account_flags: AccountFlagsInput;
@@ -75,8 +75,7 @@ export async function loadEscalationNoticeContext(
 ): Promise<EscalationNoticeContextResult> {
   const [escalation] = await sql<EscalationRow[]>`
     SELECT e.id, e.status, e.business_id AS esc_business_id, e.account_id,
-           e.review_id, e.triage_severity, e.triage_source,
-           e.triage_suggested_action, e.triage_issues,
+           e.review_id, e.triage_severity, e.triage_source, e.triage_issues,
            r.reviewer_name, r.star_rating, r.review_text
     FROM review_escalations e
     JOIN reviews r ON r.id = e.review_id
@@ -101,7 +100,7 @@ export async function loadEscalationNoticeContext(
   }
 
   const [business] = await sql<EscalationNoticeBusinessRow[]>`
-    SELECT b.name, b.display_label, b.archived_at,
+    SELECT b.name, b.display_label, b.owner_email_bounced, b.archived_at,
            a.id AS account_id, a.subscription_status,
            a.past_due_at AS account_past_due_at, a.flags AS account_flags,
            ao.id AS offboarding_id,

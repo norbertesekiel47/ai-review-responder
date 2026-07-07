@@ -8,6 +8,10 @@ import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subs
 
 export const dynamic = 'force-dynamic';
 
+// CRAP-only finding on an estimated-coverage basis (route handlers are not on
+// fallow's test-reachability graph); the guard branches are exercised by the
+// route tests, and the handler is orchestration-only per invariant #12.
+// fallow-ignore-next-line complexity
 async function acknowledge(
   request: NextRequest,
   { params }: { params: Promise<{ escalationId: string }> },

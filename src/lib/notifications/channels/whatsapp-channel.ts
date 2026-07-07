@@ -75,6 +75,9 @@ export class WhatsAppChannel implements NotificationChannel {
     return { status: 'sent', externalMessageId: result.externalMessageId };
   }
 
+  // Interface-dispatched via getChannel(id).sendEscalationNotice in the
+  // escalation-notice worker; fallow's member graph misses interface dispatch.
+  // fallow-ignore-next-line unused-class-member
   async sendEscalationNotice(p: SendEscalationNoticeParams): Promise<SendEscalationNoticeResult> {
     // Business-initiated → outside any 24h session window → approved template
     // only (ADR 0003). Until WHATSAPP_ESCALATION_TEMPLATE_SID is set, skip

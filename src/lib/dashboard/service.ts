@@ -175,6 +175,11 @@ export async function getActiveDashboardData(
         WHERE e.review_id = rev.id
           -- Explicit tenant scope (defense-in-depth, mirrors the resp join).
           AND e.business_id = ${businessId}
+          -- Status literal kept deliberately: it matches the
+          -- review_escalations_one_open_per_review partial-index predicate
+          -- byte-for-byte so the planner can use that index; a bound
+          -- parameter could defeat the partial-index proof under a generic
+          -- plan.
           AND e.status <> 'resolved'
         LIMIT 1
       ) esc ON true
