@@ -317,3 +317,39 @@ switch semantics per §2.4. No `NEXT_PUBLIC_*` companion (invariant #13, CI-enfo
    (`review_escalated`), notice delivery on an enrolled channel, dashboard badge,
    acknowledge → resolve → `escalation_resolved`.
 4. Prod: flag on after staging observation. Kill switch is the same flag.
+
+## 6. Implementation amendments (2026-07-07, review-driven)
+
+Where per-task reviews tightened the spec during implementation. The original
+sections above are unchanged; on any conflict, these amendments win.
+
+- **§2.5:** `suggestedAction` is dropped from the channel-seam params
+  (`SendEscalationNoticeParams`) — no channel renders it, and drafts are
+  generated on BOTH escalating actions (`escalate` and
+  `respond_and_escalate`), so the notice copy holds without it.
+- **§2.5:** severity and issue labels are single-owner in
+  `src/lib/reviews/triage-schema.ts` (`TRIAGE_SEVERITY_LABELS` /
+  `TRIAGE_ISSUE_LABELS` — exhaustive over the taxonomy, so a new issue value
+  forces a label). Review-text truncation uses each surface's established
+  helper (email `templates/shared.ts` `truncate`, channel body helpers) — no
+  bespoke slicing.
+- **§2.6:** the `escalation_sent` step is recorded BEST-EFFORT after delivery
+  (log-and-swallow with a distinct `step-record-failed` error signal) — a
+  step-tx failure no longer fails the job, because the notices are already
+  delivered and a retry would dedup on the claims (sent=0) without ever
+  recovering the step. `notification_deliveries` is the authoritative
+  per-channel delivery record; the step is observability.
+- **§2.7:** escalation actions (Acknowledge/Resolve) render for ANY open
+  escalation on the review card, regardless of draft state — moderation-HELD
+  drafts (response text withheld via the flagged-response NOT EXISTS) are
+  exactly the high-severity lane and must stay actionable
+  (`EscalationActions`, decoupled from the draft-gated `ReviewActions`).
+  **Residual (accepted boundary):** reviews whose reply was posted leave the
+  pending feed entirely, so an escalation on them is dischargeable only via
+  WS5's exception queue. Notification copy is unchanged.
+- **§2.7:** dispatch warn-lines redact in-hand review text from provider
+  error messages (`'[review_text]'` placeholder). Unredacted failure reasons
+  persist only in `notification_deliveries.failure_reason` (DB, not logs).
+- **§2.3:** migration 073 gained two RI-support indexes beyond the spec's
+  list — `idx_nd_escalation` (notification_deliveries → escalation FK path)
+  and `idx_review_escalations_agent_run` (agent_runs FK path).
