@@ -100,6 +100,12 @@ export interface DashboardDataActive {
     responseText: string | null;
     responseStatus: string | null;
     approvalMethod: ApprovalMethod | null;
+    /** Open Guardian escalation (WS3); null when none. Resolved escalations never surface here. */
+    escalation: {
+      id: string;
+      status: 'escalated' | 'acknowledged';
+      severity: 'low' | 'medium' | 'high';
+    } | null;
   }>;
   latestBrief: {
     text: string;

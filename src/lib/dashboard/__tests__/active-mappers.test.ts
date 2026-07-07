@@ -17,6 +17,9 @@ describe('dashboard active mappers', () => {
           response_text: null,
           response_status: null,
           approval_method: null,
+          escalation_id: null,
+          escalation_status: null,
+          escalation_severity: null,
         },
       ]),
     ).toEqual([
@@ -30,6 +33,41 @@ describe('dashboard active mappers', () => {
         responseText: null,
         responseStatus: null,
         approvalMethod: null,
+        escalation: null,
+      },
+    ]);
+  });
+
+  it('maps an open escalation row to the escalation object', () => {
+    expect(
+      mapRecentReviews([
+        {
+          id: 'review-1',
+          reviewer_name: 'Pat',
+          star_rating: 1,
+          review_text: 'Terrible visit',
+          review_date: '2026-05-20T12:34:56.000Z',
+          status: 'pending_approval',
+          response_text: 'Draft response',
+          response_status: 'pending_approval',
+          approval_method: null,
+          escalation_id: 'esc-1',
+          escalation_status: 'escalated',
+          escalation_severity: 'high',
+        },
+      ]),
+    ).toEqual([
+      {
+        id: 'review-1',
+        reviewerName: 'Pat',
+        starRating: 1,
+        reviewText: 'Terrible visit',
+        reviewDate: '2026-05-20T12:34:56.000Z',
+        status: 'pending_approval',
+        responseText: 'Draft response',
+        responseStatus: 'pending_approval',
+        approvalMethod: null,
+        escalation: { id: 'esc-1', status: 'escalated', severity: 'high' },
       },
     ]);
   });
@@ -49,6 +87,9 @@ describe('dashboard active mappers', () => {
           response_text: 'Draft response',
           response_status: 'approved',
           approval_method: 'auto_policy',
+          escalation_id: null,
+          escalation_status: null,
+          escalation_severity: null,
         },
       ]),
     ).toEqual([
@@ -62,6 +103,7 @@ describe('dashboard active mappers', () => {
         responseText: 'Draft response',
         responseStatus: 'approved',
         approvalMethod: 'auto_policy',
+        escalation: null,
       },
     ]);
   });

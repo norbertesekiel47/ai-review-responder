@@ -147,7 +147,10 @@ export async function getActiveDashboardData(
         rev.status,
         resp.response_text,
         resp.status AS response_status,
-        resp.approval_method
+        resp.approval_method,
+        esc.id AS escalation_id,
+        esc.status AS escalation_status,
+        esc.triage_severity AS escalation_severity
       FROM reviews rev
       LEFT JOIN LATERAL (
         SELECT COALESCE(approved_text, response_text) AS response_text, status, approval_method
@@ -166,6 +169,15 @@ export async function getActiveDashboardData(
         ORDER BY version DESC
         LIMIT 1
       ) resp ON true
+      LEFT JOIN LATERAL (
+        SELECT id, status, triage_severity
+        FROM review_escalations e
+        WHERE e.review_id = rev.id
+          -- Explicit tenant scope (defense-in-depth, mirrors the resp join).
+          AND e.business_id = ${businessId}
+          AND e.status <> 'resolved'
+        LIMIT 1
+      ) esc ON true
       WHERE rev.business_id = ${businessId}
         AND rev.status <> ${REVIEW_STATUS.DELETED}
       ORDER BY rev.detected_at DESC

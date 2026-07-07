@@ -53,3 +53,87 @@ describe('ReviewActions regenerate cap (issue #335)', () => {
     expect(onSuccess).toHaveBeenCalledOnce();
   });
 });
+
+describe('ReviewActions escalation actions (WS3)', () => {
+  it('renders no escalation buttons when the review has no escalation', () => {
+    render(<ReviewActions reviewId="rev-1" responseText="hi" onSuccess={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: /acknowledge/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /resolve/i })).toBeNull();
+  });
+
+  it('POSTs acknowledge to the escalation endpoint and advances on 200', async () => {
+    const onSuccess = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(
+      regenResponse({ ok: true, status: 200, body: { success: true, status: 'acknowledged' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <ReviewActions
+        reviewId="rev-1"
+        responseText="hi"
+        escalation={{ id: 'esc-1', status: 'escalated', severity: 'high' }}
+        onSuccess={onSuccess}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /acknowledge/i }));
+
+    await waitFor(() => screen.getByText(/escalation acknowledged/i));
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/dashboard/escalations/esc-1/acknowledge',
+      { method: 'POST' },
+    );
+    expect(onSuccess).toHaveBeenCalledOnce();
+  });
+
+  it('hides Acknowledge once acknowledged but still offers Resolve', async () => {
+    const onSuccess = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(
+      regenResponse({ ok: true, status: 200, body: { success: true, status: 'resolved' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <ReviewActions
+        reviewId="rev-1"
+        responseText="hi"
+        escalation={{ id: 'esc-2', status: 'acknowledged', severity: 'medium' }}
+        onSuccess={onSuccess}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: /acknowledge/i })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /resolve/i }));
+
+    await waitFor(() => screen.getByText(/escalation resolved/i));
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/dashboard/escalations/esc-2/resolve',
+      { method: 'POST' },
+    );
+    expect(onSuccess).toHaveBeenCalledOnce();
+  });
+
+  it('surfaces the server error and does not advance on a failed transition', async () => {
+    const onSuccess = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        regenResponse({ ok: false, status: 409, body: { error: 'Escalation is already resolved' } }),
+      ),
+    );
+
+    render(
+      <ReviewActions
+        reviewId="rev-1"
+        responseText="hi"
+        escalation={{ id: 'esc-3', status: 'escalated', severity: 'low' }}
+        onSuccess={onSuccess}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /resolve/i }));
+
+    await waitFor(() => screen.getByText(/already resolved/i));
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+});

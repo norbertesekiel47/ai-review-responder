@@ -55,6 +55,7 @@ function locationData(
     responseText: 'draft',
     responseStatus: 'pending_approval',
     approvalMethod: null,
+    escalation: null,
   }));
   return {
     business: { name: 'Biz', createdAt: '2026-01-01' },

@@ -4,19 +4,28 @@ import { useState } from 'react';
 
 type ActionState =
   | { kind: 'idle' }
-  | { kind: 'loading'; action: 'approve' | 'edit' | 'regenerate' }
+  | { kind: 'loading'; action: 'approve' | 'edit' | 'regenerate' | 'acknowledge' | 'resolve' }
   | { kind: 'editing' }
   | { kind: 'success'; message: string }
   | { kind: 'limit'; message: string }
   | { kind: 'error'; message: string };
 
+/** Open Guardian escalation on the review (WS3); resolved escalations never reach the client. */
+export interface ReviewEscalation {
+  id: string;
+  status: 'escalated' | 'acknowledged';
+  severity: 'low' | 'medium' | 'high';
+}
+
 export function ReviewActions({
   reviewId,
   responseText,
+  escalation = null,
   onSuccess,
 }: {
   reviewId: string;
   responseText: string | null;
+  escalation?: ReviewEscalation | null;
   onSuccess: () => void;
 }) {
   const [state, setState] = useState<ActionState>({ kind: 'idle' });
@@ -81,6 +90,32 @@ export function ReviewActions({
       onSuccess();
     } catch (err) {
       setState({ kind: 'error', message: err instanceof Error ? err.message : 'Regenerate failed' });
+    }
+  }
+
+  async function handleEscalationTransition(action: 'acknowledge' | 'resolve') {
+    if (!escalation) return;
+    setState({ kind: 'loading', action });
+    try {
+      const res = await fetch(`/api/dashboard/escalations/${escalation.id}/${action}`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Failed (${res.status})`);
+      }
+      setState({
+        kind: 'success',
+        message: action === 'acknowledge' ? 'Escalation acknowledged' : 'Escalation resolved',
+      });
+      onSuccess();
+    } catch (err) {
+      setState({
+        kind: 'error',
+        message: err instanceof Error
+          ? err.message
+          : action === 'acknowledge' ? 'Acknowledge failed' : 'Resolve failed',
+      });
     }
   }
 
@@ -179,6 +214,26 @@ export function ReviewActions({
       >
         {isLoading && state.action === 'regenerate' ? 'Regenerate...' : 'Regenerate'}
       </button>
+      {escalation && escalation.status === 'escalated' && (
+        <button
+          type="button"
+          onClick={() => handleEscalationTransition('acknowledge')}
+          disabled={isLoading}
+          className="btn btn-secondary"
+        >
+          {isLoading && state.action === 'acknowledge' ? 'Acknowledge...' : 'Acknowledge'}
+        </button>
+      )}
+      {escalation && (
+        <button
+          type="button"
+          onClick={() => handleEscalationTransition('resolve')}
+          disabled={isLoading}
+          className="btn btn-secondary"
+        >
+          {isLoading && state.action === 'resolve' ? 'Resolve...' : 'Resolve'}
+        </button>
+      )}
     </div>
   );
 }

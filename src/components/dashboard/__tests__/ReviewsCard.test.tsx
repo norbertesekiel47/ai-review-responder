@@ -15,6 +15,7 @@ const REVIEWS = [
     responseText: 'Thanks Daniel!',
     responseStatus: 'pending_approval' as string | null,
     approvalMethod: null,
+    escalation: null,
   },
   {
     id: 'r2',
@@ -26,6 +27,7 @@ const REVIEWS = [
     responseText: 'Thank you Sarah!',
     responseStatus: 'posted' as string | null,
     approvalMethod: 'auto_policy' as const,
+    escalation: null,
   },
 ];
 

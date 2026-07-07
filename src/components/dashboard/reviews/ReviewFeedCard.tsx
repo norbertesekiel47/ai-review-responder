@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { AutoApprovedBadge } from '@/components/dashboard/reviews/AutoApprovedBadge';
-import { ReviewActions } from '@/components/dashboard/reviews/ReviewActions';
+import { ReviewActions, type ReviewEscalation } from '@/components/dashboard/reviews/ReviewActions';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import type { ApprovalMethod } from '@/lib/auto-approval/types';
 
@@ -28,6 +28,8 @@ interface ReviewFeedItem {
   responseStatus: string | null;
   approvalMethod: ApprovalMethod | null;
   locationDisplayName?: string;
+  /** Optional so the aggregate feed (WS5) can keep omitting it. */
+  escalation?: ReviewEscalation | null;
 }
 
 interface ReviewFeedCardProps {
@@ -94,6 +96,7 @@ function ReviewFeedRow({
         readOnly={readOnly}
         reviewId={r.id}
         responseText={r.responseText}
+        escalation={r.escalation ?? null}
         onSuccess={onSuccess}
       />
       <PostedResponse isPending={isPending} responseText={r.responseText} />
@@ -123,6 +126,14 @@ function ReviewFeedHeader({
         </span>
       )}
       <span className={`badge ${badge.cls}`}>{badge.label}</span>
+      {r.escalation && (
+        <span
+          className={`escalation-badge escalation-badge--${r.escalation.severity}`}
+          title={r.escalation.status === 'acknowledged' ? 'Escalation acknowledged' : 'Escalated to you by Guardian'}
+        >
+          {r.escalation.status === 'acknowledged' ? '👁 Acknowledged' : '🚨 Needs attention'}
+        </span>
+      )}
       <AutoApprovedBadge method={r.approvalMethod} variant="compact" />
       <span className="review-meta-time">{formatRelative(r.reviewDate)}</span>
     </div>
@@ -138,12 +149,14 @@ function PendingDraft({
   readOnly,
   reviewId,
   responseText,
+  escalation,
   onSuccess,
 }: {
   isPending: boolean;
   readOnly: boolean;
   reviewId: string;
   responseText: string | null;
+  escalation: ReviewEscalation | null;
   onSuccess: () => void;
 }) {
   if (!isPending || !responseText) return null;
@@ -160,7 +173,12 @@ function PendingDraft({
           Update billing to approve, edit, or regenerate this reply.
         </p>
       ) : (
-        <ReviewActions reviewId={reviewId} responseText={responseText} onSuccess={onSuccess} />
+        <ReviewActions
+          reviewId={reviewId}
+          responseText={responseText}
+          escalation={escalation}
+          onSuccess={onSuccess}
+        />
       )}
     </div>
   );
