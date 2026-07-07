@@ -25,6 +25,8 @@ export interface LLMCallResult {
   provider: LLMProviderId;
   model: string;
   usage: { promptTokens: number; completionTokens: number };
+  /** Validated output for tasks that declare an outputSchema; absent otherwise. */
+  structured?: unknown;
 }
 
 export interface LLMRequest extends ChatPrompt {
@@ -46,8 +48,8 @@ export interface LLMTaskDescriptor {
   /** Honored by the openai provider; NOT forwarded by anthropic today — see
    *  anthropic-provider.ts. */
   temperature?: number;
-  /** Structured-output contract for classification/judge tasks. Declared in
-   *  the type vocabulary now; runtime enforcement lands with the first
-   *  structured task (triage) — no dead code ships before its tenant. */
+  /** Structured-output contract for classification/judge tasks. Enforced by
+   *  runLlmTask: the completion is fence-stripped, JSON.parsed, and validated;
+   *  the validated value lands on LLMCallResult.structured. */
   outputSchema?: z.ZodTypeAny;
 }

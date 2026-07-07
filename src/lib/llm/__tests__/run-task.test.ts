@@ -220,18 +220,103 @@ describe('runLlmTask', () => {
     expect(anthropicComplete).not.toHaveBeenCalled();
   });
 
-  it('throws loudly for a descriptor declaring outputSchema (not yet implemented)', async () => {
-    getLlmTask.mockReturnValueOnce({
-      ...fallbackLessTask,
-      outputSchema: z.object({}),
+  describe('structured output', () => {
+    const schema = z.strictObject({ severity: z.enum(['low', 'medium', 'high']) });
+    const structuredTask: LLMTaskDescriptor = {
+      taskId: 'triage',
+      primary: { provider: 'openai', model: 'gpt-4o-mini-2024-07-18' },
+      fallback: { provider: 'anthropic', model: 'claude-haiku-4-5-20251001' },
+      maxTokens: 200,
+      temperature: 0,
+      outputSchema: schema,
+    };
+
+    it('parses and validates a JSON completion onto result.structured', async () => {
+      getLlmTask.mockReturnValueOnce(structuredTask);
+      openaiComplete.mockResolvedValueOnce(callResult({ text: '{"severity":"high"}' }));
+
+      const { runLlmTask } = await import('../run-task');
+      const result = await runLlmTask('triage', prompt);
+
+      expect(result.structured).toEqual({ severity: 'high' });
+      expect(result.text).toBe('{"severity":"high"}');
     });
 
-    const { runLlmTask } = await import('../run-task');
+    it('strips markdown code fences before parsing', async () => {
+      getLlmTask.mockReturnValueOnce(structuredTask);
+      openaiComplete.mockResolvedValueOnce(
+        callResult({ text: '```json\n{"severity":"low"}\n```' }),
+      );
 
-    await expect(runLlmTask('reply_generation', prompt)).rejects.toThrow(
-      'structured output not yet implemented: reply_generation',
-    );
-    expect(openaiComplete).not.toHaveBeenCalled();
-    expect(anthropicComplete).not.toHaveBeenCalled();
+      const { runLlmTask } = await import('../run-task');
+      const result = await runLlmTask('triage', prompt);
+
+      expect(result.structured).toEqual({ severity: 'low' });
+    });
+
+    it('falls back to the second provider when the primary output fails validation', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      getLlmTask.mockReturnValueOnce(structuredTask);
+      openaiComplete.mockResolvedValueOnce(callResult({ text: 'Sorry, I cannot help.' }));
+      anthropicComplete.mockResolvedValueOnce(
+        callResult({ provider: 'anthropic', model: 'claude-haiku-4-5-20251001', text: '{"severity":"medium"}' }),
+      );
+
+      const { runLlmTask } = await import('../run-task');
+      const result = await runLlmTask('triage', prompt);
+
+      expect(result.provider).toBe('anthropic');
+      expect(result.structured).toEqual({ severity: 'medium' });
+    });
+
+    it('throws a terminal LLMStructuredOutputError (not transient) when both providers return invalid output', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      getLlmTask.mockReturnValueOnce(structuredTask);
+      openaiComplete.mockResolvedValueOnce(callResult({ text: 'not json' }));
+      anthropicComplete.mockResolvedValueOnce(
+        callResult({ provider: 'anthropic', text: '{"severity":"catastrophic"}' }),
+      );
+
+      const { runLlmTask, LLMStructuredOutputError } = await import('../run-task');
+      const { TransientLLMError } = await import('../error-classifier');
+
+      try {
+        await runLlmTask('triage', prompt);
+        throw new Error('expected throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(LLMStructuredOutputError);
+        expect(err).not.toBeInstanceOf(TransientLLMError);
+        // Logging rules: the message never embeds the completion text.
+        expect((err as Error).message).not.toContain('catastrophic');
+      }
+    });
+
+    it('still wraps a transient transport failure as TransientLLMError when the other attempt is schema-invalid', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      getLlmTask.mockReturnValueOnce(structuredTask);
+      const transient = Object.assign(new Error('openai 503'), { code: 'ECONNRESET' });
+      openaiComplete.mockRejectedValueOnce(transient);
+      anthropicComplete.mockResolvedValueOnce(callResult({ provider: 'anthropic', text: 'not json' }));
+
+      const { runLlmTask } = await import('../run-task');
+      const { TransientLLMError } = await import('../error-classifier');
+
+      try {
+        await runLlmTask('triage', prompt);
+        throw new Error('expected throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(TransientLLMError);
+        expect((err as InstanceType<typeof TransientLLMError>).cause).toBe(transient);
+      }
+    });
+
+    it('does not touch result.structured for schema-less tasks', async () => {
+      openaiComplete.mockResolvedValueOnce(callResult({ text: 'plain text reply' }));
+
+      const { runLlmTask } = await import('../run-task');
+      const result = await runLlmTask('reply_generation', prompt);
+
+      expect(result.structured).toBeUndefined();
+    });
   });
 });
