@@ -1,4 +1,6 @@
 import type { ApprovalMethod } from '@/lib/auto-approval/types';
+import type { OpenEscalationStatus } from '@/lib/escalations/types';
+import type { TriageSeverity } from '@/lib/reviews/triage-schema';
 
 export interface DashboardSettings {
   tone: string;
@@ -103,8 +105,8 @@ export interface DashboardDataActive {
     /** Open Guardian escalation (WS3); null when none. Resolved escalations never surface here. */
     escalation: {
       id: string;
-      status: 'escalated' | 'acknowledged';
-      severity: 'low' | 'medium' | 'high';
+      status: OpenEscalationStatus;
+      severity: TriageSeverity;
     } | null;
   }>;
   latestBrief: {

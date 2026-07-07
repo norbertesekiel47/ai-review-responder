@@ -11,3 +11,6 @@ export const ESCALATION_STATUS = {
 } as const;
 
 export type EscalationStatus = (typeof ESCALATION_STATUS)[keyof typeof ESCALATION_STATUS];
+
+/** The statuses that surface to the owner UI — resolved escalations never leave the server. */
+export type OpenEscalationStatus = Exclude<EscalationStatus, 'resolved'>;

@@ -5,7 +5,7 @@ import { ReviewActions } from '../ReviewActions';
 
 afterEach(() => vi.unstubAllGlobals());
 
-function regenResponse(init: { ok: boolean; status: number; body: unknown }) {
+function jsonResponse(init: { ok: boolean; status: number; body: unknown }) {
   return { ok: init.ok, status: init.status, json: async () => init.body };
 }
 
@@ -15,7 +15,7 @@ describe('ReviewActions regenerate cap (issue #335)', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
-        regenResponse({
+        jsonResponse({
           ok: false,
           status: 429,
           body: {
@@ -42,7 +42,7 @@ describe('ReviewActions regenerate cap (issue #335)', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
-        regenResponse({ ok: true, status: 200, body: { success: true, message: 'ok' } }),
+        jsonResponse({ ok: true, status: 200, body: { success: true, message: 'ok' } }),
       ),
     );
 
@@ -65,7 +65,7 @@ describe('ReviewActions escalation actions (WS3)', () => {
   it('POSTs acknowledge to the escalation endpoint and advances on 200', async () => {
     const onSuccess = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue(
-      regenResponse({ ok: true, status: 200, body: { success: true, status: 'acknowledged' } }),
+      jsonResponse({ ok: true, status: 200, body: { success: true, status: 'acknowledged' } }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -79,18 +79,22 @@ describe('ReviewActions escalation actions (WS3)', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /acknowledge/i }));
 
-    await waitFor(() => screen.getByText(/escalation acknowledged/i));
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/dashboard/escalations/esc-1/acknowledge',
       { method: 'POST' },
     );
-    expect(onSuccess).toHaveBeenCalledOnce();
+    // Back to idle, not the terminal success panel: the owner must still be
+    // able to act on the draft (the refreshed badge is the confirmation).
+    expect(screen.getByRole('button', { name: /^approve$/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /regenerate/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /resolve/i })).toBeEnabled();
   });
 
   it('hides Acknowledge once acknowledged but still offers Resolve', async () => {
     const onSuccess = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue(
-      regenResponse({ ok: true, status: 200, body: { success: true, status: 'resolved' } }),
+      jsonResponse({ ok: true, status: 200, body: { success: true, status: 'resolved' } }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -106,12 +110,13 @@ describe('ReviewActions escalation actions (WS3)', () => {
     expect(screen.queryByRole('button', { name: /acknowledge/i })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /resolve/i }));
 
-    await waitFor(() => screen.getByText(/escalation resolved/i));
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/dashboard/escalations/esc-2/resolve',
       { method: 'POST' },
     );
-    expect(onSuccess).toHaveBeenCalledOnce();
+    // Idle again — approval actions stay available after the transition.
+    expect(screen.getByRole('button', { name: /^approve$/i })).toBeEnabled();
   });
 
   it('surfaces the server error and does not advance on a failed transition', async () => {
@@ -119,7 +124,7 @@ describe('ReviewActions escalation actions (WS3)', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
-        regenResponse({ ok: false, status: 409, body: { error: 'Escalation is already resolved' } }),
+        jsonResponse({ ok: false, status: 409, body: { error: 'Escalation is already resolved' } }),
       ),
     );
 

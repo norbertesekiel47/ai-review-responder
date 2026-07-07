@@ -128,10 +128,11 @@ function ReviewFeedHeader({
       <span className={`badge ${badge.cls}`}>{badge.label}</span>
       {r.escalation && (
         <span
-          className={`escalation-badge escalation-badge--${r.escalation.severity}`}
+          className={`badge escalation-badge escalation-badge--${r.escalation.severity}`}
           title={r.escalation.status === 'acknowledged' ? 'Escalation acknowledged' : 'Escalated to you by Guardian'}
         >
-          {r.escalation.status === 'acknowledged' ? '👁 Acknowledged' : '🚨 Needs attention'}
+          <span aria-hidden="true">{r.escalation.status === 'acknowledged' ? '👁' : '🚨'}</span>
+          {r.escalation.status === 'acknowledged' ? 'Acknowledged' : 'Needs attention'}
         </span>
       )}
       <AutoApprovedBadge method={r.approvalMethod} variant="compact" />

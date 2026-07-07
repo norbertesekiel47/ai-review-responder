@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import type { OpenEscalationStatus } from '@/lib/escalations/types';
+import type { TriageSeverity } from '@/lib/reviews/triage-schema';
 
 type ActionState =
   | { kind: 'idle' }
@@ -13,8 +15,8 @@ type ActionState =
 /** Open Guardian escalation on the review (WS3); resolved escalations never reach the client. */
 export interface ReviewEscalation {
   id: string;
-  status: 'escalated' | 'acknowledged';
-  severity: 'low' | 'medium' | 'high';
+  status: OpenEscalationStatus;
+  severity: TriageSeverity;
 }
 
 export function ReviewActions({
@@ -104,11 +106,11 @@ export function ReviewActions({
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `Failed (${res.status})`);
       }
-      setState({
-        kind: 'success',
-        message: action === 'acknowledge' ? 'Escalation acknowledged' : 'Escalation resolved',
-      });
       onSuccess();
+      // Back to idle, NOT the terminal success panel: the refreshed escalation
+      // badge is the confirmation, and the owner must still be able to
+      // Approve/Edit/Regenerate (and Resolve) this draft afterwards.
+      setState({ kind: 'idle' });
     } catch (err) {
       setState({
         kind: 'error',
