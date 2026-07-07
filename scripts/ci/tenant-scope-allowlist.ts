@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 368;
+export const ALLOWLIST_BASELINE = 372;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -2491,6 +2491,34 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT b.name, b.display_label, b.google_maps_url, b.archived_at, a.id AS account_id, a.subscription_status, a.past_due_at AS account_past_due_at, a.flags AS account_flags, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN account_offboardings ao ON ao.account_id = a.id AND ao.terminal_at IS NULL WHERE b.id = ${input.businessId} ORDER BY ao.created_at DESC NULLS LAST LIMIT 1",
     category: 'worker-job-scoped',
     reason: "Auto-post FYI worker follows a durable job business id and joins to the active offboarding gate for that business account before dispatch.",
+  },
+  {
+    file: "worker/jobs/escalation-notice/context.ts",
+    table: "review_escalations",
+    sqlSnippet: "SELECT e.id, e.status, e.business_id AS esc_business_id, e.account_id, e.review_id, e.triage_severity, e.triage_source, e.triage_suggested_action, e.triage_issues, r.reviewer_name, r.star_rating, r.review_text FROM review_escalations e JOIN reviews r ON r.id = e.review_id WHERE e.id = ${input.escalationId}",
+    category: 'worker-job-scoped',
+    reason: "Escalation-notice worker follows a durable job payload escalation id; tenant context fixed upstream by raiseEscalation, and the loader fails on a business_id mismatch before any send.",
+  },
+  {
+    file: "worker/jobs/escalation-notice/context.ts",
+    table: "reviews",
+    sqlSnippet: "SELECT e.id, e.status, e.business_id AS esc_business_id, e.account_id, e.review_id, e.triage_severity, e.triage_source, e.triage_suggested_action, e.triage_issues, r.reviewer_name, r.star_rating, r.review_text FROM review_escalations e JOIN reviews r ON r.id = e.review_id WHERE e.id = ${input.escalationId}",
+    category: 'worker-job-scoped',
+    reason: "Escalation-notice worker follows a durable job payload escalation id; tenant context fixed upstream by raiseEscalation, and the loader fails on a business_id mismatch before any send.",
+  },
+  {
+    file: "worker/jobs/escalation-notice/context.ts",
+    table: "account_offboardings",
+    sqlSnippet: "SELECT b.name, b.display_label, b.archived_at, a.id AS account_id, a.subscription_status, a.past_due_at AS account_past_due_at, a.flags AS account_flags, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN account_offboardings ao ON ao.account_id = a.id AND ao.terminal_at IS NULL WHERE b.id = ${input.businessId} ORDER BY ao.created_at DESC NULLS LAST LIMIT 1",
+    category: 'worker-job-scoped',
+    reason: "Escalation-notice worker follows a durable job business id and joins to the active offboarding gate for that business account before dispatch.",
+  },
+  {
+    file: "worker/jobs/escalation-notice/EscalationNoticeWorker.ts",
+    table: "reviews",
+    sqlSnippet: "SELECT id FROM reviews WHERE id = ${ctx.escalation.review_id} FOR UPDATE",
+    category: 'worker-job-scoped',
+    reason: "Lock-ordering statement (review row FOR UPDATE first, then the spine write); scope established by the context loader's business_id-mismatch guard on the same escalation in the same handler.",
   },
   {
     file: "src/lib/notifications/delivery.ts",

@@ -1,17 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { sqlCalls, mockSql } = vi.hoisted(() => {
+const { sqlCalls, sqlQueue, mockSql } = vi.hoisted(() => {
   const sqlCalls: Array<{ template: string; values: unknown[] }> = [];
+  const sqlQueue: unknown[] = [];
   const mockSql: any = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     sqlCalls.push({ template: strings.join('?'), values });
-    return Promise.resolve([]);
+    return Promise.resolve(sqlQueue.length > 0 ? sqlQueue.shift() : []);
   });
-  return { sqlCalls, mockSql };
+  return { sqlCalls, sqlQueue, mockSql };
 });
 
 vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
 
-import { recordNotificationDelivery, insertFailedDelivery } from '../delivery';
+import { recordNotificationDelivery, insertFailedDelivery, claimEscalationNoticeDelivery } from '../delivery';
 
 describe('recordNotificationDelivery', () => {
   beforeEach(() => {
@@ -129,5 +130,57 @@ describe('insertFailedDelivery', () => {
     const call = sqlCalls[0]!;
     expect(call.template).toMatch(/account_id/);
     expect(call.values).toContain('acct-99');
+  });
+});
+
+describe('claimEscalationNoticeDelivery', () => {
+  beforeEach(() => {
+    sqlCalls.length = 0;
+    sqlQueue.length = 0;
+    mockSql.mockClear();
+  });
+
+  const claim = () => claimEscalationNoticeDelivery(mockSql, {
+    accountId: 'acct-1',
+    businessId: 'biz-1',
+    escalationId: 'esc-1',
+    channel: 'email',
+    recipient: 'owner@example.com',
+  });
+
+  it('INSERTs with the escalation_id column and the migration-073 ON CONFLICT predicate byte-for-byte', async () => {
+    sqlQueue.push([{ id: 'ignored' }]);
+    await claim();
+
+    const call = sqlCalls[0]!;
+    const flatTemplate = call.template.replace(/\s+/g, ' ');
+    expect(flatTemplate).toMatch(/INSERT INTO notification_deliveries/);
+    // escalation_id in the column list; NO response_id (left NULL).
+    expect(flatTemplate).toContain('escalation_id');
+    expect(flatTemplate).not.toContain('response_id');
+    // ON CONFLICT must match notification_deliveries_escalation_notice_claim
+    // (migration 073) BYTE-FOR-BYTE, template literal included.
+    expect(flatTemplate).toContain(
+      "ON CONFLICT (escalation_id, channel, recipient) WHERE escalation_id IS NOT NULL AND template = 'escalation_notice' DO NOTHING",
+    );
+    expect(call.values).toContain('acct-1');
+    expect(call.values).toContain('biz-1');
+    expect(call.values).toContain('esc-1');
+    expect(call.values).toContain('email');
+    expect(call.values).toContain('owner@example.com');
+    // 'escalation_notice' stays a literal in the template, never a bound param.
+    expect(call.values).not.toContain('escalation_notice');
+  });
+
+  it('returns the new delivery id when the claim wins', async () => {
+    sqlQueue.push([{ id: 'row' }]);
+    const id = await claim();
+    expect(typeof id).toBe('string');
+  });
+
+  it('returns null when a live claim already exists (ON CONFLICT DO NOTHING)', async () => {
+    sqlQueue.push([]);
+    const id = await claim();
+    expect(id).toBeNull();
   });
 });

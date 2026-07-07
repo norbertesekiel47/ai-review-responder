@@ -149,6 +149,9 @@ const OWNER_DIRECTED_TEMPLATES = new Set([
   // Auto-approved post FYI (Workstream B) — owner-directed, so a hard bounce
   // flags businesses.owner_email_bounced like any other owner email.
   'auto_post_notice',
+  // Guardian escalation notice (WS3) — owner-directed, so a hard bounce flags
+  // businesses.owner_email_bounced like any other owner email.
+  'escalation_notice',
 ]);
 
 /**

@@ -104,6 +104,35 @@ export async function claimAutoPostNoticeDelivery(sql: Sql, params: {
 }
 
 /**
+ * Insert a pending claim keyed by (escalation_id, channel, recipient) for
+ * template='escalation_notice'. Returns the new delivery id, or null when a
+ * live claim already exists. ON CONFLICT predicate matches the partial index
+ * `notification_deliveries_escalation_notice_claim` (migration 073)
+ * BYTE-FOR-BYTE — the 'escalation_notice' literal must stay a literal.
+ */
+export async function claimEscalationNoticeDelivery(sql: Sql, params: {
+  accountId: string;
+  businessId: string;
+  escalationId: string;
+  channel: ChannelId;
+  recipient: string;
+}): Promise<string | null> {
+  const id = uuidv7();
+  const claimed = await sql<{ id: string }[]>`
+    INSERT INTO notification_deliveries
+      (id, account_id, business_id, escalation_id, channel, recipient, template)
+    VALUES
+      (${id}, ${params.accountId}, ${params.businessId}, ${params.escalationId},
+       ${params.channel}, ${params.recipient}, 'escalation_notice')
+    ON CONFLICT (escalation_id, channel, recipient)
+      WHERE escalation_id IS NOT NULL AND template = 'escalation_notice'
+      DO NOTHING
+    RETURNING id
+  `;
+  return claimed.length === 1 ? id : null;
+}
+
+/**
  * Insert a PENDING approval-request delivery claim (sent_at NULL, failed_at
  * NULL) and return its id. The approval dispatcher claims this row BEFORE the
  * provider send so a crash between provider-accept and the delivery record
