@@ -50,6 +50,18 @@ export interface EscalationNoticeDispatchResult {
   retryableFailed: number;
 }
 
+/**
+ * A provider error message may echo the message body (e.g. "invalid body:
+ * <text>") — redact the known review text so the warn lines never carry it
+ * (log-hygiene rule: never log raw review text). The UNREDACTED reason still
+ * lands in notification_deliveries.failure_reason for terminal failures,
+ * which is a DB column, not a log line.
+ */
+function redactReviewText(reason: string, reviewText: string | null): string {
+  if (!reviewText) return reason;
+  return reason.split(reviewText).join('[review_text]');
+}
+
 // per-channel delivery loop whose branches are the distinct claim→send outcomes
 // (whatsapp pre-filter, dedup, channel-skip, sent, retryable-release, terminal-fail);
 // inherent to the one-pass fan-out over the delivery.ts claim helpers it orchestrates.
@@ -139,12 +151,13 @@ export async function dispatchEscalationNotice(
         throw err;
       }
       const classification = classifyEscalationNoticeSendError(err);
+      const loggedReason = redactReviewText(classification.reason, input.review.reviewText);
       if (classification.retryable) {
         // RELEASE the claim so a BullMQ retry re-acquires + re-sends.
         await releaseDeliveryClaim(sql, deliveryId);
         result.retryableFailed += 1;
         logger.warn(
-          `escalation_notice retryable-failed channel=${channelId} escalation=${input.escalationId}: ${classification.reason}`,
+          `escalation_notice retryable-failed channel=${channelId} escalation=${input.escalationId}: ${loggedReason}`,
         );
       } else {
         // TERMINAL: keep the claim as a recorded failed delivery (NOT deleted —
@@ -153,7 +166,7 @@ export async function dispatchEscalationNotice(
         await failDelivery(sql, deliveryId, classification.reason);
         result.terminalFailed += 1;
         logger.warn(
-          `escalation_notice terminal-failed channel=${channelId} escalation=${input.escalationId}: ${classification.reason}`,
+          `escalation_notice terminal-failed channel=${channelId} escalation=${input.escalationId}: ${loggedReason}`,
         );
       }
     }

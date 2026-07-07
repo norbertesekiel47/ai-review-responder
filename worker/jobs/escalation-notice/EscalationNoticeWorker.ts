@@ -7,10 +7,17 @@
 // here at SEND time (spec §2.4): flipping ESCALATION_ENABLED off stops
 // outbound notices without hiding already-raised escalations.
 //
-// On full success it records the `escalation_sent` step on the review's
-// active run — review row FOR UPDATE FIRST (lock-ordering rule), then the
-// spine write. The claim dedup makes a later retry converge to exactly one
-// step.
+// After sends it records the `escalation_sent` step on the review's active
+// run — review row FOR UPDATE FIRST (lock-ordering rule), then the spine
+// write. Step recording is BEST-EFFORT after the send (log-and-swallow): the
+// notices are already delivered, so a step-tx failure must not fail the job —
+// a retry would dedup on the claims (sent=0) and could never recover the
+// step. notification_deliveries is the authoritative per-channel record.
+//
+// Distinct asserted terminal signals via structured logs:
+//   flag-off skip · fail/skip reasons (context) · no-eligible-channels
+//   · sent / skipped / dedup / retryable-failed / terminal-failed (dispatch)
+//   · systemic-failure · step-record-failed.
 
 import type { Job } from 'bullmq';
 import type { Sql } from 'postgres';
@@ -136,34 +143,46 @@ export async function handleEscalationNotice(sql: Sql, job: Job<EscalationNotice
 
   // Retry ONLY when a transient failure left work to do (the released claims
   // let those channels re-send). Throw BEFORE the step write so a partial
-  // send never records escalation_sent; the retry's claim dedup converges to
-  // exactly one step once every channel settles.
+  // send never records escalation_sent while sends are still outstanding.
   if (dispatch.retryableFailed > 0) {
     throw new Error(
       `escalation_notice: ${dispatch.retryableFailed} retryable channel failure(s) for escalation ${escalation_id} — BullMQ will retry.`,
     );
   }
 
-  if (dispatch.retryableFailed === 0 && dispatch.sent > 0) {
-    await sql.begin(async (tx) => {
-      // Lock-ordering rule: review row FIRST, then any spine write.
-      const locked = await tx<{ id: string }[]>`
-        SELECT id FROM reviews WHERE id = ${ctx.escalation.review_id} FOR UPDATE
-      `;
-      if (locked.count === 0) return;
-      const activeRun = await findActiveReviewRun(tx, ctx.escalation.review_id);
-      if (!activeRun) return;
-      await recordStep(tx, {
-        runId: activeRun.id,
-        stepKey: 'escalation_sent',
-        detail: {
-          escalation_id: ctx.escalation.id,
-          sent: dispatch.sent,
-          skipped: dispatch.skipped,
-          terminal_failed: dispatch.terminalFailed,
-        },
+  if (dispatch.sent > 0) {
+    // BEST-EFFORT step recording (log-and-swallow): the notices are the
+    // primary side effect and are already sent — a step-tx failure must not
+    // flip this job to failed (a retry would dedup on the claims, report
+    // sent=0, and could never re-attempt the step anyway).
+    try {
+      await sql.begin(async (tx) => {
+        // Lock-ordering rule: review row FIRST, then any spine write.
+        const locked = await tx<{ id: string }[]>`
+          SELECT id FROM reviews WHERE id = ${ctx.escalation.review_id} FOR UPDATE
+        `;
+        if (locked.count === 0) return;
+        const activeRun = await findActiveReviewRun(tx, ctx.escalation.review_id);
+        if (!activeRun) return;
+        await recordStep(tx, {
+          runId: activeRun.id,
+          stepKey: 'escalation_sent',
+          // Counts are PER-ATTEMPT: after a partial retry the step may say
+          // sent=1 even though two channels delivered overall. The
+          // notification_deliveries rows are the authoritative record.
+          detail: {
+            escalation_id: ctx.escalation.id,
+            sent: dispatch.sent,
+            skipped: dispatch.skipped,
+            terminal_failed: dispatch.terminalFailed,
+          },
+        });
       });
-    });
+    } catch (err) {
+      logger.error(
+        `escalation_notice step-record-failed escalation=${escalation_id}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   await markOutboxCompleted(sql, outboxId, outboxAttempt);

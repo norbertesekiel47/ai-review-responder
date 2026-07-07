@@ -41,6 +41,7 @@ beforeEach(() => {
   sqlCalls.length = 0;
   logger.log.mockReset();
   logger.warn.mockReset();
+  logger.error.mockReset();
   mockGetChannel.mockReset();
   process.env.WHATSAPP_ESCALATION_TEMPLATE_SID = 'HXsid';
   // dispatch reads WHATSAPP_ESCALATION_TEMPLATE_SID via the memoized
@@ -144,6 +145,9 @@ describe('dispatchEscalationNotice', () => {
     expect(sqlCalls.some((s) => /DELETE FROM\s+notification_deliveries/i.test(s))).toBe(true);
   });
 
+  const recordedLogLines = () =>
+    [...logger.log.mock.calls, ...logger.warn.mock.calls, ...logger.error.mock.calls].map((c) => String(c[0]));
+
   it('never logs review text (escalation id only)', async () => {
     const send = vi.fn(async () => ({ status: 'sent', externalMessageId: 'm1' }));
     mockGetChannel.mockReturnValue({ sendEscalationNotice: send });
@@ -152,8 +156,24 @@ describe('dispatchEscalationNotice', () => {
 
     await dispatchEscalationNotice(mockSql as unknown as Sql, INPUT, [email()], logger as never);
 
-    const allLogLines = [...logger.log.mock.calls, ...logger.warn.mock.calls].map((c) => String(c[0]));
+    const allLogLines = recordedLogLines();
     expect(allLogLines.some((line) => line.includes('terrible visit'))).toBe(false);
     expect(allLogLines.some((line) => line.includes('escalation=esc-1'))).toBe(true);
+  });
+
+  it('never logs review text even when a terminal provider error echoes it in err.message', async () => {
+    // The warn lines interpolate the classified reason — a provider error that
+    // echoes the message body is the risky path; dispatch must redact it.
+    const send = vi.fn(async () => { throw new Error('provider rejected body: "terrible visit" is too long'); });
+    mockGetChannel.mockReturnValue({ sendEscalationNotice: send });
+    sqlQueue.push([{ id: 'd1' }]); // claim
+    sqlQueue.push([]);             // terminal UPDATE
+
+    const res = await dispatchEscalationNotice(mockSql as unknown as Sql, INPUT, [email()], logger as never);
+
+    expect(res.terminalFailed).toBe(1);
+    const allLogLines = recordedLogLines();
+    expect(allLogLines.some((line) => line.includes('terrible visit'))).toBe(false);
+    expect(allLogLines.some((line) => line.includes('terminal-failed'))).toBe(true);
   });
 });

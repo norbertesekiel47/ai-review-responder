@@ -231,6 +231,20 @@ describe('handleEscalationNotice', () => {
     expect(mocks.markOutboxCompleted).not.toHaveBeenCalled();
   });
 
+  it('step tx failure is BEST-EFFORT: logs step-record-failed, outbox still completed, no re-throw', async () => {
+    sqlReturnQueue.push(mkTaggedResult([{ id: 'rev-1' }])); // reviews FOR UPDATE lock
+    mocks.findActiveReviewRun.mockRejectedValue(new Error('transient db blip'));
+
+    await expect(run()).resolves.toBeUndefined();
+
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      expect.stringContaining('escalation_notice step-record-failed escalation=esc-1'),
+    );
+    expect(mocks.recordStep).not.toHaveBeenCalled();
+    // The notices are already sent — the job must still complete the outbox.
+    expect(mocks.markOutboxCompleted).toHaveBeenCalledWith(mockSql, 'ob-1', 1);
+  });
+
   it('no active run → no step recorded, outbox still completed', async () => {
     mocks.findActiveReviewRun.mockResolvedValue(null);
     sqlReturnQueue.push(mkTaggedResult([{ id: 'rev-1' }]));
