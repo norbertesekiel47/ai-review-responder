@@ -46,7 +46,7 @@ function isTrustworthySource(source: string | null): boolean {
 export async function runTriagePhase(
   sql: Sql,
   ctx: GenerationContext,
-  ids: { reviewId: string; businessId: string },
+  ids: { reviewId: string; businessId: string; correlationId?: string },
   logger: Pick<WorkerLogger, 'log'>,
 ): Promise<TriageSeverity | null> {
   if (!triageEnabled()) return null;
@@ -80,6 +80,7 @@ export async function runTriagePhase(
     await persistTriage(tx, {
       reviewId: ids.reviewId,
       businessId: ids.businessId,
+      accountId: ctx.accountId,
       classification,
       // Hash of the text the LLM actually classified (loaded with the
       // generation context) — NOT the fresher state-read hash. If a
@@ -88,6 +89,7 @@ export async function runTriagePhase(
       // triaged with an old-text classification; the loaded hash keeps every
       // divergence self-healing (mismatch → next job re-triages).
       contentHash: ctx.loadedReviewContentHash,
+      correlationId: ids.correlationId,
     });
   });
 

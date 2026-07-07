@@ -24,7 +24,17 @@ vi.mock('@/lib/shared/mock-mode', () => ({ isMockMode }));
 
 const findActiveReviewRun = vi.hoisted(() => vi.fn());
 const recordStep = vi.hoisted(() => vi.fn());
-vi.mock('@/lib/agents/run-spine', () => ({ findActiveReviewRun, recordStep }));
+const recordOutcome = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/agents/run-spine', () => ({ findActiveReviewRun, recordStep, recordOutcome }));
+
+const escalationEnabled = vi.hoisted(() => vi.fn(() => false));
+vi.mock('@/lib/escalations/flags', () => ({ escalationEnabled }));
+
+const raiseEscalation = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/escalations/raise', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/escalations/raise')>()),
+  raiseEscalation,
+}));
 
 import { classifyReviewTriage, persistTriage } from '../triage';
 import { TransientLLMError } from '@/lib/llm/error-classifier';
@@ -185,6 +195,7 @@ describe('persistTriage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    escalationEnabled.mockReturnValue(false);
     resetMockSql();
   });
 
@@ -194,7 +205,7 @@ describe('persistTriage', () => {
     findActiveReviewRun.mockResolvedValueOnce({ id: 'run-1', account_id: 'acct-1' });
 
     await persistTriage(mockSql as never, {
-      reviewId: 'rev-1', businessId: 'biz-1',
+      reviewId: 'rev-1', businessId: 'biz-1', accountId: 'acct-1',
       classification: classification as never, contentHash: 'hash-1',
     });
 
@@ -221,7 +232,7 @@ describe('persistTriage', () => {
     findActiveReviewRun.mockResolvedValueOnce({ id: 'run-1', account_id: 'acct-1' });
 
     await persistTriage(mockSql as never, {
-      reviewId: 'rev-1', businessId: 'biz-1',
+      reviewId: 'rev-1', businessId: 'biz-1', accountId: 'acct-1',
       classification: {
         output: { severity: 'high', issues: [], suggested_action: 'escalate' },
         source: TRIAGE_SOURCE.FALLBACK, model: null, latencyMs: null,
@@ -239,7 +250,7 @@ describe('persistTriage', () => {
   it('skips quietly when the review row is gone, and skips the step for legacy runs', async () => {
     sqlReturnQueue.push(mkTaggedResult([]));
     await persistTriage(mockSql as never, {
-      reviewId: 'rev-x', businessId: 'biz-1',
+      reviewId: 'rev-x', businessId: 'biz-1', accountId: 'acct-1',
       classification: classification as never, contentHash: null,
     });
     expect(recordStep).not.toHaveBeenCalled();
@@ -250,9 +261,84 @@ describe('persistTriage', () => {
     sqlReturnQueue.push(mkTaggedResult([]));
     findActiveReviewRun.mockResolvedValueOnce(null);
     await persistTriage(mockSql as never, {
-      reviewId: 'rev-1', businessId: 'biz-1',
+      reviewId: 'rev-1', businessId: 'biz-1', accountId: 'acct-1',
       classification: classification as never, contentHash: null,
     });
     expect(recordStep).not.toHaveBeenCalled();
+  });
+
+  it('raises the escalation AFTER the triage step when the flag is on and triage suggests it', async () => {
+    escalationEnabled.mockReturnValue(true);
+    sqlReturnQueue.push(mkTaggedResult([{ id: 'rev-1' }]));
+    sqlReturnQueue.push(mkTaggedResult([]));
+    findActiveReviewRun.mockResolvedValueOnce({ id: 'run-1', account_id: 'acct-1' });
+
+    await persistTriage(mockSql as never, {
+      reviewId: 'rev-1', businessId: 'biz-1', accountId: 'acct-1',
+      classification: classification as never, contentHash: 'hash-1',
+      correlationId: 'corr-1',
+    });
+
+    expect(raiseEscalation).toHaveBeenCalledTimes(1);
+    expect(raiseEscalation).toHaveBeenCalledWith(mockSql, {
+      reviewId: 'rev-1',
+      businessId: 'biz-1',
+      accountId: 'acct-1',
+      activeRun: { id: 'run-1', account_id: 'acct-1' },
+      classification,
+      correlationId: 'corr-1',
+    });
+    // The guardian triage step lands BEFORE the escalation raise.
+    expect(recordStep.mock.invocationCallOrder[0]!)
+      .toBeLessThan(raiseEscalation.mock.invocationCallOrder[0]!);
+  });
+
+  it('does not raise when triage suggests respond', async () => {
+    escalationEnabled.mockReturnValue(true);
+    sqlReturnQueue.push(mkTaggedResult([{ id: 'rev-1' }]));
+    sqlReturnQueue.push(mkTaggedResult([]));
+    findActiveReviewRun.mockResolvedValueOnce({ id: 'run-1', account_id: 'acct-1' });
+
+    await persistTriage(mockSql as never, {
+      reviewId: 'rev-1', businessId: 'biz-1', accountId: 'acct-1',
+      classification: {
+        ...classification,
+        output: { severity: 'low', issues: [], suggested_action: 'respond' },
+      } as never,
+      contentHash: 'hash-1',
+    });
+
+    expect(raiseEscalation).not.toHaveBeenCalled();
+  });
+
+  it('does not raise when ESCALATION_ENABLED is off', async () => {
+    escalationEnabled.mockReturnValue(false);
+    sqlReturnQueue.push(mkTaggedResult([{ id: 'rev-1' }]));
+    sqlReturnQueue.push(mkTaggedResult([]));
+    findActiveReviewRun.mockResolvedValueOnce({ id: 'run-1', account_id: 'acct-1' });
+
+    await persistTriage(mockSql as never, {
+      reviewId: 'rev-1', businessId: 'biz-1', accountId: 'acct-1',
+      classification: classification as never, contentHash: 'hash-1',
+    });
+
+    expect(raiseEscalation).not.toHaveBeenCalled();
+  });
+
+  it('still raises for a legacy review with no active run (activeRun: null)', async () => {
+    escalationEnabled.mockReturnValue(true);
+    sqlReturnQueue.push(mkTaggedResult([{ id: 'rev-1' }]));
+    sqlReturnQueue.push(mkTaggedResult([]));
+    findActiveReviewRun.mockResolvedValueOnce(null);
+
+    await persistTriage(mockSql as never, {
+      reviewId: 'rev-1', businessId: 'biz-1', accountId: 'acct-1',
+      classification: classification as never, contentHash: 'hash-1',
+    });
+
+    expect(recordStep).not.toHaveBeenCalled();
+    expect(raiseEscalation).toHaveBeenCalledWith(mockSql, expect.objectContaining({
+      activeRun: null,
+    }));
   });
 });

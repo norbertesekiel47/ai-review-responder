@@ -75,7 +75,12 @@ export async function handleResponseGeneration(
   // ── Triage phase (WS2): severity for tone + Guardian step ────────────
   // Transient errors throw → BullMQ retry; committed triage makes the
   // retry spend-free. Flag-off / positive lane / legacy → null.
-  const triageSeverity = await runTriagePhase(sql, ctx, { reviewId, businessId }, logger);
+  const triageSeverity = await runTriagePhase(
+    sql,
+    ctx,
+    { reviewId, businessId, correlationId: payload.correlationId },
+    logger,
+  );
 
   // ── Generate draft (cost-guard → generate → avoid-facts guardrail) ───
   // Retryable errors (concurrency / transient LLM) throw out of generateDraft

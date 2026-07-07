@@ -53,7 +53,7 @@ function makeCtx(overrides: { starRating?: number; reviewText?: string | null } 
   } as GenerationContext;
 }
 
-const ids = { reviewId: 'rev-1', businessId: 'biz-1' };
+const ids = { reviewId: 'rev-1', businessId: 'biz-1', correlationId: 'corr-1' };
 const logger = { log: vi.fn(), warn: vi.fn() };
 const sql = mockSql as unknown as Sql;
 
@@ -100,7 +100,9 @@ describe('runTriagePhase', () => {
     expect(persistTriage).toHaveBeenCalledWith(mockSql, expect.objectContaining({
       reviewId: 'rev-1',
       businessId: 'biz-1',
+      accountId: 'acct-1',
       contentHash: 'hash-1',
+      correlationId: 'corr-1',
     }));
     expect(logger.log).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
       review_id: 'rev-1',
