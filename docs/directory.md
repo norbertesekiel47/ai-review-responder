@@ -91,6 +91,7 @@ Next.js App Router pages, grouped by access level.
 - `sections/landing/LandingExperience.tsx` — the entire scroll-morph landing page (#436): one pinned, scroll-linked stage that crossfades hero video → full-bleed morph → final glass tilt card. Styled by its colocated `sections/landing/landing-experience.css`.
 - `ui/PageShell.tsx` — header + footer wrapper used by all public pages.
 - `ui/SiteNav.tsx` — navigation bar with logo and links.
+- `ui/marketing-links.ts` — **(A+ campaign)** single owner of `NAV_LINKS` / `MARKETING_LINKS`; imported by SiteNav, SiteFooter, and LandingExperience (closed the Q1 nav-link duplication).
 
 ---
 
@@ -336,9 +337,20 @@ All shared business logic. Both `src/app/` and `worker/` import from here.
 
 Database and cache clients.
 
+> **Injection convention (A+ campaign, invariant #15).** `server.ts` is the DB
+> singleton **owner**, imported only by **composition roots** (route handlers,
+> server pages/layouts, `worker/index.ts`/`queues.ts`, registered worker
+> handlers/pollers/schedulers, ingress) + the owner-classified `auth.ts`.
+> Every domain module under `src/lib/**` + every worker helper takes its DB
+> client (`sql`/`supabaseServer`, or `tx` inside a transaction) as an **explicit
+> parameter** — it never imports `@/lib/db/server`. Enforced strict by
+> `ci:db-imports` (`scripts/ci/db-imports-audit.ts`, roots derived from
+> `worker/index.ts` registration; no baseline). `jsonb(x)` is
+> composition-root-only; domain modules use `tx.json(x)`.
+
 | File | What it does |
 |------|--------------|
-| `server.ts` | Exports the Postgres.js `sql` tagged-template client (PgBouncer pool) and `supabaseServer` (service-role Supabase client). Also exports `jsonb(value)` helper — the only correct way to pass JSONB values. |
+| `server.ts` | Exports the Postgres.js `sql` tagged-template client (PgBouncer pool) and `supabaseServer` (service-role Supabase client). Also exports `jsonb(value)` helper — the only correct way to pass JSONB values. Composition-root-only import (invariant #15). |
 | `browser.ts` | `supabaseClient` — Supabase JS client for browser-side code (anon key, SSR-safe cookie management). |
 | `supabase-server.ts` | `createSupabaseServerClient()` — SSR Supabase client (anon key, reads request cookies). Used in API routes and middleware. |
 | `auth.ts` | `requireRole(req, role)` — throws `AuthError` if the session lacks the required role. |
@@ -441,20 +453,22 @@ Everything about fetching and normalising Google reviews.
 
 ### `llm/`
 
-The LLM task seam (A+ campaign PR 1c) — a provider-agnostic executor between
-callers (currently `responses/generator.ts`) and the OpenAI/Anthropic SDKs.
-Deliberately bounded: no streaming, tool-calls, or multi-turn loops.
+The LLM task seam (A+ campaign PR 1c; **the sole path for every LLM
+generation/insights call** — Q4/Q5 close-out) — a provider-agnostic executor
+between callers (`responses/generator.ts` + `responses/review-summary.ts`) and
+the OpenAI/Anthropic SDKs. Deliberately bounded: no streaming, tool-calls, or
+multi-turn loops.
 
 | File | What it does |
 |------|--------------|
 | `types.ts` | Task vocabulary (`LLMTaskId`: `reply_generation` \| `triage` \| `judge` \| `insights`), `LLMProvider` interface, `LLMTaskDescriptor`. Cost-guard contract: every `runLlmTask` call in production code must be wrapped in `withCostGuard` by its caller — the guard stays caller-side (the idempotent-cache write must happen inside the guarded closure). |
-| `tasks.ts` | `getLlmTask(taskId)` — pinned-model registry. `OPENAI_MODEL` / `ANTHROPIC_MODEL` constants (guarded by `model-pinning.test.ts`). Only `reply_generation` is registered today; the other task IDs exist in the vocabulary but get no config until their feature lands (no dead task config ships before its tenant). |
+| `tasks.ts` | `getLlmTask(taskId)` — pinned-model registry. `OPENAI_MODEL` / `ANTHROPIC_MODEL` constants (guarded by `model-pinning.test.ts`). `reply_generation` + `insights` are registered today (their tenants, generator + review-summary, shipped in 1c/2f); `triage` / `judge` exist in the `LLMTaskId` vocabulary but get no config until their feature lands (no dead task config ships before its tenant). |
 | `run-task.ts` | `runLlmTask(taskId, prompt)` — the executor: calls the primary provider, falls back to the secondary on failure, and classifies exhausted-attempt errors as `TransientLLMError` (worker retries) vs terminal (rethrown raw). Relocated verbatim from `generator.ts`'s `callLLMWithFallback`. |
 | `openai-provider.ts` / `anthropic-provider.ts` | Thin SDK adapters implementing `LLMProvider` — lazily construct a singleton client with `LLM_CLIENT_OPTIONS` and map the SDK response to `LLMCallResult`. |
 | `client-options.ts` | `LLM_CLIENT_OPTIONS` — explicit `{ timeout: 30_000, maxRetries: 0 }`. Without it the SDKs default to a 10-minute timeout + 2 internal retries; `maxRetries: 0` makes the BullMQ + outbox-watchdog ladder the single source of retry truth. |
 | `error-classifier.ts` | `isTransientLLMError(err)`, `TransientLLMError`, `redactProviderError(err)` (strips `.body`/`.response`/`.request` before logging — some 4xx provider errors echo the prompt). Moved here from the deleted `responses/llm-error-classifier.ts` re-export shim. |
 
-**Connection:** `generator.ts` calls `runLlmTask('reply_generation', prompt)` instead of hand-rolling the primary/fallback loop. Invariant #1's ESLint ban (`@/lib/llm/*`) treats the whole directory as worker-only.
+**Connection:** `generator.ts` calls `runLlmTask('reply_generation', prompt)` and `review-summary.ts` calls `runLlmTask('insights', prompt)` instead of hand-rolling the primary/fallback loop. Invariant #1's ESLint ban (`@/lib/llm/*`) treats the whole directory as worker-only.
 
 ### `responses/`
 
@@ -865,6 +879,10 @@ Operational scripts. Run with `tsx scripts/<name>.ts`. Not part of the runtime.
 | `zernio-backfill-external-replies.ts` | One-off backfill helper for the read-only Past Replies feature (migration 031). Walks Zernio reviews for a business and ingests existing owner replies as `posted` responses so they appear in the "Past Replies" tab. Requires `EXTERNAL_REPLY_IMPORT_ENABLED=true` to run (otherwise the underlying helpers no-op). Idempotent. |
 | `ci/rls-audit.ts` | **(Wave 1)** Reads `pg_class.relrowsecurity` and exits non-zero if any tenant-scoped table (see `ci/tenant-tables.ts`) has RLS disabled. Needs a DB URL — documented as staging-gated until `TEST_DATABASE_POOL_URL` is in CI. |
 | `ci/tenant-scope-audit.ts` | **(Wave 1)** Static scan of inline `sql\`…\`` queries in `src/` + `worker/`; flags `SELECT`/`UPDATE`/`DELETE` on a tenant table without an `account_id`/`business_id` predicate. Runs in the blocking `lint` CI job. Backed by `ci/tenant-scope-allowlist.ts` (vetted known-good exceptions, with dead-entry + duplicate guards) and `ci/tenant-tables.ts` (the tenant-table inventory). |
+| `ci/db-imports-audit.ts` | **(A+ campaign)** `ci:db-imports` — bans any non-composition-root file from importing `@/lib/db/server` (invariant #15). **STRICT** (PR 3, #456): no baseline — any non-root importer fails. Worker root status is **derived from `worker/index.ts` registration** via TypeScript-AST parsing (not file position); `import type` excluded (runtime-value-precise). The checked-in baseline snapshot was deleted when the importer set hit 0 (arc: 105 → 0). Unit-tested (11/11); runs in the blocking `lint` CI job. |
+| `ci/lib/ratchet-harness.ts` | **(A+ campaign)** Shared file-walker + ratchet/baseline-diff engine used by the `ci:*` audit scripts (consolidated in 2i, #455) so each guard declares only its own predicate, not its own traversal. |
+| `ci/process-env-audit.ts` | **(A+ campaign)** `ci:process-env` — ratchets raw `process.env` reads down toward the typed config layer (`src/lib/config/*`); baseline 10. Widened in PR 3 (#456). |
+| `ci/normalize-v8-coverage.ts` | **(A+ campaign)** Normalizes the V8 coverage report so `ci:fallow --coverage` reads a stable shape (PR 3, #456). |
 
 ---
 
