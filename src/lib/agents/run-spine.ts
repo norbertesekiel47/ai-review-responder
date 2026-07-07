@@ -25,7 +25,6 @@ export const AGENT_PERSONAS = ['reply', 'guardian', 'insights', 'system'] as con
 export type AgentPersona = (typeof AGENT_PERSONAS)[number];
 
 export const AGENT_RUN_KINDS = ['review_handler', 'weekly_insights'] as const;
-export type AgentRunKind = (typeof AGENT_RUN_KINDS)[number];
 
 export const AGENT_OUTCOME_KINDS = [
   'reply_drafted', 'reply_posted', 'reply_auto_posted',
