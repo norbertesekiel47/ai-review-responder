@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   formatApprovalWhatsApp,
   formatAutoPostNoticeWhatsApp,
+  formatEscalationNoticeWhatsApp,
   renderApprovalCardBody,
   extractTokenFromApprovalUrl,
   stripWaPrefix,
@@ -221,5 +222,36 @@ describe('formatAutoPostNoticeWhatsApp', () => {
       'HX_autopost_test',
     );
     expect(contentVariables['2']).toBe('Reviewer');
+  });
+});
+
+describe('formatEscalationNoticeWhatsApp', () => {
+  it('maps template variables and clamps names', () => {
+    const { contentSid, contentVariables } = formatEscalationNoticeWhatsApp(
+      {
+        businessName: 'Acme Diner',
+        reviewerName: 'Jane D',
+        starRating: 1,
+        severityLabel: 'High severity',
+        escalationId: 'esc-1',
+      },
+      'HXescalation',
+    );
+    expect(contentSid).toBe('HXescalation');
+    expect(contentVariables).toEqual({
+      '1': 'Acme Diner',
+      '2': 'Jane D',
+      '3': '1',
+      '4': 'High severity',
+      '5': 'esc-1',
+    });
+  });
+
+  it('renders a rating-less review as "–"', () => {
+    const { contentVariables } = formatEscalationNoticeWhatsApp(
+      { businessName: 'A', reviewerName: 'B', starRating: null, severityLabel: 'Needs a look', escalationId: 'e' },
+      'HX1',
+    );
+    expect(contentVariables['3']).toBe('–');
   });
 });

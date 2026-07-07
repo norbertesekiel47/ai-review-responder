@@ -195,3 +195,37 @@ export function formatAutoPostNoticeWhatsApp(
     },
   };
 }
+
+export interface EscalationNoticeWhatsAppParams {
+  businessName: string;
+  reviewerName: string;
+  starRating: number | null;
+  /** Pre-humanized: 'High severity' | … | 'Needs a look' (fallback). */
+  severityLabel: string;
+  escalationId: string;
+}
+
+/**
+ * Format the Guardian escalation notice (WS3) into Twilio Content variables
+ * for a future Meta-approved template (WHATSAPP_ESCALATION_TEMPLATE_SID). No
+ * review text in the variables — business/reviewer/stars/severity/id only
+ * (business-initiated WhatsApp send = approved template, never free-form).
+ * Second param `contentSid` is required (no config default): the channel
+ * self-protects by skipping the send entirely when the SID is unset, so
+ * there is no meaningful "current call site" default to fall back to.
+ */
+export function formatEscalationNoticeWhatsApp(
+  params: EscalationNoticeWhatsAppParams,
+  contentSid: string,
+): WhatsAppSendContent {
+  return {
+    contentSid,
+    contentVariables: {
+      '1': truncate(oneLine(params.businessName), BUSINESS_NAME_MAX),
+      '2': truncate(oneLine(params.reviewerName || 'Reviewer'), REVIEWER_NAME_MAX),
+      '3': params.starRating !== null ? String(params.starRating) : '–',
+      '4': params.severityLabel,
+      '5': params.escalationId,
+    },
+  };
+}

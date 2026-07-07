@@ -9,7 +9,12 @@
 // Side-effect-free at import (Phase 3 spec §2.0 rule 2): no env reads at module
 // scope; no client construction until sendApprovalRequest() runs.
 
-import { formatApprovalWhatsApp, formatAutoPostNoticeWhatsApp, toWaRecipient } from './whatsapp-body';
+import {
+  formatApprovalWhatsApp,
+  formatAutoPostNoticeWhatsApp,
+  formatEscalationNoticeWhatsApp,
+  toWaRecipient,
+} from './whatsapp-body';
 import { WhatsAppClient } from './whatsapp-client';
 import { getWorkerConfig } from '@/lib/config/worker';
 import { getWorkerPublicUrl } from '@/lib/shared/worker-public-url';
@@ -20,6 +25,8 @@ import type {
   SendApprovalResult,
   SendAutoPostNoticeParams,
   SendAutoPostNoticeResult,
+  SendEscalationNoticeParams,
+  SendEscalationNoticeResult,
 } from './types';
 
 export class WhatsAppChannel implements NotificationChannel {
@@ -55,6 +62,38 @@ export class WhatsAppChannel implements NotificationChannel {
         reviewerName: p.reviewerName,
         starRating: p.starRating,
         responseId: p.responseId,
+      },
+      contentSid,
+    );
+    const client = new WhatsAppClient();
+    const result = await client.sendTemplate({
+      to: toWaRecipient(p.handle),
+      contentSid,
+      contentVariables,
+      statusCallback: `${getWorkerPublicUrl()}/ingress/twilio/whatsapp-status`,
+    });
+    return { status: 'sent', externalMessageId: result.externalMessageId };
+  }
+
+  async sendEscalationNotice(p: SendEscalationNoticeParams): Promise<SendEscalationNoticeResult> {
+    // Business-initiated → outside any 24h session window → approved template
+    // only (ADR 0003). Until WHATSAPP_ESCALATION_TEMPLATE_SID is set, skip
+    // cleanly — email + Telegram still send.
+    const contentSid = getWorkerConfig().WHATSAPP_ESCALATION_TEMPLATE_SID;
+    if (!contentSid) {
+      return { status: 'skipped', reason: 'whatsapp_escalation_template_unset' };
+    }
+
+    const severityLabel = p.isFallback
+      ? 'Needs a look'
+      : `${p.severity.charAt(0).toUpperCase()}${p.severity.slice(1)} severity`;
+    const { contentVariables } = formatEscalationNoticeWhatsApp(
+      {
+        businessName: p.businessName,
+        reviewerName: p.reviewerName,
+        starRating: p.starRating,
+        severityLabel,
+        escalationId: p.escalationId,
       },
       contentSid,
     );

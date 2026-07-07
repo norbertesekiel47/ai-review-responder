@@ -128,4 +128,10 @@ export interface NotificationChannel {
    * union (see SendAutoPostNoticeResult).
    */
   sendAutoPostNotice(p: SendAutoPostNoticeParams): Promise<SendAutoPostNoticeResult>;
+  /**
+   * Send the Guardian escalation notice (WS3): "this review needs your
+   * attention", with triage context and a dashboard CTA. Returns a
+   * sent/skipped union (WhatsApp skips without its approved template SID).
+   */
+  sendEscalationNotice(p: SendEscalationNoticeParams): Promise<SendEscalationNoticeResult>;
 }

@@ -136,6 +136,11 @@ const workerSchema = z.object({
   RESEND_FROM_EMAIL: rawOpt,
   CSRF_SECRET: rawOpt,
   WHATSAPP_AUTOPOST_TEMPLATE_SID: rawOpt,
+  // WHATSAPP_ESCALATION_TEMPLATE_SID (WS3): same "unset → skip cleanly"
+  // contract as WHATSAPP_AUTOPOST_TEMPLATE_SID above — WhatsAppChannel's
+  // sendEscalationNotice guards with `if (!contentSid)`, so rawOptionalVar
+  // preserves ''/'   '/unset byte-for-byte (#7); no asserting accessor (#5).
+  WHATSAPP_ESCALATION_TEMPLATE_SID: rawOpt,
   ZERNIO_INGEST_MAX_PAGES: rawOpt,
 
   // ── Stage-3 worker-ingress batch ──────────────────────────────────────────
@@ -171,7 +176,8 @@ const workerSchema = z.object({
   // would map a whitespace '   ' to undefined and flip a truthy check / send a
   // raw `undefined` to the SDK. No asserting accessor (#5): a throw would
   // replace each site's own throw/skip behavior. (RESEND_FROM_EMAIL,
-  // WHATSAPP_AUTOPOST_TEMPLATE_SID, TWILIO_AUTH_TOKEN are already rawOpt above.)
+  // WHATSAPP_AUTOPOST_TEMPLATE_SID, WHATSAPP_ESCALATION_TEMPLATE_SID,
+  // TWILIO_AUTH_TOKEN are already rawOpt above.)
   TELEGRAM_BOT_TOKEN: rawOpt,
   TWILIO_ACCOUNT_SID: rawOpt,
   TWILIO_WHATSAPP_NUMBER: rawOpt,
