@@ -310,6 +310,71 @@ describe('runLlmTask', () => {
       }
     });
 
+    it('never leaks completion text into the error message or cause chain on invalid JSON', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      getLlmTask.mockReturnValueOnce(structuredTask);
+      // Node's SyntaxError message embeds a snippet of the parsed input —
+      // the seam must replace it with a sanitized cause (logging rules +
+      // Sentry linkedErrors walks err.cause into exception values). The
+      // marker must be <= 10 chars: V8 truncates the snippet ("SECRETRVW "...)
+      // so a longer marker would never appear and the test would prove nothing.
+      const marker = 'SECRETRVW';
+      openaiComplete.mockResolvedValueOnce(callResult({ text: `${marker} is not json` }));
+      anthropicComplete.mockResolvedValueOnce(
+        callResult({ provider: 'anthropic', text: `${marker} still not json` }),
+      );
+
+      const { runLlmTask, LLMStructuredOutputError } = await import('../run-task');
+
+      try {
+        await runLlmTask('triage', prompt);
+        throw new Error('expected throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(LLMStructuredOutputError);
+        let link: unknown = err;
+        while (link instanceof Error) {
+          expect(link.message).not.toContain(marker);
+          link = link.cause;
+        }
+      }
+    });
+
+    it('fallback-less structured task: invalid primary output is terminal', async () => {
+      getLlmTask.mockReturnValueOnce({ ...structuredTask, fallback: undefined });
+      openaiComplete.mockResolvedValueOnce(callResult({ text: 'not json' }));
+
+      const { runLlmTask, LLMStructuredOutputError } = await import('../run-task');
+      const { TransientLLMError } = await import('../error-classifier');
+
+      try {
+        await runLlmTask('triage', prompt);
+        throw new Error('expected throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(LLMStructuredOutputError);
+        expect(err).not.toBeInstanceOf(TransientLLMError);
+      }
+      expect(anthropicComplete).not.toHaveBeenCalled();
+    });
+
+    it('wraps the fallback transport cause when primary is schema-invalid + fallback is transient', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      getLlmTask.mockReturnValueOnce(structuredTask);
+      openaiComplete.mockResolvedValueOnce(callResult({ text: 'not json' }));
+      const transient = Object.assign(new Error('anthropic timeout'), { code: 'ETIMEDOUT' });
+      anthropicComplete.mockRejectedValueOnce(transient);
+
+      const { runLlmTask } = await import('../run-task');
+      const { TransientLLMError } = await import('../error-classifier');
+
+      try {
+        await runLlmTask('triage', prompt);
+        throw new Error('expected throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(TransientLLMError);
+        expect((err as InstanceType<typeof TransientLLMError>).cause).toBe(transient);
+      }
+    });
+
     it('does not touch result.structured for schema-less tasks', async () => {
       openaiComplete.mockResolvedValueOnce(callResult({ text: 'plain text reply' }));
 

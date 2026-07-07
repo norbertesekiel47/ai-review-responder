@@ -49,7 +49,15 @@ function validateStructured(
   try {
     parsed = JSON.parse(stripCodeFences(result.text));
   } catch (err) {
-    throw new LLMStructuredOutputError(taskId, result.provider, err);
+    // Never carry the raw SyntaxError: its message embeds a snippet of the
+    // completion text ("Unexpected token 'S', \"Sorry, I c\"...") and Sentry's
+    // linkedErrors integration walks error.cause into exception values that
+    // the scrubber doesn't touch.
+    throw new LLMStructuredOutputError(
+      taskId,
+      result.provider,
+      new Error(`JSON.parse failed: ${err instanceof Error ? err.name : 'unknown'}`),
+    );
   }
   const validated = schema.safeParse(parsed);
   if (!validated.success) {
@@ -92,6 +100,12 @@ function throwExhaustedAttempts(attemptErrors: readonly unknown[]): never {
  * (relocated verbatim from generator.ts callLLMWithFallback — A+ PR 1c).
  * COST-GUARD CONTRACT: production callers wrap this in withCostGuard — see
  * types.ts header.
+ *
+ * USAGE ACCOUNTING (structured tasks): a validation-failed attempt's token
+ * spend is NOT accumulated into the returned usage — finalizeCost under-reports
+ * on failover, and on all-invalid terminal the reservation is released.
+ * Bounded by the pessimistic reserve + small structured-task maxTokens;
+ * revisit if margin data shows it matters.
  */
 export async function runLlmTask(taskId: LLMTaskId, prompt: ChatPrompt): Promise<LLMCallResult> {
   const task = getLlmTask(taskId);
