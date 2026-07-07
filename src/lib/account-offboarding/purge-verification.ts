@@ -531,6 +531,13 @@ export function verificationQuery(
         WHERE account_id = ${accountId}::uuid
       `;
 
+    case 'review_escalations':
+      return exec<VerificationRow[]>`
+        SELECT COUNT(*) AS violation_count
+        FROM review_escalations
+        WHERE account_id = ${accountId}::uuid
+      `;
+
     case 'account_offboardings':
       return exec<VerificationRow[]>`
         SELECT COUNT(*) AS violation_count
