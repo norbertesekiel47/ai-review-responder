@@ -61,6 +61,11 @@ describe('classifyReviewTriage', () => {
     runLlmTask.mockResolvedValueOnce(llmResult({
       severity: 'high', issues: ['cleanliness', 'staff_conduct'], suggested_action: 'respond_and_escalate',
     }));
+    let guardedReturn: { value: unknown; actualCostCents: number } | undefined;
+    withCostGuard.mockImplementationOnce(async (_opts: unknown, fn: () => Promise<{ value: unknown }>) => {
+      guardedReturn = (await fn()) as { value: unknown; actualCostCents: number };
+      return guardedReturn.value;
+    });
 
     const out = await classifyReviewTriage(mockSql as never, classifyInput);
 
@@ -82,6 +87,9 @@ describe('classifyReviewTriage', () => {
     expect(recordApiCost).toHaveBeenCalledWith(mockSql, expect.objectContaining({
       endpoint: 'review-triage', businessId: 'biz-1', accountId: 'acct-1', responseId: null,
     }));
+    expect(out.failureReason).toBeUndefined();
+    // calculateCostUsd mocked to 0.0004 USD → 0.04 cents → ceil = 1.
+    expect(guardedReturn?.actualCostCents).toBe(1);
   });
 
   it('rethrows transient transport/provider failures for BullMQ retry', async () => {
@@ -95,6 +103,7 @@ describe('classifyReviewTriage', () => {
   });
 
   it('falls back to the high lane on terminal errors (budget decisions, invalid output)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     withCostGuard.mockRejectedValueOnce(new Error('Daily cost limit exceeded for business biz-1'));
 
     const out = await classifyReviewTriage(mockSql as never, classifyInput);
@@ -102,7 +111,26 @@ describe('classifyReviewTriage', () => {
     expect(out.source).toBe(TRIAGE_SOURCE.FALLBACK);
     expect(out.output).toEqual({ severity: 'high', issues: [], suggested_action: 'escalate' });
     expect(out.model).toBeNull();
+    expect(out.failureReason).toBe('Error');
+    expect(warn).toHaveBeenCalledWith(
+      '[triage] classification fell back:',
+      expect.stringContaining('Error:'),
+    );
     expect(recordApiCost).not.toHaveBeenCalled();
+  });
+
+  it('returns the fallback when the guard succeeds but structured output is missing', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    runLlmTask.mockResolvedValueOnce({ ...llmResult(null), structured: undefined });
+
+    const out = await classifyReviewTriage(mockSql as never, classifyInput);
+
+    expect(out.source).toBe(TRIAGE_SOURCE.FALLBACK);
+    expect(out.output).toEqual({ severity: 'high', issues: [], suggested_action: 'escalate' });
+    expect(out.failureReason).toBe('StructuredOutputMissing');
+    expect(warn).toHaveBeenCalled();
+    // Spend already happened — the cost audit still records it.
+    expect(recordApiCost).toHaveBeenCalled();
   });
 
   it('swallows a cost-audit write failure (best-effort)', async () => {
@@ -197,11 +225,15 @@ describe('persistTriage', () => {
       classification: {
         output: { severity: 'high', issues: [], suggested_action: 'escalate' },
         source: TRIAGE_SOURCE.FALLBACK, model: null, latencyMs: null,
+        failureReason: 'CostLimitExceededError',
       } as never,
       contentHash: null,
     });
 
-    expect(recordStep).toHaveBeenCalledWith(mockSql, expect.objectContaining({ status: 'failed' }));
+    expect(recordStep).toHaveBeenCalledWith(mockSql, expect.objectContaining({
+      status: 'failed',
+      detail: expect.objectContaining({ reason: 'CostLimitExceededError' }),
+    }));
   });
 
   it('skips quietly when the review row is gone, and skips the step for legacy runs', async () => {

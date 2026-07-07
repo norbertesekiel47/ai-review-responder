@@ -63,6 +63,9 @@ export interface TriageClassification {
   /** Pinned model id that produced the classification; null for fallback/mock. */
   model: string | null;
   latencyMs: number | null;
+  /** Error NAME (enum-like, never message text) when the classification fell
+   *  back; undefined on success/mock. Surfaces in the triage step detail. */
+  failureReason?: string;
 }
 
 const FALLBACK_OUTPUT: TriageOutput = {
@@ -70,6 +73,22 @@ const FALLBACK_OUTPUT: TriageOutput = {
   issues: [],
   suggested_action: 'escalate',
 };
+
+/** Log the fallback observably (names/ids only — guard/pricing messages carry
+ *  no review text) and tag it with an enum-like reason for the step detail. */
+function fallbackClassification(err: unknown, failureReason?: string): TriageClassification {
+  console.warn(
+    '[triage] classification fell back:',
+    err instanceof Error ? `${err.name}: ${err.message}` : err,
+  );
+  return {
+    output: FALLBACK_OUTPUT,
+    source: TRIAGE_SOURCE.FALLBACK,
+    model: null,
+    latencyMs: null,
+    failureReason: failureReason ?? (err instanceof Error ? err.name : 'unknown'),
+  };
+}
 
 function buildTriagePrompt(review: ReviewForTriage): ChatPrompt {
   const text = review.reviewText
@@ -134,8 +153,7 @@ export async function classifyReviewTriage(
   if (isMockMode()) return mockTriage(input.review);
 
   const prompt = buildTriagePrompt(input.review);
-  const startedAt = Date.now();
-  let guarded: { llm: LLMCallResult; costUsd: number };
+  let guarded: { llm: LLMCallResult; costUsd: number; latencyMs: number };
   try {
     guarded = await withCostGuard(
       {
@@ -145,27 +163,39 @@ export async function classifyReviewTriage(
         onFinalizeError: 'log-and-return-value',
       },
       async () => {
+        // Latency is measured around the LLM call only (spec §2.7) — cost-guard
+        // Redis round-trips are deliberately excluded.
+        const startedAt = Date.now();
         const llm = await runLlmTask('triage', prompt);
+        const latencyMs = Date.now() - startedAt;
         const usd = calculateCostUsd(llm.model, llm.usage.promptTokens, llm.usage.completionTokens);
-        return { value: { llm, costUsd: usd }, actualCostCents: Math.ceil(usd * 100) };
+        return { value: { llm, costUsd: usd, latencyMs }, actualCostCents: Math.ceil(usd * 100) };
       },
     );
   } catch (err) {
     if (err instanceof TransientLLMError || err instanceof CostInfraUnavailableError) {
       throw err;
     }
-    return { output: FALLBACK_OUTPUT, source: TRIAGE_SOURCE.FALLBACK, model: null, latencyMs: null };
+    return fallbackClassification(err);
   }
 
-  const latencyMs = Date.now() - startedAt;
-  await tryRecordTriageCost(sql, input, guarded.llm, guarded.costUsd, latencyMs);
+  await tryRecordTriageCost(sql, input, guarded.llm, guarded.costUsd, guarded.latencyMs);
+
+  // Cheap revalidation instead of a cast — keeps the no-`any` rule honest.
+  // A parse failure here is a caller-bug defense path (runLlmTask already
+  // validated); spend is finalized, so fall back — never retry.
+  let output: TriageOutput;
+  try {
+    output = TriageOutputSchema.parse(guarded.llm.structured);
+  } catch (err) {
+    return fallbackClassification(err, 'StructuredOutputMissing');
+  }
 
   return {
-    // Cheap revalidation instead of a cast — keeps the no-`any` rule honest.
-    output: TriageOutputSchema.parse(guarded.llm.structured),
+    output,
     source: TRIAGE_SOURCE.LLM,
     model: guarded.llm.model,
-    latencyMs,
+    latencyMs: guarded.latencyMs,
   };
 }
 
@@ -208,17 +238,24 @@ export async function persistTriage(tx: TransactionSql, input: PersistTriageInpu
   const activeRun = await findActiveReviewRun(tx, input.reviewId);
   if (!activeRun) return;
 
+  const detail: Record<string, unknown> = {
+    severity: output.severity,
+    suggested_action: output.suggested_action,
+    issues: output.issues,
+    source: input.classification.source,
+    model: input.classification.model,
+  };
+  if (input.classification.failureReason) {
+    // Error NAME only (enum-like) — makes fallbacks triageable from
+    // agent_run_steps without ever carrying message/review text.
+    detail.reason = input.classification.failureReason;
+  }
+
   await recordStep(tx, {
     runId: activeRun.id,
     stepKey: 'triage',
     status: input.classification.source === TRIAGE_SOURCE.FALLBACK ? 'failed' : 'completed',
-    detail: {
-      severity: output.severity,
-      suggested_action: output.suggested_action,
-      issues: output.issues,
-      source: input.classification.source,
-      model: input.classification.model,
-    },
+    detail,
     latencyMs: input.classification.latencyMs ?? undefined,
   });
 }
