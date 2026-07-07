@@ -256,6 +256,19 @@ export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboa
         SELECT id FROM users WHERE account_id = ${row.account_id}::uuid
       )
     `;
+    // Agent run spine (migration 071): per-account attribution rows whose
+    // subject/detail ids reference the reviews/responses deleted above.
+    // Outcomes first (their agent_run_id FK is ON DELETE SET NULL — deleting
+    // runs first would only orphan them), then runs; agent_run_steps needs no
+    // explicit DELETE because its agent_runs FK is ON DELETE CASCADE.
+    await tx`
+      DELETE FROM agent_outcomes
+      WHERE account_id = ${row.account_id}::uuid
+    `;
+    await tx`
+      DELETE FROM agent_runs
+      WHERE account_id = ${row.account_id}::uuid
+    `;
   });
 }
 

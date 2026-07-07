@@ -506,6 +506,31 @@ export function verificationQuery(
         WHERE created_by IN (SELECT id FROM users WHERE account_id = ${accountId}::uuid)
       `;
 
+    case 'agent_runs':
+      return exec<VerificationRow[]>`
+        SELECT COUNT(*) AS violation_count
+        FROM agent_runs
+        WHERE account_id = ${accountId}::uuid
+      `;
+
+    case 'agent_run_steps':
+      // Steps have no tenant column; they cascade-delete with their agent_runs
+      // parent. The join catches surviving steps whenever the agent_runs purge
+      // regresses (once the runs are gone, the FK guarantees no steps remain).
+      return exec<VerificationRow[]>`
+        SELECT COUNT(*) AS violation_count
+        FROM agent_run_steps s
+        JOIN agent_runs r ON r.id = s.agent_run_id
+        WHERE r.account_id = ${accountId}::uuid
+      `;
+
+    case 'agent_outcomes':
+      return exec<VerificationRow[]>`
+        SELECT COUNT(*) AS violation_count
+        FROM agent_outcomes
+        WHERE account_id = ${accountId}::uuid
+      `;
+
     case 'account_offboardings':
       return exec<VerificationRow[]>`
         SELECT COUNT(*) AS violation_count

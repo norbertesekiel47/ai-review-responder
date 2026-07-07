@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 362;
+export const ALLOWLIST_BASELINE = 368;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -2684,5 +2684,47 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT stripe_subscription_id FROM accounts WHERE stripe_customer_id = ${stripeCustomerId} AND id <> ${account.id}::uuid AND stripe_subscription_id = ANY(${activeIds}::text[])",
     category: 'background-global-scan',
     reason: "RECONCILE-F6: billing reconciliation poller scans OTHER accounts sharing the same Stripe customer id to exclude their subscriptions from the duplicate-subscription alert for this account. Intentionally cross-account: the query filters by stripe_customer_id (not account_id) to identify sibling accounts — a legitimate cross-account lookup for an observability-only check with no write side-effects.",
+  },
+  {
+    file: "src/lib/agents/run-spine.ts",
+    table: "agent_runs",
+    sqlSnippet: "SELECT id FROM agent_runs WHERE kind = ${input.kind} AND subject_type = ${input.subjectType} AND subject_id = ${input.subjectId} AND status = 'running' FOR UPDATE",
+    category: 'worker-job-scoped',
+    reason: "Run-spine writers execute inside ingest/persist/publish transactions that already carry businessId from source connection resolution; runs are keyed by id/subject within that scoped tx (migration 071).",
+  },
+  {
+    file: "src/lib/agents/run-spine.ts",
+    table: "agent_runs",
+    sqlSnippet: "SELECT id, account_id FROM agent_runs WHERE kind = 'review_handler' AND subject_type = 'review' AND subject_id = ${reviewId} AND status = 'running'",
+    category: 'worker-job-scoped',
+    reason: "Run-spine writers execute inside ingest/persist/publish transactions that already carry businessId from source connection resolution; runs are keyed by id/subject within that scoped tx (migration 071).",
+  },
+  {
+    file: "src/lib/agents/run-spine.ts",
+    table: "agent_runs",
+    sqlSnippet: "SELECT 1 AS ok FROM agent_runs WHERE id = ${input.runId} FOR UPDATE",
+    category: 'worker-job-scoped',
+    reason: "Run-spine writers execute inside ingest/persist/publish transactions that already carry businessId from source connection resolution; runs are keyed by id/subject within that scoped tx (migration 071).",
+  },
+  {
+    file: "src/lib/agents/run-spine.ts",
+    table: "agent_run_steps",
+    sqlSnippet: "SELECT COALESCE(MAX(step_index), 0) + 1 AS next_index FROM agent_run_steps WHERE agent_run_id = ${input.runId}",
+    category: 'worker-job-scoped',
+    reason: "Run-spine writers execute inside ingest/persist/publish transactions that already carry businessId from source connection resolution; runs are keyed by id/subject within that scoped tx (migration 071).",
+  },
+  {
+    file: "src/lib/agents/run-spine.ts",
+    table: "agent_runs",
+    sqlSnippet: "UPDATE agent_runs SET status = ${status}, ended_at = NOW(), error = ${error ? tx.json(error as never) : null} WHERE id = ${runId} AND status = 'running' RETURNING id",
+    category: 'worker-job-scoped',
+    reason: "Run-spine writers execute inside ingest/persist/publish transactions that already carry businessId from source connection resolution; runs are keyed by id/subject within that scoped tx (migration 071).",
+  },
+  {
+    file: "src/lib/agents/run-spine.ts",
+    table: "agent_runs",
+    sqlSnippet: "SELECT status FROM agent_runs WHERE id = ${runId}",
+    category: 'worker-job-scoped',
+    reason: "Run-spine writers execute inside ingest/persist/publish transactions that already carry businessId from source connection resolution; runs are keyed by id/subject within that scoped tx (migration 071).",
   },
 ];

@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **070** — next migration is **071**
+Current head: **071** — next migration is **072**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -671,6 +671,25 @@ Revisit triggers:
   ships). Apply staging-first, then production, both Supabase projects in
   lockstep.
 
+- **071** — Agent run spine: `agent_runs` / `agent_run_steps` / `agent_outcomes`
+  (agentic-platform design 2026-07-01 §3.2, WS1). Attribution data written by
+  the EXISTING pipeline in the same transactions as the state changes it
+  describes — NOT an execution engine, no lifecycle machinery. Two partial
+  unique indexes are ON CONFLICT targets whose predicates must stay
+  **byte-for-byte** with their writers in `src/lib/agents/run-spine.ts`
+  (enforced by a drift-guard test): `agent_runs_one_active_per_subject`
+  (`WHERE status = 'running'`) ↔ `startOrGetActiveRun`, and
+  `agent_outcomes_once_per_run_kind` (`WHERE agent_run_id IS NOT NULL`) ↔
+  `recordOutcome`. CHECKs: `agent_runs_kind_subject_type_pairing`
+  (`review_handler`↔`review`, `weekly_insights`↔`account_week`),
+  `agent_runs_terminal_consistency` (`status='running'` ⟺ `ended_at IS NULL`)
+  + `agent_runs_ended_after_started`. Deny-all RLS on all three (enabled, NO
+  policies — same posture as `analytics_events`, migration 049); server
+  reaches them via the RLS-bypassing `postgres` role only. IDs are
+  app-supplied UUIDv7 (no DB default). Additive, transactional (no
+  CONCURRENTLY — new tables, instant index builds). Apply staging-first, then
+  production, both Supabase projects in lockstep.
+
 ## Key Tables Reference
 
 | Table | Purpose |
@@ -701,6 +720,9 @@ Revisit triggers:
 | `account_offboardings` | Service-only owner offboarding lifecycle rows. One active non-terminal row per account; terminal outcomes are `purged`, `churned`, or `reactivated`. |
 | `account_offboarding_tokens` | Service-only keep-my-data token metadata for delete-data offboarding. Stores SHA-256 token hashes only; raw tokens are never persisted. |
 | `owner_leads` | Marketing capture from contact + demo-request endpoints (independent of authenticated paths). |
+| `agent_runs` | One attributed agent run per pipeline pass over a subject (review or account-week). Written only by `src/lib/agents/run-spine.ts` in-pipeline-tx; at most one `running` run per subject (partial unique index = `startOrGetActiveRun` ON CONFLICT target). Deny-all RLS (migration 071). |
+| `agent_run_steps` | Ordered attribution steps within an agent run (`step_index` unique per run; `attributed_agent` from the `STEP_PERSONA` map). `detail` JSONB is ids/enums/counts only — never raw review/response text. Deny-all RLS (migration 071). |
+| `agent_outcomes` | Durable per-agent outcome facts (drafted/posted/escalated/…) for attribution and reporting; deduped per `(agent_run_id, outcome_kind)` via partial unique index = `recordOutcome` ON CONFLICT target. Deny-all RLS (migration 071). |
 
 ## Response Status Values
 

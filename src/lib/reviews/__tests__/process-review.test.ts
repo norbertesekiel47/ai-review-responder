@@ -27,10 +27,18 @@ vi.mock('@/lib/analytics/enqueue', () => ({
   enqueueAnalyticsEvent: vi.fn(),
 }));
 
+// Run-spine writers are mocked at the seam — assertions target the writer
+// contract (startOrGetActiveRun/recordStep args), not spine SQL internals.
+vi.mock('@/lib/agents/run-spine', () => ({
+  startOrGetActiveRun: vi.fn().mockResolvedValue({ runId: 'run-1', created: true }),
+  recordStep: vi.fn(),
+}));
+
 // Imports after mocks are wired
 import { processReview } from '../process-review';
 import { sql } from '@/lib/db/server';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
+import { startOrGetActiveRun, recordStep } from '@/lib/agents/run-spine';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
 
 // ── Fixtures ─────────────────────────────────────────────────────────
@@ -104,22 +112,25 @@ describe('processReview', () => {
     // tx call sequence (new-review, no-race path):
     //   1. SELECT FOR UPDATE existing → none
     //   2. INSERT reviews ON CONFLICT DO NOTHING RETURNING id → count=1 (won)
-    //   3. INSERT job_outbox → done
+    //   3. SELECT account_id FROM businesses (startReviewRun lookup)
+    //   4. INSERT job_outbox → done
+    //   5. first_review_ingested account lookup
     tx
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
 
     const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
 
     expect(result).toBe('new');
-    expect(tx).toHaveBeenCalledTimes(4);
+    expect(tx).toHaveBeenCalledTimes(5);
 
-    // 3rd tx call is the job_outbox INSERT — queue name is bound via helper.
-    const outboxSql = (tx.mock.calls[2]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    // 4th tx call is the job_outbox INSERT — queue name is bound via helper.
+    const outboxSql = (tx.mock.calls[3]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
     expect(outboxSql).toContain('INSERT INTO job_outbox');
-    expect(tx.mock.calls[2]).toContain('generate_response');
+    expect(tx.mock.calls[3]).toContain('generate_response');
   });
 
   it('enqueues first_review_ingested for the first account-level review', async () => {
@@ -128,6 +139,7 @@ describe('processReview', () => {
     tx
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
 
@@ -203,6 +215,7 @@ describe('processReview', () => {
     tx
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
 
@@ -223,6 +236,7 @@ describe('processReview', () => {
     tx
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
 
@@ -242,6 +256,7 @@ describe('processReview', () => {
     tx
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
 
@@ -296,13 +311,15 @@ describe('processReview', () => {
       //   1. SELECT FOR UPDATE existing → found with DIFFERENT hash
       //   2. UPDATE responses SET stale_after_review_changed (stale-marking sweep, flag on)
       //   3. UPDATE reviews SET reviewer_name/hash
-      //   4. SELECT active response FOR UPDATE → none (failed row is excluded by NOT IN ('superseded','failed'))
-      //   5. SELECT MAX(version) for nextVersion
-      //   6. INSERT job_outbox (generate_response)
+      //   4. SELECT account_id FROM businesses (startReviewRun lookup)
+      //   5. SELECT active response FOR UPDATE → none (failed row is excluded by NOT IN ('superseded','failed'))
+      //   6. SELECT MAX(version) for nextVersion
+      //   7. INSERT job_outbox (generate_response)
       tx
         .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash', status: 'new' }], 1))
         .mockResolvedValueOnce(withCount([], 0))  // stale-marking UPDATE responses
         .mockResolvedValueOnce(withCount([], 0))  // UPDATE reviews
+        .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
         .mockResolvedValueOnce(withCount([], 0))  // SELECT active response → none
         .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
         .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
@@ -310,7 +327,7 @@ describe('processReview', () => {
       const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
 
       expect(result).toBe('updated');
-      expect(tx).toHaveBeenCalledTimes(6);
+      expect(tx).toHaveBeenCalledTimes(7);
 
       const staleCall = findStaleMarkingCall(tx.mock.calls as unknown[][]);
       expect(staleCall).toBeDefined();
@@ -339,6 +356,7 @@ describe('processReview', () => {
         .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash', status: 'new' }], 1))
         .mockResolvedValueOnce(withCount([], 0))  // stale-marking UPDATE responses
         .mockResolvedValueOnce(withCount([], 0))  // UPDATE reviews
+        .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
         .mockResolvedValueOnce(withCount([], 0))  // SELECT active response → none
         .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
         .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
@@ -366,6 +384,7 @@ describe('processReview', () => {
         .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash', status: 'new' }], 1))
         .mockResolvedValueOnce(withCount([], 0))  // stale-marking UPDATE (0 rows — unrelated error not matched)
         .mockResolvedValueOnce(withCount([], 0))  // UPDATE reviews
+        .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
         .mockResolvedValueOnce(withCount([], 0))  // SELECT active response → none
         .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
         .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
@@ -396,12 +415,14 @@ describe('processReview', () => {
       // tx call sequence WITHOUT stale-marking (flag off):
       //   1. SELECT FOR UPDATE existing → found with DIFFERENT hash
       //   2. UPDATE reviews SET reviewer_name/hash
-      //   3. SELECT active response FOR UPDATE → none
-      //   4. SELECT MAX(version)
-      //   5. INSERT job_outbox
+      //   3. SELECT account_id FROM businesses (startReviewRun lookup)
+      //   4. SELECT active response FOR UPDATE → none
+      //   5. SELECT MAX(version)
+      //   6. INSERT job_outbox
       tx
         .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash', status: 'new' }], 1))
         .mockResolvedValueOnce(withCount([], 0))  // UPDATE reviews (no stale-marking call before this)
+        .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
         .mockResolvedValueOnce(withCount([], 0))  // SELECT active response → none
         .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
         .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
@@ -412,8 +433,8 @@ describe('processReview', () => {
       const allParams = (tx.mock.calls as unknown[][]).flatMap((call) => call.slice(1));
       // stale_after_review_changed must NOT appear in any tx call's parameters
       expect(allParams).not.toContain('stale_after_review_changed');
-      // Exactly 5 tx calls (no extra stale UPDATE)
-      expect(tx).toHaveBeenCalledTimes(5);
+      // Exactly 6 tx calls (no extra stale UPDATE)
+      expect(tx).toHaveBeenCalledTimes(6);
 
       const payload = capturedJsonbPayloads[0] as Record<string, unknown>;
       expect(payload['origin_lane']).toBe('live_ingest_update');
@@ -428,13 +449,15 @@ describe('processReview', () => {
     // tx call sequence for existing row with content change + awaiting_owner_connect:
     //   1. SELECT FOR UPDATE existing → found with DIFFERENT hash
     //   2. UPDATE reviews SET review_text/hash
-    //   3. SELECT active response FOR UPDATE → awaiting_owner_connect
-    //   4. INSERT review_exceptions → count=1 (new exception opened)
-    //   5. INSERT job_outbox (notify_admin_review_exception)
-    //   6. UPDATE responses SET status = 'superseded'
+    //   3. SELECT account_id FROM businesses (startReviewRun lookup)
+    //   4. SELECT active response FOR UPDATE → awaiting_owner_connect
+    //   5. INSERT review_exceptions → count=1 (new exception opened)
+    //   6. INSERT job_outbox (notify_admin_review_exception)
+    //   7. UPDATE responses SET status = 'superseded'
     tx
       .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash' }], 1))
       .mockResolvedValueOnce(withCount([], 0))  // UPDATE reviews
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([{ id: 'resp-1', status: 'awaiting_owner_connect', version: 1 }], 1))
       .mockResolvedValueOnce(withCount([{ id: 'exc-1' }], 1))  // INSERT review_exceptions
       .mockResolvedValueOnce(withCount([], 0))  // INSERT job_outbox
@@ -463,13 +486,15 @@ describe('processReview', () => {
     // tx call sequence for existing row with content change + posted:
     //   1. SELECT FOR UPDATE existing → found with DIFFERENT hash
     //   2. UPDATE reviews
-    //   3. SELECT active response FOR UPDATE → posted
-    //   4. INSERT review_exceptions → count=1
-    //   5. INSERT job_outbox
+    //   3. SELECT account_id FROM businesses (startReviewRun lookup)
+    //   4. SELECT active response FOR UPDATE → posted
+    //   5. INSERT review_exceptions → count=1
+    //   6. INSERT job_outbox
     //   (NO UPDATE responses SET superseded — posted is terminal)
     tx
       .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash' }], 1))
       .mockResolvedValueOnce(withCount([], 0))  // UPDATE reviews
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([{ id: 'resp-1', status: 'posted', version: 1 }], 1))
       .mockResolvedValueOnce(withCount([{ id: 'exc-1' }], 1))  // INSERT review_exceptions
       .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
@@ -487,8 +512,8 @@ describe('processReview', () => {
 
     // Response must NOT be superseded — 'posted' is terminal
     expect(allSqls.some((s) => s.includes('review_content_changed_during_park'))).toBe(false);
-    // Only 5 tx calls — no 6th UPDATE responses call
-    expect(tx).toHaveBeenCalledTimes(5);
+    // Only 6 tx calls — no 7th UPDATE responses call
+    expect(tx).toHaveBeenCalledTimes(6);
   });
 
   // ── Sentiment classification wiring ──────────────────────────────────
@@ -499,6 +524,7 @@ describe('processReview', () => {
     tx
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
 
@@ -525,6 +551,7 @@ describe('processReview', () => {
     tx
       .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash', status: 'new' }], 1))
       .mockResolvedValueOnce(withCount([], 0))  // UPDATE reviews
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([], 0))  // SELECT active response → none
       .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
       .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
@@ -552,6 +579,7 @@ describe('processReview', () => {
     tx
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
 
@@ -575,6 +603,7 @@ describe('processReview', () => {
     tx
       .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash', status: 'new' }], 1))
       .mockResolvedValueOnce(withCount([], 0))  // UPDATE reviews
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([], 0))  // SELECT active response → none
       .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
       .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
@@ -612,6 +641,138 @@ describe('processReview', () => {
     expect(updateSql).toContain('SET status =');
     expect(updateCall.slice(1)).toContain(REVIEW_STATUS.NEW);
     expect(updateSql).not.toContain('sentiment_label');
+  });
+
+  // ── Agent run spine instrumentation (WS1 Task 6) ─────────────────────
+
+  it('new review starts a review_handler run and records review_ingested', async () => {
+    const monitored = makeMonitoredReview();
+
+    // tx call sequence (new-review win path, with spine instrumentation):
+    //   1. SELECT FOR UPDATE existing → none
+    //   2. INSERT reviews ON CONFLICT DO NOTHING → count=1 (won)
+    //   3. SELECT account_id FROM businesses (startReviewRun lookup)
+    //   4. INSERT job_outbox (generate_response)
+    //   5. first_review_ingested account lookup
+    tx
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: true }], 1));
+
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
+    expect(result).toBe('new');
+
+    // The review id is generated in-function (uuidv7) — assert the run's
+    // subjectId matches the review_id bound into the generate_response payload.
+    const payload = capturedJsonbPayloads[0] as Record<string, unknown>;
+    expect(startOrGetActiveRun).toHaveBeenCalledWith(tx, expect.objectContaining({
+      kind: 'review_handler',
+      subjectType: 'review',
+      subjectId: payload['review_id'],
+      accountId: 'acct-1',
+      businessId: 'biz-1',
+      correlationId: 'corr-1',
+    }));
+    expect(recordStep).toHaveBeenCalledWith(tx, expect.objectContaining({
+      runId: 'run-1',
+      stepKey: 'review_ingested',
+    }));
+  });
+
+  it('content-changed review records review_updated on its run', async () => {
+    const monitored = makeMonitoredReview({ contentHash: 'new-hash' });
+
+    // tx call sequence (content change, flag off, no active response):
+    //   1. SELECT FOR UPDATE existing → found with DIFFERENT hash
+    //   2. UPDATE reviews
+    //   3. SELECT account_id FROM businesses (startReviewRun lookup)
+    //   4. SELECT active response FOR UPDATE → none
+    //   5. SELECT MAX(version)
+    //   6. INSERT job_outbox
+    tx
+      .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash', status: 'new' }], 1))
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))
+      .mockResolvedValueOnce(withCount([], 0));
+
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
+    expect(result).toBe('updated');
+
+    expect(startOrGetActiveRun).toHaveBeenCalledWith(tx, expect.objectContaining({
+      kind: 'review_handler',
+      subjectType: 'review',
+      subjectId: 'existing-rev',
+      accountId: 'acct-1',
+      businessId: 'biz-1',
+      correlationId: 'corr-1',
+    }));
+    expect(recordStep).toHaveBeenCalledWith(tx, expect.objectContaining({
+      runId: 'run-1',
+      stepKey: 'review_updated',
+    }));
+  });
+
+  it('unchanged review does NOT touch the run spine', async () => {
+    const monitored = makeMonitoredReview({ contentHash: 'same-hash' });
+
+    tx.mockResolvedValueOnce(withCount([{
+      id: 'existing-rev',
+      review_content_hash: 'same-hash',
+      status: 'new',
+    }], 1));
+
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
+    expect(result).toBe('unchanged');
+
+    expect(startOrGetActiveRun).not.toHaveBeenCalled();
+    expect(recordStep).not.toHaveBeenCalled();
+  });
+
+  it('missing businesses row (defensive branch) skips the spine but ingest still succeeds', async () => {
+    const monitored = makeMonitoredReview();
+
+    // Same new-review win sequence, but the startReviewRun account lookup
+    // returns no row — the defensive skip keeps ingest alive.
+    tx
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([], 0))  // startReviewRun account lookup → no businesses row
+      .mockResolvedValueOnce(withCount([], 0))  // INSERT job_outbox
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: true }], 1));
+
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
+
+    expect(result).toBe('new');
+    expect(startOrGetActiveRun).not.toHaveBeenCalled();
+    expect(recordStep).not.toHaveBeenCalled();
+
+    // generate_response is still enqueued — the skip never poisons ingest.
+    const outboxSql = (tx.mock.calls[3]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(outboxSql).toContain('INSERT INTO job_outbox');
+    expect(tx.mock.calls[3]).toContain('generate_response');
+  });
+
+  it('spine failure fails the whole transaction — no generate_response outbox after the throw', async () => {
+    const monitored = makeMonitoredReview();
+
+    vi.mocked(startOrGetActiveRun).mockRejectedValueOnce(new Error('spine down'));
+
+    tx
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1));  // startReviewRun account lookup
+
+    await expect(processReview(sql, monitored, 'biz-1', 'corr-1')).rejects.toThrow('spine down');
+
+    // The spine failure aborted the tx before enqueueGenerateResponse ran.
+    const wroteOutbox = tx.mock.calls.some(
+      (call) => ((call[0] as TemplateStringsArray | undefined)?.join('?') ?? '').includes('job_outbox'),
+    );
+    expect(wroteOutbox).toBe(false);
   });
 });
 

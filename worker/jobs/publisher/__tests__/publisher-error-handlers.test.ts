@@ -250,6 +250,7 @@ describe('verify409AndDispose', () => {
     expect(markPostedAndMaybeEnqueueAutoPostNotice).toHaveBeenCalledWith({
       tx,
       responseId: 'R',
+      reviewId: 'rev', // run-spine lock ordering: the helper locks the review row first
       businessId: 'B',
       correlationId: 'corr-409', // Codex review #2: correlation_id threaded for trace continuity
       logger: expect.any(Object),

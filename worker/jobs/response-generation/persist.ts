@@ -8,6 +8,7 @@
 // skip must never split from the INSERT. See CLAUDE.md invariant #4.
 
 import { v7 as uuidv7 } from 'uuid';
+import * as Sentry from '@sentry/node';
 import type postgres from 'postgres';
 import type { ModerationDecision } from '../../../src/lib/moderation/output-filter';
 import type { GenerationResult } from '../../../src/lib/responses/types';
@@ -21,6 +22,11 @@ import {
   enqueueSendNotification,
 } from '../../../src/lib/shared/job-outbox-helpers';
 import { insertAuditLogAutoPolicy } from '../../../src/lib/approval/audit';
+import {
+  findActiveReviewRun,
+  recordOutcome,
+  recordStep,
+} from '../../../src/lib/agents/run-spine';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import {
   type AutoApprovalDecision,
@@ -46,7 +52,7 @@ export interface PersistResponseInput {
   loadedReviewContentHash: string | null;
   moderation: ModerationDecision;
   accountId: string;
-  logger: Pick<WorkerLogger, 'log'>;
+  logger: Pick<WorkerLogger, 'log' | 'warn'>;
 }
 
 export async function persistResponseAndNotify(sql: postgres.Sql, input: PersistResponseInput): Promise<string> {
@@ -62,6 +68,39 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
   const moderatedCostId = retryCostId ?? result.apiCostId;
 
   await sql.begin(async (tx) => {
+    // Take the review row lock as the transaction's FIRST statement
+    // (run-spine.ts lock-ordering contract). It must precede the responses
+    // INSERT below: that INSERT's FK on review_id takes an implicit
+    // FOR KEY SHARE on the reviews tuple, and upgrading share → FOR UPDATE
+    // later deadlocks against concurrent FOR UPDATE waiters (content-changed
+    // ingest, edit-publish/failed-hook, or another persist for the same
+    // review). Taking FOR UPDATE first subsumes the later KEY SHARE. Bonus:
+    // the auto-approval content-hash re-read further down happens under this
+    // lock, so it cannot race a concurrent content-changed ingest.
+    const [reviewLock] = await tx<{ id: string }[]>`
+      SELECT id FROM reviews
+      WHERE id = ${reviewId} AND business_id = ${businessId}
+      FOR UPDATE
+    `;
+    if (!reviewLock) {
+      // Review not visible to its business — impossible if FKs hold (caller
+      // bug / corrupt state only). The lock no-oped, so the ordering contract
+      // is void for this tx; surface loudly (same posture as mark-posted.ts)
+      // but proceed — control flow is unchanged.
+      Sentry.captureMessage('orphan_response_review', {
+        level: 'warning',
+        extra: {
+          response_id: responseId,
+          review_id: reviewId,
+          business_id: businessId,
+          site: 'persist',
+        },
+      });
+      logger.warn(
+        `Review ${reviewId} not found for business ${businessId} — persist review lock no-oped (response ${responseId})`,
+      );
+    }
+
     await tx`
       INSERT INTO responses (
         id, review_id, business_id, response_text, response_language,
@@ -95,6 +134,28 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       reviewId,
       outputExcerpt: result.responseText.slice(0, 200),
     });
+
+    const activeRun = await findActiveReviewRun(tx, reviewId);
+    if (activeRun) {
+      await recordStep(tx, {
+        runId: activeRun.id,
+        stepKey: 'draft_generated',
+        detail: { response_id: responseId, version },
+      });
+      await recordStep(tx, {
+        runId: activeRun.id,
+        stepKey: 'moderation_checked',
+        status: held ? 'failed' : 'completed',
+        detail: { flagged: moderation.flagged, severity: moderation.severity ?? null, held },
+      });
+      await recordOutcome(tx, {
+        runId: activeRun.id,
+        accountId: activeRun.account_id,
+        businessId,
+        attributedAgent: 'reply',
+        outcomeKind: 'reply_drafted',
+      });
+    }
 
     // FP: sequential reads on the shared tx after the moderation/hold write in the same sql.begin; runtime-state re-read is ordered against the prior tx writes, not independent.
     // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
@@ -131,6 +192,17 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       originLane,
       moderation,
     });
+
+    // The moderation veto precedes the policy gate: a held draft never reaches
+    // the gate, so no policy_gate step is recorded for it. On every other path
+    // the gate decision is known here — one site covers both branches.
+    if (activeRun && !held) {
+      await recordStep(tx, {
+        runId: activeRun.id,
+        stepKey: 'policy_gate',
+        detail: { decision: autoDecision.approved ? 'auto_approved' : 'held_for_owner' },
+      });
+    }
 
     if (autoDecision.approved) {
       // FP: ordered writes inside one sql.begin tx (approve UPDATE → audit log → enqueue publish); parallelizing would break tx ordering.

@@ -281,6 +281,27 @@ export const TABLE_DISPOSITIONS = [
     reason: 'Prospect demo snapshots may contain review and generated response content and are removed when linked to the account.',
   },
   {
+    table: 'agent_runs',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Agent run attribution rows carry subject ids of deleted reviews and have no retention rationale.',
+  },
+  {
+    table: 'agent_run_steps',
+    disposition: 'hard_delete',
+    scopeEvidence: 'not_applicable',
+    purgeVerification: 'must_be_absent',
+    reason: 'Step detail references deleted response ids; rows have no tenant column and hard-delete via the agent_runs ON DELETE CASCADE FK.',
+  },
+  {
+    table: 'agent_outcomes',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Per-agent outcome facts are account attribution data referencing deleted reviews/responses and are removed.',
+  },
+  {
     table: 'account_offboardings',
     disposition: 'scrub_in_place',
     scopeEvidence: 'direct_account_id',

@@ -14,6 +14,7 @@ import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 import { classifySentiment } from '@/lib/reviews/sentiment';
 import { replyEditingFlagEnabled } from '@/lib/past-replies/flags';
+import { startOrGetActiveRun, recordStep } from '@/lib/agents/run-spine';
 import {
   STALE_AFTER_REVIEW_CHANGED,
   DELETE_FAILED_PREFIX,
@@ -81,7 +82,14 @@ export async function processReview(
       `;
 
       if (inserted.count > 0) {
-        // We won the race — enqueue response generation
+        // We won the race — start the agent run, then enqueue response generation
+        await startReviewRun(tx, {
+          reviewId,
+          businessId,
+          correlationId,
+          stepKey: 'review_ingested',
+        });
+
         await enqueueGenerateResponse(tx, {
           reviewId,
           businessId,
@@ -140,6 +148,41 @@ export async function processReview(
       updateOriginLane,
     );
   });
+}
+
+// ── Agent run spine (WS1) ────────────────────────────────────────────
+// Starts (or joins) the review_handler run for a review and records the
+// ingest/update step, inside the SAME transaction as the review write —
+// outbox discipline: a spine failure fails the job and BullMQ retries.
+// Unchanged/status-only paths deliberately get no spine writes (mirrors
+// the sentiment discipline).
+
+async function startReviewRun(
+  tx: TxClient,
+  input: {
+    reviewId: string;
+    businessId: string;
+    correlationId?: string;
+    stepKey: 'review_ingested' | 'review_updated';
+  },
+): Promise<void> {
+  const [biz] = await tx<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${input.businessId}
+  `;
+  // Defensive: unreachable today — reviews.business_id FK guarantees the row
+  // exists (KEY SHARE from the INSERT / cascade blocks behind our review lock).
+  // Skip rather than fail ingest if that ever changes.
+  if (!biz) return;
+
+  const { runId } = await startOrGetActiveRun(tx, {
+    kind: 'review_handler',
+    subjectType: 'review',
+    subjectId: input.reviewId,
+    accountId: biz.account_id,
+    businessId: input.businessId,
+    correlationId: input.correlationId,
+  });
+  await recordStep(tx, { runId, stepKey: input.stepKey });
 }
 
 async function maybeEnqueueFirstReviewIngested(
@@ -256,6 +299,13 @@ async function processExistingReview(
         detected_at = CASE WHEN status = ${REVIEW_STATUS.DELETED} THEN NOW() ELSE detected_at END
     WHERE id = ${existing.id}
   `;
+
+  await startReviewRun(tx, {
+    reviewId: existing.id,
+    businessId,
+    correlationId,
+    stepKey: 'review_updated',
+  });
 
   // Find the current non-terminal response for this review. FOR UPDATE
   // serializes against a concurrent approval transaction (which also

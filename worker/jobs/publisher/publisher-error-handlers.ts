@@ -455,6 +455,7 @@ export async function verify409AndDispose(sql: postgres.Sql, args: Verify409Args
       await markPostedAndMaybeEnqueueAutoPostNotice({
         tx,
         responseId: response_id,
+        reviewId: review_id,
         businessId: business_id,
         correlationId: correlation_id,
         logger,

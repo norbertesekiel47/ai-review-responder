@@ -326,6 +326,19 @@ describe('AccountOffboarding PurgeWorker', () => {
     const enrollmentDelete = calls.find((call) => call.text.includes('DELETE FROM channel_enrollments'));
     expect(enrollmentDelete?.text).toContain('account_id =');
     expect(enrollmentDelete?.scope).toBe('tx');
+    // Agent run spine tables are hard_delete/must_be_absent (accounts rows are
+    // retained de-identified, so their ON DELETE CASCADE never fires) — the
+    // purge must delete outcomes then runs explicitly; agent_run_steps cascades
+    // via its agent_runs FK, so no explicit steps DELETE may appear.
+    const agentOutcomesDelete = calls.find((call) => call.text.includes('DELETE FROM agent_outcomes'));
+    expect(agentOutcomesDelete?.text).toContain('account_id =');
+    expect(agentOutcomesDelete?.scope).toBe('tx');
+    const agentRunsDelete = calls.find((call) => call.text.includes('DELETE FROM agent_runs'));
+    expect(agentRunsDelete?.text).toContain('account_id =');
+    expect(agentRunsDelete?.scope).toBe('tx');
+    expect(calls.findIndex((call) => call.text.includes('DELETE FROM agent_outcomes')))
+      .toBeLessThan(calls.findIndex((call) => call.text.includes('DELETE FROM agent_runs')));
+    expect(sqlText).not.toContain('DELETE FROM agent_run_steps');
     expect(sqlText).toContain('recipient_email = NULL');
     expect(sqlText).toContain('stripe_customer_id = NULL');
     expect(sqlText).toContain('stripe_subscription_id = NULL');
