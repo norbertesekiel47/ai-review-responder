@@ -208,12 +208,12 @@ export function buildProductionPrompt(
 
   if (triageSeverity === 'medium' || triageSeverity === 'high') {
     rules.push(
-      '- This review describes a serious issue: open with a sincere apology, acknowledge the specific problem, and invite the reviewer to continue the conversation offline',
+      '- This review describes a serious issue: open with a sincere apology for their experience, acknowledge the specific problem without admitting fault, wrongdoing, or liability, and invite the reviewer to continue the conversation offline',
     );
   }
   if (triageSeverity === 'high') {
     rules.push(
-      "- Keep the response short and measured: no excuses, never dispute the reviewer's account, and do not repeat accusations back",
+      "- Keep the response short and measured — this guidance takes priority over the base tone above: no excuses, never dispute the reviewer's account, and do not repeat accusations back",
     );
   }
 

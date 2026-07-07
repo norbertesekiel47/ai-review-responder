@@ -290,6 +290,7 @@ describe('buildProductionPrompt', () => {
     it('medium severity adds the empathy/offline rule only', () => {
       const { systemPrompt } = buildProductionPrompt(baseReview, baseBusiness, [], 'medium');
       expect(systemPrompt).toContain('sincere apology');
+      expect(systemPrompt).toContain('without admitting fault');
       expect(systemPrompt).toContain('offline');
       expect(systemPrompt).not.toContain('short and measured');
     });
@@ -297,7 +298,9 @@ describe('buildProductionPrompt', () => {
     it('high severity adds both the empathy rule and the measured rule', () => {
       const { systemPrompt } = buildProductionPrompt(baseReview, baseBusiness, [], 'high');
       expect(systemPrompt).toContain('sincere apology');
+      expect(systemPrompt).toContain('without admitting fault');
       expect(systemPrompt).toContain('short and measured');
+      expect(systemPrompt).toContain('takes priority over the base tone');
     });
   });
 
