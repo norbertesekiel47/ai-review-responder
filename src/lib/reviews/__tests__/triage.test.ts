@@ -196,6 +196,9 @@ describe('persistTriage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     escalationEnabled.mockReturnValue(false);
+    // clearAllMocks does not drain unconsumed mockResolvedValueOnce queues —
+    // reset fully so no test inherits a neighbor's leftover run fixture.
+    findActiveReviewRun.mockReset();
     resetMockSql();
   });
 

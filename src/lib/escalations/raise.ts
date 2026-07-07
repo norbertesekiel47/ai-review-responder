@@ -16,9 +16,13 @@ import type { TransactionSql } from 'postgres';
 import { recordOutcome, recordStep } from '@/lib/agents/run-spine';
 import { enqueueEscalationNotice } from '@/lib/shared/job-outbox-helpers';
 import type { TriageClassification } from '@/lib/reviews/triage';
+import type { TriageOutput } from '@/lib/reviews/triage-schema';
 import { ESCALATION_STATUS } from './types';
 
-const ESCALATING_ACTIONS: readonly string[] = ['escalate', 'respond_and_escalate'];
+// Schema-typed so a renamed suggested_action value fails typecheck instead of
+// silently never escalating.
+const ESCALATING_ACTIONS: ReadonlyArray<TriageOutput['suggested_action']> =
+  ['escalate', 'respond_and_escalate'];
 
 /** Trigger predicate (spec §2.1): source-agnostic — fallback rows escalate
  *  immediately; mock rows never reach here (mock always suggests 'respond'). */
@@ -31,8 +35,9 @@ export interface RaiseEscalationInput {
   businessId: string;
   accountId: string;
   /** The review's running review_handler run, or null for legacy reviews
-   *  (outcome + step are skipped; the escalation row still persists). */
-  activeRun: { id: string; account_id: string } | null;
+   *  (outcome + step are skipped; the escalation row still persists). Only
+   *  the id is consumed — account scope comes from accountId, single owner. */
+  activeRun: { id: string } | null;
   classification: TriageClassification;
   correlationId?: string;
 }
