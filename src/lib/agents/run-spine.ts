@@ -6,9 +6,12 @@
 // transaction as the pipeline state change it describes. A spine failure
 // fails the job (BullMQ retries) — never a best-effort side log.
 // `detail` carries ids/enums/counts only — NEVER raw review/response text.
-// Lock ordering: within a transaction, take review/response row locks BEFORE
-// calling recordStep/completeRun (the agent_runs row lock is always LAST) —
-// prevents lock-order inversion as more pipeline sites are instrumented.
+// Lock ordering: any transaction that locks an agent_runs row for a
+// review-subject run (recordStep/completeRun) must hold that review's
+// `reviews` row lock (FOR UPDATE) first — serializing at the review row
+// makes the relative run/response lock order irrelevant. (The ingest path
+// locks the review row at the top of processReview; other checkpoints must
+// do the same before their first spine write.)
 
 import { v7 as uuidv7 } from 'uuid';
 import type { TransactionSql } from 'postgres';
@@ -108,6 +111,25 @@ export async function startOrGetActiveRun(
     );
   }
   return { runId: existing.id, created: false };
+}
+
+/**
+ * Read-only lookup of the running review_handler run for a review, used by
+ * pipeline checkpoints to attach steps/outcomes. Returns null for legacy
+ * reviews ingested before the spine existed (callers skip spine writes).
+ */
+export async function findActiveReviewRun(
+  tx: TxClient,
+  reviewId: string,
+): Promise<{ id: string; account_id: string } | null> {
+  const [run] = await tx<{ id: string; account_id: string }[]>`
+    SELECT id, account_id FROM agent_runs
+    WHERE kind = 'review_handler'
+      AND subject_type = 'review'
+      AND subject_id = ${reviewId}
+      AND status = 'running'
+  `;
+  return run ?? null;
 }
 
 export interface RecordStepInput {

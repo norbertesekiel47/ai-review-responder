@@ -24,7 +24,14 @@ vi.mock('uuid', () => ({
   v7: vi.fn(() => 'deterministic-uuid-v7'),
 }));
 
+vi.mock('../../../../src/lib/agents/run-spine', () => ({
+  findActiveReviewRun: vi.fn(),
+  recordStep: vi.fn(),
+  recordOutcome: vi.fn(),
+}));
+
 import { persistResponseAndNotify } from '../persist';
+import { findActiveReviewRun, recordStep, recordOutcome } from '../../../../src/lib/agents/run-spine';
 import { QUEUE_NAMES } from '../../../../src/lib/shared/queue-names';
 
 const RESULT: GenerationResult = {
@@ -101,6 +108,7 @@ function queuePersistRows(input: {
   if (input.flaggedHigh) {
     txQueue.push([]); // INSERT flagged_responses
   }
+  txQueue.push([]); // SELECT 1 FROM reviews … FOR UPDATE (spine lock ordering)
   txQueue.push(
     [currentState(input.state)],
     input.policies ?? [enabledPolicy()],
@@ -328,5 +336,130 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
     expect(txArgs()).not.toContain(QUEUE_NAMES.SEND_NOTIFICATION);
     expect(txArgs()).not.toContain(QUEUE_NAMES.PUBLISH_RESPONSE);
     expect(sendNotificationPayloads()).toHaveLength(0);
+  });
+});
+
+describe('persistResponseAndNotify run-spine instrumentation', () => {
+  const ACTIVE_RUN = { id: 'run-1', account_id: 'acct-1' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(findActiveReviewRun).mockReset();
+    vi.mocked(recordStep).mockReset();
+    vi.mocked(recordOutcome).mockReset();
+    txQueue.length = 0;
+    process.env.AUTO_APPROVAL_ENABLED = 'false';
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+  });
+
+  afterEach(() => {
+    delete process.env.AUTO_APPROVAL_ENABLED;
+    delete process.env.OPENAI_MODERATION_ENABLED;
+  });
+
+  it('records draft_generated + moderation_checked steps and a reply_drafted outcome in the persist tx', async () => {
+    vi.mocked(findActiveReviewRun).mockResolvedValue(ACTIVE_RUN);
+    queuePersistRows();
+
+    await persistResponseAndNotify(mockSql, baseInput());
+
+    expect(findActiveReviewRun).toHaveBeenCalledWith(mockTx, 'rev-1');
+    expect(recordStep).toHaveBeenCalledWith(mockTx, expect.objectContaining({
+      runId: 'run-1',
+      stepKey: 'draft_generated',
+      detail: { response_id: 'deterministic-uuid-v7', version: 1 },
+    }));
+    expect(recordStep).toHaveBeenCalledWith(mockTx, expect.objectContaining({
+      runId: 'run-1',
+      stepKey: 'moderation_checked',
+      status: 'completed',
+      detail: { flagged: false, severity: 'low', held: false },
+    }));
+    expect(recordOutcome).toHaveBeenCalledWith(mockTx, {
+      runId: 'run-1',
+      accountId: 'acct-1',
+      businessId: 'biz-1',
+      attributedAgent: 'reply',
+      outcomeKind: 'reply_drafted',
+    });
+  });
+
+  it('locks the review row (FOR UPDATE) inside the persist tx before spine writes', async () => {
+    vi.mocked(findActiveReviewRun).mockResolvedValue(ACTIVE_RUN);
+    queuePersistRows();
+
+    await persistResponseAndNotify(mockSql, baseInput());
+
+    expect(
+      txTexts().some((text) => text.includes('FROM reviews') && text.includes('FOR UPDATE')),
+    ).toBe(true);
+  });
+
+  it('records a policy_gate step with the auto-approval decision on the auto-approved path', async () => {
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    vi.mocked(findActiveReviewRun).mockResolvedValue(ACTIVE_RUN);
+    queuePersistRows({ autoApprove: true });
+
+    await persistResponseAndNotify(mockSql, baseInput());
+
+    expect(recordStep).toHaveBeenCalledWith(mockTx, expect.objectContaining({
+      runId: 'run-1',
+      stepKey: 'policy_gate',
+      detail: { decision: 'auto_approved' },
+    }));
+  });
+
+  it('records a held_for_owner policy_gate step on the normal owner-review path', async () => {
+    vi.mocked(findActiveReviewRun).mockResolvedValue(ACTIVE_RUN);
+    queuePersistRows();
+
+    await persistResponseAndNotify(mockSql, baseInput());
+
+    expect(recordStep).toHaveBeenCalledWith(mockTx, expect.objectContaining({
+      runId: 'run-1',
+      stepKey: 'policy_gate',
+      detail: { decision: 'held_for_owner' },
+    }));
+    expect(txArgs()).toContain(QUEUE_NAMES.SEND_NOTIFICATION);
+  });
+
+  it('records moderation_checked as failed with held detail and NO policy_gate on the held path', async () => {
+    vi.mocked(findActiveReviewRun).mockResolvedValue(ACTIVE_RUN);
+    queuePersistRows({ flaggedHigh: true, notify: false });
+
+    await persistResponseAndNotify(mockSql, baseInput({
+      moderation: {
+        ...CLEAN_MODERATION,
+        flagged: true,
+        severity: 'high',
+        source: 'local_regex',
+        reason: 'refund_discount',
+      },
+    }));
+
+    expect(recordStep).toHaveBeenCalledWith(mockTx, expect.objectContaining({
+      stepKey: 'moderation_checked',
+      status: 'failed',
+      detail: { flagged: true, severity: 'high', held: true },
+    }));
+    const policyGateCalls = vi.mocked(recordStep).mock.calls
+      .filter(([, stepInput]) => stepInput.stepKey === 'policy_gate');
+    expect(policyGateCalls).toHaveLength(0);
+    // The draft still exists (held for admin disposition) — it counts as drafted.
+    expect(recordOutcome).toHaveBeenCalledWith(mockTx, expect.objectContaining({
+      outcomeKind: 'reply_drafted',
+    }));
+  });
+
+  it('skips spine writes when no running review_handler run exists (legacy rows)', async () => {
+    vi.mocked(findActiveReviewRun).mockResolvedValue(null);
+    queuePersistRows();
+
+    const responseId = await persistResponseAndNotify(mockSql, baseInput());
+
+    expect(responseId).toBe('deterministic-uuid-v7');
+    expect(recordStep).not.toHaveBeenCalled();
+    expect(recordOutcome).not.toHaveBeenCalled();
+    expect(txArgs()).toContain(QUEUE_NAMES.SEND_NOTIFICATION);
   });
 });

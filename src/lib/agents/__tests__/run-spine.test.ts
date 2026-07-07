@@ -15,6 +15,7 @@ import {
   STEP_PERSONA,
   personaForStep,
   startOrGetActiveRun,
+  findActiveReviewRun,
   recordStep,
   recordOutcome,
   completeRun,
@@ -142,6 +143,31 @@ describe('startOrGetActiveRun', () => {
       accountId: 'acct-1',
       businessId: 'biz-1',
     })).rejects.toThrow(/active run/i);
+  });
+});
+
+describe('findActiveReviewRun', () => {
+  let harness: MockSqlHarness;
+  beforeEach(() => { harness = createMockSql(); });
+
+  it('returns the running review_handler run row for the review', async () => {
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: 'run-1', account_id: 'acct-1' }]));
+
+    const run = await findActiveReviewRun(tx(harness), 'rev-1');
+
+    expect(run).toEqual({ id: 'run-1', account_id: 'acct-1' });
+    expect(harness.sqlCalls).toHaveLength(1);
+    const sqlText = harness.sqlCalls[0]!.text;
+    expect(sqlText).toContain("kind = 'review_handler'");
+    expect(sqlText).toContain("subject_type = 'review'");
+    expect(sqlText).toContain("status = 'running'");
+    expect(harness.sqlCalls[0]!.values).toContain('rev-1');
+  });
+
+  it('returns null when no running run exists (legacy review)', async () => {
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+
+    await expect(findActiveReviewRun(tx(harness), 'rev-legacy')).resolves.toBeNull();
   });
 });
 

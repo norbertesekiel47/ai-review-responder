@@ -21,6 +21,11 @@ import {
   enqueueSendNotification,
 } from '../../../src/lib/shared/job-outbox-helpers';
 import { insertAuditLogAutoPolicy } from '../../../src/lib/approval/audit';
+import {
+  findActiveReviewRun,
+  recordOutcome,
+  recordStep,
+} from '../../../src/lib/agents/run-spine';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import {
   type AutoApprovalDecision,
@@ -96,6 +101,40 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       outputExcerpt: result.responseText.slice(0, 200),
     });
 
+    // Serialize at the review row before the first spine write (run-spine.ts
+    // lock-ordering contract): the ingest path holds reviews-lock →
+    // agent_runs-lock, so this tx must take the review lock before recordStep
+    // locks the run row — otherwise the two transactions can deadlock. Bonus:
+    // the runtime-state content-hash re-read below happens under the same
+    // lock, so it cannot race a concurrent content-changed ingest.
+    await tx`
+      SELECT 1 FROM reviews
+      WHERE id = ${reviewId} AND business_id = ${businessId}
+      FOR UPDATE
+    `;
+
+    const activeRun = await findActiveReviewRun(tx, reviewId);
+    if (activeRun) {
+      await recordStep(tx, {
+        runId: activeRun.id,
+        stepKey: 'draft_generated',
+        detail: { response_id: responseId, version },
+      });
+      await recordStep(tx, {
+        runId: activeRun.id,
+        stepKey: 'moderation_checked',
+        status: held ? 'failed' : 'completed',
+        detail: { flagged: moderation.flagged, severity: moderation.severity ?? null, held },
+      });
+      await recordOutcome(tx, {
+        runId: activeRun.id,
+        accountId: activeRun.account_id,
+        businessId,
+        attributedAgent: 'reply',
+        outcomeKind: 'reply_drafted',
+      });
+    }
+
     // FP: sequential reads on the shared tx after the moderation/hold write in the same sql.begin; runtime-state re-read is ordered against the prior tx writes, not independent.
     // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
     const runtimeState = await loadAutoApprovalRuntimeState(tx, {
@@ -131,6 +170,17 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       originLane,
       moderation,
     });
+
+    // The moderation veto precedes the policy gate: a held draft never reaches
+    // the gate, so no policy_gate step is recorded for it. On every other path
+    // the gate decision is known here — one site covers both branches.
+    if (activeRun && !held) {
+      await recordStep(tx, {
+        runId: activeRun.id,
+        stepKey: 'policy_gate',
+        detail: { decision: autoDecision.approved ? 'auto_approved' : 'held_for_owner' },
+      });
+    }
 
     if (autoDecision.approved) {
       // FP: ordered writes inside one sql.begin tx (approve UPDATE → audit log → enqueue publish); parallelizing would break tx ordering.
