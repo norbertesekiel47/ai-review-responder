@@ -6,6 +6,9 @@
 // transaction as the pipeline state change it describes. A spine failure
 // fails the job (BullMQ retries) — never a best-effort side log.
 // `detail` carries ids/enums/counts only — NEVER raw review/response text.
+// Lock ordering: within a transaction, take review/response row locks BEFORE
+// calling recordStep/completeRun (the agent_runs row lock is always LAST) —
+// prevents lock-order inversion as more pipeline sites are instrumented.
 
 import { v7 as uuidv7 } from 'uuid';
 import type { TransactionSql } from 'postgres';

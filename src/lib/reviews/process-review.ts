@@ -169,7 +169,10 @@ async function startReviewRun(
   const [biz] = await tx<{ account_id: string }[]>`
     SELECT account_id FROM businesses WHERE id = ${input.businessId}
   `;
-  if (!biz) return; // orphaned business mid-teardown: skip spine, keep ingest alive
+  // Defensive: unreachable today — reviews.business_id FK guarantees the row
+  // exists (KEY SHARE from the INSERT / cascade blocks behind our review lock).
+  // Skip rather than fail ingest if that ever changes.
+  if (!biz) return;
 
   const { runId } = await startOrGetActiveRun(tx, {
     kind: 'review_handler',

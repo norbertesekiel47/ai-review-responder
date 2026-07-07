@@ -731,6 +731,49 @@ describe('processReview', () => {
     expect(startOrGetActiveRun).not.toHaveBeenCalled();
     expect(recordStep).not.toHaveBeenCalled();
   });
+
+  it('missing businesses row (defensive branch) skips the spine but ingest still succeeds', async () => {
+    const monitored = makeMonitoredReview();
+
+    // Same new-review win sequence, but the startReviewRun account lookup
+    // returns no row — the defensive skip keeps ingest alive.
+    tx
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([], 0))  // startReviewRun account lookup → no businesses row
+      .mockResolvedValueOnce(withCount([], 0))  // INSERT job_outbox
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: true }], 1));
+
+    const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
+
+    expect(result).toBe('new');
+    expect(startOrGetActiveRun).not.toHaveBeenCalled();
+    expect(recordStep).not.toHaveBeenCalled();
+
+    // generate_response is still enqueued — the skip never poisons ingest.
+    const outboxSql = (tx.mock.calls[3]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(outboxSql).toContain('INSERT INTO job_outbox');
+    expect(tx.mock.calls[3]).toContain('generate_response');
+  });
+
+  it('spine failure fails the whole transaction — no generate_response outbox after the throw', async () => {
+    const monitored = makeMonitoredReview();
+
+    vi.mocked(startOrGetActiveRun).mockRejectedValueOnce(new Error('spine down'));
+
+    tx
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1));  // startReviewRun account lookup
+
+    await expect(processReview(sql, monitored, 'biz-1', 'corr-1')).rejects.toThrow('spine down');
+
+    // The spine failure aborted the tx before enqueueGenerateResponse ran.
+    const wroteOutbox = tx.mock.calls.some(
+      (call) => ((call[0] as TemplateStringsArray | undefined)?.join('?') ?? '').includes('job_outbox'),
+    );
+    expect(wroteOutbox).toBe(false);
+  });
 });
 
 describe('generate_response producer static guard', () => {
