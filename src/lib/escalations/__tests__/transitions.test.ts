@@ -207,4 +207,20 @@ describe('resolveEscalation', () => {
     expect(recordOutcomeMock).not.toHaveBeenCalled();
     expect(txCalls[2]!.text).toContain('UPDATE review_escalations');
   });
+
+  it('locks the reviews row as the transaction FIRST statement, before the escalation row', async () => {
+    const { sql, txCalls } = makeSqlStub([
+      [preCheckRow],
+      [{ id: 'rev-1' }],
+      [escalationRow('escalated')],
+      [],
+    ]);
+    await resolveEscalation(sql, input);
+    expect(txCalls[0]!.text).toContain('FROM reviews');
+    expect(txCalls[0]!.text).toContain('FOR UPDATE');
+    expect(txCalls[0]!.values).toContain('rev-1');
+    expect(txCalls[1]!.text).toContain('FROM review_escalations');
+    expect(txCalls[1]!.text).toContain('FOR UPDATE');
+    expect(txCalls[1]!.text).toContain('account_id =');
+  });
 });

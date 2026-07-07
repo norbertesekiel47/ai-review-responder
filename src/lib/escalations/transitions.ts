@@ -77,6 +77,8 @@ export async function acknowledgeEscalation(
   });
 }
 
+// Never returns invalid_transition today (every non-resolved status may resolve);
+// the shared result type keeps the route contract uniform.
 export async function resolveEscalation(
   sql: Sql,
   input: EscalationTransitionInput,
@@ -110,6 +112,9 @@ export async function resolveEscalation(
     // Run-spine interplay (spec §2.6): the stored agent_run_id lets resolution
     // attribute to a run that may have COMPLETED long ago; recordOutcome does
     // not require a running run. NULL (legacy review / deleted run) → skip.
+    // In-tx by design (unlike the best-effort escalation_sent step): a noop
+    // re-resolve skips recordOutcome, so a lost outcome would be
+    // unrecoverable — roll back and let the owner retry.
     if (row.agent_run_id !== null) {
       await recordOutcome(tx, {
         runId: row.agent_run_id,
