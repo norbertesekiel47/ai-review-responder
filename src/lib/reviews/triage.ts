@@ -24,9 +24,14 @@ import {
   TRIAGE_ISSUES,
   TRIAGE_SOURCE,
   TriageOutputSchema,
+  type TriageClassification,
   type TriageOutput,
-  type TriageSource,
 } from './triage-schema';
+
+// Single owner is triage-schema.ts (kills the triage ⇄ escalations/raise
+// type cycle); re-exported here so classifyReviewTriage callers keep one
+// import site.
+export type { TriageClassification } from './triage-schema';
 
 const MAX_REVIEW_TEXT_CHARS = 1500;
 
@@ -57,17 +62,6 @@ export interface ClassifyTriageInput {
   subscriptionTier: string;
   accountId: string;
   review: ReviewForTriage;
-}
-
-export interface TriageClassification {
-  output: TriageOutput;
-  source: TriageSource;
-  /** Pinned model id that produced the classification; null for fallback/mock. */
-  model: string | null;
-  latencyMs: number | null;
-  /** Error NAME (enum-like, never message text) when the classification fell
-   *  back; undefined on success/mock. Surfaces in the triage step detail. */
-  failureReason?: string;
 }
 
 const FALLBACK_OUTPUT: TriageOutput = {

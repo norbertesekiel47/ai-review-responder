@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { ReviewActions } from '../ReviewActions';
+import { EscalationActions, ReviewActions } from '../ReviewActions';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -54,15 +54,15 @@ describe('ReviewActions regenerate cap (issue #335)', () => {
   });
 });
 
-describe('ReviewActions escalation actions (WS3)', () => {
-  it('renders no escalation buttons when the review has no escalation', () => {
+describe('EscalationActions (WS3)', () => {
+  it('ReviewActions renders draft actions only — escalation buttons live in EscalationActions', () => {
     render(<ReviewActions reviewId="rev-1" responseText="hi" onSuccess={vi.fn()} />);
 
     expect(screen.queryByRole('button', { name: /acknowledge/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /resolve/i })).toBeNull();
   });
 
-  it('POSTs acknowledge to the escalation endpoint and advances on 200', async () => {
+  it('POSTs acknowledge to the escalation endpoint and returns to idle on 200', async () => {
     const onSuccess = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({ ok: true, status: 200, body: { success: true, status: 'acknowledged' } }),
@@ -70,9 +70,7 @@ describe('ReviewActions escalation actions (WS3)', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(
-      <ReviewActions
-        reviewId="rev-1"
-        responseText="hi"
+      <EscalationActions
         escalation={{ id: 'esc-1', status: 'escalated', severity: 'high' }}
         onSuccess={onSuccess}
       />,
@@ -84,10 +82,8 @@ describe('ReviewActions escalation actions (WS3)', () => {
       '/api/dashboard/escalations/esc-1/acknowledge',
       { method: 'POST' },
     );
-    // Back to idle, not the terminal success panel: the owner must still be
-    // able to act on the draft (the refreshed badge is the confirmation).
-    expect(screen.getByRole('button', { name: /^approve$/i })).toBeEnabled();
-    expect(screen.getByRole('button', { name: /regenerate/i })).toBeEnabled();
+    // Back to idle, not a terminal success panel: the refreshed badge is the
+    // confirmation, and Resolve stays reachable after the Acknowledge.
     expect(screen.getByRole('button', { name: /resolve/i })).toBeEnabled();
   });
 
@@ -99,9 +95,7 @@ describe('ReviewActions escalation actions (WS3)', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(
-      <ReviewActions
-        reviewId="rev-1"
-        responseText="hi"
+      <EscalationActions
         escalation={{ id: 'esc-2', status: 'acknowledged', severity: 'medium' }}
         onSuccess={onSuccess}
       />,
@@ -115,8 +109,8 @@ describe('ReviewActions escalation actions (WS3)', () => {
       '/api/dashboard/escalations/esc-2/resolve',
       { method: 'POST' },
     );
-    // Idle again — approval actions stay available after the transition.
-    expect(screen.getByRole('button', { name: /^approve$/i })).toBeEnabled();
+    // Idle again — the buttons stay available after the transition.
+    expect(screen.getByRole('button', { name: /resolve/i })).toBeEnabled();
   });
 
   it('surfaces the server error and does not advance on a failed transition', async () => {
@@ -129,9 +123,7 @@ describe('ReviewActions escalation actions (WS3)', () => {
     );
 
     render(
-      <ReviewActions
-        reviewId="rev-1"
-        responseText="hi"
+      <EscalationActions
         escalation={{ id: 'esc-3', status: 'escalated', severity: 'low' }}
         onSuccess={onSuccess}
       />,

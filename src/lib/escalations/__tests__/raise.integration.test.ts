@@ -22,6 +22,7 @@ import {
 } from '@/lib/shared/__tests__/live-db-tenant';
 import { TRIAGE_SOURCE } from '@/lib/reviews/triage-schema';
 import { persistTriage, type TriageClassification } from '@/lib/reviews/triage';
+import { startOrGetActiveRun } from '@/lib/agents/run-spine';
 
 // The raise gate is ESCALATION_ENABLED (default off) — force it on so the
 // real persistTriage → raiseEscalation path runs.
@@ -33,6 +34,9 @@ let db: postgresType.Sql | undefined;
 let tenant: TenantSeed | undefined;
 const businessId = randomUUID();
 const reviewId = randomUUID();
+// Second review for the seeded-RUNNING-run lane (the first review exercises
+// the legacy run-less lane and its dedup, so it can't be reused here).
+const runReviewId = randomUUID();
 
 function sql(): postgresType.Sql {
   if (!db) throw new Error('escalation-raise integration database was not initialized');
@@ -51,15 +55,15 @@ const escalatingClassification: TriageClassification = {
   latencyMs: 500,
 };
 
-async function runPersistTriage(): Promise<void> {
+async function runPersistTriage(forReviewId: string = reviewId): Promise<void> {
   await sql().begin((tx) =>
     persistTriage(tx, {
-      reviewId,
+      reviewId: forReviewId,
       businessId,
       accountId: accountId(),
       classification: escalatingClassification,
       contentHash: 'hash-1',
-      correlationId: `esc-int-${reviewId}`,
+      correlationId: `esc-int-${forReviewId}`,
     }),
   );
 }
@@ -103,6 +107,10 @@ describeWithDb('raiseEscalation via persistTriage against live Postgres', { time
       INSERT INTO reviews (id, business_id, provider, provider_review_id, provider_review_name, provider_location_name, reviewer_name, star_rating, review_text, status)
       VALUES (${reviewId}::uuid, ${businessId}::uuid, 'zernio', ${`esc-${reviewId}`}, ${`zernio://esc/reviews/${reviewId}`}, 'zernio://esc/locations/1', 'Reviewer', 1, 'The manager screamed at us.', 'pending')
     `;
+    await db`
+      INSERT INTO reviews (id, business_id, provider, provider_review_id, provider_review_name, provider_location_name, reviewer_name, star_rating, review_text, status)
+      VALUES (${runReviewId}::uuid, ${businessId}::uuid, 'zernio', ${`esc-${runReviewId}`}, ${`zernio://esc/reviews/${runReviewId}`}, 'zernio://esc/locations/1', 'Run Reviewer', 1, 'Health inspector needs to see this place.', 'pending')
+    `;
   });
 
   afterAll(async () => {
@@ -111,10 +119,31 @@ describeWithDb('raiseEscalation via persistTriage against live Postgres', { time
       await sql()`
         DELETE FROM job_outbox
         WHERE topic = 'escalation_notice'
-          AND aggregate_id IN (SELECT id FROM review_escalations WHERE review_id = ${reviewId}::uuid)
+          AND aggregate_id IN (
+            SELECT id FROM review_escalations
+            WHERE review_id IN (${reviewId}::uuid, ${runReviewId}::uuid)
+          )
       `;
-      await sql()`DELETE FROM review_escalations WHERE review_id = ${reviewId}::uuid`;
-      await sql()`DELETE FROM reviews WHERE id = ${reviewId}::uuid`;
+      await sql()`DELETE FROM review_escalations WHERE review_id IN (${reviewId}::uuid, ${runReviewId}::uuid)`;
+      await sql()`
+        DELETE FROM agent_outcomes
+        WHERE agent_run_id IN (
+          SELECT id FROM agent_runs
+          WHERE kind = 'review_handler' AND subject_type = 'review' AND subject_id = ${runReviewId}
+        )
+      `;
+      await sql()`
+        DELETE FROM agent_run_steps
+        WHERE agent_run_id IN (
+          SELECT id FROM agent_runs
+          WHERE kind = 'review_handler' AND subject_type = 'review' AND subject_id = ${runReviewId}
+        )
+      `;
+      await sql()`
+        DELETE FROM agent_runs
+        WHERE kind = 'review_handler' AND subject_type = 'review' AND subject_id = ${runReviewId}
+      `;
+      await sql()`DELETE FROM reviews WHERE id IN (${reviewId}::uuid, ${runReviewId}::uuid)`;
       await sql()`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
       await cleanupTenantAccount(sql(), tenant);
     }
@@ -181,5 +210,39 @@ describeWithDb('raiseEscalation via persistTriage against live Postgres', { time
     expect(all.map((row) => row.status).sort()).toEqual(['escalated', 'resolved']);
     // The second raise enqueues its own notice (different aggregate_id).
     expect(await noticeOutboxRows()).toHaveLength(2);
+  });
+
+  it('with a RUNNING review_handler run, the raise links the run and records outcome + step', async () => {
+    const { runId } = await sql().begin((tx) =>
+      startOrGetActiveRun(tx, {
+        kind: 'review_handler',
+        subjectType: 'review',
+        subjectId: runReviewId,
+        accountId: accountId(),
+        businessId,
+      }),
+    );
+
+    await runPersistTriage(runReviewId);
+
+    const [escalation] = await sql()<{ id: string; agent_run_id: string | null }[]>`
+      SELECT id, agent_run_id FROM review_escalations WHERE review_id = ${runReviewId}::uuid
+    `;
+    expect(escalation).toBeDefined();
+    expect(escalation!.agent_run_id).toBe(runId);
+
+    const outcomes = await sql()<{ attributed_agent: string; outcome_kind: string }[]>`
+      SELECT attributed_agent, outcome_kind FROM agent_outcomes
+      WHERE agent_run_id = ${runId} AND outcome_kind = 'review_escalated'
+    `;
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]!.attributed_agent).toBe('guardian');
+
+    const steps = await sql()<{ step_key: string; status: string }[]>`
+      SELECT step_key, status FROM agent_run_steps
+      WHERE agent_run_id = ${runId} AND step_key = 'escalation_raised'
+    `;
+    expect(steps).toHaveLength(1);
+    expect(steps[0]!.status).toBe('completed');
   });
 });

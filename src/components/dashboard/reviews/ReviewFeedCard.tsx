@@ -2,7 +2,11 @@
 
 import { useState } from 'react';
 import { AutoApprovedBadge } from '@/components/dashboard/reviews/AutoApprovedBadge';
-import { ReviewActions, type ReviewEscalation } from '@/components/dashboard/reviews/ReviewActions';
+import {
+  EscalationActions,
+  ReviewActions,
+  type ReviewEscalation,
+} from '@/components/dashboard/reviews/ReviewActions';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import type { ApprovalMethod } from '@/lib/auto-approval/types';
 
@@ -96,9 +100,15 @@ function ReviewFeedRow({
         readOnly={readOnly}
         reviewId={r.id}
         responseText={r.responseText}
-        escalation={r.escalation ?? null}
         onSuccess={onSuccess}
       />
+      {/* Escalation actions live OUTSIDE the draft gate: moderation-held
+          drafts (responseText null) are exactly the high-severity lane and
+          must still be acknowledgeable. readOnly (billing) still hides them —
+          the escalation routes reject non-writable subscriptions anyway. */}
+      {r.escalation && !readOnly && (
+        <EscalationActions escalation={r.escalation} onSuccess={onSuccess} />
+      )}
       <PostedResponse isPending={isPending} responseText={r.responseText} />
     </div>
   );
@@ -150,14 +160,12 @@ function PendingDraft({
   readOnly,
   reviewId,
   responseText,
-  escalation,
   onSuccess,
 }: {
   isPending: boolean;
   readOnly: boolean;
   reviewId: string;
   responseText: string | null;
-  escalation: ReviewEscalation | null;
   onSuccess: () => void;
 }) {
   if (!isPending || !responseText) return null;
@@ -177,7 +185,6 @@ function PendingDraft({
         <ReviewActions
           reviewId={reviewId}
           responseText={responseText}
-          escalation={escalation}
           onSuccess={onSuccess}
         />
       )}

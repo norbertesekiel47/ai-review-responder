@@ -68,3 +68,18 @@ export const TriageOutputSchema = z.strictObject({
   suggested_action: z.enum(TRIAGE_SUGGESTED_ACTIONS),
 });
 export type TriageOutput = z.infer<typeof TriageOutputSchema>;
+
+/** One review's triage result as produced by `classifyReviewTriage`
+ *  (src/lib/reviews/triage.ts). Lives here — not in triage.ts — so the
+ *  escalation raise module can consume it without a triage ⇄ raise
+ *  type-level import cycle (triage.ts re-exports it for callers). */
+export interface TriageClassification {
+  output: TriageOutput;
+  source: TriageSource;
+  /** Pinned model id that produced the classification; null for fallback/mock. */
+  model: string | null;
+  latencyMs: number | null;
+  /** Error NAME (enum-like, never message text) when the classification fell
+   *  back; undefined on success/mock. Surfaces in the triage step detail. */
+  failureReason?: string;
+}

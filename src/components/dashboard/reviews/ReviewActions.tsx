@@ -6,7 +6,7 @@ import type { TriageSeverity } from '@/lib/reviews/triage-schema';
 
 type ActionState =
   | { kind: 'idle' }
-  | { kind: 'loading'; action: 'approve' | 'edit' | 'regenerate' | 'acknowledge' | 'resolve' }
+  | { kind: 'loading'; action: 'approve' | 'edit' | 'regenerate' }
   | { kind: 'editing' }
   | { kind: 'success'; message: string }
   | { kind: 'limit'; message: string }
@@ -22,12 +22,10 @@ export interface ReviewEscalation {
 export function ReviewActions({
   reviewId,
   responseText,
-  escalation = null,
   onSuccess,
 }: {
   reviewId: string;
   responseText: string | null;
-  escalation?: ReviewEscalation | null;
   onSuccess: () => void;
 }) {
   const [state, setState] = useState<ActionState>({ kind: 'idle' });
@@ -92,32 +90,6 @@ export function ReviewActions({
       onSuccess();
     } catch (err) {
       setState({ kind: 'error', message: err instanceof Error ? err.message : 'Regenerate failed' });
-    }
-  }
-
-  async function handleEscalationTransition(action: 'acknowledge' | 'resolve') {
-    if (!escalation) return;
-    setState({ kind: 'loading', action });
-    try {
-      const res = await fetch(`/api/dashboard/escalations/${escalation.id}/${action}`, {
-        method: 'POST',
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Failed (${res.status})`);
-      }
-      onSuccess();
-      // Back to idle, NOT the terminal success panel: the refreshed escalation
-      // badge is the confirmation, and the owner must still be able to
-      // Approve/Edit/Regenerate (and Resolve) this draft afterwards.
-      setState({ kind: 'idle' });
-    } catch (err) {
-      setState({
-        kind: 'error',
-        message: err instanceof Error
-          ? err.message
-          : action === 'acknowledge' ? 'Acknowledge failed' : 'Resolve failed',
-      });
     }
   }
 
@@ -216,26 +188,93 @@ export function ReviewActions({
       >
         {isLoading && state.action === 'regenerate' ? 'Regenerate...' : 'Regenerate'}
       </button>
-      {escalation && escalation.status === 'escalated' && (
+    </div>
+  );
+}
+
+type EscalationActionState =
+  | { kind: 'idle' }
+  | { kind: 'loading'; action: 'acknowledge' | 'resolve' }
+  | { kind: 'error'; message: string };
+
+/**
+ * Acknowledge/Resolve for an open Guardian escalation (WS3). Rendered by the
+ * review card for ANY card with an open escalation, independent of draft
+ * state — moderation-HELD drafts (response text withheld) are exactly the
+ * high-severity lane and must still be actionable.
+ */
+export function EscalationActions({
+  escalation,
+  onSuccess,
+}: {
+  escalation: ReviewEscalation;
+  onSuccess: () => void;
+}) {
+  const [state, setState] = useState<EscalationActionState>({ kind: 'idle' });
+
+  async function handleTransition(action: 'acknowledge' | 'resolve') {
+    setState({ kind: 'loading', action });
+    try {
+      const res = await fetch(`/api/dashboard/escalations/${escalation.id}/${action}`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Failed (${res.status})`);
+      }
+      onSuccess();
+      // Back to idle, NOT a terminal success panel: the refreshed escalation
+      // badge is the confirmation, and Resolve must stay reachable after an
+      // Acknowledge (and any draft actions stay independently usable).
+      setState({ kind: 'idle' });
+    } catch (err) {
+      setState({
+        kind: 'error',
+        message: err instanceof Error
+          ? err.message
+          : action === 'acknowledge' ? 'Acknowledge failed' : 'Resolve failed',
+      });
+    }
+  }
+
+  if (state.kind === 'error') {
+    return (
+      <div className="mt-1">
+        <p className="text-xs" style={{ color: 'var(--rw-danger)' }}>{state.message}</p>
         <button
           type="button"
-          onClick={() => handleEscalationTransition('acknowledge')}
+          onClick={() => setState({ kind: 'idle' })}
+          className="text-xs mt-0.5"
+          style={{ color: 'var(--rw-sage-deep)' }}
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
+  const isLoading = state.kind === 'loading';
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      {escalation.status === 'escalated' && (
+        <button
+          type="button"
+          onClick={() => handleTransition('acknowledge')}
           disabled={isLoading}
           className="btn btn-secondary"
         >
           {isLoading && state.action === 'acknowledge' ? 'Acknowledge...' : 'Acknowledge'}
         </button>
       )}
-      {escalation && (
-        <button
-          type="button"
-          onClick={() => handleEscalationTransition('resolve')}
-          disabled={isLoading}
-          className="btn btn-secondary"
-        >
-          {isLoading && state.action === 'resolve' ? 'Resolve...' : 'Resolve'}
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={() => handleTransition('resolve')}
+        disabled={isLoading}
+        className="btn btn-secondary"
+      >
+        {isLoading && state.action === 'resolve' ? 'Resolve...' : 'Resolve'}
+      </button>
     </div>
   );
 }

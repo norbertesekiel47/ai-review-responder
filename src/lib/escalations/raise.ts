@@ -15,8 +15,11 @@ import { v7 as uuidv7 } from 'uuid';
 import type { TransactionSql } from 'postgres';
 import { recordOutcome, recordStep } from '@/lib/agents/run-spine';
 import { enqueueEscalationNotice } from '@/lib/shared/job-outbox-helpers';
-import type { TriageClassification } from '@/lib/reviews/triage';
-import { ESCALATING_ACTIONS, type TriageOutput } from '@/lib/reviews/triage-schema';
+import {
+  ESCALATING_ACTIONS,
+  type TriageClassification,
+  type TriageOutput,
+} from '@/lib/reviews/triage-schema';
 import { ESCALATION_STATUS } from './types';
 
 // Widened readonly view of the taxonomy-owned tuple so `.includes` accepts
