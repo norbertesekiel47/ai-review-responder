@@ -511,7 +511,8 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push([mockResponseRow()]);          // 1: response
     sqlReturnQueue.push([mockBusinessRow()]);           // 2: business
     sqlReturnQueue.push([mockZernioConnectionRow()]);   // 3: zernio_connections (resolveTarget)
-    sqlReturnQueue.push([]);                            // 4: markPosted UPDATE matches ZERO rows (raced terminal)
+    sqlReturnQueue.push([]);                            // 4: markPosted reviews FOR UPDATE lock
+    sqlReturnQueue.push([]);                            // 5: markPosted UPDATE matches ZERO rows (raced terminal)
     mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
     mockPostReply.mockResolvedValueOnce({
       comment: 'Thank you for your kind review!',
@@ -543,8 +544,10 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]); // 1: response
     sqlReturnQueue.push([mockBusinessRow()]);                                    // 2: business
     sqlReturnQueue.push([mockZernioConnectionRow()]);                            // 3: zernio_connections
-    sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'auto_policy' }]);      // 4: markPosted UPDATE ... RETURNING (1 row transitioned)
-    sqlReturnQueue.push(Object.assign([], { count: 0 }));                         // 5: enqueueAutoPostNotice INSERT
+    sqlReturnQueue.push([]);                                                      // 4: markPosted reviews FOR UPDATE lock
+    sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'auto_policy' }]);      // 5: markPosted UPDATE ... RETURNING (1 row transitioned)
+    sqlReturnQueue.push([]);                                                      // 6: findActiveReviewRun → no run (legacy review)
+    sqlReturnQueue.push(Object.assign([], { count: 0 }));                         // 7: enqueueAutoPostNotice INSERT
     mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
     mockPostReply.mockResolvedValueOnce({ comment: 'Thank you for your kind review!', updateTime: '2026-04-27T00:00:00Z' });
     mockListAllReviews.mockResolvedValueOnce([
@@ -566,7 +569,9 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push([mockResponseRow({ approval_method: 'owner' })]); // 1: response
     sqlReturnQueue.push([mockBusinessRow()]);                              // 2: business
     sqlReturnQueue.push([mockZernioConnectionRow()]);                      // 3: zernio_connections
-    sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'owner' }]);      // 4: markPosted UPDATE ... RETURNING (owner)
+    sqlReturnQueue.push([]);                                               // 4: markPosted reviews FOR UPDATE lock
+    sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'owner' }]);      // 5: markPosted UPDATE ... RETURNING (owner)
+    sqlReturnQueue.push([]);                                               // 6: findActiveReviewRun → no run (legacy review)
     mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
     mockPostReply.mockResolvedValueOnce({ comment: 'Thank you for your kind review!', updateTime: '2026-04-27T00:00:00Z' });
     mockListAllReviews.mockResolvedValueOnce([
@@ -767,8 +772,10 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]); // 1: response
     sqlReturnQueue.push([mockBusinessRow()]);                                    // 2: business
     sqlReturnQueue.push([mockZernioConnectionRow()]);                            // 3: zernio_connections
-    sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'auto_policy' }]);      // 4: markPosted UPDATE ... RETURNING (inside verify409 begin)
-    sqlReturnQueue.push(Object.assign([], { count: 0 }));                         // 5: enqueueAutoPostNotice INSERT
+    sqlReturnQueue.push([]);                                                      // 4: markPosted reviews FOR UPDATE lock (inside verify409 begin)
+    sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'auto_policy' }]);      // 5: markPosted UPDATE ... RETURNING (inside verify409 begin)
+    sqlReturnQueue.push([]);                                                      // 6: findActiveReviewRun → no run (legacy review)
+    sqlReturnQueue.push(Object.assign([], { count: 0 }));                         // 7: enqueueAutoPostNotice INSERT
     mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
     mockPostReply.mockRejectedValueOnce(
       new ZernioReplyAlreadyExistsError({ message: 'reply already exists' }),
@@ -1066,8 +1073,10 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
     process.env.AUTO_APPROVAL_ENABLED = 'true';
     pushDispatchBaseSequence({ approval_method: 'auto_policy' }); // 1-3: response(auto_policy) / business / connections
     sqlReturnQueue.push([]);                                       // 4: sibling probe → none
-    sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'auto_policy' }]); // 5: markPosted UPDATE ... RETURNING
-    sqlReturnQueue.push(Object.assign([], { count: 0 }));          // 6: enqueueAutoPostNotice INSERT
+    sqlReturnQueue.push([]);                                       // 5: markPosted reviews FOR UPDATE lock
+    sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'auto_policy' }]); // 6: markPosted UPDATE ... RETURNING
+    sqlReturnQueue.push([]);                                       // 7: findActiveReviewRun → no run (legacy review)
+    sqlReturnQueue.push(Object.assign([], { count: 0 }));          // 8: enqueueAutoPostNotice INSERT
     mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
     mockPostReply.mockResolvedValueOnce({ comment: 'Thank you for your kind review!', updateTime: '2026-04-27T00:00:00Z' });
     mockListAllReviews.mockResolvedValueOnce([

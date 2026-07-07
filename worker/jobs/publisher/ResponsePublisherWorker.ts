@@ -238,6 +238,7 @@ export async function handlePublishResponse(
     await markPostedAndMaybeEnqueueAutoPostNotice({
       tx,
       responseId: response_id,
+      reviewId: response.review_id,
       businessId,
       correlationId: job.data.correlation_id,
       logger,
