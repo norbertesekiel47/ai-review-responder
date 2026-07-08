@@ -65,14 +65,15 @@ describeWithDb('migration 074 trust dial + veto window — shape', { timeout: 30
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
     // Apply 074 only when it hasn't landed yet — an unconditional re-apply
     // takes ACCESS EXCLUSIVE locks that contend with parallel suites. The
-    // probe index is created last, so its presence implies the full migration.
-    // The dedicated double-apply test below still re-applies for real.
+    // probe index is the migration's LAST statement, and every sanctioned
+    // apply path runs the file as one transaction, so its presence implies
+    // the full migration. The double-apply test below still re-applies.
     const [applied] = await db<{ applied: boolean }[]>`
       SELECT EXISTS (
         SELECT 1 FROM pg_indexes
         WHERE schemaname = 'public'
-          AND tablename = 'job_outbox'
-          AND indexname = 'idx_jo_pending_post_notice_inflight'
+          AND tablename = 'notification_deliveries'
+          AND indexname = 'notification_deliveries_pending_post_notice_claim'
       ) AS applied
     `;
     if (!applied?.applied) {
