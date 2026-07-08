@@ -181,6 +181,9 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       activeZernioConnectionNow: runtimeState.activeZernioConnectionNow,
       triageSeverity: runtimeState.triageSeverity,
       triageSource: runtimeState.triageSource,
+      autoApprovedTodayCount: runtimeState.autoApprovedTodayCount,
+      effectiveDailyCap: runtimeState.effectiveDailyCap,
+      policySuspended: runtimeState.policySuspended,
     });
 
     logAutoApprovalFallbackIfNeeded({
@@ -335,6 +338,9 @@ function buildAutoApprovalDecisionSummary(input: {
     active_location: runtimeState.activeLocationNow,
     triage_severity: runtimeState.triageSeverity,
     triage_source: runtimeState.triageSource,
+    daily_cap: runtimeState.effectiveDailyCap,
+    auto_approved_today: runtimeState.autoApprovedTodayCount,
+    policy_suspended: runtimeState.policySuspended,
     runtime_enabled: autoDecision.runtimeEnabled,
     provider_moderation_enabled: autoDecision.providerModerationEnabled,
   };

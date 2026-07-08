@@ -11,6 +11,13 @@ export const APPROVAL_METHOD = {
   AUTO_POLICY: 'auto_policy',
 } as const;
 
+// The only persona/action-class scope built today — migration 074's CHECKs are
+// deliberately single-valued (spec §2.1); Solicitation v1.1 widens them in its
+// own migration. Every policy SELECT/upsert filters on these constants (Task 12
+// settings writers included), never on string literals at call sites.
+export const POLICY_PERSONA_REPLY = 'reply';
+export const POLICY_ACTION_POSTING = 'posting';
+
 export type ApprovalMethod = (typeof APPROVAL_METHOD)[keyof typeof APPROVAL_METHOD];
 
 export type PolicySource = 'location_override' | 'account_default' | 'none';

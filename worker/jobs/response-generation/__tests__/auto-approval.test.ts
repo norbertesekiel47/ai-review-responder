@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ModerationDecision } from '../../../../src/lib/moderation/output-filter';
 import type { EffectiveAutoApprovalPolicy } from '../../../../src/lib/auto-approval/types';
 import { TRIAGE_SOURCE } from '../../../../src/lib/reviews/triage-schema';
+import { createMockSql, mkTaggedResult } from '../../../__tests__/helpers/mock-sql';
 import {
   evaluateAutoApprovalCandidate,
+  loadAutoApprovalRuntimeState,
   type AutoApprovalBlockReason,
   type AutoApprovalCandidateInput,
 } from '../auto-approval';
@@ -56,6 +58,9 @@ function baseInput(overrides: Partial<AutoApprovalCandidateInput> = {}): AutoApp
     activeZernioConnectionNow: true,
     triageSeverity: null,
     triageSource: null,
+    autoApprovedTodayCount: 0,
+    effectiveDailyCap: 10,
+    policySuspended: false,
     now: new Date('2026-06-04T00:00:00.000Z'),
     ...overrides,
   };
@@ -98,6 +103,9 @@ describe('evaluateAutoApprovalCandidate', () => {
     { reason: 'publisher_subscription_denied', overrides: { subscriptionStatus: 'pending_payment' } },
     { reason: 'active_zernio_connection_missing', overrides: { activeZernioConnectionNow: false } },
     { reason: 'archived_location', overrides: { activeLocationNow: false } },
+    { reason: 'rating_below_positive_quadrant', overrides: { currentStarRating: 3 } },
+    { reason: 'daily_cap_exhausted', overrides: { autoApprovedTodayCount: 10 } },
+    { reason: 'policy_suspended', overrides: { policySuspended: true } },
   ];
 
   it.each(fallbackCases)('falls back to manual when $reason blocks auto', ({ reason, overrides, env = {} }) => {
@@ -152,5 +160,202 @@ describe('evaluateAutoApprovalCandidate', () => {
       triageSeverity: null,
       triageSource: null,
     })).blockReasons.filter((reason) => reason.startsWith('triage'))).toHaveLength(0);
+  });
+
+  it('blocks a 3-star review with BOTH rating reasons under a 4-star threshold', () => {
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+
+    const decision = evaluateAutoApprovalCandidate(baseInput({ currentStarRating: 3 }));
+
+    expect(decision.approved).toBe(false);
+    expect(decision.blockReasons).toEqual(
+      expect.arrayContaining(['rating_below_threshold', 'rating_below_positive_quadrant']),
+    );
+  });
+
+  it.each([1, 2, 3])('hard floor blocks %i-star reviews regardless of the policy threshold', (stars) => {
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+
+    // The positive-quadrant gate sits ABOVE the dial (WS4 spec §2.2): it must
+    // fire independent of whatever the (possibly stale/buggy) policy row says.
+    const decision = evaluateAutoApprovalCandidate(baseInput({
+      currentStarRating: stars,
+      effectivePolicy: { ...ENABLED_POLICY, threshold: 4 },
+    }));
+
+    expect(decision.approved).toBe(false);
+    expect(decision.blockReasons).toContain('rating_below_positive_quadrant');
+  });
+
+  it('does not fire the positive-quadrant gate for 4-star reviews or unrated reviews', () => {
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+
+    expect(evaluateAutoApprovalCandidate(baseInput({ currentStarRating: 4 })).approved).toBe(true);
+    // Unrated stays blocked by current_rating_missing, not the quadrant gate.
+    const unrated = evaluateAutoApprovalCandidate(baseInput({ currentStarRating: null }));
+    expect(unrated.blockReasons).toContain('current_rating_missing');
+    expect(unrated.blockReasons).not.toContain('rating_below_positive_quadrant');
+  });
+
+  it('blocks with daily_cap_exhausted at the cap boundary (count == cap)', () => {
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+
+    const decision = evaluateAutoApprovalCandidate(baseInput({
+      autoApprovedTodayCount: 10,
+      effectiveDailyCap: 10,
+    }));
+
+    expect(decision.approved).toBe(false);
+    expect(decision.blockReasons).toEqual(['daily_cap_exhausted']);
+  });
+
+  it('approves one slot below the cap (count == cap - 1)', () => {
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+
+    const decision = evaluateAutoApprovalCandidate(baseInput({
+      autoApprovedTodayCount: 9,
+      effectiveDailyCap: 10,
+    }));
+
+    expect(decision.approved).toBe(true);
+    expect(decision.blockReasons).toEqual([]);
+  });
+
+  it('blocks with policy_suspended when the policy is suspended (governor kill switch)', () => {
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+
+    const decision = evaluateAutoApprovalCandidate(baseInput({ policySuspended: true }));
+
+    expect(decision.approved).toBe(false);
+    expect(decision.blockReasons).toEqual(['policy_suspended']);
+  });
+});
+
+describe('loadAutoApprovalRuntimeState (mocked sql)', () => {
+  const harness = createMockSql();
+
+  function currentStateRow(overrides: Record<string, unknown> = {}) {
+    return {
+      star_rating: 5,
+      review_content_hash: 'hash-1',
+      archived_at: null,
+      subscription_status: 'active',
+      account_past_due_at: null,
+      account_flags: {},
+      triage_severity: null,
+      triage_source: null,
+      ...overrides,
+    };
+  }
+
+  function policyRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'policy-1',
+      account_id: 'acct-1',
+      location_id: null,
+      auto_approve_min_star: 4,
+      veto_window_minutes: 15,
+      daily_auto_post_cap: null,
+      suspended_at: null,
+      ...overrides,
+    };
+  }
+
+  /** Queue order: state → policies → business lock → cap count → connection. */
+  function queueLoaderRows(input: {
+    policies?: Record<string, unknown>[];
+    autoApprovedToday?: number;
+  } = {}) {
+    harness.sqlReturnQueue.push(
+      mkTaggedResult([currentStateRow()]),
+      mkTaggedResult(input.policies ?? [policyRow()]),
+      mkTaggedResult([{ id: 'biz-1' }]),
+      mkTaggedResult([{ auto_approved_today: input.autoApprovedToday ?? 0 }]),
+      mkTaggedResult([{ id: 'conn-1' }]),
+    );
+  }
+
+  async function runLoader() {
+    return loadAutoApprovalRuntimeState(
+      harness.mockSql as never,
+      { reviewId: 'rev-1', businessId: 'biz-1', accountId: 'acct-1' },
+    );
+  }
+
+  beforeEach(() => {
+    harness.resetMockSql();
+  });
+
+  it('maps the migration-074 dial columns into the effective policy and runtime state', async () => {
+    queueLoaderRows({
+      policies: [policyRow({
+        veto_window_minutes: 30,
+        daily_auto_post_cap: 7,
+        suspended_at: new Date('2026-07-07T00:00:00.000Z'),
+      })],
+      autoApprovedToday: 3,
+    });
+
+    const state = await runLoader();
+
+    expect(state.effectivePolicy.vetoWindowMinutes).toBe(30);
+    expect(state.effectivePolicy.dailyAutoPostCap).toBe(7);
+    expect(state.effectivePolicy.suspended).toBe(true);
+    expect(state.policySuspended).toBe(true);
+    expect(state.effectiveDailyCap).toBe(7);
+    expect(state.autoApprovedTodayCount).toBe(3);
+  });
+
+  it('resolves a NULL daily_auto_post_cap to the platform default of 10', async () => {
+    queueLoaderRows();
+
+    const state = await runLoader();
+
+    expect(state.effectivePolicy.dailyAutoPostCap).toBeNull();
+    expect(state.effectiveDailyCap).toBe(10);
+    expect(state.policySuspended).toBe(false);
+  });
+
+  it('scopes the policy SELECT to the reply/posting persona and loads the dial columns', async () => {
+    queueLoaderRows();
+
+    await runLoader();
+
+    const policySelect = harness.sqlCalls.find((call) => call.text.includes('FROM auto_approval_policies'));
+    expect(policySelect).toBeDefined();
+    expect(policySelect!.text).toContain('veto_window_minutes');
+    expect(policySelect!.text).toContain('daily_auto_post_cap');
+    expect(policySelect!.text).toContain('suspended_at');
+    expect(policySelect!.text).toContain('persona = ?');
+    expect(policySelect!.text).toContain('action_class = ?');
+    expect(policySelect!.values).toEqual(expect.arrayContaining(['reply', 'posting']));
+  });
+
+  it('takes the business FOR UPDATE lock BEFORE counting, and counts on the UTC day boundary', async () => {
+    queueLoaderRows();
+
+    await runLoader();
+
+    const texts = harness.sqlCalls.map((call) => call.text.replace(/\s+/g, ' '));
+    const lockIndex = texts.findIndex((text) => text.includes('FROM businesses') && text.includes('FOR UPDATE'));
+    const countIndex = texts.findIndex((text) => text.includes('auto_approved_today'));
+    expect(lockIndex).toBeGreaterThan(-1);
+    expect(countIndex).toBeGreaterThan(-1);
+    expect(lockIndex).toBeLessThan(countIndex);
+
+    // The counting predicate is the UTC calendar day (WS4 spec §2.3) over
+    // auto-policy approvals GRANTED today — pinned so a refactor to a rolling
+    // window or local-time day breaks here.
+    const countText = texts[countIndex]!;
+    expect(countText).toContain("approved_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'");
+    expect(countText).toContain('approval_method = ?');
+    const countCall = harness.sqlCalls[countIndex]!;
+    expect(countCall.values).toEqual(expect.arrayContaining(['auto_policy', 'biz-1']));
   });
 });

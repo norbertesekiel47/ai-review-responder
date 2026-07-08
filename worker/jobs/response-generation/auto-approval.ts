@@ -1,11 +1,15 @@
 import type { ModerationDecision } from '../../../src/lib/moderation/output-filter';
 import {
+  DEFAULT_DAILY_AUTO_POST_CAP,
   resolveEffectivePolicy,
   starMeetsThreshold,
 } from '../../../src/lib/auto-approval/policy';
-import type {
-  EffectiveAutoApprovalPolicy,
-  PolicyRowState,
+import {
+  APPROVAL_METHOD,
+  POLICY_ACTION_POSTING,
+  POLICY_PERSONA_REPLY,
+  type EffectiveAutoApprovalPolicy,
+  type PolicyRowState,
 } from '../../../src/lib/auto-approval/types';
 import {
   autoApprovalRuntimeEnabled,
@@ -43,7 +47,10 @@ export type AutoApprovalBlockReason =
   | 'active_zernio_connection_missing'
   | 'auto_approval_disabled'
   | 'triage_high_severity'
-  | 'triage_fallback';
+  | 'triage_fallback'
+  | 'rating_below_positive_quadrant'
+  | 'daily_cap_exhausted'
+  | 'policy_suspended';
 
 export interface AutoApprovalCandidateInput {
   originLane: GenerateResponseOriginLane | null;
@@ -62,6 +69,9 @@ export interface AutoApprovalCandidateInput {
   activeZernioConnectionNow: boolean;
   triageSeverity: TriageSeverity | null;
   triageSource: string | null;
+  autoApprovedTodayCount: number;
+  effectiveDailyCap: number;
+  policySuspended: boolean;
   now?: Date;
 }
 
@@ -89,8 +99,12 @@ interface AutoApprovalPolicyRow {
   id: string;
   account_id: string;
   location_id: string | null;
-  // Migration 074 CHECK-constrains auto_approve_min_star to 4..5.
+  // Migration 074 CHECK-constrains auto_approve_min_star to 4..5,
+  // veto_window_minutes to 15|30, daily_auto_post_cap to NULL or 1..50.
   auto_approve_min_star: 4 | 5 | null;
+  veto_window_minutes: 15 | 30;
+  daily_auto_post_cap: number | null;
+  suspended_at: Date | null;
 }
 
 export interface AutoApprovalRuntimeState {
@@ -104,6 +118,11 @@ export interface AutoApprovalRuntimeState {
   activeZernioConnectionNow: boolean;
   triageSeverity: TriageSeverity | null;
   triageSource: string | null;
+  /** Auto-approvals GRANTED for this location today (UTC), counted under the business lock. */
+  autoApprovedTodayCount: number;
+  /** Effective policy cap with NULL resolved to the platform default (10). */
+  effectiveDailyCap: number;
+  policySuspended: boolean;
 }
 
 function policyRowsToEffectivePolicy(
@@ -121,11 +140,9 @@ function policyRowsToEffectivePolicy(
       accountId: row.account_id,
       locationId: row.location_id,
       autoApproveMinStar: row.auto_approve_min_star,
-      // WS4 Task 3 loads the real dial columns into this SELECT; until then use
-      // the migration-074 column defaults (veto 15, cap NULL, not suspended).
-      vetoWindowMinutes: 15,
-      dailyAutoPostCap: null,
-      suspendedAt: null,
+      vetoWindowMinutes: row.veto_window_minutes,
+      dailyAutoPostCap: row.daily_auto_post_cap,
+      suspendedAt: row.suspended_at,
     };
   };
 
@@ -159,11 +176,43 @@ export async function loadAutoApprovalRuntimeState(
   }
 
   const policyRows = await tx<AutoApprovalPolicyRow[]>`
-    SELECT id, account_id, location_id, auto_approve_min_star
+    SELECT id, account_id, location_id, auto_approve_min_star,
+           veto_window_minutes, daily_auto_post_cap, suspended_at
     FROM auto_approval_policies
     WHERE account_id = ${accountId}
       AND (location_id IS NULL OR location_id = ${businessId})
+      AND persona = ${POLICY_PERSONA_REPLY}
+      AND action_class = ${POLICY_ACTION_POSTING}
   `;
+  const effectivePolicy = policyRowsToEffectivePolicy(policyRows, accountId, businessId);
+
+  // Serialize concurrent daily-cap evaluations per location (WS4 spec §2.3).
+  // Lock order is safe: the persist tx already holds this review's row
+  // FOR UPDATE as its FIRST statement, and the audited global order is
+  // reviews → businesses → child rows (2026-07-07 audit: no production tx
+  // locks a businesses row and later locks a reviews row).
+  // FP: ordered on purpose — the lock must be held BEFORE the count below or
+  // two concurrent persists both read a below-cap count and overshoot the cap.
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
+  await tx`SELECT id FROM businesses WHERE id = ${businessId} FOR UPDATE`;
+
+  // Auto-approvals GRANTED today (UTC calendar day), not posts landed today —
+  // vetoed/downgraded rows still consume their slot (conservative; fails
+  // toward the owner). Kept as its own top-level statement: the tenant-scope
+  // auditor strips subqueries, so the business_id scope must be visible here.
+  const [capRow] = await tx<{ auto_approved_today: number }[]>`
+    SELECT count(*)::int AS auto_approved_today
+    FROM responses
+    WHERE business_id = ${businessId}
+      AND approval_method = ${APPROVAL_METHOD.AUTO_POLICY}
+      AND approved_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+  `;
+  if (!capRow) {
+    // count(*) always yields one row — reaching this means the query itself
+    // broke (or a test queued the wrong rows); fail the tx rather than
+    // evaluate the cap gate against fabricated data.
+    throw new Error('auto_approval_cap_count_missing');
+  }
 
   // Kept as a separate top-level statement on purpose: the tenant-scope auditor
   // strips subqueries before crediting business_id/account_id scope, so folding
@@ -182,7 +231,10 @@ export async function loadAutoApprovalRuntimeState(
   return {
     currentReviewContentHash: state.review_content_hash,
     currentStarRating: state.star_rating,
-    effectivePolicy: policyRowsToEffectivePolicy(policyRows, accountId, businessId),
+    effectivePolicy,
+    autoApprovedTodayCount: capRow.auto_approved_today,
+    effectiveDailyCap: effectivePolicy.dailyAutoPostCap ?? DEFAULT_DAILY_AUTO_POST_CAP,
+    policySuspended: effectivePolicy.suspended,
     subscriptionStatus: state.subscription_status,
     accountPastDueAt: state.account_past_due_at,
     accountFlags: state.account_flags ?? {},
@@ -224,6 +276,12 @@ export function evaluateAutoApprovalCandidate(input: AutoApprovalCandidateInput)
     when(input.suppressNotification, 'suppressed_notification'),
     when(input.triageSeverity === 'high', 'triage_high_severity'),
     when(input.triageSource === TRIAGE_SOURCE.FALLBACK, 'triage_fallback'),
+    // WS4 gates (spec §2.2–§2.4). The positive-quadrant hard floor sits ABOVE
+    // the dial — it fires regardless of the policy row, like the triage and
+    // moderation vetoes. Unrated stays blocked by current_rating_missing.
+    when(input.currentStarRating !== null && input.currentStarRating <= 3, 'rating_below_positive_quadrant'),
+    when(input.autoApprovedTodayCount >= input.effectiveDailyCap, 'daily_cap_exhausted'),
+    when(input.policySuspended, 'policy_suspended'),
   ]);
 
   return {

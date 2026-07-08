@@ -74,6 +74,9 @@ function enabledPolicy(overrides = {}) {
     account_id: 'acct-1',
     location_id: null,
     auto_approve_min_star: 4,
+    veto_window_minutes: 15,
+    daily_auto_post_cap: null,
+    suspended_at: null,
     ...overrides,
   };
 }
@@ -102,6 +105,7 @@ function queuePersistRows(input: {
   notify?: boolean;
   autoApprove?: boolean;
   reviewLockRows?: unknown[];
+  autoApprovedToday?: number;
 } = {}) {
   txQueue.push(
     // SELECT id FROM reviews … FOR UPDATE (lock ordering — FIRST tx statement)
@@ -116,6 +120,8 @@ function queuePersistRows(input: {
   txQueue.push(
     [currentState(input.state)],
     input.policies ?? [enabledPolicy()],
+    [{ id: 'biz-1' }], // SELECT id FROM businesses … FOR UPDATE (cap-lock)
+    [{ auto_approved_today: input.autoApprovedToday ?? 0 }], // daily-cap count
     input.connection === null ? [] : [input.connection ?? { id: 'conn-1' }],
   );
   if (input.autoApprove) {
@@ -166,7 +172,10 @@ function assertManualNotificationFallback() {
   expect(txArgs()).toContain(QUEUE_NAMES.SEND_NOTIFICATION);
   expect(txArgs()).not.toContain(QUEUE_NAMES.PUBLISH_RESPONSE);
   expect(txArgs()).not.toContain('auto_approved_by_policy');
-  expect(txArgs()).not.toContain('auto_policy');
+  // The approve UPDATE must never run on a fallback path. (The bare
+  // 'auto_policy' bind is NOT asserted absent anymore: the WS4 daily-cap
+  // COUNT binds it on every path as its approval_method filter.)
+  expect(txTexts().some((text) => text.includes('UPDATE responses') && text.includes('approved_text'))).toBe(false);
   expect(sendNotificationPayloads()).toHaveLength(1);
 }
 
@@ -177,6 +186,7 @@ interface ManualFallbackScenario {
   state?: Record<string, unknown>;
   policies?: Record<string, unknown>[];
   connection?: Record<string, unknown> | null;
+  autoApprovedToday?: number;
   env?: {
     OPENAI_MODERATION_ENABLED?: string;
   };
@@ -209,6 +219,11 @@ const manualFallbackCases: Array<[string, ManualFallbackScenario]> = [
   ['archived location', { state: { archived_at: new Date('2026-06-04T00:00:00.000Z') } }],
   ['triage high severity', { state: { triage_severity: 'high', triage_source: 'llm_triage_v1' } }],
   ['triage fallback source', { state: { triage_severity: 'low', triage_source: 'fallback_high_v1' } }],
+  // WS4 gates (spec §2.2–§2.4), threaded from the loader through the evaluator.
+  ['positive-quadrant hard floor (3-star)', { state: { star_rating: 3 } }],
+  ['daily cap exhausted (default cap 10)', { autoApprovedToday: 10 }],
+  ['daily cap exhausted (policy cap 2)', { policies: [enabledPolicy({ daily_auto_post_cap: 2 })], autoApprovedToday: 2 }],
+  ['suspended policy', { policies: [enabledPolicy({ suspended_at: new Date('2026-07-07T00:00:00.000Z') })] }],
 ];
 
 describe('persistResponseAndNotify auto approval runtime branch', () => {
@@ -295,6 +310,9 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
         resolved_min_star: 4,
         triage_severity: null,
         triage_source: null,
+        daily_cap: 10,
+        auto_approved_today: 0,
+        policy_suspended: false,
       }),
     );
     const logged = logger.log.mock.calls[0]![1] as Record<string, unknown>;
@@ -323,6 +341,7 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
       state: scenario.state,
       policies: scenario.policies,
       connection: scenario.connection,
+      autoApprovedToday: scenario.autoApprovedToday,
     });
 
     await persistResponseAndNotify(mockSql, baseInput(scenario.input ?? {}));
