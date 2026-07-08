@@ -135,6 +135,61 @@ jobs:
   # docs-only or worker-only PRs. Keep its workflow `env` in lockstep with the block
   # above (shared CI boot contract).
 
+  # WS7 eval-in-CI gate (docs/superpowers/plans/2026-07-07-ws7-eval-in-ci.md):
+  # runs the offline, keyless LLM safety eval when a PR touches prompts, policy
+  # logic, pinned model IDs, moderation rules, or the eval harness itself.
+  # ALWAYS runs (so it can be a required check without hanging on a path-filtered
+  # workflow that never triggers) and no-ops green when nothing watched changed.
+  # Offline mode scores the canned eval-set candidates through the production
+  # output filter — deterministic, no provider keys, no external calls.
+  llm-eval:
+    name: llm-eval
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          # Full history so the PR base SHA is reachable for the diff below.
+          fetch-depth: 0
+      - name: Detect changes to prompt/policy/model-pin/eval paths
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          # Keep in lockstep with the plan doc's path-filter table.
+          watched='^(tests/llm-eval/|src/lib/moderation/|src/lib/responses/|src/lib/llm/|\.github/workflows/ci\.yml$)'
+          if [ "$EVENT_NAME" = 'pull_request' ]; then
+            # HEAD is the PR merge commit, so this diff is exactly the PR's
+            # effective change set against its base.
+            changed="$(git diff --name-only "$BASE_SHA"..HEAD)"
+            if printf '%s\n' "$changed" | grep -qE "$watched"; then
+              echo 'watched paths changed:'
+              printf '%s\n' "$changed" | grep -E "$watched"
+              echo 'run=true' >> "$GITHUB_OUTPUT"
+            else
+              echo 'no watched paths changed'
+              echo 'run=false' >> "$GITHUB_OUTPUT"
+            fi
+          else
+            # Push to main: always run — trunk regressions must be visible and
+            # the offline eval costs seconds.
+            echo 'push event — running eval unconditionally'
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Setup Node + pnpm
+        if: steps.detect.outputs.run == 'true'
+        uses: ./.github/actions/setup
+      - name: Run offline LLM safety eval
+        if: steps.detect.outputs.run == 'true'
+        run: pnpm eval:llm
+      - name: Skip (no watched paths changed)
+        if: steps.detect.outputs.run != 'true'
+        run: echo 'No prompt/policy/model-pin/eval paths changed — eval skipped, job passes.'
+
   build:
     name: build
     runs-on: ubuntu-latest
