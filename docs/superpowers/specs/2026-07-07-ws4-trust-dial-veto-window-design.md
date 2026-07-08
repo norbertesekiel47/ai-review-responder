@@ -196,8 +196,8 @@ delivery (same `create-link` helper the approval dispatcher uses). The approve p
 `approval_method='auto_policy'` + `auto_post_scheduled_at` in the future renders
 "Scheduled to post at HH:MM" with a **Cancel auto-post** button (POST
 `/api/approve/[token]/veto`, same-origin + session-bound like the sibling actions).
-After a veto the SAME link serves the normal approve/edit/regenerate flow — one link,
-full owner control, zero new token machinery. A dashboard veto route is NOT built in v1
+The veto consumes its link like every other token action (single-use precedent); fresh
+approval links arrive with the re-notify (step 5 below) — zero new token machinery. A dashboard veto route is NOT built in v1
 (during the window the review is absent from the pending feed — accepted boundary,
 §1); the notification link is the cancel surface, per design §3.3.
 
@@ -296,8 +296,9 @@ Each already runs inside a tx; each gains `findActiveReviewRun(tx, reviewId)` +
 
 - `reply_approved_no_edit` — the three approve variants (`approved_text =
   response_text`, no edit columns).
-- `reply_edited_by_owner` — the two edit variants, `detail: { edit_distance }`
-  (enums/numbers only). Edit IS approve in this codebase (one action), so there is no
+- `reply_edited_by_owner` — the two edit variants. No detail payload — `recordOutcome`
+  carries none by design, and the edit distance already has one authoritative owner
+  (`responses.edit_distance`). Edit IS approve in this codebase (one action), so there is no
   approve-after-edit ambiguity; a run that sees an edited v1 then an approved-unedited
   v2 legitimately records both kinds (per-(run,kind) dedup, accepted + documented —
   WS6's edit-rate reads "edited outcome present on run").
