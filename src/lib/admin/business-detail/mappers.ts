@@ -123,12 +123,9 @@ function toPolicyState(row: AutoApprovalPolicyRow | undefined): PolicyRowState |
     accountId: row.account_id,
     locationId: row.location_id,
     autoApproveMinStar: row.auto_approve_min_star,
-    // The admin diagnostic reads only threshold/source from the resolved
-    // policy; the WS4 dial columns aren't loaded here yet, so use the
-    // migration-074 column defaults (veto 15, cap NULL, not suspended).
-    vetoWindowMinutes: 15,
-    dailyAutoPostCap: null,
-    suspendedAt: null,
+    vetoWindowMinutes: row.veto_window_minutes,
+    dailyAutoPostCap: row.daily_auto_post_cap,
+    suspendedAt: row.suspended_at,
   };
 }
 

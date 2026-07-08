@@ -61,6 +61,9 @@ export interface AutoApprovalPolicyRow {
   account_id: string;
   location_id: string | null;
   auto_approve_min_star: AutoApprovalThreshold | null;
+  veto_window_minutes: 15 | 30;
+  daily_auto_post_cap: number | null;
+  suspended_at: Date | null;
 }
 
 export interface AutoApprovalAccountRow {
@@ -274,7 +277,8 @@ export async function fetchBusinessDetailBatch2(
       LIMIT 50
     `,
     sql<AutoApprovalPolicyRow[]>`
-      SELECT id, account_id, location_id, auto_approve_min_star
+      SELECT id, account_id, location_id, auto_approve_min_star,
+             veto_window_minutes, daily_auto_post_cap, suspended_at
       FROM auto_approval_policies
       WHERE account_id = ${accountId}
       ORDER BY location_id NULLS FIRST

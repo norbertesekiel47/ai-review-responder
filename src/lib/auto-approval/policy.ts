@@ -18,6 +18,9 @@ export function exposureRank(threshold: AutoApprovalThreshold | null): number {
 /** Platform default when the effective policy's daily_auto_post_cap is NULL (spec §2.3). */
 export const DEFAULT_DAILY_AUTO_POST_CAP = 10;
 
+/** Column default from migration 074 — the window applied when no policy row exists. */
+export const DEFAULT_VETO_WINDOW_MINUTES = 15;
+
 export function isThresholdExpansion(
   before: AutoApprovalThreshold | null,
   after: AutoApprovalThreshold | null,
@@ -38,15 +41,19 @@ export function resolveEffectivePolicy(
   locationOverride: PolicyRowState | null,
 ): EffectiveAutoApprovalPolicy {
   const winner = locationOverride ?? accountDefault;
-  // The account-level suspension (governor kill switch, spec §2.4) applies even
-  // when a location override wins the threshold resolution.
-  const suspended = Boolean(accountDefault?.suspendedAt) || Boolean(winner?.suspendedAt);
   if (!winner) {
     return {
-      source: 'none', threshold: null, policyId: null,
-      vetoWindowMinutes: 15, dailyAutoPostCap: null, suspended,
+      source: 'none',
+      threshold: null,
+      policyId: null,
+      vetoWindowMinutes: DEFAULT_VETO_WINDOW_MINUTES,
+      dailyAutoPostCap: null,
+      suspended: false,
     };
   }
+  // The account-level suspension (governor kill switch, spec §2.4) applies even
+  // when a location override wins the threshold resolution.
+  const suspended = Boolean(accountDefault?.suspendedAt) || Boolean(winner.suspendedAt);
   return {
     source: locationOverride ? 'location_override' : 'account_default',
     threshold: winner.autoApproveMinStar,
