@@ -9,6 +9,15 @@
 -- predicates — 'pending_post_notice' is a brand-new topic/template — and the
 -- policies/responses tables are small pre-launch). Apply staging first, then
 -- production, both Supabase projects in lockstep.
+--
+-- APPLY WINDOW: apply this migration in the same maintenance window as
+-- deploying the code from its PR. The index rebuild in §1 drops the unique
+-- indexes that the PREVIOUS settings.ts upserts' ON CONFLICT clauses infer on,
+-- so during the gap between applying 074 and deploying the updated code,
+-- `auto_approval_policies` upserts (owner settings save) fail with a
+-- no-matching-constraint error. Reads and the auto-approval evaluator are
+-- unaffected. Pre-launch accepted tradeoff — documented explicitly rather than
+-- keeping redundant transition indexes.
 
 -- ── 1. auto_approval_policies: scope + dial columns ─────────────────────────
 ALTER TABLE auto_approval_policies ADD COLUMN IF NOT EXISTS persona TEXT NOT NULL DEFAULT 'reply';

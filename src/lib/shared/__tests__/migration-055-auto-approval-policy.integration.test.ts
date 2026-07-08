@@ -133,13 +133,15 @@ describeWithDb('migration 055 auto_approval_policies — behavioral', () => {
   });
 
   it('partial unique indexes enforce one account-default and one override per (account, location)', async () => {
+    // Probe thresholds stay inside the post-074 CHECK range (4..5) so the
+    // unique-index violation — not the threshold CHECK — is what fires.
     await insertPolicy(a.accountId, null, 4);
-    await expect(insertPolicy(a.accountId, null, 3)).rejects.toThrow(
+    await expect(insertPolicy(a.accountId, null, 4)).rejects.toThrow(
       /auto_approval_policies_one_account_default/,
     );
 
     await insertPolicy(a.accountId, a.businessId, 5);
-    await expect(insertPolicy(a.accountId, a.businessId, 2)).rejects.toThrow(
+    await expect(insertPolicy(a.accountId, a.businessId, 5)).rejects.toThrow(
       /auto_approval_policies_one_location_override/,
     );
   });

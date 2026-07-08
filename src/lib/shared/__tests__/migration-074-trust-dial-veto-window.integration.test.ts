@@ -12,9 +12,9 @@ import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 // 2026-07-07-ws4-trust-dial-veto-window-design.md §2.1/§2.3/§2.7/§2.8).
 // Mirrors migration-055-auto-approval-policy.integration.test.ts: every failure
 // case asserts the SPECIFIC constraint/index by name so a test can never pass
-// for the wrong reason. The migration file is applied in beforeAll (it is fully
-// re-runnable, so this is a no-op once 074 ships to the shared test DB), and
-// the double-apply test proves that re-runnability for real.
+// for the wrong reason. beforeAll applies the migration only if it isn't
+// already on the shared test DB (avoids ACCESS EXCLUSIVE lock contention with
+// parallel suites); the double-apply test proves re-runnability for real.
 //
 // Gated on TEST_DATABASE_POOL_URL; skips cleanly without one.
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
@@ -63,7 +63,21 @@ async function insertOutcome(outcomeKind: string): Promise<string> {
 describeWithDb('migration 074 trust dial + veto window — shape', { timeout: 30_000 }, () => {
   beforeAll(async () => {
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
-    await db.unsafe(migrationSql());
+    // Apply 074 only when it hasn't landed yet — an unconditional re-apply
+    // takes ACCESS EXCLUSIVE locks that contend with parallel suites. The
+    // probe index is created last, so its presence implies the full migration.
+    // The dedicated double-apply test below still re-applies for real.
+    const [applied] = await db<{ applied: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND tablename = 'job_outbox'
+          AND indexname = 'idx_jo_pending_post_notice_inflight'
+      ) AS applied
+    `;
+    if (!applied?.applied) {
+      await db.unsafe(migrationSql());
+    }
     await seedTenantAccount(db, {
       userId: tenant.userId,
       accountId: tenant.accountId,
@@ -271,16 +285,18 @@ describeWithDb('migration 074 trust dial + veto window — shape', { timeout: 30
   it('applying the migration a second time is a clean no-op', async () => {
     await expect(sql().unsafe(migrationSql())).resolves.not.toThrow();
 
-    // End state is identical: each rebuilt/new index exists exactly once.
+    // End state is identical: each rebuilt/new index exists exactly once, on
+    // its expected table in the public schema.
     const [count] = await sql()<{ count: string }[]>`
       SELECT count(*)::text AS count FROM pg_indexes
-      WHERE indexname IN (
-        'auto_approval_policies_one_account_default',
-        'auto_approval_policies_one_location_override',
-        'idx_responses_auto_policy_daily_cap',
-        'idx_jo_pending_post_notice_inflight',
-        'notification_deliveries_pending_post_notice_claim'
-      )
+      WHERE schemaname = 'public'
+        AND (tablename, indexname) IN (
+          ('auto_approval_policies', 'auto_approval_policies_one_account_default'),
+          ('auto_approval_policies', 'auto_approval_policies_one_location_override'),
+          ('responses', 'idx_responses_auto_policy_daily_cap'),
+          ('job_outbox', 'idx_jo_pending_post_notice_inflight'),
+          ('notification_deliveries', 'notification_deliveries_pending_post_notice_claim')
+        )
     `;
     expect(count?.count).toBe('5');
   });

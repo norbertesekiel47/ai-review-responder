@@ -796,7 +796,14 @@ Revisit triggers:
   `(account_id, location_id, persona, action_class) WHERE location_id IS NOT
   NULL` — the ON CONFLICT writers in `src/lib/auto-approval/settings.ts` are
   updated to match byte-for-byte later in the SAME PR (WS4 Task 12); the
-  rebuild only widens the key, so no existing row can collide. Adds nullable
+  rebuild only widens the key, so no existing row can collide. **Apply
+  window:** apply 074 in the same maintenance window as deploying its PR's
+  code — the rebuild drops the indexes the PREVIOUS `settings.ts` upserts'
+  ON CONFLICT clauses infer on, so during the gap `auto_approval_policies`
+  upserts (owner settings save) fail with a no-matching-constraint error;
+  reads and the auto-approval evaluator are unaffected. Pre-launch accepted
+  tradeoff — documented explicitly rather than keeping redundant transition
+  indexes. Adds nullable
   `responses.auto_post_scheduled_at` TIMESTAMPTZ — the veto-window publish
   deadline, single source of truth for the notice copy, approve-page scheduled
   state, and veto guard (stamped by `persist.ts` in WS4 Task 5, cleared by the
