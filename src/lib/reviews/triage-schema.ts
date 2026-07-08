@@ -22,8 +22,37 @@ export const TRIAGE_ISSUES = [
   'cleanliness', 'staff_conduct', 'order_accuracy', 'communication',
   'safety_or_health', 'billing_or_refund', 'other',
 ] as const;
+export type TriageIssue = (typeof TRIAGE_ISSUES)[number];
+
+/** Humanized labels for owner-facing escalation notices (WS3). Single owner —
+ *  exhaustive over TriageIssue so adding a taxonomy value forces a label. */
+export const TRIAGE_ISSUE_LABELS: Record<TriageIssue, string> = {
+  service_quality: 'Service quality',
+  product_quality: 'Product quality',
+  wait_time: 'Wait time',
+  pricing: 'Pricing',
+  cleanliness: 'Cleanliness',
+  staff_conduct: 'Staff conduct',
+  order_accuracy: 'Order accuracy',
+  communication: 'Communication',
+  safety_or_health: 'Safety or health',
+  billing_or_refund: 'Billing or refund',
+  other: 'Other',
+};
+
+/** Humanized severity labels for owner-facing escalation notices (WS3). Single owner. */
+export const TRIAGE_SEVERITY_LABELS: Record<TriageSeverity, string> = {
+  low: 'Low severity',
+  medium: 'Medium severity',
+  high: 'High severity',
+};
 
 export const TRIAGE_SUGGESTED_ACTIONS = ['respond', 'escalate', 'respond_and_escalate'] as const;
+
+/** The suggested_action values that raise a Guardian escalation (WS3).
+ *  Single owner — the raise predicate derives from this so the taxonomy and
+ *  the escalation trigger can't drift. */
+export const ESCALATING_ACTIONS = ['escalate', 'respond_and_escalate'] as const;
 
 export const TRIAGE_SOURCE = {
   LLM: 'llm_triage_v1',
@@ -38,3 +67,18 @@ export const TriageOutputSchema = z.strictObject({
   suggested_action: z.enum(TRIAGE_SUGGESTED_ACTIONS),
 });
 export type TriageOutput = z.infer<typeof TriageOutputSchema>;
+
+/** One review's triage result as produced by `classifyReviewTriage`
+ *  (src/lib/reviews/triage.ts). Lives here — not in triage.ts — so the
+ *  escalation raise module can consume it without a triage ⇄ raise
+ *  type-level import cycle (triage.ts re-exports it for callers). */
+export interface TriageClassification {
+  output: TriageOutput;
+  source: TriageSource;
+  /** Pinned model id that produced the classification; null for fallback/mock. */
+  model: string | null;
+  latencyMs: number | null;
+  /** Error NAME (enum-like, never message text) when the classification fell
+   *  back; undefined on success/mock. Surfaces in the triage step detail. */
+  failureReason?: string;
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatApprovalTelegram } from '../telegram-body';
+import { formatApprovalTelegram, formatEscalationNoticeTelegram } from '../telegram-body';
 
 function sample(overrides: Partial<Parameters<typeof formatApprovalTelegram>[0]> = {}) {
   return {
@@ -119,5 +119,33 @@ describe('formatApprovalTelegram', () => {
   it('prefix is always shown even for single-location accounts', () => {
     const { text } = formatApprovalTelegram(sample({ locationLabel: 'Only Location' }));
     expect(text).toContain('[Only Location]');
+  });
+});
+
+describe('formatEscalationNoticeTelegram', () => {
+  const params = {
+    locationLabel: 'Main St',
+    reviewerName: 'Jane <b>D</b>',
+    starRating: 1 as number | null,
+    reviewText: 'Awful & <unsafe>',
+    severity: 'high' as const,
+    issues: ['staff_conduct' as const],
+    isFallback: false,
+    dashboardUrl: 'https://app.repworth.com/dashboard/reviews',
+  };
+
+  it('renders severity header, escaped review text, and a dashboard button', () => {
+    const { text, inline_keyboard } = formatEscalationNoticeTelegram(params);
+    expect(text).toContain('🚨');
+    expect(text).toContain('High severity');
+    expect(text).toContain('Staff conduct');
+    expect(text).toContain('Awful &amp; &lt;unsafe&gt;');
+    expect(inline_keyboard).toEqual([[{ text: '📋 Open dashboard', url: params.dashboardUrl }]]);
+  });
+
+  it('uses needs-a-look copy with no severity claim for fallback', () => {
+    const { text } = formatEscalationNoticeTelegram({ ...params, isFallback: true });
+    expect(text).not.toContain('High severity');
+    expect(text).toContain("couldn't assess this review automatically");
   });
 });

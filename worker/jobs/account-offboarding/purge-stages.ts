@@ -242,6 +242,15 @@ export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboa
     `;
     await deleteByBusiness(tx, 'approval_links', row.account_id);
     await deleteByBusiness(tx, 'responses', row.account_id);
+    // Guardian escalations (migration 073): review_id FK has no cascade, so
+    // these must go before the reviews delete. notification_deliveries.
+    // escalation_id is ON DELETE SET NULL — deliveries purge independently —
+    // and escalations.agent_run_id is likewise ON DELETE SET NULL, so deleting
+    // escalations here (before the agent_runs delete below) is order-safe.
+    await tx`
+      DELETE FROM review_escalations
+      WHERE account_id = ${row.account_id}::uuid
+    `;
     await deleteByBusiness(tx, 'reviews', row.account_id);
     await deleteByBusiness(tx, 'weekly_summaries', row.account_id);
     await deleteByBusiness(tx, 'monthly_impact_emails', row.account_id);

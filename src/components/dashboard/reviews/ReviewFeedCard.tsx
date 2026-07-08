@@ -2,7 +2,11 @@
 
 import { useState } from 'react';
 import { AutoApprovedBadge } from '@/components/dashboard/reviews/AutoApprovedBadge';
-import { ReviewActions } from '@/components/dashboard/reviews/ReviewActions';
+import {
+  EscalationActions,
+  ReviewActions,
+  type ReviewEscalation,
+} from '@/components/dashboard/reviews/ReviewActions';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import type { ApprovalMethod } from '@/lib/auto-approval/types';
 
@@ -28,6 +32,8 @@ interface ReviewFeedItem {
   responseStatus: string | null;
   approvalMethod: ApprovalMethod | null;
   locationDisplayName?: string;
+  /** Optional so the aggregate feed (WS5) can keep omitting it. */
+  escalation?: ReviewEscalation | null;
 }
 
 interface ReviewFeedCardProps {
@@ -96,6 +102,13 @@ function ReviewFeedRow({
         responseText={r.responseText}
         onSuccess={onSuccess}
       />
+      {/* Escalation actions live OUTSIDE the draft gate: moderation-held
+          drafts (responseText null) are exactly the high-severity lane and
+          must still be acknowledgeable. readOnly (billing) still hides them —
+          the escalation routes reject non-writable subscriptions anyway. */}
+      {r.escalation && !readOnly && (
+        <EscalationActions escalation={r.escalation} onSuccess={onSuccess} />
+      )}
       <PostedResponse isPending={isPending} responseText={r.responseText} />
     </div>
   );
@@ -123,6 +136,15 @@ function ReviewFeedHeader({
         </span>
       )}
       <span className={`badge ${badge.cls}`}>{badge.label}</span>
+      {r.escalation && (
+        <span
+          className={`badge escalation-badge escalation-badge--${r.escalation.severity}`}
+          title={r.escalation.status === 'acknowledged' ? 'Escalation acknowledged' : 'Escalated to you by Guardian'}
+        >
+          <span aria-hidden="true">{r.escalation.status === 'acknowledged' ? '👁' : '🚨'}</span>
+          {r.escalation.status === 'acknowledged' ? 'Acknowledged' : 'Needs attention'}
+        </span>
+      )}
       <AutoApprovedBadge method={r.approvalMethod} variant="compact" />
       <span className="review-meta-time">{formatRelative(r.reviewDate)}</span>
     </div>
@@ -160,7 +182,11 @@ function PendingDraft({
           Update billing to approve, edit, or regenerate this reply.
         </p>
       ) : (
-        <ReviewActions reviewId={reviewId} responseText={responseText} onSuccess={onSuccess} />
+        <ReviewActions
+          reviewId={reviewId}
+          responseText={responseText}
+          onSuccess={onSuccess}
+        />
       )}
     </div>
   );

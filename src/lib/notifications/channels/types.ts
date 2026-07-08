@@ -7,6 +7,8 @@
 //
 // See docs/plans/adding-communication-channels.md §1 for rationale.
 
+import type { TriageIssue, TriageSeverity } from '@/lib/reviews/triage-schema';
+
 /** The set of notification channels. Single owner — every enumeration of
  *  channels (dispatch order, SQL filters, eligibility records) derives from
  *  this. Declaration order IS the notification dispatch order. */
@@ -85,6 +87,34 @@ export type SendAutoPostNoticeResult =
   | { status: 'sent'; externalMessageId: string }
   | { status: 'skipped'; reason: string };
 
+/**
+ * Params for the Guardian escalation notice (WS3). Content comes from the
+ * persisted triage snapshot on review_escalations — no approval affordance,
+ * no LLM call. Review text is legal in the MESSAGE (private owner channel);
+ * it must never reach logs/step detail/outbox payloads.
+ */
+export interface SendEscalationNoticeParams {
+  /** Per-enrollment recipient: email address, E.164 phone, or telegram chat_id. */
+  handle: string;
+  locationLabel: string;
+  businessName: string;
+  reviewerName: string;
+  starRating: number | null;
+  reviewText: string | null;
+  severity: TriageSeverity;
+  issues: TriageIssue[];
+  /** triage_source === 'fallback_high_v1' ⇒ "couldn't assess" copy, no severity claim. */
+  isFallback: boolean;
+  /** `${APP_URL}/dashboard/reviews` — the acknowledge surface (spec §2.7). */
+  dashboardUrl: string;
+  /** review_escalations id — provider idempotency + WhatsApp template suffix. */
+  escalationId: string;
+}
+
+export type SendEscalationNoticeResult =
+  | { status: 'sent'; externalMessageId: string }
+  | { status: 'skipped'; reason: string };
+
 export interface NotificationChannel {
   readonly id: ChannelId;
   /** True if the channel supports inline buttons for approve/regenerate. */
@@ -98,4 +128,10 @@ export interface NotificationChannel {
    * union (see SendAutoPostNoticeResult).
    */
   sendAutoPostNotice(p: SendAutoPostNoticeParams): Promise<SendAutoPostNoticeResult>;
+  /**
+   * Send the Guardian escalation notice (WS3): "this review needs your
+   * attention", with triage context and a dashboard CTA. Returns a
+   * sent/skipped union (WhatsApp skips without its approved template SID).
+   */
+  sendEscalationNotice(p: SendEscalationNoticeParams): Promise<SendEscalationNoticeResult>;
 }

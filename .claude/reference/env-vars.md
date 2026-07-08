@@ -150,6 +150,16 @@ disagree on which env vars count (all 5, incl. `WHATSAPP_APPROVAL_URL_BASE`).
   Telegram FYIs still send. Set on **both** Vercel and Railway once the Meta
   template clears, then the WhatsApp FYI activates with no code change. No
   `NEXT_PUBLIC_*` companion.
+- `WHATSAPP_ESCALATION_TEMPLATE_SID` — Twilio Content SID for the Guardian
+  escalation-notice template (WS3; see `docs/runbooks/whatsapp-templates.md`).
+  Same posture as the autopost SID: **deliberately absent from
+  `assertChannelsWhatsAppEnv`** — its absence must NOT fail worker boot. When
+  unset, the escalation dispatcher (`worker/jobs/escalation-notice/dispatch.ts`)
+  pre-filters WhatsApp (`skipped`, logged — no claim, no send) and the WhatsApp
+  channel's `sendEscalationNotice` returns `{status:'skipped'}`; email +
+  Telegram escalation notices still send. Worker-only (Railway); set it once the
+  Meta template clears and WhatsApp escalation notices activate with no code
+  change. No `NEXT_PUBLIC_*` companion.
 
 **Before flipping:** Meta Business verification (2–4 week process) + WABA setup + Content template approval.
 
@@ -420,6 +430,7 @@ in-code defaults are dev-scale.
 | `TRIAL_ENABLED` | **Off** | Card-up-front, Stripe-native 30-day free trial (migration 069). Server-authoritative; **no `NEXT_PUBLIC_*` companion** (inv #13). When `true` AND the account is a self-serve `pending_payment` account (eligibility per the trial spec §0.2), both self-serve checkout entry points (`/api/billing/checkout`, `/api/onboarding/select-plan`) pass `trial: true` to `createCheckoutSession`, which adds `subscription_data.trial_period_days = TRIAL_PERIOD_DAYS`. Stripe charges **$0 now** and the resulting subscription comes back `status='trialing'`, which `checkout.session.completed` projects to the new explicit `'trialing'` account status via the single applier (`worker/ingress/stripe/apply-subscription-state.ts`). `'trialing'` is treated like `'active'` for entitlement everywhere EXCEPT recurring paid ranking tracking (SerpAPI) which stays active-only. Conversion `trialing→active` fires from `customer.subscription.updated` (status='active') only — the $0 trial-start invoice does NOT convert. Cancel-during-trial runs through existing offboarding `cancel_at_period_end`. The landing hero CTA becomes "Start your N-day free trial" only when this AND `SELF_SERVE_SIGNUP_ENABLED` are on. Reconcile poller has scoped corrective authority for stuck trialing rows. Worker startup does not hard-require it (default-off, additive). |
 | `TRIAL_PERIOD_DAYS` | `30` | Trial length in days passed as `subscription_data.trial_period_days`. Parsed by `resolveTrialPeriodDays()` in `src/lib/payments/create-checkout-session.ts` (non-numeric/≤0 → falls back to 30). Also drives the landing hero CTA copy and the dashboard "N days left" banner (the banner computes days from the account's stored `trial_ends_at`, not this var). No effect unless `TRIAL_ENABLED=true`. |
 | `TRIAGE_ENABLED` | Off | WS2 Guardian triage kill switch. Server-only boolean read via `readFlag` (accessor `triageEnabled()` in `src/lib/reviews/flags.ts`); default off/unset. Gates the triage phase in `ResponseGeneratorWorker`: one ~200-max-token `gpt-4o-mini-2024-07-18` call (Anthropic fallback) per NON-POSITIVE review (≤3★ or unrated), cost-guarded, recorded as endpoint `review-triage` in `api_costs`. **Operational coupling:** disabling `TRIAGE_ENABLED` also disables the auto-approval triage veto for newly ingested reviews (untriaged rows carry nulls → the two triage gates pass) — review `AUTO_APPROVAL_ENABLED` posture when flipping it off; already-triaged rows keep their persisted veto facts. Rollout: staging first, then prod, per spec §5 (`docs/superpowers/specs/2026-07-07-ws2-triage-design.md`). No `NEXT_PUBLIC_*` companion. |
+| `ESCALATION_ENABLED` | Off | WS3 Guardian escalation kill switch. Server-only boolean read via `readFlag` (accessor `escalationEnabled()` in `src/lib/escalations/flags.ts`); default off/unset. Read by the **worker** at two points: the RAISE gate in `persistTriage` (`src/lib/reviews/triage.ts` — gates `raiseEscalation`: `review_escalations` row + `review_escalated` outcome + `escalation_raised` step + `escalation_notice` outbox enqueue, one tx) and the SEND gate in `EscalationNoticeWorker` (`worker/jobs/escalation-notice/`). **Operational coupling:** inert without `TRIAGE_ENABLED` — no triage runs means no `escalate`/`respond_and_escalate` classifications are ever written, so nothing can raise. **Kill-switch semantics:** flipping off stops new raises AND outbound notice sends (in-flight `escalation_notice` jobs skip at send time); already-raised escalations stay visible and actionable on the dashboard (acknowledge/resolve are NOT flag-gated). Rollout: staging first, then prod, per spec §5 (`docs/superpowers/specs/2026-07-07-ws3-guardian-escalation-design.md`; migration 073 applied first). No `NEXT_PUBLIC_*` companion. |
 
 ---
 

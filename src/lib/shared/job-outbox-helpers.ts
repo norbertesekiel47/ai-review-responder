@@ -5,6 +5,7 @@ import {
   GENERATE_RESPONSE_ORIGIN_LANES,
   type GenerateResponseOriginLane,
   type AutoPostNoticePayload,
+  type EscalationNoticePayload,
   type GenerateResponsePayload,
   type PublishResponsePayload,
   type SendNotificationPayload,
@@ -15,6 +16,7 @@ type TxClient = postgres.TransactionSql;
 const JOB_OUTBOX_STATUS_PENDING = 'pending';
 const AGGREGATE_TYPE_REVIEW = 'review';
 const AGGREGATE_TYPE_RESPONSE = 'response';
+const AGGREGATE_TYPE_ESCALATION = 'escalation';
 const KNOWN_ORIGIN_LANES = new Set<string>(GENERATE_RESPONSE_ORIGIN_LANES);
 
 export interface NormalizedGenerateResponsePayload {
@@ -54,6 +56,13 @@ export interface EnqueueSendNotificationInput {
 export interface EnqueueAutoPostNoticeInput {
   outboxId?: string;
   responseId: string;
+  businessId: string;
+  correlationId?: string;
+}
+
+export interface EnqueueEscalationNoticeInput {
+  outboxId?: string;
+  escalationId: string;
   businessId: string;
   correlationId?: string;
 }
@@ -234,6 +243,44 @@ export async function enqueueAutoPostNotice(
     )
     ON CONFLICT (topic, aggregate_id)
     WHERE topic = 'auto_post_notice' -- topic-audit-ignore: partial-index inference needs a literal
+      AND status IN ('pending', 'dispatching', 'dispatched')
+    DO NOTHING
+  `;
+  return outboxId;
+}
+
+/**
+ * Enqueues the Guardian escalation notice (WS3). In-flight guard mirrors
+ * enqueueAutoPostNotice: partial unique index idx_jo_escalation_notice_inflight
+ * (migration 073) backs the byte-for-byte ON CONFLICT below. The caller
+ * (raiseEscalation) only enqueues when the escalation INSERT affected a row,
+ * so this guard is defense-in-depth against replays.
+ */
+export async function enqueueEscalationNotice(
+  tx: TxClient,
+  input: EnqueueEscalationNoticeInput,
+): Promise<string> {
+  const outboxId = input.outboxId ?? uuidv7();
+  const payload: EscalationNoticePayload = {
+    escalation_id: input.escalationId,
+    business_id: input.businessId,
+  };
+  if (input.correlationId !== undefined) {
+    payload.correlation_id = input.correlationId;
+  }
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.ESCALATION_NOTICE},
+      ${AGGREGATE_TYPE_ESCALATION},
+      ${input.escalationId},
+      ${tx.json(payload as never)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
+    ON CONFLICT (topic, aggregate_id)
+    WHERE topic = 'escalation_notice' -- topic-audit-ignore: partial-index inference needs a literal
       AND status IN ('pending', 'dispatching', 'dispatched')
     DO NOTHING
   `;

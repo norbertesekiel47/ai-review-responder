@@ -9,6 +9,7 @@
 // VAL-NOTIF-019: Template prefix escapes brackets, colons, long display_labels.
 
 import { sanitizeLocationLabelForPrefix } from './template-prefix';
+import { TRIAGE_ISSUE_LABELS, TRIAGE_SEVERITY_LABELS, type TriageIssue, type TriageSeverity } from '@/lib/reviews/triage-schema';
 
 export interface TelegramApprovalParams {
   /** Resolved location label: display_label ?? businesses.name. Always non-null. */
@@ -107,6 +108,57 @@ export function formatAutoPostNoticeTelegram(p: TelegramAutoPostNoticeParams): F
   const inline_keyboard: TelegramInlineButton[][] = p.googleMapsUrl !== null
     ? [[{ text: '🔗 View on Google', url: p.viewUrl }]]
     : [];
+
+  return { text, inline_keyboard };
+}
+
+export interface TelegramEscalationNoticeParams {
+  /** Resolved location label: display_label ?? businesses.name. Always non-null. */
+  locationLabel: string;
+  reviewerName: string;
+  starRating: number | null;
+  reviewText: string | null;
+  severity: TriageSeverity;
+  issues: TriageIssue[];
+  /** triage_source === 'fallback_high_v1' ⇒ "couldn't assess" copy, no severity claim. */
+  isFallback: boolean;
+  /** `${APP_URL}/dashboard/reviews` — the acknowledge surface (spec §2.7). */
+  dashboardUrl: string;
+}
+
+/**
+ * Pure formatter for the Guardian escalation notice (WS3). No approve/
+ * regenerate buttons — a single "Open dashboard" URL button is the
+ * acknowledge surface. Fallback-sourced escalations (triage couldn't
+ * classify) use "needs a look" copy and claim no severity.
+ */
+export function formatEscalationNoticeTelegram(
+  p: TelegramEscalationNoticeParams,
+): FormattedApprovalMessage {
+  const location = escapeHtml(sanitizeLocationLabelForPrefix(p.locationLabel));
+  const reviewer = escapeHtml(p.reviewerName);
+  const stars = p.starRating !== null ? `⭐${p.starRating}` : 'no rating';
+  const preview = p.reviewText
+    ? escapeHtml(truncate(p.reviewText, MAX_EMBED))
+    : '(no review text)';
+  const assessment = p.isFallback
+    ? "We couldn't assess this review automatically — please take a look."
+    : `${TRIAGE_SEVERITY_LABELS[p.severity]}.${
+        p.issues.length > 0
+          ? ` Flagged for: ${escapeHtml(p.issues.map((i) => TRIAGE_ISSUE_LABELS[i]).join(', '))}.`
+          : ''
+      }`;
+
+  const text = [
+    `<b>[${location}] ${p.isFallback ? '⚠️ A review needs a look' : '🚨 A review needs your attention'}</b>`,
+    assessment,
+    `Review from ${reviewer} (${stars}):`,
+    `<i>${preview}</i>`,
+  ].join('\n');
+
+  const inline_keyboard: TelegramInlineButton[][] = [
+    [{ text: '📋 Open dashboard', url: p.dashboardUrl }],
+  ];
 
   return { text, inline_keyboard };
 }

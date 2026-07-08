@@ -1,5 +1,7 @@
 import type { DashboardDataActive } from './types';
 import type { ApprovalMethod } from '@/lib/auto-approval/types';
+import type { OpenEscalationStatus } from '@/lib/escalations/types';
+import type { TriageSeverity } from '@/lib/reviews/triage-schema';
 
 function toReviewDateIso(value: unknown): string {
   if (!value) return '';
@@ -38,5 +40,12 @@ export function mapRecentReviews(
     responseText: (row.response_text as string) ?? null,
     responseStatus: (row.response_status as string) ?? null,
     approvalMethod: (row.approval_method as ApprovalMethod) ?? null,
+    escalation: row.escalation_id
+      ? {
+          id: row.escalation_id as string,
+          status: row.escalation_status as OpenEscalationStatus,
+          severity: row.escalation_severity as TriageSeverity,
+        }
+      : null,
   }));
 }

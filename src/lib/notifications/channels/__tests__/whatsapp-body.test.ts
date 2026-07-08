@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   formatApprovalWhatsApp,
   formatAutoPostNoticeWhatsApp,
+  formatEscalationNoticeWhatsApp,
   renderApprovalCardBody,
   extractTokenFromApprovalUrl,
   stripWaPrefix,
@@ -221,5 +222,53 @@ describe('formatAutoPostNoticeWhatsApp', () => {
       'HX_autopost_test',
     );
     expect(contentVariables['2']).toBe('Reviewer');
+  });
+});
+
+describe('formatEscalationNoticeWhatsApp', () => {
+  it('maps template variables and clamps names', () => {
+    const { contentSid, contentVariables } = formatEscalationNoticeWhatsApp(
+      {
+        businessName: 'Acme Diner',
+        reviewerName: 'Jane D',
+        starRating: 1,
+        severity: 'high',
+        isFallback: false,
+        escalationId: 'esc-1',
+      },
+      'HXescalation',
+    );
+    expect(contentSid).toBe('HXescalation');
+    expect(contentVariables).toEqual({
+      '1': 'Acme Diner',
+      '2': 'Jane D',
+      '3': '1',
+      '4': 'High severity',
+      '5': 'esc-1',
+    });
+  });
+
+  it('renders a rating-less review as "–"', () => {
+    const { contentVariables } = formatEscalationNoticeWhatsApp(
+      { businessName: 'A', reviewerName: 'B', starRating: null, severity: 'low', isFallback: true, escalationId: 'e' },
+      'HX1',
+    );
+    expect(contentVariables['3']).toBe('–');
+  });
+
+  it('renders the humanized severity label for a non-fallback escalation', () => {
+    const { contentVariables } = formatEscalationNoticeWhatsApp(
+      { businessName: 'A', reviewerName: 'B', starRating: 5, severity: 'high', isFallback: false, escalationId: 'e' },
+      'HX1',
+    );
+    expect(contentVariables['4']).toBe('High severity');
+  });
+
+  it('renders "Needs a look" for a fallback-sourced escalation regardless of severity', () => {
+    const { contentVariables } = formatEscalationNoticeWhatsApp(
+      { businessName: 'A', reviewerName: 'B', starRating: 5, severity: 'high', isFallback: true, escalationId: 'e' },
+      'HX1',
+    );
+    expect(contentVariables['4']).toBe('Needs a look');
   });
 });

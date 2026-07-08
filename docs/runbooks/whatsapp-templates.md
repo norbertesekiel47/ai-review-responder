@@ -316,3 +316,108 @@ that env's `NEXT_PUBLIC_APP_URL`, selected via `WHATSAPP_AUTOPOST_TEMPLATE_SID`.
 > reuses the stale env snapshot). Staging-only — prod keeps its own SID. Only
 > matters when testing the auto-approval lane (`AUTO_APPROVAL_ENABLED=true`); the
 > owner-approval card is unaffected.
+
+---
+
+## Escalation notice (`WHATSAPP_ESCALATION_TEMPLATE_SID`)
+
+**Purpose:** Tell a business owner that Guardian triage flagged a review needing
+their attention (WS3). One-way — no approve/regenerate buttons and no approval
+link (this is not the reply-approval flow). No URL button either: the owner
+acknowledges/resolves from the dashboard, not a deep link, so the notice is
+text-only until a future URL-button suffix is added (variable 5 is reserved for
+that).
+
+**Twilio Content type:** `whatsapp/card` (same as the other two templates).
+
+**Meta category:** UTILITY (transactional — it reports a triage outcome, not a
+promotion). If Meta reclassifies as MARKETING, the copy may need a rework; the
+`_v1` suffix reserves room for a versioned resubmit.
+
+**Proposed body text:**
+
+```
+🚨 {{1}}: a review from {{2}} ({{3}}★) was flagged as "{{4}}" and requires a look.
+
+Open your RepWorth dashboard to acknowledge.
+```
+
+> **Static 🚨, unlike email/Telegram.** Email and Telegram vary the leading
+> emoji/title copy between an urgent notice (🚨) and a fallback "couldn't
+> assess" notice (⚠️) — see `URGENT_NOTICE_TITLE`/`FALLBACK_NOTICE_TITLE` in
+> `escalation-notice.ts` and the equivalent branch in
+> `formatEscalationNoticeTelegram`. This template's body is a single
+> Meta-approved string with no emoji variable, so a fallback-sourced
+> escalation (`{{4}}` = "Needs a look") still renders with the same static
+> 🚨 — WhatsApp cannot downgrade to ⚠️ without a second approved template
+> variant.
+
+**Variables:** (must match `formatEscalationNoticeWhatsApp` in
+`src/lib/notifications/channels/whatsapp-body.ts` — keys `"1"`–`"5"`, passed
+positionally)
+
+| Index | Content | Type | Max length | Null-safe default |
+|-------|---------|------|------------|-------------------|
+| 1 | Business name | string | 100 | — (always set) |
+| 2 | Reviewer name | string | 100 | `"Reviewer"` if missing |
+| 3 | Star rating | string `"1"`–`"5"` | 1 | `"–"` if rating-less |
+| 4 | Severity label | string, e.g. `"High severity"` \| `"Needs a look"` (fallback) | ~20 | — (always set) |
+| 5 | Escalation id (`review_escalations.id`) | string (UUIDv7) | 36 | — (reserved for a future URL-button suffix; not rendered in the body copy above) |
+
+**Buttons:** none in the proposed v1 body. If a future revision adds a
+dashboard-deep-link URL button, it would use `{{5}}` as the suffix (mirroring
+the `/r/google/{{4}}` pattern in `repworth_autopost_notice_v1`) — that change
+requires a fresh Meta review cycle.
+
+### Submission JSON (Twilio Content API)
+
+Submit via the Content Editor UI or `POST /v1/Content`. After Meta approves,
+Twilio returns an `HX...` Content SID — set it as
+`WHATSAPP_ESCALATION_TEMPLATE_SID` on the **Railway worker only** (read via
+`getWorkerConfig()` in the escalation-notice dispatcher; no Vercel route or UI
+reads it — see `env-vars.md`). If unset, the WhatsApp escalation notice is
+skipped gracefully (email + Telegram still send); it is **NOT** a
+startup-required var.
+
+```json
+{
+  "friendly_name": "repworth_escalation_notice_v1",
+  "language": "en",
+  "variables": {
+    "1": "Acme Diner",
+    "2": "Jane D",
+    "3": "1",
+    "4": "High severity",
+    "5": "019db8c1-c3f4-7668-b353-2b8b718ec603"
+  },
+  "types": {
+    "whatsapp/card": {
+      "body": "🚨 {{1}}: a review from {{2}} ({{3}}★) was flagged as \"{{4}}\" and requires a look.\n\nOpen your RepWorth dashboard to acknowledge."
+    }
+  }
+}
+```
+
+**Variable-map validation gate (before submitting):** diff `{{1}}`–`{{5}}`
+against `formatEscalationNoticeWhatsApp` — `"1"`=businessName, `"2"`=reviewerName
+(`|| 'Reviewer'`), `"3"`=`String(starRating)` or `'–'` when rating-less,
+`"4"`=severity label (computed inside `formatEscalationNoticeWhatsApp` from the
+single-owner `TRIAGE_SEVERITY_LABELS` map in `src/lib/reviews/triage-schema.ts`:
+`'Needs a look'` for fallback-sourced escalations, else `'<Severity> severity'`),
+`"5"`=escalationId — the formatter always sends this, but the v1 body above
+does not render it anywhere; Twilio tolerates an unrendered variable, but
+confirm that on the staging template before flipping prod (an unused variable
+some Content API versions reject at submission time).
+
+**What triggers a resubmission:** body wording, adding/removing a button, the
+category, or the variable count/order — same rules as the other two templates.
+
+### Environment SIDs
+
+Each environment needs its own approved template, selected via
+`WHATSAPP_ESCALATION_TEMPLATE_SID`. Record SIDs here once issued:
+
+| Env | Template name | SID | Meta status |
+|-----|---------------|-----|-------------|
+| Prod | `repworth_escalation_notice_v1` | `HX________ (record at go-live)` | not yet submitted |
+| Staging | `repworth_escalation_notice_staging_v1` | `HX________ (record at go-live)` | not yet submitted |

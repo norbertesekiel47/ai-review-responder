@@ -9,7 +9,7 @@
 //   - Format the message (telegram-body.ts)
 //   - Call Bot API sendMessage (telegram-client.ts)
 
-import { formatApprovalTelegram, formatAutoPostNoticeTelegram } from './telegram-body';
+import { formatApprovalTelegram, formatAutoPostNoticeTelegram, formatEscalationNoticeTelegram } from './telegram-body';
 import { TelegramClient } from './telegram-client';
 import type {
   NotificationChannel,
@@ -18,6 +18,8 @@ import type {
   SendApprovalResult,
   SendAutoPostNoticeParams,
   SendAutoPostNoticeResult,
+  SendEscalationNoticeParams,
+  SendEscalationNoticeResult,
 } from './types';
 
 export class TelegramChannel implements NotificationChannel {
@@ -62,6 +64,31 @@ export class TelegramChannel implements NotificationChannel {
       // No CTA when the destination is unknown — pass no reply_markup rather
       // than an empty keyboard (which the Bot API rejects).
       reply_markup: inline_keyboard.length > 0 ? { inline_keyboard } : undefined,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+    });
+    return { status: 'sent', externalMessageId: `${result.chat.id}:${result.message_id}` };
+  }
+
+  // Interface-dispatched via getChannel(id).sendEscalationNotice in the
+  // escalation-notice worker; fallow's member graph misses interface dispatch.
+  // fallow-ignore-next-line unused-class-member
+  async sendEscalationNotice(p: SendEscalationNoticeParams): Promise<SendEscalationNoticeResult> {
+    const { text, inline_keyboard } = formatEscalationNoticeTelegram({
+      locationLabel: p.locationLabel,
+      reviewerName: p.reviewerName,
+      starRating: p.starRating,
+      reviewText: p.reviewText,
+      severity: p.severity,
+      issues: p.issues,
+      isFallback: p.isFallback,
+      dashboardUrl: p.dashboardUrl,
+    });
+    const client = new TelegramClient();
+    const result = await client.sendMessage({
+      chat_id: p.handle,
+      text,
+      reply_markup: { inline_keyboard },
       parse_mode: 'HTML',
       disable_web_page_preview: true,
     });

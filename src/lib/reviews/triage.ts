@@ -18,13 +18,20 @@ import { TransientLLMError } from '@/lib/llm/error-classifier';
 import type { ChatPrompt, LLMCallResult } from '@/lib/llm/types';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { findActiveReviewRun, recordStep } from '@/lib/agents/run-spine';
+import { escalationEnabled } from '@/lib/escalations/flags';
+import { raiseEscalation, shouldEscalate } from '@/lib/escalations/raise';
 import {
   TRIAGE_ISSUES,
   TRIAGE_SOURCE,
   TriageOutputSchema,
+  type TriageClassification,
   type TriageOutput,
-  type TriageSource,
 } from './triage-schema';
+
+// Single owner is triage-schema.ts (kills the triage ⇄ escalations/raise
+// type cycle); re-exported here so classifyReviewTriage callers keep one
+// import site.
+export type { TriageClassification } from './triage-schema';
 
 const MAX_REVIEW_TEXT_CHARS = 1500;
 
@@ -55,17 +62,6 @@ export interface ClassifyTriageInput {
   subscriptionTier: string;
   accountId: string;
   review: ReviewForTriage;
-}
-
-export interface TriageClassification {
-  output: TriageOutput;
-  source: TriageSource;
-  /** Pinned model id that produced the classification; null for fallback/mock. */
-  model: string | null;
-  latencyMs: number | null;
-  /** Error NAME (enum-like, never message text) when the classification fell
-   *  back; undefined on success/mock. Surfaces in the triage step detail. */
-  failureReason?: string;
 }
 
 const FALLBACK_OUTPUT: TriageOutput = {
@@ -202,17 +198,23 @@ export async function classifyReviewTriage(
 export interface PersistTriageInput {
   reviewId: string;
   businessId: string;
+  /** Billing-parent scope for the escalation row (WS3). */
+  accountId: string;
   classification: TriageClassification;
   /** The review_content_hash of the text that was classified (pre-LLM read). */
   contentHash: string | null;
+  correlationId?: string;
 }
 
 /**
- * Persist the classification on the reviews row and append the guardian
- * `triage` step to the review's active run, atomically. The review row lock
+ * Persist the classification on the reviews row, append the guardian
+ * `triage` step to the review's active run, and — when ESCALATION_ENABLED
+ * and the classification suggests it — raise the Guardian escalation (row +
+ * outcome + step + notice enqueue), all atomically. The review row lock
  * MUST be this transaction's first statement (run-spine lock-ordering rule).
  * A vanished review (offboarding teardown mid-job) skips quietly; a legacy
- * review with no active run persists columns but skips the step.
+ * review with no active run persists columns and still escalates, but skips
+ * the run step/outcome.
  */
 export async function persistTriage(tx: TransactionSql, input: PersistTriageInput): Promise<void> {
   const locked = await tx<{ id: string }[]>`
@@ -236,26 +238,40 @@ export async function persistTriage(tx: TransactionSql, input: PersistTriageInpu
   `;
 
   const activeRun = await findActiveReviewRun(tx, input.reviewId);
-  if (!activeRun) return;
+  if (activeRun) {
+    const detail: Record<string, unknown> = {
+      severity: output.severity,
+      suggested_action: output.suggested_action,
+      issues: output.issues,
+      source: input.classification.source,
+      model: input.classification.model,
+    };
+    if (input.classification.failureReason) {
+      // Error NAME only (enum-like) — makes fallbacks triageable from
+      // agent_run_steps without ever carrying message/review text.
+      detail.reason = input.classification.failureReason;
+    }
 
-  const detail: Record<string, unknown> = {
-    severity: output.severity,
-    suggested_action: output.suggested_action,
-    issues: output.issues,
-    source: input.classification.source,
-    model: input.classification.model,
-  };
-  if (input.classification.failureReason) {
-    // Error NAME only (enum-like) — makes fallbacks triageable from
-    // agent_run_steps without ever carrying message/review text.
-    detail.reason = input.classification.failureReason;
+    await recordStep(tx, {
+      runId: activeRun.id,
+      stepKey: 'triage',
+      status: input.classification.source === TRIAGE_SOURCE.FALLBACK ? 'failed' : 'completed',
+      detail,
+      latencyMs: input.classification.latencyMs ?? undefined,
+    });
   }
 
-  await recordStep(tx, {
-    runId: activeRun.id,
-    stepKey: 'triage',
-    status: input.classification.source === TRIAGE_SOURCE.FALLBACK ? 'failed' : 'completed',
-    detail,
-    latencyMs: input.classification.latencyMs ?? undefined,
-  });
+  // WS3 Guardian escalation: raised in the SAME tx as the triage write, still
+  // under the review lock, independent of run existence (legacy reviews
+  // escalate too — spec §2.2).
+  if (escalationEnabled() && shouldEscalate(input.classification)) {
+    await raiseEscalation(tx, {
+      reviewId: input.reviewId,
+      businessId: input.businessId,
+      accountId: input.accountId,
+      activeRun,
+      classification: input.classification,
+      correlationId: input.correlationId,
+    });
+  }
 }

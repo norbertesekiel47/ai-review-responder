@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 368;
+export const ALLOWLIST_BASELINE = 374;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -486,6 +486,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT subscription_status FROM accounts WHERE id = ${accountId}::uuid",
     category: 'tenant-root-lookup',
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
+  },
+  {
+    file: "src/lib/escalations/transitions.ts",
+    table: "reviews",
+    sqlSnippet: "SELECT id FROM reviews WHERE id = ${pre.review_id} FOR UPDATE",
+    category: 'tenant-root-lookup',
+    reason: "Lock-ordering statement (run-spine contract: review row FOR UPDATE first); tenant scope is established by the account-filtered escalation pre-check in the same function, which supplies the review_id.",
   },
   {
     file: "src/lib/locations/add-location-tx.ts",
@@ -1281,9 +1288,16 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/dashboard/service.ts",
     table: "responses",
-    sqlSnippet: "SELECT rev.id, rev.reviewer_name, rev.star_rating, rev.review_text, rev.review_date, rev.status, resp.response_text, resp.status AS response_status, resp.approval_method FROM reviews rev LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS response_text, status, approval_method FROM responses WHERE review_id = rev.id AND business_id = ${businessId} AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[]) AND NOT EXISTS ( SELECT 1 FROM flagged_responses fr WHERE fr.response_id = responses.id AND fr.status = 'open' ) ORDER BY version DESC LIMIT 1 ) resp ON true WHERE rev.business_id = ${businessId} AND rev.status <> ${REVIEW_STATUS.DELETED} ORDER BY rev.detected_at DESC LIMIT 10",
+    sqlSnippet: "SELECT rev.id, rev.reviewer_name, rev.star_rating, rev.review_text, rev.review_date, rev.status, resp.response_text, resp.status AS response_status, resp.approval_method, esc.id AS escalation_id, esc.status AS escalation_status, esc.triage_severity AS escalation_severity FROM reviews rev LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS response_text, status, approval_method FROM responses WHERE review_id = rev.id AND business_id = ${businessId} AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[]) AND NOT EXISTS ( SELECT 1 FROM flagged_responses fr WHERE fr.response_id = responses.id AND fr.status = 'open' ) ORDER BY version DESC LIMIT 1 ) resp ON true LEFT JOIN LATERAL ( SELECT id, status, triage_severity FROM review_escalations e WHERE e.review_id = rev.id AND e.business_id = ${businessId} AND e.status <> 'resolved' LIMIT 1 ) esc ON true WHERE rev.business_id = ${businessId} AND rev.status <> ${REVIEW_STATUS.DELETED} ORDER BY rev.detected_at DESC LIMIT 10",
     category: 'tenant-root-lookup',
     reason: "Dashboard service receives an owner-scoped accountId or businessId and uses it as the tenant boundary for joined data; the NOT EXISTS clause excludes drafts held by an open moderation flag from owner view.",
+  },
+  {
+    file: "src/lib/dashboard/service.ts",
+    table: "review_escalations",
+    sqlSnippet: "SELECT rev.id, rev.reviewer_name, rev.star_rating, rev.review_text, rev.review_date, rev.status, resp.response_text, resp.status AS response_status, resp.approval_method, esc.id AS escalation_id, esc.status AS escalation_status, esc.triage_severity AS escalation_severity FROM reviews rev LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS response_text, status, approval_method FROM responses WHERE review_id = rev.id AND business_id = ${businessId} AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[]) AND NOT EXISTS ( SELECT 1 FROM flagged_responses fr WHERE fr.response_id = responses.id AND fr.status = 'open' ) ORDER BY version DESC LIMIT 1 ) resp ON true LEFT JOIN LATERAL ( SELECT id, status, triage_severity FROM review_escalations e WHERE e.review_id = rev.id AND e.business_id = ${businessId} AND e.status <> 'resolved' LIMIT 1 ) esc ON true WHERE rev.business_id = ${businessId} AND rev.status <> ${REVIEW_STATUS.DELETED} ORDER BY rev.detected_at DESC LIMIT 10",
+    category: 'tenant-root-lookup',
+    reason: "Open-escalation badge read (WS3); review_escalations accessed inside a LEFT JOIN LATERAL scoped by e.business_id = ${businessId} (mirrors the resp lateral). Scanner strips SELECT subqueries before predicate analysis. businessId is IDOR-checked in the dashboard route.",
   },
   {
     file: "src/lib/db/auth.ts",
@@ -2491,6 +2505,34 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT b.name, b.display_label, b.google_maps_url, b.archived_at, a.id AS account_id, a.subscription_status, a.past_due_at AS account_past_due_at, a.flags AS account_flags, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN account_offboardings ao ON ao.account_id = a.id AND ao.terminal_at IS NULL WHERE b.id = ${input.businessId} ORDER BY ao.created_at DESC NULLS LAST LIMIT 1",
     category: 'worker-job-scoped',
     reason: "Auto-post FYI worker follows a durable job business id and joins to the active offboarding gate for that business account before dispatch.",
+  },
+  {
+    file: "worker/jobs/escalation-notice/context.ts",
+    table: "review_escalations",
+    sqlSnippet: "SELECT e.id, e.status, e.business_id AS esc_business_id, e.account_id, e.review_id, e.triage_severity, e.triage_source, e.triage_issues, r.reviewer_name, r.star_rating, r.review_text FROM review_escalations e JOIN reviews r ON r.id = e.review_id WHERE e.id = ${input.escalationId}",
+    category: 'worker-job-scoped',
+    reason: "Escalation-notice worker follows a durable job payload escalation id; tenant context fixed upstream by raiseEscalation, and the loader fails on a business_id mismatch before any send.",
+  },
+  {
+    file: "worker/jobs/escalation-notice/context.ts",
+    table: "reviews",
+    sqlSnippet: "SELECT e.id, e.status, e.business_id AS esc_business_id, e.account_id, e.review_id, e.triage_severity, e.triage_source, e.triage_issues, r.reviewer_name, r.star_rating, r.review_text FROM review_escalations e JOIN reviews r ON r.id = e.review_id WHERE e.id = ${input.escalationId}",
+    category: 'worker-job-scoped',
+    reason: "Escalation-notice worker follows a durable job payload escalation id; tenant context fixed upstream by raiseEscalation, and the loader fails on a business_id mismatch before any send.",
+  },
+  {
+    file: "worker/jobs/escalation-notice/context.ts",
+    table: "account_offboardings",
+    sqlSnippet: "SELECT b.name, b.display_label, b.owner_email_bounced, b.archived_at, a.id AS account_id, a.subscription_status, a.past_due_at AS account_past_due_at, a.flags AS account_flags, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN account_offboardings ao ON ao.account_id = a.id AND ao.terminal_at IS NULL WHERE b.id = ${input.businessId} ORDER BY ao.created_at DESC NULLS LAST LIMIT 1",
+    category: 'worker-job-scoped',
+    reason: "Escalation-notice worker follows a durable job business id and joins to the active offboarding gate for that business account before dispatch.",
+  },
+  {
+    file: "worker/jobs/escalation-notice/EscalationNoticeWorker.ts",
+    table: "reviews",
+    sqlSnippet: "SELECT id FROM reviews WHERE id = ${ctx.escalation.review_id} FOR UPDATE",
+    category: 'worker-job-scoped',
+    reason: "Lock-ordering statement (review row FOR UPDATE first, then the spine write); scope established by the context loader's business_id-mismatch guard on the same escalation in the same handler.",
   },
   {
     file: "src/lib/notifications/delivery.ts",

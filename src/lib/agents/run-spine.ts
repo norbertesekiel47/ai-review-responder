@@ -39,6 +39,8 @@ export const STEP_PERSONA = {
   review_ingested: 'system',
   review_updated: 'system',
   triage: 'guardian',
+  escalation_raised: 'guardian',
+  escalation_sent: 'guardian',
   draft_generated: 'reply',
   moderation_checked: 'system',
   policy_gate: 'reply',

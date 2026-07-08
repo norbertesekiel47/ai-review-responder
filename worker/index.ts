@@ -16,6 +16,7 @@ import { handleDemoGeneration } from './jobs/DemoGenerationWorker';
 import { handleResponseGeneration } from './jobs/ResponseGeneratorWorker';
 import { handleSendNotification } from './jobs/notification/NotificationWorker';
 import { handleAutoPostNotice } from './jobs/auto-post-notice/AutoPostNoticeWorker';
+import { handleEscalationNotice } from './jobs/escalation-notice/EscalationNoticeWorker';
 import { handlePublishResponse } from './jobs/publisher/ResponsePublisherWorker';
 import { handlePublisherFailed } from './jobs/publisher/failed-hook';
 import { handleZernioReviewIngest } from './jobs/zernio/ZernioReviewIngestWorker';
@@ -32,6 +33,7 @@ import type {
   ZernioInitialBackfillPayload,
   SendNotificationPayload,
   AutoPostNoticePayload,
+  EscalationNoticePayload,
   PublishResponsePayload,
 } from '../src/lib/shared/worker-types';
 import { handleAdminException } from './jobs/AdminExceptionWorker';
@@ -165,6 +167,8 @@ publisherWorker.on('failed', (job, err) => handlePublisherFailed(sql, job, err))
 
 const autoPostNoticeWorker = new Worker(QUEUE_NAMES.AUTO_POST_NOTICE, withJobLogContext<AutoPostNoticePayload>((job) => handleAutoPostNotice(sql, job)), workerOpts);
 
+const escalationNoticeWorker = new Worker(QUEUE_NAMES.ESCALATION_NOTICE, withJobLogContext<EscalationNoticePayload>((job) => handleEscalationNotice(sql, job)), workerOpts);
+
 const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminException, workerOpts);
 
 const weeklySummaryWorker = new Worker(QUEUE_NAMES.WEEKLY_SUMMARY, handleWeeklySummary, workerOpts);
@@ -247,6 +251,7 @@ const workersByQueue = {
   [QUEUE_NAMES.SEND_NOTIFICATION]: notificationWorker,
   [QUEUE_NAMES.PUBLISH_RESPONSE]: publisherWorker,
   [QUEUE_NAMES.AUTO_POST_NOTICE]: autoPostNoticeWorker,
+  [QUEUE_NAMES.ESCALATION_NOTICE]: escalationNoticeWorker,
   [QUEUE_NAMES.NOTIFY_ADMIN]: adminExceptionWorker,
   [QUEUE_NAMES.WEEKLY_SUMMARY]: weeklySummaryWorker,
   [QUEUE_NAMES.VALIDATE_PLACE_ID]: placeIdValidationWorker,

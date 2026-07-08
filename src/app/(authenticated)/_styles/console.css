@@ -813,6 +813,12 @@
 .badge-edited { background: var(--rw-accent-100); color: var(--rw-accent-800); }
 .badge-failed { background: var(--rw-red-100); color: #991B1B; }
 .badge-auto { background: var(--rw-auto-bg); color: var(--rw-auto-fg); }
+/* Guardian escalation badge (WS3) — extends .badge; severity picks the wash:
+   high→danger (terracotta, never pure red), medium→warning gold, low→neutral cream. */
+.escalation-badge { white-space: nowrap; }
+.escalation-badge--high { background: var(--rw-danger-soft); color: var(--rw-danger); }
+.escalation-badge--medium { background: var(--rw-yellow-100); color: var(--rw-yellow-800); }
+.escalation-badge--low { background: var(--rw-cream); color: var(--rw-app-text-muted); }
 .review-meta-time {
   margin-left: auto;
   font-size: 11px;

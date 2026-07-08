@@ -9,6 +9,7 @@
 // Template shape authoritative reference: docs/whatsapp-templates.md
 
 import { getWorkerConfig } from '@/lib/config/worker';
+import { TRIAGE_SEVERITY_LABELS, type TriageSeverity } from '@/lib/reviews/triage-schema';
 import type { SendApprovalParams } from './types';
 
 export interface WhatsAppSendContent {
@@ -192,6 +193,44 @@ export function formatAutoPostNoticeWhatsApp(
       '2': truncate(oneLine(params.reviewerName || 'Reviewer'), REVIEWER_NAME_MAX),
       '3': String(params.starRating),
       '4': params.responseId,
+    },
+  };
+}
+
+export interface EscalationNoticeWhatsAppParams {
+  businessName: string;
+  reviewerName: string;
+  starRating: number | null;
+  severity: TriageSeverity;
+  /** triage_source === 'fallback_high_v1' ⇒ "Needs a look" label, no severity claim. */
+  isFallback: boolean;
+  escalationId: string;
+}
+
+/**
+ * Format the Guardian escalation notice (WS3) into Twilio Content variables
+ * for a future Meta-approved template (WHATSAPP_ESCALATION_TEMPLATE_SID). No
+ * review text in the variables — business/reviewer/stars/severity/id only
+ * (business-initiated WhatsApp send = approved template, never free-form).
+ * Severity label is computed here (single owner: TRIAGE_SEVERITY_LABELS) —
+ * the channel adapter passes the raw severity/isFallback through, it does
+ * not humanize them itself.
+ * Second param `contentSid` is required (no config default): the channel
+ * self-protects by skipping the send entirely when the SID is unset, so
+ * there is no meaningful "current call site" default to fall back to.
+ */
+export function formatEscalationNoticeWhatsApp(
+  params: EscalationNoticeWhatsAppParams,
+  contentSid: string,
+): WhatsAppSendContent {
+  return {
+    contentSid,
+    contentVariables: {
+      '1': truncate(oneLine(params.businessName), BUSINESS_NAME_MAX),
+      '2': truncate(oneLine(params.reviewerName || 'Reviewer'), REVIEWER_NAME_MAX),
+      '3': params.starRating !== null ? String(params.starRating) : '–',
+      '4': params.isFallback ? 'Needs a look' : TRIAGE_SEVERITY_LABELS[params.severity],
+      '5': params.escalationId,
     },
   };
 }

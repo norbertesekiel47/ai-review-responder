@@ -302,6 +302,13 @@ export const TABLE_DISPOSITIONS = [
     reason: 'Per-agent outcome facts are account attribution data referencing deleted reviews/responses and are removed.',
   },
   {
+    table: 'review_escalations',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Guardian escalation state (WS3) references deleted reviews/runs; account attribution data with no retention rationale.',
+  },
+  {
     table: 'account_offboardings',
     disposition: 'scrub_in_place',
     scopeEvidence: 'direct_account_id',

@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **072** — next migration is **073**
+Current head: **073** — next migration is **074**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -710,6 +710,69 @@ Revisit triggers:
   (no new table, no policy changes). Additive, transactional. Apply staging
   first, then production, both Supabase projects in lockstep.
 
+- **073** — WS3 Guardian escalation: `review_escalations` + escalation-notice
+  dedup (agentic-platform design 2026-07-01, WS3 spec
+  `docs/superpowers/specs/2026-07-07-ws3-guardian-escalation-design.md` §2.3).
+  Creates `review_escalations` — one row per raised escalation, forward-only
+  state machine `escalated → acknowledged → resolved` (direct
+  `escalated → resolved` allowed, stamping BOTH timestamps). FKs to
+  `accounts`/`businesses`/`reviews` (no cascade — offboarding purge deletes
+  these rows explicitly before the `reviews` delete) and `agent_run_id` FK to
+  `agent_runs` `ON DELETE SET NULL` (captured at raise so
+  `escalation_resolved` can be attributed after the run row is gone).
+  `triage_severity`/`triage_source`/`triage_suggested_action`/`triage_issues`
+  are a SNAPSHOT of what Guardian acted on at raise time — NOT a live read of
+  `reviews.triage_*`, which is rewritable by re-triage. CHECKs:
+  `review_escalations_status` (`escalated`/`acknowledged`/`resolved`),
+  `review_escalations_severity` (`low`/`medium`/`high`),
+  `review_escalations_suggested_action` (`escalate`/`respond_and_escalate` —
+  narrower than 072's full triage action set, since `respond` alone never
+  raises an escalation), `review_escalations_state_timestamps` (forward-only
+  state/timestamp pairing — `resolved` always implies
+  `acknowledged_at IS NOT NULL`). All four guarded re-runnable via `DROP
+  CONSTRAINT IF EXISTS` before `ADD CONSTRAINT` (migration-069 precedent).
+  Indexes: `review_escalations_one_open_per_review` — partial UNIQUE on
+  `(review_id) WHERE status <> 'resolved'`, backing `raiseEscalation`'s
+  ON CONFLICT byte-for-byte (`src/lib/escalations/raise.ts`, lands in a later
+  WS3 task) — dedups the cost-cap fallback burst and the concurrent-generation
+  duplicate-triage race, while allowing a fresh escalation once the prior one
+  resolves; `idx_review_escalations_account_status` — plain
+  `(account_id, status)` for the dashboard's open-escalations-per-account
+  read; `idx_review_escalations_agent_run` — partial
+  `(agent_run_id) WHERE agent_run_id IS NOT NULL`, RI support for the
+  `agent_run_id ON DELETE SET NULL` FK trigger (without it every
+  `agent_runs` delete would seq-scan `review_escalations` — same reasoning
+  as `idx_nd_escalation`). Deny-all RLS (enabled, NO policies — `agent_outcomes`/migration-071
+  posture); server reaches it only via the RLS-bypassing `postgres` role.
+  Also adds `notification_deliveries.escalation_id UUID REFERENCES
+  review_escalations(id) ON DELETE SET NULL` (nullable — NULL for every
+  template except `escalation_notice`, mirroring `auto_post_notice`'s
+  `response_id` keying from migration 067) plus two more partial UNIQUE
+  indexes: `notification_deliveries_escalation_notice_claim` on
+  `(escalation_id, channel, recipient) WHERE escalation_id IS NOT NULL AND
+  template = 'escalation_notice'` — claim-before-send dedup backing
+  `claimEscalationNoticeDelivery`'s ON CONFLICT byte-for-byte
+  (`src/lib/notifications/delivery.ts`); `idx_jo_escalation_notice_inflight`
+  on `job_outbox (topic, aggregate_id) WHERE topic = 'escalation_notice' AND
+  status IN ('pending', 'dispatching', 'dispatched')` — in-flight outbox
+  dedup mirroring `idx_jo_auto_post_notice_inflight` (067), backing
+  `enqueueEscalationNotice`'s ON CONFLICT byte-for-byte
+  (`src/lib/shared/job-outbox-helpers.ts`); and `idx_nd_escalation` on
+  `notification_deliveries (escalation_id) WHERE escalation_id IS NOT NULL`
+  — plain RI-support index for the `ON DELETE SET NULL` FK (the claim
+  index's `template = 'escalation_notice'` predicate is unusable by the FK
+  trigger's equality lookup; without it, every escalation delete would
+  seq-scan `notification_deliveries` — mirrors `idx_nd_response` in 001).
+  All three ON CONFLICT writers land in later WS3 tasks on this branch —
+  this migration is the schema foundation only.
+  Additive, fully re-runnable (`CREATE TABLE IF NOT EXISTS`, `CREATE [UNIQUE]
+  INDEX IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP CONSTRAINT IF
+  EXISTS` before every `ADD CONSTRAINT`); no CONCURRENTLY (brand-new table +
+  zero-row predicates, instant builds). Verified via double-apply against the
+  test Supabase database: first apply creates all objects, second apply is a
+  clean no-op (NOTICE-level skips only, zero errors). Apply staging first,
+  then production, both Supabase projects in lockstep.
+
 ## Key Tables Reference
 
 | Table | Purpose |
@@ -743,6 +806,7 @@ Revisit triggers:
 | `agent_runs` | One attributed agent run per pipeline pass over a subject (review or account-week). Written only by `src/lib/agents/run-spine.ts` in-pipeline-tx; at most one `running` run per subject (partial unique index = `startOrGetActiveRun` ON CONFLICT target). Deny-all RLS (migration 071). |
 | `agent_run_steps` | Ordered attribution steps within an agent run (`step_index` unique per run; `attributed_agent` from the `STEP_PERSONA` map). `detail` JSONB is ids/enums/counts only — never raw review/response text. Deny-all RLS (migration 071). |
 | `agent_outcomes` | Durable per-agent outcome facts (drafted/posted/escalated/…) for attribution and reporting; deduped per `(agent_run_id, outcome_kind)` via partial unique index = `recordOutcome` ON CONFLICT target. Deny-all RLS (migration 071). |
+| `review_escalations` | Guardian escalations (WS3): one row per raised escalation, forward-only state machine `escalated → acknowledged → resolved`; triage columns snapshot what Guardian acted on at raise time. At most one open (non-resolved) row per review (partial unique index = `raiseEscalation` ON CONFLICT target). Deny-all RLS (migration 073). |
 
 ## Response Status Values
 
