@@ -292,7 +292,7 @@ describe('auto-approval settings service', () => {
   });
 
   it('allows contractions while readiness is blocked and writes audit in the same transaction', async () => {
-    dbState.accountDefault = { id: 'policy-default', threshold: 3 };
+    dbState.accountDefault = { id: 'policy-default', threshold: 4 };
     process.env.AUTO_APPROVAL_ENABLED = 'false';
     process.env.OPENAI_MODERATION_ENABLED = 'false';
     mockAssertWritableSubscriptionForAccount.mockResolvedValue({
@@ -370,8 +370,8 @@ describe('auto-approval settings service', () => {
     });
   });
 
-  it('requires all-ratings confirmation when deleting a manual override inherits all rated', async () => {
-    dbState.accountDefault = { id: 'policy-default', threshold: 1 };
+  it('requires standard confirmation when deleting a manual override inherits an expansion', async () => {
+    dbState.accountDefault = { id: 'policy-default', threshold: 4 };
     dbState.overrides.set(LOCATION_1, { id: 'policy-main-manual', threshold: null });
     const { patchAutoApprovalSettings } = await import('../settings');
 
@@ -382,9 +382,8 @@ describe('auto-approval settings service', () => {
         impersonated: false,
         operation: 'delete_location_override',
         locationId: LOCATION_1,
-        confirmationLevel: 'standard',
       }),
-    ).rejects.toMatchObject({ confirmationLevel: 'all_ratings' });
+    ).rejects.toMatchObject({ confirmationLevel: 'standard' });
   });
 
   it('rejects deleting a manual override on an archived location when it would expand', async () => {

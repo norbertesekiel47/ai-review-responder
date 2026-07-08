@@ -12,14 +12,11 @@ export function exposureRank(threshold: AutoApprovalThreshold | null): number {
       return 1;
     case 4:
       return 2;
-    case 3:
-      return 3;
-    case 2:
-      return 4;
-    case 1:
-      return 5;
   }
 }
+
+/** Platform default when the effective policy's daily_auto_post_cap is NULL (spec §2.3). */
+export const DEFAULT_DAILY_AUTO_POST_CAP = 10;
 
 export function isThresholdExpansion(
   before: AutoApprovalThreshold | null,
@@ -40,25 +37,22 @@ export function resolveEffectivePolicy(
   accountDefault: PolicyRowState | null,
   locationOverride: PolicyRowState | null,
 ): EffectiveAutoApprovalPolicy {
-  if (locationOverride) {
+  const winner = locationOverride ?? accountDefault;
+  // The account-level suspension (governor kill switch, spec §2.4) applies even
+  // when a location override wins the threshold resolution.
+  const suspended = Boolean(accountDefault?.suspendedAt) || Boolean(winner?.suspendedAt);
+  if (!winner) {
     return {
-      source: 'location_override',
-      threshold: locationOverride.autoApproveMinStar,
-      policyId: locationOverride.id,
+      source: 'none', threshold: null, policyId: null,
+      vetoWindowMinutes: 15, dailyAutoPostCap: null, suspended,
     };
   }
-
-  if (accountDefault) {
-    return {
-      source: 'account_default',
-      threshold: accountDefault.autoApproveMinStar,
-      policyId: accountDefault.id,
-    };
-  }
-
   return {
-    source: 'none',
-    threshold: null,
-    policyId: null,
+    source: locationOverride ? 'location_override' : 'account_default',
+    threshold: winner.autoApproveMinStar,
+    policyId: winner.id,
+    vetoWindowMinutes: winner.vetoWindowMinutes,
+    dailyAutoPostCap: winner.dailyAutoPostCap,
+    suspended,
   };
 }

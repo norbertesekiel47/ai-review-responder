@@ -1,12 +1,8 @@
 import { z } from 'zod';
 
-const AutoApprovalThresholdSchema = z.union([
-  z.literal(1),
-  z.literal(2),
-  z.literal(3),
-  z.literal(4),
-  z.literal(5),
-]);
+// Positive quadrant only (WS4 spec §2.2): auto-approval never touches sub-4★
+// reviews. Widening below 4 is a deliberate future migration, not a code edit.
+const AutoApprovalThresholdSchema = z.union([z.literal(4), z.literal(5)]);
 
 export type AutoApprovalThreshold = z.infer<typeof AutoApprovalThresholdSchema>;
 
@@ -24,12 +20,20 @@ export interface PolicyRowState {
   accountId: string;
   locationId: string | null;
   autoApproveMinStar: AutoApprovalThreshold | null;
+  vetoWindowMinutes: 15 | 30;
+  dailyAutoPostCap: number | null;
+  suspendedAt: Date | null;
 }
 
 export interface EffectiveAutoApprovalPolicy {
   source: PolicySource;
   threshold: AutoApprovalThreshold | null;
   policyId: string | null;
+  vetoWindowMinutes: 15 | 30;
+  /** NULL resolves to DEFAULT_DAILY_AUTO_POST_CAP at evaluation time. */
+  dailyAutoPostCap: number | null;
+  /** Governor kill switch (spec §2.4): account default OR winning row suspended. */
+  suspended: boolean;
 }
 
 export type AutoApprovalReadinessBlockReason =

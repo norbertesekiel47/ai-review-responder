@@ -22,6 +22,9 @@ const ENABLED_POLICY: EffectiveAutoApprovalPolicy = {
   source: 'account_default',
   threshold: 4,
   policyId: 'policy-1',
+  vetoWindowMinutes: 15,
+  dailyAutoPostCap: null,
+  suspended: false,
 };
 
 type EnvOverrides = Partial<Record<
@@ -85,8 +88,8 @@ describe('evaluateAutoApprovalCandidate', () => {
     { reason: 'review_content_hash_missing', overrides: { currentReviewContentHash: null } },
     { reason: 'current_rating_missing', overrides: { currentStarRating: null } },
     { reason: 'rating_below_threshold', overrides: { currentStarRating: 3 } },
-    { reason: 'policy_not_enabled', overrides: { effectivePolicy: { source: 'none', threshold: null, policyId: null } } },
-    { reason: 'policy_not_enabled', overrides: { effectivePolicy: { source: 'account_default', threshold: null, policyId: 'policy-1' } } },
+    { reason: 'policy_not_enabled', overrides: { effectivePolicy: { source: 'none', threshold: null, policyId: null, vetoWindowMinutes: 15, dailyAutoPostCap: null, suspended: false } } },
+    { reason: 'policy_not_enabled', overrides: { effectivePolicy: { source: 'account_default', threshold: null, policyId: 'policy-1', vetoWindowMinutes: 15, dailyAutoPostCap: null, suspended: false } } },
     { reason: 'provider_moderation_disabled', overrides: {}, env: { OPENAI_MODERATION_ENABLED: 'false' } },
     { reason: 'provider_moderation_error', overrides: { moderation: { ...CLEAN_MODERATION, providerStatus: 'error' } } },
     { reason: 'moderation_flagged', overrides: { moderation: { ...CLEAN_MODERATION, flagged: true, severity: 'medium' } } },

@@ -18,9 +18,6 @@ const THRESHOLD_OPTIONS: Array<{ value: AutoApprovalThreshold | null; label: str
   { value: null, label: 'Off/manual' },
   { value: 5, label: '5-star only' },
   { value: 4, label: '4-5' },
-  { value: 3, label: '3-5' },
-  { value: 2, label: '2-5' },
-  { value: 1, label: 'All rated' },
 ];
 
 const BLOCK_REASON_COPY: Record<AutoApprovalReadinessBlockReason, string> = {
@@ -137,7 +134,9 @@ export function AutoApprovalClient({ initialState }: Props) {
       return;
     }
 
-    const required = after === 1 ? 'all_ratings' : 'standard';
+    // WS4 Task 13 removes this: 'all_ratings' died with the 1-star option when
+    // the threshold narrowed to the positive quadrant.
+    const required = 'standard';
     dispatch({ type: 'set_pending_confirmation', pending: { request, required, label } });
   }
 

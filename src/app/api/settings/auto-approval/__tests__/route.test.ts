@@ -230,8 +230,7 @@ describe('/api/settings/auto-approval', () => {
 
     const res = await PATCH(makeRequest('PATCH', {
       operation: 'set_account_default',
-      threshold: 1,
-      confirmationLevel: 'standard',
+      threshold: 4,
     }));
 
     expect(res.status).toBe(400);

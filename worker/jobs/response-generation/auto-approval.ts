@@ -89,7 +89,8 @@ interface AutoApprovalPolicyRow {
   id: string;
   account_id: string;
   location_id: string | null;
-  auto_approve_min_star: 1 | 2 | 3 | 4 | 5 | null;
+  // Migration 074 CHECK-constrains auto_approve_min_star to 4..5.
+  auto_approve_min_star: 4 | 5 | null;
 }
 
 export interface AutoApprovalRuntimeState {
@@ -120,6 +121,11 @@ function policyRowsToEffectivePolicy(
       accountId: row.account_id,
       locationId: row.location_id,
       autoApproveMinStar: row.auto_approve_min_star,
+      // WS4 Task 3 loads the real dial columns into this SELECT; until then use
+      // the migration-074 column defaults (veto 15, cap NULL, not suspended).
+      vetoWindowMinutes: 15,
+      dailyAutoPostCap: null,
+      suspendedAt: null,
     };
   };
 

@@ -73,7 +73,10 @@ interface TargetLocationRow {
 // policy that results for the targeted scope.
 interface PolicySnapshot {
   row: AutoApprovalPolicyApiState;
-  effective: EffectiveAutoApprovalPolicy;
+  // Threshold facts only: settings mutations don't touch the WS4 dial fields
+  // (veto window / daily cap / suspension) yet. WS4 Task 12 removes this
+  // narrowing when the dial operations land.
+  effective: Pick<EffectiveAutoApprovalPolicy, 'source' | 'threshold' | 'policyId'>;
 }
 
 // The before-state plus the facts about the mutation target that do NOT change
@@ -201,12 +204,9 @@ function assertArchivedPolicyAllowed(
 // level. Returns the required level (or null) for the audit row.
 function assertConfirmationProvided(
   input: PatchAutoApprovalSettingsInput,
-  after: PolicyMutationAfterState,
   expansion: boolean,
 ): AutoApprovalConfirmationLevel | null {
-  const requiredConfirmationLevel = expansion
-    ? requiredConfirmation(after.snapshot.effective.threshold)
-    : null;
+  const requiredConfirmationLevel = expansion ? requiredConfirmation() : null;
   if (requiredConfirmationLevel && !confirmationSatisfies(input.confirmationLevel, requiredConfirmationLevel)) {
     throw new AutoApprovalConfirmationRequiredError(requiredConfirmationLevel);
   }
@@ -242,7 +242,7 @@ async function assertMutationAllowed(
   );
 
   assertArchivedPolicyAllowed(before, input, expansion);
-  const requiredConfirmationLevel = assertConfirmationProvided(input, after, expansion);
+  const requiredConfirmationLevel = assertConfirmationProvided(input, expansion);
   const readiness = await assertExpansionReady(tx, input, expansion);
 
   return {
@@ -413,7 +413,7 @@ function emptyApiState(): AutoApprovalPolicyApiState {
 }
 
 function noneEffective(): EffectiveAutoApprovalPolicy {
-  return { source: 'none', threshold: null, policyId: null };
+  return resolveEffectivePolicy(null, null);
 }
 
 async function applyMutation(
@@ -646,6 +646,11 @@ function toPolicyRow(row: PolicyDbRow): PolicyRowState {
     accountId: row.account_id,
     locationId: row.location_id,
     autoApproveMinStar: toThreshold(row.auto_approve_min_star),
+    // WS4 Task 12 removes this: the settings SELECTs don't load the dial
+    // columns yet; safe defaults (migration-074 column defaults, not suspended).
+    vetoWindowMinutes: 15,
+    dailyAutoPostCap: null,
+    suspendedAt: null,
   };
 }
 
@@ -668,17 +673,14 @@ function toApiState(policy: PolicyRowState | null): AutoApprovalPolicyApiState {
 function effectiveForAccountDefault(
   policy: PolicyRowState | null,
 ): EffectiveAutoApprovalPolicy {
-  return {
-    source: policy ? 'account_default' : 'none',
-    threshold: policy?.autoApproveMinStar ?? null,
-    policyId: policy?.id ?? null,
-  };
+  return resolveEffectivePolicy(policy, null);
 }
 
-function requiredConfirmation(
-  threshold: AutoApprovalThreshold | null,
-): AutoApprovalConfirmationLevel {
-  return threshold === 1 ? 'all_ratings' : 'standard';
+function requiredConfirmation(): AutoApprovalConfirmationLevel {
+  // WS4 Task 12 removes this: 'all_ratings' died with the 1-star option when
+  // the threshold narrowed to the positive quadrant; every expansion now needs
+  // the standard confirmation.
+  return 'standard';
 }
 
 function confirmationSatisfies(
