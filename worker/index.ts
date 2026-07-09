@@ -17,6 +17,7 @@ import { handleResponseGeneration } from './jobs/ResponseGeneratorWorker';
 import { handleSendNotification } from './jobs/notification/NotificationWorker';
 import { handleAutoPostNotice } from './jobs/auto-post-notice/AutoPostNoticeWorker';
 import { handleEscalationNotice } from './jobs/escalation-notice/EscalationNoticeWorker';
+import { handlePendingPostNotice } from './jobs/pending-post-notice/PendingPostNoticeWorker';
 import { handlePublishResponse } from './jobs/publisher/ResponsePublisherWorker';
 import { handlePublisherFailed } from './jobs/publisher/failed-hook';
 import { handleZernioReviewIngest } from './jobs/zernio/ZernioReviewIngestWorker';
@@ -34,6 +35,7 @@ import type {
   SendNotificationPayload,
   AutoPostNoticePayload,
   EscalationNoticePayload,
+  PendingPostNoticePayload,
   PublishResponsePayload,
 } from '../src/lib/shared/worker-types';
 import { handleAdminException } from './jobs/AdminExceptionWorker';
@@ -169,6 +171,8 @@ const autoPostNoticeWorker = new Worker(QUEUE_NAMES.AUTO_POST_NOTICE, withJobLog
 
 const escalationNoticeWorker = new Worker(QUEUE_NAMES.ESCALATION_NOTICE, withJobLogContext<EscalationNoticePayload>((job) => handleEscalationNotice(sql, job)), workerOpts);
 
+const pendingPostNoticeWorker = new Worker(QUEUE_NAMES.PENDING_POST_NOTICE, withJobLogContext<PendingPostNoticePayload>((job) => handlePendingPostNotice(sql, job)), workerOpts);
+
 const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminException, workerOpts);
 
 const weeklySummaryWorker = new Worker(QUEUE_NAMES.WEEKLY_SUMMARY, handleWeeklySummary, workerOpts);
@@ -252,6 +256,7 @@ const workersByQueue = {
   [QUEUE_NAMES.PUBLISH_RESPONSE]: publisherWorker,
   [QUEUE_NAMES.AUTO_POST_NOTICE]: autoPostNoticeWorker,
   [QUEUE_NAMES.ESCALATION_NOTICE]: escalationNoticeWorker,
+  [QUEUE_NAMES.PENDING_POST_NOTICE]: pendingPostNoticeWorker,
   [QUEUE_NAMES.NOTIFY_ADMIN]: adminExceptionWorker,
   [QUEUE_NAMES.WEEKLY_SUMMARY]: weeklySummaryWorker,
   [QUEUE_NAMES.VALIDATE_PLACE_ID]: placeIdValidationWorker,

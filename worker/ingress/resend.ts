@@ -152,6 +152,9 @@ const OWNER_DIRECTED_TEMPLATES = new Set([
   // Guardian escalation notice (WS3) — owner-directed, so a hard bounce flags
   // businesses.owner_email_bounced like any other owner email.
   'escalation_notice',
+  // Veto-window pending-post notice (WS4) — owner-directed, so a hard bounce
+  // flags businesses.owner_email_bounced like any other owner email.
+  'pending_post_notice',
 ]);
 
 /**
