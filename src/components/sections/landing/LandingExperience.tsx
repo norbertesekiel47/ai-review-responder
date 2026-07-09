@@ -268,7 +268,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
               <div className="rw-le-cards-frame">
                 <p className="rw-le-cards-kicker">
                   Meet the{' '}
-                  <span className="rw-le-uword rw-le-uword-kicker">
+                  <span className="rw-le-uword">
                     team
                     <InkUnderline />
                   </span>
@@ -285,8 +285,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
                     </p>
                     <p className="rw-le-persona-log">
                       <span className="rw-le-log-dot" aria-hidden="true" />
-                      review in&nbsp;&nbsp;·&nbsp;&nbsp;drafted in your voice&nbsp;&nbsp;·&nbsp;&nbsp;your
-                      call&nbsp;&nbsp;·&nbsp;&nbsp;posted
+                      review in · drafted · your call · posted
                     </p>
                   </article>
 
@@ -310,12 +309,12 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
                       Files a weekly brief: your sentiment trend, the numbers that moved, the
                       reviews worth reading — and what the team did about them.
                     </p>
-                    <div className="rw-le-persona-brief" aria-hidden="true">
-                      <span className="rw-le-brief-line" style={{ width: '86%' }} />
-                      <span className="rw-le-brief-line" style={{ width: '64%' }} />
-                      <span className="rw-le-brief-line" style={{ width: '74%' }} />
-                    </div>
                     <p className="rw-le-persona-caption">the weekly brief</p>
+                    <div className="rw-le-persona-brief" aria-hidden="true">
+                      <span className="rw-le-brief-line" />
+                      <span className="rw-le-brief-line" />
+                      <span className="rw-le-brief-line" />
+                    </div>
                   </article>
                 </div>
 
@@ -341,8 +340,8 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
                     .
                   </h2>
                   <p className="rw-le-final-sub">
-                    Reply writes, Guardian watches, Insights reports — and the evenings you spent
-                    typing go back to the business. Approve every reply on Copilot, or set the
+                    Reply writes, Guardian watches, Insights reports — the evenings you spent
+                    typing go back to the business. Approve everything on Copilot, or set the
                     policy on Autopilot and keep the veto.
                   </p>
                   <Link className="rw-le-btn-primary" href={primaryCtaHref}>
@@ -353,18 +352,24 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
             </div>
 
             <div ref={cueRef} className="rw-le-morph-cue" aria-hidden="true">
-              <span className="rw-le-cue-label">keep reading</span>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="22"
-                height="22"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={2}
-                stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-              </svg>
+              <span className="rw-le-cue-pill">
+                <span className="rw-le-cue-label">keep reading</span>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2}
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                  />
+                </svg>
+              </span>
             </div>
           </div>
         </section>
