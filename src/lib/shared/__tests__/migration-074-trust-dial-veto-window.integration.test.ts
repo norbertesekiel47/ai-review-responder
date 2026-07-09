@@ -4,7 +4,11 @@ import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
 import { cleanupTenantAccount, seedTenantAccount } from './live-db-tenant';
-import { applyMigration074IfMissing, readMigration074Sql } from './helpers/apply-migration-074';
+import {
+  applyMigration074IfMissing,
+  readMigration074Sql,
+  withMigration074ApplyLock,
+} from './helpers/apply-migration-074';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 
 // Live-DB shape suite for migration 074 (WS4 trust dial + veto window, spec
@@ -265,7 +269,12 @@ describeWithDb('migration 074 trust dial + veto window — shape', { timeout: 30
   });
 
   it('applying the migration a second time is a clean no-op', async () => {
-    await expect(sql().unsafe(readMigration074Sql())).resolves.not.toThrow();
+    // The advisory lock serializes this DDL re-apply against parallel DB
+    // suites — unserialized, its ACCESS EXCLUSIVE index rebuilds produced
+    // nondeterministic 40P01 deadlocks in full-suite runs.
+    await withMigration074ApplyLock(sql(), async () => {
+      await expect(sql().unsafe(readMigration074Sql())).resolves.not.toThrow();
+    });
 
     // End state is identical: each rebuilt/new index exists exactly once, on
     // its expected table in the public schema.
