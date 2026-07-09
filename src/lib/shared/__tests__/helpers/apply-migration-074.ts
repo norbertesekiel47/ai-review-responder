@@ -13,7 +13,7 @@ const MIGRATION_074_FILE = '074_trust_dial_veto_window.sql';
 // shared tables; racing it against sibling DB suites produced nondeterministic
 // 40P01 deadlocks in full-suite runs. hashtext() of this literal on both apply
 // sites (guarded helper + the double-apply test) is the serialization point.
-export const MIGRATION_074_APPLY_LOCK_KEY = 'repworth_migration_074_apply';
+const MIGRATION_074_APPLY_LOCK_KEY = 'repworth_migration_074_apply';
 
 export function readMigration074Sql(): string {
   return readFileSync(resolve(process.cwd(), 'supabase/migrations', MIGRATION_074_FILE), 'utf-8');
