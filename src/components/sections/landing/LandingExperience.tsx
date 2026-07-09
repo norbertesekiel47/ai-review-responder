@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef } from 'react';
 import { TiltCard } from '@/components/ui/be-ui-tilt-card';
-import { NAV_LINKS } from '@/components/ui/marketing-links';
+import { COMPANY_LINKS, LEGAL_LINKS, NAV_LINKS } from '@/components/ui/marketing-links';
 import './landing-experience.css';
 
 /**
@@ -83,6 +83,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
   const cardsRef = useRef<HTMLDivElement>(null);
   const finalBgRef = useRef<HTMLDivElement>(null);
   const finalHolderRef = useRef<HTMLDivElement>(null);
+  const footerRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const clamp = (n: number) => Math.max(0, Math.min(1, n));
@@ -154,6 +155,15 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
           finalHolder.style.opacity = String(finalP);
           finalHolder.style.pointerEvents = finalP > 0.5 ? 'auto' : 'none';
           finalHolder.inert = finalP <= 0.5;
+        }
+
+        // Footer bar rides the act-3 crossfade — reuses the already-computed
+        // finalP with no timing of its own (the one sanctioned driver addition).
+        const footer = footerRef.current;
+        if (footer) {
+          footer.style.opacity = String(finalP);
+          footer.style.pointerEvents = finalP > 0.5 ? 'auto' : 'none';
+          footer.inert = finalP <= 0.5;
         }
       });
     };
@@ -275,6 +285,35 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
                 </p>
 
                 <div className="rw-le-morph-cards-grid">
+                  {/* Reserved 16:9 slot for the act-2 explainer film. To ship the
+                      real clip, replace the placeholder <div> below with
+                        <video className="rw-le-plate-video" src="/video/howItWorksVideo.mp4"
+                               muted loop playsInline preload="auto" tabIndex={-1} />
+                      — same-origin /video/*.mp4 keeps it inside the production CSP
+                      (`default-src 'self'`, no `media-src`). */}
+                  <figure className="rw-le-plate">
+                    <div className="rw-le-plate-media" aria-hidden="true">
+                      <svg
+                        className="rw-le-plate-glyph"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <circle cx="12" cy="12" r="10.5" stroke="currentColor" strokeWidth="1" />
+                        <path
+                          d="M10 8.5v7l6-3.5z"
+                          stroke="currentColor"
+                          strokeWidth="1.2"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </div>
+                    <figcaption className="rw-le-plate-caption">
+                      How it works — film coming soon
+                    </figcaption>
+                  </figure>
+
                   <article className="rw-le-persona rw-le-persona-reply">
                     <h3 className="rw-le-persona-name">Reply</h3>
                     <p className="rw-le-persona-role">the writer</p>
@@ -285,7 +324,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
                     </p>
                     <p className="rw-le-persona-log">
                       <span className="rw-le-log-dot" aria-hidden="true" />
-                      review in · drafted · your call · posted
+                      review → draft → approve → post
                     </p>
                   </article>
 
@@ -351,13 +390,32 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
               </TiltCard>
             </div>
 
+            {/* Act 3 — slim footer bar, rides finalP alongside the closing card. */}
+            <footer ref={footerRef} className="rw-le-footer">
+              <span className="rw-le-footer-copy" suppressHydrationWarning>
+                © {new Date().getFullYear()} RepWorth. All rights reserved.
+              </span>
+              <div className="rw-le-footer-links">
+                {NAV_LINKS.map((link) => (
+                  <Link key={link.href} href={link.href}>{link.label}</Link>
+                ))}
+                <span className="rw-le-footer-sep" aria-hidden="true" />
+                {LEGAL_LINKS.map((link) => (
+                  <Link key={link.href} href={link.href}>{link.label}</Link>
+                ))}
+                {COMPANY_LINKS.map((link) => (
+                  <Link key={link.href} href={link.href}>{link.label}</Link>
+                ))}
+              </div>
+            </footer>
+
             <div ref={cueRef} className="rw-le-morph-cue" aria-hidden="true">
               <span className="rw-le-cue-pill">
                 <span className="rw-le-cue-label">keep reading</span>
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  width="18"
-                  height="18"
+                  width="12"
+                  height="12"
                   fill="none"
                   viewBox="0 0 24 24"
                   strokeWidth={2}

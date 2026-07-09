@@ -124,18 +124,17 @@
   align-items: center;
   color: var(--rw-ink);
 }
-/* Paper chip under the cue so it stays legible over any frame of the clip. */
+/* Slim paper sliver under the cue — it should whisper, not sit like a button. */
 .rw-le-cue-pill {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.55rem 1.1rem 0.4rem;
-  background: color-mix(in srgb, var(--le-paper) 86%, transparent);
+  gap: 0.45rem;
+  padding: 0.2rem 0.75rem 0.26rem;
+  background: color-mix(in srgb, var(--le-paper) 82%, transparent);
   backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  border-radius: 12px;
-  box-shadow: 0 10px 26px rgba(42, 42, 42, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 999px;
+  box-shadow: 0 5px 14px rgba(42, 42, 42, 0.1);
 }
 
 /* ===== The editorial motif: hand-ruled ink underline ===== */
@@ -166,9 +165,9 @@
   }
 }
 
-/* ===== Act 2: the agent-persona cards ("meet the team") ===== */
+/* ===== Act 2: media plate + the agent-persona cards ("meet the team") ===== */
 .rw-le-cards-frame {
-  max-width: 1140px;
+  max-width: 1260px;
   margin: 0 auto;
 }
 /* Section slug on its own paper chip — ink on paper, never white-on-sky. */
@@ -189,9 +188,53 @@
 }
 .rw-le-morph-cards-grid {
   display: grid;
-  grid-template-columns: 1.06fr 1fr 1.02fr;
-  gap: 1.75rem;
+  /* Media plate + the three personas in one band. */
+  grid-template-columns: 1.3fr 1.02fr 1fr 1.02fr;
+  gap: 1.5rem;
   align-items: end; /* bottoms align; differing content heights stagger the tops */
+}
+
+/* The explainer-film plate: a magazine photo plate — paper mat, hairline-framed
+   16:9 well, serif caption. Honest placeholder (quiet play glyph, no fake UI);
+   the well takes the real <video> later (see the TODO in the TSX). */
+.rw-le-plate {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+  background: color-mix(in srgb, var(--le-paper) 90%, transparent);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 3px;
+  padding: 0.75rem;
+  box-shadow: 0 8px 22px rgba(42, 42, 42, 0.16);
+}
+.rw-le-plate-media {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--le-hairline);
+  background: color-mix(in srgb, var(--rw-ink) 5%, transparent);
+  color: var(--rw-ink-soft);
+}
+.rw-le-plate-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.rw-le-plate-glyph {
+  width: 34px;
+  height: 34px;
+}
+.rw-le-plate-caption {
+  font-family: var(--rw-font-serif);
+  font-style: italic;
+  font-size: 0.82rem;
+  color: var(--rw-ink);
+  margin: 0.6rem 0.15rem 0.1rem;
 }
 .rw-le-cards-foot {
   margin: 1.1rem 0.2rem 0;
@@ -212,7 +255,7 @@
   backdrop-filter: blur(14px);
   border: 1px solid rgba(255, 255, 255, 0.55);
   border-radius: 3px;
-  padding: 1.5rem 1.6rem 1.35rem;
+  padding: 1.35rem 1.4rem 1.2rem;
   /* Tight, close shadow — a big soft spread bled across the gaps and made the
      three cards read as overlapping. */
   box-shadow: 0 8px 22px rgba(42, 42, 42, 0.16);
@@ -224,7 +267,7 @@
 .rw-le-persona-name {
   font-family: var(--rw-font-serif);
   font-weight: 500;
-  font-size: 1.7rem;
+  font-size: 1.55rem;
   line-height: 1.1;
   color: var(--rw-ink);
   margin: 0;
@@ -239,7 +282,7 @@
 }
 .rw-le-persona-body {
   color: var(--rw-ink-soft);
-  font-size: 0.9rem;
+  font-size: 0.87rem;
   line-height: 1.55;
   margin: 0;
   flex: 1;
@@ -248,12 +291,12 @@
 /* Reply — carries the run log: a mono pipeline line with a live status dot
    (the page's second-read moment). */
 .rw-le-persona-reply {
-  padding-top: 1.9rem;
+  padding-top: 1.7rem;
 }
 .rw-le-persona-log {
   font-family: var(--rw-font-mono);
-  font-size: 0.66rem;
-  letter-spacing: 0.02em;
+  font-size: 0.62rem;
+  letter-spacing: normal;
   color: var(--rw-ink-soft);
   border-top: 1px solid var(--le-hairline);
   padding-top: 0.8rem;
@@ -356,10 +399,19 @@
   /* No background — the looping video stays fully visible behind the nav. */
   background: transparent;
 }
+/* Brand + links share one slim paper chip so the nav reads over the bright
+   act-1 sky AND the dark act-3 night clip (bare blur() — Lightning CSS strips
+   backdrop-filter when saturate()/a manual -webkit prefix is present). */
 .rw-le-nav-left {
   display: flex;
   align-items: center;
   gap: 2.25rem;
+  background: color-mix(in srgb, var(--le-paper) 86%, transparent);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 999px;
+  padding: 0.5rem 1.5rem;
+  box-shadow: 0 10px 26px rgba(42, 42, 42, 0.12);
 }
 .rw-le-brand {
   font-family: var(--rw-font-serif);
@@ -512,7 +564,7 @@
 .rw-le-cue-label {
   font-family: var(--rw-font-serif);
   font-style: italic;
-  font-size: 0.85rem;
+  font-size: 0.72rem;
   letter-spacing: 0.02em;
 }
 .rw-le-morph-cue svg {
@@ -594,6 +646,52 @@
   box-shadow: 0 14px 36px rgba(85, 112, 105, 0.3);
 }
 
+/* Act-3 footer — a slim paper bar pinned to the stage bottom. The scroll
+   driver fades it with the SAME finalP as the closing card (one sanctioned
+   additive line); initial state mirrors the final holder (opacity 0, inert). */
+.rw-le-footer {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.5rem;
+  padding: 0.65rem 2.5rem;
+  background: color-mix(in srgb, var(--le-paper) 84%, transparent);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid rgba(255, 255, 255, 0.5);
+  font-size: 0.75rem;
+  color: var(--rw-ink-soft);
+  opacity: 0;
+  pointer-events: none;
+}
+.rw-le-footer-copy {
+  flex: none;
+}
+.rw-le-footer-links {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
+}
+.rw-le-footer-links a {
+  color: var(--rw-ink-soft);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+.rw-le-footer-links a:hover {
+  color: var(--rw-ink);
+}
+.rw-le-footer-sep {
+  width: 1px;
+  height: 0.8rem;
+  background: var(--le-hairline);
+}
+
 @keyframes rw-le-drift {
   0% {
     opacity: 0;
@@ -639,8 +737,9 @@
     font-size: 0.9rem;
   }
 
-  /* Act 2 — compact persona rows: keep name, role, and claim; drop the
-     flourishes so three stacked cards + the footer link clear the viewport. */
+  /* Act 2 — the plate keeps its 16:9 well at a reduced width; personas
+     compact to a roster (name, role, Guardian's claim) so plate + three cards
+     + the footer link clear the pinned viewport. */
   .rw-le-morph-cards {
     bottom: 6vh;
     padding: 0 1.25rem;
@@ -654,34 +753,48 @@
     padding: 0.3rem 0.8rem 0.4rem;
     margin-bottom: 0.75rem;
   }
+  .rw-le-plate {
+    width: min(300px, 78%);
+    padding: 0.5rem;
+  }
+  .rw-le-plate-glyph {
+    width: 26px;
+    height: 26px;
+  }
+  .rw-le-plate-caption {
+    font-size: 0.75rem;
+    margin: 0.4rem 0.1rem 0;
+  }
   .rw-le-persona {
-    padding: 1rem 1.15rem 0.95rem;
+    padding: 0.85rem 1.15rem 0.8rem;
   }
   .rw-le-persona-reply {
-    padding-top: 1rem;
+    padding-top: 0.85rem;
   }
   .rw-le-persona-name {
-    font-size: 1.3rem;
+    font-size: 1.25rem;
   }
   .rw-le-persona-role {
-    margin-bottom: 0.5rem;
+    margin-bottom: 0;
   }
   .rw-le-persona-insights .rw-le-persona-role {
-    padding-bottom: 0.4rem;
-    margin-bottom: 0.6rem;
+    padding-bottom: 0.35rem;
+    margin-bottom: 0;
   }
-  .rw-le-persona-body {
-    font-size: 0.82rem;
-    line-height: 1.45;
-  }
-  .rw-le-persona-log,
+  /* Body copy and the reserved brief column drop; the signature devices
+     (run log, Guardian note, masthead rule) survive the compaction. */
+  .rw-le-persona-body,
   .rw-le-persona-brief,
   .rw-le-persona-caption {
     display: none;
   }
+  .rw-le-persona-log {
+    margin-top: 0.6rem;
+    padding-top: 0.5rem;
+  }
   .rw-le-persona-note {
-    margin-top: 0.7rem;
-    padding-top: 0.55rem;
+    margin-top: 0.6rem;
+    padding-top: 0.5rem;
     font-size: 0.8rem;
   }
 
@@ -710,6 +823,17 @@
     padding: 0.85rem 1.7rem;
     font-size: 0.92rem;
   }
+  .rw-le-footer {
+    padding: 0.55rem 1.25rem;
+    font-size: 0.68rem;
+    gap: 0.3rem 1rem;
+    justify-content: center;
+    text-align: center;
+  }
+  .rw-le-footer-links {
+    justify-content: center;
+    gap: 0.3rem 0.8rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -728,6 +852,7 @@
   .rw-le-persona,
   .rw-le-persona-guardian::before,
   .rw-le-nav-links a,
+  .rw-le-footer-links a,
   .rw-le-btn-ghost,
   .rw-le-btn-primary,
   .rw-le-cta {
