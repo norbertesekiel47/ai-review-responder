@@ -124,7 +124,12 @@ export async function dispatchPendingPostNotice(
     let deliveryId: string | null = null;
     let rawToken: string | null = null;
     try {
-      // Claim BEFORE send. null ⇒ a live claim already exists.
+      // Claim BEFORE send — and BEFORE the link create: createApprovalLink's
+      // orphaned_only revoke check only recognizes 'approval_request' sent
+      // deliveries, so this claim's dedup skip is the ONLY thing preventing a
+      // retry from revoking a link already delivered on this channel. Do not
+      // "narrow the crash window" by moving the link create above the claim.
+      // null ⇒ a live claim already exists.
       deliveryId = await claimPendingPostNoticeDelivery(sql, {
         accountId: input.accountId,
         businessId: input.businessId,
