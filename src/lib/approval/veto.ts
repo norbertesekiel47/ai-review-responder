@@ -10,8 +10,16 @@
 // status='pending_approval' and rejects archived locations, but a veto targets
 // an APPROVED response and must remain possible on an archived location —
 // cancelling an outbound post reduces exposure and must never fail closed.
-// The inline FOR UPDATE below keeps the uniform approval-lane lock order
-// (responses row first, everything else after).
+//
+// Lock order: reviews → responses → (outbox row) → agent_runs FK (run-spine.ts
+// contract). The reviews FOR UPDATE must come FIRST: recordOutcome's INSERT
+// takes an implicit FOR KEY SHARE on the agent_runs row, while a concurrent
+// processReview (review edit) holds reviews(X) → agent_runs(X) via recordStep
+// and then waits on this SAME response row (supersede). Locking the response
+// first would close that cycle into a deadlock; serializing at the review row
+// makes the relative response/run lock order irrelevant. An unlocked pre-read
+// resolves review_id (immutable on responses, so it cannot go stale) before
+// any lock is taken.
 
 import type postgres from 'postgres';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
@@ -37,12 +45,28 @@ export async function vetoAutoPost(
   const responseId = link.response_id;
   const businessId = link.business_id;
 
-  // Lock the response first (uniform approval-lane order: responses → rest).
+  // Unlocked pre-read: resolve the review to anchor the lock order on.
+  const [preRead] = await tx<{ review_id: string }[]>`
+    SELECT review_id FROM responses
+    WHERE id = ${responseId} AND business_id = ${businessId}
+  `;
+  if (!preRead) return 'too_late';
+  const reviewId = preRead.review_id;
+
+  // Global lock-order anchor (reviews → responses → rest; see header). A
+  // missing review row is impossible while FKs hold; mirror the src/lib
+  // posture of escalations/transitions.ts — take the lock and proceed without
+  // checking the result (the guarded UPDATEs below stay correct regardless).
+  await tx`
+    SELECT id FROM reviews
+    WHERE id = ${reviewId} AND business_id = ${businessId}
+    FOR UPDATE
+  `;
+
   const [resp] = await tx<{
-    status: string; approval_method: string | null;
-    posting_error: string | null; review_id: string;
+    status: string; approval_method: string | null; posting_error: string | null;
   }[]>`
-    SELECT status, approval_method, posting_error, review_id
+    SELECT status, approval_method, posting_error
     FROM responses
     WHERE id = ${responseId} AND business_id = ${businessId}
     FOR UPDATE
@@ -86,9 +110,12 @@ export async function vetoAutoPost(
     throw new Error('veto_downgrade_lost_response');
   }
 
+  // Deliberately NO revokeSiblings here: notice links from other channels stay
+  // live on purpose — they resolve as 'already_cancelled' via the posting_error
+  // marker, and fresh approval links ride the re-notify below.
   await consumeLink(tx, link.id);
 
-  const activeRun = await findActiveReviewRun(tx, resp.review_id);
+  const activeRun = await findActiveReviewRun(tx, reviewId);
   if (activeRun) {
     await recordOutcome(tx, {
       runId: activeRun.id,

@@ -1,11 +1,13 @@
 // Unit coverage for vetoAutoPost (WS4 plan Task 8, spec §2.6): the owner veto
 // of a scheduled auto-post. Collaborators (locks/audit/run-spine/outbox
-// helpers) are mocked; the module's own three statements run against the
+// helpers) are mocked; the module's own five statements run against the
 // shared fragment-aware Postgres.js mock so the guarded UPDATE shapes are
 // pinned as text. The FIFO queue order mirrors the module's statement order:
-//   1. SELECT … FROM responses … FOR UPDATE
-//   2. UPDATE job_outbox … RETURNING id        (the atomic kill)
-//   3. UPDATE responses … RETURNING id         (the guarded downgrade)
+//   1. SELECT review_id FROM responses …       (UNLOCKED pre-read)
+//   2. SELECT … FROM reviews … FOR UPDATE      (global lock-order anchor)
+//   3. SELECT … FROM responses … FOR UPDATE
+//   4. UPDATE job_outbox … RETURNING id        (the atomic kill)
+//   5. UPDATE responses … RETURNING id         (the guarded downgrade)
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { TransactionSql } from 'postgres';
 
@@ -65,11 +67,13 @@ const AUDIT = {
   ipAddress: '203.0.113.7',
 };
 
+const PRE_READ = { review_id: 'rev-1' };
+const REVIEW_LOCK = { id: 'rev-1' };
+
 const SCHEDULED_RESPONSE = {
   status: 'approved',
   approval_method: 'auto_policy',
   posting_error: null,
-  review_id: 'rev-1',
 };
 
 let harness: MockSqlHarness;
@@ -87,6 +91,8 @@ beforeEach(() => {
 describe('vetoAutoPost — cancelled (happy path)', () => {
   beforeEach(() => {
     harness.sqlReturnQueue.push(
+      mkTaggedResult([PRE_READ]), // unlocked responses pre-read
+      mkTaggedResult([REVIEW_LOCK]), // reviews FOR UPDATE (lock-order anchor)
       mkTaggedResult([SCHEDULED_RESPONSE]), // responses FOR UPDATE
       mkTaggedResult([{ id: 'outbox-1' }]), // job_outbox kill
       mkTaggedResult([{ id: 'resp-1' }]), // responses downgrade
@@ -149,20 +155,32 @@ describe('vetoAutoPost — cancelled (happy path)', () => {
     expect(mockConsumeLink).toHaveBeenCalledWith(tx(), 'link-1');
   });
 
-  it('locks the response FIRST (approval-lane lock order: responses → rest)', async () => {
+  it('takes the reviews lock as statement #2 after the UNLOCKED pre-read, responses lock after it (lock order: reviews → responses → rest)', async () => {
     await vetoAutoPost(tx(), LINK, AUDIT);
 
-    const first = harness.sqlCalls[0];
-    expect(first).toBeDefined();
-    expect(first!.text).toContain('FROM responses');
-    expect(first!.text).toContain('FOR UPDATE');
-    expect(first!.values).toEqual(['resp-1', 'biz-1']);
+    const [preRead, reviewLock, responseLock] = harness.sqlCalls;
+    expect(preRead).toBeDefined();
+    expect(preRead!.text).toContain('SELECT review_id FROM responses');
+    expect(preRead!.text).not.toContain('FOR UPDATE');
+    expect(preRead!.values).toEqual(['resp-1', 'biz-1']);
+
+    expect(reviewLock).toBeDefined();
+    expect(reviewLock!.text).toContain('FROM reviews');
+    expect(reviewLock!.text).toContain('FOR UPDATE');
+    expect(reviewLock!.values).toEqual(['rev-1', 'biz-1']);
+
+    expect(responseLock).toBeDefined();
+    expect(responseLock!.text).toContain('FROM responses');
+    expect(responseLock!.text).toContain('FOR UPDATE');
+    expect(responseLock!.values).toEqual(['resp-1', 'biz-1']);
   });
 });
 
 describe('vetoAutoPost — too_late', () => {
   it('returns too_late when the outbox row is no longer pending, mutating NOTHING after the probe', async () => {
     harness.sqlReturnQueue.push(
+      mkTaggedResult([PRE_READ]),
+      mkTaggedResult([REVIEW_LOCK]),
       mkTaggedResult([SCHEDULED_RESPONSE]), // responses FOR UPDATE
       mkTaggedResult([]), // job_outbox kill — 0 rows: publisher already claimed
     );
@@ -178,38 +196,65 @@ describe('vetoAutoPost — too_late', () => {
 
   it('returns too_late for an already-posted response without touching the outbox', async () => {
     harness.sqlReturnQueue.push(
+      mkTaggedResult([PRE_READ]),
+      mkTaggedResult([REVIEW_LOCK]),
       mkTaggedResult([{ ...SCHEDULED_RESPONSE, status: 'posted' }]),
     );
 
     await expect(vetoAutoPost(tx(), LINK, AUDIT)).resolves.toBe('too_late');
 
-    expect(harness.sqlCalls).toHaveLength(1);
+    expect(harness.sqlCalls).toHaveLength(3);
     expect(mockConsumeLink).not.toHaveBeenCalled();
     expect(mockInsertAuditLog).not.toHaveBeenCalled();
   });
 
-  it('returns too_late when the response row does not exist', async () => {
+  it('returns too_late from the UNLOCKED pre-read when the response row does not exist — no lock taken', async () => {
     harness.sqlReturnQueue.push(mkTaggedResult([]));
 
     await expect(vetoAutoPost(tx(), LINK, AUDIT)).resolves.toBe('too_late');
     expect(harness.sqlCalls).toHaveLength(1);
+    expect(harness.sqlCalls[0]!.text).not.toContain('FOR UPDATE');
+  });
+
+  it('returns too_late for a pending_approval row WITHOUT the veto marker, mutating nothing', async () => {
+    harness.sqlReturnQueue.push(
+      mkTaggedResult([PRE_READ]),
+      mkTaggedResult([REVIEW_LOCK]),
+      mkTaggedResult([{
+        status: 'pending_approval',
+        approval_method: null,
+        posting_error: null, // no auto_post_vetoed_by_owner marker → NOT already_cancelled
+      }]),
+    );
+
+    await expect(vetoAutoPost(tx(), LINK, AUDIT)).resolves.toBe('too_late');
+
+    expect(harness.sqlCalls).toHaveLength(3);
+    expect(harness.sqlCalls.some(
+      (c) => c.text.includes('UPDATE job_outbox') || c.text.includes('UPDATE responses'),
+    )).toBe(false);
+    expect(mockConsumeLink).not.toHaveBeenCalled();
+    expect(mockInsertAuditLog).not.toHaveBeenCalled();
+    expect(mockRecordOutcome).not.toHaveBeenCalled();
+    expect(mockEnqueueSendNotification).not.toHaveBeenCalled();
   });
 });
 
 describe('vetoAutoPost — already_cancelled', () => {
   it('recognizes the veto marker on an already-downgraded response (double-tap idempotency)', async () => {
     harness.sqlReturnQueue.push(
+      mkTaggedResult([PRE_READ]),
+      mkTaggedResult([REVIEW_LOCK]),
       mkTaggedResult([{
         status: 'pending_approval',
         approval_method: null,
         posting_error: AUTO_POST_VETOED_BY_OWNER,
-        review_id: 'rev-1',
       }]),
     );
 
     await expect(vetoAutoPost(tx(), LINK, AUDIT)).resolves.toBe('already_cancelled');
 
-    expect(harness.sqlCalls).toHaveLength(1);
+    expect(harness.sqlCalls).toHaveLength(3);
     expect(mockConsumeLink).not.toHaveBeenCalled();
     expect(mockInsertAuditLog).not.toHaveBeenCalled();
     expect(mockEnqueueSendNotification).not.toHaveBeenCalled();
@@ -220,6 +265,8 @@ describe('vetoAutoPost — legacy/no-run posture', () => {
   it('skips the outcome when no running run exists but completes everything else', async () => {
     mockFindActiveReviewRun.mockResolvedValue(null);
     harness.sqlReturnQueue.push(
+      mkTaggedResult([PRE_READ]),
+      mkTaggedResult([REVIEW_LOCK]),
       mkTaggedResult([SCHEDULED_RESPONSE]),
       mkTaggedResult([{ id: 'outbox-1' }]),
       mkTaggedResult([{ id: 'resp-1' }]),
@@ -243,6 +290,8 @@ describe('vetoAutoPost — legacy/no-run posture', () => {
 describe('vetoAutoPost — defensive rollback', () => {
   it('throws veto_downgrade_lost_response when the kill landed but the guarded downgrade hit 0 rows', async () => {
     harness.sqlReturnQueue.push(
+      mkTaggedResult([PRE_READ]),
+      mkTaggedResult([REVIEW_LOCK]),
       mkTaggedResult([SCHEDULED_RESPONSE]),
       mkTaggedResult([{ id: 'outbox-1' }]), // kill succeeded
       mkTaggedResult([]), // downgrade lost the response — impossible under the lock

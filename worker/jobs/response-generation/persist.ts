@@ -220,53 +220,17 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
     }
 
     if (autoDecision.approved) {
-      const vetoWindowMinutes = runtimeState.effectivePolicy.vetoWindowMinutes;
-      // FP: ordered writes inside one sql.begin tx (approve UPDATE → audit log → enqueue publish + notice); parallelizing would break tx ordering.
-      // react-doctor-disable-next-line react-doctor/async-parallel
-      const [scheduled] = await tx<{ auto_post_scheduled_at: Date }[]>`
-        UPDATE responses
-        SET status = ${RESPONSE_STATUS_APPROVED},
-            approval_method = ${APPROVAL_METHOD.AUTO_POLICY},
-            approved_text = ${result.responseText},
-            approved_at = NOW(),
-            auto_post_scheduled_at = NOW() + make_interval(mins => ${vetoWindowMinutes}),
-            posting_error = NULL,
-            updated_at = NOW()
-        WHERE id = ${responseId}
-          AND business_id = ${businessId}
-          AND status = ${RESPONSE_STATUS_PENDING_APPROVAL}
-        RETURNING auto_post_scheduled_at
-      `;
-      if (!scheduled) {
-        // Guarded UPDATE lost a race — roll the tx back; generation-job retry semantics cover it.
-        throw new Error('auto_approve_transition_lost');
-      }
-
-      await insertAuditLogAutoPolicy(tx, {
-        responseId,
-        businessId,
-        responseTextAtApproval: result.responseText,
-        metadata: {
-          ...buildAutoApprovalDecisionSummary({ autoDecision, runtimeState, originLane, moderation, version }),
-          policy_id: runtimeState.effectivePolicy.policyId,
-          star_rating: runtimeState.currentStarRating,
-          veto_window_minutes: vetoWindowMinutes,
-          correlation_id: correlationId,
-        },
-      });
-
-      // availableAt is the DB-clock-derived deadline the UPDATE just stamped,
-      // so the outbox delay window and the owner-visible deadline agree —
-      // postgres.js Dates carry ms precision, so this bind can differ from
-      // the stored timestamptz; the difference is sub-ms, absorbed by the
-      // poller cadence.
-      await enqueuePublishResponse(tx, {
+      await approveAutoPolicyAndSchedule(tx, {
         responseId,
         businessId,
         correlationId,
-        availableAt: scheduled.auto_post_scheduled_at,
+        responseText: result.responseText,
+        version,
+        autoDecision,
+        runtimeState,
+        originLane,
+        moderation,
       });
-      await enqueuePendingPostNotice(tx, { responseId, businessId, correlationId });
       return;
     }
 
@@ -284,6 +248,81 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
   });
 
   return responseId;
+}
+
+/**
+ * The auto-approval commit for an approved policy decision: flips the response
+ * to approved/auto_policy with the veto-window deadline, writes the durable
+ * approval audit row, and enqueues the delayed publish + the pending-post
+ * notice. Runs on the OPEN transaction `tx` so the approval stays atomic with
+ * the response INSERT (invariant #2/#3), mirroring recordModerationAndHold.
+ */
+async function approveAutoPolicyAndSchedule(
+  tx: postgres.TransactionSql,
+  args: {
+    responseId: string;
+    businessId: string;
+    correlationId: string | undefined;
+    responseText: string;
+    version: number;
+    autoDecision: AutoApprovalDecision;
+    runtimeState: AutoApprovalRuntimeState;
+    originLane: GenerateResponseOriginLane | null;
+    moderation: ModerationDecision;
+  },
+): Promise<void> {
+  const {
+    responseId, businessId, correlationId, responseText, version,
+    autoDecision, runtimeState, originLane, moderation,
+  } = args;
+  const vetoWindowMinutes = runtimeState.effectivePolicy.vetoWindowMinutes;
+
+  // FP: ordered writes inside one sql.begin tx (approve UPDATE → audit log → enqueue publish + notice); parallelizing would break tx ordering.
+  // react-doctor-disable-next-line react-doctor/async-parallel
+  const [scheduled] = await tx<{ auto_post_scheduled_at: Date }[]>`
+    UPDATE responses
+    SET status = ${RESPONSE_STATUS_APPROVED},
+        approval_method = ${APPROVAL_METHOD.AUTO_POLICY},
+        approved_text = ${responseText},
+        approved_at = NOW(),
+        auto_post_scheduled_at = NOW() + make_interval(mins => ${vetoWindowMinutes}),
+        posting_error = NULL,
+        updated_at = NOW()
+    WHERE id = ${responseId}
+      AND business_id = ${businessId}
+      AND status = ${RESPONSE_STATUS_PENDING_APPROVAL}
+    RETURNING auto_post_scheduled_at
+  `;
+  if (!scheduled) {
+    // Guarded UPDATE lost a race — roll the tx back; generation-job retry semantics cover it.
+    throw new Error('auto_approve_transition_lost');
+  }
+
+  await insertAuditLogAutoPolicy(tx, {
+    responseId,
+    businessId,
+    responseTextAtApproval: responseText,
+    metadata: {
+      ...buildAutoApprovalDecisionSummary({ autoDecision, runtimeState, originLane, moderation, version }),
+      policy_id: runtimeState.effectivePolicy.policyId,
+      star_rating: runtimeState.currentStarRating,
+      veto_window_minutes: vetoWindowMinutes,
+      correlation_id: correlationId,
+    },
+  });
+
+  // availableAt is the DB-clock-derived deadline the UPDATE just stamped,
+  // so the outbox delay window and the owner-visible deadline agree —
+  // postgres.js Dates carry ms precision, so this bind can differ from
+  // the stored timestamptz; the difference is sub-ms, absorbed by the
+  // poller cadence.
+  await enqueuePublishResponse(tx, {
+    responseId,
+    businessId,
+    correlationId,
+    availableAt: scheduled.auto_post_scheduled_at,
+  });
+  await enqueuePendingPostNotice(tx, { responseId, businessId, correlationId });
 }
 
 function logAutoApprovalFallbackIfNeeded(input: {
