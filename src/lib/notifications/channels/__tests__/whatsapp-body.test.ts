@@ -3,6 +3,7 @@ import {
   formatApprovalWhatsApp,
   formatAutoPostNoticeWhatsApp,
   formatEscalationNoticeWhatsApp,
+  formatPendingPostNoticeWhatsApp,
   renderApprovalCardBody,
   extractTokenFromApprovalUrl,
   stripWaPrefix,
@@ -270,5 +271,58 @@ describe('formatEscalationNoticeWhatsApp', () => {
       'HX1',
     );
     expect(contentVariables['4']).toBe('Needs a look');
+  });
+});
+
+describe('formatPendingPostNoticeWhatsApp', () => {
+  const now = new Date('2026-07-09T14:00:00.000Z');
+  const params = {
+    businessName: 'Acme Diner',
+    reviewerName: 'Jane D',
+    starRating: 5,
+    reviewText: 'Wonderful service',
+    responsePreview: 'Thank you Jane!',
+    scheduledPostAt: new Date('2026-07-09T14:30:00.000Z'),
+    approveUrl: 'https://app.repworth.com/approve/TOKEN123',
+    now,
+  };
+
+  it('maps template variables including the combined time phrase and token suffix', () => {
+    const { contentSid, contentVariables } = formatPendingPostNoticeWhatsApp(params, 'HXpending');
+    expect(contentSid).toBe('HXpending');
+    expect(contentVariables).toEqual({
+      '1': 'Acme Diner',
+      '2': 'Jane D',
+      '3': '5',
+      '4': '14:30 UTC (in about 30 minutes)',
+      '5': 'Wonderful service',
+      '6': 'Thank you Jane!',
+      '7': 'TOKEN123',
+    });
+  });
+
+  it('renders "(no comment)" for a rating-only review', () => {
+    const { contentVariables } = formatPendingPostNoticeWhatsApp({ ...params, reviewText: null }, 'HX1');
+    expect(contentVariables['5']).toBe('(no comment)');
+  });
+
+  it('flattens and truncates free-text variables within the card body budget', () => {
+    const { contentVariables } = formatPendingPostNoticeWhatsApp(
+      { ...params, reviewText: 'line1\nline2\t' + 'r'.repeat(500), responsePreview: 'd'.repeat(500) },
+    'HX1');
+    expect(contentVariables['5']).toContain('line1 line2');
+    expect(contentVariables['5']!.length).toBeLessThanOrEqual(400);
+    expect(contentVariables['5']!.endsWith('…')).toBe(true);
+    expect(contentVariables['6']!.length).toBeLessThanOrEqual(400);
+    expect(contentVariables['6']!.endsWith('…')).toBe(true);
+  });
+
+  it('clamps pathological business and reviewer names', () => {
+    const { contentVariables } = formatPendingPostNoticeWhatsApp(
+      { ...params, businessName: 'B'.repeat(300), reviewerName: '' },
+      'HX1',
+    );
+    expect(contentVariables['1']!.length).toBeLessThanOrEqual(100);
+    expect(contentVariables['2']).toBe('Reviewer');
   });
 });

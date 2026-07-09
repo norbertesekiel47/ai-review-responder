@@ -63,6 +63,47 @@ describe('WhatsAppChannel', () => {
     });
   });
 
+  describe('sendPendingPostNotice', () => {
+    const params = {
+      handle: '+15551234567',
+      locationLabel: 'Downtown Cafe',
+      businessName: 'Acme',
+      reviewerName: 'Jane',
+      starRating: 5,
+      reviewText: 'Great!',
+      responsePreview: 'Thanks Jane!',
+      scheduledPostAt: new Date(Date.now() + 30 * 60_000),
+      approveUrl: 'https://app.repworth.com/approve/TOKEN123',
+      responseId: 'resp-1',
+    };
+
+    it('fails closed (skipped, no send) when WHATSAPP_PENDING_POST_TEMPLATE_SID is unset', async () => {
+      delete process.env.WHATSAPP_PENDING_POST_TEMPLATE_SID;
+      resetWorkerConfigForTests();
+      const ch = new WhatsAppChannel();
+      const out = await ch.sendPendingPostNotice(params);
+      expect(out).toEqual({ status: 'skipped', reason: 'whatsapp_pending_post_template_unset' });
+      expect(mockSendTemplate).not.toHaveBeenCalled();
+    });
+
+    it('sends the approved template with the token URL suffix when the SID is set', async () => {
+      process.env.WHATSAPP_PENDING_POST_TEMPLATE_SID = 'HX_pending';
+      resetWorkerConfigForTests();
+      mockSendTemplate.mockResolvedValueOnce({ externalMessageId: 'SM_pending' });
+      const ch = new WhatsAppChannel();
+      const out = await ch.sendPendingPostNotice(params);
+      expect(out).toEqual({ status: 'sent', externalMessageId: 'SM_pending' });
+      expect(mockSendTemplate).toHaveBeenCalledWith({
+        to: 'whatsapp:+15551234567',
+        contentSid: 'HX_pending',
+        contentVariables: expect.objectContaining({
+          '1': 'Acme', '2': 'Jane', '3': '5', '7': 'TOKEN123',
+        }),
+        statusCallback: 'https://worker.example.com/ingress/twilio/whatsapp-status',
+      });
+    });
+  });
+
   it('propagates WhatsAppRecipientBlockedError unchanged', async () => {
     mockSendTemplate.mockRejectedValueOnce(new WhatsAppRecipientBlockedError(63014));
     const ch = new WhatsAppChannel();

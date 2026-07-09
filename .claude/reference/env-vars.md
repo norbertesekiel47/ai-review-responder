@@ -160,6 +160,16 @@ disagree on which env vars count (all 5, incl. `WHATSAPP_APPROVAL_URL_BASE`).
   Telegram escalation notices still send. Worker-only (Railway); set it once the
   Meta template clears and WhatsApp escalation notices activate with no code
   change. No `NEXT_PUBLIC_*` companion.
+- `WHATSAPP_PENDING_POST_TEMPLATE_SID` — Twilio Content SID for the WS4
+  pending-post notice template ("will post automatically at ~HH:MM — review or
+  cancel"; content docs land in `docs/runbooks/whatsapp-templates.md` with WS4
+  Task 14). Same posture as the two SIDs above: **deliberately absent from
+  `assertChannelsWhatsAppEnv`** — its absence must NOT fail worker boot. When
+  unset, the WhatsApp channel's `sendPendingPostNotice` returns
+  `{status:'skipped'}` (fails closed; the Task 7 dispatcher logs the skip);
+  email + Telegram notices still send. Worker-only (Railway); set it once the
+  Meta template clears and WhatsApp pending-post notices activate with no code
+  change. No `NEXT_PUBLIC_*` companion.
 
 **Before flipping:** Meta Business verification (2–4 week process) + WABA setup + Content template approval.
 

@@ -12,7 +12,12 @@ const { sqlCalls, sqlQueue, mockSql } = vi.hoisted(() => {
 
 vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
 
-import { recordNotificationDelivery, insertFailedDelivery, claimEscalationNoticeDelivery } from '../delivery';
+import {
+  recordNotificationDelivery,
+  insertFailedDelivery,
+  claimEscalationNoticeDelivery,
+  claimPendingPostNoticeDelivery,
+} from '../delivery';
 
 describe('recordNotificationDelivery', () => {
   beforeEach(() => {
@@ -170,6 +175,56 @@ describe('claimEscalationNoticeDelivery', () => {
     expect(call.values).toContain('owner@example.com');
     // 'escalation_notice' stays a literal in the template, never a bound param.
     expect(call.values).not.toContain('escalation_notice');
+  });
+
+  it('returns the new delivery id when the claim wins', async () => {
+    sqlQueue.push([{ id: 'row' }]);
+    const id = await claim();
+    expect(typeof id).toBe('string');
+  });
+
+  it('returns null when a live claim already exists (ON CONFLICT DO NOTHING)', async () => {
+    sqlQueue.push([]);
+    const id = await claim();
+    expect(id).toBeNull();
+  });
+});
+
+describe('claimPendingPostNoticeDelivery', () => {
+  beforeEach(() => {
+    sqlCalls.length = 0;
+    sqlQueue.length = 0;
+    mockSql.mockClear();
+  });
+
+  const claim = () => claimPendingPostNoticeDelivery(mockSql, {
+    accountId: 'acct-1',
+    businessId: 'biz-1',
+    responseId: 'resp-1',
+    channel: 'email',
+    recipient: 'owner@example.com',
+  });
+
+  it('INSERTs with the response_id column and the migration-074 ON CONFLICT predicate byte-for-byte', async () => {
+    sqlQueue.push([{ id: 'ignored' }]);
+    await claim();
+
+    const call = sqlCalls[0]!;
+    const flatTemplate = call.template.replace(/\s+/g, ' ');
+    expect(flatTemplate).toMatch(/INSERT INTO notification_deliveries/);
+    expect(flatTemplate).toContain('response_id');
+    // ON CONFLICT must match notification_deliveries_pending_post_notice_claim
+    // (migration 074) BYTE-FOR-BYTE, template literal included.
+    expect(flatTemplate).toContain(
+      "ON CONFLICT (response_id, channel, recipient) WHERE response_id IS NOT NULL AND template = 'pending_post_notice' DO NOTHING",
+    );
+    expect(call.values).toContain('acct-1');
+    expect(call.values).toContain('biz-1');
+    expect(call.values).toContain('resp-1');
+    expect(call.values).toContain('email');
+    expect(call.values).toContain('owner@example.com');
+    // 'pending_post_notice' stays a literal in the template, never a bound param.
+    expect(call.values).not.toContain('pending_post_notice');
   });
 
   it('returns the new delivery id when the claim wins', async () => {

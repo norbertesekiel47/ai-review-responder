@@ -141,6 +141,11 @@ const workerSchema = z.object({
   // sendEscalationNotice guards with `if (!contentSid)`, so rawOptionalVar
   // preserves ''/'   '/unset byte-for-byte (#7); no asserting accessor (#5).
   WHATSAPP_ESCALATION_TEMPLATE_SID: rawOpt,
+  // WHATSAPP_PENDING_POST_TEMPLATE_SID (WS4): same "unset → skip cleanly"
+  // contract as the two SIDs above — WhatsAppChannel's sendPendingPostNotice
+  // guards with `if (!contentSid)`, so rawOptionalVar preserves ''/'   '/unset
+  // byte-for-byte (#7); no asserting accessor (#5).
+  WHATSAPP_PENDING_POST_TEMPLATE_SID: rawOpt,
   ZERNIO_INGEST_MAX_PAGES: rawOpt,
 
   // ── Stage-3 worker-ingress batch ──────────────────────────────────────────

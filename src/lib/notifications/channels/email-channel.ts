@@ -4,7 +4,12 @@
 // logic (template builders, categories, tags) stays in src/lib/notifications/email.ts;
 // this class just adapts that call to the NotificationChannel interface.
 
-import { sendApprovalEmail, sendAutoPostNoticeEmail, sendEscalationNoticeEmail } from '../email';
+import {
+  sendApprovalEmail,
+  sendAutoPostNoticeEmail,
+  sendEscalationNoticeEmail,
+  sendPendingPostNoticeEmail,
+} from '../email';
 import { getWorkerConfig } from '@/lib/config/worker';
 import type {
   NotificationChannel,
@@ -14,6 +19,8 @@ import type {
   SendAutoPostNoticeResult,
   SendEscalationNoticeParams,
   SendEscalationNoticeResult,
+  SendPendingPostNoticeParams,
+  SendPendingPostNoticeResult,
 } from './types';
 
 export class EmailChannel implements NotificationChannel {
@@ -86,6 +93,32 @@ export class EmailChannel implements NotificationChannel {
       isFallback: p.isFallback,
       dashboardUrl: p.dashboardUrl,
       idempotencyKey: `escalation_notice:${p.escalationId}`,
+    });
+
+    return { status: 'sent', externalMessageId: messageId };
+  }
+
+  // Interface-dispatched via getChannel(id).sendPendingPostNotice in the
+  // pending-post-notice worker (Task 7); fallow's member graph misses
+  // interface dispatch.
+  // fallow-ignore-next-line unused-class-member
+  async sendPendingPostNotice(p: SendPendingPostNoticeParams): Promise<SendPendingPostNoticeResult> {
+    const from = getWorkerConfig().RESEND_FROM_EMAIL;
+    if (!from) {
+      throw new Error('RESEND_FROM_EMAIL not configured');
+    }
+
+    const { messageId } = await sendPendingPostNoticeEmail({
+      to: p.handle,
+      from,
+      locationLabel: p.locationLabel,
+      reviewerName: p.reviewerName,
+      starRating: p.starRating,
+      reviewText: p.reviewText,
+      responsePreview: p.responsePreview,
+      scheduledPostAt: p.scheduledPostAt,
+      approveUrl: p.approveUrl,
+      idempotencyKey: `pending_post_notice:${p.responseId}`,
     });
 
     return { status: 'sent', externalMessageId: messageId };

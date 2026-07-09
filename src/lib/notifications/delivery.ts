@@ -133,6 +133,36 @@ export async function claimEscalationNoticeDelivery(sql: Sql, params: {
 }
 
 /**
+ * Insert a pending claim keyed by (response_id, channel, recipient) for
+ * template='pending_post_notice' (WS4 veto window). Returns the new delivery
+ * id, or null when a live claim already exists. ON CONFLICT predicate matches
+ * the partial index `notification_deliveries_pending_post_notice_claim`
+ * (migration 074) BYTE-FOR-BYTE — the 'pending_post_notice' literal must stay
+ * a literal, never a bound param, or Postgres won't recognise the constraint.
+ */
+export async function claimPendingPostNoticeDelivery(sql: Sql, params: {
+  accountId: string;
+  businessId: string;
+  responseId: string;
+  channel: ChannelId;
+  recipient: string;
+}): Promise<string | null> {
+  const id = uuidv7();
+  const claimed = await sql<{ id: string }[]>`
+    INSERT INTO notification_deliveries
+      (id, account_id, business_id, response_id, channel, recipient, template)
+    VALUES
+      (${id}, ${params.accountId}, ${params.businessId}, ${params.responseId},
+       ${params.channel}, ${params.recipient}, 'pending_post_notice')
+    ON CONFLICT (response_id, channel, recipient)
+      WHERE response_id IS NOT NULL AND template = 'pending_post_notice'
+      DO NOTHING
+    RETURNING id
+  `;
+  return claimed.length === 1 ? id : null;
+}
+
+/**
  * Insert a PENDING approval-request delivery claim (sent_at NULL, failed_at
  * NULL) and return its id. The approval dispatcher claims this row BEFORE the
  * provider send so a crash between provider-accept and the delivery record
