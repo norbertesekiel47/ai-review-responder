@@ -231,6 +231,16 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
       if (text.includes('FROM reviews') && text.includes('FOR UPDATE')) {
         return Promise.resolve([{ id: 'rev-1' }]);
       }
+      // WS4: persist.ts's businesses FOR UPDATE lock (tx statement #2) and
+      // loadAutoApprovalRuntimeState's same-tx re-take share this shape.
+      if (text.includes('FROM businesses') && text.includes('FOR UPDATE')) {
+        return Promise.resolve([{ id: 'biz-1' }]);
+      }
+      // WS4: the loader's daily-cap count throws auto_approval_cap_count_missing
+      // if its (always-one-row) aggregate result is absent — feed zero used.
+      if (text.includes('auto_approved_today')) {
+        return Promise.resolve([{ auto_approved_today: 0 }]);
+      }
       if (text.includes('FROM reviews r')) {
         return Promise.resolve([{
           star_rating: 5,
