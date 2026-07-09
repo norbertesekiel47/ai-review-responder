@@ -1,6 +1,11 @@
 import { ESLint } from 'eslint';
 import path from 'node:path';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+
+// The first lintText call pays ESLint's full flat-config + plugin cold start
+// (~8s when lefthook runs every pre-push job in parallel), which blows the
+// default 5s per-test timeout on whichever case runs first.
+vi.setConfig({ testTimeout: 30_000 });
 
 // Drives the resolved flat config over in-memory fixtures via the ESLint Node
 // API. This is the permanent regression guard for the no-restricted-imports
