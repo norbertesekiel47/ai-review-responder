@@ -257,8 +257,9 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
 
       // availableAt is the DB-clock-derived deadline the UPDATE just stamped,
       // so the outbox delay window and the owner-visible deadline agree —
-      // postgres.js Dates carry ms precision, so this bind can be up to
-      // sub-ms earlier than the stored timestamptz (the safe direction).
+      // postgres.js Dates carry ms precision, so this bind can differ from
+      // the stored timestamptz; the difference is sub-ms, absorbed by the
+      // poller cadence.
       await enqueuePublishResponse(tx, {
         responseId,
         businessId,
