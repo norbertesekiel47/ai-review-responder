@@ -21,6 +21,11 @@ export const DEFAULT_DAILY_AUTO_POST_CAP = 10;
 /** Column default from migration 074 — the window applied when no policy row exists. */
 export const DEFAULT_VETO_WINDOW_MINUTES = 15;
 
+/** The enforced cap for a policy — stored value or the platform default. */
+export function resolveDailyCap(policy: Pick<EffectiveAutoApprovalPolicy, 'dailyAutoPostCap'>): number {
+  return policy.dailyAutoPostCap ?? DEFAULT_DAILY_AUTO_POST_CAP;
+}
+
 export function isThresholdExpansion(
   before: AutoApprovalThreshold | null,
   after: AutoApprovalThreshold | null,

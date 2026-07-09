@@ -6,24 +6,33 @@
 // two concurrent persist-shaped txs on ONE business must not both read a
 // below-cap count (which would overshoot the cap).
 //
+// Every tx here mirrors persistResponseAndNotify's PRODUCTION statement order:
+// reviews FOR UPDATE → businesses FOR UPDATE (tx statement #2) → responses
+// INSERT (whose business_id FK takes an implicit FOR KEY SHARE on the
+// businesses row) → loadAutoApprovalRuntimeState → approve UPDATE → commit.
+// That ordering doubles as the DEADLOCK regression test: with the pre-fix
+// order (responses INSERT before any businesses FOR UPDATE), two of these txs
+// for different reviews of the same business each hold a KEY SHARE and each
+// wait to upgrade to FOR UPDATE — a share-then-upgrade cycle Postgres aborts
+// with 40P01 (reproduced in review of commit 258d0664).
+//
 // Gated on TEST_DATABASE_POOL_URL (skips cleanly without one). Migration 074
-// is applied in beforeAll — fully idempotent, so this becomes a no-op once it
-// ships to the shared test DB.
+// is applied in beforeAll via the shared guarded helper (probe-then-apply, so
+// it stays cheap and lock-free once 074 is on the shared test DB).
 
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import {
   cleanupTenantAccount,
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import { applyMigration074IfMissing } from '@/lib/shared/__tests__/helpers/apply-migration-074';
 import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
-import { loadAutoApprovalRuntimeState } from '../auto-approval';
+import { loadAutoApprovalRuntimeState, type AutoApprovalRuntimeState } from '../auto-approval';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 
@@ -71,13 +80,37 @@ async function seedReview(db: postgresType.Sql, reviewId: string, label: string)
   `;
 }
 
-async function insertAutoApprovedResponse(
+/**
+ * Production statement order for the head of the persist tx (persist.ts):
+ * reviews FOR UPDATE first, businesses FOR UPDATE second (BEFORE the responses
+ * INSERT, so the FK's implicit KEY SHARE is subsumed rather than upgraded),
+ * then the INSERT of a pending row exactly as persist.ts writes it
+ * (status pending_approval, approval_method NULL).
+ */
+async function persistShapedHead(
   tx: postgresType.TransactionSql,
   reviewId: string,
+): Promise<string> {
+  await tx`SELECT id FROM reviews WHERE id = ${reviewId}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`;
+  await tx`SELECT id FROM businesses WHERE id = ${businessId}::uuid FOR UPDATE`;
+  const responseId = randomUUID();
+  await tx`
+    INSERT INTO responses (id, review_id, business_id, response_text, original_draft_text, version, status, approval_method)
+    VALUES (${responseId}::uuid, ${reviewId}::uuid, ${businessId}::uuid, 'Thanks!', 'Thanks!', 1, 'pending_approval', NULL)
+  `;
+  return responseId;
+}
+
+/** The persist tx's auto-policy approve UPDATE, as production issues it. */
+async function approveAutoPolicy(
+  tx: postgresType.TransactionSql,
+  responseId: string,
 ): Promise<void> {
   await tx`
-    INSERT INTO responses (id, review_id, business_id, response_text, original_draft_text, approved_text, version, status, approval_method, approved_at)
-    VALUES (${randomUUID()}::uuid, ${reviewId}::uuid, ${businessId}::uuid, 'Thanks!', 'Thanks!', 'Thanks!', 1, 'approved', ${APPROVAL_METHOD.AUTO_POLICY}, NOW())
+    UPDATE responses
+    SET status = 'approved', approval_method = ${APPROVAL_METHOD.AUTO_POLICY},
+        approved_text = 'Thanks!', approved_at = NOW(), updated_at = NOW()
+    WHERE id = ${responseId}::uuid AND business_id = ${businessId}::uuid
   `;
 }
 
@@ -85,9 +118,7 @@ describeWithDb('WS4 daily-cap accounting in loadAutoApprovalRuntimeState against
   beforeAll(async () => {
     dbA = postgres(testDatabaseUrl!, { max: 1, prepare: false });
     dbB = postgres(testDatabaseUrl!, { max: 1, prepare: false });
-    await dbA.unsafe(
-      readFileSync(resolve(process.cwd(), 'supabase/migrations', '074_trust_dial_veto_window.sql'), 'utf-8'),
-    );
+    await applyMigration074IfMissing(dbA);
     tenant = await seedTenantAccount(dbA, {
       userName: 'Daily Cap Owner',
       accountDisplayName: 'Daily Cap Account',
@@ -121,13 +152,19 @@ describeWithDb('WS4 daily-cap accounting in loadAutoApprovalRuntimeState against
 
   it('loads the migration-074 dial columns and a zero count for a fresh location', async () => {
     const state = await sqlA().begin(async (tx) => {
-      // Persist-shaped tx: review row FOR UPDATE first (lock-ordering contract).
-      await tx`SELECT id FROM reviews WHERE id = ${reviewAId}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`;
-      return loadAutoApprovalRuntimeState(tx, {
+      // Full persist-shaped head (locks + pending INSERT); the pending row is
+      // approval_method NULL, so it must NOT count against the cap.
+      const responseId = await persistShapedHead(tx, reviewAId);
+      const loaded = await loadAutoApprovalRuntimeState(tx, {
         reviewId: reviewAId,
         businessId,
         accountId: accountId(),
       });
+      // Same-tx cleanup: the serialization test below re-inserts a version-1
+      // row for review A, which unique_review_version and the one-non-terminal
+      // -per-review index would otherwise reject.
+      await tx`DELETE FROM responses WHERE id = ${responseId}::uuid AND business_id = ${businessId}::uuid`;
+      return loaded;
     });
 
     expect(state.effectivePolicy.source).toBe('account_default');
@@ -135,8 +172,6 @@ describeWithDb('WS4 daily-cap accounting in loadAutoApprovalRuntimeState against
     expect(state.effectivePolicy.vetoWindowMinutes).toBe(30);
     expect(state.effectivePolicy.dailyAutoPostCap).toBe(5);
     expect(state.effectivePolicy.suspended).toBe(false);
-    expect(state.policySuspended).toBe(false);
-    expect(state.effectiveDailyCap).toBe(5);
     expect(state.autoApprovedTodayCount).toBe(0);
   });
 
@@ -145,17 +180,18 @@ describeWithDb('WS4 daily-cap accounting in loadAutoApprovalRuntimeState against
     const releaseTxA = deferred();
     let txBLoaded = false;
 
-    // Tx A: persist shape — review A lock, loader (takes the business lock),
-    // then an auto-policy approval — held OPEN so the business lock stays held.
+    // Tx A: full production persist shape — review A lock, business lock,
+    // pending INSERT, loader, auto-policy approve UPDATE — held OPEN so the
+    // business lock stays held.
     const txAPromise = sqlA().begin(async (tx) => {
-      await tx`SELECT id FROM reviews WHERE id = ${reviewAId}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`;
+      const responseId = await persistShapedHead(tx, reviewAId);
       const state = await loadAutoApprovalRuntimeState(tx, {
         reviewId: reviewAId,
         businessId,
         accountId: accountId(),
       });
       expect(state.autoApprovedTodayCount).toBe(0);
-      await insertAutoApprovedResponse(tx, reviewAId);
+      await approveAutoPolicy(tx, responseId);
       txAHoldsBusinessLock.resolve();
       await releaseTxA.promise;
     });
@@ -163,15 +199,18 @@ describeWithDb('WS4 daily-cap accounting in loadAutoApprovalRuntimeState against
     await txAHoldsBusinessLock.promise;
 
     // Tx B: same shape for a DIFFERENT review of the SAME business — must
-    // block on the business FOR UPDATE until tx A commits.
+    // block on the business FOR UPDATE (tx statement #2) until tx A commits.
+    // Against the pre-fix statement order this pair would instead 40P01
+    // (see the header comment), so completing at all IS the regression check.
     const txBPromise = sqlB().begin(async (tx) => {
-      await tx`SELECT id FROM reviews WHERE id = ${reviewBId}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`;
+      const responseId = await persistShapedHead(tx, reviewBId);
       const state = await loadAutoApprovalRuntimeState(tx, {
         reviewId: reviewBId,
         businessId,
         accountId: accountId(),
       });
       txBLoaded = true;
+      await approveAutoPolicy(tx, responseId);
       return state;
     });
 
@@ -183,13 +222,13 @@ describeWithDb('WS4 daily-cap accounting in loadAutoApprovalRuntimeState against
 
     releaseTxA.resolve();
     await txAPromise;
-    const txBState = (await txBPromise) as Awaited<ReturnType<typeof loadAutoApprovalRuntimeState>>;
+    const txBState = (await txBPromise) as AutoApprovalRuntimeState;
 
     expect(txBLoaded).toBe(true);
     // Tx B unblocked AFTER tx A committed, so it sees A's granted approval —
     // the strictness property: concurrent evaluations cannot both read the
     // pre-approval count.
     expect(txBState.autoApprovedTodayCount).toBe(1);
-    expect(txBState.effectiveDailyCap).toBe(5);
+    expect(txBState.effectivePolicy.dailyAutoPostCap).toBe(5);
   });
 });

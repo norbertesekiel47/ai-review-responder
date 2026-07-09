@@ -37,7 +37,7 @@ export interface EffectiveAutoApprovalPolicy {
   threshold: AutoApprovalThreshold | null;
   policyId: string | null;
   vetoWindowMinutes: 15 | 30;
-  /** NULL resolves to DEFAULT_DAILY_AUTO_POST_CAP at evaluation time. */
+  /** NULL resolves to the platform default via resolveDailyCap() at evaluation time. */
   dailyAutoPostCap: number | null;
   /** Governor kill switch (spec §2.4): account default OR winning row suspended. */
   suspended: boolean;

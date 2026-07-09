@@ -1,6 +1,6 @@
 import type { ModerationDecision } from '../../../src/lib/moderation/output-filter';
 import {
-  DEFAULT_DAILY_AUTO_POST_CAP,
+  resolveDailyCap,
   resolveEffectivePolicy,
   starMeetsThreshold,
 } from '../../../src/lib/auto-approval/policy';
@@ -70,8 +70,6 @@ export interface AutoApprovalCandidateInput {
   triageSeverity: TriageSeverity | null;
   triageSource: string | null;
   autoApprovedTodayCount: number;
-  effectiveDailyCap: number;
-  policySuspended: boolean;
   now?: Date;
 }
 
@@ -120,9 +118,6 @@ export interface AutoApprovalRuntimeState {
   triageSource: string | null;
   /** Auto-approvals GRANTED for this location today (UTC), counted under the business lock. */
   autoApprovedTodayCount: number;
-  /** Effective policy cap with NULL resolved to the platform default (10). */
-  effectiveDailyCap: number;
-  policySuspended: boolean;
 }
 
 function policyRowsToEffectivePolicy(
@@ -186,11 +181,18 @@ export async function loadAutoApprovalRuntimeState(
   `;
   const effectivePolicy = policyRowsToEffectivePolicy(policyRows, accountId, businessId);
 
-  // Serialize concurrent daily-cap evaluations per location (WS4 spec §2.3).
-  // Lock order is safe: the persist tx already holds this review's row
-  // FOR UPDATE as its FIRST statement, and the audited global order is
-  // reviews → businesses → child rows (2026-07-07 audit: no production tx
-  // locks a businesses row and later locks a reviews row).
+  // Same-tx RE-TAKE of the businesses row lock (idempotent — Postgres row
+  // locks don't stack within a transaction). The REAL first take happens in
+  // persist.ts immediately after its reviews FOR UPDATE, BEFORE the responses
+  // INSERT: that INSERT's business_id FK grabs an implicit FOR KEY SHARE on
+  // this row, and taking FOR UPDATE only here would be a share → exclusive
+  // upgrade that deadlocks (40P01) against a concurrent persist for the same
+  // business. Kept in the loader so its cap-count correctness stays
+  // self-contained even if a future caller forgets the early lock (that
+  // caller re-introduces the deadlock risk, but never a cap overshoot).
+  // Global lock order: reviews → businesses → child rows, where "first"
+  // means before ANY statement that takes an implicit FK lock on the row —
+  // explicit FOR UPDATE statement order alone is not enough.
   // FP: ordered on purpose — the lock must be held BEFORE the count below or
   // two concurrent persists both read a below-cap count and overshoot the cap.
   // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
@@ -233,8 +235,6 @@ export async function loadAutoApprovalRuntimeState(
     currentStarRating: state.star_rating,
     effectivePolicy,
     autoApprovedTodayCount: capRow.auto_approved_today,
-    effectiveDailyCap: effectivePolicy.dailyAutoPostCap ?? DEFAULT_DAILY_AUTO_POST_CAP,
-    policySuspended: effectivePolicy.suspended,
     subscriptionStatus: state.subscription_status,
     accountPastDueAt: state.account_past_due_at,
     accountFlags: state.account_flags ?? {},
@@ -280,8 +280,8 @@ export function evaluateAutoApprovalCandidate(input: AutoApprovalCandidateInput)
     // the dial — it fires regardless of the policy row, like the triage and
     // moderation vetoes. Unrated stays blocked by current_rating_missing.
     when(input.currentStarRating !== null && input.currentStarRating <= 3, 'rating_below_positive_quadrant'),
-    when(input.autoApprovedTodayCount >= input.effectiveDailyCap, 'daily_cap_exhausted'),
-    when(input.policySuspended, 'policy_suspended'),
+    when(input.autoApprovedTodayCount >= resolveDailyCap(input.effectivePolicy), 'daily_cap_exhausted'),
+    when(input.effectivePolicy.suspended, 'policy_suspended'),
   ]);
 
   return {

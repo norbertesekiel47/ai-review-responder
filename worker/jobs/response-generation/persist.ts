@@ -13,6 +13,7 @@ import type postgres from 'postgres';
 import type { ModerationDecision } from '../../../src/lib/moderation/output-filter';
 import type { GenerationResult } from '../../../src/lib/responses/types';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
+import { resolveDailyCap } from '../../../src/lib/auto-approval/policy';
 import {
   GENERATE_RESPONSE_ORIGIN_LANE,
   type GenerateResponseOriginLane,
@@ -101,6 +102,16 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       );
     }
 
+    // Take the businesses row FOR UPDATE before the responses INSERT below —
+    // the INSERT's business_id FK takes an implicit FOR KEY SHARE on this row,
+    // and upgrading share → FOR UPDATE later (the auto-approval cap count)
+    // deadlocks against a concurrent persist for the same business. Same
+    // subsume-the-KEY-SHARE pattern as the reviews lock above. Also the
+    // serialization point for the daily-cap count (spec §2.3).
+    await tx`
+      SELECT id FROM businesses WHERE id = ${businessId} FOR UPDATE
+    `;
+
     await tx`
       INSERT INTO responses (
         id, review_id, business_id, response_text, response_language,
@@ -182,8 +193,6 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       triageSeverity: runtimeState.triageSeverity,
       triageSource: runtimeState.triageSource,
       autoApprovedTodayCount: runtimeState.autoApprovedTodayCount,
-      effectiveDailyCap: runtimeState.effectiveDailyCap,
-      policySuspended: runtimeState.policySuspended,
     });
 
     logAutoApprovalFallbackIfNeeded({
@@ -338,9 +347,9 @@ function buildAutoApprovalDecisionSummary(input: {
     active_location: runtimeState.activeLocationNow,
     triage_severity: runtimeState.triageSeverity,
     triage_source: runtimeState.triageSource,
-    daily_cap: runtimeState.effectiveDailyCap,
+    daily_cap: resolveDailyCap(runtimeState.effectivePolicy),
     auto_approved_today: runtimeState.autoApprovedTodayCount,
-    policy_suspended: runtimeState.policySuspended,
+    policy_suspended: runtimeState.effectivePolicy.suspended,
     runtime_enabled: autoDecision.runtimeEnabled,
     provider_moderation_enabled: autoDecision.providerModerationEnabled,
   };

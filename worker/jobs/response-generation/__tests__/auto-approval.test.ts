@@ -59,8 +59,6 @@ function baseInput(overrides: Partial<AutoApprovalCandidateInput> = {}): AutoApp
     triageSeverity: null,
     triageSource: null,
     autoApprovedTodayCount: 0,
-    effectiveDailyCap: 10,
-    policySuspended: false,
     now: new Date('2026-06-04T00:00:00.000Z'),
     ...overrides,
   };
@@ -104,8 +102,9 @@ describe('evaluateAutoApprovalCandidate', () => {
     { reason: 'active_zernio_connection_missing', overrides: { activeZernioConnectionNow: false } },
     { reason: 'archived_location', overrides: { activeLocationNow: false } },
     { reason: 'rating_below_positive_quadrant', overrides: { currentStarRating: 3 } },
+    // Cap 10 is the platform default derived from ENABLED_POLICY's NULL cap.
     { reason: 'daily_cap_exhausted', overrides: { autoApprovedTodayCount: 10 } },
-    { reason: 'policy_suspended', overrides: { policySuspended: true } },
+    { reason: 'policy_suspended', overrides: { effectivePolicy: { ...ENABLED_POLICY, suspended: true } } },
   ];
 
   it.each(fallbackCases)('falls back to manual when $reason blocks auto', ({ reason, overrides, env = {} }) => {
@@ -200,37 +199,53 @@ describe('evaluateAutoApprovalCandidate', () => {
     expect(unrated.blockReasons).not.toContain('rating_below_positive_quadrant');
   });
 
-  it('blocks with daily_cap_exhausted at the cap boundary (count == cap)', () => {
+  it('blocks with daily_cap_exhausted at the stored-cap boundary (count == cap)', () => {
     process.env.AUTO_APPROVAL_ENABLED = 'true';
     process.env.OPENAI_MODERATION_ENABLED = 'true';
 
     const decision = evaluateAutoApprovalCandidate(baseInput({
       autoApprovedTodayCount: 10,
-      effectiveDailyCap: 10,
+      effectivePolicy: { ...ENABLED_POLICY, dailyAutoPostCap: 10 },
     }));
 
     expect(decision.approved).toBe(false);
     expect(decision.blockReasons).toEqual(['daily_cap_exhausted']);
   });
 
-  it('approves one slot below the cap (count == cap - 1)', () => {
+  it('approves one slot below the stored cap (count == cap - 1)', () => {
     process.env.AUTO_APPROVAL_ENABLED = 'true';
     process.env.OPENAI_MODERATION_ENABLED = 'true';
 
     const decision = evaluateAutoApprovalCandidate(baseInput({
       autoApprovedTodayCount: 9,
-      effectiveDailyCap: 10,
+      effectivePolicy: { ...ENABLED_POLICY, dailyAutoPostCap: 10 },
     }));
 
     expect(decision.approved).toBe(true);
     expect(decision.blockReasons).toEqual([]);
   });
 
-  it('blocks with policy_suspended when the policy is suspended (governor kill switch)', () => {
+  it('derives the default cap (10) from a NULL policy cap — blocks at 10, approves at 9', () => {
     process.env.AUTO_APPROVAL_ENABLED = 'true';
     process.env.OPENAI_MODERATION_ENABLED = 'true';
 
-    const decision = evaluateAutoApprovalCandidate(baseInput({ policySuspended: true }));
+    // ENABLED_POLICY carries dailyAutoPostCap: null; the evaluator must
+    // resolve it to the platform default itself — no separate cap input.
+    expect(evaluateAutoApprovalCandidate(baseInput({ autoApprovedTodayCount: 10 })).blockReasons)
+      .toEqual(['daily_cap_exhausted']);
+    expect(evaluateAutoApprovalCandidate(baseInput({ autoApprovedTodayCount: 9 })).approved).toBe(true);
+  });
+
+  it('blocks with policy_suspended when the effective policy is suspended (governor kill switch)', () => {
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+
+    // Suspension is read straight off effectivePolicy — there is no separate
+    // boolean input a caller could forget to thread, so a suspended policy
+    // structurally cannot evaluate as unsuspended.
+    const decision = evaluateAutoApprovalCandidate(baseInput({
+      effectivePolicy: { ...ENABLED_POLICY, suspended: true },
+    }));
 
     expect(decision.approved).toBe(false);
     expect(decision.blockReasons).toEqual(['policy_suspended']);
@@ -307,19 +322,16 @@ describe('loadAutoApprovalRuntimeState (mocked sql)', () => {
     expect(state.effectivePolicy.vetoWindowMinutes).toBe(30);
     expect(state.effectivePolicy.dailyAutoPostCap).toBe(7);
     expect(state.effectivePolicy.suspended).toBe(true);
-    expect(state.policySuspended).toBe(true);
-    expect(state.effectiveDailyCap).toBe(7);
     expect(state.autoApprovedTodayCount).toBe(3);
   });
 
-  it('resolves a NULL daily_auto_post_cap to the platform default of 10', async () => {
+  it('loads a NULL daily_auto_post_cap as-is (default resolution is the evaluator\'s job)', async () => {
     queueLoaderRows();
 
     const state = await runLoader();
 
     expect(state.effectivePolicy.dailyAutoPostCap).toBeNull();
-    expect(state.effectiveDailyCap).toBe(10);
-    expect(state.policySuspended).toBe(false);
+    expect(state.effectivePolicy.suspended).toBe(false);
   });
 
   it('scopes the policy SELECT to the reply/posting persona and loads the dial columns', async () => {

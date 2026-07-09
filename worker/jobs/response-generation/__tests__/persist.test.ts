@@ -110,6 +110,9 @@ function queuePersistRows(input: {
   txQueue.push(
     // SELECT id FROM reviews … FOR UPDATE (lock ordering — FIRST tx statement)
     input.reviewLockRows ?? [{ id: 'rev-1' }],
+    // SELECT id FROM businesses … FOR UPDATE (statement #2 — must precede the
+    // responses INSERT, whose business_id FK takes an implicit FOR KEY SHARE)
+    [{ id: 'biz-1' }],
     [], // INSERT responses
     [], // UPDATE api_costs response_id
     [], // UPDATE api_costs moderation metadata
@@ -120,7 +123,7 @@ function queuePersistRows(input: {
   txQueue.push(
     [currentState(input.state)],
     input.policies ?? [enabledPolicy()],
-    [{ id: 'biz-1' }], // SELECT id FROM businesses … FOR UPDATE (cap-lock)
+    [{ id: 'biz-1' }], // loader's same-tx businesses FOR UPDATE re-take
     [{ auto_approved_today: input.autoApprovedToday ?? 0 }], // daily-cap count
     input.connection === null ? [] : [input.connection ?? { id: 'conn-1' }],
   );
@@ -167,8 +170,9 @@ function txArgs(): unknown[] {
 }
 
 function assertManualNotificationFallback() {
-  // txTexts()[0] is the review row lock; the responses INSERT follows it.
-  expect(txTexts()[1]).toContain('approval_method');
+  // txTexts()[0] is the review row lock, [1] the businesses lock; the
+  // responses INSERT follows them.
+  expect(txTexts()[2]).toContain('approval_method');
   expect(txArgs()).toContain(QUEUE_NAMES.SEND_NOTIFICATION);
   expect(txArgs()).not.toContain(QUEUE_NAMES.PUBLISH_RESPONSE);
   expect(txArgs()).not.toContain('auto_approved_by_policy');
@@ -246,7 +250,7 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
 
     expect(responseId).toBe('deterministic-uuid-v7');
     const texts = txTexts();
-    expect(texts[1]).toContain('approval_method');
+    expect(texts[2]).toContain('approval_method');
     expect(texts.some((text) => text.includes('UPDATE responses') && text.includes('approved_text'))).toBe(true);
     expect(txArgs()).toContain('auto_policy');
     expect(txArgs()).toContain('auto_approved_by_policy');
@@ -454,12 +458,19 @@ describe('persistResponseAndNotify run-spine instrumentation', () => {
     const lockIndex = texts.findIndex(
       (text) => text.includes('FROM reviews') && text.includes('FOR UPDATE'),
     );
+    const businessLockIndex = texts.findIndex(
+      (text) => text.includes('FROM businesses') && text.includes('FOR UPDATE'),
+    );
     const insertIndex = texts.findIndex((text) => text.includes('INSERT INTO responses'));
     // First statement of the tx: the responses INSERT's FK takes an implicit
     // FOR KEY SHARE on the reviews tuple, so a later FOR UPDATE would be a
-    // deadlock-prone lock upgrade.
+    // deadlock-prone lock upgrade. Statement #2 is the businesses FOR UPDATE
+    // for exactly the same reason (the INSERT's business_id FK) — taking it
+    // only inside the loader (after the INSERT) reproduces a 40P01 against a
+    // concurrent persist for the same business.
     expect(lockIndex).toBe(0);
-    expect(insertIndex).toBeGreaterThan(lockIndex);
+    expect(businessLockIndex).toBe(1);
+    expect(insertIndex).toBeGreaterThan(businessLockIndex);
 
     // And the lock precedes the first spine write (cross-mock global order).
     const lockInvocation = mockTx.mock.invocationCallOrder[lockIndex]!;

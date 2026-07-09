@@ -5,6 +5,7 @@ import {
   DEFAULT_DAILY_AUTO_POST_CAP,
   exposureRank,
   isThresholdExpansion,
+  resolveDailyCap,
   resolveEffectivePolicy,
   starMeetsThreshold,
 } from '../policy';
@@ -58,6 +59,11 @@ describe('auto-approval policy helpers', () => {
 
   it('exposes the platform default daily cap for NULL policy caps', () => {
     expect(DEFAULT_DAILY_AUTO_POST_CAP).toBe(10);
+  });
+
+  it('resolves the enforced daily cap: stored value wins, NULL falls back to the default', () => {
+    expect(resolveDailyCap({ dailyAutoPostCap: 5 })).toBe(5);
+    expect(resolveDailyCap({ dailyAutoPostCap: null })).toBe(DEFAULT_DAILY_AUTO_POST_CAP);
   });
 
   it('resolves no rows to no effective policy with safe dial defaults', () => {

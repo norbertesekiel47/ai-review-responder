@@ -3,9 +3,8 @@ import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { cleanupTenantAccount, seedTenantAccount } from './live-db-tenant';
+import { applyMigration074IfMissing, readMigration074Sql } from './helpers/apply-migration-074';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 
 // Live-DB shape suite for migration 074 (WS4 trust dial + veto window, spec
@@ -19,8 +18,6 @@ import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 // Gated on TEST_DATABASE_POOL_URL; skips cleanly without one.
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 
-const MIGRATION_FILE = '074_trust_dial_veto_window.sql';
-
 let db: postgresType.Sql | undefined;
 
 const tenant = {
@@ -33,10 +30,6 @@ const ownerEmail = `ws4-074-${tenant.accountId}@test.local`;
 function sql(): postgresType.Sql {
   if (!db) throw new Error('migration 074 integration database was not initialized');
   return db;
-}
-
-function migrationSql(): string {
-  return readFileSync(resolve(process.cwd(), 'supabase/migrations', MIGRATION_FILE), 'utf-8');
 }
 
 async function insertPolicy(
@@ -63,22 +56,10 @@ async function insertOutcome(outcomeKind: string): Promise<string> {
 describeWithDb('migration 074 trust dial + veto window — shape', { timeout: 30_000 }, () => {
   beforeAll(async () => {
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
-    // Apply 074 only when it hasn't landed yet — an unconditional re-apply
-    // takes ACCESS EXCLUSIVE locks that contend with parallel suites. The
-    // probe index is the migration's LAST statement, and every sanctioned
-    // apply path runs the file as one transaction, so its presence implies
-    // the full migration. The double-apply test below still re-applies.
-    const [applied] = await db<{ applied: boolean }[]>`
-      SELECT EXISTS (
-        SELECT 1 FROM pg_indexes
-        WHERE schemaname = 'public'
-          AND tablename = 'notification_deliveries'
-          AND indexname = 'notification_deliveries_pending_post_notice_claim'
-      ) AS applied
-    `;
-    if (!applied?.applied) {
-      await db.unsafe(migrationSql());
-    }
+    // Guarded apply shared with the other 074-dependent suites; the guard's
+    // rationale lives in helpers/apply-migration-074.ts. The double-apply
+    // test below still re-applies unconditionally.
+    await applyMigration074IfMissing(db);
     await seedTenantAccount(db, {
       userId: tenant.userId,
       accountId: tenant.accountId,
@@ -284,7 +265,7 @@ describeWithDb('migration 074 trust dial + veto window — shape', { timeout: 30
   });
 
   it('applying the migration a second time is a clean no-op', async () => {
-    await expect(sql().unsafe(migrationSql())).resolves.not.toThrow();
+    await expect(sql().unsafe(readMigration074Sql())).resolves.not.toThrow();
 
     // End state is identical: each rebuilt/new index exists exactly once, on
     // its expected table in the public schema.
