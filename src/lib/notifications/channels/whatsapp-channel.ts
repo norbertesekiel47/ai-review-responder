@@ -111,10 +111,6 @@ export class WhatsAppChannel implements NotificationChannel {
     return { status: 'sent', externalMessageId: result.externalMessageId };
   }
 
-  // Interface-dispatched via getChannel(id).sendPendingPostNotice in the
-  // pending-post-notice worker (Task 7); fallow's member graph misses
-  // interface dispatch.
-  // fallow-ignore-next-line unused-class-member
   async sendPendingPostNotice(p: SendPendingPostNoticeParams): Promise<SendPendingPostNoticeResult> {
     // Business-initiated → outside any 24h session window → approved template
     // only (ADR 0003). Until WHATSAPP_PENDING_POST_TEMPLATE_SID is set, skip
