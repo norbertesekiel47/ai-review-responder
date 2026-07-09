@@ -44,6 +44,11 @@ const RESULT: GenerationResult = {
   apiCostId: 'cost-1',
 };
 
+// Sentinel instance for the approve UPDATE's RETURNING'd deadline. Tests
+// assert IDENTITY (===) of this object flowing into the publish enqueue's
+// availableAt bind — the deadline must be DB-clock-derived, never recomputed.
+const SCHEDULED_AT = new Date('2026-07-09T15:00:00.000Z');
+
 const CLEAN_MODERATION: ModerationDecision = {
   flagged: false,
   severity: 'low',
@@ -106,6 +111,7 @@ function queuePersistRows(input: {
   autoApprove?: boolean;
   reviewLockRows?: unknown[];
   autoApprovedToday?: number;
+  approveUpdateRows?: unknown[];
 } = {}) {
   txQueue.push(
     // SELECT id FROM reviews … FOR UPDATE (lock ordering — FIRST tx statement)
@@ -129,10 +135,12 @@ function queuePersistRows(input: {
   );
   if (input.autoApprove) {
     txQueue.push(
-      [], // UPDATE responses approved
+      // UPDATE responses approved … RETURNING auto_post_scheduled_at
+      input.approveUpdateRows ?? [{ auto_post_scheduled_at: SCHEDULED_AT }],
       [{ account_id: 'acct-1' }], // audit account lookup
       [], // INSERT approval_audit_log
-      [], // INSERT publish outbox
+      [], // INSERT publish outbox (delayed to the RETURNING'd deadline)
+      [], // INSERT pending_post_notice outbox
     );
   } else if (input.notify ?? true) {
     txQueue.push([]); // INSERT send_notification outbox
@@ -180,6 +188,10 @@ function assertManualNotificationFallback() {
   // 'auto_policy' bind is NOT asserted absent anymore: the WS4 daily-cap
   // COUNT binds it on every path as its approval_method filter.)
   expect(txTexts().some((text) => text.includes('UPDATE responses') && text.includes('approved_text'))).toBe(false);
+  // WS4: no veto-window deadline stamp and no pending-post notice off the
+  // auto-approve path.
+  expect(txTexts().some((text) => text.includes('auto_post_scheduled_at'))).toBe(false);
+  expect(txArgs()).not.toContain(QUEUE_NAMES.PENDING_POST_NOTICE);
   expect(sendNotificationPayloads()).toHaveLength(1);
 }
 
@@ -267,6 +279,98 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
           && (arg as Record<string, unknown>).correlation_id === 'corr-1',
       ),
     ).toBe(true);
+  });
+
+  it('stamps the veto deadline via make_interval and delays the publish to the identical RETURNING\'d instant', async () => {
+    queuePersistRows({ autoApprove: true });
+
+    await persistResponseAndNotify(mockSql, baseInput());
+
+    const approveCall = mockTx.mock.calls.find(
+      (call: unknown[]) => sqlText(call).includes('UPDATE responses') && sqlText(call).includes('approved_text'),
+    );
+    expect(approveCall).toBeDefined();
+    const approveText = sqlText(approveCall!);
+    expect(approveText).toContain('auto_post_scheduled_at = NOW() + make_interval(mins => ?)');
+    expect(approveText).toContain('RETURNING auto_post_scheduled_at');
+    // enabledPolicy() default dial: veto_window_minutes 15.
+    expect(approveCall!.slice(1)).toContain(15);
+
+    // The publish outbox INSERT must bind the very Date object RETURNING'd by
+    // the approve UPDATE (identity, not equality): the delay instant is
+    // DB-clock-derived, never recomputed from Date.now().
+    const publishCall = mockTx.mock.calls.find(
+      (call: unknown[]) => call.slice(1).includes(QUEUE_NAMES.PUBLISH_RESPONSE),
+    );
+    expect(publishCall).toBeDefined();
+    expect(publishCall!.slice(1).some((arg: unknown) => arg === SCHEDULED_AT)).toBe(true);
+  });
+
+  it('binds a 30-minute veto window when the policy dial says 30', async () => {
+    queuePersistRows({
+      autoApprove: true,
+      policies: [enabledPolicy({ veto_window_minutes: 30 })],
+    });
+
+    await persistResponseAndNotify(mockSql, baseInput());
+
+    const approveCall = mockTx.mock.calls.find(
+      (call: unknown[]) => sqlText(call).includes('make_interval'),
+    );
+    expect(approveCall).toBeDefined();
+    expect(approveCall!.slice(1)).toContain(30);
+  });
+
+  it('enqueues the pending-post notice with an ids-only payload in the same tx', async () => {
+    queuePersistRows({ autoApprove: true });
+
+    await persistResponseAndNotify(mockSql, baseInput());
+
+    const noticeCall = mockTx.mock.calls.find(
+      (call: unknown[]) => call.slice(1).includes(QUEUE_NAMES.PENDING_POST_NOTICE),
+    );
+    expect(noticeCall).toBeDefined();
+    const payload = noticeCall!.slice(1).find(
+      (arg: unknown): arg is Record<string, unknown> =>
+        !!arg && typeof arg === 'object' && !Array.isArray(arg) && !(arg instanceof Date),
+    );
+    // ids-only: the deadline is NEVER duplicated into a payload — its single
+    // source of truth is responses.auto_post_scheduled_at.
+    expect(payload).toEqual({
+      response_id: 'deterministic-uuid-v7',
+      business_id: 'biz-1',
+      correlation_id: 'corr-1',
+    });
+    expect(noticeCall!.slice(1).some((arg: unknown) => arg instanceof Date)).toBe(false);
+  });
+
+  it('records veto_window_minutes in the auto-policy audit metadata', async () => {
+    // insertAuditLogAutoPolicy runs for real against the mocked tx (tx.json is
+    // an identity pass-through), so a compaction-allowlist miss fails here.
+    queuePersistRows({ autoApprove: true });
+
+    await persistResponseAndNotify(mockSql, baseInput());
+
+    const auditCall = mockTx.mock.calls.find(
+      (call: unknown[]) => sqlText(call).includes('INSERT INTO approval_audit_log'),
+    );
+    expect(auditCall).toBeDefined();
+    const metadata = auditCall!.slice(1).find(
+      (arg: unknown): arg is Record<string, unknown> =>
+        !!arg && typeof arg === 'object' && !Array.isArray(arg) && 'policy_id' in arg,
+    );
+    expect(metadata).toBeDefined();
+    expect(metadata!.veto_window_minutes).toBe(15);
+  });
+
+  it('throws auto_approve_transition_lost when the guarded approve UPDATE matches zero rows', async () => {
+    // The guarded UPDATE lost its race (status moved off pending_approval
+    // concurrently) — the tx must roll back; generation-job retry semantics
+    // cover recovery.
+    queuePersistRows({ autoApprove: true, approveUpdateRows: [] });
+
+    await expect(persistResponseAndNotify(mockSql, baseInput()))
+      .rejects.toThrow('auto_approve_transition_lost');
   });
 
   it('warns but proceeds when the review lock matches zero rows (orphan response)', async () => {
@@ -376,7 +480,9 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
 
     expect(txArgs()).not.toContain(QUEUE_NAMES.SEND_NOTIFICATION);
     expect(txArgs()).not.toContain(QUEUE_NAMES.PUBLISH_RESPONSE);
+    expect(txArgs()).not.toContain(QUEUE_NAMES.PENDING_POST_NOTICE);
     expect(txArgs()).not.toContain('auto_approved_by_policy');
+    expect(txTexts().some((text) => text.includes('auto_post_scheduled_at'))).toBe(false);
     expect(sendNotificationPayloads()).toHaveLength(0);
   });
 
@@ -397,6 +503,8 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
     expect(txArgs()).toContain('open');
     expect(txArgs()).not.toContain(QUEUE_NAMES.SEND_NOTIFICATION);
     expect(txArgs()).not.toContain(QUEUE_NAMES.PUBLISH_RESPONSE);
+    expect(txArgs()).not.toContain(QUEUE_NAMES.PENDING_POST_NOTICE);
+    expect(txTexts().some((text) => text.includes('auto_post_scheduled_at'))).toBe(false);
     expect(sendNotificationPayloads()).toHaveLength(0);
   });
 });

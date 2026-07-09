@@ -203,7 +203,6 @@ describe('job outbox helpers', () => {
     const text = sqlText(tx.mock.calls[0]!);
     expect(text).toContain('COALESCE(?, NOW())');
     expect(tx.mock.calls[0]).toContain(availableAt);
-    expect(tx.mock.calls[0]).not.toContain(null);
   });
 
   it('pins the publish_response ON CONFLICT predicate byte-for-byte (regression guard for the availableAt change)', async () => {

@@ -41,6 +41,7 @@ export interface AutoPolicyAuditMetadata {
   policy_source?: PolicySource;
   resolved_min_star?: AutoApprovalThreshold | null;
   star_rating?: number | null;
+  veto_window_minutes?: 15 | 30;
   origin_lane?: GenerateResponseOriginLane | null;
   response_version?: number;
   provider_status?: 'clean' | 'error' | null;
@@ -93,6 +94,7 @@ const AUTO_POLICY_METADATA_KEYS = [
   'policy_source',
   'resolved_min_star',
   'star_rating',
+  'veto_window_minutes',
   'origin_lane',
   'response_version',
   'provider_status',

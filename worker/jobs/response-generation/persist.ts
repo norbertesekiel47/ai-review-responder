@@ -19,6 +19,7 @@ import {
   type GenerateResponseOriginLane,
 } from '../../../src/lib/shared/worker-types';
 import {
+  enqueuePendingPostNotice,
   enqueuePublishResponse,
   enqueueSendNotification,
 } from '../../../src/lib/shared/job-outbox-helpers';
@@ -219,20 +220,27 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
     }
 
     if (autoDecision.approved) {
-      // FP: ordered writes inside one sql.begin tx (approve UPDATE → audit log → enqueue publish); parallelizing would break tx ordering.
+      const vetoWindowMinutes = runtimeState.effectivePolicy.vetoWindowMinutes;
+      // FP: ordered writes inside one sql.begin tx (approve UPDATE → audit log → enqueue publish + notice); parallelizing would break tx ordering.
       // react-doctor-disable-next-line react-doctor/async-parallel
-      await tx`
+      const [scheduled] = await tx<{ auto_post_scheduled_at: Date }[]>`
         UPDATE responses
         SET status = ${RESPONSE_STATUS_APPROVED},
             approval_method = ${APPROVAL_METHOD.AUTO_POLICY},
             approved_text = ${result.responseText},
             approved_at = NOW(),
+            auto_post_scheduled_at = NOW() + make_interval(mins => ${vetoWindowMinutes}),
             posting_error = NULL,
             updated_at = NOW()
         WHERE id = ${responseId}
           AND business_id = ${businessId}
           AND status = ${RESPONSE_STATUS_PENDING_APPROVAL}
+        RETURNING auto_post_scheduled_at
       `;
+      if (!scheduled) {
+        // Guarded UPDATE lost a race — roll the tx back; generation-job retry semantics cover it.
+        throw new Error('auto_approve_transition_lost');
+      }
 
       await insertAuditLogAutoPolicy(tx, {
         responseId,
@@ -242,15 +250,22 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
           ...buildAutoApprovalDecisionSummary({ autoDecision, runtimeState, originLane, moderation, version }),
           policy_id: runtimeState.effectivePolicy.policyId,
           star_rating: runtimeState.currentStarRating,
+          veto_window_minutes: vetoWindowMinutes,
           correlation_id: correlationId,
         },
       });
 
+      // availableAt is the DB-clock-derived deadline the UPDATE just stamped,
+      // so the outbox delay window and the owner-visible deadline agree —
+      // postgres.js Dates carry ms precision, so this bind can be up to
+      // sub-ms earlier than the stored timestamptz (the safe direction).
       await enqueuePublishResponse(tx, {
         responseId,
         businessId,
         correlationId,
+        availableAt: scheduled.auto_post_scheduled_at,
       });
+      await enqueuePendingPostNotice(tx, { responseId, businessId, correlationId });
       return;
     }
 

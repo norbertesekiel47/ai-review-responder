@@ -47,7 +47,11 @@ export interface EnqueuePublishResponseInput {
   correlationId?: string;
   /** Veto-window delayed publish (WS4 spec §2.5): OutboxPoller claims only
    *  rows with available_at <= NOW(), so this single column IS the delay
-   *  mechanism. Omitted → NOW() (immediate publish, every other caller). */
+   *  mechanism. Omitted → NOW() (immediate publish, every other caller).
+   *  Pass a DB-clock-derived instant (e.g. the RETURNING'd
+   *  auto_post_scheduled_at), never a Date computed from Date.now() —
+   *  app-host clock skew would split the outbox window from the
+   *  owner-visible deadline. */
   availableAt?: Date;
 }
 
