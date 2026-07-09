@@ -10,6 +10,7 @@ import {
   enqueueAutoPostNotice,
   enqueueEscalationNotice,
   enqueueGenerateResponse,
+  enqueuePendingPostNotice,
   enqueuePublishResponse,
   enqueueValidatePlaceId,
   normalizeGenerateResponsePayload,
@@ -171,6 +172,105 @@ describe('job outbox helpers', () => {
       business_id: 'business-1',
       correlation_id: 'corr-1',
     });
+  });
+
+  it('defaults publish_response available_at to NOW() via COALESCE when availableAt is omitted', async () => {
+    // WS4 veto window: the delay column must be COALESCE(<bound param>, NOW())
+    // with a NULL param so every pre-existing caller keeps immediate publish.
+    const tx = createMockTx();
+
+    await enqueuePublishResponse(tx, {
+      responseId: 'response-1',
+      businessId: 'business-1',
+    });
+
+    const text = sqlText(tx.mock.calls[0]!);
+    expect(text).toContain('available_at');
+    expect(text).toContain('COALESCE(?, NOW())');
+    expect(tx.mock.calls[0]).toContain(null);
+  });
+
+  it('binds the supplied availableAt date for a delayed publish_response', async () => {
+    const tx = createMockTx();
+    const availableAt = new Date('2026-07-09T15:00:00.000Z');
+
+    await enqueuePublishResponse(tx, {
+      responseId: 'response-1',
+      businessId: 'business-1',
+      availableAt,
+    });
+
+    const text = sqlText(tx.mock.calls[0]!);
+    expect(text).toContain('COALESCE(?, NOW())');
+    expect(tx.mock.calls[0]).toContain(availableAt);
+    expect(tx.mock.calls[0]).not.toContain(null);
+  });
+
+  it('pins the publish_response ON CONFLICT predicate byte-for-byte (regression guard for the availableAt change)', async () => {
+    const tx = createMockTx();
+
+    await enqueuePublishResponse(tx, {
+      responseId: 'response-1',
+      businessId: 'business-1',
+      availableAt: new Date('2026-07-09T15:00:00.000Z'),
+    });
+
+    const text = sqlText(tx.mock.calls[0]!);
+    // Byte-for-byte the predicate of the publish in-flight partial unique
+    // index — the WS4 available_at addition must not perturb it.
+    expect(text).toContain('ON CONFLICT (topic, aggregate_id)');
+    expect(text).toContain(
+      "WHERE topic = 'publish_response' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
+    );
+  });
+
+  it('enqueues pending_post_notice with the in-flight conflict guard matching migration 074 byte-for-byte', async () => {
+    const tx = createMockTx();
+
+    const outboxId = await enqueuePendingPostNotice(tx, {
+      responseId: 'response-1',
+      businessId: 'business-1',
+      correlationId: 'corr-1',
+    });
+
+    expect(outboxId).toBe('outbox-uuid');
+    expect(tx).toHaveBeenCalledOnce();
+    const text = sqlText(tx.mock.calls[0]!);
+    expect(text).toContain('INSERT INTO job_outbox');
+    expect(text).toContain('ON CONFLICT (topic, aggregate_id)');
+    // Byte-for-byte the predicate of idx_jo_pending_post_notice_inflight (074).
+    expect(text).toContain(
+      "WHERE topic = 'pending_post_notice' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
+    );
+    expect(tx.mock.calls[0]).toContain(QUEUE_NAMES.PENDING_POST_NOTICE);
+    // Aggregate vocabulary: the notice is about a response.
+    expect(tx.mock.calls[0]).toContain('response');
+    expect(tx.mock.calls[0]).toContain('response-1');
+    expect(tx.mock.calls[0]).toContain('pending');
+
+    // ids-only snake_case payload — the deadline is NOT duplicated here (it
+    // lives on responses.auto_post_scheduled_at, WS4 spec §2.7).
+    const payload = objectArgs(tx).find((arg) => arg.response_id === 'response-1');
+    expect(payload).toEqual({
+      response_id: 'response-1',
+      business_id: 'business-1',
+      correlation_id: 'corr-1',
+    });
+  });
+
+  it('omits correlation_id from pending_post_notice payload when not provided and honors a supplied outboxId', async () => {
+    const tx = createMockTx();
+
+    const outboxId = await enqueuePendingPostNotice(tx, {
+      outboxId: 'caller-supplied-id',
+      responseId: 'response-1',
+      businessId: 'business-1',
+    });
+
+    expect(outboxId).toBe('caller-supplied-id');
+    expect(tx.mock.calls[0]).toContain('caller-supplied-id');
+    const payload = objectArgs(tx).find((arg) => arg.response_id === 'response-1');
+    expect(payload).toEqual({ response_id: 'response-1', business_id: 'business-1' });
   });
 
   it('enqueues auto_post_notice with the in-flight conflict guard matching migration 067 byte-for-byte', async () => {

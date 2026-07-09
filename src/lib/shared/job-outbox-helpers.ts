@@ -7,6 +7,7 @@ import {
   type AutoPostNoticePayload,
   type EscalationNoticePayload,
   type GenerateResponsePayload,
+  type PendingPostNoticePayload,
   type PublishResponsePayload,
   type SendNotificationPayload,
 } from './worker-types';
@@ -44,6 +45,10 @@ export interface EnqueuePublishResponseInput {
   responseId: string;
   businessId: string;
   correlationId?: string;
+  /** Veto-window delayed publish (WS4 spec §2.5): OutboxPoller claims only
+   *  rows with available_at <= NOW(), so this single column IS the delay
+   *  mechanism. Omitted → NOW() (immediate publish, every other caller). */
+  availableAt?: Date;
 }
 
 export interface EnqueueSendNotificationInput {
@@ -54,6 +59,13 @@ export interface EnqueueSendNotificationInput {
 }
 
 export interface EnqueueAutoPostNoticeInput {
+  outboxId?: string;
+  responseId: string;
+  businessId: string;
+  correlationId?: string;
+}
+
+export interface EnqueuePendingPostNoticeInput {
   outboxId?: string;
   responseId: string;
   businessId: string;
@@ -190,14 +202,15 @@ export async function enqueuePublishResponse(
   }
 
   await tx`
-    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status, available_at)
     VALUES (
       ${outboxId},
       ${QUEUE_NAMES.PUBLISH_RESPONSE},
       ${AGGREGATE_TYPE_RESPONSE},
       ${input.responseId},
       ${tx.json(payload as never)},
-      ${JOB_OUTBOX_STATUS_PENDING}
+      ${JOB_OUTBOX_STATUS_PENDING},
+      COALESCE(${input.availableAt ?? null}, NOW())
     )
     ON CONFLICT (topic, aggregate_id)
     WHERE topic = 'publish_response' -- topic-audit-ignore: partial-index inference needs a literal
@@ -243,6 +256,48 @@ export async function enqueueAutoPostNotice(
     )
     ON CONFLICT (topic, aggregate_id)
     WHERE topic = 'auto_post_notice' -- topic-audit-ignore: partial-index inference needs a literal
+      AND status IN ('pending', 'dispatching', 'dispatched')
+    DO NOTHING
+  `;
+  return outboxId;
+}
+
+/**
+ * Enqueues the veto-window "your reply will post automatically" notice (WS4
+ * spec §2.7). In-flight guard mirrors enqueueAutoPostNotice: the partial
+ * unique index idx_jo_pending_post_notice_inflight (migration 074) backs the
+ * byte-for-byte ON CONFLICT below. Caller contract: enqueued in the SAME tx
+ * as the auto-approval transition (persist.ts's auto-approve branch, outbox
+ * invariant #2); the notice is best-effort transparency and must NEVER gate
+ * the publish — its outbox row is independent of the delayed publish row, and
+ * a total notice failure still lets the reply post at the deadline. Payload
+ * is ids-only; the deadline lives on responses.auto_post_scheduled_at.
+ */
+export async function enqueuePendingPostNotice(
+  tx: TxClient,
+  input: EnqueuePendingPostNoticeInput,
+): Promise<string> {
+  const outboxId = input.outboxId ?? uuidv7();
+  const payload: PendingPostNoticePayload = {
+    response_id: input.responseId,
+    business_id: input.businessId,
+  };
+  if (input.correlationId !== undefined) {
+    payload.correlation_id = input.correlationId;
+  }
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.PENDING_POST_NOTICE},
+      ${AGGREGATE_TYPE_RESPONSE},
+      ${input.responseId},
+      ${tx.json(payload as never)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
+    ON CONFLICT (topic, aggregate_id)
+    WHERE topic = 'pending_post_notice' -- topic-audit-ignore: partial-index inference needs a literal
       AND status IN ('pending', 'dispatching', 'dispatched')
     DO NOTHING
   `;
