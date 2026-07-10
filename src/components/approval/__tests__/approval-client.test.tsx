@@ -360,6 +360,76 @@ describe('ApprovalClient', () => {
     });
   });
 
+  describe('publish busy state (in-flight POST)', () => {
+    // fetch mock where the action POST hangs until the test releases it —
+    // exercises PublishButton's actionLoading branch, which only renders
+    // while the request is genuinely in flight.
+    function stubHangingActionFetch(actionPath: '/approve' | '/edit') {
+      let releaseAction!: (response: Response) => void;
+      const pendingAction = new Promise<Response>((resolve) => {
+        releaseAction = resolve;
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url.endsWith('/session')) {
+            return { ok: true, status: 200, json: async () => ({}) } as Response;
+          }
+          if (url.endsWith(actionPath)) {
+            return pendingAction;
+          }
+          return { ok: true, status: 200, json: async () => REVIEW_DATA } as Response;
+        }),
+      );
+      return (body: unknown) =>
+        releaseAction({ ok: true, status: 200, json: async () => body } as Response);
+    }
+
+    it('shows a disabled "Approving…" pill while the approve POST is in flight', async () => {
+      const releaseApprove = stubHangingActionFetch('/approve');
+      renderClient('raw-token');
+
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Approve & post to Google' }),
+      );
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Tap again to post to Google' }),
+      );
+
+      // While the POST hangs, the pill is a busy indicator — disabled so a
+      // third tap can't double-post.
+      const busyButton = await screen.findByRole('button', { name: 'Approving…' });
+      expect(busyButton).toBeDisabled();
+      expect(busyButton).toHaveAttribute('aria-busy', 'true');
+
+      // Release the in-flight POST so the test ends in a settled state.
+      releaseApprove({ success: true, message: 'Approved.' });
+      expect(await screen.findByText('Response approved!')).toBeInTheDocument();
+    });
+
+    it('shows a disabled "Saving…" pill while the edit POST is in flight', async () => {
+      const releaseEdit = stubHangingActionFetch('/edit');
+      renderClient('raw-token');
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+      fireEvent.change(screen.getByLabelText('Edit your response'), {
+        target: { value: 'Thank you so much, Alex!' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Save & post to Google' }));
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Tap again to post to Google' }),
+      );
+
+      const busyButton = await screen.findByRole('button', { name: 'Saving…' });
+      expect(busyButton).toBeDisabled();
+      expect(busyButton).toHaveAttribute('aria-busy', 'true');
+
+      releaseEdit({ success: true, message: 'Approved with your edits.' });
+      expect(await screen.findByText('Response approved!')).toBeInTheDocument();
+    });
+  });
+
   describe('scheduled auto-post state (WS4 veto surface)', () => {
     function scheduledData(overrides?: Record<string, unknown>) {
       return {
