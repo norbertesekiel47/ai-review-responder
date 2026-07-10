@@ -5,17 +5,19 @@ import { describe, expect, it } from 'vitest';
 // Anchor-pairing TRIPWIRE for the agent-outcome lock-order contract (WS4).
 //
 // recordOutcome's INSERT takes an implicit FK FOR KEY SHARE on the agent_runs
-// row; without the global reviews-first lock anchor (outcomes.ts /
-// run-spine.ts / veto.ts headers), a caller that locks its response row first
-// closes a deadlock cycle against processReview / mark-posted (which hold
-// reviews → agent_runs / reviews → responses). This test forces HUMAN REVIEW
-// of every new outcome-recording file: adding a call site outside the
-// allowlist, or dropping the anchor from an existing caller, fails here until
-// the file is deliberately reviewed and listed — the same governance as the
-// runLlmTask cost-guard allowlist (src/__tests__/cost-guard-contract.test.ts)
-// and the JSONB string-guard carve-out in CLAUDE.md. It is a textual tripwire,
-// NOT a proof of lock ordering; the positional pins in http-routes.test.ts and
-// the veto/owner-decision integration suites are the proof.
+// row, and recordStep (agent_runs FOR UPDATE) / completeRun (agent_runs
+// UPDATE) take the same row lock with the same cycle risk; without the global
+// reviews-first lock anchor (outcomes.ts / run-spine.ts / veto.ts headers), a
+// caller that locks its response row first closes a deadlock cycle against
+// processReview / mark-posted (which hold reviews → agent_runs / reviews →
+// responses). This test forces HUMAN REVIEW of every new spine-writing file:
+// adding a call site outside the allowlist, or dropping the anchor from an
+// existing caller, fails here until the file is deliberately reviewed and
+// listed — the same governance as the runLlmTask cost-guard allowlist
+// (src/__tests__/cost-guard-contract.test.ts) and the JSONB string-guard
+// carve-out in CLAUDE.md. It is a textual tripwire, NOT a proof of lock
+// ordering; the positional pins in http-routes.test.ts and the
+// veto/owner-decision integration suites are the proof.
 
 const CALLER_ALLOWLIST = new Set([
   'src/lib/approval/callback-mode.ts', // anchorReviewLockOrder before lockPendingResponse
@@ -25,6 +27,9 @@ const CALLER_ALLOWLIST = new Set([
   'src/lib/approval/veto.ts', // in-file reviews FOR UPDATE (owns the deadlock analysis)
   'src/lib/escalations/raise.ts', // lock held by caller — see LOCK_HELD_BY_CALLER
   'src/lib/escalations/transitions.ts', // in-file reviews FOR UPDATE as tx statement #1
+  'src/lib/reviews/process-review.ts', // in-file reviews FOR UPDATE as tx statement #1 (canonical order owner)
+  'src/lib/reviews/triage.ts', // in-file reviews FOR UPDATE as tx statement #1 (persistTriage)
+  'worker/jobs/escalation-notice/EscalationNoticeWorker.ts', // in-file reviews FOR UPDATE before the spine writes
   'worker/jobs/publisher/mark-posted.ts', // in-file reviews FOR UPDATE as tx statement #1
   'worker/jobs/response-generation/persist.ts', // in-file reviews FOR UPDATE as tx statement #1
 ]);
@@ -40,10 +45,12 @@ const LOCK_HELD_BY_CALLER = new Set([
 
 const SCAN_ROOTS = ['src', 'worker'];
 const SKIP_DIRS = new Set(['__tests__', 'fixtures', 'node_modules']);
-// A CALL site — the lookbehind excludes the declarations themselves
-// (`export async function recordOutcome(` in run-spine.ts and
-// `recordOwnerDecisionOutcome(` in outcomes.ts).
-const CALL_SITE = /(?<!function )\b(?:recordOutcome|recordOwnerDecisionOutcome)\s*\(/;
+// A CALL site — the `function ` lookbehind excludes the declarations
+// themselves (run-spine.ts / outcomes.ts); the `for ` lookbehind excludes
+// run-spine.ts's own "run not found for recordStep(...)" /
+// "... for completeRun(...)" error-message strings, which are not call sites.
+const CALL_SITE =
+  /(?<!function )(?<!for )\b(?:recordOutcome|recordOwnerDecisionOutcome|recordStep|completeRun)\s*\(/;
 
 function hasReviewsLockPairing(text: string): boolean {
   if (text.includes('anchorReviewLockOrder(')) return true;
@@ -74,15 +81,15 @@ function findCallerFiles(): { file: string; text: string }[] {
   return callers.sort((a, b) => a.file.localeCompare(b.file));
 }
 
-describe('outcome anchor-pairing contract: recordOutcome callers hold the reviews lock', () => {
+describe('spine anchor-pairing contract: recordOutcome/recordStep/completeRun callers hold the reviews lock', () => {
   const callers = findCallerFiles();
 
-  it('every outcome-recording file is in the reviewed-caller allowlist', () => {
+  it('every spine-writing file is in the reviewed-caller allowlist', () => {
     const unreviewed = callers.filter(({ file }) => !CALLER_ALLOWLIST.has(file)).map(({ file }) => file);
     expect(
       unreviewed,
-      `New recordOutcome/recordOwnerDecisionOutcome caller(s) detected: ${unreviewed.join(', ')}. ` +
-        'Every outcome-recording tx must hold the reviews row FOR UPDATE BEFORE ' +
+      `New recordOutcome/recordStep/completeRun caller(s) detected: ${unreviewed.join(', ')}. ` +
+        'Every spine-writing tx must hold the reviews row FOR UPDATE BEFORE ' +
         'any response lock (outcomes.ts caller contract; veto.ts header owns the ' +
         'deadlock analysis) — take the lock in-file or call anchorReviewLockOrder, ' +
         'then add the file to CALLER_ALLOWLIST here.',
@@ -95,7 +102,7 @@ describe('outcome anchor-pairing contract: recordOutcome callers hold the review
       .map(({ file }) => file);
     expect(
       unpaired,
-      `Outcome-recording file(s) lost their reviews-lock pairing: ${unpaired.join(', ')}. ` +
+      `Spine-writing file(s) lost their reviews-lock pairing: ${unpaired.join(', ')}. ` +
         'The file must contain a reviews FOR UPDATE or an anchorReviewLockOrder call ' +
         '(outcomes.ts caller contract), or carry a justified LOCK_HELD_BY_CALLER entry.',
     ).toHaveLength(0);
@@ -106,7 +113,7 @@ describe('outcome anchor-pairing contract: recordOutcome callers hold the review
     const stale = [...CALLER_ALLOWLIST].filter((file) => !found.has(file));
     expect(
       stale,
-      `Allowlisted file(s) no longer record an outcome: ${stale.join(', ')}. ` +
+      `Allowlisted file(s) no longer write to the run spine: ${stale.join(', ')}. ` +
         'Remove them — this is an allowlist, not folklore.',
     ).toHaveLength(0);
 
