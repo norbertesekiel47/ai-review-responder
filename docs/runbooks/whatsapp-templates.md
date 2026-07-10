@@ -421,3 +421,153 @@ Each environment needs its own approved template, selected via
 |-----|---------------|-----|-------------|
 | Prod | `repworth_escalation_notice_v1` | `HX________ (record at go-live)` | not yet submitted |
 | Staging | `repworth_escalation_notice_staging_v1` | `HX________ (record at go-live)` | not yet submitted |
+
+---
+
+## Pending-post notice (`WHATSAPP_PENDING_POST_TEMPLATE_SID`)
+
+**Purpose:** Tell a business owner that their auto-approval policy approved a
+reply which will post to Google automatically when the veto window closes (WS4,
+spec `docs/superpowers/specs/2026-07-07-ws4-trust-dial-veto-window-design.md`
+§2.7). One URL button → the tokenized approve page, where the owner can view,
+edit, or **Cancel auto-post** before the deadline. No QUICK_REPLY buttons — the
+cancel action is a session-bound POST on the approve page, not an inbound
+WhatsApp payload.
+
+**Twilio Content type:** `whatsapp/card` (real `body` field + URL button +
+static `footer`, same as the other three templates).
+
+**Meta category:** UTILITY (transactional — it reports an action the owner's
+own policy authorized and offers the override). If Meta reclassifies as
+MARKETING, the copy may need a rework; the `_v1` suffix reserves room for a
+versioned resubmit.
+
+**Proposed body text:**
+
+```
+⏳ Reply to {{2}}'s ⭐{{3}} review of {{1}} auto-posts at {{4}}
+
+"{{5}}"
+
+Your reply:
+{{6}}
+```
+
+**Footer (static, no variables, 54/60 chars):**
+
+```
+Auto-approved by your policy — review or cancel below.
+```
+
+**Variables:** (must match `formatPendingPostNoticeWhatsApp` in
+`src/lib/notifications/channels/whatsapp-body.ts` — keys `"1"`–`"7"`, passed
+positionally)
+
+| Index | Content | Type | Max length | Null-safe default |
+|-------|---------|------|------------|-------------------|
+| 1 | Business name | string | 100 | — (always set) |
+| 2 | Reviewer name | string | 100 | `"Reviewer"` if missing |
+| 3 | Star rating | string `"1"`–`"5"` | 1 | — |
+| 4 | Scheduled post time phrase, e.g. `"14:30 UTC (in about 15 minutes)"` (single owner: `formatScheduledPostTime` in `src/lib/notifications/channels/scheduled-post-time.ts`) | string | ≤ 40 (31 at today's 15/30-min windows; not clamped in code — see the length budget below) | — (always set) |
+| 5 | Review text | string | `REVIEW_TEXT_MAX` (350, derived) | `"(no comment)"` if null/empty |
+| 6 | Draft reply preview | string | `RESPONSE_PREVIEW_MAX` (350, derived) | — (always set) |
+| 7 | URL button suffix (raw approval token) | string | 64 | — |
+
+**Buttons:**
+
+| Index | Type | Label | Dynamic content |
+|-------|------|-------|-----------------|
+| 0 | URL | Review / cancel | `url` field = `https://app.repworth.com/approve/{{7}}` |
+
+**URL button base:** `https://app.repworth.com/approve/` — the same
+fixed-prefix + raw-token-suffix shape Meta already approved for the approval
+template's `/approve/{{9}}` button. Like the autopost FYI (and unlike
+`WHATSAPP_APPROVAL_URL_BASE`) there is **no boot-time equality assertion** for
+this base; the formatter's `extractTokenFromApprovalUrl` instead fails loud on
+any dispatcher-constructed URL that is not exactly `<origin>/approve/<token>`.
+Each environment needs its own approved template whose button base matches that
+env's `NEXT_PUBLIC_APP_URL`.
+
+### Length budget (verified 2026-07-09)
+
+The formatter reuses the approval card's derived free-text budgets
+(`REVIEW_TEXT_MAX` = 350 for `{{5}}`, `RESPONSE_PREVIEW_MAX` = 350 for `{{6}}` —
+both derived from `WHATSAPP_CARD_BODY_LIMIT` = 1024 in `whatsapp-body.ts`, the
+`whatsapp/card` body ceiling; Twilio's overall 1600-char message bound is
+strictly looser). Worst-case rendered body for the copy above:
+
+| Component | Chars |
+|---|---|
+| Fixed (non-variable) body text | 59 |
+| `{{1}}` business name (clamped) | 100 |
+| `{{2}}` reviewer name (clamped) | 100 |
+| `{{3}}` star rating | 1 |
+| `{{4}}` time phrase (documented cap; code emits ≤ 31 for 15/30-min windows) | 40 |
+| `{{5}}` review text (clamped) | 350 |
+| `{{6}}` draft preview (clamped) | 350 |
+| **Worst-case total** | **1000 ≤ 1024** |
+
+**Verdict: PASS**, 24 chars of headroom (33 at the real ≤ 31-char phrase). The
+footer does not count toward the body limit. Re-run this arithmetic if the body
+copy changes, if the free-text budgets in `whatsapp-body.ts` move, or if a
+future veto-window value pushes the `{{4}}` phrase past 40 chars
+(`formatScheduledPostTime` does not clamp it — the 15/30-minute domain bounds
+it today).
+
+### Submission JSON (Twilio Content API)
+
+Submit via the Content Editor UI or `POST /v1/Content`. After Meta approves,
+Twilio returns an `HX...` Content SID — set it as
+`WHATSAPP_PENDING_POST_TEMPLATE_SID` on the **Railway worker only** (read via
+`getWorkerConfig()` in `worker/jobs/pending-post-notice/dispatch.ts`; no Vercel
+route or UI reads it — see `env-vars.md`). If unset, the dispatcher pre-filters
+WhatsApp and `sendPendingPostNotice` returns `{status:'skipped'}` (email +
+Telegram still send); it is **NOT** a startup-required var.
+
+```json
+{
+  "friendly_name": "repworth_pending_post_notice_v1",
+  "language": "en",
+  "variables": {
+    "1": "Acme Diner",
+    "2": "Jane D",
+    "3": "5",
+    "4": "14:30 UTC (in about 15 minutes)",
+    "5": "Great service!",
+    "6": "Thank you Jane!",
+    "7": "tok_abc123"
+  },
+  "types": {
+    "whatsapp/card": {
+      "body": "⏳ Reply to {{2}}'s ⭐{{3}} review of {{1}} auto-posts at {{4}}\n\n\"{{5}}\"\n\nYour reply:\n{{6}}",
+      "footer": "Auto-approved by your policy — review or cancel below.",
+      "actions": [
+        { "type": "URL", "title": "Review / cancel", "url": "https://app.repworth.com/approve/{{7}}" }
+      ]
+    }
+  }
+}
+```
+
+**Variable-map validation gate (before submitting):** diff `{{1}}`–`{{7}}`
+against `formatPendingPostNoticeWhatsApp` — `"1"`=businessName,
+`"2"`=reviewerName (`|| 'Reviewer'`), `"3"`=`String(starRating)`,
+`"4"`=`formatScheduledPostTime(scheduledPostAt, now).phrase`,
+`"5"`=`truncate(oneLine(reviewText ?? '(no comment)'), REVIEW_TEXT_MAX)`,
+`"6"`=`truncate(oneLine(responsePreview), RESPONSE_PREVIEW_MAX)`,
+`"7"`=`extractTokenFromApprovalUrl(approveUrl)` → URL button suffix.
+
+**What triggers a resubmission:** body wording, the footer, the button
+label/URL base, the category, or the variable count/order — same rules as the
+other three templates.
+
+### Environment SIDs
+
+Each environment needs its own approved template (URL button base must match
+that env's `NEXT_PUBLIC_APP_URL`), selected via
+`WHATSAPP_PENDING_POST_TEMPLATE_SID`. Record SIDs here once issued:
+
+| Env | Template name | URL button base | SID | Meta status |
+|-----|---------------|-----------------|-----|-------------|
+| Prod | `repworth_pending_post_notice_v1` | `https://app.repworth.com/approve/{{7}}` | `HX________ (record at go-live)` | not yet submitted |
+| Staging | `repworth_pending_post_notice_staging_v1` | `https://staging.repworth.net/approve/{{7}}` | `HX________ (record at go-live)` | not yet submitted |
