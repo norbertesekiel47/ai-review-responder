@@ -161,15 +161,18 @@ disagree on which env vars count (all 5, incl. `WHATSAPP_APPROVAL_URL_BASE`).
   Meta template clears and WhatsApp escalation notices activate with no code
   change. No `NEXT_PUBLIC_*` companion.
 - `WHATSAPP_PENDING_POST_TEMPLATE_SID` — Twilio Content SID for the WS4
-  pending-post notice template ("will post automatically at ~HH:MM — review or
-  cancel"; content docs land in `docs/runbooks/whatsapp-templates.md` with WS4
-  Task 14). Same posture as the two SIDs above: **deliberately absent from
+  pending-post notice template ("auto-posts at HH:MM UTC — review or cancel";
+  authoritative content + submission steps:
+  `docs/runbooks/whatsapp-templates.md`, "Pending-post notice" section). Same
+  posture as the two SIDs above: **deliberately absent from
   `assertChannelsWhatsAppEnv`** — its absence must NOT fail worker boot. When
   unset, the WhatsApp channel's `sendPendingPostNotice` returns
-  `{status:'skipped'}` (fails closed; the Task 7 dispatcher logs the skip);
-  email + Telegram notices still send. Worker-only (Railway); set it once the
-  Meta template clears and WhatsApp pending-post notices activate with no code
-  change. No `NEXT_PUBLIC_*` companion.
+  `{status:'skipped'}` (fails closed; the dispatcher
+  `worker/jobs/pending-post-notice/dispatch.ts` pre-filters and logs the
+  skip); email + Telegram notices still send. Worker-only (Railway); set it
+  once the Meta template clears and WhatsApp pending-post notices activate
+  with no code change. Per-env SIDs (the URL button base must match the env's
+  `NEXT_PUBLIC_APP_URL`). No `NEXT_PUBLIC_*` companion.
 
 **Before flipping:** Meta Business verification (2–4 week process) + WABA setup + Content template approval.
 
@@ -424,7 +427,7 @@ in-code defaults are dev-scale.
 | `CHANNELS_TELEGRAM_ENABLED` | Off | Bot registered + setWebhook called |
 | `CHANNELS_WHATSAPP_ENABLED` | Off | Meta verification + WABA + template approval |
 | `ZERNIO_PUBLISHING_ENABLED` | **ON (prod, 2026-04-28)** | Migrations 026+028+029+030 applied |
-| `AUTO_APPROVAL_ENABLED` | Off | Server-only kill switch for the auto-approval runtime path. `false`/unset means generated drafts stay on normal owner review; any unposted `approval_method='auto_policy'` publish job is downgraded back to `pending_approval` and not posted. `true` permits auto-approval only for `live_ingest_new` v1 jobs that pass current review hash, active location/connection, subscription, policy threshold, and provider moderation gates. Worker startup rejects non-`true`/`false` configured values. No `NEXT_PUBLIC_*` companion. |
+| `AUTO_APPROVAL_ENABLED` | Off | Server-only kill switch for the auto-approval runtime path. `false`/unset means generated drafts stay on normal owner review; any unposted `approval_method='auto_policy'` publish job is downgraded back to `pending_approval` and not posted. `true` permits auto-approval only for `live_ingest_new` v1 jobs that pass current review hash, active location/connection, subscription, policy threshold, and provider moderation gates. **WS4 (spec §2.12): the flag now ALSO governs the whole veto-window lane** — candidate evaluation, the delayed `publish_response` enqueue (`available_at = NOW() + veto_window_minutes`), the `pending_post_notice` send-time re-check (`PendingPostNoticeWorker` completes without sending when off), and the publisher's downgrade backstop (which also catches responses caught mid-window by a kill-switch flip). No new WS4 flags — everything rides this one. Worker startup rejects non-`true`/`false` configured values. No `NEXT_PUBLIC_*` companion. |
 | `AUTO_APPROVAL_PROVIDER_MODERATION_READY` | Off | Server-only ops readiness marker after target-environment provider moderation validation. This does not by itself enable runtime auto-approval; `OPENAI_MODERATION_ENABLED=true` and a clean provider result are runtime gates, while this marker gates settings expansion/readiness. Worker startup rejects non-`true`/`false` configured values. No `NEXT_PUBLIC_*` companion. |
 | `ACCOUNT_OFFBOARDING_ENABLED` | Off | Server-only kill switch for owner offboarding. Leave off until the full 7-PR sequence lands and the staging dry-run passes. `true` is the only enabling value; worker startup rejects non-`true`/`false` configured values. No `NEXT_PUBLIC_*` companion. Browser surfaces learn offboarding state through authenticated server responses only. |
 | `STRIPE_TAX_ENABLED` | Off | Server-only. When `true`, checkout sessions enable `automatic_tax`, require a billing address, and collect tax IDs. Requires Stripe Tax enabled in the dashboard + `tax_behavior` on every Price first (enabling it before that makes `sessions.create` throw). Worker startup rejects non-`true`/`false` configured values. No `NEXT_PUBLIC_*` companion. |
