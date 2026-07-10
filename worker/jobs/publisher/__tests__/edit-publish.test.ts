@@ -33,6 +33,8 @@ const {
   mockPostReply,
   mockDeleteReply,
   mockVerify409InTx,
+  mockRevokeOpenLinks,
+  mockEnqueueAutoPostNotice,
 } = await vi.hoisted(async () => {
   // Fragment-aware Postgres.js mock (shared harness). A nested `tx`` fragment
   // composes into the parent query's text WITHOUT executing or shifting the
@@ -47,6 +49,8 @@ const {
     mockPostReply: vi.fn(),
     mockDeleteReply: vi.fn(),
     mockVerify409InTx: vi.fn(),
+    mockRevokeOpenLinks: vi.fn(async () => undefined),
+    mockEnqueueAutoPostNotice: vi.fn(async () => 'outbox-1'),
   };
 });
 
@@ -56,11 +60,34 @@ vi.mock('../../../../src/lib/zernio/client', () => ({
 }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 vi.mock('@sentry/node', () => ({ captureMessage: vi.fn(), captureException: vi.fn() }));
+// Seams behind the mark-posted checkpoint (WS4 §2.9): the success path now
+// routes through markPostedAndMaybeEnqueueAutoPostNotice, whose own SQL (review
+// re-lock + guarded posted UPDATE) runs against the shared queue, while its
+// link-revocation / spine / FYI collaborators are seam-mocked so these tests
+// assert WHICH checkpoints fire, not their internals (mark-posted.test.ts owns those).
+vi.mock('../../../../src/lib/approval/locks', () => ({
+  revokeOpenLinksForResponse: mockRevokeOpenLinks,
+}));
+vi.mock('../../../../src/lib/shared/job-outbox-helpers', () => ({
+  enqueueAutoPostNotice: mockEnqueueAutoPostNotice,
+}));
+vi.mock('../../../../src/lib/agents/run-spine', () => ({
+  findActiveReviewRun: vi.fn(),
+  recordStep: vi.fn(),
+  recordOutcome: vi.fn(),
+  completeRun: vi.fn(),
+}));
 
 import {
   runEditPublishIfApplicable,
   type EditPublishContext,
 } from '../edit-publish';
+import {
+  findActiveReviewRun,
+  recordStep,
+  recordOutcome,
+  completeRun,
+} from '../../../../src/lib/agents/run-spine';
 
 // Typed view of the hoisted verify409InTx mock so `.mockResolvedValueOnce`
 // accepts the discriminated-union dispositions.
@@ -153,11 +180,24 @@ function pushPhaseBLockSequence(opts: {
   sqlReturnQueue.push(existingPosted ? [existingPosted] : []);    // existingPosted FOR UPDATE
 }
 
+// Success-path checkpoint queue (WS4 §2.9): the marker-clear UPDATE in
+// edit-publish, then mark-posted's review re-lock + guarded posted UPDATE
+// (RETURNING id, approval_method). Push AFTER any sibling-supersede entry.
+function pushMarkPostedSuccess(approvalMethod: string | null = 'owner') {
+  sqlReturnQueue.push(Object.assign([], { count: 1 }));  // marker-clear (posting_error = NULL)
+  sqlReturnQueue.push([{ id: 'rev-1' }]);                // mark-posted review re-lock
+  sqlReturnQueue.push(
+    Object.assign([{ id: 'resp-1', approval_method: approvalMethod }], { count: 1 }),
+  );                                                     // guarded posted UPDATE
+}
+
 const okReply = { comment: 'ok', updateTime: '2026' };
 
 beforeEach(() => {
   vi.clearAllMocks();
   sqlReturnQueue.length = 0;
+  // Legacy default: no running run → the checkpoint skips spine writes.
+  vi.mocked(findActiveReviewRun).mockResolvedValue(null);
 });
 
 // ── Branch decisions / Phase A inertness ────────────────────────────────
@@ -183,7 +223,7 @@ describe('runEditPublishIfApplicable — Phase A', () => {
       },
       existingPosted: null,
     });
-    sqlReturnQueue.push(Object.assign([], { count: 1 }));  // candidate posted
+    pushMarkPostedSuccess();
 
     mockPostReply.mockResolvedValueOnce(okReply);
 
@@ -202,7 +242,7 @@ describe('runEditPublishIfApplicable — Phase A', () => {
     pushPhaseAProbe(true);
     pushPhaseBLockSequence();
     sqlReturnQueue.push(Object.assign([], { count: 1 }));  // sibling superseded
-    sqlReturnQueue.push(Object.assign([], { count: 1 }));  // candidate posted
+    pushMarkPostedSuccess();
 
     mockDeleteReply.mockResolvedValueOnce(undefined);
     mockPostReply.mockResolvedValueOnce(okReply);
@@ -260,7 +300,7 @@ describe('runEditPublishIfApplicable — DELETE branch', () => {
     pushPhaseAProbe(true);
     pushPhaseBLockSequence();
     sqlReturnQueue.push(Object.assign([], { count: 1 }));  // sibling superseded
-    sqlReturnQueue.push(Object.assign([], { count: 1 }));  // candidate posted
+    pushMarkPostedSuccess();
 
     mockDeleteReply.mockRejectedValueOnce(new ZernioReplyAlreadyDeletedError('zernio-rev-id-1'));
     mockPostReply.mockResolvedValueOnce(okReply);
@@ -279,7 +319,7 @@ describe('runEditPublishIfApplicable — DELETE branch', () => {
     pushPhaseAProbe(true);
     pushPhaseBLockSequence();
     sqlReturnQueue.push(Object.assign([], { count: 1 }));  // sibling superseded
-    sqlReturnQueue.push(Object.assign([], { count: 1 }));  // candidate posted
+    pushMarkPostedSuccess();
 
     mockDeleteReply.mockRejectedValueOnce(
       new ZernioPermanentError('http_404', { endpointKind: 'delete_reply', body: {} }),
@@ -438,7 +478,7 @@ describe('runEditPublishIfApplicable — POST branch after DELETE success', () =
     pushPhaseAProbe(true);
     pushPhaseBLockSequence();
     sqlReturnQueue.push(Object.assign([], { count: 1 }));  // sibling superseded
-    sqlReturnQueue.push(Object.assign([], { count: 1 }));  // candidate posted + clear marker
+    pushMarkPostedSuccess();
 
     mockDeleteReply.mockResolvedValueOnce(undefined);
     mockPostReply.mockResolvedValueOnce(okReply);
@@ -454,10 +494,13 @@ describe('runEditPublishIfApplicable — POST branch after DELETE success', () =
         logger,
       },
     });
+    // §2.9: the flip is now two statements — the marker-clear UPDATE in
+    // edit-publish, then mark-posted's guarded posted UPDATE.
     const callTexts = callTextsWithValues();
     expect(callTexts.some((t) =>
-      /SET\s+status = 'posted'/.test(t) && /posting_error = NULL/.test(t),
+      /UPDATE responses/.test(t) && /posting_error = NULL/.test(t),
     )).toBe(true);
+    expect(callTexts.some((t) => /SET status = 'posted'/.test(t))).toBe(true);
   });
 });
 
@@ -612,7 +655,7 @@ describe('runEditPublishIfApplicable — orphan retry', () => {
       },
       existingPosted: null,
     });
-    sqlReturnQueue.push(Object.assign([], { count: 1 }));  // candidate posted
+    pushMarkPostedSuccess();
 
     mockPostReply.mockResolvedValueOnce(okReply);
 
@@ -633,8 +676,9 @@ describe('runEditPublishIfApplicable — orphan retry', () => {
     });
     const callTexts = callTextsWithValues();
     expect(callTexts.some((t) =>
-      /SET\s+status = 'posted'/.test(t) && /posting_error = NULL/.test(t),
+      /UPDATE responses/.test(t) && /posting_error = NULL/.test(t),
     )).toBe(true);
+    expect(callTexts.some((t) => /SET status = 'posted'/.test(t))).toBe(true);
     expect(callTexts.filter((t) => /UPDATE responses SET status = 'superseded'/.test(t)).length).toBe(0);
   });
 
@@ -684,11 +728,13 @@ describe('runEditPublishIfApplicable — affected-row assertions', () => {
     }
   });
 
-  it('candidate posted affected==0 → throws candidate_lost_during_publish', async () => {
+  it('candidate posted affected==0 → throws candidate_lost_during_publish (marked.transitioned === false)', async () => {
     pushPhaseAProbe(true);
     pushPhaseBLockSequence();
     sqlReturnQueue.push(Object.assign([], { count: 1 }));  // sibling superseded
-    sqlReturnQueue.push(Object.assign([], { count: 0 }));  // candidate posted no-op
+    sqlReturnQueue.push(Object.assign([], { count: 1 }));  // marker-clear
+    sqlReturnQueue.push([{ id: 'rev-1' }]);                // mark-posted review re-lock
+    sqlReturnQueue.push(Object.assign([], { count: 0 }));  // guarded posted UPDATE no-op
 
     mockDeleteReply.mockResolvedValueOnce(undefined);
     mockPostReply.mockResolvedValueOnce(okReply);
@@ -699,5 +745,87 @@ describe('runEditPublishIfApplicable — affected-row assertions', () => {
     if (result.outcome === 'throw') {
       expect((result.error as Error).message).toBe('candidate_lost_during_publish');
     }
+  });
+});
+
+// ── Mark-posted spine checkpoint (WS4 spec §2.9) ─────────────────────────
+//
+// The success flip routes through markPostedAndMaybeEnqueueAutoPostNotice so
+// the run spine's terminal checkpoint fires for the edit lane too. mark-posted's
+// own SQL runs against the shared queue; its collaborators are seam-mocked above.
+
+describe('runEditPublishIfApplicable — mark-posted spine checkpoint (§2.9)', () => {
+  function runSuccessWithSibling() {
+    pushPhaseAProbe(true);
+    pushPhaseBLockSequence();
+    sqlReturnQueue.push(Object.assign([], { count: 1 }));  // sibling superseded
+    pushMarkPostedSuccess();
+    mockDeleteReply.mockResolvedValueOnce(undefined);
+    mockPostReply.mockResolvedValueOnce(okReply);
+    return runEditPublishIfApplicable(editSql, makeContext(), deps());
+  }
+
+  it('success with a RUNNING run → reply_posted step + outcome recorded, run completed', async () => {
+    vi.mocked(findActiveReviewRun).mockResolvedValue({ id: 'run-1', account_id: 'acct-run-1' });
+
+    const result = await runSuccessWithSibling();
+
+    expect(result).toMatchObject({ outcome: 'completed' });
+    expect(findActiveReviewRun).toHaveBeenCalledWith(expect.anything(), 'rev-1');
+    expect(recordStep).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      runId: 'run-1',
+      stepKey: 'reply_posted',
+      detail: { response_id: 'resp-1', approval_method: 'owner' },
+    }));
+    expect(recordOutcome).toHaveBeenCalledTimes(1);
+    expect(recordOutcome).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      runId: 'run-1',
+      accountId: 'acct-run-1',
+      businessId: 'biz-1',
+      attributedAgent: 'reply',
+      outcomeKind: 'reply_posted',
+    }));
+    expect(completeRun).toHaveBeenCalledWith(expect.anything(), 'run-1', 'completed');
+  });
+
+  it('owner lane → NO auto_post_notice enqueued (edit-publish is owner-approved)', async () => {
+    vi.mocked(findActiveReviewRun).mockResolvedValue({ id: 'run-1', account_id: 'acct-run-1' });
+
+    const result = await runSuccessWithSibling();
+
+    expect(result).toMatchObject({ outcome: 'completed' });
+    expect(mockEnqueueAutoPostNotice).not.toHaveBeenCalled();
+  });
+
+  it('legacy review with NO run → success with zero spine writes', async () => {
+    // beforeEach default: findActiveReviewRun resolves null.
+    const result = await runSuccessWithSibling();
+
+    expect(result).toMatchObject({ outcome: 'completed' });
+    expect(recordStep).not.toHaveBeenCalled();
+    expect(recordOutcome).not.toHaveBeenCalled();
+    expect(completeRun).not.toHaveBeenCalled();
+  });
+
+  it('open approval links for the response are revoked on success', async () => {
+    const result = await runSuccessWithSibling();
+
+    expect(result).toMatchObject({ outcome: 'completed' });
+    expect(mockRevokeOpenLinks).toHaveBeenCalledTimes(1);
+    expect(mockRevokeOpenLinks).toHaveBeenCalledWith(expect.anything(), 'resp-1');
+  });
+
+  it("sibling supersede is not clobbered — posted UPDATE targets only the candidate's id", async () => {
+    const result = await runSuccessWithSibling();
+
+    expect(result).toMatchObject({ outcome: 'completed' });
+    const callTexts = callTextsWithValues();
+    const supersedes = callTexts.filter((t) => /UPDATE responses SET status = 'superseded'/.test(t));
+    expect(supersedes.length).toBe(1);
+    expect(supersedes[0]).toContain("'resp-prev'");
+    const posted = callTexts.filter((t) => /SET status = 'posted'/.test(t));
+    expect(posted.length).toBe(1);
+    expect(posted[0]).toContain("id = 'resp-1'");
+    expect(posted[0]).not.toContain("'resp-prev'");
   });
 });
