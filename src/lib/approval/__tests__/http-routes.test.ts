@@ -75,7 +75,10 @@ vi.mock('@/lib/approval/correlation', () => ({
   recoverCorrelationId: (...args: unknown[]) => mockRecoverCorrelationId(...args),
 }));
 
-vi.mock('@/lib/approval/http-errors', () => ({
+vi.mock('@/lib/approval/http-errors', async (importOriginal) => ({
+  // Real isDeadlockDetected: the dashboard wrapper's conflict_retry test must
+  // exercise the genuine 40P01 structural check, not a stub.
+  ...(await importOriginal<typeof import('@/lib/approval/http-errors')>()),
   handleApprovalError: (...args: unknown[]) => mockHandleApprovalError(...args),
 }));
 
@@ -524,6 +527,31 @@ describe('runDashboardReviewAction', () => {
     expect(await res.json()).toEqual({
       error: 'This location has been archived — approval actions are no longer available for this draft.',
     });
+  });
+
+  it('maps a 40P01 deadlock-loser rollback to a retryable 409 conflict_retry (handleApprovalError parity)', async () => {
+    sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // outer pre-tx account gate
+    sqlReturnQueue.push([]); // reviews lock-order anchor FOR UPDATE (tx statement #1)
+    sqlReturnQueue.push([]); // responses SELECT ... FOR UPDATE
+    sqlReturnQueue.push([]); // hasOpenFlag → no open flag
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
+    // Structural shape of a postgres.js deadlock error — the wrapper's check
+    // keys on code === '40P01', not instanceof.
+    const action = vi.fn().mockRejectedValue(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+
+    const res = await runDashboardReviewAction(
+      sql,
+      request(),
+      'rev-1',
+      { id: 'owner-1', accountId: 'acct-1' },
+      'approve',
+      'Response approved.',
+      action,
+    );
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'conflict_retry' });
   });
 
   it('re-asserts the writable/offboarding gate inside the tx and blocks an offboarding confirmed after the pre-tx check', async () => {

@@ -7,7 +7,7 @@ import { recoverCorrelationId } from '@/lib/approval/correlation';
 import { getDeviceCookieHash, validateCsrf, verifyDeviceCookie } from '@/lib/approval/cookies';
 import { EmptyEditedResponseError, ResponseNotPendingError } from '@/lib/approval/errors';
 import { hasOpenFlag, HeldForReviewError } from '@/lib/moderation/held-draft';
-import { handleApprovalError } from '@/lib/approval/http-errors';
+import { handleApprovalError, isDeadlockDetected } from '@/lib/approval/http-errors';
 import { verifyDevice } from '@/lib/approval/locks';
 import { lockValidLink } from '@/lib/approval/service';
 import type { ApprovalLink, AuditContext, SessionAuditContext } from '@/lib/approval/types';
@@ -256,6 +256,12 @@ export async function runDashboardReviewAction(
     }
     if (err instanceof SubscriptionReadOnlyError) {
       return NextResponse.json({ error: err.error }, { status: err.status, headers: NO_STORE_HEADERS });
+    }
+    // A 40P01 deadlock loser rolled back cleanly (e.g. this tx's reviews →
+    // responses locks colliding with a concurrent mark-posted) — retryable
+    // 409, same contract as handleApprovalError's token-lane mapping.
+    if (isDeadlockDetected(err)) {
+      return NextResponse.json({ error: 'conflict_retry' }, { status: 409, headers: NO_STORE_HEADERS });
     }
     console.error(`[api/dashboard/reviews/${actionName}] Unexpected error:`, err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: NO_STORE_HEADERS });
