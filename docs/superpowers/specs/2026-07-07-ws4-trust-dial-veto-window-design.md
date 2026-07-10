@@ -429,3 +429,57 @@ only a note that the flag now also governs the veto-window lane.
    location to its cap and confirm downgrade-to-owner.
 4. Prod: nothing to flip — `AUTO_APPROVAL_ENABLED` stays off until the Autopilot
    go-live gate (WS4 + WS6 + WS7 + Zernio limits on record, decomposition table).
+
+## 6. Implementation amendments (2026-07-09, review-driven)
+
+Where per-task reviews tightened the spec during implementation (full record:
+the plan's "Implementation record" section). The original sections above are
+unchanged; on any conflict, these amendments win.
+
+- **§2.6:** ONE marker constant for both veto writes —
+  `AUTO_POST_VETOED_BY_OWNER = 'auto_post_vetoed_by_owner'` (`veto.ts`) is
+  written to the outbox row's `last_error` AND `responses.posting_error`. The
+  spec's step-1 `last_error='vetoed_by_owner'` value was collapsed into the
+  step-2 constant so the marker has a single owner.
+- **§2.3 lock-order law, extended:** the binding rule is now **reviews FIRST**
+  in every approval-lane tx that records an outcome, because `recordOutcome`'s
+  INSERT takes an implicit FK `FOR KEY SHARE` on `agent_runs` — implicit FK
+  locks count toward the ordering. Three review-caught deadlocks enforce it:
+  (1) persist.ts's daily-cap `businesses FOR UPDATE` hoisted ABOVE the
+  responses INSERT (share→exclusive upgrade over the INSERT's implicit FK
+  lock, reproduced 40P01); (2) veto.ts re-anchored reviews-first (locking its
+  response row first closed a cycle against mark-posted/persist); (3) the
+  dashboard action wrapper gained `anchorReviewLockOrder` (`outcomes.ts`) as
+  its tx's first statement, guarded by an anchor-pairing tripwire test.
+- **§2.6/§2.8:** `handleApprovalError` maps a 40P01 deadlock-loser rollback to
+  a retryable `409 conflict_retry` — the veto ↔ mark-posted collision is an
+  expected concurrency outcome whose losing side retries cleanly; it is
+  neither `too_late` nor a 500.
+- **§2.7:** the notice worker's subscription guard sits at the WORKER level
+  (invariant #11 precedent), not inside the channel senders; the context
+  loader owns response-state and deadline freshness (deadline staleness
+  compared IN SQL against the same DB clock that stamped it).
+- **§2.6/§2.9:** `markPostedAndMaybeEnqueueAutoPostNotice` revokes ALL open
+  approval links for the response at post time (`revokeOpenLinksForResponse`)
+  — no actionable-looking link survives a posted or vetoed terminal state
+  (the veto consumes its own link per §2.6; fresh links arrive with the
+  re-notify).
+- **§2.9 scope widened:** beyond the edit-publish success flip, the 409
+  `matches_our_text` recovery path ALSO routes through the mark-posted
+  checkpoint (same spine writes + link revocation), inside edit-publish's
+  Phase B tx with the reviews + response locks already held.
+- **§2.10:** a veto-window/cap PATCH on a scope with NO policy row creates the
+  row with a NULL threshold — the scope stays on manual approval, and a
+  location override so created shadows the account default (a contraction,
+  never an implied expansion). The UI fronts that case with the
+  `location_dial` confirmation interstitial before the override row is
+  created.
+- **§2.4 scoping:** GET readiness `blockReasons` surfaces `policy_suspended`
+  for the ACCOUNT-DEFAULT row only; a location-override suspension surfaces
+  per-location via `locations[].effective` — account-level readiness never
+  hides behind one suspended location.
+- **§2.2:** the retired `all_ratings` confirmation level carries a ONE-RELEASE
+  stale-client tolerance in the PATCH schema for in-flight clients; remove it
+  next release.
+
+
