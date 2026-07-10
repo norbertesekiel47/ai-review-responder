@@ -208,7 +208,7 @@ export async function runDashboardReviewAction(
       // from the responses row. The actions' own anchorReviewLockOrder calls
       // become idempotent same-tx re-takes (auto-approval.ts loader re-take
       // precedent — row locks don't stack within a transaction).
-      await tx`SELECT id FROM reviews WHERE id = ${reviewId} AND business_id = ${response.business_id as string}::uuid FOR UPDATE`;
+      await tx`SELECT id FROM reviews WHERE id = ${reviewId}::uuid AND business_id = ${response.business_id as string}::uuid FOR UPDATE`;
 
       // Lock the candidate response, then refuse to release it while a
       // high-severity moderation flag is open. The lock serializes this check
