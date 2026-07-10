@@ -8,6 +8,7 @@ const BLOCK_REASON_LABELS: Record<AutoApprovalReadinessBlockReason, string> = {
   provider_moderation_disabled: 'Moderation off',
   provider_moderation_not_validated: 'Moderation not validated',
   subscription_not_writable: 'Subscription read-only',
+  policy_suspended: 'Policy suspended',
   preview_environment: 'Preview environment',
   impersonation_not_allowed: 'Impersonation',
 };

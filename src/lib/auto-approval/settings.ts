@@ -13,8 +13,10 @@ import {
   providerModerationValidated,
 } from './flags';
 import {
+  DEFAULT_VETO_WINDOW_MINUTES,
   exposureRank,
   isThresholdExpansion,
+  resolveDailyCap,
   resolveEffectivePolicy,
 } from './policy';
 import { buildAutoApprovalReadiness } from './readiness';
@@ -28,8 +30,14 @@ import type {
   AutoApprovalThreshold,
   EffectiveAutoApprovalPolicy,
   PolicyRowState,
+  VetoWindowMinutes,
 } from './types';
-import { isAutoApprovalThreshold } from './types';
+import {
+  POLICY_ACTION_POSTING,
+  POLICY_PERSONA_REPLY,
+  isAutoApprovalThreshold,
+  isVetoWindowMinutes,
+} from './types';
 
 type SqlExecutor = Sql | TransactionSql;
 
@@ -52,6 +60,17 @@ interface PolicyDbRow {
   account_id: string;
   location_id: string | null;
   auto_approve_min_star: number | null;
+  veto_window_minutes: number;
+  daily_auto_post_cap: number | null;
+  suspended_at: Date | null;
+  suspended_reason: string | null;
+}
+
+// suspended_reason is surfaced only by the settings API today, so the field
+// extends the shared row state here instead of widening PolicyRowState for
+// every consumer (the worker evaluator and admin mappers never read it).
+interface SettingsPolicyRow extends PolicyRowState {
+  suspendedReason: string | null;
 }
 
 interface LocationPolicyRow {
@@ -60,6 +79,10 @@ interface LocationPolicyRow {
   policy_id: string | null;
   policy_account_id: string | null;
   auto_approve_min_star: number | null;
+  veto_window_minutes: number | null;
+  daily_auto_post_cap: number | null;
+  suspended_at: Date | null;
+  suspended_reason: string | null;
 }
 
 interface TargetLocationRow {
@@ -73,10 +96,7 @@ interface TargetLocationRow {
 // policy that results for the targeted scope.
 interface PolicySnapshot {
   row: AutoApprovalPolicyApiState;
-  // Threshold facts only: settings mutations don't touch the WS4 dial fields
-  // (veto window / daily cap / suspension) yet. WS4 Task 12 removes this
-  // narrowing when the dial operations land.
-  effective: Pick<EffectiveAutoApprovalPolicy, 'source' | 'threshold' | 'policyId'>;
+  effective: EffectiveAutoApprovalPolicy;
 }
 
 // The before-state plus the facts about the mutation target that do NOT change
@@ -90,7 +110,10 @@ interface PolicyMutationBeforeState {
   locationId: string | null;
   locationArchived: boolean;
   affectedActiveLocationCount: number;
-  accountDefault: PolicyRowState | null;
+  accountDefault: SettingsPolicyRow | null;
+  // The raw row for the TARGETED scope (accountDefault for account ops, the
+  // location override for location ops): the base an upsert merges into.
+  targetRow: SettingsPolicyRow | null;
 }
 
 // The derived after-state. A pure function of (before, operation, newPolicyId) —
@@ -131,7 +154,10 @@ export async function getAutoApprovalSettings(
   const locations = await loadActiveLocationSettings(db, input.accountId, accountDefault);
   // FP: all three reads share one db SqlExecutor (single pooled connection) and the prior read consumes accountDefault; sequential by design, not safely parallelizable.
   // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
-  const readiness = await buildReadiness(db, input.accountId, input.impersonated);
+  const readiness = await buildReadiness(db, input.accountId, {
+    impersonated: input.impersonated,
+    policySuspended: Boolean(accountDefault?.suspendedAt),
+  });
 
   return {
     accountDefault: toApiState(accountDefault),
@@ -200,27 +226,38 @@ function assertArchivedPolicyAllowed(
   }
 }
 
-// Expansions past the confirmation threshold require the matching confirmation
-// level. Returns the required level (or null) for the audit row.
+// Every expansion requires the 'standard' confirmation ('all_ratings' died
+// with the 1-star threshold in WS4). Any submitted level satisfies it — a
+// stale cached client may still send 'all_ratings', and the pre-WS4
+// confirmationSatisfies already accepted it as covering 'standard'; that
+// tolerance is kept for one release (see the schema comment in types.ts).
+// Returns the required level (or null) for the audit row.
 function assertConfirmationProvided(
   input: PatchAutoApprovalSettingsInput,
   expansion: boolean,
 ): AutoApprovalConfirmationLevel | null {
-  const requiredConfirmationLevel = expansion ? requiredConfirmation() : null;
-  if (requiredConfirmationLevel && !confirmationSatisfies(input.confirmationLevel, requiredConfirmationLevel)) {
-    throw new AutoApprovalConfirmationRequiredError(requiredConfirmationLevel);
+  if (!expansion) return null;
+  if (input.confirmationLevel === undefined) {
+    throw new AutoApprovalConfirmationRequiredError('standard');
   }
-  return requiredConfirmationLevel;
+  return 'standard';
 }
 
 // Reads readiness once (for the expansion gate) and returns it so the audit row
 // can reuse it without a second read. Throws when an expansion isn't ready.
+// The suspension input is the targeted scope's effective flag (account-default
+// OR winning row suspended — spec §2.4), so a suspended policy blocks
+// expansion while contractions and dial changes stay allowed.
 async function assertExpansionReady(
   tx: TransactionSql,
   input: PatchAutoApprovalSettingsInput,
+  before: PolicyMutationBeforeState,
   expansion: boolean,
 ): Promise<AutoApprovalReadiness> {
-  const readiness = await buildReadiness(tx, input.accountId, input.impersonated);
+  const readiness = await buildReadiness(tx, input.accountId, {
+    impersonated: input.impersonated,
+    policySuspended: before.snapshot.effective.suspended,
+  });
   if (expansion && !readiness.canExpand) {
     throw new AutoApprovalExpansionBlockedError(readiness.blockReasons);
   }
@@ -243,7 +280,7 @@ async function assertMutationAllowed(
 
   assertArchivedPolicyAllowed(before, input, expansion);
   const requiredConfirmationLevel = assertConfirmationProvided(input, expansion);
-  const readiness = await assertExpansionReady(tx, input, expansion);
+  const readiness = await assertExpansionReady(tx, input, before, expansion);
 
   return {
     beforeRank: exposureRank(before.snapshot.effective.threshold),
@@ -322,6 +359,7 @@ async function readBeforeState(
       locationArchived: false,
       affectedActiveLocationCount: await countActiveInheritingLocations(db, input.accountId),
       accountDefault,
+      targetRow: accountDefault,
     };
   }
 
@@ -345,8 +383,17 @@ async function readBeforeState(
     locationArchived: target.archived_at !== null,
     affectedActiveLocationCount: target.archived_at === null ? 1 : 0,
     accountDefault,
+    targetRow: locationOverride,
   };
 }
+
+// The single column a mutation writes; every other column carries over from
+// the targeted row (or the column default on a fresh insert). Mirrors the
+// per-operation upserts in applyMutation exactly.
+type PolicyRowPatch =
+  | { threshold: AutoApprovalThreshold | null }
+  | { vetoWindowMinutes: VetoWindowMinutes }
+  | { dailyAutoPostCap: number | null };
 
 // PURE: the after-state is fully determined by (before, operation, newPolicyId).
 // policyId mirrors the ON CONFLICT upsert: an update keeps the existing row id, a
@@ -363,53 +410,67 @@ function computeAfterState(
 
   switch (input.operation) {
     case 'set_account_default':
-      return accountDefaultAfter(upsertPolicyId, input.threshold);
-    case 'set_account_manual':
-      return accountDefaultAfter(upsertPolicyId, null);
-    case 'clear_account_default':
-      return { snapshot: { row: emptyApiState(), effective: noneEffective() } };
     case 'set_location_override':
-      return locationOverrideAfter(upsertPolicyId, input.threshold);
+      return upsertAfter(before, input.accountId, upsertPolicyId, { threshold: input.threshold });
+    case 'set_account_manual':
     case 'set_location_manual':
-      return locationOverrideAfter(upsertPolicyId, null);
+      return upsertAfter(before, input.accountId, upsertPolicyId, { threshold: null });
+    case 'set_account_veto_window':
+    case 'set_location_veto_window':
+      return upsertAfter(before, input.accountId, upsertPolicyId, { vetoWindowMinutes: input.minutes });
+    case 'set_account_daily_cap':
+    case 'set_location_daily_cap':
+      return upsertAfter(before, input.accountId, upsertPolicyId, { dailyAutoPostCap: input.cap });
+    case 'clear_account_default':
+      return { snapshot: { row: toApiState(null), effective: noneEffective() } };
     case 'delete_location_override':
       return {
         snapshot: {
-          row: emptyApiState(),
+          row: toApiState(null),
           effective: resolveEffectivePolicy(before.accountDefault, null),
         },
       };
   }
 }
 
-function accountDefaultAfter(
+// The upserted row: the targeted row's values merged with the patch. A dial
+// change on a scope with no row CREATES it with a NULL threshold — the dial is
+// meaningful before a threshold is chosen, and NULL threshold keeps the scope
+// on manual approval. Suspension fields are governor-owned and carry over
+// untouched. A present location override shadows the account default entirely,
+// so the location-scope effective policy is the override itself.
+function upsertAfter(
+  before: PolicyMutationBeforeState,
+  accountId: string,
   policyId: string,
-  threshold: AutoApprovalThreshold | null,
+  patch: PolicyRowPatch,
 ): PolicyMutationAfterState {
+  const current = before.targetRow;
+  const afterRow: SettingsPolicyRow = {
+    id: policyId,
+    accountId,
+    locationId: before.locationId,
+    autoApproveMinStar:
+      'threshold' in patch ? patch.threshold : current?.autoApproveMinStar ?? null,
+    vetoWindowMinutes:
+      'vetoWindowMinutes' in patch
+        ? patch.vetoWindowMinutes
+        : current?.vetoWindowMinutes ?? DEFAULT_VETO_WINDOW_MINUTES,
+    dailyAutoPostCap:
+      'dailyAutoPostCap' in patch ? patch.dailyAutoPostCap : current?.dailyAutoPostCap ?? null,
+    suspendedAt: current?.suspendedAt ?? null,
+    suspendedReason: current?.suspendedReason ?? null,
+  };
+
   return {
     snapshot: {
-      row: { policyId, threshold, exists: true },
-      effective: { source: 'account_default', threshold, policyId },
+      row: toApiState(afterRow),
+      effective:
+        before.scope === 'account_default'
+          ? resolveEffectivePolicy(afterRow, null)
+          : resolveEffectivePolicy(before.accountDefault, afterRow),
     },
   };
-}
-
-// A present location override shadows the account default entirely, so its
-// effective policy is the override itself.
-function locationOverrideAfter(
-  policyId: string,
-  threshold: AutoApprovalThreshold | null,
-): PolicyMutationAfterState {
-  return {
-    snapshot: {
-      row: { policyId, threshold, exists: true },
-      effective: { source: 'location_override', threshold, policyId },
-    },
-  };
-}
-
-function emptyApiState(): AutoApprovalPolicyApiState {
-  return { policyId: null, threshold: null, exists: false };
 }
 
 function noneEffective(): EffectiveAutoApprovalPolicy {
@@ -428,11 +489,19 @@ async function applyMutation(
     case 'set_account_manual':
       await upsertAccountDefault(db, newPolicyId, input.accountId, null);
       return;
+    case 'set_account_veto_window':
+      await upsertAccountVetoWindow(db, newPolicyId, input.accountId, input.minutes);
+      return;
+    case 'set_account_daily_cap':
+      await upsertAccountDailyCap(db, newPolicyId, input.accountId, input.cap);
+      return;
     case 'clear_account_default':
       await db`
         DELETE FROM auto_approval_policies
         WHERE account_id = ${input.accountId}::uuid
           AND location_id IS NULL
+          AND persona = ${POLICY_PERSONA_REPLY}
+          AND action_class = ${POLICY_ACTION_POSTING}
       `;
       return;
     case 'set_location_override':
@@ -441,15 +510,34 @@ async function applyMutation(
     case 'set_location_manual':
       await upsertLocationOverride(db, newPolicyId, input.accountId, input.locationId, null);
       return;
+    case 'set_location_veto_window':
+      await upsertLocationVetoWindow(db, newPolicyId, input.accountId, input.locationId, input.minutes);
+      return;
+    case 'set_location_daily_cap':
+      await upsertLocationDailyCap(db, newPolicyId, input.accountId, input.locationId, input.cap);
+      return;
     case 'delete_location_override':
       await db`
         DELETE FROM auto_approval_policies
         WHERE account_id = ${input.accountId}::uuid
           AND location_id = ${input.locationId}::uuid
+          AND persona = ${POLICY_PERSONA_REPLY}
+          AND action_class = ${POLICY_ACTION_POSTING}
       `;
       return;
   }
 }
+
+// Every upsert's ON CONFLICT target matches its migration-074 partial unique
+// index BYTE-FOR-BYTE (documented Postgres gotcha — a mismatched clause fails
+// with no-matching-constraint): account default rows conflict on
+// `(account_id, persona, action_class) WHERE location_id IS NULL`, location
+// override rows on
+// `(account_id, location_id, persona, action_class) WHERE location_id IS NOT NULL`.
+// Each upsert updates exactly ONE owner-facing column so a dial change never
+// clobbers the threshold and vice versa; the dial upserts insert an explicit
+// NULL threshold so a fresh row starts on manual approval (upsertAfter mirrors
+// this merge semantics).
 
 async function upsertAccountDefault(
   db: TransactionSql,
@@ -462,18 +550,88 @@ async function upsertAccountDefault(
       id,
       account_id,
       location_id,
+      persona,
+      action_class,
       auto_approve_min_star,
       updated_at
     ) VALUES (
       ${policyId}::uuid,
       ${accountId}::uuid,
       NULL,
+      ${POLICY_PERSONA_REPLY},
+      ${POLICY_ACTION_POSTING},
       ${threshold},
       NOW()
     )
-    ON CONFLICT (account_id) WHERE location_id IS NULL
+    ON CONFLICT (account_id, persona, action_class) WHERE location_id IS NULL
     DO UPDATE SET
       auto_approve_min_star = EXCLUDED.auto_approve_min_star,
+      updated_at = NOW()
+  `;
+}
+
+async function upsertAccountVetoWindow(
+  db: TransactionSql,
+  policyId: string,
+  accountId: string,
+  minutes: VetoWindowMinutes,
+): Promise<void> {
+  await db`
+    INSERT INTO auto_approval_policies (
+      id,
+      account_id,
+      location_id,
+      persona,
+      action_class,
+      auto_approve_min_star,
+      veto_window_minutes,
+      updated_at
+    ) VALUES (
+      ${policyId}::uuid,
+      ${accountId}::uuid,
+      NULL,
+      ${POLICY_PERSONA_REPLY},
+      ${POLICY_ACTION_POSTING},
+      NULL,
+      ${minutes},
+      NOW()
+    )
+    ON CONFLICT (account_id, persona, action_class) WHERE location_id IS NULL
+    DO UPDATE SET
+      veto_window_minutes = EXCLUDED.veto_window_minutes,
+      updated_at = NOW()
+  `;
+}
+
+async function upsertAccountDailyCap(
+  db: TransactionSql,
+  policyId: string,
+  accountId: string,
+  cap: number | null,
+): Promise<void> {
+  await db`
+    INSERT INTO auto_approval_policies (
+      id,
+      account_id,
+      location_id,
+      persona,
+      action_class,
+      auto_approve_min_star,
+      daily_auto_post_cap,
+      updated_at
+    ) VALUES (
+      ${policyId}::uuid,
+      ${accountId}::uuid,
+      NULL,
+      ${POLICY_PERSONA_REPLY},
+      ${POLICY_ACTION_POSTING},
+      NULL,
+      ${cap},
+      NOW()
+    )
+    ON CONFLICT (account_id, persona, action_class) WHERE location_id IS NULL
+    DO UPDATE SET
+      daily_auto_post_cap = EXCLUDED.daily_auto_post_cap,
       updated_at = NOW()
   `;
 }
@@ -490,18 +648,90 @@ async function upsertLocationOverride(
       id,
       account_id,
       location_id,
+      persona,
+      action_class,
       auto_approve_min_star,
       updated_at
     ) VALUES (
       ${policyId}::uuid,
       ${accountId}::uuid,
       ${locationId}::uuid,
+      ${POLICY_PERSONA_REPLY},
+      ${POLICY_ACTION_POSTING},
       ${threshold},
       NOW()
     )
-    ON CONFLICT (account_id, location_id) WHERE location_id IS NOT NULL
+    ON CONFLICT (account_id, location_id, persona, action_class) WHERE location_id IS NOT NULL
     DO UPDATE SET
       auto_approve_min_star = EXCLUDED.auto_approve_min_star,
+      updated_at = NOW()
+  `;
+}
+
+async function upsertLocationVetoWindow(
+  db: TransactionSql,
+  policyId: string,
+  accountId: string,
+  locationId: string,
+  minutes: VetoWindowMinutes,
+): Promise<void> {
+  await db`
+    INSERT INTO auto_approval_policies (
+      id,
+      account_id,
+      location_id,
+      persona,
+      action_class,
+      auto_approve_min_star,
+      veto_window_minutes,
+      updated_at
+    ) VALUES (
+      ${policyId}::uuid,
+      ${accountId}::uuid,
+      ${locationId}::uuid,
+      ${POLICY_PERSONA_REPLY},
+      ${POLICY_ACTION_POSTING},
+      NULL,
+      ${minutes},
+      NOW()
+    )
+    ON CONFLICT (account_id, location_id, persona, action_class) WHERE location_id IS NOT NULL
+    DO UPDATE SET
+      veto_window_minutes = EXCLUDED.veto_window_minutes,
+      updated_at = NOW()
+  `;
+}
+
+async function upsertLocationDailyCap(
+  db: TransactionSql,
+  policyId: string,
+  accountId: string,
+  locationId: string,
+  cap: number | null,
+): Promise<void> {
+  await db`
+    INSERT INTO auto_approval_policies (
+      id,
+      account_id,
+      location_id,
+      persona,
+      action_class,
+      auto_approve_min_star,
+      daily_auto_post_cap,
+      updated_at
+    ) VALUES (
+      ${policyId}::uuid,
+      ${accountId}::uuid,
+      ${locationId}::uuid,
+      ${POLICY_PERSONA_REPLY},
+      ${POLICY_ACTION_POSTING},
+      NULL,
+      ${cap},
+      NOW()
+    )
+    ON CONFLICT (account_id, location_id, persona, action_class) WHERE location_id IS NOT NULL
+    DO UPDATE SET
+      daily_auto_post_cap = EXCLUDED.daily_auto_post_cap,
       updated_at = NOW()
   `;
 }
@@ -509,12 +739,15 @@ async function upsertLocationOverride(
 async function loadAccountDefault(
   db: SqlExecutor,
   accountId: string,
-): Promise<PolicyRowState | null> {
+): Promise<SettingsPolicyRow | null> {
   const [row] = await db<PolicyDbRow[]>`
-    SELECT id, account_id, location_id, auto_approve_min_star
+    SELECT id, account_id, location_id, auto_approve_min_star,
+           veto_window_minutes, daily_auto_post_cap, suspended_at, suspended_reason
     FROM auto_approval_policies
     WHERE account_id = ${accountId}::uuid
       AND location_id IS NULL
+      AND persona = ${POLICY_PERSONA_REPLY}
+      AND action_class = ${POLICY_ACTION_POSTING}
     LIMIT 1
   `;
 
@@ -525,12 +758,15 @@ async function loadLocationOverride(
   db: SqlExecutor,
   accountId: string,
   locationId: string,
-): Promise<PolicyRowState | null> {
+): Promise<SettingsPolicyRow | null> {
   const [row] = await db<PolicyDbRow[]>`
-    SELECT id, account_id, location_id, auto_approve_min_star
+    SELECT id, account_id, location_id, auto_approve_min_star,
+           veto_window_minutes, daily_auto_post_cap, suspended_at, suspended_reason
     FROM auto_approval_policies
     WHERE account_id = ${accountId}::uuid
       AND location_id = ${locationId}::uuid
+      AND persona = ${POLICY_PERSONA_REPLY}
+      AND action_class = ${POLICY_ACTION_POSTING}
     LIMIT 1
   `;
 
@@ -540,7 +776,7 @@ async function loadLocationOverride(
 async function loadActiveLocationSettings(
   db: SqlExecutor,
   accountId: string,
-  accountDefault: PolicyRowState | null,
+  accountDefault: SettingsPolicyRow | null,
 ): Promise<AutoApprovalSettingsResponse['locations']> {
   const rows = await db<LocationPolicyRow[]>`
     SELECT
@@ -548,12 +784,18 @@ async function loadActiveLocationSettings(
       COALESCE(b.display_label, b.name) AS display_name,
       p.id AS policy_id,
       p.account_id AS policy_account_id,
-      p.auto_approve_min_star
+      p.auto_approve_min_star,
+      p.veto_window_minutes,
+      p.daily_auto_post_cap,
+      p.suspended_at,
+      p.suspended_reason
     FROM businesses b
     LEFT JOIN auto_approval_policies p
       ON p.account_id = ${accountId}::uuid
      AND p.account_id = b.account_id
      AND p.location_id = b.id
+     AND p.persona = ${POLICY_PERSONA_REPLY}
+     AND p.action_class = ${POLICY_ACTION_POSTING}
     WHERE b.account_id = ${accountId}::uuid
       AND b.archived_at IS NULL
     ORDER BY b.is_primary DESC, b.created_at ASC
@@ -566,6 +808,11 @@ async function loadActiveLocationSettings(
           account_id: row.policy_account_id ?? accountId,
           location_id: row.location_id,
           auto_approve_min_star: row.auto_approve_min_star,
+          // LEFT JOIN nulls only when policy_id is null, which this branch excludes.
+          veto_window_minutes: row.veto_window_minutes ?? DEFAULT_VETO_WINDOW_MINUTES,
+          daily_auto_post_cap: row.daily_auto_post_cap,
+          suspended_at: row.suspended_at,
+          suspended_reason: row.suspended_reason,
         })
       : null;
     const effective = resolveEffectivePolicy(accountDefault, override);
@@ -578,6 +825,10 @@ async function loadActiveLocationSettings(
         threshold: effective.threshold,
         source: effective.source,
         inherited: effective.source !== 'location_override',
+        vetoWindowMinutes: effective.vetoWindowMinutes,
+        dailyAutoPostCap: effective.dailyAutoPostCap,
+        effectiveDailyCap: resolveDailyCap(effective),
+        suspended: effective.suspended,
       },
     };
   });
@@ -609,6 +860,8 @@ async function countActiveInheritingLocations(
       ON p.account_id = ${accountId}::uuid
      AND p.account_id = b.account_id
      AND p.location_id = b.id
+     AND p.persona = ${POLICY_PERSONA_REPLY}
+     AND p.action_class = ${POLICY_ACTION_POSTING}
     WHERE b.account_id = ${accountId}::uuid
       AND b.archived_at IS NULL
       AND p.id IS NULL
@@ -619,7 +872,7 @@ async function countActiveInheritingLocations(
 async function buildReadiness(
   db: SqlExecutor,
   accountId: string,
-  impersonated: boolean,
+  context: { impersonated: boolean; policySuspended: boolean },
 ): Promise<AutoApprovalReadiness> {
   const runtimeEnabled = autoApprovalRuntimeEnabled();
   const moderationEnabled = providerModerationEnabled();
@@ -635,22 +888,22 @@ async function buildReadiness(
     providerModerationEnabled: moderationEnabled,
     providerModerationValidated: moderationValidated,
     accountWritable: writable.ok && !isBillingMutationBlocked(offboardingState),
+    policySuspended: context.policySuspended,
     previewEnvironment: preview,
-    impersonated,
+    impersonated: context.impersonated,
   });
 }
 
-function toPolicyRow(row: PolicyDbRow): PolicyRowState {
+function toPolicyRow(row: PolicyDbRow): SettingsPolicyRow {
   return {
     id: row.id,
     accountId: row.account_id,
     locationId: row.location_id,
     autoApproveMinStar: toThreshold(row.auto_approve_min_star),
-    // WS4 Task 12 removes this: the settings SELECTs don't load the dial
-    // columns yet; safe defaults (migration-074 column defaults, not suspended).
-    vetoWindowMinutes: 15,
-    dailyAutoPostCap: null,
-    suspendedAt: null,
+    vetoWindowMinutes: toVetoWindow(row.veto_window_minutes),
+    dailyAutoPostCap: row.daily_auto_post_cap,
+    suspendedAt: row.suspended_at,
+    suspendedReason: row.suspended_reason,
   };
 }
 
@@ -662,31 +915,31 @@ function toThreshold(value: number | null): AutoApprovalThreshold | null {
   return value;
 }
 
-function toApiState(policy: PolicyRowState | null): AutoApprovalPolicyApiState {
+function toVetoWindow(value: number): VetoWindowMinutes {
+  if (!isVetoWindowMinutes(value)) {
+    throw new AutoApprovalSettingsError('invalid_policy_veto_window', 500);
+  }
+  return value;
+}
+
+// null (no row) yields the column defaults: 15-minute window, platform cap,
+// not suspended — the values a fresh upsert would persist.
+function toApiState(policy: SettingsPolicyRow | null): AutoApprovalPolicyApiState {
+  const dailyAutoPostCap = policy?.dailyAutoPostCap ?? null;
   return {
     policyId: policy?.id ?? null,
     threshold: policy?.autoApproveMinStar ?? null,
     exists: Boolean(policy),
+    vetoWindowMinutes: policy?.vetoWindowMinutes ?? DEFAULT_VETO_WINDOW_MINUTES,
+    dailyAutoPostCap,
+    effectiveDailyCap: resolveDailyCap({ dailyAutoPostCap }),
+    suspended: Boolean(policy?.suspendedAt),
+    suspendedReason: policy?.suspendedReason ?? null,
   };
 }
 
 function effectiveForAccountDefault(
-  policy: PolicyRowState | null,
+  policy: SettingsPolicyRow | null,
 ): EffectiveAutoApprovalPolicy {
   return resolveEffectivePolicy(policy, null);
-}
-
-function requiredConfirmation(): AutoApprovalConfirmationLevel {
-  // WS4 Task 12 removes this: 'all_ratings' died with the 1-star option when
-  // the threshold narrowed to the positive quadrant; every expansion now needs
-  // the standard confirmation.
-  return 'standard';
-}
-
-function confirmationSatisfies(
-  submitted: AutoApprovalConfirmationLevel | undefined,
-  required: AutoApprovalConfirmationLevel,
-): boolean {
-  if (required === 'all_ratings') return submitted === 'all_ratings';
-  return submitted === 'standard' || submitted === 'all_ratings';
 }

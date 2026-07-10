@@ -79,7 +79,7 @@ function ownerUser() {
     email: 'owner@example.com',
     role: 'owner',
     accountId: ACCOUNT_ID,
-    locationId: 'bbbbbbbb-0000-0000-0000-000000000001',
+    locationId: 'bbbbbbbb-0000-4000-8000-000000000001',
   };
 }
 
@@ -225,7 +225,7 @@ describe('/api/settings/auto-approval', () => {
 
   it('PATCH maps confirmation errors to the spec body', async () => {
     mockPatchAutoApprovalSettings.mockRejectedValue(
-      new AutoApprovalConfirmationRequiredError('all_ratings'),
+      new AutoApprovalConfirmationRequiredError('standard'),
     );
 
     const res = await PATCH(makeRequest('PATCH', {
@@ -236,7 +236,7 @@ describe('/api/settings/auto-approval', () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({
       error: 'auto_approval_confirmation_required',
-      confirmationLevel: 'all_ratings',
+      confirmationLevel: 'standard',
     });
   });
 
@@ -273,5 +273,59 @@ describe('/api/settings/auto-approval', () => {
 
     expect(res.status).toBe(400);
     expect(mockPatchAutoApprovalSettings).not.toHaveBeenCalled();
+  });
+
+  it('PATCH rejects a sub-4 threshold with 400 (positive quadrant only)', async () => {
+    const res = await PATCH(makeRequest('PATCH', {
+      operation: 'set_account_default',
+      threshold: 3,
+    }));
+
+    expect(res.status).toBe(400);
+    expect(mockPatchAutoApprovalSettings).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { operation: 'set_account_veto_window', minutes: 20 },
+    { operation: 'set_account_daily_cap', cap: 0 },
+    { operation: 'set_account_daily_cap', cap: 51 },
+    { operation: 'set_account_daily_cap', cap: 10.5 },
+    { operation: 'set_location_veto_window', locationId: 'bbbbbbbb-0000-4000-8000-000000000001', minutes: 45 },
+    { operation: 'set_location_daily_cap', locationId: 'bbbbbbbb-0000-4000-8000-000000000001', cap: -1 },
+  ])('PATCH rejects an out-of-domain dial value with 400: %o', async (body) => {
+    const res = await PATCH(makeRequest('PATCH', body));
+
+    expect(res.status).toBe(400);
+    expect(mockPatchAutoApprovalSettings).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { operation: 'set_account_veto_window', minutes: 30 },
+    { operation: 'set_account_daily_cap', cap: null },
+    { operation: 'set_account_daily_cap', cap: 25 },
+    { operation: 'set_location_veto_window', locationId: 'bbbbbbbb-0000-4000-8000-000000000001', minutes: 15 },
+    { operation: 'set_location_daily_cap', locationId: 'bbbbbbbb-0000-4000-8000-000000000001', cap: 1 },
+  ])('PATCH forwards a valid dial operation to the module: %o', async (body) => {
+    const res = await PATCH(makeRequest('PATCH', body));
+
+    expect(res.status).toBe(200);
+    expect(mockPatchAutoApprovalSettings).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ ...body, accountId: ACCOUNT_ID }),
+    );
+  });
+
+  it('PATCH still accepts a stale all_ratings confirmation level (one-release tolerance)', async () => {
+    const res = await PATCH(makeRequest('PATCH', {
+      operation: 'set_account_default',
+      threshold: 4,
+      confirmationLevel: 'all_ratings',
+    }));
+
+    expect(res.status).toBe(200);
+    expect(mockPatchAutoApprovalSettings).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ confirmationLevel: 'all_ratings' }),
+    );
   });
 });

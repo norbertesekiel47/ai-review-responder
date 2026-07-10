@@ -18,10 +18,8 @@ export function exposureRank(threshold: AutoApprovalThreshold | null): number {
 /** Platform default when the effective policy's daily_auto_post_cap is NULL (spec §2.3). */
 export const DEFAULT_DAILY_AUTO_POST_CAP = 10;
 
-// Column default from migration 074 — the window applied when no policy row
-// exists. Not exported until a settings/UI consumer lands (fallow gate);
-// re-export then rather than duplicating the literal.
-const DEFAULT_VETO_WINDOW_MINUTES = 15;
+/** Column default from migration 074 — the window applied when no policy row exists. */
+export const DEFAULT_VETO_WINDOW_MINUTES = 15;
 
 /** The enforced cap for a policy — stored value or the platform default. */
 export function resolveDailyCap(policy: Pick<EffectiveAutoApprovalPolicy, 'dailyAutoPostCap'>): number {

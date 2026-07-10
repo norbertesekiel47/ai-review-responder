@@ -5,6 +5,12 @@ interface BuildAutoApprovalReadinessInput {
   providerModerationEnabled: boolean;
   providerModerationValidated: boolean;
   accountWritable: boolean;
+  /**
+   * System kill switch (spec §2.4): true when the relevant policy row carries
+   * `suspended_at`. Blocks expansion; contractions stay allowed so an owner
+   * can always turn auto-approval off.
+   */
+  policySuspended: boolean;
   previewEnvironment: boolean;
   impersonated?: boolean;
 }
@@ -14,6 +20,7 @@ export function buildAutoApprovalReadiness({
   providerModerationEnabled,
   providerModerationValidated,
   accountWritable,
+  policySuspended,
   previewEnvironment,
   impersonated = false,
 }: BuildAutoApprovalReadinessInput): AutoApprovalReadiness {
@@ -23,6 +30,7 @@ export function buildAutoApprovalReadiness({
   if (!providerModerationEnabled) blockReasons.push('provider_moderation_disabled');
   if (!providerModerationValidated) blockReasons.push('provider_moderation_not_validated');
   if (!accountWritable) blockReasons.push('subscription_not_writable');
+  if (policySuspended) blockReasons.push('policy_suspended');
   if (previewEnvironment) blockReasons.push('preview_environment');
   if (impersonated) blockReasons.push('impersonation_not_allowed');
 

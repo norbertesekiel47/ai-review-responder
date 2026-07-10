@@ -178,6 +178,7 @@ function buildAutoApprovalDiagnostics({
     providerModerationEnabled: moderationEnabled,
     providerModerationValidated: moderationValidated,
     accountWritable: writable.ok,
+    policySuspended: Boolean(accountDefaultState?.suspendedAt),
     previewEnvironment,
   });
 

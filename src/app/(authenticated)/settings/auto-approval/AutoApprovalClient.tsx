@@ -25,6 +25,8 @@ const BLOCK_REASON_COPY: Record<AutoApprovalReadinessBlockReason, string> = {
   provider_moderation_disabled: 'Provider moderation is not enabled.',
   provider_moderation_not_validated: 'Provider moderation readiness has not been validated.',
   subscription_not_writable: 'The account cannot expand automation while billing is read-only.',
+  // WS4 Task 13 replaces this copy with the full suspended banner (reason shown).
+  policy_suspended: 'Auto-approval is suspended for this account.',
   preview_environment: 'Preview environments cannot expand auto-approval.',
   impersonation_not_allowed: 'View-as sessions cannot change auto-approval.',
 };

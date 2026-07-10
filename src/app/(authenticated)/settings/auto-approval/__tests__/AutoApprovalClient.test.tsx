@@ -5,14 +5,35 @@ import userEvent from '@testing-library/user-event';
 import { AutoApprovalClient } from '../AutoApprovalClient';
 import type { AutoApprovalSettingsResponse } from '@/lib/auto-approval/types';
 
+// Column-default dial values (the WS4 Task 12 API-state widening); the Task 13
+// UI renders them.
+const emptyPolicyState = {
+  policyId: null,
+  threshold: null,
+  exists: false,
+  vetoWindowMinutes: 15,
+  dailyAutoPostCap: null,
+  effectiveDailyCap: 10,
+  suspended: false,
+  suspendedReason: null,
+} as const;
+
 const baseState: AutoApprovalSettingsResponse = {
-  accountDefault: { policyId: null, threshold: null, exists: false },
+  accountDefault: { ...emptyPolicyState },
   locations: [
     {
       locationId: 'bbbbbbbb-0000-0000-0000-000000000001',
       displayName: 'Main Cafe',
-      override: { policyId: null, threshold: null, exists: false },
-      effective: { threshold: null, source: 'none', inherited: true },
+      override: { ...emptyPolicyState },
+      effective: {
+        threshold: null,
+        source: 'none',
+        inherited: true,
+        vetoWindowMinutes: 15,
+        dailyAutoPostCap: null,
+        effectiveDailyCap: 10,
+        suspended: false,
+      },
     },
   ],
   readiness: {
@@ -68,7 +89,7 @@ describe('AutoApprovalClient', () => {
     const fetchMock = vi.spyOn(global, 'fetch')
       .mockResolvedValueOnce(jsonResponse({
         ...baseState,
-        accountDefault: { policyId: 'policy-1', threshold: 4, exists: true },
+        accountDefault: { ...emptyPolicyState, policyId: 'policy-1', threshold: 4, exists: true },
       }));
     const user = userEvent.setup();
 
