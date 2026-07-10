@@ -58,10 +58,12 @@ export async function setOrphanMarker(
  * `setBody` is the SET column list as a raw `tx`` fragment (no `SET` keyword —
  * that stays in the template so the tenant-scope scanner reads
  * `UPDATE responses SET …`, not an interpolated table alias). The template
- * whitespace is byte-matched to the two inline blocks it replaced (409
- * `matches_our_text` → posted, and `mismatch`-no-DELETE → superseded); the
- * `mismatch`-after-DELETE block sits one nesting level deeper and is NOT routed
- * here (its SQL text carries a 2-space-deeper indent — see edit-publish-errors.ts).
+ * whitespace is byte-matched to the inline block it replaced (`mismatch`-
+ * no-DELETE → superseded — the sole remaining caller: the 409
+ * `matches_our_text` disposition now routes through the shared mark-posted
+ * checkpoint instead); the `mismatch`-after-DELETE block sits one nesting
+ * level deeper and is NOT routed here (its SQL text carries a 2-space-deeper
+ * indent — see edit-publish-errors.ts).
  */
 export async function markCandidateOrThrow(
   tx: postgres.TransactionSql,

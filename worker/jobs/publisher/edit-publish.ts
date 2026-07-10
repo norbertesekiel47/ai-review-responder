@@ -318,6 +318,7 @@ export async function runEditPublishIfApplicable(
             existingPosted,
             postDeleteCommitted,
             lockedIsOrphanRetry,
+            correlationId,
             logger,
           },
           verify409InTx,

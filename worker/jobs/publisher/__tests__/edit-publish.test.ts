@@ -507,11 +507,11 @@ describe('runEditPublishIfApplicable — POST branch after DELETE success', () =
 // ── 409 verifier dispositions ────────────────────────────────────────────
 
 describe('runEditPublishIfApplicable — POST 409 via verify409InTx', () => {
-  it('409 matches_our_text → sibling superseded, candidate posted, marker cleared', async () => {
+  it('409 matches_our_text → sibling superseded, marker cleared, posted via the mark-posted checkpoint', async () => {
     pushPhaseAProbe(true);
     pushPhaseBLockSequence();
     sqlReturnQueue.push(Object.assign([], { count: 1 }));  // sibling superseded
-    sqlReturnQueue.push(Object.assign([], { count: 1 }));  // candidate posted
+    pushMarkPostedSuccess();
 
     mockDeleteReply.mockResolvedValueOnce(undefined);
     mockPostReply.mockRejectedValueOnce(new ZernioReplyAlreadyExistsError({ message: '409' }));
@@ -531,10 +531,42 @@ describe('runEditPublishIfApplicable — POST 409 via verify409InTx', () => {
         logger,
       },
     });
+    // §2.9 parity with the step-7 success path: marker-clear UPDATE, then
+    // mark-posted's guarded posted UPDATE + open-link revocation.
     const callTexts = callTextsWithValues();
     expect(callTexts.some((t) =>
-      /SET\s+status = 'posted'/.test(t) && /posting_error = NULL/.test(t),
+      /UPDATE responses/.test(t) && /posting_error = NULL/.test(t),
     )).toBe(true);
+    expect(callTexts.some((t) => /SET status = 'posted'/.test(t))).toBe(true);
+    expect(mockRevokeOpenLinks).toHaveBeenCalledWith(expect.anything(), 'resp-1');
+  });
+
+  it('409 matches_our_text with a RUNNING run → spine checkpoint completes the run', async () => {
+    vi.mocked(findActiveReviewRun).mockResolvedValue({ id: 'run-1', account_id: 'acct-run-1' });
+    pushPhaseAProbe(true);
+    pushPhaseBLockSequence();
+    sqlReturnQueue.push(Object.assign([], { count: 1 }));  // sibling superseded
+    pushMarkPostedSuccess();
+
+    mockDeleteReply.mockResolvedValueOnce(undefined);
+    mockPostReply.mockRejectedValueOnce(new ZernioReplyAlreadyExistsError({ message: '409' }));
+    verify409.mockResolvedValueOnce({
+      disposition: 'matches_our_text',
+      verifierText: 'thank you for your kind review!',
+    });
+
+    const result = await runEditPublishIfApplicable(editSql, makeContext(), deps());
+
+    expect(result).toMatchObject({ outcome: 'completed' });
+    // The 409 text-match recovery previously flipped to posted WITHOUT the
+    // spine checkpoint, leaving the run stuck 'running' — same class as the
+    // Task 11 step-7 gap.
+    expect(recordStep).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      runId: 'run-1',
+      stepKey: 'reply_posted',
+    }));
+    expect(completeRun).toHaveBeenCalledWith(expect.anything(), 'run-1', 'completed');
+    expect(mockEnqueueAutoPostNotice).not.toHaveBeenCalled();  // owner lane
   });
 
   it('409 mismatch after DELETE success → sibling + candidate superseded, exception inserted', async () => {

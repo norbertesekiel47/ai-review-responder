@@ -3,8 +3,10 @@
 // Error-disposition policy for the edit-publisher DELETE-before-POST flow
 // (spec §4.5 outcome table). Given an error from the external DELETE/POST call,
 // decides the per-CATCH commit semantics: which rows to mutate (via the -tx
-// helpers) and which outcome to hand back to the orchestrator. Imports the
-// -tx leaf; never imports edit-publish.ts (keeps the graph acyclic).
+// helpers, or the shared mark-posted checkpoint for the 409 text-match
+// success) and which outcome to hand back to the orchestrator. Imports the
+// -tx leaf + mark-posted; never imports edit-publish.ts (keeps the graph
+// acyclic).
 
 import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
@@ -30,6 +32,7 @@ import {
   supersedeSibling,
 } from './edit-publish-tx';
 import { deleteFailedMarker } from '../../../src/lib/publishing/orphan-markers';
+import { markPostedAndMaybeEnqueueAutoPostNotice } from './mark-posted';
 
 export interface EditPublishCatchArgs {
   responseId: string;
@@ -42,6 +45,7 @@ export interface EditPublishCatchArgs {
   existingPosted: { id: string } | undefined;
   postDeleteCommitted: boolean;
   lockedIsOrphanRetry: boolean;
+  correlationId: string | undefined;
   logger: WorkerLogger;
 }
 
@@ -98,20 +102,39 @@ async function handle409Disposition(
     existingPosted,
     postDeleteCommitted,
     lockedIsOrphanRetry,
+    correlationId,
     logger,
   } = args;
 
   if (disp.disposition === 'matches_our_text') {
-    // Our reply IS on Google. Sibling supersede + candidate posted + clear marker.
+    // Our reply IS on Google — this attempt's terminal SUCCESS, discovered via
+    // the verifier instead of a 2xx POST. Route it through the same
+    // mark-posted checkpoint as the step-7 success path (WS4 §2.9): status
+    // flip + open-link revocation + run-spine completion + (auto_policy) FYI,
+    // atomic in this tx, which already holds the reviews lock (edit-publish
+    // step 1) and the publishable-status response lock (step 2) — mark-posted's
+    // own review lock is an idempotent same-tx re-take. The separate
+    // marker-clear UPDATE preserves the `posting_error = NULL` behavior that
+    // mark-posted's UPDATE does not set.
     if (existingPosted) {
       await supersedeSibling(tx, existingPosted.id);
     }
-    await markCandidateOrThrow(tx, {
+    await tx`
+      UPDATE responses
+      SET posting_error = NULL, updated_at = NOW()
+      WHERE id = ${responseId} AND business_id = ${businessId}
+    `;
+    const marked = await markPostedAndMaybeEnqueueAutoPostNotice({
+      tx,
       responseId,
+      reviewId,
       businessId,
-      setBody: tx`status = 'posted', posted_at = NOW(),
-          posting_error = NULL, updated_at = NOW()`,
+      correlationId,
+      logger,
     });
+    if (!marked.transitioned) {
+      throw new Error('candidate_lost_during_publish');
+    }
     return { kind: '409_matches' };
   }
 
