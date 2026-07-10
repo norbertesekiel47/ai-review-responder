@@ -172,6 +172,10 @@ describe('approve', () => {
     const link = validLink({ device_cookie_hash: 'device-hash-abc' });
 
     const tx = createMockTx([
+      // anchorReviewLockOrder: UNLOCKED responses pre-read (WS4 §2.8)
+      [{ review_id: 'rev-1' }],
+      // anchorReviewLockOrder: reviews FOR UPDATE (lock-order anchor)
+      [{ id: 'rev-1' }],
       // lockPendingResponse: SELECT ... FOR UPDATE
       [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Approved draft', version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
       // archived gate INSIDE lockPendingResponse (uniform responses →
@@ -180,6 +184,8 @@ describe('approve', () => {
       // consumeLink: UPDATE approval_links SET consumed_at
       [],
       // UPDATE responses SET status = 'approved'
+      [],
+      // findActiveReviewRun: no running run → no outcome insert
       [],
       // revokeSiblings: UPDATE approval_links SET revoked_at
       [],
@@ -193,7 +199,7 @@ describe('approve', () => {
 
     await approve(tx, link, 'device-hash-abc', AUDIT, 'test-correlation-xyz');
 
-    expect(tx).toHaveBeenCalledTimes(8);
+    expect(tx).toHaveBeenCalledTimes(11);
 
     // Verify the outbox INSERT received the correct publish_response payload.
     // The outbox INSERT binds payload via jsonb(payload) — the test mock of
@@ -229,12 +235,15 @@ describe('approve', () => {
     const link = validLink({ device_cookie_hash: 'device-hash-abc' });
     const responseText = 'Thanks for the thoughtful review.';
     const tx = createMockTx([
+      [{ review_id: 'rev-1' }], // anchor pre-read
+      [{ id: 'rev-1' }], // anchor reviews FOR UPDATE
       [{ status: 'pending_approval', original_draft_text: 'draft', response_text: responseText, version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
       [{ archived_at: null }], // archived gate, inside lockPendingResponse
       [], // consumeLink
-      [],
-      [],
-      [],
+      [], // UPDATE responses
+      [], // findActiveReviewRun → no running run
+      [], // revokeSiblings
+      [], // job_outbox
       [{ account_id: 'acc-1' }],
       [],
     ]);
@@ -256,6 +265,9 @@ describe('approve', () => {
     const link = validLink({ device_cookie_hash: 'device-hash-abc' });
 
     const tx = createMockTx([
+      // anchorReviewLockOrder: pre-read + reviews FOR UPDATE
+      [{ review_id: 'rev-1' }],
+      [{ id: 'rev-1' }],
       // lockPendingResponse: SELECT ... FOR UPDATE
       [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Approved draft', version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
       // archived gate inside lockPendingResponse: SELECT archived_at FOR SHARE → archived
@@ -268,7 +280,7 @@ describe('approve', () => {
 
     // The gate threw inside the claim — the link was never consumed and
     // nothing was approved or enqueued.
-    expect(tx).toHaveBeenCalledTimes(2);
+    expect(tx).toHaveBeenCalledTimes(4);
     const allSql = tx.mock.calls.map((call: unknown[]) =>
       String((call[0] as TemplateStringsArray).join(' ')),
     );
@@ -291,6 +303,9 @@ describe('edit', () => {
     const sanitizedText = 'Modified text';
 
     const tx = createMockTx([
+      // anchorReviewLockOrder: pre-read + reviews FOR UPDATE (WS4 §2.8)
+      [{ review_id: 'rev-1' }],
+      [{ id: 'rev-1' }],
       // lockPendingResponse: SELECT ... FOR UPDATE
       [{ status: 'pending_approval', original_draft_text: 'Original text', response_text: 'Original response', version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
       // archived gate inside lockPendingResponse: SELECT archived_at FOR SHARE
@@ -298,6 +313,8 @@ describe('edit', () => {
       // consumeLink
       [],
       // UPDATE responses SET status = 'edited'
+      [],
+      // findActiveReviewRun: no running run → no outcome insert
       [],
       // revokeSiblings
       [],
@@ -311,7 +328,7 @@ describe('edit', () => {
 
     await edit(tx, link, editedText, 'device-hash-abc', AUDIT, 'test-correlation-xyz');
 
-    expect(tx).toHaveBeenCalledTimes(8);
+    expect(tx).toHaveBeenCalledTimes(11);
 
     // Verify the edit distance was computed correctly
     const { distance } = await import('fastest-levenshtein');
@@ -370,6 +387,9 @@ describe('edit', () => {
     const link = validLink({ device_cookie_hash: 'device-hash-abc' });
 
     const tx = createMockTx([
+      // anchorReviewLockOrder: pre-read + reviews FOR UPDATE
+      [{ review_id: 'rev-1' }],
+      [{ id: 'rev-1' }],
       // lockPendingResponse: SELECT ... FOR UPDATE
       [{ status: 'pending_approval', original_draft_text: 'Original text', response_text: 'Original response', version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
       // archived gate inside lockPendingResponse: SELECT archived_at FOR SHARE → archived
@@ -380,7 +400,7 @@ describe('edit', () => {
       edit(tx, link, 'A perfectly valid edited reply.', 'device-hash-abc', AUDIT, 'test-correlation-xyz'),
     ).rejects.toBeInstanceOf(ArchivedLocationError);
 
-    expect(tx).toHaveBeenCalledTimes(2);
+    expect(tx).toHaveBeenCalledTimes(4);
     const allSql = tx.mock.calls.map((call: unknown[]) =>
       String((call[0] as TemplateStringsArray).join(' ')),
     );
@@ -410,6 +430,9 @@ describe('approveBySession', () => {
 
   it('sets owner approval attribution when approving from a session', async () => {
     const tx = createMockTx([
+      // anchorReviewLockOrder: pre-read + reviews FOR UPDATE (WS4 §2.8)
+      [{ review_id: 'rev-1' }],
+      [{ id: 'rev-1' }],
       // lockPendingResponse: SELECT ... FOR UPDATE
       [{ status: 'pending_approval', original_draft_text: 'Session draft', response_text: 'Session response', version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
       // archived gate inside lockPendingResponse: SELECT archived_at FOR SHARE
@@ -417,6 +440,8 @@ describe('approveBySession', () => {
       // revokeOpenLinksForResponse
       [],
       // UPDATE responses SET status = 'approved'
+      [],
+      // findActiveReviewRun: no running run → no outcome insert
       [],
       // INSERT INTO job_outbox
       [],
@@ -447,6 +472,9 @@ describe('editBySession', () => {
     const sanitizedText = 'Session edit\n\nSecond line';
 
     const tx = createMockTx([
+      // anchorReviewLockOrder: pre-read + reviews FOR UPDATE (WS4 §2.8)
+      [{ review_id: 'rev-1' }],
+      [{ id: 'rev-1' }],
       // lockPendingResponse: SELECT ... FOR UPDATE
       [{ status: 'pending_approval', original_draft_text: 'Session draft', response_text: 'Session response', version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
       // archived gate inside lockPendingResponse: SELECT archived_at FOR SHARE
@@ -454,6 +482,8 @@ describe('editBySession', () => {
       // revokeOpenLinksForResponse
       [],
       // UPDATE responses SET status = 'edited'
+      [],
+      // findActiveReviewRun: no running run → no outcome insert
       [],
       // INSERT INTO job_outbox
       [],
@@ -465,7 +495,7 @@ describe('editBySession', () => {
 
     await editBySession(tx, 'resp-1', 'biz-1', editedText, SESSION_AUDIT, 'test-correlation-xyz');
 
-    expect(tx).toHaveBeenCalledTimes(7);
+    expect(tx).toHaveBeenCalledTimes(10);
 
     const { distance } = await import('fastest-levenshtein');
     const expectedDist = distance('Session draft', sanitizedText);

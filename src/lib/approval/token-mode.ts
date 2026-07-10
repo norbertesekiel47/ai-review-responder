@@ -8,6 +8,10 @@
 // verifyDevice → lockPendingResponse → consumeLink → mutate response →
 // revokeSiblings → enqueue follow-up outbox row → write audit log.
 // State change + outbox enqueue stay in the SAME transaction.
+//
+// approve/edit additionally record the owner-decision outcome (WS4 §2.8),
+// so they take the reviews-row lock-order anchor (anchorReviewLockOrder)
+// BEFORE the response lock. Regenerate records no outcome → no anchor.
 
 import { distance } from 'fastest-levenshtein';
 import type postgres from 'postgres';
@@ -24,6 +28,7 @@ import type { ApprovalLink } from './types';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
 import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
 import { enqueueGenerateResponse, enqueuePublishResponse } from '@/lib/shared/job-outbox-helpers';
+import { anchorReviewLockOrder, recordOwnerDecisionOutcome } from './outcomes';
 
 type TxClient = postgres.TransactionSql;
 type PendingResponse = Awaited<ReturnType<typeof lockPendingResponse>>;
@@ -45,6 +50,7 @@ export async function approve(
   correlationId?: string,
 ): Promise<void> {
   verifyDevice(link, deviceCookieHash);
+  await anchorReviewLockOrder(tx, link.response_id, link.business_id);
   const resp = await lockAndConsumeTokenResponse(tx, link);
 
   await tx`
@@ -57,6 +63,12 @@ export async function approve(
     WHERE id = ${link.response_id}
       AND business_id = ${link.business_id}
   `;
+
+  await recordOwnerDecisionOutcome(tx, {
+    reviewId: resp.review_id,
+    businessId: link.business_id,
+    outcomeKind: 'reply_approved_no_edit',
+  });
 
   await finalizeTokenPublishApproval(tx, link, correlationId);
 
@@ -81,6 +93,7 @@ export async function edit(
   const sanitizedText = sanitizePublicResponseText(editedText);
   if (sanitizedText.length === 0) throw new EmptyEditedResponseError();
 
+  await anchorReviewLockOrder(tx, link.response_id, link.business_id);
   const resp = await lockAndConsumeTokenResponse(tx, link);
 
   const editDist = distance(resp.original_draft_text, sanitizedText);
@@ -97,6 +110,12 @@ export async function edit(
     WHERE id = ${link.response_id}
       AND business_id = ${link.business_id}
   `;
+
+  await recordOwnerDecisionOutcome(tx, {
+    reviewId: resp.review_id,
+    businessId: link.business_id,
+    outcomeKind: 'reply_edited_by_owner',
+  });
 
   await finalizeTokenPublishApproval(tx, link, correlationId);
 

@@ -26,6 +26,7 @@ import {
   assertWritableSubscriptionForBusiness,
   throwIfReadOnly,
 } from '@/lib/shared/writable-subscription';
+import { anchorReviewLockOrder, recordOwnerDecisionOutcome } from './outcomes';
 
 export type { CallbackApprovalInput };
 
@@ -47,7 +48,9 @@ export async function approveViaCallback(sql: Sql, input: CallbackApprovalInput)
   await sql.begin(async (tx) => {
     // FP: ordered writes inside one sql.begin tx (claim → UPDATE → revoke siblings → enqueue publish → audit); parallelizing would break tx ordering.
     // react-doctor-disable-next-line react-doctor/async-parallel
-    const { link, response } = await claimCallbackResponse(tx, input);
+    const { link, response } = await claimCallbackResponse(tx, input, {
+      anchorReviewLock: true,
+    });
     await tx`
       UPDATE responses
       SET status = 'approved',
@@ -58,6 +61,11 @@ export async function approveViaCallback(sql: Sql, input: CallbackApprovalInput)
       WHERE id = ${link.response_id}
         AND business_id = ${link.business_id}
     `;
+    await recordOwnerDecisionOutcome(tx, {
+      reviewId: response.review_id,
+      businessId: link.business_id,
+      outcomeKind: 'reply_approved_no_edit',
+    });
     await revokeSiblings(tx, link.response_id, link.id);
 
     const correlationId = await recoverCorrelationId(tx, {
@@ -86,7 +94,9 @@ export async function regenerateViaCallback(sql: Sql, input: CallbackApprovalInp
   await sql.begin(async (tx) => {
     // FP: ordered writes inside one sql.begin tx (claim → revoke siblings → supersede → enqueue regenerate → audit); parallelizing would break tx ordering.
     // react-doctor-disable-next-line react-doctor/async-parallel
-    const { link, response } = await claimCallbackResponse(tx, input);
+    const { link, response } = await claimCallbackResponse(tx, input, {
+      anchorReviewLock: false,
+    });
     await revokeSiblings(tx, link.response_id, link.id);
     await tx`
       UPDATE responses
@@ -116,10 +126,18 @@ export async function regenerateViaCallback(sql: Sql, input: CallbackApprovalInp
 async function claimCallbackResponse(
   tx: TxClient,
   input: CallbackApprovalInput,
+  // The approve lane records an owner-decision outcome (WS4 §2.8), so it
+  // must take the reviews lock-order anchor between the link lock and the
+  // response lock (veto.ts's real order: link → reviews → responses). The
+  // regenerate lane records no outcome → no anchor, statement flow unchanged.
+  opts: { anchorReviewLock: boolean },
 ): Promise<ClaimedCallbackResponse> {
   const link = await lockLinkByIdForCallback(tx, input.approvalLinkId, input.viaChannel);
   throwIfReadOnly(await assertWritableSubscriptionForBusiness(link.business_id, tx));
 
+  if (opts.anchorReviewLock) {
+    await anchorReviewLockOrder(tx, link.response_id, link.business_id);
+  }
   const response = await lockPendingResponse(tx, link.response_id);
   await consumeLink(tx, link.id);
 

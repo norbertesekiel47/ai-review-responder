@@ -12,6 +12,8 @@ const {
   mockInsertAuditLog,
   mockEnqueuePublish,
   mockEnqueueGenerate,
+  mockFindActiveReviewRun,
+  mockRecordOutcome,
 } = vi.hoisted(() => ({
   mockVerifyDevice: vi.fn(),
   mockLockPendingResponse: vi.fn(),
@@ -20,6 +22,8 @@ const {
   mockInsertAuditLog: vi.fn(),
   mockEnqueuePublish: vi.fn(),
   mockEnqueueGenerate: vi.fn(),
+  mockFindActiveReviewRun: vi.fn(),
+  mockRecordOutcome: vi.fn(),
 }));
 
 vi.mock('../locks', () => ({
@@ -35,6 +39,12 @@ vi.mock('@/lib/shared/job-outbox-helpers', () => ({
   enqueuePublishResponse: mockEnqueuePublish,
   enqueueGenerateResponse: mockEnqueueGenerate,
 }));
+// outcomes.ts runs REAL (its anchor statements are pinned below); only the
+// run-spine writers behind it are mocked, mirroring veto.test.ts.
+vi.mock('@/lib/agents/run-spine', () => ({
+  findActiveReviewRun: mockFindActiveReviewRun,
+  recordOutcome: mockRecordOutcome,
+}));
 
 import { approve, edit, regenerate } from '../token-mode';
 import { EmptyEditedResponseError } from '../errors';
@@ -42,14 +52,18 @@ import type { ApprovalLink } from '../types';
 
 type TxCall = { text: string; values: unknown[] };
 
-function mkTx() {
+function mkTx(returnQueue: unknown[][] = []) {
   const calls: TxCall[] = [];
   const tx = ((strings: TemplateStringsArray, ...values: unknown[]) => {
     calls.push({ text: strings.raw.join('$'), values });
-    return Promise.resolve([]);
+    return Promise.resolve(returnQueue.shift() ?? []);
   }) as never;
   return { tx, calls };
 }
+
+// Lock-order anchor rows (WS4 §2.8): the UNLOCKED responses pre-read, then
+// the reviews FOR UPDATE — fed to approve/edit queues; regenerate takes none.
+const ANCHOR_ROWS: unknown[][] = [[{ review_id: 'rev-1' }], [{ id: 'rev-1' }]];
 
 const LINK: ApprovalLink = {
   id: 'link-1',
@@ -78,11 +92,12 @@ beforeEach(() => {
     review_id: 'rev-1',
     version: 1,
   });
+  mockFindActiveReviewRun.mockResolvedValue({ id: 'run-1', account_id: 'acct-1' });
 });
 
 describe('token-mode approve', () => {
   it('verifies device, locks BEFORE consuming, marks approved, revokes siblings, enqueues publish, audits', async () => {
-    const { tx, calls } = mkTx();
+    const { tx, calls } = mkTx([...ANCHOR_ROWS]);
     await approve(tx, LINK, 'device-hash', AUDIT, 'corr-1');
 
     expect(mockVerifyDevice).toHaveBeenCalledWith(LINK, 'device-hash');
@@ -109,13 +124,58 @@ describe('token-mode approve', () => {
     );
   });
 
+  it("records exactly one 'reply_approved_no_edit' outcome, anchored — pre-read then reviews FOR UPDATE — before the response lock", async () => {
+    const { tx, calls } = mkTx([...ANCHOR_ROWS]);
+    let statementsBeforeResponseLock = -1;
+    mockLockPendingResponse.mockImplementation(async () => {
+      statementsBeforeResponseLock = calls.length;
+      return {
+        response_text: 'draft text',
+        original_draft_text: 'draft text',
+        review_id: 'rev-1',
+        version: 1,
+      };
+    });
+
+    await approve(tx, LINK, 'device-hash', AUDIT, 'corr-1');
+
+    const [preRead, reviewLock] = calls;
+    expect(preRead!.text).toContain('SELECT review_id FROM responses');
+    expect(preRead!.text).not.toContain('FOR UPDATE');
+    expect(preRead!.values).toEqual(['resp-1', 'biz-1']);
+    expect(reviewLock!.text).toContain('FROM reviews');
+    expect(reviewLock!.text).toContain('FOR UPDATE');
+    expect(reviewLock!.values).toEqual(['rev-1', 'biz-1']);
+    expect(statementsBeforeResponseLock).toBe(2);
+
+    expect(mockRecordOutcome).toHaveBeenCalledTimes(1);
+    expect(mockRecordOutcome).toHaveBeenCalledWith(tx, {
+      runId: 'run-1',
+      accountId: 'acct-1',
+      businessId: 'biz-1',
+      attributedAgent: 'reply',
+      outcomeKind: 'reply_approved_no_edit',
+    });
+  });
+
+  it('skips the outcome when no run is running, and the approve still succeeds', async () => {
+    mockFindActiveReviewRun.mockResolvedValue(null);
+    const { tx } = mkTx([...ANCHOR_ROWS]);
+    await approve(tx, LINK, 'device-hash', AUDIT, 'corr-1');
+
+    expect(mockRecordOutcome).not.toHaveBeenCalled();
+    expect(mockEnqueuePublish).toHaveBeenCalled();
+    expect(mockInsertAuditLog).toHaveBeenCalled();
+  });
+
   it('propagates lock failure WITHOUT consuming the link or enqueueing publish', async () => {
     mockLockPendingResponse.mockRejectedValueOnce(new Error('not pending'));
-    const { tx } = mkTx();
+    const { tx } = mkTx([...ANCHOR_ROWS]);
     await expect(approve(tx, LINK, 'device-hash', AUDIT)).rejects.toThrow('not pending');
     expect(mockConsumeLink).not.toHaveBeenCalled();
     expect(mockEnqueuePublish).not.toHaveBeenCalled();
     expect(mockInsertAuditLog).not.toHaveBeenCalled();
+    expect(mockRecordOutcome).not.toHaveBeenCalled();
   });
 
   it('propagates device verification failure before any DB work', async () => {
@@ -140,7 +200,7 @@ describe('token-mode edit', () => {
   });
 
   it('stores sanitized edited text with edit distance and enqueues publish', async () => {
-    const { tx, calls } = mkTx();
+    const { tx, calls } = mkTx([...ANCHOR_ROWS]);
     await edit(tx, LINK, 'better text', 'device-hash', AUDIT, 'corr-2');
 
     const update = calls.find((c) => c.text.includes("status = 'edited'"));
@@ -159,6 +219,48 @@ describe('token-mode edit', () => {
       { responseTextAtApproval: 'better text' },
     );
   });
+
+  it("records exactly one 'reply_edited_by_owner' outcome, anchored before the response lock", async () => {
+    const { tx, calls } = mkTx([...ANCHOR_ROWS]);
+    let statementsBeforeResponseLock = -1;
+    mockLockPendingResponse.mockImplementation(async () => {
+      statementsBeforeResponseLock = calls.length;
+      return {
+        response_text: 'draft text',
+        original_draft_text: 'draft text',
+        review_id: 'rev-1',
+        version: 1,
+      };
+    });
+
+    await edit(tx, LINK, 'better text', 'device-hash', AUDIT, 'corr-2');
+
+    const [preRead, reviewLock] = calls;
+    expect(preRead!.text).toContain('SELECT review_id FROM responses');
+    expect(preRead!.text).not.toContain('FOR UPDATE');
+    expect(reviewLock!.text).toContain('FROM reviews');
+    expect(reviewLock!.text).toContain('FOR UPDATE');
+    expect(statementsBeforeResponseLock).toBe(2);
+
+    expect(mockRecordOutcome).toHaveBeenCalledTimes(1);
+    expect(mockRecordOutcome).toHaveBeenCalledWith(tx, {
+      runId: 'run-1',
+      accountId: 'acct-1',
+      businessId: 'biz-1',
+      attributedAgent: 'reply',
+      outcomeKind: 'reply_edited_by_owner',
+    });
+  });
+
+  it('skips the outcome when no run is running, and the edit still succeeds', async () => {
+    mockFindActiveReviewRun.mockResolvedValue(null);
+    const { tx } = mkTx([...ANCHOR_ROWS]);
+    await edit(tx, LINK, 'better text', 'device-hash', AUDIT);
+
+    expect(mockRecordOutcome).not.toHaveBeenCalled();
+    expect(mockEnqueuePublish).toHaveBeenCalled();
+    expect(mockInsertAuditLog).toHaveBeenCalled();
+  });
 });
 
 describe('token-mode regenerate', () => {
@@ -173,5 +275,9 @@ describe('token-mode regenerate', () => {
     );
     expect(mockEnqueuePublish).not.toHaveBeenCalled();
     expect(mockInsertAuditLog).toHaveBeenCalledWith(tx, 'resp-1', 'biz-1', 'regenerate', AUDIT);
+    // Regenerate is not an owner verdict: no anchor, no outcome (WS4 §2.8).
+    expect(calls.some((c) => c.text.includes('FROM reviews'))).toBe(false);
+    expect(mockFindActiveReviewRun).not.toHaveBeenCalled();
+    expect(mockRecordOutcome).not.toHaveBeenCalled();
   });
 });
