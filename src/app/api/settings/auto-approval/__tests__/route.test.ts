@@ -292,6 +292,11 @@ describe('/api/settings/auto-approval', () => {
     { operation: 'set_account_daily_cap', cap: 10.5 },
     { operation: 'set_location_veto_window', locationId: 'bbbbbbbb-0000-4000-8000-000000000001', minutes: 45 },
     { operation: 'set_location_daily_cap', locationId: 'bbbbbbbb-0000-4000-8000-000000000001', cap: -1 },
+    // Omitted cap must 400, never default-to-null: `cap` is .nullable(), NOT
+    // .nullish() — explicit null means "platform default", omission is a
+    // malformed request. Pins the one-token .nullable()→.nullish() regression.
+    { operation: 'set_account_daily_cap' },
+    { operation: 'set_location_daily_cap', locationId: 'bbbbbbbb-0000-4000-8000-000000000001' },
   ])('PATCH rejects an out-of-domain dial value with 400: %o', async (body) => {
     const res = await PATCH(makeRequest('PATCH', body));
 
