@@ -56,8 +56,12 @@ interface ClientState {
   savingKey: string | null;
   savedFlash: boolean;
   pendingConfirmation: PendingConfirmation | null;
-  /** Bumped on confirmation cancel to remount draft-holding inputs (daily cap). */
-  dialFieldReset: number;
+  /**
+   * Bumped whenever an unsaved cap draft must be discarded (confirmation cancel,
+   * failed save) — callers key the draft-holding cap inputs on it so a bump
+   * remounts them back to server state.
+   */
+  capDraftEpoch: number;
 }
 
 type ClientAction =
@@ -75,13 +79,15 @@ function clientReducer(state: ClientState, action: ClientAction): ClientState {
     case 'save_succeeded':
       return { ...state, data: action.data, savingKey: null, saveError: null, savedFlash: true };
     case 'save_failed':
-      return { ...state, savingKey: null, saveError: action.message };
+      // Discard cap drafts too: a failed save must not keep displaying an
+      // unsaved value on a safety dial (selects snap back on their own).
+      return { ...state, savingKey: null, saveError: action.message, capDraftEpoch: state.capDraftEpoch + 1 };
     case 'clear_saved_flash':
       return { ...state, savedFlash: false };
     case 'set_pending_confirmation':
       return { ...state, pendingConfirmation: action.pending };
     case 'cancel_pending_confirmation':
-      return { ...state, pendingConfirmation: null, dialFieldReset: state.dialFieldReset + 1 };
+      return { ...state, pendingConfirmation: null, capDraftEpoch: state.capDraftEpoch + 1 };
   }
 }
 
@@ -92,7 +98,7 @@ export function AutoApprovalClient({ initialState }: Props) {
     savingKey: null,
     savedFlash: false,
     pendingConfirmation: null,
-    dialFieldReset: 0,
+    capDraftEpoch: 0,
   });
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -187,7 +193,7 @@ export function AutoApprovalClient({ initialState }: Props) {
     dispatch({ type: 'cancel_pending_confirmation' });
   }
 
-  const { data, saveError, savedFlash, savingKey, pendingConfirmation, dialFieldReset } = state;
+  const { data, saveError, savedFlash, savingKey, pendingConfirmation, capDraftEpoch } = state;
   const accountSelectValue = thresholdSelectValue(data.accountDefault.threshold);
   const accountSaving = savingKey === 'account';
 
@@ -269,7 +275,7 @@ export function AutoApprovalClient({ initialState }: Props) {
             onChange={(minutes) => requestDialChange({ operation: 'set_account_veto_window', minutes })}
           />
           <DailyCapField
-            key={`account-cap-${dialFieldReset}-${data.accountDefault.dailyAutoPostCap ?? 'default'}`}
+            key={`account-cap-${capDraftEpoch}-${data.accountDefault.dailyAutoPostCap ?? 'default'}`}
             ariaLabel="Account default daily auto-post cap"
             storedCap={data.accountDefault.dailyAutoPostCap}
             effectiveDailyCap={data.accountDefault.effectiveDailyCap}
@@ -298,7 +304,7 @@ export function AutoApprovalClient({ initialState }: Props) {
               accountThreshold={data.accountDefault.threshold}
               canExpand={data.readiness.canExpand}
               saving={savingKey === location.locationId}
-              dialFieldReset={dialFieldReset}
+              capDraftEpoch={capDraftEpoch}
               onRequestChange={(request, before, after) =>
                 requestChange(request, location.locationId, before, after, location.displayName)}
               onRequestDial={(request) => requestDialChange(request, location)}
@@ -376,7 +382,7 @@ function LocationPolicyRow({
   accountThreshold,
   canExpand,
   saving,
-  dialFieldReset,
+  capDraftEpoch,
   onRequestChange,
   onRequestDial,
 }: {
@@ -384,7 +390,7 @@ function LocationPolicyRow({
   accountThreshold: AutoApprovalThreshold | null;
   canExpand: boolean;
   saving: boolean;
-  dialFieldReset: number;
+  capDraftEpoch: number;
   onRequestChange: (
     request: AutoApprovalPatchRequest,
     before: AutoApprovalThreshold | null,
@@ -413,6 +419,9 @@ function LocationPolicyRow({
         <div className="auto-policy-location-sub">
           {location.effective.inherited ? 'Inherited from account' : 'Location override'} · Effective {thresholdLabel(location.effective.threshold)}
         </div>
+        {location.effective.suspended && location.override.suspendedReason && (
+          <div className="auto-policy-location-sub">{location.override.suspendedReason}</div>
+        )}
       </div>
       <select
         className="input auto-policy-location-select"
@@ -457,7 +466,7 @@ function LocationPolicyRow({
             onRequestDial({ operation: 'set_location_veto_window', locationId: location.locationId, minutes })}
         />
         <DailyCapField
-          key={`location-cap-${dialFieldReset}-${location.effective.dailyAutoPostCap ?? 'default'}`}
+          key={`location-cap-${capDraftEpoch}-${location.effective.dailyAutoPostCap ?? 'default'}`}
           ariaLabel={`Daily auto-post cap for ${location.displayName}`}
           storedCap={location.effective.dailyAutoPostCap}
           effectiveDailyCap={location.effective.effectiveDailyCap}
@@ -507,8 +516,8 @@ function VetoWindowField({
 
 /**
  * Draft-holding cap input: commits on blur (blank = platform default, submitted
- * as null). Callers remount it via `key` when the stored value or the
- * confirmation-cancel counter changes — that is the draft-reset mechanism.
+ * as null). Callers remount it via `key` when the stored value or the cap-draft
+ * epoch changes — that is the draft-reset mechanism.
  */
 function DailyCapField({
   ariaLabel,

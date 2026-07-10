@@ -201,6 +201,8 @@ describe('AutoApprovalClient', () => {
 
     expect(screen.queryByText(/Auto-approval is suspended for this account/i)).not.toBeInTheDocument();
     expect(screen.getByText('Suspended')).toBeInTheDocument();
+    // The reason is visible text on the row, not just a hover-only chip title.
+    expect(screen.getByText('Suspended after repeated owner vetoes')).toBeInTheDocument();
   });
 
   it('fires set_account_veto_window with the selected minutes', async () => {
@@ -274,6 +276,52 @@ describe('AutoApprovalClient', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     // Controlled by server state, so the select snaps back to the inherited value.
     expect(screen.getByLabelText('Veto window for Main Cafe')).toHaveValue('15');
+  });
+
+  it('interstitial: a typed cap draft snaps back to the stored state on cancel', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch');
+    const user = userEvent.setup();
+
+    render(<AutoApprovalClient initialState={baseState} />);
+
+    // Blur arms the draft: on an inheriting location the cap commit raises the
+    // interstitial instead of PATCHing.
+    const capInput = screen.getByLabelText('Daily auto-post cap for Main Cafe');
+    await user.type(capInput, '7');
+    await user.tab();
+    await screen.findByRole('dialog', { name: 'Give this location its own settings?' });
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+    // The epoch bump remounts the draft-holding input back to the stored
+    // (blank → placeholder) state instead of keeping the unsaved 7.
+    const remountedCap = screen.getByLabelText('Daily auto-post cap for Main Cafe');
+    expect(remountedCap).toHaveValue(null);
+    expect(remountedCap).toHaveAttribute('placeholder', 'Default (10)');
+  });
+
+  it('a failed cap save shows the error and snaps the cap input back to the server value', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ error: 'internal_error' }, false, 500));
+    const user = userEvent.setup();
+
+    render(<AutoApprovalClient initialState={baseState} />);
+
+    await user.type(screen.getByLabelText('Account default daily auto-post cap'), '25');
+    await user.tab();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(patchBody(fetchMock)).toEqual({ operation: 'set_account_daily_cap', cap: 25 });
+
+    // Error surfaces (inline banner + live region) …
+    expect((await screen.findAllByText('internal error')).length).toBeGreaterThan(0);
+    // … and the epoch bump remounts the cap input back to the server value
+    // instead of leaving the unsaved 25 on a safety dial.
+    const remountedCap = screen.getByLabelText('Account default daily auto-post cap');
+    expect(remountedCap).toHaveValue(null);
+    expect(remountedCap).toHaveAttribute('placeholder', 'Default (10)');
   });
 
   it('daily cap commits on blur with the exact PATCH body', async () => {
