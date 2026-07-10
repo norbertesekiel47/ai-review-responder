@@ -9,8 +9,11 @@
 // Every tx here mirrors persistResponseAndNotify's PRODUCTION statement order:
 // reviews FOR UPDATE → businesses FOR UPDATE (tx statement #2) → responses
 // INSERT (whose business_id FK takes an implicit FOR KEY SHARE on the
-// businesses row) → loadAutoApprovalRuntimeState → approve UPDATE → commit.
-// That ordering doubles as the DEADLOCK regression test: with the pre-fix
+// businesses row) → loadAutoApprovalRuntimeState → approve UPDATE (the full
+// approveAutoPolicyAndSchedule statement, incl. the make_interval named-
+// notation veto-window stamp + RETURNING — this suite is its only live
+// executor) → commit. That ordering doubles as the DEADLOCK regression test:
+// with the pre-fix
 // order (responses INSERT before any businesses FOR UPDATE), two of these txs
 // for different reviews of the same business each hold a KEY SHARE and each
 // wait to upgrade to FOR UPDATE — a share-then-upgrade cycle Postgres aborts
@@ -101,17 +104,35 @@ async function persistShapedHead(
   return responseId;
 }
 
-/** The persist tx's auto-policy approve UPDATE, as production issues it. */
+/**
+ * The persist tx's auto-policy approve UPDATE, byte-shaped after production
+ * (persist.ts approveAutoPolicyAndSchedule): full SET list including the
+ * `make_interval(mins => $n)` named-notation veto-window stamp, the
+ * pending_approval status guard, and `RETURNING auto_post_scheduled_at`.
+ * Running it here live-proves the named-notation bind against real Postgres —
+ * no other automated test executes it.
+ */
 async function approveAutoPolicy(
   tx: postgresType.TransactionSql,
   responseId: string,
-): Promise<void> {
-  await tx`
+  vetoWindowMinutes: number,
+): Promise<Date> {
+  const [scheduled] = await tx<{ auto_post_scheduled_at: Date }[]>`
     UPDATE responses
-    SET status = 'approved', approval_method = ${APPROVAL_METHOD.AUTO_POLICY},
-        approved_text = 'Thanks!', approved_at = NOW(), updated_at = NOW()
-    WHERE id = ${responseId}::uuid AND business_id = ${businessId}::uuid
+    SET status = 'approved',
+        approval_method = ${APPROVAL_METHOD.AUTO_POLICY},
+        approved_text = 'Thanks!',
+        approved_at = NOW(),
+        auto_post_scheduled_at = NOW() + make_interval(mins => ${vetoWindowMinutes}),
+        posting_error = NULL,
+        updated_at = NOW()
+    WHERE id = ${responseId}::uuid
+      AND business_id = ${businessId}::uuid
+      AND status = 'pending_approval'
+    RETURNING auto_post_scheduled_at
   `;
+  if (!scheduled) throw new Error('auto_approve_transition_lost');
+  return scheduled.auto_post_scheduled_at;
 }
 
 describeWithDb('WS4 daily-cap accounting in loadAutoApprovalRuntimeState against live Postgres', { timeout: 30_000 }, () => {
@@ -191,7 +212,17 @@ describeWithDb('WS4 daily-cap accounting in loadAutoApprovalRuntimeState against
         accountId: accountId(),
       });
       expect(state.autoApprovedTodayCount).toBe(0);
-      await approveAutoPolicy(tx, responseId);
+      const scheduledAt = await approveAutoPolicy(
+        tx,
+        responseId,
+        state.effectivePolicy.vetoWindowMinutes,
+      );
+      // Live proof of the make_interval named-notation bind: the stamped
+      // deadline is the policy's 30-minute veto window from DB NOW() (wide
+      // tolerance absorbs client/DB clock skew without flake risk).
+      const minutesOut = (scheduledAt.getTime() - Date.now()) / 60_000;
+      expect(minutesOut).toBeGreaterThan(25);
+      expect(minutesOut).toBeLessThan(35);
       txAHoldsBusinessLock.resolve();
       await releaseTxA.promise;
     });
@@ -210,7 +241,7 @@ describeWithDb('WS4 daily-cap accounting in loadAutoApprovalRuntimeState against
         accountId: accountId(),
       });
       txBLoaded = true;
-      await approveAutoPolicy(tx, responseId);
+      await approveAutoPolicy(tx, responseId, state.effectivePolicy.vetoWindowMinutes);
       return state;
     });
 
