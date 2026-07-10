@@ -1,9 +1,11 @@
 // worker/jobs/publisher/mark-posted.ts
 //
 // Shared "mark posted (+ maybe enqueue the auto-post FYI)" transition for the
-// publisher (Codex R1 #1 / R2 #2 / R2 #3). BOTH terminal success paths — the
-// fresh 2xx post AND the 409 text-match recovery in verify409AndDispose — call
-// this INSIDE one sql.begin() tx, so the status flip + the FYI enqueue are
+// publisher (Codex R1 #1 / R2 #2 / R2 #3). EVERY terminal success path — the
+// fresh 2xx post, the fresh-lane 409 text-match recovery in
+// verify409AndDispose, the edit-publish step-7 success (WS4 §2.9), and the
+// edit-lane 409 text-match recovery in edit-publish-errors — calls this
+// INSIDE one sql.begin() tx, so the status flip + the FYI enqueue are
 // atomic (invariant #2: never write Postgres then separately enqueue, or the
 // FYI is silently lost on enqueue failure / retry-after-409).
 //
@@ -56,12 +58,17 @@ export async function markPostedAndMaybeEnqueueAutoPostNotice(
 ): Promise<MarkPostedResult> {
   const { tx, responseId, reviewId, businessId, correlationId, logger } = input;
 
-  // Take the review row lock as the transaction's FIRST statement (run-spine.ts
-  // lock-ordering contract). Both callers open their sql.begin() with this
-  // helper as the tx's only statement, so this lock is genuinely tx statement
-  // #1: it precedes the responses UPDATE below (whose row FK-references the
-  // review) and the agent_runs row locks taken by recordStep/completeRun,
-  // serializing at the review row against concurrent ingest/persist/edit txs.
+  // Review row lock (run-spine.ts lock-ordering contract). CALLER CONTRACT:
+  // every caller's tx must hold the reviews FOR UPDATE before any other
+  // statement that locks the review row. The two fresh-lane callers
+  // (ResponsePublisherWorker 2xx, verify409AndDispose) open their sql.begin()
+  // with this helper as the tx's only statement, so this lock IS tx statement
+  // #1 there; the two edit-lane callers (edit-publish step 7, the edit-lane
+  // 409 recovery) run mid-tx and already hold the lock from edit-publish's
+  // step 1, making this an idempotent same-tx re-take. Either way it precedes
+  // the responses UPDATE below (whose row FK-references the review) and the
+  // agent_runs row locks taken by recordStep/completeRun, serializing at the
+  // review row against concurrent ingest/persist/edit txs.
   const [reviewLock] = await tx<{ id: string }[]>`
     SELECT id FROM reviews
     WHERE id = ${reviewId} AND business_id = ${businessId}

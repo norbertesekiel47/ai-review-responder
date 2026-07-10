@@ -177,12 +177,16 @@ export async function handlePublishResponse(
       // Invariant (Codex R2 #2): auto-approval is `live_ingest_new` v1 only, so
       // an `approval_method='auto_policy'` response can NEVER reach the
       // owner-edit / orphan publish writers (edit-publish.ts /
-      // edit-publish-errors.ts) — which therefore do NOT carry the auto-post FYI
-      // logic. Assert HERE, only when actually entering the edit path, so a
-      // first-time auto-approved publish (no posted sibling, no orphan marker)
-      // still falls through to the fresh POST path below. Fail loudly if the
-      // invariant ever breaks; the fix would be to route those writers through
-      // markPostedAndMaybeEnqueueAutoPostNotice too.
+      // edit-publish-errors.ts). Their success paths DO now route through
+      // markPostedAndMaybeEnqueueAutoPostNotice (step 7 since Task 11; the
+      // edit-lane 409 recovery since the WS4 fix round), so the FYI would fire
+      // correctly — this assert remains as defense-in-depth on the spec
+      // invariant itself: an auto_policy row entering the edit lane means the
+      // v1 eligibility gate broke somewhere upstream, which must surface
+      // loudly, not post silently. Assert HERE, only when actually entering
+      // the edit path, so a first-time auto-approved publish (no posted
+      // sibling, no orphan marker) still falls through to the fresh POST path
+      // below.
       if (response.approval_method === APPROVAL_METHOD.AUTO_POLICY) {
         throw new Error(
           `Invariant violation: auto_policy response ${response_id} reached the edit-publish path`,
