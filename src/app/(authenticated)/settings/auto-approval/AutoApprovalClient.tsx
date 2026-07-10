@@ -1,31 +1,35 @@
 'use client';
 
-import { useEffect, useMemo, useReducer, useRef } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { SettingsShell } from '@/components/dashboard/settings/SettingsShell';
 import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { isThresholdExpansion } from '@/lib/auto-approval/policy';
+import { isVetoWindowMinutes } from '@/lib/auto-approval/types';
 import type {
-  AutoApprovalConfirmationLevel,
   AutoApprovalLocationSettings,
   AutoApprovalPatchRequest,
   AutoApprovalReadinessBlockReason,
   AutoApprovalSettingsResponse,
   AutoApprovalThreshold,
+  VetoWindowMinutes,
 } from '@/lib/auto-approval/types';
 
 const THRESHOLD_OPTIONS: Array<{ value: AutoApprovalThreshold | null; label: string }> = [
-  { value: null, label: 'Off/manual' },
-  { value: 5, label: '5-star only' },
-  { value: 4, label: '4-5' },
+  { value: null, label: 'Off' },
+  { value: 5, label: '5★ only' },
+  { value: 4, label: '4–5★' },
 ];
+
+// Client mirror of the server-side cap validation (the settings zod schema owns it).
+const MIN_DAILY_CAP = 1;
+const MAX_DAILY_CAP = 50;
 
 const BLOCK_REASON_COPY: Record<AutoApprovalReadinessBlockReason, string> = {
   auto_approval_disabled: 'Auto-approval is not enabled for this environment.',
   provider_moderation_disabled: 'Provider moderation is not enabled.',
   provider_moderation_not_validated: 'Provider moderation readiness has not been validated.',
   subscription_not_writable: 'The account cannot expand automation while billing is read-only.',
-  // WS4 Task 13 replaces this copy with the full suspended banner (reason shown).
   policy_suspended: 'Auto-approval is suspended for this account.',
   preview_environment: 'Preview environments cannot expand auto-approval.',
   impersonation_not_allowed: 'View-as sessions cannot change auto-approval.',
@@ -35,11 +39,14 @@ interface Props {
   initialState: AutoApprovalSettingsResponse;
 }
 
-interface PendingConfirmation {
-  request: AutoApprovalPatchRequest;
-  required: AutoApprovalConfirmationLevel;
-  label: string;
-}
+// 'threshold_expansion' asks before loosening exposure (the server also demands
+// a 'standard' confirmation level). 'location_dial' asks before a veto-window or
+// cap change creates a location override row: that row shadows the account
+// threshold with NULL, silently switching the location to manual approval — the
+// owner must opt in before the write happens.
+type PendingConfirmation =
+  | { kind: 'threshold_expansion'; request: AutoApprovalPatchRequest; label: string }
+  | { kind: 'location_dial'; request: AutoApprovalPatchRequest; label: string };
 
 type SelectValue = 'inherit' | 'manual' | `${AutoApprovalThreshold}`;
 
@@ -49,6 +56,8 @@ interface ClientState {
   savingKey: string | null;
   savedFlash: boolean;
   pendingConfirmation: PendingConfirmation | null;
+  /** Bumped on confirmation cancel to remount draft-holding inputs (daily cap). */
+  dialFieldReset: number;
 }
 
 type ClientAction =
@@ -56,7 +65,8 @@ type ClientAction =
   | { type: 'save_succeeded'; data: AutoApprovalSettingsResponse }
   | { type: 'save_failed'; message: string }
   | { type: 'clear_saved_flash' }
-  | { type: 'set_pending_confirmation'; pending: PendingConfirmation | null };
+  | { type: 'set_pending_confirmation'; pending: PendingConfirmation | null }
+  | { type: 'cancel_pending_confirmation' };
 
 function clientReducer(state: ClientState, action: ClientAction): ClientState {
   switch (action.type) {
@@ -70,6 +80,8 @@ function clientReducer(state: ClientState, action: ClientAction): ClientState {
       return { ...state, savedFlash: false };
     case 'set_pending_confirmation':
       return { ...state, pendingConfirmation: action.pending };
+    case 'cancel_pending_confirmation':
+      return { ...state, pendingConfirmation: null, dialFieldReset: state.dialFieldReset + 1 };
   }
 }
 
@@ -80,6 +92,7 @@ export function AutoApprovalClient({ initialState }: Props) {
     savingKey: null,
     savedFlash: false,
     pendingConfirmation: null,
+    dialFieldReset: 0,
   });
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -91,16 +104,17 @@ export function AutoApprovalClient({ initialState }: Props) {
     };
   }, []);
 
+  const accountSuspended = state.data.accountDefault.suspended;
   const blockCopy = useMemo(
-    () => state.data.readiness.blockReasons.map((reason) => BLOCK_REASON_COPY[reason]),
-    [state.data.readiness.blockReasons],
+    () =>
+      state.data.readiness.blockReasons
+        // The suspended banner owns this message when the account default is suspended.
+        .filter((reason) => reason !== 'policy_suspended' || !accountSuspended)
+        .map((reason) => BLOCK_REASON_COPY[reason]),
+    [state.data.readiness.blockReasons, accountSuspended],
   );
 
-  async function sendPatch(
-    request: AutoApprovalPatchRequest,
-    key: string,
-    confirmationLevel?: AutoApprovalConfirmationLevel,
-  ) {
+  async function sendPatch(request: AutoApprovalPatchRequest, key: string, confirmationLevel?: 'standard') {
     dispatch({ type: 'save_started', key });
     try {
       const res = await fetch('/api/settings/auto-approval', {
@@ -135,24 +149,47 @@ export function AutoApprovalClient({ initialState }: Props) {
       void sendPatch(request, key);
       return;
     }
+    dispatch({
+      type: 'set_pending_confirmation',
+      pending: { kind: 'threshold_expansion', request, label },
+    });
+  }
 
-    // WS4 Task 13 removes this: 'all_ratings' died with the 1-star option when
-    // the threshold narrowed to the positive quadrant.
-    const required = 'standard';
-    dispatch({ type: 'set_pending_confirmation', pending: { request, required, label } });
+  /**
+   * Veto-window/cap changes. On a location still inheriting its threshold (no
+   * override row) the write creates one and flips the location to manual, so it
+   * needs the owner's explicit confirmation first; account-scope changes and
+   * locations that already have an override row submit directly.
+   */
+  function requestDialChange(request: AutoApprovalPatchRequest, location?: AutoApprovalLocationSettings) {
+    if (location && !location.override.exists) {
+      dispatch({
+        type: 'set_pending_confirmation',
+        pending: { kind: 'location_dial', request, label: location.displayName },
+      });
+      return;
+    }
+    void sendPatch(request, requestKey(request));
   }
 
   function confirmPending() {
-    if (!state.pendingConfirmation) return;
-    const key = requestKey(state.pendingConfirmation.request);
-    const confirmation = state.pendingConfirmation.required;
-    const request = state.pendingConfirmation.request;
+    const pending = state.pendingConfirmation;
+    if (!pending) return;
     dispatch({ type: 'set_pending_confirmation', pending: null });
-    void sendPatch(request, key, confirmation);
+    void sendPatch(
+      pending.request,
+      requestKey(pending.request),
+      pending.kind === 'threshold_expansion' ? 'standard' : undefined,
+    );
   }
 
-  const { data, saveError, savedFlash, savingKey, pendingConfirmation } = state;
+  function cancelPending() {
+    dispatch({ type: 'cancel_pending_confirmation' });
+  }
+
+  const { data, saveError, savedFlash, savingKey, pendingConfirmation, dialFieldReset } = state;
   const accountSelectValue = thresholdSelectValue(data.accountDefault.threshold);
+  const accountSaving = savingKey === 'account';
 
   return (
     <SettingsShell
@@ -172,6 +209,15 @@ export function AutoApprovalClient({ initialState }: Props) {
           </div>
         </div>
 
+        {accountSuspended && (
+          <div className="auto-policy-warning" role="alert">
+            <strong>Auto-approval is suspended for this account.</strong> New replies wait for owner review while suspended.
+            {data.accountDefault.suspendedReason && (
+              <div style={{ marginTop: 4 }}>{data.accountDefault.suspendedReason}</div>
+            )}
+          </div>
+        )}
+
         <ReadinessBlock copy={blockCopy} />
 
         <label className="field">
@@ -180,7 +226,7 @@ export function AutoApprovalClient({ initialState }: Props) {
             className="input"
             aria-label="Account default policy"
             value={accountSelectValue}
-            disabled={savingKey === 'account'}
+            disabled={accountSaving}
             onChange={(event) => {
               const value = event.target.value as SelectValue;
               const threshold = thresholdFromValue(value);
@@ -214,6 +260,23 @@ export function AutoApprovalClient({ initialState }: Props) {
             New and reactivated active locations inherit this default unless they have a location override.
           </span>
         </label>
+
+        <div className="auto-policy-dials">
+          <VetoWindowField
+            ariaLabel="Account default veto window"
+            value={data.accountDefault.vetoWindowMinutes}
+            disabled={accountSaving}
+            onChange={(minutes) => requestDialChange({ operation: 'set_account_veto_window', minutes })}
+          />
+          <DailyCapField
+            key={`account-cap-${dialFieldReset}-${data.accountDefault.dailyAutoPostCap ?? 'default'}`}
+            ariaLabel="Account default daily auto-post cap"
+            storedCap={data.accountDefault.dailyAutoPostCap}
+            effectiveDailyCap={data.accountDefault.effectiveDailyCap}
+            disabled={accountSaving}
+            onCommit={(cap) => requestDialChange({ operation: 'set_account_daily_cap', cap })}
+          />
+        </div>
       </section>
 
       <section className="set-section">
@@ -235,8 +298,10 @@ export function AutoApprovalClient({ initialState }: Props) {
               accountThreshold={data.accountDefault.threshold}
               canExpand={data.readiness.canExpand}
               saving={savingKey === location.locationId}
+              dialFieldReset={dialFieldReset}
               onRequestChange={(request, before, after) =>
                 requestChange(request, location.locationId, before, after, location.displayName)}
+              onRequestDial={(request) => requestDialChange(request, location)}
             />
           ))}
           {data.locations.length === 0 && (
@@ -249,11 +314,11 @@ export function AutoApprovalClient({ initialState }: Props) {
         <p style={{ fontSize: 13, color: '#DC2626', marginTop: -8 }}>{saveError}</p>
       )}
 
-      {pendingConfirmation && (
+      {pendingConfirmation?.kind === 'threshold_expansion' && (
         <SettingsModal
           title="Confirm auto-approval change"
           closeLabel="Cancel auto-approval change"
-          onClose={() => dispatch({ type: 'set_pending_confirmation', pending: null })}
+          onClose={cancelPending}
         >
           <div className="set-section-title" style={{ marginBottom: 8 }}>
             Confirm auto-approval change
@@ -261,21 +326,43 @@ export function AutoApprovalClient({ initialState }: Props) {
           <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 12 }}>
             This expands auto-approval for {pendingConfirmation.label}. Matching rated reviews can post to Google automatically without owner review when safety, billing, active location, and Google connection checks pass.
           </p>
-          {pendingConfirmation.required === 'all_ratings' && (
-            <div className="auto-policy-warning">
-              All rated includes every rated review, including 1-star and 2-star reviews, when all runtime safety checks pass.
-            </div>
-          )}
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
             <button
               type="button"
               className="btn btn-secondary"
-              onClick={() => dispatch({ type: 'set_pending_confirmation', pending: null })}
+              onClick={cancelPending}
             >
               Cancel
             </button>
             <button type="button" className="btn btn-primary" onClick={confirmPending}>
               Confirm auto-approval
+            </button>
+          </div>
+        </SettingsModal>
+      )}
+
+      {pendingConfirmation?.kind === 'location_dial' && (
+        <SettingsModal
+          title="Give this location its own settings?"
+          closeLabel="Cancel location settings change"
+          onClose={cancelPending}
+        >
+          <div className="set-section-title" style={{ marginBottom: 8 }}>
+            Give this location its own settings?
+          </div>
+          <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 12 }}>
+            This gives {pendingConfirmation.label} its own settings — it switches to manual approval until you pick a threshold for it.
+          </p>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={cancelPending}
+            >
+              Cancel
+            </button>
+            <button type="button" className="btn btn-primary" onClick={confirmPending}>
+              Give it its own settings
             </button>
           </div>
         </SettingsModal>
@@ -289,17 +376,21 @@ function LocationPolicyRow({
   accountThreshold,
   canExpand,
   saving,
+  dialFieldReset,
   onRequestChange,
+  onRequestDial,
 }: {
   location: AutoApprovalLocationSettings;
   accountThreshold: AutoApprovalThreshold | null;
   canExpand: boolean;
   saving: boolean;
+  dialFieldReset: number;
   onRequestChange: (
     request: AutoApprovalPatchRequest,
     before: AutoApprovalThreshold | null,
     after: AutoApprovalThreshold | null,
   ) => void;
+  onRequestDial: (request: AutoApprovalPatchRequest) => void;
 }) {
   const value = location.override.exists
     ? thresholdSelectValue(location.override.threshold)
@@ -308,7 +399,17 @@ function LocationPolicyRow({
   return (
     <div className="auto-policy-location-row">
       <div>
-        <div className="auto-policy-location-name">{location.displayName}</div>
+        <div className="auto-policy-location-name">
+          {location.displayName}
+          {location.effective.suspended && (
+            <span
+              className="auto-policy-suspended-chip"
+              title={location.override.suspendedReason ?? undefined}
+            >
+              Suspended
+            </span>
+          )}
+        </div>
         <div className="auto-policy-location-sub">
           {location.effective.inherited ? 'Inherited from account' : 'Location override'} · Effective {thresholdLabel(location.effective.threshold)}
         </div>
@@ -347,8 +448,120 @@ function LocationPolicyRow({
           );
         })}
       </select>
+      <div className="auto-policy-dials">
+        <VetoWindowField
+          ariaLabel={`Veto window for ${location.displayName}`}
+          value={location.effective.vetoWindowMinutes}
+          disabled={saving}
+          onChange={(minutes) =>
+            onRequestDial({ operation: 'set_location_veto_window', locationId: location.locationId, minutes })}
+        />
+        <DailyCapField
+          key={`location-cap-${dialFieldReset}-${location.effective.dailyAutoPostCap ?? 'default'}`}
+          ariaLabel={`Daily auto-post cap for ${location.displayName}`}
+          storedCap={location.effective.dailyAutoPostCap}
+          effectiveDailyCap={location.effective.effectiveDailyCap}
+          disabled={saving}
+          onCommit={(cap) =>
+            onRequestDial({ operation: 'set_location_daily_cap', locationId: location.locationId, cap })}
+        />
+      </div>
     </div>
   );
+}
+
+function VetoWindowField({
+  ariaLabel,
+  value,
+  disabled,
+  onChange,
+}: {
+  ariaLabel: string;
+  value: VetoWindowMinutes;
+  disabled: boolean;
+  onChange: (minutes: VetoWindowMinutes) => void;
+}) {
+  return (
+    <label className="field">
+      <span className="field-label">Veto window</span>
+      <select
+        className="input"
+        aria-label={ariaLabel}
+        value={`${value}`}
+        disabled={disabled}
+        onChange={(event) => {
+          const minutes = Number(event.target.value);
+          if (!isVetoWindowMinutes(minutes)) return;
+          onChange(minutes);
+        }}
+      >
+        <option value="15">15 minutes</option>
+        <option value="30">30 minutes</option>
+      </select>
+      <span className="field-hint">
+        How long an auto-approved reply waits before posting, so you can still cancel it.
+      </span>
+    </label>
+  );
+}
+
+/**
+ * Draft-holding cap input: commits on blur (blank = platform default, submitted
+ * as null). Callers remount it via `key` when the stored value or the
+ * confirmation-cancel counter changes — that is the draft-reset mechanism.
+ */
+function DailyCapField({
+  ariaLabel,
+  storedCap,
+  effectiveDailyCap,
+  disabled,
+  onCommit,
+}: {
+  ariaLabel: string;
+  storedCap: number | null;
+  effectiveDailyCap: number;
+  disabled: boolean;
+  onCommit: (cap: number | null) => void;
+}) {
+  const [draft, setDraft] = useState(storedCap === null ? '' : String(storedCap));
+
+  function commit() {
+    const normalized = normalizeCapDraft(draft);
+    setDraft(normalized === null ? '' : String(normalized));
+    if (normalized === storedCap) return;
+    onCommit(normalized);
+  }
+
+  return (
+    <label className="field">
+      <span className="field-label">Daily auto-post cap</span>
+      <input
+        type="number"
+        className="input"
+        aria-label={ariaLabel}
+        min={MIN_DAILY_CAP}
+        max={MAX_DAILY_CAP}
+        step={1}
+        inputMode="numeric"
+        placeholder={`Default (${effectiveDailyCap})`}
+        value={draft}
+        disabled={disabled}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+      />
+      <span className="field-hint">
+        Most replies auto-posted per day for this scope. Leave blank to use the default.
+      </span>
+    </label>
+  );
+}
+
+function normalizeCapDraft(draft: string): number | null {
+  const trimmed = draft.trim();
+  if (trimmed === '') return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  if (Number.isNaN(parsed)) return null;
+  return Math.min(MAX_DAILY_CAP, Math.max(MIN_DAILY_CAP, parsed));
 }
 
 function ReadinessBlock({ copy }: { copy: string[] }) {
@@ -382,7 +595,7 @@ function thresholdFromValue(value: SelectValue): AutoApprovalThreshold | null {
 }
 
 function thresholdLabel(threshold: AutoApprovalThreshold | null): string {
-  return THRESHOLD_OPTIONS.find((option) => option.value === threshold)?.label ?? 'Off/manual';
+  return THRESHOLD_OPTIONS.find((option) => option.value === threshold)?.label ?? 'Off';
 }
 
 function locationRequest(locationId: string, value: SelectValue): AutoApprovalPatchRequest {
