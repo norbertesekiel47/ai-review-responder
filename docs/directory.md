@@ -70,8 +70,8 @@ Next.js App Router pages, grouped by access level.
 | `signup/finish/FinishSignupClient.tsx` | Second signup step (after Google OAuth). Collects business name, Place ID, tone, etc. POSTs to `/api/auth/finish-signup`. |
 | `forgot-password/page.tsx` | Request a password reset email. |
 | `reset-password/page.tsx` | Consume the reset token and set a new password. |
-| `approve/[token]/page.tsx` | Approval page reached via email link. Server component loads the approval context. |
-| `approve/[token]/approval-client.tsx` | Interactive Approve / Edit / Regenerate UI. |
+| `approve/[token]/page.tsx` | Approval page reached via a notification link. Server component loads the approval context. |
+| `src/components/approval/approval-client.tsx` | Interactive Approve / Edit / Regenerate UI (lives under `src/components/`, not `(public)/`). **(WS4)** also renders the scheduled-auto-post state (`ScheduledAutoPostView`): a response in `approved`/`auto_policy` with a future `auto_post_scheduled_at` shows "posts at HH:MM UTC" + a **Cancel auto-post** action → POST `/api/approve/[token]/veto`. |
 | `demo/[slug]/page.tsx` | Public demo page for a prospect. |
 | `book-a-demo/page.tsx` | Demo booking form → `/api/demo-request`. |
 | `features/page.tsx` | Features marketing page. |
@@ -200,11 +200,12 @@ The approval API. All routes read the token from the URL path and verify a devic
 
 | Route | What it does |
 |-------|--------------|
-| `route.ts` (GET) | Returns approval session data (review text, draft response, business name). |
+| `route.ts` (GET) | Returns approval session data (review text, draft response, business name). **(WS4)** includes the scheduled-auto-post state (`auto_post_scheduled_at`) so the page can render the veto surface. |
 | `session/route.ts` | POST: binds a device cookie to the approval session. Called on first page load. |
 | `approve/route.ts` | POST: approves the draft. |
 | `edit/route.ts` | POST: saves the owner's edited text. |
 | `regenerate/route.ts` | POST: marks current draft superseded; enqueues a new generation job. |
+| `veto/route.ts` | **(WS4)** POST: owner cancels a scheduled auto-post inside the veto window. Same wrapper machinery as the siblings (rate limit, CSRF, device binding, one tx), but the action is `vetoAutoPost` — NOT `lockPendingResponse` — because the target response is `approved`/`auto_policy`. `cancelled`/`already_cancelled` → 200 (idempotent double-tap); `too_late` → tx rollback + truthful 409. |
 
 #### `dashboard/`
 
@@ -424,14 +425,21 @@ Everything related to the email approval link flow.
 
 | File | What it does |
 |------|--------------|
-| `service.ts` | Core logic: `approve()`, `edit()`, `regenerate()`. Also `approveViaCallback()` and `regenerateViaCallback()` for Telegram and WhatsApp button presses. Contains typed errors (`ConsumedLinkError`, `RevokedLinkError`, `ExpiredLinkError`, `ChannelMismatchError`, `ResponseNotPendingError`). |
+| `service.ts` | Barrel re-export of the modularized approval layer (errors, correlation, audit, locks, the three mode files). New code imports the specific module directly. |
+| `token-mode.ts` / `session-mode.ts` / `callback-mode.ts` | The three approval lanes: token link (`/approve/[token]`), dashboard session, and Telegram/WhatsApp button callbacks (`approveViaCallback` — button lanes cannot edit). **(WS4)** each approve/edit chokepoint (five total) records `reply_approved_no_edit` / `reply_edited_by_owner` in-tx via `outcomes.ts`. |
+| `locks.ts` | Lock + validation helpers shared by all three modes (`lockValidLink`, `lockPendingResponse`, `verifyDevice`, `consumeLink`) — `SELECT … FOR UPDATE` inside the caller's tx. |
+| `http-routes.ts` | Route wrappers (`runTokenApprovalAction`, `runDashboardReviewAction`) — rate limit, CSRF, device binding, one tx, audit context, standard error mapping. **(WS4)** the dashboard wrapper takes the reviews-first lock anchor (`anchorReviewLockOrder`) as its tx's FIRST statement. |
+| `outcomes.ts` | **(WS4)** Owner-decision outcome instrumentation shared by the five approve/edit chokepoints, plus `anchorReviewLockOrder` — the global lock-order anchor (unlocked pre-read of the immutable `review_id`, then reviews `FOR UPDATE` BEFORE any response lock; the veto.ts header owns the deadlock analysis). Regenerate lanes record no outcome. |
+| `veto.ts` | **(WS4)** `vetoAutoPost()` — owner cancel of a scheduled auto-post (spec §2.6), takes `tx`. The pending `publish_response` outbox row is the atomicity token: succeeds IFF the tx terminalizes it while still `pending` (`completed` + `last_error='vetoed_by_owner'`); then guarded downgrade to `pending_approval` (`posting_error='auto_post_vetoed_by_owner'`, clears `auto_post_scheduled_at`), audit `veto_cancel`, `reply_vetoed_by_owner` outcome on an active run, link consumed, re-notify enqueued. 0 rows ⇒ `too_late`/`already_cancelled` — never a posted-after-"cancelled" state. |
 | `create-link.ts` | `createApprovalLink()` — generates a secure raw token (random bytes), hashes it with SHA-256, stores only the hash in `approval_links`. Channel-scoped. |
 | `cookies.ts` | Device-cookie and CSRF-cookie management (set / read / clear). |
 | `correlation.ts` | `recoverCorrelationId()` — reads correlation ID from the current approval session for audit logging. |
-| `errors.ts` | Approval-specific error classes (`ConsumedLinkError`, `RevokedLinkError`, `ExpiredLinkError`, `ChannelMismatchError`, `ResponseNotPendingError`). |
-| `http-errors.ts` | Maps approval errors to HTTP status codes and response bodies. |
+| `audit.ts` | `insertAuditLog()` — `approval_audit_log` writes, same-tx as the action they record. |
+| `errors.ts` | Approval-specific error classes (`ConsumedLinkError`, `RevokedLinkError`, `ExpiredLinkError`, `ChannelMismatchError`, `ResponseNotPendingError`; **(WS4)** `VetoTooLateError`). |
+| `http-errors.ts` | Maps approval errors to HTTP status codes and response bodies. **(WS4)** maps a 40P01 deadlock-loser rollback to a retryable 409 `conflict_retry` (the veto ↔ mark-posted collision is expected concurrency, not a 500). |
+| `types.ts` | Shared approval types (`ApprovalLink`, audit contexts). |
 
-**Connection:** `NotificationWorker` calls `create-link.ts` to produce the token before sending the email. The approval API routes call `service.ts` to consume the token.
+**Connection:** `NotificationWorker` and `pending-post-notice/dispatch.ts` call `create-link.ts` to produce tokens before sending. The approval API routes consume them via the mode files; the veto route calls `veto.ts`.
 
 ### `reviews/`
 
@@ -527,17 +535,19 @@ Sending approval notifications to business owners.
 | `email/templates/owner-connection-lost.ts` | HTML template for Zernio "connection lost" owner email (GBP connection went offline). |
 | `email/templates/owner-reconnect-required.ts` | HTML template for Zernio "reconnect required" owner email (response queued, reconnect to post). |
 | `email/templates/escalation-notice.ts` | **(WS3)** HTML template for the Guardian escalation-notice owner email (severity/issue labels from `triage-schema.ts`; fallback-sourced escalations use "couldn't assess" copy, no severity claim). Delivery template `escalation_notice`. |
-| `delivery.ts` | `recordNotificationDelivery()` / `insertFailedDelivery()` — writes to `notification_deliveries` table. |
+| `email/templates/pending-post-notice.ts` | **(WS4)** HTML template for the veto-window "your reply will post automatically" owner email — review + draft, the scheduled-post time phrase, one CTA to the tokenized approve page (view / edit / cancel). Delivery template `pending_post_notice`. |
+| `delivery.ts` | `recordNotificationDelivery()` / `insertFailedDelivery()` — writes to `notification_deliveries` — plus the claim-before-send helpers (`claimAutoPostNoticeDelivery` / `claimEscalationNoticeDelivery` / **(WS4)** `claimPendingPostNoticeDelivery`, each backed by its partial-unique claim index) and the claim lifecycle (`finalizeDeliverySent` / `failDelivery` / `releaseDeliveryClaim`). |
 | `enrollments.ts` | `getVerifiedEnrollments(businessId)` — returns all `verified` channel enrollments for a business. |
-| `channels/types.ts` | `ChannelId` union type; `NotificationChannel` interface (`send()`). |
+| `channels/types.ts` | `ChannelId` union type; `NotificationChannel` interface — four purpose-built methods per ADR 0003 (no generic `sendText`): `sendApprovalRequest`, `sendAutoPostNotice`, `sendEscalationNotice` (WS3), `sendPendingPostNotice` (WS4). |
+| `channels/scheduled-post-time.ts` | **(WS4)** `formatScheduledPostTime()` — single owner of the pending-post notice's "posting at" copy (absolute UTC + relative phrase), consumed by the email template and the Telegram/WhatsApp body builders. Pure; caller supplies `now`. |
 | `channels/index.ts` | `getChannel(channelId)` factory — returns the correct channel implementation. Re-exports all channel classes and typed errors. |
 | `channels/email-channel.ts` | Email implementation of `NotificationChannel`. |
 | `channels/telegram-channel.ts` | Telegram via Bot API. Checks `CHANNELS_TELEGRAM_ENABLED`. |
 | `channels/telegram-client.ts` | Low-level Telegram REST client (native `fetch`, 10s timeout, 4 typed error classes). |
-| `channels/telegram-body.ts` | Formats the Telegram HTML message and inline keyboard. |
+| `channels/telegram-body.ts` | Formats the Telegram HTML messages and inline keyboards (approval request, auto-post FYI, escalation notice, **(WS4)** pending-post notice). |
 | `channels/whatsapp-channel.ts` | WhatsApp via Twilio Content API. Checks `CHANNELS_WHATSAPP_ENABLED`. |
 | `channels/whatsapp-client.ts` | Low-level WhatsApp client (Twilio SDK, 7 typed error classes, `classifyError` dispatch). |
-| `channels/whatsapp-body.ts` | Builds 9 content variables for the `repworth_approval_request_v1` template; extracts token from approval URL. |
+| `channels/whatsapp-body.ts` | Builds Twilio Content variables for the four WhatsApp templates (approval request, autopost FYI, escalation notice, **(WS4)** pending-post notice); extracts tokens from approval URLs; owns the card-body length budget (authoritative template copy: `docs/runbooks/whatsapp-templates.md`). |
 | `channels/enrollment-reducer.ts` | Pure `(state, action) => state` reducer for QR/deep-link channel enrollment (8 states, 27 unit tests). Handles Telegram (and future Discord/Slack). No I/O or timers — all logic is side-effect-free. |
 | `channels/use-enrollment.ts` | React hook wiring `enrollmentReducer` to fetch calls (start / cancel / disable / status), 3s polling loop, 1s TTL tick, and HTTP error classification. Browser-only (marked `'use client'`). |
 
@@ -687,6 +697,8 @@ Each file exports a single `handle*` function that a BullMQ `Worker` calls per j
 | `ResponseGeneratorWorker.ts` | `generate-response` | Loads review + business context, calls `generateResponse()`, saves draft, enqueues notification via outbox. |
 | `NotificationWorker.ts` | `send-notification` | Orchestrates the notification send loop. Delegates context loading to `notification/context.ts`, eligibility filtering to `notification/eligibility.ts`, and per-channel dispatch to `notification/dispatch.ts`. Skips `pending_payment` and `cancelled`. |
 | `EscalationNoticeWorker.ts` | `escalation_notice` | **(WS3)** Sends the Guardian escalation notice to the owner's channels. Re-checks `ESCALATION_ENABLED` at SEND time (kill switch stops outbound notices without hiding raised escalations), reuses the approval worker's eligibility primitive, then hands off to `escalation-notice/dispatch.ts`. Afterwards records the `escalation_sent` step BEST-EFFORT (log-and-swallow — `notification_deliveries` is the authoritative per-channel record). |
+| `AutoPostNoticeWorker.ts` | `auto_post_notice` | Sends the auto-approved post FYI ("your reply was posted") to the owner's channels after an `auto_policy` publish. Reuses the approval worker's eligibility primitive, then hands off to `auto-post-notice/dispatch.ts`. NEVER mutates the already-posted response — a send failure retries on this job alone. |
+| `PendingPostNoticeWorker.ts` | `pending_post_notice` | **(WS4)** Sends the veto-window "your reply will post automatically" notice. Re-checks `AUTO_APPROVAL_ENABLED` at SEND time (spec §2.12; flag off ⇒ complete without sending — the publisher's downgrade backstop owns the record), loads the still-scheduled `auto_policy` response via `pending-post-notice/context.ts` freshness guards, reuses the approval worker's eligibility primitive, then hands off to `pending-post-notice/dispatch.ts`. NEVER mutates the response; the delayed publish outbox row is independent and fires at the deadline regardless. |
 | `ResponsePublisherWorker.ts` | `publish-response` | POST-only flow. Checks `zernio_connections` for the business. Active Zernio → resolves review ID + posts via `zernio-publisher.ts`, marking `posted`. Connection required but absent → transitions to `awaiting_owner_connect` + enqueues `owner-email` (reconnect_required). Uses `publisher-error-handlers.ts` for error classification. The DELETE+POST edit branch (`runEditPublisherIfApplicable`) is parked on tag `wip/edit-existing-replies-zernio-v1` pending direct GBP API. |
 | `DrainOwnerConnectWorker.ts` | `drain-owner-connect` | Re-enqueues stuck `publish_response` outbox rows when an owner (re)connects Zernio. Inserts fresh outbox entries for all `awaiting_owner_connect` responses, with three layers of idempotency (partial unique index, NOT EXISTS guard, ResponsePublisher early-exit). |
 | `OwnerEmailWorker.ts` | `owner-email` | Discriminated payload router for owner-directed Zernio emails. `reconnect_required` → owner needs to reconnect Zernio so the queued reply can be published. `connection_lost` → Zernio reported GBP connection went offline. Both handlers apply subscription guard + bounce check + claim-before-send deduplication. |
@@ -719,6 +731,26 @@ Extracted from `NotificationWorker.ts` to keep each concern focused. The orchest
 | `context.ts` | Loads escalation + review + business rows with escalation-specific guards: not-found/id-mismatch → fail; `resolved` → skip (moot); archived/offboarding → skip. Triage snapshot comes from the `review_escalations` row — no LLM call. |
 | `dispatch.ts` | Per-channel delivery loop, SEPARATE from the approval dispatcher (no `approval_links`). Claim-before-send idempotency on `notification_deliveries` (partial-unique claim index, migration 073); pre-filters WhatsApp when `WHATSAPP_ESCALATION_TEMPLATE_SID` is unset. Log lines carry escalation ids only. |
 | `errors.ts` | `classifyEscalationNoticeSendError()` — retryable (claim released for BullMQ retry) vs terminal (failed delivery row), driven by the single-owner `isTransientChannelSendError` predicate; never flips enrollment. |
+
+#### `worker/jobs/auto-post-notice/` — AutoPostNoticeWorker sub-modules
+
+| File | What it does |
+|------|--------------|
+| `AutoPostNoticeWorker.ts` | Orchestrator (see the queue table above). |
+| `context.ts` | Loads the posted `auto_policy` response + business rows; skip guards (not found/mismatch → fail; not posted / not auto-policy / archived / offboarding → skip). |
+| `dispatch.ts` | Per-channel FYI loop — no `approval_links` (the post already happened; single "View on Google" CTA). Claim-before-send idempotency via `claimAutoPostNoticeDelivery`; pre-filters WhatsApp when `WHATSAPP_AUTOPOST_TEMPLATE_SID` is unset. |
+| `errors.ts` | Retryable-vs-terminal classification for FYI sends; never flips enrollment. |
+
+#### `worker/jobs/pending-post-notice/` — PendingPostNoticeWorker sub-modules **(WS4)**
+
+Third topic-clone sibling of `auto-post-notice`/`escalation-notice` (bounced-owner email skip included from day one).
+
+| File | What it does |
+|------|--------------|
+| `PendingPostNoticeWorker.ts` | Orchestrator (see the queue table above). |
+| `context.ts` | Loads response + review + business rows with veto-window freshness guards: not found/mismatch → fail; no longer `approved`/`auto_policy` (vetoed, kill-switch-downgraded, posted, superseded) → skip; `auto_post_scheduled_at` NULL or already passed → skip (stale backlog — an unactionable notice is noise); archived/offboarding → skip. Deadline staleness is compared IN SQL against the same DB clock that stamped it. |
+| `dispatch.ts` | Per-channel delivery loop. Unlike its two siblings it creates an approval link per delivery (`create-link.ts`) — the notice's single CTA is the tokenized approve page (view / edit / cancel). Claim-before-send idempotency via `claimPendingPostNoticeDelivery` (partial-unique claim index, migration 074); pre-filters WhatsApp when `WHATSAPP_PENDING_POST_TEMPLATE_SID` is unset. Log lines carry ids only; the raw token is redacted from `failure_reason` too (invariant #5). |
+| `errors.ts` | Retryable (claim released for BullMQ retry) vs terminal (failed delivery row), driven by the single-owner `isTransientChannelSendError`; never flips enrollment. Notice delivery failure never blocks the publish. |
 
 #### `worker/jobs/publisher/` — ResponsePublisher helpers
 
