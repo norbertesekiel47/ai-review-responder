@@ -58,4 +58,16 @@ describe('handleApprovalError', () => {
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: 'subscription_inactive' });
   });
+
+  it('maps a Postgres 40P01 deadlock loser to a retryable 409, not too_late and not a 500', async () => {
+    // The veto ↔ mark-posted lock-order collision (veto.ts header): the losing
+    // tx rolled back cleanly, so nothing was cancelled and a retry succeeds.
+    const deadlock = Object.assign(new Error('deadlock detected'), { code: '40P01' });
+
+    const res = handleApprovalError(deadlock, 'veto');
+
+    expect(res.status).toBe(409);
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+    expect(await res.json()).toEqual({ error: 'conflict_retry' });
+  });
 });
