@@ -361,13 +361,17 @@ describe('loadAutoApprovalRuntimeState (mocked sql)', () => {
     expect(countIndex).toBeGreaterThan(-1);
     expect(lockIndex).toBeLessThan(countIndex);
 
-    // The counting predicate is the UTC calendar day (WS4 spec §2.3) over
-    // auto-policy approvals GRANTED today — pinned so a refactor to a rolling
-    // window or local-time day breaks here.
+    // The counting predicate is the UTC calendar day (WS4 spec §2.3, amended
+    // §6) over auto-policy approvals GRANTED today, read from the DURABLE
+    // audit rows — pinned so a refactor back to the mutable responses columns
+    // (which a veto NULLs, refunding the slot), to a rolling window, or to a
+    // local-time day breaks here.
     const countText = texts[countIndex]!;
-    expect(countText).toContain("approved_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'");
-    expect(countText).toContain('approval_method = ?');
+    expect(countText).toContain('FROM approval_audit_log');
+    expect(countText).not.toContain('FROM responses');
+    expect(countText).toContain("created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'");
+    expect(countText).toContain('action = ?');
     const countCall = harness.sqlCalls[countIndex]!;
-    expect(countCall.values).toEqual(expect.arrayContaining(['auto_policy', 'biz-1']));
+    expect(countCall.values).toEqual(expect.arrayContaining(['auto_approved_by_policy', 'biz-1']));
   });
 });

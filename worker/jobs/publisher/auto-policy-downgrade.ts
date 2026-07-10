@@ -1,11 +1,16 @@
 import type { Sql } from 'postgres';
-import { insertAuditLogAutoPolicy } from '../../../src/lib/approval/audit';
+import {
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH,
+  insertAuditLogAutoPolicy,
+} from '../../../src/lib/approval/audit';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { enqueueSendNotification } from '../../../src/lib/shared/job-outbox-helpers';
 import { markOutboxCompleted } from '../../../src/lib/shared/outbox';
 
+// One marker for both writes: the audit action AND the responses.posting_error
+// value (shared owner: src/lib/approval/audit.ts).
 const AUTO_POLICY_REVOKED_BY_KILL_SWITCH =
-  'auto_policy_revoked_by_kill_switch';
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH;
 
 export type AutoPolicyDowngradeOutcome = 'downgraded' | 'no-op';
 

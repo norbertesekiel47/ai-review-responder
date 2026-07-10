@@ -436,6 +436,14 @@ Where per-task reviews tightened the spec during implementation (full record:
 the plan's "Implementation record" section). The original sections above are
 unchanged; on any conflict, these amendments win.
 
+- **§2.3 counting source:** the daily-cap count reads `approval_audit_log`
+  rows (`action='auto_approved_by_policy'`, `created_at >=` UTC day start,
+  same-tx as the grant), NOT `responses.approval_method/approved_at` — the
+  veto downgrade NULLs those columns, so a responses-based count refunded the
+  slot on every veto, inverting the §2.3 fail-toward-owner posture. Audit rows
+  are durable and never mutated, so vetoed grants keep consuming their slot;
+  the read is served by `idx_aal_business` (002) and 074's responses-side
+  partial cap index was dropped as reader-less.
 - **§2.6:** ONE marker constant for both veto writes —
   `AUTO_POST_VETOED_BY_OWNER = 'auto_post_vetoed_by_owner'` (`veto.ts`) is
   written to the outbox row's `last_error` AND `responses.posting_error`. The

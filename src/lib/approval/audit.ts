@@ -32,9 +32,17 @@ export interface ApprovalContentSnapshot {
   responseTextAtApproval: string;
 }
 
+// Single owner of the auto-policy audit action literals. The grant action is
+// ALSO the daily-cap accounting predicate (loadAutoApprovalRuntimeState counts
+// approval_audit_log rows with this action) — renaming it is a cap-accounting
+// change, not a cosmetic one.
+export const AUDIT_ACTION_AUTO_APPROVED_BY_POLICY = 'auto_approved_by_policy';
+export const AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH =
+  'auto_policy_revoked_by_kill_switch';
+
 export type AutoPolicyAuditAction =
-  | 'auto_approved_by_policy'
-  | 'auto_policy_revoked_by_kill_switch';
+  | typeof AUDIT_ACTION_AUTO_APPROVED_BY_POLICY
+  | typeof AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH;
 
 export interface AutoPolicyAuditMetadata {
   policy_id?: string | null;
@@ -193,10 +201,10 @@ export async function insertAuditLogAutoPolicy(
   tx: TxClient,
   input: AutoPolicyAuditInput,
 ): Promise<void> {
-  const action = input.action ?? 'auto_approved_by_policy';
+  const action = input.action ?? AUDIT_ACTION_AUTO_APPROVED_BY_POLICY;
   // The approval action must carry the response snapshot it attests to;
   // downgrade actions (recorded with no text) are exempt.
-  if (action === 'auto_approved_by_policy' && input.responseTextAtApproval === null) {
+  if (action === AUDIT_ACTION_AUTO_APPROVED_BY_POLICY && input.responseTextAtApproval === null) {
     throw new Error(
       'insertAuditLogAutoPolicy: responseTextAtApproval is required for auto_approved_by_policy rows',
     );

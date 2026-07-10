@@ -5,12 +5,12 @@ import {
   starMeetsThreshold,
 } from '../../../src/lib/auto-approval/policy';
 import {
-  APPROVAL_METHOD,
   POLICY_ACTION_POSTING,
   POLICY_PERSONA_REPLY,
   type EffectiveAutoApprovalPolicy,
   type PolicyRowState,
 } from '../../../src/lib/auto-approval/types';
+import { AUDIT_ACTION_AUTO_APPROVED_BY_POLICY } from '../../../src/lib/approval/audit';
 import {
   autoApprovalRuntimeEnabled,
   providerModerationEnabled,
@@ -200,14 +200,21 @@ export async function loadAutoApprovalRuntimeState(
 
   // Auto-approvals GRANTED today (UTC calendar day), not posts landed today —
   // vetoed/downgraded rows still consume their slot (conservative; fails
-  // toward the owner). Kept as its own top-level statement: the tenant-scope
-  // auditor strips subqueries, so the business_id scope must be visible here.
+  // toward the owner, spec §2.3). Counted on approval_audit_log, NOT the
+  // responses row: vetoAutoPost and the publisher kill-switch downgrade both
+  // NULL approval_method/approved_at, so a responses-based count would refund
+  // the slot the moment an owner vetoes. The audit row is durable, never
+  // mutated, and written in the SAME tx as the grant (persist.ts →
+  // insertAuditLogAutoPolicy), so this count is exact under the business lock
+  // above. Served by idx_aal_business (business_id, created_at; migration
+  // 002). Kept as its own top-level statement: the tenant-scope auditor
+  // strips subqueries, so the business_id scope must be visible here.
   const [capRow] = await tx<{ auto_approved_today: number }[]>`
     SELECT count(*)::int AS auto_approved_today
-    FROM responses
+    FROM approval_audit_log
     WHERE business_id = ${businessId}
-      AND approval_method = ${APPROVAL_METHOD.AUTO_POLICY}
-      AND approved_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+      AND action = ${AUDIT_ACTION_AUTO_APPROVED_BY_POLICY}
+      AND created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
   `;
   if (!capRow) {
     // count(*) always yields one row — reaching this means the query itself

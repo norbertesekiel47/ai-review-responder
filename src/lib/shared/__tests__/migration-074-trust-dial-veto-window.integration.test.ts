@@ -284,11 +284,20 @@ describeWithDb('migration 074 trust dial + veto window — shape', { timeout: 30
         AND (tablename, indexname) IN (
           ('auto_approval_policies', 'auto_approval_policies_one_account_default'),
           ('auto_approval_policies', 'auto_approval_policies_one_location_override'),
-          ('responses', 'idx_responses_auto_policy_daily_cap'),
           ('job_outbox', 'idx_jo_pending_post_notice_inflight'),
           ('notification_deliveries', 'notification_deliveries_pending_post_notice_claim')
         )
     `;
-    expect(count?.count).toBe('5');
+    expect(count?.count).toBe('4');
+
+    // The responses-side cap index was superseded by the audit-row count
+    // (spec §6): the migration's guarded DROP must have removed it.
+    const [supersededCapIndex] = await sql()<{ count: string }[]>`
+      SELECT count(*)::text AS count FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND tablename = 'responses'
+        AND indexname = 'idx_responses_auto_policy_daily_cap'
+    `;
+    expect(supersededCapIndex?.count).toBe('0');
   });
 });

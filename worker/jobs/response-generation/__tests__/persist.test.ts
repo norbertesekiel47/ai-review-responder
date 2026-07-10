@@ -183,10 +183,14 @@ function assertManualNotificationFallback() {
   expect(txTexts()[2]).toContain('approval_method');
   expect(txArgs()).toContain(QUEUE_NAMES.SEND_NOTIFICATION);
   expect(txArgs()).not.toContain(QUEUE_NAMES.PUBLISH_RESPONSE);
-  expect(txArgs()).not.toContain('auto_approved_by_policy');
+  // The auto-policy audit INSERT must never run on a fallback path. (The bare
+  // 'auto_approved_by_policy' bind is NOT asserted absent anymore: the daily-
+  // cap COUNT on approval_audit_log binds it on every path as its action
+  // filter — same evolution as the 'auto_policy' bind note below.)
+  expect(txTexts().some((text) => text.includes('INSERT INTO approval_audit_log'))).toBe(false);
   // The approve UPDATE must never run on a fallback path. (The bare
-  // 'auto_policy' bind is NOT asserted absent anymore: the WS4 daily-cap
-  // COUNT binds it on every path as its approval_method filter.)
+  // 'auto_policy' bind is NOT asserted absent anymore: the pre-fix WS4
+  // daily-cap COUNT bound it as its approval_method filter.)
   expect(txTexts().some((text) => text.includes('UPDATE responses') && text.includes('approved_text'))).toBe(false);
   // WS4: no veto-window deadline stamp and no pending-post notice off the
   // auto-approve path.
@@ -487,7 +491,10 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
     expect(txArgs()).not.toContain(QUEUE_NAMES.SEND_NOTIFICATION);
     expect(txArgs()).not.toContain(QUEUE_NAMES.PUBLISH_RESPONSE);
     expect(txArgs()).not.toContain(QUEUE_NAMES.PENDING_POST_NOTICE);
-    expect(txArgs()).not.toContain('auto_approved_by_policy');
+    // Audit-INSERT absence, not the bare action bind — the daily-cap COUNT
+    // now binds 'auto_approved_by_policy' on every path (see the fallback
+    // helper's note).
+    expect(txTexts().some((text) => text.includes('INSERT INTO approval_audit_log'))).toBe(false);
     expect(txTexts().some((text) => text.includes('auto_post_scheduled_at'))).toBe(false);
     expect(sendNotificationPayloads()).toHaveLength(0);
   });

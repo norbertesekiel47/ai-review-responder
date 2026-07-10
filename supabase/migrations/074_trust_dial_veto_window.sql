@@ -1,6 +1,7 @@
 -- Migration 074: WS4 trust dial + veto window
 -- (spec docs/superpowers/specs/2026-07-07-ws4-trust-dial-veto-window-design.md
--- §2.1 policy schema, §2.2 rating bands, §2.3 cap index, §2.7 notice indexes,
+-- §2.1 policy schema, §2.2 rating bands, §2.3 cap accounting (audit-row count
+-- per the §6 amendment — no responses-side index), §2.7 notice indexes,
 -- §2.8 outcome kind).
 --
 -- Additive + fully re-runnable (ADD COLUMN IF NOT EXISTS, DROP CONSTRAINT
@@ -76,11 +77,15 @@ ALTER TABLE responses ADD COLUMN IF NOT EXISTS auto_post_scheduled_at TIMESTAMPT
 COMMENT ON COLUMN responses.auto_post_scheduled_at IS
   'Auto-approved publish deadline (veto window end). Single source of truth for the notice copy, approve-page scheduled state, and veto guard. NULL once vetoed/downgraded and for every owner-approved response. WS4 spec §2.5.';
 
--- Daily-cap accounting read (§2.3): plain range predicate on approved_at —
--- deliberately NOT a per-day expression index (IMMUTABLE gotcha avoided).
-CREATE INDEX IF NOT EXISTS idx_responses_auto_policy_daily_cap
-  ON responses (business_id, approved_at)
-  WHERE approval_method = 'auto_policy';
+-- Daily-cap accounting read (§2.3, amended §6): the count moved from
+-- responses to approval_audit_log rows (action='auto_approved_by_policy') —
+-- durable and never mutated, so an owner veto (which NULLs
+-- responses.approval_method/approved_at) cannot refund the day's slot. That
+-- read is served by the existing idx_aal_business (business_id, created_at;
+-- migration 002), so the responses-side partial index this migration
+-- originally created has no reader; the guarded DROP cleans DBs where an
+-- earlier revision of this re-runnable migration already created it.
+DROP INDEX IF EXISTS idx_responses_auto_policy_daily_cap;
 
 -- ── 3. agent_outcomes: veto outcome kind ────────────────────────────────────
 -- Replicates migration 071's CHECK text with 'reply_vetoed_by_owner' appended

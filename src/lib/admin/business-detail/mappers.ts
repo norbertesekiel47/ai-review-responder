@@ -41,10 +41,14 @@ import type {
   BusinessMetricsRow,
 } from './queries';
 import type { PolicyRowState } from '@/lib/auto-approval/types';
+import {
+  AUDIT_ACTION_AUTO_APPROVED_BY_POLICY,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH,
+} from '@/lib/approval/audit';
 
-const AUTO_APPROVAL_AUDIT_ACTIONS = new Set([
-  'auto_approved_by_policy',
-  'auto_policy_revoked_by_kill_switch',
+const AUTO_APPROVAL_AUDIT_ACTIONS = new Set<string>([
+  AUDIT_ACTION_AUTO_APPROVED_BY_POLICY,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH,
 ]);
 
 /**

@@ -12,7 +12,9 @@
 // businesses row) → loadAutoApprovalRuntimeState → approve UPDATE (the full
 // approveAutoPolicyAndSchedule statement, incl. the make_interval named-
 // notation veto-window stamp + RETURNING — this suite is its only live
-// executor) → commit. That ordering doubles as the DEADLOCK regression test:
+// executor) → the REAL insertAuditLogAutoPolicy write (production's same-tx
+// audit row — the durable cap-accounting source) → commit. That ordering
+// doubles as the DEADLOCK regression test:
 // with the pre-fix
 // order (responses INSERT before any businesses FOR UPDATE), two of these txs
 // for different reviews of the same business each hold a KEY SHARE and each
@@ -35,6 +37,8 @@ import {
 } from '@/lib/shared/__tests__/live-db-tenant';
 import { applyMigration074IfMissing } from '@/lib/shared/__tests__/helpers/apply-migration-074';
 import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
+import { insertAuditLogAutoPolicy } from '@/lib/approval/audit';
+import { AUTO_POST_VETOED_BY_OWNER } from '@/lib/approval/veto';
 import { loadAutoApprovalRuntimeState, type AutoApprovalRuntimeState } from '../auto-approval';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
@@ -108,9 +112,13 @@ async function persistShapedHead(
  * The persist tx's auto-policy approve UPDATE, byte-shaped after production
  * (persist.ts approveAutoPolicyAndSchedule): full SET list including the
  * `make_interval(mins => $n)` named-notation veto-window stamp, the
- * pending_approval status guard, and `RETURNING auto_post_scheduled_at`.
- * Running it here live-proves the named-notation bind against real Postgres —
- * no other automated test executes it.
+ * pending_approval status guard, and `RETURNING auto_post_scheduled_at` —
+ * followed by the REAL insertAuditLogAutoPolicy write, exactly as production
+ * pairs them in one tx. The audit row is the durable cap-accounting source
+ * (spec §2.3 amended §6), so writing it for real here is what makes the
+ * loader's count assertions below production-true. Running the UPDATE here
+ * live-proves the named-notation bind against real Postgres — no other
+ * automated test executes it.
  */
 async function approveAutoPolicy(
   tx: postgresType.TransactionSql,
@@ -132,7 +140,31 @@ async function approveAutoPolicy(
     RETURNING auto_post_scheduled_at
   `;
   if (!scheduled) throw new Error('auto_approve_transition_lost');
+  await insertAuditLogAutoPolicy(tx, {
+    responseId,
+    businessId,
+    responseTextAtApproval: 'Thanks!',
+  });
   return scheduled.auto_post_scheduled_at;
+}
+
+/**
+ * Read the loader's runtime state outside a persist tx (no responses INSERT):
+ * reviews FOR UPDATE first per the global lock-order law, then the loader
+ * (which re-takes the businesses lock itself).
+ */
+async function loadRuntimeState(
+  db: postgresType.Sql,
+  reviewId: string,
+): Promise<AutoApprovalRuntimeState> {
+  return db.begin(async (tx) => {
+    await tx`SELECT id FROM reviews WHERE id = ${reviewId}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`;
+    return loadAutoApprovalRuntimeState(tx, {
+      reviewId,
+      businessId,
+      accountId: accountId(),
+    });
+  });
 }
 
 describeWithDb('WS4 daily-cap accounting in loadAutoApprovalRuntimeState against live Postgres', { timeout: 30_000 }, () => {
@@ -261,5 +293,37 @@ describeWithDb('WS4 daily-cap accounting in loadAutoApprovalRuntimeState against
     // pre-approval count.
     expect(txBState.autoApprovedTodayCount).toBe(1);
     expect(txBState.effectivePolicy.dailyAutoPostCap).toBe(5);
+  });
+
+  it('a vetoed grant STILL consumes its daily-cap slot (spec §2.3/§4 — fail toward the owner)', async () => {
+    // Baseline from the serialization test: reviews A and B were both
+    // auto-approved with real audit rows, so the day's count is 2.
+    const before = await loadRuntimeState(sqlA(), reviewAId);
+    expect(before.autoApprovedTodayCount).toBe(2);
+
+    // Replicate vetoAutoPost's downgrade UPDATE (src/lib/approval/veto.ts)
+    // byte-shaped: it NULLs approval_method/approved_at — exactly the mutable
+    // columns the pre-fix responses-based count keyed on, which refunded the
+    // slot the moment an owner vetoed.
+    const [vetoed] = await sqlA()<{ id: string }[]>`
+      UPDATE responses
+      SET status = 'pending_approval',
+          approval_method = NULL,
+          approved_at = NULL,
+          approved_text = NULL,
+          auto_post_scheduled_at = NULL,
+          posting_error = ${AUTO_POST_VETOED_BY_OWNER},
+          updated_at = NOW()
+      WHERE review_id = ${reviewBId}::uuid
+        AND business_id = ${businessId}::uuid
+        AND status = 'approved'
+        AND approval_method = ${APPROVAL_METHOD.AUTO_POLICY}
+      RETURNING id
+    `;
+    expect(vetoed).toBeDefined();
+
+    // The durable audit row keeps the slot consumed: the count is unchanged.
+    const after = await loadRuntimeState(sqlA(), reviewAId);
+    expect(after.autoApprovedTodayCount).toBe(2);
   });
 });

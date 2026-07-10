@@ -810,11 +810,17 @@ Revisit triggers:
   veto downgrade in `src/lib/approval/veto.ts`. The publisher's kill-switch
   downgrade deliberately does NOT clear it — every consumer keys on
   `status='approved' AND approval_method='auto_policy'` plus a future
-  deadline, so the stale value is inert). Cap-accounting index
-  `idx_responses_auto_policy_daily_cap` on `responses (business_id,
-  approved_at) WHERE approval_method = 'auto_policy'` — a plain range
-  predicate, deliberately NOT a per-day expression index (sidesteps the
-  IMMUTABLE-expression gotcha). Swaps `agent_outcomes_outcome_kind_check`
+  deadline, so the stale value is inert). **Cap accounting (spec §2.3, amended
+  §6):** the daily-cap count reads `approval_audit_log` rows
+  (`action='auto_approved_by_policy'`, `created_at >=` UTC day start) —
+  durable, never mutated, written same-tx as the grant — NOT the mutable
+  `responses.approval_method/approved_at` columns, which the veto downgrade
+  NULLs (a responses-based count refunded the slot on every veto). Served by
+  the existing `idx_aal_business (business_id, created_at)` from 002; the
+  originally-planned responses-side partial index
+  `idx_responses_auto_policy_daily_cap` is reader-less and 074 now carries a
+  guarded `DROP INDEX IF EXISTS` for it (cleans DBs that applied an earlier
+  revision of this re-runnable migration). Swaps `agent_outcomes_outcome_kind_check`
   (`DROP CONSTRAINT IF EXISTS` + ADD, 069 precedent) replicating 071's exact
   kind list with `'reply_vetoed_by_owner'` appended after its edit sibling — a
   strict superset, paired with `AGENT_OUTCOME_KINDS` in
