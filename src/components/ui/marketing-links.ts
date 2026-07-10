@@ -17,3 +17,17 @@ export const NAV_LINKS: readonly MarketingLink[] = [
   MARKETING_LINKS.howItWorks,
   MARKETING_LINKS.pricing,
 ];
+
+/** Footer legal links, in SiteFooter's canonical order. Shared by SiteFooter's
+ *  Legal column and the landing page's act-3 footer bar. */
+export const LEGAL_LINKS = [
+  { label: 'Privacy', href: '/legal/privacy' },
+  { label: 'Terms', href: '/legal/terms' },
+  { label: 'Security', href: '/security' },
+  { label: 'Sub-processors', href: '/legal/sub-processors' },
+  { label: 'Cookies', href: '/legal/cookies' },
+  { label: 'AUP', href: '/legal/aup' },
+] as const;
+
+/** Footer company links (SiteFooter's Company column + the landing footer). */
+export const COMPANY_LINKS = [{ label: 'Contact', href: '/help/contact' }] as const;

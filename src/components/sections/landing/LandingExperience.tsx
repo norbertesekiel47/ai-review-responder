@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef } from 'react';
 import { TiltCard } from '@/components/ui/be-ui-tilt-card';
-import { NAV_LINKS } from '@/components/ui/marketing-links';
+import { COMPANY_LINKS, LEGAL_LINKS, NAV_LINKS } from '@/components/ui/marketing-links';
 import './landing-experience.css';
 
 /**
@@ -15,15 +15,19 @@ import './landing-experience.css';
  *   1. Hero      — a frosted glass card on the right (copy) over the fixed,
  *                  looping /video/heroVideo.mp4.
  *   2. Expand    — that same card grows to full-bleed, its copy crossfades out
- *                  and /video/hero2Video.mp4 in, then the Features / How-it-works
- *                  / Pricing cards reveal on top.
+ *                  and /video/hero2Video.mp4 in, then the three agent-persona
+ *                  cards (Reply / Guardian / Insights) reveal on top.
  *   3. Final     — the media crossfades to the mirrored /video/hero3Video.mp4,
- *                  the feature cards fade out, and the "Every review, answered."
- *                  glass tilt card fades in on the left.
+ *                  the persona cards fade out, and the closing glass tilt card
+ *                  fades in on the left.
  *
  * Geometry + every cross-fade are written imperatively from one rAF-coalesced
  * scroll listener. Same-origin /video/* keeps the clips inside the production
  * CSP (`default-src 'self'`, no `media-src`).
+ *
+ * Visual direction (Variant A — "Editorial"): serif-led display type, paper
+ * surfaces, ink-first hierarchy. The signature motif is a hand-drawn ink
+ * underline (see InkUnderline) that recurs once per act.
  */
 
 const HERO_VIDEO_SRC = '/video/heroVideo.mp4';
@@ -34,8 +38,37 @@ interface LandingExperienceProps {
   /** Where every CTA points. `/signup` when self-serve signup is live, else the
    *  lead-capture route (`/signup` 404s when the flag is off). */
   primaryCtaHref: string;
-  /** Hero + nav CTA label (reflects the trial offer when one is live). */
+  /** CTA label for the nav, hero, and closing card (reflects the trial offer
+   *  when one is live). */
   primaryCtaLabel: string;
+}
+
+/**
+ * The editorial motif: a slightly bowed, hand-ruled underline drawn in the
+ * brand teal. It appears exactly once per act (hero headline, the "team"
+ * annotation in act 2, the closing headline) so the accent stays decisive
+ * rather than decorative. The stroke draws itself in on load; reduced-motion
+ * renders it already drawn.
+ */
+function InkUnderline() {
+  return (
+    <svg
+      className="rw-le-ink"
+      viewBox="0 0 120 8"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M2 6.2 C 28 2.4, 64 2.2, 118 4.6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.6"
+        strokeLinecap="round"
+        pathLength="1"
+      />
+    </svg>
+  );
 }
 
 export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingExperienceProps) {
@@ -50,6 +83,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
   const cardsRef = useRef<HTMLDivElement>(null);
   const finalBgRef = useRef<HTMLDivElement>(null);
   const finalHolderRef = useRef<HTMLDivElement>(null);
+  const footerRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const clamp = (n: number) => Math.max(0, Math.min(1, n));
@@ -122,6 +156,15 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
           finalHolder.style.pointerEvents = finalP > 0.5 ? 'auto' : 'none';
           finalHolder.inert = finalP <= 0.5;
         }
+
+        // Footer bar rides the act-3 crossfade — reuses the already-computed
+        // finalP with no timing of its own (the one sanctioned driver addition).
+        const footer = footerRef.current;
+        if (footer) {
+          footer.style.opacity = String(finalP);
+          footer.style.pointerEvents = finalP > 0.5 ? 'auto' : 'none';
+          footer.inert = finalP <= 0.5;
+        }
       });
     };
 
@@ -187,26 +230,30 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
               />
               <div ref={glassRef} className="rw-le-morph-glass" aria-hidden="true" />
               <div ref={contentRef} className="rw-le-morph-content">
-                <p className="rw-le-eyebrow">Review response, on autopilot</p>
+                <p className="rw-le-eyebrow">
+                  <span className="rw-le-eyebrow-rule" aria-hidden="true" />
+                  An AI agent team for Google reviews
+                </p>
                 <h1 className="rw-le-title">
-                  Every review gets the reply it{' '}
-                  <span className="rw-le-mark">
-                    <span className="rw-le-mark-bar" aria-hidden="true" />
-                    <span className="rw-le-mark-text">deserves</span>
-                  </span>
-                  .
+                  Put a{' '}
+                  <span className="rw-le-uword">
+                    team
+                    <InkUnderline />
+                  </span>{' '}
+                  on your&nbsp;reviews.
                 </h1>
                 <p className="rw-le-sub">
-                  RepWorth drafts a reply to every Google review in your voice, notifies you, and
-                  posts it the moment you tap approve. You save about fifteen hours a week — your
-                  customers feel heard within minutes.
+                  Reply drafts an answer to every review in your voice. Guardian holds anything
+                  negative and brings it to you first. Insights files the weekly brief. Nothing
+                  posts without your say — and around fifteen hours of typing a week comes off
+                  your desk.
                 </p>
                 <div className="rw-le-hero-ctas">
                   <Link className="rw-le-btn-primary" href={primaryCtaHref}>
                     {primaryCtaLabel} <span aria-hidden="true">→</span>
                   </Link>
                   <Link className="rw-le-btn-ghost" href="/how-it-works">
-                    See how it works →
+                    How the team works <span aria-hidden="true">→</span>
                   </Link>
                 </div>
               </div>
@@ -226,69 +273,161 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
               />
             </div>
 
-            {/* Act 2 — feature cards over the expanded media. */}
+            {/* Act 2 — the agent-persona cards over the expanded media. */}
             <div ref={cardsRef} className="rw-le-morph-cards">
-              <div className="rw-le-morph-cards-grid">
-                <Link className="rw-le-card" href="/features">
-                  <span className="rw-le-card-num">01</span>
-                  <h3>Features</h3>
-                  <p>
-                    Everything RepWorth drafts, posts, and tracks for you — replies written in your
-                    voice, sent the moment you tap approve.
-                  </p>
-                  <span className="rw-le-card-link">Explore features →</span>
-                </Link>
-                <Link className="rw-le-card" href="/how-it-works">
-                  <span className="rw-le-card-num">02</span>
-                  <h3>How it works</h3>
-                  <p>
-                    Connect Google, set your tone, approve. Three simple steps to staying on top of
-                    every review without the busywork.
-                  </p>
-                  <span className="rw-le-card-link">See the flow →</span>
-                </Link>
-                <Link className="rw-le-card" href="/pricing">
-                  <span className="rw-le-card-num">03</span>
-                  <h3>Pricing</h3>
-                  <p>
-                    Simple per-location pricing with a free trial to start. Find the plan that fits
-                    your business — no surprises.
-                  </p>
-                  <span className="rw-le-card-link">View plans →</span>
-                </Link>
+              <div className="rw-le-cards-frame">
+                <p className="rw-le-cards-kicker">
+                  Meet the{' '}
+                  <span className="rw-le-uword">
+                    team
+                    <InkUnderline />
+                  </span>
+                </p>
+
+                <div className="rw-le-morph-cards-grid">
+                  {/* Reserved 16:9 slot for the act-2 explainer film. To ship the
+                      real clip, replace the placeholder <div> below with
+                        <video className="rw-le-plate-video" src="/video/howItWorksVideo.mp4"
+                               muted loop playsInline preload="auto" tabIndex={-1} />
+                      — same-origin /video/*.mp4 keeps it inside the production CSP
+                      (`default-src 'self'`, no `media-src`). */}
+                  <figure className="rw-le-plate">
+                    <div className="rw-le-plate-media" aria-hidden="true">
+                      <svg
+                        className="rw-le-plate-glyph"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <circle cx="12" cy="12" r="10.5" stroke="currentColor" strokeWidth="1" />
+                        <path
+                          d="M10 8.5v7l6-3.5z"
+                          stroke="currentColor"
+                          strokeWidth="1.2"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </div>
+                    <figcaption className="rw-le-plate-caption">
+                      How it works — film coming soon
+                    </figcaption>
+                  </figure>
+
+                  <article className="rw-le-persona rw-le-persona-reply">
+                    <h3 className="rw-le-persona-name">Reply</h3>
+                    <p className="rw-le-persona-role">the writer</p>
+                    <p className="rw-le-persona-body">
+                      Drafts an answer to every Google review in your voice, then posts the moment
+                      you approve. On Autopilot, 4–5★ unflagged replies go out on their own —
+                      after a veto window you can cancel.
+                    </p>
+                    <p className="rw-le-persona-log">
+                      <span className="rw-le-log-dot" aria-hidden="true" />
+                      review → draft → approve → post
+                    </p>
+                  </article>
+
+                  <article className="rw-le-persona rw-le-persona-guardian">
+                    <h3 className="rw-le-persona-name">Guardian</h3>
+                    <p className="rw-le-persona-role">the gatekeeper</p>
+                    <p className="rw-le-persona-body">
+                      Reads severity first. A negative or flagged review is held, escalated to
+                      your channel with context and a recommended move, and tracked until it is
+                      resolved.
+                    </p>
+                    <p className="rw-le-persona-note">
+                      Negative reviews are never auto-posted. On any plan.
+                    </p>
+                  </article>
+
+                  <article className="rw-le-persona rw-le-persona-insights">
+                    <h3 className="rw-le-persona-name">Insights</h3>
+                    <p className="rw-le-persona-role">the analyst</p>
+                    <p className="rw-le-persona-body">
+                      Files a weekly brief: your sentiment trend, the numbers that moved, the
+                      reviews worth reading — and what the team did about them.
+                    </p>
+                    <p className="rw-le-persona-caption">the weekly brief</p>
+                    <div className="rw-le-persona-brief" aria-hidden="true">
+                      <span className="rw-le-brief-line" />
+                      <span className="rw-le-brief-line" />
+                      <span className="rw-le-brief-line" />
+                    </div>
+                  </article>
+                </div>
+
+                <p className="rw-le-cards-foot">
+                  <Link className="rw-le-btn-ghost rw-le-btn-ghost-light" href="/pricing">
+                    Compare Copilot and Autopilot <span aria-hidden="true">→</span>
+                  </Link>
+                </p>
               </div>
             </div>
 
-            {/* Act 3 — final glass tilt card, crossfades in on the left. */}
+            {/* Act 3 — closing glass tilt card, crossfades in on the left. */}
             <div ref={finalHolderRef} className="rw-le-final-holder">
               <TiltCard className="rw-le-final-card">
                 <div className="rw-le-final-inner">
-                  <p className="rw-le-eyebrow">Ready when you are</p>
-                  <h2 className="rw-le-final-title">Every review, answered.</h2>
+                  <p className="rw-le-final-kicker">The last word is yours</p>
+                  <h2 className="rw-le-final-title">
+                    Consider it{' '}
+                    <span className="rw-le-uword">
+                      handled
+                      <InkUnderline />
+                    </span>
+                    .
+                  </h2>
                   <p className="rw-le-final-sub">
-                    Save about fifteen hours a week. Your customers feel heard within minutes — and
-                    your rating takes care of itself.
+                    Reply writes, Guardian watches, Insights reports — the evenings you spent
+                    typing go back to the business. Approve everything on Copilot, or set the
+                    policy on Autopilot and keep the veto.
                   </p>
                   <Link className="rw-le-btn-primary" href={primaryCtaHref}>
-                    Join the early access waitlist <span aria-hidden="true">→</span>
+                    {primaryCtaLabel} <span aria-hidden="true">→</span>
                   </Link>
                 </div>
               </TiltCard>
             </div>
 
+            {/* Act 3 — slim footer bar, rides finalP alongside the closing card. */}
+            <footer ref={footerRef} className="rw-le-footer">
+              <span className="rw-le-footer-copy" suppressHydrationWarning>
+                © {new Date().getFullYear()} RepWorth. All rights reserved.
+              </span>
+              <div className="rw-le-footer-links">
+                {NAV_LINKS.map((link) => (
+                  <Link key={link.href} href={link.href}>{link.label}</Link>
+                ))}
+                <span className="rw-le-footer-sep" aria-hidden="true" />
+                {LEGAL_LINKS.map((link) => (
+                  <Link key={link.href} href={link.href}>{link.label}</Link>
+                ))}
+                {COMPANY_LINKS.map((link) => (
+                  <Link key={link.href} href={link.href}>{link.label}</Link>
+                ))}
+              </div>
+            </footer>
+
             <div ref={cueRef} className="rw-le-morph-cue" aria-hidden="true">
-              <span className="rw-le-cue-label">Scroll</span>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="22"
-                height="22"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={2}
-                stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-              </svg>
+              <span className="rw-le-cue-pill">
+                <span className="rw-le-cue-label">keep reading</span>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="12"
+                  height="12"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2}
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                  />
+                </svg>
+              </span>
             </div>
           </div>
         </section>

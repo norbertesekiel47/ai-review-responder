@@ -1,6 +1,6 @@
 import Link from 'next/link';
 
-import { MARKETING_LINKS } from './marketing-links';
+import { COMPANY_LINKS, LEGAL_LINKS, MARKETING_LINKS } from './marketing-links';
 
 /**
  * Site-wide marketing footer. Self-contained (`<footer className="rw-foot">`) so
@@ -26,18 +26,11 @@ const FOOTER_COLUMNS: ReadonlyArray<FooterColumn> = [
   },
   {
     heading: 'Legal',
-    links: [
-      { label: 'Privacy', href: '/legal/privacy' },
-      { label: 'Terms', href: '/legal/terms' },
-      { label: 'Security', href: '/security' },
-      { label: 'Sub-processors', href: '/legal/sub-processors' },
-      { label: 'Cookies', href: '/legal/cookies' },
-      { label: 'AUP', href: '/legal/aup' },
-    ],
+    links: LEGAL_LINKS,
   },
   {
     heading: 'Company',
-    links: [{ label: 'Contact', href: '/help/contact' }],
+    links: COMPANY_LINKS,
   },
 ];
 
