@@ -806,8 +806,11 @@ Revisit triggers:
   indexes. Adds nullable
   `responses.auto_post_scheduled_at` TIMESTAMPTZ — the veto-window publish
   deadline, single source of truth for the notice copy, approve-page scheduled
-  state, and veto guard (stamped by `persist.ts` in WS4 Task 5, cleared by the
-  veto/downgrade paths in Task 8). Cap-accounting index
+  state, and veto guard (stamped by `persist.ts` in WS4 Task 5; cleared by the
+  veto downgrade in `src/lib/approval/veto.ts`. The publisher's kill-switch
+  downgrade deliberately does NOT clear it — every consumer keys on
+  `status='approved' AND approval_method='auto_policy'` plus a future
+  deadline, so the stale value is inert). Cap-accounting index
   `idx_responses_auto_policy_daily_cap` on `responses (business_id,
   approved_at) WHERE approval_method = 'auto_policy'` — a plain range
   predicate, deliberately NOT a per-day expression index (sidesteps the
