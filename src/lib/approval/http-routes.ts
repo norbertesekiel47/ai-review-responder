@@ -197,6 +197,19 @@ export async function runDashboardReviewAction(
 
   try {
     await sql.begin(async (tx) => {
+      // Global lock-order anchor (reviews → responses → agent_runs; veto.ts's
+      // header owns the deadlock analysis): the approve/edit actions record an
+      // owner-decision outcome whose INSERT takes an implicit FK FOR KEY SHARE
+      // on the agent_runs row, while a concurrent processReview / mark-posted
+      // holds reviews(X) → responses(X). Locking the response first would
+      // invert the global anchor and close that cycle into a deadlock, so the
+      // reviews row must be this tx's FIRST lock. No pre-read is needed:
+      // reviewId comes from the route (tenant-scoped by the lookup above), not
+      // from the responses row. The actions' own anchorReviewLockOrder calls
+      // become idempotent same-tx re-takes (auto-approval.ts loader re-take
+      // precedent — row locks don't stack within a transaction).
+      await tx`SELECT id FROM reviews WHERE id = ${reviewId} AND business_id = ${response.business_id as string}::uuid FOR UPDATE`;
+
       // Lock the candidate response, then refuse to release it while a
       // high-severity moderation flag is open. The lock serializes this check
       // against the admin disposition that closes the flag.

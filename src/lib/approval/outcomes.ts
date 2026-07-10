@@ -24,6 +24,17 @@ type TxClient = postgres.TransactionSql;
  * (2) reviews FOR UPDATE — unchecked result, transitions.ts posture. A
  * missing response row skips the lock and returns: the caller's claim
  * primitive (lockPendingResponse) then throws its normal not-found error.
+ * That pass-through guarantee rests on the caller passing a consistent
+ * (responseId, businessId) pair from one tenant-scoped source (the link row /
+ * the dashboard resolution query) — the pre-read here is business-scoped but
+ * lockPendingResponse is not, and the claim primitive does not re-check the
+ * pair.
+ *
+ * Session lane: runDashboardReviewAction (http-routes.ts) already takes the
+ * reviews lock as its tx's FIRST statement, so the approve/edit calls into
+ * this helper are idempotent same-tx RE-takes (auto-approval.ts loader
+ * re-take precedent — row locks don't stack within a transaction); the call
+ * stays so the anchor is self-contained for any future caller.
  */
 export async function anchorReviewLockOrder(
   tx: TxClient,
