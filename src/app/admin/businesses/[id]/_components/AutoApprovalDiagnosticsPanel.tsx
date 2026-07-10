@@ -13,11 +13,14 @@ const BLOCK_REASON_LABELS: Record<AutoApprovalReadinessBlockReason, string> = {
   impersonation_not_allowed: 'Impersonation',
 };
 
+// Same vocabulary as the owner UI's THRESHOLD_OPTIONS (AutoApprovalClient) so
+// admin diagnostics and owner settings read identically. Off / 5★ only / 4–5★
+// is the full WS4 domain; the fallback covers only out-of-domain legacy data.
 function thresholdLabel(threshold: number | null): string {
-  if (threshold === null) return 'Manual';
-  if (threshold === 5) return '5-star only';
-  if (threshold === 1) return 'All rated';
-  return `${threshold}-5 stars`;
+  if (threshold === null) return 'Off';
+  if (threshold === 5) return '5★ only';
+  if (threshold === 4) return '4–5★';
+  return `${threshold}–5★`;
 }
 
 function sourceLabel(source: string): string {
