@@ -561,9 +561,9 @@ Verify `correlationId` and `logger` are in scope in this function (they are used
 **Files:**
 - Modify: `.claude/reference/env-vars.md` (AUTO_APPROVAL_ENABLED note + `WHATSAPP_PENDING_POST_TEMPLATE_SID`), `docs/directory.md` (pending-post-notice package, veto module/route), `docs/runbooks/whatsapp-templates.md` (pending_post_notice template content + submission steps), `docs/superpowers/plans/2026-07-07-ws4-trust-dial-veto-window.md` (tick checkboxes; append an implementation-record section for any review-driven amendments)
 
-- [ ] **Step 1: Docs sweep** per the table above. Grep for dangling references: `rg "pending_post_notice|veto" docs .claude/reference --files-with-matches` and make every mention consistent.
-- [ ] **Step 2: Full gates locally:** `pnpm lint && pnpm typecheck && pnpm test` then EVERY `ci:*` script in package.json (`pnpm ci:tenant-scope && pnpm ci:rls-audit && pnpm ci:analytics-events && pnpm ci:static-policy && pnpm ci:db-imports` + any others listed) and `pnpm eval:llm` (offline). All green.
-- [ ] **Step 3: Commit** (`docs(ws4): reference + runbook sweep for trust dial + veto window`).
+- [x] **Step 1: Docs sweep** per the table above. Grep for dangling references: `rg "pending_post_notice|veto" docs .claude/reference --files-with-matches` and make every mention consistent. *(env-vars AUTO_APPROVAL_ENABLED §2.12 note + SID pointer; directory.md WS4 units + auto-post-notice backfill; whatsapp-templates.md `repworth_pending_post_notice_v1` section with verified 1000/1024 length budget — resolves the whatsapp-body Task-14 TODO; spec §6 amendments; admin diagnostics labels aligned to Off / 5★ only / 4–5★; migrations-log 074 clearing-semantics precision; all other veto mentions verified as the moderation/triage sense.)*
+- [x] **Step 2: Full gates locally:** `pnpm lint && pnpm typecheck && pnpm test` then EVERY `ci:*` script in package.json (`pnpm ci:tenant-scope && pnpm ci:rls-audit && pnpm ci:analytics-events && pnpm ci:static-policy && pnpm ci:db-imports` + any others listed) and `pnpm eval:llm` (offline). All green.
+- [x] **Step 3: Commit** (`docs(ws4): reference + runbook sweep for trust dial + veto window`).
 
 ---
 
