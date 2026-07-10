@@ -7,7 +7,11 @@
 import type { Sql } from 'postgres';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
-import type { AutoApprovalThreshold } from '@/lib/auto-approval/types';
+import {
+  POLICY_ACTION_POSTING,
+  POLICY_PERSONA_REPLY,
+  type AutoApprovalThreshold,
+} from '@/lib/auto-approval/types';
 import type {
   AwaitingOwnerConnectRow,
   BusinessRow,
@@ -276,11 +280,16 @@ export async function fetchBusinessDetailBatch2(
       ORDER BY created_at DESC
       LIMIT 50
     `,
+    // Scoped to the reply/posting persona like every other policy reader —
+    // when a future persona (e.g. Solicitation) lands, its rows must not
+    // bleed into the reply-dial diagnostics.
     sql<AutoApprovalPolicyRow[]>`
       SELECT id, account_id, location_id, auto_approve_min_star,
              veto_window_minutes, daily_auto_post_cap, suspended_at
       FROM auto_approval_policies
       WHERE account_id = ${accountId}
+        AND persona = ${POLICY_PERSONA_REPLY}
+        AND action_class = ${POLICY_ACTION_POSTING}
       ORDER BY location_id NULLS FIRST
     `,
     sql<AutoApprovalAccountRow[]>`
