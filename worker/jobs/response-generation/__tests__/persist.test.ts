@@ -344,7 +344,7 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
     expect(noticeCall!.slice(1).some((arg: unknown) => arg instanceof Date)).toBe(false);
   });
 
-  it('records veto_window_minutes in the auto-policy audit metadata', async () => {
+  it('records veto_window_minutes and the WS4 dial facts in the auto-policy audit metadata', async () => {
     // insertAuditLogAutoPolicy runs for real against the mocked tx (tx.json is
     // an identity pass-through), so a compaction-allowlist miss fails here.
     queuePersistRows({ autoApprove: true });
@@ -361,6 +361,12 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
     );
     expect(metadata).toBeDefined();
     expect(metadata!.veto_window_minutes).toBe(15);
+    // WS4 decision facts must SURVIVE the deny-by-default compaction allowlist
+    // (AUTO_POLICY_METADATA_KEYS) — before the allowlist widened, daily_cap /
+    // auto_approved_today / policy_suspended were silently dropped here.
+    expect(metadata!.daily_cap).toBe(10);
+    expect(metadata!.auto_approved_today).toBe(0);
+    expect(metadata!.policy_suspended).toBe(false);
   });
 
   it('throws auto_approve_transition_lost when the guarded approve UPDATE matches zero rows', async () => {

@@ -50,6 +50,13 @@ export interface AutoPolicyAuditMetadata {
   publisher_subscription_reason?: string | null;
   active_zernio_connection?: boolean;
   active_location?: boolean;
+  // WS2/WS4 decision facts — why auto-approval fired (or would have): the
+  // triage verdict consulted and the trust-dial state at decision time.
+  triage_severity?: string | null;
+  triage_source?: string | null;
+  daily_cap?: number;
+  auto_approved_today?: number;
+  policy_suspended?: boolean;
   runtime_enabled?: boolean;
   provider_moderation_enabled?: boolean;
   correlation_id?: string;
@@ -103,6 +110,11 @@ const AUTO_POLICY_METADATA_KEYS = [
   'publisher_subscription_reason',
   'active_zernio_connection',
   'active_location',
+  'triage_severity',
+  'triage_source',
+  'daily_cap',
+  'auto_approved_today',
+  'policy_suspended',
   'runtime_enabled',
   'provider_moderation_enabled',
   'correlation_id',

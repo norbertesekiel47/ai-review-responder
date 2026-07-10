@@ -23,7 +23,10 @@ import {
   enqueuePublishResponse,
   enqueueSendNotification,
 } from '../../../src/lib/shared/job-outbox-helpers';
-import { insertAuditLogAutoPolicy } from '../../../src/lib/approval/audit';
+import {
+  insertAuditLogAutoPolicy,
+  type AutoPolicyAuditMetadata,
+} from '../../../src/lib/approval/audit';
 import {
   findActiveReviewRun,
   recordOutcome,
@@ -374,6 +377,35 @@ function logAutoApprovalFallbackIfNeeded(input: {
 }
 
 /**
+ * Compile-time drift tripwire for the decision summary: every key it emits
+ * must exist on AutoPolicyAuditMetadata (src/lib/approval/audit.ts), whose
+ * deny-by-default compactor only persists allowlisted keys. Annotating the
+ * summary as a Pick of that interface means a future summary key that skips
+ * the interface + AUTO_POLICY_METADATA_KEYS fails to compile here instead of
+ * being silently dropped from the durable approval_audit_log row.
+ */
+type AutoApprovalDecisionSummary = Pick<
+  AutoPolicyAuditMetadata,
+  | 'policy_source'
+  | 'resolved_min_star'
+  | 'origin_lane'
+  | 'response_version'
+  | 'provider_status'
+  | 'review_content_hash_matched'
+  | 'publisher_subscription_allowed'
+  | 'publisher_subscription_reason'
+  | 'active_zernio_connection'
+  | 'active_location'
+  | 'triage_severity'
+  | 'triage_source'
+  | 'daily_cap'
+  | 'auto_approved_today'
+  | 'policy_suspended'
+  | 'runtime_enabled'
+  | 'provider_moderation_enabled'
+>;
+
+/**
  * The resolved auto-approval decision facts shared by the durable approval
  * audit row and the sanitized fallback log — one owner so the two sinks can
  * never drift. Carries no review/response text or raw hashes, so it is safe to
@@ -385,7 +417,7 @@ function buildAutoApprovalDecisionSummary(input: {
   originLane: GenerateResponseOriginLane | null;
   moderation: ModerationDecision;
   version: number;
-}) {
+}): AutoApprovalDecisionSummary {
   const { autoDecision, runtimeState, originLane, moderation, version } = input;
   return {
     policy_source: runtimeState.effectivePolicy.source,
