@@ -437,6 +437,26 @@ describe('ApprovalClient', () => {
       expect(vetoCall?.[1]).toMatchObject({ method: 'POST' });
     });
 
+    it('sends a single veto POST on a rapid double-click', async () => {
+      const fetchMock = stubScheduledFetch(scheduledData(), {
+        ok: true,
+        status: 200,
+        body: { result: 'cancelled' },
+      });
+      renderClient('raw-token');
+
+      const cancelButton = await screen.findByRole('button', {
+        name: 'Cancel auto-post',
+      });
+      fireEvent.click(cancelButton);
+      fireEvent.click(cancelButton);
+
+      expect(await screen.findByText('Auto-post cancelled')).toBeInTheDocument();
+      expect(
+        fetchMock.mock.calls.filter((c) => String(c[0]).endsWith('/veto')).length,
+      ).toBe(1);
+    });
+
     it('treats already_cancelled like cancelled (double-tap safe)', async () => {
       stubScheduledFetch(scheduledData(), {
         ok: true,
@@ -471,13 +491,26 @@ describe('ApprovalClient', () => {
       ).not.toBeInTheDocument();
     });
 
-    it('renders the window-closed state directly when the scheduled time already passed', async () => {
+    it('keeps Cancel available when the client clock says the window passed — the server decides', async () => {
+      // The client clock is NOT authoritative: a fast device clock must never
+      // hide the owner's only action. The scheduled view renders whenever the
+      // loader said scheduled; a late cancel is settled by the server's 409.
       stubScheduledFetch(
         scheduledData({
           autoPostScheduledAt: new Date(Date.now() - 60_000).toISOString(),
         }),
+        { ok: false, status: 409, body: { result: 'too_late' } },
       );
       renderClient('raw-token');
+
+      const cancelButton = await screen.findByRole('button', {
+        name: 'Cancel auto-post',
+      });
+      expect(
+        screen.queryByText('This link can no longer cancel the post'),
+      ).not.toBeInTheDocument();
+
+      fireEvent.click(cancelButton);
 
       expect(
         await screen.findByText('This link can no longer cancel the post'),

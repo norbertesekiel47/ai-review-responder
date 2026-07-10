@@ -29,6 +29,8 @@ type TokenActionName = 'approve' | 'edit' | 'regenerate' | 'session' | 'veto';
 // Static object for the fixed-message siblings; a thunk for actions whose
 // success body is decided INSIDE the transaction (veto: cancelled vs
 // already_cancelled). Evaluated only after the tx commits.
+// The thunk must be pure — read closure state only, no side effects (it runs
+// post-commit, outside the tx).
 type TokenActionSuccessBody = Record<string, unknown> | (() => Record<string, unknown>);
 
 interface TokenActionContext<TPrepared = undefined> {

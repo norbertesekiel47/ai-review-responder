@@ -442,10 +442,18 @@ function ScheduledAutoPostView({
 }) {
   const [phase, setPhase] = useState<VetoPhase>('idle');
   const [error, setError] = useState<string | null>(null);
+  // Same-tick double-click guard, mirroring the pending-approval flow's
+  // actionLockRef: setPhase queues a re-render, so between the first click and
+  // the button becoming disabled a second click can fire. The ref reads
+  // synchronously and closes that gap. (Local ref — this view's state machine
+  // is deliberately separate from the pending-approval reducer.)
+  const actionLockRef = useRef(false);
 
   if (phase === 'cancelled') return <VetoCancelledView />;
-  // Window already over when the page loaded, or the server said too late.
-  if (phase === 'too_late' || new Date(scheduledAt).getTime() <= nowMs) {
+  // Only the server decides the window is over: a late cancel POST returns
+  // 409/too_late. No client-clock pre-check here — a fast device clock must
+  // never hide the owner's only action while the server window is still open.
+  if (phase === 'too_late') {
     return <VetoWindowClosedView />;
   }
 
@@ -453,7 +461,8 @@ function ScheduledAutoPostView({
   const { phrase } = formatScheduledPostTime(new Date(scheduledAt), new Date(nowMs));
 
   const handleCancel = async () => {
-    if (busy) return;
+    if (actionLockRef.current) return;
+    actionLockRef.current = true;
     setPhase('busy');
     setError(null);
     try {
@@ -479,6 +488,8 @@ function ScheduledAutoPostView({
     } catch {
       setError('Something went wrong on our end. Please try again shortly.');
       setPhase('idle');
+    } finally {
+      actionLockRef.current = false;
     }
   };
 
