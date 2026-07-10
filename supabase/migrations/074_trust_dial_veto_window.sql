@@ -75,7 +75,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS auto_approval_policies_one_location_override
 -- ── 2. responses: veto-window deadline + cap-count index ────────────────────
 ALTER TABLE responses ADD COLUMN IF NOT EXISTS auto_post_scheduled_at TIMESTAMPTZ NULL;
 COMMENT ON COLUMN responses.auto_post_scheduled_at IS
-  'Auto-approved publish deadline (veto window end). Single source of truth for the notice copy, approve-page scheduled state, and veto guard. NULL once vetoed/downgraded and for every owner-approved response. WS4 spec §2.5.';
+  'Auto-approved publish deadline (veto window end). Single source of truth for the notice copy, approve-page scheduled state, and veto guard. NULL for every owner-approved response; cleared by the owner veto. The publisher kill-switch downgrade deliberately leaves it — the stale value is inert because every consumer keys on status=approved AND approval_method=auto_policy plus a future deadline. WS4 spec §2.5.';
 
 -- Daily-cap accounting read (§2.3, amended §6): the count moved from
 -- responses to approval_audit_log rows (action='auto_approved_by_policy') —
