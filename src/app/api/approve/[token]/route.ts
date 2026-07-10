@@ -66,6 +66,8 @@ export async function GET(
     response_text: string;
     version: number;
     status: string;
+    approval_method: string | null;
+    auto_post_scheduled_at: Date | null;
     reviewer_name: string;
     star_rating: number;
     review_text: string | null;
@@ -76,6 +78,7 @@ export async function GET(
     is_archived: boolean;
   }[]>`
     SELECT resp.response_text, resp.version, resp.status,
+           resp.approval_method, resp.auto_post_scheduled_at,
            r.reviewer_name, r.star_rating, r.review_text, r.review_date,
            b.name AS business_name,
            b.display_label,
@@ -105,6 +108,11 @@ export async function GET(
       responseText: data.response_text,
       version: data.version,
       status: data.status,
+      // Drives the approve page's scheduled-auto-post state (WS4 §2.6): an
+      // approved auto_policy response with a future scheduled time renders the
+      // veto (Cancel auto-post) surface instead of the approval actions.
+      approvalMethod: data.approval_method,
+      autoPostScheduledAt: data.auto_post_scheduled_at,
     },
     businessName: data.business_name,
     locationLabel: data.display_label ?? data.business_name,

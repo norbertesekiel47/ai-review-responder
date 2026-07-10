@@ -24,7 +24,12 @@ import {
 type TxClient = postgres.TransactionSql;
 type Sql = postgres.Sql;
 
-type TokenActionName = 'approve' | 'edit' | 'regenerate' | 'session';
+type TokenActionName = 'approve' | 'edit' | 'regenerate' | 'session' | 'veto';
+
+// Static object for the fixed-message siblings; a thunk for actions whose
+// success body is decided INSIDE the transaction (veto: cancelled vs
+// already_cancelled). Evaluated only after the tx commits.
+type TokenActionSuccessBody = Record<string, unknown> | (() => Record<string, unknown>);
 
 interface TokenActionContext<TPrepared = undefined> {
   tx: TxClient;
@@ -46,7 +51,7 @@ export async function runTokenApprovalAction<TPrepared = undefined>(
   request: NextRequest,
   rawToken: string,
   actionName: TokenActionName,
-  successBody: Record<string, unknown>,
+  successBody: TokenActionSuccessBody,
   action: (ctx: TokenActionContext<TPrepared>) => Promise<void>,
   options: TokenActionOptions<TPrepared> = {},
 ): Promise<NextResponse> {
@@ -102,7 +107,8 @@ export async function runTokenApprovalAction<TPrepared = undefined>(
     return handleApprovalError(err, actionName);
   }
 
-  return NextResponse.json(successBody, { status: 200, headers: NO_STORE_HEADERS });
+  const body = typeof successBody === 'function' ? successBody() : successBody;
+  return NextResponse.json(body, { status: 200, headers: NO_STORE_HEADERS });
 }
 
 async function recoverLinkCorrelationId(

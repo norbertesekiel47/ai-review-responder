@@ -21,6 +21,7 @@
 
 import * as Sentry from '@sentry/node';
 import type postgres from 'postgres';
+import { revokeOpenLinksForResponse } from '../../../src/lib/approval/locks';
 import { enqueueAutoPostNotice } from '../../../src/lib/shared/job-outbox-helpers';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import {
@@ -101,6 +102,13 @@ export async function markPostedAndMaybeEnqueueAutoPostNotice(
   if (rows.length !== 1) {
     return { transitioned: false, fyiEnqueued: false };
   }
+
+  // The pending-post notice mints approval links for auto-approved responses;
+  // once posted, no live link should remain actionable-looking. (A concurrent
+  // veto tx orders links→reviews while this tx orders reviews→links; the rare
+  // collision is resolved by the deadlock detector and both sides retry
+  // safely — veto re-taps, this job re-runs through the 409 recovery path.)
+  await revokeOpenLinksForResponse(tx, responseId);
 
   const approvalMethod = rows[0]!.approval_method;
   const isAutoPolicy = approvalMethod === APPROVAL_METHOD.AUTO_POLICY;

@@ -83,6 +83,8 @@ describe('GET /api/approve/[token]', () => {
           response_text: 'Thanks for visiting.',
           version: 1,
           status: 'pending_approval',
+          approval_method: null,
+          auto_post_scheduled_at: null,
           reviewer_name: 'Pat',
           star_rating: 5,
           review_text: 'Great.',
@@ -102,7 +104,13 @@ describe('GET /api/approve/[token]', () => {
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({
       review: { reviewerName: 'Pat', starRating: 5 },
-      response: { responseText: 'Thanks for visiting.', status: 'pending_approval' },
+      response: {
+        responseText: 'Thanks for visiting.',
+        status: 'pending_approval',
+        // Surfaced for the approve page's scheduled-auto-post branch (WS4).
+        approvalMethod: null,
+        autoPostScheduledAt: null,
+      },
       businessName: 'Cafe Test',
     });
 

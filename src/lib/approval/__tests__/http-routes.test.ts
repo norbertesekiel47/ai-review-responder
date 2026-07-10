@@ -259,6 +259,27 @@ describe('runTokenApprovalAction', () => {
     }));
   });
 
+  it('evaluates a success-body thunk after the action ran (veto: body decided inside the tx)', async () => {
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]);
+    sqlReturnQueue.push([{ review_id: 'rev-1' }]);
+    let result = 'cancelled';
+    const action = vi.fn(async () => {
+      result = 'already_cancelled';
+    });
+
+    const res = await runTokenApprovalAction(
+      sql,
+      request(),
+      RAW_TOKEN,
+      'veto',
+      () => ({ result }),
+      action,
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ result: 'already_cancelled' });
+  });
+
   it('preserves legacy request.ip fallback for token-action audit context', async () => {
     sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]);
     sqlReturnQueue.push([{ review_id: 'rev-1' }]);
