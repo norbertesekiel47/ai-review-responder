@@ -44,11 +44,14 @@ workflow that never triggers would leave a required check pending forever, so
 the job instead **always runs** and no-ops fast when nothing watched changed —
 making it safely addable to the ruleset:
 
-1. Checkout with `fetch-depth: 0` (history needed for the diff).
-2. Detect step: on `pull_request`, `git diff --name-only <base.sha>..HEAD`
-   (HEAD is the PR merge commit, so this is exactly the PR's effective change
-   set) grepped against the watched-path regex. On `push` to `main`, always
-   run — trunk regressions must be visible and the offline eval costs seconds.
+1. Checkout with `fetch-depth: 0` on `pull_request` only (history needed for
+   the merge-base diff); pushes to `main` never diff, so they keep the default
+   shallow clone.
+2. Detect step: on `pull_request`,
+   `git diff --name-only <base.sha>...<head.sha>` (three-dot = merge-base of
+   base and PR head vs PR head — exactly the files this PR changes) grepped
+   against the watched-path regex. On `push` to `main`, always run — trunk
+   regressions must be visible and the offline eval costs seconds.
 3. If watched paths changed: `./.github/actions/setup` + `pnpm eval:llm`.
    Otherwise: skip setup entirely (no install) and exit green with a log line.
 
@@ -71,3 +74,19 @@ check.
 - `pnpm lint && pnpm typecheck` in the worktree (pre-push hook parity).
 - Watch the PR's own CI run: `llm-eval` must run (this PR touches `ci.yml`,
   a watched path) and pass.
+
+## Review amendments (2026-07-11, PR #462 external review)
+
+- **Diff semantics:** the original two-dot `base.sha..HEAD` compared trees
+  against the base-branch tip (HEAD on `pull_request` is the test merge
+  commit, whose tree already contains main's tip), so a PR behind `main`
+  would also see files changed *on main* since its branch point and
+  over-trigger the eval on unrelated PRs. Fixed to three-dot
+  `base.sha...head.sha` (merge-base semantics) against
+  `github.event.pull_request.head.sha` — note that three-dot against the
+  merge commit would NOT have fixed it, since `merge-base(base.sha, merge
+  commit)` is `base.sha` itself.
+- **Checkout cost:** `fetch-depth: 0` now applies only on `pull_request`
+  events (inline ternary; quoted `'0'`/`'1'` because a bare `0` is falsy in
+  workflow expressions). Pushes to `main` skip the diff entirely and use the
+  default shallow clone.

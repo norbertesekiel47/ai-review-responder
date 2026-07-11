@@ -151,21 +151,29 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
-          # Full history so the PR base SHA is reachable for the diff below.
-          fetch-depth: 0
+          # Full history only on PRs, where the detect step computes a
+          # merge-base diff. Pushes to main never diff, so they keep the cheap
+          # default shallow clone. The quoted '0'/'1' are deliberate: a bare 0
+          # is falsy in workflow expressions and would collapse the ternary.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
       - name: Detect changes to prompt/policy/model-pin/eval paths
         id: detect
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           # Keep in lockstep with the plan doc's path-filter table.
           watched='^(tests/llm-eval/|src/lib/moderation/|src/lib/responses/|src/lib/llm/|\.github/workflows/ci\.yml$)'
           if [ "$EVENT_NAME" = 'pull_request' ]; then
-            # HEAD is the PR merge commit, so this diff is exactly the PR's
-            # effective change set against its base.
-            changed="$(git diff --name-only "$BASE_SHA"..HEAD)"
+            # Three-dot diff against the PR HEAD = merge-base(base, head) vs
+            # head: exactly the files THIS PR changes. A two-dot diff against
+            # the base tip (or any diff involving the checked-out merge
+            # commit, whose merge-base with base.sha IS base.sha) would also
+            # pick up files changed on main since the branch point,
+            # over-triggering the eval on unrelated PRs.
+            changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
             if printf '%s\n' "$changed" | grep -qE "$watched"; then
               echo 'watched paths changed:'
               printf '%s\n' "$changed" | grep -E "$watched"
