@@ -1533,7 +1533,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/approval/create-link.ts",
     table: "notification_deliveries",
-    sqlSnippet: "SELECT id FROM notification_deliveries WHERE response_id = ${responseId} AND channel = ${channel} AND template = 'approval_request' AND sent_at IS NOT NULL LIMIT 1",
+    sqlSnippet: "SELECT id FROM notification_deliveries WHERE response_id = ${responseId} AND channel = ${channel} AND template IN ('approval_request', 'pending_post_notice') AND sent_at IS NOT NULL LIMIT 1",
     category: 'pre-auth-token',
     reason: "Approval transaction resolves token/response rows by durable approval identifiers before tenant scope is known.",
   },

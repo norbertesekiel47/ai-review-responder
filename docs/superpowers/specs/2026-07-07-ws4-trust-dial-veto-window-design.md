@@ -491,3 +491,40 @@ unchanged; on any conflict, these amendments win.
   next release.
 
 
+- **§2.11 publisher notice-delivery gate:** at the publish deadline,
+  `ResponsePublisherWorker` posts an `auto_policy` row only if at least one
+  DELIVERED `pending_post_notice` exists (`sent_at` set) for the response;
+  zero delivered notices downgrades to owner review via the generalized
+  downgrade helper — new audit action / `posting_error` marker
+  `auto_post_notice_undelivered`, metadata
+  `downgrade_reason: 'notice_undelivered'`. An unnotified auto-post fails
+  toward the owner: the veto window is only real if the owner could see it.
+  The gate runs BEFORE any external call, so a racing notice-send between the
+  check and the post is benign.
+- **§2.7 all-skipped notices alert:** the notice worker's systemic-failure
+  signal fires whenever `sent === 0` and at least one channel was attempted
+  (skips count, not just failures), at warn level; the outbox entry still
+  completes — the publisher gate owns enforcement, the signal is
+  observability.
+- **§2.7 claim self-reap:** `claimPendingPostNoticeDelivery` deletes stale
+  unfinalized claims for the same (response, channel, recipient) —
+  `sent_at IS NULL AND failed_at IS NULL AND created_at` older than
+  15 minutes — before claiming, so a crashed dispatcher cannot dedup-block
+  the veto-critical notice forever (narrows known follow-up #3b for this
+  template).
+- **§2.3/§5 structural short-circuit + both-direction apply window:**
+  `persist.ts` decides structural candidacy (runtime flag, origin lane,
+  version, suppression) from env + job inputs before the tx body; structural
+  non-candidates skip the businesses `FOR UPDATE` (no FK share→exclusive
+  hazard without the later cap count) AND `loadAutoApprovalRuntimeState`
+  (a flag-off deploy reads no 074 columns), taking their blocked decision
+  from `structurallyBlockedDecision`. Migration 074's apply window is
+  therefore two-directional: 074-before-code breaks only settings upserts;
+  code-before-074 is safe only while the flag is off — staging runs the flag
+  ON, so apply 074 to staging before deploying.
+- **§2.6 delivered notice links recognized in orphan checks:**
+  `createApprovalLink`'s `orphaned_only` delivered-check matches
+  `template IN ('approval_request', 'pending_post_notice')` — a link the
+  owner received via the veto notice is not an orphan, so the veto's
+  re-notify no longer revokes it (clicking the still-live notice CTA would
+  otherwise 410 against §2.6's already_cancelled invariant).
