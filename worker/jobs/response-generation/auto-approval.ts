@@ -252,6 +252,53 @@ export async function loadAutoApprovalRuntimeState(
   };
 }
 
+export interface StructuralBlockInput {
+  originLane: GenerateResponseOriginLane | null;
+  version: number;
+  suppressNotification: boolean;
+}
+
+/**
+ * Decision for STRUCTURAL non-candidates — drafts that can never auto-approve
+ * regardless of DB state: runtime flag off, wrong origin lane, regenerated
+ * version, or suppressed notification. Built purely from env + job inputs so
+ * persist.ts can skip BOTH the businesses FOR UPDATE lock and
+ * loadAutoApprovalRuntimeState for them:
+ *
+ * - (finding 10) non-candidates never re-take the businesses row FOR UPDATE,
+ *   so the FK share→exclusive upgrade hazard doesn't exist for them; and
+ * - (finding 5) a flag-off deploy never reads migration-074 columns.
+ *
+ * blockReasons carries exactly the applicable structural reasons. The
+ * remaining fields are honest not-evaluated values: publisherSubscription
+ * needs a DB read this short-circuit exists to avoid, and nothing consumes it
+ * on non-approved paths (the decision summary is approved-only and the
+ * fallback log is candidate-only), so it carries an explicit
+ * 'not_evaluated_structural_block' denial rather than a fabricated check.
+ */
+export function structurallyBlockedDecision(input: StructuralBlockInput): AutoApprovalDecision {
+  const blockReasons = compactBlockReasons([
+    when(!autoApprovalRuntimeEnabled(), 'auto_approval_disabled'),
+    when(input.originLane !== GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW, 'bad_origin_lane'),
+    when(input.version !== 1, 'unsupported_version'),
+    when(input.suppressNotification, 'suppressed_notification'),
+  ]);
+  if (blockReasons.length === 0) {
+    // Contract violation: the caller short-circuited a draft that is a
+    // structural candidate — it must go through evaluateAutoApprovalCandidate.
+    throw new Error('structurally_blocked_decision_called_for_candidate');
+  }
+  return {
+    approved: false,
+    blockReasons,
+    publisherSubscription: { allowed: false, reason: 'not_evaluated_structural_block' },
+    // Never confirmed matched — the current hash was not read.
+    reviewContentHashMatched: false,
+    providerModerationEnabled: providerModerationEnabled(),
+    runtimeEnabled: autoApprovalRuntimeEnabled(),
+  };
+}
+
 export function evaluateAutoApprovalCandidate(input: AutoApprovalCandidateInput): AutoApprovalDecision {
   const publisherSubscription = checkSubscription({
     status: input.subscriptionStatus,

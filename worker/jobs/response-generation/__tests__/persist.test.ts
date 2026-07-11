@@ -112,13 +112,24 @@ function queuePersistRows(input: {
   reviewLockRows?: unknown[];
   autoApprovedToday?: number;
   approveUpdateRows?: unknown[];
+  /**
+   * Structural non-candidate (flag off / bad lane / version>1 / suppressed):
+   * persist.ts short-circuits BEFORE the businesses FOR UPDATE and never runs
+   * loadAutoApprovalRuntimeState, so neither the lock row nor the loader rows
+   * are consumed.
+   */
+  structural?: boolean;
 } = {}) {
   txQueue.push(
     // SELECT id FROM reviews … FOR UPDATE (lock ordering — FIRST tx statement)
     input.reviewLockRows ?? [{ id: 'rev-1' }],
+  );
+  if (!input.structural) {
     // SELECT id FROM businesses … FOR UPDATE (statement #2 — must precede the
     // responses INSERT, whose business_id FK takes an implicit FOR KEY SHARE)
-    [{ id: 'biz-1' }],
+    txQueue.push([{ id: 'biz-1' }]);
+  }
+  txQueue.push(
     [], // INSERT responses
     [], // UPDATE api_costs response_id
     [], // UPDATE api_costs moderation metadata
@@ -126,13 +137,15 @@ function queuePersistRows(input: {
   if (input.flaggedHigh) {
     txQueue.push([]); // INSERT flagged_responses
   }
-  txQueue.push(
-    [currentState(input.state)],
-    input.policies ?? [enabledPolicy()],
-    [{ id: 'biz-1' }], // loader's same-tx businesses FOR UPDATE re-take
-    [{ auto_approved_today: input.autoApprovedToday ?? 0 }], // daily-cap count
-    input.connection === null ? [] : [input.connection ?? { id: 'conn-1' }],
-  );
+  if (!input.structural) {
+    txQueue.push(
+      [currentState(input.state)],
+      input.policies ?? [enabledPolicy()],
+      [{ id: 'biz-1' }], // loader's same-tx businesses FOR UPDATE re-take
+      [{ auto_approved_today: input.autoApprovedToday ?? 0 }], // daily-cap count
+      input.connection === null ? [] : [input.connection ?? { id: 'conn-1' }],
+    );
+  }
   if (input.autoApprove) {
     txQueue.push(
       // UPDATE responses approved … RETURNING auto_post_scheduled_at
@@ -177,10 +190,20 @@ function txArgs(): unknown[] {
   return mockTx.mock.calls.flat();
 }
 
-function assertManualNotificationFallback() {
-  // txTexts()[0] is the review row lock, [1] the businesses lock; the
-  // responses INSERT follows them.
-  expect(txTexts()[2]).toContain('approval_method');
+function assertManualNotificationFallback(options: { structural?: boolean } = {}) {
+  // Find the responses INSERT by text — structural non-candidates skip the
+  // businesses lock, so its position differs between the two lanes.
+  const responsesInsert = txTexts().find((text) => text.includes('INSERT INTO responses'));
+  expect(responsesInsert).toBeDefined();
+  expect(responsesInsert).toContain('approval_method');
+  if (options.structural) {
+    // Structural short-circuit (findings 5/10): no businesses FOR UPDATE, no
+    // policy read (074 columns), no daily-cap count, no runtime-state re-read.
+    expect(txTexts().some((text) => text.includes('FROM businesses') && text.includes('FOR UPDATE'))).toBe(false);
+    expect(txTexts().some((text) => text.includes('auto_approval_policies'))).toBe(false);
+    expect(txTexts().some((text) => text.includes('FROM approval_audit_log'))).toBe(false);
+    expect(txTexts().some((text) => text.includes('FROM reviews r') && text.includes('JOIN accounts a'))).toBe(false);
+  }
   expect(txArgs()).toContain(QUEUE_NAMES.SEND_NOTIFICATION);
   expect(txArgs()).not.toContain(QUEUE_NAMES.PUBLISH_RESPONSE);
   // The auto-policy audit INSERT must never run on a fallback path. (The bare
@@ -207,14 +230,15 @@ interface ManualFallbackScenario {
   policies?: Record<string, unknown>[];
   connection?: Record<string, unknown> | null;
   autoApprovedToday?: number;
+  structural?: boolean;
   env?: {
     OPENAI_MODERATION_ENABLED?: string;
   };
 }
 
 const manualFallbackCases: Array<[string, ManualFallbackScenario]> = [
-  ['bad lane', { input: { originLane: 'regenerate' } }],
-  ['version > 1', { input: { version: 2 } }],
+  ['bad lane', { input: { originLane: 'regenerate' }, structural: true }],
+  ['version > 1', { input: { version: 2 }, structural: true }],
   ['hash mismatch', { state: { review_content_hash: 'hash-2' } }],
   ['null loaded hash', { input: { loadedReviewContentHash: null } }],
   ['null current hash', { state: { review_content_hash: null } }],
@@ -388,22 +412,22 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
     // bug / corrupt state — surface loudly, keep control flow unchanged.
     process.env.AUTO_APPROVAL_ENABLED = 'false';
     const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    queuePersistRows({ reviewLockRows: [] });
+    queuePersistRows({ reviewLockRows: [], structural: true });
 
     await persistResponseAndNotify(mockSql, baseInput({ logger } as never));
 
     expect(logger.warn).toHaveBeenCalledTimes(1);
     expect(logger.warn.mock.calls[0]![0]).toContain('review lock no-oped');
-    assertManualNotificationFallback();
+    assertManualNotificationFallback({ structural: true });
   });
 
   it('falls back to pending approval and notification when the runtime flag is disabled', async () => {
     process.env.AUTO_APPROVAL_ENABLED = 'false';
-    queuePersistRows();
+    queuePersistRows({ structural: true });
 
     await persistResponseAndNotify(mockSql, baseInput());
 
-    assertManualNotificationFallback();
+    assertManualNotificationFallback({ structural: true });
   });
 
   it('logs low-cardinality block reasons when an auto-eligible draft falls back', async () => {
@@ -443,12 +467,12 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
     // on, the log must stay scoped to live-ingest/policy-relevant drafts (spec
     // §15) rather than firing on every generated draft.
     const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    queuePersistRows();
+    queuePersistRows({ structural: true });
 
     await persistResponseAndNotify(mockSql, baseInput({ originLane: 'regenerate', logger } as never));
 
     expect(logger.log).not.toHaveBeenCalled();
-    assertManualNotificationFallback();
+    assertManualNotificationFallback({ structural: true });
   });
 
   it.each(manualFallbackCases)('persists manual notification fallback for %s', async (_label, scenario) => {
@@ -460,11 +484,12 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
       policies: scenario.policies,
       connection: scenario.connection,
       autoApprovedToday: scenario.autoApprovedToday,
+      structural: scenario.structural,
     });
 
     await persistResponseAndNotify(mockSql, baseInput(scenario.input ?? {}));
 
-    assertManualNotificationFallback();
+    assertManualNotificationFallback({ structural: scenario.structural });
   });
 
   it('re-reads triage_severity and triage_source in the runtime-state SELECT (column-drift pin)', async () => {
@@ -484,10 +509,14 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
   });
 
   it('suppressed backfill fallback stays pending without owner notification or publish', async () => {
-    queuePersistRows({ notify: false });
+    queuePersistRows({ notify: false, structural: true });
 
     await persistResponseAndNotify(mockSql, baseInput({ suppressNotification: true }));
 
+    // Structural short-circuit: suppressed drafts take no businesses lock and
+    // read no 074 columns (findings 5/10).
+    expect(txTexts().some((text) => text.includes('FROM businesses') && text.includes('FOR UPDATE'))).toBe(false);
+    expect(txTexts().some((text) => text.includes('auto_approval_policies'))).toBe(false);
     expect(txArgs()).not.toContain(QUEUE_NAMES.SEND_NOTIFICATION);
     expect(txArgs()).not.toContain(QUEUE_NAMES.PUBLISH_RESPONSE);
     expect(txArgs()).not.toContain(QUEUE_NAMES.PENDING_POST_NOTICE);
@@ -544,7 +573,7 @@ describe('persistResponseAndNotify run-spine instrumentation', () => {
 
   it('records draft_generated + moderation_checked steps and a reply_drafted outcome in the persist tx', async () => {
     vi.mocked(findActiveReviewRun).mockResolvedValue(ACTIVE_RUN);
-    queuePersistRows();
+    queuePersistRows({ structural: true }); // flag off → structural short-circuit
 
     await persistResponseAndNotify(mockSql, baseInput());
 
@@ -569,9 +598,13 @@ describe('persistResponseAndNotify run-spine instrumentation', () => {
     });
   });
 
-  it('locks the review row FOR UPDATE as the FIRST tx statement, before the responses INSERT and spine writes', async () => {
+  it('locks the review row FOR UPDATE as the FIRST tx statement, before the responses INSERT and spine writes (candidate lane)', async () => {
+    // Candidate lane (flag ON, live_ingest_new, v1, not suppressed): the
+    // businesses lock pin below only exists for candidates — structural
+    // non-candidates skip it entirely (see the companion test).
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
     vi.mocked(findActiveReviewRun).mockResolvedValue(ACTIVE_RUN);
-    queuePersistRows();
+    queuePersistRows({ autoApprove: true });
 
     await persistResponseAndNotify(mockSql, baseInput());
 
@@ -599,6 +632,27 @@ describe('persistResponseAndNotify run-spine instrumentation', () => {
     expect(lockInvocation).toBeLessThan(firstSpineWriteInvocation);
   });
 
+  it('structural non-candidates (flag off) take NO businesses lock and read NO 074 columns', async () => {
+    // Finding 10: without the later cap-count FOR UPDATE, the FK
+    // share→exclusive upgrade hazard doesn't exist for non-candidates, so the
+    // pre-emptive businesses lock is pure contention — skipped. Finding 5: a
+    // flag-off deploy must not read migration-074 columns
+    // (auto_approval_policies / runtime-state projection).
+    vi.mocked(findActiveReviewRun).mockResolvedValue(ACTIVE_RUN);
+    queuePersistRows({ structural: true });
+
+    await persistResponseAndNotify(mockSql, baseInput());
+
+    const texts = txTexts();
+    expect(texts.findIndex((text) => text.includes('FROM reviews') && text.includes('FOR UPDATE'))).toBe(0);
+    expect(texts.some((text) => text.includes('FROM businesses') && text.includes('FOR UPDATE'))).toBe(false);
+    expect(texts.some((text) => text.includes('auto_approval_policies'))).toBe(false);
+    expect(texts.some((text) => text.includes('FROM approval_audit_log'))).toBe(false);
+    expect(texts.some((text) => text.includes('FROM reviews r') && text.includes('JOIN accounts a'))).toBe(false);
+    // The draft still lands on the owner path.
+    expect(txArgs()).toContain(QUEUE_NAMES.SEND_NOTIFICATION);
+  });
+
   it('records a policy_gate step with the auto-approval decision on the auto-approved path', async () => {
     process.env.AUTO_APPROVAL_ENABLED = 'true';
     vi.mocked(findActiveReviewRun).mockResolvedValue(ACTIVE_RUN);
@@ -615,7 +669,7 @@ describe('persistResponseAndNotify run-spine instrumentation', () => {
 
   it('records a held_for_owner policy_gate step on the normal owner-review path', async () => {
     vi.mocked(findActiveReviewRun).mockResolvedValue(ACTIVE_RUN);
-    queuePersistRows();
+    queuePersistRows({ structural: true }); // flag off → structural short-circuit
 
     await persistResponseAndNotify(mockSql, baseInput());
 
@@ -629,7 +683,7 @@ describe('persistResponseAndNotify run-spine instrumentation', () => {
 
   it('records moderation_checked as failed with held detail and NO policy_gate on the held path', async () => {
     vi.mocked(findActiveReviewRun).mockResolvedValue(ACTIVE_RUN);
-    queuePersistRows({ flaggedHigh: true, notify: false });
+    queuePersistRows({ flaggedHigh: true, notify: false, structural: true }); // flag off
 
     await persistResponseAndNotify(mockSql, baseInput({
       moderation: {
@@ -657,7 +711,7 @@ describe('persistResponseAndNotify run-spine instrumentation', () => {
 
   it('skips spine writes when no running review_handler run exists (legacy rows)', async () => {
     vi.mocked(findActiveReviewRun).mockResolvedValue(null);
-    queuePersistRows();
+    queuePersistRows({ structural: true }); // flag off → structural short-circuit
 
     const responseId = await persistResponseAndNotify(mockSql, baseInput());
 
