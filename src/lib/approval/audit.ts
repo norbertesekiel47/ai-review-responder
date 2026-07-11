@@ -39,10 +39,16 @@ export interface ApprovalContentSnapshot {
 export const AUDIT_ACTION_AUTO_APPROVED_BY_POLICY = 'auto_approved_by_policy';
 export const AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH =
   'auto_policy_revoked_by_kill_switch';
+// Publisher undelivered-notice gate (spec §2.11 fail-toward-owner): an
+// auto-policy row that reaches its publish deadline with ZERO delivered
+// pending-post notices is downgraded to owner review under this action.
+export const AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED =
+  'auto_post_notice_undelivered';
 
 export type AutoPolicyAuditAction =
   | typeof AUDIT_ACTION_AUTO_APPROVED_BY_POLICY
-  | typeof AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH;
+  | typeof AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH
+  | typeof AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED;
 
 export interface AutoPolicyAuditMetadata {
   policy_id?: string | null;

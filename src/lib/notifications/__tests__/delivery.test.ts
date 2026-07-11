@@ -206,10 +206,11 @@ describe('claimPendingPostNoticeDelivery', () => {
   });
 
   it('INSERTs with the response_id column and the migration-074 ON CONFLICT predicate byte-for-byte', async () => {
-    sqlQueue.push([{ id: 'ignored' }]);
+    sqlQueue.push([]);              // self-reap DELETE
+    sqlQueue.push([{ id: 'ignored' }]); // claim INSERT
     await claim();
 
-    const call = sqlCalls[0]!;
+    const call = sqlCalls[1]!; // call 0 is the self-reap DELETE
     const flatTemplate = call.template.replace(/\s+/g, ' ');
     expect(flatTemplate).toMatch(/INSERT INTO notification_deliveries/);
     expect(flatTemplate).toContain('response_id');
@@ -228,14 +229,44 @@ describe('claimPendingPostNoticeDelivery', () => {
   });
 
   it('returns the new delivery id when the claim wins', async () => {
-    sqlQueue.push([{ id: 'row' }]);
+    sqlQueue.push([]);           // self-reap DELETE
+    sqlQueue.push([{ id: 'row' }]); // claim INSERT
     const id = await claim();
     expect(typeof id).toBe('string');
   });
 
-  it('returns null when a live claim already exists (ON CONFLICT DO NOTHING)', async () => {
-    sqlQueue.push([]);
+  it('returns null when a fresh live claim already exists (ON CONFLICT DO NOTHING)', async () => {
+    sqlQueue.push([]); // self-reap DELETE (fresh claim survives — see guard test below)
+    sqlQueue.push([]); // claim INSERT hits the conflict
     const id = await claim();
     expect(id).toBeNull();
+  });
+
+  // ── Self-reap of stale unfinalized claims (known follow-up #3b) ─────────
+  // The reap DELETE runs BEFORE the claim INSERT so a dispatcher that crashed
+  // between claim and finalize/release can't dedup-block this veto-critical
+  // notice forever. The guards make it surgical: only rows that are neither
+  // sent nor terminally failed AND older than 15 minutes are removed.
+
+  it('self-reaps stale unfinalized claims BEFORE claiming, scoped to the claim key + staleness guards', async () => {
+    sqlQueue.push([]);           // self-reap DELETE (reaped the orphan)
+    sqlQueue.push([{ id: 'row' }]); // claim INSERT re-acquires
+    const id = await claim();
+    expect(typeof id).toBe('string'); // reaped orphan ⇒ re-claimable
+
+    const reap = sqlCalls[0]!;
+    const flatReap = reap.template.replace(/\s+/g, ' ');
+    expect(flatReap).toMatch(/^\s*DELETE FROM notification_deliveries/);
+    expect(flatReap).toContain("template = 'pending_post_notice'");
+    // Finalized (sent) and terminally-failed rows are NEVER reaped.
+    expect(flatReap).toContain('sent_at IS NULL');
+    expect(flatReap).toContain('failed_at IS NULL');
+    // Fresh claims (an in-flight concurrent send) are NEVER reaped.
+    expect(flatReap).toContain("created_at < NOW() - INTERVAL '15 minutes'");
+    // Scoped to exactly this claim key (+ tenant scope).
+    expect(reap.values).toEqual(['resp-1', 'biz-1', 'email', 'owner@example.com']);
+
+    const insert = sqlCalls[1]!;
+    expect(insert.template).toMatch(/INSERT INTO notification_deliveries/);
   });
 });

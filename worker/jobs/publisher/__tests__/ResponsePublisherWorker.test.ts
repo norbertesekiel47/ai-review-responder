@@ -364,6 +364,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
     sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]);
     sqlReturnQueue.push([mockBusinessRow({ archived_at: new Date('2026-05-09T00:00:00Z') })]);
+    sqlReturnQueue.push([{ ok: 1 }]); // notice-delivery gate → delivered
 
     await handlePublishResponse(mockSql, makeJob());
 
@@ -373,6 +374,115 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(callTexts.some((t: string) => /pending_approval/.test(t))).toBe(false);
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
+  });
+
+  // ── Notice-delivery gate (spec §2.11): flag ON + auto_policy ─────────
+  // An unnotified auto-post fails toward the owner: zero DELIVERED
+  // pending_post_notice rows at publish time ⇒ downgrade, never post.
+
+  it('downgrades auto-policy rows when NO pending-post notice was delivered (flag on)', async () => {
+    vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
+    sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]); // 1: response
+    sqlReturnQueue.push([mockBusinessRow()]);                                    // 2: business
+    sqlReturnQueue.push([]);                                                     // 3: notice-delivery gate → zero delivered
+    sqlReturnQueue.push([{ id: 'resp-1' }]);                                     // 4: downgrade UPDATE RETURNING
+    sqlReturnQueue.push([{ account_id: 'acc-1' }]);                              // 5: audit account lookup
+    sqlReturnQueue.push([]);                                                     // 6: audit INSERT
+    sqlReturnQueue.push([]);                                                     // 7: send_notification INSERT
+
+    await handlePublishResponse(mockSql, makeJob({
+      correlation_id: 'corr-notice-1',
+      outbox_id: 'outbox-notice-1',
+      outbox_attempt: 1,
+    }));
+
+    expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
+    expect(mockPostReply).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-notice-1', 1);
+
+    const calls = (mockSql as any).mock.calls as unknown[][];
+    const gateCall = calls.find((call) =>
+      (call[0] as TemplateStringsArray).join('|').includes('notification_deliveries'),
+    );
+    expect(gateCall).toBeDefined();
+    expect((gateCall![0] as TemplateStringsArray).join('|')).toContain("template = 'pending_post_notice'");
+    expect((gateCall![0] as TemplateStringsArray).join('|')).toContain('sent_at IS NOT NULL');
+
+    const downgradeCall = calls.find((call) => {
+      const text = (call[0] as TemplateStringsArray).join('|');
+      return text.includes('UPDATE responses') && text.includes("status = 'pending_approval'");
+    });
+    expect(downgradeCall).toBeDefined();
+    expect(downgradeCall).toContain('auto_post_notice_undelivered');
+
+    const auditCall = calls.find((call) =>
+      (call[0] as TemplateStringsArray).join('|').includes('approval_audit_log'),
+    );
+    expect(auditCall).toBeDefined();
+    expect(auditCall).toContain('auto_post_notice_undelivered');
+    const auditMetadata = auditCall!.find(
+      (arg): arg is Record<string, unknown> =>
+        !!arg && typeof arg === 'object' && !Array.isArray(arg) && 'downgrade_reason' in arg,
+    );
+    expect(auditMetadata).toEqual({
+      correlation_id: 'corr-notice-1',
+      downgrade_reason: 'notice_undelivered',
+      outbox_attempt: 1,
+      outbox_id: 'outbox-notice-1',
+      runtime_enabled: true,
+    });
+
+    const notifyCall = calls.find((call) => {
+      const text = (call[0] as TemplateStringsArray).join('|');
+      return text.includes('INSERT INTO job_outbox') && call.includes('send_notification');
+    });
+    expect(notifyCall).toBeDefined();
+  });
+
+  it('posts auto-policy rows normally when a pending-post notice WAS delivered (flag on)', async () => {
+    vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
+    sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]); // 1: response
+    sqlReturnQueue.push([mockBusinessRow()]);                                    // 2: business
+    sqlReturnQueue.push([{ ok: 1 }]);                                            // 3: notice-delivery gate → delivered
+    sqlReturnQueue.push([mockZernioConnectionRow()]);                            // 4: zernio_connections
+    sqlReturnQueue.push([]);                                                     // 5: markPosted reviews FOR UPDATE lock
+    sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'auto_policy' }]);     // 6: markPosted UPDATE ... RETURNING
+    sqlReturnQueue.push([]);                                                     // 7: findActiveReviewRun → no run
+    sqlReturnQueue.push(Object.assign([], { count: 0 }));                        // 8: enqueueAutoPostNotice INSERT
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockPostReply.mockResolvedValueOnce({ comment: 'Thank you for your kind review!', updateTime: '2026-04-27T00:00:00Z' });
+    mockListAllReviews.mockResolvedValueOnce([
+      makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
+    ]);
+
+    await handlePublishResponse(mockSql, makeJob());
+
+    expect(mockPostReply).toHaveBeenCalledTimes(1);
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.some((t: string) => /pending_approval/.test(t))).toBe(false);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  it('owner-approved rows never touch the notice-delivery gate (flag on)', async () => {
+    vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
+    pushZernioSuccessSequence({ approval_method: 'owner' });
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockPostReply.mockResolvedValueOnce({ comment: 'Thank you for your kind review!', updateTime: '2026-04-27T00:00:00Z' });
+    mockListAllReviews.mockResolvedValueOnce([
+      makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
+    ]);
+
+    await handlePublishResponse(mockSql, makeJob());
+
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.some((t: string) => /notification_deliveries/.test(t))).toBe(false);
+    expect(mockPostReply).toHaveBeenCalledTimes(1);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
   });
 
@@ -543,6 +653,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     process.env.AUTO_APPROVAL_ENABLED = 'true'; // else the auto_policy row is downgraded, not published
     sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]); // 1: response
     sqlReturnQueue.push([mockBusinessRow()]);                                    // 2: business
+    sqlReturnQueue.push([{ ok: 1 }]);                                            // 2b: notice-delivery gate → delivered
     sqlReturnQueue.push([mockZernioConnectionRow()]);                            // 3: zernio_connections
     sqlReturnQueue.push([]);                                                      // 4: markPosted reviews FOR UPDATE lock
     sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'auto_policy' }]);      // 5: markPosted UPDATE ... RETURNING (1 row transitioned)
@@ -771,6 +882,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     process.env.AUTO_APPROVAL_ENABLED = 'true';
     sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]); // 1: response
     sqlReturnQueue.push([mockBusinessRow()]);                                    // 2: business
+    sqlReturnQueue.push([{ ok: 1 }]);                                            // 2b: notice-delivery gate → delivered
     sqlReturnQueue.push([mockZernioConnectionRow()]);                            // 3: zernio_connections
     sqlReturnQueue.push([]);                                                      // 4: markPosted reviews FOR UPDATE lock (inside verify409 begin)
     sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'auto_policy' }]);      // 5: markPosted UPDATE ... RETURNING (inside verify409 begin)
@@ -1071,7 +1183,10 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
   it('P1 regression: flag ON + auto_policy + no sibling/orphan → falls through to fresh POST (NO throw) and enqueues the FYI', async () => {
     process.env.EDIT_REPLIES_ENABLED = 'true';
     process.env.AUTO_APPROVAL_ENABLED = 'true';
-    pushDispatchBaseSequence({ approval_method: 'auto_policy' }); // 1-3: response(auto_policy) / business / connections
+    sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]); // 1: response
+    sqlReturnQueue.push([mockBusinessRow()]);                                    // 2: business
+    sqlReturnQueue.push([{ ok: 1 }]);                                            // 2b: notice-delivery gate → delivered
+    sqlReturnQueue.push([mockZernioConnectionRow()]);                            // 3: zernio_connections
     sqlReturnQueue.push([]);                                       // 4: sibling probe → none
     sqlReturnQueue.push([]);                                       // 5: markPosted reviews FOR UPDATE lock
     sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'auto_policy' }]); // 6: markPosted UPDATE ... RETURNING

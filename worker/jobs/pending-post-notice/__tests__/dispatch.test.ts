@@ -64,6 +64,7 @@ describe('dispatchPendingPostNotice', () => {
   it('claims, creates ONE approval link, sends with the tokenized approve URL, finalizes', async () => {
     const send = vi.fn(async () => ({ status: 'sent', externalMessageId: 'm1' }));
     mockGetChannel.mockReturnValue({ sendPendingPostNotice: send });
+    sqlQueue.push([]);             // self-reap DELETE (inside claim helper)
     sqlQueue.push([{ id: 'd1' }]); // claim INSERT ... RETURNING id
     sqlQueue.push([]);             // finalize UPDATE
 
@@ -94,6 +95,7 @@ describe('dispatchPendingPostNotice', () => {
 
   it('dedups when the claim conflicts (already sent/claimed) — no link, no send', async () => {
     mockGetChannel.mockReturnValue({ sendPendingPostNotice: vi.fn() });
+    sqlQueue.push([]); // self-reap DELETE (inside claim helper)
     sqlQueue.push([]); // claim INSERT returns no rows (ON CONFLICT DO NOTHING)
 
     const res = await dispatchPendingPostNotice(mockSql as unknown as Sql, INPUT, [email()], logger as never);
@@ -106,6 +108,7 @@ describe('dispatchPendingPostNotice', () => {
 
   it('re-throws when the claim INSERT itself fails (DB infra → whole job retries, notice not dropped)', async () => {
     mockGetChannel.mockReturnValue({ sendPendingPostNotice: vi.fn() });
+    sqlQueue.push([]); // self-reap DELETE (inside claim helper)
     sqlQueue.push(new Error('db down on claim INSERT'));
 
     await expect(dispatchPendingPostNotice(mockSql as unknown as Sql, INPUT, [email()], logger as never)).rejects.toThrow(/db down/);
@@ -115,6 +118,7 @@ describe('dispatchPendingPostNotice', () => {
   it('pre-filters email when owner_email_bounced is set (no claim, no link, no send) — other channels unaffected', async () => {
     const send = vi.fn(async () => ({ status: 'sent', externalMessageId: 'm1' }));
     mockGetChannel.mockReturnValue({ sendPendingPostNotice: send });
+    sqlQueue.push([]);             // telegram self-reap DELETE (inside claim helper)
     sqlQueue.push([{ id: 'd1' }]); // telegram claim
     sqlQueue.push([]);             // telegram finalize
 
@@ -129,7 +133,7 @@ describe('dispatchPendingPostNotice', () => {
     expect(mockCreateApprovalLink).toHaveBeenCalledTimes(1);
     expect(mockCreateApprovalLink).toHaveBeenCalledWith(mockSql, expect.objectContaining({ channel: 'telegram' }));
     // Skipped BEFORE any claim: exactly one notification_deliveries touch pair (telegram's).
-    expect(sqlCalls.filter((s) => s.includes('notification_deliveries'))).toHaveLength(2); // claim + finalize
+    expect(sqlCalls.filter((s) => s.includes('notification_deliveries'))).toHaveLength(3); // self-reap + claim + finalize
     expect(logger.log).toHaveBeenCalledWith(
       'pending_post_notice skipped channel=email reason=owner_email_bounced response=resp-1',
     );
@@ -148,6 +152,7 @@ describe('dispatchPendingPostNotice', () => {
   it('RELEASES the claim and counts retryable when createApprovalLink fails (DB blip must not terminally suppress the channel)', async () => {
     mockCreateApprovalLink.mockRejectedValue(new Error('link tx failed'));
     mockGetChannel.mockReturnValue({ sendPendingPostNotice: vi.fn() });
+    sqlQueue.push([]);             // self-reap DELETE (inside claim helper)
     sqlQueue.push([{ id: 'd1' }]); // claim
     sqlQueue.push([]);             // release DELETE
 
@@ -166,8 +171,10 @@ describe('dispatchPendingPostNotice', () => {
     mockGetChannel.mockImplementation((id: string) =>
       id === 'email' ? { sendPendingPostNotice: emailSend } : { sendPendingPostNotice: telegramSend },
     );
+    sqlQueue.push([]);             // email self-reap DELETE
     sqlQueue.push([{ id: 'd1' }]); // email claim
     sqlQueue.push([]);             // email terminal UPDATE
+    sqlQueue.push([]);             // telegram self-reap DELETE
     sqlQueue.push([{ id: 'd2' }]); // telegram claim
     sqlQueue.push([]);             // telegram finalize
 
@@ -181,6 +188,7 @@ describe('dispatchPendingPostNotice', () => {
   it('RELEASES the claim on a retryable send error so a retry can re-send', async () => {
     const send = vi.fn(async () => { throw new WhatsAppRateLimitError(63017); });
     mockGetChannel.mockReturnValue({ sendPendingPostNotice: send });
+    sqlQueue.push([]);             // self-reap DELETE (inside claim helper)
     sqlQueue.push([{ id: 'd1' }]); // claim
     sqlQueue.push([]);             // release DELETE
 
@@ -194,6 +202,7 @@ describe('dispatchPendingPostNotice', () => {
   it('writes a FAILED delivery row (not a release) on a terminal send error', async () => {
     const send = vi.fn(async () => { throw new Error('resend hard error'); });
     mockGetChannel.mockReturnValue({ sendPendingPostNotice: send });
+    sqlQueue.push([]);             // self-reap DELETE (inside claim helper)
     sqlQueue.push([{ id: 'd1' }]); // claim
     sqlQueue.push([]);             // terminal UPDATE
 
@@ -202,12 +211,17 @@ describe('dispatchPendingPostNotice', () => {
     expect(res.terminalFailed).toBe(1);
     expect(res.retryableFailed).toBe(0);
     expect(sqlCalls.some((s) => /UPDATE\s+notification_deliveries/i.test(s) && s.includes('failed_at'))).toBe(true);
-    expect(sqlCalls.some((s) => /DELETE FROM\s+notification_deliveries/i.test(s))).toBe(false);
+    // The claim helper's self-reap DELETE (created_at-guarded) always runs;
+    // what must NOT happen on a terminal error is a claim RELEASE (id-scoped).
+    expect(
+      sqlCalls.some((s) => /DELETE FROM\s+notification_deliveries/i.test(s) && !s.includes('created_at')),
+    ).toBe(false);
   });
 
   it('releases the claim when the channel itself returns skipped', async () => {
     const send = vi.fn(async () => ({ status: 'skipped', reason: 'whatsapp_pending_post_template_unset' }));
     mockGetChannel.mockReturnValue({ sendPendingPostNotice: send });
+    sqlQueue.push([]);             // self-reap DELETE (inside claim helper)
     sqlQueue.push([{ id: 'd1' }]); // claim
     sqlQueue.push([]);             // release DELETE
 
@@ -224,6 +238,7 @@ describe('dispatchPendingPostNotice', () => {
   it('never logs review text, draft text, or the raw token (response id only)', async () => {
     const send = vi.fn(async () => ({ status: 'sent', externalMessageId: 'm1' }));
     mockGetChannel.mockReturnValue({ sendPendingPostNotice: send });
+    sqlQueue.push([]);             // self-reap DELETE (inside claim helper)
     sqlQueue.push([{ id: 'd1' }]);
     sqlQueue.push([]);
 
@@ -243,6 +258,7 @@ describe('dispatchPendingPostNotice', () => {
       );
     });
     mockGetChannel.mockReturnValue({ sendPendingPostNotice: send });
+    sqlQueue.push([]);             // self-reap DELETE (inside claim helper)
     sqlQueue.push([{ id: 'd1' }]); // claim
     sqlQueue.push([]);             // terminal UPDATE
 
@@ -269,6 +285,7 @@ describe('dispatchPendingPostNotice', () => {
       throw new Error(`hard error echoing https://app.example.com/approve/${RAW_TOKEN}`);
     });
     mockGetChannel.mockReturnValue({ sendPendingPostNotice: send });
+    sqlQueue.push([]);             // self-reap DELETE (inside claim helper)
     sqlQueue.push([{ id: 'd1' }]); // claim
     sqlQueue.push([]);             // terminal UPDATE
 

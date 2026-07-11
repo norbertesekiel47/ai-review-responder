@@ -205,12 +205,37 @@ describe('handlePendingPostNotice', () => {
     expect(mocks.markOutboxCompleted).not.toHaveBeenCalled();
   });
 
-  it('systemic failure (sent=0, terminal failures) → error-level log, outbox completed', async () => {
+  it('systemic failure (sent=0, terminal failures) → warn-level distinct signal, outbox completed', async () => {
     mocks.dispatchPendingPostNotice.mockResolvedValue({ sent: 0, skipped: 0, terminalFailed: 2, retryableFailed: 0 });
 
     await run();
 
-    expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('systemic-failure'));
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('systemic-failure'));
+    expect(mocks.markOutboxCompleted).toHaveBeenCalledWith(mockSql, 'ob-1', 1);
+  });
+
+  it('all-skipped (sent=0, skips only, zero failures) → still fires the systemic-failure signal', async () => {
+    // An all-skipped run leaves the owner just as unnotified as an all-failed
+    // one; the publisher's notice-delivery gate owns enforcement, this signal
+    // is the observability breadcrumb.
+    mocks.dispatchPendingPostNotice.mockResolvedValue({ sent: 0, skipped: 3, terminalFailed: 0, retryableFailed: 0 });
+
+    await run();
+
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('systemic-failure'));
+    expect(mocks.markOutboxCompleted).toHaveBeenCalledWith(mockSql, 'ob-1', 1);
+  });
+
+  it('nothing attempted (all counters zero) → no systemic-failure signal', async () => {
+    mocks.dispatchPendingPostNotice.mockResolvedValue({ sent: 0, skipped: 0, terminalFailed: 0, retryableFailed: 0 });
+
+    await run();
+
+    const allLines = [
+      ...mockLogger.warn.mock.calls,
+      ...mockLogger.error.mock.calls,
+    ].map((c) => String(c[0]));
+    expect(allLines.some((line) => line.includes('systemic-failure'))).toBe(false);
     expect(mocks.markOutboxCompleted).toHaveBeenCalledWith(mockSql, 'ob-1', 1);
   });
 

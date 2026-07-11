@@ -127,13 +127,17 @@ export async function handlePendingPostNotice(sql: Sql, job: Job<PendingPostNoti
     `terminal_failed=${dispatch.terminalFailed} retryable_failed=${dispatch.retryableFailed}`,
   );
 
-  // Systemic-failure signal: if EVERY eligible channel failed (nothing sent),
-  // surface at error level so it alerts — the per-channel warn lines alone
-  // would not. The scheduled publish is unaffected; only the notice failed.
+  // Systemic-failure signal: if NOTHING was sent but at least one channel was
+  // attempted (skips count — an all-skipped run also leaves the owner
+  // unnotified), surface the distinct alertable signal. Warn-level: the
+  // publisher's notice-delivery gate owns enforcement (it downgrades an
+  // unnotified auto-post to owner review); this line is observability, and
+  // the outbox entry still completes below.
   const totalFailed = dispatch.terminalFailed + dispatch.retryableFailed;
-  if (dispatch.sent === 0 && totalFailed > 0) {
-    logger.error(
-      `pending_post_notice systemic-failure response=${response_id} — all ${totalFailed} channel send(s) failed, no notice delivered`,
+  const totalAttempted = dispatch.skipped + totalFailed;
+  if (dispatch.sent === 0 && totalAttempted > 0) {
+    logger.warn(
+      `pending_post_notice systemic-failure response=${response_id} — 0 of ${totalAttempted} channel attempt(s) sent (${dispatch.skipped} skipped, ${totalFailed} failed), no notice delivered`,
     );
   }
 

@@ -89,6 +89,36 @@ export async function handlePublishResponse(
     return;
   }
 
+  // ── Auto-policy notice-delivery gate (spec §2.11) ────────────────────
+  // An unnotified auto-post fails toward the owner — the veto window is only
+  // real if the owner could see it. Zero DELIVERED pending-post notices at
+  // publish time ⇒ downgrade to owner review instead of posting. Placement:
+  // this runs BEFORE any external call, so a racing notice-send between the
+  // check and the post is benign (fail-toward-owner: worst case the owner
+  // manually reviews a draft they were just told would auto-post).
+  if (response.approval_method === APPROVAL_METHOD.AUTO_POLICY) {
+    const deliveredNotice = await sql`
+      SELECT 1 FROM notification_deliveries
+      WHERE response_id = ${response_id}
+        AND business_id = ${businessId}
+        AND template = 'pending_post_notice'
+        AND sent_at IS NOT NULL
+      LIMIT 1
+    `;
+    if (deliveredNotice.length === 0) {
+      await downgradeAutoApprovedResponseForManualReview(sql, {
+        responseId: response_id,
+        businessId,
+        outboxId,
+        outboxAttempt,
+        correlationId: job.data.correlation_id,
+        reason: 'notice_undelivered',
+        logger,
+      });
+      return;
+    }
+  }
+
   // ── Archived-location terminal ──────────────────────────────────────
   if (business.archived_at !== null) {
     logger.warn(

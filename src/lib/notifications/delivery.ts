@@ -148,6 +148,24 @@ export async function claimPendingPostNoticeDelivery(sql: Sql, params: {
   recipient: string;
 }): Promise<string | null> {
   const id = uuidv7();
+  // Self-reap stale unfinalized claims first: a dispatcher that crashed
+  // between claim and finalize/release leaves a pending row that would
+  // dedup-block every future send of this veto-critical notice. A claim that
+  // is neither sent nor terminally failed after 15 minutes is such an orphan
+  // (a live send finalizes within seconds). The sent_at/failed_at guards
+  // ensure a finalized or terminally-failed row is never reaped. Narrows
+  // known follow-up #3b for the pending_post_notice template.
+  await sql`
+    DELETE FROM notification_deliveries
+    WHERE response_id = ${params.responseId}
+      AND business_id = ${params.businessId}
+      AND channel = ${params.channel}
+      AND recipient = ${params.recipient}
+      AND template = 'pending_post_notice'
+      AND sent_at IS NULL
+      AND failed_at IS NULL
+      AND created_at < NOW() - INTERVAL '15 minutes'
+  `;
   const claimed = await sql<{ id: string }[]>`
     INSERT INTO notification_deliveries
       (id, account_id, business_id, response_id, channel, recipient, template)
