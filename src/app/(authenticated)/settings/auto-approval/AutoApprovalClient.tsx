@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import type { FocusEvent } from 'react';
 import { SettingsShell } from '@/components/dashboard/settings/SettingsShell';
 import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
 import { Icon } from '@/components/dashboard/shell/Icon';
@@ -70,7 +71,8 @@ type ClientAction =
   | { type: 'save_failed'; message: string }
   | { type: 'clear_saved_flash' }
   | { type: 'set_pending_confirmation'; pending: PendingConfirmation | null }
-  | { type: 'cancel_pending_confirmation' };
+  | { type: 'cancel_pending_confirmation' }
+  | { type: 'discard_cap_draft' };
 
 function clientReducer(state: ClientState, action: ClientAction): ClientState {
   switch (action.type) {
@@ -88,6 +90,10 @@ function clientReducer(state: ClientState, action: ClientAction): ClientState {
       return { ...state, pendingConfirmation: action.pending };
     case 'cancel_pending_confirmation':
       return { ...state, pendingConfirmation: null, capDraftEpoch: state.capDraftEpoch + 1 };
+    case 'discard_cap_draft':
+      // Unparsable cap input (validity.badInput) on blur: remount the cap
+      // inputs back to server state instead of committing anything.
+      return { ...state, capDraftEpoch: state.capDraftEpoch + 1 };
   }
 }
 
@@ -281,6 +287,7 @@ export function AutoApprovalClient({ initialState }: Props) {
             effectiveDailyCap={data.accountDefault.effectiveDailyCap}
             disabled={accountSaving}
             onCommit={(cap) => requestDialChange({ operation: 'set_account_daily_cap', cap })}
+            onDiscardDraft={() => dispatch({ type: 'discard_cap_draft' })}
           />
         </div>
       </section>
@@ -308,6 +315,7 @@ export function AutoApprovalClient({ initialState }: Props) {
               onRequestChange={(request, before, after) =>
                 requestChange(request, location.locationId, before, after, location.displayName)}
               onRequestDial={(request) => requestDialChange(request, location)}
+              onDiscardCapDraft={() => dispatch({ type: 'discard_cap_draft' })}
             />
           ))}
           {data.locations.length === 0 && (
@@ -385,6 +393,7 @@ function LocationPolicyRow({
   capDraftEpoch,
   onRequestChange,
   onRequestDial,
+  onDiscardCapDraft,
 }: {
   location: AutoApprovalLocationSettings;
   accountThreshold: AutoApprovalThreshold | null;
@@ -397,6 +406,7 @@ function LocationPolicyRow({
     after: AutoApprovalThreshold | null,
   ) => void;
   onRequestDial: (request: AutoApprovalPatchRequest) => void;
+  onDiscardCapDraft: () => void;
 }) {
   const value = location.override.exists
     ? thresholdSelectValue(location.override.threshold)
@@ -466,13 +476,19 @@ function LocationPolicyRow({
             onRequestDial({ operation: 'set_location_veto_window', locationId: location.locationId, minutes })}
         />
         <DailyCapField
-          key={`location-cap-${capDraftEpoch}-${location.effective.dailyAutoPostCap ?? 'default'}`}
+          key={`location-cap-${capDraftEpoch}-${location.override.dailyAutoPostCap ?? 'default'}`}
           ariaLabel={`Daily auto-post cap for ${location.displayName}`}
-          storedCap={location.effective.dailyAutoPostCap}
+          // The commit baseline is the OVERRIDE's stored value (null while the
+          // location has no row) — baselining on the effective (inherited) cap
+          // made typing the inherited number a no-op, so the cap could never be
+          // pinned onto the location. The effective value still drives the
+          // display via the placeholder.
+          storedCap={location.override.dailyAutoPostCap}
           effectiveDailyCap={location.effective.effectiveDailyCap}
           disabled={saving}
           onCommit={(cap) =>
             onRequestDial({ operation: 'set_location_daily_cap', locationId: location.locationId, cap })}
+          onDiscardDraft={onDiscardCapDraft}
         />
       </div>
     </div>
@@ -525,16 +541,28 @@ function DailyCapField({
   effectiveDailyCap,
   disabled,
   onCommit,
+  onDiscardDraft,
 }: {
   ariaLabel: string;
   storedCap: number | null;
   effectiveDailyCap: number;
   disabled: boolean;
   onCommit: (cap: number | null) => void;
+  onDiscardDraft: () => void;
 }) {
   const [draft, setDraft] = useState(storedCap === null ? '' : String(storedCap));
 
-  function commit() {
+  function commit(event: FocusEvent<HTMLInputElement>) {
+    // A number input holding unparsable text (e.g. a stray 'e') reads as ''
+    // — indistinguishable from a deliberate clear by value alone. Committing
+    // it would silently turn an explicit strict cap into "Default" from a
+    // keystroke, so a badInput blur discards the draft (the epoch bump
+    // remounts this field back to the stored value) and never PATCHes. A
+    // genuinely emptied field (badInput false) still submits null.
+    if (event.currentTarget.validity.badInput) {
+      onDiscardDraft();
+      return;
+    }
     const normalized = normalizeCapDraft(draft);
     setDraft(normalized === null ? '' : String(normalized));
     if (normalized === storedCap) return;

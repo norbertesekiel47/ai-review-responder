@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AutoApprovalClient } from '../AutoApprovalClient';
 import type {
@@ -411,5 +411,104 @@ describe('AutoApprovalClient', () => {
     await user.tab();
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("typing the override's stored cap on an overridden location still no-ops", async () => {
+    // The commit baseline is the override's STORED value: retyping it must not
+    // PATCH (only a genuinely different value does).
+    const location = overriddenLocation();
+    location.override = { ...location.override, dailyAutoPostCap: 5 };
+    location.effective = { ...location.effective, dailyAutoPostCap: 5, effectiveDailyCap: 5 };
+    const fetchMock = vi.spyOn(global, 'fetch');
+    const user = userEvent.setup();
+
+    render(<AutoApprovalClient initialState={{ ...baseState, locations: [location] }} />);
+
+    const capInput = screen.getByLabelText('Daily auto-post cap for Main Cafe');
+    expect(capInput).toHaveValue(5);
+    await user.clear(capInput);
+    await user.type(capInput, '5');
+    await user.tab();
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('badInput on blur never commits: no PATCH, and the field snaps back to the stored cap', async () => {
+    // Finding 7: a number input holding unparsable text (stray 'e') reads as
+    // '' — without the validity check that committed cap:null, silently
+    // dropping an explicit strict cap. jsdom cannot produce a real badInput
+    // ValidityState from typing, so the validity object is mocked on the
+    // target node before blurring.
+    const fetchMock = vi.spyOn(global, 'fetch');
+    const user = userEvent.setup();
+
+    render(<AutoApprovalClient initialState={{
+      ...baseState,
+      accountDefault: { ...emptyPolicyState, policyId: 'policy-1', exists: true, dailyAutoPostCap: 25, effectiveDailyCap: 25 },
+    }} />);
+
+    const capInput = screen.getByLabelText('Account default daily auto-post cap');
+    expect(capInput).toHaveValue(25);
+    // Simulate the browser's badInput read: value reads empty, validity flags it.
+    await user.clear(capInput);
+    Object.defineProperty(capInput, 'validity', {
+      value: { badInput: true },
+      configurable: true,
+    });
+    fireEvent.blur(capInput);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    // The epoch bump remounts the field back to the stored value.
+    const remountedCap = screen.getByLabelText('Account default daily auto-post cap');
+    expect(remountedCap).toHaveValue(25);
+  });
+
+  it('pins the inherited cap onto a rowless location: typing it raises the interstitial, then PATCHes', async () => {
+    // Finding 8: the location field used to baseline on the EFFECTIVE
+    // (inherited) cap, so typing the inherited number no-oped and the cap
+    // could never be pinned. The baseline is now the override's stored value
+    // (null while rowless); the effective cap still shows via the placeholder.
+    const inheritingLocation: AutoApprovalLocationSettings = {
+      ...baseState.locations[0]!,
+      effective: {
+        threshold: null,
+        source: 'account_default',
+        inherited: true,
+        vetoWindowMinutes: 15,
+        dailyAutoPostCap: 25,
+        effectiveDailyCap: 25,
+        suspended: false,
+      },
+    };
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse(baseState));
+    const user = userEvent.setup();
+
+    render(<AutoApprovalClient initialState={{
+      ...baseState,
+      accountDefault: { ...emptyPolicyState, policyId: 'policy-1', exists: true, dailyAutoPostCap: 25, effectiveDailyCap: 25 },
+      locations: [inheritingLocation],
+    }} />);
+
+    const capInput = screen.getByLabelText('Daily auto-post cap for Main Cafe');
+    // Display: blank value, effective cap as placeholder.
+    expect(capInput).toHaveValue(null);
+    expect(capInput).toHaveAttribute('placeholder', 'Default (25)');
+
+    await user.type(capInput, '25');
+    await user.tab();
+
+    // Creating the pin is still an implicit-override creation: interstitial first.
+    await screen.findByRole('dialog', { name: 'Give this location its own settings?' });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Give it its own settings' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(patchBody(fetchMock)).toEqual({
+      operation: 'set_location_daily_cap',
+      locationId: LOCATION_ID,
+      cap: 25,
+    });
   });
 });
