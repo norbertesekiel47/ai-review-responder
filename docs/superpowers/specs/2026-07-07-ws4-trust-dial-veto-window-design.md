@@ -528,3 +528,33 @@ unchanged; on any conflict, these amendments win.
   owner received via the veto notice is not an orphan, so the veto's
   re-notify no longer revokes it (clicking the still-live notice CTA would
   otherwise 410 against §2.6's already_cancelled invariant).
+- **§2.4/§2.10 suspension survives policy clears (2026-07-11, external
+  review):** `clear_account_default` and `delete_location_override` never
+  DELETE a row carrying governor-owned `suspended_at` — deletion laundered
+  the suspension (clearing is a contraction, allowed while suspended, and a
+  re-created row read suspended=false, re-arming auto-posting past a system
+  suspension). A clear on a suspended row degrades to a threshold-NULL
+  UPDATE: the scope returns to manual approval while `suspended_at`/
+  `suspended_reason` and the dial columns survive, so a follow-up expansion
+  stays blocked with `policy_suspended`. Unsuspended rows keep DELETE
+  semantics; the audit payload records which shape ran via
+  `clearedVia: 'delete' | 'threshold_null_suspended'`.
+- **§2.10 implicit override rows seed the account dials (2026-07-11,
+  external review):** any op that CREATES a location override row (dial ops
+  on a rowless location, and the threshold ops) seeds the non-target dial
+  columns from the account default's STORED values instead of schema
+  defaults — a cap-2/window-30 account no longer silently becomes cap-10/
+  window-15 at that location because one dial was touched. The INSERT arm of
+  every settings upsert persists the full seed (`freshRowSeed`); DO UPDATE
+  arms stay single-column, ON CONFLICT targets and `resolveEffectivePolicy`
+  are unchanged; with no account default, schema defaults stand. The
+  threshold is never seeded: a fresh row still starts on manual approval.
+- **§2.10 cap-input commit semantics (2026-07-11, external review):** a blur
+  with `validity.badInput` (unparsable number-input text reads as `''`)
+  discards the draft via the capDraftEpoch remount and never PATCHes — only
+  a genuinely emptied field submits the deliberate `cap: null` clear. The
+  location cap field's commit baseline is the OVERRIDE's stored value (null
+  while rowless), not the effective inherited cap, so typing the inherited
+  number onto a rowless location now creates the pin (through the
+  `location_dial` interstitial, seeded per the amendment above); the display
+  keeps showing the effective cap via the placeholder.
