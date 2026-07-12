@@ -86,54 +86,13 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
     && !suppressNotification;
 
   await sql.begin(async (tx) => {
-    // Take the review row lock as the transaction's FIRST statement
-    // (run-spine.ts lock-ordering contract). It must precede the responses
-    // INSERT below: that INSERT's FK on review_id takes an implicit
-    // FOR KEY SHARE on the reviews tuple, and upgrading share → FOR UPDATE
-    // later deadlocks against concurrent FOR UPDATE waiters (content-changed
-    // ingest, edit-publish/failed-hook, or another persist for the same
-    // review). Taking FOR UPDATE first subsumes the later KEY SHARE. Bonus:
-    // the auto-approval content-hash re-read further down happens under this
-    // lock, so it cannot race a concurrent content-changed ingest.
-    const [reviewLock] = await tx<{ id: string }[]>`
-      SELECT id FROM reviews
-      WHERE id = ${reviewId} AND business_id = ${businessId}
-      FOR UPDATE
-    `;
-    if (!reviewLock) {
-      // Review not visible to its business — impossible if FKs hold (caller
-      // bug / corrupt state only). The lock no-oped, so the ordering contract
-      // is void for this tx; surface loudly (same posture as mark-posted.ts)
-      // but proceed — control flow is unchanged.
-      Sentry.captureMessage('orphan_response_review', {
-        level: 'warning',
-        extra: {
-          response_id: responseId,
-          review_id: reviewId,
-          business_id: businessId,
-          site: 'persist',
-        },
-      });
-      logger.warn(
-        `Review ${reviewId} not found for business ${businessId} — persist review lock no-oped (response ${responseId})`,
-      );
-    }
-
-    // CANDIDATES ONLY: take the businesses row FOR UPDATE before the responses
-    // INSERT below — the INSERT's business_id FK takes an implicit FOR KEY
-    // SHARE on this row, and upgrading share → FOR UPDATE later (the
-    // auto-approval cap count) deadlocks against a concurrent persist for the
-    // same business. Same subsume-the-KEY-SHARE pattern as the reviews lock
-    // above. Also the serialization point for the daily-cap count (spec §2.3).
-    // Structural non-candidates skip it: they never run the cap count, so the
-    // share→exclusive upgrade this lock pre-empts cannot happen for them
-    // (finding 10) — and skipping keeps flag-off persists off the business
-    // row's lock queue entirely.
-    if (isAutoApprovalCandidate) {
-      await tx`
-        SELECT id FROM businesses WHERE id = ${businessId} FOR UPDATE
-      `;
-    }
+    await acquirePersistLocks(tx, {
+      reviewId,
+      businessId,
+      responseId,
+      isAutoApprovalCandidate,
+      logger,
+    });
 
     await tx`
       INSERT INTO responses (
@@ -169,27 +128,14 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       outputExcerpt: result.responseText.slice(0, 200),
     });
 
-    const activeRun = await findActiveReviewRun(tx, reviewId);
-    if (activeRun) {
-      await recordStep(tx, {
-        runId: activeRun.id,
-        stepKey: 'draft_generated',
-        detail: { response_id: responseId, version },
-      });
-      await recordStep(tx, {
-        runId: activeRun.id,
-        stepKey: 'moderation_checked',
-        status: held ? 'failed' : 'completed',
-        detail: { flagged: moderation.flagged, severity: moderation.severity ?? null, held },
-      });
-      await recordOutcome(tx, {
-        runId: activeRun.id,
-        accountId: activeRun.account_id,
-        businessId,
-        attributedAgent: 'reply',
-        outcomeKind: 'reply_drafted',
-      });
-    }
+    const activeRun = await recordDraftSpineCheckpoints(tx, {
+      reviewId,
+      businessId,
+      responseId,
+      version,
+      moderation,
+      held,
+    });
 
     // Structural non-candidates get their decision without touching the DB:
     // no runtime-state read (074 columns stay unread on flag-off deploys,
@@ -288,6 +234,118 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
   });
 
   return responseId;
+}
+
+/**
+ * Lock preamble for the persist transaction. Runs as the transaction's FIRST
+ * statements on the OPEN transaction `tx` — it must precede the responses
+ * INSERT, so callers may not reorder it after any other tx statement.
+ */
+async function acquirePersistLocks(
+  tx: postgres.TransactionSql,
+  args: {
+    reviewId: string;
+    businessId: string;
+    responseId: string;
+    isAutoApprovalCandidate: boolean;
+    logger: Pick<WorkerLogger, 'warn'>;
+  },
+): Promise<void> {
+  const { reviewId, businessId, responseId, isAutoApprovalCandidate, logger } = args;
+
+  // Take the review row lock as the transaction's FIRST statement
+  // (run-spine.ts lock-ordering contract). It must precede the responses
+  // INSERT below: that INSERT's FK on review_id takes an implicit
+  // FOR KEY SHARE on the reviews tuple, and upgrading share → FOR UPDATE
+  // later deadlocks against concurrent FOR UPDATE waiters (content-changed
+  // ingest, edit-publish/failed-hook, or another persist for the same
+  // review). Taking FOR UPDATE first subsumes the later KEY SHARE. Bonus:
+  // the auto-approval content-hash re-read further down happens under this
+  // lock, so it cannot race a concurrent content-changed ingest.
+  const [reviewLock] = await tx<{ id: string }[]>`
+    SELECT id FROM reviews
+    WHERE id = ${reviewId} AND business_id = ${businessId}
+    FOR UPDATE
+  `;
+  if (!reviewLock) {
+    // Review not visible to its business — impossible if FKs hold (caller
+    // bug / corrupt state only). The lock no-oped, so the ordering contract
+    // is void for this tx; surface loudly (same posture as mark-posted.ts)
+    // but proceed — control flow is unchanged.
+    Sentry.captureMessage('orphan_response_review', {
+      level: 'warning',
+      extra: {
+        response_id: responseId,
+        review_id: reviewId,
+        business_id: businessId,
+        site: 'persist',
+      },
+    });
+    logger.warn(
+      `Review ${reviewId} not found for business ${businessId} — persist review lock no-oped (response ${responseId})`,
+    );
+  }
+
+  // CANDIDATES ONLY: take the businesses row FOR UPDATE before the responses
+  // INSERT below — the INSERT's business_id FK takes an implicit FOR KEY
+  // SHARE on this row, and upgrading share → FOR UPDATE later (the
+  // auto-approval cap count) deadlocks against a concurrent persist for the
+  // same business. Same subsume-the-KEY-SHARE pattern as the reviews lock
+  // above. Also the serialization point for the daily-cap count (spec §2.3).
+  // Structural non-candidates skip it: they never run the cap count, so the
+  // share→exclusive upgrade this lock pre-empts cannot happen for them
+  // (finding 10) — and skipping keeps flag-off persists off the business
+  // row's lock queue entirely.
+  if (isAutoApprovalCandidate) {
+    await tx`
+      SELECT id FROM businesses WHERE id = ${businessId} FOR UPDATE
+    `;
+  }
+}
+
+/**
+ * Run-spine checkpoints for a freshly persisted draft: the draft_generated and
+ * moderation_checked steps plus the reply_drafted outcome. Runs on the OPEN
+ * transaction `tx` so the checkpoints stay atomic with the response INSERT,
+ * mirroring recordModerationAndHold. Returns the active run (null for legacy
+ * reviews ingested before the spine existed) so the caller can record the
+ * later policy_gate step on the same run.
+ */
+async function recordDraftSpineCheckpoints(
+  tx: postgres.TransactionSql,
+  args: {
+    reviewId: string;
+    businessId: string;
+    responseId: string;
+    version: number;
+    moderation: ModerationDecision;
+    held: boolean;
+  },
+): Promise<{ id: string; account_id: string } | null> {
+  const { reviewId, businessId, responseId, version, moderation, held } = args;
+
+  const activeRun = await findActiveReviewRun(tx, reviewId);
+  if (activeRun) {
+    await recordStep(tx, {
+      runId: activeRun.id,
+      stepKey: 'draft_generated',
+      detail: { response_id: responseId, version },
+    });
+    await recordStep(tx, {
+      runId: activeRun.id,
+      stepKey: 'moderation_checked',
+      status: held ? 'failed' : 'completed',
+      detail: { flagged: moderation.flagged, severity: moderation.severity ?? null, held },
+    });
+    await recordOutcome(tx, {
+      runId: activeRun.id,
+      accountId: activeRun.account_id,
+      businessId,
+      attributedAgent: 'reply',
+      outcomeKind: 'reply_drafted',
+    });
+  }
+  return activeRun;
 }
 
 /**
