@@ -159,4 +159,45 @@ describeWithDb('auto-approval settings writers — live upserts against the 074 
       dailyAutoPostCap: 5,
     });
   });
+
+  it('clear on a suspended account default preserves the row; unsuspended clear deletes it', async () => {
+    // Governor-owned suspension survives a clear (finding-1 fix): the clear
+    // degrades to a threshold-NULL UPDATE, keeping suspended_at and the dials.
+    await sql()`
+      UPDATE auto_approval_policies
+      SET suspended_at = NOW(), suspended_reason = 'governor_negative_feedback'
+      WHERE account_id = ${tenant.accountId}::uuid AND location_id IS NULL
+    `;
+
+    const cleared = await patch({ ...actor, operation: 'clear_account_default' });
+    expect(cleared.accountDefault).toMatchObject({
+      exists: true,
+      threshold: null,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 25,
+      suspended: true,
+      suspendedReason: 'governor_negative_feedback',
+    });
+
+    const [row] = await sql()<{ suspended_at: Date | null }[]>`
+      SELECT suspended_at FROM auto_approval_policies
+      WHERE account_id = ${tenant.accountId}::uuid AND location_id IS NULL
+    `;
+    expect(row?.suspended_at).not.toBeNull();
+
+    // Lift the suspension: the clear reverts to today's DELETE semantics.
+    await sql()`
+      UPDATE auto_approval_policies
+      SET suspended_at = NULL, suspended_reason = NULL
+      WHERE account_id = ${tenant.accountId}::uuid AND location_id IS NULL
+    `;
+    const deleted = await patch({ ...actor, operation: 'clear_account_default' });
+    expect(deleted.accountDefault).toMatchObject({ exists: false });
+
+    const [count] = await sql()<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count FROM auto_approval_policies
+      WHERE account_id = ${tenant.accountId}::uuid AND location_id IS NULL
+    `;
+    expect(count?.count).toBe(0);
+  });
 });

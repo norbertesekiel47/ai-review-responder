@@ -60,17 +60,31 @@ const policyRow = (
   suspended_reason: policy.suspendedReason ?? null,
 });
 
-function applyUpsertColumn(base: Policy, text: string, value: unknown): Policy {
+// Mirrors the real upsert semantics: every INSERT now binds the full seeded
+// (threshold, veto, cap) triple starting at `offset` in the values array; the
+// conflict path applies only the single DO UPDATE column (EXCLUDED.<col> is
+// the corresponding insert param).
+function applyUpsertColumn(base: Policy, text: string, values: unknown[], offset: number): Policy {
   if (text.includes('auto_approve_min_star = EXCLUDED.auto_approve_min_star')) {
-    return { ...base, threshold: value as AutoApprovalThreshold | null };
+    return { ...base, threshold: values[offset] as AutoApprovalThreshold | null };
   }
   if (text.includes('veto_window_minutes = EXCLUDED.veto_window_minutes')) {
-    return { ...base, vetoWindowMinutes: value as 15 | 30 };
+    return { ...base, vetoWindowMinutes: values[offset + 1] as 15 | 30 };
   }
   if (text.includes('daily_auto_post_cap = EXCLUDED.daily_auto_post_cap')) {
-    return { ...base, dailyAutoPostCap: value as number | null };
+    return { ...base, dailyAutoPostCap: values[offset + 2] as number | null };
   }
   throw new Error(`unrecognized auto_approval_policies upsert: ${text}`);
+}
+
+// The fresh-insert path persists the whole seed, exactly like the real INSERT.
+function freshPolicyFromInsert(values: unknown[], offset: number): Policy {
+  return {
+    id: values[0] as string,
+    threshold: values[offset] as AutoApprovalThreshold | null,
+    vetoWindowMinutes: values[offset + 1] as 15 | 30,
+    dailyAutoPostCap: values[offset + 2] as number | null,
+  };
 }
 
 // Content-routing mock (not the generic FIFO `createMockSql` harness): the
@@ -156,19 +170,18 @@ const mockSql: any = vi.fn(async (strings: TemplateStringsArray, ...values: unkn
     return [{ count }];
   }
 
-  // Mirrors the real upserts: one owner-facing column per operation, chosen by
-  // the DO UPDATE SET column; a fresh insert starts from a NULL threshold.
-  // Value positions follow the INSERT lists in settings.ts (persona and
-  // action_class are bound parameters, so they occupy value slots).
+  // Mirrors the real upserts: the INSERT arm persists the full seeded
+  // (threshold, veto, cap) triple; the conflict path applies only the single
+  // DO UPDATE column. Value positions follow the INSERT lists in settings.ts
+  // (persona and action_class are bound parameters, so they occupy value
+  // slots; the account default's location_id is a literal NULL).
   if (
     text.includes('INSERT INTO auto_approval_policies') &&
     text.includes('ON CONFLICT (account_id, persona, action_class) WHERE location_id IS NULL')
   ) {
-    const base: Policy = dbState.accountDefault ?? {
-      id: 'policy-account-default',
-      threshold: null,
-    };
-    dbState.accountDefault = applyUpsertColumn(base, text, values[4]);
+    dbState.accountDefault = dbState.accountDefault
+      ? applyUpsertColumn(dbState.accountDefault, text, values, 4)
+      : freshPolicyFromInsert(values, 4);
     return [];
   }
 
@@ -179,11 +192,26 @@ const mockSql: any = vi.fn(async (strings: TemplateStringsArray, ...values: unkn
     )
   ) {
     const locationId = values[2] as string;
-    const base: Policy = dbState.overrides.get(locationId) ?? {
-      id: `policy-${locationId}`,
-      threshold: null,
-    };
-    dbState.overrides.set(locationId, applyUpsertColumn(base, text, values[5]));
+    const existing = dbState.overrides.get(locationId);
+    dbState.overrides.set(
+      locationId,
+      existing ? applyUpsertColumn(existing, text, values, 5) : freshPolicyFromInsert(values, 5),
+    );
+    return [];
+  }
+
+  // Suspension-preserving clear: NULL the threshold, keep everything else.
+  if (text.includes('UPDATE auto_approval_policies') && text.includes('location_id IS NULL')) {
+    if (dbState.accountDefault) {
+      dbState.accountDefault = { ...dbState.accountDefault, threshold: null };
+    }
+    return [];
+  }
+
+  if (text.includes('UPDATE auto_approval_policies') && text.includes('location_id =')) {
+    const locationId = values[1] as string;
+    const override = dbState.overrides.get(locationId);
+    if (override) dbState.overrides.set(locationId, { ...override, threshold: null });
     return [];
   }
 
@@ -564,6 +592,7 @@ describe('auto-approval settings service', () => {
       expect.objectContaining({
         payload: expect.objectContaining({
           operation: 'delete_location_override',
+          clearedVia: 'delete',
           expansion: false,
         }),
       }),
@@ -833,5 +862,266 @@ describe('auto-approval settings service', () => {
       operation: 'set_account_manual',
     });
     expect(afterManual.accountDefault.threshold).toBeNull();
+  });
+
+  it('preserves a suspended account default on clear and keeps expansion blocked afterward', async () => {
+    // Finding-1 laundering hole: DELETE would erase governor-owned
+    // suspended_at, so a later re-create reads suspended=false and re-arms
+    // auto-posting. A clear on a suspended row must instead NULL the
+    // threshold and keep the row (dials + suspension intact).
+    dbState.accountDefault = {
+      id: 'policy-default',
+      threshold: 5,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+      suspendedAt: new Date('2026-07-08T00:00:00.000Z'),
+      suspendedReason: 'governor_negative_feedback',
+    };
+    const { AutoApprovalExpansionBlockedError, patchAutoApprovalSettings } =
+      await import('../settings');
+
+    const cleared = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'clear_account_default',
+    });
+
+    expect(cleared.accountDefault).toMatchObject({
+      policyId: 'policy-default',
+      exists: true,
+      threshold: null,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+      suspended: true,
+      suspendedReason: 'governor_negative_feedback',
+    });
+    expect(
+      sqlCalls.some((call) => call.text.includes('DELETE FROM auto_approval_policies')),
+    ).toBe(false);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          operation: 'clear_account_default',
+          clearedVia: 'threshold_null_suspended',
+          expansion: false,
+        }),
+      }),
+    );
+
+    // The surviving suspension still blocks the follow-up expansion.
+    let caught: unknown;
+    try {
+      await patchAutoApprovalSettings(mockSql, {
+        accountId: ACCOUNT_ID,
+        actorUserId: ACTOR_USER_ID,
+        impersonated: false,
+        operation: 'set_account_default',
+        threshold: 5,
+        confirmationLevel: 'standard',
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(AutoApprovalExpansionBlockedError);
+    expect(caught).toMatchObject({ blockReasons: ['policy_suspended'] });
+  });
+
+  it('still deletes an unsuspended account default on clear', async () => {
+    dbState.accountDefault = { id: 'policy-default', threshold: 5 };
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    const cleared = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'clear_account_default',
+    });
+
+    expect(cleared.accountDefault).toMatchObject({ exists: false, threshold: null });
+    expect(dbState.accountDefault).toBeNull();
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          operation: 'clear_account_default',
+          clearedVia: 'delete',
+        }),
+      }),
+    );
+  });
+
+  it('preserves a suspended location override on delete and keeps expansion blocked afterward', async () => {
+    dbState.overrides.set(LOCATION_1, {
+      id: 'policy-main',
+      threshold: 4,
+      dailyAutoPostCap: 3,
+      suspendedAt: new Date('2026-07-08T00:00:00.000Z'),
+      suspendedReason: 'governor_negative_feedback',
+    });
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    const deleted = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'delete_location_override',
+      locationId: LOCATION_1,
+    });
+
+    const location = deleted.locations.find((entry) => entry.locationId === LOCATION_1);
+    expect(location?.override).toMatchObject({
+      policyId: 'policy-main',
+      exists: true,
+      threshold: null,
+      dailyAutoPostCap: 3,
+      suspended: true,
+    });
+    expect(
+      sqlCalls.some((call) => call.text.includes('DELETE FROM auto_approval_policies')),
+    ).toBe(false);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          operation: 'delete_location_override',
+          clearedVia: 'threshold_null_suspended',
+          expansion: false,
+        }),
+      }),
+    );
+
+    await expect(
+      patchAutoApprovalSettings(mockSql, {
+        accountId: ACCOUNT_ID,
+        actorUserId: ACTOR_USER_ID,
+        impersonated: false,
+        operation: 'set_location_override',
+        locationId: LOCATION_1,
+        threshold: 4,
+        confirmationLevel: 'standard',
+      }),
+    ).rejects.toMatchObject({
+      name: 'AutoApprovalExpansionBlockedError',
+      blockReasons: ['policy_suspended'],
+    });
+  });
+
+  it('seeds an implicitly created override with the account default cap when the veto window is the target', async () => {
+    // Finding-2: a dial-only op on a rowless location must not silently swap
+    // the account's stricter explicit dial values for schema defaults.
+    dbState.accountDefault = {
+      id: 'policy-default',
+      threshold: 4,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+    };
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    const result = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_location_veto_window',
+      locationId: LOCATION_1,
+      minutes: 15,
+    });
+
+    const location = result.locations.find((entry) => entry.locationId === LOCATION_1);
+    expect(location?.override).toMatchObject({
+      exists: true,
+      threshold: null,
+      vetoWindowMinutes: 15,
+      dailyAutoPostCap: 2,
+      effectiveDailyCap: 2,
+    });
+  });
+
+  it('seeds an implicitly created override with the account default veto window when the cap is the target', async () => {
+    dbState.accountDefault = {
+      id: 'policy-default',
+      threshold: 4,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+    };
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    const result = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_location_daily_cap',
+      locationId: LOCATION_1,
+      cap: 5,
+    });
+
+    const location = result.locations.find((entry) => entry.locationId === LOCATION_1);
+    expect(location?.override).toMatchObject({
+      exists: true,
+      threshold: null,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 5,
+    });
+  });
+
+  it('seeds both dials from the account default when a threshold op creates the override', async () => {
+    dbState.accountDefault = {
+      id: 'policy-default',
+      threshold: 4,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+    };
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    const result = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_location_manual',
+      locationId: LOCATION_1,
+    });
+
+    const location = result.locations.find((entry) => entry.locationId === LOCATION_1);
+    expect(location?.override).toMatchObject({
+      exists: true,
+      threshold: null,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+    });
+    // The audit afterRow mirrors the persisted seed (computeAfterState is
+    // never re-read from the DB).
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          afterRow: expect.objectContaining({
+            vetoWindowMinutes: 30,
+            dailyAutoPostCap: 2,
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('keeps schema defaults for an implicitly created override when no account default exists', async () => {
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    const result = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_location_daily_cap',
+      locationId: LOCATION_1,
+      cap: 25,
+    });
+
+    const location = result.locations.find((entry) => entry.locationId === LOCATION_1);
+    expect(location?.override).toMatchObject({
+      exists: true,
+      threshold: null,
+      vetoWindowMinutes: 15,
+      dailyAutoPostCap: 25,
+    });
   });
 });
