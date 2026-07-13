@@ -23,4 +23,13 @@ describe('44×44 tap targets (P2 #27)', () => {
     expect(tsx).toMatch(/min-h-11/);
     expect(tsx).toMatch(/min-w-11/);
   });
+  it.each(['scheduled-post-chip', 'review-timeline-link'])(
+    'review-card .%s has a 44px mobile touch target',
+    (className) => {
+      const css = read('src/app/(authenticated)/_styles/console.css');
+      const mobileRules = css.match(/@media \(max-width: 768px\)\s*\{[\s\S]*?\n\}/g)?.join('\n') ?? '';
+      expect(mobileRules).toMatch(new RegExp(`\\.${className}[\\s\\S]*?min-height:\\s*44px`));
+      expect(mobileRules).toMatch(new RegExp(`\\.${className}[\\s\\S]*?min-width:\\s*44px`));
+    },
+  );
 });
