@@ -56,13 +56,16 @@ vi.mock('@/lib/kpi/service', () => ({
 // ── Mock location repo ────────────────────────────────────────────────────
 
 const { mockGetLocationById } = vi.hoisted(() => ({
-  mockGetLocationById: vi.fn<(id: string) => Promise<import('@/lib/locations/repo').LocationRow | null>>(async () => null),
+  mockGetLocationById: vi.fn<(
+    sql: unknown,
+    id: string,
+  ) => Promise<import('@/lib/locations/repo').LocationRow | null>>(async () => null),
 }));
 
 vi.mock('@/lib/locations/repo', () => ({
   getActiveLocationCount: vi.fn(async () => 1),
   getLocationsForAccount: vi.fn(async () => []),
-  getLocationById: (id: string) => mockGetLocationById(id),
+  getLocationById: (...args: [unknown, string]) => mockGetLocationById(...args),
 }));
 
 // Import AFTER mocks are set up
@@ -145,6 +148,7 @@ describe('GET /api/dashboard/kpis', () => {
     expect(res.status).toBe(200);
 
     expect(mockGetLocationKpiSummary).toHaveBeenCalledOnce();
+    expect(mockGetLocationById).toHaveBeenCalledWith(expect.any(Function), BUSINESS_ID);
     // #403: the route always resolves + passes the validated window (default here).
     expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(expect.any(Function), BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
     expect(mockGetAccountKpiSummary).not.toHaveBeenCalled();

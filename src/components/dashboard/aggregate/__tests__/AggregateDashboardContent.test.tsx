@@ -11,6 +11,14 @@ vi.mock('@/contexts/PendingCountContext', () => ({
 vi.mock('@/components/dashboard/aggregate/LocationKpiStrip', () => ({
   LocationKpiStrip: () => null,
 }));
+vi.mock('@/components/dashboard/AgentTeamStrip', () => ({
+  AgentTeamStrip: ({ scope }: { scope: string }) => (
+    <div data-testid="agent-team" data-scope={scope} />
+  ),
+}));
+vi.mock('@/components/dashboard/NeedsAttentionList', () => ({
+  NeedsAttentionList: () => <div data-testid="needs-attention" />,
+}));
 // Markers (not null) so the composition test fails loudly if either aggregate
 // chart is re-added to the dashboard after their move to Analytics.
 vi.mock('@/components/dashboard/aggregate/AggregateVelocityCard', () => ({
@@ -44,13 +52,31 @@ const data: AggregateDashboardData = {
 describe('AggregateDashboardContent', () => {
   it('renders the action strip linking to the Reviews page and no review feed', () => {
     render(<AggregateDashboardContent data={data} refresh={vi.fn()} />);
+    expect(screen.getByTestId('agent-team')).toHaveAttribute('data-scope', 'all');
+    expect(screen.getByTestId('needs-attention')).toBeInTheDocument();
     // Caught up (0 pending) -> "View all reviews" link to the Reviews page.
-    expect(screen.getByRole('link', { name: /view all reviews/i })).toHaveAttribute(
+    const reviewsLink = screen.getByRole('link', { name: /view all reviews/i });
+    expect(reviewsLink).toHaveAttribute(
       'href',
       '/dashboard/reviews',
     );
+    const team = screen.getByTestId('agent-team');
+    const attention = screen.getByTestId('needs-attention');
+    expect(team.compareDocumentPosition(attention) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(attention.compareDocumentPosition(reviewsLink) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The combined review feed no longer lives on the dashboard.
     expect(screen.queryByText(/needs action/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps the agent team visible in the aggregate empty state', () => {
+    render(<AggregateDashboardContent data={{
+      ...data,
+      valueSummary: { ...data.valueSummary, totalReviewsHandled: 0 },
+    }} refresh={vi.fn()} />);
+
+    expect(screen.getByText('No reviews yet across your locations')).toBeInTheDocument();
+    expect(screen.getByTestId('agent-team')).toHaveAttribute('data-scope', 'all');
+    expect(screen.getByTestId('needs-attention')).toBeInTheDocument();
   });
 
   it('drops the aggregate velocity/ranking charts (relocated to Analytics)', () => {
@@ -75,6 +101,7 @@ describe('AggregateDashboardContent', () => {
       recentReviews: Array.from({ length: 3 }, (_, i) => ({
         id: `r${i}`, reviewerName: 'X', starRating: 5, reviewText: null, reviewDate: '2026-06-01',
         status: 'pending_approval', responseText: 'd', responseStatus: 'pending_approval', approvalMethod: null,
+        autoPostScheduledAt: null, escalation: null,
         locationId: 'l1', locationDisplayName: 'A',
       })),
     };

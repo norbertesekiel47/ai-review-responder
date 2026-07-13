@@ -100,12 +100,20 @@ describe('AggregateDashboardData types', () => {
       responseText: 'Thank you!',
       responseStatus: 'pending_approval',
       approvalMethod: null,
+      autoPostScheduledAt: '2026-05-07T10:15:00Z',
+      escalation: {
+        id: 'escalation-1',
+        status: 'escalated',
+        severity: 'high',
+      },
       locationId: 'loc-1',
       locationDisplayName: 'Downtown Cafe',
     };
 
     expect(item.locationDisplayName).toBe('Downtown Cafe');
     expect(item.locationId).toBe('loc-1');
+    expect(item.autoPostScheduledAt).toBe('2026-05-07T10:15:00Z');
+    expect(item.escalation?.id).toBe('escalation-1');
   });
 
   it('PerLocationVelocity has velocity array per location', () => {

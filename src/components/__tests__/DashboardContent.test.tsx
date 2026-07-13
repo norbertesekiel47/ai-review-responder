@@ -13,7 +13,10 @@ vi.mock('@/hooks/useDashboardData', () => ({
   useDashboardData: (...args: unknown[]) => mockUseDashboardData(...args),
 }));
 vi.mock('@/contexts/LocationContext', () => ({
-  useLocationScope: () => ({ currentScope: null, setLocationScope: vi.fn() }),
+  useLocationScope: () => ({
+    currentScope: '11111111-1111-4111-8111-111111111111',
+    setLocationScope: vi.fn(),
+  }),
 }));
 vi.mock('@/contexts/PendingCountContext', () => ({
   useSetPendingCount: () => vi.fn(),
@@ -34,6 +37,14 @@ vi.mock('@/components/dashboard/kpi/IntelligenceBriefCard', () => ({
 }));
 vi.mock('@/components/dashboard/kpi/PendingApprovalsStrip', () => ({
   PendingApprovalsStrip: () => <div data-testid="strip" />,
+}));
+vi.mock('@/components/dashboard/AgentTeamStrip', () => ({
+  AgentTeamStrip: ({ scope }: { scope: string }) => (
+    <div data-testid="agent-team" data-scope={scope} />
+  ),
+}));
+vi.mock('@/components/dashboard/NeedsAttentionList', () => ({
+  NeedsAttentionList: () => <div data-testid="needs-attention" />,
 }));
 vi.mock('@/components/dashboard/account-state/ConnectGoogleBanner', () => ({
   ConnectGoogleBanner: () => null,
@@ -160,7 +171,7 @@ describe('DashboardContent glance composition (charts relocated to Analytics)', 
     zernioConnection: { status: 'active', queuedReconnectCount: 0, hasUnresolvedIncident: false },
   };
 
-  it('keeps hero · strip and drops the brief (moved to Analytics) + trend/velocity/ranking charts', async () => {
+  it('mounts the scoped agent team and account-wide attention queue between hero and approvals', async () => {
     mockUseDashboardData.mockReturnValue({
       data: activeData,
       error: null,
@@ -172,7 +183,19 @@ describe('DashboardContent glance composition (charts relocated to Analytics)', 
     renderDashboard(<DashboardContent />);
 
     expect(await screen.findByTestId('hero')).toBeInTheDocument();
+    expect(screen.getByTestId('agent-team')).toHaveAttribute(
+      'data-scope',
+      '11111111-1111-4111-8111-111111111111',
+    );
+    expect(screen.getByTestId('needs-attention')).toBeInTheDocument();
     expect(screen.getByTestId('strip')).toBeInTheDocument();
+    const hero = screen.getByTestId('hero');
+    const team = screen.getByTestId('agent-team');
+    const attention = screen.getByTestId('needs-attention');
+    const strip = screen.getByTestId('strip');
+    expect(hero.compareDocumentPosition(team) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(team.compareDocumentPosition(attention) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(attention.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole('link', { name: /view analytics/i })).toHaveAttribute('href', '/dashboard/analytics');
     expect(screen.queryByTestId('brief')).not.toBeInTheDocument();
     expect(screen.queryByTestId('trend')).not.toBeInTheDocument();

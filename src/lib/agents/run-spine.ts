@@ -46,6 +46,7 @@ export const STEP_PERSONA = {
   policy_gate: 'reply',
   owner_notified: 'reply',
   reply_posted: 'reply',
+  digest_sent: 'insights',
 } as const satisfies Record<string, AgentPersona>;
 
 export type AgentStepKey = keyof typeof STEP_PERSONA;

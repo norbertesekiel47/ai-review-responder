@@ -1,12 +1,26 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactElement } from 'react';
 import { EscalationActions, ReviewActions } from '../ReviewActions';
+import { DASHBOARD_OPEN_ESCALATIONS_QUERY_KEY } from '@/components/dashboard/NeedsAttentionList';
 
 afterEach(() => vi.unstubAllGlobals());
 
 function jsonResponse(init: { ok: boolean; status: number; body: unknown }) {
   return { ok: init.ok, status: init.status, json: async () => init.body };
+}
+
+/** EscalationActions reads the query client to sync the needs-attention list. */
+function renderWithQueryClient(ui: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>,
+  );
+  return { ...view, queryClient };
 }
 
 describe('ReviewActions regenerate cap (issue #335)', () => {
@@ -188,7 +202,7 @@ describe('EscalationActions (WS3)', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    render(
+    renderWithQueryClient(
       <EscalationActions
         escalation={{ id: 'esc-1', status: 'escalated', severity: 'high' }}
         onSuccess={onSuccess}
@@ -206,6 +220,27 @@ describe('EscalationActions (WS3)', () => {
     expect(screen.getByRole('button', { name: /resolve/i })).toBeEnabled();
   });
 
+  it('invalidates the needs-attention query on a successful transition', async () => {
+    const onSuccess = vi.fn();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      jsonResponse({ ok: true, status: 200, body: { success: true, status: 'resolved' } }),
+    ));
+
+    const { queryClient } = renderWithQueryClient(
+      <EscalationActions
+        escalation={{ id: 'esc-1', status: 'acknowledged', severity: 'high' }}
+        onSuccess={onSuccess}
+      />,
+    );
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    fireEvent.click(screen.getByRole('button', { name: /resolve/i }));
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: DASHBOARD_OPEN_ESCALATIONS_QUERY_KEY,
+    });
+  });
+
   it('hides Acknowledge once acknowledged but still offers Resolve', async () => {
     const onSuccess = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue(
@@ -213,7 +248,7 @@ describe('EscalationActions (WS3)', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    render(
+    renderWithQueryClient(
       <EscalationActions
         escalation={{ id: 'esc-2', status: 'acknowledged', severity: 'medium' }}
         onSuccess={onSuccess}
@@ -232,7 +267,7 @@ describe('EscalationActions (WS3)', () => {
     expect(screen.getByRole('button', { name: /resolve/i })).toBeEnabled();
   });
 
-  it('surfaces the server error and does not advance on a failed transition', async () => {
+  it('treats a 409 already-transitioned race as a refresh, not an error', async () => {
     const onSuccess = vi.fn();
     vi.stubGlobal(
       'fetch',
@@ -241,7 +276,7 @@ describe('EscalationActions (WS3)', () => {
       ),
     );
 
-    render(
+    renderWithQueryClient(
       <EscalationActions
         escalation={{ id: 'esc-3', status: 'escalated', severity: 'low' }}
         onSuccess={onSuccess}
@@ -249,7 +284,32 @@ describe('EscalationActions (WS3)', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /resolve/i }));
 
-    await waitFor(() => screen.getByText(/already resolved/i));
+    // Mirrors TimelineEscalationActions: the benign two-tab race refreshes the
+    // feed so the settled escalation replaces the stale card.
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
+    expect(screen.queryByText(/already resolved/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /resolve/i })).toBeEnabled();
+  });
+
+  it('surfaces the server error and does not advance on a failed transition', async () => {
+    const onSuccess = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ ok: false, status: 500, body: { error: 'Escalation transition failed' } }),
+      ),
+    );
+
+    renderWithQueryClient(
+      <EscalationActions
+        escalation={{ id: 'esc-3', status: 'escalated', severity: 'low' }}
+        onSuccess={onSuccess}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /resolve/i }));
+
+    await waitFor(() => screen.getByText(/transition failed/i));
     expect(onSuccess).not.toHaveBeenCalled();
   });
 });

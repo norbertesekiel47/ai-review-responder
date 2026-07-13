@@ -34,7 +34,10 @@ interface MockQueryFragment {
 }
 
 export type MockSql = Mock<(strings: TemplateStringsArray, ...values: unknown[]) => MockQueryFragment> & {
-  begin: Mock<(callback: (tx: unknown) => Promise<unknown>) => Promise<unknown>>;
+  begin: Mock<(
+    optionsOrCallback: string | ((tx: unknown) => Promise<unknown>),
+    callback?: (tx: unknown) => Promise<unknown>,
+  ) => Promise<unknown>>;
   /**
    * Stand-in for Postgres.js's `sql.json(value)` (real behavior: tags the
    * value as a JSONB-typed bind parameter, serialized exactly once).
@@ -84,8 +87,10 @@ export function mkTaggedResult<T>(rows: T[]): T[] & { count: number } {
  * Caveat (unlike real Postgres.js): fragments are await-once — awaiting the
  * same fragment twice re-executes it (records again and shifts the queue again).
  *
- * `sql.begin(cb)` invokes `cb` with the same mock, so transactional code paths
- * share the one queue and call log.
+ * `sql.begin(cb)` and `sql.begin(options, cb)` invoke `cb` with the same mock,
+ * so transactional code paths share the one queue and call log. The options
+ * argument remains visible in `mockSql.begin.mock.calls` for isolation-mode
+ * assertions.
  */
 export function createMockSql(): MockSqlHarness {
   const sqlReturnQueue: unknown[] = [];
@@ -122,7 +127,16 @@ export function createMockSql(): MockSqlHarness {
   });
 
   const mockSql = taggedTemplate as MockSql;
-  mockSql.begin = vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(mockSql));
+  mockSql.begin = vi.fn(async (
+    optionsOrCallback: string | ((tx: unknown) => Promise<unknown>),
+    callback?: (tx: unknown) => Promise<unknown>,
+  ) => {
+    const transactionCallback = typeof optionsOrCallback === 'function'
+      ? optionsOrCallback
+      : callback;
+    if (!transactionCallback) throw new Error('mock sql.begin requires a callback');
+    return transactionCallback(mockSql);
+  });
   mockSql.json = vi.fn((value: unknown) => value);
 
   return {

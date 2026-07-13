@@ -17,8 +17,145 @@ import {
 import { isOrphanMarker, POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED } from '../../../src/lib/publishing/orphan-markers';
 import { replyEditingFlagEnabled } from '../../../src/lib/past-replies/flags';
 import type { PublishResponsePayload } from '../../../src/lib/shared/worker-types';
+import { anchorReviewLockOrder } from '../../../src/lib/approval/outcomes';
+import { completeRun, findActiveReviewRun } from '../../../src/lib/agents/run-spine';
+import { hasLiveOwnerActionableResponse } from '../live-draft-guard';
 
 const PUBLISHABLE_STATUSES = ['approved', 'edited', 'awaiting_owner_connect'] as const;
+
+interface PublisherFailedHookState {
+  outboxId: string | undefined;
+  outboxAttempt: number | undefined;
+  coupledTerminalTxStarted: boolean;
+}
+
+function exhaustedJob(
+  job: Job<PublishResponsePayload> | undefined,
+): Job<PublishResponsePayload> | null {
+  if (!job) return null;
+  if (job.attemptsMade < (job.opts.attempts ?? 1)) return null;
+  return job;
+}
+
+async function tryOrphanExhaustion(
+  sql: Sql,
+  job: Job<PublishResponsePayload>,
+  state: PublisherFailedHookState,
+): Promise<boolean> {
+  if (!replyEditingFlagEnabled()) return false;
+  state.coupledTerminalTxStarted = true;
+  const handled = await attemptOrphanConversion(
+    sql,
+    job.data,
+    state.outboxId!,
+    state.outboxAttempt,
+  );
+  state.coupledTerminalTxStarted = false;
+  return handled;
+}
+
+async function handleTransientPublisherExhaustion(
+  sql: Sql,
+  job: Job<PublishResponsePayload>,
+  err: ZernioTransientError,
+  state: PublisherFailedHookState,
+): Promise<void> {
+  if (!(err instanceof PublisherTransientWithContext)) {
+    console.error('[publisherWorker] bare ZernioTransientError reached failed-hook — missing PublisherTransientWithContext wrap upstream');
+    Sentry.captureException(err, {
+      tags: { worker: 'publisher', kind: 'unwrapped_transient' },
+      level: 'error',
+      extra: { response_id: job.data.response_id, business_id: job.data.business_id },
+    });
+    const reason = err instanceof Error ? err.message : String(err);
+    state.coupledTerminalTxStarted = true;
+    await checkpointTerminalPublisherFailure(
+      sql,
+      job.data,
+      state.outboxId!,
+      `unwrapped_transient_no_context: ${reason}`,
+      state.outboxAttempt,
+    );
+    return;
+  }
+
+  const ctx = err.attemptContext;
+  try {
+    await applyTransientExhaustionFallback(sql, {
+      response_id: ctx.response_id,
+      business_id: ctx.business_id,
+      correlation_id: job.data.correlation_id,
+    });
+  } catch (fallbackErr) {
+    const reason = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+    console.error(`[publisherWorker] transient-exhaustion fallback failed: ${reason}`);
+    Sentry.captureException(fallbackErr, {
+      tags: { worker: 'publisher', kind: 'transient_exhaustion_fallback' },
+    });
+    state.coupledTerminalTxStarted = true;
+    await checkpointTerminalPublisherFailure(
+      sql,
+      job.data,
+      state.outboxId!,
+      `zernio_transient_max_attempts_fallback_failed: ${reason}`,
+      state.outboxAttempt,
+    );
+    return;
+  }
+  await markOutboxFailed(
+    sql,
+    state.outboxId!,
+    'zernio_transient_max_attempts',
+    state.outboxAttempt,
+  );
+}
+
+async function dispatchPublisherExhaustion(
+  sql: Sql,
+  job: Job<PublishResponsePayload>,
+  err: unknown,
+  state: PublisherFailedHookState,
+): Promise<void> {
+  if (await tryOrphanExhaustion(sql, job, state)) return;
+  if (err instanceof ZernioReplyVerificationIndeterminateError) {
+    await handleVerificationIndeterminate(sql, err, state.outboxId!, state.outboxAttempt);
+    return;
+  }
+  if (err instanceof ZernioTransientError) {
+    await handleTransientPublisherExhaustion(sql, job, err, state);
+    return;
+  }
+  const reason = err instanceof Error ? err.message : String(err);
+  state.coupledTerminalTxStarted = true;
+  await checkpointTerminalPublisherFailure(
+    sql,
+    job.data,
+    state.outboxId!,
+    reason,
+    state.outboxAttempt,
+  );
+}
+
+async function capturePublisherFailedHookCrash(
+  sql: Sql,
+  state: PublisherFailedHookState,
+  handlerErr: unknown,
+): Promise<void> {
+  console.error('[publisherWorker.on(failed)] handler crashed:', handlerErr);
+  Sentry.captureException(handlerErr, {
+    tags: { worker: 'publisher', kind: 'on_failed_handler_crash' },
+  });
+  if (!state.outboxId || state.coupledTerminalTxStarted) return;
+  const reason = handlerErr instanceof Error ? handlerErr.message : String(handlerErr);
+  await markOutboxFailed(
+    sql,
+    state.outboxId,
+    `on_failed_crash: ${reason}`,
+    state.outboxAttempt,
+  ).catch((markErr) => {
+    console.error('[publisherWorker.on(failed)] best-effort markOutboxFailed failed:', markErr);
+  });
+}
 
 /**
  * Final-attempt exhaustion handler for ResponsePublisherWorker. BullMQ retries
@@ -38,110 +175,52 @@ export async function handlePublisherFailed(
   // rejection that could crash the process. Wrap the whole body so we
   // log + Sentry-capture and never leave the outbox row in `dispatched`
   // limbo silently.
-  let outboxId: string | undefined;
-  let outboxAttempt: number | undefined;
+  const state: PublisherFailedHookState = {
+    outboxId: undefined,
+    outboxAttempt: undefined,
+    coupledTerminalTxStarted: false,
+  };
   try {
-    if (!job) return;
-    if (job.attemptsMade < (job.opts.attempts ?? 1)) return; // not yet exhausted
-    const handle = extractOutboxHandle(job.data, job.id!);
-    outboxId = handle.outboxId;
-    outboxAttempt = handle.attempt;
-
-    // Orphan-marker retry-exhaustion conversion (spec §4.5) runs BEFORE the
-    // indeterminate-verification branch AND the generic transient fallback.
-    // When the edit-publisher's DELETE committed but the POST never succeeded,
-    // the row carries a `_after_delete_succeeded` orphan marker. On retry
-    // exhaustion we must convert it to a recovery-visible `failed` row (so
-    // `/retry` + `/restore-original` can act) instead of letting either the
-    // indeterminate branch overwrite the marker with
-    // `zernio_reply_verification_indeterminate` (which would strand the
-    // recoverable orphan) or the transient fallback park it at
-    // `awaiting_owner_connect` and clear the marker.
-    //
-    // `attemptOrphanConversion` only takes ownership when the locked row's
-    // posting_error is an orphan marker (`isOrphanMarker`), so a NON-orphan
-    // indeterminate error returns `false` here and falls through to
-    // `handleVerificationIndeterminate` exactly as before. Flag-gated so Phase A
-    // (flag off) behaves byte-for-byte as today — the block is skipped entirely.
-    if (replyEditingFlagEnabled()) {
-      const handled = await attemptOrphanConversion(sql, job.data, outboxId, outboxAttempt);
-      if (handled) return;
-      // Not an orphan (or row moved on benignly with a non-terminal disposition
-      // that already closed the outbox): fall through to today's behavior.
-    }
-
-    if (err instanceof ZernioReplyVerificationIndeterminateError) {
-      await handleVerificationIndeterminate(sql, err, outboxId, outboxAttempt);
-      return;
-    }
-
-    if (err instanceof ZernioTransientError) {
-      // Unwrap PublisherTransientWithContext for the pinned disconnect.
-      // Bare ZernioTransientError without context is now a CODE BUG —
-      // every publisher path wraps transient throws (postReply, lookup,
-      // 409 verifier). Surface loudly via Sentry rather than silently
-      // disconnecting every active connection (the previous safety-net
-      // fallback was deleted because it was unsafe with multi-connection
-      // businesses).
-      if (!(err instanceof PublisherTransientWithContext)) {
-        console.error('[publisherWorker] bare ZernioTransientError reached failed-hook — missing PublisherTransientWithContext wrap upstream');
-        Sentry.captureException(err, {
-          tags: { worker: 'publisher', kind: 'unwrapped_transient' },
-          level: 'error',
-          extra: { response_id: job.data.response_id, business_id: job.data.business_id },
-        });
-        // Still close the outbox so the row doesn't stay dispatched.
-        const reason = err instanceof Error ? err.message : String(err);
-        await markOutboxFailed(sql, outboxId, `unwrapped_transient_no_context: ${reason}`, outboxAttempt);
-        return;
-      }
-      const ctx = err.attemptContext;
-      try {
-        await applyTransientExhaustionFallback(sql, {
-          response_id: ctx.response_id,
-          business_id: ctx.business_id,
-          correlation_id: job.data.correlation_id,
-        });
-        await markOutboxFailed(sql, outboxId, 'zernio_transient_max_attempts', outboxAttempt);
-      } catch (fallbackErr) {
-        // Fallback itself failed — surface the reason so ops can see it,
-        // and still close the outbox so the row doesn't stay `dispatched`.
-        const reason = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
-        console.error(`[publisherWorker] transient-exhaustion fallback failed: ${reason}`);
-        Sentry.captureException(fallbackErr, {
-          tags: { worker: 'publisher', kind: 'transient_exhaustion_fallback' },
-        });
-        await markOutboxFailed(
-          sql,
-          outboxId,
-          `zernio_transient_max_attempts_fallback_failed: ${reason}`,
-          outboxAttempt,
-        );
-      }
-      return;
-    }
-
-    // Non-transient unhandled error: just close the outbox row.
-    const reason = err instanceof Error ? err.message : String(err);
-    await markOutboxFailed(sql, outboxId, reason, outboxAttempt);
+    const terminalJob = exhaustedJob(job);
+    if (!terminalJob) return;
+    const handle = extractOutboxHandle(terminalJob.data, terminalJob.id!);
+    state.outboxId = handle.outboxId;
+    state.outboxAttempt = handle.attempt;
+    await dispatchPublisherExhaustion(sql, terminalJob, err, state);
   } catch (handlerErr) {
-    // Last-resort: even the markOutboxFailed call (or extractOutboxHandle,
-    // or anything else above) threw. Capture loudly so the row stuck in
-    // `dispatched` is observable in Sentry, and attempt one more
-    // best-effort markOutboxFailed in case the original throw was upstream.
-    console.error('[publisherWorker.on(failed)] handler crashed:', handlerErr);
-    Sentry.captureException(handlerErr, {
-      tags: { worker: 'publisher', kind: 'on_failed_handler_crash' },
-    });
-    if (outboxId) {
-      const reason = handlerErr instanceof Error ? handlerErr.message : String(handlerErr);
-      await markOutboxFailed(sql, outboxId, `on_failed_crash: ${reason}`, outboxAttempt).catch(
-        (markErr) => {
-          console.error('[publisherWorker.on(failed)] best-effort markOutboxFailed failed:', markErr);
-        },
-      );
-    }
+    // Last-resort: capture loudly so a row left `dispatched` is observable.
+    // Never split a coupled terminal checkpoint after its transaction throws:
+    // its outbox CAS rolled back with the run/response write, so the watchdog
+    // must recover it atomically later. Genuinely outbox-only failures (notably
+    // reconnect fallback succeeded but its standalone close failed) may retry
+    // that standalone close here because their run intentionally stays running.
+    await capturePublisherFailedHookCrash(sql, state, handlerErr);
   }
+}
+
+export async function checkpointTerminalPublisherFailure(
+  sql: Sql,
+  data: PublishResponsePayload,
+  outboxId: string,
+  reason: string,
+  outboxAttempt: number | undefined,
+): Promise<void> {
+  await sql.begin(async (tx) => {
+    // The reusable anchor pre-reads response.review_id, then takes the review
+    // lock before any run/child-row lock in this transaction.
+    const reviewId = await anchorReviewLockOrder(tx, data.response_id, data.business_id);
+    if (reviewId) {
+      const transitioned = await markOutboxFailed(tx, outboxId, reason, outboxAttempt);
+      if (!transitioned) return;
+
+      const activeRun = await findActiveReviewRun(tx, reviewId);
+      if (activeRun) {
+        await completeRun(tx, activeRun.id, 'failed', { reason });
+      }
+      return;
+    }
+    await markOutboxFailed(tx, outboxId, reason, outboxAttempt);
+  });
 }
 
 /**
@@ -165,7 +244,7 @@ async function attemptOrphanConversion(
   // Single-field box so the closure mutation narrows across `await sql.begin`
   // (a bare `let x = 'fall_through'` gets pinned to that literal by TS narrowing
   // and the post-await comparisons would be flagged as having no overlap).
-  type Disposition = 'fall_through' | 'completed' | 'failed';
+  type Disposition = 'fall_through' | 'completed' | 'failed' | 'stale_attempt';
   const dispositionRef: { value: Disposition } = { value: 'fall_through' };
 
   await sql.begin(async (tx) => {
@@ -225,7 +304,20 @@ async function attemptOrphanConversion(
       return;
     }
 
-    // 6. Convert. Status-guarded, business-scoped, affected-row asserted.
+    // 6. Claim this exact dispatched outbox attempt before mutating response
+    //    or run state. A stale worker loses cleanly and leaves newer work alone.
+    const transitioned = await markOutboxFailed(
+      tx,
+      outboxId,
+      POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED,
+      outboxAttempt,
+    );
+    if (!transitioned) {
+      dispositionRef.value = 'stale_attempt';
+      return;
+    }
+
+    // 7. Convert. Status-guarded, business-scoped, affected-row asserted.
     const updated = await tx`
       UPDATE responses
       SET status = 'failed',
@@ -241,6 +333,13 @@ async function attemptOrphanConversion(
         `onFailed orphan conversion expected 1 row, got ${updated.count}`,
       );
     }
+
+    const activeRun = await findActiveReviewRun(tx, responseRow.review_id);
+    if (activeRun) {
+      await completeRun(tx, activeRun.id, 'failed', {
+        reason: POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED,
+      });
+    }
     dispositionRef.value = 'failed';
   });
 
@@ -249,7 +348,9 @@ async function attemptOrphanConversion(
     return true;
   }
   if (dispositionRef.value === 'failed') {
-    await markOutboxFailed(sql, outboxId, POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED, outboxAttempt);
+    return true;
+  }
+  if (dispositionRef.value === 'stale_attempt') {
     return true;
   }
   return false;
@@ -262,6 +363,13 @@ async function handleVerificationIndeterminate(
   outboxAttempt: number | undefined,
 ): Promise<void> {
   await sql.begin(async (tx) => {
+    // Lock-order law: the anchor takes the reviews FOR UPDATE lock FIRST
+    // (its unlocked pre-read resolves review_id), before the responses UPDATE
+    // below and before completeRun's implicit agent_runs lock at the end of
+    // this tx. A null anchor means no visible response row — the UPDATE then
+    // matches 0 rows and we fall out to today's markOutboxCompleted.
+    const reviewId = await anchorReviewLockOrder(tx, err.meta.response_id, err.meta.business_id);
+
     const updated = await tx`
       UPDATE responses
       SET status = 'failed',
@@ -307,6 +415,23 @@ async function handleVerificationIndeterminate(
           0, 5
         )
       `;
+    }
+
+    // WS5 §3: indeterminate verification is terminal for the review's
+    // handling — complete the run 'failed' in the SAME tx as the responses
+    // write above (previously the run stayed running forever → permanent
+    // "Stalled" timeline). Live-draft guard for symmetry with
+    // checkpointTerminalGeneration: the row just went 'failed' (not live),
+    // so this normally completes; only another still-owner-actionable draft
+    // keeps the run running. completeRun stays LAST — agent_runs after the
+    // reviews/responses/child-row locks per the global order.
+    if (!reviewId) return;
+    if (await hasLiveOwnerActionableResponse(tx, reviewId, err.meta.business_id)) return;
+    const activeRun = await findActiveReviewRun(tx, reviewId);
+    if (activeRun) {
+      await completeRun(tx, activeRun.id, 'failed', {
+        reason: 'zernio_reply_verification_indeterminate',
+      });
     }
   });
   await markOutboxCompleted(sql, outboxId, outboxAttempt);

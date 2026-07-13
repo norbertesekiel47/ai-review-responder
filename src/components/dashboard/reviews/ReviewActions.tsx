@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useContext, useState } from 'react';
+import { QueryClientContext } from '@tanstack/react-query';
+import { DASHBOARD_OPEN_ESCALATIONS_QUERY_KEY } from '@/components/dashboard/NeedsAttentionList';
 import type { OpenEscalationStatus } from '@/lib/escalations/types';
 import type { TriageSeverity } from '@/lib/reviews/triage-schema';
 
@@ -226,17 +228,31 @@ export function EscalationActions({
   onSuccess: () => void;
 }) {
   const [state, setState] = useState<EscalationActionState>({ kind: 'idle' });
+  // Read the client optionally (not useQueryClient, which throws): the queue
+  // invalidation is best-effort sync — the feed refresh via onSuccess is the
+  // primary effect and must not depend on a provider being mounted.
+  const queryClient = useContext(QueryClientContext);
 
   async function handleTransition(action: 'acknowledge' | 'resolve') {
     setState({ kind: 'loading', action });
     try {
       await postDashboardAction(`/api/dashboard/escalations/${escalation.id}/${action}`);
       onSuccess();
+      // The needs-attention queue reads the same escalations; keep it in sync.
+      void queryClient?.invalidateQueries({ queryKey: DASHBOARD_OPEN_ESCALATIONS_QUERY_KEY });
       // Back to idle, NOT a terminal success panel: the refreshed escalation
       // badge is the confirmation, and Resolve must stay reachable after an
       // Acknowledge (and any draft actions stay independently usable).
       setState({ kind: 'idle' });
     } catch (err) {
+      // A 409 means the escalation was already transitioned elsewhere (e.g. a
+      // second tab) — a benign race, not a failure. Mirror the timeline
+      // actions: refresh the feed so the settled state replaces the stale card.
+      if (err instanceof DashboardActionError && err.status === 409) {
+        onSuccess();
+        setState({ kind: 'idle' });
+        return;
+      }
       setState({
         kind: 'error',
         message: err instanceof Error

@@ -33,6 +33,7 @@ describe('dashboard active mappers', () => {
         responseText: null,
         responseStatus: null,
         approvalMethod: null,
+        autoPostScheduledAt: null,
         escalation: null,
       },
     ]);
@@ -67,6 +68,7 @@ describe('dashboard active mappers', () => {
         responseText: 'Draft response',
         responseStatus: 'pending_approval',
         approvalMethod: null,
+        autoPostScheduledAt: null,
         escalation: { id: 'esc-1', status: 'escalated', severity: 'high' },
       },
     ]);
@@ -87,6 +89,7 @@ describe('dashboard active mappers', () => {
           response_text: 'Draft response',
           response_status: 'approved',
           approval_method: 'auto_policy',
+          auto_post_scheduled_at: '2026-05-20T13:34:56.000Z',
           escalation_id: null,
           escalation_status: null,
           escalation_severity: null,
@@ -103,9 +106,32 @@ describe('dashboard active mappers', () => {
         responseText: 'Draft response',
         responseStatus: 'approved',
         approvalMethod: 'auto_policy',
+        autoPostScheduledAt: '2026-05-20T13:34:56.000Z',
         escalation: null,
       },
     ]);
+  });
+
+  it('passes a Date auto-post deadline through without deriving or normalizing it', () => {
+    const deadline = new Date('2026-05-20T13:34:56.000Z');
+
+    const [mapped] = mapRecentReviews([
+      {
+        id: 'review-date-deadline',
+        reviewer_name: 'Sam',
+        star_rating: 5,
+        review_text: null,
+        review_date: '2026-05-20T12:00:00.000Z',
+        status: 'responded',
+        response_text: 'Thank you!',
+        response_status: 'approved',
+        approval_method: 'auto_policy',
+        auto_post_scheduled_at: deadline,
+        escalation_id: null,
+      },
+    ]);
+
+    expect(mapped?.autoPostScheduledAt).toBe(deadline);
   });
 
   it('maps review velocity week_start and count', () => {

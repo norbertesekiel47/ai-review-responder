@@ -40,18 +40,19 @@ export async function anchorReviewLockOrder(
   tx: TxClient,
   responseId: string,
   businessId: string,
-): Promise<void> {
+): Promise<string | null> {
   const [preRead] = await tx<{ review_id: string }[]>`
     SELECT review_id FROM responses
     WHERE id = ${responseId} AND business_id = ${businessId}
   `;
-  if (!preRead) return;
+  if (!preRead) return null;
 
-  await tx`
+  const [lockedReview] = await tx<{ id: string }[]>`
     SELECT id FROM reviews
     WHERE id = ${preRead.review_id} AND business_id = ${businessId}
     FOR UPDATE
   `;
+  return lockedReview?.id ?? null;
 }
 
 /** Emit the owner-decision outcome for a review's running run, if any (WS4

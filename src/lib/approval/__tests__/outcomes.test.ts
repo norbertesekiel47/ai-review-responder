@@ -31,7 +31,7 @@ describe('anchorReviewLockOrder', () => {
       mkTaggedResult([{ id: 'rev-1' }]), // reviews FOR UPDATE
     );
 
-    await anchorReviewLockOrder(tx(), 'resp-1', 'biz-1');
+    const reviewId = await anchorReviewLockOrder(tx(), 'resp-1', 'biz-1');
 
     const [preRead, reviewLock] = harness.sqlCalls;
     expect(preRead).toBeDefined();
@@ -43,15 +43,17 @@ describe('anchorReviewLockOrder', () => {
     expect(reviewLock!.text).toContain('FROM reviews');
     expect(reviewLock!.text).toContain('FOR UPDATE');
     expect(reviewLock!.values).toEqual(['rev-1', 'biz-1']);
+    expect(reviewId).toBe('rev-1');
   });
 
   it('skips the reviews lock when the response row is missing (caller claim throws its own not-found)', async () => {
     harness.sqlReturnQueue.push(mkTaggedResult([]));
 
-    await anchorReviewLockOrder(tx(), 'resp-1', 'biz-1');
+    const reviewId = await anchorReviewLockOrder(tx(), 'resp-1', 'biz-1');
 
     expect(harness.sqlCalls).toHaveLength(1);
     expect(harness.sqlCalls[0]!.text).not.toContain('FOR UPDATE');
+    expect(reviewId).toBeNull();
   });
 });
 

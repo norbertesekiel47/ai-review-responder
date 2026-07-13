@@ -16,6 +16,7 @@ import {
   recordStep,
   startOrGetActiveRun,
 } from '../run-spine';
+import { commitWeeklyInsightsDigest } from '../../../../worker/jobs/WeeklySummaryWorker';
 
 // Real-schema behavioral suite for the run-spine writers. The unit suite only
 // asserts SQL *text*, and SQL-text tests have shipped broken SQL before
@@ -206,5 +207,125 @@ describeWithDb('run-spine writers against live Postgres', { timeout: 30_000 }, (
     await expect(
       sql().begin((tx) => completeRun(tx, randomUUID(), 'completed')),
     ).rejects.toThrow(/run not found/i);
+  });
+
+  it('commits separate weekly_insights runs per business and replay adds no spine rows', async () => {
+    const firstBusinessId = randomUUID();
+    const secondBusinessId = randomUUID();
+    const weekStartDate = '2026-07-06';
+    const subjectId = `${accountId()}_${weekStartDate}`;
+
+    await sql()`
+      INSERT INTO businesses (
+        id, name, owner_name, owner_email, account_id, subscription_status
+      ) VALUES
+      (
+        ${firstBusinessId}::uuid, 'Weekly Insights One', 'Run Spine Owner',
+        ${tenant!.ownerEmail}, ${accountId()}::uuid, 'active'
+      ),
+      (
+        ${secondBusinessId}::uuid, 'Weekly Insights Two', 'Run Spine Owner',
+        ${tenant!.ownerEmail}, ${accountId()}::uuid, 'active'
+      )
+    `;
+    await sql()`
+      INSERT INTO weekly_summaries (
+        id, business_id, week_start_date, total_reviews, total_responded
+      ) VALUES
+      (${randomUUID()}::uuid, ${firstBusinessId}::uuid, ${weekStartDate}::date, 3, 2),
+      (${randomUUID()}::uuid, ${secondBusinessId}::uuid, ${weekStartDate}::date, 5, 5)
+    `;
+
+    try {
+      const committed = await Promise.all([
+        commitWeeklyInsightsDigest(sql(), {
+          accountId: accountId(),
+          businessId: firstBusinessId,
+          weekStartDate,
+          correlationId: 'weekly:first',
+        }),
+        commitWeeklyInsightsDigest(sql(), {
+          accountId: accountId(),
+          businessId: secondBusinessId,
+          weekStartDate,
+          correlationId: 'weekly:second',
+        }),
+      ]);
+      expect(committed).toEqual([true, true]);
+      await expect(commitWeeklyInsightsDigest(sql(), {
+        accountId: accountId(),
+        businessId: firstBusinessId,
+        weekStartDate,
+        correlationId: 'weekly:first:replay',
+      })).resolves.toBe(false);
+
+      const runs = await sql()<{
+        id: string;
+        business_id: string;
+        subject_id: string;
+        status: string;
+        ended_at: Date | null;
+      }[]>`
+        SELECT id, business_id, subject_id, status, ended_at
+        FROM agent_runs
+        WHERE account_id = ${accountId()}::uuid
+          AND kind = 'weekly_insights'
+          AND subject_type = 'account_week'
+          AND subject_id = ${subjectId}
+        ORDER BY business_id
+      `;
+      expect(runs).toHaveLength(2);
+      expect(runs.map((row) => row.business_id).sort()).toEqual(
+        [firstBusinessId, secondBusinessId].sort(),
+      );
+      expect(runs.every((row) => row.status === 'completed' && row.ended_at !== null)).toBe(true);
+
+      const steps = await sql()<{
+        attributed_agent: string;
+        step_key: string;
+        status: string;
+      }[]>`
+        SELECT s.attributed_agent, s.step_key, s.status
+        FROM agent_run_steps s
+        JOIN agent_runs r ON r.id = s.agent_run_id
+        WHERE r.subject_id = ${subjectId}
+        ORDER BY r.business_id
+      `;
+      expect(steps).toEqual([
+        { attributed_agent: 'insights', step_key: 'digest_sent', status: 'completed' },
+        { attributed_agent: 'insights', step_key: 'digest_sent', status: 'completed' },
+      ]);
+
+      const outcomes = await sql()<{
+        attributed_agent: string;
+        outcome_kind: string;
+      }[]>`
+        SELECT o.attributed_agent, o.outcome_kind
+        FROM agent_outcomes o
+        JOIN agent_runs r ON r.id = o.agent_run_id
+        WHERE r.subject_id = ${subjectId}
+        ORDER BY r.business_id
+      `;
+      expect(outcomes).toEqual([
+        { attributed_agent: 'insights', outcome_kind: 'digest_sent' },
+        { attributed_agent: 'insights', outcome_kind: 'digest_sent' },
+      ]);
+
+      const [sent] = await sql()<{ count: string }[]>`
+        SELECT COUNT(*) AS count
+        FROM weekly_summaries
+        WHERE business_id IN (${firstBusinessId}::uuid, ${secondBusinessId}::uuid)
+          AND week_start_date = ${weekStartDate}::date
+          AND sent_at IS NOT NULL
+      `;
+      expect(Number(sent!.count)).toBe(2);
+    } finally {
+      await sql()`DELETE FROM agent_runs WHERE business_id IN (
+        ${firstBusinessId}::uuid, ${secondBusinessId}::uuid
+      )`;
+      await sql()`DELETE FROM businesses WHERE id IN (
+        ${firstBusinessId}::uuid, ${secondBusinessId}::uuid
+      )`;
+    }
   });
 });

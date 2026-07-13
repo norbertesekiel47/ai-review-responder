@@ -55,6 +55,7 @@ function locationData(
     responseText: 'draft',
     responseStatus: 'pending_approval',
     approvalMethod: null,
+    autoPostScheduledAt: null,
     escalation: null,
   }));
   return {
@@ -113,6 +114,31 @@ describe('getAggregateDashboardData — authoritative per-location pending count
     const result = await getAggregateDashboardData(mockSql, 'acc-1');
     // 25 + 13 = 38 authoritative — not 2 + 2 = 4 from the capped slices.
     expect(authoritativePendingCount(result)).toBe(38);
+  });
+
+  it('preserves scheduled-post and open-escalation fields in the aggregate feed', async () => {
+    mockGetActiveDashboardData.mockImplementation(async () => {
+      const data = locationData(1);
+      data.recentReviews[0]!.autoPostScheduledAt = '2026-07-13T18:00:00.000Z';
+      data.recentReviews[0]!.escalation = {
+        id: 'escalation-open-1',
+        status: 'escalated',
+        severity: 'high',
+      };
+      return data;
+    });
+
+    const result = await getAggregateDashboardData(mockSql, 'acc-1');
+
+    expect(result.recentReviews).toHaveLength(2);
+    for (const review of result.recentReviews) {
+      expect(review.autoPostScheduledAt).toBe('2026-07-13T18:00:00.000Z');
+      expect(review.escalation).toEqual({
+        id: 'escalation-open-1',
+        status: 'escalated',
+        severity: 'high',
+      });
+    }
   });
 });
 

@@ -148,12 +148,13 @@ export async function getActiveDashboardData(
         resp.response_text,
         resp.status AS response_status,
         resp.approval_method,
+        resp.auto_post_scheduled_at,
         esc.id AS escalation_id,
         esc.status AS escalation_status,
         esc.triage_severity AS escalation_severity
       FROM reviews rev
       LEFT JOIN LATERAL (
-        SELECT COALESCE(approved_text, response_text) AS response_text, status, approval_method
+        SELECT COALESCE(approved_text, response_text) AS response_text, status, approval_method, auto_post_scheduled_at
         FROM responses
         WHERE review_id = rev.id
           -- Explicit tenant scope: responses belong to the same location as the

@@ -103,6 +103,7 @@ Next.js App Router pages, grouped by access level.
 |------|--------------|
 | `layout.tsx` | Verifies session; queries `users` by `auth_id` to get `business_id`; renders `OwnerNav`. |
 | `dashboard/page.tsx` | Owner dashboard — reviews list, approval actions, charts, Zernio connection banner. Renders `DashboardContent`. |
+| `dashboard/reviews/[reviewId]/timeline/page.tsx` | **(WS5)** Deep-linkable owner view of one review's attributed agent runs, steps, outcomes, display state, and escalation actions. Fetches the account-scoped timeline API and renders `src/components/dashboard/timeline/`. |
 | `dashboard/connect/page.tsx` | Zernio Google Business Profile connect entry point. 6-state UI: none / starting / oauth_in_progress / finalizing / active / finalize_unknown / disconnected. Shows Cancel button during oauth_in_progress; spinner-only during finalizing. |
 | `dashboard/connect/select-location/page.tsx` | Server component that loads candidate GBP locations from Zernio after OAuth returns. |
 | `dashboard/connect/select-location/LocationPicker.tsx` | Client component displaying the location list; POSTs selected location to `/api/zernio/connect/select-location`. |
@@ -215,6 +216,9 @@ The approval API. All routes read the token from the URL path and verify a devic
 | `reviews/[reviewId]/approve/route.ts` | Approve from dashboard. |
 | `reviews/[reviewId]/edit/route.ts` | Edit from dashboard. |
 | `reviews/[reviewId]/regenerate/route.ts` | Regenerate from dashboard. |
+| `reviews/[reviewId]/timeline/route.ts` | **(WS5)** GET: owner/account-scoped read of one review's run timeline. Returns 404 for unknown or out-of-scope reviews and delegates all spine reads to `src/lib/agents/read.ts`. |
+| `agent-team/route.ts` | **(WS5)** GET: windowed Reply/Guardian/Insights outcome counts for the current account or selected location. Foreign or archived location scopes return 404. |
+| `escalations/route.ts` | **(WS5)** GET: bounded Needs-attention queue of the account's open Guardian escalations, with a separate `totalOpen` count. Delegates to `src/lib/escalations/list.ts`. |
 | `escalations/[escalationId]/acknowledge/route.ts` | **(WS3)** POST: owner acknowledges an open Guardian escalation. Same-origin + owner auth + writable-subscription guard; delegates to `src/lib/escalations/transitions.ts` (404 not-found in scope, 409 already-resolved). |
 | `escalations/[escalationId]/resolve/route.ts` | **(WS3)** POST: owner resolves an escalation (direct escalated → resolved stamps both timestamps). Same guards; records `escalation_resolved` on a completed run. |
 _(No `past-replies/*` API routes on `feat/past-replies-view` — the tab is read-only, all data fetched server-side from the page component. The full edit/publish/retry/restore-original route set is parked on tag `wip/edit-existing-replies-zernio-v1`.)_
@@ -323,6 +327,9 @@ Reusable React components imported by multiple pages.
 | `dashboard/ComingSoonChannelRow.tsx` | Placeholder row for channels not yet available to owners (WhatsApp only). |
 | `dashboard/HistoricalUpgradeBanner.tsx` | Soft upsell banner shown on the "Past Replies" tab to non-premium owners above the historical section. References the future GBP-era edit feature. Rendered when `PAST_REPLIES_VIEW_ENABLED=true` and the owner is non-premium. |
 | `dashboard/PastReplyCard.tsx` | Read-only card for one already-posted Google reply on the Past Replies tab. Shows review summary on the left, current Google reply on the right, and a provenance label ("Imported from Google · YYYY-MM-DD" / "Posted via RepWorth · YYYY-MM-DD"). No edit affordances — the full edit drawer (`EditReplyDrawer`) is parked on tag `wip/edit-existing-replies-zernio-v1`. |
+| `dashboard/AgentTeamStrip.tsx` | **(WS5)** Three-card Reply/Guardian/Insights summary strip. Follows the dashboard's account/location scope and time window; zero-count agents remain visible as "Standing by". |
+| `dashboard/NeedsAttentionList.tsx` | **(WS5)** Owner exception queue backed by `/api/dashboard/escalations`; hidden when empty, otherwise links each open escalation to its review timeline. |
+| `dashboard/timeline/` | **(WS5)** Timeline presentation package: `TimelineContent`, `RunTimeline`, `TimelineStepRow`, `RunStateBadge`, and `TimelineEscalationActions`. Renders stored persona attribution and structured facts; acknowledge/resolve actions reuse the existing Guardian transition routes. |
 | `dashboard/OwnerTelegramWidget.tsx` | Owner-facing Telegram enrollment widget. Uses `useEnrollment` + `enrollmentReducer`; SSR-hydrated from server-loaded enrollment row. |
 | `dashboard/ReviewActions.tsx` | Approve / Edit / Regenerate action buttons for a single review. |
 | `dashboard/ReviewsList.tsx` | List of reviews with inline response drafts and action buttons. |
@@ -370,6 +377,15 @@ Dashboard query layer.
 | `service.ts` | `buildDashboardData(businessId)` — queries reviews, responses, weekly metrics, and Zernio connection state. Returns `DashboardDataActive`. Used by `GET /api/dashboard`. |
 | `types.ts` | `DashboardData` discriminated union (`DashboardDataActive | DashboardDataPendingPayment | ...`), `ZernioConnectionState`. |
 
+### `agents/`
+
+Run-spine write and owner-facing read contracts for attributed agent work.
+
+| File | What it does |
+|------|--------------|
+| `run-spine.ts` | Single writer API for `agent_runs`, `agent_run_steps`, and `agent_outcomes`, including the authoritative step-to-persona map and idempotent active-run/outcome constraints. |
+| `read.ts` | **(WS5)** Account-scoped review timeline reads, stored-attribution team-summary aggregates, and the ordered `RunDisplayState` derivation. Parses and narrows the PgBouncer-stringified `agent_runs.error` and `agent_run_steps.detail` JSONB columns. |
+
 ### `analytics/` *(Wave 2)*
 
 First-party analytics queue and PostHog dispatch helpers.
@@ -389,7 +405,7 @@ Cross-cutting utilities imported by both Next.js and worker.
 | `queue-names.ts` | Canonical queue name constants. Single source of truth for `job_outbox.topic` strings and BullMQ queue names. |
 | `queue-health-states.ts` | `QUEUE_HEALTH_JOB_STATES` — the BullMQ job-count states surfaced to the admin panel. Single owner shared by `worker/internal/queue-health.ts` and the admin jobs page (`src/app/admin/jobs`). Same no-side-effect contract as `queue-names.ts` (never imports bullmq/ioredis). |
 | `worker-types.ts` | TypeScript types for every BullMQ job payload (`SyncReviewsPayload`, `GenerateResponsePayload`, etc.). |
-| `outbox.ts` | `markOutboxCompleted()`, `markOutboxFailed()`, `extractOutboxHandle()` — called at the end of every job handler. |
+| `outbox.ts` | `markOutboxCompleted()`, `markOutboxFailed()`, `extractOutboxHandle()` — called at the end of every job handler. **(WS5)** `markOutboxFailed()` returns whether its exact dispatched-attempt CAS succeeded so terminal domain state cannot be written for a stale BullMQ replay. |
 | `subscription-guard.ts` | `checkSubscription(business)` — returns the subscription status and whether the worker should proceed. Checks `cancelled` / `past_due` grace window / `pending_payment`. |
 | `past-due-recovery.ts` | **(Wave 2)** Shared past_due deadline calculator. Uses `accounts.past_due_at` + `accounts.flags.past_due_extension`; consumed by UI/write guards and worker subscription guard. |
 | `writable-subscription.ts` | **(Wave 2)** Helpers that convert shared past_due recovery state into `402 past_due_read_only` write guards. |
@@ -477,6 +493,7 @@ it acknowledge → resolve (spec `docs/superpowers/specs/2026-07-07-ws3-guardian
 | `flags.ts` | `escalationEnabled()` — `ESCALATION_ENABLED` accessor over `readFlag`. Checked at RAISE time (`persistTriage`) and again at SEND time (`EscalationNoticeWorker`). |
 | `raise.ts` | `shouldEscalate(classification)` (derives from `ESCALATING_ACTIONS`) + `raiseEscalation()` — inside the triage-persist tx: `review_escalations` INSERT (one-open-per-review `ON CONFLICT` dedup, migration 073), `review_escalated` outcome + `escalation_raised` step (skipped for run-less legacy reviews), `escalation_notice` outbox enqueue. Lost conflict = full no-op. |
 | `transitions.ts` | `acknowledgeEscalation()` / `resolveEscalation()` — owner-driven forward-only state machine; same-action repeat is an idempotent no-op, backward transition → `invalid_transition` (route maps to 409); review row FOR UPDATE first (lock-ordering rule); resolve on a completed run records `escalation_resolved`. |
+| `list.ts` | **(WS5)** Account-scoped, bounded read model for the Needs-attention queue. Counts and lists unresolved escalations with explicit status/severity/oldest-first ordering and inline review/business scope joins. |
 
 **Connection:** `persistTriage` (`reviews/triage.ts`) calls `raiseEscalation()` in the same tx as the triage write → OutboxPoller dispatches `escalation_notice` → `EscalationNoticeWorker` sends. The dashboard escalation routes call `transitions.ts`.
 
@@ -694,7 +711,7 @@ Each file exports a single `handle*` function that a BullMQ `Worker` calls per j
 | `ReviewSyncWorker.ts` | `sync-reviews` | Calls `SerpApiMonitor.poll()`, deduplicates via `process-review.ts`, enqueues `GenerateResponsePayload` per new/updated review. **Legacy SerpAPI ingestion path** — superseded by `ZernioReviewIngestWorker` when `ZERNIO_PUBLISHING_ENABLED=true`. |
 | `ZernioReviewIngestWorker.ts` | `ingest-zernio-review` | Zernio webhook → outbox → this handler. Per-location `listReviews` call, dedups by Zernio's canonical `provider_review_id`, upserts into `reviews`, creates a `responses` row (`status='pending_approval'`), and enqueues `generate-response` via outbox. Migration 030's partial unique index on `(business_id, zernio_review_id)` keeps in-flight rows from duplicating during webhook retries. Maps `ZernioReviewNotFoundError` to a `review_exceptions` row + admin alert. |
 | `ZernioBackfillWorker.ts` | `zernio-initial-backfill` | First-connect bulk ingestion. Walks Zernio paginated `listReviews` up to `ZERNIO_INGEST_MAX_PAGES` (default 4), gap-window-aware (uses `subscription_activated_at` to classify reviews older than the gap as "older skipped" + record count in `zernio_backfill_runs`). Concurrency 1 (heavy). Subscription-guarded. |
-| `ResponseGeneratorWorker.ts` | `generate-response` | Loads review + business context, calls `generateResponse()`, saves draft, enqueues notification via outbox. |
+| `ResponseGeneratorWorker.ts` | `generate-response` | Loads review + business context, calls `generateResponse()`, saves draft, enqueues notification via outbox. **(WS5)** terminal draft failures close the matching outbox attempt and complete the active review run as failed in one reviews-first transaction. |
 | `NotificationWorker.ts` | `send-notification` | Orchestrates the notification send loop. Delegates context loading to `notification/context.ts`, eligibility filtering to `notification/eligibility.ts`, and per-channel dispatch to `notification/dispatch.ts`. Skips `pending_payment` and `cancelled`. |
 | `EscalationNoticeWorker.ts` | `escalation_notice` | **(WS3)** Sends the Guardian escalation notice to the owner's channels. Re-checks `ESCALATION_ENABLED` at SEND time (kill switch stops outbound notices without hiding raised escalations), reuses the approval worker's eligibility primitive, then hands off to `escalation-notice/dispatch.ts`. Afterwards records the `escalation_sent` step BEST-EFFORT (log-and-swallow — `notification_deliveries` is the authoritative per-channel record). |
 | `AutoPostNoticeWorker.ts` | `auto_post_notice` | Sends the auto-approved post FYI ("your reply was posted") to the owner's channels after an `auto_policy` publish. Reuses the approval worker's eligibility primitive, then hands off to `auto-post-notice/dispatch.ts`. NEVER mutates the already-posted response — a send failure retries on this job alone. |
@@ -703,13 +720,14 @@ Each file exports a single `handle*` function that a BullMQ `Worker` calls per j
 | `DrainOwnerConnectWorker.ts` | `drain-owner-connect` | Re-enqueues stuck `publish_response` outbox rows when an owner (re)connects Zernio. Inserts fresh outbox entries for all `awaiting_owner_connect` responses, with three layers of idempotency (partial unique index, NOT EXISTS guard, ResponsePublisher early-exit). |
 | `OwnerEmailWorker.ts` | `owner-email` | Discriminated payload router for owner-directed Zernio emails. `reconnect_required` → owner needs to reconnect Zernio so the queued reply can be published. `connection_lost` → Zernio reported GBP connection went offline. Both handlers apply subscription guard + bounce check + claim-before-send deduplication. |
 | `AdminExceptionWorker.ts` | `notify-admin-exception` | Sends an internal alert email when a review processing failure requires human review. |
-| `WeeklySummaryWorker.ts` | `weekly-summary` | Queries 7-day metrics, renders email template, sends via Resend. |
+| `WeeklySummaryWorker.ts` | `weekly-summary` | Queries 7-day metrics and sends the Insights-labeled weekly report via Resend. **(WS5)** a newly claimed send first records and completes a `weekly_insights` run with a `digest_sent` step/outcome in the same transaction as the `sent_at` flip; replayed claims emit neither spine rows nor email. |
 | `PlaceIdValidationWorker.ts` | `validate-place-id` | Verifies a Place ID is still accessible via SerpAPI; updates `place_id_verified` flag. |
 | `MonthlyImpactWorker.ts` | `monthly-impact` | Generates monthly impact report email. |
 | `EngagementAlertWorker.ts` | `engagement-alert` | Checks engagement thresholds, sends alert if below floor. |
 | `RankingTrackingWorker.ts` | `track-ranking` | Calls SerpAPI for each keyword, saves ranking snapshots. |
 | `OnboardingDripWorker.ts` | `onboarding-drip` | Sends onboarding email at the configured step (day 1 / 7 / 30). |
 | `DemoGenerationWorker.ts` | `generate-demo` | Fetches SerpAPI reviews for a prospect, calls `generateResponse()` in `demo` mode, saves to `prospect_demos`. |
+| `live-draft-guard.ts` | — (helper) | **(WS5)** `hasLiveOwnerActionableResponse(tx, reviewId)` — shared by `ResponseGeneratorWorker` and `publisher/failed-hook` terminal checkpoints; a run is never completed `failed` while an owner-actionable draft (non-terminal status) exists for the review. |
 
 #### `worker/jobs/notification/` — NotificationWorker sub-modules
 
@@ -757,6 +775,7 @@ Third topic-clone sibling of `auto-post-notice`/`escalation-notice` (bounced-own
 | File | What it does |
 |------|--------------|
 | `publisher-error-handlers.ts` | Maps Zernio API errors raised by `ResponsePublisherWorker` to typed dispatch outcomes (`PublisherTransientWithContext`, `PublisherTerminalWithContext`, etc.). Keeps the worker handler small by externalizing the error → action mapping. |
+| `failed-hook.ts` | BullMQ exhaustion hook for publish jobs. **(WS5)** only terminal/no-resume branches complete the active run as failed, with reviews-first locking and exact outbox-attempt CAS; reconnect-resumable branches deliberately leave the run running. |
 
 #### `worker/jobs/zernio/` — Zernio ingestion helpers
 
@@ -952,7 +971,7 @@ Operational scripts. Run with `tsx scripts/<name>.ts`. Not part of the runtime.
 
 ## `supabase/migrations/`
 
-All schema migrations live here, numbered `001` … `045` (head; next is `046`). The user runs migrations manually in Supabase SQL editor — Claude does not apply them. Recent: `043` Step 1 keystones (`past_due_at` + audit cols), `044` approval audit snapshot (`response_text_at_approval`), `045` `onboarding_demos` RLS. For the full per-migration narrative, ordering rules, and residual risks, read `.claude/reference/migrations-log.md`.
+All schema migrations live here, numbered `001` … `075` (repository/local-test head; next is `076`). Supabase staging/production migrations are a user-run promotion step. Recent agent-platform migrations: `071` run spine, `072` triage, `073` Guardian escalations, `074` trust dial + veto window, and **(WS5)** `075` agent-run subject lookup (applied only to the local test database so far). For the full per-migration narrative, ordering rules, deployment status, and residual risks, read `.claude/reference/migrations-log.md`.
 
 ---
 

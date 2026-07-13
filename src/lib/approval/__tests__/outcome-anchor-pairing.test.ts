@@ -30,8 +30,11 @@ const CALLER_ALLOWLIST = new Set([
   'src/lib/reviews/process-review.ts', // in-file reviews FOR UPDATE as tx statement #1 (canonical order owner)
   'src/lib/reviews/triage.ts', // in-file reviews FOR UPDATE as tx statement #1 (persistTriage)
   'worker/jobs/escalation-notice/EscalationNoticeWorker.ts', // in-file reviews FOR UPDATE before the spine writes
+  'worker/jobs/publisher/failed-hook.ts', // anchorReviewLockOrder before terminal exhaustion checkpoints
   'worker/jobs/publisher/mark-posted.ts', // in-file reviews FOR UPDATE as tx statement #1
+  'worker/jobs/ResponseGeneratorWorker.ts', // in-file reviews FOR UPDATE before terminal draft checkpoint
   'worker/jobs/response-generation/persist.ts', // in-file reviews FOR UPDATE as tx statement #1
+  'worker/jobs/WeeklySummaryWorker.ts', // account_week lane — see NON_REVIEW_SUBJECT_CALLERS
 ]);
 
 // Files whose reviews lock is owned by their (sole) composition path rather
@@ -43,14 +46,32 @@ const LOCK_HELD_BY_CALLER = new Set([
   'src/lib/escalations/raise.ts',
 ]);
 
+// Spine tenants with no review subject are outside the reviews-first lock
+// law: weekly_insights explicitly locks only weekly_summaries + its
+// account_week run row, though its spine INSERTs (agent_runs / steps /
+// outcomes) also take implicit FK FOR KEY SHARE locks on the parent
+// businesses + accounts rows. Those key-shares are cycle-free: they conflict
+// only with exclusive parent-row locks (e.g. a reviews-lane tx holding
+// businesses FOR UPDATE), and no such holder ever waits on weekly_summaries
+// or a weekly-subject run — the weekly tx can wait, but no cycle can close
+// back onto it. It must not grow a reviews/businesses lock
+// later without leaving this carve-out and re-entering the global
+// reviews → businesses → child rows → agent_runs order.
+const NON_REVIEW_SUBJECT_CALLERS = new Set([
+  'worker/jobs/WeeklySummaryWorker.ts',
+]);
+
 const SCAN_ROOTS = ['src', 'worker'];
 const SKIP_DIRS = new Set(['__tests__', 'fixtures', 'node_modules']);
 // A CALL site — the `function ` lookbehind excludes the declarations
 // themselves (run-spine.ts / outcomes.ts); the `for ` lookbehind excludes
 // run-spine.ts's own "run not found for recordStep(...)" /
 // "... for completeRun(...)" error-message strings, which are not call sites.
+// startOrGetActiveRun is included because its INSERT/SELECT-FOR-UPDATE also
+// locks the agent_runs row — a caller of only that function is a spine writer
+// with the same cycle risk and must not escape the tripwire.
 const CALL_SITE =
-  /(?<!function )(?<!for )\b(?:recordOutcome|recordOwnerDecisionOutcome|recordStep|completeRun)\s*\(/;
+  /(?<!function )(?<!for )\b(?:recordOutcome|recordOwnerDecisionOutcome|recordStep|completeRun|startOrGetActiveRun)\s*\(/;
 
 function hasReviewsLockPairing(text: string): boolean {
   if (text.includes('anchorReviewLockOrder(')) return true;
@@ -84,6 +105,12 @@ function findCallerFiles(): { file: string; text: string }[] {
 describe('spine anchor-pairing contract: recordOutcome/recordStep/completeRun callers hold the reviews lock', () => {
   const callers = findCallerFiles();
 
+  it('pins the non-review-subject carve-out to the weekly account_week caller only', () => {
+    expect([...NON_REVIEW_SUBJECT_CALLERS]).toEqual([
+      'worker/jobs/WeeklySummaryWorker.ts',
+    ]);
+  });
+
   it('every spine-writing file is in the reviewed-caller allowlist', () => {
     const unreviewed = callers.filter(({ file }) => !CALLER_ALLOWLIST.has(file)).map(({ file }) => file);
     expect(
@@ -96,9 +123,12 @@ describe('spine anchor-pairing contract: recordOutcome/recordStep/completeRun ca
     ).toHaveLength(0);
   });
 
-  it('every allowlisted caller pairs the outcome with a reviews lock (or a documented caller-held exception)', () => {
+  it('every review-subject caller pairs the outcome with a reviews lock (or a documented caller-held exception)', () => {
     const unpaired = callers
-      .filter(({ file, text }) => !LOCK_HELD_BY_CALLER.has(file) && !hasReviewsLockPairing(text))
+      .filter(({ file, text }) =>
+        !LOCK_HELD_BY_CALLER.has(file) &&
+        !NON_REVIEW_SUBJECT_CALLERS.has(file) &&
+        !hasReviewsLockPairing(text))
       .map(({ file }) => file);
     expect(
       unpaired,
@@ -121,6 +151,13 @@ describe('spine anchor-pairing contract: recordOutcome/recordStep/completeRun ca
     expect(
       orphanExceptions,
       `LOCK_HELD_BY_CALLER entries missing from CALLER_ALLOWLIST: ${orphanExceptions.join(', ')}.`,
+    ).toHaveLength(0);
+
+    const orphanNonReviewCallers = [...NON_REVIEW_SUBJECT_CALLERS]
+      .filter((file) => !CALLER_ALLOWLIST.has(file) || !found.has(file));
+    expect(
+      orphanNonReviewCallers,
+      `NON_REVIEW_SUBJECT_CALLERS entries missing from the live caller allowlist: ${orphanNonReviewCallers.join(', ')}.`,
     ).toHaveLength(0);
   });
 });

@@ -19,6 +19,7 @@ export function IntelligenceBriefCard({ brief }: Props) {
         </div>
         <div style={{ flex: 1 }}>
           <h2 className="brief-h2">Intelligence Brief</h2>
+          <span className="brief-agent-label">Insights agent</span>
           <div className="brief-period">
             <span className="brief-period-strong">{brief.periodLabel}</span> ·{' '}
             {brief.type === 'monthly' ? 'monthly summary' : 'weekly summary'}

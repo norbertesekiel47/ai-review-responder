@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **074** — next migration is **075**
+Current head: **075** — next migration is **076**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -853,6 +853,19 @@ Revisit triggers:
   (NOTICE-level skips only, zero errors; shape suite
   `src/lib/shared/__tests__/migration-074-trust-dial-veto-window.integration.test.ts`).
   Apply staging first, then production, both Supabase projects in lockstep.
+
+- **075** — Agent-run subject lookup index (WS5 persona surfaces, spec
+  `docs/superpowers/specs/2026-07-12-ws5-persona-surfaces-design.md` §6.1).
+  Adds `idx_agent_runs_subject` on
+  `(subject_type, subject_id, started_at DESC)` so the per-review timeline can
+  read all runs for a subject, including completed and failed runs. Migration
+  071's subject index is partial to `status = 'running'`, while its other run
+  indexes lead on `business_id` or `account_id`, so none serve this lookup.
+  Index-only and transactional (no `CONCURRENTLY`); no table, data, RLS, or
+  authorization changes. **WS5 execution status:** applied and verified only
+  against the local `test_ws4` container database; not applied to staging or
+  production. At promotion time, the user applies it staging first, then
+  production, both Supabase projects in lockstep.
 
 ## Key Tables Reference
 

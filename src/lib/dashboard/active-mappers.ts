@@ -40,6 +40,7 @@ export function mapRecentReviews(
     responseText: (row.response_text as string) ?? null,
     responseStatus: (row.response_status as string) ?? null,
     approvalMethod: (row.approval_method as ApprovalMethod) ?? null,
+    autoPostScheduledAt: (row.auto_post_scheduled_at as Date | string) ?? null,
     escalation: row.escalation_id
       ? {
           id: row.escalation_id as string,
