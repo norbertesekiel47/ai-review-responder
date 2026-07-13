@@ -7,7 +7,15 @@ import { LiveRegion } from '@/components/ui/LiveRegion';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { RunTimeline } from './RunTimeline';
 import { TimelineEscalationActions } from './TimelineEscalationActions';
-import { formatIdentifier } from './TimelineStepRow';
+import { formatIdentifier } from './format';
+
+const REVIEW_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+});
 
 export function TimelineContent({ reviewId }: { reviewId: string }) {
   const timelineQuery = useQuery({
@@ -154,13 +162,7 @@ function ReviewRating({ rating }: { rating: number | null }) {
 
 function formatDate(value: string | null): string {
   if (!value) return 'Not recorded';
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(value));
+  return REVIEW_DATE_FORMATTER.format(new Date(value));
 }
 
 function BackIcon() {

@@ -1,6 +1,15 @@
 import type { ReviewTimelineRun } from '@/lib/agents/read';
 import { RunStateBadge } from './RunStateBadge';
-import { formatIdentifier, PersonaMark, TimelineStepRow } from './TimelineStepRow';
+import { formatIdentifier } from './format';
+import { PersonaMark, TimelineStepRow } from './TimelineStepRow';
+
+const RUN_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+});
 
 export function RunTimeline({
   run,
@@ -48,11 +57,5 @@ export function RunTimeline({
 }
 
 function formatRunDate(value: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(value));
+  return RUN_DATE_FORMATTER.format(new Date(value));
 }

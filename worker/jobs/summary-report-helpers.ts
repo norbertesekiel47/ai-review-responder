@@ -1,11 +1,16 @@
 import type postgres from 'postgres';
+import { sendInternalEmail } from '../../src/lib/notifications/email';
 import {
   checkSubscription,
   type AccountFlagsInput,
 } from '../../src/lib/shared/subscription-guard';
-import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
+import {
+  extractOutboxHandle,
+  markOutboxCompleted,
+  markOutboxFailed,
+} from '../../src/lib/shared/outbox';
 import { SKIP_REASON_ARCHIVED_LOCATION } from '../../src/lib/shared/worker-types';
-import type { LocationId } from '../../src/lib/shared/ids';
+import { asLocationId, type LocationId } from '../../src/lib/shared/ids';
 import type { WorkerLogger } from '../../src/lib/shared/logger';
 
 export interface SummaryReportBusiness {
@@ -42,7 +47,66 @@ export interface RankingSummary {
   initialRank: number;
 }
 
-export async function loadSummaryReportBusiness(
+export interface SummaryReportContext {
+  business: SummaryReportBusiness;
+  businessId: LocationId;
+  outboxId: string;
+  outboxAttempt: number | undefined;
+}
+
+export async function prepareSummaryReport(
+  sql: postgres.Sql,
+  job: { id?: string; data: { business_id: string } },
+  logger: Pick<WorkerLogger, 'log' | 'warn'>,
+): Promise<SummaryReportContext | null> {
+  const businessId = asLocationId(job.data.business_id);
+  const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(
+    job.data,
+    job.id!,
+  );
+  const business = await loadSummaryReportBusiness(sql, businessId);
+  const skipped = await completeOrFailSkippedSummaryReport(sql, {
+    business,
+    businessId,
+    outboxId,
+    outboxAttempt,
+    logger,
+  });
+  if (skipped || !business) return null;
+  return { business, businessId, outboxId, outboxAttempt };
+}
+
+export async function sendSummaryReportEmail(
+  sql: postgres.Sql,
+  input: {
+    to: string;
+    subject: string;
+    bodyHtml: string;
+    failureContext: string;
+    outboxId: string;
+    outboxAttempt: number | undefined;
+    logger: Pick<WorkerLogger, 'error'>;
+  },
+): Promise<string | null> {
+  try {
+    const result = await sendInternalEmail({
+      to: input.to,
+      subject: input.subject,
+      bodyHtml: input.bodyHtml,
+      category: 'marketing',
+    });
+    return result.messageId;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    input.logger.error(`${input.failureContext}: ${reason}`);
+    // The caller has already committed sent_at. Keep it set because the
+    // provider may have accepted the email before returning an error.
+    await markOutboxFailed(sql, input.outboxId, reason, input.outboxAttempt);
+    return null;
+  }
+}
+
+async function loadSummaryReportBusiness(
   sql: postgres.Sql,
   businessId: LocationId,
 ): Promise<SummaryReportBusiness | null> {

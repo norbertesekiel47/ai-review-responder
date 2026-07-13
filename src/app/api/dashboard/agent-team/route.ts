@@ -1,24 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgentTeamSummary } from '@/lib/agents/read';
 import {
-  errorResponse,
   jsonResponse,
-  requireOwnerWithAccount,
 } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
-import { getLocationById } from '@/lib/locations/repo';
-import { isValidUuid } from '@/lib/shared/ids';
-import { reportCaughtError } from '@/lib/shared/report-caught-error';
-import { resolveDashboardRequest } from '../policy';
+import {
+  resolveDashboardLocation,
+  resolveDashboardRequest,
+  withDashboardOwnerRead,
+} from '../policy';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const owner = await requireOwnerWithAccount(request);
-  if (!owner.ok) return owner.response;
-  const { user, accountId } = owner;
-
-  try {
+  return withDashboardOwnerRead(request, {
+    errorContext: 'api/dashboard/agent-team',
+    errorMessage: 'Failed to fetch agent team',
+  }, async ({ user, accountId }) => {
     const { window, scopePolicy } = resolveDashboardRequest(request, user.locationId);
 
     if (scopePolicy.mode === 'aggregate') {
@@ -30,31 +28,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return jsonResponse({ window, ...summary });
     }
 
-    const locationId = scopePolicy.locationId;
-    if (!locationId) {
-      return errorResponse('No business associated with this account', 403);
-    }
-    if (!isValidUuid(locationId)) {
-      return errorResponse('Invalid scope: location must be a valid UUID', 400);
-    }
-
-    const location = await getLocationById(sql, locationId);
-    if (
-      !location
-      || location.account_id !== accountId
-      || location.archived_at !== null
-    ) {
-      return errorResponse('Business not found', 404);
-    }
+    const location = await resolveDashboardLocation(sql, {
+      accountId,
+      locationId: scopePolicy.locationId,
+      exposure: 'uniform-not-found',
+    });
+    if (!location.ok) return location.response;
 
     const summary = await getAgentTeamSummary(
       sql,
-      { kind: 'location', accountId, businessId: locationId },
+      { kind: 'location', accountId, businessId: location.locationId },
       window,
     );
     return jsonResponse({ window, ...summary });
-  } catch (error) {
-    reportCaughtError('api/dashboard/agent-team', error, { accountId });
-    return errorResponse('Failed to fetch agent team', 500);
-  }
+  });
 }

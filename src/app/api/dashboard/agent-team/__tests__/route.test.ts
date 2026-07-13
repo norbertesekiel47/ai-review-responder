@@ -198,6 +198,7 @@ describe('GET /api/dashboard/agent-team', () => {
     expect(response.status).toBe(404);
     expect(response.headers.get('Cache-Control')).toBe('no-store, private');
     await expect(response.json()).resolves.toEqual({ error: 'Business not found' });
+    expect(mockGetLocationById).toHaveBeenCalledWith(expect.any(Function), BUSINESS_ID);
     expect(mockGetAgentTeamSummary).not.toHaveBeenCalled();
   });
 

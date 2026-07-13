@@ -75,7 +75,7 @@ export function AgentTeamStrip({
     return (
       <section className="card agent-team" aria-labelledby="agent-team-heading">
         <h2 id="agent-team-heading" className="card-h2">Your agent team</h2>
-        <div className="agent-team-state" role="status">Loading agent activity…</div>
+        <output className="agent-team-state">Loading agent activity…</output>
       </section>
     );
   }

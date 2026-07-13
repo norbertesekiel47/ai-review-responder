@@ -69,6 +69,32 @@ export interface ValueSummary {
   baselineResponseRate: number | null;
 }
 
+interface ReviewFeedReviewFields {
+  id: string;
+  reviewerName: string;
+  starRating: number | null;
+  reviewText: string | null;
+  reviewDate: string;
+  status: string;
+}
+
+interface ReviewFeedResponseFields {
+  responseText: string | null;
+  responseStatus: string | null;
+  approvalMethod: ApprovalMethod | null;
+  /** Current auto-post deadline from the latest response; never derived or cached. */
+  autoPostScheduledAt: Date | string | null;
+  /** Open Guardian escalation; resolved escalations never enter the feed. */
+  escalation: {
+    id: string;
+    status: OpenEscalationStatus;
+    severity: TriageSeverity;
+  } | null;
+}
+
+/** Review-feed fields shared by per-location and aggregate dashboard payloads. */
+type ReviewFeedItem = ReviewFeedReviewFields & ReviewFeedResponseFields;
+
 export interface DashboardDataActive {
   subscriptionStatus?: never;
   /**
@@ -92,25 +118,7 @@ export interface DashboardDataActive {
     keyword: string;
     snapshots: Array<{ date: string; position: number }>;
   }> | null;
-  recentReviews: Array<{
-    id: string;
-    reviewerName: string;
-    starRating: number | null;
-    reviewText: string | null;
-    reviewDate: string;
-    status: string;
-    responseText: string | null;
-    responseStatus: string | null;
-    approvalMethod: ApprovalMethod | null;
-    /** Current auto-post deadline from the latest response; never derived or cached. */
-    autoPostScheduledAt: Date | string | null;
-    /** Open Guardian escalation (WS3); null when none. Resolved escalations never surface here. */
-    escalation: {
-      id: string;
-      status: OpenEscalationStatus;
-      severity: TriageSeverity;
-    } | null;
-  }>;
+  recentReviews: ReviewFeedItem[];
   latestBrief: {
     text: string;
     type: 'monthly' | 'weekly';
@@ -237,24 +245,8 @@ export interface PerLocationBrief {
 }
 
 /** Review row extended with location chip data for the aggregate feed. */
-export interface AggregateReviewItem {
-  id: string;
-  reviewerName: string;
-  starRating: number | null;
-  reviewText: string | null;
-  reviewDate: string;
-  status: string;
-  responseText: string | null;
-  responseStatus: string | null;
-  approvalMethod: ApprovalMethod | null;
-  /** Current auto-post deadline from the latest response; never derived or cached. */
-  autoPostScheduledAt: Date | string | null;
-  /** Open Guardian escalation; resolved escalations never enter the feed. */
-  escalation: {
-    id: string;
-    status: OpenEscalationStatus;
-    severity: TriageSeverity;
-  } | null;
+export interface AggregateReviewItem
+  extends ReviewFeedReviewFields, ReviewFeedResponseFields {
   locationId: string;
   locationDisplayName: string;
 }

@@ -2,16 +2,15 @@ import type { Job } from 'bullmq';
 import type { Sql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
-import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
+import { markOutboxCompleted } from '../../src/lib/shared/outbox';
 import { getWorkerConfig } from '../../src/lib/config/worker';
-import { sendInternalEmail, buildWeeklyValueReportHtml } from '../../src/lib/notifications/email';
+import { buildWeeklyValueReportHtml } from '../../src/lib/notifications/email';
 import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import { generateReviewSummary } from '../../src/lib/responses/review-summary';
 import type { WeeklySummaryPayload } from '../../src/lib/shared/worker-types';
 import { buildFeedbackUrl } from '../../src/lib/shared/feedback-hmac';
-import { createWorkerLogger } from '../../src/lib/shared/logger';
+import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logger';
 import { HANDLED_STATUSES } from '../../src/lib/shared/response-status';
-import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
 import {
   completeRun,
@@ -22,12 +21,46 @@ import {
 import {
   buildDashboardUrl,
   calculateBaselineResponseRate,
-  completeOrFailSkippedSummaryReport,
   loadLatestRankingSummary,
-  loadSummaryReportBusiness,
   mapSummaryReviews,
   ownerHasDashboardAuth,
+  prepareSummaryReport,
+  sendSummaryReportEmail,
+  type SummaryReportBusiness,
 } from './summary-report-helpers';
+
+const STALE_CLAIM_MINUTES = 15;
+
+interface WeeklyNotableReview {
+  reviewer_name: string;
+  star_rating: number;
+  review_text: string | null;
+}
+
+interface WeeklyReviewRow {
+  star_rating: number;
+  review_text: string | null;
+}
+
+interface WeeklyReviewStats {
+  totalReviews: number;
+  totalResponded: number;
+  notableReviews: WeeklyNotableReview[];
+}
+
+interface WeeklyValueInputs {
+  reviewsForSummary: WeeklyReviewRow[];
+  fourWeekAvgReviews: number;
+  ranking: Awaited<ReturnType<typeof loadLatestRankingSummary>>;
+  dashboardUrl: string | null;
+  appUrl: string | undefined;
+  csrfSecret: string | undefined;
+}
+
+interface WeeklySummaryRow {
+  sent_at: string | null;
+  summary_text: string | null;
+}
 
 export interface CommitWeeklyInsightsDigestInput {
   accountId: string;
@@ -79,113 +112,103 @@ export async function commitWeeklyInsightsDigest(
   });
 }
 
-export async function handleWeeklySummary(
-  job: Job<WeeklySummaryPayload>,
-): Promise<void> {
-  const logger = createWorkerLogger('[WeeklySummaryWorker]', job.data.correlation_id);
-  const { week_start_date } = job.data;
-  // Cast job data IDs to branded types at entry point
-  const businessId: LocationId = asLocationId(job.data.business_id);
-  const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
-
-  const business = await loadSummaryReportBusiness(sql, businessId);
-  const skipped = await completeOrFailSkippedSummaryReport(sql, {
-    business,
-    businessId,
-    outboxId,
-    outboxAttempt,
-    logger,
-  });
-  if (skipped || !business) return;
-
-  // ── 3. Query week stats ───────────────────────────────────────────
-  const weekEnd = new Date(week_start_date + 'T00:00:00Z');
+function weekEndDateFor(weekStartDate: string): string {
+  const weekEnd = new Date(`${weekStartDate}T00:00:00Z`);
   weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
-  const weekEndDate = weekEnd.toISOString().slice(0, 10);
+  return weekEnd.toISOString().slice(0, 10);
+}
 
-  const [reviewCount] = await sql<{ count: string }[]>`
+async function loadWeeklyReviewStats(
+  db: Sql,
+  businessId: LocationId,
+  weekStartDate: string,
+  weekEndDate: string,
+): Promise<WeeklyReviewStats> {
+  const [reviewCount] = await db<{ count: string }[]>`
     SELECT COUNT(*)::text AS count FROM reviews
     WHERE business_id = ${businessId}
-      AND detected_at >= ${week_start_date}::date
+      AND detected_at >= ${weekStartDate}::date
       AND detected_at < ${weekEndDate}::date
   `;
-
-  const [respondedCount] = await sql<{ count: string }[]>`
+  const [respondedCount] = await db<{ count: string }[]>`
     SELECT COUNT(DISTINCT r.id)::text AS count FROM reviews r
     JOIN responses resp ON resp.review_id = r.id
       AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
     WHERE r.business_id = ${businessId}
-      AND r.detected_at >= ${week_start_date}::date
+      AND r.detected_at >= ${weekStartDate}::date
       AND r.detected_at < ${weekEndDate}::date
   `;
-
-  const notableReviews = await sql<{
-    reviewer_name: string;
-    star_rating: number;
-    review_text: string | null;
-  }[]>`
+  const notableReviews = await db<WeeklyNotableReview[]>`
     SELECT reviewer_name, star_rating, review_text FROM reviews
     WHERE business_id = ${businessId}
       AND star_rating <= 2
-      AND detected_at >= ${week_start_date}::date
+      AND detected_at >= ${weekStartDate}::date
       AND detected_at < ${weekEndDate}::date
     ORDER BY detected_at DESC
     LIMIT 5
   `;
+  return {
+    totalReviews: parseInt(reviewCount?.count ?? '0', 10),
+    totalResponded: parseInt(respondedCount?.count ?? '0', 10),
+    notableReviews,
+  };
+}
 
-  const totalReviews = parseInt(reviewCount?.count ?? '0', 10);
-  const totalResponded = parseInt(respondedCount?.count ?? '0', 10);
-
-  // ── 4. Additional queries for value report ────────────────────────
-
-  // 4a. Reviews for intelligence brief (texts for LLM summarization)
-  const reviewsForSummary = await sql<{
-    star_rating: number;
-    review_text: string | null;
-  }[]>`
+async function loadWeeklyValueInputs(
+  db: Sql,
+  businessId: LocationId,
+  weekStartDate: string,
+  weekEndDate: string,
+): Promise<WeeklyValueInputs> {
+  const reviewsForSummary = await db<WeeklyReviewRow[]>`
     SELECT star_rating, review_text FROM reviews
     WHERE business_id = ${businessId}
-      AND detected_at >= ${week_start_date}::date
+      AND detected_at >= ${weekStartDate}::date
       AND detected_at < ${weekEndDate}::date
       AND review_text IS NOT NULL
       AND star_rating IS NOT NULL
     ORDER BY detected_at DESC
     LIMIT 30
   `;
-
-  // 4b. 4-week average review count
-  const [avgRow] = await sql<{ avg: string }[]>`
+  const [avgRow] = await db<{ avg: string }[]>`
     SELECT COALESCE(
       (SELECT COUNT(*)::float / 4.0 FROM reviews
        WHERE business_id = ${businessId}
-         AND detected_at >= (${week_start_date}::date - INTERVAL '28 days')
-         AND detected_at < ${week_start_date}::date),
+         AND detected_at >= (${weekStartDate}::date - INTERVAL '28 days')
+         AND detected_at < ${weekStartDate}::date),
       0
     )::text AS avg
   `;
-  const fourWeekAvgReviews = parseFloat(avgRow?.avg ?? '0');
-
-  // 4c. Ranking snapshot (conditional, no SerpAPI calls)
-  const ranking = await loadLatestRankingSummary(sql, businessId);
-
-  // 4d. Dashboard link eligibility
+  const ranking = await loadLatestRankingSummary(db, businessId);
   const cfg = getWorkerConfig();
-  const appUrl = cfg.NEXT_PUBLIC_APP_URL;
   const dashboardUrl = buildDashboardUrl(
-    await ownerHasDashboardAuth(sql, businessId),
-    appUrl,
+    await ownerHasDashboardAuth(db, businessId),
+    cfg.NEXT_PUBLIC_APP_URL,
   );
+  return {
+    reviewsForSummary,
+    fourWeekAvgReviews: parseFloat(avgRow?.avg ?? '0'),
+    ranking,
+    dashboardUrl,
+    appUrl: cfg.NEXT_PUBLIC_APP_URL,
+    csrfSecret: cfg.CSRF_SECRET,
+  };
+}
 
-  // ── 5. Upsert weekly_summaries row (idempotent) ───────────────────
-  // Allow reclaim of stale claims (>15 min) so a crashed worker doesn't
-  // permanently block the email.
-  const STALE_CLAIM_MINUTES = 15;
-  const [upsertRow] = await sql<{ sent_at: string | null; summary_text: string | null }[]>`
+async function upsertWeeklySummary(
+  db: Sql,
+  input: {
+    businessId: LocationId;
+    weekStartDate: string;
+    stats: WeeklyReviewStats;
+  },
+): Promise<WeeklySummaryRow | null> {
+  const [row] = await db<WeeklySummaryRow[]>`
     INSERT INTO weekly_summaries (id, business_id, week_start_date, total_reviews, total_responded, notable_reviews)
     VALUES (
-      ${uuidv7()}, ${businessId}, ${week_start_date}::date,
-      ${totalReviews}, ${totalResponded},
-      ${jsonb(notableReviews)}
+      ${uuidv7()}, ${input.businessId}, ${input.weekStartDate}::date,
+      ${input.stats.totalReviews}, ${input.stats.totalResponded},
+      ${jsonb(input.stats.notableReviews)}
     )
     ON CONFLICT (business_id, week_start_date)
     DO UPDATE SET
@@ -197,144 +220,223 @@ export async function handleWeeklySummary(
            OR weekly_summaries.claimed_at < NOW() - (${STALE_CLAIM_MINUTES} * INTERVAL '1 minute'))
     RETURNING sent_at, summary_text
   `;
+  return row ?? null;
+}
 
-  if (!upsertRow) {
-    // No row returned — either already sent, or freshly claimed by another worker.
-    // Check which case to decide whether to complete or retry.
-    const [existing] = await sql<{ sent_at: string | null; claimed_at: string | null }[]>`
-      SELECT sent_at, claimed_at FROM weekly_summaries
-      WHERE business_id = ${businessId} AND week_start_date = ${week_start_date}::date
-    `;
-    if (existing?.sent_at) {
-      logger.log(`Weekly summary for ${businessId} week ${week_start_date} already sent`);
-      await markOutboxCompleted(sql, outboxId, outboxAttempt);
-    } else {
-      // Freshly claimed by another worker — throw so BullMQ retries after backoff
-      logger.log(`Weekly summary for ${businessId} week ${week_start_date} claimed by another worker, will retry`);
-      throw new Error('Report claimed by another worker');
-    }
+async function resolveUnavailableWeeklySummary(
+  db: Sql,
+  input: {
+    businessId: LocationId;
+    weekStartDate: string;
+    outboxId: string;
+    outboxAttempt: number | undefined;
+    logger: WorkerLogger;
+  },
+): Promise<void> {
+  const [existing] = await db<{ sent_at: string | null; claimed_at: string | null }[]>`
+    SELECT sent_at, claimed_at FROM weekly_summaries
+    WHERE business_id = ${input.businessId} AND week_start_date = ${input.weekStartDate}::date
+  `;
+  if (existing?.sent_at) {
+    input.logger.log(`Weekly summary for ${input.businessId} week ${input.weekStartDate} already sent`);
+    await markOutboxCompleted(db, input.outboxId, input.outboxAttempt);
     return;
   }
+  input.logger.log(`Weekly summary for ${input.businessId} week ${input.weekStartDate} claimed by another worker, will retry`);
+  throw new Error('Report claimed by another worker');
+}
 
-  // ── 5b. Claim: atomically set claimed_at to prevent duplicate sends ──
-  // The upsert above auto-commits and does NOT hold a lock across the
-  // rest of the worker. This conditional UPDATE is atomic — only one
-  // concurrent job wins the claim. Stale claims (>15 min) are reclaimable.
-  const [claimed] = await sql<{ id: string }[]>`
+async function claimWeeklySummary(
+  db: Sql,
+  businessId: LocationId,
+  weekStartDate: string,
+  logger: WorkerLogger,
+): Promise<void> {
+  const [claimed] = await db<{ id: string }[]>`
     UPDATE weekly_summaries
     SET claimed_at = NOW()
     WHERE business_id = ${businessId}
-      AND week_start_date = ${week_start_date}::date
+      AND week_start_date = ${weekStartDate}::date
       AND sent_at IS NULL
       AND (claimed_at IS NULL
            OR claimed_at < NOW() - (${STALE_CLAIM_MINUTES} * INTERVAL '1 minute'))
     RETURNING id
   `;
-  if (!claimed) {
-    // Another worker just claimed it between the upsert and this UPDATE — retry
-    logger.log(`Weekly summary for ${businessId} week ${week_start_date} claimed by another worker, will retry`);
-    throw new Error('Report claimed by another worker');
+  if (claimed) return;
+  logger.log(`Weekly summary for ${businessId} week ${weekStartDate} claimed by another worker, will retry`);
+  throw new Error('Report claimed by another worker');
+}
+
+async function acquireWeeklySummary(
+  db: Sql,
+  input: {
+    businessId: LocationId;
+    weekStartDate: string;
+    stats: WeeklyReviewStats;
+    outboxId: string;
+    outboxAttempt: number | undefined;
+    logger: WorkerLogger;
+  },
+): Promise<WeeklySummaryRow | null> {
+  const row = await upsertWeeklySummary(db, input);
+  if (!row) {
+    await resolveUnavailableWeeklySummary(db, input);
+    return null;
   }
+  await claimWeeklySummary(db, input.businessId, input.weekStartDate, input.logger);
+  return row;
+}
 
-  // ── 6. Intelligence brief (reuse existing or generate) ────────────
-  let intelligenceBrief: string | null = upsertRow.summary_text ?? null;
-
-  if (!intelligenceBrief && reviewsForSummary.length > 0) {
-    const summaryResult = await generateReviewSummary(
-      sql,
-      mapSummaryReviews(reviewsForSummary),
-      businessId,
-      business.subscription_tier,
-    );
-    intelligenceBrief = summaryResult?.summaryText ?? null;
-
-    // Persist the summary_text for idempotent retries
-    if (intelligenceBrief) {
-      await sql`
-        UPDATE weekly_summaries
-        SET summary_text = ${intelligenceBrief}
-        WHERE business_id = ${businessId} AND week_start_date = ${week_start_date}::date
-      `;
-    }
+async function resolveWeeklyIntelligenceBrief(
+  db: Sql,
+  input: {
+    existingSummary: string | null;
+    reviews: WeeklyReviewRow[];
+    businessId: LocationId;
+    subscriptionTier: string;
+    weekStartDate: string;
+  },
+): Promise<string | null> {
+  if (input.existingSummary || input.reviews.length === 0) {
+    return input.existingSummary;
   }
-
-  // ── 7. Compute baseline response rate ─────────────────────────────
-  const baselineResponseRate = calculateBaselineResponseRate(business);
-
-  // ── 8. Build feedback URLs (satisfaction pulse) ───────────────────
-  let feedbackUrls: { great: string; ok: string; notGreat: string } | null = null;
-  if (appUrl && cfg.CSRF_SECRET) {
-    feedbackUrls = {
-      great: buildFeedbackUrl(appUrl, businessId, 'great', week_start_date),
-      ok: buildFeedbackUrl(appUrl, businessId, 'ok', week_start_date),
-      notGreat: buildFeedbackUrl(appUrl, businessId, 'not_great', week_start_date),
-    };
+  const result = await generateReviewSummary(
+    db,
+    mapSummaryReviews(input.reviews),
+    input.businessId,
+    input.subscriptionTier,
+  );
+  const intelligenceBrief = result?.summaryText ?? null;
+  if (intelligenceBrief) {
+    await db`
+      UPDATE weekly_summaries
+      SET summary_text = ${intelligenceBrief}
+      WHERE business_id = ${input.businessId} AND week_start_date = ${input.weekStartDate}::date
+    `;
   }
+  return intelligenceBrief;
+}
 
-  // ── 9. Build email ────────────────────────────────────────────────
+function weeklyFeedbackUrls(
+  appUrl: string | undefined,
+  csrfSecret: string | undefined,
+  businessId: LocationId,
+  weekStartDate: string,
+): { great: string; ok: string; notGreat: string } | null {
+  if (!appUrl || !csrfSecret) return null;
+  return {
+    great: buildFeedbackUrl(appUrl, businessId, 'great', weekStartDate),
+    ok: buildFeedbackUrl(appUrl, businessId, 'ok', weekStartDate),
+    notGreat: buildFeedbackUrl(appUrl, businessId, 'not_great', weekStartDate),
+  };
+}
+
+async function commitAndDeliverWeeklySummary(
+  db: Sql,
+  input: {
+    business: SummaryReportBusiness;
+    businessId: LocationId;
+    weekStartDate: string;
+    weekEndDate: string;
+    correlationId: string | undefined;
+    html: string;
+    outboxId: string;
+    outboxAttempt: number | undefined;
+    logger: WorkerLogger;
+  },
+): Promise<void> {
+  const committed = await commitWeeklyInsightsDigest(db, {
+    accountId: input.business.account_id,
+    businessId: input.businessId,
+    weekStartDate: input.weekStartDate,
+    correlationId: input.correlationId,
+  });
+  if (!committed) {
+    input.logger.log(`Weekly summary for ${input.businessId} week ${input.weekStartDate} already sent`);
+    await markOutboxCompleted(db, input.outboxId, input.outboxAttempt);
+    return;
+  }
+  const messageId = await sendSummaryReportEmail(db, {
+    to: input.business.owner_email,
+    subject: `Your Insights agent's weekly report — ${input.business.name} (${input.weekStartDate} to ${input.weekEndDate})`,
+    bodyHtml: input.html,
+    failureContext: `Failed to send weekly value report for business ${input.businessId} (week ${input.weekStartDate})`,
+    outboxId: input.outboxId,
+    outboxAttempt: input.outboxAttempt,
+    logger: input.logger,
+  });
+  if (!messageId) return;
+  await recordNotificationDelivery(db, {
+    accountId: input.business.account_id,
+    businessId: input.businessId,
+    channel: 'email',
+    recipient: input.business.owner_email,
+    template: 'weekly_value_report',
+    externalMessageId: messageId,
+  });
+  await markOutboxCompleted(db, input.outboxId, input.outboxAttempt);
+  input.logger.log(`Weekly value report sent for business ${input.businessId} (week ${input.weekStartDate})`);
+}
+
+export async function handleWeeklySummary(
+  job: Job<WeeklySummaryPayload>,
+): Promise<void> {
+  const logger = createWorkerLogger('[WeeklySummaryWorker]', job.data.correlation_id);
+  const { week_start_date } = job.data;
+  const context = await prepareSummaryReport(sql, job, logger);
+  if (!context) return;
+  const { business, businessId, outboxId, outboxAttempt } = context;
+  const weekEndDate = weekEndDateFor(week_start_date);
+  const stats = await loadWeeklyReviewStats(sql, businessId, week_start_date, weekEndDate);
+  const valueInputs = await loadWeeklyValueInputs(sql, businessId, week_start_date, weekEndDate);
+  const summaryRow = await acquireWeeklySummary(sql, {
+    businessId,
+    weekStartDate: week_start_date,
+    stats,
+    outboxId,
+    outboxAttempt,
+    logger,
+  });
+  if (!summaryRow) return;
+  const intelligenceBrief = await resolveWeeklyIntelligenceBrief(sql, {
+    existingSummary: summaryRow.summary_text,
+    reviews: valueInputs.reviewsForSummary,
+    businessId,
+    subscriptionTier: business.subscription_tier,
+    weekStartDate: week_start_date,
+  });
   const html = buildWeeklyValueReportHtml({
     businessName: business.name,
     weekStartDate: week_start_date,
     weekEndDate,
-    totalReviews,
-    totalResponded,
-    notableReviews: notableReviews.map((r) => ({
+    totalReviews: stats.totalReviews,
+    totalResponded: stats.totalResponded,
+    notableReviews: stats.notableReviews.map((r) => ({
       reviewerName: r.reviewer_name,
       starRating: r.star_rating,
       reviewText: r.review_text,
     })),
     intelligenceBrief,
-    baselineResponseRate,
-    fourWeekAvgReviews,
-    ranking,
-    dashboardUrl,
-    feedbackUrls,
+    baselineResponseRate: calculateBaselineResponseRate(business),
+    fourWeekAvgReviews: valueInputs.fourWeekAvgReviews,
+    ranking: valueInputs.ranking,
+    dashboardUrl: valueInputs.dashboardUrl,
+    feedbackUrls: weeklyFeedbackUrls(
+      valueInputs.appUrl,
+      valueInputs.csrfSecret,
+      businessId,
+      week_start_date,
+    ),
   });
-
-  // ── 9. Commit the send + Insights attribution before Resend (crash-safe) ──
-  const committedSend = await commitWeeklyInsightsDigest(sql, {
-    accountId: business.account_id,
+  await commitAndDeliverWeeklySummary(sql, {
+    business,
     businessId,
     weekStartDate: week_start_date,
+    weekEndDate,
     correlationId: job.data.correlation_id,
+    html,
+    outboxId,
+    outboxAttempt,
+    logger,
   });
-
-  if (!committedSend) {
-    logger.log(`Weekly summary for ${businessId} week ${week_start_date} already sent`);
-    await markOutboxCompleted(sql, outboxId, outboxAttempt);
-    return;
-  }
-
-  // ── 10. Send email ────────────────────────────────────────────────
-  const weekLabel = `${week_start_date} to ${weekEndDate}`;
-  let messageId: string;
-  try {
-    const result = await sendInternalEmail({
-      to: business.owner_email,
-      subject: `Your Insights agent's weekly report — ${business.name} (${weekLabel})`,
-      bodyHtml: html,
-      category: 'marketing',
-    });
-    messageId = result.messageId;
-  } catch (err) {
-    logger.error(`Failed to send weekly value report for business ${businessId} (week ${week_start_date}): ${err instanceof Error ? err.message : err}`);
-    // Keep sent_at set — Resend may have accepted the email before the error.
-    // Clearing would risk a duplicate if the scheduler re-queues this business.
-    // Prompt 19a accepts the rare missed-email risk over duplicate sends.
-    await markOutboxFailed(sql, outboxId, err instanceof Error ? err.message : String(err), outboxAttempt);
-    return;
-  }
-
-  // ── 11. Record notification delivery ──────────────────────────────
-  await recordNotificationDelivery(sql, {
-    accountId: business.account_id,
-    businessId: businessId,
-    channel: 'email',
-    recipient: business.owner_email,
-    template: 'weekly_value_report',
-    externalMessageId: messageId,
-  });
-
-  await markOutboxCompleted(sql, outboxId, outboxAttempt);
-  logger.log(`Weekly value report sent for business ${businessId} (week ${week_start_date})`);
 }
