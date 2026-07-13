@@ -44,11 +44,14 @@ export const AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH =
 // pending-post notices is downgraded to owner review under this action.
 export const AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED =
   'auto_post_notice_undelivered';
+export const AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE =
+  'auto_policy_revoked_judge_unavailable';
 
 export type AutoPolicyAuditAction =
   | typeof AUDIT_ACTION_AUTO_APPROVED_BY_POLICY
   | typeof AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH
-  | typeof AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED;
+  | typeof AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED
+  | typeof AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE;
 
 export interface AutoPolicyAuditMetadata {
   policy_id?: string | null;

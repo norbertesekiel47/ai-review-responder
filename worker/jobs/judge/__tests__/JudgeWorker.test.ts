@@ -108,6 +108,39 @@ describe('JudgeWorker', () => {
     expect(sqlCalls).toHaveLength(1);
   });
 
+  it('judges an auto-post while its past-due account is inside publisher grace', async () => {
+    const judgeError = new Error('judge boundary reached');
+    mockJudgeEnabled.mockReturnValue(true);
+    mockJudgeResponse.mockRejectedValueOnce(judgeError);
+    sqlReturnQueue.push(mkTaggedResult([activeContext({
+      subscription_status: 'past_due',
+      account_past_due_at: new Date(Date.now() - 2 * 86_400_000),
+      account_flags: {},
+    })]));
+
+    await expect(handleJudgeVerdict(mockSql as never, job())).rejects.toBe(judgeError);
+
+    expect(mockJudgeResponse).toHaveBeenCalledTimes(1);
+    expect(mockSql.begin).not.toHaveBeenCalled();
+  });
+
+  it('does not judge after the publisher past-due grace has expired', async () => {
+    mockJudgeEnabled.mockReturnValue(true);
+    sqlReturnQueue.push(
+      mkTaggedResult([activeContext({
+        subscription_status: 'past_due',
+        account_past_due_at: new Date(Date.now() - 8 * 86_400_000),
+        account_flags: {},
+      })]),
+      mkTaggedResult([{}]),
+    );
+
+    await handleJudgeVerdict(mockSql as never, job());
+
+    expect(mockJudgeResponse).not.toHaveBeenCalled();
+    expect(sqlCalls.at(-1)!.text).toContain("SET status = 'completed'");
+  });
+
   it('anchors reviews first, persists a flag verdict, suspends autonomy, and completes atomically', async () => {
     mockJudgeEnabled.mockReturnValue(true);
     mockJudgeResponse.mockResolvedValueOnce({

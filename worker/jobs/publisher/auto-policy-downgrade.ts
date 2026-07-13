@@ -1,22 +1,28 @@
 import type { Sql } from 'postgres';
+import { anchorReviewLockOrder } from '../../../src/lib/approval/outcomes';
 import {
   AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
   AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED,
   insertAuditLogAutoPolicy,
 } from '../../../src/lib/approval/audit';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { enqueueSendNotification } from '../../../src/lib/shared/job-outbox-helpers';
-import { markOutboxCompleted } from '../../../src/lib/shared/outbox';
+import { markOutboxCompletedIfOwned } from '../../../src/lib/shared/outbox';
 
 export type AutoPolicyDowngradeReason =
   | 'auto_approval_disabled'
-  | 'notice_undelivered';
+  | 'notice_undelivered'
+  | 'judge_disabled'
+  | 'judge_unhealthy';
 
 // One marker per reason for both writes: the audit action AND the
 // responses.posting_error value (shared owner: src/lib/approval/audit.ts).
 const DOWNGRADE_MARKERS = {
   auto_approval_disabled: AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH,
   notice_undelivered: AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED,
+  judge_disabled: AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+  judge_unhealthy: AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
 } as const satisfies Record<AutoPolicyDowngradeReason, string>;
 
 export type AutoPolicyDowngradeOutcome = 'downgraded' | 'no-op';
@@ -47,6 +53,46 @@ export async function downgradeAutoApprovedResponseForManualReview(sql: Sql, inp
   const marker = DOWNGRADE_MARKERS[reason];
 
   return sql.begin(async (tx) => {
+    // Binding review-lane lock order: this anchor is the transaction's FIRST
+    // statement, before the response lock or outbox-attempt claim.
+    const reviewId = await anchorReviewLockOrder(tx, responseId, businessId);
+    if (!reviewId) {
+      await markOutboxCompletedIfOwned(tx, outboxId, outboxAttempt);
+      return 'no-op';
+    }
+
+    // Binding lane order continues reviews -> businesses -> responses.
+    const [lockedBusiness] = await tx<{ id: string }[]>`
+      SELECT id
+      FROM businesses
+      WHERE id = ${businessId}
+      FOR UPDATE
+    `;
+    if (!lockedBusiness) {
+      await markOutboxCompletedIfOwned(tx, outboxId, outboxAttempt);
+      return 'no-op';
+    }
+
+    const [current] = await tx<{ status: string; approval_method: string | null }[]>`
+      SELECT status, approval_method
+      FROM responses
+      WHERE id = ${responseId}
+        AND business_id = ${businessId}
+      FOR UPDATE
+    `;
+    const isDowngradeable = current
+      && ['approved', 'edited', 'awaiting_owner_connect'].includes(current.status)
+      && current.approval_method === APPROVAL_METHOD.AUTO_POLICY;
+    if (!isDowngradeable) {
+      await markOutboxCompletedIfOwned(tx, outboxId, outboxAttempt);
+      return 'no-op';
+    }
+
+    // Claim and complete the exact dispatched attempt before any downgrade
+    // fact. The surrounding transaction rolls this CAS back with later writes.
+    const ownsAttempt = await markOutboxCompletedIfOwned(tx, outboxId, outboxAttempt);
+    if (!ownsAttempt) return 'no-op';
+
     const [downgraded] = await tx<{ id: string }[]>`
       UPDATE responses
       SET status = 'pending_approval',
@@ -62,10 +108,7 @@ export async function downgradeAutoApprovedResponseForManualReview(sql: Sql, inp
       RETURNING id
     `;
 
-    if (!downgraded) {
-      await markOutboxCompleted(tx, outboxId, outboxAttempt);
-      return 'no-op';
-    }
+    if (!downgraded) return 'no-op';
 
     // FP: ordered writes inside one sql.begin tx (downgrade UPDATE → audit log → enqueue notification); parallelizing would break tx ordering.
     // react-doctor-disable-next-line react-doctor/async-parallel
@@ -76,9 +119,9 @@ export async function downgradeAutoApprovedResponseForManualReview(sql: Sql, inp
       responseTextAtApproval: null,
       metadata: {
         downgrade_reason: reason,
-        // The notice-undelivered gate only runs while the runtime flag is ON;
-        // the kill-switch reason by definition means it is OFF.
-        runtime_enabled: reason === 'notice_undelivered',
+        // Every downstream safety gate runs only after the runtime kill-switch
+        // passed; only the kill-switch reason itself means the runtime is off.
+        runtime_enabled: reason !== 'auto_approval_disabled',
         outbox_id: outboxId,
         outbox_attempt: outboxAttempt,
         correlation_id: correlationId,
@@ -91,11 +134,14 @@ export async function downgradeAutoApprovedResponseForManualReview(sql: Sql, inp
       correlationId,
     });
 
-    await markOutboxCompleted(tx, outboxId, outboxAttempt);
+    const reasonMessages = {
+      auto_approval_disabled: 'auto-approval runtime is disabled',
+      notice_undelivered: 'no pending-post notice was delivered',
+      judge_disabled: 'the Judge safety watchdog is disabled',
+      judge_unhealthy: 'the Judge safety watchdog is unhealthy',
+    } as const satisfies Record<AutoPolicyDowngradeReason, string>;
     logger.warn(
-      reason === 'notice_undelivered'
-        ? `Auto-approved response ${responseId} downgraded to owner review because no pending-post notice was delivered`
-        : `Auto-approved response ${responseId} downgraded to owner review because auto-approval runtime is disabled`,
+      `Auto-approved response ${responseId} downgraded to owner review because ${reasonMessages[reason]}`,
     );
     return 'downgraded';
   });

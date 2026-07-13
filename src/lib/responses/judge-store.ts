@@ -1,7 +1,7 @@
 import type { Sql, TransactionSql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
+import { publisherSubscriptionEligibleSql } from '@/lib/shared/subscription-eligibility-sql';
 import type { JudgeOutput } from './judge-schema';
 
 export type StoredJudgeVerdict = JudgeOutput['verdict'] | 'error';
@@ -91,7 +91,7 @@ export async function listUnjudgedAutoPosts(
     WHERE r.status = 'posted'
       AND r.approval_method = 'auto_policy'
       AND r.posted_at >= NOW() - make_interval(hours => ${options.lookbackHours})
-      AND a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.TRIALING})
+      AND ${publisherSubscriptionEligibleSql(sql)}
       AND NOT EXISTS (
         SELECT 1 FROM judge_verdicts jv
         WHERE jv.response_id = r.id

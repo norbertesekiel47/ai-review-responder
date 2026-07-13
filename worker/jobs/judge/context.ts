@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import type { AccountFlagsInput } from '@/lib/shared/subscription-guard';
 
 export interface JudgeContext {
   response_id: string;
@@ -10,6 +11,8 @@ export interface JudgeContext {
   review_text: string | null;
   subscription_status: string;
   subscription_tier: string;
+  account_past_due_at: Date | null;
+  account_flags: AccountFlagsInput;
   status: string;
   approval_method: string | null;
 }
@@ -29,6 +32,8 @@ export async function loadJudgeContext(
       rev.review_text,
       a.subscription_status,
       a.subscription_tier,
+      a.past_due_at AS account_past_due_at,
+      a.flags AS account_flags,
       resp.status,
       resp.approval_method
     FROM responses resp

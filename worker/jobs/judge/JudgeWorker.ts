@@ -12,7 +12,7 @@ import {
   markOutboxCompleted,
   markOutboxCompletedIfOwned,
 } from '@/lib/shared/outbox';
-import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
+import { checkSubscription } from '@/lib/shared/subscription-guard';
 import type { JudgeVerdictPayload } from '@/lib/shared/worker-types';
 import { isJudgeEligibleContext, loadJudgeContext } from './context';
 
@@ -38,7 +38,12 @@ export async function handleJudgeVerdict(
   if (
     !context
     || !isJudgeEligibleContext(context)
-    || !subscriptionGrantsFullAccess(context.subscription_status)
+    || !checkSubscription({
+      status: context.subscription_status,
+      pastDueAt: context.account_past_due_at,
+      accountFlags: context.account_flags,
+      workerType: 'publisher',
+    }).allowed
   ) {
     await markOutboxCompleted(sql, outboxId, attempt);
     return;

@@ -21,6 +21,7 @@ import { isOrphanMarker } from '../../../src/lib/publishing/orphan-markers';
 import { maybeCaptureActivationCompleted } from './activation';
 import { downgradeAutoApprovedResponseForManualReview } from './auto-policy-downgrade';
 import { enforceElapsedVetoWindow } from './veto-window-gate';
+import { applyJudgeGate } from './judge-gate';
 import { markPostedAndMaybeEnqueueAutoPostNotice } from './mark-posted';
 import { isHeldForModerationReview } from './held-flag-gate';
 
@@ -122,6 +123,16 @@ export async function handlePublishResponse(
       return;
     }
     if (vetoGate === 'completed') return;
+
+    const judgeGate = await applyJudgeGate(sql, {
+      responseId: response_id,
+      businessId,
+      outboxId,
+      outboxAttempt,
+      correlationId: job.data.correlation_id,
+      logger,
+    });
+    if (judgeGate === 'downgraded') return;
   }
 
   // ── Archived-location terminal ──────────────────────────────────────

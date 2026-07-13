@@ -590,3 +590,20 @@ over the body, WS4/WS5 convention.)
   `evidence.verdict_id` in the same transaction's `judge_flag` suspension;
   otherwise the store's boolean-only conflict contract gives the caller no
   reliable ID to correlate without an extra read.
+- **§2.4/§2.5/§2.8 subscription eligibility (Task 6 review):** CLAUDE invariant
+  #11 overrides the body text that limits Judge processing and health to
+  `active`/`trialing`. The sweep and health scans use one shared SQL predicate
+  matching publisher eligibility: `active`, `trialing`, and `past_due` during
+  the unexpired seven-day grace (or a valid unexpired admin extension). The
+  JudgeWorker revalidates the same rule through canonical
+  `checkSubscription(..., workerType: 'publisher')`. Missing/expired grace,
+  `cancelled`, and `pending_payment` remain ineligible. This keeps the watchdog
+  population coherent with responses the publisher is still permitted to post.
+  Extension timestamps use one exact server-generated format in TypeScript and
+  SQL: the UTC-millisecond string emitted by `Date.toISOString()`
+  (`YYYY-MM-DDTHH:mm:ss.SSSZ`). Offsets, other fractional widths, impossible
+  calendar/time values, date-only and PostgreSQL-only values fail closed. The
+  PostgreSQL-15-compatible SQL predicate uses a fixed-width regex, nested lazy
+  `CASE` branches, and exception-free Gregorian leap/month arithmetic before a
+  fixed-width UTC string comparison; it performs no timestamp cast. Thus one
+  malformed account cannot abort a fleet sweep or health scan.

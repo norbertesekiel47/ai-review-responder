@@ -11,6 +11,7 @@ import {
   insertJudgeVerdict,
   listUnjudgedAutoPosts,
 } from '../judge-store';
+import { PAST_DUE_EXTENSION_TIMESTAMP_PATTERN } from '@/lib/shared/past-due-recovery';
 
 const verdictInput = {
   accountId: 'account-1',
@@ -108,7 +109,30 @@ describe('judge verdict store', () => {
     );
     expect(query.text).toContain('ORDER BY r.posted_at ASC, r.id ASC');
     expect(query.text).toContain('LIMIT ?');
-    expect(query.values).toEqual([24, 'active', 'trialing', 'judge_verdict', 50]);
+    expect(query.text).toContain('a.past_due_at > NOW() - make_interval');
+    expect(query.text).toContain("a.flags->'past_due_extension'");
+    expect(query.text).toContain("NOW() AT TIME ZONE 'UTC'");
+    expect(query.text).toContain('substring');
+    expect(query.text).not.toContain('pg_input_is_valid');
+    expect(query.text).not.toContain('::timestamptz');
+    const daysTypeCheck = query.text.indexOf(
+      "jsonb_typeof(a.flags->'past_due_extension'->'days') = 'number'",
+    );
+    const daysCast = query.text.indexOf("->>'days')::numeric", daysTypeCheck);
+    const lazyDaysBranch = query.text.indexOf('THEN CASE', daysTypeCheck);
+    expect(daysTypeCheck).toBeGreaterThan(-1);
+    expect(lazyDaysBranch).toBeGreaterThan(daysTypeCheck);
+    expect(daysCast).toBeGreaterThan(lazyDaysBranch);
+    expect(query.values).toEqual([
+      24,
+      'active',
+      'trialing',
+      'past_due',
+      7,
+      PAST_DUE_EXTENSION_TIMESTAMP_PATTERN,
+      'judge_verdict',
+      50,
+    ]);
   });
 
   it.each([
