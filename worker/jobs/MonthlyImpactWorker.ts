@@ -143,6 +143,7 @@ async function loadMonthlyStats(
   const [respondedCount] = await db<{ count: string }[]>`
     SELECT COUNT(DISTINCT r.id)::text AS count FROM reviews r
     JOIN responses resp ON resp.review_id = r.id
+      AND resp.business_id = ${businessId}
       AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
     WHERE r.business_id = ${businessId}
       AND r.detected_at >= ${monthStartDate}::date
@@ -165,6 +166,7 @@ async function loadMonthlyBestReview(
            resp.approved_text AS response_text
     FROM reviews r
     LEFT JOIN responses resp ON resp.review_id = r.id
+      AND resp.business_id = ${businessId}
       AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
     WHERE r.business_id = ${businessId}
       AND r.detected_at >= ${monthStartDate}::date

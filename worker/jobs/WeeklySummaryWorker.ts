@@ -133,6 +133,7 @@ async function loadWeeklyReviewStats(
   const [respondedCount] = await db<{ count: string }[]>`
     SELECT COUNT(DISTINCT r.id)::text AS count FROM reviews r
     JOIN responses resp ON resp.review_id = r.id
+      AND resp.business_id = ${businessId}
       AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
     WHERE r.business_id = ${businessId}
       AND r.detected_at >= ${weekStartDate}::date
@@ -171,13 +172,11 @@ async function loadWeeklyValueInputs(
     LIMIT 30
   `;
   const [avgRow] = await db<{ avg: string }[]>`
-    SELECT COALESCE(
-      (SELECT COUNT(*)::float / 4.0 FROM reviews
-       WHERE business_id = ${businessId}
-         AND detected_at >= (${weekStartDate}::date - INTERVAL '28 days')
-         AND detected_at < ${weekStartDate}::date),
-      0
-    )::text AS avg
+    SELECT COALESCE(COUNT(*)::float / 4.0, 0)::text AS avg
+    FROM reviews
+    WHERE business_id = ${businessId}
+      AND detected_at >= (${weekStartDate}::date - INTERVAL '28 days')
+      AND detected_at < ${weekStartDate}::date
   `;
   const ranking = await loadLatestRankingSummary(db, businessId);
   const cfg = getWorkerConfig();

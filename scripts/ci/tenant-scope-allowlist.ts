@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 378;
+export const ALLOWLIST_BASELINE = 371;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -1384,20 +1384,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Engagement alert worker processes a scheduler-created business aggregate and filters notification/review rows by that businessId.",
   },
   {
-    file: "worker/jobs/MonthlyImpactWorker.ts",
-    table: "responses",
-    sqlSnippet: "SELECT COUNT(DISTINCT r.id)::text AS count FROM reviews r JOIN responses resp ON resp.review_id = r.id AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) WHERE r.business_id = ${businessId} AND r.detected_at >= ${month_start_date}::date AND r.detected_at < ${monthEndDate}::date",
-    category: 'worker-job-scoped',
-    reason: "Summary/report worker processes a business aggregate id and filters review, response, or ranking rows by that businessId.",
-  },
-  {
-    file: "worker/jobs/MonthlyImpactWorker.ts",
-    table: "responses",
-    sqlSnippet: "SELECT r.reviewer_name, r.star_rating, r.review_text, resp.approved_text AS response_text FROM reviews r LEFT JOIN responses resp ON resp.review_id = r.id AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) WHERE r.business_id = ${businessId} AND r.detected_at >= ${month_start_date}::date AND r.detected_at < ${monthEndDate}::date AND r.review_text IS NOT NULL AND r.star_rating IS NOT NULL ORDER BY r.star_rating DESC NULLS LAST, LENGTH(r.review_text) DESC LIMIT 1",
-    category: 'worker-job-scoped',
-    reason: "Summary/report worker processes a business aggregate id and filters review, response, or ranking rows by that businessId.",
-  },
-  {
     file: "worker/jobs/OnboardingDemoWorker.ts",
     table: "accounts",
     sqlSnippet: "SELECT a.subscription_status FROM onboarding_demos od JOIN businesses b ON b.id = od.business_id JOIN accounts a ON a.id = b.account_id WHERE od.id = ${demoId}",
@@ -1433,13 +1419,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Onboarding drip worker first selects a business/account candidate, then uses that business id for report and reminder evidence queries.",
   },
   {
-    file: "worker/jobs/WeeklySummaryWorker.ts",
-    table: "responses",
-    sqlSnippet: "SELECT COUNT(DISTINCT r.id)::text AS count FROM reviews r JOIN responses resp ON resp.review_id = r.id AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) WHERE r.business_id = ${businessId} AND r.detected_at >= ${week_start_date}::date AND r.detected_at < ${weekEndDate}::date",
-    category: 'worker-job-scoped',
-    reason: "Summary/report worker processes a business aggregate id and filters review, response, or ranking rows by that businessId.",
-  },
-  {
     file: "src/lib/admin/business-detail/queries.ts",
     table: "responses",
     sqlSnippet: "WITH notif AS ( SELECT COUNT(DISTINCT nd.response_id)::int AS notified_count, COUNT(DISTINCT nd.response_id) FILTER ( WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) )::int AS approved_count FROM notification_deliveries nd JOIN responses r ON r.id = nd.response_id WHERE nd.business_id = ${businessId} AND nd.template = 'approval_request' AND nd.sent_at IS NOT NULL AND nd.sent_at >= CURRENT_DATE - 30 ), resp AS ( SELECT COUNT(*) FILTER (WHERE rp.status = 'pending_approval')::int AS pending_count, EXTRACT(DAY FROM CURRENT_TIMESTAMP - MAX(rp.approved_at) FILTER (WHERE rp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])) )::int AS days_since_approval, AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0) FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 7)::float AS avg_hours_current, AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0) FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 35 AND rp.created_at < CURRENT_DATE - 7)::float AS avg_hours_prev FROM responses rp WHERE rp.business_id = ${businessId} ) SELECT CASE WHEN COALESCE(n.notified_count, 0) >= 3 THEN n.approved_count::float / NULLIF(n.notified_count, 0) ELSE NULL END AS approval_rate, COALESCE(n.notified_count, 0)::int AS notified_count, COALESCE(r.pending_count, 0)::int AS pending_count, r.days_since_approval, EXTRACT(DAY FROM CURRENT_TIMESTAMP - b.created_at)::int AS account_age_days, r.avg_hours_current, r.avg_hours_prev FROM businesses b CROSS JOIN notif n CROSS JOIN resp r WHERE b.id = ${businessId}",
@@ -1473,13 +1452,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "WITH stuck AS ( SELECT id, business_id FROM responses WHERE business_id = ${businessId} AND status = 'awaiting_owner_connect' ) INSERT INTO job_outbox ( id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts ) SELECT gen_random_uuid(), ${QUEUE_NAMES.PUBLISH_RESPONSE}, 'response', stuck.id, jsonb_build_object('response_id', stuck.id, 'business_id', stuck.business_id), 0, 5 FROM stuck WHERE NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.PUBLISH_RESPONSE} AND jo.aggregate_id = stuck.id AND jo.status IN ('pending', 'dispatching', 'dispatched') ) ON CONFLICT (topic, aggregate_id) WHERE topic = 'publish_response' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
     category: 'worker-job-scoped',
     reason: "Drain owner-connect worker processes a business aggregate id and only enqueues publish work for responses with that businessId.",
-  },
-  {
-    file: "worker/jobs/WeeklySummaryWorker.ts",
-    table: "reviews",
-    sqlSnippet: "SELECT COALESCE( (SELECT COUNT(*)::float / 4.0 FROM reviews WHERE business_id = ${businessId} AND detected_at >= (${week_start_date}::date - INTERVAL '28 days') AND detected_at < ${week_start_date}::date), 0 )::text AS avg",
-    category: 'worker-job-scoped',
-    reason: "Summary/report worker processes a business aggregate id and filters review, response, or ranking rows by that businessId.",
   },
   {
     file: "src/app/api/dashboard/past-replies/[responseId]/restore-original/route.ts",
@@ -1874,20 +1846,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Engagement alert worker processes a scheduler-created business aggregate and filters notification/review rows by that businessId.",
   },
   {
-    file: "worker/jobs/MonthlyImpactWorker.ts",
-    table: "reviews",
-    sqlSnippet: "SELECT r.reviewer_name, r.star_rating, r.review_text, resp.approved_text AS response_text FROM reviews r LEFT JOIN responses resp ON resp.review_id = r.id AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) WHERE r.business_id = ${businessId} AND r.detected_at >= ${month_start_date}::date AND r.detected_at < ${monthEndDate}::date AND r.review_text IS NOT NULL AND r.star_rating IS NOT NULL ORDER BY r.star_rating DESC NULLS LAST, LENGTH(r.review_text) DESC LIMIT 1",
-    category: 'worker-job-scoped',
-    reason: "Summary/report worker processes a business aggregate id and filters review, response, or ranking rows by that businessId.",
-  },
-  {
-    file: "worker/jobs/MonthlyImpactWorker.ts",
-    table: "reviews",
-    sqlSnippet: "SELECT star_rating, review_text FROM reviews WHERE business_id = ${businessId} AND detected_at >= ${month_start_date}::date AND detected_at < ${monthEndDate}::date AND review_text IS NOT NULL AND star_rating IS NOT NULL ORDER BY detected_at DESC LIMIT 30",
-    category: 'worker-job-scoped',
-    reason: "Summary/report worker processes a business aggregate id and filters review, response, or ranking rows by that businessId.",
-  },
-  {
     file: "worker/jobs/OnboardingDripWorker.ts",
     table: "responses",
     sqlSnippet: "SELECT r.reviewer_name, r.star_rating, r.review_text, resp.approved_text FROM responses resp JOIN reviews r ON r.id = resp.review_id WHERE resp.business_id = ${business.id} AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) AND r.review_text IS NOT NULL AND resp.created_at >= ${activatedAt} AND resp.created_at < ${windowEnd} ORDER BY LENGTH(r.review_text) DESC LIMIT 1",
@@ -1914,13 +1872,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT rank_position FROM ranking_snapshots WHERE business_id = ${business.id} AND keyword = ${latestRanking.keyword} AND rank_position IS NOT NULL ORDER BY snapshot_date ASC LIMIT 1",
     category: 'worker-job-scoped',
     reason: "Onboarding drip worker first selects a business/account candidate, then uses that business id for report and reminder evidence queries.",
-  },
-  {
-    file: "worker/jobs/WeeklySummaryWorker.ts",
-    table: "reviews",
-    sqlSnippet: "SELECT star_rating, review_text FROM reviews WHERE business_id = ${businessId} AND detected_at >= ${week_start_date}::date AND detected_at < ${weekEndDate}::date AND review_text IS NOT NULL AND star_rating IS NOT NULL ORDER BY detected_at DESC LIMIT 30",
-    category: 'worker-job-scoped',
-    reason: "Summary/report worker processes a business aggregate id and filters review, response, or ranking rows by that businessId.",
   },
   {
     file: "worker/jobs/summary-report-helpers.ts",

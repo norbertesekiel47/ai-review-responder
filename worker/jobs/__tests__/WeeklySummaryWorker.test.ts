@@ -243,6 +243,23 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     expect(params.baselineResponseRate).toBe(20); // 10/50 * 100
   });
 
+  it('loads the 4-week average from one flat, directly tenant-scoped 28-day reviews query', async () => {
+    pushHappyPathSqlQueue();
+
+    await handleWeeklySummary(makeJob());
+
+    const averageQuery = sqlCalls.find(({ text }) => text.includes('COUNT(*)::float / 4.0'));
+    expect(averageQuery).toBeDefined();
+
+    const normalizedSql = averageQuery!.text.replace(/\s+/g, ' ').trim();
+    expect(normalizedSql.match(/\bSELECT\b/gi)).toHaveLength(1);
+    expect(normalizedSql).not.toMatch(/\b(?:JOIN|EXISTS)\b/i);
+    expect(normalizedSql).toContain('FROM reviews WHERE business_id = ?');
+    expect(normalizedSql).toContain("detected_at >= (?::date - INTERVAL '28 days')");
+    expect(normalizedSql).toContain('detected_at < ?::date');
+    expect(averageQuery!.values).toEqual(['biz-1', '2026-04-06', '2026-04-06']);
+  });
+
   it('records notification delivery with template=weekly_value_report', async () => {
     pushHappyPathSqlQueue();
 
