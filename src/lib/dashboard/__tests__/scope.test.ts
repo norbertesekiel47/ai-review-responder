@@ -18,6 +18,7 @@ function recentPending(n: number): DashboardDataActive['recentReviews'] {
     responseText: 'draft',
     responseStatus: 'pending_approval',
     approvalMethod: null,
+    autoPostScheduledAt: null,
     escalation: null,
   }));
 }

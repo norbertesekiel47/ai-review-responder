@@ -75,6 +75,7 @@ describe('AggregateDashboardContent', () => {
       recentReviews: Array.from({ length: 3 }, (_, i) => ({
         id: `r${i}`, reviewerName: 'X', starRating: 5, reviewText: null, reviewDate: '2026-06-01',
         status: 'pending_approval', responseText: 'd', responseStatus: 'pending_approval', approvalMethod: null,
+        autoPostScheduledAt: null, escalation: null,
         locationId: 'l1', locationDisplayName: 'A',
       })),
     };

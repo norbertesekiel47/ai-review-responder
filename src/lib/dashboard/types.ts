@@ -102,6 +102,8 @@ export interface DashboardDataActive {
     responseText: string | null;
     responseStatus: string | null;
     approvalMethod: ApprovalMethod | null;
+    /** Current auto-post deadline from the latest response; never derived or cached. */
+    autoPostScheduledAt: Date | string | null;
     /** Open Guardian escalation (WS3); null when none. Resolved escalations never surface here. */
     escalation: {
       id: string;
@@ -245,6 +247,14 @@ export interface AggregateReviewItem {
   responseText: string | null;
   responseStatus: string | null;
   approvalMethod: ApprovalMethod | null;
+  /** Current auto-post deadline from the latest response; never derived or cached. */
+  autoPostScheduledAt: Date | string | null;
+  /** Open Guardian escalation; resolved escalations never enter the feed. */
+  escalation: {
+    id: string;
+    status: OpenEscalationStatus;
+    severity: TriageSeverity;
+  } | null;
   locationId: string;
   locationDisplayName: string;
 }

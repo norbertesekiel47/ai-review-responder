@@ -17,6 +17,7 @@ const REVIEWS = [
     responseText: 'Thanks Daniel!',
     responseStatus: 'pending_approval' as string | null,
     approvalMethod: null,
+    autoPostScheduledAt: null,
     escalation: null,
   },
   {
@@ -29,6 +30,7 @@ const REVIEWS = [
     responseText: 'Thank you Sarah!',
     responseStatus: 'posted' as string | null,
     approvalMethod: 'auto_policy' as const,
+    autoPostScheduledAt: null,
     escalation: null,
   },
 ];
@@ -73,6 +75,7 @@ describe('ReviewsCard escalation actions independent of draft state (WS3)', () =
       responseText: null,
       responseStatus: 'pending_approval' as string | null,
       approvalMethod: null,
+      autoPostScheduledAt: null,
       escalation: { id: 'esc-held', status: 'escalated' as const, severity: 'high' as const },
     },
   ];
