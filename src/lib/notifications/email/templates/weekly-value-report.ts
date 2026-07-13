@@ -1,7 +1,7 @@
 // src/lib/notifications/email/templates/weekly-value-report.ts
 //
-// Weekly Value Report — recurring marketing email sent every Monday
-// summarizing the past week's review activity.
+// Recurring Insights agent report sent every Monday with the past week's
+// review activity.
 import { escapeHtml } from '@/lib/shared/html';
 import { renderStars, truncate, escapeHrefUrl } from './shared';
 
@@ -140,7 +140,7 @@ export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): str
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;max-width:600px;width:100%;">
         <tr><td style="padding:32px 24px 0;">
-          <h2 style="margin:0 0 4px;font-size:18px;color:#111;">Weekly Value Report — ${safeName}</h2>
+          <h2 style="margin:0 0 4px;font-size:18px;color:#111;">Your Insights agent's weekly report — ${safeName}</h2>
           <p style="margin:0 0 20px;font-size:14px;color:#666;">${weekRange}</p>
         </td></tr>
         <tr><td style="padding:0 24px;">

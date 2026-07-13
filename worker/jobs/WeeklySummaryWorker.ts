@@ -1,4 +1,5 @@
 import type { Job } from 'bullmq';
+import type { Sql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
@@ -13,6 +14,12 @@ import { HANDLED_STATUSES } from '../../src/lib/shared/response-status';
 import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
 import {
+  completeRun,
+  recordOutcome,
+  recordStep,
+  startOrGetActiveRun,
+} from '../../src/lib/agents/run-spine';
+import {
   buildDashboardUrl,
   calculateBaselineResponseRate,
   completeOrFailSkippedSummaryReport,
@@ -21,6 +28,56 @@ import {
   mapSummaryReviews,
   ownerHasDashboardAuth,
 } from './summary-report-helpers';
+
+export interface CommitWeeklyInsightsDigestInput {
+  accountId: string;
+  businessId: string;
+  weekStartDate: string;
+  correlationId?: string;
+}
+
+export async function commitWeeklyInsightsDigest(
+  db: Sql,
+  input: CommitWeeklyInsightsDigestInput,
+): Promise<boolean> {
+  return db.begin(async (tx) => {
+    const [sent] = await tx<{ id: string }[]>`
+      UPDATE weekly_summaries
+      SET sent_at = NOW()
+      WHERE business_id = ${input.businessId}
+        AND week_start_date = ${input.weekStartDate}::date
+        AND sent_at IS NULL
+      RETURNING id
+    `;
+    if (!sent) return false;
+
+    const { runId } = await startOrGetActiveRun(tx, {
+      kind: 'weekly_insights',
+      subjectType: 'account_week',
+      subjectId: `${input.accountId}_${input.weekStartDate}`,
+      accountId: input.accountId,
+      businessId: input.businessId,
+      correlationId: input.correlationId,
+    });
+    await recordStep(tx, {
+      runId,
+      stepKey: 'digest_sent',
+      detail: {
+        week_start_date: input.weekStartDate,
+        business_id: input.businessId,
+      },
+    });
+    await recordOutcome(tx, {
+      runId,
+      accountId: input.accountId,
+      businessId: input.businessId,
+      outcomeKind: 'digest_sent',
+      attributedAgent: 'insights',
+    });
+    await completeRun(tx, runId, 'completed');
+    return true;
+  });
+}
 
 export async function handleWeeklySummary(
   job: Job<WeeklySummaryPayload>,
@@ -234,12 +291,19 @@ export async function handleWeeklySummary(
     feedbackUrls,
   });
 
-  // ── 9. Mark sent_at just before Resend call (crash-safe) ──────────
-  await sql`
-    UPDATE weekly_summaries
-    SET sent_at = NOW()
-    WHERE business_id = ${businessId} AND week_start_date = ${week_start_date}::date
-  `;
+  // ── 9. Commit the send + Insights attribution before Resend (crash-safe) ──
+  const committedSend = await commitWeeklyInsightsDigest(sql, {
+    accountId: business.account_id,
+    businessId,
+    weekStartDate: week_start_date,
+    correlationId: job.data.correlation_id,
+  });
+
+  if (!committedSend) {
+    logger.log(`Weekly summary for ${businessId} week ${week_start_date} already sent`);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
+    return;
+  }
 
   // ── 10. Send email ────────────────────────────────────────────────
   const weekLabel = `${week_start_date} to ${weekEndDate}`;
@@ -247,7 +311,7 @@ export async function handleWeeklySummary(
   try {
     const result = await sendInternalEmail({
       to: business.owner_email,
-      subject: `Weekly Value Report — ${business.name} (${weekLabel})`,
+      subject: `Your Insights agent's weekly report — ${business.name} (${weekLabel})`,
       bodyHtml: html,
       category: 'marketing',
     });

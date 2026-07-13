@@ -5,6 +5,9 @@ import type { WeeklySummaryPayload } from '../../../src/lib/shared/worker-types'
 // ── Hoisted mock state ───────────────────────────────────────────────
 const {
   sqlReturnQueue,
+  sqlCalls,
+  transactionEvents,
+  spineTxStates,
   mockSql,
   mockMarkOutboxCompleted,
   mockMarkOutboxFailed,
@@ -12,22 +15,56 @@ const {
   mockBuildWeeklyValueReportHtml,
   mockRecordNotificationDelivery,
   mockGenerateReviewSummary,
+  mockStartOrGetActiveRun,
+  mockRecordStep,
+  mockRecordOutcome,
+  mockCompleteRun,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
+  const sqlCalls: { text: string; values: unknown[]; inTransaction: boolean }[] = [];
+  const transactionEvents: string[] = [];
+  const spineTxStates: { operation: string; inTransaction: boolean; tx: unknown }[] = [];
+  let inTransaction = false;
 
-  const mockSql: any = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => {
+  const mockSql: any = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.join('?');
+    sqlCalls.push({ text, values, inTransaction });
+    if (text.includes('SET sent_at = NOW()')) transactionEvents.push('sent_at_flip');
     const result = sqlReturnQueue.shift() ?? [];
     return Promise.resolve(result);
   });
 
-  mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<any>) => cb(mockSql));
+  mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<any>) => {
+    inTransaction = true;
+    try {
+      return await cb(mockSql);
+    } finally {
+      inTransaction = false;
+    }
+  });
+
+  const spineMock = (operation: string) => vi.fn(async (tx: unknown) => {
+    transactionEvents.push(operation);
+    spineTxStates.push({ operation, inTransaction, tx });
+  });
+  const mockStartOrGetActiveRun = vi.fn(async (tx: unknown) => {
+    transactionEvents.push('start_run');
+    spineTxStates.push({ operation: 'start_run', inTransaction, tx });
+    return { runId: 'run-weekly-1', created: true };
+  });
 
   return {
     sqlReturnQueue,
+    sqlCalls,
+    transactionEvents,
+    spineTxStates,
     mockSql,
     mockMarkOutboxCompleted: vi.fn(),
     mockMarkOutboxFailed: vi.fn(),
-    mockSendInternalEmail: vi.fn().mockResolvedValue({ messageId: 'msg-ws-1' }),
+    mockSendInternalEmail: vi.fn(async (_input: Record<string, unknown>) => {
+      transactionEvents.push('send_email');
+      return { messageId: 'msg-ws-1' };
+    }),
     mockBuildWeeklyValueReportHtml: vi.fn((_params: Record<string, unknown>) => '<html>value-report</html>'),
     mockRecordNotificationDelivery: vi.fn(),
     mockGenerateReviewSummary: vi.fn().mockResolvedValue({
@@ -35,6 +72,10 @@ const {
       provider: 'mock' as const,
       costUsd: 0,
     }),
+    mockStartOrGetActiveRun,
+    mockRecordStep: spineMock('record_step'),
+    mockRecordOutcome: spineMock('record_outcome'),
+    mockCompleteRun: spineMock('complete_run'),
   };
 });
 
@@ -53,6 +94,12 @@ vi.mock('../../../src/lib/notifications/delivery', () => ({
 }));
 vi.mock('../../../src/lib/responses/review-summary', () => ({
   generateReviewSummary: mockGenerateReviewSummary,
+}));
+vi.mock('../../../src/lib/agents/run-spine', () => ({
+  startOrGetActiveRun: mockStartOrGetActiveRun,
+  recordStep: mockRecordStep,
+  recordOutcome: mockRecordOutcome,
+  completeRun: mockCompleteRun,
 }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 
@@ -97,6 +144,7 @@ function pushHappyPathSqlQueue(opts: {
   ownerWithAuth?: unknown[];
   upsertRow?: unknown[];
   summaryText?: string | null;
+  sentFlipRow?: unknown[];
 } = {}) {
   sqlReturnQueue.push([makeSummaryReportBusiness(opts.business)]);          // 1. business
   sqlReturnQueue.push([{ count: '5' }]);                                    // 2. review count
@@ -118,13 +166,16 @@ function pushHappyPathSqlQueue(opts: {
   if (!opts.summaryText && (opts.reviewsForSummary === undefined || opts.reviewsForSummary.length > 0)) {
     sqlReturnQueue.push([]);                                                // 12. UPDATE summary_text
   }
-  sqlReturnQueue.push([]);                                                  // 13. UPDATE sent_at
+  sqlReturnQueue.push(opts.sentFlipRow ?? [{ id: 'claimed-id' }]);          // 13. guarded UPDATE sent_at
 }
 
 describe('WeeklySummaryWorker – handleWeeklySummary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sqlReturnQueue.length = 0;
+    sqlCalls.length = 0;
+    transactionEvents.length = 0;
+    spineTxStates.length = 0;
     process.env.RESEND_FROM_EMAIL = 'RepWorth <test@test.com>';
     process.env.NEXT_PUBLIC_APP_URL = 'https://app.repworth.com';
   });
@@ -246,6 +297,10 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockGenerateReviewSummary).not.toHaveBeenCalled();
     expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
+    expect(mockStartOrGetActiveRun).not.toHaveBeenCalled();
+    expect(mockRecordStep).not.toHaveBeenCalled();
+    expect(mockRecordOutcome).not.toHaveBeenCalled();
+    expect(mockCompleteRun).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-ws-1', undefined);
   });
 
@@ -304,15 +359,86 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     expect(params.baselineResponseRate).toBeNull();
   });
 
-  it('sends email with Weekly Value Report subject', async () => {
+  it('labels the email as the Insights agent weekly report', async () => {
     pushHappyPathSqlQueue();
 
     await handleWeeklySummary(makeJob());
 
     expect(mockSendInternalEmail).toHaveBeenCalledOnce();
     const emailArgs = mockSendInternalEmail.mock.calls[0]![0];
-    expect(emailArgs.subject).toContain('Weekly Value Report');
-    expect(emailArgs.subject).toContain('Test Biz');
+    expect(emailArgs.subject).toBe(
+      "Your Insights agent's weekly report — Test Biz (2026-04-06 to 2026-04-13)",
+    );
+  });
+
+  it('commits the digest_sent run spine in the guarded sent_at transaction before sending', async () => {
+    pushHappyPathSqlQueue();
+
+    await handleWeeklySummary(makeJob({ correlation_id: 'corr-weekly-1' }));
+
+    expect(mockSql.begin).toHaveBeenCalledOnce();
+    const sentFlip = sqlCalls.find(({ text }) => text.includes('SET sent_at = NOW()'));
+    expect(sentFlip).toBeDefined();
+    expect(sentFlip!.inTransaction).toBe(true);
+    expect(sentFlip!.text).toContain('AND sent_at IS NULL');
+    expect(sentFlip!.text).toContain('RETURNING id');
+
+    expect(mockStartOrGetActiveRun).toHaveBeenCalledWith(mockSql, {
+      kind: 'weekly_insights',
+      subjectType: 'account_week',
+      subjectId: 'acc-1_2026-04-06',
+      accountId: 'acc-1',
+      businessId: 'biz-1',
+      correlationId: 'corr-weekly-1',
+    });
+    expect(mockRecordStep).toHaveBeenCalledWith(mockSql, {
+      runId: 'run-weekly-1',
+      stepKey: 'digest_sent',
+      detail: {
+        week_start_date: '2026-04-06',
+        business_id: 'biz-1',
+      },
+    });
+    expect(mockRecordOutcome).toHaveBeenCalledWith(mockSql, {
+      runId: 'run-weekly-1',
+      accountId: 'acc-1',
+      businessId: 'biz-1',
+      outcomeKind: 'digest_sent',
+      attributedAgent: 'insights',
+    });
+    expect(mockCompleteRun).toHaveBeenCalledWith(mockSql, 'run-weekly-1', 'completed');
+    expect(spineTxStates).toEqual([
+      { operation: 'start_run', inTransaction: true, tx: mockSql },
+      { operation: 'record_step', inTransaction: true, tx: mockSql },
+      { operation: 'record_outcome', inTransaction: true, tx: mockSql },
+      { operation: 'complete_run', inTransaction: true, tx: mockSql },
+    ]);
+    expect(transactionEvents).toEqual([
+      'sent_at_flip',
+      'start_run',
+      'record_step',
+      'record_outcome',
+      'complete_run',
+      'send_email',
+    ]);
+    const transactionSql = sqlCalls.filter(({ inTransaction }) => inTransaction);
+    expect(transactionSql).toHaveLength(1);
+    expect(transactionSql[0]!.text).not.toMatch(/FROM\s+(?:reviews|businesses)\b/i);
+  });
+
+  it('does not send or write the spine when the guarded sent_at flip loses', async () => {
+    pushHappyPathSqlQueue({ sentFlipRow: [] });
+
+    await handleWeeklySummary(makeJob());
+
+    expect(transactionEvents).toEqual(['sent_at_flip']);
+    expect(mockStartOrGetActiveRun).not.toHaveBeenCalled();
+    expect(mockRecordStep).not.toHaveBeenCalled();
+    expect(mockRecordOutcome).not.toHaveBeenCalled();
+    expect(mockCompleteRun).not.toHaveBeenCalled();
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+    expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-ws-1', undefined);
   });
 
   it('fails outbox on email send error', async () => {

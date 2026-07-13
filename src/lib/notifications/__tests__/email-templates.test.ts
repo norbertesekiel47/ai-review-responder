@@ -128,6 +128,12 @@ describe('buildAccountOffboardingEmailHtml', () => {
 // ── buildWeeklyValueReportHtml ──────────────────────────────────────────
 
 describe('buildWeeklyValueReportHtml', () => {
+  it('labels the report as coming from the Insights agent', () => {
+    const html = buildWeeklyValueReportHtml(baseWeeklyParams());
+    expect(html).toContain("Your Insights agent's weekly report — Acme Bakery");
+    expect(html).not.toContain('Weekly Value Report');
+  });
+
   it('includes value-delivered header with time saved', () => {
     const html = buildWeeklyValueReportHtml(baseWeeklyParams({ totalReviews: 12, totalResponded: 10 }));
     // 10 responded * 7 = 70 minutes

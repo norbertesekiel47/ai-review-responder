@@ -57,6 +57,7 @@ describe('persona map', () => {
     expect(personaForStep('triage')).toBe('guardian');
     expect(personaForStep('escalation_raised')).toBe('guardian');
     expect(personaForStep('escalation_sent')).toBe('guardian');
+    expect(personaForStep('digest_sent')).toBe('insights');
   });
 });
 
