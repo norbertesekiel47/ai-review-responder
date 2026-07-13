@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { OPENAI_MODEL, ANTHROPIC_MODEL, getLlmTask } from '@/lib/llm/tasks';
 import { calculateCostUsd } from '@/lib/costs/audit';
+import { JudgeOutputSchema } from '../judge-schema';
 
 describe('LLM model pinning', () => {
   it('pins the OpenAI model to a dated snapshot (no bare alias)', () => {
@@ -43,5 +44,16 @@ describe('LLM model pinning', () => {
     expect(task.fallback).toEqual({ provider: 'anthropic', model: ANTHROPIC_MODEL });
     expect(task.temperature).toBe(0);
     expect(task.outputSchema).toBeDefined();
+  });
+
+  it('judge task pins both providers and its structured-output limits', () => {
+    const task = getLlmTask('judge');
+    expect(task.taskId).toBe('judge');
+    expect(task.primary).toEqual({ provider: 'openai', model: OPENAI_MODEL });
+    expect(task.primary.model).not.toBe('gpt-4o-mini');
+    expect(task.fallback).toEqual({ provider: 'anthropic', model: ANTHROPIC_MODEL });
+    expect(task.maxTokens).toBe(300);
+    expect(task.temperature).toBe(0);
+    expect(task.outputSchema).toBe(JudgeOutputSchema);
   });
 });

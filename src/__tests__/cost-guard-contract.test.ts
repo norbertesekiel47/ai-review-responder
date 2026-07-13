@@ -26,6 +26,9 @@ const CALLER_ALLOWLIST = new Set([
   // triage tenant (WS2 Guardian) — wraps runLlmTask in withCostGuard with
   // withConcurrency:false (see classifyReviewTriage). WS2 triage Task 6.
   'src/lib/reviews/triage.ts',
+  // post-hoc judge tenant (WS6) — judgeResponse wraps the pinned task with
+  // withConcurrency:false and log-and-return-value finalization.
+  'src/lib/responses/judge.ts',
 ]);
 
 const SCAN_ROOTS = ['src', 'worker'];

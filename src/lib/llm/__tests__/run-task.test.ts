@@ -163,8 +163,8 @@ describe('runLlmTask', () => {
   it('throws for an unregistered task id', async () => {
     const { runLlmTask } = await import('../run-task');
 
-    await expect(runLlmTask('judge', prompt)).rejects.toThrow(
-      'LLM task not registered: judge',
+    await expect(runLlmTask('unregistered' as never, prompt)).rejects.toThrow(
+      'LLM task not registered: unregistered',
     );
     expect(openaiComplete).not.toHaveBeenCalled();
     expect(anthropicComplete).not.toHaveBeenCalled();
