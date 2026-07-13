@@ -39,6 +39,7 @@ import {
   type TxCatchOutcome,
 } from './edit-publish-errors';
 import { supersedeSibling } from './edit-publish-tx';
+import { markPostedAndMaybeEnqueueAutoPostNotice } from './mark-posted';
 
 /** Context the dispatcher (Task 6) materializes before calling this module. */
 export interface EditPublishContext {
@@ -118,6 +119,11 @@ function postedResponseActivationInput(args: {
   };
 }
 
+// Pre-existing complexity swept into changed scope by the §2.9 spine-gap fix
+// (a mechanical guard swap in step 7): the branch count IS the §4.5 per-CATCH
+// outcome table — each cyclomatic edge is one committed disposition, not
+// tangled logic. Splitting it is separate refactor work.
+// fallow-ignore-next-line complexity
 export async function runEditPublishIfApplicable(
   sql: Sql,
   context: EditPublishContext,
@@ -132,6 +138,7 @@ export async function runEditPublishIfApplicable(
     zernioAccountId,
     zernioLocationId,
     zernioReviewId,
+    correlationId,
     logger,
   } = context;
   const publisher = deps.publisher ?? getReviewPublisher(sql);
@@ -185,6 +192,9 @@ export async function runEditPublishIfApplicable(
   const outcomeRef: { value: TxOutcome | null } = { value: null };
 
   try {
+    // Same pre-existing per-CATCH outcome table as the enclosing function
+    // (see the suppression above).
+    // fallow-ignore-next-line complexity
     await sql.begin(async (tx) => {
       // 1. Lock review FIRST — canonical order with processReview
       //    (process-review.ts acquires `reviews FOR UPDATE` first). Locking
@@ -308,6 +318,7 @@ export async function runEditPublishIfApplicable(
             existingPosted,
             postDeleteCommitted,
             lockedIsOrphanRetry,
+            correlationId,
             logger,
           },
           verify409InTx,
@@ -317,22 +328,30 @@ export async function runEditPublishIfApplicable(
         return;
       }
 
-      // 7. Success path. Sibling supersede + candidate posted + clear marker.
+      // 7. Success path. Sibling supersede + candidate posted via the shared
+      // mark-posted checkpoint (WS4 spec §2.9 — closes the WS1 spine gap:
+      // this lane previously flipped to posted without completing the run).
+      // The tx already holds the review lock from step 1, satisfying
+      // mark-posted's ordering contract — its re-lock is an idempotent same-tx
+      // re-acquire. The separate marker-clear UPDATE preserves the old
+      // `posting_error = NULL` behavior that mark-posted's UPDATE does not set.
       if (existingPosted) {
         await supersedeSibling(tx, existingPosted.id);
       }
-      const succ = await tx`
+      await tx`
         UPDATE responses
-        SET status = 'posted',
-            posted_at = NOW(),
-            posting_error = NULL,
-            updated_at = NOW()
-        WHERE id = ${responseId}
-          AND business_id = ${businessId}
-          AND status IN ('approved', 'edited', 'awaiting_owner_connect')
-        RETURNING 1
+        SET posting_error = NULL, updated_at = NOW()
+        WHERE id = ${responseId} AND business_id = ${businessId}
       `;
-      if (succ.count !== 1) {
+      const marked = await markPostedAndMaybeEnqueueAutoPostNotice({
+        tx,
+        responseId,
+        reviewId,
+        businessId,
+        correlationId,
+        logger,
+      });
+      if (!marked.transitioned) {
         throw new Error('candidate_lost_during_publish');
       }
       outcomeRef.value = { kind: 'success' };

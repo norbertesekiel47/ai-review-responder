@@ -111,6 +111,7 @@ function expectNoCallbackMutation() {
   expect(txCalls.some((call) => call.sql.includes('UPDATE responses'))).toBe(false);
   expect(txCalls.some((call) => call.sql.includes('job_outbox'))).toBe(false);
   expect(txCalls.some((call) => call.sql.includes('approval_audit_log'))).toBe(false);
+  expect(txCalls.some((call) => call.sql.includes('agent_outcomes'))).toBe(false);
 }
 
 describe('approveViaCallback', () => {
@@ -119,10 +120,14 @@ describe('approveViaCallback', () => {
   it('happy path: consumes link, revokes siblings, approves response, inserts publish_response + audit', async () => {
     txQueue.push(liveLinkRow());             // SELECT approval_links FOR UPDATE
     txQueue.push(activeAccountRow());        // assertWritableSubscriptionForBusiness
+    txQueue.push([{ review_id: 'rev-1' }]);  // anchor: UNLOCKED responses pre-read (WS4 §2.8)
+    txQueue.push([{ id: 'rev-1' }]);         // anchor: reviews FOR UPDATE (lock-order anchor)
     txQueue.push(pendingResponseRow());      // lockPendingResponse
     txQueue.push(notArchivedBusinessRow());  // archived gate inside lockPendingResponse
     txQueue.push([]);                        // consumeLink UPDATE
     txQueue.push([]);                        // UPDATE responses status=approved
+    txQueue.push([{ id: 'run-1', account_id: 'acc-1' }]); // findActiveReviewRun SELECT
+    txQueue.push([]);                        // agent_outcomes INSERT (reply_approved_no_edit)
     txQueue.push([]);                        // revokeSiblings UPDATE
     txQueue.push([]);                        // INSERT job_outbox publish_response
     txQueue.push([{ account_id: 'acc-1' }]); // resolveAccountIdFromBusiness: SELECT account_id FROM businesses
@@ -150,6 +155,51 @@ describe('approveViaCallback', () => {
     expect((metadata as { chat_handle_hash: string }).chat_handle_hash).toMatch(/^[a-f0-9]{64}$/);
     // "Never both" invariant: Telegram rows must not carry a WhatsApp message_sid.
     expect(metadata).not.toHaveProperty('message_sid');
+
+    // WS4 §2.8: the owner decision lands as a reply_approved_no_edit outcome
+    // on the running run, attributed 'reply'.
+    const outcomeInsert = txCalls.find((c) => c.sql.includes('INSERT INTO agent_outcomes'));
+    expect(outcomeInsert).toBeDefined();
+    expect(outcomeInsert!.params).toContain('reply_approved_no_edit');
+    expect(outcomeInsert!.params).toContain('reply');
+    expect(outcomeInsert!.params).toContain('run-1');
+
+    // Lock-order pin (veto.ts law): link lock → UNLOCKED pre-read → reviews
+    // FOR UPDATE → responses FOR UPDATE, as the statement sequence.
+    expect(txCalls[0]!.sql).toContain('FROM approval_links');
+    expect(txCalls[2]!.sql).toContain('SELECT review_id FROM responses');
+    expect(txCalls[2]!.sql).not.toContain('FOR UPDATE');
+    expect(txCalls[3]!.sql).toContain('FROM reviews');
+    expect(txCalls[3]!.sql).toContain('FOR UPDATE');
+    expect(txCalls[4]!.sql).toContain('FROM responses');
+    expect(txCalls[4]!.sql).toContain('FOR UPDATE');
+  });
+
+  it('records no outcome when the review has no running run, and the approve still succeeds', async () => {
+    txQueue.push(liveLinkRow());             // SELECT approval_links FOR UPDATE
+    txQueue.push(activeAccountRow());        // assertWritableSubscriptionForBusiness
+    txQueue.push([{ review_id: 'rev-1' }]);  // anchor pre-read
+    txQueue.push([{ id: 'rev-1' }]);         // anchor reviews FOR UPDATE
+    txQueue.push(pendingResponseRow());      // lockPendingResponse
+    txQueue.push(notArchivedBusinessRow());  // archived gate
+    txQueue.push([]);                        // consumeLink
+    txQueue.push([]);                        // UPDATE responses approved
+    txQueue.push([]);                        // findActiveReviewRun → no running run
+    txQueue.push([]);                        // revokeSiblings
+    txQueue.push([]);                        // INSERT job_outbox publish_response
+    txQueue.push([{ account_id: 'acc-1' }]); // resolveAccountIdFromBusiness
+    txQueue.push([]);                        // insertAuditLog
+
+    await approveViaCallback(mockSql, {
+      approvalLinkId: 'link-1',
+      chatHandle: '123456789',
+      viaChannel: 'telegram',
+      audit: { providerEventId: '999', ipAddress: '1.2.3.4', telegramUpdateId: 999 },
+    });
+
+    expect(txCalls.some((c) => c.sql.includes('INSERT INTO agent_outcomes'))).toBe(false);
+    expect(txCalls.some((c) => c.sql.includes("SET status = 'approved'"))).toBe(true);
+    expect(txCalls.some((c) => c.sql.includes('job_outbox'))).toBe(true);
   });
 
   it('blocks read-only accounts before consuming links or enqueueing publish work', async () => {
@@ -243,6 +293,8 @@ describe('approveViaCallback', () => {
   it('rejects approve for an archived location and issues no post-guard mutations', async () => {
     txQueue.push(liveLinkRow());          // SELECT approval_links FOR UPDATE
     txQueue.push(activeAccountRow());     // assertWritableSubscriptionForBusiness
+    txQueue.push([{ review_id: 'rev-1' }]); // anchor pre-read
+    txQueue.push([{ id: 'rev-1' }]);      // anchor reviews FOR UPDATE
     txQueue.push(pendingResponseRow());   // lockPendingResponse (claim)
     txQueue.push(archivedBusinessRow());  // archived gate inside the claim → throws
 
@@ -290,6 +342,10 @@ describe('regenerateViaCallback', () => {
       origin_lane: 'regenerate',
       correlation_id: 'upstream-corr-id',
     });
+    // Regenerate is not an owner verdict (WS4 §2.8): no reviews lock-order
+    // anchor, no outcome — statement flow unchanged.
+    expect(txCalls.some((c) => c.sql.includes('FROM reviews'))).toBe(false);
+    expect(txCalls.some((c) => c.sql.includes('agent_outcomes'))).toBe(false);
   });
 
   it('blocks read-only accounts before consuming links or enqueueing regeneration work', async () => {

@@ -133,6 +133,54 @@ export async function claimEscalationNoticeDelivery(sql: Sql, params: {
 }
 
 /**
+ * Insert a pending claim keyed by (response_id, channel, recipient) for
+ * template='pending_post_notice' (WS4 veto window). Returns the new delivery
+ * id, or null when a live claim already exists. ON CONFLICT predicate matches
+ * the partial index `notification_deliveries_pending_post_notice_claim`
+ * (migration 074) BYTE-FOR-BYTE — the 'pending_post_notice' literal must stay
+ * a literal, never a bound param, or Postgres won't recognise the constraint.
+ */
+export async function claimPendingPostNoticeDelivery(sql: Sql, params: {
+  accountId: string;
+  businessId: string;
+  responseId: string;
+  channel: ChannelId;
+  recipient: string;
+}): Promise<string | null> {
+  const id = uuidv7();
+  // Self-reap stale unfinalized claims first: a dispatcher that crashed
+  // between claim and finalize/release leaves a pending row that would
+  // dedup-block every future send of this veto-critical notice. A claim that
+  // is neither sent nor terminally failed after 15 minutes is such an orphan
+  // (a live send finalizes within seconds). The sent_at/failed_at guards
+  // ensure a finalized or terminally-failed row is never reaped. Narrows
+  // known follow-up #3b for the pending_post_notice template.
+  await sql`
+    DELETE FROM notification_deliveries
+    WHERE response_id = ${params.responseId}
+      AND business_id = ${params.businessId}
+      AND channel = ${params.channel}
+      AND recipient = ${params.recipient}
+      AND template = 'pending_post_notice'
+      AND sent_at IS NULL
+      AND failed_at IS NULL
+      AND created_at < NOW() - INTERVAL '15 minutes'
+  `;
+  const claimed = await sql<{ id: string }[]>`
+    INSERT INTO notification_deliveries
+      (id, account_id, business_id, response_id, channel, recipient, template)
+    VALUES
+      (${id}, ${params.accountId}, ${params.businessId}, ${params.responseId},
+       ${params.channel}, ${params.recipient}, 'pending_post_notice')
+    ON CONFLICT (response_id, channel, recipient)
+      WHERE response_id IS NOT NULL AND template = 'pending_post_notice'
+      DO NOTHING
+    RETURNING id
+  `;
+  return claimed.length === 1 ? id : null;
+}
+
+/**
  * Insert a PENDING approval-request delivery claim (sent_at NULL, failed_at
  * NULL) and return its id. The approval dispatcher claims this row BEFORE the
  * provider send so a crash between provider-accept and the delivery record
@@ -167,26 +215,59 @@ export async function insertPendingApprovalDelivery(sql: Sql, params: {
   return id;
 }
 
-/** Finalize a claimed delivery as SENT with the provider message id. */
+/** Minimal warn surface the finalize/fail helpers need from a caller's logger. */
+type DeliveryWarnLogger = { warn(message: string): void };
+
+/**
+ * Finalize a claimed delivery as SENT with the provider message id.
+ *
+ * A 0-row UPDATE is surfaced as an ids-only WARN, never a throw: it means the
+ * claim row was reaped (a >15-minute hung send — see
+ * claimPendingPostNoticeDelivery's self-reap) and possibly re-claimed by a
+ * newer send. The provider send DID succeed, so throwing would make the
+ * caller retry and double-send; the WARN is the signal that a delivery
+ * happened with no surviving row (and a re-claimed duplicate may follow).
+ */
 export async function finalizeDeliverySent(
   sql: Sql,
   deliveryId: string,
   externalMessageId: string,
+  logger?: DeliveryWarnLogger,
 ): Promise<void> {
-  await sql`
+  const res = await sql`
     UPDATE notification_deliveries
     SET external_message_id = ${externalMessageId}, sent_at = NOW()
     WHERE id = ${deliveryId}
   `;
+  if (res.count === 0) {
+    (logger ?? console).warn(
+      `finalizeDeliverySent no-op for delivery ${deliveryId} (provider message ${externalMessageId}) — claim row reaped after a hung send; send succeeded, not retrying`,
+    );
+  }
 }
 
-/** Record a claimed delivery as TERMINALLY failed (kept as the observability row). */
-export async function failDelivery(sql: Sql, deliveryId: string, failureReason: string): Promise<void> {
-  await sql`
+/**
+ * Record a claimed delivery as TERMINALLY failed (kept as the observability
+ * row). Mirrors finalizeDeliverySent's reaped-row handling: a 0-row UPDATE
+ * (claim reaped mid-send) is an ids-only WARN, not a throw — the terminal
+ * failure just goes unrecorded on a row that no longer exists.
+ */
+export async function failDelivery(
+  sql: Sql,
+  deliveryId: string,
+  failureReason: string,
+  logger?: DeliveryWarnLogger,
+): Promise<void> {
+  const res = await sql`
     UPDATE notification_deliveries
     SET failed_at = NOW(), failure_reason = ${failureReason}
     WHERE id = ${deliveryId}
   `;
+  if (res.count === 0) {
+    (logger ?? console).warn(
+      `failDelivery no-op for delivery ${deliveryId} — claim row reaped after a hung send; terminal failure not recorded`,
+    );
+  }
 }
 
 /**

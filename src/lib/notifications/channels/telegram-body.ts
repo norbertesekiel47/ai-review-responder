@@ -9,6 +9,7 @@
 // VAL-NOTIF-019: Template prefix escapes brackets, colons, long display_labels.
 
 import { sanitizeLocationLabelForPrefix } from './template-prefix';
+import { formatScheduledPostTime } from './scheduled-post-time';
 import { TRIAGE_ISSUE_LABELS, TRIAGE_SEVERITY_LABELS, type TriageIssue, type TriageSeverity } from '@/lib/reviews/triage-schema';
 
 export interface TelegramApprovalParams {
@@ -158,6 +159,56 @@ export function formatEscalationNoticeTelegram(
 
   const inline_keyboard: TelegramInlineButton[][] = [
     [{ text: '📋 Open dashboard', url: p.dashboardUrl }],
+  ];
+
+  return { text, inline_keyboard };
+}
+
+export interface TelegramPendingPostNoticeParams {
+  /** Resolved location label: display_label ?? businesses.name. Always non-null. */
+  locationLabel: string;
+  reviewerName: string;
+  starRating: number;
+  reviewText: string | null;
+  /** The auto-approved draft reply text. */
+  responsePreview: string;
+  /** responses.auto_post_scheduled_at — the veto deadline the copy phrases. */
+  scheduledPostAt: Date;
+  /** Tokenized approve-page link — the single "Review or cancel" CTA. */
+  approveUrl: string;
+  /** Send-time clock for the relative phrasing; injectable for tests. */
+  now?: Date;
+}
+
+/**
+ * Pure formatter for the pending-post notice (WS4 veto window). A single
+ * "Review or cancel" URL button leads to the approve page — no inline
+ * approve/regenerate callbacks (the reply is already approved; the only
+ * decision is view/edit/cancel before the deadline).
+ */
+export function formatPendingPostNoticeTelegram(
+  p: TelegramPendingPostNoticeParams,
+): FormattedApprovalMessage {
+  const location = escapeHtml(sanitizeLocationLabelForPrefix(p.locationLabel));
+  const reviewer = escapeHtml(p.reviewerName);
+  const reviewBody = p.reviewText
+    ? escapeHtml(truncate(p.reviewText, MAX_EMBED))
+    : '(no review text)';
+  const preview = escapeHtml(truncate(p.responsePreview, MAX_EMBED));
+  const { phrase } = formatScheduledPostTime(p.scheduledPostAt, p.now ?? new Date());
+
+  const text = [
+    `<b>[${location}] ⏳ Reply will post automatically</b>`,
+    `Your auto-approved reply to ${reviewer}'s ⭐${p.starRating} review will post automatically at ${phrase} unless you cancel.`,
+    `—`,
+    `"${reviewBody}"`,
+    `—`,
+    `<b>Draft reply:</b>`,
+    preview,
+  ].join('\n');
+
+  const inline_keyboard: TelegramInlineButton[][] = [
+    [{ text: '✏️ Review or cancel', url: p.approveUrl }],
   ];
 
   return { text, inline_keyboard };

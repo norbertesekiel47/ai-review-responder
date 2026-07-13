@@ -1,17 +1,18 @@
 // worker/jobs/publisher/__tests__/edit-publish-candidate-lost.characterization.test.ts
 //
 // BYTE-EXACT characterization pins for the "candidate-lost" guarded UPDATE shape
-// in the edit-publisher error-disposition policy (edit-publish-errors.ts). Three
-// dispositions produce this shape: 409 `matches_our_text` (→ posted) and the two
-// `mismatch` sub-cases (→ superseded, after-DELETE and no-DELETE).
+// in the edit-publisher error-disposition policy (edit-publish-errors.ts). Two
+// dispositions produce this shape: the `mismatch` sub-cases (→ superseded,
+// after-DELETE and no-DELETE). The 409 `matches_our_text` disposition no longer
+// pins here — it routes through the shared mark-posted checkpoint (WS4 §2.9;
+// covered by edit-publish.test.ts), not markCandidateOrThrow.
 //
 // WHY BYTE-EXACT (mirrors flip-enrollment-status.characterization.test.ts): the
-// 2g-2 dedup folds the two whitespace-uniform blocks (matches→posted and
-// mismatch-no-delete→superseded) into ONE fragment-composed helper
-// (`markCandidateOrThrow` in edit-publish-tx.ts) that takes the SET body as a
-// `tx`` fragment. These pins lock the produced SQL `.text` + bound-value order
-// character-for-character so the fold is provably behavior-preserving — they MUST
-// stay green both before and after the refactor.
+// 2g-2 dedup folded the whitespace-uniform blocks into ONE fragment-composed
+// helper (`markCandidateOrThrow` in edit-publish-tx.ts) that takes the SET body
+// as a `tx`` fragment. These pins lock the produced SQL `.text` + bound-value
+// order character-for-character so the fold is provably behavior-preserving —
+// they MUST stay green both before and after the refactor.
 //
 // NOTE (mismatch-after-delete): that block sits one nesting level deeper
 // (`if (postDeleteCommitted)`), so its SQL text carries a 2-space-deeper
@@ -45,6 +46,7 @@ function baseArgs(overrides: Partial<EditPublishCatchArgs> = {}): EditPublishCat
     existingPosted: undefined,
     postDeleteCommitted: false,
     lockedIsOrphanRetry: false,
+    correlationId: undefined,
     logger: mockWorkerLogger() as never,
     ...overrides,
   };
@@ -53,13 +55,6 @@ function baseArgs(overrides: Partial<EditPublishCatchArgs> = {}): EditPublishCat
 const stubVerify409 = (disp: Verify409Disposition) => (async () => disp) as never;
 
 const okRow = () => mkTaggedResult([{ '?column?': 1 }]);
-
-const POSTED_UPDATE_TEXT =
-  "\n      UPDATE responses\n      SET status = 'posted', posted_at = NOW()," +
-  '\n          posting_error = NULL, updated_at = NOW()' +
-  '\n      WHERE id = ?\n        AND business_id = ?' +
-  "\n        AND status IN ('approved', 'edited', 'awaiting_owner_connect')" +
-  '\n      RETURNING 1\n    ';
 
 const SUPERSEDED_NO_DELETE_UPDATE_TEXT =
   "\n      UPDATE responses\n      SET status = 'superseded', updated_at = NOW()" +
@@ -91,23 +86,6 @@ function candidateUpdate() {
 }
 
 describe('candidate-lost guarded UPDATE — byte-exact SQL characterization', () => {
-  it('409 matches_our_text → candidate posted UPDATE (folded into markCandidateOrThrow)', async () => {
-    sqlReturnQueue.push(okRow()); // sibling supersede
-    sqlReturnQueue.push(okRow()); // candidate posted
-
-    await handlePostError(
-      mockSql as never,
-      mockSql as never,
-      new ZernioReplyAlreadyExistsError({ message: '409' }),
-      baseArgs({ existingPosted: { id: 'sib-1' } }),
-      stubVerify409({ disposition: 'matches_our_text', verifierText: 'x' }),
-    );
-
-    const update = candidateUpdate();
-    expect(update.text).toBe(POSTED_UPDATE_TEXT);
-    expect(update.values).toEqual(['resp-1', 'biz-1']);
-  });
-
   it('409 mismatch (no DELETE) → candidate superseded UPDATE (folded into markCandidateOrThrow)', async () => {
     sqlReturnQueue.push(okRow()); // candidate superseded
 

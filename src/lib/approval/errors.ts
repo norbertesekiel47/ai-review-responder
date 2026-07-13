@@ -59,6 +59,20 @@ export class ArchivedLocationError extends ResponseNotPendingError {
   }
 }
 
+/**
+ * Thrown when a veto arrives after the publish outbox row was already claimed
+ * (posting/posted) OR the response left the scheduled auto-post state by
+ * another path (e.g. the kill-switch downgrade already returned it to the
+ * owner's queue). Deliberately non-committal — the caller only learns "this
+ * link can no longer cancel", never a guess about which of those happened.
+ */
+export class VetoTooLateError extends Error {
+  constructor() {
+    super('This link can no longer cancel the post — check the dashboard for current status.');
+    this.name = 'VetoTooLateError';
+  }
+}
+
 export class EmptyEditedResponseError extends Error {
   constructor() {
     super('editedText is required');

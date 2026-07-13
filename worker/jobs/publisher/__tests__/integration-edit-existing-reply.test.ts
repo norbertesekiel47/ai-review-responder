@@ -612,6 +612,94 @@ describeWithDb('HARD-GATE: edit-publisher + recovery against real Postgres', { e
     expect(row!.failed_response_id).toBe(failedId);
     expect(row!.failed_posting_error?.startsWith(DELETE_FAILED_PREFIX)).toBe(true);
   });
+
+  // ── Scenario 6: success path routes through the mark-posted spine checkpoint ─
+  //
+  // WS4 spec §2.9: the edit-publish success flip previously bypassed
+  // markPostedAndMaybeEnqueueAutoPostNotice, leaving the review's agent run
+  // `running` forever. This drives the REAL tx end-to-end: run completed with
+  // the reply_posted step + outcome, open approval links revoked, and — since
+  // the edit lane is owner-approved — NO auto_post_notice FYI enqueued.
+  it('6. DELETE ok + POST ok with a RUNNING run → run completed w/ reply_posted step + outcome, links revoked, no FYI', async () => {
+    const { seed, postedResponseId } = await seedReviewWithExistingReply();
+    const candidateId = await insertCandidate(seed, { status: 'approved', version: 2 });
+
+    const runId = uuidv7();
+    await sql`
+      INSERT INTO agent_runs (id, account_id, business_id, kind, subject_type, subject_id, status)
+      VALUES (${runId}, ${seed.accountId}, ${seed.businessId}, 'review_handler', 'review', ${seed.reviewId}, 'running')
+    `;
+    const linkId = uuidv7();
+    await sql`
+      INSERT INTO approval_links (id, response_id, business_id, token_hash, channel)
+      VALUES (${linkId}, ${candidateId}, ${seed.businessId}, ${`edit-int-hash-${randomUUID()}`}, 'email')
+    `;
+
+    mockDeleteReply.mockReset().mockResolvedValueOnce(undefined);
+    mockPostReply.mockReset().mockResolvedValueOnce({ comment: 'ok' });
+
+    const result = await runEditPublishIfApplicable(sql, buildContext(seed, candidateId, null));
+    expect(result).toMatchObject({ outcome: 'completed' });
+
+    const candidate = await getResponse(candidateId);
+    expect(candidate?.status).toBe('posted');
+    expect(candidate?.posting_error).toBeNull();
+    expect(candidate?.posted_at).not.toBeNull();
+    const sibling = await getResponse(postedResponseId);
+    expect(sibling?.status).toBe('superseded');
+
+    const [run] = await sql<{ status: string; ended_at: Date | null }[]>`
+      SELECT status, ended_at FROM agent_runs WHERE id = ${runId}
+    `;
+    expect(run?.status).toBe('completed');
+    expect(run?.ended_at).not.toBeNull();
+
+    const steps = await sql<{ step_key: string; attributed_agent: string }[]>`
+      SELECT step_key, attributed_agent FROM agent_run_steps WHERE agent_run_id = ${runId}
+    `;
+    expect(steps.map((s) => s.step_key)).toEqual(['reply_posted']);
+    expect(steps[0]!.attributed_agent).toBe('reply');
+
+    const outcomes = await sql<{ outcome_kind: string }[]>`
+      SELECT outcome_kind FROM agent_outcomes WHERE agent_run_id = ${runId}
+    `;
+    // Owner lane: reply_posted only — never reply_auto_posted.
+    expect(outcomes.map((o) => o.outcome_kind)).toEqual(['reply_posted']);
+
+    const [link] = await sql<{ revoked_at: Date | null }[]>`
+      SELECT revoked_at FROM approval_links WHERE id = ${linkId}
+    `;
+    expect(link?.revoked_at).not.toBeNull();
+
+    const fyi = await sql`
+      SELECT id FROM job_outbox WHERE topic = 'auto_post_notice' AND aggregate_id = ${candidateId}
+    `;
+    expect(fyi.length).toBe(0);
+  });
+
+  // ── Scenario 7: legacy review with NO run still publishes, zero spine writes ─
+  it('7. DELETE ok + POST ok with NO run (legacy review) → posted, zero spine writes', async () => {
+    const { seed, postedResponseId } = await seedReviewWithExistingReply();
+    const candidateId = await insertCandidate(seed, { status: 'approved', version: 2 });
+
+    mockDeleteReply.mockReset().mockResolvedValueOnce(undefined);
+    mockPostReply.mockReset().mockResolvedValueOnce({ comment: 'ok' });
+
+    const result = await runEditPublishIfApplicable(sql, buildContext(seed, candidateId, null));
+    expect(result).toMatchObject({ outcome: 'completed' });
+
+    expect((await getResponse(candidateId))?.status).toBe('posted');
+    expect((await getResponse(postedResponseId))?.status).toBe('superseded');
+
+    const runs = await sql`
+      SELECT id FROM agent_runs WHERE subject_type = 'review' AND subject_id = ${seed.reviewId}
+    `;
+    expect(runs.length).toBe(0);
+    const outcomes = await sql`
+      SELECT id FROM agent_outcomes WHERE business_id = ${seed.businessId}
+    `;
+    expect(outcomes.length).toBe(0);
+  });
 });
 
 /** Minimal same-origin POST request (assertSameOrigin is mocked to no-op). */

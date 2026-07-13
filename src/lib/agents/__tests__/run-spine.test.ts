@@ -30,10 +30,10 @@ describe('run-spine constants', () => {
     expect(AGENT_RUN_KINDS).toEqual(['review_handler', 'weekly_insights']);
   });
 
-  it('outcome kinds match migration 071 CHECK', () => {
+  it('outcome kinds match the migration 074 CHECK (071 superset + reply_vetoed_by_owner)', () => {
     expect(AGENT_OUTCOME_KINDS).toEqual([
       'reply_drafted', 'reply_posted', 'reply_auto_posted',
-      'reply_approved_no_edit', 'reply_edited_by_owner',
+      'reply_approved_no_edit', 'reply_edited_by_owner', 'reply_vetoed_by_owner',
       'review_escalated', 'escalation_resolved', 'digest_sent',
     ]);
   });

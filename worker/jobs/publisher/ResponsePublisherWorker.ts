@@ -20,6 +20,7 @@ import { runEditPublishIfApplicable } from './edit-publish';
 import { isOrphanMarker } from '../../../src/lib/publishing/orphan-markers';
 import { maybeCaptureActivationCompleted } from './activation';
 import { downgradeAutoApprovedResponseForManualReview } from './auto-policy-downgrade';
+import { enforceElapsedVetoWindow } from './veto-window-gate';
 import { markPostedAndMaybeEnqueueAutoPostNotice } from './mark-posted';
 import { isHeldForModerationReview } from './held-flag-gate';
 
@@ -87,6 +88,40 @@ export async function handlePublishResponse(
       logger,
     });
     return;
+  }
+
+  // ── Auto-policy notice-delivery gate (spec §2.11) ────────────────────
+  // An unnotified auto-post fails toward the owner — the veto window is only
+  // real if the owner could see it, and only for its FULL duration: the gate
+  // requires a complete veto window elapsed since the FIRST delivered
+  // pending-post notice, pushing the deadline for late deliveries. Zero
+  // DELIVERED notices at publish time ⇒ downgrade to owner review instead of
+  // posting. Placement: this runs BEFORE any external call, so a racing
+  // notice-send between the check and the post is benign (fail-toward-owner:
+  // worst case the owner manually reviews a draft they were just told would
+  // auto-post).
+  if (response.approval_method === APPROVAL_METHOD.AUTO_POLICY) {
+    const vetoGate = await enforceElapsedVetoWindow(sql, {
+      responseId: response_id,
+      businessId,
+      outboxId,
+      outboxAttempt,
+      correlationId: job.data.correlation_id,
+      logger,
+    });
+    if (vetoGate === 'downgrade') {
+      await downgradeAutoApprovedResponseForManualReview(sql, {
+        responseId: response_id,
+        businessId,
+        outboxId,
+        outboxAttempt,
+        correlationId: job.data.correlation_id,
+        reason: 'notice_undelivered',
+        logger,
+      });
+      return;
+    }
+    if (vetoGate === 'completed') return;
   }
 
   // ── Archived-location terminal ──────────────────────────────────────
@@ -177,12 +212,16 @@ export async function handlePublishResponse(
       // Invariant (Codex R2 #2): auto-approval is `live_ingest_new` v1 only, so
       // an `approval_method='auto_policy'` response can NEVER reach the
       // owner-edit / orphan publish writers (edit-publish.ts /
-      // edit-publish-errors.ts) — which therefore do NOT carry the auto-post FYI
-      // logic. Assert HERE, only when actually entering the edit path, so a
-      // first-time auto-approved publish (no posted sibling, no orphan marker)
-      // still falls through to the fresh POST path below. Fail loudly if the
-      // invariant ever breaks; the fix would be to route those writers through
-      // markPostedAndMaybeEnqueueAutoPostNotice too.
+      // edit-publish-errors.ts). Their success paths DO now route through
+      // markPostedAndMaybeEnqueueAutoPostNotice (step 7 since Task 11; the
+      // edit-lane 409 recovery since the WS4 fix round), so the FYI would fire
+      // correctly — this assert remains as defense-in-depth on the spec
+      // invariant itself: an auto_policy row entering the edit lane means the
+      // v1 eligibility gate broke somewhere upstream, which must surface
+      // loudly, not post silently. Assert HERE, only when actually entering
+      // the edit path, so a first-time auto-approved publish (no posted
+      // sibling, no orphan marker) still falls through to the fresh POST path
+      // below.
       if (response.approval_method === APPROVAL_METHOD.AUTO_POLICY) {
         throw new Error(
           `Invariant violation: auto_policy response ${response_id} reached the edit-publish path`,

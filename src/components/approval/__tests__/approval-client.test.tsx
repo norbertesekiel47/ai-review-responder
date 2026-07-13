@@ -360,6 +360,285 @@ describe('ApprovalClient', () => {
     });
   });
 
+  describe('publish busy state (in-flight POST)', () => {
+    // fetch mock where the action POST hangs until the test releases it —
+    // exercises PublishButton's actionLoading branch, which only renders
+    // while the request is genuinely in flight.
+    function stubHangingActionFetch(actionPath: '/approve' | '/edit') {
+      let releaseAction!: (response: Response) => void;
+      const pendingAction = new Promise<Response>((resolve) => {
+        releaseAction = resolve;
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url.endsWith('/session')) {
+            return { ok: true, status: 200, json: async () => ({}) } as Response;
+          }
+          if (url.endsWith(actionPath)) {
+            return pendingAction;
+          }
+          return { ok: true, status: 200, json: async () => REVIEW_DATA } as Response;
+        }),
+      );
+      return (body: unknown) =>
+        releaseAction({ ok: true, status: 200, json: async () => body } as Response);
+    }
+
+    it('shows a disabled "Approving…" pill while the approve POST is in flight', async () => {
+      const releaseApprove = stubHangingActionFetch('/approve');
+      renderClient('raw-token');
+
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Approve & post to Google' }),
+      );
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Tap again to post to Google' }),
+      );
+
+      // While the POST hangs, the pill is a busy indicator — disabled so a
+      // third tap can't double-post.
+      const busyButton = await screen.findByRole('button', { name: 'Approving…' });
+      expect(busyButton).toBeDisabled();
+      expect(busyButton).toHaveAttribute('aria-busy', 'true');
+
+      // Release the in-flight POST so the test ends in a settled state.
+      releaseApprove({ success: true, message: 'Approved.' });
+      expect(await screen.findByText('Response approved!')).toBeInTheDocument();
+    });
+
+    it('shows a disabled "Saving…" pill while the edit POST is in flight', async () => {
+      const releaseEdit = stubHangingActionFetch('/edit');
+      renderClient('raw-token');
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+      fireEvent.change(screen.getByLabelText('Edit your response'), {
+        target: { value: 'Thank you so much, Alex!' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Save & post to Google' }));
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Tap again to post to Google' }),
+      );
+
+      const busyButton = await screen.findByRole('button', { name: 'Saving…' });
+      expect(busyButton).toBeDisabled();
+      expect(busyButton).toHaveAttribute('aria-busy', 'true');
+
+      releaseEdit({ success: true, message: 'Approved with your edits.' });
+      expect(await screen.findByText('Response approved!')).toBeInTheDocument();
+    });
+  });
+
+  describe('scheduled auto-post state (WS4 veto surface)', () => {
+    function scheduledData(overrides?: Record<string, unknown>) {
+      return {
+        ...REVIEW_DATA,
+        response: {
+          ...REVIEW_DATA.response,
+          status: 'approved',
+          approvalMethod: 'auto_policy',
+          autoPostScheduledAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+          ...overrides,
+        },
+      };
+    }
+
+    function stubScheduledFetch(
+      data: unknown,
+      vetoResponse?: { ok: boolean; status: number; body: unknown },
+    ) {
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/session')) {
+          return { ok: true, status: 200, json: async () => ({}) } as Response;
+        }
+        if (url.endsWith('/veto')) {
+          const r = vetoResponse ?? { ok: true, status: 200, body: { result: 'cancelled' } };
+          return { ok: r.ok, status: r.status, json: async () => r.body } as Response;
+        }
+        return { ok: true, status: 200, json: async () => data } as Response;
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      return fetchMock;
+    }
+
+    it('renders a read-only draft with the posting time and a single Cancel auto-post action', async () => {
+      stubScheduledFetch(scheduledData());
+      renderClient('raw-token');
+
+      // Absolute-UTC + relative phrasing, mirroring the notice copy owner.
+      expect(
+        await screen.findByText(/posting automatically at \d{2}:\d{2} utc \(in about \d+ minutes?\)/i),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Cancel auto-post' }),
+      ).toBeInTheDocument();
+      // The draft is read-only: no approve/edit/regenerate actions.
+      expect(
+        screen.queryByRole('button', { name: 'Approve & post to Google' }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+      // The review + draft stay visible for context.
+      expect(screen.getByText(/Alex/)).toBeInTheDocument();
+      expect(screen.getByText('Thanks for visiting.')).toBeInTheDocument();
+    });
+
+    it('POSTs the veto route on cancel and shows the queue-returned confirmation', async () => {
+      const fetchMock = stubScheduledFetch(scheduledData(), {
+        ok: true,
+        status: 200,
+        body: { result: 'cancelled' },
+      });
+      renderClient('raw-token');
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancel auto-post' }));
+
+      expect(await screen.findByText('Auto-post cancelled')).toBeInTheDocument();
+      expect(
+        screen.getByText(/back in your approval queue.*fresh approval link/i),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /dashboard/i })).toHaveAttribute(
+        'href',
+        '/dashboard',
+      );
+      const vetoCall = fetchMock.mock.calls.find((c) => String(c[0]).endsWith('/veto'));
+      expect(vetoCall).toBeDefined();
+      expect(vetoCall?.[1]).toMatchObject({ method: 'POST' });
+    });
+
+    it('sends a single veto POST on a rapid double-click', async () => {
+      const fetchMock = stubScheduledFetch(scheduledData(), {
+        ok: true,
+        status: 200,
+        body: { result: 'cancelled' },
+      });
+      renderClient('raw-token');
+
+      const cancelButton = await screen.findByRole('button', {
+        name: 'Cancel auto-post',
+      });
+      fireEvent.click(cancelButton);
+      fireEvent.click(cancelButton);
+
+      expect(await screen.findByText('Auto-post cancelled')).toBeInTheDocument();
+      expect(
+        fetchMock.mock.calls.filter((c) => String(c[0]).endsWith('/veto')).length,
+      ).toBe(1);
+    });
+
+    it('treats already_cancelled like cancelled (double-tap safe)', async () => {
+      stubScheduledFetch(scheduledData(), {
+        ok: true,
+        status: 200,
+        body: { result: 'already_cancelled' },
+      });
+      renderClient('raw-token');
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancel auto-post' }));
+
+      expect(await screen.findByText('Auto-post cancelled')).toBeInTheDocument();
+    });
+
+    it('shows the non-committal window-closed state on a too_late 409', async () => {
+      stubScheduledFetch(scheduledData(), {
+        ok: false,
+        status: 409,
+        body: { result: 'too_late' },
+      });
+      renderClient('raw-token');
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancel auto-post' }));
+
+      expect(
+        await screen.findByText('This link can no longer cancel the post'),
+      ).toBeInTheDocument();
+      // Non-committal: covers both "posted/posting" and "returned to the
+      // queue by another path" without asserting either.
+      expect(screen.getByText(/check your dashboard for the current status/i)).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Cancel auto-post' }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('keeps Cancel available when the client clock says the window passed — the server decides', async () => {
+      // The client clock is NOT authoritative: a fast device clock must never
+      // hide the owner's only action. The scheduled view renders whenever the
+      // loader said scheduled; a late cancel is settled by the server's 409.
+      stubScheduledFetch(
+        scheduledData({
+          autoPostScheduledAt: new Date(Date.now() - 60_000).toISOString(),
+        }),
+        { ok: false, status: 409, body: { result: 'too_late' } },
+      );
+      renderClient('raw-token');
+
+      const cancelButton = await screen.findByRole('button', {
+        name: 'Cancel auto-post',
+      });
+      expect(
+        screen.queryByText('This link can no longer cancel the post'),
+      ).not.toBeInTheDocument();
+
+      fireEvent.click(cancelButton);
+
+      expect(
+        await screen.findByText('This link can no longer cancel the post'),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Cancel auto-post' }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('keeps a generic action failure inline with the cancel still available', async () => {
+      stubScheduledFetch(scheduledData(), {
+        ok: false,
+        status: 500,
+        body: { error: 'Internal Server Error' },
+      });
+      renderClient('raw-token');
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancel auto-post' }));
+
+      expect(
+        await screen.findByText(/something went wrong on our end/i),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Cancel auto-post' }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('shows a terminal already-posted state instead of actionable approve UI', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/session')) {
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ...REVIEW_DATA,
+          response: { ...REVIEW_DATA.response, status: 'posted' },
+        }),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderClient('raw-token');
+
+    expect(
+      await screen.findByText('This reply has already been posted'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Approve & post to Google' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /dashboard/i })).toHaveAttribute(
+      'href',
+      '/dashboard',
+    );
+  });
+
   it('enforces a maxLength and shows a character counter on the edit textarea', async () => {
     stubFetch();
     renderClient('raw-token');

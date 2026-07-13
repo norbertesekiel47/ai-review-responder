@@ -13,26 +13,33 @@ import type postgres from 'postgres';
 import type { ModerationDecision } from '../../../src/lib/moderation/output-filter';
 import type { GenerationResult } from '../../../src/lib/responses/types';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
+import { resolveDailyCap } from '../../../src/lib/auto-approval/policy';
 import {
   GENERATE_RESPONSE_ORIGIN_LANE,
   type GenerateResponseOriginLane,
 } from '../../../src/lib/shared/worker-types';
 import {
+  enqueuePendingPostNotice,
   enqueuePublishResponse,
   enqueueSendNotification,
 } from '../../../src/lib/shared/job-outbox-helpers';
-import { insertAuditLogAutoPolicy } from '../../../src/lib/approval/audit';
+import {
+  insertAuditLogAutoPolicy,
+  type AutoPolicyAuditMetadata,
+} from '../../../src/lib/approval/audit';
 import {
   findActiveReviewRun,
   recordOutcome,
   recordStep,
 } from '../../../src/lib/agents/run-spine';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
+import { autoApprovalRuntimeEnabled } from '../../../src/lib/auto-approval/flags';
 import {
   type AutoApprovalDecision,
   type AutoApprovalRuntimeState,
   evaluateAutoApprovalCandidate,
   loadAutoApprovalRuntimeState,
+  structurallyBlockedDecision,
 } from './auto-approval';
 
 const RESPONSE_STATUS_PENDING_APPROVAL = 'pending_approval';
@@ -67,39 +74,25 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
   // the final text's cost row is the retry's row.
   const moderatedCostId = retryCostId ?? result.apiCostId;
 
+  // Structural auto-approval candidacy, decidable from env + job inputs alone
+  // (no DB read). Non-candidates skip the businesses FOR UPDATE below AND
+  // loadAutoApprovalRuntimeState: (finding 10) they never re-take the business
+  // lock, so the FK share→exclusive upgrade hazard doesn't exist for them;
+  // (finding 5) a flag-off deploy never reads migration-074 columns.
+  const isAutoApprovalCandidate =
+    autoApprovalRuntimeEnabled()
+    && originLane === GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW
+    && version === 1
+    && !suppressNotification;
+
   await sql.begin(async (tx) => {
-    // Take the review row lock as the transaction's FIRST statement
-    // (run-spine.ts lock-ordering contract). It must precede the responses
-    // INSERT below: that INSERT's FK on review_id takes an implicit
-    // FOR KEY SHARE on the reviews tuple, and upgrading share → FOR UPDATE
-    // later deadlocks against concurrent FOR UPDATE waiters (content-changed
-    // ingest, edit-publish/failed-hook, or another persist for the same
-    // review). Taking FOR UPDATE first subsumes the later KEY SHARE. Bonus:
-    // the auto-approval content-hash re-read further down happens under this
-    // lock, so it cannot race a concurrent content-changed ingest.
-    const [reviewLock] = await tx<{ id: string }[]>`
-      SELECT id FROM reviews
-      WHERE id = ${reviewId} AND business_id = ${businessId}
-      FOR UPDATE
-    `;
-    if (!reviewLock) {
-      // Review not visible to its business — impossible if FKs hold (caller
-      // bug / corrupt state only). The lock no-oped, so the ordering contract
-      // is void for this tx; surface loudly (same posture as mark-posted.ts)
-      // but proceed — control flow is unchanged.
-      Sentry.captureMessage('orphan_response_review', {
-        level: 'warning',
-        extra: {
-          response_id: responseId,
-          review_id: reviewId,
-          business_id: businessId,
-          site: 'persist',
-        },
-      });
-      logger.warn(
-        `Review ${reviewId} not found for business ${businessId} — persist review lock no-oped (response ${responseId})`,
-      );
-    }
+    await acquirePersistLocks(tx, {
+      reviewId,
+      businessId,
+      responseId,
+      isAutoApprovalCandidate,
+      logger,
+    });
 
     await tx`
       INSERT INTO responses (
@@ -135,65 +128,66 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       outputExcerpt: result.responseText.slice(0, 200),
     });
 
-    const activeRun = await findActiveReviewRun(tx, reviewId);
-    if (activeRun) {
-      await recordStep(tx, {
-        runId: activeRun.id,
-        stepKey: 'draft_generated',
-        detail: { response_id: responseId, version },
-      });
-      await recordStep(tx, {
-        runId: activeRun.id,
-        stepKey: 'moderation_checked',
-        status: held ? 'failed' : 'completed',
-        detail: { flagged: moderation.flagged, severity: moderation.severity ?? null, held },
-      });
-      await recordOutcome(tx, {
-        runId: activeRun.id,
-        accountId: activeRun.account_id,
-        businessId,
-        attributedAgent: 'reply',
-        outcomeKind: 'reply_drafted',
-      });
-    }
-
-    // FP: sequential reads on the shared tx after the moderation/hold write in the same sql.begin; runtime-state re-read is ordered against the prior tx writes, not independent.
-    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
-    const runtimeState = await loadAutoApprovalRuntimeState(tx, {
+    const activeRun = await recordDraftSpineCheckpoints(tx, {
       reviewId,
       businessId,
-      accountId,
-    });
-    const autoDecision = evaluateAutoApprovalCandidate({
-      originLane,
+      responseId,
       version,
-      suppressNotification,
-      loadedReviewContentHash,
-      currentReviewContentHash: runtimeState.currentReviewContentHash,
-      currentStarRating: runtimeState.currentStarRating,
-      effectivePolicy: runtimeState.effectivePolicy,
       moderation,
       held,
-      subscriptionStatus: runtimeState.subscriptionStatus,
-      accountPastDueAt: runtimeState.accountPastDueAt,
-      accountFlags: runtimeState.accountFlags,
-      activeLocationNow: runtimeState.activeLocationNow,
-      activeZernioConnectionNow: runtimeState.activeZernioConnectionNow,
-      triageSeverity: runtimeState.triageSeverity,
-      triageSource: runtimeState.triageSource,
     });
 
-    logAutoApprovalFallbackIfNeeded({
-      logger,
-      autoDecision,
-      runtimeState,
-      responseId,
-      reviewId,
-      businessId,
-      version,
-      originLane,
-      moderation,
-    });
+    // Structural non-candidates get their decision without touching the DB:
+    // no runtime-state read (074 columns stay unread on flag-off deploys,
+    // finding 5) and no fallback log — logAutoApprovalFallbackIfNeeded's
+    // isAutoCandidate narrowing requires the live_ingest_new lane AND a
+    // configured policy, and structural blocks either fail the lane check or
+    // (flag off / regen / suppressed) are not the runtime-prerequisite story
+    // that log exists for (spec §15).
+    let runtimeState: AutoApprovalRuntimeState | null = null;
+    let autoDecision: AutoApprovalDecision;
+    if (isAutoApprovalCandidate) {
+      // FP: sequential reads on the shared tx after the moderation/hold write in the same sql.begin; runtime-state re-read is ordered against the prior tx writes, not independent.
+      // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
+      runtimeState = await loadAutoApprovalRuntimeState(tx, {
+        reviewId,
+        businessId,
+        accountId,
+      });
+      autoDecision = evaluateAutoApprovalCandidate({
+        originLane,
+        version,
+        suppressNotification,
+        loadedReviewContentHash,
+        currentReviewContentHash: runtimeState.currentReviewContentHash,
+        currentStarRating: runtimeState.currentStarRating,
+        effectivePolicy: runtimeState.effectivePolicy,
+        moderation,
+        held,
+        subscriptionStatus: runtimeState.subscriptionStatus,
+        accountPastDueAt: runtimeState.accountPastDueAt,
+        accountFlags: runtimeState.accountFlags,
+        activeLocationNow: runtimeState.activeLocationNow,
+        activeZernioConnectionNow: runtimeState.activeZernioConnectionNow,
+        triageSeverity: runtimeState.triageSeverity,
+        triageSource: runtimeState.triageSource,
+        autoApprovedTodayCount: runtimeState.autoApprovedTodayCount,
+      });
+
+      logAutoApprovalFallbackIfNeeded({
+        logger,
+        autoDecision,
+        runtimeState,
+        responseId,
+        reviewId,
+        businessId,
+        version,
+        originLane,
+        moderation,
+      });
+    } else {
+      autoDecision = structurallyBlockedDecision({ originLane, version, suppressNotification });
+    }
 
     // The moderation veto precedes the policy gate: a held draft never reaches
     // the gate, so no policy_gate step is recorded for it. On every other path
@@ -207,37 +201,21 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
     }
 
     if (autoDecision.approved) {
-      // FP: ordered writes inside one sql.begin tx (approve UPDATE → audit log → enqueue publish); parallelizing would break tx ordering.
-      // react-doctor-disable-next-line react-doctor/async-parallel
-      await tx`
-        UPDATE responses
-        SET status = ${RESPONSE_STATUS_APPROVED},
-            approval_method = ${APPROVAL_METHOD.AUTO_POLICY},
-            approved_text = ${result.responseText},
-            approved_at = NOW(),
-            posting_error = NULL,
-            updated_at = NOW()
-        WHERE id = ${responseId}
-          AND business_id = ${businessId}
-          AND status = ${RESPONSE_STATUS_PENDING_APPROVAL}
-      `;
-
-      await insertAuditLogAutoPolicy(tx, {
-        responseId,
-        businessId,
-        responseTextAtApproval: result.responseText,
-        metadata: {
-          ...buildAutoApprovalDecisionSummary({ autoDecision, runtimeState, originLane, moderation, version }),
-          policy_id: runtimeState.effectivePolicy.policyId,
-          star_rating: runtimeState.currentStarRating,
-          correlation_id: correlationId,
-        },
-      });
-
-      await enqueuePublishResponse(tx, {
+      if (!runtimeState) {
+        // Impossible: structurallyBlockedDecision never approves. Fail the tx
+        // rather than approve without the state the approval must record.
+        throw new Error('auto_approval_state_missing_for_approved_decision');
+      }
+      await approveAutoPolicyAndSchedule(tx, {
         responseId,
         businessId,
         correlationId,
+        responseText: result.responseText,
+        version,
+        autoDecision,
+        runtimeState,
+        originLane,
+        moderation,
       });
       return;
     }
@@ -256,6 +234,193 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
   });
 
   return responseId;
+}
+
+/**
+ * Lock preamble for the persist transaction. Runs as the transaction's FIRST
+ * statements on the OPEN transaction `tx` — it must precede the responses
+ * INSERT, so callers may not reorder it after any other tx statement.
+ */
+async function acquirePersistLocks(
+  tx: postgres.TransactionSql,
+  args: {
+    reviewId: string;
+    businessId: string;
+    responseId: string;
+    isAutoApprovalCandidate: boolean;
+    logger: Pick<WorkerLogger, 'warn'>;
+  },
+): Promise<void> {
+  const { reviewId, businessId, responseId, isAutoApprovalCandidate, logger } = args;
+
+  // Take the review row lock as the transaction's FIRST statement
+  // (run-spine.ts lock-ordering contract). It must precede the responses
+  // INSERT below: that INSERT's FK on review_id takes an implicit
+  // FOR KEY SHARE on the reviews tuple, and upgrading share → FOR UPDATE
+  // later deadlocks against concurrent FOR UPDATE waiters (content-changed
+  // ingest, edit-publish/failed-hook, or another persist for the same
+  // review). Taking FOR UPDATE first subsumes the later KEY SHARE. Bonus:
+  // the auto-approval content-hash re-read further down happens under this
+  // lock, so it cannot race a concurrent content-changed ingest.
+  const [reviewLock] = await tx<{ id: string }[]>`
+    SELECT id FROM reviews
+    WHERE id = ${reviewId} AND business_id = ${businessId}
+    FOR UPDATE
+  `;
+  if (!reviewLock) {
+    // Review not visible to its business — impossible if FKs hold (caller
+    // bug / corrupt state only). The lock no-oped, so the ordering contract
+    // is void for this tx; surface loudly (same posture as mark-posted.ts)
+    // but proceed — control flow is unchanged.
+    Sentry.captureMessage('orphan_response_review', {
+      level: 'warning',
+      extra: {
+        response_id: responseId,
+        review_id: reviewId,
+        business_id: businessId,
+        site: 'persist',
+      },
+    });
+    logger.warn(
+      `Review ${reviewId} not found for business ${businessId} — persist review lock no-oped (response ${responseId})`,
+    );
+  }
+
+  // CANDIDATES ONLY: take the businesses row FOR UPDATE before the responses
+  // INSERT below — the INSERT's business_id FK takes an implicit FOR KEY
+  // SHARE on this row, and upgrading share → FOR UPDATE later (the
+  // auto-approval cap count) deadlocks against a concurrent persist for the
+  // same business. Same subsume-the-KEY-SHARE pattern as the reviews lock
+  // above. Also the serialization point for the daily-cap count (spec §2.3).
+  // Structural non-candidates skip it: they never run the cap count, so the
+  // share→exclusive upgrade this lock pre-empts cannot happen for them
+  // (finding 10) — and skipping keeps flag-off persists off the business
+  // row's lock queue entirely.
+  if (isAutoApprovalCandidate) {
+    await tx`
+      SELECT id FROM businesses WHERE id = ${businessId} FOR UPDATE
+    `;
+  }
+}
+
+/**
+ * Run-spine checkpoints for a freshly persisted draft: the draft_generated and
+ * moderation_checked steps plus the reply_drafted outcome. Runs on the OPEN
+ * transaction `tx` so the checkpoints stay atomic with the response INSERT,
+ * mirroring recordModerationAndHold. Returns the active run (null for legacy
+ * reviews ingested before the spine existed) so the caller can record the
+ * later policy_gate step on the same run.
+ */
+async function recordDraftSpineCheckpoints(
+  tx: postgres.TransactionSql,
+  args: {
+    reviewId: string;
+    businessId: string;
+    responseId: string;
+    version: number;
+    moderation: ModerationDecision;
+    held: boolean;
+  },
+): Promise<{ id: string; account_id: string } | null> {
+  const { reviewId, businessId, responseId, version, moderation, held } = args;
+
+  const activeRun = await findActiveReviewRun(tx, reviewId);
+  if (activeRun) {
+    await recordStep(tx, {
+      runId: activeRun.id,
+      stepKey: 'draft_generated',
+      detail: { response_id: responseId, version },
+    });
+    await recordStep(tx, {
+      runId: activeRun.id,
+      stepKey: 'moderation_checked',
+      status: held ? 'failed' : 'completed',
+      detail: { flagged: moderation.flagged, severity: moderation.severity ?? null, held },
+    });
+    await recordOutcome(tx, {
+      runId: activeRun.id,
+      accountId: activeRun.account_id,
+      businessId,
+      attributedAgent: 'reply',
+      outcomeKind: 'reply_drafted',
+    });
+  }
+  return activeRun;
+}
+
+/**
+ * The auto-approval commit for an approved policy decision: flips the response
+ * to approved/auto_policy with the veto-window deadline, writes the durable
+ * approval audit row, and enqueues the delayed publish + the pending-post
+ * notice. Runs on the OPEN transaction `tx` so the approval stays atomic with
+ * the response INSERT (invariant #2/#3), mirroring recordModerationAndHold.
+ */
+async function approveAutoPolicyAndSchedule(
+  tx: postgres.TransactionSql,
+  args: {
+    responseId: string;
+    businessId: string;
+    correlationId: string | undefined;
+    responseText: string;
+    version: number;
+    autoDecision: AutoApprovalDecision;
+    runtimeState: AutoApprovalRuntimeState;
+    originLane: GenerateResponseOriginLane | null;
+    moderation: ModerationDecision;
+  },
+): Promise<void> {
+  const {
+    responseId, businessId, correlationId, responseText, version,
+    autoDecision, runtimeState, originLane, moderation,
+  } = args;
+  const vetoWindowMinutes = runtimeState.effectivePolicy.vetoWindowMinutes;
+
+  // FP: ordered writes inside one sql.begin tx (approve UPDATE → audit log → enqueue publish + notice); parallelizing would break tx ordering.
+  // react-doctor-disable-next-line react-doctor/async-parallel
+  const [scheduled] = await tx<{ auto_post_scheduled_at: Date }[]>`
+    UPDATE responses
+    SET status = ${RESPONSE_STATUS_APPROVED},
+        approval_method = ${APPROVAL_METHOD.AUTO_POLICY},
+        approved_text = ${responseText},
+        approved_at = NOW(),
+        auto_post_scheduled_at = NOW() + make_interval(mins => ${vetoWindowMinutes}),
+        posting_error = NULL,
+        updated_at = NOW()
+    WHERE id = ${responseId}
+      AND business_id = ${businessId}
+      AND status = ${RESPONSE_STATUS_PENDING_APPROVAL}
+    RETURNING auto_post_scheduled_at
+  `;
+  if (!scheduled) {
+    // Guarded UPDATE lost a race — roll the tx back; generation-job retry semantics cover it.
+    throw new Error('auto_approve_transition_lost');
+  }
+
+  await insertAuditLogAutoPolicy(tx, {
+    responseId,
+    businessId,
+    responseTextAtApproval: responseText,
+    metadata: {
+      ...buildAutoApprovalDecisionSummary({ autoDecision, runtimeState, originLane, moderation, version }),
+      policy_id: runtimeState.effectivePolicy.policyId,
+      star_rating: runtimeState.currentStarRating,
+      veto_window_minutes: vetoWindowMinutes,
+      correlation_id: correlationId,
+    },
+  });
+
+  // availableAt is the DB-clock-derived deadline the UPDATE just stamped,
+  // so the outbox delay window and the owner-visible deadline agree —
+  // postgres.js Dates carry ms precision, so this bind can differ from
+  // the stored timestamptz; the difference is sub-ms, absorbed by the
+  // poller cadence.
+  await enqueuePublishResponse(tx, {
+    responseId,
+    businessId,
+    correlationId,
+    availableAt: scheduled.auto_post_scheduled_at,
+  });
+  await enqueuePendingPostNotice(tx, { responseId, businessId, correlationId });
 }
 
 function logAutoApprovalFallbackIfNeeded(input: {
@@ -307,6 +472,35 @@ function logAutoApprovalFallbackIfNeeded(input: {
 }
 
 /**
+ * Compile-time drift tripwire for the decision summary: every key it emits
+ * must exist on AutoPolicyAuditMetadata (src/lib/approval/audit.ts), whose
+ * deny-by-default compactor only persists allowlisted keys. Annotating the
+ * summary as a Pick of that interface means a future summary key that skips
+ * the interface + AUTO_POLICY_METADATA_KEYS fails to compile here instead of
+ * being silently dropped from the durable approval_audit_log row.
+ */
+type AutoApprovalDecisionSummary = Pick<
+  AutoPolicyAuditMetadata,
+  | 'policy_source'
+  | 'resolved_min_star'
+  | 'origin_lane'
+  | 'response_version'
+  | 'provider_status'
+  | 'review_content_hash_matched'
+  | 'publisher_subscription_allowed'
+  | 'publisher_subscription_reason'
+  | 'active_zernio_connection'
+  | 'active_location'
+  | 'triage_severity'
+  | 'triage_source'
+  | 'daily_cap'
+  | 'auto_approved_today'
+  | 'policy_suspended'
+  | 'runtime_enabled'
+  | 'provider_moderation_enabled'
+>;
+
+/**
  * The resolved auto-approval decision facts shared by the durable approval
  * audit row and the sanitized fallback log — one owner so the two sinks can
  * never drift. Carries no review/response text or raw hashes, so it is safe to
@@ -318,7 +512,7 @@ function buildAutoApprovalDecisionSummary(input: {
   originLane: GenerateResponseOriginLane | null;
   moderation: ModerationDecision;
   version: number;
-}) {
+}): AutoApprovalDecisionSummary {
   const { autoDecision, runtimeState, originLane, moderation, version } = input;
   return {
     policy_source: runtimeState.effectivePolicy.source,
@@ -335,6 +529,9 @@ function buildAutoApprovalDecisionSummary(input: {
     active_location: runtimeState.activeLocationNow,
     triage_severity: runtimeState.triageSeverity,
     triage_source: runtimeState.triageSource,
+    daily_cap: resolveDailyCap(runtimeState.effectivePolicy),
+    auto_approved_today: runtimeState.autoApprovedTodayCount,
+    policy_suspended: runtimeState.effectivePolicy.suspended,
     runtime_enabled: autoDecision.runtimeEnabled,
     provider_moderation_enabled: autoDecision.providerModerationEnabled,
   };

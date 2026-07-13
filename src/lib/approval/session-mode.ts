@@ -28,6 +28,7 @@ import {
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
 import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
 import { enqueueGenerateResponse, enqueuePublishResponse } from '@/lib/shared/job-outbox-helpers';
+import { anchorReviewLockOrder, recordOwnerDecisionOutcome } from './outcomes';
 
 type TxClient = postgres.TransactionSql;
 
@@ -73,6 +74,7 @@ export async function approveBySession(
   audit: SessionAuditContext,
   correlationId?: string,
 ): Promise<void> {
+  await anchorReviewLockOrder(tx, responseId, businessId);
   const resp = await lockPendingResponse(tx, responseId);
   await revokeOpenLinksForResponse(tx, responseId);
 
@@ -86,6 +88,12 @@ export async function approveBySession(
     WHERE id = ${responseId}
       AND business_id = ${businessId}
   `;
+
+  await recordOwnerDecisionOutcome(tx, {
+    reviewId: resp.review_id,
+    businessId,
+    outcomeKind: 'reply_approved_no_edit',
+  });
 
   await enqueuePublishResponse(tx, {
     responseId,
@@ -113,6 +121,7 @@ export async function editBySession(
   const sanitizedText = sanitizePublicResponseText(editedText);
   if (sanitizedText.length === 0) throw new EmptyEditedResponseError();
 
+  await anchorReviewLockOrder(tx, responseId, businessId);
   const resp = await lockPendingResponse(tx, responseId);
   await revokeOpenLinksForResponse(tx, responseId);
 
@@ -130,6 +139,12 @@ export async function editBySession(
     WHERE id = ${responseId}
       AND business_id = ${businessId}
   `;
+
+  await recordOwnerDecisionOutcome(tx, {
+    reviewId: resp.review_id,
+    businessId,
+    outcomeKind: 'reply_edited_by_owner',
+  });
 
   await enqueuePublishResponse(tx, {
     responseId,

@@ -28,7 +28,7 @@ export const AGENT_RUN_KINDS = ['review_handler', 'weekly_insights'] as const;
 
 export const AGENT_OUTCOME_KINDS = [
   'reply_drafted', 'reply_posted', 'reply_auto_posted',
-  'reply_approved_no_edit', 'reply_edited_by_owner',
+  'reply_approved_no_edit', 'reply_edited_by_owner', 'reply_vetoed_by_owner',
   'review_escalated', 'escalation_resolved', 'digest_sent',
 ] as const;
 export type AgentOutcomeKind = (typeof AGENT_OUTCOME_KINDS)[number];

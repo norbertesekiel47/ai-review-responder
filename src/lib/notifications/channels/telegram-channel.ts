@@ -9,7 +9,12 @@
 //   - Format the message (telegram-body.ts)
 //   - Call Bot API sendMessage (telegram-client.ts)
 
-import { formatApprovalTelegram, formatAutoPostNoticeTelegram, formatEscalationNoticeTelegram } from './telegram-body';
+import {
+  formatApprovalTelegram,
+  formatAutoPostNoticeTelegram,
+  formatEscalationNoticeTelegram,
+  formatPendingPostNoticeTelegram,
+} from './telegram-body';
 import { TelegramClient } from './telegram-client';
 import type {
   NotificationChannel,
@@ -20,6 +25,8 @@ import type {
   SendAutoPostNoticeResult,
   SendEscalationNoticeParams,
   SendEscalationNoticeResult,
+  SendPendingPostNoticeParams,
+  SendPendingPostNoticeResult,
 } from './types';
 
 export class TelegramChannel implements NotificationChannel {
@@ -83,6 +90,31 @@ export class TelegramChannel implements NotificationChannel {
       issues: p.issues,
       isFallback: p.isFallback,
       dashboardUrl: p.dashboardUrl,
+    });
+    const client = new TelegramClient();
+    const result = await client.sendMessage({
+      chat_id: p.handle,
+      text,
+      reply_markup: { inline_keyboard },
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+    });
+    return { status: 'sent', externalMessageId: `${result.chat.id}:${result.message_id}` };
+  }
+
+  // Interface-dispatched via getChannel(id).sendPendingPostNotice in the
+  // pending-post-notice worker (Task 7); fallow's member graph misses
+  // interface dispatch.
+  // fallow-ignore-next-line unused-class-member
+  async sendPendingPostNotice(p: SendPendingPostNoticeParams): Promise<SendPendingPostNoticeResult> {
+    const { text, inline_keyboard } = formatPendingPostNoticeTelegram({
+      locationLabel: p.locationLabel,
+      reviewerName: p.reviewerName,
+      starRating: p.starRating,
+      reviewText: p.reviewText,
+      responsePreview: p.responsePreview,
+      scheduledPostAt: p.scheduledPostAt,
+      approveUrl: p.approveUrl,
     });
     const client = new TelegramClient();
     const result = await client.sendMessage({

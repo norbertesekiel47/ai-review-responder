@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import Link from 'next/link';
 import { LazyMotion, domAnimation, m } from 'motion/react';
+import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
+import { formatScheduledPostTime } from '@/lib/notifications/channels/scheduled-post-time';
 import { AI_DRAFT_DISCLOSURE } from '@/lib/ui/disclosures';
 import { ApprovalErrorState } from './ApprovalErrorState';
 
@@ -24,6 +26,10 @@ interface ReviewData {
     responseText: string;
     version: number;
     status: string;
+    // Scheduled-auto-post surface (WS4 §2.6): an 'approved' + 'auto_policy'
+    // response with a future autoPostScheduledAt renders the veto state.
+    approvalMethod?: string | null;
+    autoPostScheduledAt?: string | null;
   };
   businessName: string;
   locationLabel: string;
@@ -242,6 +248,10 @@ const GHOST_BTN =
 // as a deliberate, distinct action — white label stays AA on the darker fill.
 const CONFIRM_BTN =
   'flex-1 rounded-full bg-rw-teal-darkest px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-rw-teal-darkest/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-darkest focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+// Destructive fill for the single cancel-auto-post action. Full-width (not
+// flex-1) — it is the only button in its view, never part of a button row.
+const DESTRUCTIVE_BTN =
+  'w-full rounded-full bg-rw-red-600 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-rw-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-red-600 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
 
 function LoadingSpinner() {
   return (
@@ -309,6 +319,230 @@ function SuccessView({
           Manage reviews in your dashboard →
         </Link>
       </m.div>
+    </LazyMotion>
+  );
+}
+
+// Quiet secondary dashboard link shared by the terminal veto/posted states —
+// same demoted treatment as SuccessView (most recipients are logged out).
+function QuietDashboardLink() {
+  return (
+    <Link
+      href="/dashboard"
+      className="mt-6 inline-block rounded-sm text-xs font-semibold text-rw-teal-strong underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong focus-visible:ring-offset-2"
+    >
+      Manage reviews in your dashboard →
+    </Link>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-rw-teal-strong/15">
+      <svg
+        className="size-7 text-rw-teal-strong"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={2.5}
+        stroke="currentColor"
+        aria-hidden="true"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+      </svg>
+    </div>
+  );
+}
+
+// Terminal state for a response that already reached Google. Without this
+// branch a posted response's link fell through to the actionable-looking
+// approve UI, whose actions could only 409.
+function PostedNoticeView() {
+  return (
+    <div role="status" className="text-center">
+      <CheckIcon />
+      <h2 className="text-xl font-medium text-rw-ink">
+        This reply has already been posted
+      </h2>
+      <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-rw-ink-soft">
+        The response is live on your public Google profile. No action is
+        needed — you can safely close this page.
+      </p>
+      <QuietDashboardLink />
+    </div>
+  );
+}
+
+// Confirmation after a successful cancel — also shown for 'already_cancelled'
+// (a double-tap is a success, not an error).
+function VetoCancelledView() {
+  return (
+    <div role="status" aria-live="polite" className="text-center">
+      <CheckIcon />
+      <h2 className="text-xl font-medium text-rw-ink">Auto-post cancelled</h2>
+      <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-rw-ink-soft">
+        Cancelled — the draft is back in your approval queue; we&apos;ve sent
+        you a fresh approval link. Nothing posts unless you approve it.
+      </p>
+      <QuietDashboardLink />
+    </div>
+  );
+}
+
+// The cancel window closed before (or while) the owner acted. Deliberately
+// non-committal: a too-late veto can mean the reply posted / is posting
+// momentarily, OR that the draft went back to the queue by another path
+// (e.g. the auto-approval kill switch) — this page cannot tell which.
+function VetoWindowClosedView() {
+  return (
+    <div role="status" className="text-center">
+      <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-rw-teal-strong/12">
+        <svg
+          className="size-7 text-rw-teal-strong"
+          fill="none"
+          viewBox="0 0 24 24"
+          strokeWidth={2}
+          stroke="currentColor"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="9" />
+          <path strokeLinecap="round" d="M12 7v5l3 3" />
+        </svg>
+      </div>
+      <h2 className="text-xl font-medium text-rw-ink">
+        This link can no longer cancel the post
+      </h2>
+      <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-rw-ink-soft">
+        The cancel window has closed — the reply may already be posted or
+        posting momentarily, or the draft may have returned to your approval
+        queue another way. Check your dashboard for the current status.
+      </p>
+      <QuietDashboardLink />
+    </div>
+  );
+}
+
+type VetoPhase = 'idle' | 'busy' | 'cancelled' | 'too_late';
+
+// Scheduled-auto-post surface (WS4 §2.6): read-only draft + the posting time
+// + ONE destructive cancel action POSTing to the veto route. Self-contained
+// useState machine — deliberately NOT merged into the pending-approval
+// reducer, whose edit/arm/confirm vocabulary does not apply here.
+function ScheduledAutoPostView({
+  token,
+  data,
+  scheduledAt,
+  nowMs,
+  loadError,
+}: {
+  token: string;
+  data: ReviewData;
+  scheduledAt: string;
+  nowMs: number;
+  loadError: string | null;
+}) {
+  const [phase, setPhase] = useState<VetoPhase>('idle');
+  const [error, setError] = useState<string | null>(null);
+  // Same-tick double-click guard, mirroring the pending-approval flow's
+  // actionLockRef: setPhase queues a re-render, so between the first click and
+  // the button becoming disabled a second click can fire. The ref reads
+  // synchronously and closes that gap. (Local ref — this view's state machine
+  // is deliberately separate from the pending-approval reducer.)
+  const actionLockRef = useRef(false);
+
+  if (phase === 'cancelled') return <VetoCancelledView />;
+  // Only the server decides the window is over: a late cancel POST returns
+  // 409/too_late. No client-clock pre-check here — a fast device clock must
+  // never hide the owner's only action while the server window is still open.
+  if (phase === 'too_late') {
+    return <VetoWindowClosedView />;
+  }
+
+  const busy = phase === 'busy';
+  const { phrase } = formatScheduledPostTime(new Date(scheduledAt), new Date(nowMs));
+
+  const handleCancel = async () => {
+    if (actionLockRef.current) return;
+    actionLockRef.current = true;
+    setPhase('busy');
+    setError(null);
+    try {
+      const res = await fetch(`/api/approve/${token}/veto`, {
+        method: 'POST',
+        headers: { 'x-csrf-token': getCsrfToken() },
+      });
+      const json: { result?: string; error?: string } = await res
+        .json()
+        .catch(() => ({}));
+      // 'already_cancelled' is a success: someone (or an earlier tap) already
+      // returned the draft to the queue — show the same confirmation.
+      if (res.ok && (json.result === 'cancelled' || json.result === 'already_cancelled')) {
+        setPhase('cancelled');
+        return;
+      }
+      if (res.status === 409 && json.result === 'too_late') {
+        setPhase('too_late');
+        return;
+      }
+      setError(friendlyErrorForStatus(res.status, json.error));
+      setPhase('idle');
+    } catch {
+      setError('Something went wrong on our end. Please try again shortly.');
+      setPhase('idle');
+    } finally {
+      actionLockRef.current = false;
+    }
+  };
+
+  return (
+    <LazyMotion features={domAnimation}>
+      <div className="space-y-4">
+        <div className="sr-only" role="status" aria-live="polite">
+          {busy ? 'Cancelling the scheduled post…' : ''}
+        </div>
+
+        {(error ?? loadError) && (
+          <div
+            role="alert"
+            className="rounded-xl border border-rw-red-600/30 bg-rw-red-600/5 p-3 text-sm text-rw-red-700"
+          >
+            {error ?? loadError}
+          </div>
+        )}
+
+        <LocationChip
+          locationLabel={data.locationLabel}
+          isArchived={data.isArchived}
+        />
+
+        <ReviewCard review={data.review} />
+
+        <ResponseCard
+          response={data.response}
+          isEditing={false}
+          editedText=""
+          onEditTextChange={() => {}}
+        />
+
+        <div className="rounded-xl border border-rw-teal/40 bg-rw-teal/10 p-3 text-center text-sm leading-relaxed text-rw-teal-darkest">
+          Posting automatically at {phrase}. If you&apos;re happy with this
+          reply, no action is needed.
+        </div>
+
+        <m.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => void handleCancel()}
+          disabled={busy}
+          aria-busy={busy}
+          className={DESTRUCTIVE_BTN}
+        >
+          {busy ? 'Cancelling…' : 'Cancel auto-post'}
+        </m.button>
+        <p className="text-center text-xs leading-relaxed text-rw-teal-strong">
+          Cancelling returns the draft to your approval queue — nothing posts
+          until you approve it yourself.
+        </p>
+      </div>
     </LazyMotion>
   );
 }
@@ -761,6 +995,31 @@ export default function ApprovalClient({ token }: { token: string }) {
   }
 
   if (!data) return null;
+
+  // Terminal: the reply already reached Google — never render actionable UI.
+  if (data.response.status === 'posted') {
+    return <PostedNoticeView />;
+  }
+
+  // Scheduled auto-post (WS4 §2.6): approved by policy, not yet published —
+  // the only action is the veto. A missing scheduled time in this state means
+  // the window bookkeeping is gone (legacy/edge row) — treat as closed.
+  if (
+    data.response.status === 'approved' &&
+    data.response.approvalMethod === APPROVAL_METHOD.AUTO_POLICY
+  ) {
+    const scheduledAt = data.response.autoPostScheduledAt;
+    if (!scheduledAt) return <VetoWindowClosedView />;
+    return (
+      <ScheduledAutoPostView
+        token={token}
+        data={data}
+        scheduledAt={scheduledAt}
+        nowMs={nowMs}
+        loadError={error}
+      />
+    );
+  }
 
   const { review, response } = data;
   const timeLeft = new Date(data.expiresAt).getTime() - nowMs;

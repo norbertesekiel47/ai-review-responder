@@ -26,7 +26,7 @@ vi.mock('@/lib/shared/churn-score', () => ({
 // no longer import the @/lib/db/server singleton — sql is an explicit
 // parameter (A+ campaign 2b, T4) — so getBusinessDetail is handed the
 // shared mock client directly instead of vi.mock'ing a module import.
-const { mockSql, sqlReturnQueue, resetMockSql } = createMockSql();
+const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql } = createMockSql();
 const sql = mockSql as unknown as Sql;
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -396,6 +396,19 @@ describe('getBusinessDetail — full DTO characterization', () => {
     expect(res.autoApproval.recentPolicyChanges[0]!.eventType).toBe('auto_approval_policy_changed');
     expect(res.autoApproval.readiness.runtimeEnabled).toBe(false);
     expect(res.autoApproval.readiness.blockReasons).toContain('auto_approval_disabled');
+  });
+
+  it('scopes the auto_approval_policies SELECT to the reply/posting persona like every other reader', async () => {
+    const { getBusinessDetail } = await import('@/lib/admin/business-detail-service');
+
+    queueAllResults();
+    await getBusinessDetail(sql, 'biz-abc');
+
+    const policySelect = sqlCalls.find((call) => call.text.includes('FROM auto_approval_policies'));
+    expect(policySelect).toBeDefined();
+    expect(policySelect!.text).toContain('persona = ?');
+    expect(policySelect!.text).toContain('action_class = ?');
+    expect(policySelect!.values).toEqual(expect.arrayContaining(['reply', 'posting']));
   });
 
   it('returns null when the business row is not found (empty batch-1 business query)', async () => {

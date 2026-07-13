@@ -85,6 +85,17 @@ export interface AutoPostNoticePayload extends BasePayload {
 }
 
 /**
+ * PendingPostNoticePayload — emitted ONLY by enqueuePendingPostNotice in the
+ * SAME tx as the auto-approval (WS4 spec §2.7). Drives the "your reply will
+ * post automatically at ~HH:MM" veto-window notice. ids only — the deadline
+ * is read from responses.auto_post_scheduled_at, never duplicated here.
+ */
+export interface PendingPostNoticePayload extends BasePayload {
+  response_id: string;
+  business_id: string;
+}
+
+/**
  * EscalationNoticePayload — emitted ONLY by raiseEscalation
  * (src/lib/escalations/raise.ts) in the same tx that inserts the
  * review_escalations row (WS3 spec §2.2). ids only — never review text.

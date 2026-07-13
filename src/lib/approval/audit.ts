@@ -32,15 +32,30 @@ export interface ApprovalContentSnapshot {
   responseTextAtApproval: string;
 }
 
+// Single owner of the auto-policy audit action literals. The grant action is
+// ALSO the daily-cap accounting predicate (loadAutoApprovalRuntimeState counts
+// approval_audit_log rows with this action) — renaming it is a cap-accounting
+// change, not a cosmetic one.
+export const AUDIT_ACTION_AUTO_APPROVED_BY_POLICY = 'auto_approved_by_policy';
+export const AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH =
+  'auto_policy_revoked_by_kill_switch';
+// Publisher undelivered-notice gate (spec §2.11 fail-toward-owner): an
+// auto-policy row that reaches its publish deadline with ZERO delivered
+// pending-post notices is downgraded to owner review under this action.
+export const AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED =
+  'auto_post_notice_undelivered';
+
 export type AutoPolicyAuditAction =
-  | 'auto_approved_by_policy'
-  | 'auto_policy_revoked_by_kill_switch';
+  | typeof AUDIT_ACTION_AUTO_APPROVED_BY_POLICY
+  | typeof AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH
+  | typeof AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED;
 
 export interface AutoPolicyAuditMetadata {
   policy_id?: string | null;
   policy_source?: PolicySource;
   resolved_min_star?: AutoApprovalThreshold | null;
   star_rating?: number | null;
+  veto_window_minutes?: 15 | 30;
   origin_lane?: GenerateResponseOriginLane | null;
   response_version?: number;
   provider_status?: 'clean' | 'error' | null;
@@ -49,6 +64,13 @@ export interface AutoPolicyAuditMetadata {
   publisher_subscription_reason?: string | null;
   active_zernio_connection?: boolean;
   active_location?: boolean;
+  // WS2/WS4 decision facts — why auto-approval fired (or would have): the
+  // triage verdict consulted and the trust-dial state at decision time.
+  triage_severity?: string | null;
+  triage_source?: string | null;
+  daily_cap?: number;
+  auto_approved_today?: number;
+  policy_suspended?: boolean;
   runtime_enabled?: boolean;
   provider_moderation_enabled?: boolean;
   correlation_id?: string;
@@ -93,6 +115,7 @@ const AUTO_POLICY_METADATA_KEYS = [
   'policy_source',
   'resolved_min_star',
   'star_rating',
+  'veto_window_minutes',
   'origin_lane',
   'response_version',
   'provider_status',
@@ -101,6 +124,11 @@ const AUTO_POLICY_METADATA_KEYS = [
   'publisher_subscription_reason',
   'active_zernio_connection',
   'active_location',
+  'triage_severity',
+  'triage_source',
+  'daily_cap',
+  'auto_approved_today',
+  'policy_suspended',
   'runtime_enabled',
   'provider_moderation_enabled',
   'correlation_id',
@@ -179,10 +207,10 @@ export async function insertAuditLogAutoPolicy(
   tx: TxClient,
   input: AutoPolicyAuditInput,
 ): Promise<void> {
-  const action = input.action ?? 'auto_approved_by_policy';
+  const action = input.action ?? AUDIT_ACTION_AUTO_APPROVED_BY_POLICY;
   // The approval action must carry the response snapshot it attests to;
   // downgrade actions (recorded with no text) are exempt.
-  if (action === 'auto_approved_by_policy' && input.responseTextAtApproval === null) {
+  if (action === AUDIT_ACTION_AUTO_APPROVED_BY_POLICY && input.responseTextAtApproval === null) {
     throw new Error(
       'insertAuditLogAutoPolicy: responseTextAtApproval is required for auto_approved_by_policy rows',
     );

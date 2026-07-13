@@ -41,10 +41,14 @@ import type {
   BusinessMetricsRow,
 } from './queries';
 import type { PolicyRowState } from '@/lib/auto-approval/types';
+import {
+  AUDIT_ACTION_AUTO_APPROVED_BY_POLICY,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH,
+} from '@/lib/approval/audit';
 
-const AUTO_APPROVAL_AUDIT_ACTIONS = new Set([
-  'auto_approved_by_policy',
-  'auto_policy_revoked_by_kill_switch',
+const AUTO_APPROVAL_AUDIT_ACTIONS = new Set<string>([
+  AUDIT_ACTION_AUTO_APPROVED_BY_POLICY,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH,
 ]);
 
 /**
@@ -123,6 +127,9 @@ function toPolicyState(row: AutoApprovalPolicyRow | undefined): PolicyRowState |
     accountId: row.account_id,
     locationId: row.location_id,
     autoApproveMinStar: row.auto_approve_min_star,
+    vetoWindowMinutes: row.veto_window_minutes,
+    dailyAutoPostCap: row.daily_auto_post_cap,
+    suspendedAt: row.suspended_at,
   };
 }
 
@@ -175,6 +182,7 @@ function buildAutoApprovalDiagnostics({
     providerModerationEnabled: moderationEnabled,
     providerModerationValidated: moderationValidated,
     accountWritable: writable.ok,
+    policySuspended: Boolean(accountDefaultState?.suspendedAt),
     previewEnvironment,
   });
 

@@ -12,7 +12,14 @@ const { sqlCalls, sqlQueue, mockSql } = vi.hoisted(() => {
 
 vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
 
-import { recordNotificationDelivery, insertFailedDelivery, claimEscalationNoticeDelivery } from '../delivery';
+import {
+  recordNotificationDelivery,
+  insertFailedDelivery,
+  claimEscalationNoticeDelivery,
+  claimPendingPostNoticeDelivery,
+  finalizeDeliverySent,
+  failDelivery,
+} from '../delivery';
 
 describe('recordNotificationDelivery', () => {
   beforeEach(() => {
@@ -182,5 +189,153 @@ describe('claimEscalationNoticeDelivery', () => {
     sqlQueue.push([]);
     const id = await claim();
     expect(id).toBeNull();
+  });
+});
+
+describe('claimPendingPostNoticeDelivery', () => {
+  beforeEach(() => {
+    sqlCalls.length = 0;
+    sqlQueue.length = 0;
+    mockSql.mockClear();
+  });
+
+  const claim = () => claimPendingPostNoticeDelivery(mockSql, {
+    accountId: 'acct-1',
+    businessId: 'biz-1',
+    responseId: 'resp-1',
+    channel: 'email',
+    recipient: 'owner@example.com',
+  });
+
+  it('INSERTs with the response_id column and the migration-074 ON CONFLICT predicate byte-for-byte', async () => {
+    sqlQueue.push([]);              // self-reap DELETE
+    sqlQueue.push([{ id: 'ignored' }]); // claim INSERT
+    await claim();
+
+    const call = sqlCalls[1]!; // call 0 is the self-reap DELETE
+    const flatTemplate = call.template.replace(/\s+/g, ' ');
+    expect(flatTemplate).toMatch(/INSERT INTO notification_deliveries/);
+    expect(flatTemplate).toContain('response_id');
+    // ON CONFLICT must match notification_deliveries_pending_post_notice_claim
+    // (migration 074) BYTE-FOR-BYTE, template literal included.
+    expect(flatTemplate).toContain(
+      "ON CONFLICT (response_id, channel, recipient) WHERE response_id IS NOT NULL AND template = 'pending_post_notice' DO NOTHING",
+    );
+    expect(call.values).toContain('acct-1');
+    expect(call.values).toContain('biz-1');
+    expect(call.values).toContain('resp-1');
+    expect(call.values).toContain('email');
+    expect(call.values).toContain('owner@example.com');
+    // 'pending_post_notice' stays a literal in the template, never a bound param.
+    expect(call.values).not.toContain('pending_post_notice');
+  });
+
+  it('returns the new delivery id when the claim wins', async () => {
+    sqlQueue.push([]);           // self-reap DELETE
+    sqlQueue.push([{ id: 'row' }]); // claim INSERT
+    const id = await claim();
+    expect(typeof id).toBe('string');
+  });
+
+  it('returns null when a fresh live claim already exists (ON CONFLICT DO NOTHING)', async () => {
+    sqlQueue.push([]); // self-reap DELETE (fresh claim survives — see guard test below)
+    sqlQueue.push([]); // claim INSERT hits the conflict
+    const id = await claim();
+    expect(id).toBeNull();
+  });
+
+  // ── Self-reap of stale unfinalized claims (known follow-up #3b) ─────────
+  // The reap DELETE runs BEFORE the claim INSERT so a dispatcher that crashed
+  // between claim and finalize/release can't dedup-block this veto-critical
+  // notice forever. The guards make it surgical: only rows that are neither
+  // sent nor terminally failed AND older than 15 minutes are removed.
+
+  it('self-reaps stale unfinalized claims BEFORE claiming, scoped to the claim key + staleness guards', async () => {
+    sqlQueue.push([]);           // self-reap DELETE (reaped the orphan)
+    sqlQueue.push([{ id: 'row' }]); // claim INSERT re-acquires
+    const id = await claim();
+    expect(typeof id).toBe('string'); // reaped orphan ⇒ re-claimable
+
+    const reap = sqlCalls[0]!;
+    const flatReap = reap.template.replace(/\s+/g, ' ');
+    expect(flatReap).toMatch(/^\s*DELETE FROM notification_deliveries/);
+    expect(flatReap).toContain("template = 'pending_post_notice'");
+    // Finalized (sent) and terminally-failed rows are NEVER reaped.
+    expect(flatReap).toContain('sent_at IS NULL');
+    expect(flatReap).toContain('failed_at IS NULL');
+    // Fresh claims (an in-flight concurrent send) are NEVER reaped.
+    expect(flatReap).toContain("created_at < NOW() - INTERVAL '15 minutes'");
+    // Scoped to exactly this claim key (+ tenant scope).
+    expect(reap.values).toEqual(['resp-1', 'biz-1', 'email', 'owner@example.com']);
+
+    const insert = sqlCalls[1]!;
+    expect(insert.template).toMatch(/INSERT INTO notification_deliveries/);
+  });
+});
+
+// ── Reaped-row no-ops (finalize-after-reap) ────────────────────────────────
+// A >15-minute hung send can be reaped by claimPendingPostNoticeDelivery's
+// self-reap and re-claimed; the original's finalize/fail then UPDATEs a
+// deleted row. That must WARN (ids-only) and NOT throw — the provider send
+// succeeded, so throwing would retry and double-send.
+
+describe('finalizeDeliverySent / failDelivery reaped-row handling', () => {
+  beforeEach(() => {
+    sqlCalls.length = 0;
+    sqlQueue.length = 0;
+    mockSql.mockClear();
+  });
+
+  const warnLogger = () => ({ warn: vi.fn() });
+
+  it('finalizeDeliverySent warns and does not throw when the claim row was reaped (0 rows)', async () => {
+    sqlQueue.push(Object.assign([], { count: 0 }));
+    const logger = warnLogger();
+
+    await expect(
+      finalizeDeliverySent(mockSql, 'del-1', 'msg-ext-1', logger),
+    ).resolves.toBeUndefined();
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    const message = logger.warn.mock.calls[0]![0] as string;
+    expect(message).toContain('del-1');
+    expect(message).toContain('msg-ext-1');
+  });
+
+  it('finalizeDeliverySent stays silent when the row was updated', async () => {
+    sqlQueue.push(Object.assign([], { count: 1 }));
+    const logger = warnLogger();
+
+    await finalizeDeliverySent(mockSql, 'del-1', 'msg-ext-1', logger);
+
+    expect(logger.warn).not.toHaveBeenCalled();
+    const call = sqlCalls[0]!;
+    expect(call.template).toMatch(/UPDATE notification_deliveries/);
+    expect(call.values).toContain('del-1');
+    expect(call.values).toContain('msg-ext-1');
+  });
+
+  it('failDelivery warns and does not throw when the claim row was reaped (0 rows)', async () => {
+    sqlQueue.push(Object.assign([], { count: 0 }));
+    const logger = warnLogger();
+
+    await expect(
+      failDelivery(mockSql, 'del-2', 'send_error:test', logger),
+    ).resolves.toBeUndefined();
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    const message = logger.warn.mock.calls[0]![0] as string;
+    expect(message).toContain('del-2');
+    // ids-only: the failure reason is not echoed into the warn line.
+    expect(message).not.toContain('send_error:test');
+  });
+
+  it('failDelivery stays silent when the row was updated', async () => {
+    sqlQueue.push(Object.assign([], { count: 1 }));
+    const logger = warnLogger();
+
+    await failDelivery(mockSql, 'del-2', 'send_error:test', logger);
+
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 });

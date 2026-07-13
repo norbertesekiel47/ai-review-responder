@@ -160,11 +160,13 @@ function setResponseLookup(
   sqlQueryTexts.length = 0;
   mockSqlResults.push(rows);          // owner-scoped response lookup
   mockSqlResults.push([accountRow]);  // pre-tx account writable gate
-  // runDashboardReviewAction (in-tx): locks the response (SELECT ... FOR
+  // runDashboardReviewAction (in-tx): takes the reviews lock-order anchor
+  // (FOR UPDATE, tx statement #1), locks the response (SELECT ... FOR
   // UPDATE), checks for an open moderation flag (hasOpenFlag), re-asserts
   // the writable/offboarding gate by business id, and recovers the
   // correlation id — then invokes the action.
-  mockSqlResults.push([]); // SELECT id ... FOR UPDATE
+  mockSqlResults.push([]); // reviews lock-order anchor FOR UPDATE (tx statement #1)
+  mockSqlResults.push([]); // responses SELECT id ... FOR UPDATE
   mockSqlResults.push([]); // hasOpenFlag → no open flag
   mockSqlResults.push([{ id: ACCOUNT_ID, subscription_status: 'active', past_due_at: null, flags: {} }]); // in-tx writable re-assert (business)
   mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]); // recoverCorrelationId
@@ -720,10 +722,11 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
     // The claim threw before any mutation — no responses UPDATE issued.
     expect(sqlQueryTexts.some((text) => /UPDATE\s+responses/i.test(text))).toBe(false);
     // The gate SELECT (FOR SHARE) was the final statement in the transaction:
-    // lookup, account, response FOR UPDATE, hasOpenFlag, writable-business,
-    // correlation, claim responses FOR UPDATE, gate.
+    // lookup, account, reviews lock-order anchor, response FOR UPDATE,
+    // hasOpenFlag, writable-business, correlation, claim responses FOR
+    // UPDATE, gate.
     expect(sqlQueryTexts.some((text) => text.includes('FOR SHARE'))).toBe(true);
-    expect(sqlCallCounter.value).toBe(8);
+    expect(sqlCallCounter.value).toBe(9);
   });
 
   it('returns 404 when no response found', async () => {

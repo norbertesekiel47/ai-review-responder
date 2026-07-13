@@ -10,6 +10,11 @@ import type { ChannelId } from '@/lib/notifications/channels/types';
  * accidents when the dispatcher creates one link per enrolled channel):
  *   'orphaned_only' (default): revoke existing same-channel open links ONLY
  *     if no prior same-channel delivery exists (orphaned from worker crash).
+ *     "Delivered" recognizes BOTH link-carrying templates — approval_request
+ *     AND pending_post_notice (WS4): a link the owner actually received via
+ *     the veto notice is not an orphan, so the veto's re-notify must not
+ *     revoke it (an owner clicking the still-live notice CTA would otherwise
+ *     hit a 410, violating veto.ts's already_cancelled invariant).
  *   'always': revoke all same-channel open links unconditionally (used by
  *     owner-nudge emails which want a fresh email link each time).
  *
@@ -58,7 +63,7 @@ export async function createApprovalLink(
         SELECT id FROM notification_deliveries
         WHERE response_id = ${responseId}
           AND channel = ${channel}
-          AND template = 'approval_request'
+          AND template IN ('approval_request', 'pending_post_notice')
           AND sent_at IS NOT NULL
         LIMIT 1
       `;

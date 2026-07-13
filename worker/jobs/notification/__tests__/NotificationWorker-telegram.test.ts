@@ -268,7 +268,7 @@ describe('NotificationWorker — Telegram blocked recipient', () => {
     expect(updateValues).not.toContain('biz-1');
 
     // Claimed delivery flipped to failed for telegram
-    expect(mockFailDelivery).toHaveBeenCalledWith(mockSql, 'pending-delivery-1', 'telegram_blocked');
+    expect(mockFailDelivery).toHaveBeenCalledWith(mockSql, 'pending-delivery-1', 'telegram_blocked', expect.anything());
 
     // Email must still succeed after telegram failure
     expect(mockEmailSend).toHaveBeenCalledTimes(1);
@@ -330,7 +330,7 @@ describe('NotificationWorker — Telegram chat not found', () => {
     expect(updateValues).not.toContain('biz-1');
 
     // Claimed delivery flipped to failed for telegram
-    expect(mockFailDelivery).toHaveBeenCalledWith(mockSql, 'pending-delivery-1', 'telegram_chat_not_found');
+    expect(mockFailDelivery).toHaveBeenCalledWith(mockSql, 'pending-delivery-1', 'telegram_chat_not_found', expect.anything());
 
     // Email must still succeed after telegram failure
     expect(mockEmailSend).toHaveBeenCalledTimes(1);

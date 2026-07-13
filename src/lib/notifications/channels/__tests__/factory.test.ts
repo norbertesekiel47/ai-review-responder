@@ -1,5 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { getChannel } from '../index';
+import { EmailChannel } from '../email-channel';
+import { TelegramChannel } from '../telegram-channel';
+import { WhatsAppChannel } from '../whatsapp-channel';
+
+describe('NotificationChannel totality — sendPendingPostNotice (WS4)', () => {
+  it('is implemented by all three channels', () => {
+    for (const channel of [new EmailChannel(), new TelegramChannel(), new WhatsAppChannel()]) {
+      expect(typeof channel.sendPendingPostNotice).toBe('function');
+    }
+  });
+});
 
 describe('getChannel', () => {
   it('returns EmailChannel for email regardless of flag state', () => {

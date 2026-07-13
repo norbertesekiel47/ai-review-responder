@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **073** — next migration is **074**
+Current head: **074** — next migration is **075**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -772,6 +772,87 @@ Revisit triggers:
   test Supabase database: first apply creates all objects, second apply is a
   clean no-op (NOTICE-level skips only, zero errors). Apply staging first,
   then production, both Supabase projects in lockstep.
+
+- **074** — WS4 trust dial + veto window schema (spec
+  `docs/superpowers/specs/2026-07-07-ws4-trust-dial-veto-window-design.md`
+  §2.1/§2.2/§2.3/§2.7/§2.8). Six new `auto_approval_policies` columns:
+  `persona` (TEXT NOT NULL DEFAULT `'reply'`) + `action_class` (TEXT NOT NULL
+  DEFAULT `'posting'`) — deliberately single-valued CHECKs today, widened (not
+  redesigned) when Solicitation lands; `veto_window_minutes` (SMALLINT NOT
+  NULL DEFAULT 15, CHECK `IN (15, 30)`); `daily_auto_post_cap` (SMALLINT NULL,
+  CHECK 1..50 — NULL = platform default 10, owned by
+  `DEFAULT_DAILY_AUTO_POST_CAP` in `src/lib/auto-approval/policy.ts`);
+  `suspended_at`/`suspended_reason` (governor kill switch — columns + gate
+  ship now, the WRITER lands in WS6, mirroring how 072 shipped triage columns
+  ahead of WS3's consumer). **Ordering subtlety:** the positive-quadrant data
+  raise (`UPDATE ... SET auto_approve_min_star = 4 WHERE ... < 4` — product
+  unlaunched, user-confirmed, no grandfathering) runs BEFORE the
+  `auto_approve_min_star` CHECK tightens from 1..5 to 4..5; reversing them
+  would fail the ADD CONSTRAINT validation scan on any sub-4 row. Both partial
+  unique indexes are REBUILT (`DROP INDEX IF EXISTS` + CREATE) to include the
+  new scope: `auto_approval_policies_one_account_default` →
+  `(account_id, persona, action_class) WHERE location_id IS NULL`,
+  `auto_approval_policies_one_location_override` →
+  `(account_id, location_id, persona, action_class) WHERE location_id IS NOT
+  NULL` — the ON CONFLICT writers in `src/lib/auto-approval/settings.ts` are
+  updated to match byte-for-byte later in the SAME PR (WS4 Task 12); the
+  rebuild only widens the key, so no existing row can collide. **Apply
+  window (both directions):** apply 074 in the same maintenance window as
+  deploying its PR's code. *074-before-code:* the rebuild drops the indexes
+  the PREVIOUS `settings.ts` upserts' ON CONFLICT clauses infer on, so during
+  the gap `auto_approval_policies` upserts (owner settings save) fail with a
+  no-matching-constraint error; reads and the auto-approval evaluator are
+  unaffected. *Code-before-074:* safe ONLY while `AUTO_APPROVAL_ENABLED` is
+  off — `persist.ts` short-circuits structural non-candidates before any
+  074-column read (no policy SELECT, no runtime-state projection), so a
+  flag-off deploy never touches the new columns; with the flag ON, candidate
+  persists read them and would error against a pre-074 schema. **Staging runs
+  the flag ON — apply 074 to staging BEFORE deploying the code there.**
+  Pre-launch accepted tradeoff — documented explicitly rather than keeping
+  redundant transition indexes. Adds nullable
+  `responses.auto_post_scheduled_at` TIMESTAMPTZ — the veto-window publish
+  deadline, single source of truth for the notice copy, approve-page scheduled
+  state, and veto guard (stamped by `persist.ts` in WS4 Task 5; cleared by the
+  veto downgrade in `src/lib/approval/veto.ts`. The publisher's kill-switch
+  downgrade deliberately does NOT clear it — every consumer keys on
+  `status='approved' AND approval_method='auto_policy'` plus a future
+  deadline, so the stale value is inert). **Cap accounting (spec §2.3, amended
+  §6):** the daily-cap count reads `approval_audit_log` rows
+  (`action='auto_approved_by_policy'`, `created_at >=` UTC day start) —
+  durable, never mutated, written same-tx as the grant — NOT the mutable
+  `responses.approval_method/approved_at` columns, which the veto downgrade
+  NULLs (a responses-based count refunded the slot on every veto). Served by
+  the existing `idx_aal_business (business_id, created_at)` from 002; the
+  originally-planned responses-side partial index
+  `idx_responses_auto_policy_daily_cap` is reader-less and 074 now carries a
+  guarded `DROP INDEX IF EXISTS` for it (cleans DBs that applied an earlier
+  revision of this re-runnable migration). Swaps `agent_outcomes_outcome_kind_check`
+  (`DROP CONSTRAINT IF EXISTS` + ADD, 069 precedent) replicating 071's exact
+  kind list with `'reply_vetoed_by_owner'` appended after its edit sibling — a
+  strict superset, paired with `AGENT_OUTCOME_KINDS` in
+  `src/lib/agents/run-spine.ts` (WS4 Task 8). Two more partial UNIQUE indexes
+  for the `pending_post_notice` topic-clone:
+  `idx_jo_pending_post_notice_inflight` on `job_outbox (topic, aggregate_id)
+  WHERE topic = 'pending_post_notice' AND status IN ('pending', 'dispatching',
+  'dispatched')` ↔ `enqueuePendingPostNotice`'s ON CONFLICT
+  (`src/lib/shared/job-outbox-helpers.ts`, Task 4), and
+  `notification_deliveries_pending_post_notice_claim` on
+  `(response_id, channel, recipient) WHERE response_id IS NOT NULL AND
+  template = 'pending_post_notice'` ↔ `claimPendingPostNoticeDelivery`
+  (`src/lib/notifications/delivery.ts`, Task 6) — both byte-for-byte with
+  their writers, mirroring 067/073; no RI-support index needed (the claim
+  keys on `response_id`, whose plain index exists since 001). No new table →
+  columns ride their tables' existing RLS/offboarding posture. Fully
+  re-runnable (`ADD COLUMN IF NOT EXISTS`, `DROP CONSTRAINT IF EXISTS` before
+  every ADD, `DROP INDEX IF EXISTS` before the rebuilds, `CREATE [UNIQUE]
+  INDEX IF NOT EXISTS`, naturally-idempotent guarded UPDATE); transactional,
+  no CONCURRENTLY (the new partial indexes have zero-row predicates —
+  `pending_post_notice` is a brand-new topic/template — and the
+  policies/responses tables are small pre-launch). Verified via double-apply
+  against the test Supabase database: second apply is a clean no-op
+  (NOTICE-level skips only, zero errors; shape suite
+  `src/lib/shared/__tests__/migration-074-trust-dial-veto-window.integration.test.ts`).
+  Apply staging first, then production, both Supabase projects in lockstep.
 
 ## Key Tables Reference
 

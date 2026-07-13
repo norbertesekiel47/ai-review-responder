@@ -115,6 +115,41 @@ export type SendEscalationNoticeResult =
   | { status: 'sent'; externalMessageId: string }
   | { status: 'skipped'; reason: string };
 
+/**
+ * Params for the pending-post notice (WS4 veto window): "your reply was
+ * auto-approved and will post automatically at ~HH:MM — review or cancel."
+ * ONE action link (`approveUrl`, a standard tokenized approval link) leads to
+ * the approve page. Review + draft text are legal in the MESSAGE (private
+ * owner channel); they must never reach logs/step detail/outbox payloads
+ * (spec §2.7).
+ */
+export interface SendPendingPostNoticeParams {
+  /** Per-enrollment recipient: email address, E.164 phone, or telegram chat_id. */
+  handle: string;
+  locationLabel: string;
+  businessName: string;
+  reviewerName: string;
+  /** Always rated — auto-approval only fires inside the positive rating band. */
+  starRating: number;
+  reviewText: string | null;
+  /** The auto-approved draft reply text (truncated per surface before render). */
+  responsePreview: string;
+  /** responses.auto_post_scheduled_at — the veto deadline the copy phrases. */
+  scheduledPostAt: Date;
+  /**
+   * Tokenized approve-page link (`${APP_URL}/approve/<rawToken>`) — the single
+   * "Review or cancel" CTA. Raw token in the URL is legitimate for URLs
+   * (matches the approval flow) but MUST NOT appear anywhere else.
+   */
+  approveUrl: string;
+  /** responses id — provider idempotency suffix. Non-secret. */
+  responseId: string;
+}
+
+export type SendPendingPostNoticeResult =
+  | { status: 'sent'; externalMessageId: string }
+  | { status: 'skipped'; reason: string };
+
 export interface NotificationChannel {
   readonly id: ChannelId;
   /** True if the channel supports inline buttons for approve/regenerate. */
@@ -134,4 +169,10 @@ export interface NotificationChannel {
    * sent/skipped union (WhatsApp skips without its approved template SID).
    */
   sendEscalationNotice(p: SendEscalationNoticeParams): Promise<SendEscalationNoticeResult>;
+  /**
+   * Send the pending-post notice (WS4): "this reply will post automatically
+   * at ~HH:MM — review or cancel", with ONE approve-page link. Returns a
+   * sent/skipped union (WhatsApp skips without its approved template SID).
+   */
+  sendPendingPostNotice(p: SendPendingPostNoticeParams): Promise<SendPendingPostNoticeResult>;
 }

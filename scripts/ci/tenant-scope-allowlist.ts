@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 374;
+export const ALLOWLIST_BASELINE = 377;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -1078,21 +1078,21 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/approve/[token]/route.ts",
     table: "businesses",
-    sqlSnippet: "SELECT resp.response_text, resp.version, resp.status, r.reviewer_name, r.star_rating, r.review_text, r.review_date, b.name AS business_name, b.display_label, b.account_id, (b.archived_at IS NOT NULL) AS is_archived FROM responses resp JOIN reviews r ON resp.review_id = r.id JOIN businesses b ON resp.business_id = b.id WHERE resp.id = ${link.response_id}",
+    sqlSnippet: "SELECT resp.response_text, resp.version, resp.status, resp.approval_method, resp.auto_post_scheduled_at, r.reviewer_name, r.star_rating, r.review_text, r.review_date, b.name AS business_name, b.display_label, b.account_id, (b.archived_at IS NOT NULL) AS is_archived FROM responses resp JOIN reviews r ON resp.review_id = r.id JOIN businesses b ON resp.business_id = b.id WHERE resp.id = ${link.response_id}",
     category: 'pre-auth-token',
     reason: "Opaque approval token lookup resolves tenant rows before business scope is known.",
   },
   {
     file: "src/app/api/approve/[token]/route.ts",
     table: "reviews",
-    sqlSnippet: "SELECT resp.response_text, resp.version, resp.status, r.reviewer_name, r.star_rating, r.review_text, r.review_date, b.name AS business_name, b.display_label, b.account_id, (b.archived_at IS NOT NULL) AS is_archived FROM responses resp JOIN reviews r ON resp.review_id = r.id JOIN businesses b ON resp.business_id = b.id WHERE resp.id = ${link.response_id}",
+    sqlSnippet: "SELECT resp.response_text, resp.version, resp.status, resp.approval_method, resp.auto_post_scheduled_at, r.reviewer_name, r.star_rating, r.review_text, r.review_date, b.name AS business_name, b.display_label, b.account_id, (b.archived_at IS NOT NULL) AS is_archived FROM responses resp JOIN reviews r ON resp.review_id = r.id JOIN businesses b ON resp.business_id = b.id WHERE resp.id = ${link.response_id}",
     category: 'pre-auth-token',
     reason: "Opaque approval token lookup resolves tenant rows before business scope is known.",
   },
   {
     file: "src/app/api/approve/[token]/route.ts",
     table: "responses",
-    sqlSnippet: "SELECT resp.response_text, resp.version, resp.status, r.reviewer_name, r.star_rating, r.review_text, r.review_date, b.name AS business_name, b.display_label, b.account_id, (b.archived_at IS NOT NULL) AS is_archived FROM responses resp JOIN reviews r ON resp.review_id = r.id JOIN businesses b ON resp.business_id = b.id WHERE resp.id = ${link.response_id}",
+    sqlSnippet: "SELECT resp.response_text, resp.version, resp.status, resp.approval_method, resp.auto_post_scheduled_at, r.reviewer_name, r.star_rating, r.review_text, r.review_date, b.name AS business_name, b.display_label, b.account_id, (b.archived_at IS NOT NULL) AS is_archived FROM responses resp JOIN reviews r ON resp.review_id = r.id JOIN businesses b ON resp.business_id = b.id WHERE resp.id = ${link.response_id}",
     category: 'pre-auth-token',
     reason: "Opaque approval token lookup resolves tenant rows before business scope is known.",
   },
@@ -1533,7 +1533,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/approval/create-link.ts",
     table: "notification_deliveries",
-    sqlSnippet: "SELECT id FROM notification_deliveries WHERE response_id = ${responseId} AND channel = ${channel} AND template = 'approval_request' AND sent_at IS NOT NULL LIMIT 1",
+    sqlSnippet: "SELECT id FROM notification_deliveries WHERE response_id = ${responseId} AND channel = ${channel} AND template IN ('approval_request', 'pending_post_notice') AND sent_at IS NOT NULL LIMIT 1",
     category: 'pre-auth-token',
     reason: "Approval transaction resolves token/response rows by durable approval identifiers before tenant scope is known.",
   },
@@ -2526,6 +2526,27 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT b.name, b.display_label, b.owner_email_bounced, b.archived_at, a.id AS account_id, a.subscription_status, a.past_due_at AS account_past_due_at, a.flags AS account_flags, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN account_offboardings ao ON ao.account_id = a.id AND ao.terminal_at IS NULL WHERE b.id = ${input.businessId} ORDER BY ao.created_at DESC NULLS LAST LIMIT 1",
     category: 'worker-job-scoped',
     reason: "Escalation-notice worker follows a durable job business id and joins to the active offboarding gate for that business account before dispatch.",
+  },
+  {
+    file: "worker/jobs/pending-post-notice/context.ts",
+    table: "responses",
+    sqlSnippet: "SELECT resp.id, resp.status, resp.approval_method, resp.business_id AS resp_business_id, resp.review_id, resp.approved_text, resp.auto_post_scheduled_at, (resp.auto_post_scheduled_at <= NOW()) AS deadline_passed, r.reviewer_name, r.star_rating, r.review_text FROM responses resp JOIN reviews r ON resp.review_id = r.id WHERE resp.id = ${input.responseId}",
+    category: 'worker-job-scoped',
+    reason: "Pending-post-notice worker follows a durable job payload response id; tenant context fixed upstream by the auto-approval persist tx, and the loader fails on a business_id mismatch before any send.",
+  },
+  {
+    file: "worker/jobs/pending-post-notice/context.ts",
+    table: "reviews",
+    sqlSnippet: "SELECT resp.id, resp.status, resp.approval_method, resp.business_id AS resp_business_id, resp.review_id, resp.approved_text, resp.auto_post_scheduled_at, (resp.auto_post_scheduled_at <= NOW()) AS deadline_passed, r.reviewer_name, r.star_rating, r.review_text FROM responses resp JOIN reviews r ON resp.review_id = r.id WHERE resp.id = ${input.responseId}",
+    category: 'worker-job-scoped',
+    reason: "Pending-post-notice worker follows a durable job payload response id; tenant context fixed upstream by the auto-approval persist tx, and the loader fails on a business_id mismatch before any send.",
+  },
+  {
+    file: "worker/jobs/pending-post-notice/context.ts",
+    table: "account_offboardings",
+    sqlSnippet: "SELECT b.name, b.display_label, b.owner_email_bounced, b.archived_at, a.id AS account_id, a.subscription_status, a.past_due_at AS account_past_due_at, a.flags AS account_flags, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN account_offboardings ao ON ao.account_id = a.id AND ao.terminal_at IS NULL WHERE b.id = ${input.businessId} ORDER BY ao.created_at DESC NULLS LAST LIMIT 1",
+    category: 'worker-job-scoped',
+    reason: "Pending-post-notice worker follows a durable job business id and joins to the active offboarding gate for that business account before dispatch.",
   },
   {
     file: "worker/jobs/escalation-notice/EscalationNoticeWorker.ts",

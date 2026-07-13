@@ -6,15 +6,16 @@
 // read from config (getWorkerConfig()) so tests don't need to mutate env. The
 // default-param config read evaluates at call time (send-time), never at import.
 //
-// Template shape authoritative reference: docs/whatsapp-templates.md
+// Template shape authoritative reference: docs/runbooks/whatsapp-templates.md
 
 import { getWorkerConfig } from '@/lib/config/worker';
 import { TRIAGE_SEVERITY_LABELS, type TriageSeverity } from '@/lib/reviews/triage-schema';
+import { formatScheduledPostTime } from './scheduled-post-time';
 import type { SendApprovalParams } from './types';
 
 export interface WhatsAppSendContent {
   contentSid: string;
-  /** Keys "1".."9" per docs/whatsapp-templates.md repworth_approval_request_v1. */
+  /** Keys "1".."9" per docs/runbooks/whatsapp-templates.md repworth_approval_request_v1. */
   contentVariables: Record<string, string>;
 }
 
@@ -231,6 +232,61 @@ export function formatEscalationNoticeWhatsApp(
       '3': params.starRating !== null ? String(params.starRating) : '–',
       '4': params.isFallback ? 'Needs a look' : TRIAGE_SEVERITY_LABELS[params.severity],
       '5': params.escalationId,
+    },
+  };
+}
+
+export interface PendingPostNoticeWhatsAppParams {
+  businessName: string;
+  reviewerName: string;
+  starRating: number;
+  reviewText: string | null;
+  /** The auto-approved draft reply text. */
+  responsePreview: string;
+  /** responses.auto_post_scheduled_at — the veto deadline the copy phrases. */
+  scheduledPostAt: Date;
+  /** `/approve/<rawToken>` link — the token becomes the template URL-button suffix. */
+  approveUrl: string;
+  /** Send-time clock for the relative phrasing; injectable for tests. */
+  now?: Date;
+}
+
+/**
+ * Format the pending-post notice (WS4 veto window) into Twilio Content
+ * variables for a future Meta-approved template
+ * (WHATSAPP_PENDING_POST_TEMPLATE_SID; authoritative template content:
+ * docs/runbooks/whatsapp-templates.md, "Pending-post notice" section). The
+ * template's single URL button is `<APP_URL>/approve/{{7}}` — fixed prefix +
+ * raw-token suffix, same shape as the approval template's `/approve/{{9}}`
+ * button.
+ *
+ * Free-text budgets reuse the approval card's REVIEW_TEXT_MAX /
+ * RESPONSE_PREVIEW_MAX split. Verified against the real template body in the
+ * runbook section above (2026-07-09): fixed body text 59 chars + clamped
+ * bounded vars + a ≤40-char time phrase + 350/350 free text = 1000 worst
+ * case, ≤ WHATSAPP_CARD_BODY_LIMIT (1024) with 24 chars headroom. A body-copy
+ * change, a budget-constant change, or a veto-window domain change that
+ * lengthens the phrase requires re-running the runbook's budget arithmetic.
+ *
+ * Second param `contentSid` is required (no config default): the channel
+ * self-protects by skipping the send entirely when the SID is unset
+ * (escalation-notice precedent).
+ */
+export function formatPendingPostNoticeWhatsApp(
+  params: PendingPostNoticeWhatsAppParams,
+  contentSid: string,
+): WhatsAppSendContent {
+  const { phrase } = formatScheduledPostTime(params.scheduledPostAt, params.now ?? new Date());
+  return {
+    contentSid,
+    contentVariables: {
+      '1': truncate(oneLine(params.businessName), BUSINESS_NAME_MAX),
+      '2': truncate(oneLine(params.reviewerName || 'Reviewer'), REVIEWER_NAME_MAX),
+      '3': String(params.starRating),
+      '4': phrase,
+      '5': truncate(oneLine(params.reviewText ?? '(no comment)'), REVIEW_TEXT_MAX),
+      '6': truncate(oneLine(params.responsePreview), RESPONSE_PREVIEW_MAX),
+      '7': extractTokenFromApprovalUrl(params.approveUrl),
     },
   };
 }

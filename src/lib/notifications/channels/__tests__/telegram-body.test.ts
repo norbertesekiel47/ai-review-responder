@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatApprovalTelegram, formatEscalationNoticeTelegram } from '../telegram-body';
+import { formatApprovalTelegram, formatEscalationNoticeTelegram, formatPendingPostNoticeTelegram } from '../telegram-body';
 
 function sample(overrides: Partial<Parameters<typeof formatApprovalTelegram>[0]> = {}) {
   return {
@@ -147,5 +147,51 @@ describe('formatEscalationNoticeTelegram', () => {
     const { text } = formatEscalationNoticeTelegram({ ...params, isFallback: true });
     expect(text).not.toContain('High severity');
     expect(text).toContain("couldn't assess this review automatically");
+  });
+});
+
+describe('formatPendingPostNoticeTelegram', () => {
+  const now = new Date('2026-07-09T14:00:00.000Z');
+  const params = {
+    locationLabel: 'Main St',
+    reviewerName: 'Jane <b>D</b>',
+    starRating: 5,
+    reviewText: 'Great & <fast>',
+    responsePreview: 'Thanks Jane & <team>',
+    scheduledPostAt: new Date('2026-07-09T14:30:00.000Z'),
+    approveUrl: 'https://app.repworth.com/approve/TOKEN123',
+    now,
+  };
+
+  it('renders header, escaped review + draft, and both time phrasings', () => {
+    const { text } = formatPendingPostNoticeTelegram(params);
+    expect(text).toContain('[Main St]');
+    expect(text).toContain('⭐5');
+    expect(text).toContain('Great &amp; &lt;fast&gt;');
+    expect(text).toContain('Thanks Jane &amp; &lt;team&gt;');
+    expect(text).toContain('14:30 UTC');
+    expect(text).toContain('in about 30 minutes');
+  });
+
+  it('offers a single "Review or cancel" URL button to the approve page', () => {
+    const { inline_keyboard } = formatPendingPostNoticeTelegram(params);
+    expect(inline_keyboard).toEqual([[{ text: '✏️ Review or cancel', url: params.approveUrl }]]);
+  });
+
+  it('truncates long review and draft text via the established helper', () => {
+    const { text } = formatPendingPostNoticeTelegram({
+      ...params,
+      reviewText: 'r'.repeat(500),
+      responsePreview: 'd'.repeat(500),
+    });
+    expect(text).toContain('r'.repeat(399) + '…');
+    expect(text).not.toContain('r'.repeat(400));
+    expect(text).toContain('d'.repeat(399) + '…');
+    expect(text).not.toContain('d'.repeat(400));
+  });
+
+  it('renders the no-review-text placeholder when review text is null', () => {
+    const { text } = formatPendingPostNoticeTelegram({ ...params, reviewText: null });
+    expect(text).toContain('(no review text)');
   });
 });

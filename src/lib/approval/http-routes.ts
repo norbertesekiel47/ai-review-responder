@@ -7,7 +7,7 @@ import { recoverCorrelationId } from '@/lib/approval/correlation';
 import { getDeviceCookieHash, validateCsrf, verifyDeviceCookie } from '@/lib/approval/cookies';
 import { EmptyEditedResponseError, ResponseNotPendingError } from '@/lib/approval/errors';
 import { hasOpenFlag, HeldForReviewError } from '@/lib/moderation/held-draft';
-import { handleApprovalError } from '@/lib/approval/http-errors';
+import { handleApprovalError, isDeadlockDetected } from '@/lib/approval/http-errors';
 import { verifyDevice } from '@/lib/approval/locks';
 import { lockValidLink } from '@/lib/approval/service';
 import type { ApprovalLink, AuditContext, SessionAuditContext } from '@/lib/approval/types';
@@ -24,7 +24,14 @@ import {
 type TxClient = postgres.TransactionSql;
 type Sql = postgres.Sql;
 
-type TokenActionName = 'approve' | 'edit' | 'regenerate' | 'session';
+type TokenActionName = 'approve' | 'edit' | 'regenerate' | 'session' | 'veto';
+
+// Static object for the fixed-message siblings; a thunk for actions whose
+// success body is decided INSIDE the transaction (veto: cancelled vs
+// already_cancelled). Evaluated only after the tx commits.
+// The thunk must be pure — read closure state only, no side effects (it runs
+// post-commit, outside the tx).
+type TokenActionSuccessBody = Record<string, unknown> | (() => Record<string, unknown>);
 
 interface TokenActionContext<TPrepared = undefined> {
   tx: TxClient;
@@ -46,7 +53,7 @@ export async function runTokenApprovalAction<TPrepared = undefined>(
   request: NextRequest,
   rawToken: string,
   actionName: TokenActionName,
-  successBody: Record<string, unknown>,
+  successBody: TokenActionSuccessBody,
   action: (ctx: TokenActionContext<TPrepared>) => Promise<void>,
   options: TokenActionOptions<TPrepared> = {},
 ): Promise<NextResponse> {
@@ -102,7 +109,8 @@ export async function runTokenApprovalAction<TPrepared = undefined>(
     return handleApprovalError(err, actionName);
   }
 
-  return NextResponse.json(successBody, { status: 200, headers: NO_STORE_HEADERS });
+  const body = typeof successBody === 'function' ? successBody() : successBody;
+  return NextResponse.json(body, { status: 200, headers: NO_STORE_HEADERS });
 }
 
 async function recoverLinkCorrelationId(
@@ -189,6 +197,19 @@ export async function runDashboardReviewAction(
 
   try {
     await sql.begin(async (tx) => {
+      // Global lock-order anchor (reviews → responses → agent_runs; veto.ts's
+      // header owns the deadlock analysis): the approve/edit actions record an
+      // owner-decision outcome whose INSERT takes an implicit FK FOR KEY SHARE
+      // on the agent_runs row, while a concurrent processReview / mark-posted
+      // holds reviews(X) → responses(X). Locking the response first would
+      // invert the global anchor and close that cycle into a deadlock, so the
+      // reviews row must be this tx's FIRST lock. No pre-read is needed:
+      // reviewId comes from the route (tenant-scoped by the lookup above), not
+      // from the responses row. The actions' own anchorReviewLockOrder calls
+      // become idempotent same-tx re-takes (auto-approval.ts loader re-take
+      // precedent — row locks don't stack within a transaction).
+      await tx`SELECT id FROM reviews WHERE id = ${reviewId}::uuid AND business_id = ${response.business_id as string}::uuid FOR UPDATE`;
+
       // Lock the candidate response, then refuse to release it while a
       // high-severity moderation flag is open. The lock serializes this check
       // against the admin disposition that closes the flag.
@@ -235,6 +256,12 @@ export async function runDashboardReviewAction(
     }
     if (err instanceof SubscriptionReadOnlyError) {
       return NextResponse.json({ error: err.error }, { status: err.status, headers: NO_STORE_HEADERS });
+    }
+    // A 40P01 deadlock loser rolled back cleanly (e.g. this tx's reviews →
+    // responses locks colliding with a concurrent mark-posted) — retryable
+    // 409, same contract as handleApprovalError's token-lane mapping.
+    if (isDeadlockDetected(err)) {
+      return NextResponse.json({ error: 'conflict_retry' }, { status: 409, headers: NO_STORE_HEADERS });
     }
     console.error(`[api/dashboard/reviews/${actionName}] Unexpected error:`, err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: NO_STORE_HEADERS });

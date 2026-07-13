@@ -35,6 +35,7 @@ export const QUEUE_NAMES = {
   ACCOUNT_OFFBOARDING_PURGE: 'account_offboarding_purge',
   AUTO_POST_NOTICE: 'auto_post_notice',
   ESCALATION_NOTICE: 'escalation_notice',
+  PENDING_POST_NOTICE: 'pending_post_notice',
 } as const;
 
 type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

@@ -13,6 +13,7 @@ import {
   formatApprovalWhatsApp,
   formatAutoPostNoticeWhatsApp,
   formatEscalationNoticeWhatsApp,
+  formatPendingPostNoticeWhatsApp,
   toWaRecipient,
 } from './whatsapp-body';
 import { WhatsAppClient } from './whatsapp-client';
@@ -27,6 +28,8 @@ import type {
   SendAutoPostNoticeResult,
   SendEscalationNoticeParams,
   SendEscalationNoticeResult,
+  SendPendingPostNoticeParams,
+  SendPendingPostNoticeResult,
 } from './types';
 
 export class WhatsAppChannel implements NotificationChannel {
@@ -95,6 +98,37 @@ export class WhatsAppChannel implements NotificationChannel {
         severity: p.severity,
         isFallback: p.isFallback,
         escalationId: p.escalationId,
+      },
+      contentSid,
+    );
+    const client = new WhatsAppClient();
+    const result = await client.sendTemplate({
+      to: toWaRecipient(p.handle),
+      contentSid,
+      contentVariables,
+      statusCallback: `${getWorkerPublicUrl()}/ingress/twilio/whatsapp-status`,
+    });
+    return { status: 'sent', externalMessageId: result.externalMessageId };
+  }
+
+  async sendPendingPostNotice(p: SendPendingPostNoticeParams): Promise<SendPendingPostNoticeResult> {
+    // Business-initiated → outside any 24h session window → approved template
+    // only (ADR 0003). Until WHATSAPP_PENDING_POST_TEMPLATE_SID is set, skip
+    // cleanly — email + Telegram still send.
+    const contentSid = getWorkerConfig().WHATSAPP_PENDING_POST_TEMPLATE_SID;
+    if (!contentSid) {
+      return { status: 'skipped', reason: 'whatsapp_pending_post_template_unset' };
+    }
+
+    const { contentVariables } = formatPendingPostNoticeWhatsApp(
+      {
+        businessName: p.businessName,
+        reviewerName: p.reviewerName,
+        starRating: p.starRating,
+        reviewText: p.reviewText,
+        responsePreview: p.responsePreview,
+        scheduledPostAt: p.scheduledPostAt,
+        approveUrl: p.approveUrl,
       },
       contentSid,
     );

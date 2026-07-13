@@ -75,7 +75,10 @@ vi.mock('@/lib/approval/correlation', () => ({
   recoverCorrelationId: (...args: unknown[]) => mockRecoverCorrelationId(...args),
 }));
 
-vi.mock('@/lib/approval/http-errors', () => ({
+vi.mock('@/lib/approval/http-errors', async (importOriginal) => ({
+  // Real isDeadlockDetected: the dashboard wrapper's conflict_retry test must
+  // exercise the genuine 40P01 structural check, not a stub.
+  ...(await importOriginal<typeof import('@/lib/approval/http-errors')>()),
   handleApprovalError: (...args: unknown[]) => mockHandleApprovalError(...args),
 }));
 
@@ -259,6 +262,27 @@ describe('runTokenApprovalAction', () => {
     }));
   });
 
+  it('evaluates a success-body thunk after the action ran (veto: body decided inside the tx)', async () => {
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]);
+    sqlReturnQueue.push([{ review_id: 'rev-1' }]);
+    let result = 'cancelled';
+    const action = vi.fn(async () => {
+      result = 'already_cancelled';
+    });
+
+    const res = await runTokenApprovalAction(
+      sql,
+      request(),
+      RAW_TOKEN,
+      'veto',
+      () => ({ result }),
+      action,
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ result: 'already_cancelled' });
+  });
+
   it('preserves legacy request.ip fallback for token-action audit context', async () => {
     sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]);
     sqlReturnQueue.push([{ review_id: 'rev-1' }]);
@@ -412,7 +436,8 @@ describe('runDashboardReviewAction', () => {
   it('scopes the response lookup by owner account and passes the review location to the action', async () => {
     sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-secondary', status: 'pending_approval' }]);
     sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]);
-    sqlReturnQueue.push([]); // SELECT id ... FOR UPDATE
+    sqlReturnQueue.push([]); // reviews lock-order anchor FOR UPDATE (tx statement #1)
+    sqlReturnQueue.push([]); // responses SELECT id ... FOR UPDATE
     sqlReturnQueue.push([]); // hasOpenFlag → no open flag
     sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
     const action = vi.fn();
@@ -457,7 +482,8 @@ describe('runDashboardReviewAction', () => {
   it('maps ArchivedLocationError thrown by the approve action to a 409 conflict', async () => {
     sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
     sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // outer pre-tx account gate
-    sqlReturnQueue.push([]); // SELECT ... FOR UPDATE
+    sqlReturnQueue.push([]); // reviews lock-order anchor FOR UPDATE (tx statement #1)
+    sqlReturnQueue.push([]); // responses SELECT ... FOR UPDATE
     sqlReturnQueue.push([]); // hasOpenFlag → no open flag
     sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
     const action = vi.fn().mockRejectedValue(new ArchivedLocationError());
@@ -481,7 +507,8 @@ describe('runDashboardReviewAction', () => {
   it('maps ArchivedLocationError thrown by the edit action to a 409 conflict', async () => {
     sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
     sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // outer pre-tx account gate
-    sqlReturnQueue.push([]); // SELECT ... FOR UPDATE
+    sqlReturnQueue.push([]); // reviews lock-order anchor FOR UPDATE (tx statement #1)
+    sqlReturnQueue.push([]); // responses SELECT ... FOR UPDATE
     sqlReturnQueue.push([]); // hasOpenFlag → no open flag
     sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
     const action = vi.fn().mockRejectedValue(new ArchivedLocationError());
@@ -502,10 +529,36 @@ describe('runDashboardReviewAction', () => {
     });
   });
 
+  it('maps a 40P01 deadlock-loser rollback to a retryable 409 conflict_retry (handleApprovalError parity)', async () => {
+    sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // outer pre-tx account gate
+    sqlReturnQueue.push([]); // reviews lock-order anchor FOR UPDATE (tx statement #1)
+    sqlReturnQueue.push([]); // responses SELECT ... FOR UPDATE
+    sqlReturnQueue.push([]); // hasOpenFlag → no open flag
+    sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
+    // Structural shape of a postgres.js deadlock error — the wrapper's check
+    // keys on code === '40P01', not instanceof.
+    const action = vi.fn().mockRejectedValue(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+
+    const res = await runDashboardReviewAction(
+      sql,
+      request(),
+      'rev-1',
+      { id: 'owner-1', accountId: 'acct-1' },
+      'approve',
+      'Response approved.',
+      action,
+    );
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'conflict_retry' });
+  });
+
   it('re-asserts the writable/offboarding gate inside the tx and blocks an offboarding confirmed after the pre-tx check', async () => {
     sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
     sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // outer pre-tx account gate still sees a writable account
-    sqlReturnQueue.push([]); // SELECT ... FOR UPDATE
+    sqlReturnQueue.push([]); // reviews lock-order anchor FOR UPDATE (tx statement #1)
+    sqlReturnQueue.push([]); // responses SELECT ... FOR UPDATE
     sqlReturnQueue.push([]); // hasOpenFlag → no open flag
     sqlReturnQueue.push([OFFBOARDING_ACCOUNT_ROW]); // in-tx business gate now sees an active offboarding
     const action = vi.fn();
@@ -528,7 +581,8 @@ describe('runDashboardReviewAction', () => {
   it('returns 409 and skips the action when an open moderation flag holds the draft', async () => {
     sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
     sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // assertWritableSubscriptionForAccount
-    sqlReturnQueue.push([]); // SELECT ... FOR UPDATE
+    sqlReturnQueue.push([]); // reviews lock-order anchor FOR UPDATE (tx statement #1)
+    sqlReturnQueue.push([]); // responses SELECT ... FOR UPDATE
     sqlReturnQueue.push([{ one: 1 }]); // hasOpenFlag → open flag present
     const action = vi.fn();
 
@@ -570,7 +624,8 @@ describe('runDashboardReviewAction', () => {
   it('maps stale response and unexpected action errors without leaking internals', async () => {
     sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]);
     sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]);
-    sqlReturnQueue.push([]); // SELECT id ... FOR UPDATE
+    sqlReturnQueue.push([]); // reviews lock-order anchor FOR UPDATE (tx statement #1)
+    sqlReturnQueue.push([]); // responses SELECT id ... FOR UPDATE
     sqlReturnQueue.push([]); // hasOpenFlag → no open flag
     sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
     const staleRes = await runDashboardReviewAction(
@@ -588,7 +643,8 @@ describe('runDashboardReviewAction', () => {
 
     sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]);
     sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]);
-    sqlReturnQueue.push([]); // SELECT id ... FOR UPDATE
+    sqlReturnQueue.push([]); // reviews lock-order anchor FOR UPDATE (tx statement #1)
+    sqlReturnQueue.push([]); // responses SELECT id ... FOR UPDATE
     sqlReturnQueue.push([]); // hasOpenFlag → no open flag
     sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -608,4 +664,49 @@ describe('runDashboardReviewAction', () => {
     expect(unexpectedRes.status).toBe(500);
     expect(await unexpectedRes.json()).toEqual({ error: 'Internal server error' });
   });
+
+  // Lock-order pin (global anchor, veto.ts header): the reviews FOR UPDATE
+  // must be the transaction's FIRST statement, BEFORE the responses lock.
+  // Approve/edit record an owner-decision outcome (implicit agent_runs FK KEY
+  // SHARE) and MUST follow the reviews-first anchor to avoid the deadlock
+  // cycle vs processReview/mark-posted. Regenerate records no outcome and
+  // needs no anchor, but the wrapper is shared, so it inherits the same
+  // serialization — harmless: it supersedes the response and touches no
+  // agent_runs.
+  it.each(['approve', 'edit', 'regenerate'] as const)(
+    'takes the reviews lock as tx statement #1, before the responses lock (%s)',
+    async (actionName) => {
+      sqlReturnQueue.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
+      sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // pre-tx account gate
+      sqlReturnQueue.push([]); // reviews lock-order anchor FOR UPDATE (tx statement #1)
+      sqlReturnQueue.push([]); // responses SELECT ... FOR UPDATE
+      sqlReturnQueue.push([]); // hasOpenFlag → no open flag
+      sqlReturnQueue.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
+
+      const res = await runDashboardReviewAction(
+        sql,
+        request(),
+        'rev-1',
+        { id: 'owner-1', accountId: 'acct-1' },
+        actionName,
+        'Done.',
+        vi.fn(),
+      );
+      expect(res.status).toBe(200);
+
+      // Positional: exactly two statements run pre-tx (response lookup +
+      // account gate) — everything after is inside sql.begin.
+      const txCalls = sqlCalls.slice(2);
+      const firstTxStatement = txCalls[0];
+      expect(firstTxStatement).toBeDefined();
+      expect(firstTxStatement!.text).toContain('FROM reviews');
+      expect(firstTxStatement!.text).toContain('FOR UPDATE');
+      expect(firstTxStatement!.values).toEqual(['rev-1', 'biz-1']);
+
+      const responsesLockIndex = txCalls.findIndex(
+        (call) => call.text.includes('FROM responses') && call.text.includes('FOR UPDATE'),
+      );
+      expect(responsesLockIndex).toBeGreaterThan(0);
+    },
+  );
 });

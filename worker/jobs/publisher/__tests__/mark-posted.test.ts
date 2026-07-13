@@ -9,6 +9,16 @@ vi.mock('../../../../src/lib/shared/job-outbox-helpers', () => ({
   enqueueAutoPostNotice: mockEnqueue,
 }));
 
+// Link hygiene seam: on a real transition every still-open approval link for
+// the response must be revoked (the pending-post notice mints links for
+// auto-approved responses; once posted none should stay actionable-looking).
+const { mockRevokeOpenLinks } = vi.hoisted(() => ({
+  mockRevokeOpenLinks: vi.fn(async () => undefined),
+}));
+vi.mock('../../../../src/lib/approval/locks', () => ({
+  revokeOpenLinksForResponse: mockRevokeOpenLinks,
+}));
+
 // Seam-mock the run spine (same pattern as persist.test.ts): the checkpoint's
 // contract is WHICH writers it calls with WHAT, not their SQL.
 vi.mock('../../../../src/lib/agents/run-spine', () => ({
@@ -95,6 +105,22 @@ describe('markPostedAndMaybeEnqueueAutoPostNotice', () => {
     const res = await markPostedAndMaybeEnqueueAutoPostNotice(baseInput(tx));
     expect(res).toEqual({ transitioned: false, fyiEnqueued: false });
     expect(mockEnqueue).not.toHaveBeenCalled();
+  });
+
+  it('revokes all open approval links in-tx on a real transition (auto_policy and owner alike)', async () => {
+    for (const method of [APPROVAL_METHOD.AUTO_POLICY, APPROVAL_METHOD.OWNER]) {
+      mockRevokeOpenLinks.mockClear();
+      const tx = makeTx([{ id: 'resp-1', approval_method: method }]);
+      await markPostedAndMaybeEnqueueAutoPostNotice(baseInput(tx));
+      expect(mockRevokeOpenLinks).toHaveBeenCalledTimes(1);
+      expect(mockRevokeOpenLinks).toHaveBeenCalledWith(tx, 'resp-1');
+    }
+  });
+
+  it('does NOT revoke links when ZERO rows transition (no-op / race retry)', async () => {
+    const tx = makeTx([]);
+    await markPostedAndMaybeEnqueueAutoPostNotice(baseInput(tx));
+    expect(mockRevokeOpenLinks).not.toHaveBeenCalled();
   });
 
   it('does NOT enqueue when approval_method is null (ambiguous/legacy)', async () => {

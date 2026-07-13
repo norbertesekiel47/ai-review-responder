@@ -223,8 +223,37 @@
   font-size: 12px;
   line-height: 1.45;
 }
+/* Veto-window + daily-cap pair, on the account card and inside location rows */
+.auto-policy-dials {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.auto-policy-location-row .auto-policy-dials {
+  grid-column: 1 / -1;
+  padding-top: 12px;
+  border-top: 1px solid var(--rw-app-border-soft);
+}
+.auto-policy-suspended-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 7px;
+  border: 1px solid var(--rw-blush);
+  border-radius: 9999px;
+  background: var(--rw-blush-soft);
+  color: var(--rw-blush-deep);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+}
 @media (max-width: 640px) {
   .auto-policy-location-row {
+    grid-template-columns: 1fr;
+  }
+  .auto-policy-dials {
     grid-template-columns: 1fr;
   }
 }
