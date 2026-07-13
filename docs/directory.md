@@ -727,6 +727,7 @@ Each file exports a single `handle*` function that a BullMQ `Worker` calls per j
 | `RankingTrackingWorker.ts` | `track-ranking` | Calls SerpAPI for each keyword, saves ranking snapshots. |
 | `OnboardingDripWorker.ts` | `onboarding-drip` | Sends onboarding email at the configured step (day 1 / 7 / 30). |
 | `DemoGenerationWorker.ts` | `generate-demo` | Fetches SerpAPI reviews for a prospect, calls `generateResponse()` in `demo` mode, saves to `prospect_demos`. |
+| `live-draft-guard.ts` | — (helper) | **(WS5)** `hasLiveOwnerActionableResponse(tx, reviewId)` — shared by `ResponseGeneratorWorker` and `publisher/failed-hook` terminal checkpoints; a run is never completed `failed` while an owner-actionable draft (non-terminal status) exists for the review. |
 
 #### `worker/jobs/notification/` — NotificationWorker sub-modules
 

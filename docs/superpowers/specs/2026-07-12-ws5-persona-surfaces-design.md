@@ -364,3 +364,76 @@ slow (seq-scan) timeline read, never a wrong one.
   API responses to their owner is the dashboard's job and is fine).
 - `react-doctor` CI check is known-broken repo-wide — not a required check, don't
   chase it as a code failure.
+
+---
+
+## 8. Implementation amendments (2026-07-13, integration-review-driven)
+
+Whole-branch integration review (4 adversarial reviewers: spec compliance,
+lock-order/concurrency, cross-task seams/refactor safety, test honesty) ran after
+the executor finished. The original sections above are unchanged; on any
+conflict, these amendments win.
+
+- **§4.2 count table corrected:** Reply = `reply_posted` ONLY. WS4's mark-posted
+  records BOTH `reply_posted` AND `reply_auto_posted` on the same run for an
+  auto-policy post, so the original additive table double-counted every
+  auto-post. `reply_auto_posted` is a qualifier, not an additional unit. The
+  timeline likewise collapses the chip pair into a single "Reply auto-posted"
+  chip when both kinds co-occur on a run.
+- **§3 live-draft guard (both checkpoints):** a terminal checkpoint completes the
+  run `failed` only when NO live owner-actionable response exists for the review
+  (status ∈ pending_approval / approved / edited / awaiting_owner_connect). A
+  terminal regenerate failure (e.g. regen-budget exhaustion on v2) with a still
+  approvable v1 draft leaves the run `running` — it renders `waiting_on_owner`,
+  and the eventual post keeps its spine writes.
+- **§3 verification-indeterminate branch now checkpoints:** the publisher
+  exhaustion branch that marks `responses.status='failed'` with
+  `zernio_reply_verification_indeterminate` completes the run `failed` (same
+  reason, structured error) in the SAME tx, re-anchored reviews-first — no more
+  eternal "Stalled" runs behind admin exceptions.
+- **§3 branch-set intent confirmed:** the fallback-failed and unwrapped-transient
+  exhaustion branches are close-outbox variants and DO checkpoint the run
+  `failed` (subject to the live-draft guard); only the successful
+  park-at-`awaiting_owner_connect` fallback leaves the run `running`. The
+  park-branch tests also pin that no bare-`sql` (untransacted) spine write can
+  sneak in.
+- **§4.1/§2.5 scheduled surface (user-confirmed):** the chip links to the
+  timeline page (no owner-safe approve URL exists in the feed — invariant #5
+  forbids minting one), and the timeline renders a live scheduled banner:
+  viewer-local deadline (retires itself when the deadline passes), "To cancel,
+  use Cancel auto-post in the notification we sent you," plus a posted-at fact
+  once posted. A dashboard-native cancel-auto-post action is a NAMED FOLLOW-UP
+  (owner-authed route over the WS4 veto core; WS6/WS8 candidate).
+- **§4.1 time rendering:** dashboard surfaces render viewer-local times
+  (Intl.DateTimeFormat; month/day added when not today). The UTC formatter
+  (`formatScheduledPostTime`) remains notification-channel-only.
+- **§2.4 moderation-held render (accepted decision):** a response held by
+  moderation (invariant #4) is excluded from the timeline's response join; its
+  run renders `in_progress` → `stalled` past 48h. No held-aware displayState is
+  added. Relatedly, `moderation_checked` step facts disclose Flagged/Held=Yes to
+  the owner — an accepted disclosure (the held TEXT stays withheld; invariant #4's
+  mechanism is untouched).
+- **§5.2 needs-attention hardening:** `reviewRating` is nullable end-to-end
+  ("No rating" fallback); item validation is per-item (one malformed row is
+  dropped, never the whole list); fetch errors render a visible `role="alert"`
+  state; the list query filters `b.archived_at IS NULL` (an archived location's
+  timeline link would 404); the route rides `withDashboardOwnerRead` like its
+  siblings. Feed escalation actions treat a 409 as the benign two-tab race
+  (refetch, not error) and invalidate `DASHBOARD_OPEN_ESCALATIONS_QUERY_KEY`
+  (single owner: `NeedsAttentionList`).
+- **§6.2 tripwire hardening:** the anchor-pairing regex now also matches
+  `startOrGetActiveRun`; the weekly carve-out comment names the tx's implicit FK
+  `FOR KEY SHARE` locks on `businesses`/`accounts` (cycle-free — no conflicting
+  holder waits on `weekly_summaries` or weekly-subject runs) so the "never grow a
+  businesses lock" invariant survives future review.
+- **Recorded acceptances (reviewed, deliberately unchanged):** Guardian strip
+  count undercounts re-raises within one run (per-(run,kind) outcome dedup —
+  same acceptance as §2.3); `owner_notified` remains a writer-less STEP_PERSONA
+  key; `deriveRunDisplayState` reads the single latest response for every listed
+  run (a crash-remnant older `running` run can mislabel — edge accepted);
+  `listOpenEscalations` keeps its read-only REPEATABLE READ tx (no row/predicate
+  locks, PgBouncer-safe, buys count/items consistency); the generation
+  `review_not_found`/`business_not_found` lanes remain uncheckpointed
+  (pre-existing, pathological); the weekly digest tx couples spine writes with
+  the `sent_at` flip (sanctioned in §5.1 — a spine defect blocks the digest
+  email until retry, accepted trade).
