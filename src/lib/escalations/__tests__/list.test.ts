@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Sql } from 'postgres';
 import { createMockSql } from '../../../../worker/__tests__/helpers/mock-sql';
 import { listOpenEscalations } from '../list';
@@ -8,6 +8,8 @@ describe('listOpenEscalations', () => {
 
   beforeEach(() => {
     harness.resetMockSql();
+    harness.mockSql.mockClear();
+    harness.mockSql.begin.mockClear();
   });
 
   it('returns the bounded open-escalation contract and total for one account', async () => {
@@ -59,6 +61,10 @@ describe('listOpenEscalations', () => {
       expect(call.values).toEqual(['account-1', 'account-1']);
     }
     expect(harness.sqlCalls[1]!.text).toMatch(/\bLIMIT\s+20\b/);
+    expect(harness.mockSql.begin).toHaveBeenCalledExactlyOnceWith(
+      'isolation level repeatable read read only',
+      expect.any(Function),
+    );
   });
 
   it('pins escalated-first, high-to-low severity, then oldest-first ordering', async () => {
@@ -76,5 +82,25 @@ describe('listOpenEscalations', () => {
       "CASE e.triage_severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 3 END",
     );
     expect(listSql).toContain('e.created_at ASC');
+  });
+
+  it('awaits the count before issuing the bounded list query in the snapshot', async () => {
+    let resolveCount: ((rows: { total_open: number }[]) => void) | undefined;
+    const countRows = new Promise<{ total_open: number }[]>((resolve) => {
+      resolveCount = resolve;
+    });
+    harness.sqlReturnQueue.push(countRows, []);
+
+    const pending = listOpenEscalations(harness.mockSql as unknown as Sql, {
+      accountId: 'account-1',
+    });
+
+    await vi.waitFor(() => expect(harness.sqlCalls).toHaveLength(1));
+    expect(harness.sqlCalls[0]!.text).toContain('COUNT(*)::int AS total_open');
+    resolveCount?.([{ total_open: 0 }]);
+    await pending;
+
+    expect(harness.sqlCalls).toHaveLength(2);
+    expect(harness.sqlCalls[1]!.text).toContain('LIMIT 20');
   });
 });

@@ -10,6 +10,8 @@ import { AnalyticsLinkCard } from '@/components/dashboard/kpi/AnalyticsLinkCard'
 import { PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
 import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal';
 import { authoritativePendingCount } from '@/lib/dashboard/scope';
+import { AgentTeamStrip } from '@/components/dashboard/AgentTeamStrip';
+import { NeedsAttentionList } from '@/components/dashboard/NeedsAttentionList';
 
 interface Props {
   data: AggregateDashboardData;
@@ -79,20 +81,26 @@ export function AggregateDashboardContent({ data, refresh }: Props) {
             </div>
           </div>
         ) : (
+          <div className="section-enter section-enter-1">
+            <AggregateKpiCards
+              valueSummary={data.valueSummary}
+              activeLocationCount={data.activeLocationCount}
+            />
+          </div>
+        )}
+        <div className="section-enter section-enter-2">
+          <AgentTeamStrip scope="all" />
+        </div>
+        <NeedsAttentionList />
+        {!hasNoData && (
           <>
-            <div className="section-enter section-enter-1">
-              <AggregateKpiCards
-                valueSummary={data.valueSummary}
-                activeLocationCount={data.activeLocationCount}
-              />
-            </div>
-            <div className="section-enter section-enter-2">
+            <div className="section-enter section-enter-4">
               <PendingApprovalsStrip count={pendingCount} />
             </div>
-            <div className="section-enter section-enter-3">
+            <div className="section-enter section-enter-5">
               <LocationKpiStrip locationKpis={data.locationKpis} />
             </div>
-            <div className="section-enter section-enter-4">
+            <div className="section-enter section-enter-6">
               <AnalyticsLinkCard />
             </div>
           </>

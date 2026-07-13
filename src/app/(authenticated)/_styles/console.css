@@ -1500,6 +1500,16 @@
   margin-top: 2px;
 }
 .brief-period-strong { color: #374151; font-weight: 500; }
+.brief-agent-label {
+  display: inline-flex;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: var(--rw-radius-pill);
+  background: var(--rw-auto-bg);
+  color: var(--rw-auto-fg);
+  font-size: 11px;
+  font-weight: 600;
+}
 .brief-h2 {
   font: var(--rw-app-h2);
   font-family: var(--rw-font-display);
@@ -1589,6 +1599,128 @@
 .approvals-title strong { font-weight: 700; }
 .approvals-sub { font-size: 12.5px; color: var(--rw-app-text-muted); margin-top: 2px; }
 
+/* WS5 persona surfaces — calm activity, not vanity metrics. */
+.agent-team-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.agent-team .card-h2 { margin-bottom: 2px; }
+.agent-team-head p,
+.needs-attention-head p {
+  margin: 0;
+  color: var(--rw-app-text-muted);
+  font-size: 12.5px;
+}
+.agent-team-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+.agent-team-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 10px 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--rw-hair);
+  border-radius: var(--rw-radius-sm);
+  background: var(--rw-recess);
+}
+.agent-team-icon,
+.needs-attention-title-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--rw-sage-soft);
+  color: var(--rw-sage-deep);
+}
+.agent-team-card--guardian .agent-team-icon {
+  background: var(--rw-blush-soft);
+  color: var(--rw-blush-deep);
+}
+.agent-team-card--insights .agent-team-icon {
+  background: var(--rw-auto-bg);
+  color: var(--rw-auto-fg);
+}
+.agent-team-copy { min-width: 0; }
+.agent-team-copy h3 {
+  margin: 0;
+  color: var(--rw-app-text);
+  font-family: var(--rw-font-body);
+  font-size: 14px;
+  font-weight: 700;
+}
+.agent-team-copy p {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: var(--rw-app-text-muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-team-activity {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rw-hair);
+}
+.agent-team-activity strong { color: var(--rw-app-text); font-size: 12.5px; }
+.agent-team-activity span { color: var(--rw-app-text-muted); font-size: 10.5px; white-space: nowrap; }
+.agent-team-state {
+  min-height: 92px;
+  display: flex;
+  align-items: center;
+  color: var(--rw-app-text-muted);
+  font-size: 13px;
+}
+.agent-team-state--error { color: var(--rw-danger); }
+
+.needs-attention-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.needs-attention-head .card-h2 { margin: 0 0 2px; }
+.needs-attention-title-icon {
+  background: var(--rw-blush-soft);
+  color: var(--rw-blush-deep);
+  flex: none;
+}
+.needs-attention-list { list-style: none; padding: 0; margin: 0; }
+.needs-attention-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-top: 1px solid var(--rw-hair);
+}
+.needs-attention-context,
+.needs-attention-review { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; }
+.needs-attention-context time,
+.needs-attention-status,
+.needs-attention-review span { color: var(--rw-app-text-muted); font-size: 11.5px; }
+.needs-attention-review strong {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--rw-app-text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.needs-attention-link {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--rw-teal-strong);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.needs-attention-link:hover { text-decoration: underline; }
+.needs-attention-link:focus-visible { outline: 2px solid var(--rw-sage-deep); outline-offset: 3px; }
+
 /* Zone 4 — reputation trend (clean line, star-equivalent) */
 .rep-trend-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .rep-trend-sub { font-size: 12px; color: var(--rw-app-text-soft); }
@@ -1614,6 +1746,9 @@
   .rep-stat.anchor .rep-stat-num { font-size: 54px; }
   .approvals { flex-wrap: wrap; }
   .approvals .btn { width: 100%; justify-content: center; }
+  .agent-team-grid { grid-template-columns: 1fr; }
+  .needs-attention-row { grid-template-columns: 1fr; gap: 6px; }
+  .needs-attention-link { width: fit-content; }
   .mobile-tabbar {
     display: flex;
     position: fixed;

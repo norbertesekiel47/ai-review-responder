@@ -21,6 +21,8 @@ import { LiveRegion } from '@/components/ui/LiveRegion';
 import { ReputationHeroBand } from '@/components/dashboard/kpi/ReputationHeroBand';
 import { PendingApprovalsStrip } from '@/components/dashboard/kpi/PendingApprovalsStrip';
 import { AnalyticsLinkCard } from '@/components/dashboard/kpi/AnalyticsLinkCard';
+import { AgentTeamStrip } from '@/components/dashboard/AgentTeamStrip';
+import { NeedsAttentionList } from '@/components/dashboard/NeedsAttentionList';
 import { AggregateDashboardContent } from '@/components/dashboard/aggregate/AggregateDashboardContent';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useSetPendingCount } from '@/contexts/PendingCountContext';
@@ -326,13 +328,17 @@ function DashboardOperationalContent() {
             connected={zernioConnection.status === 'active'}
           />
         </div>
+        <div className="section-enter section-enter-3">
+          <AgentTeamStrip scope={currentScope} />
+        </div>
+        <NeedsAttentionList />
         {/* Action strip → Reviews page. The intelligence brief lives on
             /dashboard/analytics now, not on the glance dashboard. */}
-        <div className="section-enter section-enter-3">
+        <div className="section-enter section-enter-5">
           <PendingApprovalsStrip count={reputation.pendingApprovalCount} />
         </div>
         {/* Doorway to the full analytics page (charts + brief live there now). */}
-        <div className="section-enter section-enter-4">
+        <div className="section-enter section-enter-6">
           <AnalyticsLinkCard />
         </div>
       </div>
@@ -350,4 +356,3 @@ async function fetchAccountOffboardingStatus(): Promise<OffboardingStatusRespons
   }
   return body as OffboardingStatusResponse;
 }
-

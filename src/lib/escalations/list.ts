@@ -38,8 +38,8 @@ export async function listOpenEscalations(
   sql: Sql,
   params: { accountId: string },
 ): Promise<OpenEscalationsList> {
-  const [countRows, rows] = await Promise.all([
-    sql<{ total_open: number }[]>`
+  return sql.begin('isolation level repeatable read read only', async (tx) => {
+    const countRows = await tx<{ total_open: number }[]>`
       SELECT COUNT(*)::int AS total_open
       FROM review_escalations e
       JOIN reviews r ON r.id = e.review_id
@@ -47,8 +47,8 @@ export async function listOpenEscalations(
       WHERE e.account_id = ${params.accountId}
         AND b.account_id = ${params.accountId}
         AND e.status <> 'resolved'
-    `,
-    sql<EscalationListRow[]>`
+    `;
+    const rows = await tx<EscalationListRow[]>`
       SELECT e.id, e.status, e.triage_severity, e.triage_suggested_action,
              e.created_at, r.id AS review_id, b.name AS business_name,
              r.star_rating AS review_rating
@@ -72,20 +72,20 @@ export async function listOpenEscalations(
         END,
         e.created_at ASC
       LIMIT 20
-    `,
-  ]);
+    `;
 
-  return {
-    totalOpen: Number(countRows[0]?.total_open ?? 0),
-    items: rows.map((row) => ({
-      id: row.id,
-      status: row.status,
-      severity: row.triage_severity,
-      suggestedAction: row.triage_suggested_action,
-      createdAt: new Date(row.created_at).toISOString(),
-      reviewId: row.review_id,
-      businessName: row.business_name,
-      reviewRating: row.review_rating,
-    })),
-  };
+    return {
+      totalOpen: Number(countRows[0]?.total_open ?? 0),
+      items: rows.map((row) => ({
+        id: row.id,
+        status: row.status,
+        severity: row.triage_severity,
+        suggestedAction: row.triage_suggested_action,
+        createdAt: new Date(row.created_at).toISOString(),
+        reviewId: row.review_id,
+        businessName: row.business_name,
+        reviewRating: row.review_rating,
+      })),
+    };
+  });
 }
