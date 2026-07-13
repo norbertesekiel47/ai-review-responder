@@ -68,6 +68,21 @@ export async function markOutboxCompleted(
   outboxId: string,
   attempt?: number,
 ): Promise<void> {
+  await markOutboxCompletedIfOwned(exec, outboxId, attempt);
+}
+
+/**
+ * Attempt-scoped completion CAS for callers that couple a durable domain write
+ * to successful ownership of the dispatched outbox attempt. Call inside the
+ * SAME transaction before the domain write: a later failure rolls completion
+ * back with the domain mutation, while a stale attempt returns false and must
+ * perform no mutation.
+ */
+export async function markOutboxCompletedIfOwned(
+  exec: SqlExecutor,
+  outboxId: string,
+  attempt?: number,
+): Promise<boolean> {
   const res = await exec`
     UPDATE job_outbox
     SET status = 'completed', completed_at = NOW()
@@ -76,6 +91,7 @@ export async function markOutboxCompleted(
   if (hasAttempt(attempt) && res.count === 0) {
     warnOutboxNoop('markOutboxCompleted', outboxId, attempt);
   }
+  return res.count > 0;
 }
 
 /**

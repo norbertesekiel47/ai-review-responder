@@ -7,6 +7,7 @@ import type { JudgeOutput } from './judge-schema';
 export type StoredJudgeVerdict = JudgeOutput['verdict'] | 'error';
 
 export interface InsertJudgeVerdictInput {
+  verdictId?: string;
   accountId: string;
   businessId: string;
   reviewId: string;
@@ -28,7 +29,7 @@ export async function insertJudgeVerdict(
       id, account_id, business_id, review_id, response_id, agent_run_id,
       verdict, reasons, rationale, model, prompt_version
     ) VALUES (
-      ${uuidv7()}, ${input.accountId}, ${input.businessId}, ${input.reviewId},
+      ${input.verdictId ?? uuidv7()}, ${input.accountId}, ${input.businessId}, ${input.reviewId},
       ${input.responseId}, ${input.agentRunId}, ${input.verdict},
       ${input.reasons === null ? null : tx.json(input.reasons)},
       ${input.rationale}, ${input.model}, ${input.promptVersion}

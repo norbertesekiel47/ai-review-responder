@@ -583,3 +583,10 @@ over the body, WS4/WS5 convention.)
   post-update NULL, which cannot populate the required audit
   `previous_reason`; the single-statement CTE preserves the specified atomic
   guarded update and its zero-row semantics.
+- **§2.3/§2.5 verdict-ID correlation (Task 5):** `insertJudgeVerdict` accepts an
+  optional caller-generated UUIDv7 while retaining its `{ inserted }` return
+  contract and its internal UUIDv7 default. `JudgeWorker` supplies the ID so the
+  exact successfully inserted verdict can be embedded as
+  `evidence.verdict_id` in the same transaction's `judge_flag` suspension;
+  otherwise the store's boolean-only conflict contract gives the caller no
+  reliable ID to correlate without an extra read.
