@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 377;
+export const ALLOWLIST_BASELINE = 378;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -2747,6 +2747,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT stripe_subscription_id FROM accounts WHERE stripe_customer_id = ${stripeCustomerId} AND id <> ${account.id}::uuid AND stripe_subscription_id = ANY(${activeIds}::text[])",
     category: 'background-global-scan',
     reason: "RECONCILE-F6: billing reconciliation poller scans OTHER accounts sharing the same Stripe customer id to exclude their subscriptions from the duplicate-subscription alert for this account. Intentionally cross-account: the query filters by stripe_customer_id (not account_id) to identify sibling accounts — a legitimate cross-account lookup for an observability-only check with no write side-effects.",
+  },
+  {
+    file: "src/lib/agents/read.ts",
+    table: "agent_run_steps",
+    sqlSnippet: "SELECT s.agent_run_id, s.step_index, s.step_key, s.attributed_agent, s.status, s.detail, s.latency_ms, s.created_at FROM agent_run_steps s JOIN agent_runs ar ON ar.id = s.agent_run_id WHERE s.agent_run_id = ANY(${runIds}::uuid[]) AND ar.account_id = ${params.accountId} ORDER BY s.agent_run_id, s.step_index",
+    category: 'tenant-root-lookup',
+    reason: "Owner timeline read is scoped inline through the joined parent run (ar.account_id = params.accountId) and the run ids come from the preceding account-scoped bounded run query; agent_run_steps has no account_id column, and the audit evaluates its table scope independently of the parent alias.",
   },
   {
     file: "src/lib/agents/run-spine.ts",
