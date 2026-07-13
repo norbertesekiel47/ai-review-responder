@@ -236,6 +236,216 @@ describe('TimelineContent', () => {
     expect(screen.queryByText(/run 1/i)).toBeNull();
   });
 
+  it('collapses the posted + auto-posted outcome pair into one auto-posted chip', async () => {
+    renderTimeline(makeTimeline({
+      runs: [
+        {
+          id: 'run-auto',
+          status: 'completed',
+          startedAt: '2026-07-12T10:00:00.000Z',
+          endedAt: '2026-07-12T10:05:00.000Z',
+          error: null,
+          displayState: 'completed',
+          steps: [],
+          outcomes: [
+            {
+              outcomeKind: 'reply_posted',
+              attributedAgent: 'reply',
+              occurredAt: '2026-07-12T10:04:00.000Z',
+            },
+            {
+              outcomeKind: 'reply_auto_posted',
+              attributedAgent: 'reply',
+              occurredAt: '2026-07-12T10:04:00.000Z',
+            },
+          ],
+        },
+      ],
+    }));
+
+    expect(await screen.findByText('Reply auto-posted')).toBeInTheDocument();
+    expect(screen.queryByText('Reply posted')).toBeNull();
+  });
+
+  it('still renders the generic posted chip for an owner-approved post', async () => {
+    renderTimeline(makeTimeline({
+      runs: [
+        {
+          id: 'run-owner',
+          status: 'completed',
+          startedAt: '2026-07-12T10:00:00.000Z',
+          endedAt: '2026-07-12T10:05:00.000Z',
+          error: null,
+          displayState: 'completed',
+          steps: [],
+          outcomes: [
+            {
+              outcomeKind: 'reply_posted',
+              attributedAgent: 'reply',
+              occurredAt: '2026-07-12T10:04:00.000Z',
+            },
+          ],
+        },
+      ],
+    }));
+
+    expect(await screen.findByText('Reply posted')).toBeInTheDocument();
+    expect(screen.queryByText('Reply auto-posted')).toBeNull();
+  });
+
+  it('shows the auto-post deadline banner with month and day for a future non-today deadline', async () => {
+    const deadline = '2026-07-16T15:00:00.000Z';
+    renderTimeline(makeTimeline({
+      response: {
+        ...makeTimeline().response!,
+        status: 'approved',
+        approvalMethod: 'auto_policy',
+        autoPostScheduledAt: deadline,
+      },
+    }));
+    await screen.findByRole('heading', { name: 'Morgan Lee' });
+
+    const expected = new Intl.DateTimeFormat('en-US', {
+      month: 'long',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(new Date(deadline));
+    expect(await screen.findByText(`Scheduled to auto-post at ${expected}`)).toBeInTheDocument();
+    expect(
+      screen.getByText('To cancel, use Cancel auto-post in the notification we sent you.'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows a time-only deadline when the auto-post is due later today', async () => {
+    const deadline = '2026-07-13T15:00:00.000Z';
+    renderTimeline(makeTimeline({
+      response: {
+        ...makeTimeline().response!,
+        status: 'approved',
+        approvalMethod: 'auto_policy',
+        autoPostScheduledAt: deadline,
+      },
+    }));
+    await screen.findByRole('heading', { name: 'Morgan Lee' });
+
+    const expected = new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(new Date(deadline));
+    expect(await screen.findByText(`Scheduled to auto-post at ${expected}`)).toBeInTheDocument();
+  });
+
+  it('hides the scheduled banner once the deadline is in the past', async () => {
+    renderTimeline(makeTimeline({
+      response: {
+        ...makeTimeline().response!,
+        status: 'approved',
+        approvalMethod: 'auto_policy',
+        autoPostScheduledAt: '2026-07-13T11:00:00.000Z',
+      },
+    }));
+    await screen.findByRole('heading', { name: 'Morgan Lee' });
+
+    expect(screen.queryByText(/scheduled to auto-post/i)).toBeNull();
+    expect(screen.queryByText(/to cancel, use cancel auto-post/i)).toBeNull();
+  });
+
+  it('hides the scheduled banner and posted-at fact when neither applies', async () => {
+    renderTimeline();
+    await screen.findByRole('heading', { name: 'Morgan Lee' });
+
+    expect(screen.queryByText(/scheduled to auto-post/i)).toBeNull();
+    expect(screen.queryByText(/to cancel, use cancel auto-post/i)).toBeNull();
+    expect(screen.queryByText('Posted at')).toBeNull();
+  });
+
+  it('shows the viewer-local posted time once the reply is posted', async () => {
+    const postedAt = '2026-07-12T18:30:00.000Z';
+    renderTimeline(makeTimeline({
+      response: {
+        ...makeTimeline().response!,
+        status: 'posted',
+        approvalMethod: 'auto_policy',
+        autoPostScheduledAt: null,
+        postedAt,
+      },
+    }));
+    await screen.findByRole('heading', { name: 'Morgan Lee' });
+
+    const expected = new Intl.DateTimeFormat('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(new Date(postedAt));
+    expect(screen.getByText('Posted at')).toBeInTheDocument();
+    expect(screen.getByText(expected)).toBeInTheDocument();
+  });
+
+  it('renders a structured failure reason next to the failed badge', async () => {
+    renderTimeline(makeTimeline({
+      runs: [
+        {
+          id: 'run-failed',
+          status: 'failed',
+          startedAt: '2026-07-08T10:00:00.000Z',
+          endedAt: '2026-07-08T10:02:00.000Z',
+          error: { reason: 'provider_terminal' },
+          displayState: 'failed',
+          steps: [],
+          outcomes: [],
+        },
+      ],
+    }));
+
+    await screen.findByText('Failed');
+    expect(screen.getByText('Provider terminal')).toBeInTheDocument();
+  });
+
+  it('renders a generic short reason when the failed run error has no usable reason', async () => {
+    renderTimeline(makeTimeline({
+      runs: [
+        {
+          id: 'run-failed',
+          status: 'failed',
+          startedAt: '2026-07-08T10:00:00.000Z',
+          endedAt: '2026-07-08T10:02:00.000Z',
+          error: { code: 500, detail: { raw: 'never dump this JSON' } },
+          displayState: 'failed',
+          steps: [],
+          outcomes: [],
+        },
+      ],
+    }));
+
+    await screen.findByText('Failed');
+    expect(screen.getByText('This run hit an unexpected error.')).toBeInTheDocument();
+    expect(screen.queryByText(/never dump this JSON/)).toBeNull();
+    expect(screen.queryByText(/\{/)).toBeNull();
+  });
+
+  it('renders no reason line when a failed run has a null error', async () => {
+    renderTimeline(makeTimeline({
+      runs: [
+        {
+          id: 'run-failed',
+          status: 'failed',
+          startedAt: '2026-07-08T10:00:00.000Z',
+          endedAt: '2026-07-08T10:02:00.000Z',
+          error: null,
+          displayState: 'failed',
+          steps: [],
+          outcomes: [],
+        },
+      ],
+    }));
+
+    await screen.findByText('Failed');
+    expect(document.querySelector('.timeline-run__error')).toBeNull();
+  });
+
   it('announces loading and exposes fetch failures accessibly', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     let settle: ((value: Response) => void) | undefined;

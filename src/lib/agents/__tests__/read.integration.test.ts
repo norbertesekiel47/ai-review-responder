@@ -302,9 +302,11 @@ describeWithDb('agent spine reads against live Postgres', { timeout: 30_000 }, (
   });
 
   it('aggregates the team by account and filters it by location', async () => {
+    // The latest run seeds the real mark-posted co-occurrence (reply_posted +
+    // reply_auto_posted for ONE auto-policy post) — it must count as one reply.
     await expect(
       getAgentTeamSummary(sql(), { kind: 'account', accountId: accountId() }, '30d'),
-    ).resolves.toEqual({ reply: 2, guardian: 1, insights: 1 });
+    ).resolves.toEqual({ reply: 1, guardian: 1, insights: 1 });
 
     await expect(
       getAgentTeamSummary(
@@ -312,6 +314,6 @@ describeWithDb('agent spine reads against live Postgres', { timeout: 30_000 }, (
         { kind: 'location', accountId: accountId(), businessId },
         '30d',
       ),
-    ).resolves.toEqual({ reply: 2, guardian: 1, insights: 0 });
+    ).resolves.toEqual({ reply: 1, guardian: 1, insights: 0 });
   });
 });

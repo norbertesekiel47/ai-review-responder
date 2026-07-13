@@ -576,6 +576,27 @@
   line-height: 1.55;
   white-space: pre-wrap;
 }
+/* Live auto-post deadline band (WS5) — same auto provenance wash as
+   .badge-auto / .scheduled-post-chip, block-scale like the response panel. */
+.timeline-scheduled {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--rw-auto-fg);
+  border-radius: var(--rw-radius-sm);
+  background: var(--rw-auto-bg);
+}
+.timeline-scheduled__title {
+  margin: 0;
+  color: var(--rw-auto-fg);
+  font-size: 14px;
+  font-weight: 600;
+}
+.timeline-scheduled__hint {
+  margin: 4px 0 0;
+  color: var(--rw-app-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .timeline-escalation {
   gap: 16px;
   padding: 18px 20px;
@@ -746,6 +767,12 @@
 .timeline-empty p,
 .timeline-error p { color: var(--rw-app-text-muted); font-size: 13px; line-height: 1.55; }
 .timeline-run__no-steps { margin: 20px 0 0; }
+.timeline-run__error {
+  margin: 14px 0 0;
+  color: var(--rw-danger);
+  font-size: 13px;
+  line-height: 1.55;
+}
 .timeline-empty,
 .timeline-error { padding: 42px 28px; text-align: center; }
 .timeline-empty__icon {

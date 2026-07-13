@@ -1,13 +1,14 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { ReviewTimeline } from '@/lib/agents/read';
+import type { ReviewTimeline, ReviewTimelineResponse } from '@/lib/agents/read';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { RunTimeline } from './RunTimeline';
 import { TimelineEscalationActions } from './TimelineEscalationActions';
-import { formatIdentifier } from './format';
+import { formatDeadline, formatIdentifier } from './format';
 
 const REVIEW_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
   month: 'long',
@@ -23,6 +24,7 @@ export function TimelineContent({ reviewId }: { reviewId: string }) {
     queryFn: () => fetchReviewTimeline(reviewId),
     retry: false,
   });
+  const clockNowMs = useAutoPostClock(timelineQuery.data?.response ?? null);
 
   if (timelineQuery.isLoading) {
     return (
@@ -66,6 +68,11 @@ export function TimelineContent({ reviewId }: { reviewId: string }) {
 
   const timeline = timelineQuery.data;
   const reviewerName = timeline.review.reviewerName ?? 'Anonymous reviewer';
+  const autoPostDeadlineMs = getAutoPostDeadlineMs(timeline.response);
+  const autoPostDeadlineLabel =
+    clockNowMs !== null && autoPostDeadlineMs !== null && autoPostDeadlineMs > clockNowMs
+      ? formatDeadline(autoPostDeadlineMs, new Date(clockNowMs))
+      : null;
 
   return (
     <>
@@ -91,9 +98,22 @@ export function TimelineContent({ reviewId }: { reviewId: string }) {
               <>
                 <div><dt>Reply status</dt><dd>{formatIdentifier(timeline.response.status)}</dd></div>
                 <div><dt>Reply version</dt><dd>{timeline.response.version}</dd></div>
+                {timeline.response.postedAt && (
+                  <div><dt>Posted at</dt><dd>{formatDate(timeline.response.postedAt)}</dd></div>
+                )}
               </>
             )}
           </dl>
+          {autoPostDeadlineLabel !== null && (
+            <div className="timeline-scheduled" role="status">
+              <p className="timeline-scheduled__title">
+                Scheduled to auto-post at {autoPostDeadlineLabel}
+              </p>
+              <p className="timeline-scheduled__hint">
+                To cancel, use Cancel auto-post in the notification we sent you.
+              </p>
+            </div>
+          )}
           {timeline.response && (
             <div className="timeline-review__response">
               <span>Current reply</span>
@@ -163,6 +183,44 @@ function ReviewRating({ rating }: { rating: number | null }) {
 function formatDate(value: string | null): string {
   if (!value) return 'Not recorded';
   return REVIEW_DATE_FORMATTER.format(new Date(value));
+}
+
+// Mirrors ReviewFeedCard's scheduled-post gate: only an approved auto-policy
+// reply carries a deadline, and only a future one (vs the client clock) earns
+// the banner.
+function getAutoPostDeadlineMs(response: ReviewTimelineResponse | null): number | null {
+  if (response === null || response.status !== 'approved') return null;
+  if (response.approvalMethod !== 'auto_policy' || response.autoPostScheduledAt == null) {
+    return null;
+  }
+  const deadlineMs = new Date(response.autoPostScheduledAt).getTime();
+  return Number.isFinite(deadlineMs) ? deadlineMs : null;
+}
+
+// Client clock, same subscription shape as ReviewFeedCard's useReviewFeedClock:
+// starts null (SSR-safe), ticks via a timeout callback, and re-arms to just
+// past the deadline so the banner retires live instead of on the next fetch.
+function useAutoPostClock(response: ReviewTimelineResponse | null): number | null {
+  const [now, setNow] = useState<number | null>(null);
+
+  useEffect(() => {
+    let timeoutId: number;
+    const refresh = () => {
+      const currentTime = Date.now();
+      setNow(currentTime);
+      const deadline = getAutoPostDeadlineMs(response);
+      if (deadline !== null && deadline > currentTime) {
+        timeoutId = window.setTimeout(
+          refresh,
+          Math.min(deadline - currentTime + 1, 2_147_483_647),
+        );
+      }
+    };
+    timeoutId = window.setTimeout(refresh, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [response]);
+
+  return now;
 }
 
 function BackIcon() {

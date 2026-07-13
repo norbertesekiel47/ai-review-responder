@@ -340,7 +340,9 @@ describe('getAgentTeamSummary', () => {
     harness.resetMockSql();
   });
 
-  it('maps the account-scoped outcome groups to persona counts', async () => {
+  it('counts each posted reply once — reply_auto_posted is a qualifier, not an extra post', async () => {
+    // mark-posted records BOTH reply_posted and reply_auto_posted for one
+    // auto-policy post; only reply_posted may count or auto-posts double.
     harness.sqlReturnQueue.push([
       { attributed_agent: 'reply', outcome_kind: 'reply_posted', n: 2 },
       { attributed_agent: 'reply', outcome_kind: 'reply_auto_posted', n: 3 },
@@ -355,7 +357,7 @@ describe('getAgentTeamSummary', () => {
         { kind: 'account', accountId: 'account-1' },
         '30d',
       ),
-    ).resolves.toEqual({ reply: 5, guardian: 4, insights: 5 });
+    ).resolves.toEqual({ reply: 2, guardian: 4, insights: 5 });
 
     expect(harness.sqlCalls).toHaveLength(1);
     expect(harness.sqlCalls[0]!.text).toMatch(/FROM agent_outcomes o/);

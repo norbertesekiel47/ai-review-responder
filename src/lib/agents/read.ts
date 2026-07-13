@@ -251,9 +251,12 @@ function groupOutcomes(rows: OutcomeRow[]): Map<string, ReviewTimelineOutcome[]>
 function mapTeamSummary(rows: TeamSummaryRow[]): AgentTeamSummary {
   const summary: AgentTeamSummary = { reply: 0, guardian: 0, insights: 0 };
   for (const row of rows) {
+    // Every posted reply records reply_posted; an auto-policy post records
+    // reply_auto_posted ON THE SAME RUN as a qualifier (mark-posted.ts).
+    // Count only reply_posted or auto-posts double.
     if (
       row.attributed_agent === 'reply'
-      && (row.outcome_kind === 'reply_posted' || row.outcome_kind === 'reply_auto_posted')
+      && row.outcome_kind === 'reply_posted'
     ) {
       summary.reply += Number(row.n);
     } else if (
