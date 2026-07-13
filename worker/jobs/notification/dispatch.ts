@@ -262,7 +262,7 @@ export async function dispatchAll(
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       logger.error(`createApprovalLink failed for ${channelId} response ${ctx.responseId}: ${reason}`);
-      await failDelivery(sql, deliveryId, `approval_link_error:${reason}`);
+      await failDelivery(sql, deliveryId, `approval_link_error:${reason}`, logger);
       continue;
     }
     const approvalUrl = `${ctx.appUrl}/approve/${rawToken}`;
@@ -333,11 +333,11 @@ export async function dispatchAll(
         logger[directive.extraLog.level](directive.extraLog.message);
       }
 
-      await failDelivery(sql, deliveryId, directive.failureReason);
+      await failDelivery(sql, deliveryId, directive.failureReason, logger);
       continue;
     }
 
-    await finalizeDeliverySent(sql, deliveryId, externalMessageId);
+    await finalizeDeliverySent(sql, deliveryId, externalMessageId, logger);
     succeeded++;
     logger.log(`${channelId} approval notification sent for response ${ctx.responseId} (business ${ctx.businessId})`);
   }

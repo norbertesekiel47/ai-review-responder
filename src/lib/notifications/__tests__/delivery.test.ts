@@ -17,6 +17,8 @@ import {
   insertFailedDelivery,
   claimEscalationNoticeDelivery,
   claimPendingPostNoticeDelivery,
+  finalizeDeliverySent,
+  failDelivery,
 } from '../delivery';
 
 describe('recordNotificationDelivery', () => {
@@ -268,5 +270,72 @@ describe('claimPendingPostNoticeDelivery', () => {
 
     const insert = sqlCalls[1]!;
     expect(insert.template).toMatch(/INSERT INTO notification_deliveries/);
+  });
+});
+
+// ── Reaped-row no-ops (finalize-after-reap) ────────────────────────────────
+// A >15-minute hung send can be reaped by claimPendingPostNoticeDelivery's
+// self-reap and re-claimed; the original's finalize/fail then UPDATEs a
+// deleted row. That must WARN (ids-only) and NOT throw — the provider send
+// succeeded, so throwing would retry and double-send.
+
+describe('finalizeDeliverySent / failDelivery reaped-row handling', () => {
+  beforeEach(() => {
+    sqlCalls.length = 0;
+    sqlQueue.length = 0;
+    mockSql.mockClear();
+  });
+
+  const warnLogger = () => ({ warn: vi.fn() });
+
+  it('finalizeDeliverySent warns and does not throw when the claim row was reaped (0 rows)', async () => {
+    sqlQueue.push(Object.assign([], { count: 0 }));
+    const logger = warnLogger();
+
+    await expect(
+      finalizeDeliverySent(mockSql, 'del-1', 'msg-ext-1', logger),
+    ).resolves.toBeUndefined();
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    const message = logger.warn.mock.calls[0]![0] as string;
+    expect(message).toContain('del-1');
+    expect(message).toContain('msg-ext-1');
+  });
+
+  it('finalizeDeliverySent stays silent when the row was updated', async () => {
+    sqlQueue.push(Object.assign([], { count: 1 }));
+    const logger = warnLogger();
+
+    await finalizeDeliverySent(mockSql, 'del-1', 'msg-ext-1', logger);
+
+    expect(logger.warn).not.toHaveBeenCalled();
+    const call = sqlCalls[0]!;
+    expect(call.template).toMatch(/UPDATE notification_deliveries/);
+    expect(call.values).toContain('del-1');
+    expect(call.values).toContain('msg-ext-1');
+  });
+
+  it('failDelivery warns and does not throw when the claim row was reaped (0 rows)', async () => {
+    sqlQueue.push(Object.assign([], { count: 0 }));
+    const logger = warnLogger();
+
+    await expect(
+      failDelivery(mockSql, 'del-2', 'send_error:test', logger),
+    ).resolves.toBeUndefined();
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    const message = logger.warn.mock.calls[0]![0] as string;
+    expect(message).toContain('del-2');
+    // ids-only: the failure reason is not echoed into the warn line.
+    expect(message).not.toContain('send_error:test');
+  });
+
+  it('failDelivery stays silent when the row was updated', async () => {
+    sqlQueue.push(Object.assign([], { count: 1 }));
+    const logger = warnLogger();
+
+    await failDelivery(mockSql, 'del-2', 'send_error:test', logger);
+
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 });

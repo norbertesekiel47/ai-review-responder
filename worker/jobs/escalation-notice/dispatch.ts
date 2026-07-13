@@ -152,7 +152,7 @@ export async function dispatchEscalationNotice(
         );
         continue;
       }
-      await finalizeDeliverySent(sql, deliveryId, sendResult.externalMessageId);
+      await finalizeDeliverySent(sql, deliveryId, sendResult.externalMessageId, logger);
       result.sent += 1;
       logger.log(`escalation_notice sent channel=${channelId} escalation=${input.escalationId}`);
     } catch (err) {
@@ -174,7 +174,7 @@ export async function dispatchEscalationNotice(
         // TERMINAL: keep the claim as a recorded failed delivery (NOT deleted —
         // its presence suppresses a pointless retry, and it is the
         // observability row).
-        await failDelivery(sql, deliveryId, classification.reason);
+        await failDelivery(sql, deliveryId, classification.reason, logger);
         result.terminalFailed += 1;
         logger.warn(
           `escalation_notice terminal-failed channel=${channelId} escalation=${input.escalationId}: ${loggedReason}`,

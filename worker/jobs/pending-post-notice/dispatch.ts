@@ -194,7 +194,7 @@ export async function dispatchPendingPostNotice(
         );
         continue;
       }
-      await finalizeDeliverySent(sql, deliveryId, sendResult.externalMessageId);
+      await finalizeDeliverySent(sql, deliveryId, sendResult.externalMessageId, logger);
       result.sent += 1;
       logger.log(`pending_post_notice sent channel=${channelId} response=${input.responseId}`);
     } catch (err) {
@@ -221,7 +221,7 @@ export async function dispatchPendingPostNotice(
         // its presence suppresses a pointless retry, and it is the
         // observability row). Raw token redacted (invariant #5 — never in
         // Postgres); review/draft text may remain (DB column, not a log).
-        await failDelivery(sql, deliveryId, redactAll(classification.reason, [rawToken]));
+        await failDelivery(sql, deliveryId, redactAll(classification.reason, [rawToken]), logger);
         result.terminalFailed += 1;
         logger.warn(
           `pending_post_notice terminal-failed channel=${channelId} response=${input.responseId}: ${loggedReason}`,

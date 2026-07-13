@@ -116,7 +116,7 @@ export async function dispatchAutoPostNotice(
         );
         continue;
       }
-      await finalizeDeliverySent(sql, deliveryId, sendResult.externalMessageId);
+      await finalizeDeliverySent(sql, deliveryId, sendResult.externalMessageId, logger);
       result.sent += 1;
       logger.log(`auto_post_notice sent channel=${channelId} response=${input.responseId}`);
     } catch (err) {
@@ -137,7 +137,7 @@ export async function dispatchAutoPostNotice(
         // TERMINAL: keep the claim as a recorded failed delivery (NOT deleted —
         // its presence suppresses a pointless retry, and it is the
         // observability row).
-        await failDelivery(sql, deliveryId, classification.reason);
+        await failDelivery(sql, deliveryId, classification.reason, logger);
         result.terminalFailed += 1;
         logger.warn(
           `auto_post_notice terminal-failed channel=${channelId} response=${input.responseId}: ${classification.reason}`,
