@@ -27,9 +27,7 @@ interface VetoWindowGateInput {
 
 type VetoWindowGateRow = {
   first_sent: Date | null;
-  veto_window_minutes: number | null;
-  anchored_deadline: Date | null;
-  window_elapsed: boolean | null;
+  db_now: Date;
 };
 
 /**
@@ -63,36 +61,33 @@ export async function enforceElapsedVetoWindow(
 ): Promise<VetoWindowGateOutcome> {
   const { responseId, businessId, outboxId, outboxAttempt, correlationId, logger } = input;
 
+  // Aggregate with no GROUP BY: always exactly one row (first_sent NULL when
+  // zero delivered notices). db_now keeps the elapsed comparison on the DB
+  // clock — the same clock that stamped sent_at.
   const [gate] = await sql<VetoWindowGateRow[]>`
     SELECT
-      nd.first_sent,
-      grant_audit.veto_window_minutes,
-      nd.first_sent + make_interval(mins => grant_audit.veto_window_minutes)
-        AS anchored_deadline,
-      nd.first_sent + make_interval(mins => grant_audit.veto_window_minutes) <= NOW()
-        AS window_elapsed
-    FROM (
-      SELECT MIN(sent_at) AS first_sent
-      FROM notification_deliveries
-      WHERE response_id = ${responseId}
-        AND business_id = ${businessId}
-        AND template = 'pending_post_notice'
-        AND sent_at IS NOT NULL
-    ) nd
-    LEFT JOIN (
-      SELECT (metadata->>'veto_window_minutes')::int AS veto_window_minutes
-      FROM approval_audit_log
-      WHERE response_id = ${responseId}
-        AND business_id = ${businessId}
-        AND action = ${AUDIT_ACTION_AUTO_APPROVED_BY_POLICY}
-      ORDER BY created_at DESC
-      LIMIT 1
-    ) grant_audit ON TRUE
+      MIN(nd.sent_at) AS first_sent,
+      NOW() AS db_now
+    FROM notification_deliveries nd
+    WHERE nd.response_id = ${responseId}
+      AND nd.business_id = ${businessId}
+      AND nd.template = 'pending_post_notice'
+      AND nd.sent_at IS NOT NULL
   `;
 
   if (!gate || gate.first_sent === null) return 'downgrade';
 
-  if (gate.veto_window_minutes === null || gate.anchored_deadline === null) {
+  const [grant] = await sql<{ veto_window_minutes: number | null }[]>`
+    SELECT (aal.metadata->>'veto_window_minutes')::int AS veto_window_minutes
+    FROM approval_audit_log aal
+    WHERE aal.response_id = ${responseId}
+      AND aal.business_id = ${businessId}
+      AND aal.action = ${AUDIT_ACTION_AUTO_APPROVED_BY_POLICY}
+    ORDER BY aal.created_at DESC
+    LIMIT 1
+  `;
+
+  if (grant?.veto_window_minutes == null) {
     // Impossible state: the approval transition writes the audit row (with
     // veto_window_minutes) in the same tx that stamps auto_policy. A missing
     // window means the approval invariant broke upstream — surface loudly
@@ -103,7 +98,12 @@ export async function enforceElapsedVetoWindow(
     );
   }
 
-  if (gate.window_elapsed === true) return 'proceed';
+  // Sub-ms truncation (timestamptz µs → JS Date ms) is absorbed by poller
+  // cadence, same as the approval-time availableAt bind in persist.ts.
+  const anchoredDeadline = new Date(
+    gate.first_sent.getTime() + grant.veto_window_minutes * 60_000,
+  );
+  if (anchoredDeadline.getTime() <= gate.db_now.getTime()) return 'proceed';
 
   // Late notice — the window has not fully elapsed yet. Push the deadline to
   // `first_sent + window` instead of posting (would cut the owner's window
@@ -112,7 +112,6 @@ export async function enforceElapsedVetoWindow(
   // enqueue a fresh delayed publish row. Completion MUST precede the insert:
   // the in-flight partial index counts pending/dispatching/dispatched rows,
   // and within this tx the completed current row no longer blocks the insert.
-  const anchoredDeadline = gate.anchored_deadline;
   return sql.begin(async (tx): Promise<VetoWindowGateOutcome> => {
     const [pushed] = await tx<{ auto_post_scheduled_at: Date }[]>`
       UPDATE responses
