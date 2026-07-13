@@ -862,8 +862,10 @@ Revisit triggers:
   071's subject index is partial to `status = 'running'`, while its other run
   indexes lead on `business_id` or `account_id`, so none serve this lookup.
   Index-only and transactional (no `CONCURRENTLY`); no table, data, RLS, or
-  authorization changes. Apply staging first, then production, both Supabase
-  projects in lockstep.
+  authorization changes. **WS5 execution status:** applied and verified only
+  against the local `test_ws4` container database; not applied to staging or
+  production. At promotion time, the user applies it staging first, then
+  production, both Supabase projects in lockstep.
 
 ## Key Tables Reference
 
