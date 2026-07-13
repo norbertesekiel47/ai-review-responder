@@ -131,26 +131,23 @@ describe('NeedsAttentionList', () => {
     expect(view.container).toBeEmptyDOMElement();
   });
 
-  it('stays hidden when the account-wide request fails', async () => {
+  it('surfaces a visible error notice when the account-wide request fails', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(
       { error: 'Escalations unavailable' },
       { status: 500 },
     ));
     vi.stubGlobal('fetch', fetchMock);
 
-    const view = renderList();
+    renderList();
 
-    await waitFor(() => {
-      expect(view.queryClient.getQueryState(['dashboard-open-escalations'])?.status)
-        .toBe('error');
-    });
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Escalations unavailable');
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(view.container).toBeEmptyDOMElement();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Needs attention' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Needs attention' })).toBeInTheDocument();
+    expect(screen.queryByRole('list')).not.toBeInTheDocument();
   });
 
-  it('rejects a contradictory total smaller than the returned item slice', async () => {
+  it('rejects a contradictory total smaller than the returned item slice with an error notice', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
       totalOpen: 0,
       items: [{
@@ -171,7 +168,69 @@ describe('NeedsAttentionList', () => {
       expect(view.queryClient.getQueryState(['dashboard-open-escalations'])?.status)
         .toBe('error');
     });
-    expect(view.container).toBeEmptyDOMElement();
+    expect(screen.getByRole('alert')).toHaveTextContent('Escalation response was incomplete');
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it('renders a rating-less escalation with the No rating fallback', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      totalOpen: 1,
+      items: [{
+        id: 'escalation-no-rating',
+        status: ESCALATION_STATUS.ESCALATED,
+        severity: 'medium',
+        suggestedAction: 'escalate',
+        createdAt: '2026-07-10T12:00:00.000Z',
+        reviewId: 'review-no-rating',
+        businessName: 'Corner Cafe',
+        reviewRating: null,
+      }],
+    })));
+
+    renderList();
+
+    expect(await screen.findByText('No rating')).toBeInTheDocument();
+    expect(screen.getByText('Corner Cafe')).toBeInTheDocument();
+    expect(screen.queryByText(/\/5 rating/)).not.toBeInTheDocument();
+    expect(screen.getByRole('link')).toHaveAttribute(
+      'href',
+      '/dashboard/reviews/review-no-rating/timeline',
+    );
+  });
+
+  it('drops a malformed item without blanking the rest of the queue', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      totalOpen: 2,
+      items: [
+        {
+          id: 'escalation-good',
+          status: ESCALATION_STATUS.ESCALATED,
+          severity: 'high',
+          suggestedAction: 'escalate',
+          createdAt: '2026-07-10T12:00:00.000Z',
+          reviewId: 'review-good',
+          businessName: 'Bristol Bay Coffee',
+          reviewRating: 1,
+        },
+        {
+          id: 'escalation-bad',
+          status: ESCALATION_STATUS.ESCALATED,
+          severity: 'high',
+          suggestedAction: 'escalate',
+          createdAt: '2026-07-10T12:00:00.000Z',
+          reviewId: 'review-bad',
+          businessName: 'Harbor Roasters',
+          reviewRating: 'five',
+        },
+      ],
+    })));
+
+    renderList();
+
+    expect(await screen.findByText('Bristol Bay Coffee')).toBeInTheDocument();
+    expect(screen.queryByText('Harbor Roasters')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('link')).toHaveLength(1);
   });
 
   it.each(VOCABULARY_CASES)(

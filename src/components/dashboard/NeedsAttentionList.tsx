@@ -12,6 +12,12 @@ import {
   type TriageSeverity,
 } from '@/lib/reviews/triage-schema';
 
+/**
+ * Query key for the open-escalation queue. Owned here; feed escalation
+ * actions import it to invalidate the queue after a transition.
+ */
+export const DASHBOARD_OPEN_ESCALATIONS_QUERY_KEY = ['dashboard-open-escalations'] as const;
+
 type OpenEscalationItem = {
   id: string;
   status: OpenEscalationStatus;
@@ -20,7 +26,7 @@ type OpenEscalationItem = {
   createdAt: string;
   reviewId: string;
   businessName: string;
-  reviewRating: number;
+  reviewRating: number | null;
 };
 
 type OpenEscalationsResponse = {
@@ -40,14 +46,29 @@ const SHORT_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
   timeZone: 'UTC',
 });
 
-/** Account-wide exception queue. Only a successful, non-empty response has a surface. */
+/**
+ * Account-wide exception queue. A successful empty response stays hidden;
+ * a failed load surfaces a compact error notice — the queue must never
+ * silently disappear (mirrors AgentTeamStrip's error state).
+ */
 export function NeedsAttentionList() {
   const query = useQuery({
-    queryKey: ['dashboard-open-escalations'],
+    queryKey: DASHBOARD_OPEN_ESCALATIONS_QUERY_KEY,
     queryFn: ({ signal }) => fetchOpenEscalations(signal),
   });
 
-  if (query.isPending || query.isError) return null;
+  if (query.isPending) return null;
+
+  if (query.isError) {
+    return (
+      <section className="card needs-attention section-enter section-enter-4" aria-labelledby="needs-attention-heading">
+        <h2 id="needs-attention-heading" className="card-h2">Needs attention</h2>
+        <div className="agent-team-state agent-team-state--error" role="alert">
+          {query.error instanceof Error ? query.error.message : 'Unable to load escalations'}
+        </div>
+      </section>
+    );
+  }
 
   if (query.data.items.length === 0) return null;
 
@@ -78,7 +99,7 @@ export function NeedsAttentionList() {
             </div>
             <div className="needs-attention-review">
               <strong>{item.businessName}</strong>
-              <span>{item.reviewRating}/5 rating</span>
+              <span>{item.reviewRating != null ? `${item.reviewRating}/5 rating` : 'No rating'}</span>
               <span>{formatIdentifier(item.suggestedAction)}</span>
             </div>
             <Link
@@ -105,20 +126,22 @@ async function fetchOpenEscalations(signal: AbortSignal): Promise<OpenEscalation
     const error = isObject(body) ? Reflect.get(body, 'error') : null;
     throw new Error(typeof error === 'string' ? error : 'Unable to load escalations');
   }
-  if (!isOpenEscalationsResponse(body)) {
+  if (!isOpenEscalationsEnvelope(body)) {
     throw new Error('Escalation response was incomplete');
   }
-  return body;
+  // Validate per ITEM: one malformed row must not blank the whole queue.
+  return { totalOpen: body.totalOpen, items: body.items.filter(isOpenEscalationItem) };
 }
 
-function isOpenEscalationsResponse(value: unknown): value is OpenEscalationsResponse {
+function isOpenEscalationsEnvelope(
+  value: unknown,
+): value is { totalOpen: number; items: unknown[] } {
   if (!isObject(value) || !Array.isArray(value.items)) return false;
   return [
     Number.isInteger(value.totalOpen),
     typeof value.totalOpen === 'number' && value.totalOpen >= 0,
     value.items.length <= 20,
     typeof value.totalOpen === 'number' && value.totalOpen >= value.items.length,
-    value.items.every(isOpenEscalationItem),
   ].every(Boolean);
 }
 
@@ -132,10 +155,14 @@ function isOpenEscalationItem(value: unknown): value is OpenEscalationItem {
     typeof value.createdAt === 'string' && !Number.isNaN(Date.parse(value.createdAt)),
     typeof value.reviewId === 'string',
     typeof value.businessName === 'string',
-    typeof value.reviewRating === 'number',
-    Number.isInteger(value.reviewRating),
-    typeof value.reviewRating === 'number' && value.reviewRating >= 1 && value.reviewRating <= 5,
+    isValidReviewRating(value.reviewRating),
   ].every(Boolean);
+}
+
+/** reviews.star_rating is nullable — a rating-less review is a valid row. */
+function isValidReviewRating(value: unknown): value is number | null {
+  if (value === null) return true;
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 5;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

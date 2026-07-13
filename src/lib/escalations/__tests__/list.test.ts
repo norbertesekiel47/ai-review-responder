@@ -56,7 +56,7 @@ describe('listOpenEscalations', () => {
         /FROM review_escalations e JOIN reviews r ON r\.id = e\.review_id JOIN businesses b ON b\.id = r\.business_id/,
       );
       expect(normalizedSql).toContain(
-        "WHERE e.account_id = ? AND b.account_id = ? AND e.status <> 'resolved'",
+        "WHERE e.account_id = ? AND b.account_id = ? AND b.archived_at IS NULL AND e.status <> 'resolved'",
       );
       expect(call.values).toEqual(['account-1', 'account-1']);
     }
@@ -65,6 +65,44 @@ describe('listOpenEscalations', () => {
       'isolation level repeatable read read only',
       expect.any(Function),
     );
+  });
+
+  it('passes a rating-less review through as reviewRating: null', async () => {
+    harness.sqlReturnQueue.push(
+      [{ total_open: 1 }],
+      [
+        {
+          id: 'escalation-null-rating',
+          status: 'escalated',
+          triage_severity: 'medium',
+          triage_suggested_action: 'escalate',
+          created_at: new Date('2026-07-12T10:00:00.000Z'),
+          review_id: 'review-null-rating',
+          business_name: 'Corner Cafe',
+          review_rating: null,
+        },
+      ],
+    );
+
+    const result = await listOpenEscalations(harness.mockSql as unknown as Sql, {
+      accountId: 'account-1',
+    });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]!.reviewRating).toBeNull();
+  });
+
+  it('excludes escalations on archived locations in both the count and list statements', async () => {
+    harness.sqlReturnQueue.push([{ total_open: 0 }], []);
+
+    await listOpenEscalations(harness.mockSql as unknown as Sql, {
+      accountId: 'account-1',
+    });
+
+    expect(harness.sqlCalls).toHaveLength(2);
+    for (const call of harness.sqlCalls) {
+      expect(call.text.replace(/\s+/g, ' ')).toContain('b.archived_at IS NULL');
+    }
   });
 
   it('pins escalated-first, high-to-low severity, then oldest-first ordering', async () => {

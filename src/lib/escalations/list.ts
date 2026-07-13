@@ -10,7 +10,7 @@ type EscalationListRow = {
   created_at: Date | string;
   review_id: string;
   business_name: string;
-  review_rating: number;
+  review_rating: number | null;
 };
 
 export interface OpenEscalationListItem {
@@ -21,7 +21,8 @@ export interface OpenEscalationListItem {
   createdAt: string;
   reviewId: string;
   businessName: string;
-  reviewRating: number;
+  /** reviews.star_rating is nullable — sources may deliver rating-less reviews. */
+  reviewRating: number | null;
 }
 
 export interface OpenEscalationsList {
@@ -32,7 +33,8 @@ export interface OpenEscalationsList {
 /**
  * Reads the bounded owner exception queue. Both statements keep tenant scope
  * inline at the top level so the app-enforced account boundary remains
- * visible to the tenant-scope audit.
+ * visible to the tenant-scope audit. Archived locations are excluded so every
+ * row's timeline link resolves (the timeline scope read filters archived).
  */
 export async function listOpenEscalations(
   sql: Sql,
@@ -46,6 +48,7 @@ export async function listOpenEscalations(
       JOIN businesses b ON b.id = r.business_id
       WHERE e.account_id = ${params.accountId}
         AND b.account_id = ${params.accountId}
+        AND b.archived_at IS NULL
         AND e.status <> 'resolved'
     `;
     const rows = await tx<EscalationListRow[]>`
@@ -57,6 +60,7 @@ export async function listOpenEscalations(
       JOIN businesses b ON b.id = r.business_id
       WHERE e.account_id = ${params.accountId}
         AND b.account_id = ${params.accountId}
+        AND b.archived_at IS NULL
         AND e.status <> 'resolved'
       ORDER BY
         CASE e.status

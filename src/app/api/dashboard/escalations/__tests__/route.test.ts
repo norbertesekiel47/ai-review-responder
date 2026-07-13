@@ -2,12 +2,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
-const { mockRequireOwnerWithAccount, mockListOpenEscalations } = vi.hoisted(() => ({
+const {
+  mockRequireOwnerWithAccount,
+  mockListOpenEscalations,
+  mockReportCaughtError,
+} = vi.hoisted(() => ({
   mockRequireOwnerWithAccount: vi.fn(),
   mockListOpenEscalations: vi.fn(),
+  mockReportCaughtError: vi.fn(),
 }));
 
 vi.mock('@/lib/db/server', () => ({ sql: vi.fn() }));
+
+vi.mock('@/lib/shared/report-caught-error', () => ({
+  reportCaughtError: (...args: unknown[]) => mockReportCaughtError(...args),
+}));
 
 vi.mock('@/lib/auth/route-helpers', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/auth/route-helpers')>();
@@ -61,6 +70,16 @@ describe('GET /api/dashboard/escalations', () => {
           businessName: 'Corner Cafe',
           reviewRating: 1,
         },
+        {
+          id: 'escalation-2',
+          status: 'escalated',
+          severity: 'medium',
+          suggestedAction: 'escalate',
+          createdAt: '2026-07-12T11:00:00.000Z',
+          reviewId: 'review-2',
+          businessName: 'Harbor Roasters',
+          reviewRating: null,
+        },
       ],
     };
     mockRequireOwnerWithAccount.mockResolvedValue({
@@ -78,5 +97,34 @@ describe('GET /api/dashboard/escalations', () => {
     expect(mockListOpenEscalations).toHaveBeenCalledWith(expect.any(Function), {
       accountId: ACCOUNT_ID,
     });
+  });
+
+  it('maps an unexpected listing failure to the shared 500 dashboard-read boundary', async () => {
+    mockRequireOwnerWithAccount.mockResolvedValue({
+      ok: true,
+      user: { id: 'user-1', accountId: ACCOUNT_ID },
+      accountId: ACCOUNT_ID,
+    });
+    const failure = new Error('connection reset');
+    mockListOpenEscalations.mockRejectedValue(failure);
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ error: 'Failed to fetch escalations' });
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'api/dashboard/escalations',
+      failure,
+      { accountId: ACCOUNT_ID },
+    );
+  });
+
+  it('preserves requireOwnerWithAccount rethrows outside the 500 boundary', async () => {
+    const authInfraFailure = new Error('auth infrastructure down');
+    mockRequireOwnerWithAccount.mockRejectedValue(authInfraFailure);
+
+    await expect(GET(request())).rejects.toBe(authInfraFailure);
+    expect(mockListOpenEscalations).not.toHaveBeenCalled();
+    expect(mockReportCaughtError).not.toHaveBeenCalled();
   });
 });
