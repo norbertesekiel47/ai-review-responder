@@ -142,7 +142,7 @@ vi.mock('../response-generation/persist', async (importOriginal) => {
 // Import after mocks are wired
 import { handleResponseGeneration } from '../ResponseGeneratorWorker';
 import { persistResponseAndNotify } from '../response-generation/persist';
-import { CostLimitExceededError } from '../../../src/lib/costs/tracker';
+import { CostLimitExceededError, RegenBudgetExceededError } from '../../../src/lib/costs/tracker';
 import { CostInfraUnavailableError } from '../../../src/lib/costs/errors';
 import { SKIP_REASON_ARCHIVED_LOCATION } from '../../../src/lib/shared/worker-types';
 import {
@@ -534,11 +534,15 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
   });
 
   // 3. Cost limit exceeded
-  it('atomically fails the active review run and outbox after taking the reviews lock first', async () => {
+  it('atomically fails the active review run and outbox after taking the reviews lock first (no live draft)', async () => {
     mockTx.mockImplementation((strings: TemplateStringsArray) => {
       const text = strings.join(' ');
       if (text.includes('FROM reviews') && text.includes('FOR UPDATE')) {
         return Promise.resolve([{ id: 'rev-1' }]);
+      }
+      // WS5 live-draft guard: no owner-actionable response for the review.
+      if (text.includes('FROM responses')) {
+        return Promise.resolve([]);
       }
       if (text.includes('FROM agent_runs') && text.includes("status = 'running'")) {
         return Promise.resolve([{ id: 'run-1', account_id: 'acct-1' }]);
@@ -560,9 +564,10 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     );
     expect(txSql[0]).toContain('FROM reviews');
     expect(txSql[0]).toContain('FOR UPDATE');
-    expect(txSql[1]).toContain('FROM agent_runs');
-    expect(txSql[2]).toContain('UPDATE agent_runs');
-    expect(mockTx.mock.calls[2]!.slice(1)).toEqual(expect.arrayContaining([
+    expect(txSql[1]).toContain('FROM responses');
+    expect(txSql[2]).toContain('FROM agent_runs');
+    expect(txSql[3]).toContain('UPDATE agent_runs');
+    expect(mockTx.mock.calls[3]!.slice(1)).toEqual(expect.arrayContaining([
       'run-1',
       'failed',
       { reason: 'Daily cost limit exceeded for business biz-1' },
@@ -571,6 +576,48 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
       mockTx,
       'outbox-gen-1',
       expect.stringContaining('cost limit exceeded'), undefined);
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+  });
+
+  // 3b. WS5 live-draft guard: a terminal regen failure while an earlier draft
+  // is still owner-actionable must fail the outbox but leave the run running
+  // (timeline renders waiting_on_owner, and the eventual post keeps its run).
+  it('leaves the run running when a regen-budget terminal failure finds a live draft awaiting the owner', async () => {
+    mockTx.mockImplementation((strings: TemplateStringsArray) => {
+      const text = strings.join(' ');
+      if (text.includes('FROM reviews') && text.includes('FOR UPDATE')) {
+        return Promise.resolve([{ id: 'rev-1' }]);
+      }
+      // Live v1 draft still pending_approval.
+      if (text.includes('FROM responses')) {
+        return Promise.resolve([{ live: 1 }]);
+      }
+      return Promise.resolve([]);
+    });
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockCheckRegenBudget.mockRejectedValueOnce(new RegenBudgetExceededError('rev-1'));
+
+    await handleResponseGeneration(makeJob({ version: 2 }));
+
+    expect(mockSql.begin).toHaveBeenCalledOnce();
+    const txSql = mockTx.mock.calls.map((call) =>
+      (call[0] as TemplateStringsArray).join(' '),
+    );
+    // Statement order: reviews lock FIRST, then the live-draft read; the
+    // guard short-circuits before any agent_runs statement.
+    expect(txSql).toHaveLength(2);
+    expect(txSql[0]).toContain('FROM reviews');
+    expect(txSql[0]).toContain('FOR UPDATE');
+    expect(txSql[1]).toContain('FROM responses');
+    expect(txSql.some((text) => text.includes('agent_runs'))).toBe(false);
+    // The outbox CAS still happens as today.
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockTx,
+      'outbox-gen-1',
+      expect.stringContaining('Regeneration budget exceeded'),
+      undefined,
+    );
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 

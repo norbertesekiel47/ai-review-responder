@@ -15,7 +15,10 @@ import {
   checkpointTerminalPublisherFailure,
   handlePublisherFailed,
 } from '../publisher/failed-hook';
-import { PublisherTransientWithContext } from '../publisher/publisher-error-handlers';
+import {
+  PublisherTransientWithContext,
+  ZernioReplyVerificationIndeterminateError,
+} from '../publisher/publisher-error-handlers';
 import { ZernioTransientError } from '@/lib/zernio/errors';
 import type { PublishResponsePayload } from '@/lib/shared/worker-types';
 
@@ -37,6 +40,12 @@ const staleOrphanResponseId = randomUUID();
 const staleGenerationOutboxId = randomUUID();
 const stalePublisherOutboxId = randomUUID();
 const staleOrphanOutboxId = randomUUID();
+const liveDraftReviewId = randomUUID();
+const liveDraftResponseId = randomUUID();
+const liveDraftOutboxId = randomUUID();
+const indeterminateReviewId = randomUUID();
+const indeterminateResponseId = randomUUID();
+const indeterminateOutboxId = randomUUID();
 
 function sql(): postgresType.Sql {
   if (!db) throw new Error('terminal checkpoint integration DB was not initialized');
@@ -102,6 +111,18 @@ describeWithDb('terminal-failure run checkpoints against live Postgres', { timeo
         ${`stale-orphan-${staleOrphanReviewId}`},
         ${`zernio://terminal/reviews/${staleOrphanReviewId}`},
         'zernio://terminal/locations/1', 'Stale Orphan Reviewer', 4, 'Pretty good', 'responded'
+      ),
+      (
+        ${liveDraftReviewId}::uuid, ${businessId}::uuid, 'zernio',
+        ${`live-draft-${liveDraftReviewId}`},
+        ${`zernio://terminal/reviews/${liveDraftReviewId}`},
+        'zernio://terminal/locations/1', 'Live Draft Reviewer', 2, 'Needs work', 'pending'
+      ),
+      (
+        ${indeterminateReviewId}::uuid, ${businessId}::uuid, 'zernio',
+        ${`indeterminate-${indeterminateReviewId}`},
+        ${`zernio://terminal/reviews/${indeterminateReviewId}`},
+        'zernio://terminal/locations/1', 'Indeterminate Reviewer', 4, 'Pretty good', 'responded'
       )
     `;
     await db`
@@ -123,6 +144,21 @@ describeWithDb('terminal-failure run checkpoints against live Postgres', { timeo
         ${staleOrphanResponseId}::uuid, ${staleOrphanReviewId}::uuid, ${businessId}::uuid,
         'Thanks for the review', 'Thanks for the review', 'en',
         'approved', 'owner', NOW(), 'Thanks for the review'
+      ),
+      (
+        ${indeterminateResponseId}::uuid, ${indeterminateReviewId}::uuid, ${businessId}::uuid,
+        'Thanks for the review', 'Thanks for the review', 'en',
+        'approved', 'owner', NOW(), 'Thanks for the review'
+      )
+    `;
+    await db`
+      INSERT INTO responses (
+        id, review_id, business_id, response_text, original_draft_text,
+        response_language, status
+      ) VALUES (
+        ${liveDraftResponseId}::uuid, ${liveDraftReviewId}::uuid, ${businessId}::uuid,
+        'Draft awaiting the owner', 'Draft awaiting the owner', 'en',
+        'pending_approval'
       )
     `;
     await db`
@@ -158,6 +194,16 @@ describeWithDb('terminal-failure run checkpoints against live Postgres', { timeo
         ${staleOrphanOutboxId}::uuid, 'publish_response', 'response', ${staleOrphanResponseId},
         ${db.json({ response_id: staleOrphanResponseId, business_id: businessId })},
         'dispatched', 2, 3
+      ),
+      (
+        ${liveDraftOutboxId}::uuid, 'generate_response', 'review', ${liveDraftReviewId},
+        ${db.json({ review_id: liveDraftReviewId, business_id: businessId, version: 2 })},
+        'dispatched', 1, 3
+      ),
+      (
+        ${indeterminateOutboxId}::uuid, 'publish_response', 'response', ${indeterminateResponseId},
+        ${db.json({ response_id: indeterminateResponseId, business_id: businessId })},
+        'dispatched', 1, 3
       )
     `;
   });
@@ -168,16 +214,21 @@ describeWithDb('terminal-failure run checkpoints against live Postgres', { timeo
       await sql()`DELETE FROM job_outbox WHERE id IN (
         ${generationOutboxId}::uuid, ${publisherOutboxId}::uuid,
         ${staleGenerationOutboxId}::uuid, ${stalePublisherOutboxId}::uuid,
-        ${staleOrphanOutboxId}::uuid
+        ${staleOrphanOutboxId}::uuid, ${liveDraftOutboxId}::uuid,
+        ${indeterminateOutboxId}::uuid
       )`;
+      await sql()`DELETE FROM job_outbox WHERE aggregate_id = ${indeterminateReviewId}`;
+      await sql()`DELETE FROM review_exceptions WHERE review_id = ${indeterminateReviewId}::uuid`;
       await sql()`DELETE FROM responses WHERE id IN (
-        ${responseId}::uuid, ${stalePublisherResponseId}::uuid, ${staleOrphanResponseId}::uuid
+        ${responseId}::uuid, ${stalePublisherResponseId}::uuid, ${staleOrphanResponseId}::uuid,
+        ${liveDraftResponseId}::uuid, ${indeterminateResponseId}::uuid
       )`;
       await sql()`DELETE FROM agent_runs WHERE account_id = ${tenant.accountId}::uuid`;
       await sql()`DELETE FROM reviews WHERE id IN (
         ${generationReviewId}::uuid, ${publisherReviewId}::uuid,
         ${staleGenerationReviewId}::uuid, ${stalePublisherReviewId}::uuid,
-        ${staleOrphanReviewId}::uuid
+        ${staleOrphanReviewId}::uuid, ${liveDraftReviewId}::uuid,
+        ${indeterminateReviewId}::uuid
       )`;
       await sql()`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
       await cleanupTenantAccount(sql(), tenant);
@@ -342,5 +393,91 @@ describeWithDb('terminal-failure run checkpoints against live Postgres', { timeo
     expect(run).toEqual({ status: 'running', ended_at: null });
     expect(response).toEqual({ status: 'approved', posting_error: 'pending_after_delete_succeeded' });
     expect(outbox).toEqual({ status: 'dispatched', attempts: 2, last_error: null });
+  });
+
+  it('generation terminal checkpoint with a live owner-actionable draft fails the outbox but leaves the run running', async () => {
+    const runId = await seedRun(liveDraftReviewId);
+
+    // A v2 regen hit a terminal failure (e.g. RegenBudgetExceeded) while the
+    // v1 draft is still pending_approval — WS5 live-draft guard.
+    await checkpointTerminalGeneration(sql(), {
+      reviewId: liveDraftReviewId,
+      businessId,
+      outboxId: liveDraftOutboxId,
+      outboxAttempt: 1,
+      reason: 'regen_budget_exceeded_test',
+    });
+
+    const [run] = await sql()<{ status: string; ended_at: Date | null }[]>`
+      SELECT status, ended_at FROM agent_runs WHERE id = ${runId}
+    `;
+    const [outbox] = await sql()<{ status: string; last_error: string | null }[]>`
+      SELECT status, last_error FROM job_outbox WHERE id = ${liveDraftOutboxId}::uuid
+    `;
+    const [draft] = await sql()<{ status: string }[]>`
+      SELECT status FROM responses WHERE id = ${liveDraftResponseId}::uuid
+    `;
+    expect(run).toEqual({ status: 'running', ended_at: null });
+    expect(outbox).toEqual({ status: 'failed', last_error: 'regen_budget_exceeded_test' });
+    expect(draft).toEqual({ status: 'pending_approval' });
+  });
+
+  it('verification-indeterminate exhaustion fails the response, opens the exception, and completes the run failed in one tx', async () => {
+    const runId = await seedRun(indeterminateReviewId);
+    const err = new ZernioReplyVerificationIndeterminateError({
+      response_id: indeterminateResponseId,
+      business_id: businessId,
+      review_id: indeterminateReviewId,
+      account_id: tenant!.accountId,
+      location_id: 'indeterminate-location',
+      zernio_review_id: 'zrv-indeterminate',
+      reason: 'verifier_unknown_error',
+      underlying_error: 'connection refused',
+    });
+    const job = {
+      id: 'indeterminate-job',
+      data: {
+        response_id: indeterminateResponseId,
+        business_id: businessId,
+        outbox_id: indeterminateOutboxId,
+        outbox_attempt: 1,
+      },
+      attemptsMade: 1,
+      opts: { attempts: 1 },
+    } as unknown as Job<PublishResponsePayload>;
+
+    await handlePublisherFailed(sql(), job, err);
+    // Replay must be idempotent: the responses UPDATE matches 0 rows, so no
+    // second exception / run write happens.
+    await handlePublisherFailed(sql(), job, err);
+
+    const [run] = await sql()<{
+      status: string;
+      ended_at: Date | null;
+      error_reason: string | null;
+    }[]>`
+      SELECT status, ended_at, error->>'reason' AS error_reason
+      FROM agent_runs WHERE id = ${runId}
+    `;
+    const [response] = await sql()<{ status: string; posting_error: string | null }[]>`
+      SELECT status, posting_error FROM responses WHERE id = ${indeterminateResponseId}::uuid
+    `;
+    const exceptions = await sql()<{ type: string; status: string }[]>`
+      SELECT type, status FROM review_exceptions WHERE review_id = ${indeterminateReviewId}::uuid
+    `;
+    const [outbox] = await sql()<{ status: string }[]>`
+      SELECT status FROM job_outbox WHERE id = ${indeterminateOutboxId}::uuid
+    `;
+    expect(run!.status).toBe('failed');
+    expect(run!.ended_at).not.toBeNull();
+    expect(run!.error_reason).toBe('zernio_reply_verification_indeterminate');
+    expect(response).toEqual({
+      status: 'failed',
+      posting_error: 'zernio_reply_verification_indeterminate',
+    });
+    expect(exceptions).toEqual([
+      { type: 'zernio_reply_verification_indeterminate', status: 'open' },
+    ]);
+    expect(outbox).toEqual({ status: 'completed' });
   });
 });

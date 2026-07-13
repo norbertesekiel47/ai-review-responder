@@ -47,10 +47,16 @@ const LOCK_HELD_BY_CALLER = new Set([
 ]);
 
 // Spine tenants with no review subject are outside the reviews-first lock
-// law: weekly_insights touches only weekly_summaries + account_week spine
-// rows. It must not grow a reviews/businesses lock later without leaving this
-// carve-out and re-entering the global reviews → businesses → child rows →
-// agent_runs order.
+// law: weekly_insights explicitly locks only weekly_summaries + its
+// account_week run row, though its spine INSERTs (agent_runs / steps /
+// outcomes) also take implicit FK FOR KEY SHARE locks on the parent
+// businesses + accounts rows. Those key-shares are cycle-free: they conflict
+// only with exclusive parent-row locks (e.g. a reviews-lane tx holding
+// businesses FOR UPDATE), and no such holder ever waits on weekly_summaries
+// or a weekly-subject run — the weekly tx can wait, but no cycle can close
+// back onto it. It must not grow a reviews/businesses lock
+// later without leaving this carve-out and re-entering the global
+// reviews → businesses → child rows → agent_runs order.
 const NON_REVIEW_SUBJECT_CALLERS = new Set([
   'worker/jobs/WeeklySummaryWorker.ts',
 ]);
@@ -61,8 +67,11 @@ const SKIP_DIRS = new Set(['__tests__', 'fixtures', 'node_modules']);
 // themselves (run-spine.ts / outcomes.ts); the `for ` lookbehind excludes
 // run-spine.ts's own "run not found for recordStep(...)" /
 // "... for completeRun(...)" error-message strings, which are not call sites.
+// startOrGetActiveRun is included because its INSERT/SELECT-FOR-UPDATE also
+// locks the agent_runs row — a caller of only that function is a spine writer
+// with the same cycle risk and must not escape the tripwire.
 const CALL_SITE =
-  /(?<!function )(?<!for )\b(?:recordOutcome|recordOwnerDecisionOutcome|recordStep|completeRun)\s*\(/;
+  /(?<!function )(?<!for )\b(?:recordOutcome|recordOwnerDecisionOutcome|recordStep|completeRun|startOrGetActiveRun)\s*\(/;
 
 function hasReviewsLockPairing(text: string): boolean {
   if (text.includes('anchorReviewLockOrder(')) return true;

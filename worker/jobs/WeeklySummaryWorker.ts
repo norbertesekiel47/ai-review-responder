@@ -69,6 +69,17 @@ export interface CommitWeeklyInsightsDigestInput {
   correlationId?: string;
 }
 
+// Non-review-subject spine tenant (NON_REVIEW_SUBJECT_CALLERS carve-out in
+// outcome-anchor-pairing.test.ts): this tx explicitly locks only its
+// weekly_summaries row + the account_week run row, but the spine INSERTs
+// (agent_runs / agent_run_steps / agent_outcomes) also take implicit FK
+// FOR KEY SHARE locks on the parent businesses + accounts rows. Cycle-free:
+// those key-shares conflict only with exclusive parent-row locks (e.g. a
+// reviews-lane tx holding businesses FOR UPDATE), and no such holder ever
+// waits on weekly_summaries or a weekly-subject run — this tx can wait, but
+// no cycle can close back onto it. Growing a reviews/businesses lock here
+// requires leaving the carve-out and re-entering the global
+// reviews → businesses → child rows → agent_runs order.
 export async function commitWeeklyInsightsDigest(
   db: Sql,
   input: CommitWeeklyInsightsDigestInput,

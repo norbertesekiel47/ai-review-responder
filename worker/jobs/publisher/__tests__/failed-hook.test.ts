@@ -89,13 +89,23 @@ beforeEach(() => {
 
 describe('handlePublisherFailed', () => {
   describe('ZernioReplyVerificationIndeterminateError', () => {
-    it('runs the full terminal sequence: UPDATE responses, INSERT review_exception, INSERT outbox, markOutboxCompleted', async () => {
-      // tx call 1: UPDATE responses RETURNING 1 → 1 row.
+    it('runs the full terminal sequence reviews-first: anchor, UPDATE responses, INSERT review_exception, INSERT outbox, completeRun failed, markOutboxCompleted', async () => {
+      // tx call 1: anchor pre-read SELECT review_id FROM responses.
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      // tx call 2: anchor SELECT reviews FOR UPDATE.
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      // tx call 3: UPDATE responses RETURNING 1 → 1 row.
       txReturnQueue.push(Object.assign([{ '?column?': 1 }], { count: 1 }));
-      // tx call 2: INSERT review_exceptions RETURNING id → 1 row.
+      // tx call 4: INSERT review_exceptions RETURNING id → 1 row.
       txReturnQueue.push(Object.assign([{ id: 'exc-1' }], { count: 1 }));
-      // tx call 3: INSERT job_outbox notify_admin_review_exception.
+      // tx call 5: INSERT job_outbox notify_admin_review_exception.
       txReturnQueue.push(Object.assign([], { count: 1 }));
+      // tx call 6: live-draft guard → the row just went failed, nothing live.
+      txReturnQueue.push([]);
+      // tx call 7: findActiveReviewRun → running run.
+      txReturnQueue.push([{ id: 'run-1', account_id: 'acct-1' }]);
+      // tx call 8: completeRun UPDATE agent_runs → 1 row.
+      txReturnQueue.push(Object.assign([{ id: 'run-1' }], { count: 1 }));
 
       const err = new ZernioReplyVerificationIndeterminateError({
         response_id: 'resp-1',
@@ -111,32 +121,43 @@ describe('handlePublisherFailed', () => {
       await handlePublisherFailed(mockSql, makeJob(), err);
 
       expect(mockSql.begin).toHaveBeenCalledTimes(1);
-      expect(mockTx).toHaveBeenCalledTimes(3);
+      expect(mockTx).toHaveBeenCalledTimes(8);
 
-      const firstCallSql = (mockTx.mock.calls[0]![0] as TemplateStringsArray).join('?');
-      expect(firstCallSql).toContain('UPDATE responses');
-      expect(firstCallSql).toContain("status = 'failed'");
-      expect(firstCallSql).toContain("posting_error = 'zernio_reply_verification_indeterminate'");
-
-      const secondCallSql = (mockTx.mock.calls[1]![0] as TemplateStringsArray).join('?');
-      expect(secondCallSql).toContain('INSERT INTO review_exceptions');
-      expect(secondCallSql).toContain("'zernio_reply_verification_indeterminate'");
-
-      const thirdCallSql = (mockTx.mock.calls[2]![0] as TemplateStringsArray).join('?');
-      expect(thirdCallSql).toContain('INSERT INTO job_outbox');
+      const txSql = mockTx.mock.calls.map((call: any[]) =>
+        (call[0] as TemplateStringsArray).join('?'),
+      );
+      // Lock-order law: the anchor's reviews FOR UPDATE precedes the
+      // responses UPDATE (only the pre-read, which takes no lock, comes first).
+      expect(txSql[0]).toContain('FROM responses');
+      expect(txSql[1]).toContain('FROM reviews');
+      expect(txSql[1]).toContain('FOR UPDATE');
+      expect(txSql[2]).toContain('UPDATE responses');
+      expect(txSql[2]).toContain("status = 'failed'");
+      expect(txSql[2]).toContain("posting_error = 'zernio_reply_verification_indeterminate'");
+      expect(txSql[3]).toContain('INSERT INTO review_exceptions');
+      expect(txSql[3]).toContain("'zernio_reply_verification_indeterminate'");
+      expect(txSql[4]).toContain('INSERT INTO job_outbox');
       // Topic is an interpolated QUEUE_NAMES value, not a template literal —
       // check the bound values, not the raw strings array.
-      expect(mockTx.mock.calls[2]!.slice(1)).toContain('notify_admin_review_exception');
+      expect(mockTx.mock.calls[4]!.slice(1)).toContain('notify_admin_review_exception');
+      expect(txSql[5]).toContain('FROM responses');
+      expect(txSql[6]).toContain('FROM agent_runs');
+      expect(txSql[7]).toContain('UPDATE agent_runs');
+      expect(mockTx.mock.calls[7]!.slice(1)).toEqual(expect.arrayContaining([
+        'run-1',
+        'failed',
+        { reason: 'zernio_reply_verification_indeterminate' },
+      ]));
 
       expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
-      expect(mockTx.mock.calls.some((call: any[]) =>
-        (call[0] as TemplateStringsArray).join(' ').includes('agent_runs')),
-      ).toBe(false);
     });
 
-    it('skips review_exception INSERT and outbox enqueue when UPDATE responses returned 0 rows (already terminal)', async () => {
-      // tx call 1: UPDATE responses → 0 rows.
+    it('skips review_exception INSERT, run completion, and outbox enqueue when UPDATE responses returned 0 rows (already terminal)', async () => {
+      // tx call 1: anchor pre-read. tx call 2: anchor reviews FOR UPDATE.
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      // tx call 3: UPDATE responses → 0 rows.
       txReturnQueue.push(Object.assign([], { count: 0 }));
 
       const err = new ZernioReplyVerificationIndeterminateError({
@@ -151,7 +172,38 @@ describe('handlePublisherFailed', () => {
 
       await handlePublisherFailed(mockSql, makeJob(), err);
 
-      expect(mockTx).toHaveBeenCalledTimes(1); // only the UPDATE
+      expect(mockTx).toHaveBeenCalledTimes(3); // anchor pre-read + reviews lock + the UPDATE
+      expect(mockTx.mock.calls.some((call: any[]) =>
+        (call[0] as TemplateStringsArray).join(' ').includes('agent_runs')),
+      ).toBe(false);
+      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
+    });
+
+    it('leaves the run running when another owner-actionable draft is still live (guard symmetry)', async () => {
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      txReturnQueue.push(Object.assign([{ '?column?': 1 }], { count: 1 }));
+      txReturnQueue.push(Object.assign([{ id: 'exc-1' }], { count: 1 }));
+      txReturnQueue.push(Object.assign([], { count: 1 }));
+      // Live-draft guard finds a live response → skip completeRun.
+      txReturnQueue.push([{ live: 1 }]);
+
+      const err = new ZernioReplyVerificationIndeterminateError({
+        response_id: 'resp-1',
+        business_id: 'biz-1',
+        review_id: 'rev-1',
+        account_id: 'acct-1',
+        location_id: 'loc-1',
+        zernio_review_id: 'zrv-1',
+        reason: 'verifier_unknown_error',
+      });
+
+      await handlePublisherFailed(mockSql, makeJob(), err);
+
+      expect(mockTx).toHaveBeenCalledTimes(6);
+      expect(mockTx.mock.calls.some((call: any[]) =>
+        (call[0] as TemplateStringsArray).join(' ').includes('agent_runs')),
+      ).toBe(false);
       expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
     });
   });
@@ -224,6 +276,11 @@ describe('handlePublisherFailed', () => {
       expect(mockTx.mock.calls.some((call: any[]) =>
         (call[0] as TemplateStringsArray).join(' ').includes('agent_runs')),
       ).toBe(false);
+      // The park branch must not touch agent_runs through the BARE sql client
+      // either — a rogue non-tx completeRun would evade the mockTx assertion.
+      expect(mockSql.mock.calls.some((call: any[]) =>
+        (call[0] as TemplateStringsArray).join(' ').includes('agent_runs')),
+      ).toBe(false);
     });
 
     it('does not checkpoint the run when fallback succeeds but outbox closure throws', async () => {
@@ -260,6 +317,10 @@ describe('handlePublisherFailed', () => {
       );
       expect(mockSql.begin).not.toHaveBeenCalled();
       expect(mockTx.mock.calls.some((call: any[]) =>
+        (call[0] as TemplateStringsArray).join(' ').includes('agent_runs')),
+      ).toBe(false);
+      // Bare-sql blind spot: no agent_runs statement outside a tx either.
+      expect(mockSql.mock.calls.some((call: any[]) =>
         (call[0] as TemplateStringsArray).join(' ').includes('agent_runs')),
       ).toBe(false);
       consoleErrSpy.mockRestore();
@@ -692,18 +753,25 @@ describe('handlePublisherFailed', () => {
       expect(indeterminateUpdate).toBeUndefined();
     });
 
-    it('FLAG ON + NON-orphan + ZernioReplyVerificationIndeterminateError → falls through to handleVerificationIndeterminate (today behavior)', async () => {
+    it('FLAG ON + NON-orphan + ZernioReplyVerificationIndeterminateError → falls through to handleVerificationIndeterminate, which completes the run failed in the same tx', async () => {
       process.env.EDIT_REPLIES_ENABLED = 'true';
       // attemptOrphanConversion: row is publishable but has NO orphan marker →
       // returns false → falls through to the indeterminate branch.
       txReturnQueue.push([{ review_id: 'rev-1' }]);
       txReturnQueue.push([{ id: 'rev-1' }]);
       txReturnQueue.push([{ status: 'approved', posting_error: null }]);
-      // handleVerificationIndeterminate: UPDATE responses RETURNING 1 → 1 row,
-      // then INSERT review_exceptions RETURNING id, then INSERT job_outbox.
+      // handleVerificationIndeterminate: anchor pre-read + reviews FOR UPDATE,
+      // UPDATE responses RETURNING 1 → 1 row, INSERT review_exceptions
+      // RETURNING id, INSERT job_outbox, live-draft guard (nothing live),
+      // findActiveReviewRun, completeRun failed.
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'rev-1' }]);
       txReturnQueue.push(Object.assign([{ '?column?': 1 }], { count: 1 }));
       txReturnQueue.push(Object.assign([{ id: 'exc-1' }], { count: 1 }));
       txReturnQueue.push(Object.assign([], { count: 1 }));
+      txReturnQueue.push([]);
+      txReturnQueue.push([{ id: 'run-1', account_id: 'acct-1' }]);
+      txReturnQueue.push(Object.assign([{ id: 'run-1' }], { count: 1 }));
 
       await handlePublisherFailed(mockSql, makeJob(), makeIndeterminate());
 
@@ -714,6 +782,16 @@ describe('handlePublisherFailed', () => {
         return /posting_error = 'zernio_reply_verification_indeterminate'/.test(text);
       });
       expect(indeterminateUpdate).toBeDefined();
+      // WS5 §3: the branch no longer strands the run — it completes 'failed'
+      // in the SAME tx as the terminal responses write.
+      const completeRunCall = mockTx.mock.calls.find((c: any[]) =>
+        (c[0] as TemplateStringsArray).join(' ').includes('UPDATE agent_runs'));
+      expect(completeRunCall).toBeDefined();
+      expect(completeRunCall!.slice(1)).toEqual(expect.arrayContaining([
+        'run-1',
+        'failed',
+        { reason: 'zernio_reply_verification_indeterminate' },
+      ]));
     });
   });
 

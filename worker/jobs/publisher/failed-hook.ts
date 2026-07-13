@@ -19,6 +19,7 @@ import { replyEditingFlagEnabled } from '../../../src/lib/past-replies/flags';
 import type { PublishResponsePayload } from '../../../src/lib/shared/worker-types';
 import { anchorReviewLockOrder } from '../../../src/lib/approval/outcomes';
 import { completeRun, findActiveReviewRun } from '../../../src/lib/agents/run-spine';
+import { hasLiveOwnerActionableResponse } from '../live-draft-guard';
 
 const PUBLISHABLE_STATUSES = ['approved', 'edited', 'awaiting_owner_connect'] as const;
 
@@ -362,6 +363,13 @@ async function handleVerificationIndeterminate(
   outboxAttempt: number | undefined,
 ): Promise<void> {
   await sql.begin(async (tx) => {
+    // Lock-order law: the anchor takes the reviews FOR UPDATE lock FIRST
+    // (its unlocked pre-read resolves review_id), before the responses UPDATE
+    // below and before completeRun's implicit agent_runs lock at the end of
+    // this tx. A null anchor means no visible response row — the UPDATE then
+    // matches 0 rows and we fall out to today's markOutboxCompleted.
+    const reviewId = await anchorReviewLockOrder(tx, err.meta.response_id, err.meta.business_id);
+
     const updated = await tx`
       UPDATE responses
       SET status = 'failed',
@@ -407,6 +415,23 @@ async function handleVerificationIndeterminate(
           0, 5
         )
       `;
+    }
+
+    // WS5 §3: indeterminate verification is terminal for the review's
+    // handling — complete the run 'failed' in the SAME tx as the responses
+    // write above (previously the run stayed running forever → permanent
+    // "Stalled" timeline). Live-draft guard for symmetry with
+    // checkpointTerminalGeneration: the row just went 'failed' (not live),
+    // so this normally completes; only another still-owner-actionable draft
+    // keeps the run running. completeRun stays LAST — agent_runs after the
+    // reviews/responses/child-row locks per the global order.
+    if (!reviewId) return;
+    if (await hasLiveOwnerActionableResponse(tx, reviewId, err.meta.business_id)) return;
+    const activeRun = await findActiveReviewRun(tx, reviewId);
+    if (activeRun) {
+      await completeRun(tx, activeRun.id, 'failed', {
+        reason: 'zernio_reply_verification_indeterminate',
+      });
     }
   });
   await markOutboxCompleted(sql, outboxId, outboxAttempt);

@@ -14,6 +14,7 @@ import { runTriagePhase } from './response-generation/triage';
 import { generateDraft } from './response-generation/generate-draft';
 import { persistResponseAndNotify } from './response-generation/persist';
 import { maybeEnqueueFirstResponseDrafted } from './response-generation/analytics';
+import { hasLiveOwnerActionableResponse } from './live-draft-guard';
 
 export async function handleResponseGeneration(
   job: Job<GenerateResponsePayload>,
@@ -160,6 +161,16 @@ export async function checkpointTerminalGeneration(
         input.outboxAttempt,
       );
       if (!transitioned) return;
+
+      // WS5 live-draft guard: a terminal failure on THIS generation (e.g. a
+      // v2 regen hitting RegenBudgetExceeded) while an earlier draft is still
+      // owner-actionable must not complete the run — the outbox row is
+      // failed above as usual, but the run stays running (timeline renders
+      // waiting_on_owner and the eventual post keeps its spine writes).
+      // Legal under the lock-order law: reviews (locked above) → responses.
+      if (await hasLiveOwnerActionableResponse(tx, input.reviewId, input.businessId)) {
+        return;
+      }
 
       const activeRun = await findActiveReviewRun(tx, input.reviewId);
       if (activeRun) {
