@@ -412,6 +412,11 @@ function LocationPolicyRow({
     ? thresholdSelectValue(location.override.threshold)
     : 'inherit';
 
+  // GET/PATCH symmetry: the server 409s expansions for a suspended location
+  // (not just a suspended account default), so a location-suspended row must
+  // not offer them either. Contractions and dial changes stay enabled.
+  const expansionBlocked = !canExpand || location.effective.suspended;
+
   return (
     <div className="auto-policy-location-row">
       <div>
@@ -449,7 +454,7 @@ function LocationPolicyRow({
       >
         <option
           value="inherit"
-          disabled={isThresholdExpansion(location.effective.threshold, accountThreshold) && !canExpand}
+          disabled={isThresholdExpansion(location.effective.threshold, accountThreshold) && expansionBlocked}
         >
           Inherit account default
         </option>
@@ -460,7 +465,7 @@ function LocationPolicyRow({
             <option
               key={optionValue}
               value={optionValue}
-              disabled={expands && !canExpand}
+              disabled={expands && expansionBlocked}
             >
               {option.label}
             </option>

@@ -124,12 +124,17 @@ export async function dispatchPendingPostNotice(
     let deliveryId: string | null = null;
     let rawToken: string | null = null;
     try {
-      // Claim BEFORE send — and BEFORE the link create: createApprovalLink's
-      // orphaned_only revoke check only recognizes 'approval_request' sent
-      // deliveries, so this claim's dedup skip is the ONLY thing preventing a
-      // retry from revoking a link already delivered on this channel. Do not
-      // "narrow the crash window" by moving the link create above the claim.
-      // null ⇒ a live claim already exists.
+      // Claim BEFORE send — and BEFORE the link create. Two layers keep a
+      // retry from revoking a link already delivered on this channel:
+      // (1) this claim's dedup skip (primary — the ordering rationale: a
+      //     retried job hits the live claim and never reaches the link
+      //     create), and
+      // (2) createApprovalLink's orphaned_only revoke check, whose
+      //     delivered-template list includes 'pending_post_notice' alongside
+      //     'approval_request' — do NOT re-narrow that list back to
+      //     approval_request only, or layer (2) vanishes for this notice.
+      // Do not "narrow the crash window" by moving the link create above the
+      // claim. null ⇒ a live claim already exists.
       deliveryId = await claimPendingPostNoticeDelivery(sql, {
         accountId: input.accountId,
         businessId: input.businessId,

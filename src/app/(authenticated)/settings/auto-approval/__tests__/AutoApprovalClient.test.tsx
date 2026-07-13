@@ -205,6 +205,43 @@ describe('AutoApprovalClient', () => {
     expect(screen.getByText('Suspended after repeated owner vetoes')).toBeInTheDocument();
   });
 
+  it('disables a location-suspended row\'s OWN expansion options while contraction, dials, and other locations stay enabled', () => {
+    // Global readiness allows expansion (canExpand: true) — only THIS location
+    // is suspended, so only its expansion options may be disabled (the server
+    // 409s them; the UI must not offer what the PATCH rejects).
+    const suspendedLocation = overriddenLocation();
+    suspendedLocation.override = {
+      ...suspendedLocation.override,
+      suspended: true,
+      suspendedReason: 'Suspended after repeated owner vetoes',
+    };
+    suspendedLocation.effective = { ...suspendedLocation.effective, suspended: true };
+
+    const healthyLocation = overriddenLocation();
+    healthyLocation.locationId = 'bbbbbbbb-0000-0000-0000-000000000002';
+    healthyLocation.displayName = 'Second Cafe';
+
+    render(<AutoApprovalClient initialState={{
+      ...baseState,
+      locations: [suspendedLocation, healthyLocation],
+    }} />);
+
+    // Suspended row (effective threshold 5★): moving to 4–5★ is an expansion → disabled.
+    const suspendedSelect = screen.getByLabelText('Auto-approval policy for Main Cafe');
+    expect(within(suspendedSelect).getByRole('option', { name: '4–5★' })).toBeDisabled();
+    // Contraction / same-level options remain enabled.
+    expect(within(suspendedSelect).getByRole('option', { name: 'Off' })).not.toBeDisabled();
+    expect(within(suspendedSelect).getByRole('option', { name: '5★ only' })).not.toBeDisabled();
+    // Dial controls (veto window, daily cap) remain enabled — suspension only
+    // blocks expansions.
+    expect(screen.getByLabelText('Veto window for Main Cafe')).not.toBeDisabled();
+    expect(screen.getByLabelText('Daily auto-post cap for Main Cafe')).not.toBeDisabled();
+
+    // The healthy sibling is unaffected: its expansion stays offered.
+    const healthySelect = screen.getByLabelText('Auto-approval policy for Second Cafe');
+    expect(within(healthySelect).getByRole('option', { name: '4–5★' })).not.toBeDisabled();
+  });
+
   it('fires set_account_veto_window with the selected minutes', async () => {
     const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse({
       ...baseState,
