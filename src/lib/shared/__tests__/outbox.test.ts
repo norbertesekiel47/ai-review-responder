@@ -17,7 +17,12 @@ const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql } = await vi.hoisted(asy
 
 vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
 
-import { markOutboxCompleted, markOutboxFailed, recordOutboxTransientError } from '../outbox';
+import {
+  extractOutboxHandle,
+  markOutboxCompleted,
+  markOutboxFailed,
+  recordOutboxTransientError,
+} from '../outbox';
 import { mkTaggedResult } from '../../../../worker/__tests__/helpers/mock-sql';
 
 // The writers now take the executor as their leading arg; mockSql (the
@@ -111,5 +116,33 @@ describe('outbox writers — dispatchedRow attempt-guard composition', () => {
     sqlReturnQueue.push(rejected);
     await expect(recordOutboxTransientError(execMock, 'outbox-3', 'transient', 1)).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('recordOutboxTransientError failed'));
+  });
+});
+
+describe('extractOutboxHandle — payload/legacy handle extraction', () => {
+  it('extracts outbox_id and a finite outbox_attempt from a poller-shaped payload', () => {
+    expect(extractOutboxHandle({ outbox_id: 'ob_1', outbox_attempt: 3 }, 'job_9')).toEqual({
+      outboxId: 'ob_1',
+      attempt: 3,
+    });
+  });
+
+  it('falls back to the BullMQ job id when outbox_id is missing or not a string', () => {
+    expect(extractOutboxHandle({}, 'job_9').outboxId).toBe('job_9');
+    expect(extractOutboxHandle({ outbox_id: 42 }, 'job_9').outboxId).toBe('job_9');
+  });
+
+  it('degrades attempt to undefined for legacy payloads without a usable outbox_attempt', () => {
+    expect(extractOutboxHandle({ outbox_id: 'ob_1' }, 'job_9').attempt).toBeUndefined();
+    expect(extractOutboxHandle({ outbox_id: 'ob_1', outbox_attempt: '3' }, 'job_9').attempt).toBeUndefined();
+    expect(extractOutboxHandle({ outbox_id: 'ob_1', outbox_attempt: Number.NaN }, 'job_9').attempt).toBeUndefined();
+    expect(
+      extractOutboxHandle({ outbox_id: 'ob_1', outbox_attempt: Number.POSITIVE_INFINITY }, 'job_9').attempt,
+    ).toBeUndefined();
+  });
+
+  it('treats null/undefined job data as a legacy job (fallback id, no attempt)', () => {
+    expect(extractOutboxHandle(null, 'job_9')).toEqual({ outboxId: 'job_9', attempt: undefined });
+    expect(extractOutboxHandle(undefined, 'job_9')).toEqual({ outboxId: 'job_9', attempt: undefined });
   });
 });
