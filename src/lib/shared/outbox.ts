@@ -81,14 +81,17 @@ export async function markOutboxCompleted(
 /**
  * Marks an outbox entry as terminally failed. The entry will NOT be
  * retried by the OutboxPoller. See markOutboxCompleted for attempt
- * semantics.
+ * semantics. Returns true only when this executor transitioned the matching
+ * dispatched row; guarded stale attempts and missing legacy rows return false.
+ * Callers that couple domain state to this transition must branch on the
+ * result inside the same transaction.
  */
 export async function markOutboxFailed(
   exec: SqlExecutor,
   outboxId: string,
   error: string,
   attempt?: number,
-): Promise<void> {
+): Promise<boolean> {
   const res = await exec`
     UPDATE job_outbox
     SET status = 'failed', last_error = ${error}, completed_at = NOW()
@@ -97,6 +100,7 @@ export async function markOutboxFailed(
   if (hasAttempt(attempt) && res.count === 0) {
     warnOutboxNoop('markOutboxFailed', outboxId, attempt);
   }
+  return res.count > 0;
 }
 
 /**

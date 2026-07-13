@@ -66,12 +66,30 @@ describe('outbox writers — dispatchedRow attempt-guard composition', () => {
 
   it('markOutboxFailed writes last_error + status=failed, attempt-guarded', async () => {
     sqlReturnQueue.push(mkTaggedResult([{ id: 'x' }]));
-    await markOutboxFailed(execMock, 'outbox-2', 'boom', 2);
+    const transitioned = await markOutboxFailed(execMock, 'outbox-2', 'boom', 2);
     const q = sqlCalls.at(-1)!;
     expect(q.text).toContain("SET status = 'failed'");
     expect(q.text).toContain('attempts =');
     // SET's ${error} is bound before the WHERE fragment's ${outboxId}, ${attempt}.
     expect(q.values).toEqual(['boom', 'outbox-2', 2]);
+    expect(transitioned).toBe(true);
+  });
+
+  it('markOutboxFailed returns false when a guarded stale attempt loses the transition', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    sqlReturnQueue.push(mkTaggedResult([]));
+
+    const transitioned = await markOutboxFailed(execMock, 'outbox-2', 'boom', 1);
+
+    expect(transitioned).toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('markOutboxFailed no-op'));
+  });
+
+  it('markOutboxFailed reports the unguarded legacy UPDATE row-count result', async () => {
+    sqlReturnQueue.push(mkTaggedResult([{ id: 'x' }]), mkTaggedResult([]));
+
+    await expect(markOutboxFailed(execMock, 'legacy-updated', 'boom')).resolves.toBe(true);
+    await expect(markOutboxFailed(execMock, 'legacy-missing', 'boom')).resolves.toBe(false);
   });
 
   it('recordOutboxTransientError sets last_error WITHOUT touching status, attempt-guarded', async () => {

@@ -17,6 +17,8 @@ import {
 import { isOrphanMarker, POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED } from '../../../src/lib/publishing/orphan-markers';
 import { replyEditingFlagEnabled } from '../../../src/lib/past-replies/flags';
 import type { PublishResponsePayload } from '../../../src/lib/shared/worker-types';
+import { anchorReviewLockOrder } from '../../../src/lib/approval/outcomes';
+import { completeRun, findActiveReviewRun } from '../../../src/lib/agents/run-spine';
 
 const PUBLISHABLE_STATUSES = ['approved', 'edited', 'awaiting_owner_connect'] as const;
 
@@ -40,6 +42,7 @@ export async function handlePublisherFailed(
   // limbo silently.
   let outboxId: string | undefined;
   let outboxAttempt: number | undefined;
+  let coupledTerminalTxStarted = false;
   try {
     if (!job) return;
     if (job.attemptsMade < (job.opts.attempts ?? 1)) return; // not yet exhausted
@@ -64,7 +67,9 @@ export async function handlePublisherFailed(
     // `handleVerificationIndeterminate` exactly as before. Flag-gated so Phase A
     // (flag off) behaves byte-for-byte as today — the block is skipped entirely.
     if (replyEditingFlagEnabled()) {
+      coupledTerminalTxStarted = true;
       const handled = await attemptOrphanConversion(sql, job.data, outboxId, outboxAttempt);
+      coupledTerminalTxStarted = false;
       if (handled) return;
       // Not an orphan (or row moved on benignly with a non-terminal disposition
       // that already closed the outbox): fall through to today's behavior.
@@ -92,7 +97,14 @@ export async function handlePublisherFailed(
         });
         // Still close the outbox so the row doesn't stay dispatched.
         const reason = err instanceof Error ? err.message : String(err);
-        await markOutboxFailed(sql, outboxId, `unwrapped_transient_no_context: ${reason}`, outboxAttempt);
+        coupledTerminalTxStarted = true;
+        await checkpointTerminalPublisherFailure(
+          sql,
+          job.data,
+          outboxId,
+          `unwrapped_transient_no_context: ${reason}`,
+          outboxAttempt,
+        );
         return;
       }
       const ctx = err.attemptContext;
@@ -102,7 +114,6 @@ export async function handlePublisherFailed(
           business_id: ctx.business_id,
           correlation_id: job.data.correlation_id,
         });
-        await markOutboxFailed(sql, outboxId, 'zernio_transient_max_attempts', outboxAttempt);
       } catch (fallbackErr) {
         // Fallback itself failed — surface the reason so ops can see it,
         // and still close the outbox so the row doesn't stay `dispatched`.
@@ -111,29 +122,36 @@ export async function handlePublisherFailed(
         Sentry.captureException(fallbackErr, {
           tags: { worker: 'publisher', kind: 'transient_exhaustion_fallback' },
         });
-        await markOutboxFailed(
+        coupledTerminalTxStarted = true;
+        await checkpointTerminalPublisherFailure(
           sql,
+          job.data,
           outboxId,
           `zernio_transient_max_attempts_fallback_failed: ${reason}`,
           outboxAttempt,
         );
+        return;
       }
+      await markOutboxFailed(sql, outboxId, 'zernio_transient_max_attempts', outboxAttempt);
       return;
     }
 
     // Non-transient unhandled error: just close the outbox row.
     const reason = err instanceof Error ? err.message : String(err);
-    await markOutboxFailed(sql, outboxId, reason, outboxAttempt);
+    coupledTerminalTxStarted = true;
+    await checkpointTerminalPublisherFailure(sql, job.data, outboxId, reason, outboxAttempt);
   } catch (handlerErr) {
-    // Last-resort: even the markOutboxFailed call (or extractOutboxHandle,
-    // or anything else above) threw. Capture loudly so the row stuck in
-    // `dispatched` is observable in Sentry, and attempt one more
-    // best-effort markOutboxFailed in case the original throw was upstream.
+    // Last-resort: capture loudly so a row left `dispatched` is observable.
+    // Never split a coupled terminal checkpoint after its transaction throws:
+    // its outbox CAS rolled back with the run/response write, so the watchdog
+    // must recover it atomically later. Genuinely outbox-only failures (notably
+    // reconnect fallback succeeded but its standalone close failed) may retry
+    // that standalone close here because their run intentionally stays running.
     console.error('[publisherWorker.on(failed)] handler crashed:', handlerErr);
     Sentry.captureException(handlerErr, {
       tags: { worker: 'publisher', kind: 'on_failed_handler_crash' },
     });
-    if (outboxId) {
+    if (outboxId && !coupledTerminalTxStarted) {
       const reason = handlerErr instanceof Error ? handlerErr.message : String(handlerErr);
       await markOutboxFailed(sql, outboxId, `on_failed_crash: ${reason}`, outboxAttempt).catch(
         (markErr) => {
@@ -142,6 +160,31 @@ export async function handlePublisherFailed(
       );
     }
   }
+}
+
+export async function checkpointTerminalPublisherFailure(
+  sql: Sql,
+  data: PublishResponsePayload,
+  outboxId: string,
+  reason: string,
+  outboxAttempt: number | undefined,
+): Promise<void> {
+  await sql.begin(async (tx) => {
+    // The reusable anchor pre-reads response.review_id, then takes the review
+    // lock before any run/child-row lock in this transaction.
+    const reviewId = await anchorReviewLockOrder(tx, data.response_id, data.business_id);
+    if (reviewId) {
+      const transitioned = await markOutboxFailed(tx, outboxId, reason, outboxAttempt);
+      if (!transitioned) return;
+
+      const activeRun = await findActiveReviewRun(tx, reviewId);
+      if (activeRun) {
+        await completeRun(tx, activeRun.id, 'failed', { reason });
+      }
+      return;
+    }
+    await markOutboxFailed(tx, outboxId, reason, outboxAttempt);
+  });
 }
 
 /**
@@ -165,7 +208,7 @@ async function attemptOrphanConversion(
   // Single-field box so the closure mutation narrows across `await sql.begin`
   // (a bare `let x = 'fall_through'` gets pinned to that literal by TS narrowing
   // and the post-await comparisons would be flagged as having no overlap).
-  type Disposition = 'fall_through' | 'completed' | 'failed';
+  type Disposition = 'fall_through' | 'completed' | 'failed' | 'stale_attempt';
   const dispositionRef: { value: Disposition } = { value: 'fall_through' };
 
   await sql.begin(async (tx) => {
@@ -225,7 +268,20 @@ async function attemptOrphanConversion(
       return;
     }
 
-    // 6. Convert. Status-guarded, business-scoped, affected-row asserted.
+    // 6. Claim this exact dispatched outbox attempt before mutating response
+    //    or run state. A stale worker loses cleanly and leaves newer work alone.
+    const transitioned = await markOutboxFailed(
+      tx,
+      outboxId,
+      POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED,
+      outboxAttempt,
+    );
+    if (!transitioned) {
+      dispositionRef.value = 'stale_attempt';
+      return;
+    }
+
+    // 7. Convert. Status-guarded, business-scoped, affected-row asserted.
     const updated = await tx`
       UPDATE responses
       SET status = 'failed',
@@ -241,6 +297,13 @@ async function attemptOrphanConversion(
         `onFailed orphan conversion expected 1 row, got ${updated.count}`,
       );
     }
+
+    const activeRun = await findActiveReviewRun(tx, responseRow.review_id);
+    if (activeRun) {
+      await completeRun(tx, activeRun.id, 'failed', {
+        reason: POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED,
+      });
+    }
     dispositionRef.value = 'failed';
   });
 
@@ -249,7 +312,9 @@ async function attemptOrphanConversion(
     return true;
   }
   if (dispositionRef.value === 'failed') {
-    await markOutboxFailed(sql, outboxId, POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED, outboxAttempt);
+    return true;
+  }
+  if (dispositionRef.value === 'stale_attempt') {
     return true;
   }
   return false;

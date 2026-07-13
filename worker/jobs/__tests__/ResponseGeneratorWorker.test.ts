@@ -143,6 +143,7 @@ vi.mock('../response-generation/persist', async (importOriginal) => {
 import { handleResponseGeneration } from '../ResponseGeneratorWorker';
 import { persistResponseAndNotify } from '../response-generation/persist';
 import { CostLimitExceededError } from '../../../src/lib/costs/tracker';
+import { CostInfraUnavailableError } from '../../../src/lib/costs/errors';
 import { SKIP_REASON_ARCHIVED_LOCATION } from '../../../src/lib/shared/worker-types';
 import {
   makeLoadContextReviewRow as mockReviewRow,
@@ -223,6 +224,7 @@ const MOCK_RESULT: GenerationResult = {
 describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockMarkOutboxFailed.mockResolvedValue(true);
     sqlReturnQueue.length = 0;
     mockTx.mockImplementation((strings: TemplateStringsArray) => {
       const text = strings.join(' ');
@@ -532,17 +534,137 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
   });
 
   // 3. Cost limit exceeded
-  it('fails the outbox on cost limit exceeded and does not throw', async () => {
+  it('atomically fails the active review run and outbox after taking the reviews lock first', async () => {
+    mockTx.mockImplementation((strings: TemplateStringsArray) => {
+      const text = strings.join(' ');
+      if (text.includes('FROM reviews') && text.includes('FOR UPDATE')) {
+        return Promise.resolve([{ id: 'rev-1' }]);
+      }
+      if (text.includes('FROM agent_runs') && text.includes("status = 'running'")) {
+        return Promise.resolve([{ id: 'run-1', account_id: 'acct-1' }]);
+      }
+      if (text.includes('UPDATE agent_runs')) {
+        return Promise.resolve(Object.assign([{ id: 'run-1' }], { count: 1 }));
+      }
+      return Promise.resolve([]);
+    });
     sqlReturnQueue.push([mockReviewRow()]);
     sqlReturnQueue.push([mockBusinessRow()]);
     mockGenerateResponse.mockRejectedValueOnce(new CostLimitExceededError('biz-1'));
 
     await handleResponseGeneration(makeJob());
 
+    expect(mockSql.begin).toHaveBeenCalledOnce();
+    const txSql = mockTx.mock.calls.map((call) =>
+      (call[0] as TemplateStringsArray).join(' '),
+    );
+    expect(txSql[0]).toContain('FROM reviews');
+    expect(txSql[0]).toContain('FOR UPDATE');
+    expect(txSql[1]).toContain('FROM agent_runs');
+    expect(txSql[2]).toContain('UPDATE agent_runs');
+    expect(mockTx.mock.calls[2]!.slice(1)).toEqual(expect.arrayContaining([
+      'run-1',
+      'failed',
+      { reason: 'Daily cost limit exceeded for business biz-1' },
+    ]));
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
-      mockSql,
+      mockTx,
       'outbox-gen-1',
       expect.stringContaining('cost limit exceeded'), undefined);
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+  });
+
+  it('still fails the outbox when a legacy review has no active run', async () => {
+    mockTx.mockImplementation((strings: TemplateStringsArray) => {
+      const text = strings.join(' ');
+      if (text.includes('FROM reviews') && text.includes('FOR UPDATE')) {
+        return Promise.resolve([{ id: 'rev-1' }]);
+      }
+      return Promise.resolve([]);
+    });
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGenerateResponse.mockRejectedValueOnce(new CostLimitExceededError('biz-1'));
+
+    await handleResponseGeneration(makeJob());
+
+    expect(mockSql.begin).toHaveBeenCalledOnce();
+    const txSql = mockTx.mock.calls.map((call) =>
+      (call[0] as TemplateStringsArray).join(' '),
+    );
+    expect(txSql[0]).toContain('FROM reviews');
+    expect(txSql[0]).toContain('FOR UPDATE');
+    expect(txSql.some((text) => text.includes('UPDATE agent_runs'))).toBe(false);
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockTx,
+      'outbox-gen-1',
+      expect.stringContaining('cost limit exceeded'),
+      undefined,
+    );
+  });
+
+  it('fails only the outbox when the tenant-scoped review lock row is absent', async () => {
+    mockTx.mockResolvedValue([]);
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGenerateResponse.mockRejectedValueOnce(new CostLimitExceededError('biz-1'));
+
+    await handleResponseGeneration(makeJob());
+
+    const txSql = mockTx.mock.calls.map((call) =>
+      (call[0] as TemplateStringsArray).join(' '),
+    );
+    expect(txSql).toHaveLength(1);
+    expect(txSql[0]).toContain('FROM reviews');
+    expect(txSql[0]).toContain('business_id');
+    expect(txSql[0]).toContain('FOR UPDATE');
+    expect(txSql.some((text) => text.includes('agent_runs'))).toBe(false);
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockTx,
+      'outbox-gen-1',
+      expect.stringContaining('cost limit exceeded'),
+      undefined,
+    );
+  });
+
+  it('does not fail the run when a stale outbox attempt loses the guarded transition', async () => {
+    mockTx.mockImplementation((strings: TemplateStringsArray) => {
+      const text = strings.join(' ');
+      if (text.includes('FROM reviews') && text.includes('FOR UPDATE')) {
+        return Promise.resolve([{ id: 'rev-1' }]);
+      }
+      return Promise.resolve([]);
+    });
+    mockMarkOutboxFailed.mockResolvedValueOnce(false);
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGenerateResponse.mockRejectedValueOnce(new CostLimitExceededError('biz-1'));
+
+    await handleResponseGeneration(makeJob({ outbox_attempt: 1 }));
+
+    const txSql = mockTx.mock.calls.map((call) =>
+      (call[0] as TemplateStringsArray).join(' '),
+    );
+    expect(txSql).toHaveLength(1);
+    expect(txSql[0]).toContain('FROM reviews');
+    expect(txSql.some((text) => text.includes('agent_runs'))).toBe(false);
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockTx,
+      'outbox-gen-1',
+      expect.stringContaining('cost limit exceeded'),
+      1,
+    );
+  });
+
+  it('leaves the run and outbox open when generation throws a retryable infra error', async () => {
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGenerateResponse.mockRejectedValueOnce(new CostInfraUnavailableError('reserveCost'));
+
+    await expect(handleResponseGeneration(makeJob())).rejects.toBeInstanceOf(CostInfraUnavailableError);
+
+    expect(mockSql.begin).not.toHaveBeenCalled();
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 

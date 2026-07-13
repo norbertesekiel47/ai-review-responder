@@ -30,7 +30,9 @@ const CALLER_ALLOWLIST = new Set([
   'src/lib/reviews/process-review.ts', // in-file reviews FOR UPDATE as tx statement #1 (canonical order owner)
   'src/lib/reviews/triage.ts', // in-file reviews FOR UPDATE as tx statement #1 (persistTriage)
   'worker/jobs/escalation-notice/EscalationNoticeWorker.ts', // in-file reviews FOR UPDATE before the spine writes
+  'worker/jobs/publisher/failed-hook.ts', // anchorReviewLockOrder before terminal exhaustion checkpoints
   'worker/jobs/publisher/mark-posted.ts', // in-file reviews FOR UPDATE as tx statement #1
+  'worker/jobs/ResponseGeneratorWorker.ts', // in-file reviews FOR UPDATE before terminal draft checkpoint
   'worker/jobs/response-generation/persist.ts', // in-file reviews FOR UPDATE as tx statement #1
 ]);
 

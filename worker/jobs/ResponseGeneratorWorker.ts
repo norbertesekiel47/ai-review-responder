@@ -1,6 +1,8 @@
 import type { Job } from 'bullmq';
+import type { Sql } from 'postgres';
 import { sql } from '../../src/lib/db/server';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
+import { completeRun, findActiveReviewRun } from '../../src/lib/agents/run-spine';
 import { moderateResponse } from '../../src/lib/moderation/moderate';
 import type { GenerateResponsePayload } from '../../src/lib/shared/worker-types';
 import { normalizeGenerateResponsePayload } from '../../src/lib/shared/job-outbox-helpers';
@@ -87,7 +89,13 @@ export async function handleResponseGeneration(
   // and propagate to BullMQ for retry. Permanent failures return { kind: 'failed' }.
   const draft = await generateDraft(sql, ctx, { reviewId, version, businessId, triageSeverity }, logger);
   if (draft.kind === 'failed') {
-    await markOutboxFailed(sql, outboxId, draft.reason, outboxAttempt);
+    await checkpointTerminalGeneration(sql, {
+      reviewId,
+      businessId,
+      outboxId,
+      outboxAttempt,
+      reason: draft.reason,
+    });
     return;
   }
 
@@ -123,4 +131,42 @@ export async function handleResponseGeneration(
   // ── Complete outbox ──────────────────────────────────────────────────
   await markOutboxCompleted(sql, outboxId, outboxAttempt);
   logger.log(`Response ${responseId} generated for review ${reviewId} (v${version})`);
+}
+
+export async function checkpointTerminalGeneration(
+  exec: Sql,
+  input: {
+    reviewId: string;
+    businessId: string;
+    outboxId: string;
+    outboxAttempt?: number;
+    reason: string;
+  },
+): Promise<void> {
+  await exec.begin(async (tx) => {
+    // Global lock order: reviews must be the transaction's first statement,
+    // before completeRun takes the agent_runs row lock.
+    const [lockedReview] = await tx<{ id: string }[]>`
+      SELECT id FROM reviews
+      WHERE id = ${input.reviewId} AND business_id = ${input.businessId}
+      FOR UPDATE
+    `;
+
+    if (lockedReview) {
+      const transitioned = await markOutboxFailed(
+        tx,
+        input.outboxId,
+        input.reason,
+        input.outboxAttempt,
+      );
+      if (!transitioned) return;
+
+      const activeRun = await findActiveReviewRun(tx, input.reviewId);
+      if (activeRun) {
+        await completeRun(tx, activeRun.id, 'failed', { reason: input.reason });
+      }
+      return;
+    }
+    await markOutboxFailed(tx, input.outboxId, input.reason, input.outboxAttempt);
+  });
 }

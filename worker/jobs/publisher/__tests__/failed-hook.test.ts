@@ -77,6 +77,7 @@ function makeJob(
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mockMarkOutboxFailed.mockResolvedValue(true);
   txReturnQueue.length = 0;
   // Re-wire sql.begin + tx.json since vi.resetAllMocks clears their implementations
   mockSql.begin.mockImplementation(async (cb: (tx: any) => Promise<any>) => cb(mockTx));
@@ -129,6 +130,9 @@ describe('handlePublisherFailed', () => {
 
       expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+      expect(mockTx.mock.calls.some((call: any[]) =>
+        (call[0] as TemplateStringsArray).join(' ').includes('agent_runs')),
+      ).toBe(false);
     });
 
     it('skips review_exception INSERT and outbox enqueue when UPDATE responses returned 0 rows (already terminal)', async () => {
@@ -156,6 +160,10 @@ describe('handlePublisherFailed', () => {
     it('captures Sentry with kind unwrapped_transient and marks outbox failed with prefix', async () => {
       const Sentry = await import('@sentry/node');
       const consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'run-1', account_id: 'acct-1' }]);
+      txReturnQueue.push(Object.assign([{ id: 'run-1' }], { count: 1 }));
 
       const err = new ZernioTransientError('http_5xx', { httpStatus: 503 });
 
@@ -173,11 +181,15 @@ describe('handlePublisherFailed', () => {
         }),
       );
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
-        mockSql,
+        mockTx,
         'outbox-1',
         expect.stringMatching(/^unwrapped_transient_no_context: /),
         1,
       );
+      expect(mockSql.begin).toHaveBeenCalledOnce();
+      expect(mockTx.mock.calls.some((call: any[]) =>
+        (call[0] as TemplateStringsArray).join(' ').includes('UPDATE agent_runs')),
+      ).toBe(true);
 
       consoleErrSpy.mockRestore();
     });
@@ -208,6 +220,49 @@ describe('handlePublisherFailed', () => {
         'zernio_transient_max_attempts',
         1,
       );
+      expect(mockSql.begin).not.toHaveBeenCalled();
+      expect(mockTx.mock.calls.some((call: any[]) =>
+        (call[0] as TemplateStringsArray).join(' ').includes('agent_runs')),
+      ).toBe(false);
+    });
+
+    it('does not checkpoint the run when fallback succeeds but outbox closure throws', async () => {
+      const consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockApplyTransientExhaustionFallback.mockResolvedValueOnce(undefined);
+      mockMarkOutboxFailed
+        .mockRejectedValueOnce(new Error('outbox close failed'))
+        .mockResolvedValueOnce(undefined);
+
+      const inner = new ZernioTransientError('timeout', { httpStatus: 504 });
+      const wrapped = new PublisherTransientWithContext(inner, {
+        response_id: 'resp-1',
+        business_id: 'biz-1',
+        account_id: 'acct-X',
+        location_id: 'loc-Y',
+      });
+
+      await handlePublisherFailed(mockSql, makeJob(), wrapped);
+
+      expect(mockApplyTransientExhaustionFallback).toHaveBeenCalledOnce();
+      expect(mockMarkOutboxFailed).toHaveBeenCalledTimes(2);
+      expect(mockMarkOutboxFailed).toHaveBeenNthCalledWith(
+        1,
+        mockSql,
+        'outbox-1',
+        'zernio_transient_max_attempts',
+        1,
+      );
+      expect(mockMarkOutboxFailed).toHaveBeenLastCalledWith(
+        mockSql,
+        'outbox-1',
+        'on_failed_crash: outbox close failed',
+        1,
+      );
+      expect(mockSql.begin).not.toHaveBeenCalled();
+      expect(mockTx.mock.calls.some((call: any[]) =>
+        (call[0] as TemplateStringsArray).join(' ').includes('agent_runs')),
+      ).toBe(false);
+      consoleErrSpy.mockRestore();
     });
   });
 
@@ -217,6 +272,10 @@ describe('handlePublisherFailed', () => {
       const consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const fallbackErr = new Error('disconnect call exploded');
       mockApplyTransientExhaustionFallback.mockRejectedValueOnce(fallbackErr);
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'run-1', account_id: 'acct-1' }]);
+      txReturnQueue.push(Object.assign([{ id: 'run-1' }], { count: 1 }));
 
       const inner = new ZernioTransientError('timeout', { httpStatus: 504 });
       const wrapped = new PublisherTransientWithContext(inner, {
@@ -235,24 +294,46 @@ describe('handlePublisherFailed', () => {
         }),
       );
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
-        mockSql,
+        mockTx,
         'outbox-1',
         'zernio_transient_max_attempts_fallback_failed: disconnect call exploded',
         1,
       );
+      expect(mockSql.begin).toHaveBeenCalledOnce();
+      expect(mockTx.mock.calls.some((call: any[]) =>
+        (call[0] as TemplateStringsArray).join(' ').includes('UPDATE agent_runs')),
+      ).toBe(true);
 
       consoleErrSpy.mockRestore();
     });
   });
 
   describe('generic fall-through', () => {
-    it('marks outbox failed with the error message for unknown error types', async () => {
+    it('atomically fails the active review run and outbox for unknown terminal errors', async () => {
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'run-1', account_id: 'acct-1' }]);
+      txReturnQueue.push(Object.assign([{ id: 'run-1' }], { count: 1 }));
+
       const err = new Error('something else broke');
       await handlePublisherFailed(mockSql, makeJob(), err);
 
-      expect(mockSql.begin).not.toHaveBeenCalled();
+      expect(mockSql.begin).toHaveBeenCalledOnce();
+      const txSql = mockTx.mock.calls.map((call: any[]) =>
+        (call[0] as TemplateStringsArray).join(' '),
+      );
+      expect(txSql[0]).toContain('FROM responses');
+      expect(txSql[1]).toContain('FROM reviews');
+      expect(txSql[1]).toContain('FOR UPDATE');
+      expect(txSql[2]).toContain('FROM agent_runs');
+      expect(txSql[3]).toContain('UPDATE agent_runs');
+      expect(mockTx.mock.calls[3]!.slice(1)).toEqual(expect.arrayContaining([
+        'run-1',
+        'failed',
+        { reason: 'something else broke' },
+      ]));
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
-        mockSql,
+        mockTx,
         'outbox-1',
         'something else broke',
         1,
@@ -265,6 +346,90 @@ describe('handlePublisherFailed', () => {
 
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
       expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+      expect(mockSql.begin).not.toHaveBeenCalled();
+    });
+
+    it('still fails the outbox when the response belongs to a legacy review with no active run', async () => {
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      txReturnQueue.push([]);
+
+      await handlePublisherFailed(mockSql, makeJob(), new Error('legacy terminal'));
+
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockTx,
+        'outbox-1',
+        'legacy terminal',
+        1,
+      );
+      expect(mockTx.mock.calls.some((call: any[]) =>
+        (call[0] as TemplateStringsArray).join(' ').includes('UPDATE agent_runs')),
+      ).toBe(false);
+    });
+
+    it('does not fail the run when a stale outbox attempt loses the guarded transition', async () => {
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      mockMarkOutboxFailed.mockResolvedValueOnce(false);
+
+      await handlePublisherFailed(mockSql, makeJob(), new Error('stale terminal'));
+
+      const txSql = mockTx.mock.calls.map((call: any[]) =>
+        (call[0] as TemplateStringsArray).join(' '),
+      );
+      expect(txSql).toHaveLength(2);
+      expect(txSql[1]).toContain('FROM reviews');
+      expect(txSql.some((text: string) => text.includes('agent_runs'))).toBe(false);
+      expect(mockMarkOutboxFailed).toHaveBeenCalledOnce();
+    });
+
+    it('does not retry outbox closure outside a failed coupled checkpoint transaction', async () => {
+      const consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      mockMarkOutboxFailed.mockRejectedValueOnce(new Error('coupled tx failed'));
+
+      await handlePublisherFailed(mockSql, makeJob(), new Error('terminal'));
+
+      expect(mockSql.begin).toHaveBeenCalledOnce();
+      expect(mockMarkOutboxFailed).toHaveBeenCalledOnce();
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockTx,
+        'outbox-1',
+        'terminal',
+        1,
+      );
+      expect(mockTx.mock.calls.some((call: any[]) =>
+        (call[0] as TemplateStringsArray).join(' ').includes('agent_runs')),
+      ).toBe(false);
+      consoleErrSpy.mockRestore();
+    });
+
+    it('does not close outbox standalone when run completion fails after the coupled CAS', async () => {
+      const consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'run-1', account_id: 'acct-1' }]);
+      txReturnQueue.push(Object.assign([], { count: 0 }));
+      txReturnQueue.push([]);
+
+      await handlePublisherFailed(mockSql, makeJob(), new Error('terminal'));
+
+      expect(mockMarkOutboxFailed).toHaveBeenCalledOnce();
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockTx,
+        'outbox-1',
+        'terminal',
+        1,
+      );
+      expect(mockTx.mock.calls.some((call: any[]) =>
+        (call[0] as TemplateStringsArray).join(' ').includes('UPDATE agent_runs')),
+      ).toBe(true);
+      expect(consoleErrSpy).toHaveBeenCalledWith(
+        '[publisherWorker.on(failed)] handler crashed:',
+        expect.any(Error),
+      );
+      consoleErrSpy.mockRestore();
     });
 
     it('returns silently when job is undefined', async () => {
@@ -298,13 +463,17 @@ describe('handlePublisherFailed', () => {
       txReturnQueue.push([{ status: 'approved', posting_error: 'pending_after_delete_succeeded' }]);
       // Step 5: UPDATE responses RETURNING 1 → 1 row affected.
       txReturnQueue.push(Object.assign([{ '?column?': 1 }], { count: 1 }));
+      // Step 6: active review run.
+      txReturnQueue.push([{ id: 'run-1', account_id: 'acct-1' }]);
+      // Step 7: complete run failed.
+      txReturnQueue.push(Object.assign([{ id: 'run-1' }], { count: 1 }));
 
       await handlePublisherFailed(mockSql, makeJob(), makeWrappedTransient());
 
       expect(mockApplyTransientExhaustionFallback).not.toHaveBeenCalled();
       expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
-        mockSql,
+        mockTx,
         'outbox-1',
         'post_after_delete_failed_retry_exhausted',
         1,
@@ -317,6 +486,21 @@ describe('handlePublisherFailed', () => {
       expect(updateCall).toBeDefined();
       // The terminal marker is bound as a SQL parameter, not template text.
       expect(updateCall!.slice(1)).toContain('post_after_delete_failed_retry_exhausted');
+
+      const txSql = mockTx.mock.calls.map((call: any[]) =>
+        (call[0] as TemplateStringsArray).join(' '),
+      );
+      expect(txSql[1]).toContain('FROM reviews');
+      expect(txSql[1]).toContain('FOR UPDATE');
+      expect(txSql[2]).toContain('FROM responses');
+      expect(txSql[2]).toContain('FOR UPDATE');
+      expect(txSql[4]).toContain('FROM agent_runs');
+      expect(txSql[5]).toContain('UPDATE agent_runs');
+      expect(mockTx.mock.calls[5]!.slice(1)).toEqual(expect.arrayContaining([
+        'run-1',
+        'failed',
+        { reason: 'post_after_delete_failed_retry_exhausted' },
+      ]));
     });
 
     it('FLAG ON + orphan marker + status=awaiting_owner_connect → converts to failed', async () => {
@@ -331,12 +515,55 @@ describe('handlePublisherFailed', () => {
       await handlePublisherFailed(mockSql, makeJob(), makeWrappedTransient());
 
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
-        mockSql,
+        mockTx,
         'outbox-1',
         'post_after_delete_failed_retry_exhausted',
         1,
       );
       expect(mockApplyTransientExhaustionFallback).not.toHaveBeenCalled();
+    });
+
+    it('FLAG ON + stale outbox attempt leaves orphan response and run unchanged', async () => {
+      process.env.EDIT_REPLIES_ENABLED = 'true';
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      txReturnQueue.push([{ status: 'approved', posting_error: 'pending_after_delete_succeeded' }]);
+      txReturnQueue.push(Object.assign([{ '?column?': 1 }], { count: 1 }));
+      mockMarkOutboxFailed.mockResolvedValueOnce(false);
+
+      await handlePublisherFailed(mockSql, makeJob(), makeWrappedTransient());
+
+      const txSql = mockTx.mock.calls.map((call: any[]) =>
+        (call[0] as TemplateStringsArray).join(' '),
+      );
+      expect(txSql.some((text: string) => text.includes('UPDATE responses'))).toBe(false);
+      expect(txSql.some((text: string) => text.includes('agent_runs'))).toBe(false);
+      expect(mockMarkOutboxFailed).toHaveBeenCalledOnce();
+      expect(mockApplyTransientExhaustionFallback).not.toHaveBeenCalled();
+    });
+
+    it('FLAG ON + coupled orphan tx failure never retries outbox closure standalone', async () => {
+      process.env.EDIT_REPLIES_ENABLED = 'true';
+      const consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      txReturnQueue.push([{ status: 'approved', posting_error: 'pending_after_delete_succeeded' }]);
+      txReturnQueue.push(Object.assign([{ '?column?': 1 }], { count: 1 }));
+      mockMarkOutboxFailed.mockRejectedValueOnce(new Error('orphan coupled tx failed'));
+
+      await handlePublisherFailed(mockSql, makeJob(), makeWrappedTransient());
+
+      expect(mockMarkOutboxFailed).toHaveBeenCalledOnce();
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockTx,
+        'outbox-1',
+        'post_after_delete_failed_retry_exhausted',
+        1,
+      );
+      expect(mockTx.mock.calls.some((call: any[]) =>
+        (call[0] as TemplateStringsArray).join(' ').includes('UPDATE responses')),
+      ).toBe(false);
+      consoleErrSpy.mockRestore();
     });
 
     it('FLAG ON + status no longer publishable (processReview won the race) → markOutboxCompleted, no fallback', async () => {
@@ -449,7 +676,7 @@ describe('handlePublisherFailed', () => {
 
       // Converted via the recoverable orphan path — NOT the indeterminate path.
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
-        mockSql,
+        mockTx,
         'outbox-1',
         'post_after_delete_failed_retry_exhausted',
         1,
@@ -491,15 +718,11 @@ describe('handlePublisherFailed', () => {
   });
 
   describe('last-resort handler-crash', () => {
-    it('captures Sentry with kind on_failed_handler_crash and best-effort marks outbox failed', async () => {
+    it('captures a coupled checkpoint crash without retrying outbox closure standalone', async () => {
       const Sentry = await import('@sentry/node');
       const consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      // Force markOutboxFailed (called from the generic fall-through) to throw the FIRST time.
-      // The catch block then re-attempts a best-effort call — we let the second succeed.
-      mockMarkOutboxFailed
-        .mockRejectedValueOnce(new Error('outbox write exploded'))
-        .mockResolvedValueOnce(undefined);
+      mockMarkOutboxFailed.mockRejectedValueOnce(new Error('outbox write exploded'));
 
       await handlePublisherFailed(mockSql, makeJob(), new Error('initial'));
 
@@ -509,11 +732,11 @@ describe('handlePublisherFailed', () => {
           tags: { worker: 'publisher', kind: 'on_failed_handler_crash' },
         }),
       );
-      // Best-effort second call uses the on_failed_crash prefix.
-      expect(mockMarkOutboxFailed).toHaveBeenLastCalledWith(
-        mockSql,
+      expect(mockMarkOutboxFailed).toHaveBeenCalledOnce();
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        mockTx,
         'outbox-1',
-        expect.stringMatching(/^on_failed_crash: /),
+        'initial',
         1,
       );
 
