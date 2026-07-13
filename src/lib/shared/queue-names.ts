@@ -36,6 +36,7 @@ export const QUEUE_NAMES = {
   AUTO_POST_NOTICE: 'auto_post_notice',
   ESCALATION_NOTICE: 'escalation_notice',
   PENDING_POST_NOTICE: 'pending_post_notice',
+  JUDGE_VERDICT: 'judge_verdict',
 } as const;
 
 type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

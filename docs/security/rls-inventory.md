@@ -39,6 +39,7 @@ Rows marked `— (deny-all)` in the Scope column are **not** owner-scoped by an 
 | `agent_run_steps` | — (deny-all) | Ordered attribution steps within an agent run; scoped through `agent_run_id` only (no direct tenant column). Deny-all RLS (migration 071); written only by `src/lib/agents/run-spine.ts` via the RLS-bypassing Postgres.js `postgres` role. |
 | `agent_outcomes` | — (deny-all) | Durable per-agent outcome facts for attribution/reporting (carries `account_id`/`business_id`; deduped per run + outcome kind). Deny-all RLS (migration 071); written only by `src/lib/agents/run-spine.ts` via the RLS-bypassing Postgres.js `postgres` role. |
 | `review_escalations` | `account_id` | Guardian escalation state (WS3): one row per raised escalation, referencing a review + agent run. Deny-all RLS; server routes + workers only (WS3). |
+| `judge_verdicts` | — (deny-all) | Post-hoc Judge verdicts carry `account_id`/`business_id` for attribution but expose no authenticated policy. Deny-all RLS (migration 076); Judge workers write and sweep them only through server-side modules using the RLS-bypassing Postgres.js `postgres` role. |
 <!-- `sms_sender_opt_outs` and `sms_sender_opt_out_events` dropped by migration 061 (SMS channel removal). -->
 
 The audit is intentionally small: it verifies that required tenant tables appear in `pg_class` for the public schema and that RLS is enabled. It does not prove every policy predicate. Policy behavior remains covered by focused integration tests and route/module tests.

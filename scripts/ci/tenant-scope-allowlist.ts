@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 371;
+export const ALLOWLIST_BASELINE = 376;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -62,6 +62,9 @@ export const CATEGORY_PATH_RULES: Partial<
   },
   'background-global-scan': {
     allowedPrefixes: ['worker/'],
+    // Domain query registered only from JudgeSweepPoller (Task 5); keeping the
+    // scan in src/lib preserves explicit Sql injection and testability.
+    allowedFiles: ['src/lib/responses/judge-store.ts'],
   },
   'provider-ingress': {
     // src/app/api/zernio/ is the ADR 0001 OAuth-handshake carve-out.
@@ -92,6 +95,9 @@ const DASHBOARD_SETTINGS_SELECT_SQL =
 
 const HEALTH_ZERO_DELIVERY_SQL =
   "SELECT COUNT(*)::int AS count FROM job_outbox jo JOIN responses r ON r.id = (jo.payload->>'response_id')::uuid JOIN businesses b ON b.id = r.business_id WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.status = 'completed' AND COALESCE(jo.completed_at, jo.dispatched_at, jo.available_at) > NOW() - make_interval(secs => ${cfg.zeroDeliveryWindowS}) AND r.status = 'pending_approval' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.response_id = r.id )";
+
+const JUDGE_SWEEP_CANDIDATES_SQL =
+  "SELECT r.id AS response_id, r.business_id, b.account_id FROM responses r JOIN businesses b ON b.id = r.business_id JOIN accounts a ON a.id = b.account_id WHERE r.status = 'posted' AND r.approval_method = 'auto_policy' AND r.posted_at >= NOW() - make_interval(hours => ${options.lookbackHours}) AND a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.TRIALING}) AND NOT EXISTS ( SELECT 1 FROM judge_verdicts jv WHERE jv.response_id = r.id ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.JUDGE_VERDICT} AND jo.aggregate_id = r.id AND jo.status IN ('pending', 'dispatching', 'dispatched') ) ORDER BY r.posted_at ASC, r.id ASC LIMIT ${options.limit}";
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
@@ -2698,6 +2704,41 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT stripe_subscription_id FROM accounts WHERE stripe_customer_id = ${stripeCustomerId} AND id <> ${account.id}::uuid AND stripe_subscription_id = ANY(${activeIds}::text[])",
     category: 'background-global-scan',
     reason: "RECONCILE-F6: billing reconciliation poller scans OTHER accounts sharing the same Stripe customer id to exclude their subscriptions from the duplicate-subscription alert for this account. Intentionally cross-account: the query filters by stripe_customer_id (not account_id) to identify sibling accounts — a legitimate cross-account lookup for an observability-only check with no write side-effects.",
+  },
+  {
+    file: "src/lib/responses/judge-store.ts",
+    table: "agent_runs",
+    sqlSnippet: "SELECT id FROM agent_runs WHERE kind = 'review_handler' AND subject_type = 'review' AND subject_id = ${reviewId} ORDER BY started_at DESC LIMIT 1",
+    category: 'worker-job-scoped',
+    reason: "JudgeWorker resolves the latest review-subject run only after its durable response payload is loaded and the review lane is anchored; any run status is eligible for the post-hoc verdict link.",
+  },
+  {
+    file: "src/lib/responses/judge-store.ts",
+    table: "judge_verdicts",
+    sqlSnippet: JUDGE_SWEEP_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "JudgeSweepPoller uses a bounded global anti-join against verdicts to find only auto-posted responses that have not already been judged.",
+  },
+  {
+    file: "src/lib/responses/judge-store.ts",
+    table: "responses",
+    sqlSnippet: JUDGE_SWEEP_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "JudgeSweepPoller intentionally scans the bounded 24-hour posted-auto-policy population before enqueueing tenant-scoped judge work.",
+  },
+  {
+    file: "src/lib/responses/judge-store.ts",
+    table: "businesses",
+    sqlSnippet: JUDGE_SWEEP_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "JudgeSweepPoller joins each candidate to its billing parent while performing the bounded cross-tenant eligibility scan.",
+  },
+  {
+    file: "src/lib/responses/judge-store.ts",
+    table: "accounts",
+    sqlSnippet: JUDGE_SWEEP_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "JudgeSweepPoller filters the bounded global candidate scan to canonical full-access subscription statuses before enqueueing work.",
   },
   {
     file: "src/lib/agents/read.ts",

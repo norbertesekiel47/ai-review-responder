@@ -44,6 +44,10 @@ export const TENANT_TABLES = [
   // that already carry account/business scope; non-owner-scoped statements
   // exempted via tenant-scope-allowlist.ts.
   'review_escalations',
+  // Deny-all RLS (migration 076, WS6 Judge verdicts) — carries account_id/
+  // business_id and is written only from tenant-scoped JudgeWorker transactions.
+  // Cross-tenant sweep anti-joins are exempted explicitly in the allowlist.
+  'judge_verdicts',
 ] as const;
 
 export type TenantTable = (typeof TENANT_TABLES)[number];

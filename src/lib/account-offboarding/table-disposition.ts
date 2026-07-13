@@ -309,6 +309,13 @@ export const TABLE_DISPOSITIONS = [
     reason: 'Guardian escalation state (WS3) references deleted reviews/runs; account attribution data with no retention rationale.',
   },
   {
+    table: 'judge_verdicts',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Judge verdict attribution has no retention rationale and is removed by the response/review FK cascades during content purge.',
+  },
+  {
     table: 'account_offboardings',
     disposition: 'scrub_in_place',
     scopeEvidence: 'direct_account_id',

@@ -562,3 +562,11 @@ over the body, WS4/WS5 convention.)
   `judge_verdicts`. `account_id` is already covered by
   `idx_judge_verdicts_account_created`, and the response UNIQUE covers
   `response_id`.
+- **§2.1/§2.4 canonical judge topic routing (Task 3 review):** Task 3 pulls the
+  shared `judge_verdict` queue-name constant and its inert BullMQ queue plus
+  `topicToQueue` registration forward from Tasks 4/5. The verdict sweep's
+  required in-flight outbox anti-join must use the canonical topic rather than
+  duplicate a raw string, and `ALL_QUEUE_NAMES` requires every canonical topic
+  to be routable. No producer, handler, poller, or `worker/index.ts` processing
+  registration is pulled forward; runtime production and consumption remain
+  Task 5 scope.
