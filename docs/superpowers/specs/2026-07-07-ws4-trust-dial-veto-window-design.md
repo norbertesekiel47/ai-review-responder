@@ -492,15 +492,26 @@ unchanged; on any conflict, these amendments win.
 
 
 - **§2.11 publisher notice-delivery gate:** at the publish deadline,
-  `ResponsePublisherWorker` posts an `auto_policy` row only if at least one
-  DELIVERED `pending_post_notice` exists (`sent_at` set) for the response;
-  zero delivered notices downgrades to owner review via the generalized
-  downgrade helper — new audit action / `posting_error` marker
-  `auto_post_notice_undelivered`, metadata
-  `downgrade_reason: 'notice_undelivered'`. An unnotified auto-post fails
-  toward the owner: the veto window is only real if the owner could see it.
-  The gate runs BEFORE any external call, so a racing notice-send between the
-  check and the post is benign.
+  `ResponsePublisherWorker` posts an `auto_policy` row only if a FULL veto
+  window has elapsed since the FIRST delivered `pending_post_notice`
+  (`MIN(sent_at)`) — a bare delivered-notice existence check would let a
+  late-delivered notice (poller backlog, channel retries) shrink the owner's
+  effective window to seconds. Zero delivered notices downgrades to owner
+  review via the generalized downgrade helper — audit action /
+  `posting_error` marker `auto_post_notice_undelivered`, metadata
+  `downgrade_reason: 'notice_undelivered'`. A late notice (window not yet
+  elapsed) PUSHES the deadline instead of posting or downgrading: one tx sets
+  `responses.auto_post_scheduled_at = first_sent + granted window`, completes
+  the current publish outbox row, and enqueues a fresh delayed publish at the
+  new deadline (`worker/jobs/publisher/veto-window-gate.ts`). The granted
+  window is read from the `auto_approved_by_policy` audit row's
+  `veto_window_minutes` (written in the same tx as the approval, immutable) —
+  NOT from `auto_post_scheduled_at - approved_at`, which the push itself
+  mutates; the anchored deadline is absolute, so the push is idempotent and
+  at most ONE push happens per response. An unnotified auto-post fails toward
+  the owner: the veto window is only real if the owner could see it — for its
+  full duration. The gate runs BEFORE any external call, so a racing
+  notice-send between the check and the post is benign.
 - **§2.7 all-skipped notices alert:** the notice worker's systemic-failure
   signal fires whenever `sent === 0` and at least one channel was attempted
   (skips count, not just failures), at warn level; the outbox entry still

@@ -20,6 +20,7 @@ import { runEditPublishIfApplicable } from './edit-publish';
 import { isOrphanMarker } from '../../../src/lib/publishing/orphan-markers';
 import { maybeCaptureActivationCompleted } from './activation';
 import { downgradeAutoApprovedResponseForManualReview } from './auto-policy-downgrade';
+import { enforceElapsedVetoWindow } from './veto-window-gate';
 import { markPostedAndMaybeEnqueueAutoPostNotice } from './mark-posted';
 import { isHeldForModerationReview } from './held-flag-gate';
 
@@ -91,21 +92,24 @@ export async function handlePublishResponse(
 
   // ── Auto-policy notice-delivery gate (spec §2.11) ────────────────────
   // An unnotified auto-post fails toward the owner — the veto window is only
-  // real if the owner could see it. Zero DELIVERED pending-post notices at
-  // publish time ⇒ downgrade to owner review instead of posting. Placement:
-  // this runs BEFORE any external call, so a racing notice-send between the
-  // check and the post is benign (fail-toward-owner: worst case the owner
-  // manually reviews a draft they were just told would auto-post).
+  // real if the owner could see it, and only for its FULL duration: the gate
+  // requires a complete veto window elapsed since the FIRST delivered
+  // pending-post notice, pushing the deadline for late deliveries. Zero
+  // DELIVERED notices at publish time ⇒ downgrade to owner review instead of
+  // posting. Placement: this runs BEFORE any external call, so a racing
+  // notice-send between the check and the post is benign (fail-toward-owner:
+  // worst case the owner manually reviews a draft they were just told would
+  // auto-post).
   if (response.approval_method === APPROVAL_METHOD.AUTO_POLICY) {
-    const deliveredNotice = await sql`
-      SELECT 1 FROM notification_deliveries
-      WHERE response_id = ${response_id}
-        AND business_id = ${businessId}
-        AND template = 'pending_post_notice'
-        AND sent_at IS NOT NULL
-      LIMIT 1
-    `;
-    if (deliveredNotice.length === 0) {
+    const vetoGate = await enforceElapsedVetoWindow(sql, {
+      responseId: response_id,
+      businessId,
+      outboxId,
+      outboxAttempt,
+      correlationId: job.data.correlation_id,
+      logger,
+    });
+    if (vetoGate === 'downgrade') {
       await downgradeAutoApprovedResponseForManualReview(sql, {
         responseId: response_id,
         businessId,
@@ -117,6 +121,7 @@ export async function handlePublishResponse(
       });
       return;
     }
+    if (vetoGate === 'completed') return;
   }
 
   // ── Archived-location terminal ──────────────────────────────────────

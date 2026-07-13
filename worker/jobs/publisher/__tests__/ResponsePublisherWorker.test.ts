@@ -120,6 +120,18 @@ function mockZernioConnectionRow() {
   return { zernio_account_id: 'acct-1', zernio_location_id: 'loc-1' };
 }
 
+// Notice-delivery gate row (veto-window-gate.ts): first delivered notice 16
+// minutes ago against a 15-minute granted window → full window elapsed.
+function gateWindowElapsedRow() {
+  const firstSent = new Date(Date.now() - 16 * 60 * 1000);
+  return [{
+    first_sent: firstSent,
+    veto_window_minutes: 15,
+    anchored_deadline: new Date(firstSent.getTime() + 15 * 60 * 1000),
+    window_elapsed: true,
+  }];
+}
+
 function makeZernioReview(id: string, replyComment: string | null = null) {
   return {
     id,
@@ -364,7 +376,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
     sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]);
     sqlReturnQueue.push([mockBusinessRow({ archived_at: new Date('2026-05-09T00:00:00Z') })]);
-    sqlReturnQueue.push([{ ok: 1 }]); // notice-delivery gate → delivered
+    sqlReturnQueue.push(gateWindowElapsedRow()); // notice-delivery gate → delivered + window elapsed
 
     await handlePublishResponse(mockSql, makeJob());
 
@@ -385,7 +397,9 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
     sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]); // 1: response
     sqlReturnQueue.push([mockBusinessRow()]);                                    // 2: business
-    sqlReturnQueue.push([]);                                                     // 3: notice-delivery gate → zero delivered
+    sqlReturnQueue.push([{
+      first_sent: null, veto_window_minutes: 15, anchored_deadline: null, window_elapsed: null,
+    }]);                                                                         // 3: notice-delivery gate → zero delivered
     sqlReturnQueue.push([{ id: 'resp-1' }]);                                     // 4: downgrade UPDATE RETURNING
     sqlReturnQueue.push([{ account_id: 'acc-1' }]);                              // 5: audit account lookup
     sqlReturnQueue.push([]);                                                     // 6: audit INSERT
@@ -417,7 +431,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(downgradeCall).toContain('auto_post_notice_undelivered');
 
     const auditCall = calls.find((call) =>
-      (call[0] as TemplateStringsArray).join('|').includes('approval_audit_log'),
+      (call[0] as TemplateStringsArray).join('|').includes('INSERT INTO approval_audit_log'),
     );
     expect(auditCall).toBeDefined();
     expect(auditCall).toContain('auto_post_notice_undelivered');
@@ -444,7 +458,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
     sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]); // 1: response
     sqlReturnQueue.push([mockBusinessRow()]);                                    // 2: business
-    sqlReturnQueue.push([{ ok: 1 }]);                                            // 3: notice-delivery gate → delivered
+    sqlReturnQueue.push(gateWindowElapsedRow());                                 // 3: notice-delivery gate → delivered + elapsed
     sqlReturnQueue.push([mockZernioConnectionRow()]);                            // 4: zernio_connections
     sqlReturnQueue.push([]);                                                     // 5: markPosted reviews FOR UPDATE lock
     sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'auto_policy' }]);     // 6: markPosted UPDATE ... RETURNING
@@ -465,6 +479,101 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(callTexts.some((t: string) => /pending_approval/.test(t))).toBe(false);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  // ── Elapsed-window enforcement: a late notice pushes the deadline ─────
+  // The gate guarantees a FULL veto window since the FIRST delivery. A
+  // late-delivered notice must not shrink the owner's window: push
+  // auto_post_scheduled_at to first_sent + granted window, complete the
+  // current outbox row, and re-enqueue the publish at the new deadline.
+
+  it('pushes the deadline instead of posting when the notice was delivered late (window not elapsed)', async () => {
+    vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
+    const firstSent = new Date('2026-07-12T10:05:00Z');
+    const anchoredDeadline = new Date('2026-07-12T10:20:00Z');
+    sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]); // 1: response
+    sqlReturnQueue.push([mockBusinessRow()]);                                    // 2: business
+    sqlReturnQueue.push([{
+      first_sent: firstSent, veto_window_minutes: 15,
+      anchored_deadline: anchoredDeadline, window_elapsed: false,
+    }]);                                                                         // 3: gate → late notice
+    sqlReturnQueue.push([{ auto_post_scheduled_at: anchoredDeadline }]);         // 4: push UPDATE RETURNING
+    sqlReturnQueue.push(Object.assign([], { count: 1 }));                        // 5: enqueuePublishResponse INSERT
+
+    await handlePublishResponse(mockSql, makeJob({
+      correlation_id: 'corr-late-1',
+      outbox_id: 'outbox-late-1',
+      outbox_attempt: 1,
+    }));
+
+    expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
+    expect(mockPostReply).not.toHaveBeenCalled();
+    // Current outbox row completed inside the push tx (tx == mockSql here).
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-late-1', 1);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+
+    const calls = (mockSql as any).mock.calls as unknown[][];
+    const pushCall = calls.find((call) => {
+      const text = (call[0] as TemplateStringsArray).join('|');
+      return text.includes('UPDATE responses') && text.includes('auto_post_scheduled_at =');
+    });
+    expect(pushCall).toBeDefined();
+    // Absolute anchored deadline bound (first_sent + granted window), guarded
+    // to still-approved auto_policy rows only.
+    expect(pushCall).toContain(anchoredDeadline);
+    expect((pushCall![0] as TemplateStringsArray).join('|')).toContain("status = 'approved'");
+
+    const enqueueCall = calls.find((call) => {
+      const text = (call[0] as TemplateStringsArray).join('|');
+      return text.includes('INSERT INTO job_outbox') && text.includes("topic = 'publish_response'");
+    });
+    expect(enqueueCall).toBeDefined();
+    // availableAt binding = the pushed deadline.
+    expect(enqueueCall).toContain(anchoredDeadline);
+
+    // Never downgraded: the owner WAS notified — the countdown just started late.
+    const callTexts = calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
+    expect(callTexts.some((t: string) => /pending_approval/.test(t))).toBe(false);
+  });
+
+  it('completes outbox without re-enqueue when the deadline push loses the state race (retry-safe)', async () => {
+    vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
+    sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]); // 1: response
+    sqlReturnQueue.push([mockBusinessRow()]);                                    // 2: business
+    sqlReturnQueue.push([{
+      first_sent: new Date('2026-07-12T10:05:00Z'), veto_window_minutes: 15,
+      anchored_deadline: new Date('2026-07-12T10:20:00Z'), window_elapsed: false,
+    }]);                                                                         // 3: gate → late notice
+    sqlReturnQueue.push([]);                                                     // 4: push UPDATE → 0 rows (state changed)
+
+    await handlePublishResponse(mockSql, makeJob({
+      outbox_id: 'outbox-late-2',
+      outbox_attempt: 2,
+    }));
+
+    expect(mockPostReply).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-late-2', 2);
+    const callTexts = ((mockSql as any).mock.calls as unknown[][]).map(
+      (c) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.some((t: string) => /INSERT INTO job_outbox/.test(t))).toBe(false);
+    expect(callTexts.some((t: string) => /pending_approval/.test(t))).toBe(false);
+  });
+
+  it('throws when a delivered notice exists but the approval audit window is missing', async () => {
+    vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
+    sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]); // 1: response
+    sqlReturnQueue.push([mockBusinessRow()]);                                    // 2: business
+    sqlReturnQueue.push([{
+      first_sent: new Date('2026-07-12T10:05:00Z'), veto_window_minutes: null,
+      anchored_deadline: null, window_elapsed: null,
+    }]);                                                                         // 3: gate → impossible state
+
+    await expect(handlePublishResponse(mockSql, makeJob())).rejects.toThrow(
+      /Invariant violation: auto_policy response resp-1/,
+    );
+    expect(mockPostReply).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 
   it('owner-approved rows never touch the notice-delivery gate (flag on)', async () => {
@@ -653,7 +762,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     process.env.AUTO_APPROVAL_ENABLED = 'true'; // else the auto_policy row is downgraded, not published
     sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]); // 1: response
     sqlReturnQueue.push([mockBusinessRow()]);                                    // 2: business
-    sqlReturnQueue.push([{ ok: 1 }]);                                            // 2b: notice-delivery gate → delivered
+    sqlReturnQueue.push(gateWindowElapsedRow());                                 // 2b: notice-delivery gate → delivered + elapsed
     sqlReturnQueue.push([mockZernioConnectionRow()]);                            // 3: zernio_connections
     sqlReturnQueue.push([]);                                                      // 4: markPosted reviews FOR UPDATE lock
     sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'auto_policy' }]);      // 5: markPosted UPDATE ... RETURNING (1 row transitioned)
@@ -882,7 +991,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     process.env.AUTO_APPROVAL_ENABLED = 'true';
     sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]); // 1: response
     sqlReturnQueue.push([mockBusinessRow()]);                                    // 2: business
-    sqlReturnQueue.push([{ ok: 1 }]);                                            // 2b: notice-delivery gate → delivered
+    sqlReturnQueue.push(gateWindowElapsedRow());                                 // 2b: notice-delivery gate → delivered + elapsed
     sqlReturnQueue.push([mockZernioConnectionRow()]);                            // 3: zernio_connections
     sqlReturnQueue.push([]);                                                      // 4: markPosted reviews FOR UPDATE lock (inside verify409 begin)
     sqlReturnQueue.push([{ id: 'resp-1', approval_method: 'auto_policy' }]);      // 5: markPosted UPDATE ... RETURNING (inside verify409 begin)
@@ -1185,7 +1294,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
     process.env.AUTO_APPROVAL_ENABLED = 'true';
     sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]); // 1: response
     sqlReturnQueue.push([mockBusinessRow()]);                                    // 2: business
-    sqlReturnQueue.push([{ ok: 1 }]);                                            // 2b: notice-delivery gate → delivered
+    sqlReturnQueue.push(gateWindowElapsedRow());                                 // 2b: notice-delivery gate → delivered + elapsed
     sqlReturnQueue.push([mockZernioConnectionRow()]);                            // 3: zernio_connections
     sqlReturnQueue.push([]);                                       // 4: sibling probe → none
     sqlReturnQueue.push([]);                                       // 5: markPosted reviews FOR UPDATE lock
