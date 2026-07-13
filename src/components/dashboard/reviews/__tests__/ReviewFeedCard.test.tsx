@@ -3,7 +3,10 @@
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentProps } from 'react';
-import { ReviewFeedCard } from '@/components/dashboard/reviews/ReviewFeedCard';
+import {
+  formatScheduledChipTime,
+  ReviewFeedCard,
+} from '@/components/dashboard/reviews/ReviewFeedCard';
 
 type ReviewFixture = ComponentProps<typeof ReviewFeedCard>['recentReviews'][number];
 
@@ -35,6 +38,15 @@ function renderFeed(reviews: readonly ReviewFixture[] = [BASE_REVIEW]) {
 
 function revealClock() {
   act(() => vi.advanceTimersByTime(0));
+}
+
+/**
+ * Expected chip time computed through the exported helper (same Intl path the
+ * component uses), so assertions hold in any machine timezone. Call only after
+ * vi.setSystemTime so Date.now() matches the component's clock.
+ */
+function expectedChipTime(deadlineIso: string): string {
+  return formatScheduledChipTime(new Date(deadlineIso).getTime(), Date.now());
 }
 
 describe('ReviewFeedCard persona surfaces', () => {
@@ -80,7 +92,7 @@ describe('ReviewFeedCard persona surfaces', () => {
     expect(screen.getByText('Daniel')).toBeInTheDocument();
     expect(screen.getByText('0 awaiting your approval')).toBeInTheDocument();
     expect(screen.queryByText('All caught up!')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Scheduled — posts at 18:05 UTC' }))
+    expect(screen.getByRole('link', { name: `Scheduled — posts at ${expectedChipTime('2026-07-13T18:05:00.000Z')}` }))
       .toHaveAttribute('href', '/dashboard/reviews/review-1/timeline');
   });
 
@@ -136,7 +148,7 @@ describe('ReviewFeedCard persona surfaces', () => {
     }]);
     revealClock();
 
-    expect(screen.getByRole('link', { name: 'Scheduled — posts at 18:05 UTC' }))
+    expect(screen.getByRole('link', { name: `Scheduled — posts at ${expectedChipTime('2026-07-13T18:05:00.000Z')}` }))
       .toBeInTheDocument();
   });
 
@@ -163,8 +175,8 @@ describe('ReviewFeedCard persona surfaces', () => {
     ]);
     revealClock();
 
-    expect(screen.getByRole('link', { name: 'Scheduled — posts at 17:01 UTC' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Scheduled — posts at 17:02 UTC' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: `Scheduled — posts at ${expectedChipTime('2026-07-13T17:01:00.000Z')}` })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: `Scheduled — posts at ${expectedChipTime('2026-07-13T17:02:00.000Z')}` })).toBeInTheDocument();
 
     act(() => vi.advanceTimersByTime(60_001));
     expect(screen.queryByText('Daniel')).not.toBeInTheDocument();
@@ -231,5 +243,39 @@ describe('ReviewFeedCard persona surfaces', () => {
 
     expect(screen.queryByText('Daniel')).not.toBeInTheDocument();
     expect(screen.getByText('All caught up!')).toBeInTheDocument();
+  });
+});
+
+describe('formatScheduledChipTime', () => {
+  const LOS_ANGELES = 'America/Los_Angeles';
+
+  it('renders hour and minute in the given zone when the deadline is today there', () => {
+    const now = new Date('2026-07-13T17:00:00.000Z').getTime(); // 10:00 AM in LA
+    const deadline = new Date('2026-07-13T20:05:00.000Z').getTime(); // 1:05 PM in LA
+
+    expect(formatScheduledChipTime(deadline, now, LOS_ANGELES)).toBe('1:05 PM');
+  });
+
+  it('includes month and day when the deadline is not today in the given zone', () => {
+    const now = new Date('2026-07-13T17:00:00.000Z').getTime(); // Jul 13 in LA
+    const deadline = new Date('2026-07-14T18:05:00.000Z').getTime(); // Jul 14, 11:05 AM in LA
+
+    expect(formatScheduledChipTime(deadline, now, LOS_ANGELES)).toBe('Jul 14, 11:05 AM');
+  });
+
+  it('judges "today" in the viewer zone, not UTC', () => {
+    const now = new Date('2026-07-13T17:00:00.000Z').getTime(); // Jul 13, 10:00 AM in LA
+    const deadline = new Date('2026-07-14T02:00:00.000Z').getTime(); // still Jul 13, 7:00 PM in LA
+
+    expect(formatScheduledChipTime(deadline, now, LOS_ANGELES)).toBe('7:00 PM');
+  });
+
+  it('defaults to the runtime local zone when no zone is given', () => {
+    const now = new Date('2026-07-13T17:00:00.000Z').getTime();
+    const deadline = new Date('2026-07-13T18:05:00.000Z').getTime();
+    const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+    expect(formatScheduledChipTime(deadline, now))
+      .toBe(formatScheduledChipTime(deadline, now, localZone));
   });
 });

@@ -9,7 +9,6 @@ import {
 } from '@/components/dashboard/reviews/ReviewActions';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import type { ApprovalMethod } from '@/lib/auto-approval/types';
-import { formatScheduledPostTime } from '@/lib/notifications/channels/scheduled-post-time';
 
 const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   pending_approval: { label: 'Pending Approval', cls: 'badge-pending' },
@@ -89,6 +88,7 @@ export function ReviewFeedCard({
               key={review.id}
               r={review}
               scheduledPostAt={scheduledPostAt}
+              now={now}
               onSuccess={onActionSuccess}
               readOnly={readOnly}
             />
@@ -112,11 +112,13 @@ function ScheduledClockPendingState() {
 function ReviewFeedRow({
   r,
   scheduledPostAt,
+  now,
   onSuccess,
   readOnly,
 }: {
   r: ReviewFeedItem;
   scheduledPostAt: number | null;
+  now: number | null;
   onSuccess: () => void;
   readOnly: boolean;
 }) {
@@ -126,7 +128,7 @@ function ReviewFeedRow({
 
   return (
     <div className={`review ${isPending ? 'pending' : ''}`}>
-      <ReviewFeedHeader r={r} badge={badge} scheduledPostAt={scheduledPostAt} />
+      <ReviewFeedHeader r={r} badge={badge} scheduledPostAt={scheduledPostAt} now={now} />
       <ReviewText text={r.reviewText} />
       <PendingDraft
         isPending={isPending}
@@ -159,10 +161,12 @@ function ReviewFeedHeader({
   r,
   badge,
   scheduledPostAt,
+  now,
 }: {
   r: ReviewFeedItem;
   badge: { label: string; cls: string };
   scheduledPostAt: number | null;
+  now: number | null;
 }) {
   return (
     <div className="review-head">
@@ -180,7 +184,7 @@ function ReviewFeedHeader({
       )}
       <span className={`badge ${badge.cls}`}>{badge.label}</span>
       <PersonaBadges review={r} />
-      <ScheduledPostChip reviewId={r.id} scheduledPostAt={scheduledPostAt} />
+      <ScheduledPostChip reviewId={r.id} scheduledPostAt={scheduledPostAt} now={now} />
       <span className="review-meta-time">{formatRelative(r.reviewDate)}</span>
     </div>
   );
@@ -216,20 +220,47 @@ function PersonaBadges({ review }: { review: ReviewFeedItem }) {
 function ScheduledPostChip({
   reviewId,
   scheduledPostAt,
+  now,
 }: {
   reviewId: string;
   scheduledPostAt: number | null;
+  now: number | null;
 }) {
-  if (scheduledPostAt === null) return null;
+  if (scheduledPostAt === null || now === null) return null;
   return (
     <Link
       href={`/dashboard/reviews/${reviewId}/timeline`}
       className="scheduled-post-chip"
     >
       <Icon name="clock" size={10} aria-hidden="true" />
-      Scheduled — posts at {formatScheduledPostTime(new Date(scheduledPostAt)).absoluteUtc}
+      Scheduled — posts at {formatScheduledChipTime(scheduledPostAt, now)}
     </Link>
   );
+}
+
+/**
+ * Viewer-local chip time for the dashboard, where the browser clock IS the
+ * owner's timezone — unlike formatScheduledPostTime, whose UTC output serves
+ * notification channels where the viewer's zone is unknown. Adds month/day
+ * when the deadline falls outside "today" in the viewer's zone. `timeZone`
+ * exists so tests can pin a zone; production callers omit it.
+ */
+export function formatScheduledChipTime(
+  scheduledPostAt: number,
+  now: number,
+  timeZone?: string,
+): string {
+  const isDeadlineToday = formatLocalDayKey(scheduledPostAt, timeZone) === formatLocalDayKey(now, timeZone);
+  return new Intl.DateTimeFormat('en-US', {
+    ...(isDeadlineToday ? {} : { month: 'short', day: 'numeric' }),
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone,
+  }).format(scheduledPostAt);
+}
+
+function formatLocalDayKey(timestamp: number, timeZone?: string): string {
+  return new Intl.DateTimeFormat('en-CA', { dateStyle: 'short', timeZone }).format(timestamp);
 }
 
 function ReviewText({ text }: { text: string | null }) {
