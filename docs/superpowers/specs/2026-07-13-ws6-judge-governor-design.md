@@ -570,3 +570,16 @@ over the body, WS4/WS5 convention.)
   to be routable. No producer, handler, poller, or `worker/index.ts` processing
   registration is pulled forward; runtime production and consumption remain
   Task 5 scope.
+- **§2.10/§2.11 suspension topic routing (Task 4):** Task 4 pulls the inert
+  BullMQ queues and `topicToQueue` mappings for `autonomy_suspended_notice` and
+  `autonomy_admin_alert` forward from Tasks 8/9. Adding their canonical names
+  to `ALL_QUEUE_NAMES` requires complete routing immediately. No handler or
+  `worker/index.ts` registration is pulled forward; runtime consumption remains
+  Tasks 8/9 scope.
+- **§2.12 prior-reason capture (Task 4):** `unsuspendAccountAutonomy` snapshots
+  the guarded account-default row in a `FOR UPDATE` CTE, clears it with
+  `UPDATE ... FROM target`, and returns the target's prior reason and threshold.
+  PostgreSQL's plain `UPDATE ... RETURNING suspended_reason` observes the
+  post-update NULL, which cannot populate the required audit
+  `previous_reason`; the single-statement CTE preserves the specified atomic
+  guarded update and its zero-row semantics.

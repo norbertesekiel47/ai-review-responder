@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 376;
+export const ALLOWLIST_BASELINE = 377;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -2739,6 +2739,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: JUDGE_SWEEP_CANDIDATES_SQL,
     category: 'background-global-scan',
     reason: "JudgeSweepPoller filters the bounded global candidate scan to canonical full-access subscription statuses before enqueueing work.",
+  },
+  {
+    file: "src/lib/auto-approval/suspension.ts",
+    table: "auto_approval_policies",
+    sqlSnippet: "WITH target AS ( SELECT id, suspended_reason, auto_approve_min_star FROM auto_approval_policies WHERE account_id = ${input.accountId}::uuid AND location_id IS NULL AND persona = 'reply' AND action_class = 'posting' AND suspended_at IS NOT NULL FOR UPDATE ), updated AS ( UPDATE auto_approval_policies AS policy SET suspended_at = NULL, suspended_reason = NULL, updated_at = NOW() FROM target WHERE policy.id = target.id RETURNING target.suspended_reason AS previous_reason, target.auto_approve_min_star ) SELECT previous_reason, auto_approve_min_star FROM updated",
+    category: 'tenant-root-lookup',
+    reason: "Suspension domain callers supply one already-resolved accountId; the unsuspend CTE is directly account-scoped, but the auditor cannot propagate that scope through the UPDATE FROM target alias used to preserve the prior audit reason atomically.",
   },
   {
     file: "src/lib/agents/read.ts",

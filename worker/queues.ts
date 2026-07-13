@@ -69,6 +69,8 @@ export const queues = {
   escalationNotice: new Queue(QUEUE_NAMES.ESCALATION_NOTICE, { connection: opts, defaultJobOptions }),
   pendingPostNotice: new Queue(QUEUE_NAMES.PENDING_POST_NOTICE, { connection: opts, defaultJobOptions }),
   judgeVerdict: new Queue(QUEUE_NAMES.JUDGE_VERDICT, { connection: opts, defaultJobOptions }),
+  autonomySuspendedNotice: new Queue(QUEUE_NAMES.AUTONOMY_SUSPENDED_NOTICE, { connection: opts, defaultJobOptions }),
+  autonomyAdminAlert: new Queue(QUEUE_NAMES.AUTONOMY_ADMIN_ALERT, { connection: opts, defaultJobOptions }),
 } as const;
 
 // Lookup table: outbox topic string → Queue instance
@@ -106,4 +108,6 @@ export const topicToQueue: Record<string, Queue> = {
   [QUEUE_NAMES.ESCALATION_NOTICE]: queues.escalationNotice,
   [QUEUE_NAMES.PENDING_POST_NOTICE]: queues.pendingPostNotice,
   [QUEUE_NAMES.JUDGE_VERDICT]: queues.judgeVerdict,
+  [QUEUE_NAMES.AUTONOMY_SUSPENDED_NOTICE]: queues.autonomySuspendedNotice,
+  [QUEUE_NAMES.AUTONOMY_ADMIN_ALERT]: queues.autonomyAdminAlert,
 };

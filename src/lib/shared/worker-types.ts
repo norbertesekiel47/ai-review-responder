@@ -105,6 +105,39 @@ export interface EscalationNoticePayload extends BasePayload {
   business_id: string;
 }
 
+export const AUTONOMY_SUSPENSION_TRIGGERS = [
+  'judge_flag',
+  'governor_edit_rate',
+  'governor_veto_rate',
+  'governor_judge_signal_rate',
+] as const;
+
+export type AutonomySuspensionTrigger =
+  (typeof AUTONOMY_SUSPENSION_TRIGGERS)[number];
+
+export type AutonomySuspensionEvidence =
+  | { verdict_id: string }
+  | { rate: number; numer: number; denom: number; windowDays: number };
+
+export interface JudgeVerdictPayload extends BasePayload {
+  response_id: string;
+  business_id: string;
+  account_id: string;
+}
+
+export interface AutonomySuspendedNoticePayload extends BasePayload {
+  account_id: string;
+  suspension_event_id: string;
+  trigger: AutonomySuspensionTrigger;
+}
+
+export interface AutonomyAdminAlertPayload extends BasePayload {
+  account_id: string;
+  suspension_event_id: string;
+  trigger: AutonomySuspensionTrigger;
+  evidence: AutonomySuspensionEvidence;
+}
+
 export interface NotifyAdminExceptionPayload extends BasePayload {
   review_exception_id: string;
   business_id: string;
