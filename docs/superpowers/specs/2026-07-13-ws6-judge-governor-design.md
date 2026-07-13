@@ -550,5 +550,15 @@ exponential + jitter).
 
 ## 6. Implementation amendments
 
-(Reserved — per-task review acceptances land here during execution; on conflict
-they win over the body, WS4/WS5 convention.)
+(Per-task review acceptances land here during execution; on conflict they win
+over the body, WS4/WS5 convention.)
+
+- **§2.3 RI-support indexes (Task 1 review):** migration 076 additionally creates
+  `idx_judge_verdicts_business (business_id)`,
+  `idx_judge_verdicts_review (review_id)`, and partial
+  `idx_judge_verdicts_agent_run (agent_run_id) WHERE agent_run_id IS NOT NULL`.
+  PostgreSQL does not automatically index child FK columns; these prevent
+  `businesses`/`reviews` CASCADE and `agent_runs` SET NULL actions from scanning
+  `judge_verdicts`. `account_id` is already covered by
+  `idx_judge_verdicts_account_created`, and the response UNIQUE covers
+  `response_id`.
