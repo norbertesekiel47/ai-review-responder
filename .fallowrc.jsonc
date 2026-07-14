@@ -483,6 +483,16 @@
       "worker/jobs/zernio/ZernioBackfillWorker.ts",
       "worker/jobs/zernio/ZernioReviewIngestWorker.ts",
 
+      // WS6 spec §5 deliberately ships the fourth owner-notice package before
+      // extracting a shared notice-package triplet. These channel adapters and
+      // renderers are the reviewed, per-provider clone surface; delivery claims,
+      // retry classification, and worker orchestration remain notice-specific.
+      "src/lib/notifications/channels/email-channel.ts",
+      "src/lib/notifications/channels/telegram-body.ts",
+      "src/lib/notifications/channels/telegram-channel.ts",
+      "src/lib/notifications/channels/whatsapp-channel.ts",
+      "src/lib/notifications/email/templates/autonomy-suspended-notice.ts",
+
       // ── Owner-offboarding feature (acknowledged duplication) ──
       // Offboarding's own routes share the standardized force-dynamic + read-level
       // owner-gate preamble (requireOwnerWithAccount / requireDeleteDataDestructiveAuth)

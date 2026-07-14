@@ -14,6 +14,7 @@ import {
   formatAutoPostNoticeWhatsApp,
   formatEscalationNoticeWhatsApp,
   formatPendingPostNoticeWhatsApp,
+  formatAutonomySuspendedNoticeWhatsApp,
   toWaRecipient,
 } from './whatsapp-body';
 import { WhatsAppClient } from './whatsapp-client';
@@ -30,6 +31,8 @@ import type {
   SendEscalationNoticeResult,
   SendPendingPostNoticeParams,
   SendPendingPostNoticeResult,
+  SendAutonomySuspendedNoticeParams,
+  SendAutonomySuspendedNoticeResult,
 } from './types';
 
 export class WhatsAppChannel implements NotificationChannel {
@@ -132,6 +135,28 @@ export class WhatsAppChannel implements NotificationChannel {
       },
       contentSid,
     );
+    const client = new WhatsAppClient();
+    const result = await client.sendTemplate({
+      to: toWaRecipient(p.handle),
+      contentSid,
+      contentVariables,
+      statusCallback: `${getWorkerPublicUrl()}/ingress/twilio/whatsapp-status`,
+    });
+    return { status: 'sent', externalMessageId: result.externalMessageId };
+  }
+
+  async sendAutonomySuspendedNotice(
+    p: SendAutonomySuspendedNoticeParams,
+  ): Promise<SendAutonomySuspendedNoticeResult> {
+    const contentSid = getWorkerConfig().WHATSAPP_AUTONOMY_SUSPENDED_TEMPLATE_SID;
+    if (!contentSid) {
+      return { status: 'skipped', reason: 'whatsapp_autonomy_suspended_template_unset' };
+    }
+    const { contentVariables } = formatAutonomySuspendedNoticeWhatsApp({
+      accountName: p.accountName,
+      reason: p.reason,
+      settingsPath: 'settings/auto-approval',
+    }, contentSid);
     const client = new WhatsAppClient();
     const result = await client.sendTemplate({
       to: toWaRecipient(p.handle),

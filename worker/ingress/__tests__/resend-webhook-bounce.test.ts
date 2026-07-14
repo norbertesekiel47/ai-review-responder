@@ -256,6 +256,29 @@ describe('handleResendWebhook — bounce handling', () => {
     expect(mockSendInternalEmail).toHaveBeenCalledOnce();
   });
 
+  it('DOES flag owner_email_bounced for an autonomy_suspended_notice hard bounce', async () => {
+    sqlReturnQueue.push({ count: 1 });
+    sqlReturnQueue.push([{ business_id: 'biz-1', template: 'autonomy_suspended_notice' }]);
+    sqlReturnQueue.push([]); // UPDATE notification_deliveries
+    sqlReturnQueue.push([{ id: 'biz-1' }]); // UPDATE businesses RETURNING (transition)
+    sqlReturnQueue.push([]); // UPDATE inbound_events
+
+    const body = {
+      type: 'email.bounced',
+      data: { email_id: 'msg-abc', bounce: { type: 'Permanent' } },
+    };
+    const { reply, captured } = makeReply();
+    await handleResendWebhook(makeReq(body), reply);
+
+    expect(captured.status).toBe(200);
+    const joinedSql = joinSql(mockSql.mock.calls);
+    expect(joinedSql).toMatch(/UPDATE\s+businesses[\s\S]*owner_email_bounced\s*=\s*TRUE/i);
+    expect(mockSendInternalEmail).toHaveBeenCalledOnce();
+    expect(String(mockSendInternalEmail.mock.calls[0]?.[0]?.bodyHtml)).toContain(
+      'autonomy_suspended_notice',
+    );
+  });
+
   // ── Regression: transition guard prevents duplicate admin alerts ──
   it('does NOT send a duplicate admin alert when business already has owner_email_bounced=true', async () => {
     sqlReturnQueue.push({ count: 1 });

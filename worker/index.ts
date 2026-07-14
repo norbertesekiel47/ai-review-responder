@@ -18,6 +18,7 @@ import { handleSendNotification } from './jobs/notification/NotificationWorker';
 import { handleAutoPostNotice } from './jobs/auto-post-notice/AutoPostNoticeWorker';
 import { handleEscalationNotice } from './jobs/escalation-notice/EscalationNoticeWorker';
 import { handlePendingPostNotice } from './jobs/pending-post-notice/PendingPostNoticeWorker';
+import { handleAutonomySuspendedNotice } from './jobs/autonomy-suspended-notice/AutonomySuspendedNoticeWorker';
 import { handleJudgeVerdict } from './jobs/judge/JudgeWorker';
 import { handleJudgeFailed } from './jobs/judge/failed-hook';
 import { handlePublishResponse } from './jobs/publisher/ResponsePublisherWorker';
@@ -38,6 +39,7 @@ import type {
   AutoPostNoticePayload,
   EscalationNoticePayload,
   PendingPostNoticePayload,
+  AutonomySuspendedNoticePayload,
   JudgeVerdictPayload,
   PublishResponsePayload,
 } from '../src/lib/shared/worker-types';
@@ -181,6 +183,12 @@ const escalationNoticeWorker = new Worker(QUEUE_NAMES.ESCALATION_NOTICE, withJob
 
 const pendingPostNoticeWorker = new Worker(QUEUE_NAMES.PENDING_POST_NOTICE, withJobLogContext<PendingPostNoticePayload>((job) => handlePendingPostNotice(sql, job)), workerOpts);
 
+const autonomySuspendedNoticeWorker = new Worker(
+  QUEUE_NAMES.AUTONOMY_SUSPENDED_NOTICE,
+  withJobLogContext<AutonomySuspendedNoticePayload>((job) => handleAutonomySuspendedNotice(sql, job)),
+  workerOpts,
+);
+
 const judgeVerdictWorker = new Worker<JudgeVerdictPayload>(
   QUEUE_NAMES.JUDGE_VERDICT,
   withJobLogContext<JudgeVerdictPayload>((job) => handleJudgeVerdict(sql, job)),
@@ -273,6 +281,7 @@ const workersByQueue = {
   [QUEUE_NAMES.AUTO_POST_NOTICE]: autoPostNoticeWorker,
   [QUEUE_NAMES.ESCALATION_NOTICE]: escalationNoticeWorker,
   [QUEUE_NAMES.PENDING_POST_NOTICE]: pendingPostNoticeWorker,
+  [QUEUE_NAMES.AUTONOMY_SUSPENDED_NOTICE]: autonomySuspendedNoticeWorker,
   [QUEUE_NAMES.JUDGE_VERDICT]: judgeVerdictWorker,
   [QUEUE_NAMES.NOTIFY_ADMIN]: adminExceptionWorker,
   [QUEUE_NAMES.WEEKLY_SUMMARY]: weeklySummaryWorker,

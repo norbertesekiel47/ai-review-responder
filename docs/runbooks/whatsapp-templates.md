@@ -571,3 +571,116 @@ that env's `NEXT_PUBLIC_APP_URL`), selected via
 |-----|---------------|-----------------|-----|-------------|
 | Prod | `repworth_pending_post_notice_v1` | `https://app.repworth.com/approve/{{7}}` | `HX________ (record at go-live)` | not yet submitted |
 | Staging | `repworth_pending_post_notice_staging_v1` | `https://staging.repworth.net/approve/{{7}}` | `HX________ (record at go-live)` | not yet submitted |
+
+---
+
+## Autonomy-suspended notice (`WHATSAPP_AUTONOMY_SUSPENDED_TEMPLATE_SID`)
+
+**Purpose:** Tell an owner that RepWorth paused auto-posting after a judge or
+governor safety review (WS6 spec §2.10). The notice is account-scoped: drafts
+continue, but the owner must approve them manually. It contains no review or
+response text. One URL button opens the owner auto-approval settings page;
+support is included as static body copy.
+
+**Template name/version:** `repworth_autonomy_suspended_notice_v1`
+
+**Twilio Content type:** `whatsapp/card`
+
+**Language:** `en`
+
+**Meta category:** UTILITY (transactional safety-state change, not promotion).
+Any wording, variable, button, URL-base, language, or category change requires
+a versioned template and a fresh Meta review.
+
+**Exact provider body (byte-locked):**
+
+```
+Auto-posting paused for {{1}}
+
+Auto-posting was paused after a safety review. This pause applies to your entire account.
+
+Drafts will continue, but you will need to review and approve them manually.
+
+Reason: {{2}}
+
+Need help? Contact support@repworth.net.
+```
+
+This body must remain byte-for-byte equal to the template rendered by
+`renderAutonomySuspendedNoticeWhatsAppBody` in
+`src/lib/notifications/channels/whatsapp-body.ts`; its unit test reads this
+runbook section and fails on drift.
+
+**Variables:** `formatAutonomySuspendedNoticeWhatsApp` sends exactly three
+positional values:
+
+| Index | Runtime mapping | Template use | Bound |
+|-------|-----------------|--------------|-------|
+| 1 | `"1" = accountName` | `{{1}}` in body | one-line, truncated to 100 chars |
+| 2 | `"2" = reason` | `{{2}}` in body | canonical suspension reason, one-line, truncated to 160 chars |
+| 3 | `"3"` = `settings/auto-approval` | URL-button suffix only | exact fixed suffix; leading slash is rejected |
+
+Variable 3 is intentionally not rendered in the body. The approved template's
+URL action consumes it as a suffix.
+
+**Button contract:**
+
+| Index | Type | Label | Dynamic content |
+|-------|------|-------|-----------------|
+| 0 | URL | Review settings | production `url` = `https://app.repworth.com/{{3}}` |
+
+The fixed production base is `https://app.repworth.com/` and variable 3 is
+exactly `settings/auto-approval`, with no leading slash, producing
+`https://app.repworth.com/settings/auto-approval`. Staging must use its own
+approved template with `https://staging.repworth.net/{{3}}`. This matches the
+worker's `settingsUrl = NEXT_PUBLIC_APP_URL + '/settings/auto-approval'` used by
+email/Telegram. Do not change the suffix or base without updating code, this
+runbook, the pinning test, and resubmitting to Meta.
+
+### Submission JSON (Twilio Content API)
+
+Submit through the Twilio Content Editor or `POST /v1/Content`:
+
+```json
+{
+  "friendly_name": "repworth_autonomy_suspended_notice_v1",
+  "language": "en",
+  "variables": {
+    "1": "Acme Restaurant Group",
+    "2": "Recent safety reviews exceeded the auto-posting safety threshold.",
+    "3": "settings/auto-approval"
+  },
+  "types": {
+    "whatsapp/card": {
+      "body": "Auto-posting paused for {{1}}\n\nAuto-posting was paused after a safety review. This pause applies to your entire account.\n\nDrafts will continue, but you will need to review and approve them manually.\n\nReason: {{2}}\n\nNeed help? Contact support@repworth.net.",
+      "actions": [
+        { "type": "URL", "title": "Review settings", "url": "https://app.repworth.com/{{3}}" }
+      ]
+    }
+  }
+}
+```
+
+Before submission, verify the three variable mappings and button URL above
+against `formatAutonomySuspendedNoticeWhatsApp`. After Meta approves, record
+the returned `HX...` SID and set
+`WHATSAPP_AUTONOMY_SUSPENDED_TEMPLATE_SID` on the **Railway worker only**.
+The value is read through `getWorkerConfig()`; it is not a startup-required
+variable. When unset, the dispatcher pre-skips WhatsApp and
+`WhatsAppChannel.sendAutonomySuspendedNotice` independently returns
+`{status:'skipped'}`. Email and Telegram remain eligible.
+
+### Rollout and environment SIDs
+
+- Keep `CHANNELS_WHATSAPP_ENABLED=false` until the template is Meta-approved
+  and the correct environment SID/base pairing is verified in staging.
+- The suspension notice itself has deliberately no feature kill switch: once
+  its outbox event exists, disabling auto-approval does not suppress the safety
+  notice. An unset WhatsApp SID skips only that transport.
+- Smoke-test the rendered body, settings button, and delivery claim in staging;
+  do not use a production SID with the staging URL base or vice versa.
+
+| Env | Template name | URL action | SID | Meta status |
+|-----|---------------|------------|-----|-------------|
+| Prod | `repworth_autonomy_suspended_notice_v1` | `https://app.repworth.com/{{3}}` | `HX________ (record at go-live)` | not yet submitted |
+| Staging | `repworth_autonomy_suspended_notice_staging_v1` | `https://staging.repworth.net/{{3}}` | `HX________ (record at go-live)` | not yet submitted |

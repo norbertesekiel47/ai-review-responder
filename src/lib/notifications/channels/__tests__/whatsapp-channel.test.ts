@@ -104,6 +104,36 @@ describe('WhatsAppChannel', () => {
     });
   });
 
+  describe('sendAutonomySuspendedNotice', () => {
+    const params = {
+      handle: '+15551234567', accountName: 'Acme Group', reason: 'Safety threshold.',
+      settingsUrl: 'https://app.example.com/settings/auto-approval',
+      supportUrl: 'mailto:support@repworth.net', suspensionEventId: 'event-1',
+    };
+
+    it('skips cleanly when WHATSAPP_AUTONOMY_SUSPENDED_TEMPLATE_SID is unset', async () => {
+      delete process.env.WHATSAPP_AUTONOMY_SUSPENDED_TEMPLATE_SID;
+      resetWorkerConfigForTests();
+      await expect(new WhatsAppChannel().sendAutonomySuspendedNotice(params)).resolves.toEqual({
+        status: 'skipped', reason: 'whatsapp_autonomy_suspended_template_unset',
+      });
+      expect(mockSendTemplate).not.toHaveBeenCalled();
+    });
+
+    it('sends the approved account-only template when configured', async () => {
+      process.env.WHATSAPP_AUTONOMY_SUSPENDED_TEMPLATE_SID = 'HX_suspended';
+      resetWorkerConfigForTests();
+      mockSendTemplate.mockResolvedValueOnce({ externalMessageId: 'SM_suspended' });
+      await expect(new WhatsAppChannel().sendAutonomySuspendedNotice(params)).resolves.toEqual({
+        status: 'sent', externalMessageId: 'SM_suspended',
+      });
+      expect(mockSendTemplate).toHaveBeenCalledWith(expect.objectContaining({
+        contentSid: 'HX_suspended',
+        contentVariables: { '1': 'Acme Group', '2': 'Safety threshold.', '3': 'settings/auto-approval' },
+      }));
+    });
+  });
+
   it('propagates WhatsAppRecipientBlockedError unchanged', async () => {
     mockSendTemplate.mockRejectedValueOnce(new WhatsAppRecipientBlockedError(63014));
     const ch = new WhatsAppChannel();

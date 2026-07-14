@@ -48,6 +48,22 @@ describe('TelegramChannel', () => {
     expect(result.externalMessageId).toBe('123456789:77');
   });
 
+  it('sends the autonomy suspension message with an HTTPS settings button and support in text', async () => {
+    mockSendMessage.mockResolvedValueOnce({ message_id: 88, chat: { id: 123456789 } });
+    const result = await new TelegramChannel().sendAutonomySuspendedNotice({
+      handle: '123456789', accountName: 'Acme Group', reason: 'Safety threshold.',
+      settingsUrl: 'https://app.example.com/settings/auto-approval',
+      supportUrl: 'mailto:support@repworth.net', suspensionEventId: 'event-1',
+    });
+    expect(result).toEqual({ status: 'sent', externalMessageId: '123456789:88' });
+    const args = mockSendMessage.mock.calls[0]![0];
+    expect(args.text).toContain('entire account');
+    expect(args.text).toContain('support@repworth.net');
+    expect(args.reply_markup.inline_keyboard.flat().map((button: { url: string }) => button.url)).toEqual([
+      'https://app.example.com/settings/auto-approval',
+    ]);
+  });
+
   it('passes chat_id from handle and includes inline_keyboard in reply_markup', async () => {
     mockSendMessage.mockResolvedValueOnce({ message_id: 1, chat: { id: 1 } });
     await new TelegramChannel().sendApprovalRequest(sampleParams());

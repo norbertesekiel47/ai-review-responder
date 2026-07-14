@@ -290,3 +290,50 @@ export function formatPendingPostNoticeWhatsApp(
     },
   };
 }
+
+export interface AutonomySuspendedNoticeWhatsAppParams {
+  accountName: string;
+  reason: string;
+  /** Dynamic suffix for the approved template's settings URL button. */
+  settingsPath: string;
+}
+
+const AUTONOMY_SUSPENDED_NOTICE_WHATSAPP_BODY_TEMPLATE =
+  'Auto-posting paused for {{1}}\n\n' +
+  'Auto-posting was paused after a safety review. This pause applies to your entire account.\n\n' +
+  'Drafts will continue, but you will need to review and approve them manually.\n\n' +
+  'Reason: {{2}}\n\n' +
+  'Need help? Contact support@repworth.net.';
+
+export function renderAutonomySuspendedNoticeWhatsAppBody(
+  variables: Record<string, string>,
+): string {
+  return AUTONOMY_SUSPENDED_NOTICE_WHATSAPP_BODY_TEMPLATE.replace(
+    PLACEHOLDER_RE,
+    (_match, index: string) => variables[index] ?? '',
+  );
+}
+
+/**
+ * Variables for the account-level safety template. The approved static body
+ * carries the pause/account/manual-approval/support copy; these variables add
+ * only account-safe context and the settings URL suffix.
+ */
+export function formatAutonomySuspendedNoticeWhatsApp(
+  params: AutonomySuspendedNoticeWhatsAppParams,
+  contentSid: string,
+): WhatsAppSendContent {
+  if (params.settingsPath !== 'settings/auto-approval') {
+    throw new Error(
+      'formatAutonomySuspendedNoticeWhatsApp: settingsPath must equal settings/auto-approval',
+    );
+  }
+  return {
+    contentSid,
+    contentVariables: {
+      '1': truncate(oneLine(params.accountName), BUSINESS_NAME_MAX),
+      '2': truncate(oneLine(params.reason), 160),
+      '3': oneLine(params.settingsPath),
+    },
+  };
+}

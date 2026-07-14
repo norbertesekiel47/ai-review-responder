@@ -17,9 +17,81 @@ import {
   insertFailedDelivery,
   claimEscalationNoticeDelivery,
   claimPendingPostNoticeDelivery,
+  claimAutonomySuspendedNoticeDelivery,
   finalizeDeliverySent,
   failDelivery,
 } from '../delivery';
+
+describe('claimAutonomySuspendedNoticeDelivery', () => {
+  beforeEach(() => {
+    sqlCalls.length = 0;
+    sqlQueue.length = 0;
+    mockSql.mockClear();
+  });
+
+  it('self-reaps stale pending claims, then claims with the migration-076 predicate and NULL response_id', async () => {
+    sqlQueue.push([]);
+    sqlQueue.push([{ id: 'delivery-1' }]);
+
+    const id = await claimAutonomySuspendedNoticeDelivery(mockSql, {
+      accountId: 'acct-1',
+      businessId: 'biz-1',
+      entityId: 'event-1',
+      channel: 'email',
+      recipient: 'owner@example.com',
+    });
+
+    expect(id).toEqual({ kind: 'claimed', deliveryId: expect.any(String) });
+    expect(sqlCalls).toHaveLength(2);
+    const reap = sqlCalls[0]!;
+    expect(reap.template).toContain("template = 'autonomy_suspended_notice'");
+    expect(reap.template).toContain('entity_id =');
+    expect(reap.template).toContain('sent_at IS NULL');
+    expect(reap.template).toContain('failed_at IS NULL');
+    expect(reap.template).toContain("created_at < NOW() - INTERVAL '15 minutes'");
+    // The unique key is entity/channel/recipient, not business_id. Scope the
+    // reap to the account so a primary-location change cannot leave the old
+    // business row permanently blocking this event's retry.
+    expect(reap.template).toContain('account_id =');
+    expect(reap.template).not.toContain('business_id =');
+    expect(reap.values).toEqual(['event-1', 'acct-1', 'email', 'owner@example.com']);
+
+    const insert = sqlCalls[1]!;
+    expect(insert.template).toContain('response_id');
+    expect(insert.template).toContain('entity_id');
+    expect(insert.template).toContain(
+      "ON CONFLICT (entity_id, channel, recipient)\n      WHERE entity_id IS NOT NULL AND template = 'autonomy_suspended_notice'",
+    );
+    expect(insert.values).toContain(null);
+  });
+
+  it('distinguishes a sent existing row as settled', async () => {
+    sqlQueue.push([]);
+    sqlQueue.push([]);
+    sqlQueue.push([{ id: 'delivery-sent', sent_at: new Date(), failed_at: null }]);
+
+    await expect(claimAutonomySuspendedNoticeDelivery(mockSql, {
+      accountId: 'acct-1', businessId: 'biz-1', entityId: 'event-1',
+      channel: 'telegram', recipient: '123',
+    })).resolves.toEqual({ kind: 'settled', deliveryId: 'delivery-sent' });
+  });
+
+  it('distinguishes a terminally failed existing row as settled', async () => {
+    sqlQueue.push([], [], [{ id: 'delivery-failed', sent_at: null, failed_at: new Date() }]);
+    await expect(claimAutonomySuspendedNoticeDelivery(mockSql, {
+      accountId: 'acct-1', businessId: 'biz-1', entityId: 'event-1',
+      channel: 'email', recipient: 'owner@example.com',
+    })).resolves.toEqual({ kind: 'settled', deliveryId: 'delivery-failed' });
+  });
+
+  it('distinguishes a live unfinalized existing row as pending', async () => {
+    sqlQueue.push([], [], [{ id: 'delivery-pending', sent_at: null, failed_at: null }]);
+    await expect(claimAutonomySuspendedNoticeDelivery(mockSql, {
+      accountId: 'acct-1', businessId: 'biz-2', entityId: 'event-1',
+      channel: 'email', recipient: 'owner@example.com',
+    })).resolves.toEqual({ kind: 'pending', deliveryId: 'delivery-pending' });
+  });
+});
 
 describe('recordNotificationDelivery', () => {
   beforeEach(() => {
