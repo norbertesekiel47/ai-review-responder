@@ -623,3 +623,10 @@ over the body, WS4/WS5 convention.)
   outbox work. Judge acquires the account lock only after its required
   review/business/child locks; governor/admin acquire no review-lane locks, so
   no reverse lock edge is introduced.
+- **§2.11 redundant alert ordering (Task 9 adversarial review):** the independent
+  best-effort Sentry signal is attempted for every admin-alert job, including
+  when `ADMIN_NOTIFICATION_EMAIL` is unset or the primary email send fails.
+  Email remains the retry driver: an unset address completes after the Sentry
+  attempt, while a send failure is retained and rethrown after Sentry. A Sentry
+  failure is always logged and swallowed and can never mask the original email
+  error or poison an otherwise successful/unset-email completion.
