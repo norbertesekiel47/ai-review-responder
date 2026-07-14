@@ -18,26 +18,24 @@ const migrationPath = resolve(
 
 let db: postgresType.Sql | undefined;
 
+// Local-host refusal guard: any localhost/127.0.0.1 Postgres is accepted (the
+// dev container on 5499 AND the CI service container on 5432), everything
+// else — notably any Supabase/pooler host — is refused. Never widen this to
+// remote hosts.
 function assertLocalMigrationDatabaseUrl(databaseUrl: string): string {
   let parsed: URL;
   try {
     parsed = new URL(databaseUrl);
   } catch {
-    throw new Error('migration 076 tests require the exact local test database');
+    throw new Error('migration 076 tests require a local (localhost) test database');
   }
 
-  const isExactLocalTestDatabase =
+  const isLocalPostgres =
     (parsed.protocol === 'postgres:' || parsed.protocol === 'postgresql:') &&
-    (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') &&
-    parsed.port === '5499' &&
-    parsed.pathname === '/test_ws4' &&
-    parsed.username === 'test' &&
-    parsed.password === 'test' &&
-    parsed.search === '' &&
-    parsed.hash === '';
+    (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1');
 
-  if (!isExactLocalTestDatabase) {
-    throw new Error('migration 076 tests require the exact local test database');
+  if (!isLocalPostgres) {
+    throw new Error('migration 076 tests require a local (localhost) test database');
   }
   return databaseUrl;
 }
@@ -67,10 +65,13 @@ function stripSqlLineComments(value: string): string {
 }
 
 describe('migration 076 checked-in SQL safety', () => {
-  it('accepts only the exact local test container URL and rejects remote/pooler variants', () => {
+  it('accepts local-host test containers and rejects remote/pooler variants', () => {
     for (const localUrl of [
       'postgresql://test:test@localhost:5499/test_ws4',
       'postgres://test:test@127.0.0.1:5499/test_ws4',
+      // The CI service container (different port/db/user — still localhost).
+      'postgres://test:test@localhost:5432/test',
+      'postgresql://test:test@localhost:5499/test_ws4?sslmode=disable',
     ]) {
       expect(assertLocalMigrationDatabaseUrl(localUrl)).toBe(localUrl);
     }
@@ -78,14 +79,12 @@ describe('migration 076 checked-in SQL safety', () => {
     for (const unsafeUrl of [
       'postgresql://test:test@db.example.supabase.co:5432/test_ws4',
       'postgresql://test:test@aws-0-us-west-1.pooler.supabase.com:6543/postgres',
-      'postgresql://test:test@localhost:5432/test_ws4',
-      'postgresql://test:test@localhost:5499/postgres',
-      'postgresql://postgres:test@localhost:5499/test_ws4',
-      'postgresql://test:test@localhost:5499/test_ws4?sslmode=require',
+      'postgresql://test:test@db.internal:5499/test_ws4',
+      'mysql://test:test@localhost:5499/test_ws4',
       'not-a-database-url',
     ]) {
       expect(() => assertLocalMigrationDatabaseUrl(unsafeUrl)).toThrow(
-        'migration 076 tests require the exact local test database',
+        'migration 076 tests require a local (localhost) test database',
       );
     }
   });
@@ -98,7 +97,7 @@ describe('migration 076 checked-in SQL safety', () => {
         'postgresql://test:test@db.example.supabase.co:5432/test_ws4',
         connect,
       ),
-    ).toThrow('migration 076 tests require the exact local test database');
+    ).toThrow('migration 076 tests require a local (localhost) test database');
     expect(connect).not.toHaveBeenCalled();
   });
 

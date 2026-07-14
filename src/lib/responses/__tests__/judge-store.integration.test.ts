@@ -20,7 +20,6 @@ import {
 } from '../judge-store';
 import { isJudgeHealthy } from '../judge-health';
 
-const LOCAL_TEST_DATABASE_URL = 'postgresql://test:test@localhost:5499/test_ws4';
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 
 let db: postgresType.Sql | undefined;
@@ -65,9 +64,22 @@ function requireActiveTenant(): TenantSeed {
   return activeTenant;
 }
 
+// Local-host refusal guard: any localhost/127.0.0.1 Postgres is accepted (the
+// dev container AND the CI service container), everything else — notably any
+// Supabase/pooler host — is refused. Never widen this to remote hosts.
 function assertExactLocalDatabaseUrl(databaseUrl: string | undefined): string {
-  if (databaseUrl !== LOCAL_TEST_DATABASE_URL) {
-    throw new Error('judge-store integration requires the exact local test_ws4 database');
+  let parsed: URL | undefined;
+  try {
+    parsed = databaseUrl === undefined ? undefined : new URL(databaseUrl);
+  } catch {
+    parsed = undefined;
+  }
+  const isLocalPostgres =
+    parsed !== undefined &&
+    (parsed.protocol === 'postgres:' || parsed.protocol === 'postgresql:') &&
+    (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1');
+  if (databaseUrl === undefined || !isLocalPostgres) {
+    throw new Error('judge-store integration requires a local (localhost) test database');
   }
   return databaseUrl;
 }
