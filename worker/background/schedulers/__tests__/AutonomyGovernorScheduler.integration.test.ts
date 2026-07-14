@@ -148,6 +148,131 @@ async function cleanupGovernorFleet(): Promise<void> {
   });
 }
 
+const DAY_MS = 86_400_000;
+
+type JudgeVerdictKind = 'pass' | 'warn' | 'flag' | 'error';
+
+async function armAccountDefault(accountId: string): Promise<void> {
+  await sql()`
+    INSERT INTO auto_approval_policies (
+      id, account_id, location_id, persona, action_class, auto_approve_min_star
+    ) VALUES (
+      ${randomUUID()}::uuid,
+      ${accountId}::uuid,
+      NULL,
+      'reply',
+      'posting',
+      5
+    )
+  `;
+}
+
+async function seedJudgeVerdicts(
+  accountId: string,
+  locationId: string,
+  verdicts: readonly JudgeVerdictKind[],
+): Promise<void> {
+  for (const verdict of verdicts) {
+    const reviewId = randomUUID();
+    const responseId = randomUUID();
+    await sql()`
+      INSERT INTO reviews (
+        id, business_id, provider, provider_review_id, provider_review_name,
+        provider_location_name, reviewer_name, star_rating, review_text, status
+      ) VALUES (
+        ${reviewId}::uuid,
+        ${locationId}::uuid,
+        'zernio',
+        ${`governor-${reviewId}`},
+        ${`zernio://governor/reviews/${reviewId}`},
+        'zernio://governor/location',
+        'Governor Reviewer',
+        5,
+        'Safe integration fixture.',
+        'posted'
+      )
+    `;
+    await sql()`
+      INSERT INTO responses (
+        id, review_id, business_id, response_text, original_draft_text,
+        version, status, approval_method, posted_at
+      ) VALUES (
+        ${responseId}::uuid,
+        ${reviewId}::uuid,
+        ${locationId}::uuid,
+        'Thank you.',
+        'Thank you.',
+        1,
+        'posted',
+        'auto_policy',
+        NOW()
+      )
+    `;
+    await sql()`
+      INSERT INTO judge_verdicts (
+        id, account_id, business_id, review_id, response_id, verdict,
+        reasons, rationale, model, prompt_version
+      ) VALUES (
+        ${randomUUID()}::uuid,
+        ${accountId}::uuid,
+        ${locationId}::uuid,
+        ${reviewId}::uuid,
+        ${responseId}::uuid,
+        ${verdict},
+        '[]'::jsonb,
+        NULL,
+        'gpt-4o-mini-2024-07-18',
+        '2026-07-13.1'
+      )
+    `;
+  }
+}
+
+interface GovernorSuspensionFacts {
+  suspended: boolean;
+  audit_count: number;
+  outbox_count: number;
+  trigger: string | null;
+  rate: number | null;
+  numer: number | null;
+  denom: number | null;
+}
+
+async function readGovernorSuspensionFacts(accountId: string): Promise<GovernorSuspensionFacts> {
+  const [facts] = await sql()<GovernorSuspensionFacts[]>`
+    SELECT
+      EXISTS (
+        SELECT 1 FROM auto_approval_policies
+        WHERE account_id = ${accountId}::uuid
+          AND location_id IS NULL
+          AND suspended_at IS NOT NULL
+      ) AS suspended,
+      (SELECT COUNT(*)::int FROM account_audit_log
+       WHERE account_id = ${accountId}::uuid
+         AND event_type = 'autonomy_suspended') AS audit_count,
+      (SELECT COUNT(*)::int FROM job_outbox
+       WHERE payload->>'account_id' = ${accountId}
+         AND topic IN (
+           ${QUEUE_NAMES.AUTONOMY_SUSPENDED_NOTICE},
+           ${QUEUE_NAMES.AUTONOMY_ADMIN_ALERT}
+         )) AS outbox_count,
+      (SELECT payload->>'trigger' FROM account_audit_log
+       WHERE account_id = ${accountId}::uuid
+         AND event_type = 'autonomy_suspended' LIMIT 1) AS trigger,
+      (SELECT (payload->'evidence'->>'rate')::float FROM account_audit_log
+       WHERE account_id = ${accountId}::uuid
+         AND event_type = 'autonomy_suspended' LIMIT 1) AS rate,
+      (SELECT (payload->'evidence'->>'numer')::int FROM account_audit_log
+       WHERE account_id = ${accountId}::uuid
+         AND event_type = 'autonomy_suspended' LIMIT 1) AS numer,
+      (SELECT (payload->'evidence'->>'denom')::int FROM account_audit_log
+       WHERE account_id = ${accountId}::uuid
+         AND event_type = 'autonomy_suspended' LIMIT 1) AS denom
+  `;
+  if (!facts) throw new Error('expected governor suspension facts');
+  return facts;
+}
+
 describeWithDb('autonomy governor against live local Postgres', { timeout: 30_000 }, () => {
   beforeAll(async () => {
     db = postgres(assertExactLocalDatabaseUrl(testDatabaseUrl), { max: 1, prepare: false });
@@ -671,6 +796,160 @@ describeWithDb('autonomy governor against live local Postgres', { timeout: 30_00
       trigger: 'governor_judge_signal_rate',
       rate: 0.4,
       numer: 2,
+      denom: 5,
+    });
+  });
+
+  it('breaches the judge-signal rate without letting error verdicts dilute the window', async () => {
+    const seeded = requireTenant();
+    await cleanupGovernorRows();
+    const mirror = await seedTenantAccount(sql(), {
+      userName: 'Governor Error-Verdict Owner',
+      accountDisplayName: 'Governor Error-Verdict Account',
+    });
+    const mirrorBusinessId = randomUUID();
+
+    try {
+      await sql()`
+        INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status)
+        VALUES (
+          ${mirrorBusinessId}::uuid,
+          'Governor Error-Verdict Business',
+          'Governor Owner',
+          ${mirror.ownerEmail},
+          ${mirror.accountId}::uuid,
+          'active'
+        )
+      `;
+      await armAccountDefault(seeded.accountId);
+      await armAccountDefault(mirror.accountId);
+
+      // 3 warn + 2 pass -> signal 3/5 = 0.6; ten error verdicts must not
+      // grow the denominator (counted: 3/15 = 0.2 would NOT breach).
+      await seedJudgeVerdicts(seeded.accountId, businessId, [
+        'warn', 'warn', 'warn', 'pass', 'pass',
+        ...Array.from({ length: 10 }, () => 'error' as const),
+      ]);
+      // 2 warn + 3 pass -> signal 2/5 = 0.4, exactly at the threshold; any
+      // error dilution (2/8 = 0.25) would flip the outcome to no-breach.
+      await seedJudgeVerdicts(mirror.accountId, mirrorBusinessId, [
+        'warn', 'warn', 'pass', 'pass', 'pass', 'error', 'error', 'error',
+      ]);
+
+      process.env.GOVERNOR_ENABLED = 'true';
+      await runAutonomyGovernorCycle(sql(), { afterAccountId: null });
+
+      await expect(readGovernorSuspensionFacts(seeded.accountId)).resolves.toEqual({
+        suspended: true,
+        audit_count: 1,
+        outbox_count: 2,
+        trigger: 'governor_judge_signal_rate',
+        rate: 0.6,
+        numer: 3,
+        denom: 5,
+      });
+      await expect(readGovernorSuspensionFacts(mirror.accountId)).resolves.toEqual({
+        suspended: true,
+        audit_count: 1,
+        outbox_count: 2,
+        trigger: 'governor_judge_signal_rate',
+        rate: 0.4,
+        numer: 2,
+        denom: 5,
+      });
+    } finally {
+      await sql()`DELETE FROM job_outbox WHERE payload->>'account_id' = ${mirror.accountId}`;
+      await sql()`DELETE FROM account_audit_log WHERE account_id = ${mirror.accountId}::uuid`;
+      await sql()`DELETE FROM judge_verdicts WHERE account_id = ${mirror.accountId}::uuid`;
+      await sql()`DELETE FROM responses WHERE business_id = ${mirrorBusinessId}::uuid`;
+      await sql()`DELETE FROM reviews WHERE business_id = ${mirrorBusinessId}::uuid`;
+      await sql()`DELETE FROM auto_approval_policies WHERE account_id = ${mirror.accountId}::uuid`;
+      await sql()`DELETE FROM businesses WHERE id = ${mirrorBusinessId}::uuid`;
+      await cleanupGovernorRows();
+      await cleanupTenantAccount(sql(), mirror);
+    }
+  });
+
+  it('ignores breaching outcomes older than the latest unsuspend audit', async () => {
+    const seeded = requireTenant();
+    await cleanupGovernorRows();
+    const staleOutcomesAt = new Date(Date.now() - 3 * DAY_MS);
+    const unsuspendedAt = new Date(Date.now() - 2 * DAY_MS);
+    const healthyOutcomesAt = new Date(Date.now() - 1 * DAY_MS);
+
+    await armAccountDefault(seeded.accountId);
+    // Breaching edits (5/5 within the plain 7-day window) all PREDATE the
+    // unsuspend audit; only the healthy approvals postdate it.
+    await sql()`
+      INSERT INTO agent_outcomes (
+        id, account_id, business_id, attributed_agent, outcome_kind, unit_count, occurred_at
+      ) VALUES
+        (${randomUUID()}::uuid, ${seeded.accountId}::uuid, ${businessId}::uuid,
+         'reply', 'reply_edited_by_owner', 5, ${staleOutcomesAt}),
+        (${randomUUID()}::uuid, ${seeded.accountId}::uuid, ${businessId}::uuid,
+         'reply', 'reply_approved_no_edit', 5, ${healthyOutcomesAt})
+    `;
+    await sql()`
+      INSERT INTO account_audit_log (id, account_id, event_type, entity_type, created_at)
+      VALUES (
+        ${randomUUID()}::uuid,
+        ${seeded.accountId}::uuid,
+        'autonomy_unsuspended',
+        'auto_approval_policy',
+        ${unsuspendedAt}
+      )
+    `;
+
+    process.env.GOVERNOR_ENABLED = 'true';
+    await runAutonomyGovernorCycle(sql(), { afterAccountId: null });
+
+    await expect(readGovernorSuspensionFacts(seeded.accountId)).resolves.toEqual({
+      suspended: false,
+      audit_count: 0,
+      outbox_count: 0,
+      trigger: null,
+      rate: null,
+      numer: null,
+      denom: null,
+    });
+  });
+
+  it('suspends when breaching outcomes postdate the unsuspend audit', async () => {
+    const seeded = requireTenant();
+    await cleanupGovernorRows();
+    const unsuspendedAt = new Date(Date.now() - 6 * DAY_MS);
+    const breachOutcomesAt = new Date(Date.now() - 3 * DAY_MS);
+
+    await armAccountDefault(seeded.accountId);
+    await sql()`
+      INSERT INTO agent_outcomes (
+        id, account_id, business_id, attributed_agent, outcome_kind, unit_count, occurred_at
+      ) VALUES (
+        ${randomUUID()}::uuid, ${seeded.accountId}::uuid, ${businessId}::uuid,
+        'reply', 'reply_edited_by_owner', 5, ${breachOutcomesAt}
+      )
+    `;
+    await sql()`
+      INSERT INTO account_audit_log (id, account_id, event_type, entity_type, created_at)
+      VALUES (
+        ${randomUUID()}::uuid,
+        ${seeded.accountId}::uuid,
+        'autonomy_unsuspended',
+        'auto_approval_policy',
+        ${unsuspendedAt}
+      )
+    `;
+
+    process.env.GOVERNOR_ENABLED = 'true';
+    await runAutonomyGovernorCycle(sql(), { afterAccountId: null });
+
+    await expect(readGovernorSuspensionFacts(seeded.accountId)).resolves.toEqual({
+      suspended: true,
+      audit_count: 1,
+      outbox_count: 2,
+      trigger: 'governor_edit_rate',
+      rate: 1,
+      numer: 5,
       denom: 5,
     });
   });

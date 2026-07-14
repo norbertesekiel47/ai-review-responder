@@ -27,7 +27,7 @@ describe('isJudgeHealthy', () => {
     expect(sqlCalls[0]!.text).toContain("r.approval_method = 'auto_policy'");
     expect(sqlCalls[0]!.text).toContain('a.subscription_status IN');
     expect(sqlCalls[0]!.values).toEqual(expect.arrayContaining([
-      24, 60, 'active', 'trialing', 'past_due', 7,
+      24, 60, 'active', 'trialing', 'past_due', 7, 'judge_verdict',
     ]));
     expect(sqlCalls[0]!.text).toContain('a.past_due_at > NOW() - make_interval');
     expect(sqlCalls[0]!.text).toContain("NOW() AT TIME ZONE 'UTC'");
@@ -35,11 +35,20 @@ describe('isJudgeHealthy', () => {
     expect(sqlCalls[0]!.text).not.toContain('::timestamptz');
     expect(sqlCalls[0]!.values).not.toContain('cancelled');
     expect(sqlCalls[0]!.text).toContain('NOT EXISTS');
-    expect(sqlCalls[1]!.text).toContain("FILTER (WHERE verdict = 'error')");
+    // FIX-4 throughput semantics: a row is stale only when a judge_verdict
+    // outbox row (ANY status — no status filter) has existed past the limit.
+    expect(sqlCalls[0]!.text).toContain('FROM job_outbox jo');
+    expect(sqlCalls[0]!.text).toContain('jo.created_at < NOW() - make_interval');
+    expect(sqlCalls[0]!.text).not.toContain('jo.status');
+    // FIX-5: budget-decision error verdicts are excluded from error density.
+    expect(sqlCalls[1]!.text).toContain("FILTER (");
+    expect(sqlCalls[1]!.text).toContain("WHERE verdict = 'error'");
+    expect(sqlCalls[1]!.text).toContain('NOT COALESCE(reasons @>');
+    expect(sqlCalls[1]!.values).toEqual(expect.arrayContaining([['budget_exceeded'], 60]));
     expect(sqlCalls[1]!.text).toContain('created_at >= NOW() - make_interval');
   });
 
-  it('is unhealthy when an eligible auto-post remains unjudged past the stale boundary', async () => {
+  it('is unhealthy when an enqueued eligible auto-post remains unjudged past the stale boundary', async () => {
     sqlReturnQueue.push(
       mkTaggedResult([{ has_stale_unjudged: true }]),
       mkTaggedResult([{ total_count: 20, error_count: 0 }]),

@@ -139,16 +139,20 @@ describe('listSuspendedPolicies', () => {
           suspended_reason: AUTONOMY_SUSPENSION_REASONS.judge_flag,
           suspended_at: suspendedAt,
           window_start: windowStart,
+          audit_trigger: 'judge_flag',
         },
         {
+          // Copy-edited display reason: the trigger must still resolve from
+          // the audit payload, never from string-matching the reason copy.
           policy_id: 'policy-location',
           account_id: 'account-1',
           account_name: 'Northstar Dental',
           location_id: 'location-1',
           location_name: 'Northstar Dental — West',
-          suspended_reason: AUTONOMY_SUSPENSION_REASONS.governor_edit_rate,
+          suspended_reason: 'Owner edits recently exceeded our safety bar (reworded copy).',
           suspended_at: suspendedAt,
           window_start: windowStart,
+          audit_trigger: 'governor_edit_rate',
         },
       ]),
       mkTaggedResult([{
@@ -203,6 +207,7 @@ describe('listSuspendedPolicies', () => {
         policyId: 'policy-location',
         scope: 'location',
         locationName: 'Northstar Dental — West',
+        suspendedReason: 'Owner edits recently exceeded our safety bar (reworded copy).',
         trigger: 'governor_edit_rate',
       }),
     ]);
@@ -210,11 +215,66 @@ describe('listSuspendedPolicies', () => {
     expect(sqlCalls[0]!.text).toContain('LIMIT 100');
     expect(sqlCalls[0]!.text).toContain('JOIN accounts');
     expect(sqlCalls[0]!.text).toContain('LEFT JOIN businesses');
+    expect(sqlCalls[0]!.text).toContain("suspend_audit.event_type = 'autonomy_suspended'");
+    expect(sqlCalls[0]!.text).toContain("suspend_audit.payload->>'trigger'");
     expect(sqlCalls[1]!.text).toContain('LEFT JOIN agent_outcomes');
     expect(sqlCalls[2]!.text).toContain('LEFT JOIN judge_verdicts');
     expect(sqlCalls[3]!.text).toContain('ROW_NUMBER() OVER');
     expect(sqlCalls[3]!.text).toMatch(/\bWHERE flag_rank <= 5\s+ORDER BY\b/);
     expect(sqlCalls[3]!.text).toContain("jsonb_typeof(verdict.reasons) = 'array'");
+  });
+
+  it('maps an unknown or missing audit trigger to null while keeping the display reason', async () => {
+    const suspendedAt = new Date('2026-07-13T12:00:00.000Z');
+    const windowStart = new Date('2026-07-10T12:00:00.000Z');
+    sqlReturnQueue.push(
+      mkTaggedResult([
+        {
+          policy_id: 'policy-unknown-trigger',
+          account_id: 'account-1',
+          account_name: 'Northstar Dental',
+          location_id: null,
+          location_name: null,
+          suspended_reason: AUTONOMY_SUSPENSION_REASONS.judge_flag,
+          suspended_at: suspendedAt,
+          window_start: windowStart,
+          audit_trigger: 'retired_trigger_kind',
+        },
+        {
+          policy_id: 'policy-no-audit',
+          account_id: 'account-1',
+          account_name: 'Northstar Dental',
+          location_id: null,
+          location_name: null,
+          suspended_reason: AUTONOMY_SUSPENSION_REASONS.governor_veto_rate,
+          suspended_at: suspendedAt,
+          window_start: windowStart,
+          audit_trigger: null,
+        },
+      ]),
+      mkTaggedResult([{
+        account_id: 'account-1',
+        edited_count: 0,
+        approved_count: 0,
+        vetoed_count: 0,
+        auto_posted_count: 0,
+      }]),
+      mkTaggedResult([{ account_id: 'account-1', pass_count: 0, warn_count: 0, flag_count: 0 }]),
+      mkTaggedResult([]),
+    );
+
+    const result = await listSuspendedPolicies(mockSql as never);
+
+    expect(result[0]).toMatchObject({
+      policyId: 'policy-unknown-trigger',
+      suspendedReason: AUTONOMY_SUSPENSION_REASONS.judge_flag,
+      trigger: null,
+    });
+    expect(result[1]).toMatchObject({
+      policyId: 'policy-no-audit',
+      suspendedReason: AUTONOMY_SUSPENSION_REASONS.governor_veto_rate,
+      trigger: null,
+    });
   });
 
   it('does not issue rate or verdict queries when no policies are suspended', async () => {
@@ -239,6 +299,7 @@ describe('listSuspendedPolicies', () => {
         suspended_reason: AUTONOMY_SUSPENSION_REASONS.governor_veto_rate,
         suspended_at: suspendedAt,
         window_start: windowStart,
+        audit_trigger: 'governor_veto_rate',
       }))),
       mkTaggedResult(accountIds.map((accountId, index) => ({
         account_id: accountId,

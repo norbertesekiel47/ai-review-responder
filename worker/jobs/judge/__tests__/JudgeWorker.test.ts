@@ -141,7 +141,7 @@ describe('JudgeWorker', () => {
     expect(sqlCalls.at(-1)!.text).toContain("SET status = 'completed'");
   });
 
-  it('anchors reviews first, persists a flag verdict, suspends autonomy, and completes atomically', async () => {
+  it('anchors reviews, locks businesses then the response then the account, persists a flag verdict, suspends autonomy, and completes atomically', async () => {
     mockJudgeEnabled.mockReturnValue(true);
     mockJudgeResponse.mockResolvedValueOnce({
       verdict: 'flag',
@@ -154,9 +154,11 @@ describe('JudgeWorker', () => {
       mkTaggedResult([activeContext()]),
       mkTaggedResult([{ review_id: 'review-1' }]),
       mkTaggedResult([{ id: 'review-1' }]),
+      mkTaggedResult([{ id: 'business-1' }]),
       mkTaggedResult([{ status: 'posted', approval_method: 'auto_policy' }]),
       mkTaggedResult([{}]),
       mkTaggedResult([{ id: 'run-1' }]),
+      mkTaggedResult([{ id: 'account-1' }]),
       mkTaggedResult([{ id: 'verdict-1' }]),
       mkTaggedResult([{ id: 'account-1' }]),
       mkTaggedResult([{ id: 'policy-1' }]),
@@ -168,17 +170,27 @@ describe('JudgeWorker', () => {
     await handleJudgeVerdict(mockSql as never, job());
 
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
+    // Runtime lock order pin (lane order reviews -> businesses -> responses ->
+    // accounts): the source guard alone is blind to implicit-FK misordering.
     expect(sqlCalls[1]!.text).toContain('SELECT review_id FROM responses');
     expect(sqlCalls[2]!.text).toContain('SELECT id FROM reviews');
-    expect(sqlCalls[3]!.text).toContain('FROM responses');
+    expect(sqlCalls[3]!.text).toContain('FROM businesses');
     expect(sqlCalls[3]!.text).toContain('FOR UPDATE');
-    expect(sqlCalls[4]!.text).toContain("SET status = 'completed'");
-    expect(sqlCalls[6]!.text).toContain('INSERT INTO judge_verdicts');
-    expect(sqlCalls[6]!.values).toContain('run-1');
+    expect(sqlCalls[4]!.text).toContain('FROM responses');
+    expect(sqlCalls[4]!.text).toContain('FOR UPDATE');
+    expect(sqlCalls[5]!.text).toContain("SET status = 'completed'");
+    expect(sqlCalls[6]!.text).toContain('FROM agent_runs');
+    // Flag branch: accounts FOR UPDATE pre-lock BEFORE the verdict INSERT —
+    // the INSERT's RI trigger takes accounts FOR KEY SHARE, and a later
+    // upgrade inside suspendAccountAutonomy deadlocks concurrent flags.
     expect(sqlCalls[7]!.text).toContain('FROM accounts');
     expect(sqlCalls[7]!.text).toContain('FOR UPDATE');
-    expect(sqlCalls[8]!.text).toContain('INSERT INTO auto_approval_policies');
-    const verdictId = sqlCalls[6]!.values[0];
+    expect(sqlCalls[8]!.text).toContain('INSERT INTO judge_verdicts');
+    expect(sqlCalls[8]!.values).toContain('run-1');
+    expect(sqlCalls[9]!.text).toContain('FROM accounts');
+    expect(sqlCalls[9]!.text).toContain('FOR UPDATE');
+    expect(sqlCalls[10]!.text).toContain('INSERT INTO auto_approval_policies');
+    const verdictId = sqlCalls[8]!.values[0];
     expect(mockSql.json).toHaveBeenCalledWith({
       trigger: 'judge_flag',
       suspension_event_id: expect.any(String),
@@ -195,13 +207,14 @@ describe('JudgeWorker', () => {
       mkTaggedResult([activeContext()]),
       mkTaggedResult([{ review_id: 'review-1' }]),
       mkTaggedResult([{ id: 'review-1' }]),
+      mkTaggedResult([{ id: 'business-1' }]),
       mkTaggedResult([{ status: 'posted', approval_method: 'owner' }]),
       mkTaggedResult([{}]),
     );
 
     await handleJudgeVerdict(mockSql as never, job());
 
-    expect(sqlCalls[3]!.text).toContain('FOR UPDATE');
+    expect(sqlCalls[4]!.text).toContain('FOR UPDATE');
     expect(sqlCalls.some((call) => call.text.includes('INSERT INTO judge_verdicts'))).toBe(false);
     expect(sqlCalls.at(-1)!.text).toContain("SET status = 'completed'");
   });
@@ -215,16 +228,18 @@ describe('JudgeWorker', () => {
       mkTaggedResult([activeContext()]),
       mkTaggedResult([{ review_id: 'review-1' }]),
       mkTaggedResult([{ id: 'review-1' }]),
+      mkTaggedResult([{ id: 'business-1' }]),
       mkTaggedResult([{ status: 'posted', approval_method: 'auto_policy' }]),
       mkTaggedResult([{}]),
       mkTaggedResult([]),
+      mkTaggedResult([{ id: 'account-1' }]),
       mkTaggedResult([]),
     );
 
     await handleJudgeVerdict(mockSql as never, job());
 
     expect(sqlCalls.some((call) => call.text.includes('INSERT INTO auto_approval_policies'))).toBe(false);
-    expect(sqlCalls[4]!.text).toContain("SET status = 'completed'");
+    expect(sqlCalls[5]!.text).toContain("SET status = 'completed'");
   });
 
   it('does not persist a verdict when a newer outbox attempt owns the row', async () => {
@@ -236,14 +251,15 @@ describe('JudgeWorker', () => {
       mkTaggedResult([activeContext()]),
       mkTaggedResult([{ review_id: 'review-1' }]),
       mkTaggedResult([{ id: 'review-1' }]),
+      mkTaggedResult([{ id: 'business-1' }]),
       mkTaggedResult([{ status: 'posted', approval_method: 'auto_policy' }]),
       mkTaggedResult([]),
     );
 
     await handleJudgeVerdict(mockSql as never, job());
 
-    expect(sqlCalls[4]!.text).toContain("SET status = 'completed'");
-    expect(sqlCalls[4]!.values).toEqual(['outbox-1', 2]);
+    expect(sqlCalls[5]!.text).toContain("SET status = 'completed'");
+    expect(sqlCalls[5]!.values).toEqual(['outbox-1', 2]);
     expect(sqlCalls.some((call) => call.text.includes('INSERT INTO judge_verdicts'))).toBe(false);
     expect(sqlCalls.some((call) => call.text.includes('INSERT INTO auto_approval_policies'))).toBe(false);
   });
@@ -257,6 +273,7 @@ describe('JudgeWorker', () => {
       mkTaggedResult([activeContext()]),
       mkTaggedResult([{ review_id: 'review-1' }]),
       mkTaggedResult([{ id: 'review-1' }]),
+      mkTaggedResult([{ id: 'business-1' }]),
       mkTaggedResult([{ status: 'posted', approval_method: 'auto_policy' }]),
       mkTaggedResult([{}]),
       mkTaggedResult([]),
@@ -268,5 +285,10 @@ describe('JudgeWorker', () => {
     const insert = sqlCalls.find((call) => call.text.includes('INSERT INTO judge_verdicts'))!;
     expect(insert.values).toContain(verdict);
     expect(sqlCalls.some((call) => call.text.includes('INSERT INTO auto_approval_policies'))).toBe(false);
+    // Non-flag verdicts must NOT take the accounts pre-lock — routine passes
+    // would otherwise serialize per account.
+    expect(sqlCalls.some(
+      (call) => call.text.includes('FROM accounts') && call.text.includes('FOR UPDATE'),
+    )).toBe(false);
   });
 });

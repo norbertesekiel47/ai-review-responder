@@ -1,9 +1,13 @@
 import type { Job } from 'bullmq';
 import type { Sql } from 'postgres';
 import { anchorReviewLockOrder } from '@/lib/approval/outcomes';
-import { OPENAI_MODEL } from '@/lib/llm/tasks';
 import { JUDGE_PROMPT_VERSION } from '@/lib/responses/judge-policy';
-import { findLatestRunIdForReview, insertJudgeVerdict } from '@/lib/responses/judge-store';
+import {
+  JUDGE_ERROR_MODEL_UNAVAILABLE,
+  JUDGE_ERROR_REASON_BUDGET_EXCEEDED,
+  findLatestRunIdForReview,
+  insertJudgeVerdict,
+} from '@/lib/responses/judge-store';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import {
   extractOutboxHandle,
@@ -14,6 +18,24 @@ import { loadJudgeContext } from './context';
 
 const logger = createWorkerLogger('[JudgeWorker.failed]');
 
+/**
+ * Budget-DECISION failures (terminal per the cost-guard contract): one
+ * account's daily budget exhaustion is not systemic judge failure. Matched by
+ * error name in-process, with a message-substring fallback for a failedReason
+ * rehydrated from Redis. RegenBudgetExceededError never reaches the judge
+ * lane (no regenerate path), so it is deliberately absent.
+ */
+const BUDGET_DECISION_ERROR_NAMES: readonly string[] = [
+  'CostLimitExceededError',
+  'GlobalCostLimitExceededError',
+];
+
+function isBudgetDecisionFailure(job: Job<JudgeVerdictPayload>, err: unknown): boolean {
+  if (err instanceof Error && BUDGET_DECISION_ERROR_NAMES.includes(err.name)) return true;
+  const failedReason = typeof job.failedReason === 'string' ? job.failedReason : '';
+  return failedReason.includes('cost limit exceeded');
+}
+
 function boundedErrorClass(err: unknown): string {
   if (err instanceof Error && err.name) return err.name.slice(0, 100);
   return 'UnknownError';
@@ -23,8 +45,14 @@ function isJudgeAttemptExhausted(job: Job<JudgeVerdictPayload>): boolean {
   const maxAttempts = typeof job.opts.attempts === 'number' && job.opts.attempts > 0
     ? job.opts.attempts
     : 1;
-  // BullMQ's `failed` event observes attemptsMade after the failed attempt was
-  // incremented. 2/3 still has one retry; only 3/3 is terminal.
+  // Terminal-attempt check for the BullMQ 'failed' EVENT context: the Worker
+  // emits 'failed' only after job.moveToFailed() has incremented attemptsMade
+  // to include the failing attempt, so with attempts=3 only 3/3 is terminal
+  // (2/3 still has a retry). The shared isTerminalAttempt
+  // (src/lib/shared/outbox.ts) answers the same question INSIDE a processor
+  // catch block, where attemptsMade has NOT yet been incremented — hence its
+  // `attemptsMade + 1 >= maxAttempts`. Both are correct in their own call
+  // context; do not unify them.
   return job.attemptsMade >= maxAttempts;
 }
 
@@ -38,6 +66,7 @@ export async function handleJudgeFailed(
   try {
     const { outboxId, attempt } = extractOutboxHandle(job.data, job.id!);
     const errorClass = boundedErrorClass(err);
+    const budgetDecision = isBudgetDecisionFailure(job, err);
     const context = await loadJudgeContext(sql, {
       responseId: job.data.response_id,
       businessId: job.data.business_id,
@@ -49,13 +78,29 @@ export async function handleJudgeFailed(
     }
 
     await sql.begin(async (tx) => {
-      // FIRST statement: the verdict INSERT takes implicit review-lane FK locks.
+      // Binding review-lane lock order: the anchor is the transaction's FIRST
+      // lock, before the verdict INSERT's implicit FK locks.
       const reviewId = await anchorReviewLockOrder(
         tx,
         context.response_id,
         context.business_id,
       );
       if (!reviewId) {
+        await markOutboxFailed(tx, outboxId, `judge_exhausted:${errorClass}`, attempt);
+        return;
+      }
+
+      // Binding lane order continues reviews -> businesses -> responses:
+      // without this explicit lock, the verdict INSERT's implicit businesses
+      // FK lock would be the first businesses acquisition, after the response
+      // FK lock — inverting the lane order.
+      const [lockedBusiness] = await tx<{ id: string }[]>`
+        SELECT id
+        FROM businesses
+        WHERE id = ${context.business_id}
+        FOR UPDATE
+      `;
+      if (!lockedBusiness) {
         await markOutboxFailed(tx, outboxId, `judge_exhausted:${errorClass}`, attempt);
         return;
       }
@@ -77,9 +122,9 @@ export async function handleJudgeFailed(
         responseId: context.response_id,
         agentRunId,
         verdict: 'error',
-        reasons: null,
+        reasons: budgetDecision ? [JUDGE_ERROR_REASON_BUDGET_EXCEEDED] : null,
         rationale: errorClass,
-        model: OPENAI_MODEL,
+        model: JUDGE_ERROR_MODEL_UNAVAILABLE,
         promptVersion: JUDGE_PROMPT_VERSION,
       });
     });

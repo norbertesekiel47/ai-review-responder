@@ -74,11 +74,21 @@ export async function runAutonomyGovernorCycle(
     // Advance before evaluation so one poison account cannot permanently
     // starve every later candidate; circular ordering revisits it after wrap.
     cursor.afterAccountId = candidate.account_id;
-    const rates = await computeGovernorRates(exec, candidate.account_id, candidate.window_start);
-    const breach = evaluateAccount(rates);
-    if (!breach) continue;
+    try {
+      const rates = await computeGovernorRates(exec, candidate.account_id, candidate.window_start);
+      const breach = evaluateAccount(rates);
+      if (!breach) continue;
 
-    await suspendGovernorCandidateIfCurrent(exec, candidate, breach);
+      await suspendGovernorCandidateIfCurrent(exec, candidate, breach);
+    } catch (error) {
+      // Contain the failure to this candidate: one bad account must not abort
+      // the rest of the batch for the whole 15-minute interval. Error class
+      // only — DB error text can echo bound values.
+      logger.error('autonomy_governor candidate-failed', {
+        account_id: candidate.account_id,
+        error_name: error instanceof Error ? error.name : typeof error,
+      });
+    }
   }
 }
 

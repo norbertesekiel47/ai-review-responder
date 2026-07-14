@@ -100,6 +100,9 @@ describe('admin autonomy routes', () => {
       locationId: null,
       locationName: null,
       scope: 'account' as const,
+      // Deliberately NOT the AUTONOMY_SUSPENSION_REASONS copy: the reason is
+      // display-only and the trigger is derived from the audit payload, so a
+      // copy-edited reason must still surface its machine-readable trigger.
       suspendedReason: 'Safety review flag.',
       trigger: 'judge_flag' as const,
       suspendedAt: new Date('2026-07-13T12:00:00.000Z'),

@@ -98,6 +98,11 @@ export async function loadAutonomySuspendedNoticeContext(
     return { kind: 'skip', reason: 'offboarding' };
   }
 
+  // The primary active location is the delivery ANCHOR (delivery-row
+  // business_id, owner_email_bounced, channel-resolution entry point) — it is
+  // NOT the notification scope. The notice is account-scoped: the worker
+  // prefers org-default enrollments (location_id IS NULL) and uses this
+  // location's per-location channels only as a fallback.
   const [business] = await sql<AutonomySuspendedBusinessRow[]>`
     SELECT b.id AS business_id, b.name, b.display_label, b.owner_email_bounced
     FROM businesses b

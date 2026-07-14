@@ -2,14 +2,22 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql, mkTaggedResult } =
+const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql, mkTaggedResult, mockLogger } =
   await vi.hoisted(async () => {
     const helpers = await import('../../../__tests__/helpers/mock-sql');
-    return { ...helpers.createMockSql(), mkTaggedResult: helpers.mkTaggedResult };
+    return {
+      ...helpers.createMockSql(),
+      mkTaggedResult: helpers.mkTaggedResult,
+      mockLogger: helpers.mockWorkerLogger(),
+    };
   });
 
 vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'event-1') }));
+vi.mock('@/lib/shared/logger', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/shared/logger')>()),
+  createWorkerLogger: () => mockLogger,
+}));
 
 import {
   DEFAULT_GOVERNOR_INTERVAL_MS,
@@ -204,7 +212,7 @@ describe('AutonomyGovernorScheduler cycle', () => {
     expect(candidateScans[1]!.values).toContain(firstPage.at(-1)!.account_id);
   });
 
-  it('advances past a poison candidate before its rate query rejects', async () => {
+  it('advances past a poison candidate, contains its failure, and completes the cycle', async () => {
     process.env.GOVERNOR_ENABLED = 'true';
     const poisonError = new Error('synthetic rate-query failure');
     const rejected = Promise.reject(poisonError);
@@ -219,8 +227,13 @@ describe('AutonomyGovernorScheduler cycle', () => {
     );
 
     await expect(runAutonomyGovernorCycle(mockSql as never, cursor))
-      .rejects.toBe(poisonError);
+      .resolves.toBeUndefined();
     expect(cursor.afterAccountId).toBe(poisonAccount);
+    expect(mockLogger.error).toHaveBeenCalledOnce();
+    expect(mockLogger.error).toHaveBeenCalledWith('autonomy_governor candidate-failed', {
+      account_id: poisonAccount,
+      error_name: 'Error',
+    });
 
     sqlReturnQueue.push(
       mkTaggedResult([{ account_id: nextAccount, window_start: windowStart }]),
@@ -242,6 +255,52 @@ describe('AutonomyGovernorScheduler cycle', () => {
       call.text.includes('FROM auto_approval_policies armed'));
     expect(candidateScans).toHaveLength(2);
     expect(candidateScans[1]!.values).toContain(poisonAccount);
+  });
+
+  it('still evaluates the surrounding candidates when the middle one throws', async () => {
+    process.env.GOVERNOR_ENABLED = 'true';
+    const rejected = Promise.reject(new Error('synthetic mid-batch failure'));
+    rejected.catch(() => {});
+    const windowStart = new Date('2026-07-10T00:00:00.000Z');
+    const accounts = [
+      '00000000-0000-4000-8000-000000000070',
+      '00000000-0000-4000-8000-000000000071',
+      '00000000-0000-4000-8000-000000000072',
+    ];
+    const cursor: GovernorScanCursor = { afterAccountId: null };
+    const healthyRates = (accountId: string) => [
+      mkTaggedResult([{
+        account_id: accountId,
+        edited_count: 0,
+        approved_count: 0,
+        vetoed_count: 0,
+        auto_posted_count: 0,
+      }]),
+      mkTaggedResult([{ account_id: accountId, pass_count: 0, warn_count: 0, flag_count: 0 }]),
+    ];
+    sqlReturnQueue.push(
+      mkTaggedResult(accounts.map((accountId) => ({
+        account_id: accountId,
+        window_start: windowStart,
+      }))),
+      ...healthyRates(accounts[0]!),
+      rejected,
+      ...healthyRates(accounts[2]!),
+    );
+
+    await expect(runAutonomyGovernorCycle(mockSql as never, cursor)).resolves.toBeUndefined();
+
+    expect(cursor.afterAccountId).toBe(accounts[2]);
+    expect(mockSql.begin).not.toHaveBeenCalled();
+    expect(mockLogger.error).toHaveBeenCalledOnce();
+    expect(mockLogger.error).toHaveBeenCalledWith('autonomy_governor candidate-failed', {
+      account_id: accounts[1],
+      error_name: 'Error',
+    });
+    // Rate queries bind account ids as a ::uuid[] array parameter.
+    const outcomeScans = sqlCalls.filter((call) =>
+      call.values.some((value) => Array.isArray(value) && value.includes(accounts[2]!)));
+    expect(outcomeScans.length).toBeGreaterThan(0);
   });
 
   it('uses the frozen cadence and deadline', () => {

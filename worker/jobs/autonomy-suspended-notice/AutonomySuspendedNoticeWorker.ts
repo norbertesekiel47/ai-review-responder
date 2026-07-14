@@ -56,6 +56,20 @@ export async function handleAutonomySuspendedNotice(
     return;
   }
 
+  // This safety notice is ACCOUNT-scoped: org-default enrollments (account_id
+  // + channel + location_id IS NULL) are the owner's account-level contact
+  // points, so they must not be shadowed by a per-location channel override on
+  // the primary location. resolveChannels already marks each resolved
+  // enrollment's scope via location_id (null = org-default); reuse that marker
+  // instead of adding a resolution mode. Fall back to the primary location's
+  // channels only when the owner has no org-default enrollment on ANY channel.
+  const orgDefaultEnrollments = eligibility.enrollments.filter(
+    (enrollment) => enrollment.location_id === null,
+  );
+  const enrollments = orgDefaultEnrollments.length > 0
+    ? orgDefaultEnrollments
+    : eligibility.enrollments;
+
   const appUrl = getWorkerConfig().NEXT_PUBLIC_APP_URL;
   if (!appUrl) {
     await markOutboxFailed(sql, outboxId, 'NEXT_PUBLIC_APP_URL not configured', attempt);
@@ -71,7 +85,7 @@ export async function handleAutonomySuspendedNotice(
     reason: context.audit.reason,
     settingsUrl: `${baseUrl}/settings/auto-approval`,
     supportUrl: 'mailto:support@repworth.net',
-  }, eligibility.enrollments, logger);
+  }, enrollments, logger);
 
   logger.log(
     `autonomy_suspended_notice done event=${suspension_event_id} sent=${dispatch.sent} skipped=${dispatch.skipped} ` +

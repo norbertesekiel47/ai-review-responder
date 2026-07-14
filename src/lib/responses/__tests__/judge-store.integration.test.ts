@@ -52,6 +52,8 @@ const expiredResponseId = randomUUID();
 const pendingReviewId = randomUUID();
 const pendingResponseId = randomUUID();
 const inflightOutboxId = randomUUID();
+const graceOutboxId = randomUUID();
+const expiredOutboxId = randomUUID();
 
 function sql(): postgresType.Sql {
   if (!db) throw new Error('judge-store integration database was not initialized');
@@ -217,7 +219,7 @@ describeWithDb('judge verdict store against live local Postgres', { timeout: 30_
 
   afterAll(async () => {
     if (!db) return;
-    await sql()`DELETE FROM job_outbox WHERE id = ${inflightOutboxId}::uuid`;
+    await sql()`DELETE FROM job_outbox WHERE id IN (${inflightOutboxId}::uuid, ${graceOutboxId}::uuid, ${expiredOutboxId}::uuid)`;
     await sql()`DELETE FROM judge_verdicts WHERE business_id IN (${activeBusinessId}::uuid, ${cancelledBusinessId}::uuid, ${graceBusinessId}::uuid, ${expiredBusinessId}::uuid, ${pendingBusinessId}::uuid)`;
     await sql()`DELETE FROM responses WHERE business_id IN (${activeBusinessId}::uuid, ${cancelledBusinessId}::uuid, ${graceBusinessId}::uuid, ${expiredBusinessId}::uuid, ${pendingBusinessId}::uuid)`;
     await sql()`DELETE FROM reviews WHERE business_id IN (${activeBusinessId}::uuid, ${cancelledBusinessId}::uuid, ${graceBusinessId}::uuid, ${expiredBusinessId}::uuid, ${pendingBusinessId}::uuid)`;
@@ -256,9 +258,50 @@ describeWithDb('judge verdict store against live local Postgres', { timeout: 30_
     expect(responseIds).not.toContain(pendingResponseId);
   });
 
-  it('treats grace-period staleness as unhealthy but ignores expired past-due staleness', async () => {
+  it('measures staleness by judge-system throughput, not re-entered eligibility (FIX-4)', async () => {
+    // The grace-tenant auto-post is 2h old, unjudged, and publisher-eligible,
+    // but the judge system has NO outbox row for it — the sweep could never
+    // have judged a row it has not seen (past-due recovery / admin extension /
+    // flag off→on re-eligibility), so the fleet stays healthy.
+    await expect(isJudgeHealthy(sql())).resolves.toBe(true);
+
+    // A YOUNG judge_verdict outbox row (in-flight for under the limit) still
+    // does not flag the fleet.
+    await sql()`
+      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+      VALUES (
+        ${graceOutboxId}::uuid, ${QUEUE_NAMES.JUDGE_VERDICT}, 'response',
+        ${graceResponseId}::uuid,
+        ${sql().json({ response_id: graceResponseId, business_id: graceBusinessId })},
+        'pending'
+      )
+    `;
+    await expect(isJudgeHealthy(sql())).resolves.toBe(true);
+
+    // Once the judge system has known about the row for over the staleness
+    // limit and produced no verdict, the fleet is unhealthy — regardless of
+    // the outbox row's status (ANY status counts).
+    await sql()`
+      UPDATE job_outbox
+      SET created_at = NOW() - INTERVAL '2 hours', status = 'completed'
+      WHERE id = ${graceOutboxId}::uuid
+    `;
     await expect(isJudgeHealthy(sql())).resolves.toBe(false);
 
+    // An old enqueue for an INELIGIBLE row (expired past-due grace) never
+    // counts toward staleness.
+    await sql()`
+      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status, created_at)
+      VALUES (
+        ${expiredOutboxId}::uuid, ${QUEUE_NAMES.JUDGE_VERDICT}, 'response',
+        ${expiredResponseId}::uuid,
+        ${sql().json({ response_id: expiredResponseId, business_id: expiredBusinessId })},
+        'failed', NOW() - INTERVAL '2 hours'
+      )
+    `;
+
+    // Writing the grace verdict restores health; the expired row's stale
+    // enqueue stays ignored.
     await sql().begin(async (tx) => {
       const anchored = await anchorReviewLockOrder(tx, graceResponseId, graceBusinessId);
       expect(anchored).toBe(graceReviewId);
@@ -277,6 +320,58 @@ describeWithDb('judge verdict store against live local Postgres', { timeout: 30_
     });
 
     await expect(isJudgeHealthy(sql())).resolves.toBe(true);
+  });
+
+  it('excludes budget-decision error verdicts from fleet error density (FIX-5)', async () => {
+    const budgetVerdictTargets = [
+      {
+        accountId: cancelledTenant!.accountId,
+        businessId: cancelledBusinessId,
+        reviewId: cancelledReviewId,
+        responseId: cancelledResponseId,
+      },
+      {
+        accountId: expiredTenant!.accountId,
+        businessId: expiredBusinessId,
+        reviewId: expiredReviewId,
+        responseId: expiredResponseId,
+      },
+      {
+        accountId: pendingTenant!.accountId,
+        businessId: pendingBusinessId,
+        reviewId: pendingReviewId,
+        responseId: pendingResponseId,
+      },
+    ];
+    for (const target of budgetVerdictTargets) {
+      await sql().begin(async (tx) => {
+        const anchored = await anchorReviewLockOrder(tx, target.responseId, target.businessId);
+        expect(anchored).toBe(target.reviewId);
+        await insertJudgeVerdict(tx, {
+          ...target,
+          agentRunId: null,
+          verdict: 'error',
+          reasons: ['budget_exceeded'],
+          rationale: 'CostLimitExceededError',
+          model: 'unavailable',
+          promptVersion: '2026-07-13.1',
+        });
+      });
+    }
+
+    // Three budget-class errors within the hour do NOT trip the fleet gate…
+    await expect(isJudgeHealthy(sql())).resolves.toBe(true);
+
+    // …but the same three errors WITHOUT the budget marker are systemic and do.
+    await sql()`
+      UPDATE judge_verdicts
+      SET reasons = NULL
+      WHERE verdict = 'error'
+        AND response_id IN (
+          ${cancelledResponseId}::uuid, ${expiredResponseId}::uuid, ${pendingResponseId}::uuid
+        )
+    `;
+    await expect(isJudgeHealthy(sql())).resolves.toBe(false);
   });
 
   it.each([

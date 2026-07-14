@@ -48,6 +48,44 @@ describe('handleAutonomySuspendedNotice', () => {
     expect(mocks.complete).toHaveBeenCalledWith(mockSql, 'ob-1', 1);
   });
 
+  it('sends the account-scoped notice to org-default enrollments, not per-location overrides', async () => {
+    mocks.eligible.mockResolvedValue({
+      ok: true,
+      enrollments: [
+        { channel: 'email', handle: 'override@x.com', location_id: 'biz-1' },
+        { channel: 'telegram', handle: 'tg-org', location_id: null },
+      ],
+    });
+    await run();
+    expect(mocks.eligible).toHaveBeenCalledWith(mockSql, expect.objectContaining({
+      accountId: 'acct-1',
+      locationId: 'biz-1',
+    }), mockLogger);
+    expect(mocks.dispatch).toHaveBeenCalledWith(
+      mockSql,
+      expect.any(Object),
+      [{ channel: 'telegram', handle: 'tg-org', location_id: null }],
+      mockLogger,
+    );
+    expect(mocks.complete).toHaveBeenCalledWith(mockSql, 'ob-1', 1);
+  });
+
+  it('falls back to the primary location channels only when no org-default enrollment exists', async () => {
+    const overrideOnly = [
+      { channel: 'email', handle: 'override@x.com', location_id: 'biz-1' },
+      { channel: 'whatsapp', handle: '+15550001111', location_id: 'biz-1' },
+    ];
+    mocks.eligible.mockResolvedValue({ ok: true, enrollments: overrideOnly });
+    await run();
+    expect(mocks.dispatch).toHaveBeenCalledWith(
+      mockSql,
+      expect.any(Object),
+      overrideOnly,
+      mockLogger,
+    );
+    expect(mocks.complete).toHaveBeenCalledWith(mockSql, 'ob-1', 1);
+  });
+
   it('marks a missing suspension audit as failed', async () => {
     mocks.load.mockResolvedValue({ kind: 'fail', reason: 'suspension_audit_not_found' });
     await run();

@@ -46,6 +46,8 @@ interface SuspendedPolicyRow {
   suspended_reason: string | null;
   suspended_at: Date;
   window_start: Date;
+  /** payload->>'trigger' of the latest autonomy_suspended audit row. */
+  audit_trigger: string | null;
 }
 
 interface RecentFlagVerdictRow {
@@ -74,20 +76,25 @@ export interface SuspendedPolicyListItem {
   locationId: string | null;
   locationName: string | null;
   scope: 'account' | 'location';
+  /** Owner-facing display copy captured at suspension time — not machine-parsed. */
   suspendedReason: string | null;
+  /** From the latest autonomy_suspended audit payload; null when unrecognized. */
   trigger: AutonomySuspensionTrigger | null;
   suspendedAt: Date;
   governorRates: GovernorRates;
   recentFlagVerdicts: RecentFlagVerdict[];
 }
 
-const suspensionTriggerByReason = new Map<string, AutonomySuspensionTrigger>(
-  Object.entries(AUTONOMY_SUSPENSION_REASONS).map(([trigger, reason]) => [
-    reason,
-    trigger as AutonomySuspensionTrigger,
-  ]),
-);
+function isSuspensionTrigger(value: string | null): value is AutonomySuspensionTrigger {
+  return value !== null && value in AUTONOMY_SUSPENSION_REASONS;
+}
 
+// The audit payload is the trigger's single owner (suspendAccountAutonomy
+// writes both in one transaction); suspended_reason is owner-facing display
+// copy only, so editing the copy in AUTONOMY_SUSPENSION_REASONS cannot orphan
+// existing suspensions. The two audit joins fan out per (unsuspend x suspend)
+// audit row before GROUP BY; both aggregates are order-safe under that
+// duplication (MAX, and the ordered array_agg's first element).
 async function loadSuspendedPolicyRows(sql: Sql): Promise<SuspendedPolicyRow[]> {
   return sql<SuspendedPolicyRow[]>`
     SELECT
@@ -100,16 +107,21 @@ async function loadSuspendedPolicyRows(sql: Sql): Promise<SuspendedPolicyRow[]> 
       policy.suspended_at,
       GREATEST(
         NOW() - make_interval(days => ${GOVERNOR_WINDOW_DAYS}),
-        COALESCE(MAX(audit.created_at), '-infinity'::timestamptz)
-      ) AS window_start
+        COALESCE(MAX(unsuspend_audit.created_at), '-infinity'::timestamptz)
+      ) AS window_start,
+      (array_agg(suspend_audit.payload->>'trigger'
+        ORDER BY suspend_audit.created_at DESC, suspend_audit.id DESC))[1] AS audit_trigger
     FROM auto_approval_policies policy
     JOIN accounts account ON account.id = policy.account_id
     LEFT JOIN businesses location
       ON location.id = policy.location_id
       AND location.account_id = policy.account_id
-    LEFT JOIN account_audit_log audit
-      ON audit.account_id = policy.account_id
-      AND audit.event_type = 'autonomy_unsuspended'
+    LEFT JOIN account_audit_log unsuspend_audit
+      ON unsuspend_audit.account_id = policy.account_id
+      AND unsuspend_audit.event_type = 'autonomy_unsuspended'
+    LEFT JOIN account_audit_log suspend_audit
+      ON suspend_audit.account_id = policy.account_id
+      AND suspend_audit.event_type = 'autonomy_suspended'
     WHERE policy.suspended_at IS NOT NULL
     GROUP BY
       policy.id,
@@ -218,9 +230,7 @@ function projectSuspendedPolicies(
       locationName: row.location_name,
       scope: row.location_id === null ? 'account' : 'location',
       suspendedReason: row.suspended_reason,
-      trigger: row.suspended_reason
-        ? (suspensionTriggerByReason.get(row.suspended_reason) ?? null)
-        : null,
+      trigger: isSuspensionTrigger(row.audit_trigger) ? row.audit_trigger : null,
       suspendedAt: row.suspended_at,
       governorRates,
       recentFlagVerdicts: flagsByAccount.get(row.account_id) ?? [],

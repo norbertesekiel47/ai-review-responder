@@ -545,6 +545,18 @@ exponential + jitter).
   recovers inside the lookback — harmless.
 - Notice-package triplet extraction deferred (4th clone ships; §2.10).
 - No timeline/owner UI for verdicts; no owner notice on unsuspend.
+- In-flight auto-approved responses still post after a suspension lands: the
+  `policy_suspended` gate blocks new GRANTS only; siblings already granted and
+  sitting in their veto window are braked only by the veto window itself
+  (integration review 2026-07-13, accepted — a publisher-side suspension check
+  is a candidate follow-up, not WS6 scope).
+- Judge-health staleness is throughput-based (see §6) and therefore blind to a
+  DEAD SWEEP that never enqueues: the `JUDGE_ENABLED`-off downgrade and the
+  error-density signal remain the covers for that mode.
+- Governor detached-timeout overlap: a cycle that outlives its guarded-poll
+  deadline keeps running detached and may interleave cursor writes with the
+  next cycle — bounded and accepted (suspends are idempotent, circular
+  ordering revisits skipped accounts on the next wrap).
 - Governor `business_id`-level rates (per-location) deferred — account-level only,
   matching the account-default suspension scope.
 
@@ -630,3 +642,73 @@ over the body, WS4/WS5 convention.)
   attempt, while a send failure is retained and rethrown after Sentry. A Sentry
   failure is always logged and swallowed and can never mask the original email
   error or poison an otherwise successful/unset-email completion.
+
+### Integration-review amendments (2026-07-13, whole-branch review-driven)
+
+Four parallel adversarial reviewers (spec compliance, lock-order/concurrency,
+cross-task seams, test honesty with mutation checks) ran after the executor
+finished; these record the resulting fixes and acceptances. On conflict they
+win over the body and the per-task amendments above.
+
+- **§2.5 outbox CAS ordering:** the judge tx claims its outbox row via
+  `markOutboxCompletedIfOwned` (attempt-CAS, `src/lib/shared/outbox.ts`) at the
+  START of the tx, before the verdict INSERT — strictly safer against stale
+  BullMQ replays than the body's complete-last ordering; the publisher
+  downgrade path uses the same idiom.
+- **§2.5 lane order, corrected (P1 + P2):** the verdict INSERT's implicit FK
+  locks made the body's ordering unlawful in two ways. (1) Both judge tx
+  bodies (`JudgeWorker`, `failed-hook`) now take an explicit `businesses`
+  lock between the review anchor and the response lock — the INSERT's implicit
+  `businesses` `FOR KEY SHARE` previously arrived AFTER the responses lock,
+  inverting reviews → businesses → responses. (2) On a `flag` verdict the
+  worker pre-locks the account (`lockAutonomyAccount`) BEFORE
+  `insertJudgeVerdict`: the INSERT's `accounts` `FOR KEY SHARE` followed by
+  suspension's `FOR UPDATE` was a lock upgrade — two concurrent flag verdicts
+  for the same account deadlocked. Non-flag verdicts take no account lock.
+  Order is now anchor → businesses → responses → [flag: accounts] → INSERT →
+  suspension, pinned by both the source-shape guard and runtime call-order
+  assertions.
+- **§2.8 staleness is throughput-based:** a row is stale only when unjudged AND
+  eligible AND older than the limit AND a `judge_verdict` outbox row (ANY
+  status) older than the limit exists — the judge system must have KNOWN about
+  the row and produced nothing. An old unjudged post that merely re-enters
+  eligibility (past-due recovery, admin extension, `JUDGE_ENABLED` off→on) no
+  longer downgrades the fleet. Accepted blind spot recorded in §5 (dead sweep).
+- **§2.8 error density excludes budget decisions:** the failed hook classifies
+  `CostLimitExceeded`/`GlobalCostLimitExceeded` exhaustions and marks their
+  `error` verdicts `reasons: ['budget_exceeded']`; the density numerator
+  excludes them (NULL-safe JSONB containment) while they still count in
+  `total_count` (real throughput; keeps staleness satisfied). One account's
+  budget exhaustion can no longer read as systemic judge failure.
+- **§2.8 gate placement:** `applyJudgeGate` runs BELOW the archived-location
+  terminal, the subscription guard, and the moderation-hold gate (all cheaper;
+  an archived/grace-expired/held row now reaches its WS4-era terminal instead
+  of being downgraded+notified), and still before `resolvePublishTarget`/any
+  external call. Accepted: a judge-gate downgrade can land after a
+  `pending_post_notice` promised a post time — consistent with fail-toward-
+  the-owner; the downgrade re-notifies.
+- **§2.1/§2.8 single lookback owner:** `JUDGE_LOOKBACK_HOURS = 24` lives in
+  `judge-store.ts`; sweep, health, and scan-bound guard import it.
+- **§2.2 error-verdict attribution:** failed-hook `error` verdicts stamp
+  `model: 'unavailable'` (the failure may be pre-LLM or on the fallback);
+  `prompt_version` stays real. Both judge-side "terminal attempt" predicates
+  are correct in their contexts (failed event: already incremented; processor
+  catch: not yet) — documented at the hook, citing `isTerminalAttempt`.
+- **§2.10 notice routing:** the account-scoped suspension notice resolves
+  ORG-DEFAULT channel enrollments (`location_id IS NULL`, per the account-
+  scoped enrollment contract), falling back to the primary location's channels
+  only when no org-default exists — a per-location override no longer shadows
+  the owner's account-level safety notice. The primary business remains the
+  delivery anchor (archived check, bounce state, delivery-row `business_id`).
+- **§2.12 trigger provenance:** the admin suspensions list derives `trigger`
+  from the latest `autonomy_suspended` audit payload; `suspended_reason` is
+  display copy only (editing the copy can no longer orphan triggers).
+- **§2.7 per-candidate containment:** the governor wraps each candidate's
+  evaluate+suspend in log-and-continue so one poison account cannot abort the
+  rest of the batch for a full interval; cursor pre-advance semantics kept.
+- **§4 test hardening (review-driven):** the publisher gate-return wiring is
+  now mutation-proof (deleting the `judgeGate`/`vetoGate` early-returns fails
+  pinned sql-call-count tests — previously masked by the mock harness's
+  drained-queue `[]` fallback); suspension replay idempotence, governor
+  error-verdict exclusion, and the unsuspend-aware window gained behavioral
+  live-DB cases, each verified by temporary production mutations.

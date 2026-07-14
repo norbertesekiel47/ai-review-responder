@@ -410,6 +410,28 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
+    // FIX-6 ordering: the archived-location terminal fires BEFORE the Judge
+    // gate — an archived row quietly completes instead of downgrade+notify.
+    expect(mockApplyJudgeGate).not.toHaveBeenCalled();
+  });
+
+  it('completes at the subscription guard without consulting the Judge gate (flag on, auto_policy)', async () => {
+    vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
+    sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]);
+    sqlReturnQueue.push([mockBusinessRow({ subscription_status: 'cancelled' })]);
+    pushGateWindowElapsedRows(); // notice-delivery gate → delivered + window elapsed
+
+    await handlePublishResponse(mockSql, makeJob());
+
+    // FIX-6 ordering: the subscription guard fires BEFORE the Judge gate.
+    expect(mockApplyJudgeGate).not.toHaveBeenCalled();
+    expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
+    expect(mockPostReply).not.toHaveBeenCalled();
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.some((t: string) => /pending_approval/.test(t))).toBe(false);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
   });
 
   // ── Notice-delivery gate (spec §2.11): flag ON + auto_policy ─────────
@@ -526,6 +548,25 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(mockApplyJudgeGate).toHaveBeenCalledTimes(1);
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
+
+    // The handler must stop DEAD on 'downgraded' (the gate module owns the
+    // downgrade + outbox transition). Pin the exact SQL the handler is allowed
+    // to have issued — 2 load-context + 2 veto-gate queries, nothing after the
+    // gate — so deleting the `return` can't hide behind the drained-queue
+    // mock's "no connection" parking path (FIX-7 mutation guard).
+    const calls = (mockSql as any).mock.calls as unknown[][];
+    expect(calls).toHaveLength(4);
+    const callTexts = calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
+    expect(callTexts[0]).toContain('FROM responses');
+    expect(callTexts[1]).toContain('FROM businesses');
+    expect(callTexts[2]).toContain('notification_deliveries');
+    expect(callTexts[3]).toContain('approval_audit_log');
+    expect(callTexts.some((t) => /zernio_connections/.test(t))).toBe(false);
+    expect(callTexts.some((t) => /awaiting_owner_connect/.test(t))).toBe(false);
+    expect(mockRunEditPublishIfApplicable).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockMaybeCaptureActivationCompleted).not.toHaveBeenCalled();
   });
 
   // ── Elapsed-window enforcement: a late notice pushes the deadline ─────
@@ -582,6 +623,18 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     // Never downgraded: the owner WAS notified — the countdown just started late.
     const callTexts = calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
     expect(callTexts.some((t: string) => /pending_approval/.test(t))).toBe(false);
+
+    // The handler must stop DEAD on the gate's 'completed' outcome. Pin the
+    // exact SQL issued — 2 load-context + 2 gate lookups + push UPDATE +
+    // re-enqueue INSERT — so deleting the `return` can't hide behind the
+    // drained-queue mock's "no connection" parking path (FIX-7 mutation guard).
+    expect(calls).toHaveLength(6);
+    expect(callTexts.some((t: string) => /zernio_connections/.test(t))).toBe(false);
+    expect(callTexts.some((t: string) => /awaiting_owner_connect/.test(t))).toBe(false);
+    expect(mockApplyJudgeGate).not.toHaveBeenCalled();
+    expect(mockIsHeldForModerationReview).not.toHaveBeenCalled();
+    expect(mockRunEditPublishIfApplicable).not.toHaveBeenCalled();
+    expect(mockMaybeCaptureActivationCompleted).not.toHaveBeenCalled();
   });
 
   it('completes outbox without re-enqueue when the deadline push loses the state race (retry-safe)', async () => {
@@ -601,11 +654,22 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     expect(mockPostReply).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-late-2', 2);
-    const callTexts = ((mockSql as any).mock.calls as unknown[][]).map(
+    const calls = (mockSql as any).mock.calls as unknown[][];
+    const callTexts = calls.map(
       (c) => (c[0] as TemplateStringsArray).join('?'),
     );
     expect(callTexts.some((t: string) => /INSERT INTO job_outbox/.test(t))).toBe(false);
     expect(callTexts.some((t: string) => /pending_approval/.test(t))).toBe(false);
+
+    // Stop-dead guard on the gate's 'completed' outcome (FIX-7 mutation
+    // guard): 2 load-context + 2 gate lookups + the 0-row push UPDATE, and
+    // nothing after — the drained-queue mock must not park on "no connection".
+    expect(calls).toHaveLength(5);
+    expect(callTexts.some((t: string) => /zernio_connections/.test(t))).toBe(false);
+    expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
+    expect(mockApplyJudgeGate).not.toHaveBeenCalled();
+    expect(mockIsHeldForModerationReview).not.toHaveBeenCalled();
+    expect(mockRunEditPublishIfApplicable).not.toHaveBeenCalled();
   });
 
   it('throws when a delivered notice exists but the approval audit window is missing', async () => {

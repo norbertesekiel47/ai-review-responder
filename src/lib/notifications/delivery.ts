@@ -199,6 +199,13 @@ export async function claimAutonomySuspendedNoticeDelivery(sql: Sql, params: {
   recipient: string;
 }): Promise<AutonomySuspendedNoticeClaimResult> {
   const id = uuidv7();
+  // Self-reap stale unfinalized claims after 15 minutes — same contract as the
+  // pending_post_notice reap above. INVARIANT: every channel send timeout must
+  // stay well under this window. A send still hanging past the reap can resume
+  // AFTER a newer attempt has re-claimed and re-sent, which turns this notice
+  // into an at-least-once duplicate (surfaced only as finalizeDeliverySent's
+  // reaped-row WARN). Widen the window if a channel ever needs a longer
+  // timeout; never the other way around.
   // Scope by account, not business: business_id is not part of migration
   // 076's unique key, and the account's primary delivery anchor can change
   // while an orphaned claim is waiting to be reaped.

@@ -2,7 +2,7 @@ import type { Sql } from 'postgres';
 import { getWorkerConfig } from '@/lib/config/worker';
 import { sql } from '@/lib/db/server';
 import { judgeEnabled } from '@/lib/responses/judge-flags';
-import { listUnjudgedAutoPosts } from '@/lib/responses/judge-store';
+import { JUDGE_LOOKBACK_HOURS, listUnjudgedAutoPosts } from '@/lib/responses/judge-store';
 import { enqueueJudgeVerdict } from '@/lib/shared/job-outbox-helpers';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import { createGuardedPoll } from '../guarded-poll';
@@ -10,7 +10,6 @@ import { createGuardedPoll } from '../guarded-poll';
 const logger = createWorkerLogger('[JudgeSweepPoller]');
 const DEFAULT_INTERVAL_MS = 60_000;
 const CYCLE_TIMEOUT_MS = 30_000;
-const LOOKBACK_HOURS = 24;
 const BATCH_LIMIT = 50;
 
 function getIntervalMs(): number {
@@ -22,7 +21,7 @@ export async function runJudgeSweepCycle(exec: Sql): Promise<void> {
   if (!judgeEnabled()) return;
 
   const candidates = await listUnjudgedAutoPosts(exec, {
-    lookbackHours: LOOKBACK_HOURS,
+    lookbackHours: JUDGE_LOOKBACK_HOURS,
     limit: BATCH_LIMIT,
   });
   for (const candidate of candidates) {

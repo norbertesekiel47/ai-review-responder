@@ -2,6 +2,7 @@ import type { Job } from 'bullmq';
 import type { Sql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { anchorReviewLockOrder } from '@/lib/approval/outcomes';
+import { lockAutonomyAccount } from '@/lib/auto-approval/account-lock';
 import { suspendAccountAutonomy } from '@/lib/auto-approval/suspension';
 import { judgeResponse } from '@/lib/responses/judge';
 import { judgeEnabled } from '@/lib/responses/judge-flags';
@@ -72,6 +73,20 @@ export async function handleJudgeVerdict(
       return;
     }
 
+    // Binding lane order continues reviews -> businesses -> responses: without
+    // this explicit lock, the verdict INSERT's implicit businesses FK lock
+    // would only be taken AFTER the response lock, inverting the lane order.
+    const [lockedBusiness] = await tx<{ id: string }[]>`
+      SELECT id
+      FROM businesses
+      WHERE id = ${context.business_id}
+      FOR UPDATE
+    `;
+    if (!lockedBusiness) {
+      await markOutboxCompleted(tx, outboxId, attempt);
+      return;
+    }
+
     const [current] = await tx<{ status: string; approval_method: string | null }[]>`
       SELECT status, approval_method
       FROM responses
@@ -92,6 +107,18 @@ export async function handleJudgeVerdict(
 
     const agentRunId = await findLatestRunIdForReview(tx, anchoredReviewId);
     const verdictId = uuidv7();
+    if (verdict.verdict === 'flag') {
+      // Deadlock guard (lane order ends at accounts): the verdict INSERT's RI
+      // trigger takes FOR KEY SHARE on this account row, and
+      // suspendAccountAutonomy then upgrades it to FOR UPDATE. Two concurrent
+      // flag verdicts for the same account (different reviews, so the review
+      // anchors don't serialize them) would each hold KEY SHARE while waiting
+      // on the other's upgrade — deadlock. Take accounts FOR UPDATE BEFORE the
+      // INSERT, still after the reviews -> businesses -> responses locks.
+      // Non-flag verdicts must NOT take this lock: routine passes would
+      // otherwise serialize per account.
+      await lockAutonomyAccount(tx, context.account_id);
+    }
     const stored = await insertJudgeVerdict(tx, {
       verdictId,
       accountId: context.account_id,

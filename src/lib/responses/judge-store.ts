@@ -6,6 +6,29 @@ import type { JudgeOutput } from './judge-schema';
 
 export type StoredJudgeVerdict = JudgeOutput['verdict'] | 'error';
 
+/**
+ * Single owner of the judge system's scan window: how far back a posted
+ * auto-policy reply stays visible to the sweep, the health staleness scan,
+ * and the store's bounded-scan guard. Import this constant — never re-declare
+ * a sibling 24.
+ */
+export const JUDGE_LOOKBACK_HOURS = 24;
+
+/**
+ * Machine-readable marker stored in `reasons` on an 'error' verdict whose
+ * failure was a per-account/global budget DECISION (CostLimitExceededError /
+ * GlobalCostLimitExceededError) rather than a systemic judge failure. The
+ * fleet error-density health signal excludes these rows.
+ */
+export const JUDGE_ERROR_REASON_BUDGET_EXCEEDED = 'budget_exceeded';
+
+/**
+ * Sentinel for judge_verdicts.model on 'error' verdicts: the failure may have
+ * happened pre-LLM or on the fallback provider, so attributing the pinned
+ * primary model would be dishonest.
+ */
+export const JUDGE_ERROR_MODEL_UNAVAILABLE = 'unavailable';
+
 export interface InsertJudgeVerdictInput {
   verdictId?: string;
   accountId: string;
@@ -14,7 +37,7 @@ export interface InsertJudgeVerdictInput {
   responseId: string;
   agentRunId: string | null;
   verdict: StoredJudgeVerdict;
-  reasons: JudgeOutput['reasons'] | null;
+  reasons: JudgeOutput['reasons'] | (typeof JUDGE_ERROR_REASON_BUDGET_EXCEEDED)[] | null;
   rationale: string | null;
   model: string;
   promptVersion: string;
@@ -62,19 +85,20 @@ export interface UnjudgedAutoPost {
   account_id: string;
 }
 
-const MAX_LOOKBACK_HOURS = 24;
 const MAX_SCAN_LIMIT = 50;
 
 function assertBoundedScanOptions(options: { lookbackHours: number; limit: number }): void {
   if (
     !Number.isSafeInteger(options.lookbackHours)
     || options.lookbackHours < 1
-    || options.lookbackHours > MAX_LOOKBACK_HOURS
+    || options.lookbackHours > JUDGE_LOOKBACK_HOURS
     || !Number.isSafeInteger(options.limit)
     || options.limit < 1
     || options.limit > MAX_SCAN_LIMIT
   ) {
-    throw new RangeError('judge scan requires integer lookbackHours 1..24 and limit 1..50');
+    throw new RangeError(
+      `judge scan requires integer lookbackHours 1..${JUDGE_LOOKBACK_HOURS} and limit 1..${MAX_SCAN_LIMIT}`,
+    );
   }
 }
 

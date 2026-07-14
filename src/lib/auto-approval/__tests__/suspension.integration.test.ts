@@ -68,6 +68,48 @@ async function suspend(trigger: 'judge_flag' | 'governor_edit_rate' = 'judge_fla
   }));
 }
 
+interface AccountDefaultSuspensionRow {
+  suspended_at: Date | null;
+  suspended_reason: string | null;
+}
+
+async function readAccountDefaultSuspension(): Promise<AccountDefaultSuspensionRow> {
+  const [row] = await sql()<AccountDefaultSuspensionRow[]>`
+    SELECT suspended_at, suspended_reason
+    FROM auto_approval_policies
+    WHERE account_id = ${requireTenant().accountId}::uuid
+      AND location_id IS NULL
+  `;
+  if (!row) throw new Error('expected an account-default auto-approval policy row');
+  return row;
+}
+
+async function readSuspensionFactCounts(): Promise<{
+  audit_count: number;
+  notice_count: number;
+  alert_count: number;
+}> {
+  const accountId = requireTenant().accountId;
+  const [facts] = await sql()<{
+    audit_count: number;
+    notice_count: number;
+    alert_count: number;
+  }[]>`
+    SELECT
+      (SELECT COUNT(*)::int FROM account_audit_log
+       WHERE account_id = ${accountId}::uuid
+         AND event_type = 'autonomy_suspended') AS audit_count,
+      (SELECT COUNT(*)::int FROM job_outbox
+       WHERE payload->>'account_id' = ${accountId}
+         AND topic = ${QUEUE_NAMES.AUTONOMY_SUSPENDED_NOTICE}) AS notice_count,
+      (SELECT COUNT(*)::int FROM job_outbox
+       WHERE payload->>'account_id' = ${accountId}
+         AND topic = ${QUEUE_NAMES.AUTONOMY_ADMIN_ALERT}) AS alert_count
+  `;
+  if (!facts) throw new Error('expected suspension fact counts');
+  return facts;
+}
+
 describeWithDb('autonomy suspension against live local Postgres', { timeout: 30_000 }, () => {
   beforeAll(async () => {
     db = postgres(assertExactLocalDatabaseUrl(testDatabaseUrl), { max: 1, prepare: false });
@@ -132,6 +174,41 @@ describeWithDb('autonomy suspension against live local Postgres', { timeout: 30_
            )) AS outbox_count
     `;
     expect(facts).toEqual({ audit_count: 1, outbox_count: 2 });
+  });
+
+  it('replays a same-trigger suspension as a no-op without duplicating audit or outbox facts', async () => {
+    await expect(suspend('judge_flag')).resolves.toEqual({ newlySuspended: true });
+    const before = await readAccountDefaultSuspension();
+    expect(before.suspended_at).not.toBeNull();
+    expect(before.suspended_reason).toBe(AUTONOMY_SUSPENSION_REASONS.judge_flag);
+
+    await expect(suspend('judge_flag')).resolves.toEqual({ newlySuspended: false });
+
+    const after = await readAccountDefaultSuspension();
+    expect(after.suspended_at?.getTime()).toBe(before.suspended_at?.getTime());
+    expect(after.suspended_reason).toBe(before.suspended_reason);
+    await expect(readSuspensionFactCounts()).resolves.toEqual({
+      audit_count: 1,
+      notice_count: 1,
+      alert_count: 1,
+    });
+  });
+
+  it('keeps the original reason when the other trigger hits an already-suspended account', async () => {
+    await expect(suspend('governor_edit_rate')).resolves.toEqual({ newlySuspended: true });
+    const before = await readAccountDefaultSuspension();
+    expect(before.suspended_reason).toBe(AUTONOMY_SUSPENSION_REASONS.governor_edit_rate);
+
+    await expect(suspend('judge_flag')).resolves.toEqual({ newlySuspended: false });
+
+    const after = await readAccountDefaultSuspension();
+    expect(after.suspended_reason).toBe(AUTONOMY_SUSPENSION_REASONS.governor_edit_rate);
+    expect(after.suspended_at?.getTime()).toBe(before.suspended_at?.getTime());
+    await expect(readSuspensionFactCounts()).resolves.toEqual({
+      audit_count: 1,
+      notice_count: 1,
+      alert_count: 1,
+    });
   });
 
   it('projects the account suspension across every location including an override', async () => {
