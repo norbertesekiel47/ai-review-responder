@@ -152,6 +152,8 @@ Next.js App Router pages, grouped by access level.
 | `costs/page.tsx` | API cost tracking and usage. |
 | `demos/page.tsx` | Demo requests list. |
 | `notifications/page.tsx` | Notification delivery logs. |
+| `autonomy/page.tsx` | **(WS6)** Admin-only server shell for the suspended-autonomy queue; loads the branded `AutonomySuspensionsClient`. |
+| `autonomy/AutonomySuspensionsClient.tsx` | **(WS6)** Lists account suspensions with governor rates and recent flag verdicts, collects a required operator note, and POSTs the manual unsuspend action with truthful success/conflict states. |
 | `runbook/page.tsx` | Internal runbook (links to `NEXT_PUBLIC_DOCS_BASE_URL`). |
 | `impersonate/page.tsx` | **(Wave 2)** Admin support entry for starting an audited read-only view-as session. |
 | `impersonate/ImpersonationStartClient.tsx` | **(Wave 2)** Client form that posts account/user/ticket/reason to `/api/admin/impersonation/start` and follows the returned view URL. |
@@ -274,6 +276,8 @@ POST: disconnects an active Zernio connection; marks `zernio_connections` status
 | `demos/generate/route.ts` | POST: queues a demo generation job via outbox. |
 | `jobs/route.ts` | GET queue health. |
 | `notifications/route.ts` | GET delivery logs. |
+| `autonomy/suspensions/route.ts` | **(WS6)** Admin-only GET for the cross-account suspended-policy read model (current rates + five newest flag verdicts); delegates to `listSuspendedPolicies`. |
+| `autonomy/unsuspend/route.ts` | **(WS6)** Admin-only POST that validates `{ accountId, note }`, takes the account-level autonomy lock inside one transaction, and maps already-manual state to 409. |
 | `billing/grant-extension/route.ts` | **(Wave 2)** Admin + current-AAL2 action that grants a short past_due extension in `accounts.flags` and writes `account_audit_log`. |
 | `impersonation/start/route.ts` | **(Wave 2)** Starts an audited one-hour admin impersonation session. Same-origin, admin, current AAL2, validates owner/account, sets a signed httpOnly cookie. |
 | `impersonation/end/route.ts` | **(Wave 2)** Ends the current signed impersonation session and clears the cookie. |
@@ -402,12 +406,14 @@ Cross-cutting utilities imported by both Next.js and worker.
 
 | File | What it does |
 |------|--------------|
-| `queue-names.ts` | Canonical queue name constants. Single source of truth for `job_outbox.topic` strings and BullMQ queue names. |
+| `queue-names.ts` | Canonical queue name constants. Single source of truth for `job_outbox.topic` strings and BullMQ queue names, including WS6 `judge_verdict`, `autonomy_suspended_notice`, and `autonomy_admin_alert`. |
 | `queue-health-states.ts` | `QUEUE_HEALTH_JOB_STATES` — the BullMQ job-count states surfaced to the admin panel. Single owner shared by `worker/internal/queue-health.ts` and the admin jobs page (`src/app/admin/jobs`). Same no-side-effect contract as `queue-names.ts` (never imports bullmq/ioredis). |
-| `worker-types.ts` | TypeScript types for every BullMQ job payload (`SyncReviewsPayload`, `GenerateResponsePayload`, etc.). |
-| `outbox.ts` | `markOutboxCompleted()`, `markOutboxFailed()`, `extractOutboxHandle()` — called at the end of every job handler. **(WS5)** `markOutboxFailed()` returns whether its exact dispatched-attempt CAS succeeded so terminal domain state cannot be written for a stale BullMQ replay. |
+| `worker-types.ts` | TypeScript types for every BullMQ job payload (`SyncReviewsPayload`, `GenerateResponsePayload`, etc.); **WS6** owns the suspension-trigger/evidence vocabulary and the three judge/suspension payloads here. |
+| `job-outbox-helpers.ts` | Typed transactional enqueue helpers. **WS6** adds exact-partial-index-deduped helpers for judge verdicts, owner suspension notices, and admin suspension alerts; callers invoke them in the state-change transaction. |
+| `outbox.ts` | `markOutboxCompleted()`, `markOutboxFailed()`, `extractOutboxHandle()` — called at the end of every job handler. **WS5/WS6:** attempt-aware failure and `markOutboxCompletedIfOwned()` completion CASes return ownership so a stale BullMQ replay cannot write coupled terminal/domain state. |
 | `subscription-guard.ts` | `checkSubscription(business)` — returns the subscription status and whether the worker should proceed. Checks `cancelled` / `past_due` grace window / `pending_payment`. |
 | `past-due-recovery.ts` | **(Wave 2)** Shared past_due deadline calculator. Uses `accounts.past_due_at` + `accounts.flags.past_due_extension`; consumed by UI/write guards and worker subscription guard. |
+| `subscription-eligibility-sql.ts` | **(WS6)** Reusable Postgres.js fragment for publisher-equivalent subscription eligibility (`active`/`trialing` or `past_due` inside the shared grace deadline), used when selecting judge candidates. |
 | `writable-subscription.ts` | **(Wave 2)** Helpers that convert shared past_due recovery state into `402 past_due_read_only` write guards. |
 | `response-status.ts` | `ALL_RESPONSE_STATUSES`, `HANDLED_STATUSES`, `RECENT_REVIEW_DISPLAY_STATUSES` — centralized status groups used across dashboard metrics, admin counts, and weekly/monthly summaries. Single source of truth so `awaiting_owner_connect` is counted alongside `awaiting_manual_post` everywhere. |
 | `protected-routes.ts` | List of route prefixes that require auth (used by `src/proxy.ts`). |
@@ -450,12 +456,23 @@ Everything related to the email approval link flow.
 | `create-link.ts` | `createApprovalLink()` — generates a secure raw token (random bytes), hashes it with SHA-256, stores only the hash in `approval_links`. Channel-scoped. |
 | `cookies.ts` | Device-cookie and CSRF-cookie management (set / read / clear). |
 | `correlation.ts` | `recoverCorrelationId()` — reads correlation ID from the current approval session for audit logging. |
-| `audit.ts` | `insertAuditLog()` — `approval_audit_log` writes, same-tx as the action they record. |
+| `audit.ts` | `insertAuditLog()` — `approval_audit_log` writes, same-tx as the action they record. **WS6** adds `auto_policy_revoked_judge_unavailable` for the publisher's judge-health downgrade. |
 | `errors.ts` | Approval-specific error classes (`ConsumedLinkError`, `RevokedLinkError`, `ExpiredLinkError`, `ChannelMismatchError`, `ResponseNotPendingError`; **(WS4)** `VetoTooLateError`). |
 | `http-errors.ts` | Maps approval errors to HTTP status codes and response bodies. **(WS4)** maps a 40P01 deadlock-loser rollback to a retryable 409 `conflict_retry` (the veto ↔ mark-posted collision is expected concurrency, not a 500). |
 | `types.ts` | Shared approval types (`ApprovalLink`, audit contexts). |
 
 **Connection:** `NotificationWorker` and `pending-post-notice/dispatch.ts` call `create-link.ts` to produce tokens before sending. The approval API routes consume them via the mode files; the veto route calls `veto.ts`.
+
+### `auto-approval/`
+
+Auto-policy evaluation plus the WS6 account-level safety governor and suspension state machine.
+
+| File | What it does |
+|------|--------------|
+| `flags.ts` | Server-only `autoApprovalEnabled()` / provider-readiness accessors; **WS6** adds `governorEnabled()` over `readFlag`, default off. |
+| `account-lock.ts` | **(WS6)** `lockAutonomyAccount()` serializes suspend, governor, and admin-unsuspend transactions on the billing-parent account row and throws a typed not-found error. It takes no review-lane locks. |
+| `governor.ts` | **(WS6)** Fair circular candidate scan, in-transaction stale revalidation, batched seven-day owner-edit/veto/judge-signal rates, minimum sample floors, and threshold evaluation for account-level suspension. |
+| `suspension.ts` | **(WS6)** Idempotent account-default policy suspension (including override-only accounts), durable account audit + owner/admin outboxes in one transaction, manual admin re-arm, and the bounded admin suspension read model. WS4 suspension semantics remain authoritative. |
 
 ### `reviews/`
 
@@ -508,8 +525,8 @@ streaming, tool-calls, or multi-turn loops.
 | File | What it does |
 |------|--------------|
 | `types.ts` | Task vocabulary (`LLMTaskId`: `reply_generation` \| `triage` \| `judge` \| `insights`), `LLMProvider` interface, `LLMTaskDescriptor`. Cost-guard contract: every `runLlmTask` call in production code must be wrapped in `withCostGuard` by its caller — the guard stays caller-side (the idempotent-cache write must happen inside the guarded closure). |
-| `tasks.ts` | `getLlmTask(taskId)` — pinned-model registry. `OPENAI_MODEL` / `ANTHROPIC_MODEL` constants (guarded by `model-pinning.test.ts`). `reply_generation` + `insights` + `triage` are registered (tenants: generator, review-summary, `reviews/triage.ts` — WS2); `judge` exists in the `LLMTaskId` vocabulary but gets no config until its feature lands (no dead task config ships before its tenant). |
-| `run-task.ts` | `runLlmTask(taskId, prompt)` — the executor: calls the primary provider, falls back to the secondary on failure, and classifies exhausted-attempt errors as `TransientLLMError` (worker retries) vs terminal (rethrown raw). Tasks declaring an `outputSchema` (first tenant: `triage`, WS2) get structured-output enforcement — fence-strip → `JSON.parse` → zod validate; schema-invalid counts as that provider attempt failing (fallback tried), all-invalid throws terminal `LLMStructuredOutputError`; validated value lands on `LLMCallResult.structured`. |
+| `tasks.ts` | `getLlmTask(taskId)` — pinned-model registry. `OPENAI_MODEL` / `ANTHROPIC_MODEL` constants are guarded by `model-pinning.test.ts`. `reply_generation`, `insights`, `triage`, and **WS6 `judge`** are registered; judge uses the same pinned provider constants and structured `JudgeOutputSchema`. |
+| `run-task.ts` | `runLlmTask(taskId, prompt)` — the executor: calls the primary provider, falls back to the secondary on failure, and classifies exhausted-attempt errors as `TransientLLMError` (worker retries) vs terminal (rethrown raw). Tasks declaring an `outputSchema` (`triage`, **WS6 `judge`**) get structured-output enforcement — fence-strip → `JSON.parse` → zod validate; schema-invalid counts as that provider attempt failing (fallback tried), all-invalid throws terminal `LLMStructuredOutputError`; validated value lands on `LLMCallResult.structured`. Production callers are cost-guarded; the explicit live-eval caller is the narrow exception. |
 | `openai-provider.ts` / `anthropic-provider.ts` | Thin SDK adapters implementing `LLMProvider` — lazily construct a singleton client with `LLM_CLIENT_OPTIONS` and map the SDK response to `LLMCallResult`. |
 | `client-options.ts` | `LLM_CLIENT_OPTIONS` — explicit `{ timeout: 30_000, maxRetries: 0 }`. Without it the SDKs default to a 10-minute timeout + 2 internal retries; `maxRetries: 0` makes the BullMQ + outbox-watchdog ladder the single source of retry truth. |
 | `error-classifier.ts` | `isTransientLLMError(err)`, `TransientLLMError`, `redactProviderError(err)` (strips `.body`/`.response`/`.request` before logging — some 4xx provider errors echo the prompt). Moved here from the deleted `responses/llm-error-classifier.ts` re-export shim. |
@@ -528,6 +545,12 @@ AI response generation.
 | `voice-learning.ts` | Queries DB for recent owner-edited responses to use as few-shot examples. Returns empty array until ≥ 5 examples exist. |
 | `review-summary.ts` | Generates a one-line summary of a review for the weekly report. |
 | `mock-generator.ts` | Returns a template response string when `MOCK_EXTERNAL_APIS=true`. |
+| `judge-schema.ts` | **(WS6)** Strict structured-output contract: `pass`/`warn`/`flag`, up to five bounded reason categories, and a rationale capped at 500 characters. Shared by the LLM task and offline/live eval lane. |
+| `judge-policy.ts` | **(WS6)** Versioned, hashable post-hoc safety rubric prompt covering compensation, PII, fabricated claims, and hostile tone. |
+| `judge.ts` | **(WS6)** Builds delimiter-safe prompts and executes `runLlmTask('judge')` inside caller-side two-phase `withCostGuard`; Redis transport failures remain retryable and budget decisions terminal. |
+| `judge-store.ts` | **(WS6)** Injected-SQL verdict insert and read helpers: idempotent verdict persistence, latest run correlation, and the subscription-eligible 24-hour unjudged auto-post anti-join. |
+| `judge-health.ts` | **(WS6)** Fail-closed publisher health probe over verdict freshness and recent error density; query errors are deliberately propagated to the worker retry path. |
+| `judge-flags.ts` | **(WS6)** Server-only `JUDGE_ENABLED` accessor over `readFlag`, default off. |
 
 **Connection:** `ResponseGeneratorWorker` calls `generateResponse()`. `DemoGenerationWorker` calls it in `demo` mode.
 
@@ -553,18 +576,19 @@ Sending approval notifications to business owners.
 | `email/templates/owner-reconnect-required.ts` | HTML template for Zernio "reconnect required" owner email (response queued, reconnect to post). |
 | `email/templates/escalation-notice.ts` | **(WS3)** HTML template for the Guardian escalation-notice owner email (severity/issue labels from `triage-schema.ts`; fallback-sourced escalations use "couldn't assess" copy, no severity claim). Delivery template `escalation_notice`. |
 | `email/templates/pending-post-notice.ts` | **(WS4)** HTML template for the veto-window "your reply will post automatically" owner email — review + draft, the scheduled-post time phrase, one CTA to the tokenized approve page (view / edit / cancel). Delivery template `pending_post_notice`. |
-| `delivery.ts` | `recordNotificationDelivery()` / `insertFailedDelivery()` — writes to `notification_deliveries` — plus the claim-before-send helpers (`claimAutoPostNoticeDelivery` / `claimEscalationNoticeDelivery` / **(WS4)** `claimPendingPostNoticeDelivery`, each backed by its partial-unique claim index) and the claim lifecycle (`finalizeDeliverySent` / `failDelivery` / `releaseDeliveryClaim`). |
+| `email/templates/autonomy-suspended-notice.ts` | **(WS6)** Account-only HTML safety notice: auto-posting paused, drafts continue for manual approval, reason, settings CTA, and support link; accepts no review/response text. |
+| `delivery.ts` | `recordNotificationDelivery()` / `insertFailedDelivery()` — writes to `notification_deliveries` — plus claim-before-send helpers for auto-post, escalation, pending-post, and **WS6 account-scoped autonomy-suspension notices**. The WS6 claim distinguishes settled vs live-pending conflicts and reaps stale claims by account before using migration 076's exact partial unique key; lifecycle uses `finalizeDeliverySent` / `failDelivery` / `releaseDeliveryClaim`. |
 | `enrollments.ts` | `getVerifiedEnrollments(businessId)` — returns all `verified` channel enrollments for a business. |
-| `channels/types.ts` | `ChannelId` union type; `NotificationChannel` interface — four purpose-built methods per ADR 0003 (no generic `sendText`): `sendApprovalRequest`, `sendAutoPostNotice`, `sendEscalationNotice` (WS3), `sendPendingPostNotice` (WS4). |
+| `channels/types.ts` | `ChannelId` union type; `NotificationChannel` interface — five purpose-built methods per ADR 0003 (no generic `sendText`): approval, auto-post FYI, escalation (WS3), pending-post (WS4), and account-only autonomy-suspended safety notice (WS6). |
 | `channels/scheduled-post-time.ts` | **(WS4)** `formatScheduledPostTime()` — single owner of the pending-post notice's "posting at" copy (absolute UTC + relative phrase), consumed by the email template and the Telegram/WhatsApp body builders. Pure; caller supplies `now`. |
 | `channels/index.ts` | `getChannel(channelId)` factory — returns the correct channel implementation. Re-exports all channel classes and typed errors. |
-| `channels/email-channel.ts` | Email implementation of `NotificationChannel`. |
-| `channels/telegram-channel.ts` | Telegram via Bot API. Checks `CHANNELS_TELEGRAM_ENABLED`. |
+| `channels/email-channel.ts` | Email implementation of `NotificationChannel`; **WS6** routes autonomy suspension through the dedicated template with suspension-event idempotency. |
+| `channels/telegram-channel.ts` | Telegram via Bot API. Checks `CHANNELS_TELEGRAM_ENABLED`; **WS6** sends the account-only suspension body and HTTPS settings button. |
 | `channels/telegram-client.ts` | Low-level Telegram REST client (native `fetch`, 10s timeout, 4 typed error classes). |
-| `channels/telegram-body.ts` | Formats the Telegram HTML messages and inline keyboards (approval request, auto-post FYI, escalation notice, **(WS4)** pending-post notice). |
-| `channels/whatsapp-channel.ts` | WhatsApp via Twilio Content API. Checks `CHANNELS_WHATSAPP_ENABLED`. |
+| `channels/telegram-body.ts` | Formats the Telegram HTML messages and inline keyboards (approval request, auto-post FYI, escalation notice, **WS4** pending-post, and **WS6** autonomy-suspended notice). |
+| `channels/whatsapp-channel.ts` | WhatsApp via Twilio Content API. Checks `CHANNELS_WHATSAPP_ENABLED`; **WS6** skips suspension notices cleanly when the optional approved template SID is absent. |
 | `channels/whatsapp-client.ts` | Low-level WhatsApp client (Twilio SDK, 7 typed error classes, `classifyError` dispatch). |
-| `channels/whatsapp-body.ts` | Builds Twilio Content variables for the four WhatsApp templates (approval request, autopost FYI, escalation notice, **(WS4)** pending-post notice); extracts tokens from approval URLs; owns the card-body length budget (authoritative template copy: `docs/runbooks/whatsapp-templates.md`). |
+| `channels/whatsapp-body.ts` | Builds Twilio Content variables for five WhatsApp templates (approval, autopost FYI, escalation, **WS4** pending-post, **WS6** autonomy-suspended); extracts tokens where applicable, validates the fixed WS6 settings suffix, and owns body-length budgets (authoritative copy: `docs/runbooks/whatsapp-templates.md`). |
 | `channels/enrollment-reducer.ts` | Pure `(state, action) => state` reducer for QR/deep-link channel enrollment (8 states, 27 unit tests). Handles Telegram (and future Discord/Slack). No I/O or timers — all logic is side-effect-free. |
 | `channels/use-enrollment.ts` | React hook wiring `enrollmentReducer` to fetch calls (start / cancel / disable / status), 3s polling loop, 1s TTL tick, and HTTP error classification. Browser-only (marked `'use client'`). |
 
@@ -676,7 +700,7 @@ Starts everything:
 
 ### `worker/queues.ts`
 
-Defines all BullMQ `Queue` instances (one per job type). Exports:
+Defines all BullMQ `Queue` instances (one per job type), including WS6 judge verdict, autonomy owner-notice, and autonomy admin-alert queues on the shared retry defaults. Exports:
 
 - `queues` — object keyed by queue name.
 - `topicToQueue` — maps `job_outbox.topic` strings to `Queue` instances (used by `OutboxPoller`).
@@ -690,7 +714,7 @@ First-party internal endpoint backing the admin jobs panel's per-queue depth (`G
 
 ### `worker/config/startup-assert.ts`
 
-`assertChannelsSmsEnv()`, `assertChannelsTelegramEnv()`, `assertChannelsWhatsAppEnv()`, `assertSelfServeSignupEnv()`, `assertZernioEnv()` — each checks that required env vars are present when the corresponding feature flag is `true`. Called once at startup; throws if invalid.
+`assertChannelsSmsEnv()`, `assertChannelsTelegramEnv()`, `assertChannelsWhatsAppEnv()`, `assertSelfServeSignupEnv()`, `assertZernioEnv()` — each checks that required env vars are present when the corresponding feature flag is `true`. `assertServerOnlyFeatureOptionalBooleansEnv()` also rejects loose values for WS6 `JUDGE_ENABLED` / `GOVERNOR_ENABLED`. Called once at startup; throws if invalid.
 
 ---
 
@@ -716,7 +740,8 @@ Each file exports a single `handle*` function that a BullMQ `Worker` calls per j
 | `EscalationNoticeWorker.ts` | `escalation_notice` | **(WS3)** Sends the Guardian escalation notice to the owner's channels. Re-checks `ESCALATION_ENABLED` at SEND time (kill switch stops outbound notices without hiding raised escalations), reuses the approval worker's eligibility primitive, then hands off to `escalation-notice/dispatch.ts`. Afterwards records the `escalation_sent` step BEST-EFFORT (log-and-swallow — `notification_deliveries` is the authoritative per-channel record). |
 | `AutoPostNoticeWorker.ts` | `auto_post_notice` | Sends the auto-approved post FYI ("your reply was posted") to the owner's channels after an `auto_policy` publish. Reuses the approval worker's eligibility primitive, then hands off to `auto-post-notice/dispatch.ts`. NEVER mutates the already-posted response — a send failure retries on this job alone. |
 | `PendingPostNoticeWorker.ts` | `pending_post_notice` | **(WS4)** Sends the veto-window "your reply will post automatically" notice. Re-checks `AUTO_APPROVAL_ENABLED` at SEND time (spec §2.12; flag off ⇒ complete without sending — the publisher's downgrade backstop owns the record), loads the still-scheduled `auto_policy` response via `pending-post-notice/context.ts` freshness guards, reuses the approval worker's eligibility primitive, then hands off to `pending-post-notice/dispatch.ts`. NEVER mutates the response; the delayed publish outbox row is independent and fires at the deadline regardless. |
-| `ResponsePublisherWorker.ts` | `publish-response` | POST-only flow. Checks `zernio_connections` for the business. Active Zernio → resolves review ID + posts via `zernio-publisher.ts`, marking `posted`. Connection required but absent → transitions to `awaiting_owner_connect` + enqueues `owner-email` (reconnect_required). Uses `publisher-error-handlers.ts` for error classification. The DELETE+POST edit branch (`runEditPublisherIfApplicable`) is parked on tag `wip/edit-existing-replies-zernio-v1` pending direct GBP API. |
+| `AutonomyAdminAlertWorker.ts` | `autonomy_admin_alert` | **(WS6)** Renders an internal account-suspension alert from bounded trigger/evidence facts, sends it to `ADMIN_NOTIFICATION_EMAIL`, then independently attempts Sentry warning telemetry so observability cannot poison a successful email path. |
+| `ResponsePublisherWorker.ts` | `publish-response` | POST-only flow. Checks `zernio_connections` for the business. **WS6:** every unposted `auto_policy` response first passes the judge flag/health gate; disabled or unhealthy downgrades to owner review under a durable audit action, while query failures retry. Active Zernio → resolves review ID + posts via `zernio-publisher.ts`, marking `posted`. Connection required but absent → transitions to `awaiting_owner_connect` + enqueues `owner-email` (reconnect_required). Uses `publisher-error-handlers.ts` for error classification. The DELETE+POST edit branch (`runEditPublisherIfApplicable`) is parked on tag `wip/edit-existing-replies-zernio-v1` pending direct GBP API. |
 | `DrainOwnerConnectWorker.ts` | `drain-owner-connect` | Re-enqueues stuck `publish_response` outbox rows when an owner (re)connects Zernio. Inserts fresh outbox entries for all `awaiting_owner_connect` responses, with three layers of idempotency (partial unique index, NOT EXISTS guard, ResponsePublisher early-exit). |
 | `OwnerEmailWorker.ts` | `owner-email` | Discriminated payload router for owner-directed Zernio emails. `reconnect_required` → owner needs to reconnect Zernio so the queued reply can be published. `connection_lost` → Zernio reported GBP connection went offline. Both handlers apply subscription guard + bounce check + claim-before-send deduplication. |
 | `AdminExceptionWorker.ts` | `notify-admin-exception` | Sends an internal alert email when a review processing failure requires human review. |
@@ -728,6 +753,23 @@ Each file exports a single `handle*` function that a BullMQ `Worker` calls per j
 | `OnboardingDripWorker.ts` | `onboarding-drip` | Sends onboarding email at the configured step (day 1 / 7 / 30). |
 | `DemoGenerationWorker.ts` | `generate-demo` | Fetches SerpAPI reviews for a prospect, calls `generateResponse()` in `demo` mode, saves to `prospect_demos`. |
 | `live-draft-guard.ts` | — (helper) | **(WS5)** `hasLiveOwnerActionableResponse(tx, reviewId)` — shared by `ResponseGeneratorWorker` and `publisher/failed-hook` terminal checkpoints; a run is never completed `failed` while an owner-actionable draft (non-terminal status) exists for the review. |
+
+#### `worker/jobs/judge/` — JudgeWorker package **(WS6)**
+
+| File | What it does |
+|------|--------------|
+| `JudgeWorker.ts` | Kill-switch-first post-hoc evaluator. Loads eligible posted auto-policy context, executes the cost-guarded pinned judge task, then anchors the review lock before inserting the verdict; `flag` suspends account autonomy in the same transaction. It adds no agent-run completion. |
+| `context.ts` | Loads response/review/business/account context and applies post-hoc eligibility guards without leaking source-specific data into the judge prompt. |
+| `failed-hook.ts` | Terminal BullMQ exhaustion checkpoint: exact-attempt-CAS fails the outbox and records an `error` verdict in a reviews-first transaction; stale replays cannot write terminal state. |
+
+#### `worker/jobs/autonomy-suspended-notice/` — owner safety notice package **(WS6)**
+
+| File | What it does |
+|------|--------------|
+| `AutonomySuspendedNoticeWorker.ts` | Account-level owner-notice orchestrator. Re-checks the current suspension event, subscription/offboarding posture, and owner channels, dispatches without review/reply content, and keeps a live delivery claim retryable. |
+| `context.ts` | Loads the suspension audit event, account, delivery-anchor business, and verified enrollments; guard-and-return branches make stale/mismatched/offboarded notices harmless. |
+| `dispatch.ts` | Per-channel claim-before-send loop. Handles settled claims, keeps concurrent/live pending claims incomplete, pre-filters the optional WhatsApp template, and isolates provider errors from delivery-lifecycle DB failures. |
+| `errors.ts` | Pure transient-vs-terminal notice-send classifier; never mutates enrollment state. |
 
 #### `worker/jobs/notification/` — NotificationWorker sub-modules
 
@@ -776,6 +818,8 @@ Third topic-clone sibling of `auto-post-notice`/`escalation-notice` (bounced-own
 |------|--------------|
 | `publisher-error-handlers.ts` | Maps Zernio API errors raised by `ResponsePublisherWorker` to typed dispatch outcomes (`PublisherTransientWithContext`, `PublisherTerminalWithContext`, etc.). Keeps the worker handler small by externalizing the error → action mapping. |
 | `failed-hook.ts` | BullMQ exhaustion hook for publish jobs. **(WS5)** only terminal/no-resume branches complete the active run as failed, with reviews-first locking and exact outbox-attempt CAS; reconnect-resumable branches deliberately leave the run running. |
+| `judge-gate.ts` | **(WS6)** Fail-closed auto-policy publish gate: `JUDGE_ENABLED` off or unhealthy verdict processing atomically downgrades to owner review; health-query errors propagate for retry. |
+| `auto-policy-downgrade.ts` | Shared kill-switch/notice/judge downgrade transaction. **WS6** enforces reviews → businesses → responses locking, claims the exact outbox attempt before mutation, and records the judge-unavailable audit plus owner re-notification atomically. |
 
 #### `worker/jobs/zernio/` — Zernio ingestion helpers
 
@@ -800,6 +844,7 @@ These are not BullMQ job handlers — they run as standalone loops inside the wo
 | `StripeLocationsReconcilePoller.ts` | Hourly billing drift detection. **Wave 1 (PR #85)** expanded it from location-count drift to full reconciliation: missing / duplicate / status / price / quantity / upcoming-invoice drift between Stripe and the DB → Sentry alert; **never auto-corrects**. Expected-invoice math lives in the `billing-reconciliation/` subfolder and uses *stored* grandfathered quota; `past_due` within the 7-day grace window is informational. Single-flight + per-account error isolation. |
 | `ZernioRecentReviewPoller.ts` | Polls connected accounts for recent reviews. Unanswered → `processReview`; externally-answered → `reconcileExternallyAnsweredReview`. **Wave 1:** the unanswered branch now PHI-gates (`detectLikelyPhi`) before persistence, quarantining via `openPhiReviewException` inside a `sql.begin`. |
 | `AnalyticsDispatchPoller.ts` | **(Wave 2)** Dispatches pending `analytics_events` rows to PostHog from Railway. Leaves rows pending when PostHog is unconfigured, flushes before marking completed, and backs off failed event rows. |
+| `JudgeSweepPoller.ts` | **(WS6)** Every minute by default, scans the bounded 24-hour window for subscription-eligible posted auto-policy responses with no verdict and transactionally enqueues deduplicated `judge_verdict` jobs. `JUDGE_ENABLED` off makes the cycle inert. |
 
 **`worker/background/pollers/billing-reconciliation/` *(Wave 1)*:** focused modules for `StripeLocationsReconcilePoller` — `expected-invoice.ts` (DB-expected base + overage from stored quota), `drift.ts` (drift classification, grace-window check, upcoming-invoice comparison), `types.ts` (shared shapes). The poller stays the single registered entry point.
 
@@ -811,6 +856,7 @@ These are not BullMQ job handlers — they run as standalone loops inside the wo
 | `MonthlyImpactScheduler.ts` | Enqueues `monthly-impact` jobs. |
 | `RankingTrackingScheduler.ts` | Enqueues `track-ranking` jobs when `RANKING_TRACKING_ENABLED=true`. |
 | `OnboardingDripScheduler.ts` | Enqueues `onboarding-drip` jobs at configured intervals. |
+| `AutonomyGovernorScheduler.ts` | **(WS6)** Every 15 minutes by default, fairly rotates through autonomous accounts, computes seven-day rates, revalidates a breached candidate under the account lock, and invokes the idempotent suspension writer. `GOVERNOR_ENABLED` off makes the cycle inert. |
 
 ---
 
@@ -827,7 +873,7 @@ Each handler is registered as a Fastify route in `worker/index.ts`. They all fol
 |------|-------|--------------|
 | `shared.ts` | *(utility)* | `claimInboundEvent()`, `markInboundEventProcessed()`, `markInboundEventFailed()` — atomically insert/update `inbound_events` rows. Used as the dedup guard in every other ingress handler. |
 | `stripe.ts` | `POST /ingress/stripe` | Verifies Stripe webhook signature. `checkout.session.completed` → transitions `subscription_status` to `active` + enqueues `SyncReviewsPayload`. `customer.subscription.updated` → updates status. |
-| `resend.ts` | `POST /ingress/resend` | Verifies Svix signature. Maps `email.delivered` / `email.bounced` / `email.complained` events to `notification_deliveries` status updates and `owner_email_bounced` flag. |
+| `resend.ts` | `POST /ingress/resend` | Verifies Svix signature. Maps `email.delivered` / `email.bounced` / `email.complained` events to `notification_deliveries` status updates and `owner_email_bounced` flag; **WS6** classifies `autonomy_suspended_notice` as owner-directed for hard-bounce suppression. |
 | `twilio/twilio-intent.ts` | *(utility)* | `classifyIntent(body)` — shared STOP/START keyword detection used by WhatsApp ingress. |
 | `twilio/twilio-verify.ts` | *(utility)* | Verifies Twilio request signatures (HMAC-SHA1 on URL + params). |
 | `twilio/twilio-whatsapp.ts` | *(barrel)* | Re-exports both WhatsApp ingress handlers and shared helpers for unit tests. Mounts were moved to focused modules. |
@@ -969,9 +1015,36 @@ Operational scripts. Run with `tsx scripts/<name>.ts`. Not part of the runtime.
 
 ---
 
+## `tests/llm-eval/` — Offline and optional live LLM safety gates
+
+| File | What it does |
+|------|--------------|
+| `judge-eval-set.jsonl` | **(WS6)** Twelve deterministic judge fixtures: clean pass, compensation/PII/fabrication/hostility flags, mediocre-safe forbidden-flag cases, and adversarial near-misses. Each carries a schema-valid canned output for keyless scoring. |
+| `judge-types.ts` | **(WS6)** Strict fixture, expectation, result, report, category, and live-generator types for the judge lane. |
+| `judge-load.ts` | **(WS6)** JSONL loader and shape validator with duplicate-id rejection before scoring. |
+| `judge-scorer.ts` | **(WS6)** Parses outputs through `JudgeOutputSchema` and scores required/forbidden verdict agreement without vacuous assertions. |
+| `run.ts` | Main `pnpm eval:llm` runner. **WS6** always runs the offline judge lane and, under `--live`, reports live judge agreement alongside the existing suites. |
+| `live-runner.ts` | Optional provider-backed runner. **WS6** invokes `runLlmTask('judge')` per fixture through the explicitly documented eval-only cost-guard exception; production callers remain guarded. |
+
+### WS6 contract-test inventory
+
+| Area | Test modules |
+|------|--------------|
+| Flags/startup | `worker/config/__tests__/startup-assertion.test.ts`, `src/lib/responses/__tests__/judge-flags.test.ts`, and the WS6 cases in `src/lib/auto-approval/__tests__/flags.test.ts` / `src/lib/config/__tests__/worker.test.ts`. |
+| Judge domain | `src/lib/responses/__tests__/{judge-health,judge-policy,judge-schema,judge-store,judge-store.integration,judge}.test.ts` plus the judge block in `model-pinning.test.ts`. |
+| Governor/suspension | `src/lib/auto-approval/__tests__/{account-lock-order,governor,suspension,suspension.integration}.test.ts` plus the governor cases in `flags.test.ts`. |
+| Migration/shared contracts | `src/lib/shared/__tests__/migration-076-judge-verdicts-governor.integration.test.ts`; WS6 cases in `job-outbox-helpers.test.ts`, `outbox.test.ts`, and `past-due-recovery.test.ts`. |
+| Judge worker/publisher | `worker/jobs/judge/__tests__/{JudgeWorker,failed-hook,lock-order-source}.test.ts`; `worker/jobs/publisher/__tests__/{judge-gate,auto-policy-downgrade,auto-policy-downgrade-lock-order}.test.ts`; WS6 cases in `ResponsePublisherWorker.test.ts`. |
+| Governor loops | `worker/background/pollers/__tests__/JudgeSweepPoller.test.ts` and `worker/background/schedulers/__tests__/{AutonomyGovernorScheduler,AutonomyGovernorScheduler.integration}.test.ts`. |
+| Suspension notices/admin alert | `worker/jobs/autonomy-suspended-notice/__tests__/{AutonomySuspendedNoticeWorker,context,dispatch}.test.ts`, `worker/jobs/__tests__/AutonomyAdminAlertWorker.test.ts`, `src/lib/notifications/email/templates/__tests__/autonomy-suspended-notice.test.ts`, WS6 cases in `src/lib/notifications/__tests__/delivery.test.ts` and `src/lib/notifications/channels/__tests__/{email-channel,factory,telegram-body,telegram-channel,whatsapp-body,whatsapp-channel}.test.ts`, plus `worker/ingress/__tests__/resend-webhook-bounce.test.ts`. |
+| Admin recovery UI/API | `src/app/admin/autonomy/__tests__/AutonomySuspensionsClient.test.tsx`, `src/app/admin/autonomy/__tests__/page-source.test.ts`, and `src/app/api/admin/autonomy/__tests__/routes.test.ts`. |
+| Eval lane | `tests/llm-eval/__tests__/judge-eval.test.ts` plus WS6 live-judge coverage in `live-runner.test.ts`. |
+
+---
+
 ## `supabase/migrations/`
 
-All schema migrations live here, numbered `001` … `075` (repository/local-test head; next is `076`). Supabase staging/production migrations are a user-run promotion step. Recent agent-platform migrations: `071` run spine, `072` triage, `073` Guardian escalations, `074` trust dial + veto window, and **(WS5)** `075` agent-run subject lookup (applied only to the local test database so far). For the full per-migration narrative, ordering rules, deployment status, and residual risks, read `.claude/reference/migrations-log.md`.
+All schema migrations live here, numbered `001` … `076` (repository/local-test head; next is `077`). Supabase staging/production migrations are a user-run promotion step. Recent agent-platform migrations: `071` run spine, `072` triage, `073` Guardian escalations, `074` trust dial + veto window, **WS5** `075` agent-run subject lookup, and **WS6** `076_judge_verdicts_governor.sql` (`judge_verdicts` table with deny-all RLS and its account/time/RI indexes, the posted-auto-policy response query index, `notification_deliveries.entity_id` plus the autonomy-notice claim index, and three exact in-flight outbox indexes). Migration 076 is applied only to the local test database until the user-run staging→production promotion. For the full per-migration narrative, ordering rules, deployment status, and residual risks, read `.claude/reference/migrations-log.md`.
 
 ---
 
@@ -987,4 +1060,4 @@ All schema migrations live here, numbered `001` … `075` (repository/local-test
 - `docs/legal/` — legal source docs + external-gate status (`legal-review.md`, `insurance.md`); rendered pages come from `src/lib/legal/content.ts`, not these.
 - `public/.well-known/security.txt` — **(Wave 1)** RFC 9116 disclosure pointer (contact `security@repworth.net`, links to `/security`).
 - `docs/superpowers/` — historical specs + plans for every feature, dated. The plan file at the head of each branch is the spec of record for that feature.
-- `tests/` and per-module `__tests__/` directories — Vitest unit + integration tests; Playwright E2E lives in `tests/e2e/`.
+- `tests/` and per-module `__tests__/` directories — Vitest unit + integration tests; the WS6 LLM-eval lane and contract-test inventory are detailed above, and Playwright E2E lives in `tests/e2e/`.
