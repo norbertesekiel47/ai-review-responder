@@ -15,17 +15,34 @@ const EXPECTED_CATEGORIES: EvalCategory[] = [
   'sensitive_category',
 ];
 
+const VALID_ROW_JSON =
+  '{"id":"a","category":"positive","description":"d","input":{"reviewerName":"x","starRating":5,"reviewText":"hi","reviewDate":"2026-01-01","detectedLanguage":"en","businessName":"b","businessCategory":null},"candidate":"thanks","expect":{"maxSeverity":"low","forbiddenCategories":[]}}';
+
 describe('parseEvalSet', () => {
   it('skips blank lines and parses objects', () => {
     const rows = parseEvalSet(
-      '{"id":"a","category":"positive","description":"d","input":{"reviewerName":"x","starRating":5,"reviewText":"hi","reviewDate":"2026-01-01","detectedLanguage":"en","businessName":"b","businessCategory":null},"candidate":"thanks","expect":{"maxSeverity":"low","forbiddenCategories":[]}}\n\n',
+      `${VALID_ROW_JSON}\n\n`,
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]!.id).toBe('a');
   });
 
   it('throws on invalid JSON with the line number', () => {
-    expect(() => parseEvalSet('{not json}')).toThrow(/line 1/);
+    expect(() => parseEvalSet('{not json}')).toThrow(
+      /^eval-set line 1 is not valid JSON:/,
+    );
+  });
+
+  it('reports the physical line for malformed JSON after a valid row', () => {
+    expect(() => parseEvalSet(`${VALID_ROW_JSON}\n{not json}`)).toThrow(
+      /^eval-set line 2 is not valid JSON:/,
+    );
+  });
+
+  it('reports an earlier row-shape error before parsing a later line', () => {
+    expect(() => parseEvalSet('{}\n{not json}')).toThrow(
+      /^eval-set line 1 id must be a non-empty string$/,
+    );
   });
 
   it('throws on a missing id', () => {

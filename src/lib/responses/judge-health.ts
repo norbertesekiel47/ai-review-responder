@@ -1,10 +1,10 @@
 import type { Sql } from 'postgres';
 import { publisherSubscriptionEligibleSql } from '@/lib/shared/subscription-eligibility-sql';
 
-export const JUDGE_STALENESS_LIMIT_MINUTES = 60;
-export const JUDGE_ERROR_DENSITY_MIN_COUNT = 3;
-export const JUDGE_ERROR_DENSITY_SHARE = 0.5;
-export const JUDGE_LOOKBACK_HOURS = 24;
+const JUDGE_STALENESS_LIMIT_MINUTES = 60;
+const JUDGE_ERROR_DENSITY_MIN_COUNT = 3;
+const JUDGE_ERROR_DENSITY_SHARE = 0.5;
+const JUDGE_LOOKBACK_HOURS = 24;
 
 interface StalenessRow {
   has_stale_unjudged: boolean;

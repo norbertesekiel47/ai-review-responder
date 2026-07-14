@@ -105,15 +105,11 @@ export interface EscalationNoticePayload extends BasePayload {
   business_id: string;
 }
 
-export const AUTONOMY_SUSPENSION_TRIGGERS = [
-  'judge_flag',
-  'governor_edit_rate',
-  'governor_veto_rate',
-  'governor_judge_signal_rate',
-] as const;
-
 export type AutonomySuspensionTrigger =
-  (typeof AUTONOMY_SUSPENSION_TRIGGERS)[number];
+  | 'judge_flag'
+  | 'governor_edit_rate'
+  | 'governor_veto_rate'
+  | 'governor_judge_signal_rate';
 
 export type AutonomySuspensionEvidence =
   | { verdict_id: string }

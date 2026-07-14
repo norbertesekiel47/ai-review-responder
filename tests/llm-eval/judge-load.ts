@@ -7,6 +7,7 @@ import {
   JUDGE_EVAL_CATEGORIES,
   type JudgeEvalRow,
 } from './judge-types';
+import { parseJsonLines } from './jsonl';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const JUDGE_EVAL_SET_PATH = resolve(HERE, 'judge-eval-set.jsonl');
@@ -40,24 +41,13 @@ export function parseJudgeEvalSet(jsonl: string): JudgeEvalRow[] {
   const rows: JudgeEvalRow[] = [];
   const ids = new Set<string>();
 
-  for (const [index, line] of jsonl.split('\n').entries()) {
-    const trimmed = line.trim();
-    if (trimmed === '') continue;
-
-    let raw: unknown;
-    try {
-      raw = JSON.parse(trimmed);
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'unknown JSON error';
-      throw new Error(`judge eval line ${index + 1} is not valid JSON: ${detail}`);
-    }
-
+  for (const { lineNumber, value: raw } of parseJsonLines(jsonl, 'judge eval')) {
     const result = JudgeEvalRowSchema.safeParse(raw);
     if (!result.success) {
       const issue = result.error.issues[0];
       const field = issue?.path.join('.') || 'row';
       throw new Error(
-        `judge eval line ${index + 1} invalid ${field}: ${issue?.message ?? 'invalid shape'}`,
+        `judge eval line ${lineNumber} invalid ${field}: ${issue?.message ?? 'invalid shape'}`,
       );
     }
 

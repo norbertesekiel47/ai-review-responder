@@ -91,6 +91,21 @@ export async function runJudgeEval(
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPORTS_DIR = resolve(HERE, 'reports');
 
+interface PrintableEvalResult {
+  passed: boolean;
+  failures: string[];
+  id: string;
+  category: string;
+}
+
+function printLaneResults(lane: string, results: PrintableEvalResult[]): void {
+  for (const result of results) {
+    const status = result.passed ? 'PASS' : 'FAIL';
+    const detail = result.failures.length ? ` — ${result.failures.join('; ')}` : '';
+    console.log(`${status}  ${lane}/${result.id} [${result.category}]${detail}`);
+  }
+}
+
 async function main(): Promise<void> {
   const live = process.argv.includes('--live');
   const rows = loadEvalSet();
@@ -109,16 +124,8 @@ async function main(): Promise<void> {
   const responseReport = await runEval(rows, { live, generate });
   const judgeReport = await runJudgeEval(judgeRows, { live, generate: generateJudge });
 
-  for (const result of responseReport.results) {
-    const status = result.passed ? 'PASS' : 'FAIL';
-    const detail = result.failures.length ? ` — ${result.failures.join('; ')}` : '';
-    console.log(`${status}  reply/${result.id} [${result.category}]${detail}`);
-  }
-  for (const result of judgeReport.results) {
-    const status = result.passed ? 'PASS' : 'FAIL';
-    const detail = result.failures.length ? ` — ${result.failures.join('; ')}` : '';
-    console.log(`${status}  judge/${result.id} [${result.category}]${detail}`);
-  }
+  printLaneResults('reply', responseReport.results);
+  printLaneResults('judge', judgeReport.results);
 
   const report = {
     startedAt: responseReport.startedAt,

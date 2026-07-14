@@ -57,6 +57,19 @@ describe('judge eval loader', () => {
       /judge eval line 1.*postedReply/,
     );
   });
+
+  it('reports the physical line for malformed JSON after a valid row', () => {
+    expect(() => parseJudgeEvalSet(`${JSON.stringify(SAMPLE_ROW)}\n{not json}`)).toThrow(
+      /^judge eval line 2 is not valid JSON:/,
+    );
+  });
+
+  it('reports an earlier row-shape error before parsing a later line', () => {
+    const malformedShape = { ...SAMPLE_ROW, postedReply: undefined };
+    expect(() => parseJudgeEvalSet(`${JSON.stringify(malformedShape)}\n{not json}`)).toThrow(
+      /^judge eval line 1 invalid postedReply:/,
+    );
+  });
 });
 
 describe('judge eval scorer', () => {

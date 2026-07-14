@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseJsonLines } from './jsonl';
 import type { EvalRow } from './types';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -16,40 +17,29 @@ export function parseEvalSet(jsonl: string): EvalRow[] {
   const rows: EvalRow[] = [];
   const ids = new Set<string>();
 
-  for (const [index, line] of jsonl.split('\n').entries()) {
-    const trimmed = line.trim();
-    if (trimmed === '') continue;
-
-    let raw: unknown;
-    try {
-      raw = JSON.parse(trimmed);
-    } catch (err) {
-      throw new Error(
-        `eval-set line ${index + 1} is not valid JSON: ${(err as Error).message}`,
-      );
-    }
+  for (const { lineNumber, value: raw } of parseJsonLines(jsonl, 'eval-set')) {
 
     if (!isRecord(raw)) {
-      throw new Error(`eval-set line ${index + 1} must be a JSON object`);
+      throw new Error(`eval-set line ${lineNumber} must be a JSON object`);
     }
 
     if (typeof raw.id !== 'string' || raw.id.trim() === '') {
-      throw new Error(`eval-set line ${index + 1} id must be a non-empty string`);
+      throw new Error(`eval-set line ${lineNumber} id must be a non-empty string`);
     }
     if (typeof raw.candidate !== 'string') {
-      throw new Error(`eval-set line ${index + 1} candidate must be a string`);
+      throw new Error(`eval-set line ${lineNumber} candidate must be a string`);
     }
 
     const expectation = raw.expect;
     if (!isRecord(expectation)) {
-      throw new Error(`eval-set line ${index + 1} is missing object "expect"`);
+      throw new Error(`eval-set line ${lineNumber} is missing object "expect"`);
     }
     if (typeof expectation.maxSeverity !== 'string') {
-      throw new Error(`eval-set line ${index + 1} expect.maxSeverity must be a string`);
+      throw new Error(`eval-set line ${lineNumber} expect.maxSeverity must be a string`);
     }
     if (!Array.isArray(expectation.forbiddenCategories)) {
       throw new Error(
-        `eval-set line ${index + 1} expect.forbiddenCategories must be an array`,
+        `eval-set line ${lineNumber} expect.forbiddenCategories must be an array`,
       );
     }
 

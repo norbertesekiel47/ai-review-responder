@@ -1023,6 +1023,7 @@ Operational scripts. Run with `tsx scripts/<name>.ts`. Not part of the runtime.
 | `judge-types.ts` | **(WS6)** Strict fixture, expectation, result, report, category, and live-generator types for the judge lane. |
 | `judge-load.ts` | **(WS6)** JSONL loader and shape validator with duplicate-id rejection before scoring. |
 | `judge-scorer.ts` | **(WS6)** Parses outputs through `JudgeOutputSchema` and scores required/forbidden verdict agreement without vacuous assertions. |
+| `jsonl.ts` | Shared line-aware JSONL parser used by both offline eval lanes; rejects malformed JSON without duplicating fixture-domain validation. |
 | `run.ts` | Main `pnpm eval:llm` runner. **WS6** always runs the offline judge lane and, under `--live`, reports live judge agreement alongside the existing suites. |
 | `live-runner.ts` | Optional provider-backed runner. **WS6** invokes `runLlmTask('judge')` per fixture through the explicitly documented eval-only cost-guard exception; production callers remain guarded. |
 
