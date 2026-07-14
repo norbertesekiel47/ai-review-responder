@@ -1,7 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import {
   formatApprovalWhatsApp,
   formatAutoPostNoticeWhatsApp,
+  formatAutonomySuspendedNoticeWhatsApp,
+  renderAutonomySuspendedNoticeWhatsAppBody,
   formatEscalationNoticeWhatsApp,
   formatPendingPostNoticeWhatsApp,
   renderApprovalCardBody,
@@ -10,6 +13,62 @@ import {
   toWaRecipient,
   truncate,
 } from '../whatsapp-body';
+
+describe('formatAutonomySuspendedNoticeWhatsApp', () => {
+  it('uses only account-safe fields and the settings URL suffix', () => {
+    const sensitiveReview = 'SENSITIVE_REVIEW_TEXT';
+    const sensitiveResponse = 'SENSITIVE_RESPONSE_TEXT';
+    const params = {
+      accountName: 'Acme\nGroup',
+      reason: 'Recent safety reviews exceeded the auto-posting safety threshold.',
+      settingsPath: 'settings/auto-approval',
+      reviewText: sensitiveReview,
+      responsePreview: sensitiveResponse,
+    } as Parameters<typeof formatAutonomySuspendedNoticeWhatsApp>[0];
+    const { contentSid, contentVariables } = formatAutonomySuspendedNoticeWhatsApp(params, 'HXsuspended');
+
+    expect(contentSid).toBe('HXsuspended');
+    expect(contentVariables).toEqual({
+      '1': 'Acme Group',
+      '2': 'Recent safety reviews exceeded the auto-posting safety threshold.',
+      '3': 'settings/auto-approval',
+    });
+    expect(JSON.stringify(contentVariables)).not.toContain(sensitiveReview);
+    expect(JSON.stringify(contentVariables)).not.toContain(sensitiveResponse);
+    const body = renderAutonomySuspendedNoticeWhatsAppBody(contentVariables);
+    expect(body).toContain('paused after a safety review');
+    expect(body).toContain('entire account');
+    expect(body).toContain('Drafts will continue');
+    expect(body).toContain('approve them manually');
+    expect(body).toContain('Recent safety reviews exceeded');
+    expect(body).toContain('support@repworth.net');
+  });
+
+  it('is byte-pinned to the runbook body and URL-button variable contract', () => {
+    const runbook = readFileSync('docs/runbooks/whatsapp-templates.md', 'utf8');
+    const section = runbook.split('## Autonomy-suspended notice (`WHATSAPP_AUTONOMY_SUSPENDED_TEMPLATE_SID`)')[1]
+      ?.split('\n---')[0];
+    expect(section).toBeTruthy();
+    const documentedBody = section!.match(/\*\*Exact provider body \(byte-locked\):\*\*\n\n```\n([\s\S]*?)\n```/)?.[1];
+    const sourceBody = renderAutonomySuspendedNoticeWhatsAppBody({
+      '1': '{{1}}',
+      '2': '{{2}}',
+    });
+    expect(documentedBody).toBe(sourceBody);
+    expect(section).toContain('"1" = accountName');
+    expect(section).toContain('"2" = reason');
+    expect(section).toContain('`"3"` = `settings/auto-approval`');
+    expect(section).toContain('"url": "https://app.repworth.com/{{3}}"');
+  });
+
+  it('rejects a leading-slash or otherwise divergent settings suffix', () => {
+    expect(() => formatAutonomySuspendedNoticeWhatsApp({
+      accountName: 'Acme',
+      reason: 'Safety review.',
+      settingsPath: '/settings/auto-approval',
+    }, 'HXsuspended')).toThrow(/settingsPath must equal settings\/auto-approval/);
+  });
+});
 import { resetWorkerConfigForTests } from '@/lib/config/worker';
 
 describe('truncate', () => {

@@ -213,3 +213,30 @@ export function formatPendingPostNoticeTelegram(
 
   return { text, inline_keyboard };
 }
+
+export interface TelegramAutonomySuspendedNoticeParams {
+  accountName: string;
+  reason: string;
+  settingsUrl: string;
+}
+
+/** Account-only safety copy: intentionally has no review/response fields. */
+export function formatAutonomySuspendedNoticeTelegram(
+  p: TelegramAutonomySuspendedNoticeParams,
+): FormattedApprovalMessage {
+  const accountName = escapeHtml(p.accountName);
+  const reason = escapeHtml(p.reason);
+  const text = [
+    `<b>Auto-posting paused for ${accountName}</b>`,
+    'Auto-posting was paused after a safety review. This pause applies to your entire account.',
+    'Drafts will continue to be created, but you will need to review and approve them manually.',
+    `<b>Reason:</b> ${reason}`,
+    '<b>Need help?</b> support@repworth.net',
+  ].join('\n');
+  return {
+    text,
+    inline_keyboard: [
+      [{ text: '⚙️ Review settings', url: p.settingsUrl }],
+    ],
+  };
+}

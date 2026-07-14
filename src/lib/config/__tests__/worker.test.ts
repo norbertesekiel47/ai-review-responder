@@ -94,6 +94,14 @@ describe('config/worker', () => {
     expect(getWorkerConfig().HEALTH_ALERT_FAILED_THRESHOLD).toBeUndefined();
   });
 
+  it('GOVERNOR_INTERVAL_MS is exposed RAW for scheduler-owned parsing', async () => {
+    process.env = {
+      ...CORE, NODE_ENV: 'test', GOVERNOR_INTERVAL_MS: '900000',
+    } as NodeJS.ProcessEnv;
+    const { getWorkerConfig } = await import('../worker');
+    expect(getWorkerConfig().GOVERNOR_INTERVAL_MS).toBe('900000');
+  });
+
   it('ADMIN_NOTIFICATION_EMAIL passes whitespace-only through RAW (rawOptionalVar #7)', async () => {
     // The migrated NotificationFailoverPoller reads it raw via `if (adminEmail)`,
     // so `'   '` must stay truthy (the collapsing optionalVar would map it to

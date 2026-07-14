@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatApprovalTelegram, formatEscalationNoticeTelegram, formatPendingPostNoticeTelegram } from '../telegram-body';
+import { formatApprovalTelegram, formatAutonomySuspendedNoticeTelegram, formatEscalationNoticeTelegram, formatPendingPostNoticeTelegram } from '../telegram-body';
 
 function sample(overrides: Partial<Parameters<typeof formatApprovalTelegram>[0]> = {}) {
   return {
@@ -119,6 +119,36 @@ describe('formatApprovalTelegram', () => {
   it('prefix is always shown even for single-location accounts', () => {
     const { text } = formatApprovalTelegram(sample({ locationLabel: 'Only Location' }));
     expect(text).toContain('[Only Location]');
+  });
+});
+
+describe('formatAutonomySuspendedNoticeTelegram', () => {
+  it('contains every safety-notice fact and no review or response text', () => {
+    const sensitiveReview = 'SENSITIVE_REVIEW_TEXT';
+    const sensitiveResponse = 'SENSITIVE_RESPONSE_TEXT';
+    const params = {
+      accountName: 'Acme Group <west>',
+      reason: 'Recent safety reviews exceeded the auto-posting safety threshold.',
+      settingsUrl: 'https://app.example.com/settings/auto-approval',
+      supportUrl: 'mailto:support@repworth.net',
+      reviewText: sensitiveReview,
+      responsePreview: sensitiveResponse,
+    } as Parameters<typeof formatAutonomySuspendedNoticeTelegram>[0];
+    const { text, inline_keyboard } = formatAutonomySuspendedNoticeTelegram(params);
+
+    expect(text).toContain('paused after a safety review');
+    expect(text).toContain('entire account');
+    expect(text).toContain('Drafts will continue');
+    expect(text).toContain('approve them manually');
+    expect(text).toContain('Recent safety reviews');
+    expect(text).toContain('Acme Group &lt;west&gt;');
+    expect(text).toContain('support@repworth.net');
+    expect(text).not.toContain(sensitiveReview);
+    expect(text).not.toContain(sensitiveResponse);
+    const urls = inline_keyboard.flat().map((button) => button.url).filter(Boolean);
+    expect(urls).toEqual(['https://app.example.com/settings/auto-approval']);
+    expect(urls.every((url) => /^(https?:|tg:)/.test(url!))).toBe(true);
+    expect(urls.some((url) => url!.startsWith('mailto:'))).toBe(false);
   });
 });
 

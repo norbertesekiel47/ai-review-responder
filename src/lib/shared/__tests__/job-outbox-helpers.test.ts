@@ -7,9 +7,12 @@ vi.mock('@/lib/db/server', () => ({
 }));
 
 import {
+  enqueueAutonomyAdminAlert,
+  enqueueAutonomySuspendedNotice,
   enqueueAutoPostNotice,
   enqueueEscalationNotice,
   enqueueGenerateResponse,
+  enqueueJudgeVerdict,
   enqueuePendingPostNotice,
   enqueuePublishResponse,
   enqueueValidatePlaceId,
@@ -337,6 +340,83 @@ describe('job outbox helpers', () => {
 
     const payload = objectArgs(tx).find((arg) => arg.escalation_id === 'esc-1');
     expect(payload).toEqual({ escalation_id: 'esc-1', business_id: 'biz-1' });
+  });
+
+  it('enqueues judge_verdict with the migration-076 in-flight predicate and exact payload', async () => {
+    const tx = createMockTx();
+
+    const outboxId = await enqueueJudgeVerdict(tx, {
+      responseId: 'response-1',
+      businessId: 'business-1',
+      accountId: 'account-1',
+      correlationId: 'corr-1',
+    });
+
+    expect(outboxId).toBe('outbox-uuid');
+    const text = sqlText(tx.mock.calls[0]!);
+    expect(text).toContain(
+      "WHERE topic = 'judge_verdict' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
+    );
+    expect(tx.mock.calls[0]).toContain(QUEUE_NAMES.JUDGE_VERDICT);
+    expect(tx.mock.calls[0]).toContain('response-1');
+    const payload = objectArgs(tx).find((arg) => arg.response_id === 'response-1');
+    expect(payload).toEqual({
+      response_id: 'response-1',
+      business_id: 'business-1',
+      account_id: 'account-1',
+      correlation_id: 'corr-1',
+    });
+  });
+
+  it('enqueues autonomy_suspended_notice keyed by the suspension event', async () => {
+    const tx = createMockTx();
+
+    await enqueueAutonomySuspendedNotice(tx, {
+      accountId: 'account-1',
+      suspensionEventId: 'event-1',
+      trigger: 'governor_edit_rate',
+      correlationId: 'corr-1',
+    });
+
+    const text = sqlText(tx.mock.calls[0]!);
+    expect(text).toContain(
+      "WHERE topic = 'autonomy_suspended_notice' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
+    );
+    expect(tx.mock.calls[0]).toContain(QUEUE_NAMES.AUTONOMY_SUSPENDED_NOTICE);
+    expect(tx.mock.calls[0]).toContain('event-1');
+    const payload = objectArgs(tx).find((arg) => arg.suspension_event_id === 'event-1');
+    expect(payload).toEqual({
+      account_id: 'account-1',
+      suspension_event_id: 'event-1',
+      trigger: 'governor_edit_rate',
+      correlation_id: 'corr-1',
+    });
+  });
+
+  it('enqueues autonomy_admin_alert keyed by the same event with evidence', async () => {
+    const tx = createMockTx();
+    const evidence = { rate: 0.6, numer: 3, denom: 5, windowDays: 7 } as const;
+
+    await enqueueAutonomyAdminAlert(tx, {
+      accountId: 'account-1',
+      suspensionEventId: 'event-1',
+      trigger: 'governor_judge_signal_rate',
+      evidence,
+    });
+
+    const text = sqlText(tx.mock.calls[0]!);
+    expect(text).toContain(
+      "WHERE topic = 'autonomy_admin_alert' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
+    );
+    expect(tx.mock.calls[0]).toContain(QUEUE_NAMES.AUTONOMY_ADMIN_ALERT);
+    expect(tx.mock.calls[0]).toContain('event-1');
+    const payload = objectArgs(tx).find((arg) => arg.suspension_event_id === 'event-1');
+    expect(payload).toEqual({
+      account_id: 'account-1',
+      suspension_event_id: 'event-1',
+      trigger: 'governor_judge_signal_rate',
+      evidence,
+    });
   });
 
   it('enqueues validate_place_id with the in-flight WHERE NOT EXISTS dedup guard', async () => {

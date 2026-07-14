@@ -4,8 +4,12 @@
 // passed, so the offline path never loads the generator's heavy deps and never
 // needs provider keys.
 import { sql } from '../../src/lib/db/server';
+import { runLlmTask } from '../../src/lib/llm/run-task';
+import { buildJudgePrompt } from '../../src/lib/responses/judge';
+import { JudgeOutputSchema, type JudgeOutput } from '../../src/lib/responses/judge-schema';
 import { generateResponse } from '../../src/lib/responses/generator';
 import type { NormalizedReview } from '../../src/lib/reviews/types';
+import type { JudgeEvalRow } from './judge-types';
 import type { EvalRow } from './types';
 
 /** Live eval needs a real provider; fail loudly rather than silently no-op. */
@@ -38,5 +42,22 @@ export function createLiveGenerator(): (row: EvalRow) => Promise<string> {
       { mode: 'demo' },
     );
     return result.responseText;
+  };
+}
+
+/** Returns a generator that evaluates the production judge task without persistence. */
+export function createLiveJudgeGenerator(): (row: JudgeEvalRow) => Promise<JudgeOutput> {
+  assertLiveKeysPresent();
+
+  return async (row: JudgeEvalRow): Promise<JudgeOutput> => {
+    // SANCTIONED UNGUARDED EVAL-ONLY CALLER: production callers must wrap
+    // runLlmTask in withCostGuard; this opt-in live harness has no tenant spend
+    // ledger and is the deliberate demo/eval exception in llm/types.ts.
+    const result = await runLlmTask('judge', buildJudgePrompt({
+      reviewRating: row.input.reviewRating,
+      reviewText: row.input.reviewText,
+      postedReplyText: row.postedReply,
+    }));
+    return JudgeOutputSchema.parse(result.structured);
   };
 }

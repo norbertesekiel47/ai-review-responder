@@ -21,6 +21,7 @@ import { isOrphanMarker } from '../../../src/lib/publishing/orphan-markers';
 import { maybeCaptureActivationCompleted } from './activation';
 import { downgradeAutoApprovedResponseForManualReview } from './auto-policy-downgrade';
 import { enforceElapsedVetoWindow } from './veto-window-gate';
+import { applyJudgeGate } from './judge-gate';
 import { markPostedAndMaybeEnqueueAutoPostNotice } from './mark-posted';
 import { isHeldForModerationReview } from './held-flag-gate';
 
@@ -159,6 +160,25 @@ export async function handlePublishResponse(
     );
     await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
+  }
+
+  // ── Judge availability gate (WS6) ────────────────────────────────────
+  // Placement: AFTER the cheap quiet terminals (archived location,
+  // subscription guard, moderation hold — all cheaper than the two fleet
+  // health queries, and a row those gates would quietly terminate must not be
+  // downgraded+notified instead), and BEFORE resolvePublishTarget so no
+  // external call can happen without a live Judge. The WS4 kill-switch and
+  // veto-window/notice gates above keep their relative order.
+  if (response.approval_method === APPROVAL_METHOD.AUTO_POLICY) {
+    const judgeGate = await applyJudgeGate(sql, {
+      responseId: response_id,
+      businessId,
+      outboxId,
+      outboxAttempt,
+      correlationId: job.data.correlation_id,
+      logger,
+    });
+    if (judgeGate === 'downgraded') return;
   }
 
   // ── Resolve the publishing target via the ReviewPublisher seam ──────

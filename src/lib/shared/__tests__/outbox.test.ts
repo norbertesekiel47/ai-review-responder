@@ -20,6 +20,7 @@ vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
 import {
   extractOutboxHandle,
   markOutboxCompleted,
+  markOutboxCompletedIfOwned,
   markOutboxFailed,
   recordOutboxTransientError,
 } from '../outbox';
@@ -67,6 +68,13 @@ describe('outbox writers — dispatchedRow attempt-guard composition', () => {
     sqlReturnQueue.push(mkTaggedResult([]));
     await markOutboxCompleted(execMock, 'outbox-1');
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('markOutboxCompletedIfOwned exposes whether the dispatched attempt won its CAS', async () => {
+    sqlReturnQueue.push(mkTaggedResult([{ id: 'x' }]), mkTaggedResult([]));
+
+    await expect(markOutboxCompletedIfOwned(execMock, 'outbox-1', 2)).resolves.toBe(true);
+    await expect(markOutboxCompletedIfOwned(execMock, 'outbox-1', 1)).resolves.toBe(false);
   });
 
   it('markOutboxFailed writes last_error + status=failed, attempt-guarded', async () => {

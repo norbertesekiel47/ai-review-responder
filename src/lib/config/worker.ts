@@ -109,6 +109,8 @@ const workerSchema = z.object({
   OUTBOX_BATCH_SIZE: rawOpt,
   OUTBOX_DISPATCH_TIMEOUT_MS: rawOpt,
   OUTBOX_POLL_MAX_CYCLE_MS: rawOpt,
+  GOVERNOR_INTERVAL_MS: rawOpt,
+  JUDGE_POLL_INTERVAL_MS: rawOpt,
   ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS: rawOpt,
   ZERNIO_RECENT_REVIEW_POLL_PAGE_SIZE: rawOpt,
   ZERNIO_RECENT_REVIEW_POLL_MAX_PAGES: rawOpt,
@@ -146,6 +148,9 @@ const workerSchema = z.object({
   // guards with `if (!contentSid)`, so rawOptionalVar preserves ''/'   '/unset
   // byte-for-byte (#7); no asserting accessor (#5).
   WHATSAPP_PENDING_POST_TEMPLATE_SID: rawOpt,
+  // WS6 account-level safety notice; unset means WhatsApp skips cleanly while
+  // email/Telegram still deliver. Read only through this worker config seam.
+  WHATSAPP_AUTONOMY_SUSPENDED_TEMPLATE_SID: rawOpt,
   ZERNIO_INGEST_MAX_PAGES: rawOpt,
 
   // ── Stage-3 worker-ingress batch ──────────────────────────────────────────

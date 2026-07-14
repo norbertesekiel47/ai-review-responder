@@ -150,6 +150,21 @@ export type SendPendingPostNoticeResult =
   | { status: 'sent'; externalMessageId: string }
   | { status: 'skipped'; reason: string };
 
+/** Account-level safety notice emitted when the judge/governor pauses auto-posting. */
+export interface SendAutonomySuspendedNoticeParams {
+  handle: string;
+  accountName: string;
+  reason: string;
+  settingsUrl: string;
+  supportUrl: string;
+  /** Stable suspension event id for provider idempotency. */
+  suspensionEventId: string;
+}
+
+export type SendAutonomySuspendedNoticeResult =
+  | { status: 'sent'; externalMessageId: string }
+  | { status: 'skipped'; reason: string };
+
 export interface NotificationChannel {
   readonly id: ChannelId;
   /** True if the channel supports inline buttons for approve/regenerate. */
@@ -175,4 +190,8 @@ export interface NotificationChannel {
    * sent/skipped union (WhatsApp skips without its approved template SID).
    */
   sendPendingPostNotice(p: SendPendingPostNoticeParams): Promise<SendPendingPostNoticeResult>;
+  /** Send the account-level safety notice. No review/response content is accepted. */
+  sendAutonomySuspendedNotice(
+    p: SendAutonomySuspendedNoticeParams,
+  ): Promise<SendAutonomySuspendedNoticeResult>;
 }

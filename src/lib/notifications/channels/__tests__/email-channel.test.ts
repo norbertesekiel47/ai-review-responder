@@ -1,12 +1,14 @@
 // src/lib/notifications/channels/__tests__/email-channel.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockSendApprovalEmail } = vi.hoisted(() => ({
+const { mockSendApprovalEmail, mockSendAutonomySuspendedNoticeEmail } = vi.hoisted(() => ({
   mockSendApprovalEmail: vi.fn(),
+  mockSendAutonomySuspendedNoticeEmail: vi.fn(),
 }));
 
 vi.mock('../../email', () => ({
   sendApprovalEmail: mockSendApprovalEmail,
+  sendAutonomySuspendedNoticeEmail: mockSendAutonomySuspendedNoticeEmail,
 }));
 
 // Hermetic worker-lane config (Stage-3 conventions #6/#9): EmailChannel now reads
@@ -23,6 +25,7 @@ import { resetWorkerConfigForTests } from '@/lib/config/worker';
 describe('EmailChannel', () => {
   beforeEach(() => {
     mockSendApprovalEmail.mockReset();
+    mockSendAutonomySuspendedNoticeEmail.mockReset();
     process.env.RESEND_FROM_EMAIL = 'RepWorth <notifications@example.com>';
     resetWorkerConfigForTests();
   });
@@ -32,6 +35,20 @@ describe('EmailChannel', () => {
     expect(ch.id).toBe('email');
     expect(ch.supportsInlineActions).toBe(false);
     expect(ch.requiresOptInHandshake).toBe(false);
+  });
+
+  it('sends the account-only autonomy suspension template with an idempotency key', async () => {
+    mockSendAutonomySuspendedNoticeEmail.mockResolvedValueOnce({ messageId: 'resend-suspended-1' });
+    const result = await new EmailChannel().sendAutonomySuspendedNotice({
+      handle: 'owner@example.com', accountName: 'Acme Group', reason: 'Safety review threshold.',
+      settingsUrl: 'https://app.example.com/settings/auto-approval',
+      supportUrl: 'mailto:support@repworth.net', suspensionEventId: 'event-1',
+    });
+    expect(result).toEqual({ status: 'sent', externalMessageId: 'resend-suspended-1' });
+    expect(mockSendAutonomySuspendedNoticeEmail).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'owner@example.com', accountName: 'Acme Group',
+      idempotencyKey: 'autonomy_suspended_notice:event-1',
+    }));
   });
 
   it('forwards approval params to sendApprovalEmail and returns the messageId', async () => {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   autoApprovalRuntimeEnabled,
+  governorEnabled,
   providerModerationEnabled,
   providerModerationValidated,
 } from '../flags';
@@ -54,5 +55,13 @@ describe('auto-approval flag helpers', () => {
 
     process.env.AUTO_APPROVAL_PROVIDER_MODERATION_READY = 'true';
     expect(providerModerationValidated()).toBe(true);
+  });
+
+  it('enables the autonomy governor only for exact GOVERNOR_ENABLED=true', () => {
+    process.env.GOVERNOR_ENABLED = 'TRUE';
+    expect(governorEnabled()).toBe(false);
+
+    process.env.GOVERNOR_ENABLED = 'true';
+    expect(governorEnabled()).toBe(true);
   });
 });

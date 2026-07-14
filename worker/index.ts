@@ -18,6 +18,10 @@ import { handleSendNotification } from './jobs/notification/NotificationWorker';
 import { handleAutoPostNotice } from './jobs/auto-post-notice/AutoPostNoticeWorker';
 import { handleEscalationNotice } from './jobs/escalation-notice/EscalationNoticeWorker';
 import { handlePendingPostNotice } from './jobs/pending-post-notice/PendingPostNoticeWorker';
+import { handleAutonomySuspendedNotice } from './jobs/autonomy-suspended-notice/AutonomySuspendedNoticeWorker';
+import { handleAutonomyAdminAlert } from './jobs/AutonomyAdminAlertWorker';
+import { handleJudgeVerdict } from './jobs/judge/JudgeWorker';
+import { handleJudgeFailed } from './jobs/judge/failed-hook';
 import { handlePublishResponse } from './jobs/publisher/ResponsePublisherWorker';
 import { handlePublisherFailed } from './jobs/publisher/failed-hook';
 import { handleZernioReviewIngest } from './jobs/zernio/ZernioReviewIngestWorker';
@@ -36,6 +40,9 @@ import type {
   AutoPostNoticePayload,
   EscalationNoticePayload,
   PendingPostNoticePayload,
+  AutonomySuspendedNoticePayload,
+  AutonomyAdminAlertPayload,
+  JudgeVerdictPayload,
   PublishResponsePayload,
 } from '../src/lib/shared/worker-types';
 import { handleAdminException } from './jobs/AdminExceptionWorker';
@@ -81,6 +88,11 @@ import { startStripeLocationsReconcilePoller, stopStripeLocationsReconcilePoller
 import { startZernioRecentReviewPoller, stopZernioRecentReviewPoller } from './background/pollers/ZernioRecentReviewPoller';
 import { startAnalyticsDispatchPoller, stopAnalyticsDispatchPoller } from './background/pollers/AnalyticsDispatchPoller';
 import { startHealthAlertPoller, stopHealthAlertPoller } from './background/pollers/HealthAlertPoller';
+import { startJudgeSweepPoller, stopJudgeSweepPoller } from './background/pollers/JudgeSweepPoller';
+import {
+  startAutonomyGovernorScheduler,
+  stopAutonomyGovernorScheduler,
+} from './background/schedulers/AutonomyGovernorScheduler';
 import { startAccountOffboardingAccessEndPoller, stopAccountOffboardingAccessEndPoller } from './background/pollers/AccountOffboardingAccessEndPoller';
 import { startAccountOffboardingPurgePoller, stopAccountOffboardingPurgePoller } from './background/pollers/AccountOffboardingPurgePoller';
 import { startAccountOffboardingPurgeReminderPoller, stopAccountOffboardingPurgeReminderPoller } from './background/pollers/AccountOffboardingPurgeReminderPoller';
@@ -173,6 +185,26 @@ const escalationNoticeWorker = new Worker(QUEUE_NAMES.ESCALATION_NOTICE, withJob
 
 const pendingPostNoticeWorker = new Worker(QUEUE_NAMES.PENDING_POST_NOTICE, withJobLogContext<PendingPostNoticePayload>((job) => handlePendingPostNotice(sql, job)), workerOpts);
 
+const autonomySuspendedNoticeWorker = new Worker(
+  QUEUE_NAMES.AUTONOMY_SUSPENDED_NOTICE,
+  withJobLogContext<AutonomySuspendedNoticePayload>((job) => handleAutonomySuspendedNotice(sql, job)),
+  workerOpts,
+);
+
+const autonomyAdminAlertWorker = new Worker(
+  QUEUE_NAMES.AUTONOMY_ADMIN_ALERT,
+  withJobLogContext<AutonomyAdminAlertPayload>((job) => handleAutonomyAdminAlert(sql, job)),
+  workerOpts,
+);
+
+const judgeVerdictWorker = new Worker<JudgeVerdictPayload>(
+  QUEUE_NAMES.JUDGE_VERDICT,
+  withJobLogContext<JudgeVerdictPayload>((job) => handleJudgeVerdict(sql, job)),
+  workerOpts,
+);
+
+judgeVerdictWorker.on('failed', (job, err) => handleJudgeFailed(sql, job, err));
+
 const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminException, workerOpts);
 
 const weeklySummaryWorker = new Worker(QUEUE_NAMES.WEEKLY_SUMMARY, handleWeeklySummary, workerOpts);
@@ -257,6 +289,9 @@ const workersByQueue = {
   [QUEUE_NAMES.AUTO_POST_NOTICE]: autoPostNoticeWorker,
   [QUEUE_NAMES.ESCALATION_NOTICE]: escalationNoticeWorker,
   [QUEUE_NAMES.PENDING_POST_NOTICE]: pendingPostNoticeWorker,
+  [QUEUE_NAMES.AUTONOMY_SUSPENDED_NOTICE]: autonomySuspendedNoticeWorker,
+  [QUEUE_NAMES.AUTONOMY_ADMIN_ALERT]: autonomyAdminAlertWorker,
+  [QUEUE_NAMES.JUDGE_VERDICT]: judgeVerdictWorker,
   [QUEUE_NAMES.NOTIFY_ADMIN]: adminExceptionWorker,
   [QUEUE_NAMES.WEEKLY_SUMMARY]: weeklySummaryWorker,
   [QUEUE_NAMES.VALIDATE_PLACE_ID]: placeIdValidationWorker,
@@ -449,6 +484,8 @@ async function main(): Promise<void> {
   startAccountOffboardingReactivationResetPoller();
   startAccountOffboardingTeardownRetryPoller();
   startHealthAlertPoller();
+  startJudgeSweepPoller();
+  startAutonomyGovernorScheduler();
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -494,6 +531,8 @@ const shutdown = createGracefulShutdown({
     stopAccountOffboardingReactivationResetPoller();
     stopAccountOffboardingTeardownRetryPoller();
     stopHealthAlertPoller();
+    stopJudgeSweepPoller();
+    stopAutonomyGovernorScheduler();
   },
   // Drain the DB-backed analytics dispatch before the DB pool closes, so we
   // never mark rows completed (or call PostHog) after sql.end().

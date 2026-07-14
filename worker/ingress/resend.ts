@@ -155,6 +155,9 @@ const OWNER_DIRECTED_TEMPLATES = new Set([
   // Veto-window pending-post notice (WS4) — owner-directed, so a hard bounce
   // flags businesses.owner_email_bounced like any other owner email.
   'pending_post_notice',
+  // Autonomy suspension safety notice (WS6) — owner-directed account status,
+  // so a hard bounce must suppress future owner email until admin remediation.
+  'autonomy_suspended_notice',
 ]);
 
 /**

@@ -538,6 +538,13 @@ export function verificationQuery(
         WHERE account_id = ${accountId}::uuid
       `;
 
+    case 'judge_verdicts':
+      return exec<VerificationRow[]>`
+        SELECT COUNT(*) AS violation_count
+        FROM judge_verdicts
+        WHERE account_id = ${accountId}::uuid
+      `;
+
     case 'account_offboardings':
       return exec<VerificationRow[]>`
         SELECT COUNT(*) AS violation_count
@@ -595,4 +602,3 @@ export function absentByBusiness(
     WHERE business_id IN (SELECT id FROM account_businesses)
   `;
 }
-

@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 371;
+export const ALLOWLIST_BASELINE = 391;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -55,13 +55,31 @@ export const CATEGORY_PATH_RULES: Partial<
     allowedPrefixes: ['src/app/api/admin/', 'src/app/admin/', 'src/lib/admin/'],
     // Admin-only mutation helper invoked from the admin offboarding route
     // after requireRole(admin); lives with its domain, not under src/lib/admin.
-    allowedFiles: ['src/lib/account-offboarding/provider-disposition.ts'],
+    allowedFiles: [
+      'src/lib/account-offboarding/provider-disposition.ts',
+      // Deep read module invoked only after the admin autonomy route's
+      // requireAdminWithAal2 gate; keeps cross-account aggregation out of the
+      // composition root while remaining explicitly injected and testable.
+      'src/lib/auto-approval/suspension.ts',
+      // The Task 10 admin recovery list calls governor's bounded batch-rate
+      // seam after requireAdminWithAal2. The scheduler's ordinary one-account
+      // calls remain tenant-scoped and need no cross-account exemption.
+      'src/lib/auto-approval/governor.ts',
+    ],
   },
   'platform-cross-account': {
     allowedPrefixes: ['src/lib/admin/'],
   },
   'background-global-scan': {
     allowedPrefixes: ['worker/'],
+    // Domain scans invoked by registered pollers/schedulers. Keeping them in
+    // src/lib preserves explicit Sql injection and testability; governor.ts's
+    // separate Task 10 admin batch-rate statements use the admin category.
+    allowedFiles: [
+      'src/lib/responses/judge-store.ts',
+      'src/lib/responses/judge-health.ts',
+      'src/lib/auto-approval/governor.ts',
+    ],
   },
   'provider-ingress': {
     // src/app/api/zernio/ is the ADR 0001 OAuth-handshake carve-out.
@@ -92,6 +110,30 @@ const DASHBOARD_SETTINGS_SELECT_SQL =
 
 const HEALTH_ZERO_DELIVERY_SQL =
   "SELECT COUNT(*)::int AS count FROM job_outbox jo JOIN responses r ON r.id = (jo.payload->>'response_id')::uuid JOIN businesses b ON b.id = r.business_id WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.status = 'completed' AND COALESCE(jo.completed_at, jo.dispatched_at, jo.available_at) > NOW() - make_interval(secs => ${cfg.zeroDeliveryWindowS}) AND r.status = 'pending_approval' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.response_id = r.id )";
+
+const JUDGE_SWEEP_CANDIDATES_SQL =
+  "SELECT r.id AS response_id, r.business_id, b.account_id FROM responses r JOIN businesses b ON b.id = r.business_id JOIN accounts a ON a.id = b.account_id WHERE r.status = 'posted' AND r.approval_method = 'auto_policy' AND r.posted_at >= NOW() - make_interval(hours => ${options.lookbackHours}) AND ${publisherSubscriptionEligibleSql(sql)} AND NOT EXISTS ( SELECT 1 FROM judge_verdicts jv WHERE jv.response_id = r.id ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.JUDGE_VERDICT} AND jo.aggregate_id = r.id AND jo.status IN ('pending', 'dispatching', 'dispatched') ) ORDER BY r.posted_at ASC, r.id ASC LIMIT ${options.limit}";
+
+const JUDGE_HEALTH_STALENESS_SQL =
+  "SELECT EXISTS ( SELECT 1 FROM responses r JOIN businesses b ON b.id = r.business_id JOIN accounts a ON a.id = b.account_id WHERE r.status = 'posted' AND r.approval_method = 'auto_policy' AND r.posted_at >= NOW() - make_interval(hours => ${JUDGE_LOOKBACK_HOURS}) AND r.posted_at < NOW() - make_interval(mins => ${JUDGE_STALENESS_LIMIT_MINUTES}) AND ${publisherSubscriptionEligibleSql(sql)} AND NOT EXISTS ( SELECT 1 FROM judge_verdicts jv WHERE jv.response_id = r.id ) AND EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.JUDGE_VERDICT} AND jo.aggregate_id = r.id AND jo.created_at < NOW() - make_interval(mins => ${JUDGE_STALENESS_LIMIT_MINUTES}) ) ) AS has_stale_unjudged";
+
+const JUDGE_HEALTH_ERROR_DENSITY_SQL =
+  "SELECT COUNT(*)::int AS total_count, COUNT(*) FILTER ( WHERE verdict = 'error' AND NOT COALESCE(reasons @> ${sql.json([JUDGE_ERROR_REASON_BUDGET_EXCEEDED])}, false) )::int AS error_count FROM judge_verdicts WHERE created_at >= NOW() - make_interval(mins => ${JUDGE_STALENESS_LIMIT_MINUTES})";
+
+const GOVERNOR_CANDIDATES_SQL =
+  "SELECT armed.account_id, GREATEST( NOW() - make_interval(days => ${GOVERNOR_WINDOW_DAYS}), COALESCE(MAX(aal.created_at), '-infinity'::timestamptz) ) AS window_start FROM auto_approval_policies armed LEFT JOIN account_audit_log aal ON aal.account_id = armed.account_id AND aal.event_type = 'autonomy_unsuspended' WHERE armed.auto_approve_min_star IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM auto_approval_policies account_default WHERE account_default.account_id = armed.account_id AND account_default.location_id IS NULL AND account_default.persona = 'reply' AND account_default.action_class = 'posting' AND account_default.suspended_at IS NOT NULL ) GROUP BY armed.account_id ORDER BY CASE WHEN COALESCE(armed.account_id > ${afterAccountId}::uuid, TRUE) THEN 0 ELSE 1 END, armed.account_id LIMIT ${limit}";
+
+const GOVERNOR_BATCH_OUTCOMES_SQL =
+  "SELECT scope.account_id, COALESCE(SUM(outcome.unit_count) FILTER ( WHERE outcome.outcome_kind = ${'reply_edited_by_owner'} ), 0)::int AS edited_count, COALESCE(SUM(outcome.unit_count) FILTER ( WHERE outcome.outcome_kind = ${'reply_approved_no_edit'} ), 0)::int AS approved_count, COALESCE(SUM(outcome.unit_count) FILTER ( WHERE outcome.outcome_kind = ${'reply_vetoed_by_owner'} ), 0)::int AS vetoed_count, COALESCE(SUM(outcome.unit_count) FILTER ( WHERE outcome.outcome_kind = ${'reply_auto_posted'} ), 0)::int AS auto_posted_count FROM unnest(${accountIds}::uuid[], ${windowStarts}::timestamptz[]) AS scope(account_id, window_start) LEFT JOIN agent_outcomes outcome ON outcome.account_id = scope.account_id AND outcome.occurred_at >= scope.window_start AND outcome.outcome_kind IN ( ${'reply_edited_by_owner'}, ${'reply_approved_no_edit'}, ${'reply_vetoed_by_owner'}, ${'reply_auto_posted'} ) GROUP BY scope.account_id ORDER BY scope.account_id";
+
+const GOVERNOR_BATCH_VERDICTS_SQL =
+  "SELECT scope.account_id, COUNT(*) FILTER (WHERE verdict.verdict = 'pass')::int AS pass_count, COUNT(*) FILTER (WHERE verdict.verdict = 'warn')::int AS warn_count, COUNT(*) FILTER (WHERE verdict.verdict = 'flag')::int AS flag_count FROM unnest(${accountIds}::uuid[], ${windowStarts}::timestamptz[]) AS scope(account_id, window_start) LEFT JOIN judge_verdicts verdict ON verdict.account_id = scope.account_id AND verdict.created_at >= scope.window_start AND verdict.verdict IN ('pass', 'warn', 'flag') GROUP BY scope.account_id ORDER BY scope.account_id";
+
+const SUSPENDED_POLICIES_SQL =
+  "SELECT policy.id AS policy_id, policy.account_id, account.display_name AS account_name, policy.location_id, COALESCE(NULLIF(location.display_label, ''), location.name) AS location_name, policy.suspended_reason, policy.suspended_at, GREATEST( NOW() - make_interval(days => ${GOVERNOR_WINDOW_DAYS}), COALESCE(MAX(unsuspend_audit.created_at), '-infinity'::timestamptz) ) AS window_start, (array_agg(suspend_audit.payload->>'trigger' ORDER BY suspend_audit.created_at DESC, suspend_audit.id DESC))[1] AS audit_trigger FROM auto_approval_policies policy JOIN accounts account ON account.id = policy.account_id LEFT JOIN businesses location ON location.id = policy.location_id AND location.account_id = policy.account_id LEFT JOIN account_audit_log unsuspend_audit ON unsuspend_audit.account_id = policy.account_id AND unsuspend_audit.event_type = 'autonomy_unsuspended' LEFT JOIN account_audit_log suspend_audit ON suspend_audit.account_id = policy.account_id AND suspend_audit.event_type = 'autonomy_suspended' WHERE policy.suspended_at IS NOT NULL GROUP BY policy.id, policy.account_id, account.display_name, policy.location_id, location.display_label, location.name, policy.suspended_reason, policy.suspended_at ORDER BY policy.suspended_at DESC, policy.id LIMIT 100";
+
+const SUSPENSION_FLAG_EVIDENCE_SQL =
+  "WITH ranked_flags AS ( SELECT verdict.id, verdict.account_id, verdict.business_id, verdict.review_id, verdict.response_id, ARRAY( SELECT jsonb_array_elements_text( CASE WHEN jsonb_typeof(verdict.reasons) = 'array' THEN verdict.reasons ELSE '[]'::jsonb END ) ) AS reason_categories, verdict.created_at, ROW_NUMBER() OVER ( PARTITION BY verdict.account_id ORDER BY verdict.created_at DESC, verdict.id DESC ) AS flag_rank FROM judge_verdicts verdict WHERE verdict.account_id = ANY(${accountIds}::uuid[]) AND verdict.verdict = 'flag' ) SELECT id, account_id, business_id, review_id, response_id, reason_categories, created_at FROM ranked_flags WHERE flag_rank <= 5 ORDER BY account_id, created_at DESC, id DESC";
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
@@ -2698,6 +2740,146 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT stripe_subscription_id FROM accounts WHERE stripe_customer_id = ${stripeCustomerId} AND id <> ${account.id}::uuid AND stripe_subscription_id = ANY(${activeIds}::text[])",
     category: 'background-global-scan',
     reason: "RECONCILE-F6: billing reconciliation poller scans OTHER accounts sharing the same Stripe customer id to exclude their subscriptions from the duplicate-subscription alert for this account. Intentionally cross-account: the query filters by stripe_customer_id (not account_id) to identify sibling accounts — a legitimate cross-account lookup for an observability-only check with no write side-effects.",
+  },
+  {
+    file: "src/lib/responses/judge-store.ts",
+    table: "agent_runs",
+    sqlSnippet: "SELECT id FROM agent_runs WHERE kind = 'review_handler' AND subject_type = 'review' AND subject_id = ${reviewId} ORDER BY started_at DESC LIMIT 1",
+    category: 'worker-job-scoped',
+    reason: "JudgeWorker resolves the latest review-subject run only after its durable response payload is loaded and the review lane is anchored; any run status is eligible for the post-hoc verdict link.",
+  },
+  {
+    file: "src/lib/responses/judge-store.ts",
+    table: "judge_verdicts",
+    sqlSnippet: JUDGE_SWEEP_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "JudgeSweepPoller uses a bounded global anti-join against verdicts to find only auto-posted responses that have not already been judged.",
+  },
+  {
+    file: "src/lib/responses/judge-store.ts",
+    table: "responses",
+    sqlSnippet: JUDGE_SWEEP_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "JudgeSweepPoller intentionally scans the bounded 24-hour posted-auto-policy population before enqueueing tenant-scoped judge work.",
+  },
+  {
+    file: "src/lib/responses/judge-store.ts",
+    table: "businesses",
+    sqlSnippet: JUDGE_SWEEP_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "JudgeSweepPoller joins each candidate to its billing parent while performing the bounded cross-tenant eligibility scan.",
+  },
+  {
+    file: "src/lib/responses/judge-store.ts",
+    table: "accounts",
+    sqlSnippet: JUDGE_SWEEP_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "JudgeSweepPoller filters the bounded global candidate scan to canonical full-access subscription statuses before enqueueing work.",
+  },
+  {
+    file: "src/lib/responses/judge-health.ts",
+    table: "responses",
+    sqlSnippet: JUDGE_HEALTH_STALENESS_SQL,
+    category: 'background-global-scan',
+    reason: "The publisher safety gate scans only the indexed, bounded 24-hour auto-policy population for stale unjudged replies before allowing any external post.",
+  },
+  {
+    file: "src/lib/responses/judge-health.ts",
+    table: "businesses",
+    sqlSnippet: JUDGE_HEALTH_STALENESS_SQL,
+    category: 'background-global-scan',
+    reason: "The bounded Judge-health staleness scan joins response locations to their billing parents solely to apply canonical subscription eligibility.",
+  },
+  {
+    file: "src/lib/responses/judge-health.ts",
+    table: "accounts",
+    sqlSnippet: JUDGE_HEALTH_STALENESS_SQL,
+    category: 'background-global-scan',
+    reason: "The bounded Judge-health staleness scan excludes ineligible subscriptions so cancelled accounts cannot pause fleet-wide auto-posting.",
+  },
+  {
+    file: "src/lib/responses/judge-health.ts",
+    table: "judge_verdicts",
+    sqlSnippet: JUDGE_HEALTH_STALENESS_SQL,
+    category: 'background-global-scan',
+    reason: "The publisher safety gate uses a bounded verdict anti-join; any verdict, including error, counts as judged for staleness.",
+  },
+  {
+    file: "src/lib/responses/judge-health.ts",
+    table: "judge_verdicts",
+    sqlSnippet: JUDGE_HEALTH_ERROR_DENSITY_SQL,
+    category: 'background-global-scan',
+    reason: "The publisher safety gate computes fleet-wide error density only over the indexed last-60-minute verdict window.",
+  },
+  {
+    file: "src/lib/auto-approval/governor.ts",
+    table: "auto_approval_policies",
+    sqlSnippet: GOVERNOR_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "AutonomyGovernorScheduler performs one bounded cross-account scan for armed accounts whose account-default policy is not already suspended before evaluating tenant-scoped rates.",
+  },
+  {
+    file: "src/lib/auto-approval/governor.ts",
+    table: "account_audit_log",
+    sqlSnippet: GOVERNOR_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "The bounded governor scan joins autonomy_unsuspended audit events only to cap each account's rolling window and prevent immediate stale-data re-suspension.",
+  },
+  {
+    file: "src/lib/auto-approval/governor.ts",
+    table: "agent_outcomes",
+    sqlSnippet: GOVERNOR_BATCH_OUTCOMES_SQL,
+    category: 'admin-after-require-role',
+    reason: "The Task 10 admin+AAL2 recovery list is the cross-account caller and passes at most 100 preselected windows; the scheduler calls this seam with one tenant-scoped account and needs no exemption.",
+  },
+  {
+    file: "src/lib/auto-approval/governor.ts",
+    table: "judge_verdicts",
+    sqlSnippet: GOVERNOR_BATCH_VERDICTS_SQL,
+    category: 'admin-after-require-role',
+    reason: "The Task 10 admin+AAL2 recovery list is the cross-account caller and passes at most 100 preselected windows; ordinary governor calls supply one scheduler-selected account and remain tenant-scoped.",
+  },
+  {
+    file: "src/lib/auto-approval/suspension.ts",
+    table: "auto_approval_policies",
+    sqlSnippet: SUSPENDED_POLICIES_SQL,
+    category: 'admin-after-require-role',
+    reason: "The admin+AAL2 autonomy recovery route requests a bounded cross-account list of only currently suspended policy rows.",
+  },
+  {
+    file: "src/lib/auto-approval/suspension.ts",
+    table: "accounts",
+    sqlSnippet: SUSPENDED_POLICIES_SQL,
+    category: 'admin-after-require-role',
+    reason: "The admin+AAL2 recovery list joins billing-parent display names for operator identification; the result remains bounded to 100 suspended policies.",
+  },
+  {
+    file: "src/lib/auto-approval/suspension.ts",
+    table: "businesses",
+    sqlSnippet: SUSPENDED_POLICIES_SQL,
+    category: 'admin-after-require-role',
+    reason: "The admin+AAL2 recovery list joins location display information for suspended location-scoped policies only.",
+  },
+  {
+    file: "src/lib/auto-approval/suspension.ts",
+    table: "account_audit_log",
+    sqlSnippet: SUSPENDED_POLICIES_SQL,
+    category: 'admin-after-require-role',
+    reason: "The bounded admin recovery list joins autonomy audit rows only to compute the stale-data-safe governor window (unsuspended) and to surface the machine-readable trigger of the latest suspension (suspended payload).",
+  },
+  {
+    file: "src/lib/auto-approval/suspension.ts",
+    table: "judge_verdicts",
+    sqlSnippet: SUSPENSION_FLAG_EVIDENCE_SQL,
+    category: 'admin-after-require-role',
+    reason: "The admin+AAL2 recovery list reads at most five indexed flag verdicts per account selected by the bounded suspended-policy query.",
+  },
+  {
+    file: "src/lib/auto-approval/suspension.ts",
+    table: "auto_approval_policies",
+    sqlSnippet: "WITH target AS ( SELECT id, suspended_reason, auto_approve_min_star FROM auto_approval_policies WHERE account_id = ${input.accountId}::uuid AND location_id IS NULL AND persona = 'reply' AND action_class = 'posting' AND suspended_at IS NOT NULL FOR UPDATE ), updated AS ( UPDATE auto_approval_policies AS policy SET suspended_at = NULL, suspended_reason = NULL, updated_at = NOW() FROM target WHERE policy.id = target.id RETURNING target.suspended_reason AS previous_reason, target.auto_approve_min_star ) SELECT previous_reason, auto_approve_min_star FROM updated",
+    category: 'tenant-root-lookup',
+    reason: "Suspension domain callers supply one already-resolved accountId; the unsuspend CTE is directly account-scoped, but the auditor cannot propagate that scope through the UPDATE FROM target alias used to preserve the prior audit reason atomically.",
   },
   {
     file: "src/lib/agents/read.ts",

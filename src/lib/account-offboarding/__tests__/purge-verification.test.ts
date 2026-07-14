@@ -104,6 +104,35 @@ describe('purge verification', () => {
     ]);
   });
 
+  it('reports surviving judge verdicts as account-scoped purge residue', async () => {
+    const accountId = '00000000-0000-7000-8000-000000000001';
+    mockSql.mockImplementation(async (strings: any, ...values: unknown[]) => {
+      if (!Array.isArray(strings)) return [];
+      const text = strings.join('?');
+      calls.push({ text, values });
+      if (text.includes('FROM judge_verdicts')) return [{ violation_count: 2 }];
+      return [{ violation_count: 0 }];
+    });
+
+    const result = await verifyAccountOffboardingPurge({
+      accountId,
+      offboardingId: '00000000-0000-7000-8000-000000000002',
+    }, mockSql);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        table: 'judge_verdicts',
+        disposition: 'hard_delete',
+        purgeVerification: 'must_be_absent',
+        violationCount: 2,
+      }),
+    ]);
+    const judgeQuery = calls.find((call) => call.text.includes('FROM judge_verdicts'));
+    expect(judgeQuery?.text).toContain('WHERE account_id = ?::uuid');
+    expect(judgeQuery?.values).toEqual([accountId]);
+  });
+
   it('uses explicit account, business, offboarding, and compliance retention scopes', async () => {
     await verifyAccountOffboardingPurge({
       accountId: '00000000-0000-7000-8000-000000000001',

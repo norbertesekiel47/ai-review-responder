@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **075** — next migration is **076**
+Current head: **076** — next migration is **077**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -865,6 +865,44 @@ Revisit triggers:
   authorization changes. **WS5 execution status:** applied and verified only
   against the local `test_ws4` container database; not applied to staging or
   production. At promotion time, the user applies it staging first, then
+  production, both Supabase projects in lockstep.
+
+- **076** — WS6 judge verdicts + governor support objects (spec
+  `docs/superpowers/specs/2026-07-13-ws6-judge-governor-design.md` §2.3).
+  Creates server-only `judge_verdicts`: app-supplied UUIDv7 id; account,
+  business, review, and response FKs with `ON DELETE CASCADE`; nullable
+  `agent_run_id ON DELETE SET NULL`; four-value verdict CHECK
+  (`pass`/`warn`/`flag`/`error`); category-enum `reasons` JSONB, bounded-at-the-
+  app-layer `rationale`, pinned model/prompt-version provenance, and one verdict
+  per response. Deny-all RLS (enabled, zero policies) plus explicit
+  authenticated write revocation matches the migration-071 spine posture.
+  `idx_judge_verdicts_account_created (account_id, created_at DESC)` serves
+  per-account governor windows; `idx_judge_verdicts_created (created_at DESC)`
+  serves global judge-health windows. Three child-FK RI-support indexes prevent
+  delete-trigger scans: `idx_judge_verdicts_business (business_id)` and
+  `idx_judge_verdicts_review (review_id)` support `ON DELETE CASCADE`, while
+  partial `idx_judge_verdicts_agent_run (agent_run_id) WHERE agent_run_id IS NOT
+  NULL` supports `ON DELETE SET NULL`; `account_id` and `response_id` are already
+  covered by the governor index and response UNIQUE respectively (WS6 §6 Task 1
+  amendment). Adds
+  `idx_responses_auto_policy_posted` for the bounded posted-auto-policy sweep
+  and staleness scan. Adds partial UNIQUE in-flight outbox indexes for
+  `judge_verdict`, `autonomy_suspended_notice`, and `autonomy_admin_alert`, each
+  on `(topic, aggregate_id)` with the exact
+  `status IN ('pending', 'dispatching', 'dispatched')` predicate their later
+  `ON CONFLICT` writers must repeat byte-for-byte. Adds nullable
+  `notification_deliveries.entity_id` plus the
+  `notification_deliveries_autonomy_suspended_claim` partial UNIQUE claim on
+  `(entity_id, channel, recipient) WHERE entity_id IS NOT NULL AND template =
+  'autonomy_suspended_notice'`; suspension notices remain non-response-
+  anchored (`response_id` stays NULL). Purely additive, transactional, fully
+  re-runnable, and intentionally has no `CONCURRENTLY`: the verdict table is
+  new, the topic/template predicates have zero rows before WS6 code, and
+  responses remain pre-launch-sized. Verified by two clean applications and
+  the exact live-catalog shape suite against the local `test_ws4` container
+  only. **Apply window:** 076-before-code is always safe. Code-before-076 is
+  safe only while `JUDGE_ENABLED` and `GOVERNOR_ENABLED` remain off; once
+  enabled, workers read/write these objects. Apply staging first, then
   production, both Supabase projects in lockstep.
 
 ## Key Tables Reference

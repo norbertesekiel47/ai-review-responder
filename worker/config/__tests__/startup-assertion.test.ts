@@ -79,6 +79,9 @@ describe('assertServerOnlyFeatureOptionalBooleansEnv', () => {
     'ACCOUNT_OFFBOARDING_ENABLED',
     'AUTO_APPROVAL_ENABLED',
     'AUTO_APPROVAL_PROVIDER_MODERATION_READY',
+    'GOVERNOR_ENABLED',
+    'JUDGE_ENABLED',
+    'STRIPE_TAX_ENABLED',
   ];
 
   beforeEach(() => {
@@ -88,7 +91,7 @@ describe('assertServerOnlyFeatureOptionalBooleansEnv', () => {
     restoreEnv(SNAP);
   });
 
-  it('allows both flags to be unset', () => {
+  it('allows all optional flags to be unset', () => {
     expect(() => assertServerOnlyFeatureOptionalBooleansEnv()).not.toThrow();
   });
 
@@ -96,6 +99,9 @@ describe('assertServerOnlyFeatureOptionalBooleansEnv', () => {
     process.env.ACCOUNT_OFFBOARDING_ENABLED = 'false';
     process.env.AUTO_APPROVAL_ENABLED = 'true';
     process.env.AUTO_APPROVAL_PROVIDER_MODERATION_READY = 'false';
+    process.env.GOVERNOR_ENABLED = 'true';
+    process.env.JUDGE_ENABLED = 'false';
+    process.env.STRIPE_TAX_ENABLED = 'true';
 
     expect(() => assertServerOnlyFeatureOptionalBooleansEnv()).not.toThrow();
   });
@@ -111,6 +117,15 @@ describe('assertServerOnlyFeatureOptionalBooleansEnv', () => {
 
     expect(() => assertServerOnlyFeatureOptionalBooleansEnv()).toThrow(/ACCOUNT_OFFBOARDING_ENABLED/);
   });
+
+  it.each(['JUDGE_ENABLED', 'GOVERNOR_ENABLED'] as const)(
+    'rejects loose %s values',
+    (key) => {
+      process.env[key] = '1';
+
+      expect(() => assertServerOnlyFeatureOptionalBooleansEnv()).toThrow(key);
+    },
+  );
 });
 
 describe('assertStripeWorkerEnv', () => {
@@ -336,6 +351,9 @@ describe('assertWorkerStartupEnv', () => {
     'ACCOUNT_OFFBOARDING_ENABLED',
     'AUTO_APPROVAL_ENABLED',
     'AUTO_APPROVAL_PROVIDER_MODERATION_READY',
+    'GOVERNOR_ENABLED',
+    'JUDGE_ENABLED',
+    'STRIPE_TAX_ENABLED',
     ...STRIPE_WORKER_REQUIRED,
     ...CORE_INFRA_REQUIRED,
   ];
@@ -387,6 +405,17 @@ describe('assertWorkerStartupEnv', () => {
 
     expect(() => assertWorkerStartupEnv()).toThrow(/ACCOUNT_OFFBOARDING_ENABLED/);
   });
+
+  it.each(['JUDGE_ENABLED', 'GOVERNOR_ENABLED'] as const)(
+    'rejects loose %s through the aggregate startup guard',
+    (key) => {
+      setEnv('NODE_ENV', 'test');
+      process.env.MOCK_EXTERNAL_APIS = 'true';
+      process.env[key] = 'enabled';
+
+      expect(() => assertWorkerStartupEnv()).toThrow(key);
+    },
+  );
 });
 
 describe('worker startup guard import order', () => {

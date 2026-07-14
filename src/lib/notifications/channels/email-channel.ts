@@ -9,6 +9,7 @@ import {
   sendAutoPostNoticeEmail,
   sendEscalationNoticeEmail,
   sendPendingPostNoticeEmail,
+  sendAutonomySuspendedNoticeEmail,
 } from '../email';
 import { getWorkerConfig } from '@/lib/config/worker';
 import type {
@@ -21,6 +22,8 @@ import type {
   SendEscalationNoticeResult,
   SendPendingPostNoticeParams,
   SendPendingPostNoticeResult,
+  SendAutonomySuspendedNoticeParams,
+  SendAutonomySuspendedNoticeResult,
 } from './types';
 
 export class EmailChannel implements NotificationChannel {
@@ -121,6 +124,23 @@ export class EmailChannel implements NotificationChannel {
       idempotencyKey: `pending_post_notice:${p.responseId}`,
     });
 
+    return { status: 'sent', externalMessageId: messageId };
+  }
+
+  async sendAutonomySuspendedNotice(
+    p: SendAutonomySuspendedNoticeParams,
+  ): Promise<SendAutonomySuspendedNoticeResult> {
+    const from = getWorkerConfig().RESEND_FROM_EMAIL;
+    if (!from) throw new Error('RESEND_FROM_EMAIL not configured');
+    const { messageId } = await sendAutonomySuspendedNoticeEmail({
+      to: p.handle,
+      from,
+      accountName: p.accountName,
+      reason: p.reason,
+      settingsUrl: p.settingsUrl,
+      supportUrl: p.supportUrl,
+      idempotencyKey: `autonomy_suspended_notice:${p.suspensionEventId}`,
+    });
     return { status: 'sent', externalMessageId: messageId };
   }
 }

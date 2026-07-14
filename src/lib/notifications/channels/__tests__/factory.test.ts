@@ -12,6 +12,14 @@ describe('NotificationChannel totality — sendPendingPostNotice (WS4)', () => {
   });
 });
 
+describe('NotificationChannel totality — sendAutonomySuspendedNotice (WS6)', () => {
+  it('is implemented by all three channels', () => {
+    for (const channel of [new EmailChannel(), new TelegramChannel(), new WhatsAppChannel()]) {
+      expect(typeof channel.sendAutonomySuspendedNotice).toBe('function');
+    }
+  });
+});
+
 describe('getChannel', () => {
   it('returns EmailChannel for email regardless of flag state', () => {
     const ch = getChannel('email');

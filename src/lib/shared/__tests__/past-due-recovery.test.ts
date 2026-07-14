@@ -136,6 +136,46 @@ describe('computePastDueRecoveryState', () => {
     expect(state.isReadOnly).toBe(false);
     expect(state.extension?.days).toBe(7);
   });
+
+  it.each([
+    ['date-only', '2026-06-01'],
+    ['impossible calendar date', '2099-02-30T12:00:00.000Z'],
+    ['invalid time', '2026-06-01T25:00:00.000Z'],
+    ['offset', '2026-06-01T14:00:00+02:00'],
+    ['missing milliseconds', '2026-06-01T12:00:00Z'],
+    ['short fractional seconds', '2026-06-01T12:00:00.1Z'],
+    ['long fractional seconds', '2026-06-01T12:00:00.123456Z'],
+    ['Postgres-only infinity', 'infinity'],
+  ])('rejects %s extension timestamps outside exact Date.toISOString format', (_label, expiresAt) => {
+    const state = computePastDueRecoveryState({
+      subscriptionStatus: 'past_due',
+      pastDueAt: new Date('2026-05-16T12:00:00.000Z'),
+      accountFlags: {
+        past_due_extension: { days: 7, expires_at: expiresAt },
+      },
+      now: NOW,
+    });
+
+    expect(state.isReadOnly).toBe(true);
+    expect(state.extension).toBeNull();
+  });
+
+  it.each([
+    '2026-06-01T12:00:00.000Z',
+    '2028-02-29T12:00:00.123Z',
+  ])('accepts exact Date.toISOString extension timestamp %s', (expiresAt) => {
+    const state = computePastDueRecoveryState({
+      subscriptionStatus: 'past_due',
+      pastDueAt: new Date('2026-05-16T12:00:00.000Z'),
+      accountFlags: {
+        past_due_extension: { days: 7, expires_at: expiresAt },
+      },
+      now: NOW,
+    });
+
+    expect(state.isReadOnly).toBe(false);
+    expect(state.extension?.expires_at).toBe(expiresAt);
+  });
 });
 
 describe('assertWritableSubscription', () => {

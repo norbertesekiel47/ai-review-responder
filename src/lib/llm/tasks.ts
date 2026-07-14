@@ -1,5 +1,6 @@
 import type { LLMTaskDescriptor, LLMTaskId } from './types';
 import { TriageOutputSchema } from '@/lib/reviews/triage-schema';
+import { JudgeOutputSchema } from '@/lib/responses/judge-schema';
 
 // Pinned snapshots — never a bare alias like 'gpt-4o-mini' (silent-regression
 // risk). Guarded by model-pinning.test.ts. Single owner: consumers import
@@ -8,10 +9,8 @@ import { TriageOutputSchema } from '@/lib/reviews/triage-schema';
 export const OPENAI_MODEL = 'gpt-4o-mini-2024-07-18' as const;
 export const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001' as const;
 
-/** Runtime registry. 'judge' exists in the LLMTaskId vocabulary (types.ts)
- *  but gets an entry only when its feature lands — no dead task config ships
- *  before its tenant (spec §2.2). Internal: getLlmTask is the module's door. */
-const LLM_TASKS: Partial<Record<LLMTaskId, LLMTaskDescriptor>> = {
+/** Runtime registry. Internal: getLlmTask is the module's door. */
+const LLM_TASKS: Record<LLMTaskId, LLMTaskDescriptor> = {
   reply_generation: {
     taskId: 'reply_generation',
     primary: { provider: 'openai', model: OPENAI_MODEL },
@@ -33,6 +32,14 @@ const LLM_TASKS: Partial<Record<LLMTaskId, LLMTaskDescriptor>> = {
     maxTokens: 200,
     temperature: 0,
     outputSchema: TriageOutputSchema,
+  },
+  judge: {
+    taskId: 'judge',
+    primary: { provider: 'openai', model: OPENAI_MODEL },
+    fallback: { provider: 'anthropic', model: ANTHROPIC_MODEL },
+    maxTokens: 300,
+    temperature: 0,
+    outputSchema: JudgeOutputSchema,
   },
 };
 

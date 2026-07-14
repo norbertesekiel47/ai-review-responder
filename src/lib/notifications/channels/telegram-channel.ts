@@ -14,6 +14,7 @@ import {
   formatAutoPostNoticeTelegram,
   formatEscalationNoticeTelegram,
   formatPendingPostNoticeTelegram,
+  formatAutonomySuspendedNoticeTelegram,
 } from './telegram-body';
 import { TelegramClient } from './telegram-client';
 import type {
@@ -27,6 +28,8 @@ import type {
   SendEscalationNoticeResult,
   SendPendingPostNoticeParams,
   SendPendingPostNoticeResult,
+  SendAutonomySuspendedNoticeParams,
+  SendAutonomySuspendedNoticeResult,
 } from './types';
 
 export class TelegramChannel implements NotificationChannel {
@@ -116,6 +119,21 @@ export class TelegramChannel implements NotificationChannel {
       scheduledPostAt: p.scheduledPostAt,
       approveUrl: p.approveUrl,
     });
+    const client = new TelegramClient();
+    const result = await client.sendMessage({
+      chat_id: p.handle,
+      text,
+      reply_markup: { inline_keyboard },
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+    });
+    return { status: 'sent', externalMessageId: `${result.chat.id}:${result.message_id}` };
+  }
+
+  async sendAutonomySuspendedNotice(
+    p: SendAutonomySuspendedNoticeParams,
+  ): Promise<SendAutonomySuspendedNoticeResult> {
+    const { text, inline_keyboard } = formatAutonomySuspendedNoticeTelegram(p);
     const client = new TelegramClient();
     const result = await client.sendMessage({
       chat_id: p.handle,

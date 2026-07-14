@@ -3,10 +3,15 @@ import type postgres from 'postgres';
 import { QUEUE_NAMES } from './queue-names';
 import {
   GENERATE_RESPONSE_ORIGIN_LANES,
+  type AutonomyAdminAlertPayload,
+  type AutonomySuspendedNoticePayload,
+  type AutonomySuspensionEvidence,
+  type AutonomySuspensionTrigger,
   type GenerateResponseOriginLane,
   type AutoPostNoticePayload,
   type EscalationNoticePayload,
   type GenerateResponsePayload,
+  type JudgeVerdictPayload,
   type PendingPostNoticePayload,
   type PublishResponsePayload,
   type SendNotificationPayload,
@@ -18,6 +23,7 @@ const JOB_OUTBOX_STATUS_PENDING = 'pending';
 const AGGREGATE_TYPE_REVIEW = 'review';
 const AGGREGATE_TYPE_RESPONSE = 'response';
 const AGGREGATE_TYPE_ESCALATION = 'escalation';
+const AGGREGATE_TYPE_SUSPENSION_EVENT = 'suspension_event';
 const KNOWN_ORIGIN_LANES = new Set<string>(GENERATE_RESPONSE_ORIGIN_LANES);
 
 export interface NormalizedGenerateResponsePayload {
@@ -81,6 +87,30 @@ export interface EnqueueEscalationNoticeInput {
   escalationId: string;
   businessId: string;
   correlationId?: string;
+}
+
+export interface EnqueueJudgeVerdictInput {
+  outboxId?: string;
+  responseId: string;
+  businessId: string;
+  accountId: string;
+  correlationId?: string;
+}
+
+export interface EnqueueAutonomySuspendedNoticeInput {
+  outboxId?: string;
+  accountId: string;
+  suspensionEventId: string;
+  trigger: AutonomySuspensionTrigger;
+  correlationId?: string;
+}
+
+export interface EnqueueAutonomyAdminAlertInput {
+  outboxId?: string;
+  accountId: string;
+  suspensionEventId: string;
+  trigger: AutonomySuspensionTrigger;
+  evidence: AutonomySuspensionEvidence;
 }
 
 function isRecord(data: unknown): data is Record<string, unknown> {
@@ -340,6 +370,112 @@ export async function enqueueEscalationNotice(
     )
     ON CONFLICT (topic, aggregate_id)
     WHERE topic = 'escalation_notice' -- topic-audit-ignore: partial-index inference needs a literal
+      AND status IN ('pending', 'dispatching', 'dispatched')
+    DO NOTHING
+  `;
+  return outboxId;
+}
+
+/**
+ * Enqueues post-hoc Judge work. The conflict predicate is byte-for-byte the
+ * idx_jo_judge_verdict_inflight predicate from migration 076.
+ */
+export async function enqueueJudgeVerdict(
+  tx: TxClient,
+  input: EnqueueJudgeVerdictInput,
+): Promise<string> {
+  const outboxId = input.outboxId ?? uuidv7();
+  const payload: JudgeVerdictPayload = {
+    response_id: input.responseId,
+    business_id: input.businessId,
+    account_id: input.accountId,
+  };
+  if (input.correlationId !== undefined) {
+    payload.correlation_id = input.correlationId;
+  }
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.JUDGE_VERDICT},
+      ${AGGREGATE_TYPE_RESPONSE},
+      ${input.responseId},
+      ${tx.json(payload as never)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
+    ON CONFLICT (topic, aggregate_id)
+    WHERE topic = 'judge_verdict' -- topic-audit-ignore: partial-index inference needs a literal
+      AND status IN ('pending', 'dispatching', 'dispatched')
+    DO NOTHING
+  `;
+  return outboxId;
+}
+
+/**
+ * Enqueues the owner safety notice in the same transaction as suspension.
+ * The conflict predicate matches idx_jo_autonomy_suspended_notice_inflight.
+ */
+export async function enqueueAutonomySuspendedNotice(
+  tx: TxClient,
+  input: EnqueueAutonomySuspendedNoticeInput,
+): Promise<string> {
+  const outboxId = input.outboxId ?? uuidv7();
+  const payload: AutonomySuspendedNoticePayload = {
+    account_id: input.accountId,
+    suspension_event_id: input.suspensionEventId,
+    trigger: input.trigger,
+  };
+  if (input.correlationId !== undefined) {
+    payload.correlation_id = input.correlationId;
+  }
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.AUTONOMY_SUSPENDED_NOTICE},
+      ${AGGREGATE_TYPE_SUSPENSION_EVENT},
+      ${input.suspensionEventId},
+      ${tx.json(payload as never)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
+    ON CONFLICT (topic, aggregate_id)
+    WHERE topic = 'autonomy_suspended_notice' -- topic-audit-ignore: partial-index inference needs a literal
+      AND status IN ('pending', 'dispatching', 'dispatched')
+    DO NOTHING
+  `;
+  return outboxId;
+}
+
+/**
+ * Enqueues the internal safety alert in the suspension transaction. The
+ * conflict predicate matches idx_jo_autonomy_admin_alert_inflight.
+ */
+export async function enqueueAutonomyAdminAlert(
+  tx: TxClient,
+  input: EnqueueAutonomyAdminAlertInput,
+): Promise<string> {
+  const outboxId = input.outboxId ?? uuidv7();
+  const payload: AutonomyAdminAlertPayload = {
+    account_id: input.accountId,
+    suspension_event_id: input.suspensionEventId,
+    trigger: input.trigger,
+    evidence: input.evidence,
+  };
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.AUTONOMY_ADMIN_ALERT},
+      ${AGGREGATE_TYPE_SUSPENSION_EVENT},
+      ${input.suspensionEventId},
+      ${tx.json(payload as never)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
+    ON CONFLICT (topic, aggregate_id)
+    WHERE topic = 'autonomy_admin_alert' -- topic-audit-ignore: partial-index inference needs a literal
       AND status IN ('pending', 'dispatching', 'dispatched')
     DO NOTHING
   `;

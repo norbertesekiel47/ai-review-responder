@@ -1,7 +1,16 @@
 import { SubscriptionStatus } from './subscription-status';
 
 const DAY_MS = 86_400_000;
-const GRACE_MS = 7 * DAY_MS;
+export const PAST_DUE_GRACE_DAYS = 7;
+const GRACE_MS = PAST_DUE_GRACE_DAYS * DAY_MS;
+
+// One exact timestamp language for both the canonical TypeScript publisher
+// guard and its fleet-scan SQL counterpart: the UTC millisecond form emitted
+// by Date.toISOString(). This deliberately rejects offsets and every other
+// fractional precision so fixed-width SQL string ordering is chronological.
+export const PAST_DUE_EXTENSION_TIMESTAMP_PATTERN =
+  '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9][.][0-9]{3}Z$';
+const pastDueExtensionTimestampRegex = new RegExp(PAST_DUE_EXTENSION_TIMESTAMP_PATTERN);
 
 export interface PastDueExtension {
   days: number;
@@ -40,6 +49,7 @@ function parseExtension(
   const ext = raw as Partial<PastDueExtension>;
   if (typeof ext.days !== 'number' || ext.days <= 0 || ext.days > 30) return null;
   if (typeof ext.expires_at !== 'string') return null;
+  if (!isValidPastDueExtensionTimestamp(ext.expires_at)) return null;
 
   const expiresAt = new Date(ext.expires_at);
   if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= now.getTime()) {
@@ -54,6 +64,13 @@ function parseExtension(
     granted_by_user_id:
       typeof ext.granted_by_user_id === 'string' ? ext.granted_by_user_id : undefined,
   };
+}
+
+function isValidPastDueExtensionTimestamp(value: string): boolean {
+  if (!pastDueExtensionTimestampRegex.test(value)) return false;
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return false;
+  return parsed.toISOString() === value;
 }
 
 function parseAccountFlags(
