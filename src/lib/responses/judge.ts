@@ -13,14 +13,17 @@ import { JudgeOutputSchema, type JudgeOutput } from './judge-schema';
 
 const logger = createWorkerLogger('[response-judge]');
 
-export interface JudgeResponseInput {
+export interface JudgePromptInput {
+  reviewRating: number | null;
+  reviewText: string | null;
+  postedReplyText: string;
+}
+
+export interface JudgeResponseInput extends JudgePromptInput {
   responseId: string;
   businessId: string;
   accountId: string;
   subscriptionTier: string;
-  reviewRating: number | null;
-  reviewText: string | null;
-  postedReplyText: string;
 }
 
 export interface JudgeCallResult extends JudgeOutput {
@@ -28,7 +31,8 @@ export interface JudgeCallResult extends JudgeOutput {
   promptVersion: string;
 }
 
-function buildJudgePrompt(input: JudgeResponseInput): ChatPrompt {
+/** Build the single production prompt envelope shared by workers and live evals. */
+export function buildJudgePrompt(input: JudgePromptInput): ChatPrompt {
   return {
     system: JUDGE_SYSTEM_PROMPT,
     user: JSON.stringify({

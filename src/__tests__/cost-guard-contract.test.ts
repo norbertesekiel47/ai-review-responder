@@ -29,9 +29,13 @@ const CALLER_ALLOWLIST = new Set([
   // post-hoc judge tenant (WS6) — judgeResponse wraps the pinned task with
   // withConcurrency:false and log-and-return-value finalization.
   'src/lib/responses/judge.ts',
+  // Optional WS6 live judge eval — deliberately bypasses tenant accounting in
+  // the key-gated external harness; tests/llm-eval/live-runner.ts marks the
+  // call site as the sanctioned demo/eval exception from llm/types.ts.
+  'tests/llm-eval/live-runner.ts',
 ]);
 
-const SCAN_ROOTS = ['src', 'worker'];
+const SCAN_ROOTS = ['src', 'worker', 'tests/llm-eval'];
 const SKIP_DIRS = new Set(['__tests__', 'fixtures', 'node_modules']);
 // A CALL site — the lookbehind excludes run-task.ts's own declaration
 // (`export async function runLlmTask(`).

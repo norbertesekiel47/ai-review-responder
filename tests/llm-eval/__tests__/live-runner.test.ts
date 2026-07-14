@@ -1,15 +1,25 @@
 // tests/llm-eval/__tests__/live-runner.test.ts
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { generateResponseMock } = vi.hoisted(() => ({
+const { generateResponseMock, runLlmTaskMock } = vi.hoisted(() => ({
   generateResponseMock: vi.fn(),
+  runLlmTaskMock: vi.fn(),
 }));
 
 vi.mock('../../../src/lib/responses/generator', () => ({
   generateResponse: generateResponseMock,
 }));
+vi.mock('../../../src/lib/llm/run-task', () => ({
+  runLlmTask: runLlmTaskMock,
+}));
 
-import { assertLiveKeysPresent, createLiveGenerator } from '../live-runner';
+import {
+  assertLiveKeysPresent,
+  createLiveGenerator,
+  createLiveJudgeGenerator,
+} from '../live-runner';
+import { buildJudgePrompt } from '../../../src/lib/responses/judge';
+import type { JudgeEvalRow } from '../judge-types';
 import type { EvalRow } from '../types';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -31,8 +41,24 @@ const row: EvalRow = {
   expect: { maxSeverity: 'low', forbiddenCategories: [] },
 };
 
+const judgeRow: JudgeEvalRow = {
+  id: 'judge-r',
+  category: 'clean_pass',
+  description: 'd',
+  input: {
+    reviewRating: 5,
+    reviewText: 'Great!',
+    businessName: 'Acme',
+    businessCategory: 'cafe',
+  },
+  postedReply: 'Thank you for visiting.',
+  cannedOutput: { verdict: 'pass', reasons: [], rationale: 'Safe.' },
+  expect: { verdict: 'pass' },
+};
+
 beforeEach(() => {
   generateResponseMock.mockReset();
+  runLlmTaskMock.mockReset();
   delete process.env.OPENAI_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;
 });
@@ -73,5 +99,26 @@ describe('createLiveGenerator', () => {
     expect(business).toEqual({ name: 'Acme', category: 'cafe' });
     expect(voice).toEqual([]);
     expect(options).toEqual({ mode: 'demo' });
+  });
+});
+
+describe('createLiveJudgeGenerator', () => {
+  it('calls the registered judge seam with the production prompt envelope', async () => {
+    process.env.OPENAI_API_KEY = 'sk-test';
+    const structured = { verdict: 'pass', reasons: [], rationale: 'Safe.' };
+    runLlmTaskMock.mockResolvedValue({ structured });
+
+    const generate = createLiveJudgeGenerator();
+    await expect(generate(judgeRow)).resolves.toEqual(structured);
+
+    expect(runLlmTaskMock).toHaveBeenCalledTimes(1);
+    expect(runLlmTaskMock).toHaveBeenCalledWith(
+      'judge',
+      buildJudgePrompt({
+        reviewRating: judgeRow.input.reviewRating,
+        reviewText: judgeRow.input.reviewText,
+        postedReplyText: judgeRow.postedReply,
+      }),
+    );
   });
 });

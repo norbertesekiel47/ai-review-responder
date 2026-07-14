@@ -21,7 +21,7 @@ const mockLogger = vi.hoisted(() => ({ log: vi.fn(), warn: vi.fn(), error: vi.fn
 vi.mock('@/lib/shared/logger', () => ({ createWorkerLogger: () => mockLogger }));
 
 import { JUDGE_PROMPT_VERSION, judgeSystemPromptHash } from '../judge-policy';
-import { judgeResponse } from '../judge';
+import { buildJudgePrompt, judgeResponse } from '../judge';
 import { CostInfraUnavailableError } from '@/lib/costs/errors';
 import { CostLimitExceededError } from '@/lib/costs/tracker';
 import { TransientLLMError } from '@/lib/llm/error-classifier';
@@ -85,10 +85,7 @@ describe('judgeResponse', () => {
       model: 'gpt-4o-mini-2024-07-18',
       promptVersion: JUDGE_PROMPT_VERSION,
     });
-    expect(runLlmTask).toHaveBeenCalledWith('judge', {
-      system: expect.stringContaining('Safety rubric:'),
-      user: expect.stringContaining(input.reviewText),
-    });
+    expect(runLlmTask).toHaveBeenCalledWith('judge', buildJudgePrompt(input));
     const prompt = runLlmTask.mock.calls[0]![1] as { user: string };
     expect(prompt.user).toContain(input.postedReplyText);
     expect(withCostGuard).toHaveBeenCalledWith({
@@ -116,6 +113,17 @@ describe('judgeResponse', () => {
       latencyMs: expect.any(Number),
     }));
     expect(guardedReturn?.actualCostCents).toBe(1);
+  });
+
+  it('builds the production prompt from only the review context and posted reply', () => {
+    expect(buildJudgePrompt(input)).toEqual({
+      system: expect.stringContaining('Safety rubric:'),
+      user: JSON.stringify({
+        reviewRating: input.reviewRating,
+        reviewText: input.reviewText,
+        postedReplyText: input.postedReplyText,
+      }),
+    });
   });
 
   it.each([
