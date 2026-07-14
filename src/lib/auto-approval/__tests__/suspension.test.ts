@@ -15,7 +15,10 @@ describe('autonomy suspension writer', () => {
   });
 
   it('atomically suspends a rowless account and records both follow-ups once', async () => {
-    sqlReturnQueue.push(mkTaggedResult([{ id: 'policy-1' }]));
+    sqlReturnQueue.push(
+      mkTaggedResult([{ id: 'account-1' }]),
+      mkTaggedResult([{ id: 'policy-1' }]),
+    );
 
     const result = await suspendAccountAutonomy(mockSql as never, {
       accountId: 'account-1',
@@ -25,17 +28,19 @@ describe('autonomy suspension writer', () => {
     });
 
     expect(result).toEqual({ newlySuspended: true });
-    expect(sqlCalls).toHaveLength(4);
-    expect(sqlCalls[0]!.text).toContain('INSERT INTO auto_approval_policies');
-    expect(sqlCalls[0]!.text).toContain('auto_approve_min_star');
-    expect(sqlCalls[0]!.text).toContain('ON CONFLICT (account_id, persona, action_class) WHERE location_id IS NULL');
-    expect(sqlCalls[0]!.text).toContain('WHERE auto_approval_policies.suspended_at IS NULL');
-    expect(sqlCalls[0]!.text).toContain('RETURNING id');
+    expect(sqlCalls).toHaveLength(5);
+    expect(sqlCalls[0]!.text).toContain('FROM accounts');
+    expect(sqlCalls[0]!.text).toContain('FOR UPDATE');
+    expect(sqlCalls[1]!.text).toContain('INSERT INTO auto_approval_policies');
+    expect(sqlCalls[1]!.text).toContain('auto_approve_min_star');
+    expect(sqlCalls[1]!.text).toContain('ON CONFLICT (account_id, persona, action_class) WHERE location_id IS NULL');
+    expect(sqlCalls[1]!.text).toContain('WHERE auto_approval_policies.suspended_at IS NULL');
+    expect(sqlCalls[1]!.text).toContain('RETURNING id');
 
-    expect(sqlCalls[1]!.text).toContain('INSERT INTO account_audit_log');
-    expect(sqlCalls[1]!.values).toContain('autonomy_suspended');
-    expect(sqlCalls[2]!.values).toContain('autonomy_suspended_notice');
-    expect(sqlCalls[3]!.values).toContain('autonomy_admin_alert');
+    expect(sqlCalls[2]!.text).toContain('INSERT INTO account_audit_log');
+    expect(sqlCalls[2]!.values).toContain('autonomy_suspended');
+    expect(sqlCalls[3]!.values).toContain('autonomy_suspended_notice');
+    expect(sqlCalls[4]!.values).toContain('autonomy_admin_alert');
     expect(mockSql.json).toHaveBeenCalledWith({
       trigger: 'judge_flag',
       suspension_event_id: 'event-1',
@@ -44,7 +49,7 @@ describe('autonomy suspension writer', () => {
   });
 
   it('treats an already-suspended account as a total no-op', async () => {
-    sqlReturnQueue.push(mkTaggedResult([]));
+    sqlReturnQueue.push(mkTaggedResult([{ id: 'account-1' }]), mkTaggedResult([]));
 
     const result = await suspendAccountAutonomy(mockSql as never, {
       accountId: 'account-1',
@@ -54,13 +59,14 @@ describe('autonomy suspension writer', () => {
     });
 
     expect(result).toEqual({ newlySuspended: false });
-    expect(sqlCalls).toHaveLength(1);
-    expect(sqlCalls[0]!.text).toContain('WHERE auto_approval_policies.suspended_at IS NULL');
+    expect(sqlCalls).toHaveLength(2);
+    expect(sqlCalls[0]!.text).toContain('FROM accounts');
+    expect(sqlCalls[1]!.text).toContain('WHERE auto_approval_policies.suspended_at IS NULL');
     expect(mockSql.json).not.toHaveBeenCalled();
   });
 
   it('returns a total no-op when the account default is not suspended', async () => {
-    sqlReturnQueue.push(mkTaggedResult([]));
+    sqlReturnQueue.push(mkTaggedResult([{ id: 'account-1' }]), mkTaggedResult([]));
 
     const result = await unsuspendAccountAutonomy(mockSql as never, {
       accountId: 'account-1',
@@ -69,8 +75,9 @@ describe('autonomy suspension writer', () => {
     });
 
     expect(result).toEqual({ unsuspended: false, rearmed: false });
-    expect(sqlCalls).toHaveLength(1);
-    expect(sqlCalls[0]!.text).toContain('AND suspended_at IS NOT NULL');
+    expect(sqlCalls).toHaveLength(2);
+    expect(sqlCalls[0]!.text).toContain('FROM accounts');
+    expect(sqlCalls[1]!.text).toContain('AND suspended_at IS NOT NULL');
     expect(mockSql.json).not.toHaveBeenCalled();
   });
 
@@ -78,10 +85,13 @@ describe('autonomy suspension writer', () => {
     { threshold: 4, rearmed: true },
     { threshold: null, rearmed: false },
   ])('derives rearmed=$rearmed from the stored threshold and audits the prior reason', async ({ threshold, rearmed }) => {
-    sqlReturnQueue.push(mkTaggedResult([{
-      previous_reason: 'A safety review paused auto-posting.',
-      auto_approve_min_star: threshold,
-    }]));
+    sqlReturnQueue.push(
+      mkTaggedResult([{ id: 'account-1' }]),
+      mkTaggedResult([{
+        previous_reason: 'A safety review paused auto-posting.',
+        auto_approve_min_star: threshold,
+      }]),
+    );
 
     const result = await unsuspendAccountAutonomy(mockSql as never, {
       accountId: 'account-1',
@@ -90,11 +100,12 @@ describe('autonomy suspension writer', () => {
     });
 
     expect(result).toEqual({ unsuspended: true, rearmed });
-    expect(sqlCalls).toHaveLength(2);
-    expect(sqlCalls[0]!.text).toContain('UPDATE auto_approval_policies');
-    expect(sqlCalls[0]!.text).toContain('RETURNING target.suspended_reason AS previous_reason');
-    expect(sqlCalls[1]!.values).toContain('autonomy_unsuspended');
-    expect(sqlCalls[1]!.values).toContain('admin-1');
+    expect(sqlCalls).toHaveLength(3);
+    expect(sqlCalls[0]!.text).toContain('FROM accounts');
+    expect(sqlCalls[1]!.text).toContain('UPDATE auto_approval_policies');
+    expect(sqlCalls[1]!.text).toContain('RETURNING target.suspended_reason AS previous_reason');
+    expect(sqlCalls[2]!.values).toContain('autonomy_unsuspended');
+    expect(sqlCalls[2]!.values).toContain('admin-1');
     expect(mockSql.json).toHaveBeenCalledWith({
       note: 'Reviewed with the owner.',
       previous_reason: 'A safety review paused auto-posting.',

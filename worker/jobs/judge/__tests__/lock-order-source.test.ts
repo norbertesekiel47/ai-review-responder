@@ -11,4 +11,13 @@ describe('judge verdict lock-order source shape', () => {
     expect(verdictWrite).toBeGreaterThan(anchor);
     expect(source).not.toMatch(/\b(?:completeRun|recordOutcome|recordStep)\s*\(/);
   });
+
+  it('anchors the review lane before entering the account-serialized suspension writer', () => {
+    const source = readFileSync(new URL('../JudgeWorker.ts', import.meta.url), 'utf8');
+    const anchor = source.indexOf('anchorReviewLockOrder(');
+    const suspension = source.indexOf('suspendAccountAutonomy(');
+
+    expect(anchor).toBeGreaterThan(-1);
+    expect(suspension).toBeGreaterThan(anchor);
+  });
 });

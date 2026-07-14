@@ -32,6 +32,25 @@ export interface UnsuspendAccountAutonomyInput {
 }
 
 /**
+ * Serializes every autonomy suspension transition on a guaranteed parent row.
+ * Mixed review-lane callers (Judge) must acquire their review/business/child
+ * locks before entering this account lock; governor/admin callers never acquire
+ * review-lane locks, so they cannot form the reverse edge.
+ */
+export async function lockAutonomyAccount(
+  tx: TransactionSql,
+  accountId: string,
+): Promise<void> {
+  const [account] = await tx<{ id: string }[]>`
+    SELECT id
+    FROM accounts
+    WHERE id = ${accountId}::uuid
+    FOR UPDATE
+  `;
+  if (!account) throw new Error('autonomy account does not exist');
+}
+
+/**
  * Sole production writer for auto-approval suspension fields.
  *
  * The governor/suspension-only path intentionally touches policy, account
@@ -43,6 +62,8 @@ export async function suspendAccountAutonomy(
   tx: TransactionSql,
   input: SuspendAccountAutonomyInput,
 ): Promise<{ newlySuspended: boolean }> {
+  await lockAutonomyAccount(tx, input.accountId);
+
   const [policy] = await tx<{ id: string }[]>`
     INSERT INTO auto_approval_policies (
       id,
@@ -105,6 +126,8 @@ export async function unsuspendAccountAutonomy(
   tx: TransactionSql,
   input: UnsuspendAccountAutonomyInput,
 ): Promise<{ unsuspended: boolean; rearmed: boolean }> {
+  await lockAutonomyAccount(tx, input.accountId);
+
   const [policy] = await tx<{
     previous_reason: string | null;
     auto_approve_min_star: number | null;

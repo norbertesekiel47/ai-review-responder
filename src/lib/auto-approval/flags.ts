@@ -4,6 +4,10 @@ export function autoApprovalRuntimeEnabled(): boolean {
   return readFlag('AUTO_APPROVAL_ENABLED');
 }
 
+export function governorEnabled(): boolean {
+  return readFlag('GOVERNOR_ENABLED');
+}
+
 export function providerModerationEnabled(): boolean {
   return readFlag('OPENAI_MODERATION_ENABLED');
 }

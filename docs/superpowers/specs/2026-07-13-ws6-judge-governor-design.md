@@ -607,3 +607,19 @@ over the body, WS4/WS5 convention.)
   `CASE` branches, and exception-free Gregorian leap/month arithmetic before a
   fixed-width UTC string comparison; it performs no timestamp cast. Thus one
   malformed account cannot abort a fleet sweep or health scan.
+- **§2.7 bounded fairness and stale-candidate revalidation (Task 7 adversarial
+  review):** the governor carries the last evaluated `account_id` across cycles
+  and circularly orders the next bounded page after that key, wrapping to the
+  start. This prevents a fixed `LIMIT 50` from permanently starving later
+  healthy accounts. Every canonical suspend, unsuspend, and governor
+  revalidation first locks the guaranteed `accounts` row; governor then locks
+  the current policy rows in stable ID order and revalidates that autonomy
+  remains armed, no suspended account-default exists, and no
+  `autonomy_unsuspended` audit is newer than the scan's observed window. This
+  account serialization closes the override-only missing-default gap: an admin
+  unsuspend cannot commit between governor revalidation and suspension, so
+  equal audit timestamps cannot create a post-revalidation race. A stale
+  disarm or pre-lock admin-unsuspend snapshot emits no suspension audit or
+  outbox work. Judge acquires the account lock only after its required
+  review/business/child locks; governor/admin acquire no review-lane locks, so
+  no reverse lock edge is introduced.

@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 382;
+export const ALLOWLIST_BASELINE = 384;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -67,6 +67,7 @@ export const CATEGORY_PATH_RULES: Partial<
     allowedFiles: [
       'src/lib/responses/judge-store.ts',
       'src/lib/responses/judge-health.ts',
+      'src/lib/auto-approval/governor.ts',
     ],
   },
   'provider-ingress': {
@@ -107,6 +108,9 @@ const JUDGE_HEALTH_STALENESS_SQL =
 
 const JUDGE_HEALTH_ERROR_DENSITY_SQL =
   "SELECT COUNT(*)::int AS total_count, COUNT(*) FILTER (WHERE verdict = 'error')::int AS error_count FROM judge_verdicts WHERE created_at >= NOW() - make_interval(mins => ${JUDGE_STALENESS_LIMIT_MINUTES})";
+
+const GOVERNOR_CANDIDATES_SQL =
+  "SELECT armed.account_id, GREATEST( NOW() - make_interval(days => ${GOVERNOR_WINDOW_DAYS}), COALESCE(MAX(aal.created_at), '-infinity'::timestamptz) ) AS window_start FROM auto_approval_policies armed LEFT JOIN account_audit_log aal ON aal.account_id = armed.account_id AND aal.event_type = 'autonomy_unsuspended' WHERE armed.auto_approve_min_star IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM auto_approval_policies account_default WHERE account_default.account_id = armed.account_id AND account_default.location_id IS NULL AND account_default.persona = 'reply' AND account_default.action_class = 'posting' AND account_default.suspended_at IS NOT NULL ) GROUP BY armed.account_id ORDER BY CASE WHEN COALESCE(armed.account_id > ${afterAccountId}::uuid, TRUE) THEN 0 ELSE 1 END, armed.account_id LIMIT ${limit}";
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
@@ -2783,6 +2787,20 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: JUDGE_HEALTH_ERROR_DENSITY_SQL,
     category: 'background-global-scan',
     reason: "The publisher safety gate computes fleet-wide error density only over the indexed last-60-minute verdict window.",
+  },
+  {
+    file: "src/lib/auto-approval/governor.ts",
+    table: "auto_approval_policies",
+    sqlSnippet: GOVERNOR_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "AutonomyGovernorScheduler performs one bounded cross-account scan for armed accounts whose account-default policy is not already suspended before evaluating tenant-scoped rates.",
+  },
+  {
+    file: "src/lib/auto-approval/governor.ts",
+    table: "account_audit_log",
+    sqlSnippet: GOVERNOR_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "The bounded governor scan joins autonomy_unsuspended audit events only to cap each account's rolling window and prevent immediate stale-data re-suspension.",
   },
   {
     file: "src/lib/auto-approval/suspension.ts",

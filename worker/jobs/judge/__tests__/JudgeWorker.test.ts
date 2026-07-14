@@ -158,6 +158,7 @@ describe('JudgeWorker', () => {
       mkTaggedResult([{}]),
       mkTaggedResult([{ id: 'run-1' }]),
       mkTaggedResult([{ id: 'verdict-1' }]),
+      mkTaggedResult([{ id: 'account-1' }]),
       mkTaggedResult([{ id: 'policy-1' }]),
       mkTaggedResult([{}]),
       mkTaggedResult([{}]),
@@ -174,7 +175,9 @@ describe('JudgeWorker', () => {
     expect(sqlCalls[4]!.text).toContain("SET status = 'completed'");
     expect(sqlCalls[6]!.text).toContain('INSERT INTO judge_verdicts');
     expect(sqlCalls[6]!.values).toContain('run-1');
-    expect(sqlCalls[7]!.text).toContain('INSERT INTO auto_approval_policies');
+    expect(sqlCalls[7]!.text).toContain('FROM accounts');
+    expect(sqlCalls[7]!.text).toContain('FOR UPDATE');
+    expect(sqlCalls[8]!.text).toContain('INSERT INTO auto_approval_policies');
     const verdictId = sqlCalls[6]!.values[0];
     expect(mockSql.json).toHaveBeenCalledWith({
       trigger: 'judge_flag',
