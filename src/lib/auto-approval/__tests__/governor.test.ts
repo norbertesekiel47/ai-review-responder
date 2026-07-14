@@ -8,6 +8,7 @@ const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql, mkTaggedResult } =
 
 import {
   computeGovernorRates,
+  computeGovernorRatesForAccounts,
   evaluateAccount,
   GOVERNOR_EDIT_RATE_THRESHOLD,
   GOVERNOR_JUDGE_SIGNAL_RATE_THRESHOLD,
@@ -119,12 +120,13 @@ describe('governor data scans', () => {
     const windowStart = new Date('2026-07-10T00:00:00.000Z');
     sqlReturnQueue.push(
       mkTaggedResult([{
+        account_id: 'account-1',
         edited_count: 3,
         approved_count: 2,
         vetoed_count: 1,
         auto_posted_count: 4,
       }]),
-      mkTaggedResult([{ pass_count: 2, warn_count: 2, flag_count: 1 }]),
+      mkTaggedResult([{ account_id: 'account-1', pass_count: 2, warn_count: 2, flag_count: 1 }]),
     );
 
     await expect(
@@ -136,20 +138,54 @@ describe('governor data scans', () => {
     });
 
     expect(sqlCalls).toHaveLength(2);
-    expect(sqlCalls[0]!.text).toContain('FROM agent_outcomes');
-    expect(sqlCalls[0]!.text).toContain('SUM(unit_count)');
+    expect(sqlCalls[0]!.text).toContain('LEFT JOIN agent_outcomes');
+    expect(sqlCalls[0]!.text).toContain('SUM(outcome.unit_count)');
     expect(sqlCalls[0]!.values).toEqual(expect.arrayContaining([
       'reply_edited_by_owner',
       'reply_approved_no_edit',
       'reply_vetoed_by_owner',
       'reply_auto_posted',
-      'account-1',
-      windowStart,
+      ['account-1'],
+      [windowStart.toISOString()],
     ]));
     expect(sqlCalls[0]!.values).not.toContain('reply_posted');
-    expect(sqlCalls[1]!.text).toContain('FROM judge_verdicts');
+    expect(sqlCalls[1]!.text).toContain('LEFT JOIN judge_verdicts');
     expect(sqlCalls[1]!.text).toContain("verdict IN ('pass', 'warn', 'flag')");
     expect(sqlCalls[1]!.text).not.toContain("verdict = 'error'");
+  });
+
+  it('batches multiple account windows into exactly two queries with shared projections', async () => {
+    const firstWindow = new Date('2026-07-10T00:00:00.000Z');
+    const secondWindow = new Date('2026-07-11T00:00:00.000Z');
+    sqlReturnQueue.push(
+      mkTaggedResult([
+        { account_id: 'account-1', edited_count: 3, approved_count: 2, vetoed_count: 1, auto_posted_count: 4 },
+        { account_id: 'account-2', edited_count: 0, approved_count: 5, vetoed_count: 2, auto_posted_count: 3 },
+      ]),
+      mkTaggedResult([
+        { account_id: 'account-1', pass_count: 2, warn_count: 2, flag_count: 1 },
+        { account_id: 'account-2', pass_count: 4, warn_count: 0, flag_count: 1 },
+      ]),
+    );
+
+    const result = await computeGovernorRatesForAccounts(mockSql as never, [
+      { accountId: 'account-1', windowStart: firstWindow },
+      { accountId: 'account-2', windowStart: secondWindow },
+    ]);
+
+    expect(sqlCalls).toHaveLength(2);
+    expect(result.get('account-1')).toEqual({
+      edit: { numerator: 3, denominator: 5, rate: 0.6 },
+      veto: { numerator: 1, denominator: 5, rate: 0.2 },
+      judgeSignal: { numerator: 3, denominator: 5, rate: 0.6 },
+    });
+    expect(result.get('account-2')).toEqual({
+      edit: { numerator: 0, denominator: 5, rate: 0 },
+      veto: { numerator: 2, denominator: 5, rate: 0.4 },
+      judgeSignal: { numerator: 1, denominator: 5, rate: 0.2 },
+    });
+    expect(sqlCalls[0]!.text).toContain('unnest(?::uuid[], ?::timestamptz[])');
+    expect(sqlCalls[1]!.text).toContain('unnest(?::uuid[], ?::timestamptz[])');
   });
 
   it.each([0, 101, 1.5])('rejects unbounded candidate limit %s before querying', async (limit) => {

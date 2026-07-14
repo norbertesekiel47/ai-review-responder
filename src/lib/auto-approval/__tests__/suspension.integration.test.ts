@@ -12,6 +12,7 @@ import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { getAutoApprovalSettings, patchAutoApprovalSettings } from '../settings';
 import {
   AUTONOMY_SUSPENSION_REASONS,
+  listSuspendedPolicies,
   suspendAccountAutonomy,
   unsuspendAccountAutonomy,
 } from '../suspension';
@@ -214,5 +215,85 @@ describeWithDb('autonomy suspension against live local Postgres', { timeout: 30_
       LIMIT 1
     `;
     expect(audit?.previous_reason).toBe(AUTONOMY_SUSPENSION_REASONS.judge_flag);
+  });
+
+  it('returns only the newest five flags and tolerates non-array reasons JSONB', async () => {
+    const rows = Array.from({ length: 7 }, (_, index) => ({
+      reviewId: randomUUID(),
+      responseId: randomUUID(),
+      verdictId: randomUUID(),
+      createdAt: new Date(Date.UTC(2026, 6, 13, 12, 0, index)),
+    }));
+
+    try {
+      await suspend();
+      await sql().begin(async (tx) => {
+        for (const [index, row] of rows.entries()) {
+          await tx`
+            INSERT INTO reviews (
+              id, business_id, provider, provider_review_id, provider_review_name,
+              provider_location_name, reviewer_name, star_rating, review_text, status
+            ) VALUES (
+              ${row.reviewId}::uuid,
+              ${primaryBusinessId}::uuid,
+              'zernio',
+              ${`suspension-flag-${row.reviewId}`},
+              ${`zernio://suspension/reviews/${row.reviewId}`},
+              'zernio://suspension/locations/primary',
+              'Safety Reviewer',
+              5,
+              'Safe fixture review.',
+              'posted'
+            )
+          `;
+          await tx`
+            INSERT INTO responses (
+              id, review_id, business_id, response_text, original_draft_text,
+              version, status, approval_method, posted_at
+            ) VALUES (
+              ${row.responseId}::uuid,
+              ${row.reviewId}::uuid,
+              ${primaryBusinessId}::uuid,
+              'Safe fixture reply.',
+              'Safe fixture reply.',
+              1,
+              'posted',
+              'auto_policy',
+              ${row.createdAt}
+            )
+          `;
+          await tx`
+            INSERT INTO judge_verdicts (
+              id, account_id, business_id, review_id, response_id,
+              verdict, reasons, rationale, model, prompt_version, created_at
+            ) VALUES (
+              ${row.verdictId}::uuid,
+              ${requireTenant().accountId}::uuid,
+              ${primaryBusinessId}::uuid,
+              ${row.reviewId}::uuid,
+              ${row.responseId}::uuid,
+              'flag',
+              ${tx.json(index === 6 ? { malformed: true } : ['fabricated_fact'])},
+              'Enum-only fixture rationale.',
+              'gpt-4o-mini-2024-07-18',
+              '2026-07-13.1',
+              ${row.createdAt}
+            )
+          `;
+        }
+      });
+
+      const [suspension] = await listSuspendedPolicies(sql());
+      expect(suspension?.recentFlagVerdicts.map((verdict) => verdict.id)).toEqual(
+        rows.slice(2).reverse().map((row) => row.verdictId),
+      );
+      expect(suspension?.recentFlagVerdicts[0]?.reasons).toEqual([]);
+    } finally {
+      const responseIds = rows.map((row) => row.responseId);
+      const reviewIds = rows.map((row) => row.reviewId);
+      await sql()`DELETE FROM judge_verdicts WHERE response_id = ANY(${responseIds}::uuid[])`;
+      await sql()`DELETE FROM responses WHERE id = ANY(${responseIds}::uuid[])`;
+      await sql()`DELETE FROM reviews WHERE id = ANY(${reviewIds}::uuid[])`;
+    }
   });
 });

@@ -1,5 +1,11 @@
-import type { TransactionSql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
+import {
+  computeGovernorRatesForAccounts,
+  GOVERNOR_WINDOW_DAYS,
+  type GovernorRates,
+} from '@/lib/auto-approval/governor';
+import { lockAutonomyAccount } from '@/lib/auto-approval/account-lock';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import {
   enqueueAutonomyAdminAlert,
@@ -31,23 +37,213 @@ export interface UnsuspendAccountAutonomyInput {
   note: string;
 }
 
-/**
- * Serializes every autonomy suspension transition on a guaranteed parent row.
- * Mixed review-lane callers (Judge) must acquire their review/business/child
- * locks before entering this account lock; governor/admin callers never acquire
- * review-lane locks, so they cannot form the reverse edge.
- */
-export async function lockAutonomyAccount(
-  tx: TransactionSql,
-  accountId: string,
-): Promise<void> {
-  const [account] = await tx<{ id: string }[]>`
-    SELECT id
-    FROM accounts
-    WHERE id = ${accountId}::uuid
-    FOR UPDATE
+interface SuspendedPolicyRow {
+  policy_id: string;
+  account_id: string;
+  account_name: string;
+  location_id: string | null;
+  location_name: string | null;
+  suspended_reason: string | null;
+  suspended_at: Date;
+  window_start: Date;
+}
+
+interface RecentFlagVerdictRow {
+  id: string;
+  account_id: string;
+  business_id: string;
+  review_id: string;
+  response_id: string;
+  reason_categories: string[];
+  created_at: Date;
+}
+
+export interface RecentFlagVerdict {
+  id: string;
+  businessId: string;
+  reviewId: string;
+  responseId: string;
+  reasons: string[];
+  createdAt: Date;
+}
+
+export interface SuspendedPolicyListItem {
+  policyId: string;
+  accountId: string;
+  accountName: string;
+  locationId: string | null;
+  locationName: string | null;
+  scope: 'account' | 'location';
+  suspendedReason: string | null;
+  trigger: AutonomySuspensionTrigger | null;
+  suspendedAt: Date;
+  governorRates: GovernorRates;
+  recentFlagVerdicts: RecentFlagVerdict[];
+}
+
+const suspensionTriggerByReason = new Map<string, AutonomySuspensionTrigger>(
+  Object.entries(AUTONOMY_SUSPENSION_REASONS).map(([trigger, reason]) => [
+    reason,
+    trigger as AutonomySuspensionTrigger,
+  ]),
+);
+
+async function loadSuspendedPolicyRows(sql: Sql): Promise<SuspendedPolicyRow[]> {
+  return sql<SuspendedPolicyRow[]>`
+    SELECT
+      policy.id AS policy_id,
+      policy.account_id,
+      account.display_name AS account_name,
+      policy.location_id,
+      COALESCE(NULLIF(location.display_label, ''), location.name) AS location_name,
+      policy.suspended_reason,
+      policy.suspended_at,
+      GREATEST(
+        NOW() - make_interval(days => ${GOVERNOR_WINDOW_DAYS}),
+        COALESCE(MAX(audit.created_at), '-infinity'::timestamptz)
+      ) AS window_start
+    FROM auto_approval_policies policy
+    JOIN accounts account ON account.id = policy.account_id
+    LEFT JOIN businesses location
+      ON location.id = policy.location_id
+      AND location.account_id = policy.account_id
+    LEFT JOIN account_audit_log audit
+      ON audit.account_id = policy.account_id
+      AND audit.event_type = 'autonomy_unsuspended'
+    WHERE policy.suspended_at IS NOT NULL
+    GROUP BY
+      policy.id,
+      policy.account_id,
+      account.display_name,
+      policy.location_id,
+      location.display_label,
+      location.name,
+      policy.suspended_reason,
+      policy.suspended_at
+    ORDER BY policy.suspended_at DESC, policy.id
+    LIMIT 100
   `;
-  if (!account) throw new Error('autonomy account does not exist');
+}
+
+async function loadGovernorRatesByAccount(
+  sql: Sql,
+  rows: SuspendedPolicyRow[],
+): Promise<Map<string, GovernorRates>> {
+  const windowStartByAccount = new Map<string, Date>();
+  for (const row of rows) {
+    if (!windowStartByAccount.has(row.account_id)) {
+      windowStartByAccount.set(row.account_id, row.window_start);
+    }
+  }
+  return computeGovernorRatesForAccounts(sql, [...windowStartByAccount].map(
+    ([accountId, windowStart]) => ({ accountId, windowStart }),
+  ));
+}
+
+async function loadRecentFlagRows(
+  sql: Sql,
+  accountIds: string[],
+): Promise<RecentFlagVerdictRow[]> {
+  return sql<RecentFlagVerdictRow[]>`
+    WITH ranked_flags AS (
+      SELECT
+        verdict.id,
+        verdict.account_id,
+        verdict.business_id,
+        verdict.review_id,
+        verdict.response_id,
+        ARRAY(
+          SELECT jsonb_array_elements_text(
+            CASE
+              WHEN jsonb_typeof(verdict.reasons) = 'array' THEN verdict.reasons
+              ELSE '[]'::jsonb
+            END
+          )
+        ) AS reason_categories,
+        verdict.created_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY verdict.account_id
+          ORDER BY verdict.created_at DESC, verdict.id DESC
+        ) AS flag_rank
+      FROM judge_verdicts verdict
+      WHERE verdict.account_id = ANY(${accountIds}::uuid[])
+        AND verdict.verdict = 'flag'
+    )
+    SELECT
+      id,
+      account_id,
+      business_id,
+      review_id,
+      response_id,
+      reason_categories,
+      created_at
+    FROM ranked_flags
+    WHERE flag_rank <= 5
+    ORDER BY account_id, created_at DESC, id DESC
+  `;
+}
+
+function groupRecentFlags(
+  flagRows: RecentFlagVerdictRow[],
+): Map<string, RecentFlagVerdict[]> {
+  const flagsByAccount = new Map<string, RecentFlagVerdict[]>();
+  for (const verdict of flagRows) {
+    const accountFlags = flagsByAccount.get(verdict.account_id) ?? [];
+    accountFlags.push({
+      id: verdict.id,
+      businessId: verdict.business_id,
+      reviewId: verdict.review_id,
+      responseId: verdict.response_id,
+      reasons: verdict.reason_categories,
+      createdAt: verdict.created_at,
+    });
+    flagsByAccount.set(verdict.account_id, accountFlags);
+  }
+  return flagsByAccount;
+}
+
+function projectSuspendedPolicies(
+  rows: SuspendedPolicyRow[],
+  ratesByAccount: Map<string, GovernorRates>,
+  flagsByAccount: Map<string, RecentFlagVerdict[]>,
+): SuspendedPolicyListItem[] {
+  return rows.map((row) => {
+    const governorRates = ratesByAccount.get(row.account_id);
+    if (!governorRates) throw new Error('suspended policy is missing governor rates');
+    return {
+      policyId: row.policy_id,
+      accountId: row.account_id,
+      accountName: row.account_name,
+      locationId: row.location_id,
+      locationName: row.location_name,
+      scope: row.location_id === null ? 'account' : 'location',
+      suspendedReason: row.suspended_reason,
+      trigger: row.suspended_reason
+        ? (suspensionTriggerByReason.get(row.suspended_reason) ?? null)
+        : null,
+      suspendedAt: row.suspended_at,
+      governorRates,
+      recentFlagVerdicts: flagsByAccount.get(row.account_id) ?? [],
+    };
+  });
+}
+
+/**
+ * Admin-only bounded projection for the autonomy recovery queue.
+ *
+ * The caller owns the admin+AAL2 gate. This deep module keeps the cross-account
+ * SQL and aggregation out of the route: at most 100 policy rows, one pair of
+ * indexed governor queries per unique account, and five flag verdicts per
+ * account. It is read-only and takes no review-lane or account locks.
+ */
+export async function listSuspendedPolicies(sql: Sql): Promise<SuspendedPolicyListItem[]> {
+  const rows = await loadSuspendedPolicyRows(sql);
+  if (rows.length === 0) return [];
+
+  const accountIds = [...new Set(rows.map((row) => row.account_id))];
+  const ratesByAccount = await loadGovernorRatesByAccount(sql, rows);
+  const flagRows = await loadRecentFlagRows(sql, accountIds);
+  return projectSuspendedPolicies(rows, ratesByAccount, groupRecentFlags(flagRows));
 }
 
 /**

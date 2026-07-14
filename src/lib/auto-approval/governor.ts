@@ -1,5 +1,5 @@
 import type { Sql, TransactionSql } from 'postgres';
-import { lockAutonomyAccount } from '@/lib/auto-approval/suspension';
+import { lockAutonomyAccount } from '@/lib/auto-approval/account-lock';
 import type { AutonomySuspensionEvidence, AutonomySuspensionTrigger } from '@/lib/shared/worker-types';
 
 export const GOVERNOR_WINDOW_DAYS = 7;
@@ -31,6 +31,7 @@ export interface GovernorCandidate {
 }
 
 interface OutcomeCounts {
+  account_id: string;
   edited_count: number;
   approved_count: number;
   vetoed_count: number;
@@ -38,6 +39,7 @@ interface OutcomeCounts {
 }
 
 interface JudgeCounts {
+  account_id: string;
   pass_count: number;
   warn_count: number;
   flag_count: number;
@@ -52,6 +54,7 @@ interface LockedGovernorPolicy {
 }
 
 const MAX_CANDIDATES = 100;
+const MAX_RATE_WINDOWS = 100;
 
 export async function listGovernorCandidates(
   sql: Sql,
@@ -144,59 +147,124 @@ const asRate = (numerator: number, denominator: number): GovernorRate => ({
   rate: denominator > 0 ? numerator / denominator : 0,
 });
 
-export async function computeGovernorRates(
+const EMPTY_OUTCOME_COUNTS: OutcomeCounts = {
+  account_id: '',
+  edited_count: 0,
+  approved_count: 0,
+  vetoed_count: 0,
+  auto_posted_count: 0,
+};
+const EMPTY_JUDGE_COUNTS: JudgeCounts = {
+  account_id: '',
+  pass_count: 0,
+  warn_count: 0,
+  flag_count: 0,
+};
+
+function projectGovernorRates(
+  outcomes: OutcomeCounts | undefined,
+  verdicts: JudgeCounts | undefined,
+): GovernorRates {
+  const outcomeCounts = outcomes ?? EMPTY_OUTCOME_COUNTS;
+  const judgeCounts = verdicts ?? EMPTY_JUDGE_COUNTS;
+  return {
+    edit: asRate(
+      outcomeCounts.edited_count,
+      outcomeCounts.edited_count + outcomeCounts.approved_count,
+    ),
+    veto: asRate(
+      outcomeCounts.vetoed_count,
+      outcomeCounts.vetoed_count + outcomeCounts.auto_posted_count,
+    ),
+    judgeSignal: asRate(
+      judgeCounts.warn_count + judgeCounts.flag_count,
+      judgeCounts.pass_count + judgeCounts.warn_count + judgeCounts.flag_count,
+    ),
+  };
+}
+
+export interface GovernorRateWindow {
+  accountId: string;
+  windowStart: Date;
+}
+
+/** Two set-based, indexed statements regardless of the bounded account count. */
+export async function computeGovernorRatesForAccounts(
   sql: Sql,
-  accountId: string,
-  windowStart: Date,
-): Promise<GovernorRates> {
-  const [outcomes] = await sql<OutcomeCounts[]>`
+  windows: GovernorRateWindow[],
+): Promise<Map<string, GovernorRates>> {
+  if (windows.length === 0) return new Map();
+  if (
+    windows.length > MAX_RATE_WINDOWS
+    || new Set(windows.map((window) => window.accountId)).size !== windows.length
+    || windows.some((window) => Number.isNaN(window.windowStart.getTime()))
+  ) {
+    throw new RangeError('governor rate windows require 1..100 unique accounts and valid dates');
+  }
+  const accountIds = windows.map((window) => window.accountId);
+  const windowStarts = windows.map((window) => window.windowStart.toISOString());
+
+  const outcomes = await sql<OutcomeCounts[]>`
     SELECT
-      COALESCE(SUM(unit_count) FILTER (
-        WHERE outcome_kind = ${'reply_edited_by_owner'}
+      scope.account_id,
+      COALESCE(SUM(outcome.unit_count) FILTER (
+        WHERE outcome.outcome_kind = ${'reply_edited_by_owner'}
       ), 0)::int AS edited_count,
-      COALESCE(SUM(unit_count) FILTER (
-        WHERE outcome_kind = ${'reply_approved_no_edit'}
+      COALESCE(SUM(outcome.unit_count) FILTER (
+        WHERE outcome.outcome_kind = ${'reply_approved_no_edit'}
       ), 0)::int AS approved_count,
-      COALESCE(SUM(unit_count) FILTER (
-        WHERE outcome_kind = ${'reply_vetoed_by_owner'}
+      COALESCE(SUM(outcome.unit_count) FILTER (
+        WHERE outcome.outcome_kind = ${'reply_vetoed_by_owner'}
       ), 0)::int AS vetoed_count,
-      COALESCE(SUM(unit_count) FILTER (
-        WHERE outcome_kind = ${'reply_auto_posted'}
+      COALESCE(SUM(outcome.unit_count) FILTER (
+        WHERE outcome.outcome_kind = ${'reply_auto_posted'}
       ), 0)::int AS auto_posted_count
-    FROM agent_outcomes
-    WHERE account_id = ${accountId}::uuid
-      AND occurred_at >= ${windowStart}
-      AND outcome_kind IN (
+    FROM unnest(${accountIds}::uuid[], ${windowStarts}::timestamptz[])
+      AS scope(account_id, window_start)
+    LEFT JOIN agent_outcomes outcome
+      ON outcome.account_id = scope.account_id
+      AND outcome.occurred_at >= scope.window_start
+      AND outcome.outcome_kind IN (
         ${'reply_edited_by_owner'},
         ${'reply_approved_no_edit'},
         ${'reply_vetoed_by_owner'},
         ${'reply_auto_posted'}
       )
+    GROUP BY scope.account_id
+    ORDER BY scope.account_id
   `;
-  const [verdicts] = await sql<JudgeCounts[]>`
+  const verdicts = await sql<JudgeCounts[]>`
     SELECT
-      COUNT(*) FILTER (WHERE verdict = 'pass')::int AS pass_count,
-      COUNT(*) FILTER (WHERE verdict = 'warn')::int AS warn_count,
-      COUNT(*) FILTER (WHERE verdict = 'flag')::int AS flag_count
-    FROM judge_verdicts
-    WHERE account_id = ${accountId}::uuid
-      AND created_at >= ${windowStart}
-      AND verdict IN ('pass', 'warn', 'flag')
+      scope.account_id,
+      COUNT(*) FILTER (WHERE verdict.verdict = 'pass')::int AS pass_count,
+      COUNT(*) FILTER (WHERE verdict.verdict = 'warn')::int AS warn_count,
+      COUNT(*) FILTER (WHERE verdict.verdict = 'flag')::int AS flag_count
+    FROM unnest(${accountIds}::uuid[], ${windowStarts}::timestamptz[])
+      AS scope(account_id, window_start)
+    LEFT JOIN judge_verdicts verdict
+      ON verdict.account_id = scope.account_id
+      AND verdict.created_at >= scope.window_start
+      AND verdict.verdict IN ('pass', 'warn', 'flag')
+    GROUP BY scope.account_id
+    ORDER BY scope.account_id
   `;
+  const outcomesByAccount = new Map(outcomes.map((row) => [row.account_id, row]));
+  const verdictsByAccount = new Map(verdicts.map((row) => [row.account_id, row]));
+  return new Map(windows.map(({ accountId }) => [
+    accountId,
+    projectGovernorRates(outcomesByAccount.get(accountId), verdictsByAccount.get(accountId)),
+  ]));
+}
 
-  const edited = outcomes?.edited_count ?? 0;
-  const approved = outcomes?.approved_count ?? 0;
-  const vetoed = outcomes?.vetoed_count ?? 0;
-  const autoPosted = outcomes?.auto_posted_count ?? 0;
-  const passed = verdicts?.pass_count ?? 0;
-  const warned = verdicts?.warn_count ?? 0;
-  const flagged = verdicts?.flag_count ?? 0;
-
-  return {
-    edit: asRate(edited, edited + approved),
-    veto: asRate(vetoed, vetoed + autoPosted),
-    judgeSignal: asRate(warned + flagged, passed + warned + flagged),
-  };
+export async function computeGovernorRates(
+  sql: Sql,
+  accountId: string,
+  windowStart: Date,
+): Promise<GovernorRates> {
+  const rates = await computeGovernorRatesForAccounts(sql, [{ accountId, windowStart }]);
+  const result = rates.get(accountId);
+  if (!result) throw new Error('governor rate projection is missing its account');
+  return result;
 }
 
 const breach = (

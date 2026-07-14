@@ -50,12 +50,13 @@ describe('AutonomyGovernorScheduler cycle', () => {
         window_start: new Date('2026-07-10T00:00:00.000Z'),
       }]),
       mkTaggedResult([{
+        account_id: 'account-1',
         edited_count: 3,
         approved_count: 2,
         vetoed_count: 0,
         auto_posted_count: 5,
       }]),
-      mkTaggedResult([{ pass_count: 5, warn_count: 0, flag_count: 0 }]),
+      mkTaggedResult([{ account_id: 'account-1', pass_count: 5, warn_count: 0, flag_count: 0 }]),
       mkTaggedResult([{ id: 'account-1' }]),
       mkTaggedResult([{
         location_id: null,
@@ -99,12 +100,13 @@ describe('AutonomyGovernorScheduler cycle', () => {
         window_start: new Date('2026-07-10T00:00:00.000Z'),
       }]),
       mkTaggedResult([{
+        account_id: 'account-1',
         edited_count: 3,
         approved_count: 2,
         vetoed_count: 0,
         auto_posted_count: 5,
       }]),
-      mkTaggedResult([{ pass_count: 5, warn_count: 0, flag_count: 0 }]),
+      mkTaggedResult([{ account_id: 'account-1', pass_count: 5, warn_count: 0, flag_count: 0 }]),
       mkTaggedResult([{ id: 'account-1' }]),
       mkTaggedResult([{
         location_id: null,
@@ -141,12 +143,18 @@ describe('AutonomyGovernorScheduler cycle', () => {
     for (let index = 0; index < firstPage.length; index++) {
       sqlReturnQueue.push(
         mkTaggedResult([{
+          account_id: firstPage[index]!.account_id,
           edited_count: 0,
           approved_count: 0,
           vetoed_count: 0,
           auto_posted_count: 0,
         }]),
-        mkTaggedResult([{ pass_count: 0, warn_count: 0, flag_count: 0 }]),
+        mkTaggedResult([{
+          account_id: firstPage[index]!.account_id,
+          pass_count: 0,
+          warn_count: 0,
+          flag_count: 0,
+        }]),
       );
     }
 
@@ -157,12 +165,15 @@ describe('AutonomyGovernorScheduler cycle', () => {
     sqlReturnQueue.push(
       mkTaggedResult([{ account_id: laterAccount, window_start: windowStart }]),
       mkTaggedResult([{
+        account_id: laterAccount,
         edited_count: 3,
         approved_count: 2,
         vetoed_count: 0,
         auto_posted_count: 0,
       }]),
-      mkTaggedResult([{ pass_count: 0, warn_count: 0, flag_count: 0 }]),
+      mkTaggedResult([{
+        account_id: laterAccount, pass_count: 0, warn_count: 0, flag_count: 0,
+      }]),
       mkTaggedResult([{ id: laterAccount }]),
       mkTaggedResult([{
         location_id: null,
@@ -214,12 +225,15 @@ describe('AutonomyGovernorScheduler cycle', () => {
     sqlReturnQueue.push(
       mkTaggedResult([{ account_id: nextAccount, window_start: windowStart }]),
       mkTaggedResult([{
+        account_id: nextAccount,
         edited_count: 0,
         approved_count: 0,
         vetoed_count: 0,
         auto_posted_count: 0,
       }]),
-      mkTaggedResult([{ pass_count: 0, warn_count: 0, flag_count: 0 }]),
+      mkTaggedResult([{
+        account_id: nextAccount, pass_count: 0, warn_count: 0, flag_count: 0,
+      }]),
     );
 
     await expect(runAutonomyGovernorCycle(mockSql as never, cursor)).resolves.toBeUndefined();
