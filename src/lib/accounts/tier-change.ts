@@ -1,178 +1,285 @@
-// src/lib/accounts/tier-change.ts
-//
-// Tier change validation, downgrade billing preview, and execution.
-// Single owner of the tier-change concept: validateTierChange (eligibility)
-// and applyTierChange (Stripe + DB execution). Used by the billing portal
-// route, which only parses input and maps outcomes to HTTP.
-//
-// Validation contract: VAL-BILLING-045, VAL-BILLING-046, VAL-BILLING-047.
+// Tier-change preview and execution. Every mutable-state read happens only
+// after the fixed entitlement -> billing advisory-lock sequence.
 
-import { v7 as uuidv7 } from 'uuid';
-import type { Sql } from 'postgres';
+import type Stripe from 'stripe';
+import type { Sql, TransactionSql } from 'postgres';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import {
-  TIER_CONFIG,
-  type SubscriptionTierValue,
-  isSubscriptionTier,
+  isPriceVariant,
+  isWs8SubscriptionTier,
+  resolveTierSnapshot,
+  type ResolvedTierSnapshot,
+  type Ws8SubscriptionTier,
 } from './tier-config';
 import { computeOverageQuantity, type BillingSnapshot } from './quota';
-import { getAccountOwnerUserId } from './repo';
+import { acquireTierAndBillingLocks } from './billing-locks';
+import { writeResolvedTierSnapshot } from './tier-snapshot';
+import { writeAccountAuditLog } from '@/lib/audit/log';
 import { getStripe } from '@/lib/payments/stripe-client';
-import { basePriceIdForTier, basePriceIdSet, overagePriceIdForTier } from '@/lib/payments/price-tier-map';
+import {
+  assertTierPurchasable,
+  TierNotPurchasableError,
+} from '@/lib/payments/tier-purchasability';
+import { basePriceIdSet, priceIdFor } from '@/lib/payments/price-tier-map';
 import { resolveOverageItem, overageItemMutationParams } from '@/lib/payments/overage-item';
 
-// ── Types ──────────────────────────────────────────────────────────────────
-
 export interface TierChangeValidation {
-  /** Whether the tier change is allowed. */
   allowed: boolean;
-  /** Reason for rejection if not allowed. */
-  reason?: 'basic_requires_single_location' | 'unknown_tier' | 'same_tier' | 'subscription_inactive';
-  /** Preview of the new billing if the change proceeds. */
+  reason?: 'unknown_tier' | 'same_tier' | 'subscription_inactive';
   newBillingPreview?: BillingSnapshot;
 }
 
-// ── validateTierChange ──────────────────────────────────────────────────
+interface LockedAccountState {
+  owner_user_id: string | null;
+  price_variant: string;
+  stripe_subscription_id: string | null;
+  subscription_status: string;
+  subscription_tier: string;
+  locations_overage_price_cents: number;
+}
+
+async function loadLockedAccountState(
+  tx: TransactionSql,
+  accountId: string,
+): Promise<LockedAccountState | undefined> {
+  const [account] = await tx<LockedAccountState[]>`
+    SELECT
+      owner_user_id,
+      price_variant,
+      stripe_subscription_id,
+      subscription_status,
+      subscription_tier,
+      locations_overage_price_cents
+    FROM accounts
+    WHERE id = ${accountId}::uuid
+    FOR UPDATE
+  `;
+  return account;
+}
+
+async function countActiveLocations(tx: TransactionSql, accountId: string): Promise<number> {
+  const [row] = await tx<{ count: number | string }[]>`
+    SELECT COUNT(*) AS count
+    FROM businesses
+    WHERE account_id = ${accountId}::uuid
+      AND archived_at IS NULL
+  `;
+  const count = Number(row?.count ?? 0);
+  if (!Number.isSafeInteger(count) || count < 0) {
+    throw new Error('Active location count must be a non-negative safe integer');
+  }
+  return count;
+}
+
+function previewFor(
+  snapshot: ResolvedTierSnapshot,
+  activeLocations: number,
+): BillingSnapshot {
+  const overageUnits = computeOverageQuantity(activeLocations, snapshot.included);
+  return {
+    basePriceCents: snapshot.baseCents,
+    includedLocations: snapshot.included,
+    overagePriceCents: snapshot.overageCents,
+    overageUnits,
+    totalCents: snapshot.baseCents + overageUnits * snapshot.overageCents,
+  };
+}
 
 /**
- * Validates whether a tier change is allowed for the given account,
- * and provides a billing preview for the new tier.
- *
- * VAL-BILLING-045: Tier downgrade with excess locations is allowed —
- * confirmation shows new monthly total.
- * VAL-BILLING-046: Downgrade modal calculates overage correctly for each tier transition.
- * VAL-BILLING-047: Tier downgrade to basic with >1 active locations is blocked.
- *
- * @param sql  Postgres.js client (composition root supplies the singleton —
- *   this module never imports @/lib/db/server).
+ * Computes a proposed write-time snapshot from the account's immutable variant.
+ * The locks make the account/location read one coherent preview and pin source
+ * order so this reader cannot race an overage writer mid-plan.
  */
 export async function validateTierChange(
   sql: Sql,
   accountId: string,
   newTier: string,
 ): Promise<TierChangeValidation> {
-  // Validate the new tier
-  if (!isSubscriptionTier(newTier)) {
+  if (!isWs8SubscriptionTier(newTier)) {
     return { allowed: false, reason: 'unknown_tier' };
   }
+  assertTierPurchasable(newTier);
 
-  const tier = newTier as SubscriptionTierValue;
-
-  // Read account and active location count
-  const [account] = await sql<{
-    subscription_tier: string;
-    subscription_status: string;
-  }[]>`
-    SELECT subscription_tier, subscription_status
-    FROM accounts
-    WHERE id = ${accountId}::uuid
-  `;
-
-  if (!account) {
-    return { allowed: false, reason: 'subscription_inactive' };
-  }
-
-  // Same tier — no change needed
-  if (account.subscription_tier === newTier) {
-    return { allowed: false, reason: 'same_tier' };
-  }
-
-  // Active or trialing subscriptions can change tiers. A mid-trial tier change
-  // mutates the base item with create_prorations, but Stripe does not invoice
-  // prorations on a trialing subscription — they accumulate and bill at trial
-  // end (PLAN.md §6, verified trial-safe via test-clock acceptance test).
-  if (!subscriptionGrantsFullAccess(account.subscription_status)) {
-    return { allowed: false, reason: 'subscription_inactive' };
-  }
-
-  const newConfig = TIER_CONFIG[tier];
-
-  // Count active locations
-  const [locationRow] = await sql<{ count: number }[]>`
-    SELECT COUNT(*) AS count
-    FROM businesses
-    WHERE account_id = ${accountId}::uuid
-      AND archived_at IS NULL
-  `;
-  const activeLocations = Number(locationRow?.count ?? 0);
-
-  // VAL-BILLING-047: Block downgrade to basic with >1 active locations
-  if (tier === 'basic' && activeLocations > 1) {
+  return sql.begin(async (tx) => {
+    await acquireTierAndBillingLocks(tx, accountId);
+    const account = await loadLockedAccountState(tx, accountId);
+    if (!account || !subscriptionGrantsFullAccess(account.subscription_status)) {
+      return { allowed: false, reason: 'subscription_inactive' };
+    }
+    if (account.subscription_tier === newTier) {
+      return { allowed: false, reason: 'same_tier' };
+    }
+    if (!isPriceVariant(account.price_variant)) {
+      throw new Error(`Invalid stored price variant for account ${accountId}`);
+    }
+    const activeLocations = await countActiveLocations(tx, accountId);
+    const targetSnapshot = resolveTierSnapshot(newTier, account.price_variant);
     return {
-      allowed: false,
-      reason: 'basic_requires_single_location',
+      allowed: true,
+      newBillingPreview: previewFor(targetSnapshot, activeLocations),
     };
-  }
-
-  // Compute the new billing snapshot for the target tier
-  const overageUnits = computeOverageQuantity(activeLocations, newConfig.included);
-
-  const newBillingPreview: BillingSnapshot = {
-    basePriceCents: newConfig.baseCents,
-    includedLocations: newConfig.included,
-    overagePriceCents: newConfig.overageCents,
-    overageUnits,
-    totalCents: newConfig.baseCents + overageUnits * newConfig.overageCents,
-  };
-
-  // VAL-BILLING-045: Downgrade with excess locations is allowed
-  return {
-    allowed: true,
-    newBillingPreview,
-  };
+  });
 }
-
-// ── applyTierChange ──────────────────────────────────────────────────────────
 
 export type TierChangeFailureCode =
   | 'no_stripe_subscription'
+  | 'subscription_inactive'
+  | 'same_tier'
+  | 'operation_conflict'
   | 'missing_price_config'
   | 'base_item_not_found'
   | 'ambiguous_overage_item'
   | 'tier_change_failed';
 
 export type TierChangeOutcome =
-  | { ok: true }
+  | { ok: true; newBilling: BillingSnapshot }
   | { ok: false; code: TierChangeFailureCode; detail: string };
 
 export interface ApplyTierChangeInput {
   accountId: string;
-  tier: SubscriptionTierValue;
-  /** Overage units from the validated billing preview. */
-  newOverageUnits: number;
-  /** Normalized client idempotency key; stable across client retries. */
+  tier: Ws8SubscriptionTier;
+  /** Stable caller operation identity; never a timestamp or retry attempt. */
   operationKey: string;
 }
 
-/** Concrete overage mutation, fully resolved BEFORE any Stripe call. */
 type OverageMutation =
   | { kind: 'update'; itemId: string; priceId: string; quantity: number }
   | { kind: 'create'; priceId: string; quantity: number }
   | { kind: 'delete'; itemId: string }
   | { kind: 'none' };
 
-/**
- * Resolves the FULL overage mutation before the first Stripe call. If the
- * target tier requires overage but its env price is unconfigured, fail
- * closed — otherwise the base price would be swapped first and the overage
- * step silently no-op'd (under-billing or a stale line). Constructing
- * 'update'/'create' requires the price ID, so a missing price is
- * unrepresentable past this point. A tier change is a deliberate re-pricing
- * event, so re-pricing the overage item to the target tier's env price is
- * intentional here (unlike the recompute worker, which grandfathers legacy
- * prices). An untrusted (descriptor-only keyword) match is enough to flag an
- * item, never enough to delete or re-price it — fail closed; ops resolves by
- * stamping metadata.billing_role on the real item.
- */
+export const TIER_CHANGE_OPERATION_METADATA_KEY = 'repworth_tier_change_operation';
+export const TIER_CHANGE_SOURCE_METADATA_KEY = 'repworth_tier_change_source';
+
+interface CommittedTierChangeRow {
+  new_tier: string | null;
+  price_variant: string | null;
+  base_price_cents: string | null;
+  locations_overage_price_cents: string | null;
+  locations_included: string | null;
+  locations_paid: string | null;
+}
+
+type CommittedTierChangeLookup =
+  | { kind: 'none' }
+  | { kind: 'conflict'; committedTier: Ws8SubscriptionTier }
+  | { kind: 'success'; billing: BillingSnapshot };
+
+function parseAuditInteger(
+  value: string | null,
+  field: string,
+  options: { positive: boolean },
+): number {
+  if (!value || !/^(0|[1-9]\d*)$/.test(value)) {
+    throw new Error(`Committed tier-change audit has invalid ${field}`);
+  }
+  const parsed = Number(value);
+  const minimum = options.positive ? 1 : 0;
+  if (!Number.isSafeInteger(parsed) || parsed < minimum) {
+    throw new Error(`Committed tier-change audit has invalid ${field}`);
+  }
+  return parsed;
+}
+
+async function loadCommittedTierChange(
+  tx: TransactionSql,
+  input: {
+    accountId: string;
+    operationKey: string;
+    targetTier: Ws8SubscriptionTier;
+    storedPriceVariant: string;
+  },
+): Promise<CommittedTierChangeLookup> {
+  const rows = await tx<CommittedTierChangeRow[]>`
+    SELECT
+      payload->>'new_tier' AS new_tier,
+      payload->>'price_variant' AS price_variant,
+      payload->>'base_price_cents' AS base_price_cents,
+      payload->>'locations_overage_price_cents' AS locations_overage_price_cents,
+      payload->>'locations_included' AS locations_included,
+      payload->>'locations_paid' AS locations_paid
+    FROM account_audit_log
+    WHERE account_id = ${input.accountId}::uuid
+      AND event_type = 'tier_changed'
+      AND payload->>'idempotency_key' = ${input.operationKey}
+    ORDER BY created_at DESC, id DESC
+    LIMIT 2
+  `;
+  if (rows.length === 0) return { kind: 'none' };
+  if (rows.length > 1) {
+    throw new Error('Committed tier-change operation has duplicate audit rows');
+  }
+  if (!isPriceVariant(input.storedPriceVariant)) {
+    throw new Error('Committed tier-change account has invalid price_variant');
+  }
+
+  const row = rows[0]!;
+  if (!row.new_tier || !isWs8SubscriptionTier(row.new_tier)) {
+    throw new Error('Committed tier-change audit has invalid new_tier');
+  }
+  if (row.new_tier !== input.targetTier) {
+    return { kind: 'conflict', committedTier: row.new_tier };
+  }
+  if (!row.price_variant || !isPriceVariant(row.price_variant)) {
+    throw new Error('Committed tier-change audit has invalid price_variant');
+  }
+  if (row.price_variant !== input.storedPriceVariant) {
+    throw new Error('Committed tier-change audit price_variant does not match account');
+  }
+
+  const basePriceCents = parseAuditInteger(
+    row.base_price_cents,
+    'base_price_cents',
+    { positive: true },
+  );
+  const overagePriceCents = parseAuditInteger(
+    row.locations_overage_price_cents,
+    'locations_overage_price_cents',
+    { positive: true },
+  );
+  const includedLocations = parseAuditInteger(
+    row.locations_included,
+    'locations_included',
+    { positive: true },
+  );
+  const overageUnits = parseAuditInteger(
+    row.locations_paid,
+    'locations_paid',
+    { positive: false },
+  );
+  const committedSnapshot = resolveTierSnapshot(row.new_tier, row.price_variant);
+  if (
+    basePriceCents !== committedSnapshot.baseCents
+    || overagePriceCents !== committedSnapshot.overageCents
+    || includedLocations !== committedSnapshot.included
+  ) {
+    throw new Error('Committed tier-change audit billing snapshot is inconsistent');
+  }
+  const totalCents = basePriceCents + overageUnits * overagePriceCents;
+  if (!Number.isSafeInteger(totalCents)) {
+    throw new Error('Committed tier-change audit has invalid total billing cents');
+  }
+  return {
+    kind: 'success',
+    billing: {
+      basePriceCents,
+      includedLocations,
+      overagePriceCents,
+      overageUnits,
+      totalCents,
+    },
+  };
+}
+
 function planOverageMutation(input: {
-  items: Parameters<typeof resolveOverageItem>[0];
+  items: Stripe.SubscriptionItem[];
   storedOveragePriceCents: number;
-  tier: SubscriptionTierValue;
+  targetOveragePriceId: string;
   newOverageUnits: number;
 }): { plan: OverageMutation } | { failure: TierChangeOutcome & { ok: false } } {
-  const { items, storedOveragePriceCents, tier, newOverageUnits } = input;
-
-  const resolution = resolveOverageItem(items, { storedOveragePriceCents });
+  const resolution = resolveOverageItem(input.items, {
+    storedOveragePriceCents: input.storedOveragePriceCents,
+  });
   if (resolution.kind === 'untrusted') {
     return {
       failure: {
@@ -182,220 +289,256 @@ function planOverageMutation(input: {
       },
     };
   }
-  const overageItem = resolution.kind === 'trusted' ? resolution.item : undefined;
-
-  const newConfig = TIER_CONFIG[tier];
-  const needsOverage =
-    newConfig.overageCents > 0 && newConfig.multiLocAllowed && newOverageUnits > 0;
-  if (!needsOverage) {
-    return { plan: overageItem ? { kind: 'delete', itemId: overageItem.id } : { kind: 'none' } };
-  }
-
-  const overagePriceId = overagePriceIdForTier(tier);
-  if (!overagePriceId) {
-    return {
-      failure: {
-        ok: false,
-        code: 'missing_price_config',
-        detail: `No Stripe overage price configured for tier: ${tier}`,
-      },
-    };
+  const item = resolution.kind === 'trusted' ? resolution.item : undefined;
+  if (input.newOverageUnits === 0) {
+    return { plan: item ? { kind: 'delete', itemId: item.id } : { kind: 'none' } };
   }
   return {
-    plan: overageItem
-      ? { kind: 'update', itemId: overageItem.id, priceId: overagePriceId, quantity: newOverageUnits }
-      : { kind: 'create', priceId: overagePriceId, quantity: newOverageUnits },
+    plan: item
+      ? {
+          kind: 'update',
+          itemId: item.id,
+          priceId: input.targetOveragePriceId,
+          quantity: input.newOverageUnits,
+        }
+      : {
+          kind: 'create',
+          priceId: input.targetOveragePriceId,
+          quantity: input.newOverageUnits,
+        },
   };
 }
 
-/**
- * Snapshots the tier-derived billing columns + audit row in one transaction.
- * This is the PRIMARY writer for a tier change — it must snapshot ALL
- * tier-derived billing columns from TIER_CONFIG, not just tier + included.
- * The Stripe webhook is only a defense-in-depth confirmation, and it
- * re-snapshots base_price_cents / locations_included via `CASE WHEN
- * tierChanged`; because this UPDATE commits the new tier first, the webhook
- * sees tierChanged=false and skips that branch. So base_price_cents and
- * locations_overage_price_cents would never update unless written here,
- * leaving e.g. a Premium account billed against the Standard base price
- * (snapshot/margin/invoice reconciliation drift). Mirrors the snapshot
- * written at select-plan/signup.
- *
- * @param sql  Postgres.js client (composition root supplies the singleton —
- *   this module never imports @/lib/db/server).
- */
-async function persistTierChangeTx(
-  sql: Sql,
+function stripeOptions(accountId: string, operationKey: string, step: string) {
+  return { idempotencyKey: `tier-change:${accountId}:${operationKey}:${step}` };
+}
+
+async function mutateStripe(input: {
+  accountId: string;
+  operationKey: string;
+  subscriptionId: string;
+  baseItemId: string;
+  basePriceId: string;
+  sourceTier: string;
+  overage: OverageMutation;
+}): Promise<void> {
+  const stripe = getStripe();
+  await stripe.subscriptionItems.update(
+    input.baseItemId,
+    {
+      price: input.basePriceId,
+      proration_behavior: 'create_prorations',
+      metadata: {
+        [TIER_CHANGE_OPERATION_METADATA_KEY]: input.operationKey,
+        [TIER_CHANGE_SOURCE_METADATA_KEY]: input.sourceTier,
+      },
+    },
+    stripeOptions(input.accountId, input.operationKey, 'base'),
+  );
+
+  switch (input.overage.kind) {
+    case 'update':
+      await stripe.subscriptionItems.update(
+        input.overage.itemId,
+        {
+          price: input.overage.priceId,
+          ...overageItemMutationParams(input.overage.quantity),
+        },
+        stripeOptions(input.accountId, input.operationKey, 'overage-update'),
+      );
+      break;
+    case 'create':
+      await stripe.subscriptionItems.create(
+        {
+          subscription: input.subscriptionId,
+          price: input.overage.priceId,
+          ...overageItemMutationParams(input.overage.quantity),
+        },
+        stripeOptions(input.accountId, input.operationKey, 'overage-create'),
+      );
+      break;
+    case 'delete':
+      await stripe.subscriptionItems.del(
+        input.overage.itemId,
+        {},
+        stripeOptions(input.accountId, input.operationKey, 'overage-delete'),
+      );
+      break;
+    case 'none':
+      break;
+  }
+}
+
+async function ensureTierChangeAudit(
+  tx: TransactionSql,
   input: {
     accountId: string;
-    tier: SubscriptionTierValue;
-    oldTier: string;
     actorUserId: string | null;
     operationKey: string;
+    oldTier: string;
+    snapshot: ResolvedTierSnapshot;
+    locationsPaid: number;
   },
 ): Promise<void> {
-  const { accountId, tier, oldTier, actorUserId, operationKey } = input;
-  const newConfig = TIER_CONFIG[tier];
+  const [existing] = await tx<{ id: string }[]>`
+    SELECT id
+    FROM account_audit_log
+    WHERE account_id = ${input.accountId}::uuid
+      AND event_type = 'tier_changed'
+      AND payload->>'idempotency_key' = ${input.operationKey}
+    LIMIT 1
+  `;
+  if (existing) return;
 
-  await sql.begin(async (tx) => {
-    // react-doctor-disable-next-line react-doctor/async-parallel -- ordered writes inside one Postgres.js transaction (single connection): the FOR UPDATE row lock must precede the UPDATE and audit INSERT
-    await tx`
-      SELECT id
-      FROM accounts
-      WHERE id = ${accountId}::uuid
-      FOR UPDATE
-    `;
-
-    await tx`
-      UPDATE accounts
-      SET subscription_tier = ${tier},
-          locations_included = ${newConfig.included},
-          locations_overage_price_cents = ${newConfig.overageCents},
-          base_price_cents = ${newConfig.baseCents},
-          updated_at = NOW()
-      WHERE id = ${accountId}::uuid
-    `;
-
-    await tx`
-      INSERT INTO account_audit_log (
-        id, account_id, event_type, actor_user_id, payload
-      ) VALUES (
-        ${uuidv7()}::uuid,
-        ${accountId}::uuid,
-        'tier_changed',
-        ${actorUserId ?? null}::uuid,
-        ${tx.json({
-          old_tier: oldTier,
-          new_tier: tier,
-          new_base_price_cents: newConfig.baseCents,
-          new_overage_price_cents: newConfig.overageCents,
-          idempotency_key: operationKey,
-        })}
-      )
-    `;
+  await writeAccountAuditLog(tx, {
+    accountId: input.accountId,
+    eventType: 'tier_changed',
+    actorUserId: input.actorUserId,
+    entityType: 'account',
+    entityId: input.accountId,
+    payload: {
+      old_tier: input.oldTier,
+      new_tier: input.snapshot.tier,
+      price_variant: input.snapshot.variant,
+      base_price_cents: input.snapshot.baseCents,
+      locations_overage_price_cents: input.snapshot.overageCents,
+      locations_included: input.snapshot.included,
+      locations_paid: input.locationsPaid,
+      idempotency_key: input.operationKey,
+    },
   });
 }
 
 /**
- * Executes a validated tier change: swaps the base item's price, applies the
- * overage mutation, then snapshots the tier-derived billing columns + audit
- * row in one DB transaction. Owner of the tier-change execution semantics
- * (the validator above owns eligibility); the route only maps the outcome
- * to HTTP.
- *
- * Stripe is updated before the local DB row. If the DB transaction fails
- * after the Stripe calls, the caller surfaces a retryable failure and Stripe
- * webhooks remain the reconciliation path back into accounts.subscription_tier.
- * The operationKey is stable across client retries so reruns can safely
- * complete the local DB/audit update without double-applying Stripe changes.
- *
- * @param sql  Postgres.js client (composition root supplies the singleton —
- *   this module never imports @/lib/db/server).
+ * Revalidates and executes a tier change from one locked plan. Stripe calls use
+ * the shared bounded client and stable per-step keys while both advisory locks
+ * are held. The complete DB snapshot and audit commit only after every provider
+ * mutation succeeds.
  */
 export async function applyTierChange(
   sql: Sql,
   input: ApplyTierChangeInput,
 ): Promise<TierChangeOutcome> {
-  const { accountId, tier, newOverageUnits, operationKey } = input;
-
-  const [account] = await sql<{
-    stripe_subscription_id: string | null;
-    subscription_tier: string;
-    locations_overage_price_cents: number;
-  }[]>`
-    SELECT stripe_subscription_id, subscription_tier, locations_overage_price_cents
-    FROM accounts
-    WHERE id = ${accountId}::uuid
-  `;
-
-  if (!account?.stripe_subscription_id) {
-    return {
-      ok: false,
-      code: 'no_stripe_subscription',
-      detail: 'Account has no active Stripe subscription',
-    };
-  }
-
-  const newBasePriceId = basePriceIdForTier(tier);
-  if (!newBasePriceId) {
-    return {
-      ok: false,
-      code: 'missing_price_config',
-      detail: `No Stripe price configured for tier: ${tier}`,
-    };
-  }
-
-  const actorUserId = await getAccountOwnerUserId(sql, accountId);
-  const stripeOptions = (step: string) => ({
-    idempotencyKey: `tier-change:${accountId}:${operationKey}:${step}`,
-  });
-
   try {
-    const stripe = getStripe();
-    const subscription = await stripe.subscriptions.retrieve(account.stripe_subscription_id);
+    return await sql.begin(async (tx) => {
+      await acquireTierAndBillingLocks(tx, input.accountId);
 
-    // Only configured base price IDs are safe to mutate. Quantity-based
-    // fallbacks can match setup fees, credits, or legacy add-ons.
-    const baseItem = subscription.items.data.find((item) => basePriceIdSet().has(item.price.id));
-    if (!baseItem) {
-      return {
-        ok: false,
-        code: 'base_item_not_found',
-        detail: 'Could not identify the base subscription item',
-      };
-    }
+      const account = await loadLockedAccountState(tx, input.accountId);
+      if (!account) {
+        return {
+          ok: false,
+          code: 'no_stripe_subscription',
+          detail: 'Account has no active Stripe subscription',
+        };
+      }
+      const committed = await loadCommittedTierChange(tx, {
+        accountId: input.accountId,
+        operationKey: input.operationKey,
+        targetTier: input.tier,
+        storedPriceVariant: account.price_variant,
+      });
+      if (committed.kind === 'success') {
+        return { ok: true, newBilling: committed.billing };
+      }
+      if (committed.kind === 'conflict') {
+        return {
+          ok: false,
+          code: 'operation_conflict',
+          detail: `Operation is already committed for tier: ${committed.committedTier}`,
+        };
+      }
 
-    const planned = planOverageMutation({
-      items: subscription.items.data,
-      storedOveragePriceCents: account.locations_overage_price_cents,
-      tier,
-      newOverageUnits,
+      assertTierPurchasable(input.tier);
+      if (!account.stripe_subscription_id) {
+        return {
+          ok: false,
+          code: 'no_stripe_subscription',
+          detail: 'Account has no active Stripe subscription',
+        };
+      }
+      if (!subscriptionGrantsFullAccess(account.subscription_status)) {
+        return {
+          ok: false,
+          code: 'subscription_inactive',
+          detail: 'Account subscription does not permit a tier change',
+        };
+      }
+      if (!isPriceVariant(account.price_variant)) {
+        throw new Error(`Invalid stored price variant for account ${input.accountId}`);
+      }
+
+      const activeLocations = await countActiveLocations(tx, input.accountId);
+      const targetSnapshot = resolveTierSnapshot(input.tier, account.price_variant);
+      const newOverageUnits = computeOverageQuantity(activeLocations, targetSnapshot.included);
+      const newBilling = previewFor(targetSnapshot, activeLocations);
+      const basePriceId = priceIdFor(input.tier, account.price_variant, 'base');
+      const overagePriceId = priceIdFor(input.tier, account.price_variant, 'overage');
+      if (!basePriceId || !overagePriceId) {
+        return {
+          ok: false,
+          code: 'missing_price_config',
+          detail: `Stripe prices are not fully configured for tier: ${input.tier}`,
+        };
+      }
+
+      const stripe = getStripe();
+      const subscription = await stripe.subscriptions.retrieve(account.stripe_subscription_id);
+      const baseItem = subscription.items.data.find((item) => basePriceIdSet().has(item.price.id));
+      if (!baseItem) {
+        return {
+          ok: false,
+          code: 'base_item_not_found',
+          detail: 'Could not identify the base subscription item',
+        };
+      }
+      const projectedSameTier = account.subscription_tier === input.tier;
+      const providerOperationKey = baseItem.metadata?.[TIER_CHANGE_OPERATION_METADATA_KEY];
+      if (projectedSameTier && providerOperationKey !== input.operationKey) {
+        return { ok: false, code: 'same_tier', detail: 'Account is already on this tier' };
+      }
+      const sourceTier = projectedSameTier
+        ? baseItem.metadata?.[TIER_CHANGE_SOURCE_METADATA_KEY] ?? account.subscription_tier
+        : account.subscription_tier;
+      const overage = planOverageMutation({
+        items: subscription.items.data,
+        storedOveragePriceCents: account.locations_overage_price_cents,
+        targetOveragePriceId: overagePriceId,
+        newOverageUnits,
+      });
+      if ('failure' in overage) return overage.failure;
+
+      await mutateStripe({
+        accountId: input.accountId,
+        operationKey: input.operationKey,
+        subscriptionId: account.stripe_subscription_id,
+        baseItemId: baseItem.id,
+        basePriceId,
+        sourceTier,
+        overage: overage.plan,
+      });
+
+      await writeResolvedTierSnapshot(tx, {
+        accountId: input.accountId,
+        snapshot: targetSnapshot,
+        locationsPaid: newOverageUnits,
+      });
+      await ensureTierChangeAudit(tx, {
+        accountId: input.accountId,
+        actorUserId: account.owner_user_id,
+        operationKey: input.operationKey,
+        oldTier: sourceTier,
+        snapshot: targetSnapshot,
+        locationsPaid: newOverageUnits,
+      });
+
+      return { ok: true, newBilling };
     });
-    if ('failure' in planned) return planned.failure;
-    const overageMutation = planned.plan;
-
-    // Stripe will prorate automatically.
-    await stripe.subscriptionItems.update(baseItem.id, {
-      price: newBasePriceId,
-      proration_behavior: 'create_prorations',
-    }, stripeOptions('base'));
-
-    // The billing_role stamp (overageItemMutationParams) makes the item exactly
-    // matchable forever, independent of price rotations and descriptors — and
-    // migrates legacy (pre-stamp) items to the authoritative marker.
-    switch (overageMutation.kind) {
-      case 'update':
-        await stripe.subscriptionItems.update(overageMutation.itemId, {
-          price: overageMutation.priceId,
-          ...overageItemMutationParams(overageMutation.quantity),
-        }, stripeOptions('overage-update'));
-        break;
-      case 'create':
-        await stripe.subscriptionItems.create({
-          subscription: account.stripe_subscription_id,
-          price: overageMutation.priceId,
-          ...overageItemMutationParams(overageMutation.quantity),
-        }, stripeOptions('overage-create'));
-        break;
-      case 'delete':
-        await stripe.subscriptionItems.del(overageMutation.itemId, {}, stripeOptions('overage-delete'));
-        break;
-      case 'none':
-        break;
-    }
-
-    await persistTierChangeTx(sql, {
-      accountId,
-      tier,
-      oldTier: account.subscription_tier,
-      actorUserId,
-      operationKey,
-    });
-
-    return { ok: true };
   } catch (err) {
+    // Purchasability is an authoritative caller-visible rejection, not a
+    // provider failure. Let the route map the typed error to a 409.
+    if (err instanceof TierNotPurchasableError) throw err;
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[billing/tier-change] Failed for account=${accountId}: ${message}`);
+    console.error(`[billing/tier-change] Failed for account=${input.accountId}: ${message}`);
     return {
       ok: false,
       code: 'tier_change_failed',

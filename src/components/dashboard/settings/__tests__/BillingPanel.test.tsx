@@ -126,4 +126,67 @@ describe('BillingPanel tier preview request', () => {
       preview: true,
     });
   });
+
+  it('reuses one operation ID for retries and allocates a new ID for a later operation', async () => {
+    const randomUUID = vi.fn()
+      .mockReturnValueOnce('operation-one')
+      .mockReturnValueOnce('operation-two');
+    vi.stubGlobal('crypto', { randomUUID });
+    const preview = {
+      basePriceCents: 19900,
+      overagePriceCents: 2000,
+      overageUnits: 0,
+      totalCents: 19900,
+    };
+    let executionAttempts = 0;
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { preview?: boolean };
+      if (body.preview) {
+        return new Response(JSON.stringify({ newBilling: preview }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      executionAttempts++;
+      if (executionAttempts === 1) {
+        return new Response(JSON.stringify({ error: 'temporary_failure' }), {
+          status: 502,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <BillingPanel
+        accountData={accountData}
+        accountLoading={false}
+        accountError={null}
+        onAccountRefetch={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Upgrade to Premium/i }));
+    await screen.findByText(/New monthly estimate/i);
+    fireEvent.click(screen.getByRole('button', { name: /Confirm upgrade/i }));
+    await screen.findByText('temporary_failure');
+    fireEvent.click(screen.getByRole('button', { name: /Confirm upgrade/i }));
+    await waitFor(() => expect(screen.queryByText(/New monthly estimate/i)).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /Upgrade to Premium/i }));
+    await screen.findByText(/New monthly estimate/i);
+    fireEvent.click(screen.getByRole('button', { name: /Confirm upgrade/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+
+    const executionHeaders = fetchMock.mock.calls
+      .map(([, init]) => init?.headers as Record<string, string> | undefined)
+      .filter((headers) => headers?.['Idempotency-Key'])
+      .map((headers) => headers!['Idempotency-Key']);
+    expect(executionHeaders).toEqual(['operation-one', 'operation-one', 'operation-two']);
+    expect(randomUUID).toHaveBeenCalledTimes(2);
+  });
 });

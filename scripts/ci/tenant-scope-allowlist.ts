@@ -251,9 +251,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/accounts/tier-change.ts",
     table: "accounts",
-    sqlSnippet: "SELECT stripe_subscription_id, subscription_tier, locations_overage_price_cents FROM accounts WHERE id = ${accountId}::uuid",
+    sqlSnippet: "SELECT owner_user_id, price_variant, stripe_subscription_id, subscription_status, subscription_tier, locations_overage_price_cents FROM accounts WHERE id = ${accountId}::uuid FOR UPDATE",
     category: 'tenant-root-lookup',
-    reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
+    reason: "Authenticated flow holds the fixed entitlement/billing locks and uses the owner-resolved account id as the tenant-root lookup key before this row lock.",
   },
   {
     file: "src/app/api/dashboard/past-replies/draft-status/route.ts",
@@ -320,10 +320,10 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   },
   {
     file: "src/lib/accounts/tier-change.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT subscription_tier, subscription_status FROM accounts WHERE id = ${accountId}::uuid",
+    table: "businesses",
+    sqlSnippet: "SELECT COUNT(*) AS count FROM businesses WHERE account_id = ${accountId}::uuid AND archived_at IS NULL",
     category: 'tenant-root-lookup',
-    reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
+    reason: "The active-location count is constrained by the owner-resolved account id while the shared billing locks hold the tier-change plan boundary.",
   },
   {
     file: "src/lib/admin/cost-report-service.ts",

@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import {
   acquireBillingLock,
+  acquireTierAndBillingLocks,
   acquireTierBillingActivationLocks,
 } from '../billing-locks';
 
@@ -119,5 +120,65 @@ describeWithDb('WS8 billing advisory lock graph against live Postgres', { timeou
     await overageWriter;
     await tierWriter;
     expect(tierActivationAcquired).toBe(true);
+  });
+
+  it('tier change first holds one plan boundary against same-account overage sync', async () => {
+    const accountId = randomUUID();
+    const tierLocksHeld = deferred();
+    const releaseTierChange = deferred();
+
+    const tierChange = sqlA().begin(async (tx) => {
+      await tx`SET LOCAL lock_timeout = '4s'`;
+      await tx`SET LOCAL statement_timeout = '5s'`;
+      await acquireTierAndBillingLocks(tx, accountId);
+      tierLocksHeld.resolve();
+      await releaseTierChange.promise;
+    });
+    await tierLocksHeld.promise;
+
+    let overageReadBoundaryReached = false;
+    const overageSync = sqlB().begin(async (tx) => {
+      await tx`SET LOCAL lock_timeout = '4s'`;
+      await tx`SET LOCAL statement_timeout = '5s'`;
+      await acquireBillingLock(tx, accountId);
+      overageReadBoundaryReached = true;
+    });
+
+    await assertStillBlocked(overageSync);
+    expect(overageReadBoundaryReached).toBe(false);
+    releaseTierChange.resolve();
+    await tierChange;
+    await overageSync;
+    expect(overageReadBoundaryReached).toBe(true);
+  });
+
+  it('overage sync first blocks tier change before its mutable-state read boundary', async () => {
+    const accountId = randomUUID();
+    const billingLockHeld = deferred();
+    const releaseOverageSync = deferred();
+
+    const overageSync = sqlA().begin(async (tx) => {
+      await tx`SET LOCAL lock_timeout = '4s'`;
+      await tx`SET LOCAL statement_timeout = '5s'`;
+      await acquireBillingLock(tx, accountId);
+      billingLockHeld.resolve();
+      await releaseOverageSync.promise;
+    });
+    await billingLockHeld.promise;
+
+    let tierReadBoundaryReached = false;
+    const tierChange = sqlB().begin(async (tx) => {
+      await tx`SET LOCAL lock_timeout = '4s'`;
+      await tx`SET LOCAL statement_timeout = '5s'`;
+      await acquireTierAndBillingLocks(tx, accountId);
+      tierReadBoundaryReached = true;
+    });
+
+    await assertStillBlocked(tierChange);
+    expect(tierReadBoundaryReached).toBe(false);
+    releaseOverageSync.resolve();
+    await overageSync;
+    await tierChange;
+    expect(tierReadBoundaryReached).toBe(true);
   });
 });

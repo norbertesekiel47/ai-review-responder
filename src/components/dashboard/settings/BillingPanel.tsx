@@ -18,6 +18,7 @@ type BillingPreview = {
 
 interface TierChangeState {
   selectedTier: SubscriptionTierValue | null;
+  operationKey: string | null;
   billingPreview: BillingPreview | null;
   previewLoading: boolean;
   previewError: string | null;
@@ -27,6 +28,7 @@ interface TierChangeState {
 
 const initialTierChangeState: TierChangeState = {
   selectedTier: null,
+  operationKey: null,
   billingPreview: null,
   previewLoading: false,
   previewError: null,
@@ -35,7 +37,7 @@ const initialTierChangeState: TierChangeState = {
 };
 
 type TierChangeAction =
-  | { type: 'previewStart'; selectedTier: SubscriptionTierValue }
+  | { type: 'previewStart'; selectedTier: SubscriptionTierValue; operationKey: string }
   | { type: 'previewError'; previewError: string }
   | { type: 'previewSuccess'; billingPreview: BillingPreview | null }
   | { type: 'previewFinish' }
@@ -51,6 +53,7 @@ function tierChangeReducer(state: TierChangeState, action: TierChangeAction): Ti
       return {
         ...state,
         selectedTier: action.selectedTier,
+        operationKey: action.operationKey,
         billingPreview: null,
         previewError: null,
         previewLoading: true,
@@ -64,13 +67,19 @@ function tierChangeReducer(state: TierChangeState, action: TierChangeAction): Ti
     case 'confirmStart':
       return { ...state, changing: true, tierChangeError: null };
     case 'confirmSuccess':
-      return { ...state, selectedTier: null };
+      return { ...state, selectedTier: null, operationKey: null };
     case 'confirmError':
       return { ...state, tierChangeError: action.tierChangeError };
     case 'confirmFinish':
       return { ...state, changing: false };
     case 'closeModal':
-      return { ...state, selectedTier: null, billingPreview: null, previewError: null };
+      return {
+        ...state,
+        selectedTier: null,
+        operationKey: null,
+        billingPreview: null,
+        previewError: null,
+      };
   }
 }
 
@@ -321,11 +330,19 @@ interface Props {
 
 export function BillingPanel({ accountData, accountLoading, accountError, onAccountRefetch }: Props) {
   const [tierChange, dispatch] = useReducer(tierChangeReducer, initialTierChangeState);
-  const { selectedTier, billingPreview, previewLoading, previewError, changing, tierChangeError } = tierChange;
+  const {
+    selectedTier,
+    operationKey,
+    billingPreview,
+    previewLoading,
+    previewError,
+    changing,
+    tierChangeError,
+  } = tierChange;
 
   async function openTierChangeModal(newTier: SubscriptionTierValue) {
     if (!accountData) return;
-    dispatch({ type: 'previewStart', selectedTier: newTier });
+    dispatch({ type: 'previewStart', selectedTier: newTier, operationKey: crypto.randomUUID() });
     try {
       const res = await fetch('/api/billing/tier-change', {
         method: 'POST',
@@ -348,12 +365,12 @@ export function BillingPanel({ accountData, accountLoading, accountError, onAcco
   }
 
   async function confirmTierChange() {
-    if (!accountData || !selectedTier) return;
+    if (!accountData || !selectedTier || !operationKey) return;
     dispatch({ type: 'confirmStart' });
     try {
       const res = await fetch('/api/billing/tier-change', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey },
         body: JSON.stringify({ accountId: accountData.accountId, newTier: selectedTier }),
       });
       if (!res.ok) {
