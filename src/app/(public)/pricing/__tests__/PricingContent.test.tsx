@@ -1,119 +1,95 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { buildPlanPresentation } from '@/lib/payments/plan-presentation';
 import { PricingContent } from '../PricingContent';
 
-describe('PricingContent', () => {
-  it('renders the pricing page with the site-wide footer', () => {
-    const html = renderToStaticMarkup(createElement(PricingContent));
+function renderPricing(input?: {
+  founding?: boolean;
+  autopilot?: boolean;
+  trial?: boolean;
+  selfServe?: boolean;
+}) {
+  const viewModel = buildPlanPresentation({
+    priceVariant: input?.founding ? 'founding' : 'list',
+    autopilotPurchasable: input?.autopilot ?? true,
+    trialEnabled: input?.trial ?? false,
+  });
+  return renderToStaticMarkup(createElement(PricingContent, {
+    viewModel,
+    selfServeEnabled: input?.selfServe ?? false,
+  }));
+}
 
-    // page content sanity
-    expect(html).toContain('value="pricing"');
-    // site-wide footer now present (SiteFooter renders
-    // `class="rw-foot flex-col items-stretch"`).
+describe('PricingContent', () => {
+  it('renders exactly Copilot and Autopilot with immutable list and overage amounts', () => {
+    const html = renderPricing();
+
+    expect(html.match(/class="pr-plan /g)).toHaveLength(2);
+    expect(html).toContain('>Copilot</h2>');
+    expect(html).toContain('>Autopilot</h2>');
+    expect(html).toContain('<span class="pr-price-amt">29</span>');
+    expect(html).toContain('<span class="pr-price-amt">69</span>');
+    expect(html).toContain('$15/month per extra location');
+    expect(html).toContain('$20/month per extra location');
+    expect(html).not.toMatch(/Founders|Basic|Standard|Premium/);
+  });
+
+  it('renders both founding rates with list context and the lifetime lock', () => {
+    const html = renderPricing({ founding: true });
+
+    expect(html).toContain('<span class="pr-price-amt">19</span>');
+    expect(html).toContain('<span class="pr-price-amt">49</span>');
+    expect(html).toContain('$29 list');
+    expect(html).toContain('$69 list');
+    expect(html.match(/Founding rate locked for the account/g)).toHaveLength(2);
+  });
+
+  it('contains no yearly selector, discount, stale trial claim, or unsupported automation claim', () => {
+    const html = renderPricing();
+
+    expect(html).not.toMatch(/annual|yearly|save 20%/i);
+    expect(html).not.toMatch(/14-day|14 day|no credit card|95% automation/i);
+    expect(html).not.toContain('pr-toggle');
+  });
+
+  it('shows the exact card-up-front trial posture only when the server enables it', () => {
+    const enabled = renderPricing({ trial: true, selfServe: true });
+    const disabled = renderPricing({ trial: false, selfServe: true });
+
+    expect(enabled).toContain('30-day trial · Card required up front · Explicit plan selection');
+    expect(enabled).toContain('Choose a plan explicitly and provide a card up front');
+    expect(disabled).not.toMatch(/trial|card required/i);
+  });
+
+  it('keeps unavailable Autopilot visible, disabled, and accessibly explained', () => {
+    const html = renderPricing({ autopilot: false, selfServe: true });
+
+    expect(html).toContain('Autopilot unavailable');
+    expect(html).toMatch(/disabled="" aria-describedby="pricing-autopilot-unavailable"/);
+    expect(html).toContain('safety runtime is closed. Copilot remains available');
+    expect(html).toContain('href="/signup"');
+  });
+
+  it('states the shipped agent-team and autonomy boundary precisely', () => {
+    const html = renderPricing();
+
+    expect(html).toContain('Reply drafts personalized responses');
+    expect(html).toContain('Guardian holds negative and flagged reviews');
+    expect(html).toContain('Insights files your weekly review brief');
+    expect(html).toContain('Owner approval required before every public response');
+    expect(html).toContain('Only 4–5★ unflagged replies may post automatically');
+    expect(html).toContain('Moderation, judge, and governor gates must all pass');
+    expect(html).toContain('Negative and flagged reviews are never auto-posted');
+  });
+
+  it('keeps the two-column comparison keyboard reachable and the site footer present', () => {
+    const html = renderPricing();
+
+    expect(html).toContain('aria-label="Plan comparison, scroll horizontally to compare both plans"');
+    expect(html).toMatch(/class="pr-matrix"[^>]*tabindex="0"/);
     expect(html).toContain('class="rw-foot');
     expect(html).toContain('href="/legal/privacy"');
     expect(html).toContain('href="/legal/terms"');
-  });
-
-  it('renders pre-launch public tiers as disabled coming soon cards', () => {
-    const html = renderToStaticMarkup(createElement(PricingContent));
-
-    expect(html).not.toContain('Most popular');
-    expect(html).toContain('Recommended');
-    // Fabricated scarcity widget removed (UX polish): no fake "spots remaining".
-    expect(html).not.toContain('Spots remaining');
-    expect(html).not.toContain('7 of 100');
-    expect(html).not.toContain('pr-slots');
-    expect(html).toContain('Billed annually ($1908/yr) - 20% off $199/mo');
-    expect(html).not.toContain('Start 14-day trial');
-    expect(html.match(/Coming soon/g)).toHaveLength(3);
-    expect(html.match(/aria-disabled="true"/g)).toHaveLength(3);
-  });
-
-  it('renders updated tier positioning without overpromising SLA-backed public support', () => {
-    const html = renderToStaticMarkup(createElement(PricingContent));
-
-    expect(html).toContain('Everything in Standard');
-    expect(html).toContain('1 Google Business Profile location');
-    expect(html).toContain('Multi-location setup available');
-    expect(html).toContain('AI-drafted replies in your business voice');
-    expect(html).toContain('Responds in the reviewer');
-    expect(html).toContain('Historical unanswered review backfill');
-    expect(html).not.toContain('SLA-backed response time');
-  });
-
-  it('renders billing toggle state without inline thumb sizing', () => {
-    const html = renderToStaticMarkup(createElement(PricingContent));
-
-    expect(html).toContain('class="pr-toggle is-annual"');
-    expect(html).toContain('aria-pressed="false">Monthly</button>');
-    expect(html).toContain('aria-pressed="true">Annual');
-    // The thumb is positioned purely in CSS — it carries no inline style at all.
-    // (Scoped to the thumb: the comparison matrix legitimately uses inline
-    // `left:0` for its sticky first column, so a page-wide `left:` ban is wrong.)
-    expect(html).toContain('<div class="pr-toggle-thumb"></div>');
-    expect(html).not.toContain('width:calc(50% - 3px)');
-  });
-
-  it('renders the bottom CTA as an early access waitlist form', () => {
-    const html = renderToStaticMarkup(createElement(PricingContent));
-
-    expect(html).toContain('Join waitlist');
-    expect(html).toContain('value="pricing"');
-    expect(html).toContain('value="waitlist"');
-    expect(html).not.toContain('Book a Demo');
-    expect(html).not.toContain('Book My Demo');
-  });
-
-  it('exposes the comparison matrix as a labeled, keyboard-scrollable region', () => {
-    const html = renderToStaticMarkup(createElement(PricingContent));
-
-    expect(html).toContain(
-      'aria-label="Plan comparison, scroll horizontally to compare all plans"',
-    );
-    expect(html).toMatch(/class="pr-matrix"[^>]*tabindex="0"/);
-  });
-
-  it('pins the matrix header row and first column with sticky positioning', () => {
-    const html = renderToStaticMarkup(createElement(PricingContent));
-
-    // Header cells pin to the top; the first column pins to the left.
-    expect(html).toMatch(/position:sticky;top:0/);
-    expect(html).toMatch(/position:sticky;left:0/);
-  });
-
-  it('notes the billing currency near the toggle', () => {
-    const html = renderToStaticMarkup(createElement(PricingContent));
-
-    expect(html).toContain('All prices in USD');
-  });
-
-  it('links FAQ triggers to their panels and exposes slider value text', () => {
-    const html = renderToStaticMarkup(createElement(PricingContent));
-
-    expect(html).toContain('aria-controls=');
-    // FAQ answer panels are labelled <section> landmarks (native region, no role= needed)
-    expect(html).toMatch(/<section[^>]*aria-labelledby=/);
-    expect(html).toContain('aria-valuetext="80 reviews"');
-  });
-
-  it('states only billing claims true to the system', () => {
-    const html = renderToStaticMarkup(createElement(PricingContent));
-
-    // removed false / metering claims
-    expect(html).not.toContain('refund the unused months');
-    expect(html).not.toContain('review responses/month');
-    expect(html).not.toContain('What counts as a');
-    expect(html).not.toContain('go over my monthly limit');
-    expect(html).not.toContain('Multiple approval notification channels');
-    expect(html).not.toContain('3-year price lock');
-    expect(html).not.toContain('Pay for what you actually use');
-
-    // corrected claims present
-    expect(html).toContain('not refunded for unused time');
-    expect(html).toContain('apply immediately and are prorated');
-    expect(html).toContain('Locked-in founder pricing');
-    expect(html).toContain('Billed annually ($756/yr) - 20% off $79/mo');
   });
 });

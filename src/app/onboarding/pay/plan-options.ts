@@ -1,96 +1,57 @@
-import {
-  SubscriptionTier,
-  TIER_CONFIG,
-  type SubscriptionTierValue,
-} from '@/lib/accounts/tier-config';
+import type { Ws8SubscriptionTier } from '@/lib/accounts/tier-config';
+import type { PlanPresentationViewModel } from '@/lib/payments/plan-presentation';
+
+const ONBOARDING_PLAN_ORDER = ['copilot', 'autopilot'] as const satisfies readonly Ws8SubscriptionTier[];
 
 export interface OnboardingPlan {
-  tier: SubscriptionTierValue;
+  tier: Ws8SubscriptionTier;
   name: string;
   price: string;
+  listPrice: string;
+  overagePrice: string;
   badge: string;
-  badgeColor: string;
-  badgeText: string;
+  badgeTone: 'sage' | 'peach';
   description: string;
   highlight: boolean;
   features: readonly string[];
-  cta: string;
+  purchasable: boolean;
+  unavailableReason: string | null;
 }
 
-export const ONBOARDING_PLAN_ORDER = [
-  SubscriptionTier.FOUNDERS,
-  SubscriptionTier.BASIC,
-  SubscriptionTier.STANDARD,
-  SubscriptionTier.PREMIUM,
-] as const satisfies readonly SubscriptionTierValue[];
+type PlanCopy = Omit<
+  OnboardingPlan,
+  'price' | 'listPrice' | 'overagePrice' | 'purchasable' | 'unavailableReason'
+>;
 
-type PlanCopy = Omit<OnboardingPlan, 'tier' | 'price'>;
-
-const PLAN_COPY: Record<SubscriptionTierValue, PlanCopy> = {
-  founders: {
-    name: 'Founding Member',
-    badge: 'Limited — 10 slots',
-    badgeColor: '#F2C3B9',
-    badgeText: '#2a2a2a',
-    description: 'Rate locked for life.',
-    highlight: true,
-    cta: 'Claim founding rate',
-    features: [
-      'Google review monitoring (hourly)',
-      'AI-powered personalized responses',
-      'One-tap email approval',
-      'Weekly review intelligence brief',
-      'ROI dashboard',
-      'Dedicated onboarding call',
-      'Rate locked for life',
-    ],
-  },
-  basic: {
-    name: 'Basic',
-    badge: 'Single location',
-    badgeColor: '#F0EEEA',
-    badgeText: '#2a2a2a',
-    description: 'Simple review response coverage for one location.',
+const PLAN_COPY: Record<Ws8SubscriptionTier, PlanCopy> = {
+  copilot: {
+    tier: 'copilot',
+    name: 'Copilot',
+    badge: 'Owner approved',
+    badgeTone: 'sage',
+    description: 'The agent team drafts and routes every public response for your approval.',
     highlight: false,
-    cta: 'Choose Basic',
     features: [
+      'Reply drafts in your business voice',
+      'Guardian holds negative and flagged reviews',
+      'Insights files your weekly brief',
+      'Every public action requires owner approval',
       'One included location',
-      'Google review monitoring',
-      'AI-powered personalized responses',
-      'One-tap email approval',
-      'Weekly review intelligence brief',
     ],
   },
-  standard: {
-    name: 'Standard',
-    badge: 'Most popular',
-    badgeColor: '#97B3AE',
-    badgeText: '#ffffff',
-    description: 'Everything you need to manage reviews across locations.',
-    highlight: false,
-    cta: 'Choose Standard',
+  autopilot: {
+    tier: 'autopilot',
+    name: 'Autopilot',
+    badge: 'Policy controlled',
+    badgeTone: 'peach',
+    description: 'The same team may act inside your rules after every safety gate passes.',
+    highlight: true,
     features: [
-      'Everything in Basic',
-      'Multi-location add-ons available',
-      'Priority support',
-      'Advanced analytics',
-      'Custom response style guide',
-    ],
-  },
-  premium: {
-    name: 'Premium',
-    badge: 'High volume',
-    badgeColor: '#2a2a2a',
-    badgeText: '#ffffff',
-    description: 'For high-volume teams with more included location coverage.',
-    highlight: false,
-    cta: 'Choose Premium',
-    features: [
-      'Everything in Standard',
-      'Five included locations',
-      'Lower per-location add-on rate',
-      'Up to 50 historical reviews backfilled on connect',
-      'Priority support',
+      'Everything in Copilot',
+      'Only 4–5★ unflagged replies may auto-post',
+      'Owner-set policy and veto window',
+      'Moderation, judge, and governor safeguards',
+      'Negative reviews are never auto-posted',
     ],
   },
 };
@@ -100,10 +61,20 @@ export function formatMonthlyPrice(cents: number): string {
   return Number.isInteger(dollars) ? `$${dollars}` : `$${dollars.toFixed(2)}`;
 }
 
-export function getOnboardingPlans(): readonly OnboardingPlan[] {
-  return ONBOARDING_PLAN_ORDER.map((tier) => ({
-    tier,
-    price: formatMonthlyPrice(TIER_CONFIG[tier].baseCents),
-    ...PLAN_COPY[tier],
-  }));
+export function getOnboardingPlans(
+  viewModel: PlanPresentationViewModel,
+): readonly OnboardingPlan[] {
+  return ONBOARDING_PLAN_ORDER.map((tier) => {
+    const price = viewModel.prices[tier];
+    return {
+      ...PLAN_COPY[tier],
+      price: formatMonthlyPrice(price.basePriceCents),
+      listPrice: formatMonthlyPrice(price.listBasePriceCents),
+      overagePrice: formatMonthlyPrice(price.locationsOveragePriceCents),
+      purchasable: viewModel.purchasable[tier],
+      unavailableReason: viewModel.purchasable[tier]
+        ? null
+        : 'Autopilot is temporarily unavailable while its safety runtime is closed. Choose Copilot to continue.',
+    };
+  });
 }

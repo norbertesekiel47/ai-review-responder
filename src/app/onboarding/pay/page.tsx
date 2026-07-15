@@ -4,10 +4,14 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { redirect, notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
+import { isPriceVariant } from '@/lib/accounts/tier-config';
 import {
   SubscriptionStatus,
   subscriptionGrantsFullAccess,
 } from '@/lib/shared/subscription-status';
+import { trialEnabled } from '@/lib/payments/flags';
+import { buildPlanPresentation } from '@/lib/payments/plan-presentation';
+import { autopilotPurchasable } from '@/lib/payments/tier-purchasability';
 import { PlanPickerClient } from './PlanPickerClient';
 import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
 
@@ -53,6 +57,7 @@ export default async function OnboardingPayPage({
   const [row] = await sql<
     {
       business_id: string;
+      price_variant: string;
       subscription_status: string;
       place_id_verified: boolean;
       google_maps_url: string | null;
@@ -60,6 +65,7 @@ export default async function OnboardingPayPage({
   >`
     SELECT
       b.id                AS business_id,
+      a.price_variant,
       a.subscription_status,
       b.place_id_verified,
       b.google_maps_url
@@ -89,12 +95,20 @@ export default async function OnboardingPayPage({
   // create a duplicate Stripe subscription. Billing recovery for these
   // states lives on the dashboard side (Customer Portal / banner flows).
   if (row.subscription_status !== SubscriptionStatus.PENDING_PAYMENT) redirect('/dashboard');
+  if (!isPriceVariant(row.price_variant)) {
+    throw new Error('Account has an invalid price variant');
+  }
 
   const { cancelled } = await searchParams;
+  const viewModel = buildPlanPresentation({
+    priceVariant: row.price_variant,
+    autopilotPurchasable: autopilotPurchasable(),
+    trialEnabled: trialEnabled(),
+  });
 
   return (
     <OnboardingFunnelShell step="plan" maxWidth="6xl">
-      <PlanPickerClient cancelled={Boolean(cancelled)} />
+      <PlanPickerClient cancelled={Boolean(cancelled)} {...viewModel} />
     </OnboardingFunnelShell>
   );
 }

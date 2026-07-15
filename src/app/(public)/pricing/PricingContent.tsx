@@ -1,174 +1,90 @@
 'use client';
 
 import Link from 'next/link';
-import { useId, useMemo, useReducer, useState, type CSSProperties, type ReactNode } from 'react';
+import { useId, useState } from 'react';
 import { LeadIntakeForm } from '@/components/sections/lead-intake/LeadIntakeForm';
 import { SiteShell } from '@/components/ui/SiteShell';
-import { annualPriceUsd, monthlyPriceUsd } from './pricing-derivation';
+import type {
+  PlanPresentationViewModel,
+  PlanPriceView,
+} from '@/lib/payments/plan-presentation';
+import type { Ws8SubscriptionTier } from '@/lib/accounts/tier-config';
 
-type Billing = 'monthly' | 'annual';
-type TierId = 'founders' | 'basic' | 'standard' | 'premium';
-type TierIcon = 'spark' | 'solo' | 'growth' | 'locations';
-
-interface Tier {
-  id: TierId;
+interface PlanCopy {
+  tier: Ws8SubscriptionTier;
   name: string;
   tag: string;
-  swatch: string;
-  icon: TierIcon;
-  monthly: number;
-  annual: number;
-  cta: string;
-  ctaStyle: 'primary' | 'ghost';
-  ctaDisabled?: boolean;
-  ribbon?: string;
-  features: { text: string; hl?: boolean }[];
+  icon: 'copilot' | 'autopilot';
+  featured: boolean;
+  features: readonly string[];
 }
 
-const TIERS: Tier[] = [
+const PLANS: readonly PlanCopy[] = [
   {
-    id: 'founders',
-    name: 'Founders',
-    tag: 'Limited offer - locked-in pricing for early operators',
-    swatch: 'linear-gradient(135deg, #F2C3B9, #F0DDD6)',
-    icon: 'spark',
-    monthly: monthlyPriceUsd('founders'),
-    annual: annualPriceUsd('founders'),
-    cta: 'Claim a spot',
-    ctaStyle: 'primary',
+    tier: 'copilot',
+    name: 'Copilot',
+    tag: 'The agent team prepares every public action for your approval.',
+    icon: 'copilot',
+    featured: false,
     features: [
-      { text: 'Everything in Standard', hl: true },
-      { text: 'Locked-in founder pricing', hl: true },
-      { text: 'Limited founder spots' },
-      { text: 'Direct line to founders' },
-      { text: 'Vote on the roadmap' },
+      'Reply drafts personalized responses in your business voice',
+      'Guardian holds negative and flagged reviews for owner attention',
+      'Insights files your weekly review brief',
+      'Owner approval required before every public response',
+      'Negative reviews are never auto-posted',
     ],
   },
   {
-    id: 'basic',
-    name: 'Basic',
-    tag: 'For the owner running it solo',
-    swatch: 'linear-gradient(135deg, #D2E0D3, #F0EEEA)',
-    icon: 'solo',
-    monthly: monthlyPriceUsd('basic'),
-    annual: annualPriceUsd('basic'),
-    cta: 'Coming soon',
-    ctaStyle: 'ghost',
-    ctaDisabled: true,
+    tier: 'autopilot',
+    name: 'Autopilot',
+    tag: 'The same agent team may act inside the rules you set.',
+    icon: 'autopilot',
+    featured: true,
     features: [
-      { text: '1 Google Business Profile location', hl: true },
-      { text: 'AI-drafted replies in your business voice' },
-      { text: 'Email approval flow' },
-      { text: "Responds in the reviewer's language" },
-      { text: 'Basic dashboard access' },
-      { text: 'Email support within 24 hours' },
-    ],
-  },
-  {
-    id: 'standard',
-    name: 'Standard',
-    tag: 'For growing businesses and small chains',
-    swatch: 'linear-gradient(135deg, #97B3AE, #D2E0D3)',
-    icon: 'growth',
-    monthly: monthlyPriceUsd('standard'),
-    annual: annualPriceUsd('standard'),
-    cta: 'Coming soon',
-    ctaStyle: 'ghost',
-    ctaDisabled: true,
-    ribbon: 'Recommended',
-    features: [
-      { text: '1 Google Business Profile location' },
-      { text: 'Everything in Basic' },
-      { text: 'Weekly and monthly review digest', hl: true },
-      { text: 'Response analytics' },
-      { text: 'Email approval plus 1 extra notification channel' },
-      { text: 'Priority email support within 4 hours' },
-    ],
-  },
-  {
-    id: 'premium',
-    name: 'Premium',
-    tag: 'For multi-location operators and franchises',
-    swatch: 'linear-gradient(135deg, #D6CBBF, #F0DDD6)',
-    icon: 'locations',
-    monthly: monthlyPriceUsd('premium'),
-    annual: annualPriceUsd('premium'),
-    cta: 'Coming soon',
-    ctaStyle: 'ghost',
-    ctaDisabled: true,
-    features: [
-      { text: 'Multi-location setup available', hl: true },
-      { text: 'Email plus one mobile channel (SMS, Telegram, or WhatsApp)' },
-      { text: 'Weekly and monthly review digest' },
-      { text: 'Historical unanswered review backfill, up to 50 reviews before activation' },
-      { text: 'Ranking tracking / search visibility reporting' },
-      { text: 'Priority setup and support' },
-      { text: 'Dedicated success manager' },
+      'Everything in Copilot',
+      'Only 4–5★ unflagged replies may post automatically',
+      'Owner-set policy and veto window remain in control',
+      'Moderation, judge, and governor gates must all pass',
+      'Negative and flagged reviews are never auto-posted',
     ],
   },
 ];
 
 type MatrixRow =
   | { section: string }
-  | { label: string; values: (string | boolean)[] };
+  | { label: string; values: readonly [string | boolean, string | boolean] };
 
-const MATRIX: MatrixRow[] = [
-  { section: 'Responses & locations' },
-  { label: 'Google Business Profile locations', values: ['1', '1', '1', 'Multi-location setup available'] },
-  { label: 'Price lock', values: ['Locked in', false, false, false] },
-
-  { section: 'AI & brand voice' },
-  { label: 'AI-drafted replies in your business voice', values: [true, true, true, true] },
-  { label: "Responds in the reviewer's language", values: [true, true, true, true] },
-  { label: 'Brand voice setup', values: ['Standard', 'Standard', 'Expanded', 'Priority setup'] },
-  { label: 'Regenerate drafts', values: [true, true, true, true] },
-
-  { section: 'Team & workflow' },
-  { label: 'Dashboard access', values: ['Standard', 'Basic', 'Standard', 'Advanced'] },
-  { label: 'Email approval flow', values: [true, true, true, true] },
-  { label: 'Extra notification channel', values: [true, false, true, true] },
-
-  { section: 'Insights & integrations' },
-  { label: 'Response analytics', values: [true, false, true, true] },
-  { label: 'Weekly and monthly review digest', values: [true, false, true, true] },
-  { label: 'Historical unanswered review backfill', values: [false, false, false, true] },
-  { label: 'Ranking / search visibility reporting', values: [false, false, false, true] },
-
-  { section: 'Support' },
-  { label: 'Support response time', values: ['Direct line', '24 hours', '4 hours', 'Priority setup'] },
-  { label: 'Vote on the roadmap', values: [true, false, false, false] },
-  { label: 'Dedicated success manager', values: [false, false, false, true] },
+const MATRIX: readonly MatrixRow[] = [
+  { section: 'Agent team' },
+  { label: 'Reply drafts personalized responses', values: [true, true] },
+  { label: 'Guardian holds negative and flagged reviews', values: [true, true] },
+  { label: 'Insights files a weekly brief', values: [true, true] },
+  { section: 'Public actions' },
+  { label: 'Owner approval required', values: ['Every response', 'Outside policy'] },
+  { label: 'Eligible automatic posting', values: [false, '4–5★, unflagged only'] },
+  { label: 'Negative reviews auto-posted', values: [false, false] },
+  { section: 'Safety controls' },
+  { label: 'Owner-set policy and veto window', values: ['Approval context', true] },
+  { label: 'Moderation protects every draft', values: [true, true] },
+  { label: 'Judge and governor required for eligible autonomy', values: [false, true] },
+  { section: 'Locations' },
+  { label: 'Included locations', values: ['1', '1'] },
 ];
 
-// Sticky positioning for the horizontally-scrollable comparison matrix. The
-// first column pins on the X axis (the real scroll axis under 720px), the
-// header row pins on the Y axis; the corner cell pins on both. Opaque
-// backgrounds keep scrolling cells from showing through the pinned column.
-const MATRIX_STICKY_FIRST_COL: CSSProperties = {
-  position: 'sticky',
-  left: 0,
-  zIndex: 1,
-  background: '#fff',
-};
-const MATRIX_STICKY_HEADER: CSSProperties = {
-  position: 'sticky',
-  top: 0,
-  zIndex: 2,
-};
-const MATRIX_STICKY_CORNER: CSSProperties = {
-  position: 'sticky',
-  left: 0,
-  top: 0,
-  zIndex: 3,
-  background: '#f4f2ee',
-};
-
-const FAQ_ITEMS = [
-  { q: 'How does the 14-day trial work?', a: 'Connect your Google Business Profile in under two minutes. We start drafting replies immediately — you approve each one by email. No charge until day 15, and you can cancel anytime with one click.' },
-  { q: 'Can I change plans later?', a: 'Yes. Upgrade, downgrade, or cancel any time from the settings page. Plan changes apply immediately and are prorated.' },
-  { q: 'Do I have to approve every reply?', a: "By default, yes — every reply waits for your one-tap approval, so you stay in control of your brand voice. You can optionally enable auto-approval (off by default) if you later want hands-off posting. Approval takes one tap on your phone." },
-  { q: 'Is there a contract?', a: 'No. Monthly plans are month-to-month; annual plans are paid upfront for the year. Cancel any time — your access continues through the end of the paid period and you are not charged again. Annual plans are not refunded for unused time.' },
-];
+const BASE_FAQS = [
+  {
+    q: 'Can I change plans later?',
+    a: 'Yes. You can change plans from Billing. Eligible plan changes are previewed first and Stripe applies any required proration.',
+  },
+  {
+    q: 'What can Autopilot post without approval?',
+    a: 'Only 4–5★ unflagged replies that fit your owner-set policy may post after the veto window and after moderation, judge, and governor safeguards pass. Negative reviews are never auto-posted.',
+  },
+  {
+    q: 'Is there a contract?',
+    a: 'RepWorth plans are month-to-month and renew each month until cancelled.',
+  },
+] as const;
 
 const CheckIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -176,422 +92,263 @@ const CheckIcon = () => (
   </svg>
 );
 
-const PLAN_ICON_COMMON = {
-  fill: 'none',
-  stroke: 'currentColor',
-  strokeLinecap: 'round',
-  strokeLinejoin: 'round',
-  'aria-hidden': true,
-} as const;
-
-function PlanIcon({ icon }: { icon: TierIcon }) {
-  if (icon === 'spark') {
-    return (
-      <svg viewBox="0 0 24 24" {...PLAN_ICON_COMMON}>
-        <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z" />
-        <path d="M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8L18 16z" />
-      </svg>
-    );
-  }
-
-  if (icon === 'solo') {
-    return (
-      <svg viewBox="0 0 24 24" {...PLAN_ICON_COMMON}>
-        <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" />
-        <path d="M5 21a7 7 0 0 1 14 0" />
-      </svg>
-    );
-  }
-
-  if (icon === 'growth') {
-    return (
-      <svg viewBox="0 0 24 24" {...PLAN_ICON_COMMON}>
-        <path d="M4 19V5" />
-        <path d="M4 19h16" />
-        <path d="M7 15l4-4 3 3 5-7" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg viewBox="0 0 24 24" {...PLAN_ICON_COMMON}>
-      <path d="M4 21V7l6-3 6 3v14" />
-      <path d="M16 10l4 2v9" />
-      <path d="M8 10h2M8 14h2M8 18h2" />
+function PlanIcon({ icon }: { icon: PlanCopy['icon'] }) {
+  return icon === 'copilot' ? (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M4 8.5 12 4l8 4.5v7L12 20l-8-4.5v-7Z" />
+      <path d="m8 12 2.3 2.3L16 9" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 3v4M12 17v4M3 12h4M17 12h4" />
+      <circle cx="12" cy="12" r="5" />
+      <path d="m10 12 1.3 1.3L14.5 10" />
     </svg>
   );
 }
 
-function PlanCard({ tier, billing, isFeatured, onSelect }: { tier: Tier; billing: Billing; isFeatured: boolean; onSelect: () => void }) {
-  const price = billing === 'annual' ? tier.annual : tier.monthly;
-  return (
-    <div className={`pr-plan ${isFeatured ? 'is-featured' : ''}`}>
-      <div className="pr-plan-hatch" aria-hidden>
-        {Array.from({ length: 14 }).map((_, i) => (
-          <span key={i} />
-        ))}
-      </div>
-      {isFeatured && tier.ribbon && <div className="pr-ribbon">{tier.ribbon}</div>}
+function formatDollars(cents: number): string {
+  const dollars = cents / 100;
+  return Number.isInteger(dollars) ? String(dollars) : dollars.toFixed(2);
+}
 
-      <div className="pr-plan-swatch" style={{ background: tier.swatch }} aria-hidden>
-        <PlanIcon icon={tier.icon} />
+function PlanCard({
+  plan,
+  price,
+  priceVariant,
+  purchasable,
+  selfServeEnabled,
+}: {
+  plan: PlanCopy;
+  price: PlanPriceView;
+  priceVariant: PlanPresentationViewModel['priceVariant'];
+  purchasable: boolean;
+  selfServeEnabled: boolean;
+}) {
+  const unavailableId = `pricing-${plan.tier}-unavailable`;
+  const ctaLabel = selfServeEnabled
+    ? `Choose ${plan.name}`
+    : `Join the ${plan.name} waitlist`;
+
+  return (
+    <article className={`pr-plan ${plan.featured ? 'is-featured' : ''}`}>
+      <div className="pr-plan-hatch" aria-hidden>
+        {Array.from({ length: 14 }).map((_, index) => <span key={index} />)}
       </div>
-      <p className="pr-plan-name">{tier.name}</p>
-      <p className="pr-plan-tag">{tier.tag}</p>
+      {plan.featured && <div className="pr-ribbon">More autonomy</div>}
+      <div className={`pr-plan-swatch is-${plan.icon}`} aria-hidden>
+        <PlanIcon icon={plan.icon} />
+      </div>
+      <h2 className="pr-plan-name">{plan.name}</h2>
+      <p className="pr-plan-tag">{plan.tag}</p>
 
       <div className="pr-price">
         <span className="pr-price-currency">$</span>
-        <span className="pr-price-amt">{price}</span>
+        <span className="pr-price-amt">{formatDollars(price.basePriceCents)}</span>
         <span className="pr-price-per">/ month</span>
       </div>
-      <p className="pr-price-foot">
-        {billing === 'annual'
-          ? `Billed annually ($${price * 12}/yr) - 20% off $${tier.monthly}/mo`
-          : 'Billed monthly, cancel anytime'}
+      {priceVariant === 'founding' ? (
+        <p className="pr-price-foot">
+          Founding rate locked for the account&apos;s life.{' '}
+          <span className="pr-list-price">${formatDollars(price.listBasePriceCents)} list</span>
+        </p>
+      ) : (
+        <p className="pr-price-foot">Monthly billing. Cancel anytime.</p>
+      )}
+      <p className="pr-overage-price">
+        One location included · ${formatDollars(price.locationsOveragePriceCents)}/month per extra location
       </p>
 
-      {tier.ctaDisabled ? (
-        <button
-          type="button"
-          className={`pr-plan-cta ${tier.ctaStyle} is-disabled`}
-          disabled
-          aria-disabled="true"
-        >
-          {tier.cta}
-        </button>
-      ) : (
+      {purchasable ? (
         <Link
-          href="/book-a-demo"
-          className={`pr-plan-cta ${tier.ctaStyle}`}
-          onClick={onSelect}
+          href={selfServeEnabled ? '/signup' : '#pricing-waitlist'}
+          className={`pr-plan-cta ${plan.featured ? 'primary' : 'ghost'}`}
         >
-          {tier.cta}
+          {ctaLabel}
         </Link>
+      ) : (
+        <>
+          <button
+            type="button"
+            className="pr-plan-cta ghost is-disabled"
+            disabled
+            aria-describedby={unavailableId}
+          >
+            Autopilot unavailable
+          </button>
+          <p id={unavailableId} className="pr-unavailable-reason">
+            Autopilot is temporarily unavailable while its safety runtime is closed. Copilot remains available.
+          </p>
+        </>
       )}
 
       <div className="pr-divider" />
       <p className="pr-includes-lbl">What&apos;s included</p>
       <ul className="pr-feature-list">
-        {tier.features.map((f) => (
-          <li key={f.text}>
-            <span
-              className="check"
-              style={{ background: isFeatured ? 'var(--rw-teal)' : 'rgba(151,179,174,0.75)' }}
-            >
-              <CheckIcon />
-            </span>
-            <span className={f.hl ? 'hl' : undefined}>{f.text}</span>
+        {plan.features.map((feature) => (
+          <li key={feature}>
+            <span className="check"><CheckIcon /></span>
+            <span>{feature}</span>
           </li>
         ))}
       </ul>
-    </div>
+    </article>
   );
 }
 
-function MatrixCell({ v, featured }: { v: string | boolean; featured: boolean }) {
-  const cls = `pr-matrix-cell num ${featured ? 'featured' : ''}`;
-  if (v === true)
-    return (
-      <div className={cls}>
-        <span className="pr-check-yes">
-          <CheckIcon />
-        </span>
-      </div>
-    );
-  if (v === false)
-    return (
-      <div className={cls}>
-        <span className="pr-check-no" />
-      </div>
-    );
-  return <div className={cls}>{v}</div>;
-}
-
-interface RoiState {
-  reviews: number;
-  minutes: number;
-  rate: number;
-}
-
-type RoiAction =
-  | { type: 'setReviews'; value: number }
-  | { type: 'setMinutes'; value: number }
-  | { type: 'setRate'; value: number };
-
-const roiInitialState: RoiState = {
-  reviews: 80,
-  minutes: 8,
-  rate: 45,
-};
-
-function roiReducer(state: RoiState, action: RoiAction): RoiState {
-  switch (action.type) {
-    case 'setReviews':
-      return { ...state, reviews: action.value };
-    case 'setMinutes':
-      return { ...state, minutes: action.value };
-    case 'setRate':
-      return { ...state, rate: action.value };
+function MatrixCell({ value, featured }: { value: string | boolean; featured: boolean }) {
+  const className = `pr-matrix-cell num ${featured ? 'featured' : ''}`;
+  if (value === true) {
+    return <div className={className}><span className="pr-check-yes" aria-label="Included"><CheckIcon /></span></div>;
   }
+  if (value === false) {
+    return <div className={className}><span className="pr-check-no" aria-label="Not included" /></div>;
+  }
+  return <div className={className}>{value}</div>;
 }
 
-export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?: boolean }) {
-  const [billing, setBilling] = useState<Billing>('annual');
-  const [featured, setFeatured] = useState<TierId>('standard');
-
-  // ROI calculator
-  const [roi, dispatchRoi] = useReducer(roiReducer, roiInitialState);
-  const { reviews, minutes, rate } = roi;
-  const monthlyHours = useMemo(() => +(reviews * minutes / 60).toFixed(1), [reviews, minutes]);
-  const monthlyValue = useMemo(() => Math.round(monthlyHours * rate), [monthlyHours, rate]);
-  const yearlyValue = monthlyValue * 12;
-
+export function PricingContent({
+  viewModel,
+  selfServeEnabled = false,
+}: {
+  viewModel: PlanPresentationViewModel;
+  selfServeEnabled?: boolean;
+}) {
   const [openFaq, setOpenFaq] = useState(0);
   const faqBaseId = useId();
-
-  const isAnnual = billing === 'annual';
-  const headerFeatured = (id: TierId) => id === featured;
+  const faqs = viewModel.trialEnabled
+    ? [
+        {
+          q: 'How does the 30-day trial work?',
+          a: 'Choose a plan explicitly and provide a card up front. Your 30-day trial starts through Stripe, and monthly billing for that plan begins after the trial unless you cancel.',
+        },
+        ...BASE_FAQS,
+      ]
+    : BASE_FAQS;
 
   return (
     <SiteShell scope="pr-page" selfServeEnabled={selfServeEnabled}>
+      <section className="pr-hero">
+        <p className="pr-eyebrow">Pricing</p>
+        <h1>Choose how your agent team works.</h1>
+        <p className="sub">
+          Two monthly plans. One included location. Clear control over every public action.
+        </p>
+        <p className="pr-currency">All prices in USD</p>
+      </section>
 
-          {/* Hero */}
-          <section className="pr-hero">
-            <p className="pr-eyebrow">Pricing</p>
-            <h1>Every reply handled. One honest price.</h1>
-            <p className="sub">
-              Simple flat-rate plans. Switch anytime. Cancel whenever.
-            </p>
-          </section>
+      <div className="pr-plans">
+        {PLANS.map((plan) => (
+          <PlanCard
+            key={plan.tier}
+            plan={plan}
+            price={viewModel.prices[plan.tier]}
+            priceVariant={viewModel.priceVariant}
+            purchasable={viewModel.purchasable[plan.tier]}
+            selfServeEnabled={selfServeEnabled}
+          />
+        ))}
+      </div>
 
-          {/* Billing toggle */}
-          <div className="pr-toggle-wrap">
-            <div
-              className={`pr-toggle ${isAnnual ? 'is-annual' : 'is-monthly'}`}
-            >
-              <div className="pr-toggle-thumb" />
-              <button
-                type="button"
-                onClick={() => setBilling('monthly')}
-                className={!isAnnual ? 'is-active' : ''}
-                aria-pressed={!isAnnual}
-              >
-                Monthly
-              </button>
-              <button
-                type="button"
-                onClick={() => setBilling('annual')}
-                className={isAnnual ? 'is-active' : ''}
-                aria-pressed={isAnnual}
-              >
-                Annual <span className="pr-save-badge">Save 20%</span>
-              </button>
+      {viewModel.trialEnabled && (
+        <div className="pr-below-cards">
+          <div className="pr-guarantee">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              <path d="M9 12l2 2 4-4" />
+            </svg>
+            <span>30-day trial · Card required up front · Explicit plan selection</span>
+          </div>
+        </div>
+      )}
+
+      <div className="pr-matrix-wrap">
+        <div className="pr-matrix-head">
+          <h2>Compare the control boundary</h2>
+          <p>The agent team is the same. The authority you grant it is different.</p>
+        </div>
+        <section
+          className="pr-matrix"
+          aria-label="Plan comparison, scroll horizontally to compare both plans"
+          // Intentional: the horizontally-scrollable comparison must be keyboard reachable.
+          // react-doctor-disable-next-line react-doctor/no-noninteractive-tabindex
+          tabIndex={0}
+        >
+          <div className="pr-matrix-grid">
+            <div className="pr-matrix-row">
+              <div className="pr-matrix-cell hdr first">Feature</div>
+              <div className="pr-matrix-cell hdr">Copilot</div>
+              <div className="pr-matrix-cell hdr featured">Autopilot</div>
             </div>
-            <p
-              className="pr-toggle-note"
-              style={{
-                marginTop: 10,
-                textAlign: 'center',
-                font: '500 12px var(--rw-font-body)',
-                letterSpacing: '0.04em',
-                color: '#557069',
-              }}
-            >
-              All prices in USD
-            </p>
-          </div>
-
-          {/* Plan grid */}
-          <div className="pr-plans">
-            {TIERS.map((t) => (
-              <PlanCard
-                key={t.id}
-                tier={t}
-                billing={billing}
-                isFeatured={t.id === featured}
-                onSelect={() => setFeatured(t.id)}
-              />
-            ))}
-          </div>
-          <div className="pr-below-cards">
-            <div className="pr-guarantee">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                <path d="M9 12l2 2 4-4" />
-              </svg>
-              <span>14-day free trial · No credit card · Cancel anytime</span>
-            </div>
-          </div>
-
-          {/* ROI calculator */}
-          <div className="pr-calc-wrap">
-            <div className="pr-calc">
-              <div className="pr-calc-head">
-                <div>
-                  <p className="pr-calc-eyebrow">How much are reviews costing you?</p>
-                  <h2>See what you get back before you pick a plan</h2>
-                </div>
-              </div>
-              <div className="pr-calc-grid">
-                <div>
-                  <SliderRow label="Reviews per month" value={reviews} display={String(reviews)} valueText={`${reviews} reviews`} min={10} max={500} step={10} onChange={(value) => dispatchRoi({ type: 'setReviews', value })} />
-                  <SliderRow label="Minutes to craft each reply" value={minutes} display={`${minutes} min`} valueText={`${minutes} minutes`} min={2} max={20} step={1} onChange={(value) => dispatchRoi({ type: 'setMinutes', value })} />
-                  <SliderRow label="Your hourly rate" value={rate} display={`$${rate}/hr`} valueText={`$${rate} per hour`} min={20} max={150} step={5} onChange={(value) => dispatchRoi({ type: 'setRate', value })} />
-                </div>
-                <div className="pr-calc-readout">
-                  <div className="pr-readout-row">
-                    <span className="pr-readout-lbl">Hours spent monthly</span>
-                    <span className="pr-readout-val">{monthlyHours} hrs</span>
+            {MATRIX.map((row) => {
+              if ('section' in row) {
+                return (
+                  <div key={row.section} className="pr-matrix-row">
+                    <div className="pr-matrix-cell section first">{row.section}</div>
                   </div>
-                  <div className="pr-readout-row">
-                    <span className="pr-readout-lbl">Monthly cost of your time</span>
-                    <span className="pr-readout-val">${monthlyValue.toLocaleString()}</span>
-                  </div>
-                  <div className="pr-readout-total">
-                    <span className="pr-readout-total-lbl">What RepWorth saves you / year</span>
-                    <span className="pr-readout-total-val">${yearlyValue.toLocaleString()}</span>
-                  </div>
-                  <p className="pr-readout-foot">
-                    Assumes 95% automation · Approve or edit in under 30 seconds
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Comparison matrix */}
-          <div className="pr-matrix-wrap">
-            <div className="pr-matrix-head">
-              <h2>Compare every detail</h2>
-              <p>The full feature list, side-by-side. No asterisks, no gotchas.</p>
-            </div>
-            <section
-              className="pr-matrix"
-              aria-label="Plan comparison, scroll horizontally to compare all plans"
-              // Intentional: makes the horizontally-scrollable matrix keyboard-focusable so keyboard-only users can scroll it (WCAG 2.1.1).
-              // react-doctor-disable-next-line react-doctor/no-noninteractive-tabindex
-              tabIndex={0}
-            >
-              <div className="pr-matrix-grid">
-                <div className="pr-matrix-row">
-                  <div className="pr-matrix-cell hdr first" style={MATRIX_STICKY_CORNER}>Feature</div>
-                  <div className={`pr-matrix-cell hdr ${headerFeatured('founders') ? 'featured' : ''}`} style={MATRIX_STICKY_HEADER}>Founders</div>
-                  <div className={`pr-matrix-cell hdr ${headerFeatured('basic') ? 'featured' : ''}`} style={MATRIX_STICKY_HEADER}>Basic</div>
-                  <div className={`pr-matrix-cell hdr ${headerFeatured('standard') ? 'featured' : ''}`} style={MATRIX_STICKY_HEADER}>Standard</div>
-                  <div className={`pr-matrix-cell hdr ${headerFeatured('premium') ? 'featured' : ''}`} style={MATRIX_STICKY_HEADER}>Premium</div>
-                </div>
-                {MATRIX.map((row) => {
-                  if ('section' in row) {
-                    return (
-                      <div key={`section-${row.section}`} className="pr-matrix-row">
-                        <div className="pr-matrix-cell section first">{row.section}</div>
-                      </div>
-                    );
-                  }
-                  return (
-                    <div key={`feature-${row.label}`} className="pr-matrix-row">
-                      <div className="pr-matrix-cell first" style={MATRIX_STICKY_FIRST_COL}>{row.label}</div>
-                      <MatrixCell v={row.values[0] ?? ''} featured={headerFeatured('founders')} />
-                      <MatrixCell v={row.values[1] ?? ''} featured={headerFeatured('basic')} />
-                      <MatrixCell v={row.values[2] ?? ''} featured={headerFeatured('standard')} />
-                      <MatrixCell v={row.values[3] ?? ''} featured={headerFeatured('premium')} />
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          </div>
-
-          {/* FAQ */}
-          <div className="pr-faq-wrap">
-            <div className="pr-faq-head">
-              <h2>Frequently asked</h2>
-              <p>Everything you need before you pick a plan.</p>
-            </div>
-            {FAQ_ITEMS.map((item, i) => {
-              const isOpen = openFaq === i;
-              const panelId = `${faqBaseId}-faq-panel-${i}`;
-              const buttonId = `${faqBaseId}-faq-button-${i}`;
+                );
+              }
               return (
-                <div key={item.q} className={`pr-faq-item ${isOpen ? 'is-open' : ''}`}>
-                  <button
-                    type="button"
-                    id={buttonId}
-                    className="pr-faq-q"
-                    onClick={() => setOpenFaq(isOpen ? -1 : i)}
-                    aria-expanded={isOpen}
-                    aria-controls={panelId}
-                  >
-                    <span>{item.q}</span>
-                    <span className="pr-faq-icon" aria-hidden>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                        <path d="M12 5v14M5 12h14" />
-                      </svg>
-                    </span>
-                  </button>
-                  <section
-                    className="pr-faq-a"
-                    id={panelId}
-                    aria-labelledby={buttonId}
-                  >
-                    <div className="pr-faq-a-inner">{item.a}</div>
-                  </section>
+                <div key={row.label} className="pr-matrix-row">
+                  <div className="pr-matrix-cell first">{row.label}</div>
+                  <MatrixCell value={row.values[0]} featured={false} />
+                  <MatrixCell value={row.values[1]} featured />
                 </div>
               );
             })}
           </div>
-
-          {/* CTA */}
-          <section id="pricing-waitlist" className="pr-cta">
-            <h2>Join the early access waitlist.</h2>
-            <p>
-              Tell us about your business and we&apos;ll reach out when early access opens for
-              your area.
-            </p>
-            <div className="w-full max-w-md">
-              <LeadIntakeForm intent="waitlist" source="pricing" tone="onTeal" />
-            </div>
-          </section>
-    </SiteShell>
-  );
-}
-
-function SliderRow({
-  label,
-  value,
-  display,
-  valueText,
-  min,
-  max,
-  step,
-  onChange,
-}: {
-  label: ReactNode;
-  value: number;
-  display: string;
-  valueText: string;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div className="pr-slider-row">
-      <div className="pr-slider-row-top">
-        <span className="pr-slider-lbl">{label}</span>
-        <span className="pr-slider-val">{display}</span>
+        </section>
       </div>
-      <input
-        className="pr-slider focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rw-teal-strong"
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        aria-valuetext={valueText}
-        onChange={(e) => onChange(Number(e.target.value))}
-        aria-label={typeof label === 'string' ? label : undefined}
-      />
-    </div>
+
+      <div className="pr-faq-wrap">
+        <div className="pr-faq-head">
+          <h2>Frequently asked</h2>
+          <p>What to know before you choose a plan.</p>
+        </div>
+        {faqs.map((item, index) => {
+          const isOpen = openFaq === index;
+          const panelId = `${faqBaseId}-faq-panel-${index}`;
+          const buttonId = `${faqBaseId}-faq-button-${index}`;
+          return (
+            <div key={item.q} className={`pr-faq-item ${isOpen ? 'is-open' : ''}`}>
+              <button
+                type="button"
+                id={buttonId}
+                className="pr-faq-q"
+                onClick={() => setOpenFaq(isOpen ? -1 : index)}
+                aria-expanded={isOpen}
+                aria-controls={panelId}
+              >
+                <span>{item.q}</span>
+                <span className="pr-faq-icon" aria-hidden>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </span>
+              </button>
+              <section className="pr-faq-a" id={panelId} aria-labelledby={buttonId}>
+                <div className="pr-faq-a-inner">{item.a}</div>
+              </section>
+            </div>
+          );
+        })}
+      </div>
+
+      <section id="pricing-waitlist" className="pr-cta">
+        <h2>{selfServeEnabled ? 'Ready to choose your plan?' : 'Join the early access waitlist.'}</h2>
+        <p>
+          {selfServeEnabled
+            ? 'Create your account, choose Copilot or Autopilot explicitly, and continue to secure checkout.'
+            : 'Tell us about your business and we’ll reach out when early access opens for your area.'}
+        </p>
+        {selfServeEnabled ? (
+          <Link href="/signup" className="pr-cta-btn">Create account</Link>
+        ) : (
+          <div className="w-full max-w-md">
+            <LeadIntakeForm intent="waitlist" source="pricing" tone="onTeal" />
+          </div>
+        )}
+      </section>
+    </SiteShell>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
+import type { PlanPresentationViewModel } from '@/lib/payments/plan-presentation';
 
 // ── Response type from /api/account/settings ────────────────────────────
 
@@ -10,6 +11,7 @@ export interface AccountSettingsData {
   subscription: {
     tier: string;
     tierLabel: string;
+    priceVariant: string;
     status: string;
     statusLabel: string;
     stripeCustomerId: string | null;
@@ -28,6 +30,7 @@ export interface AccountSettingsData {
     overageUnits: number;
     totalCents: number;
   };
+  planPresentation: PlanPresentationViewModel;
   timeZone?: string | null;
 }
 
