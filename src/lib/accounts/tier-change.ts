@@ -6,10 +6,10 @@ import type { Sql, TransactionSql } from 'postgres';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import {
   isPriceVariant,
-  isWs8SubscriptionTier,
+  isSubscriptionTier,
   resolveTierSnapshot,
   type ResolvedTierSnapshot,
-  type Ws8SubscriptionTier,
+  type SubscriptionTierValue,
 } from './tier-config';
 import { computeOverageQuantity, type BillingSnapshot } from './quota';
 import { acquireTierAndBillingLocks } from './billing-locks';
@@ -98,7 +98,7 @@ export async function validateTierChange(
   accountId: string,
   newTier: string,
 ): Promise<TierChangeValidation> {
-  if (!isWs8SubscriptionTier(newTier)) {
+  if (!isSubscriptionTier(newTier)) {
     return { allowed: false, reason: 'unknown_tier' };
   }
   assertTierPurchasable(newTier);
@@ -140,7 +140,7 @@ export type TierChangeOutcome =
 
 export interface ApplyTierChangeInput {
   accountId: string;
-  tier: Ws8SubscriptionTier;
+  tier: SubscriptionTierValue;
   /** Stable caller operation identity; never a timestamp or retry attempt. */
   operationKey: string;
 }
@@ -165,7 +165,7 @@ interface CommittedTierChangeRow {
 
 type CommittedTierChangeLookup =
   | { kind: 'none' }
-  | { kind: 'conflict'; committedTier: Ws8SubscriptionTier }
+  | { kind: 'conflict'; committedTier: SubscriptionTierValue }
   | { kind: 'success'; billing: BillingSnapshot };
 
 function parseAuditInteger(
@@ -189,7 +189,7 @@ async function loadCommittedTierChange(
   input: {
     accountId: string;
     operationKey: string;
-    targetTier: Ws8SubscriptionTier;
+    targetTier: SubscriptionTierValue;
     storedPriceVariant: string;
   },
 ): Promise<CommittedTierChangeLookup> {
@@ -217,7 +217,7 @@ async function loadCommittedTierChange(
   }
 
   const row = rows[0]!;
-  if (!row.new_tier || !isWs8SubscriptionTier(row.new_tier)) {
+  if (!row.new_tier || !isSubscriptionTier(row.new_tier)) {
     throw new Error('Committed tier-change audit has invalid new_tier');
   }
   if (row.new_tier !== input.targetTier) {

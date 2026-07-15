@@ -5,11 +5,11 @@ import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   SubscriptionTier,
-  isWs8SubscriptionTier,
+  isSubscriptionTier,
   resolveTierSnapshot,
   type PriceVariant,
   type ResolvedTierSnapshot,
-  type Ws8SubscriptionTier,
+  type SubscriptionTierValue,
 } from '@/lib/accounts/tier-config';
 import { isFoundingWindowOpen } from '@/lib/payments/founding-window';
 import { priceIdFor } from '@/lib/payments/price-tier-map';
@@ -31,7 +31,7 @@ export class DuplicateEmailError extends Error {
 
 export class TierPriceConfigurationError extends Error {
   constructor(
-    tier: Ws8SubscriptionTier,
+    tier: SubscriptionTierValue,
     variant: PriceVariant,
     kind: 'base' | 'overage',
   ) {
@@ -41,7 +41,7 @@ export class TierPriceConfigurationError extends Error {
 }
 
 function assertTierPriceConfiguration(
-  tier: Ws8SubscriptionTier,
+  tier: SubscriptionTierValue,
   variant: PriceVariant,
 ): void {
   if (!priceIdFor(tier, variant, 'base')) {
@@ -96,7 +96,7 @@ export interface AdminBusinessTxInput {
   highlightFacts?: string[];
   avoidFacts?: string[];
   sampleResponses?: string[];
-  subscriptionTier: Ws8SubscriptionTier;
+  subscriptionTier: SubscriptionTierValue;
   website?: string | null;
   placeId: PlaceIdInput;
 }
@@ -186,7 +186,7 @@ export async function createBusinessTx(
     options.mode === 'admin'
       ? (input as AdminBusinessTxInput).subscriptionTier
       : SubscriptionTier.COPILOT;
-  if (!isWs8SubscriptionTier(subscriptionTier)) {
+  if (!isSubscriptionTier(subscriptionTier)) {
     throw new Error(`Unknown WS8 subscription tier: ${String(subscriptionTier)}`);
   }
   // Admin provisioning is an authoritative tier choice. Gate it before the

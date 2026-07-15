@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { PastReplyCard } from '@/components/dashboard/reviews/PastReplyCard';
 import type { PastReplyRow } from '@/components/dashboard/reviews/PastReplyCard';
 import { EditReplyDrawer } from '@/components/dashboard/reviews/EditReplyDrawer';
-import { HistoricalUpgradeBanner } from '@/components/dashboard/account-state/HistoricalUpgradeBanner';
 import { Icon } from '@/components/dashboard/shell/Icon';
 
 interface Props {
@@ -14,7 +13,6 @@ interface Props {
   gapTotal: number;
   histTotal: number;
   avgStarRating: number | null;
-  isPremium: boolean;
   hasHistoricalSection: boolean;
   // True when orphan gap rows were merged into gapRows (gapTotal may be 0).
   // Used so the gap section header denominator includes orphan rows even when
@@ -34,7 +32,6 @@ export function PastRepliesClient({
   gapTotal,
   histTotal,
   avgStarRating,
-  isPremium,
   hasHistoricalSection,
   hasGapOrphans = false,
   page,
@@ -191,7 +188,6 @@ export function PastRepliesClient({
               {visibleHist.length} of {histSectionTotal}
             </div>
           </div>
-          {!isPremium && <HistoricalUpgradeBanner />}
           {visibleHist.length === 0 ? (
             <Empty firstRun={false} />
           ) : (

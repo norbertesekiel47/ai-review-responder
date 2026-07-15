@@ -8,10 +8,10 @@ import type {
   PlanPresentationViewModel,
   PlanPriceView,
 } from '@/lib/payments/plan-presentation';
-import type { Ws8SubscriptionTier } from '@/lib/accounts/tier-config';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 interface PlanCopy {
-  tier: Ws8SubscriptionTier;
+  tier: SubscriptionTierValue;
   name: string;
   tag: string;
   icon: 'copilot' | 'autopilot';

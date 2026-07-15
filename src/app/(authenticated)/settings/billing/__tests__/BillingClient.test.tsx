@@ -6,7 +6,7 @@ import { BillingClient } from '../BillingClient';
 const accountData = {
   accountId: 'acc1',
   displayName: 'Acme',
-  subscription: { tier: 'standard', tierLabel: 'Standard', status: 'active', statusLabel: 'Active', stripeCustomerId: 'cus_1', activatedAt: null, trialEndsAt: null },
+  subscription: { tier: 'copilot', tierLabel: 'Copilot', status: 'active', statusLabel: 'Active', stripeCustomerId: 'cus_1', activatedAt: null, trialEndsAt: null },
   quota: { activeLocations: 1, included: 3, paid: 3, overage: 0 },
   billing: { basePriceCents: 9900, overagePriceCents: 0, overageUnits: 0, totalCents: 9900 },
   timeZone: 'UTC',

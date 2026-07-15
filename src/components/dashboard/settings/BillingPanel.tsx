@@ -4,15 +4,15 @@ import { useReducer, useState } from 'react';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import type { AccountSettingsData } from '@/hooks/useAccountData';
 import {
-  isWs8SubscriptionTier,
+  isSubscriptionTier,
   type PriceVariant,
-  type Ws8SubscriptionTier,
+  type SubscriptionTierValue,
 } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
 import { CancelSubscriptionPanel } from '@/components/dashboard/settings/CancelSubscriptionPanel';
 
-const BILLING_PLAN_ORDER = ['copilot', 'autopilot'] as const satisfies readonly Ws8SubscriptionTier[];
+const BILLING_PLAN_ORDER = ['copilot', 'autopilot'] as const satisfies readonly SubscriptionTierValue[];
 
 type BillingPreview = {
   basePriceCents: number;
@@ -23,7 +23,7 @@ type BillingPreview = {
 };
 
 interface TierChangeState {
-  selectedTier: Ws8SubscriptionTier | null;
+  selectedTier: SubscriptionTierValue | null;
   operationKey: string | null;
   billingPreview: BillingPreview | null;
   previewLoading: boolean;
@@ -43,7 +43,7 @@ const initialTierChangeState: TierChangeState = {
 };
 
 type TierChangeAction =
-  | { type: 'previewStart'; selectedTier: Ws8SubscriptionTier; operationKey: string }
+  | { type: 'previewStart'; selectedTier: SubscriptionTierValue; operationKey: string }
   | { type: 'previewError'; previewError: string }
   | { type: 'previewSuccess'; billingPreview: BillingPreview | null }
   | { type: 'previewFinish' }
@@ -90,7 +90,7 @@ function tierChangeReducer(state: TierChangeState, action: TierChangeAction): Ti
   }
 }
 
-function planLabel(tier: Ws8SubscriptionTier): string {
+function planLabel(tier: SubscriptionTierValue): string {
   return tier === 'copilot' ? 'Copilot' : 'Autopilot';
 }
 
@@ -99,7 +99,7 @@ function formatMoney(cents: number): string {
 }
 
 interface TierChangeModalProps {
-  newTier: Ws8SubscriptionTier;
+  newTier: SubscriptionTierValue;
   isDowngrade: boolean;
   priceVariant: PriceVariant;
   trialing: boolean;
@@ -243,7 +243,7 @@ function CurrentPlanCard({ account }: { account: AccountSettingsData }) {
     }
   }
 
-  const currentLabel = isWs8SubscriptionTier(account.subscription.tier)
+  const currentLabel = isSubscriptionTier(account.subscription.tier)
     ? planLabel(account.subscription.tier)
     : account.subscription.tierLabel;
 
@@ -301,7 +301,7 @@ export function BillingPanel({ accountData, accountLoading, accountError, onAcco
     tierChangeError,
   } = tierChange;
 
-  async function openTierChangeModal(newTier: Ws8SubscriptionTier) {
+  async function openTierChangeModal(newTier: SubscriptionTierValue) {
     if (!accountData) return;
     if (!accountData.planPresentation.purchasable[newTier]) {
       dispatch({ type: 'confirmError', tierChangeError: 'Autopilot is not currently available. Copilot remains available.' });
@@ -355,7 +355,7 @@ export function BillingPanel({ accountData, accountLoading, accountError, onAcco
     }
   }
 
-  const currentTier = accountData && isWs8SubscriptionTier(accountData.subscription.tier)
+  const currentTier = accountData && isSubscriptionTier(accountData.subscription.tier)
     ? accountData.subscription.tier
     : null;
   const selectedPrice = accountData && selectedTier

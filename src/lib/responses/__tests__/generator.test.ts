@@ -108,7 +108,7 @@ const productionOptions: GenerationOptions = {
   reviewId: 'rev-001',
   version: 1,
   businessId: 'biz-001',
-  subscriptionTier: 'standard',
+  subscriptionTier: 'copilot',
   accountId: 'acc-001',
 };
 
@@ -122,7 +122,7 @@ const businessContext = {
   highlightFacts: [],
   avoidFacts: [],
   sampleResponses: [],
-  subscriptionTier: 'standard' as const,
+  subscriptionTier: 'copilot' as const,
 };
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -214,7 +214,7 @@ describe('generateResponse', () => {
     const { generateResponse } = await import('../generator');
     await generateResponse(mockSql, review, businessContext, [], productionOptions);
 
-    expect(tracker.reserveCost).toHaveBeenCalledWith('biz-001', 'standard');
+    expect(tracker.reserveCost).toHaveBeenCalledWith('biz-001', 'copilot');
     expect(concurrencyGuard.acquireConcurrencySlot).toHaveBeenCalledWith('biz-001');
     expect(tracker.finalizeCost).toHaveBeenCalled();
     expect(concurrencyGuard.releaseConcurrencySlot).toHaveBeenCalledWith('biz-001');
@@ -263,7 +263,7 @@ describe('generateResponse', () => {
 
   it('throws TypeError when production mode missing reviewId', async () => {
     const { generateResponse } = await import('../generator');
-    const opts: GenerationOptions = { mode: 'production', version: 1, businessId: 'b', subscriptionTier: 'standard' };
+    const opts: GenerationOptions = { mode: 'production', version: 1, businessId: 'b', subscriptionTier: 'copilot' };
 
     await expect(
       generateResponse(mockSql, review, businessContext, [], opts),
@@ -272,7 +272,7 @@ describe('generateResponse', () => {
 
   it('throws TypeError when production mode missing businessId', async () => {
     const { generateResponse } = await import('../generator');
-    const opts: GenerationOptions = { mode: 'production', reviewId: 'r', version: 1, subscriptionTier: 'standard' };
+    const opts: GenerationOptions = { mode: 'production', reviewId: 'r', version: 1, subscriptionTier: 'copilot' };
 
     await expect(
       generateResponse(mockSql, review, businessContext, [], opts),

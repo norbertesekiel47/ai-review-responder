@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 import {
   assertCanEditReply,
   validateOptimisticConcurrency,
-  PremiumRequiredError,
   SubscriptionReadOnlyError,
   ReviewChangedError,
   ResponseChangedError,
@@ -52,117 +52,65 @@ describe('assertCanEditReply', () => {
     flags: {},
   };
 
-  it('premium owner + historical → passes', async () => {
+  it('Autopilot owner + historical → passes', async () => {
     sqlReturnQueue.push([
       {
         review_business_id: ownerLocationId,
         review_date: new Date('2025-01-01T00:00:00Z'),
         activated_at: new Date('2025-06-01T00:00:00Z'),
-        tier: 'premium',
+        tier: 'autopilot',
         ...activeSubscription,
       },
     ]);
     await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).resolves.toBeUndefined();
   });
 
-  it('standard owner + non-historical (review after activation) → passes', async () => {
+  it('Copilot owner + non-historical (review after activation) → passes', async () => {
     sqlReturnQueue.push([
       {
         review_business_id: ownerLocationId,
         review_date: new Date('2025-07-01T00:00:00Z'),
         activated_at: new Date('2025-06-01T00:00:00Z'),
-        tier: 'standard',
+        tier: 'copilot',
         ...activeSubscription,
       },
     ]);
     await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).resolves.toBeUndefined();
   });
 
-  it('standard owner + historical → throws PremiumRequiredError', async () => {
+  it('Copilot owner + historical → passes', async () => {
     sqlReturnQueue.push([
       {
         review_business_id: ownerLocationId,
         review_date: new Date('2025-01-01T00:00:00Z'),
         activated_at: new Date('2025-06-01T00:00:00Z'),
-        tier: 'standard',
+        tier: 'copilot',
         ...activeSubscription,
       },
     ]);
-    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
+    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).resolves.toBeUndefined();
   });
 
-  it('basic owner + historical → throws PremiumRequiredError', async () => {
-    sqlReturnQueue.push([
-      {
-        review_business_id: ownerLocationId,
-        review_date: new Date('2025-01-01T00:00:00Z'),
-        activated_at: new Date('2025-06-01T00:00:00Z'),
-        tier: 'basic',
-        ...activeSubscription,
-      },
-    ]);
-    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
-  });
-
-  it('founders owner + historical → throws PremiumRequiredError', async () => {
-    sqlReturnQueue.push([
-      {
-        review_business_id: ownerLocationId,
-        review_date: new Date('2025-01-01T00:00:00Z'),
-        activated_at: new Date('2025-06-01T00:00:00Z'),
-        tier: 'founders',
-        ...activeSubscription,
-      },
-    ]);
-    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
-  });
-
-  it('NULL activation + non-premium (standard) → fails closed (PremiumRequiredError)', async () => {
+  it('Copilot with NULL activation still allows historical editing', async () => {
     sqlReturnQueue.push([
       {
         review_business_id: ownerLocationId,
         review_date: new Date('2025-01-01T00:00:00Z'),
         activated_at: null,
-        tier: 'standard',
+        tier: 'copilot',
         ...activeSubscription,
       },
     ]);
-    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
+    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).resolves.toBeUndefined();
   });
 
-  it('NULL activation + non-premium (basic) → fails closed (PremiumRequiredError)', async () => {
+  it('Autopilot with NULL activation still allows historical editing', async () => {
     sqlReturnQueue.push([
       {
         review_business_id: ownerLocationId,
         review_date: new Date('2025-01-01T00:00:00Z'),
         activated_at: null,
-        tier: 'basic',
-        ...activeSubscription,
-      },
-    ]);
-    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
-  });
-
-  it('NULL activation + non-premium (founders) → fails closed (PremiumRequiredError)', async () => {
-    sqlReturnQueue.push([
-      {
-        review_business_id: ownerLocationId,
-        review_date: new Date('2025-01-01T00:00:00Z'),
-        activated_at: null,
-        tier: 'founders',
-        ...activeSubscription,
-      },
-    ]);
-    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
-  });
-
-  it('NULL activation + premium → passes (premium always allowed regardless of activation)', async () => {
-    sqlReturnQueue.push([
-      {
-        review_business_id: ownerLocationId,
-        review_date: new Date('2025-01-01T00:00:00Z'),
-        activated_at: null,
-        tier: 'premium',
+        tier: 'autopilot',
         ...activeSubscription,
       },
     ]);
@@ -175,7 +123,7 @@ describe('assertCanEditReply', () => {
         review_business_id: 'biz-OTHER',
         review_date: new Date('2025-07-01T00:00:00Z'),
         activated_at: new Date('2025-06-01T00:00:00Z'),
-        tier: 'standard',
+        tier: 'copilot',
         ...activeSubscription,
       },
     ]);
@@ -205,11 +153,31 @@ describe('assertCanEditReply', () => {
         review_business_id: ownerLocationId,
         review_date: ts,
         activated_at: ts,
-        tier: 'standard',
+        tier: 'copilot',
         ...activeSubscription,
       },
     ]);
     await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).resolves.toBeUndefined();
+  });
+
+  it.each([
+    ['gap', new Date('2025-07-01T00:00:00Z')],
+    ['historical', new Date('2025-01-01T00:00:00Z')],
+  ])('fails closed on an unsupported tier for a %s reply', async (_bucket, reviewDate) => {
+    const unsupportedTier = 'retired_tier' as unknown as SubscriptionTierValue;
+    sqlReturnQueue.push([{
+      review_business_id: ownerLocationId,
+      review_date: reviewDate,
+      activated_at: new Date('2025-06-01T00:00:00Z'),
+      tier: unsupportedTier,
+      ...activeSubscription,
+    }]);
+
+    await expect(assertCanEditReply(sqlMock, 'rev-1', ctx)).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    expect(sqlMockFn).toHaveBeenCalledTimes(1);
+    expect(sqlReturnQueue).toHaveLength(0);
   });
 
   it('throws SubscriptionReadOnlyError when the account is past-due read-only', async () => {
@@ -218,7 +186,7 @@ describe('assertCanEditReply', () => {
         review_business_id: ownerLocationId,
         review_date: new Date('2026-05-21T00:00:00Z'),
         activated_at: new Date('2026-05-01T00:00:00Z'),
-        tier: 'standard',
+        tier: 'copilot',
         subscription_status: 'past_due',
         past_due_at: new Date('2026-05-10T00:00:00Z'),
         flags: {},
@@ -234,7 +202,7 @@ describe('assertCanEditReply', () => {
         review_business_id: ownerLocationId,
         review_date: new Date('2026-05-21T00:00:00Z'),
         activated_at: new Date('2026-05-01T00:00:00Z'),
-        tier: 'standard',
+        tier: 'copilot',
         subscription_status: 'pending_payment',
         past_due_at: null,
         flags: {},

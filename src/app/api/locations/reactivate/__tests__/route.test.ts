@@ -331,7 +331,7 @@ describe('POST /api/locations/reactivate', () => {
     expect(res.status).toBe(403);
   });
 
-  it('returns 403 for basic tier (multi-location not allowed)', async () => {
+  it('returns 403 when the server quota gate rejects tier eligibility', async () => {
     mockAssertCanAddLocation.mockResolvedValue({
       allowed: false,
       reason: 'tier_disallows_multi_location',

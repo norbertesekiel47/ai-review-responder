@@ -59,6 +59,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!account) {
     return jsonResponse({ error: 'Account not found' }, 404);
   }
+  if (!isSubscriptionTier(account.subscription_tier)) {
+    return jsonResponse({ error: 'Account has an invalid subscription tier' }, 500);
+  }
   if (!isPriceVariant(account.price_variant)) {
     return jsonResponse({ error: 'Account has an invalid price variant' }, 500);
   }
@@ -70,10 +73,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   ]);
 
   // Format tier label for display
-  const tierLabel = isSubscriptionTier(account.subscription_tier)
-    ? SubscriptionTier[account.subscription_tier.toUpperCase() as keyof typeof SubscriptionTier]
-      ?? account.subscription_tier
-    : account.subscription_tier;
+  const tierLabel = SubscriptionTier[
+    account.subscription_tier.toUpperCase() as keyof typeof SubscriptionTier
+  ] ?? account.subscription_tier;
 
   // Format subscription status for display
   const statusLabel = account.subscription_status

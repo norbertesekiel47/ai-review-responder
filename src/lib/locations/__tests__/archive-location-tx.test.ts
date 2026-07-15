@@ -80,7 +80,10 @@ function mkInput(overrides: Partial<ArchiveLocationTxInput> = {}): ArchiveLocati
 const defaultZernioRow = {
   zernio_account_id: 'zernio-account-1',
   zernio_location_id: 'zernio-location-1',
-  subscription_tier: 'standard',
+};
+const defaultAccountRow = {
+  id: ACCOUNT_ID,
+  subscription_tier: 'copilot',
   subscription_activated_at: new Date('2026-05-01T00:00:00.000Z'),
 };
 
@@ -108,11 +111,12 @@ function driveArchiveDb({
   }>,
   selfPromoteRows = undefined as Array<{ id: string }> | undefined,
   zernio = defaultZernioRow as typeof defaultZernioRow | null,
+  account = defaultAccountRow as typeof defaultAccountRow | null,
 } = {}) {
   mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
     const template = strings.join('?');
     if (template.includes('SELECT id') && template.includes('FROM accounts')) {
-      return [{ id: ACCOUNT_ID }];
+      return account ? [account] : [];
     }
     if (template.includes('SELECT COUNT(*) AS count') && template.includes('FROM businesses')) {
       return [{ count: activeCount }];
@@ -133,7 +137,7 @@ function driveArchiveDb({
     if (template.includes('UPDATE businesses')) {
       return updateRows;
     }
-    if (template.includes('FROM zernio_connections') && template.includes('JOIN accounts')) {
+    if (template.includes('FROM zernio_connections')) {
       return zernio ? [zernio] : [];
     }
     return [];
@@ -740,7 +744,12 @@ describe('reactivateLocationTransaction', () => {
     expect(zernioCall).toBeDefined();
   });
 
-  it('enqueues reactivation backfill with the full Zernio/account payload', async () => {
+  it.each(['copilot', 'autopilot'] as const)(
+    'enqueues reactivation backfill with the full Zernio/account payload for %s',
+    async (subscriptionTier) => {
+    driveArchiveDb({
+      account: { ...defaultAccountRow, subscription_tier: subscriptionTier },
+    });
     await reactivateLocationTransaction(sql, {
       locationId: SECONDARY_LOCATION_ID,
       accountId: ACCOUNT_ID,
@@ -760,10 +769,30 @@ describe('reactivateLocationTransaction', () => {
       business_id: SECONDARY_LOCATION_ID,
       zernio_account_id: 'zernio-account-1',
       zernio_location_id: 'zernio-location-1',
-      subscription_tier: 'standard',
+      subscription_tier: subscriptionTier,
       subscription_activated_at: '2026-05-01T00:00:00.000Z',
       backfill_reason: 'reactivation',
     });
+  });
+
+  it('rejects an unsupported account tier before reactivation writes', async () => {
+    driveArchiveDb({
+      account: { ...defaultAccountRow, subscription_tier: 'retired_tier' },
+    });
+
+    await expect(
+      reactivateLocationTransaction(sql, {
+        locationId: SECONDARY_LOCATION_ID,
+        accountId: ACCOUNT_ID,
+        actorUserId: ACTOR_USER_ID,
+      }),
+    ).rejects.toThrow('invalid_ws8_subscription_tier:retired_tier');
+
+    expect(mockSql).toHaveBeenCalledTimes(1);
+    const [strings] = mockSql.mock.calls[0]!;
+    expect((strings as TemplateStringsArray).join('?')).toMatch(
+      /SELECT id, subscription_tier, subscription_activated_at[\s\S]*FOR UPDATE/,
+    );
   });
 
   it('runs all operations inside sql.begin()', async () => {

@@ -1,6 +1,11 @@
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { getServerConfig } from '@/lib/config/server';
 import { CostInfraUnavailableError } from './errors';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import {
+  optionalNonnegativeCostLimitCents,
+  tierDailyCostLimitCents,
+} from './tier-cost-limits';
 
 // ── Error classes ────────────────────────────────────────────────────
 
@@ -31,27 +36,6 @@ const PESSIMISTIC_ESTIMATE_CENTS = 15;
 const MAX_REGEN_PER_REVIEW_PER_DAY = 3;
 const CACHE_TTL_SECONDS = 86_400;
 
-const DEFAULT_TIER_LIMITS_CENTS: Record<string, number> = {
-  founders: 500,
-  standard: 1_000,
-  premium: 2_000,
-  // Legacy alias — DB may still contain 'founding' in some rows until
-  // the sweep is complete. Once all rows are 'founders', remove this.
-  founding: 500,
-};
-
-/**
- * Maps subscription tier values to their env-var suffixes.
- * The application-level tier is 'founders' (per SubscriptionTier.FOUNDERS),
- * but the historical env-var convention uses 'FOUNDING' as the suffix.
- */
-const TIER_ENV_SUFFIX: Record<string, string> = {
-  founders: 'FOUNDING',
-  founding: 'FOUNDING',
-  standard: 'STANDARD',
-  premium: 'PREMIUM',
-};
-
 // ── Redis key helpers ────────────────────────────────────────────────
 
 function todayDateStr(): string {
@@ -77,63 +61,16 @@ function regenBudgetKey(reviewId: string): string {
 // ── Tier limit resolution ────────────────────────────────────────────
 
 /**
- * Strict non-negative integer parse for cost-limit env vars.
- *
- * parseInt is too permissive: it accepts prefixes (`'1000abc'` → 1000),
- * truncates decimals (`'12.5'` → 12), and parses `'10_000'` as 10. Any of
- * those would silently apply the WRONG budget — someone copying a
- * JS-style numeric literal into `.env` could unknowingly cap limits at
- * an order of magnitude smaller than intended.
- *
- * This parser requires the value to be:
- *   - only decimal digits after trimming (no letters, dots, underscores)
- *   - a safe integer (fits in a JS number without precision loss)
- *   - non-negative
- * Any deviation falls back to the default and logs a warning so the
- * misconfiguration is visible in worker logs.
+ * Resolve the existing optional global ceiling. Missing or malformed values
+ * retain its established fallback; this is deliberately distinct from the
+ * required positive Copilot/Autopilot ceilings, which fail worker/server config
+ * validation instead of inventing an amount.
  */
-function safeParseLimitCents(envVal: string | undefined, fallback: number): number {
-  if (envVal === undefined || envVal === null) return fallback;
-  const trimmed = envVal.trim();
-  if (trimmed === '') return fallback;
-  if (!/^\d+$/.test(trimmed)) {
-    console.warn(
-      `[cost-tracker] Invalid cost limit env var "${envVal}" (must be a non-negative integer) — falling back to ${fallback}`,
-    );
-    return fallback;
-  }
-  const parsed = Number(trimmed);
-  if (!Number.isSafeInteger(parsed) || parsed < 0) {
-    console.warn(
-      `[cost-tracker] Cost limit env var "${envVal}" out of safe-integer range — falling back to ${fallback}`,
-    );
-    return fallback;
-  }
-  return parsed;
-}
-
-function getTierLimitCents(tier: string): number {
-  const envSuffix = TIER_ENV_SUFFIX[tier] ?? tier.toUpperCase();
-  const envKey = `DAILY_COST_LIMIT_CENTS_${envSuffix}`;
-  const fallback = DEFAULT_TIER_LIMITS_CENTS[tier] ?? DEFAULT_TIER_LIMITS_CENTS.standard!;
-  // Static-typed mirror of the old dynamic `process.env[envKey]` read. The only
-  // env keys getTierLimitCents ever forms are the four tier suffixes below
-  // (FOUNDING for founders/founding, STANDARD, PREMIUM, and BASIC from the
-  // tier.toUpperCase() fallback) — config-migrated to rawOptionalVar so the raw
-  // value reaches safeParseLimitCents byte-for-byte (#7). An out-of-set envKey
-  // (an unknown tier) → undefined → fallback, exactly like an unset process.env.X.
-  const cfg = getServerConfig();
-  const tierLimitByEnvKey: Record<string, string | undefined> = {
-    DAILY_COST_LIMIT_CENTS_FOUNDING: cfg.DAILY_COST_LIMIT_CENTS_FOUNDING,
-    DAILY_COST_LIMIT_CENTS_STANDARD: cfg.DAILY_COST_LIMIT_CENTS_STANDARD,
-    DAILY_COST_LIMIT_CENTS_PREMIUM: cfg.DAILY_COST_LIMIT_CENTS_PREMIUM,
-    DAILY_COST_LIMIT_CENTS_BASIC: cfg.DAILY_COST_LIMIT_CENTS_BASIC,
-  };
-  return safeParseLimitCents(tierLimitByEnvKey[envKey], fallback);
-}
-
 function getGlobalLimitCents(): number {
-  return safeParseLimitCents(getServerConfig().GLOBAL_DAILY_COST_LIMIT_CENTS, 10_000);
+  return optionalNonnegativeCostLimitCents(
+    getServerConfig().GLOBAL_DAILY_COST_LIMIT_CENTS,
+    10_000,
+  );
 }
 
 // ── Phase 1: Reservation ─────────────────────────────────────────────
@@ -190,13 +127,13 @@ return {'ok', biz, glob}
  */
 export async function reserveCost(
   businessId: string,
-  subscriptionTier: string,
+  subscriptionTier: SubscriptionTierValue,
 ): Promise<string> {
   const redis = getCacheRedis();
   const dateStr = todayDateStr();
   const bizKey = dailyBusinessKey(businessId, dateStr);
   const globalKey = dailyGlobalKey(dateStr);
-  const bizLimit = getTierLimitCents(subscriptionTier);
+  const bizLimit = tierDailyCostLimitCents(subscriptionTier);
   const globalLimit = getGlobalLimitCents();
 
   // Only the Redis round-trip is wrapped — a transport failure becomes a

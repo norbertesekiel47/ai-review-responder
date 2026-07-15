@@ -535,8 +535,8 @@ describe('UpdateStripeOverageWorker', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
   });
 
-  it('fails closed for a legacy Basic tier instead of silently skipping overage', async () => {
-    queueAccountRow({ subscription_tier: 'basic' });
+  it('fails closed for an unsupported tier instead of silently skipping overage', async () => {
+    queueAccountRow({ subscription_tier: 'retired_tier' });
 
     await handleUpdateStripeOverage(mockSql, mockJob());
 
@@ -545,7 +545,7 @@ describe('UpdateStripeOverageWorker', () => {
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
       mockSql,
       'outbox-1',
-      'Unknown tier: basic',
+      'Unknown tier: retired_tier',
       1,
     );
   });

@@ -89,7 +89,7 @@ function mockLocationContext(overrides: Record<string, string> = {}) {
   return {
     account: {
       id: 'acct-1',
-      subscriptionTier: 'standard',
+      subscriptionTier: 'copilot',
       subscriptionStatus: 'active',
       stripeCustomerId: null,
       stripeSubscriptionId: null,

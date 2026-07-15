@@ -340,7 +340,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     sqlReturnQueue.push([{
       zernio_account_id: opts.accountId ?? 'zacct-1',
       zernio_location_id: opts.locationId ?? 'zloc-1',
-      subscription_tier: opts.tier ?? 'standard',
+      subscription_tier: opts.tier ?? 'copilot',
       subscription_activated_at: opts.activatedAt ?? new Date('2026-04-15T00:00:00Z'),
     }]);
     // Outbox INSERT — count=1 (a new row was inserted).
@@ -371,7 +371,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     expect(payload).toMatchObject({
       zernio_account_id: 'zacct-1',
       zernio_location_id: 'zloc-1',
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
     });
 
     const resumeSelect = sqlCalls.find(
@@ -410,13 +410,32 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
     setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
     queueHappyPath('pending_payment', { primaryBizId: TEST_BIZ_PENDING });
-    queueBackfillResumeMatchPath({ tier: 'premium' });
+    queueBackfillResumeMatchPath({ tier: 'autopilot' });
 
     const { handleStripeWebhook } = await import('../stripe');
     await handleStripeWebhook(makeRequest(), makeReply());
 
     const inserts = getBackfillInsertCalls();
     expect(inserts).toHaveLength(1);
+  });
+
+  it('rejects an unsupported backfill tier before the child outbox INSERT', async () => {
+    process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
+    setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
+    queueHappyPath('pending_payment', { primaryBizId: TEST_BIZ_PENDING });
+    queueBackfillResumeMatchPath({ tier: 'retired_tier' });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const { handleStripeWebhook } = await import('../stripe');
+    const reply = makeReply();
+    await handleStripeWebhook(makeRequest(), reply);
+
+    expect(reply.status).toHaveBeenCalledWith(200);
+    expect(getBackfillInsertCalls()).toHaveLength(0);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('invalid_ws8_subscription_tier:retired_tier'),
+    );
+    expect(sqlReturnQueue).toHaveLength(0);
   });
 
   it('flag=ON + in-flight outbox row exists → INSERT … SELECT WHERE NOT EXISTS skips (count=0)', async () => {
@@ -427,7 +446,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     sqlReturnQueue.push([{
       zernio_account_id: 'zacct-1',
       zernio_location_id: 'zloc-1',
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       subscription_activated_at: new Date('2026-04-15T00:00:00Z'),
     }]);
     // INSERT … SELECT WHERE NOT EXISTS → count=0 (in-flight row blocked it).

@@ -5,10 +5,9 @@
 import {
   SubscriptionTier,
   isPriceVariant,
-  isWs8SubscriptionTier,
+  isSubscriptionTier,
   type PriceVariant,
   type SubscriptionTierValue,
-  type Ws8SubscriptionTier,
 } from '@/lib/accounts/tier-config';
 
 /** The complete launch Price contract. Keep historical launch IDs resolvable. */
@@ -25,19 +24,19 @@ export type StripePriceEnvVar = (typeof STRIPE_PRICE_ENV_VARS)[number];
 export type StripePriceKind = 'base' | 'overage';
 
 export interface BasePriceInfo {
-  tier: Ws8SubscriptionTier;
+  tier: SubscriptionTierValue;
   variant: PriceVariant;
 }
 
 export interface OveragePriceInfo {
-  tier: Ws8SubscriptionTier;
+  tier: SubscriptionTierValue;
 }
 
 interface ConfiguredPrice {
   env: StripePriceEnvVar;
   id: string | null;
   kind: StripePriceKind;
-  tier: Ws8SubscriptionTier;
+  tier: SubscriptionTierValue;
   variant?: PriceVariant;
 }
 
@@ -117,11 +116,11 @@ export function assertStripePriceIdsUnique(): void {
  * though both account variants intentionally share one overage Price per tier.
  */
 export function priceIdFor(
-  tier: Ws8SubscriptionTier,
+  tier: SubscriptionTierValue,
   variant: PriceVariant,
   kind: StripePriceKind,
 ): string | null {
-  if (!isWs8SubscriptionTier(tier)) {
+  if (!isSubscriptionTier(tier)) {
     throw new Error(`Unknown WS8 subscription tier: ${String(tier)}`);
   }
   if (!isPriceVariant(variant)) {
@@ -160,69 +159,18 @@ export function overagePriceInfoForId(
   return match ? { tier: match.tier } : null;
 }
 
-// WS8_TRANSITION_ONLY: legacy maps/APIs keep Tasks 2-8 type-safe while their
-// callers migrate. They preserve legacy identity and never map an old tier to a
-// WS8 tier. Task 9 deletes this entire compatibility section.
-function legacyBaseEnvMap(): Partial<Record<SubscriptionTierValue, string | undefined>> {
-  return {
-    basic: process.env.STRIPE_PRICE_BASIC,
-    standard: process.env.STRIPE_PRICE_STANDARD,
-    premium: process.env.STRIPE_PRICE_PREMIUM,
-    founders: process.env.STRIPE_PRICE_FOUNDING,
-  };
-}
-
-function legacyOverageEnvMap(): Partial<Record<SubscriptionTierValue, string | undefined>> {
-  return {
-    basic: undefined,
-    standard: process.env.STRIPE_PRICE_STANDARD_OVERAGE,
-    premium: process.env.STRIPE_PRICE_PREMIUM_OVERAGE,
-    founders: process.env.STRIPE_PRICE_FOUNDERS_OVERAGE,
-  };
-}
-
-/** @deprecated WS8_TRANSITION_ONLY — use priceIdFor with an account variant. */
-export function basePriceIdForTier(tier: SubscriptionTierValue): string | null {
-  return legacyBaseEnvMap()[tier] || null;
-}
-
-/** @deprecated WS8_TRANSITION_ONLY — use priceIdFor with an account variant. */
-export function overagePriceIdForTier(tier: SubscriptionTierValue): string | null {
-  return legacyOverageEnvMap()[tier] || null;
-}
-
-/** @deprecated WS8_TRANSITION_ONLY — use basePriceInfoForId. */
-export function tierForBasePriceId(
-  priceId: string | null | undefined,
-): SubscriptionTierValue | null {
-  if (!priceId) return null;
-  const legacy = Object.entries(legacyBaseEnvMap()) as [
-    SubscriptionTierValue,
-    string | undefined,
-  ][];
-  return legacy.find(([, id]) => id && id === priceId)?.[0] ?? null;
-}
-
-/** Configured base Price IDs, including transition-only legacy IDs. */
+/** Configured base Price IDs. */
 export function basePriceIdSet(): Set<string> {
-  const canonical = configuredPrices()
+  return new Set(configuredPrices()
     .filter((price) => price.kind === 'base' && price.id)
-    .map((price) => price.id!);
-  const legacy = Object.values(legacyBaseEnvMap()).filter(
-    (id): id is string => Boolean(id),
-  );
-  return new Set([...canonical, ...legacy]);
+    .map((price) => price.id!));
 }
 
-/** Configured overage Price IDs, including transition-only legacy IDs. */
+/** Configured overage Price IDs. */
 export function overagePriceIdSet(): Set<string> {
-  const canonical = configuredPrices()
+  return new Set(configuredPrices()
     .filter((price) => price.kind === 'overage' && price.id)
-    .map((price) => price.id!);
-  const legacy = Object.values(legacyOverageEnvMap()).filter(
-    (id): id is string => Boolean(id),
-  );
-  return new Set([...canonical, ...legacy]);
+    .map((price) => price.id!));
 }
 
 export function isOveragePriceId(priceId: string | null | undefined): boolean {

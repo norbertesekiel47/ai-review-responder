@@ -8,7 +8,7 @@
 
 import type { Sql } from 'postgres';
 import { computeOverageQuantity } from '@/lib/accounts/quota';
-import { TIER_CONFIG, isSubscriptionTier } from '@/lib/accounts/tier-config';
+import { isSubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 // Module-local thresholds. Surfaced to callers via MarginData.thresholds (see
@@ -26,7 +26,7 @@ export type MarginRiskLevel = 'none' | 'warning' | 'action';
 export interface AccountMarginRow {
   accountId: string;
   displayName: string;
-  subscriptionTier: string;
+  subscriptionTier: SubscriptionTierValue;
   subscriptionStatus: string;
   mrrUsd: number;
   /** Total variable API COGS (all providers, trailing window), USD. */
@@ -64,16 +64,14 @@ export interface MarginData {
 
 /** Monthly recurring revenue in cents. Mirrors currentBillingSnapshot's formula. */
 export function monthlyMrrCents(input: {
-  tier: string;
+  tier: SubscriptionTierValue;
   basePriceCents: number;
   includedLocations: number;
   overagePriceCents: number;
   activeLocations: number;
 }): number {
-  if (!isSubscriptionTier(input.tier)) return 0;
-  const config = TIER_CONFIG[input.tier];
-  if (!config.multiLocAllowed || config.overageCents === 0) {
-    return input.basePriceCents;
+  if (!isSubscriptionTier(input.tier)) {
+    throw new Error(`invalid_ws8_subscription_tier:${String(input.tier)}`);
   }
   const overageUnits = computeOverageQuantity(
     input.activeLocations,
@@ -164,6 +162,9 @@ export async function getMarginReport(
   const rows: AccountMarginRow[] = [];
 
   for (const acct of accountRows) {
+    if (!isSubscriptionTier(acct.subscription_tier)) {
+      throw new Error(`invalid_ws8_subscription_tier:${acct.subscription_tier}`);
+    }
     // Trialing accounts are a DISTINCT $0-revenue cohort (PLAN.md §6.16): they
     // are charged nothing yet, so they must contribute $0 to platform revenue
     // and gross margin — but their api_costs DO count (their cost risk is the

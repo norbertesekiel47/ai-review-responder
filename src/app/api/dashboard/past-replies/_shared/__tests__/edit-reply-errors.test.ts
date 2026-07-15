@@ -2,14 +2,10 @@ import { describe, it, expect, vi } from 'vitest';
 
 // Mock the error classes so this test is self-contained and fast.
 const {
-  PremiumRequiredError,
   SubscriptionReadOnlyError,
   ForbiddenError,
   NotFoundError,
 } = vi.hoisted(() => {
-  class PremiumRequiredError extends Error {
-    constructor() { super('premium_required'); this.name = 'PremiumRequiredError'; }
-  }
   class SubscriptionReadOnlyError extends Error {
     readonly status = 402;
     readonly error = 'past_due_read_only';
@@ -21,11 +17,10 @@ const {
   class NotFoundError extends Error {
     constructor() { super('review_not_found'); this.name = 'NotFoundError'; }
   }
-  return { PremiumRequiredError, SubscriptionReadOnlyError, ForbiddenError, NotFoundError };
+  return { SubscriptionReadOnlyError, ForbiddenError, NotFoundError };
 });
 
 vi.mock('@/lib/responses/edit-existing', () => ({
-  PremiumRequiredError,
   SubscriptionReadOnlyError,
   ForbiddenError,
   NotFoundError,
@@ -34,14 +29,6 @@ vi.mock('@/lib/responses/edit-existing', () => ({
 import { mapEditReplyError } from '../edit-reply-errors';
 
 describe('mapEditReplyError', () => {
-  it('maps PremiumRequiredError → 403 premium_required', async () => {
-    const response = mapEditReplyError(new PremiumRequiredError());
-    expect(response).not.toBeNull();
-    expect(response!.status).toBe(403);
-    const body = await response!.json();
-    expect(body).toEqual({ error: 'premium_required' });
-  });
-
   it('maps SubscriptionReadOnlyError → 402 past_due_read_only', async () => {
     const response = mapEditReplyError(new SubscriptionReadOnlyError());
     expect(response).not.toBeNull();

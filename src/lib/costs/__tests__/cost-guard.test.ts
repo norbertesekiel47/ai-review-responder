@@ -41,8 +41,8 @@ describe('withCostGuard', () => {
 
   const baseOpts = {
     businessId: 'biz-001',
-    subscriptionTier: 'standard',
-  };
+    subscriptionTier: 'copilot',
+  } as const;
 
   function makeGuardedResult<T>(value: T, actualCostCents: number): Promise<CostGuardedResult<T>> {
     return Promise.resolve({ value, actualCostCents });
@@ -53,7 +53,7 @@ describe('withCostGuard', () => {
     const result = await withCostGuard(baseOpts, () => makeGuardedResult('hello', 10));
 
     expect(result).toBe('hello');
-    expect(reserveCost).toHaveBeenCalledExactlyOnceWith('biz-001', 'standard');
+    expect(reserveCost).toHaveBeenCalledExactlyOnceWith('biz-001', 'copilot');
     expect(acquireConcurrencySlot).toHaveBeenCalledExactlyOnceWith('biz-001');
     expect(finalizeCost).toHaveBeenCalledExactlyOnceWith('biz-001', 10, '2026-05-03');
     expect(releaseConcurrencySlot).toHaveBeenCalledExactlyOnceWith('biz-001');
@@ -68,7 +68,7 @@ describe('withCostGuard', () => {
     );
 
     expect(result).toBe('hello');
-    expect(reserveCost).toHaveBeenCalledExactlyOnceWith('biz-001', 'standard');
+    expect(reserveCost).toHaveBeenCalledExactlyOnceWith('biz-001', 'copilot');
     expect(acquireConcurrencySlot).not.toHaveBeenCalled();
     expect(finalizeCost).toHaveBeenCalledExactlyOnceWith('biz-001', 10, '2026-05-03');
     expect(releaseConcurrencySlot).not.toHaveBeenCalled();
@@ -327,12 +327,12 @@ describe('withCostGuard', () => {
 
   // ── 22-23. Boundary validation (L6) ──────────────────────────────────
   // Empty businessId would build collision-prone Redis keys; empty tier
-  // would silently fall back to 'standard'. Both surface immediately.
+  // would produce an invalid limit lookup. Both surface immediately.
 
   it('businessId = "" → throws TypeError, no reserveCost call', async () => {
     await expect(
       withCostGuard(
-        { businessId: '', subscriptionTier: 'standard' },
+        { businessId: '', subscriptionTier: 'copilot' },
         () => makeGuardedResult('hello', 10),
       ),
     ).rejects.toThrow(TypeError);
@@ -343,7 +343,7 @@ describe('withCostGuard', () => {
   it('subscriptionTier = "" → throws TypeError, no reserveCost call', async () => {
     await expect(
       withCostGuard(
-        { businessId: 'biz-001', subscriptionTier: '' },
+        { businessId: 'biz-001', subscriptionTier: '' as 'copilot' },
         () => makeGuardedResult('hello', 10),
       ),
     ).rejects.toThrow(TypeError);

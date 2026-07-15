@@ -1,6 +1,13 @@
 import type { Sql } from 'postgres';
 import { asAccountId } from '@/lib/shared/ids';
 import type { AccountId } from '@/lib/shared/ids';
+import { isSubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import { getServerConfig } from '@/lib/config/server';
+import {
+  assertTierDailyCostLimitsConfigured,
+  optionalNonnegativeCostLimitCents,
+  tierDailyCostLimitCents,
+} from '@/lib/costs/tier-cost-limits';
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -38,7 +45,7 @@ export interface CostData {
   byBusiness: {
     businessId: string;
     businessName: string;
-    subscriptionTier: string;
+    subscriptionTier: SubscriptionTierValue;
     totalUsd: number;
     callCount: number;
     todayUsd: number;
@@ -58,36 +65,6 @@ export interface CostQuery {
 }
 
 // ── Module-level helpers ──────────────────────────────────────────────
-
-// Strict non-negative integer parse — mirrors `safeParseLimitCents` in
-// src/lib/costs/tracker.ts. parseInt is too permissive (accepts prefixes,
-// truncates decimals, stops at underscores), so a value like "1000abc" or
-// "10_000" or "12.5" would silently apply the WRONG budget math on the
-// admin dashboard. Require digits-only, validate as a safe integer, else
-// fall back to default.
-function safeLimit(envVal: string | undefined, fallback: number): number {
-  if (envVal === undefined || envVal === null) return fallback;
-  const trimmed = envVal.trim();
-  if (trimmed === '' || !/^\d+$/.test(trimmed)) return fallback;
-  const parsed = Number(trimmed);
-  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : fallback;
-}
-
-const TIER_LIMITS_CENTS: Record<string, number> = {
-  founders: safeLimit(process.env.DAILY_COST_LIMIT_CENTS_FOUNDING, 500),
-  founding: safeLimit(process.env.DAILY_COST_LIMIT_CENTS_FOUNDING, 500), // legacy alias
-  standard: safeLimit(process.env.DAILY_COST_LIMIT_CENTS_STANDARD, 1000),
-  premium: safeLimit(process.env.DAILY_COST_LIMIT_CENTS_PREMIUM, 2000),
-};
-
-const GLOBAL_DAILY_LIMIT_CENTS = safeLimit(
-  process.env.GLOBAL_DAILY_COST_LIMIT_CENTS,
-  10_000,
-);
-
-function tierLimitCents(tier: string): number {
-  return TIER_LIMITS_CENTS[tier] ?? TIER_LIMITS_CENTS['standard'] ?? 1000;
-}
 
 // ── parseCostQuery ────────────────────────────────────────────────────
 
@@ -190,6 +167,7 @@ function optionalRollupAcctPrefix(sql: Sql, days: number, accountId: AccountId |
 // target; the bulk is SQL template literals, not control flow.
 // fallow-ignore-next-line complexity
 export async function getCostReport(sql: Sql, q: CostQuery): Promise<CostData> {
+  assertTierDailyCostLimitsConfigured();
   const { days, limit, offset, accountId } = q;
   const needsRollup = days > 90;
 
@@ -390,7 +368,10 @@ export async function getCostReport(sql: Sql, q: CostQuery): Promise<CostData> {
   // Compute pctOfDailyLimit and map to API shape.
   const totalBusinesses = businessCountRows[0]?.total ?? 0;
   const byBusiness = byBusinessRows.map((row) => {
-    const limitCents = tierLimitCents(row.subscription_tier);
+    if (!isSubscriptionTier(row.subscription_tier)) {
+      throw new Error(`Unsupported subscription tier in cost report: ${row.subscription_tier}`);
+    }
+    const limitCents = tierDailyCostLimitCents(row.subscription_tier);
     const limitUsd = limitCents / 100;
     const pctOfDailyLimit = Math.round((row.today_usd / limitUsd) * 100);
     return {
@@ -414,6 +395,9 @@ export async function getCostReport(sql: Sql, q: CostQuery): Promise<CostData> {
     byBusiness,
     byDay,
     todayTotalUsd: todayRows[0]?.total ?? 0,
-    globalDailyLimitUsd: GLOBAL_DAILY_LIMIT_CENTS / 100,
+    globalDailyLimitUsd: optionalNonnegativeCostLimitCents(
+      getServerConfig().GLOBAL_DAILY_COST_LIMIT_CENTS,
+      10_000,
+    ) / 100,
   };
 }

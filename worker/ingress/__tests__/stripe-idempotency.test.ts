@@ -61,8 +61,8 @@ describe('Webhook idempotency and error handling', () => {
           customer: TEST_CUSTOMER_ID,
           items: {
             data: [
-              { price: { id: 'price_standard_test' }, quantity: 1 },
-              { price: { id: 'price_standard_overage_test' }, quantity: 3 },
+              { price: { id: 'price_copilot_list_test' }, quantity: 1 },
+              { price: { id: 'price_copilot_overage_test' }, quantity: 3 },
             ],
           },
         },

@@ -5,7 +5,7 @@
 // export/import wiring changed. No edits to computation or mapping logic.
 
 import { computeChurnRiskScore } from '@/lib/shared/churn-score';
-import { SubscriptionTier } from '@/lib/accounts/tier-config';
+import { isSubscriptionTier, SubscriptionTier } from '@/lib/accounts/tier-config';
 import { parseDbArray } from '@/lib/shared/db-array';
 import { isPreviewEnvironment } from '@/lib/config/flags';
 import { channelsTelegramEnabled, channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
@@ -253,6 +253,9 @@ export function mapBusinessDetailResponse({
   autoApprovalPolicyRows,
   autoApprovalAccountRows,
 }: MapBusinessDetailResponseArgs): BusinessDetailResponse {
+  if (!isSubscriptionTier(business.subscription_tier)) {
+    throw new Error(`invalid_ws8_subscription_tier:${business.subscription_tier}`);
+  }
   let responseTimeTrend: 'faster_or_stable' | 'slower' | 'stopped' | null = null;
   if (metrics?.avg_hours_current != null && metrics?.avg_hours_prev != null) {
     responseTimeTrend = metrics.avg_hours_current > metrics.avg_hours_prev * 1.5 ? 'slower' : 'faster_or_stable';

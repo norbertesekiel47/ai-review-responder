@@ -122,7 +122,7 @@ async function seedGovernorFleet(): Promise<void> {
           ${seed.accountId}::uuid,
           ${seed.userId}::uuid,
           ${`Governor Fleet Account ${index + 1}`},
-          'standard',
+          'copilot',
           'active'
         )
       `;

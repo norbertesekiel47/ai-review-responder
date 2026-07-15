@@ -17,7 +17,7 @@ describe('SelectPlanSchema', () => {
     expect(() => SelectPlanSchema.parse({})).toThrow();
   });
 
-  it.each(['founders', 'basic', 'standard', 'premium'])('rejects legacy tier %s', (tier) => {
+  it.each(['enterprise', 'free'])('rejects unknown tier %s', (tier) => {
     expect(() => SelectPlanSchema.parse({ tier })).toThrow();
   });
 });

@@ -4,6 +4,7 @@ import {
   POST_AFTER_DELETE_FAILED_PREFIX,
 } from '@/lib/publishing/orphan-markers';
 import type { PastReplyRow } from '@/components/dashboard/reviews/PastReplyCard';
+import { isSubscriptionTier } from '@/lib/accounts/tier-config';
 import {
   PAGE_SIZE,
   bucketReplies,
@@ -13,7 +14,6 @@ import {
 
 export interface PastRepliesPageView {
   locationDisplayName: string;
-  isPremium: boolean;
   gapRows: PastReplyRow[];
   histRows: PastReplyRow[];
   /** Posted-only counts (orphan rows are excluded; they are failures, not posts). */
@@ -72,8 +72,11 @@ export async function loadPastRepliesPageView(
   `;
   if (!biz) return null;
 
+  const hasPaidTier = isSubscriptionTier(biz.subscription_tier);
+  if (!hasPaidTier) {
+    throw new Error(`invalid_ws8_subscription_tier:${biz.subscription_tier}`);
+  }
   const locationDisplayName = biz.display_label ?? biz.name;
-  const isPremium = biz.subscription_tier === 'premium';
   const activatedAtIso = biz.subscription_activated_at
     ? new Date(biz.subscription_activated_at).toISOString()
     : null;
@@ -232,12 +235,11 @@ export async function loadPastRepliesPageView(
     rows,
     orphanRows,
     activatedAtIso,
-    isPremium,
+    hasPaidTier,
   );
 
   return {
     locationDisplayName,
-    isPremium,
     gapRows,
     histRows,
     gapTotal,

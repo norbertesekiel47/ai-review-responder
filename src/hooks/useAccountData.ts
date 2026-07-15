@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import type { PlanPresentationViewModel } from '@/lib/payments/plan-presentation';
+import type { PriceVariant, SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 // ── Response type from /api/account/settings ────────────────────────────
 
@@ -9,9 +10,9 @@ export interface AccountSettingsData {
   accountId: string;
   displayName: string;
   subscription: {
-    tier: string;
+    tier: SubscriptionTierValue;
     tierLabel: string;
-    priceVariant: string;
+    priceVariant: PriceVariant;
     status: string;
     statusLabel: string;
     stripeCustomerId: string | null;

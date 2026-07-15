@@ -23,7 +23,7 @@ function mkAccountRow(overrides: Record<string, unknown> = {}) {
     id: ACCOUNT_ID,
     owner_user_id: OWNER_USER_ID,
     display_name: 'Test Account',
-    subscription_tier: 'standard',
+    subscription_tier: 'copilot',
     subscription_status: 'active',
     stripe_customer_id: 'cus_test123' as string | null,
     stripe_subscription_id: 'sub_test123' as string | null,
@@ -62,7 +62,7 @@ describe('getAccountById', () => {
     expect(result).toBeDefined();
     expect(result!.id).toBe(ACCOUNT_ID);
     expect(result!.owner_user_id).toBe(OWNER_USER_ID);
-    expect(result!.subscription_tier).toBe('standard');
+    expect(result!.subscription_tier).toBe('copilot');
     expect(result!.subscription_status).toBe('active');
     expect(result!.locations_included).toBe(1);
     expect(result!.locations_paid).toBe(0);
@@ -111,19 +111,29 @@ describe('getAccountById', () => {
     expect(result!.stripe_subscription_id).toBeNull();
   });
 
-  it('returns account with premium tier', async () => {
+  it('returns an Autopilot account snapshot', async () => {
     const accountRow = mkAccountRow({
-      subscription_tier: 'premium',
-      locations_included: 5,
+      subscription_tier: 'autopilot',
+      locations_included: 1,
       locations_overage_price_cents: 2000,
     });
     harness.sqlReturnQueue.push([accountRow]);
 
     const result = await getAccountById(mockSql, ACCOUNT_ID);
 
-    expect(result!.subscription_tier).toBe('premium');
-    expect(result!.locations_included).toBe(5);
+    expect(result!.subscription_tier).toBe('autopilot');
+    expect(result!.locations_included).toBe(1);
     expect(result!.locations_overage_price_cents).toBe(2000);
+  });
+
+  it('fails closed when a raw account row has an unsupported tier', async () => {
+    harness.sqlReturnQueue.push([mkAccountRow({ subscription_tier: 'retired_tier' })]);
+
+    await expect(getAccountById(mockSql, ACCOUNT_ID)).rejects.toThrow(
+      'invalid_ws8_subscription_tier:retired_tier',
+    );
+    expect(harness.sqlCalls).toHaveLength(1);
+    expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 });
 

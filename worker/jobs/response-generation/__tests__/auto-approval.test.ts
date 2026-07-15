@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ModerationDecision } from '../../../../src/lib/moderation/output-filter';
 import type { EffectiveAutoApprovalPolicy } from '../../../../src/lib/auto-approval/types';
 import { TRIAGE_SOURCE } from '../../../../src/lib/reviews/triage-schema';
+import type { SubscriptionTierValue } from '../../../../src/lib/accounts/tier-config';
 import { createMockSql, mkTaggedResult } from '../../../__tests__/helpers/mock-sql';
 import {
   evaluateAutoApprovalCandidate,
@@ -377,10 +378,18 @@ describe('loadAutoApprovalRuntimeState (mocked sql)', () => {
   });
 
   it('fails closed on a non-WS8 tier instead of casting or falling back', async () => {
-    harness.sqlReturnQueue.push(mkTaggedResult([currentStateRow({ subscription_tier: 'premium' })]));
+    const unsupportedTier = 'retired_tier' as unknown as SubscriptionTierValue;
+    harness.sqlReturnQueue.push(mkTaggedResult([
+      currentStateRow({ subscription_tier: unsupportedTier }),
+    ]));
 
-    await expect(runLoader()).rejects.toThrow('auto_approval_invalid_subscription_tier:premium');
+    await expect(runLoader()).rejects.toThrow(
+      'auto_approval_invalid_subscription_tier:retired_tier',
+    );
     expect(harness.sqlCalls).toHaveLength(1);
+    expect(harness.sqlCalls[0]!.text).toContain('FROM reviews');
+    expect(harness.sqlCalls[0]!.text).not.toContain('auto_approval_policies');
+    expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
   it('takes the business FOR UPDATE lock BEFORE counting, and counts on the UTC day boundary', async () => {

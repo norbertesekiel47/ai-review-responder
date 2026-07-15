@@ -33,7 +33,7 @@
 import Stripe from 'stripe';
 import type {
   PriceVariant,
-  Ws8SubscriptionTier,
+  SubscriptionTierValue,
 } from '@/lib/accounts/tier-config';
 import {
   basePriceIdSet,
@@ -152,7 +152,7 @@ export function resolveOverageItem(
 export type BaseItemResolution =
   | {
       item: Stripe.SubscriptionItem;
-      tier: Ws8SubscriptionTier;
+      tier: SubscriptionTierValue;
       variant: PriceVariant;
     }
   | { item: Stripe.SubscriptionItem; tier: null; inferred: true };

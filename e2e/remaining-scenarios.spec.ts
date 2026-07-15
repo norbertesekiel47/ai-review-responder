@@ -11,7 +11,7 @@
  * activated_at: 2026-05-22 05:14:23 UTC  ← gap/historical cut-off
  *
  * Gap review (active period, no lock):  019e4e32-46a9-7708-9116-8e0932b1021a
- * Historical review (should be locked): 701f8903-b65f-40bd-926b-d004d0bcc16e
+ * Historical review: 701f8903-b65f-40bd-926b-d004d0bcc16e
  */
 
 import { test, expect, type Page } from '@playwright/test';
@@ -30,6 +30,94 @@ const DB_URL = E2E_DATABASE_URL;
 // ─── psql helper ─────────────────────────────────────────────────────────────
 function psqlRaw(sql: string): string {
   return execSync(`psql "${DB_URL}" << 'SQLEOF'\n${sql}\nSQLEOF`, { shell: '/bin/bash' }).toString().trim();
+}
+
+interface TierSnapshot {
+  account: {
+    subscription_tier: string;
+    price_variant: 'list' | 'founding';
+    base_price_cents: number;
+    locations_overage_price_cents: number;
+    locations_included: number;
+    locations_paid: number;
+  };
+  businesses: Array<{ id: string; subscription_tier: string }>;
+}
+
+function sqlLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function readTierSnapshot(): TierSnapshot {
+  const raw = psqlRaw(`
+    SELECT json_build_object(
+      'account', json_build_object(
+        'subscription_tier', a.subscription_tier,
+        'price_variant', a.price_variant,
+        'base_price_cents', a.base_price_cents,
+        'locations_overage_price_cents', a.locations_overage_price_cents,
+        'locations_included', a.locations_included,
+        'locations_paid', a.locations_paid
+      ),
+      'businesses', COALESCE((
+        SELECT json_agg(json_build_object('id', b.id, 'subscription_tier', b.subscription_tier))
+        FROM businesses b WHERE b.account_id = a.id
+      ), '[]'::json)
+    )::text
+    FROM accounts a WHERE a.id = '${ACC_ID}';
+  `);
+  const json = raw.split('\n').map((line) => line.trim()).find(
+    (line) => line.startsWith('{') && line.endsWith('}'),
+  );
+  if (!json) throw new Error('remaining-scenarios: account tier snapshot missing');
+  return JSON.parse(json) as TierSnapshot;
+}
+
+function applyCanonicalTier(tier: 'copilot' | 'autopilot', original: TierSnapshot): void {
+  const basePriceCents = tier === 'copilot'
+    ? (original.account.price_variant === 'founding' ? 1900 : 2900)
+    : (original.account.price_variant === 'founding' ? 4900 : 6900);
+  const overagePriceCents = tier === 'copilot' ? 1500 : 2000;
+  psqlRaw(`
+    BEGIN;
+    UPDATE accounts
+    SET subscription_tier = '${tier}',
+        base_price_cents = ${basePriceCents},
+        locations_overage_price_cents = ${overagePriceCents},
+        locations_included = 1,
+        locations_paid = ${original.account.locations_paid}
+    WHERE id = '${ACC_ID}';
+    UPDATE businesses SET subscription_tier = '${tier}' WHERE account_id = '${ACC_ID}';
+    COMMIT;
+  `);
+  const applied = readTierSnapshot();
+  expect(applied.account).toMatchObject({
+    subscription_tier: tier,
+    price_variant: original.account.price_variant,
+    base_price_cents: basePriceCents,
+    locations_overage_price_cents: overagePriceCents,
+    locations_included: 1,
+    locations_paid: original.account.locations_paid,
+  });
+  expect(applied.businesses.every((business) => business.subscription_tier === tier)).toBe(true);
+}
+
+function restoreTierSnapshot(original: TierSnapshot): void {
+  const businessRestores = original.businesses.map((business) =>
+    `UPDATE businesses SET subscription_tier = ${sqlLiteral(business.subscription_tier)} WHERE id = ${sqlLiteral(business.id)}::uuid;`
+  ).join('\n');
+  psqlRaw(`
+    BEGIN;
+    UPDATE accounts
+    SET subscription_tier = ${sqlLiteral(original.account.subscription_tier)},
+        base_price_cents = ${original.account.base_price_cents},
+        locations_overage_price_cents = ${original.account.locations_overage_price_cents},
+        locations_included = ${original.account.locations_included},
+        locations_paid = ${original.account.locations_paid}
+    WHERE id = '${ACC_ID}';
+    ${businessRestores}
+    COMMIT;
+  `);
 }
 
 // ─── login helper ────────────────────────────────────────────────────────────
@@ -67,65 +155,58 @@ test.beforeAll(async ({ browser }) => {
 
 test.describe('§2 — Tier gating (C-2 rule)', () => {
   test.skip(!isOwnerE2eConfigured, 'E2E owner creds / test DB not configured — set E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD, TEST_DATABASE_POOL_URL');
-  test.afterEach(async () => {
-    // Always restore to standard in case test fails mid-way
-    psqlRaw(`UPDATE accounts SET subscription_tier='standard' WHERE id='${ACC_ID}';`);
+  let originalTierSnapshot: TierSnapshot | null = null;
+
+  test.beforeAll(() => {
+    if (!isOwnerE2eConfigured) return;
+    originalTierSnapshot = readTierSnapshot();
   });
 
-  test('§2-A: standard tier — gap review shows Edit CTA, historical shows lock badge', async ({ page }) => {
-    psqlRaw(`UPDATE accounts SET subscription_tier='standard' WHERE id='${ACC_ID}';`);
+  test.afterAll(() => {
+    if (originalTierSnapshot) restoreTierSnapshot(originalTierSnapshot);
+  });
+
+  test('§2-A: Copilot can edit historical and active-period replies', async ({ page }) => {
+    if (!originalTierSnapshot) throw new Error('missing original tier snapshot');
+    applyCanonicalTier('copilot', originalTierSnapshot);
     await login(page);
     await gotoPastReplies(page);
-    await page.screenshot({ path: '/tmp/s2-standard.png', fullPage: false });
+    await page.screenshot({ path: '/tmp/s2-copilot.png', fullPage: false });
 
     const bodyText = await page.locator('body').textContent() ?? '';
 
-    // The gap review (active period) should have an Edit button
     const editButtons = await page.locator('button, a').filter({ hasText: /edit reply/i }).count();
-    console.log('Edit buttons visible (standard):', editButtons);
-
-    // There should be an upgrade/premium indicator for historical reviews
-    const hasUpgrade = bodyText.toLowerCase().includes('upgrade') ||
-                       bodyText.toLowerCase().includes('premium') ||
-                       (await page.locator('[aria-label*="premium"], [data-testid*="lock"], .lock-badge, button').filter({ hasText: /upgrade/i }).count()) > 0;
-    console.log('Has upgrade/lock indicator:', hasUpgrade);
+    const hasEditLock = bodyText.toLowerCase().includes('editing unavailable');
 
     // Summary counters
     console.log('Active period:', bodyText.match(/Active period\s*(\d+)/)?.[1]);
     console.log('Historical:', bodyText.match(/Historical\s*(\d+)/)?.[1]);
 
-    expect(hasUpgrade).toBe(true);
-    console.log('✅ Standard tier correctly shows lock/upgrade for historical reviews');
+    expect(editButtons).toBeGreaterThan(0);
+    expect(hasEditLock).toBe(false);
   });
 
-  test('§2-B: premium tier — ALL reviews (including historical) show Edit CTA', async ({ page }) => {
-    psqlRaw(`UPDATE accounts SET subscription_tier='premium' WHERE id='${ACC_ID}';`);
+  test('§2-B: Autopilot can edit historical and active-period replies', async ({ page }) => {
+    if (!originalTierSnapshot) throw new Error('missing original tier snapshot');
+    applyCanonicalTier('autopilot', originalTierSnapshot);
     await login(page);
     await gotoPastReplies(page);
-    await page.screenshot({ path: '/tmp/s2-premium.png', fullPage: false });
+    await page.screenshot({ path: '/tmp/s2-autopilot.png', fullPage: false });
 
     const bodyText = await page.locator('body').textContent() ?? '';
 
-    // On premium, NO lock/upgrade badge for historical
-    const hasLockBadge = (await page.locator('button, a').filter({ hasText: /upgrade now/i }).count()) > 0;
-    console.log('Lock/upgrade badges (premium):', hasLockBadge);
-    console.log('Body snippet:', bodyText.slice(0, 300));
-
-    // Should have edit buttons on all visible replies
+    const hasEditLock = bodyText.toLowerCase().includes('editing unavailable');
     const editButtons = await page.locator('button, a').filter({ hasText: /edit reply/i }).count();
-    console.log('Edit buttons visible (premium):', editButtons);
 
-    expect(hasLockBadge).toBe(false);
+    expect(hasEditLock).toBe(false);
     expect(editButtons).toBeGreaterThan(0);
-    console.log('✅ Premium tier shows Edit CTA on all reviews, no lock badges');
   });
 
-  test('§2-C: server enforces premium gate (403 premium_required for historical+standard)', async ({ page, context }) => {
-    psqlRaw(`UPDATE accounts SET subscription_tier='standard' WHERE id='${ACC_ID}';`);
+  test('§2-C: server does not reject Copilot historical edits on tier grounds', async ({ page, context }) => {
+    if (!originalTierSnapshot) throw new Error('missing original tier snapshot');
+    applyCanonicalTier('copilot', originalTierSnapshot);
     await login(page);
 
-    // Try to create a draft for a historical review with standard tier
-    // Expect 403 premium_required
     const response = await context.request.post('/api/dashboard/past-replies/draft', {
       headers: {
         'Content-Type': 'application/json',
@@ -140,10 +221,8 @@ test.describe('§2 — Tier gating (C-2 rule)', () => {
     });
 
     const body = await response.text();
-    console.log(`/draft historical+standard → HTTP ${response.status()}: ${body}`);
-    expect(response.status()).toBe(403);
-    expect(body).toContain('premium_required');
-    console.log('✅ Server returns 403 premium_required for historical review on standard tier');
+    console.log(`/draft historical+copilot → HTTP ${response.status()}: ${body}`);
+    expect(response.status()).not.toBe(403);
   });
 });
 

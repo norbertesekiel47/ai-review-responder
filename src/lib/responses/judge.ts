@@ -10,6 +10,7 @@ import {
   judgeSystemPromptHash,
 } from './judge-policy';
 import { JudgeOutputSchema, type JudgeOutput } from './judge-schema';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 const logger = createWorkerLogger('[response-judge]');
 
@@ -23,7 +24,7 @@ export interface JudgeResponseInput extends JudgePromptInput {
   responseId: string;
   businessId: string;
   accountId: string;
-  subscriptionTier: string;
+  subscriptionTier: SubscriptionTierValue;
 }
 
 export interface JudgeCallResult extends JudgeOutput {

@@ -1,5 +1,5 @@
 import type { TriageSeverity } from '@/lib/reviews/triage-schema';
-import type { TransitionSubscriptionTierValue } from '@/lib/accounts/tier-config';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 // ── Demo-mode business context (minimal) ────────────────────────────
 
@@ -20,8 +20,8 @@ export interface BusinessContext extends DemoBusinessContext {
   highlightFacts: string[];
   avoidFacts: string[];
   sampleResponses: string[];
-  /** WS8 transition: strict legacy removal is Task 9; runtime reads validate. */
-  subscriptionTier: TransitionSubscriptionTierValue;
+  /** Current paid launch tier. */
+  subscriptionTier: SubscriptionTierValue;
 }
 
 // ── Voice learning examples ─────────────────────────────────────────
@@ -45,7 +45,7 @@ export interface GenerationOptions {
   /** Billing account ID — recorded on api_costs for business-scoped production calls. */
   accountId?: string;
   /** Required in production mode for tier-aware limits */
-  subscriptionTier?: TransitionSubscriptionTierValue;
+  subscriptionTier?: SubscriptionTierValue;
   /** Skip idempotent cache read AND write. Used by avoid-facts retry so a
    *  cached violating response doesn't short-circuit the regeneration. */
   skipCache?: boolean;

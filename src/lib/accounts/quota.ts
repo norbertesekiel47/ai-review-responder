@@ -33,7 +33,7 @@ export interface BillingSnapshot {
   basePriceCents: number;
   /** Number of locations included in the base price for this tier. */
   includedLocations: number;
-  /** Per-location overage price in cents (0 for basic tier). */
+  /** Stored per-location overage price in cents. */
   overagePriceCents: number;
   /** Number of overage units (max(0, activeLocations - included)). */
   overageUnits: number;
@@ -88,9 +88,8 @@ export async function currentBillingSnapshot(
   const basePriceCents = account.base_price_cents;
 
   // A stored zero/non-positive overage amount means this point-in-time snapshot
-  // has no billable overage. WS8_TRANSITION_ONLY: this also preserves legacy
-  // Basic snapshots without consulting live registry policy; WS8 snapshots are
-  // configured with positive overage cents.
+  // has no billable overage. Existing-account reads never consult live registry
+  // policy; current launch snapshots are configured with positive overage cents.
   if (overagePriceCents <= 0) {
     return {
       basePriceCents,
@@ -156,7 +155,7 @@ export type QuotaCheckResult = QuotaAllowed | QuotaRejected;
  * When allowed, reports the overageUnits that will apply (0 when within
  * included quota, >0 when overage billing kicks in).
  *
- * VAL-LOC-001: rejects basic tier (multiLocAllowed = false)
+ * Rejects unsupported tiers; both launch tiers allow paid overage.
  * VAL-LOC-002: rejects inactive subscriptions
  * VAL-LOC-003: quota boundary — overage policy
  * VAL-LOC-004: allows add when within quota

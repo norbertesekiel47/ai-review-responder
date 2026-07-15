@@ -1,10 +1,10 @@
-import type { Ws8SubscriptionTier } from '@/lib/accounts/tier-config';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import type { PlanPresentationViewModel } from '@/lib/payments/plan-presentation';
 
-const ONBOARDING_PLAN_ORDER = ['copilot', 'autopilot'] as const satisfies readonly Ws8SubscriptionTier[];
+const ONBOARDING_PLAN_ORDER = ['copilot', 'autopilot'] as const satisfies readonly SubscriptionTierValue[];
 
 export interface OnboardingPlan {
-  tier: Ws8SubscriptionTier;
+  tier: SubscriptionTierValue;
   name: string;
   price: string;
   listPrice: string;
@@ -23,7 +23,7 @@ type PlanCopy = Omit<
   'price' | 'listPrice' | 'overagePrice' | 'purchasable' | 'unavailableReason'
 >;
 
-const PLAN_COPY: Record<Ws8SubscriptionTier, PlanCopy> = {
+const PLAN_COPY: Record<SubscriptionTierValue, PlanCopy> = {
   copilot: {
     tier: 'copilot',
     name: 'Copilot',

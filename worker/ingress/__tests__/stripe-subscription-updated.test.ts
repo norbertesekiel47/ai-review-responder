@@ -252,7 +252,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     expectExactSqlCalls(13);
   });
 
-  it('same-tier founding subscription preserves the founding stored snapshot', async () => {
+  it('same-tier subscription preserves the stored founding-price snapshot', async () => {
     queueProjection({
       account: account({
         price_variant: 'founding',

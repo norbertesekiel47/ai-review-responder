@@ -19,7 +19,7 @@ import {
   applyTierChange,
   type TierChangeFailureCode,
 } from '@/lib/accounts/tier-change';
-import { isWs8SubscriptionTier, type Ws8SubscriptionTier } from '@/lib/accounts/tier-config';
+import { isSubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 import { requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
 
@@ -31,7 +31,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 const TierChangeSchema = z.object({
   accountId: z.string().regex(UUID_RE, 'Invalid account ID format'),
-  newTier: z.string().refine(isWs8SubscriptionTier, {
+  newTier: z.string().refine(isSubscriptionTier, {
     message: 'Invalid subscription tier',
   }),
   preview: z.boolean().optional().default(false),
@@ -79,7 +79,7 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
   }
 
   const { accountId, newTier, preview } = parsed.data;
-  const tier = newTier as Ws8SubscriptionTier;
+  const tier = newTier as SubscriptionTierValue;
 
   // ── Ownership: body.accountId must match authenticated user ──────────────
   if (accountId !== owner.accountId) {

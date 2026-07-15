@@ -2,13 +2,13 @@ import {
   SubscriptionTier,
   resolveTierSnapshot,
   type PriceVariant,
-  type Ws8SubscriptionTier,
+  type SubscriptionTierValue,
 } from '@/lib/accounts/tier-config';
 
 export const WS8_PLAN_ORDER = [
   SubscriptionTier.COPILOT,
   SubscriptionTier.AUTOPILOT,
-] as const satisfies readonly Ws8SubscriptionTier[];
+] as const satisfies readonly SubscriptionTierValue[];
 
 export interface PlanPriceView {
   basePriceCents: number;
@@ -17,8 +17,8 @@ export interface PlanPriceView {
   locationsIncluded: number;
 }
 
-export type PlanPricesView = Record<Ws8SubscriptionTier, PlanPriceView>;
-export type PlanPurchasabilityView = Record<Ws8SubscriptionTier, boolean>;
+export type PlanPricesView = Record<SubscriptionTierValue, PlanPriceView>;
+export type PlanPurchasabilityView = Record<SubscriptionTierValue, boolean>;
 
 export interface PlanPresentationViewModel {
   purchasable: PlanPurchasabilityView;

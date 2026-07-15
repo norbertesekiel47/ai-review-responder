@@ -20,13 +20,6 @@ const ENV_KEYS = [
   'STRIPE_PRICE_AUTOPILOT_FOUNDING',
   'STRIPE_PRICE_COPILOT_OVERAGE',
   'STRIPE_PRICE_AUTOPILOT_OVERAGE',
-  'STRIPE_PRICE_BASIC',
-  'STRIPE_PRICE_STANDARD',
-  'STRIPE_PRICE_PREMIUM',
-  'STRIPE_PRICE_FOUNDING',
-  'STRIPE_PRICE_STANDARD_OVERAGE',
-  'STRIPE_PRICE_PREMIUM_OVERAGE',
-  'STRIPE_PRICE_FOUNDERS_OVERAGE',
 ] as const;
 
 const savedEnv: Record<string, string | undefined> = {};
@@ -175,7 +168,7 @@ describe('resolveOverageItem — selection', () => {
   });
 
   it('excludes a base item even when its descriptor matches an overage keyword', () => {
-    const base = makeItem({ id: 'si_base', priceId: 'price_base', nickname: 'standard plan with extra perks' });
+    const base = makeItem({ id: 'si_base', priceId: 'price_base', nickname: 'regular plan with extra perks' });
     expect(resolveOverageItem([base], OPTS)).toEqual({ kind: 'none' });
   });
 

@@ -38,7 +38,7 @@ import type { AccountWithLocations } from '../billing-reconciliation/types';
 function makeAccount(overrides: Partial<AccountWithLocations> = {}): AccountWithLocations {
   return {
     id: 'acct-1',
-    subscription_tier: 'standard',
+    subscription_tier: 'copilot',
     subscription_status: 'trialing',
     stripe_customer_id: 'cus_123',
     stripe_subscription_id: 'sub_123',

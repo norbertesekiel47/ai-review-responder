@@ -28,14 +28,14 @@ import type { LocationId } from '../../../src/lib/shared/ids';
 import type { NormalizedReview } from '../../../src/lib/reviews/types';
 import type { BusinessContext } from '../../../src/lib/responses/types';
 import {
-  isWs8SubscriptionTier,
-  type Ws8SubscriptionTier,
+  isSubscriptionTier,
+  type SubscriptionTierValue,
 } from '../../../src/lib/accounts/tier-config';
 
 export interface GenerationContext {
   accountId: string;
   /** Pre-LLM diagnostic only; grant re-reads the tier under entitlement lock. */
-  subscriptionTier: Ws8SubscriptionTier;
+  subscriptionTier: SubscriptionTierValue;
   loadedReviewContentHash: string | null;
   normalizedReview: NormalizedReview;
   businessContext: BusinessContext;
@@ -203,7 +203,7 @@ export async function loadGenerationContext(sql: Sql, input: {
     return { kind: 'skipped', reason: 'account_offboarding_blocked' };
   }
 
-  if (!isWs8SubscriptionTier(business.subscription_tier)) {
+  if (!isSubscriptionTier(business.subscription_tier)) {
     throw new Error(`invalid_ws8_subscription_tier:${business.subscription_tier}`);
   }
 

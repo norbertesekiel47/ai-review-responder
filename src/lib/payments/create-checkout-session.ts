@@ -14,7 +14,7 @@ import type { Sql } from 'postgres';
 import { createHash } from 'node:crypto';
 import type {
   PriceVariant,
-  Ws8SubscriptionTier,
+  SubscriptionTierValue,
 } from '@/lib/accounts/tier-config';
 import { priceIdFor } from '@/lib/payments/price-tier-map';
 import { computeOverageQuantity } from '@/lib/accounts/quota';
@@ -44,7 +44,7 @@ const TRIAL_PERIOD_DAYS = 30;
 
 function checkoutSessionIdempotencyKey(
   accountId: string,
-  tier: Ws8SubscriptionTier,
+  tier: SubscriptionTierValue,
   variant: PriceVariant,
   params: {
     mode: 'subscription';
@@ -92,7 +92,7 @@ export class CheckoutUnavailableError extends Error {
 export async function createCheckoutSession(
   sql: Sql,
   accountId: string,
-  tier: Ws8SubscriptionTier,
+  tier: SubscriptionTierValue,
   variant: PriceVariant,
   ownerEmail: string,
   options: CheckoutSessionOptions = {},

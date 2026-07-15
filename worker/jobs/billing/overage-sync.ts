@@ -17,7 +17,7 @@
 // per-outbox scope gives every distinct recompute a fresh key.
 
 import type Stripe from 'stripe';
-import type { Ws8SubscriptionTier } from '../../../src/lib/accounts/tier-config';
+import type { SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
 import {
   resolveOverageItem,
   overageItemMutationParams,
@@ -34,7 +34,7 @@ export type OverageSyncOutcome =
 export interface OverageSyncInput {
   accountId: string;
   subscriptionId: string;
-  tier: Ws8SubscriptionTier;
+  tier: SubscriptionTierValue;
   storedOveragePriceCents: number;
   /** Canonical overage Price ID for the account's stored tier + variant. */
   overagePriceId: string;

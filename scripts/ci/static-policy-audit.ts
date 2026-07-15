@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import ts from 'typescript';
 import { normalize, walk } from './lib/ratchet-harness';
 
 /**
@@ -35,13 +36,22 @@ export const ALLOWED_NEXT_PUBLIC: ReadonlySet<string> = new Set([
 ]);
 
 const SCAN_DIRS = ['src', 'worker', 'scripts'] as const;
+const LEGACY_TIER_SCAN_DIRS = ['src', 'worker', 'scripts', 'e2e', 'tests'] as const;
 // Overrides the harness defaults: this audit also scans .js/.mjs/.cjs, and it
 // keeps __fixtures__ in scope. SKIP_FILE uses the harness default.
 const SCAN_EXT = /\.(?:ts|tsx|mjs|cjs|js)$/;
 const SKIP_DIRS = new Set(['node_modules', '__tests__', 'dist', '.next', 'coverage']);
+const LEGACY_TIER_SKIP_DIRS = new Set(['node_modules', 'dist', '.next', 'coverage']);
 // This audit names its own forbidden patterns in source/messages; skip it
 // so it never flags itself. Normalized to match walk()'s forward-slash paths.
 const SELF = normalize(join('scripts', 'ci', 'static-policy-audit.ts'));
+
+const LEGACY_TIER_HISTORY_EXCLUSIONS = new Set([
+  'scripts/ci/__tests__/static-policy-audit.test.ts',
+  'src/lib/shared/__tests__/migration-034-structure.test.ts',
+  'src/lib/shared/__tests__/migration-054-structure.test.ts',
+  'src/lib/shared/__tests__/migration-077-copilot-autopilot.integration.test.ts',
+]);
 
 export type PolicyRule =
   | 'crypto-js'
@@ -49,6 +59,7 @@ export type PolicyRule =
   | 'server-owned-table-browser-access'
   | 'server-db-client-import'
   | 'subscription-status-literal'
+  | 'legacy-subscription-tier'
   | 'inline-feature-flag';
 
 export interface PolicyFinding {
@@ -178,7 +189,7 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   //    each keeps the literal + a trailing `-- enum: SubscriptionStatus.X` comment) ──
   'src/app/api/admin/billing/grant-extension/route.ts:70',
   'src/app/api/admin/billing/grant-extension/route.ts:108',
-  'src/lib/admin/margin-service.ts:137',
+  'src/lib/admin/margin-service.ts:135',
   'worker/background/pollers/CancellationGracePoller.ts:46',
   'worker/background/pollers/EmailChannelReconcilePoller.ts:124',
   'worker/background/pollers/EngagementMonitorPoller.ts:91',
@@ -194,7 +205,7 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   'worker/ingress/stripe/apply-subscription-state.ts:423',
   'worker/ingress/stripe/apply-subscription-state.ts:432',
   'worker/ingress/stripe/apply-subscription-state.ts:435',
-  'worker/ingress/stripe/shared.ts:110',
+  'worker/ingress/stripe/shared.ts:112',
   // ── dashboard view-model discriminant union (type-level literals; the union
   //    mixes enum statuses with synthetic states like 'active_pending_business') ──
   'src/lib/dashboard/types.ts:148',
@@ -210,9 +221,393 @@ function isCommentLine(line: string): boolean {
   return trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*');
 }
 
+const LEGACY_TIER_VALUES = new Set(['basic', 'standard', 'premium', 'founders', 'founding']);
+const LEGACY_TIER_ENUM_MEMBERS = new Set(['BASIC', 'STANDARD', 'PREMIUM', 'FOUNDERS']);
+const LEGACY_PLAN_COPY = /\b(basic|standard|premium|founders|founding)\b/gi;
+const TIER_CONTEXT_MARKER = /(?:subscription_?tier|subscriptionTier|SubscriptionTier|tier(?:Config|Limit|Map|For)?|TIER_|plan(?:Tier)?|priceTier)/i;
+const TIER_CALL_MARKER = /(?:tier|quota|subscription|plan|payment|price|cost|summary|triage|judge)/i;
+const VARIANT_CONTEXT_MARKER = /(?:price_?variant|PriceVariant|PRICE_VARIANTS|variant)/i;
+
+function isFoundingPriceVariantSql(raw: string, matchIndex: number): boolean {
+  const prefix = raw.slice(0, matchIndex);
+  const boundary = Math.max(prefix.lastIndexOf(','), prefix.lastIndexOf('\n'), prefix.lastIndexOf(';'));
+  return /price_variant\s*(?:=|:)\s*$/i.test(prefix.slice(boundary + 1));
+}
+
+function legacyPlanCopyTerms(raw: string): string[] {
+  const matches = [...raw.matchAll(LEGACY_PLAN_COPY)];
+  if (matches.length === 0) return [];
+  return matches.flatMap((match) => {
+    const term = match[1]!.toLowerCase();
+    const technicalUse =
+      (term === 'basic' && /\bbasic (?:auth|authentication)\b/i.test(raw))
+      || (term === 'standard' && /\bstandard (?:confirmation|library|cancellation)\b/i.test(raw));
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const planLike = new RegExp(
+        `(?:\\b(?:plan|tier)\\s+${escaped}\\b|\\b${escaped}\\s+(?:plan|tier)\\b|\\b(?:upgrade(?:\\s+to)?|supported\\s+on)\\s+(?:the\\s+)?${escaped}\\b|\\b${escaped}\\s+includes?\\b)`,
+        'i',
+      ).test(raw);
+    const labelUse = new RegExp(`^\\s*${escaped}\\s*:`, 'i').test(raw);
+    return !technicalUse && (planLike || labelUse) ? [term] : [];
+  });
+}
+
+function callDirectlyContainsNodeArgument(call: ts.CallExpression, node: ts.Node): boolean {
+  return call.arguments.some(
+    (argument) => argument.getStart() <= node.getStart() && node.getEnd() <= argument.getEnd(),
+  );
+}
+
+function isTierAssertionLiteral(
+  call: ts.CallExpression,
+  node: ts.StringLiteralLike,
+  source: ts.SourceFile,
+): boolean {
+  if (!callDirectlyContainsNodeArgument(call, node)) return false;
+  if (ts.isPropertyAccessExpression(call.expression)) {
+    const receiver = call.expression.expression;
+    if (
+      ts.isCallExpression(receiver)
+      && callTargetText(receiver.expression, source) === 'expect'
+    ) {
+      return receiver.arguments.some((argument) =>
+        TIER_CONTEXT_MARKER.test(argument.getText(source))
+      );
+    }
+  }
+  const target = callTargetText(call.expression, source);
+  if (!/^(?:assert\.)?(?:equal|strictEqual|deepEqual)$/.test(target)) return false;
+  return call.arguments.some((argument) =>
+    !(argument.getStart() <= node.getStart() && node.getEnd() <= argument.getEnd())
+    && TIER_CONTEXT_MARKER.test(argument.getText(source))
+  );
+}
+
+function nodeNameText(node: ts.Node | undefined, source: ts.SourceFile): string {
+  if (!node) return '';
+  if (ts.isIdentifier(node) || ts.isStringLiteralLike(node)) return node.text;
+  return node.getText(source);
+}
+
+function callTargetText(expression: ts.Expression, source: ts.SourceFile): string {
+  if (ts.isCallExpression(expression)) return callTargetText(expression.expression, source);
+  if (ts.isPropertyAccessExpression(expression)) {
+    return `${callTargetText(expression.expression, source)}.${expression.name.text}`;
+  }
+  if (ts.isElementAccessExpression(expression)) {
+    return callTargetText(expression.expression, source);
+  }
+  return expression.getText(source);
+}
+
+function enclosingStatementText(node: ts.Node, source: ts.SourceFile): string {
+  let current: ts.Node | undefined = node;
+  while (current && !ts.isStatement(current)) current = current.parent;
+  return (current ?? node).getText(source);
+}
+
+function isPriceVariantLiteral(node: ts.StringLiteralLike, source: ts.SourceFile): boolean {
+  if (node.text !== 'founding') return false;
+  const parent = node.parent;
+  // A variant-named result/property must never hide a retired tier comparison
+  // nested inside its initializer (for example subscriptionTier === 'founding').
+  if (ts.isBinaryExpression(parent)) {
+    const other = parent.left === node ? parent.right : parent.left;
+    if (TIER_CONTEXT_MARKER.test(other.getText(source))) return false;
+  }
+  if (
+    (ts.isPropertyAssignment(parent) || ts.isPropertySignature(parent))
+    && VARIANT_CONTEXT_MARKER.test(nodeNameText(parent.name, source))
+  ) {
+    return true;
+  }
+  if (
+    ts.isJsxAttribute(parent)
+    && VARIANT_CONTEXT_MARKER.test(nodeNameText(parent.name, source))
+  ) {
+    return true;
+  }
+  let current: ts.Node | undefined = node;
+  while (current && !ts.isStatement(current)) {
+    if (
+      (ts.isTypeAliasDeclaration(current) || ts.isVariableDeclaration(current))
+      && VARIANT_CONTEXT_MARKER.test(nodeNameText(current.name, source))
+    ) {
+      return true;
+    }
+    if (
+      (ts.isPropertyAssignment(current) || ts.isPropertySignature(current))
+      && VARIANT_CONTEXT_MARKER.test(nodeNameText(current.name, source))
+    ) {
+      return true;
+    }
+    if (
+      ts.isJsxAttribute(current)
+      && VARIANT_CONTEXT_MARKER.test(nodeNameText(current.name, source))
+    ) {
+      return true;
+    }
+    current = current.parent;
+  }
+  if (ts.isCallExpression(parent)) {
+    const callee = callTargetText(parent.expression, source);
+    const index = parent.arguments.indexOf(node);
+    if ((callee.endsWith('resolveTierSnapshot') || callee.endsWith('priceIdFor')) && index === 1) {
+      return true;
+    }
+    if (
+      /createCheckoutSession/i.test(parent.expression.getText(source))
+      && index === 3
+    ) return true;
+    if (VARIANT_CONTEXT_MARKER.test(callee)) return true;
+  }
+  if (ts.isBinaryExpression(parent)) {
+    const other = parent.left === node ? parent.right : parent.left;
+    if (VARIANT_CONTEXT_MARKER.test(other.getText(source))) return true;
+  }
+  let switchChild: ts.Node = node;
+  let switchParent: ts.Node | undefined = parent;
+  while (switchParent && !ts.isStatement(switchParent)) {
+    switchChild = switchParent;
+    switchParent = switchParent.parent;
+  }
+  if (
+    switchParent
+    && ts.isSwitchStatement(switchParent)
+    && VARIANT_CONTEXT_MARKER.test(switchParent.expression.getText(source))
+    && switchParent.caseBlock.getStart(source) <= switchChild.getStart(source)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isFoundingVariantProperty(node: ts.PropertyAssignment, source: ts.SourceFile): boolean {
+  if (nodeNameText(node.name, source) !== 'founding') return false;
+  let current: ts.Node | undefined = node.parent;
+  while (current && !ts.isStatement(current)) {
+    if (
+      ts.isPropertyAssignment(current)
+      && VARIANT_CONTEXT_MARKER.test(nodeNameText(current.name, source))
+    ) {
+      return true;
+    }
+    current = current.parent;
+  }
+  return false;
+}
+
+function isTierLiteralContext(node: ts.StringLiteralLike, source: ts.SourceFile): boolean {
+  if (isPriceVariantLiteral(node, source)) return false;
+  let current: ts.Node | undefined = node.parent;
+  while (current) {
+    if (
+      (ts.isPropertyAssignment(current) || ts.isPropertySignature(current))
+      && TIER_CONTEXT_MARKER.test(nodeNameText(current.name, source))
+    ) {
+      return true;
+    }
+    if (
+      ts.isJsxAttribute(current)
+      && TIER_CONTEXT_MARKER.test(nodeNameText(current.name, source))
+    ) {
+      return true;
+    }
+    if (
+      (ts.isVariableDeclaration(current)
+        || ts.isParameter(current)
+        || ts.isTypeAliasDeclaration(current))
+      && (
+        TIER_CONTEXT_MARKER.test(nodeNameText(current.name, source))
+        || TIER_CONTEXT_MARKER.test(current.type?.getText(source) ?? '')
+      )
+    ) {
+      return true;
+    }
+    if (
+      ts.isCallExpression(current)
+      && (
+        TIER_CALL_MARKER.test(callTargetText(current.expression, source))
+        || isTierAssertionLiteral(current, node, source)
+      )
+    ) {
+      return true;
+    }
+    if (ts.isBinaryExpression(current)) {
+      const other = current.left.getStart(source) <= node.getStart(source)
+        && node.getStart(source) < current.left.getEnd()
+        ? current.right
+        : current.left;
+      if (TIER_CONTEXT_MARKER.test(other.getText(source))) return true;
+    }
+    if (
+      (ts.isFunctionDeclaration(current)
+        || ts.isFunctionExpression(current)
+        || ts.isMethodDeclaration(current)
+        || ts.isArrowFunction(current))
+      && (
+        TIER_CONTEXT_MARKER.test(nodeNameText(current.name, source))
+        || TIER_CONTEXT_MARKER.test(current.type?.getText(source) ?? '')
+      )
+    ) {
+      return true;
+    }
+    if (
+      ts.isEnumDeclaration(current)
+      && TIER_CONTEXT_MARKER.test(nodeNameText(current.name, source))
+    ) {
+      return true;
+    }
+    current = current.parent;
+  }
+  return false;
+}
+
+function lineOf(source: ts.SourceFile, position: number): number {
+  return source.getLineAndCharacterOfPosition(position).line + 1;
+}
+
+/** Context-aware mechanical proof that removed values cannot re-enter the tier domain. */
+export function scanLegacySubscriptionTiers(file: string, text: string): PolicyFinding[] {
+  if (LEGACY_TIER_HISTORY_EXCLUSIONS.has(normalize(file))) return [];
+  const source = ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const findings: PolicyFinding[] = [];
+  const seen = new Set<string>();
+  const add = (position: number, value: string) => {
+    const line = lineOf(source, position);
+    const key = `${line}:${value}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    findings.push({
+      file,
+      line,
+      rule: 'legacy-subscription-tier',
+      detail: `removed subscription tier ${JSON.stringify(value)}; use copilot/autopilot and keep founding only in PriceVariant`,
+    });
+  };
+
+  // One-step identifier indirection is common in schema declarations:
+  // `const values = ['standard']; const subscriptionTierSchema = z.enum(values)`.
+  // Record the source literal so the later tier-domain use reports its origin.
+  const indirectBindings = new Map<string, {
+    declarationStart: number;
+    literals: Array<{ position: number; value: string }>;
+  }>();
+  const collectIndirectBindings = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node)
+      && ts.isIdentifier(node.name)
+      && node.initializer
+    ) {
+      const literals: Array<{ position: number; value: string }> = [];
+      const collectLiterals = (candidate: ts.Node): void => {
+        if (ts.isStringLiteralLike(candidate)) {
+          const value = candidate.text.toLowerCase();
+          if (
+            LEGACY_TIER_VALUES.has(value)
+            && !isPriceVariantLiteral(candidate, source)
+          ) {
+            literals.push({ position: candidate.getStart(source), value });
+          }
+        }
+        ts.forEachChild(candidate, collectLiterals);
+      };
+      collectLiterals(node.initializer);
+      if (literals.length > 0) {
+        indirectBindings.set(node.name.text, {
+          declarationStart: node.name.getStart(source),
+          literals,
+        });
+      }
+    }
+    ts.forEachChild(node, collectIndirectBindings);
+  };
+  collectIndirectBindings(source);
+
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isPropertyAccessExpression(node)
+      && node.expression.getText(source).endsWith('SubscriptionTier')
+      && LEGACY_TIER_ENUM_MEMBERS.has(node.name.text)
+    ) {
+      add(node.name.getStart(source), node.name.text);
+    }
+    if (ts.isEnumMember(node) && ts.isEnumDeclaration(node.parent)) {
+      const enumName = nodeNameText(node.parent.name, source);
+      const memberName = nodeNameText(node.name, source);
+      if (
+        TIER_CONTEXT_MARKER.test(enumName)
+        && LEGACY_TIER_ENUM_MEMBERS.has(memberName.toUpperCase())
+      ) {
+        add(node.name.getStart(source), memberName.toLowerCase());
+      }
+    }
+    if (ts.isIdentifier(node)) {
+      const binding = indirectBindings.get(node.text);
+      if (
+        binding
+        && node.getStart(source) !== binding.declarationStart
+        && TIER_CONTEXT_MARKER.test(enclosingStatementText(node, source))
+      ) {
+        for (const literal of binding.literals) add(literal.position, literal.value);
+      }
+    }
+    if (ts.isStringLiteralLike(node)) {
+      const normalizedValue = node.text.toLowerCase();
+      if (LEGACY_TIER_VALUES.has(normalizedValue) && isTierLiteralContext(node, source)) {
+        add(node.getStart(source), normalizedValue);
+      }
+      for (const value of legacyPlanCopyTerms(node.text)) {
+        add(node.getStart(source), value);
+      }
+      const raw = node.text;
+      if (/subscription_?tier/i.test(raw)) {
+        const oldValue = /['"](basic|standard|premium|founders|founding)['"]/g;
+        for (const match of raw.matchAll(oldValue)) {
+          const value = match[1]!;
+          if (value === 'founding' && isFoundingPriceVariantSql(raw, match.index ?? 0)) continue;
+          add(node.getStart(source), value);
+        }
+      }
+    }
+    if (ts.isTemplateExpression(node) && /subscription_?tier/i.test(node.getText(source))) {
+      const raw = node.getText(source);
+      for (const match of raw.matchAll(/['"](basic|standard|premium|founders|founding)['"]/g)) {
+        const value = match[1]!;
+        if (value === 'founding' && isFoundingPriceVariantSql(raw, match.index ?? 0)) continue;
+        add(node.getStart(source), value);
+      }
+    }
+    if (
+      ts.isPropertyAssignment(node)
+      && LEGACY_TIER_VALUES.has(nodeNameText(node.name, source).toLowerCase())
+      && !isFoundingVariantProperty(node, source)
+      && TIER_CONTEXT_MARKER.test(enclosingStatementText(node, source))
+    ) {
+      add(node.name.getStart(source), nodeNameText(node.name, source).toLowerCase());
+    }
+    if (
+      ts.isShorthandPropertyAssignment(node)
+      && LEGACY_TIER_VALUES.has(node.name.text.toLowerCase())
+      && TIER_CONTEXT_MARKER.test(enclosingStatementText(node, source))
+    ) {
+      add(node.name.getStart(source), node.name.text.toLowerCase());
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return findings;
+}
+
 /** Scan one file's text for both forbidden patterns. Pure — unit-tested. */
 export function scanFile(file: string, text: string): PolicyFinding[] {
-  const findings: PolicyFinding[] = [];
+  const findings: PolicyFinding[] = [...scanLegacySubscriptionTiers(file, text)];
   const lines = text.split('\n');
   const isClientComponent = isClientComponentFile(text);
   // The subscription-status enum rule targets application code only. `scripts/`
@@ -343,6 +738,23 @@ async function main(): Promise<void> {
   for (const file of files) {
     if (file === SELF) continue;
     findings.push(...scanFile(file, await readFile(resolve(root, file), 'utf8')));
+  }
+
+  // Existing policy rules intentionally skip tests. Legacy-tier removal needs a
+  // stronger mechanical proof across fixtures/e2e too, without widening every
+  // unrelated rule into test code.
+  const legacyTierFiles = await walk(root, {
+    scanDirs: LEGACY_TIER_SCAN_DIRS,
+    scanExt: SCAN_EXT,
+    skipDirs: LEGACY_TIER_SKIP_DIRS,
+    skipFile: /a^/,
+  });
+  const alreadyScanned = new Set(files);
+  for (const file of legacyTierFiles) {
+    if (file === SELF || alreadyScanned.has(file)) continue;
+    findings.push(
+      ...scanLegacySubscriptionTiers(file, await readFile(resolve(root, file), 'utf8')),
+    );
   }
 
   const pkg = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));

@@ -160,18 +160,17 @@ describe('VAL-LOC-065: Wizard abandonment leaves no persistent state', () => {
 // computeProration(). It must NOT show $0, "TBD", or a placeholder.
 
 describe('VAL-LOC-066: Proration line shows actual prorated charge', () => {
-  it('computes correct proration for $25/mo overage at mid-month (May 15)', () => {
+  it('computes correct proration for Copilot $15/mo overage at mid-month', () => {
     // May 15 → 16 remaining days of 31
-    const result = computeProration(2500, new Date(2026, 4, 15));
+    const result = computeProration(1500, new Date(2026, 4, 15));
     expect(result.prorationCents).toBeGreaterThan(0);
-    expect(result.prorationCents).toBe(Math.round((2500 / 31) * 16));
-    // Dollar display: $12.90
+    expect(result.prorationCents).toBe(Math.round((1500 / 31) * 16));
     expect((result.prorationCents / 100).toFixed(2)).toBe(
-      (Math.round((2500 / 31) * 16) / 100).toFixed(2),
+      (Math.round((1500 / 31) * 16) / 100).toFixed(2),
     );
   });
 
-  it('computes correct proration for $20/mo overage (premium tier)', () => {
+  it('computes correct proration for Autopilot $20/mo overage', () => {
     const result = computeProration(2000, new Date(2026, 4, 15));
     expect(result.prorationCents).toBeGreaterThan(0);
     // 2000 / 31 * 16 = 1032.26 → 1032 cents = $10.32
@@ -181,15 +180,15 @@ describe('VAL-LOC-066: Proration line shows actual prorated charge', () => {
   it('proration is NOT $0 for mid-month dates with positive overage price', () => {
     // For any day that is NOT the last day of the month, proration must be > 0
     // when overagePriceCents > 0
-    const result = computeProration(2500, new Date(2026, 4, 1)); // May 1
+    const result = computeProration(1500, new Date(2026, 4, 1)); // May 1
     expect(result.prorationCents).toBeGreaterThan(0);
 
-    const result2 = computeProration(2500, new Date(2026, 5, 15)); // June 15
+    const result2 = computeProration(1500, new Date(2026, 5, 15)); // June 15
     expect(result2.prorationCents).toBeGreaterThan(0);
   });
 
   it('proration is $0 only on the last day of the month', () => {
-    const result = computeProration(2500, new Date(2026, 4, 31)); // May 31
+    const result = computeProration(1500, new Date(2026, 4, 31)); // May 31
     expect(result.daysRemaining).toBe(0);
     expect(result.prorationCents).toBe(0);
   });

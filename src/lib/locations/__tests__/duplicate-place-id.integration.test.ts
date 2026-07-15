@@ -44,8 +44,8 @@ describeWithDb('addLocationTransaction duplicate google_place_id enforcement int
         VALUES (${ids.ownerUserId}::uuid, 'Dup C1 Owner', ${ownerEmail}, 'owner', ${ids.accountId}::uuid)
       `;
       await tx`
-        INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status)
-        VALUES (${ids.accountId}::uuid, ${ids.ownerUserId}::uuid, 'Dup C1 Account', 'standard', 'active')
+        INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, price_variant, subscription_status)
+        VALUES (${ids.accountId}::uuid, ${ids.ownerUserId}::uuid, 'Dup C1 Account', 'copilot', 'list', 'active')
       `;
       // An ACTIVE primary location already holding DUP_PLACE_ID.
       await tx`
@@ -87,7 +87,7 @@ describeWithDb('addLocationTransaction duplicate google_place_id enforcement int
         actorUserId: ids.ownerUserId,
         ownerName: 'Dup C1 Owner',
         ownerEmail: 'dup-c1-owner@test.local',
-        subscriptionTier: 'standard',
+        subscriptionTier: 'copilot',
         subscriptionStatus: 'active',
         activeLocationsBefore: 1,
       }),

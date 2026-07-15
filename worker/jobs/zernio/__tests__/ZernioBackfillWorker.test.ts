@@ -3,6 +3,7 @@ import type { Job } from 'bullmq';
 import type { Sql } from 'postgres';
 import { SKIP_REASON_ARCHIVED_LOCATION, type ZernioInitialBackfillPayload } from '../../../../src/lib/shared/worker-types';
 import type { ZernioReview } from '../../../../src/lib/zernio/types';
+import type { SubscriptionTierValue } from '../../../../src/lib/accounts/tier-config';
 
 // ── Hoisted state shared between mock factories and tests ──────────────
 const {
@@ -86,7 +87,7 @@ function makeJob(overrides: Partial<ZernioInitialBackfillPayload> = {}): Job<Zer
       business_id: 'biz-1',
       zernio_account_id: 'acct-1',
       zernio_location_id: 'loc-1',
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       subscription_activated_at: ACTIVATED_AT,
       ...overrides,
     },
@@ -147,6 +148,22 @@ describe('ZernioBackfillWorker', () => {
     mockProcessReview.mockResolvedValue(undefined);
     mockReconcileExternallyAnsweredReview.mockResolvedValue(undefined);
     mockHandleZernioIngestError.mockResolvedValue(undefined);
+  });
+
+  it('fails closed on an unsupported tier before SQL, provider, or child work', async () => {
+    const unsupportedTier = 'retired_tier' as unknown as SubscriptionTierValue;
+
+    await expect(handleZernioBackfill(
+      sqlArg,
+      makeJob({ subscription_tier: unsupportedTier }),
+    )).rejects.toThrow('invalid_ws8_subscription_tier:retired_tier');
+
+    expect(mockSql).not.toHaveBeenCalled();
+    expect(sqlReturnQueue).toHaveLength(0);
+    expect(mockListAllReviews).not.toHaveBeenCalled();
+    expect(mockProcessReview).not.toHaveBeenCalled();
+    expect(mockReconcileExternallyAnsweredReview).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 
   // Test 1: First run — gap-only fixture
@@ -262,8 +279,8 @@ describe('ZernioBackfillWorker', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
   });
 
-  // Test 2: Historical fixture, non-premium tier → historical=0
-  it('standard tier: historical reviews are NOT processed, historicalSkipped=total', async () => {
+  // Historical replies are a non-autonomy feature available to Copilot.
+  it('Copilot processes historical reviews up to the historical cap', async () => {
     pushStandardSqlSetup();
     pushCountsUpdate();
     pushCompletedUpdate();
@@ -274,10 +291,12 @@ describe('ZernioBackfillWorker', () => {
     );
     mockListAllReviews.mockResolvedValueOnce(reviews);
 
-    await handleZernioBackfill(sqlArg, makeJob({ subscription_tier: 'standard' }));
+    await handleZernioBackfill(sqlArg, makeJob({ subscription_tier: 'copilot' }));
 
-    // No processing since all are historical and tier is standard
-    expect(mockProcessReview).not.toHaveBeenCalled();
+    expect(mockProcessReview).toHaveBeenCalledTimes(3);
+    for (const call of mockProcessReview.mock.calls) {
+      expect(call[4]).toMatchObject({ suppressNotification: true });
+    }
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
 
     // Verify counts update call — the 3rd SQL call after insert + select_run + select_biz is counts update
@@ -288,14 +307,11 @@ describe('ZernioBackfillWorker', () => {
       return Array.isArray(template) && template.some((s: string) => s.includes('gap_processed_count'));
     });
     expect(countsCallStrings).toBeDefined();
-    // historicalSkipped = 3 (all historical, non-premium)
-    const allValues = countsCallStrings!.flat();
-    const historicalSkippedIndex = allValues.findIndex((v: any) => v === 3 && typeof v === 'number');
-    expect(historicalSkippedIndex).toBeGreaterThanOrEqual(0);
+    expect(countsCallStrings!.slice(1)).toEqual([0, 3, 0, 0, null, 'run-1']);
   });
 
-  // Test 3: Premium tier processes historical up to cap=50
-  it('premium tier: historical reviews processed up to cap=50', async () => {
+  // Autopilot receives the same non-autonomy backfill capability.
+  it('Autopilot processes historical reviews up to cap=50', async () => {
     pushStandardSqlSetup();
     pushCountsUpdate();
     pushCompletedUpdate();
@@ -306,7 +322,7 @@ describe('ZernioBackfillWorker', () => {
     );
     mockListAllReviews.mockResolvedValueOnce(reviews);
 
-    await handleZernioBackfill(sqlArg, makeJob({ subscription_tier: 'premium' }));
+    await handleZernioBackfill(sqlArg, makeJob({ subscription_tier: 'autopilot' }));
 
     // All 10 should be processed (under cap of 50)
     expect(mockProcessReview).toHaveBeenCalledTimes(10);
@@ -316,8 +332,8 @@ describe('ZernioBackfillWorker', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
   });
 
-  // Test 4: Mixed 30 gap + 30 historical, premium → gap=25 (cap), historical=30, gapSkipped=5
-  it('mixed gap/historical premium: gap capped at 25, historical all 30, gapSkipped=5', async () => {
+  // Mixed 30 gap + 30 historical on Autopilot → gap=25, historical=30.
+  it('mixed Autopilot backfill caps gap at 25 and processes 30 historical reviews', async () => {
     pushStandardSqlSetup();
     pushCountsUpdate();
     pushCompletedUpdate();
@@ -331,7 +347,7 @@ describe('ZernioBackfillWorker', () => {
     );
     mockListAllReviews.mockResolvedValueOnce([...gapReviews, ...histReviews]);
 
-    await handleZernioBackfill(sqlArg, makeJob({ subscription_tier: 'premium' }));
+    await handleZernioBackfill(sqlArg, makeJob({ subscription_tier: 'autopilot' }));
 
     // gap=25 (capped) + historical=30 (under cap 50) = 55 total processReview calls
     expect(mockProcessReview).toHaveBeenCalledTimes(55);

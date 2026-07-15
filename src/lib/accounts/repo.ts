@@ -13,7 +13,7 @@
 // VAL-LOC-007 (add-location tx reads account fields).
 
 import type { Sql } from 'postgres';
-import type { SubscriptionTierValue } from './tier-config';
+import { isSubscriptionTier, type SubscriptionTierValue } from './tier-config';
 import type { SubscriptionStatusValue } from '@/lib/shared/subscription-status';
 
 // ── Account row type ──────────────────────────────────────────────────────
@@ -58,7 +58,9 @@ export async function getAccountById(
   sql: Sql,
   accountId: string,
 ): Promise<AccountRow | null> {
-  const [row] = await sql<AccountRow[]>`
+  const [row] = await sql<Array<Omit<AccountRow, 'subscription_tier'> & {
+    subscription_tier: string;
+  }>>`
     SELECT
       id,
       owner_user_id,
@@ -80,7 +82,11 @@ export async function getAccountById(
     WHERE id = ${accountId}::uuid
   `;
 
-  return row ?? null;
+  if (!row) return null;
+  if (!isSubscriptionTier(row.subscription_tier)) {
+    throw new Error(`invalid_ws8_subscription_tier:${row.subscription_tier}`);
+  }
+  return { ...row, subscription_tier: row.subscription_tier };
 }
 
 // ── getAccountOwnerUserId ──────────────────────────────────────────────────

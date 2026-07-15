@@ -17,6 +17,7 @@ import type { Sql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { rethrowAsDuplicateLocation } from './duplicate-location';
 import { enqueueValidatePlaceId, enqueueStripeOverageRecompute } from '@/lib/shared/job-outbox-helpers';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 // ── Input / Output types ───────────────────────────────────────────────────
 
@@ -37,7 +38,7 @@ export interface AddLocationTxInput {
   ownerName?: string | null;
   ownerEmail?: string | null;
   /** Account's subscription tier (read before tx, passed in to avoid re-read). */
-  subscriptionTier: string;
+  subscriptionTier: SubscriptionTierValue;
   /** Account's subscription status (read before tx, passed in to avoid re-read). */
   subscriptionStatus: string;
   /** Count of active locations before the add (for audit payload). */

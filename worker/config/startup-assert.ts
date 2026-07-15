@@ -9,6 +9,7 @@ import {
   assertStripePriceIdsUnique,
   STRIPE_PRICE_ENV_VARS,
 } from '../../src/lib/payments/price-tier-map';
+import { assertTierDailyCostLimitsConfigured } from '../../src/lib/costs/tier-cost-limits';
 
 const STRIPE_WORKER_REQUIRED_ENV = [
   'STRIPE_SECRET_KEY',
@@ -187,6 +188,7 @@ export function assertWorkerStartupEnv(): void {
   assertProductionMockModeEnv();
   assertCoreInfraEnv();
   assertStripeWorkerEnv();
+  assertTierDailyCostLimitsConfigured();
   assertAdminNotificationEmail();
   assertAlertSinkEnv();
   assertServerOnlyFeatureOptionalBooleansEnv();

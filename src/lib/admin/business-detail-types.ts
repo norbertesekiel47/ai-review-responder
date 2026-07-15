@@ -11,6 +11,7 @@
 import { z } from 'zod';
 import { UpdateBusinessSchema } from '@/lib/shared/schemas';
 import type { ChurnScore } from '@/lib/shared/churn-score';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import type {
   ApprovalMethod,
   AutoApprovalReadiness,
@@ -147,7 +148,7 @@ export interface AccountLocationSummary {
 export interface AccountContext {
   id: string;
   displayName: string;
-  subscriptionTier: string;
+  subscriptionTier: SubscriptionTierValue;
   subscriptionStatus: string;
   locations: AccountLocationSummary[];
 }
@@ -214,7 +215,7 @@ export interface BusinessDetailResponse {
     avoidFacts: string[];
     sampleResponses: string[];
     subscriptionStatus: string;
-    subscriptionTier: string;
+    subscriptionTier: SubscriptionTierValue;
     ownerName: string | null;
     ownerEmail: string | null;
     lastSyncAt: string | null;

@@ -6,22 +6,17 @@
 // responses. Centralising them here keeps the per-route catch blocks thin
 // and ensures the status codes / error strings stay in sync.
 //
-// Returns a NextResponse for PremiumRequiredError, ForbiddenError, and
-// NotFoundError. Returns null for anything else so the caller can continue
+// Returns a NextResponse for ForbiddenError and NotFoundError. Returns null for anything else so the caller can continue
 // to its own error handling and final re-throw.
 
 import { NextResponse } from 'next/server';
 import {
-  PremiumRequiredError,
   SubscriptionReadOnlyError,
   ForbiddenError,
   NotFoundError,
 } from '@/lib/responses/edit-existing';
 
 export function mapEditReplyError(err: unknown): NextResponse | null {
-  if (err instanceof PremiumRequiredError) {
-    return NextResponse.json({ error: 'premium_required' }, { status: 403 });
-  }
   if (err instanceof SubscriptionReadOnlyError) {
     return NextResponse.json({ error: err.error }, { status: err.status });
   }

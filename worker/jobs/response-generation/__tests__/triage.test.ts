@@ -49,7 +49,7 @@ function makeCtx(overrides: { starRating?: number; reviewText?: string | null } 
       highlightFacts: [],
       avoidFacts: [],
       sampleResponses: [],
-      subscriptionTier: 'standard',
+      subscriptionTier: 'copilot',
     },
   } as GenerationContext;
 }
@@ -93,7 +93,7 @@ describe('runTriagePhase', () => {
     expect(severity).toBe('high');
     expect(classifyReviewTriage).toHaveBeenCalledWith(mockSql, {
       businessId: 'biz-1',
-      subscriptionTier: 'standard',
+      subscriptionTier: 'copilot',
       accountId: 'acct-1',
       review: { starRating: 1, reviewText: 'Awful service.' },
     });

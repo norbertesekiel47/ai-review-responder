@@ -13,6 +13,8 @@ import {
 } from '../startup-assert';
 import { SubscriptionTier, TIER_CONFIG } from '@/lib/accounts/tier-config';
 import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
+import { TIER_COST_LIMIT_ENV_VARS } from '@/lib/costs/tier-cost-limits';
+import { resetServerConfigForTests } from '@/lib/config/server';
 
 const STRIPE_WORKER_REQUIRED = [
   'STRIPE_SECRET_KEY',
@@ -131,6 +133,7 @@ describe('assertServerOnlyFeatureOptionalBooleansEnv', () => {
       expect(() => assertServerOnlyFeatureOptionalBooleansEnv()).toThrow(key);
     },
   );
+
 });
 
 describe('assertStripeWorkerEnv', () => {
@@ -367,15 +370,20 @@ describe('assertWorkerStartupEnv', () => {
     'GOVERNOR_ENABLED',
     'JUDGE_ENABLED',
     'STRIPE_TAX_ENABLED',
+    ...TIER_COST_LIMIT_ENV_VARS,
     ...STRIPE_WORKER_REQUIRED,
     ...CORE_INFRA_REQUIRED,
   ];
 
   beforeEach(() => {
     for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
+    process.env.DAILY_COST_LIMIT_CENTS_COPILOT = '1000';
+    process.env.DAILY_COST_LIMIT_CENTS_AUTOPILOT = '2000';
+    resetServerConfigForTests();
   });
   afterEach(() => {
     restoreEnv(SNAP);
+    resetServerConfigForTests();
   });
 
   it('checks unsafe production mock mode before Stripe env vars', () => {
@@ -429,6 +437,27 @@ describe('assertWorkerStartupEnv', () => {
       expect(() => assertWorkerStartupEnv()).toThrow(key);
     },
   );
+
+  it.each(TIER_COST_LIMIT_ENV_VARS)(
+    'fails fast when required tier cost ceiling %s is missing',
+    (key) => {
+      setEnv('NODE_ENV', 'test');
+      process.env.MOCK_EXTERNAL_APIS = 'true';
+      delete process.env[key];
+      resetServerConfigForTests();
+
+      expect(() => assertWorkerStartupEnv()).toThrow(key);
+    },
+  );
+
+  it('fails fast when a tier cost ceiling is malformed', () => {
+    setEnv('NODE_ENV', 'test');
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    process.env.DAILY_COST_LIMIT_CENTS_AUTOPILOT = '0';
+    resetServerConfigForTests();
+
+    expect(() => assertWorkerStartupEnv()).toThrow(/DAILY_COST_LIMIT_CENTS_AUTOPILOT/);
+  });
 });
 
 describe('worker startup guard import order', () => {
@@ -762,8 +791,6 @@ describe('Stripe env var contract — drift prevention', () => {
 
   it('startup-assert owns exactly six WS8 Price variables', () => {
     expect(SELF_SERVE_PRICE_VARS).toHaveLength(6);
-    expect(SELF_SERVE_PRICE_VARS).not.toContain('STRIPE_PRICE_BASIC');
-    expect(SELF_SERVE_PRICE_VARS).not.toContain('STRIPE_PRICE_STANDARD');
   });
 
   it('no STRIPE_PAYMENT_LINK references remain in startup-assert', async () => {

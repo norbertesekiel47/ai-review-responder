@@ -43,6 +43,7 @@ import {
 } from '../tier-change';
 import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 import * as tierConfig from '../tier-config';
+import type { SubscriptionTierValue } from '../tier-config';
 
 const ACCOUNT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const OWNER_ID = '11111111-2222-3333-4444-555555555555';
@@ -237,7 +238,8 @@ describe('validateTierChange', () => {
   });
 
   it('rejects legacy/unknown targets before SQL and has no Basic location rule', async () => {
-    await expect(validateTierChange(sql, ACCOUNT_ID, 'basic')).resolves.toEqual({
+    const unsupportedTier = 'retired_tier' as unknown as SubscriptionTierValue;
+    await expect(validateTierChange(sql, ACCOUNT_ID, unsupportedTier)).resolves.toEqual({
       allowed: false,
       reason: 'unknown_tier',
     });
@@ -745,11 +747,11 @@ describe('applyTierChange', () => {
   });
 
   it.each([
-    committedAudit({ new_tier: 'premium' }),
+    committedAudit({ new_tier: 'retired_tier' }),
     committedAudit({ base_price_cents: '49.00' }),
     committedAudit({ base_price_cents: '2900' }),
     committedAudit({ locations_paid: '-1' }),
-  ])('fails closed on inconsistent committed audit scalars', async (auditRow) => {
+  ])('fails closed on invalid or inconsistent committed audit fields', async (auditRow) => {
     queueCommitted(account({ price_variant: 'founding' }), [auditRow]);
     const result = await applyTierChange(sql, {
       accountId: ACCOUNT_ID,

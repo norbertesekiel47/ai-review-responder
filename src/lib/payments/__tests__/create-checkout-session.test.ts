@@ -8,7 +8,7 @@ import {
 import {
   SubscriptionTier,
   type PriceVariant,
-  type Ws8SubscriptionTier,
+  type SubscriptionTierValue,
 } from '@/lib/accounts/tier-config';
 
 const { createMock, mockAssertTierPurchasable } = vi.hoisted(() => ({
@@ -71,7 +71,7 @@ function queueUsage(activeLocations = 3, included = 1): void {
 
 describe('createCheckoutSession price and quantity matrix', () => {
   const cases: Array<{
-    tier: Ws8SubscriptionTier;
+    tier: SubscriptionTierValue;
     variant: PriceVariant;
     base: string;
     overage: string;

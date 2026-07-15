@@ -18,6 +18,7 @@ import {
   resolveAddLocationState,
   shouldShowLocationsSettings,
 } from '@/lib/locations/multi-location-mode';
+import { isSubscriptionTier } from '@/lib/accounts/tier-config';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,31 +43,29 @@ export default async function LocationsPage() {
     `.then((rows) => rows[0] ?? null),
   ]);
 
+  if (!account || !isSubscriptionTier(account.subscription_tier)) {
+    throw new Error(
+      `invalid_ws8_subscription_tier:${account?.subscription_tier ?? 'missing'}`,
+    );
+  }
+
   const voiceHref = '/settings/voice';
 
   const addLocationStateKind = resolveAddLocationState(
     featureEnabled,
-    account?.subscription_tier ?? '',
-    account?.subscription_status ?? '',
+    account.subscription_tier,
+    account.subscription_status,
   );
   const addLocationState: AddLocationState =
     addLocationStateKind === 'enabled'
       ? { kind: 'enabled' }
-      : addLocationStateKind === 'upgrade'
-        ? {
-            kind: 'locked',
-            title: 'Upgrade to add locations',
-            description: 'Basic includes one location. Upgrade to Standard or Premium to add more.',
-            ctaHref: '/settings/billing',
-            ctaLabel: 'View plan options',
-          }
-        : {
-            kind: 'locked',
-            title: 'Location additions unavailable',
-            description: 'Your subscription must be active before adding another location.',
-            ctaHref: '/settings/billing',
-            ctaLabel: 'Review billing',
-          };
+      : {
+          kind: 'locked',
+          title: 'Location additions unavailable',
+          description: 'Your subscription must be active before adding another location.',
+          ctaHref: '/settings/billing',
+          ctaLabel: 'Review billing',
+        };
 
   // Fetch Zernio connection status for each location (active + archived)
   const allLocationIds = [...locations, ...archivedLocations].map((l) => l.id);

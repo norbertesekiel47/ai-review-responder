@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SubscriptionTier } from '@/lib/accounts/tier-config';
+import { SubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   canAddLocationForAccount,
@@ -34,9 +34,8 @@ describe('shouldShowLocationsSettings', () => {
 
 describe('canAddLocationForAccount', () => {
   it.each([
-    SubscriptionTier.FOUNDERS,
-    SubscriptionTier.STANDARD,
-    SubscriptionTier.PREMIUM,
+    SubscriptionTier.COPILOT,
+    SubscriptionTier.AUTOPILOT,
   ] as const)(
     'allows active %s accounts when the feature flag is on',
     (tier) => {
@@ -46,26 +45,16 @@ describe('canAddLocationForAccount', () => {
     },
   );
 
-  it('does not allow Basic even when active', () => {
-    expect(
-      canAddLocationForAccount(
-        true,
-        SubscriptionTier.BASIC,
-        SubscriptionStatus.ACTIVE,
-      ),
-    ).toBe(false);
-  });
-
   it.each([
     SubscriptionStatus.PENDING_PAYMENT,
     SubscriptionStatus.PAST_DUE,
     SubscriptionStatus.CANCELLED,
     'unknown',
   ] as const)(
-    'does not allow standard accounts when subscription status is %s',
+    'does not allow Copilot accounts when subscription status is %s',
     (status) => {
       expect(
-        canAddLocationForAccount(true, SubscriptionTier.STANDARD, status),
+        canAddLocationForAccount(true, SubscriptionTier.COPILOT, status),
       ).toBe(false);
     },
   );
@@ -74,7 +63,7 @@ describe('canAddLocationForAccount', () => {
     expect(
       canAddLocationForAccount(
         false,
-        SubscriptionTier.STANDARD,
+        SubscriptionTier.COPILOT,
         SubscriptionStatus.ACTIVE,
       ),
     ).toBe(false);
@@ -89,21 +78,20 @@ describe('canAddLocationForAccount', () => {
 
 describe('resolveAddLocationState', () => {
   it.each([
-    [SubscriptionTier.FOUNDERS, SubscriptionStatus.ACTIVE],
-    [SubscriptionTier.STANDARD, SubscriptionStatus.ACTIVE],
-    [SubscriptionTier.STANDARD, SubscriptionStatus.TRIALING],
+    [SubscriptionTier.COPILOT, SubscriptionStatus.ACTIVE],
+    [SubscriptionTier.AUTOPILOT, SubscriptionStatus.ACTIVE],
+    [SubscriptionTier.COPILOT, SubscriptionStatus.TRIALING],
   ] as const)('returns "enabled" for an entitled multi-location tier (%s, %s)', (tier, status) => {
     expect(resolveAddLocationState(true, tier, status)).toBe('enabled');
   });
 
-  // The STATUS-1.1 bug: a trialing Basic owner is entitled (full access) but on a
-  // tier with no multi-location allowance → must resolve to 'upgrade', not 'inactive'.
-  it('returns "upgrade" for a trialing Basic owner (entitled, no multi-loc tier)', () => {
-    expect(resolveAddLocationState(true, SubscriptionTier.BASIC, SubscriptionStatus.TRIALING)).toBe('upgrade');
-  });
-
-  it('returns "upgrade" for an active Basic owner', () => {
-    expect(resolveAddLocationState(true, SubscriptionTier.BASIC, SubscriptionStatus.ACTIVE)).toBe('upgrade');
+  it('fails closed for an entitled account with an unsupported tier', () => {
+    const unsupportedTier = 'retired_tier' as unknown as SubscriptionTierValue;
+    expect(() => resolveAddLocationState(
+      true,
+      unsupportedTier,
+      SubscriptionStatus.TRIALING,
+    )).toThrow('invalid_ws8_subscription_tier:retired_tier');
   });
 
   it.each([
@@ -111,6 +99,6 @@ describe('resolveAddLocationState', () => {
     SubscriptionStatus.CANCELLED,
     SubscriptionStatus.PENDING_PAYMENT,
   ] as const)('returns "inactive" when the subscription does not grant access (%s)', (status) => {
-    expect(resolveAddLocationState(true, SubscriptionTier.BASIC, status)).toBe('inactive');
+    expect(resolveAddLocationState(true, SubscriptionTier.COPILOT, status)).toBe('inactive');
   });
 });

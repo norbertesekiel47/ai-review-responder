@@ -132,23 +132,14 @@ const serverSchema = z.object({
   // an empty string must stay falsy → default 30, exactly like the old read.
   // Next-only (billing-checkout + onboarding select-plan routes); read in-fn.
   TRIAL_PERIOD_DAYS: rawOpt,
-  // ── Stage-3 cost-guard batch: the spend-safety cost-reservation limits ──────
-  // costs/tracker.ts getTierLimitCents/getGlobalLimitCents feed these to
-  // safeParseLimitCents (which owns trim + `^\d+$` + safe-integer validation and a
-  // numeric fallback), so rawOptionalVar preserves ''/'   '/unset byte-for-byte
-  // (#7) — an empty/whitespace value must reach safeParseLimitCents to hit the
-  // SAME fallback as the old raw process.env read. CRITICAL: the reservation/limit
-  // logic is unchanged; only the read SOURCE moves to config. Lane: getServerConfig
-  // (tracker.ts is dual — worker generate-draft + Next dashboard-regen). The tier
-  // env-key suffixes are FOUNDING/STANDARD/PREMIUM/BASIC — note FOUNDING (not
-  // FOUNDERS): TIER_ENV_SUFFIX maps founders/founding→FOUNDING; basic→BASIC via the
-  // tier.toUpperCase() fallback. (cost-report-service.ts reads the same vars at
-  // module-load and stays allowlisted — independent read, both see the same env.)
+  // Spend-safety ceilings. Copilot and Autopilot values are required positive
+  // decimal integers enforced by the owning worker/admin gates; rawOpt preserves
+  // the original text so their shared strict parser can reject blanks, decimals,
+  // zero, and unsafe integers. The global ceiling remains optional with its
+  // established fallback.
   GLOBAL_DAILY_COST_LIMIT_CENTS: rawOpt,
-  DAILY_COST_LIMIT_CENTS_FOUNDING: rawOpt,
-  DAILY_COST_LIMIT_CENTS_STANDARD: rawOpt,
-  DAILY_COST_LIMIT_CENTS_PREMIUM: rawOpt,
-  DAILY_COST_LIMIT_CENTS_BASIC: rawOpt,
+  DAILY_COST_LIMIT_CENTS_COPILOT: rawOpt,
+  DAILY_COST_LIMIT_CENTS_AUTOPILOT: rawOpt,
   DB_POOL_MAX: opt,
   // ── Stage-3 src-lib batch (server/shared secrets + small config) ──────────
   // All migrated raw reads (each call site owns its own ?.trim()/!value/Boolean/

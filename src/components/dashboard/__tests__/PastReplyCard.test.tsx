@@ -40,7 +40,7 @@ describe('PastReplyCard', () => {
     );
 
     expect(screen.queryByRole('button', { name: /edit reply/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/premium feature/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/editing unavailable/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/needs attention/i)).not.toBeInTheDocument();
   });
 
@@ -73,7 +73,7 @@ describe('PastReplyCard', () => {
     );
 
     expect(screen.getByRole('button', { name: /edit reply/i })).toBeInTheDocument();
-    expect(screen.queryByText(/premium feature/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/editing unavailable/i)).not.toBeInTheDocument();
   });
 
   it('calls onEditClick with the row when Edit CTA is clicked', async () => {
@@ -107,7 +107,7 @@ describe('PastReplyCard', () => {
       />,
     );
 
-    expect(screen.getByText(/premium feature/i)).toBeInTheDocument();
+    expect(screen.getByText(/editing unavailable/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /edit reply/i })).not.toBeInTheDocument();
   });
 
@@ -196,9 +196,9 @@ describe('PastReplyCard', () => {
   //   - response_id = failed_response_id (the failed row's id)
   //   - posted_at = null
   //   - approved_text = superseded sibling text (may be null)
-  //   - canEdit = true (always, so recovery is never locked behind premium)
+  //   - canEdit = true (always, so recovery is never locked)
   //
-  // The card MUST render the recovery affordance and MUST NOT show a premium lock.
+  // The card must render recovery instead of an edit-eligibility lock.
 
   it('orphan-only: renders recovery button when posted_at is null and failed_response_id is present', () => {
     // Simulates the orphanCardRow shape emitted by page.tsx for a
@@ -228,8 +228,7 @@ describe('PastReplyCard', () => {
     ).toBeInTheDocument();
     // Edit CTA must NOT appear alongside the recovery button.
     expect(screen.queryByRole('button', { name: /edit reply/i })).not.toBeInTheDocument();
-    // Premium lock must NOT appear (canEdit=true + recovery branch wins).
-    expect(screen.queryByText(/premium feature/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/editing unavailable/i)).not.toBeInTheDocument();
   });
 
   it('orphan-only: renders gracefully when approved_text (superseded context) is null', () => {
@@ -254,7 +253,7 @@ describe('PastReplyCard', () => {
     expect(screen.getByText(/no reply text/i)).toBeInTheDocument();
   });
 
-  it('orphan-only: recovery button is NOT blocked by premium lock even when canEdit=true and flag is on', () => {
+  it('orphan-only: recovery button is not blocked by the edit lock', () => {
     // Explicit assertion that the recovery branch (failed_response_id present)
     // takes priority over any lock-vs-edit decision, per spec §5.
     const orphanRow = makeRow({
@@ -275,7 +274,7 @@ describe('PastReplyCard', () => {
     );
 
     expect(screen.getByRole('button', { name: /needs attention/i })).toBeInTheDocument();
-    expect(screen.queryByText(/premium feature/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/editing unavailable/i)).not.toBeInTheDocument();
   });
 
   // ── Fix 3: orphan recovery rows must not show "Posted via RepWorth" badge ──

@@ -28,6 +28,7 @@
 //   vi.mock('stripe', () => ({ default: class { webhooks = { constructEvent: mockConstructEvent }; } }));
 
 import { vi, type Mock } from 'vitest';
+import type { SubscriptionTierValue } from '../../../../src/lib/accounts/tier-config';
 import {
   createMockSql,
   type MockSql,
@@ -47,13 +48,6 @@ const PRICE_ENV_VARS = {
   STRIPE_PRICE_AUTOPILOT_FOUNDING: 'price_autopilot_founding_test',
   STRIPE_PRICE_COPILOT_OVERAGE: 'price_copilot_overage_test',
   STRIPE_PRICE_AUTOPILOT_OVERAGE: 'price_autopilot_overage_test',
-  STRIPE_PRICE_BASIC: 'price_basic_test',
-  STRIPE_PRICE_FOUNDING: 'price_founders_test',
-  STRIPE_PRICE_STANDARD: 'price_standard_test',
-  STRIPE_PRICE_PREMIUM: 'price_premium_test',
-  STRIPE_PRICE_FOUNDERS_OVERAGE: 'price_founders_overage_test',
-  STRIPE_PRICE_STANDARD_OVERAGE: 'price_standard_overage_test',
-  STRIPE_PRICE_PREMIUM_OVERAGE: 'price_premium_overage_test',
 } as const;
 
 // ── Pure request/reply fixtures ──────────────────────────────────────
@@ -118,7 +112,7 @@ export interface StripeWebhookHarness {
    */
   resetStripeWebhookMocks: () => void;
   queueSubscriptionUpdated: (opts?: {
-    tier?: string;
+    tier?: SubscriptionTierValue;
     status?: string;
     locationsPaid?: number;
     updateBiz?: boolean;
@@ -159,11 +153,11 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
     }
   }
 
-  // Queue helper: standard subscription.updated tx flow.
+  // Queue helper: canonical subscription.updated transaction flow.
   // NOTE: the audit write now goes through the mocked writeAccountAuditLog, so it
   // is NOT a tx SQL call and is asserted via mockWriteAccountAuditLog (not the queue).
   function queueSubscriptionUpdated(opts: {
-    tier?: string;
+    tier?: SubscriptionTierValue;
     status?: string;
     locationsPaid?: number;
     updateBiz?: boolean;
@@ -171,7 +165,7 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
     activeOffboardingSubscriptionId?: string | null;
     overagePriceCents?: number;
   } = {}) {
-    const tier = opts.tier ?? 'standard';
+    const tier = opts.tier ?? 'copilot';
     const status = opts.status ?? 'active';
     const locationsPaid = opts.locationsPaid ?? 0;
     // Inside sql.begin -> tx calls in order:
@@ -181,7 +175,7 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
       subscription_tier: tier,
       subscription_status: status,
       locations_paid: locationsPaid,
-      locations_overage_price_cents: opts.overagePriceCents ?? 2500,
+      locations_overage_price_cents: opts.overagePriceCents ?? 1500,
       stripe_subscription_id: opts.stripeSubscriptionId ?? TEST_SUBSCRIPTION_ID,
       active_offboarding_subscription_id: opts.activeOffboardingSubscriptionId ?? null,
     }]);

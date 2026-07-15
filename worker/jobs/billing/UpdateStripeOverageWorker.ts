@@ -23,7 +23,7 @@ import {
 } from '../../../src/lib/shared/outbox';
 import {
   isPriceVariant,
-  isWs8SubscriptionTier,
+  isSubscriptionTier,
 } from '../../../src/lib/accounts/tier-config';
 import { acquireBillingLock } from '../../../src/lib/accounts/billing-locks';
 import { priceIdFor } from '../../../src/lib/payments/price-tier-map';
@@ -98,7 +98,7 @@ export async function handleUpdateStripeOverage(
           detail: `subscription status is ${account.subscription_status}`,
         };
       }
-      if (!isWs8SubscriptionTier(account.subscription_tier)) {
+      if (!isSubscriptionTier(account.subscription_tier)) {
         return {
           kind: 'invalid',
           detail: `Unknown tier: ${account.subscription_tier}`,

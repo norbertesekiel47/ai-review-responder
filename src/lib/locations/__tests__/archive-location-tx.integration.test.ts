@@ -41,8 +41,8 @@ describeWithDb('archiveLocationTransaction primary-archive invariant integration
         VALUES (${ids.ownerUserId}::uuid, 'Archive B1 Owner', ${ownerEmail}, 'owner', ${ids.accountId}::uuid)
       `;
       await tx`
-        INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status)
-        VALUES (${ids.accountId}::uuid, ${ids.ownerUserId}::uuid, 'Archive B1 Account', 'standard', 'active')
+        INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, price_variant, subscription_status)
+        VALUES (${ids.accountId}::uuid, ${ids.ownerUserId}::uuid, 'Archive B1 Account', 'copilot', 'list', 'active')
       `;
       await tx`
         INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status, is_primary, archived_at)
@@ -163,8 +163,8 @@ describeWithDb('reactivateLocationTransaction zero-primary self-heal integration
 
       // Account 1: zero active primaries (primary archived).
       await tx`
-        INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status, subscription_activated_at)
-        VALUES (${b3.zeroPrimaryAccountId}::uuid, ${b3.zeroPrimaryOwnerUserId}::uuid, 'B3 ZeroPrimary Account', 'standard', 'active', NOW())
+        INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, price_variant, subscription_status, subscription_activated_at)
+        VALUES (${b3.zeroPrimaryAccountId}::uuid, ${b3.zeroPrimaryOwnerUserId}::uuid, 'B3 ZeroPrimary Account', 'copilot', 'list', 'active', NOW())
       `;
       await tx`
         INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status, is_primary, archived_at)
@@ -177,8 +177,8 @@ describeWithDb('reactivateLocationTransaction zero-primary self-heal integration
 
       // Account 2: an active primary already exists (separate owner).
       await tx`
-        INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status, subscription_activated_at)
-        VALUES (${b3.hasPrimaryAccountId}::uuid, ${b3.hasPrimaryOwnerUserId}::uuid, 'B3 HasPrimary Account', 'standard', 'active', NOW())
+        INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, price_variant, subscription_status, subscription_activated_at)
+        VALUES (${b3.hasPrimaryAccountId}::uuid, ${b3.hasPrimaryOwnerUserId}::uuid, 'B3 HasPrimary Account', 'copilot', 'list', 'active', NOW())
       `;
       await tx`
         INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status, is_primary, archived_at)
@@ -307,8 +307,8 @@ describeWithDb('reactivateLocationTransaction concurrent zero-primary race integ
         VALUES (${race.ownerUserId}::uuid, 'Reactivate Race Owner', ${ownerEmail}, 'owner', ${race.accountId}::uuid)
       `;
       await tx`
-        INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status, subscription_activated_at)
-        VALUES (${race.accountId}::uuid, ${race.ownerUserId}::uuid, 'Reactivate Race Account', 'standard', 'active', NOW())
+        INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, price_variant, subscription_status, subscription_activated_at)
+        VALUES (${race.accountId}::uuid, ${race.ownerUserId}::uuid, 'Reactivate Race Account', 'copilot', 'list', 'active', NOW())
       `;
       // Zero active primaries: both locations archived, neither primary.
       await tx`

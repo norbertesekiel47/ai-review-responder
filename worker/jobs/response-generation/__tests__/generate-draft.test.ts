@@ -98,7 +98,7 @@ import { CostInfraUnavailableError } from '../../../../src/lib/costs/errors';
 const BIZ_CONTEXT: BusinessContext = {
   id: 'biz-1', name: 'Test Biz', category: 'restaurant', tone: 'warm',
   productsServices: null, staffNames: [], highlightFacts: [], avoidFacts: [],
-  sampleResponses: [], subscriptionTier: 'standard',
+  sampleResponses: [], subscriptionTier: 'copilot',
 };
 
 const REVIEW: NormalizedReview = {

@@ -22,7 +22,7 @@ export function makeSummaryReportBusiness(
     initial_review_count: 50,
     initial_responded_count: 10,
     baseline_captured_at: new Date('2026-01-01'),
-    subscription_tier: 'standard',
+    subscription_tier: 'copilot',
     archived_at: null,
     ...overrides,
   };

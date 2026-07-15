@@ -91,8 +91,8 @@ import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
 /** Build a Stripe subscription object with overage item. */
 function makeStripeSubscription(
   overageQuantity: number,
-  overagePriceId = 'price_overage_std',
-  overageUnitAmount = 2500,
+  overagePriceId = 'price_overage_copilot',
+  overageUnitAmount = 1500,
 ) {
   return {
     id: 'sub_test',
@@ -100,7 +100,7 @@ function makeStripeSubscription(
     status: 'active',
     items: {
       data: [
-        { id: 'si_base', price: { id: 'price_base', unit_amount: 7900 }, quantity: 1 },
+        { id: 'si_base', price: { id: 'price_base', unit_amount: 2900 }, quantity: 1 },
         {
           id: 'si_overage',
           price: { id: overagePriceId, unit_amount: overageUnitAmount },
@@ -111,8 +111,8 @@ function makeStripeSubscription(
   };
 }
 
-/** Build a Stripe subscription with NO overage item (basic tier or legacy). */
-function makeStripeSubscriptionNoOverage(baseUnitAmount = 7900) {
+/** Build a Stripe subscription with no overage item. */
+function makeStripeSubscriptionNoOverage(baseUnitAmount = 2900) {
   return {
     id: 'sub_test',
     customer: 'cus_123',
@@ -136,9 +136,9 @@ interface InvoicePreviewOptions {
 }
 
 function makeInvoicePreview(options: InvoicePreviewOptions = {}) {
-  const baseCents = options.baseCents ?? 7900;
+  const baseCents = options.baseCents ?? 2900;
   const overageUnits = options.overageUnits ?? 2;
-  const overageUnitCents = options.overageUnitCents ?? 2500;
+  const overageUnitCents = options.overageUnitCents ?? 1500;
   const recurringTotal = baseCents + overageUnits * overageUnitCents;
   const totalCents = options.totalCents
     ?? recurringTotal
@@ -168,7 +168,7 @@ function makeInvoicePreview(options: InvoicePreviewOptions = {}) {
       subtotal: overageUnits * overageUnitCents,
       quantity: overageUnits,
       price: {
-        id: options.overagePriceId ?? 'price_overage_std',
+        id: options.overagePriceId ?? 'price_overage_copilot',
         unit_amount: overageUnitCents,
       },
       pricing: { unit_amount_decimal: String(overageUnitCents) },
@@ -187,7 +187,7 @@ function makeInvoicePreview(options: InvoicePreviewOptions = {}) {
       amount: options.prorationCents,
       subtotal: options.prorationCents,
       quantity: 1,
-      price: { id: 'price_overage_std', unit_amount: options.prorationCents },
+      price: { id: 'price_overage_copilot', unit_amount: options.prorationCents },
       pricing: { unit_amount_decimal: String(options.prorationCents) },
       parent: {
         subscription_item_details: {
@@ -220,7 +220,7 @@ interface AccountRow {
 }
 
 function makeAccountRow(overrides: Partial<AccountRow> = {}): AccountRow {
-  const tier = overrides.subscription_tier ?? 'standard';
+  const tier = overrides.subscription_tier ?? 'copilot';
   return {
     id: 'acct-1',
     subscription_tier: tier,
@@ -229,8 +229,8 @@ function makeAccountRow(overrides: Partial<AccountRow> = {}): AccountRow {
     stripe_subscription_id: 'sub_123',
     locations_included: 1,
     locations_paid: 2,
-    locations_overage_price_cents: 2500,
-    base_price_cents: TIER_CONFIG[tier as keyof typeof TIER_CONFIG]?.baseCents ?? 7900,
+    locations_overage_price_cents: tier === 'autopilot' ? 2000 : 1500,
+    base_price_cents: TIER_CONFIG[tier as keyof typeof TIER_CONFIG]?.baseByVariant.list ?? 2900,
     active_location_count: 3,
     past_due_at: null,
     flags: {},
@@ -266,7 +266,7 @@ describe('billing reconciliation helpers', () => {
   it('uses stored overage price instead of live tier overage config', () => {
     const invoice = expectedInvoiceForAccount({
       id: 'acct-grandfathered',
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       subscription_status: 'active',
       stripe_subscription_id: 'sub_123',
       base_price_cents: 7900,
@@ -282,13 +282,13 @@ describe('billing reconciliation helpers', () => {
     expect(invoice.totalCents).toBe(7900 + 2 * 3000);
   });
 
-  it('uses stored base price instead of live tier base config (founders price-lock)', () => {
+  it('uses stored base price instead of live tier base config (founding price-lock)', () => {
     const invoice = expectedInvoiceForAccount({
       id: 'acct-grandfathered-base',
-      subscription_tier: 'founders',
+      subscription_tier: 'copilot',
       subscription_status: 'active',
       stripe_subscription_id: 'sub_123',
-      base_price_cents: 1500, // stored != TIER_CONFIG.founders.baseCents (1900)
+      base_price_cents: 1500, // stored differs from the current founding Copilot price
       locations_included: 1,
       locations_overage_price_cents: 2500,
       active_location_count: 3,
@@ -315,7 +315,7 @@ describe('billing reconciliation helpers', () => {
     const now = new Date('2026-05-25T00:00:00.000Z');
     expect(isExpectedStatusWindow({
       id: 'acct-past-due',
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       subscription_status: 'past_due',
       stripe_subscription_id: 'sub_123',
       locations_included: 1,
@@ -331,7 +331,7 @@ describe('billing reconciliation helpers', () => {
     const now = new Date('2026-05-25T00:00:00.000Z');
     expect(isExpectedStatusWindow({
       id: 'acct-past-due',
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       subscription_status: 'past_due',
       stripe_subscription_id: 'sub_123',
       locations_included: 1,
@@ -350,7 +350,7 @@ describe('billing reconciliation helpers', () => {
     const now = new Date('2026-05-25T00:00:00.000Z');
     expect(isExpectedStatusWindow({
       id: 'acct-extended',
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       subscription_status: 'past_due',
       stripe_subscription_id: 'sub_123',
       locations_included: 1,
@@ -367,7 +367,7 @@ describe('billing reconciliation helpers', () => {
     const now = new Date('2026-05-25T00:00:00.000Z');
     expect(isExpectedStatusWindow({
       id: 'acct-extended-expired',
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       subscription_status: 'past_due',
       stripe_subscription_id: 'sub_123',
       locations_included: 1,
@@ -382,7 +382,7 @@ describe('billing reconciliation helpers', () => {
   it('does not treat missing past_due_at as expected status window', () => {
     expect(isExpectedStatusWindow({
       id: 'acct-past-due',
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       subscription_status: 'past_due',
       stripe_subscription_id: 'sub_123',
       locations_included: 1,
@@ -398,7 +398,7 @@ describe('billing reconciliation helpers', () => {
     const now = new Date('2026-05-25T00:00:00.000Z');
     expect(isExpectedStatusWindow({
       id: 'acct-past-due',
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       subscription_status: 'past_due',
       stripe_subscription_id: 'sub_123',
       locations_included: 1,
@@ -415,7 +415,7 @@ describe('billing reconciliation helpers', () => {
       totalCents: 11900,
       lineAmountDiscountCents: 1000,
       prorationCents: 500,
-    }))).toBe(12900);
+    }))).toBe(5900);
   });
 
   it('normalizes Stripe 22 invoice line pricing without legacy price objects', () => {
@@ -467,9 +467,8 @@ describe('StripeLocationsReconcilePoller', () => {
     delete process.env.STRIPE_LOCATIONS_RECONCILE_INTERVAL_MS;
     delete process.env.MOCK_EXTERNAL_APIS;
     // Set env vars for Stripe price IDs
-    process.env.STRIPE_PRICE_STANDARD_OVERAGE = 'price_overage_std';
-    process.env.STRIPE_PRICE_PREMIUM_OVERAGE = 'price_overage_prem';
-    process.env.STRIPE_PRICE_FOUNDERS_OVERAGE = 'price_overage_founders';
+    process.env.STRIPE_PRICE_COPILOT_OVERAGE = 'price_overage_copilot';
+    process.env.STRIPE_PRICE_AUTOPILOT_OVERAGE = 'price_overage_autopilot';
     process.env.STRIPE_SECRET_KEY = 'sk_test_123';
     // drift-alert.ts now reads SENTRY_DSN via the memoized getWorkerConfig(); clear
     // the worker memo so each test's SENTRY_DSN override (set after this beforeEach)
@@ -484,19 +483,18 @@ describe('StripeLocationsReconcilePoller', () => {
     errorSpy.mockRestore();
     warnSpy.mockRestore();
     delete process.env.STRIPE_SECRET_KEY;
-    delete process.env.STRIPE_PRICE_STANDARD_OVERAGE;
-    delete process.env.STRIPE_PRICE_PREMIUM_OVERAGE;
-    delete process.env.STRIPE_PRICE_FOUNDERS_OVERAGE;
+    delete process.env.STRIPE_PRICE_COPILOT_OVERAGE;
+    delete process.env.STRIPE_PRICE_AUTOPILOT_OVERAGE;
   });
 
   // ── No drift ────────────────────────────────────────────────────
 
   it('no alert when Stripe overage quantity matches DB expectation', async () => {
-    // Account: standard tier, 1 included, 3 active → expected overage = 2
+    // Copilot: 1 included, 3 active → expected overage = 2
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-match',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 3,
       }),
@@ -504,7 +502,7 @@ describe('StripeLocationsReconcilePoller', () => {
 
     // Stripe returns overage quantity = 2 (matches DB)
     mockStripeRetrieve.mockResolvedValue(
-      makeStripeSubscription(2, 'price_overage_std'),
+      makeStripeSubscription(2, 'price_overage_copilot'),
     );
 
     const result = await runOnce();
@@ -515,11 +513,11 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it('no alert for standard custom included quota when active locations equal included quota', async () => {
+  it('no alert for a custom stored included quota when active locations equal included quota', async () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-custom-within',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 3,
         active_location_count: 3,
         locations_paid: 0,
@@ -541,11 +539,11 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it('no alert for standard custom included quota when Stripe overage matches stored quota math', async () => {
+  it('no alert for a custom stored included quota when Stripe overage matches stored quota math', async () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-custom-overage',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 3,
         active_location_count: 5,
       }),
@@ -567,7 +565,7 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-grandfathered',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         locations_overage_price_cents: 3000,
         active_location_count: 3,
@@ -589,7 +587,7 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-legacy-price',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         locations_overage_price_cents: 3000,
         active_location_count: 3,
@@ -613,7 +611,7 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-base-location-wording',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         locations_overage_price_cents: 3000,
         active_location_count: 3,
@@ -629,8 +627,8 @@ describe('StripeLocationsReconcilePoller', () => {
             id: 'si_base',
             price: {
               id: 'price_base',
-              nickname: 'Standard plan with 1 location',
-              unit_amount: 7900,
+              nickname: 'Copilot plan with 1 location',
+              unit_amount: 2900,
             },
             quantity: 1,
           },
@@ -661,16 +659,16 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-discounted',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 3,
       }),
     ]);
     mockStripeRetrieve.mockResolvedValue(
-      makeStripeSubscription(2, 'price_overage_std'),
+      makeStripeSubscription(2, 'price_overage_copilot'),
     );
     mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
-      totalCents: 11900,
+      totalCents: 4900,
       lineAmountDiscountCents: 1000,
     }));
 
@@ -684,13 +682,13 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-proration',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 3,
       }),
     ]);
     mockStripeRetrieve.mockResolvedValue(
-      makeStripeSubscription(2, 'price_overage_std'),
+      makeStripeSubscription(2, 'price_overage_copilot'),
     );
     mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
       prorationCents: 500,
@@ -706,14 +704,14 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-invoice-drift',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         locations_overage_price_cents: 2500,
         active_location_count: 3,
       }),
     ]);
     mockStripeRetrieve.mockResolvedValue(
-      makeStripeSubscription(2, 'price_overage_std'),
+      makeStripeSubscription(2, 'price_overage_copilot', 2500),
     );
     mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
       overageUnitCents: 2501,
@@ -761,7 +759,7 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-trialing',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         subscription_status: 'active',
         locations_included: 1,
         active_location_count: 3,
@@ -785,13 +783,13 @@ describe('StripeLocationsReconcilePoller', () => {
   // ── Drift detected ──────────────────────────────────────────────
 
   it('emits alert when Stripe overage quantity exceeds DB expectation', async () => {
-    // Account: standard tier, 1 included, 3 active → expected overage = 2
+    // Copilot: 1 included, 3 active → expected overage = 2
     // locations_paid=5 matches Stripe so mirror drift doesn't fire; the
     // quantity_mismatch (DB expects 2, Stripe has 5) is the single drift under test.
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-drift-high',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 3,
         locations_paid: 5,
@@ -815,13 +813,13 @@ describe('StripeLocationsReconcilePoller', () => {
   });
 
   it('emits alert when DB overage exceeds Stripe quantity', async () => {
-    // Account: standard tier, 1 included, 5 active → expected overage = 4
+    // Copilot: 1 included, 5 active → expected overage = 4
     // locations_paid=1 matches Stripe so mirror drift doesn't fire; the
     // quantity_mismatch (DB expects 4, Stripe has 1) is the single drift under test.
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-drift-low',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 5,
         locations_paid: 1,
@@ -849,7 +847,7 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-detail',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 4,
       }),
@@ -892,7 +890,7 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-sentry',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 3,
         locations_paid: 10,
@@ -922,16 +920,16 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-sentry-invoice',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 3,
       }),
     ]);
     mockStripeRetrieve.mockResolvedValue(
-      makeStripeSubscription(2, 'price_overage_std'),
+      makeStripeSubscription(2, 'price_overage_copilot'),
     );
     mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
-      overageUnitCents: 2501,
+      overageUnitCents: 1501,
     }));
 
     const result = await runOnce();
@@ -945,8 +943,8 @@ describe('StripeLocationsReconcilePoller', () => {
           account_id: 'acct-sentry-invoice',
         }),
         extra: expect.objectContaining({
-          expectedCents: 12900,
-          actualCents: 12902,
+          expectedCents: 5900,
+          actualCents: 5902,
           dbStatus: 'active',
           stripeStatus: 'active',
           stripeSubscriptionId: 'sub_test',
@@ -983,7 +981,7 @@ describe('StripeLocationsReconcilePoller', () => {
     stripeOverageQuantity: 5,
     activeLocations: 3,
     locationsIncluded: 1,
-    tier: 'standard',
+    tier: 'copilot',
   };
 
   for (const driftType of revenueAffectingDriftTypes) {
@@ -1106,8 +1104,11 @@ describe('StripeLocationsReconcilePoller', () => {
       }),
     ]);
     mockStripeRetrieve.mockResolvedValue(
-      makeStripeSubscription(2, 'price_overage_std', 3000),
+      makeStripeSubscription(2, 'price_overage_copilot', 3000),
     );
+    mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
+      overageUnitCents: 2500,
+    }));
 
     const result = await runOnce();
 
@@ -1126,7 +1127,7 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-pilot-drift',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 3,
         locations_paid: 5,
@@ -1162,7 +1163,7 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-pilot-jsonb-string',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 3,
         locations_paid: 5,
@@ -1206,11 +1207,11 @@ describe('StripeLocationsReconcilePoller', () => {
 
   // ── Handles subscription with no overage item ────────────────────
 
-  it('handles subscription with no overage item (basic tier or legacy)', async () => {
+  it('handles a Copilot subscription with no overage item inside its included quota', async () => {
     sqlReturnQueue.push([
       makeAccountRow({
-        id: 'acct-basic',
-        subscription_tier: 'basic',
+        id: 'acct-without-overage',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 1,
         locations_paid: 0,
@@ -1228,7 +1229,7 @@ describe('StripeLocationsReconcilePoller', () => {
     const result = await runOnce();
 
     expect(result.accountsChecked).toBe(1);
-    // Basic tier with 1 location and no overage item → no drift
+    // One included location and no overage item → no drift.
     expect(result.driftsFound).toBe(0);
   });
 
@@ -1238,7 +1239,7 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-missing-overage',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 4,
         locations_paid: 0,
@@ -1268,7 +1269,7 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-within',
-        subscription_tier: 'premium',
+        subscription_tier: 'autopilot',
         locations_included: 5,
         locations_overage_price_cents: 2000,
         active_location_count: 3,
@@ -1277,23 +1278,23 @@ describe('StripeLocationsReconcilePoller', () => {
     ]);
 
     mockStripeRetrieve.mockResolvedValue({
-      ...makeStripeSubscription(0, 'price_overage_prem', 2000),
+      ...makeStripeSubscription(0, 'price_overage_autopilot', 2000),
       items: {
         data: [
-          { id: 'si_base', price: { id: 'price_base_prem', unit_amount: 19900 }, quantity: 1 },
+          { id: 'si_base', price: { id: 'price_base_autopilot', unit_amount: 6900 }, quantity: 1 },
           {
             id: 'si_overage',
-            price: { id: 'price_overage_prem', unit_amount: 2000 },
+            price: { id: 'price_overage_autopilot', unit_amount: 2000 },
             quantity: 0,
           },
         ],
       },
     });
     mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
-      baseCents: 19900,
+      baseCents: 6900,
       overageUnits: 0,
       overageUnitCents: 2000,
-      overagePriceId: 'price_overage_prem',
+      overagePriceId: 'price_overage_autopilot',
     }));
 
     const result = await runOnce();
@@ -1308,7 +1309,7 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-no-autocorrect',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 3,
       }),
@@ -1334,14 +1335,14 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-ok',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 3,
         locations_paid: 2,
       }),
       makeAccountRow({
         id: 'acct-drift',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 5,
         locations_paid: 1,
@@ -1370,13 +1371,13 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-fail',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 3,
       }),
       makeAccountRow({
         id: 'acct-ok',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 3,
       }),
@@ -1401,7 +1402,7 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlReturnQueue.push([
       makeAccountRow({
         id: 'acct-preview-fails',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         locations_included: 1,
         active_location_count: 3,
         locations_paid: 5,
@@ -1572,7 +1573,7 @@ describe('StripeLocationsReconcilePoller', () => {
     // reconcileCycle directly with an already-aborted signal: it must process ZERO
     // accounts even though the query returns one.
     sqlReturnQueue.push([
-      makeAccountRow({ id: 'acct-should-not-run', subscription_tier: 'standard', locations_included: 1, active_location_count: 3 }),
+      makeAccountRow({ id: 'acct-should-not-run', subscription_tier: 'copilot', locations_included: 1, active_location_count: 3 }),
     ]);
 
     const result = await reconcileCycle(AbortSignal.abort());
@@ -1588,8 +1589,8 @@ describe('StripeLocationsReconcilePoller', () => {
   it('per-account timeout errors that account and continues the cycle', async () => {
     vi.useFakeTimers();
     sqlReturnQueue.push([
-      makeAccountRow({ id: 'acct-hang', subscription_tier: 'standard', locations_included: 1, active_location_count: 3 }),
-      makeAccountRow({ id: 'acct-ok', subscription_tier: 'standard', locations_included: 1, active_location_count: 3 }),
+      makeAccountRow({ id: 'acct-hang', subscription_tier: 'copilot', locations_included: 1, active_location_count: 3 }),
+      makeAccountRow({ id: 'acct-ok', subscription_tier: 'copilot', locations_included: 1, active_location_count: 3 }),
     ]);
     // First account parks on the Stripe retrieve; second resolves normally.
     mockStripeRetrieve.mockReturnValueOnce(new Promise(() => {}));

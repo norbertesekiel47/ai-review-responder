@@ -54,7 +54,7 @@ describeWithDb('approval audit content snapshot integration', () => {
       `;
       await tx`
         INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status)
-        VALUES (${ids.accountId}::uuid, ${ids.userId}::uuid, 'Audit Snapshot Account', 'standard', 'active')
+        VALUES (${ids.accountId}::uuid, ${ids.userId}::uuid, 'Audit Snapshot Account', 'copilot', 'active')
       `;
       await tx`
         INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status)

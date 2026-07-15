@@ -8,7 +8,7 @@ test.describe('owner password signup flow', () => {
 
     // REQUIRES:
     //   SELF_SERVE_SIGNUP_ENABLED=true
-    //   STRIPE_PAYMENT_LINK_STANDARD=<test-mode Payment Link with success_url set>
+    //   All six test-mode STRIPE_PRICE_{COPILOT,AUTOPILOT}_{LIST,FOUNDING,OVERAGE} values
     //   NEXT_PUBLIC_APP_URL=http://localhost:3000
     //   Supabase project configured with email auth
 

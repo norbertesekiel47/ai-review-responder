@@ -117,7 +117,7 @@ describe('getLocationContext', () => {
     const archivedAt = null;
     mockSql.mockResolvedValueOnce([{
       account_id: TEST_ACCOUNT_ID,
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       subscription_status: 'active',
       stripe_customer_id: 'cus_test',
       stripe_subscription_id: 'sub_test',
@@ -135,7 +135,7 @@ describe('getLocationContext', () => {
     expect(result).not.toBeNull();
     expect(result!.account).toEqual({
       id: TEST_ACCOUNT_ID,
-      subscriptionTier: 'standard',
+      subscriptionTier: 'copilot',
       subscriptionStatus: 'active',
       stripeCustomerId: 'cus_test',
       stripeSubscriptionId: 'sub_test',
@@ -166,7 +166,7 @@ describe('getLocationContext', () => {
   it('returns the account that owns the location (from the JOIN)', async () => {
     mockSql.mockResolvedValueOnce([{
       account_id: TEST_ACCOUNT_ID,
-      subscription_tier: 'premium',
+      subscription_tier: 'autopilot',
       subscription_status: 'active',
       stripe_customer_id: 'cus_owner',
       stripe_subscription_id: 'sub_owner',
@@ -213,7 +213,7 @@ describe('getLocationContext', () => {
   it('handles display_label = NULL — falls back to name in result', async () => {
     mockSql.mockResolvedValueOnce([{
       account_id: TEST_ACCOUNT_ID,
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       subscription_status: 'active',
       stripe_customer_id: null,
       stripe_subscription_id: null,
@@ -232,6 +232,28 @@ describe('getLocationContext', () => {
     expect(result!.location.displayLabel).toBeNull();
     expect(result!.location.name).toBe('Fallback Name');
   });
+
+  it('fails closed when the joined account has an unsupported tier', async () => {
+    mockSql.mockResolvedValueOnce([{
+      account_id: TEST_ACCOUNT_ID,
+      subscription_tier: 'retired_tier',
+      subscription_status: 'active',
+      stripe_customer_id: null,
+      stripe_subscription_id: null,
+      locations_included: 1,
+      locations_paid: 0,
+      location_id: TEST_LOCATION_ID,
+      is_primary: true,
+      display_label: null,
+      name: 'Invalid Tier Location',
+      archived_at: null,
+    }]);
+
+    await expect(getLocationContext(sqlArg, TEST_LOCATION_ID)).rejects.toThrow(
+      'invalid_ws8_subscription_tier:retired_tier',
+    );
+    expect(mockSql).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ── getLocationContextForAccount ────────────────────────────────────────────
@@ -248,7 +270,7 @@ describe('getLocationContextForAccount', () => {
   it('returns context when location belongs to the given account', async () => {
     mockSql.mockResolvedValueOnce([{
       account_id: TEST_ACCOUNT_ID,
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       subscription_status: 'active',
       stripe_customer_id: 'cus_test',
       stripe_subscription_id: 'sub_test',
@@ -276,7 +298,7 @@ describe('getLocationContextForAccount', () => {
   it('returns { kind: "account_mismatch" } when location belongs to a different account', async () => {
     mockSql.mockResolvedValueOnce([{
       account_id: OTHER_ACCOUNT_ID,
-      subscription_tier: 'premium',
+      subscription_tier: 'autopilot',
       subscription_status: 'active',
       stripe_customer_id: 'cus_other',
       stripe_subscription_id: 'sub_other',
@@ -312,6 +334,30 @@ describe('getLocationContextForAccount', () => {
     const result = await getLocationContextForAccount(sqlArg, TEST_LOCATION_ID, TEST_ACCOUNT_ID);
 
     expect(result).toBeNull();
+  });
+
+  it('fails closed for a matching account whose stored tier is unsupported', async () => {
+    mockSql.mockResolvedValueOnce([{
+      account_id: TEST_ACCOUNT_ID,
+      subscription_tier: 'retired_tier',
+      subscription_status: 'active',
+      stripe_customer_id: null,
+      stripe_subscription_id: null,
+      locations_included: 1,
+      locations_paid: 0,
+      location_id: TEST_LOCATION_ID,
+      is_primary: true,
+      display_label: null,
+      name: 'Invalid Tier Location',
+      archived_at: null,
+    }]);
+
+    await expect(getLocationContextForAccount(
+      sqlArg,
+      TEST_LOCATION_ID,
+      TEST_ACCOUNT_ID,
+    )).rejects.toThrow('invalid_ws8_subscription_tier:retired_tier');
+    expect(mockSql).toHaveBeenCalledTimes(1);
   });
 
   // SQL query validates both location_id and account_id in WHERE clause

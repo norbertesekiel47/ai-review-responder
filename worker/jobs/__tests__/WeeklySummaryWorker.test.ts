@@ -224,7 +224,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
         { starRating: 2, reviewText: 'Could be better' },
       ],
       'biz-1',
-      'standard',
+      'copilot',
     );
   });
 

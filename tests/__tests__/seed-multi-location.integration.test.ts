@@ -17,8 +17,9 @@ import {
   seedMultiLocationAccount,
   cleanupMultiLocationAccount,
   getE2eSql,
-  STANDARD_TIER_SNAPSHOT,
+  COPILOT_TIER_SNAPSHOT,
 } from '../../e2e/seed';
+import { computeOverageQuantity } from '@/lib/accounts/quota';
 
 // One runnable assertion even when the DB is absent, so the file is never a
 // pure no-op in CI (where TEST_DATABASE_POOL_URL is unset). This guards the
@@ -38,25 +39,30 @@ describe.skipIf(!isE2eConfigured)(
       const seed = await seedMultiLocationAccount();
 
       try {
-        // ── Account: standard-tier point-in-time snapshot (invariant #9a) ──
+        // ── Account: Copilot point-in-time snapshot (invariant #9a) ──
         const [account] = await sql<
           {
             locations_overage_price_cents: number;
             base_price_cents: number;
             locations_included: number;
             subscription_tier: string;
+            price_variant: string;
+            locations_paid: number;
           }[]
         >`
-          SELECT locations_overage_price_cents, base_price_cents, locations_included, subscription_tier
+          SELECT locations_overage_price_cents, base_price_cents, locations_included,
+                 subscription_tier, price_variant, locations_paid
           FROM accounts WHERE id = ${seed.accountId}::uuid
         `;
         expect(account).toBeDefined();
-        expect(account?.subscription_tier).toBe(STANDARD_TIER_SNAPSHOT.tier);
+        expect(account?.subscription_tier).toBe(COPILOT_TIER_SNAPSHOT.tier);
+        expect(account?.price_variant).toBe(COPILOT_TIER_SNAPSHOT.priceVariant);
         expect(Number(account?.locations_overage_price_cents)).toBe(
-          STANDARD_TIER_SNAPSHOT.overagePriceCents,
+          COPILOT_TIER_SNAPSHOT.overagePriceCents,
         );
-        expect(Number(account?.base_price_cents)).toBe(STANDARD_TIER_SNAPSHOT.basePriceCents);
-        expect(Number(account?.locations_included)).toBe(2);
+        expect(Number(account?.base_price_cents)).toBe(COPILOT_TIER_SNAPSHOT.basePriceCents);
+        expect(Number(account?.locations_included)).toBe(1);
+        expect(Number(account?.locations_paid)).toBe(0);
 
         // ── Businesses: exactly 2, one primary + one secondary, distinct
         //    non-null google_place_id. ──
@@ -72,6 +78,12 @@ describe.skipIf(!isE2eConfigured)(
         const secondaries = businesses.filter((b) => !b.is_primary);
         expect(primaries).toHaveLength(1);
         expect(secondaries).toHaveLength(1);
+        expect(
+          computeOverageQuantity(
+            businesses.length,
+            Number(account?.locations_included),
+          ),
+        ).toBe(1);
         expect(primaries[0]?.id).toBe(seed.primaryBusinessId);
         expect(secondaries[0]?.id).toBe(seed.secondaryBusinessId);
 

@@ -7,7 +7,7 @@ import {
   isPriceVariant,
   type PriceVariant,
   type ResolvedTierSnapshot,
-  type Ws8SubscriptionTier,
+  type SubscriptionTierValue,
 } from '../../../src/lib/accounts/tier-config';
 import { acquireTierAndBillingLocks } from '../../../src/lib/accounts/billing-locks';
 import {
@@ -68,7 +68,7 @@ export interface SubscriptionUpdateOperationalAlert {
   accountId: string;
   subscriptionId: string;
   priceId?: string;
-  mappedTier?: Ws8SubscriptionTier;
+  mappedTier?: SubscriptionTierValue;
   mappedVariant?: PriceVariant;
   storedVariant?: string;
 }
@@ -84,7 +84,7 @@ export type SubscriptionUpdatedOutcome =
   | (SubscriptionUpdateOutcomeBase & {
       kind: 'updated';
       accountId: string;
-      tier: Ws8SubscriptionTier;
+      tier: SubscriptionTierValue;
       variant: PriceVariant;
       snapshotChanged: boolean;
     })
@@ -92,7 +92,7 @@ export type SubscriptionUpdatedOutcome =
       kind: 'variant_mismatch';
       accountId: string;
       priceId: string;
-      mappedTier: Ws8SubscriptionTier;
+      mappedTier: SubscriptionTierValue;
       mappedVariant: PriceVariant;
       storedVariant: string;
     })
@@ -228,7 +228,7 @@ function storedSnapshot(account: LockedAccountRow): ResolvedTierSnapshot {
     throw new Error('storedSnapshot requires a validated price_variant');
   }
   return {
-    tier: account.subscription_tier as Ws8SubscriptionTier,
+    tier: account.subscription_tier as SubscriptionTierValue,
     variant: account.price_variant,
     baseCents: Number(account.base_price_cents),
     overageCents: Number(account.locations_overage_price_cents),

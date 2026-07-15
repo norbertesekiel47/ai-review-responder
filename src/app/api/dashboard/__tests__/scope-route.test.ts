@@ -148,7 +148,7 @@ function setActiveSubRow(locationId = LOCATION_ID) {
     {
       name: 'Test Biz',
       subscription_status: 'active',
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       owner_email: 'owner@test.com',
       onboarded_by: null,
       place_id_verified: true,
@@ -329,7 +329,7 @@ describe('GET /api/dashboard scope parameter', () => {
       {
         name: 'Primary Biz',
         subscription_status: 'active',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         owner_email: 'owner@test.com',
         onboarded_by: null,
         place_id_verified: true,
@@ -386,7 +386,7 @@ describe('GET /api/dashboard scope parameter', () => {
       {
         name: 'Primary Biz',
         subscription_status: 'active',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         owner_email: 'owner@test.com',
         onboarded_by: null,
         place_id_verified: true,

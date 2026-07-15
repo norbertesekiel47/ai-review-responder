@@ -32,6 +32,6 @@ describe('HowItWorksContent', () => {
     // present, corrected claims
     expect(html).toContain('by default');
     expect(html).toContain('approve and edit');
-    expect(html).toContain('Multi-location supported on Premium');
+    expect(html).toContain('Multi-location supported on Copilot and Autopilot');
   });
 });

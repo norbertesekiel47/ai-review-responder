@@ -9,7 +9,7 @@
 // Scope conditions:
 //   - Checks paid accounts whether stripe_subscription_id is present or missing
 //   - Only checks accounts with subscription_status = 'active' or 'past_due'
-//   - Skips accounts with no overage item in Stripe (basic tier, legacy)
+//   - Accepts accounts with no overage item when expected overage is zero
 //   - Uses the stored billing snapshot to determine expected overage/invoice totals
 //
 // Default cadence: every 60 minutes (3_600_000 ms).

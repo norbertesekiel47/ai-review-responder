@@ -174,7 +174,7 @@ describe('lifecycle', () => {
       `;
       await tx`
         INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status)
-        VALUES (${accountId}, ${userId}, 'Test Account', 'standard', 'pending_payment')
+        VALUES (${accountId}, ${userId}, 'Test Account', 'copilot', 'pending_payment')
       `;
       await tx`
         INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status)

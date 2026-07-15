@@ -21,7 +21,7 @@ import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   isPriceVariant,
   type PriceVariant,
-  type Ws8SubscriptionTier,
+  type SubscriptionTierValue,
 } from '@/lib/accounts/tier-config';
 import { acquireTierBillingActivationLocks } from '@/lib/accounts/billing-locks';
 import {
@@ -42,7 +42,7 @@ export interface ApplyTierSnapshotParams {
   accountId: string;
   /** Preserves the caller's established `:activation` lock identity. */
   activationLockId: string;
-  tier: Ws8SubscriptionTier;
+  tier: SubscriptionTierValue;
   actorUserId?: string | null;
 }
 

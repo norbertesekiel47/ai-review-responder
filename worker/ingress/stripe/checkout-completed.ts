@@ -3,9 +3,9 @@ import { sql } from '../../../src/lib/db/server';
 import {
   SubscriptionTier,
   isPriceVariant,
-  isWs8SubscriptionTier,
+  isSubscriptionTier,
   type PriceVariant,
-  type Ws8SubscriptionTier,
+  type SubscriptionTierValue,
 } from '../../../src/lib/accounts/tier-config';
 import { acquireTierBillingActivationLocks } from '../../../src/lib/accounts/billing-locks';
 import {
@@ -202,7 +202,7 @@ async function projectCheckoutSubscription(
     }
 
     if (
-      !isWs8SubscriptionTier(account.subscription_tier) ||
+      !isSubscriptionTier(account.subscription_tier) ||
       !isPriceVariant(account.price_variant) ||
       base.info.tier !== account.subscription_tier ||
       base.info.variant !== account.price_variant
@@ -259,7 +259,7 @@ async function projectCheckoutSubscription(
       locationsPaid = overage.item.quantity ?? 0;
     }
 
-    const tier = account.subscription_tier as Ws8SubscriptionTier;
+    const tier = account.subscription_tier as SubscriptionTierValue;
     const variant = account.price_variant as PriceVariant;
     await writeResolvedTierSnapshot(tx, {
       accountId,

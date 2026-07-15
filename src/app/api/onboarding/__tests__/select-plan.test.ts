@@ -133,7 +133,7 @@ describe('POST /api/onboarding/select-plan', () => {
   });
 
   it('rejects unknown and legacy tiers before auth or persistence', async () => {
-    for (const tier of ['enterprise', 'standard']) {
+    for (const tier of ['enterprise', 'free']) {
       const res = await POST(request({ tier }));
       expect(res.status).toBe(400);
     }

@@ -21,7 +21,7 @@ const baseBusiness: BusinessContext = {
   highlightFacts: ['family-owned since 1995', 'locally sourced ingredients'],
   avoidFacts: ['recent kitchen renovation delays'],
   sampleResponses: [],
-  subscriptionTier: 'standard',
+  subscriptionTier: 'copilot',
 };
 
 // ── buildDemoPrompt ──────────────────────────────────────────────────

@@ -27,9 +27,9 @@ import {
 import { TRIAGE_SOURCE, type TriageSeverity } from '../../../src/lib/reviews/triage-schema';
 import type postgres from 'postgres';
 import {
-  isWs8SubscriptionTier,
+  isSubscriptionTier,
   SubscriptionTier,
-  type Ws8SubscriptionTier,
+  type SubscriptionTierValue,
 } from '../../../src/lib/accounts/tier-config';
 
 type TxClient = postgres.TransactionSql;
@@ -70,7 +70,7 @@ export interface AutoApprovalCandidateInput {
   held: boolean;
   subscriptionStatus: string;
   /** Authoritative same-transaction tier, never the pre-LLM hint. */
-  subscriptionTier: Ws8SubscriptionTier;
+  subscriptionTier: SubscriptionTierValue;
   accountPastDueAt: Date | string | null;
   accountFlags: AccountFlagsInput;
   activeLocationNow: boolean;
@@ -119,7 +119,7 @@ export interface AutoApprovalRuntimeState {
   currentStarRating: number | null;
   effectivePolicy: EffectiveAutoApprovalPolicy;
   subscriptionStatus: string;
-  subscriptionTier: Ws8SubscriptionTier;
+  subscriptionTier: SubscriptionTierValue;
   accountPastDueAt: Date | null;
   accountFlags: AccountFlagsInput;
   activeLocationNow: boolean;
@@ -180,7 +180,7 @@ export async function loadAutoApprovalRuntimeState(
   if (!state) {
     throw new Error('auto_approval_current_state_missing');
   }
-  if (!isWs8SubscriptionTier(state.subscription_tier)) {
+  if (!isSubscriptionTier(state.subscription_tier)) {
     throw new Error(`auto_approval_invalid_subscription_tier:${state.subscription_tier}`);
   }
 

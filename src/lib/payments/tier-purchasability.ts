@@ -1,6 +1,6 @@
 import {
   SubscriptionTier,
-  type Ws8SubscriptionTier,
+  type SubscriptionTierValue,
 } from '@/lib/accounts/tier-config';
 import { autoApprovalRuntimeEnabled } from '@/lib/auto-approval/flags';
 import { getServerConfig } from '@/lib/config/server';
@@ -19,7 +19,7 @@ export class TierNotPurchasableError extends Error {
   }
 }
 
-export function assertTierPurchasable(tier: Ws8SubscriptionTier): void {
+export function assertTierPurchasable(tier: SubscriptionTierValue): void {
   if (tier === SubscriptionTier.COPILOT) return;
   if (tier !== SubscriptionTier.AUTOPILOT) {
     throw new Error(`Unknown purchasable subscription tier: ${String(tier)}`);

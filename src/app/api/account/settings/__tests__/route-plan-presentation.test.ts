@@ -118,4 +118,30 @@ describe('GET /api/account/settings plan presentation', () => {
     expect(mocks.getActiveLocationCount).not.toHaveBeenCalled();
     expect(mocks.autopilotPurchasable).not.toHaveBeenCalled();
   });
+
+  it('fails closed before pricing reads when the stored tier is unsupported', async () => {
+    mocks.sql.mockResolvedValueOnce([{
+      id: ACCOUNT_ID,
+      display_name: 'Broken Co',
+      subscription_tier: 'retired_tier',
+      price_variant: 'list',
+      subscription_status: 'active',
+      stripe_customer_id: 'cus_broken',
+      subscription_activated_at: null,
+      locations_included: 1,
+      locations_paid: 0,
+      trial_ends_at: null,
+    }]);
+
+    const response = await GET(new NextRequest('http://localhost/api/account/settings'));
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Account has an invalid subscription tier',
+    });
+    expect(mocks.sql).toHaveBeenCalledTimes(1);
+    expect(mocks.currentBillingSnapshot).not.toHaveBeenCalled();
+    expect(mocks.getActiveLocationCount).not.toHaveBeenCalled();
+    expect(mocks.autopilotPurchasable).not.toHaveBeenCalled();
+  });
 });

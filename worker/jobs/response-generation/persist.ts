@@ -35,7 +35,7 @@ import {
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import { autoApprovalRuntimeEnabled } from '../../../src/lib/auto-approval/flags';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
-import type { Ws8SubscriptionTier } from '../../../src/lib/accounts/tier-config';
+import type { SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
 import {
   type AutoApprovalDecision,
   type AutoApprovalRuntimeState,
@@ -62,7 +62,7 @@ export interface PersistResponseInput {
   moderation: ModerationDecision;
   accountId: string;
   /** Diagnostic pre-LLM tier. Grant authority comes from runtimeState only. */
-  preLlmSubscriptionTier: Ws8SubscriptionTier;
+  preLlmSubscriptionTier: SubscriptionTierValue;
   logger: Pick<WorkerLogger, 'log' | 'warn'>;
 }
 

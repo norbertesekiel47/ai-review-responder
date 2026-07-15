@@ -95,7 +95,7 @@ async function seedTenant(label: 'a' | 'b'): Promise<SeededTenant> {
     `;
     await tx`
       INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status)
-      VALUES (${accountId}, ${userId}, ${`Tenant ${label.toUpperCase()} Account`}, 'standard', 'active')
+      VALUES (${accountId}, ${userId}, ${`Tenant ${label.toUpperCase()} Account`}, 'copilot', 'active')
     `;
     await tx`
       INSERT INTO businesses (id, name, owner_name, owner_email, account_id, is_primary, display_label, subscription_status)

@@ -3,7 +3,7 @@ import {
   resolveTierSnapshot,
   type PriceVariant,
   type ResolvedTierSnapshot,
-  type Ws8SubscriptionTier,
+  type SubscriptionTierValue,
 } from '@/lib/accounts/tier-config';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { acquireTierEntitlementLock } from '@/lib/accounts/billing-locks';
@@ -16,7 +16,7 @@ export interface TierSnapshotAuditContext {
 
 export interface WriteTierSnapshotInput {
   accountId: string;
-  tier: Ws8SubscriptionTier;
+  tier: SubscriptionTierValue;
   variant: PriceVariant;
   /** Provider-confirmed overage quantity, or zero before Stripe confirmation. */
   locationsPaid: number;

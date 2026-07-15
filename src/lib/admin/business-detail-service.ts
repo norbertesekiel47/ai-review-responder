@@ -9,6 +9,7 @@
 import type { Sql } from 'postgres';
 import { fetchBusinessDetailBatch1, fetchBusinessDetailBatch2 } from './business-detail/queries';
 import { mapBusinessDetailResponse } from './business-detail/mappers';
+import { isSubscriptionTier } from '@/lib/accounts/tier-config';
 import type {
   BusinessDetailResponse,
 } from './business-detail-types';
@@ -38,6 +39,9 @@ export async function getBusinessDetail(
   const business = businessRows[0];
   if (!business) {
     return null;
+  }
+  if (!isSubscriptionTier(business.subscription_tier)) {
+    throw new Error(`invalid_ws8_subscription_tier:${business.subscription_tier}`);
   }
 
   const {

@@ -20,7 +20,7 @@
 // HOW TO RUN (staging / a dev Stripe test account — never against live):
 //   STRIPE_TEST_CLOCK_LIVE=true \
 //   STRIPE_SECRET_KEY=sk_test_… \
-//   STRIPE_PRICE_STANDARD=price_… STRIPE_PRICE_STANDARD_OVERAGE=price_… \
+//   STRIPE_PRICE_COPILOT_LIST=price_… STRIPE_PRICE_COPILOT_OVERAGE=price_… \
 //   TRIAL_PERIOD_DAYS=30 \
 //   pnpm vitest run worker/ingress/stripe/__tests__/trial-test-clock.acceptance.test.ts
 //
@@ -56,13 +56,13 @@ async function advanceClock(stripe: Stripe, clockId: string, toUnix: number): Pr
 
 d('Stripe test-clock — card-up-front trial day-30 boundary', () => {
   let stripe: Stripe;
-  const basePrice = process.env.STRIPE_PRICE_STANDARD;
-  const overagePrice = process.env.STRIPE_PRICE_STANDARD_OVERAGE;
+  const basePrice = process.env.STRIPE_PRICE_COPILOT_LIST;
+  const overagePrice = process.env.STRIPE_PRICE_COPILOT_OVERAGE;
 
   beforeAll(() => {
     stripe = getStripe();
     if (!basePrice || !overagePrice) {
-      throw new Error('STRIPE_PRICE_STANDARD + STRIPE_PRICE_STANDARD_OVERAGE required for the test-clock acceptance tests');
+      throw new Error('STRIPE_PRICE_COPILOT_LIST + STRIPE_PRICE_COPILOT_OVERAGE required for the test-clock acceptance tests');
     }
   });
 

@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { resetServerConfigForTests } from '@/lib/config/server';
 
 // ── Hoisted mocks ───────────────────────────────────────────────────
 //
@@ -83,7 +84,7 @@ function queueDetailOnlyResults(): void {
     {
       business_id: 'biz-1',
       name: 'Test Biz',
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       total_usd: 2.0,
       call_count: 15,
       today_usd: 0.1,
@@ -111,7 +112,7 @@ function queueDetailPlusRollupResults(): void {
     {
       business_id: 'biz-1',
       name: 'Test Biz',
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       total_usd: 2.7,
       call_count: 20,
       today_usd: 0.1,
@@ -139,6 +140,10 @@ function queueDetailPlusRollupResults(): void {
 // ── Tests ───────────────────────────────────────────────────────────
 
 describe('GET /api/admin/costs', () => {
+  const originalTierCostLimits = {
+    copilot: process.env.DAILY_COST_LIMIT_CENTS_COPILOT,
+    autopilot: process.env.DAILY_COST_LIMIT_CENTS_AUTOPILOT,
+  };
   const STUB_MARGIN = {
     windowDays: 30,
     platform: {
@@ -167,6 +172,38 @@ describe('GET /api/admin/costs', () => {
       locationId: null,
     });
     mockGetMarginReport.mockResolvedValue(STUB_MARGIN);
+    // Arbitrary positive fixtures: operator values are required configuration,
+    // not product defaults, so route tests must provide them explicitly.
+    process.env.DAILY_COST_LIMIT_CENTS_COPILOT = '12345';
+    process.env.DAILY_COST_LIMIT_CENTS_AUTOPILOT = '23456';
+    resetServerConfigForTests();
+  });
+
+  afterEach(() => {
+    if (originalTierCostLimits.copilot === undefined) {
+      delete process.env.DAILY_COST_LIMIT_CENTS_COPILOT;
+    } else {
+      process.env.DAILY_COST_LIMIT_CENTS_COPILOT = originalTierCostLimits.copilot;
+    }
+    if (originalTierCostLimits.autopilot === undefined) {
+      delete process.env.DAILY_COST_LIMIT_CENTS_AUTOPILOT;
+    } else {
+      process.env.DAILY_COST_LIMIT_CENTS_AUTOPILOT = originalTierCostLimits.autopilot;
+    }
+    resetServerConfigForTests();
+  });
+
+  it('fails closed when a required tier cost ceiling is missing', async () => {
+    delete process.env.DAILY_COST_LIMIT_CENTS_COPILOT;
+    resetServerConfigForTests();
+
+    const { GET } = await import('../route');
+    const res = await GET(makeRequest('/api/admin/costs?days=7'));
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Failed to fetch cost data' });
+    expect(sqlCalls).toHaveLength(0);
+    expect(sqlReturnQueue).toHaveLength(0);
   });
 
   it('rejects days > 365 with 400', async () => {
@@ -345,7 +382,7 @@ describe('GET /api/admin/costs', () => {
       {
         business_id: 'biz-1',
         name: 'Biz One',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         total_usd: 1.0,
         call_count: 5,
         today_usd: 0.1,
@@ -353,7 +390,7 @@ describe('GET /api/admin/costs', () => {
       {
         business_id: 'biz-2',
         name: 'Biz Two (archived-only)',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         total_usd: 0.5,
         call_count: 3,
         today_usd: 0,
@@ -397,7 +434,7 @@ describe('GET /api/admin/costs', () => {
       {
         business_id: 'biz-2',
         name: 'Biz Two',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         total_usd: 10.1,
         call_count: 51,
         today_usd: 0.0,
@@ -405,7 +442,7 @@ describe('GET /api/admin/costs', () => {
       {
         business_id: 'biz-1',
         name: 'Biz One',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         total_usd: 0.5,
         call_count: 5,
         today_usd: 0.0,
@@ -435,7 +472,7 @@ describe('GET /api/admin/costs', () => {
       {
         business_id: 'biz-1',
         name: 'Biz One',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         total_usd: 1.5,
         call_count: 10,
         today_usd: 0.0,

@@ -12,6 +12,7 @@ import {
   SubscriptionStatus,
   subscriptionGrantsFullAccess,
 } from '@/lib/shared/subscription-status';
+import { isSubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -72,7 +73,7 @@ export async function isAccountActive(
 export interface LocationContext {
   account: {
     id: string;
-    subscriptionTier: string;
+    subscriptionTier: SubscriptionTierValue;
     subscriptionStatus: string;
     stripeCustomerId: string | null;
     stripeSubscriptionId: string | null;
@@ -135,6 +136,9 @@ async function selectLocationContextRow(
 }
 
 function mapLocationContextRow(row: LocationContextRow): LocationContext {
+  if (!isSubscriptionTier(row.subscription_tier)) {
+    throw new Error(`invalid_ws8_subscription_tier:${row.subscription_tier}`);
+  }
   return {
     account: {
       id: row.account_id,

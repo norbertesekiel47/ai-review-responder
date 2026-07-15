@@ -261,7 +261,7 @@ describe('processRow duplicate handling', () => {
     mockGetActiveLocationCount.mockResolvedValue(1);
     mockGetAccountById.mockResolvedValue({
       id: accountId,
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       subscription_status: 'active',
     });
     mockGetAccountOwnerUser.mockResolvedValue({
@@ -295,6 +295,19 @@ describe('processRow duplicate handling', () => {
       expect(result.reason).toContain('connection reset');
       expect(result.reason).not.toBe('duplicate_location');
     }
+  });
+
+  it('fails the row before the transaction when the re-read account tier is unsupported', async () => {
+    mockGetAccountById.mockResolvedValueOnce({
+      id: accountId,
+      subscription_tier: 'retired_tier',
+      subscription_status: 'active',
+    });
+
+    const result = await processRow(sql, happyRow(), accountId);
+
+    expect(result).toEqual({ reason: 'Account has invalid subscription tier' });
+    expect(mockAddLocationTransaction).not.toHaveBeenCalled();
   });
 
   it('surfaces a RAW 23505 (un-remapped) as a generic Transaction error', async () => {

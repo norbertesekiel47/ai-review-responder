@@ -118,7 +118,7 @@ describe('POST /api/billing/tier-change', () => {
     expect(mockValidateTierChange).not.toHaveBeenCalled();
   });
 
-  it.each(['basic', 'standard', 'premium', 'founders', 'enterprise']) (
+  it.each(['enterprise', 'free']) (
     'rejects a non-launch target %s before business logic',
     async (newTier) => {
       const response = await POST(request({ accountId: ACCOUNT_ID, newTier }));

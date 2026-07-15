@@ -164,7 +164,7 @@ describe('WeeklySummaryWorker skips bounced owners', () => {
   });
 
   it('skips weekly report when owner_email_bounced is true', async () => {
-    sqlFixtures.set(Q_SUMMARY_BUSINESS, [{ ...bouncedBusiness(), initial_review_count: 0, initial_responded_count: 0, baseline_captured_at: null, subscription_tier: 'standard' }]);
+    sqlFixtures.set(Q_SUMMARY_BUSINESS, [{ ...bouncedBusiness(), initial_review_count: 0, initial_responded_count: 0, baseline_captured_at: null, subscription_tier: 'copilot' }]);
     await handleWeeklySummary({
       id: 'job-2',
       data: { business_id: 'biz-1', week_start_date: '2026-04-13', outbox_id: 'out-2' },
@@ -183,7 +183,7 @@ describe('MonthlyImpactWorker skips bounced owners', () => {
   });
 
   it('skips monthly impact when owner_email_bounced is true', async () => {
-    sqlFixtures.set(Q_SUMMARY_BUSINESS, [{ ...bouncedBusiness(), initial_review_count: 0, initial_responded_count: 0, baseline_captured_at: null, subscription_tier: 'standard' }]);
+    sqlFixtures.set(Q_SUMMARY_BUSINESS, [{ ...bouncedBusiness(), initial_review_count: 0, initial_responded_count: 0, baseline_captured_at: null, subscription_tier: 'copilot' }]);
     await handleMonthlyImpact({
       id: 'job-3',
       data: { business_id: 'biz-1', month_start_date: '2026-04-01', outbox_id: 'out-3' },

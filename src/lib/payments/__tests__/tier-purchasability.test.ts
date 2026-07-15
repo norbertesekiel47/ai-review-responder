@@ -45,7 +45,7 @@ describe('Autopilot purchasability', () => {
   });
 
   it('rejects unknown tiers instead of defaulting to Copilot', () => {
-    expect(() => assertTierPurchasable('standard' as 'copilot')).toThrow(
+    expect(() => assertTierPurchasable('enterprise' as 'copilot')).toThrow(
       /Unknown purchasable subscription tier/,
     );
   });

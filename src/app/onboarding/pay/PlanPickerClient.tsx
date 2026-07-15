@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { LazyMotion, m, domAnimation } from 'motion/react';
 import { buttonMotion } from '../_shared/field-styles';
-import type { Ws8SubscriptionTier } from '@/lib/accounts/tier-config';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import type { PlanPresentationViewModel } from '@/lib/payments/plan-presentation';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { getOnboardingPlans } from './plan-options';
@@ -22,7 +22,7 @@ export function PlanPickerClient({
 }: Props) {
   const viewModel = { purchasable, prices, priceVariant, trialEnabled };
   const plans = getOnboardingPlans(viewModel);
-  const [selectedTier, setSelectedTier] = useState<Ws8SubscriptionTier | null>(null);
+  const [selectedTier, setSelectedTier] = useState<SubscriptionTierValue | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [error, setError] = useState('');
 

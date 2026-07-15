@@ -26,6 +26,7 @@ const {
     accountSubscriptionStatus: 'active',
     accountPastDueAt: null as string | null,
     accountFlags: {} as Record<string, unknown>,
+    accountSubscriptionTier: 'copilot',
     accountSubscriptionActivatedAt: new Date(
       '2026-05-01T00:00:00.000Z',
     ) as Date | null,
@@ -53,7 +54,7 @@ const {
                   subscription_status: txScenario.accountSubscriptionStatus,
                   past_due_at: txScenario.accountPastDueAt,
                   flags: txScenario.accountFlags,
-                  subscription_tier: 'standard',
+                  subscription_tier: txScenario.accountSubscriptionTier,
                   subscription_activated_at:
                     txScenario.accountSubscriptionActivatedAt,
                 },
@@ -279,6 +280,7 @@ beforeEach(() => {
   txScenario.accountSubscriptionStatus = 'active';
   txScenario.accountPastDueAt = null;
   txScenario.accountFlags = {};
+  txScenario.accountSubscriptionTier = 'copilot';
   txScenario.accountSubscriptionActivatedAt = new Date(
     '2026-05-01T00:00:00.000Z',
   );
@@ -706,6 +708,44 @@ describe('finalizeConnectionTx', () => {
     expect(txCalls.some((c) => c.values.includes('zernio_initial_backfill'))).toBe(
       true,
     );
+  });
+
+  it('preserves an Autopilot tier in the typed initial-backfill payload', async () => {
+    txScenario.needsBackfill = true;
+    txScenario.accountSubscriptionTier = 'autopilot';
+
+    await finalizeConnectionTx(mockSql, {
+      user: USER,
+      stored: STORED,
+      locationId: 'google-location-1',
+      accountId: 'zernio-account-1',
+    });
+
+    const txJson = (mockTx as unknown as { json: ReturnType<typeof vi.fn> }).json;
+    expect(
+      txJson.mock.calls.some(
+        ([payload]) =>
+          (payload as { subscription_tier?: string }).subscription_tier ===
+          'autopilot',
+      ),
+    ).toBe(true);
+  });
+
+  it('rejects an unsupported tier before connection or outbox writes', async () => {
+    txScenario.accountSubscriptionTier = 'retired_tier';
+
+    await expect(
+      finalizeConnectionTx(mockSql, {
+        user: USER,
+        stored: STORED,
+        locationId: 'google-location-1',
+        accountId: 'zernio-account-1',
+      }),
+    ).rejects.toThrow('invalid_ws8_subscription_tier:retired_tier');
+
+    expect(txCalls).toHaveLength(1);
+    expect(txCalls[0]!.raw).toMatch(/FROM businesses b[\s\S]*JOIN accounts a/);
+    expect(mockEnqueueAnalyticsEvent).not.toHaveBeenCalled();
   });
 
   it('updates an existing connection instead of inserting', async () => {

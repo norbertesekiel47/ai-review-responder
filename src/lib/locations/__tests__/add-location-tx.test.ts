@@ -58,7 +58,7 @@ function mkInput(overrides: Partial<AddLocationTxInput> = {}): AddLocationTxInpu
     actorUserId: ACTOR_USER_ID,
     ownerName: 'Test Owner',
     ownerEmail: 'owner@test.com',
-    subscriptionTier: 'standard',
+    subscriptionTier: 'copilot',
     subscriptionStatus: 'active',
     activeLocationsBefore: 1,
     ...overrides,
