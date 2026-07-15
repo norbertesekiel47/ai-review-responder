@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **077** — next migration is **078**
+Current head: **078** — next migration is **079**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -922,6 +922,22 @@ Revisit triggers:
   reconciliation enqueue. Apply only inside the quiesced rollout after the
   provider-wide Stripe subscription + open-Checkout preflight reaches zero
   blockers; apply staging first, then production, both projects in lockstep.
+
+- **078** — WS8 Copilot/Autopilot strict tier contract (spec
+  `docs/superpowers/specs/2026-07-14-ws8-tier-wiring-design.md` §7.4). Runs
+  NULL-safe preflights against both `accounts.subscription_tier` and the
+  deprecated write-only `businesses.subscription_tier` mirror, aborting before
+  any schema change when either table contains NULL or any value outside
+  `copilot`/`autopilot`. On a clean preflight it preserves the accounts NOT NULL
+  contract, makes the businesses mirror NOT NULL, and replaces the exact named
+  CHECK on each table with the strict two-tier domain. Constraint replacement is
+  scoped by both `conname` and `conrelid`, so reapplication repairs a stale or
+  widened same-name definition instead of trusting it. One atomic direct-SQL
+  statement, transactional and re-runnable. Apply only after 077, the strict-code
+  deploy, and controlled smoke; staging first, then production, both projects in
+  lockstep. Verified by NULL/every-legacy blocker cases, catalog/behavior checks,
+  stale-definition repair, and repeated application against the local `test_ws4`
+  database only; no staging or production migration was run during WS8 execution.
 
 ## Key Tables Reference
 

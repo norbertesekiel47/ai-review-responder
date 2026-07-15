@@ -51,6 +51,7 @@ const LEGACY_TIER_HISTORY_EXCLUSIONS = new Set([
   'src/lib/shared/__tests__/migration-034-structure.test.ts',
   'src/lib/shared/__tests__/migration-054-structure.test.ts',
   'src/lib/shared/__tests__/migration-077-copilot-autopilot.integration.test.ts',
+  'src/lib/shared/__tests__/migration-078-copilot-autopilot.integration.test.ts',
 ]);
 
 export type PolicyRule =
