@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **076** — next migration is **077**
+Current head: **077** — next migration is **078**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -904,6 +904,24 @@ Revisit triggers:
   safe only while `JUDGE_ENABLED` and `GOVERNOR_ENABLED` remain off; once
   enabled, workers read/write these objects. Apply staging first, then
   production, both Supabase projects in lockstep.
+
+- **077** — WS8 Copilot/Autopilot expand + quiesced normalization (spec
+  `docs/superpowers/specs/2026-07-14-ws8-tier-wiring-design.md` §7.2). Adds
+  `accounts.price_variant TEXT NOT NULL DEFAULT 'list'`, constrained exactly to
+  `list`/`founding`, plus a column-scoped immutable-update trigger. Changes the
+  account launch defaults to Copilot/list (`subscription_tier='copilot'`, base
+  `2900`, overage `1500`, one included location) and the deprecated businesses
+  tier-mirror default to `copilot`. The first-apply sentinel is whether
+  `accounts.price_variant` existed before expansion: only when absent, one
+  direct-SQL account UPDATE unconditionally writes the complete canonical
+  snapshot (including `locations_paid=0`) to every then-existing account and a
+  second UPDATE normalizes every businesses mirror. Reapplication repairs the
+  defaults/CHECK/function/trigger only and never rewrites account or business
+  data, so post-cutover founding Autopilot rows survive byte-for-byte. One
+  atomic statement; no TypeScript/provider/Redis dependency, outbox row, or
+  reconciliation enqueue. Apply only inside the quiesced rollout after the
+  provider-wide Stripe subscription + open-Checkout preflight reaches zero
+  blockers; apply staging first, then production, both projects in lockstep.
 
 ## Key Tables Reference
 
