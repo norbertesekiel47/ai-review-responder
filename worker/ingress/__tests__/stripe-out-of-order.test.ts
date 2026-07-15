@@ -36,8 +36,9 @@ vi.mock('../../../src/lib/payments/stripe-client', () => ({
     subscriptions: { retrieve: mockRetrieveSubscription },
   }),
 }));
-vi.mock('../stripe/apply-subscription-state', () => ({
-  applyStripeSubscriptionState: mockApplyStripeSubscriptionState,
+vi.mock('../stripe/apply-subscription-state', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../stripe/apply-subscription-state')>()),
+  applyStripeSubscriptionStateUnderEntitlementLock: mockApplyStripeSubscriptionState,
 }));
 vi.mock('../shared', () => ({ claimInboundEvent: mockClaimInboundEvent }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
@@ -199,7 +200,21 @@ describe('out-of-order delivery — subscription.* before checkout.session.compl
       active_offboarding_subscription_id: null,
     }]);
     sqlReturnQueue.push([{ id: '019dc366-29ce-7000-a000-000000000001' }]);
-    sqlReturnQueue.push([]); // business mirror
+    // Tier-only deprecated mirror projection.
+    sqlReturnQueue.push(
+      [{ id: '019dc366-29ce-7000-a000-0000000000bb' }],
+      [],
+      [{ subscription_tier: 'copilot' }],
+      [],
+    );
+    // Status/activation mirror remains owned by the status applier seam.
+    sqlReturnQueue.push(
+      [{ id: '019dc366-29ce-7000-a000-0000000000bb' }],
+      [],
+      [{ subscription_status: 'active', subscription_activated_at: null }],
+      [],
+    );
+    sqlReturnQueue.push([]); // mark inbound event processed
     reply = mkReply();
     await handleStripeWebhook(mkRequest(), reply as any);
     expect(reply.status).toHaveBeenCalledWith(200);
@@ -208,6 +223,7 @@ describe('out-of-order delivery — subscription.* before checkout.session.compl
     expect(applied[0]!.values).toContain('copilot');
     expect(applied[0]!.values).toContain(3);
     expect(findInboundUpdate('processed')).toBeDefined();
+    expect(sqlReturnQueue).toHaveLength(0);
 
     // ── Delivery 3 (duplicate after success): claim='duplicate' → 200 no-op, NO second apply ──
     sqlCalls.length = 0;

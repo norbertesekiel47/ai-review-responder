@@ -11,6 +11,7 @@ import {
 } from '../../../src/lib/accounts/tier-config';
 import { acquireTierAndBillingLocks } from '../../../src/lib/accounts/billing-locks';
 import {
+  synchronizeBusinessTierMirror,
   writeResolvedTierSnapshot,
   writeTierSnapshot,
 } from '../../../src/lib/accounts/tier-snapshot';
@@ -27,7 +28,10 @@ import {
   AccountNotProvisionedYetError,
   getStripe,
 } from './shared';
-import { applyStripeSubscriptionState } from './apply-subscription-state';
+import {
+  applyStripeSubscriptionStateUnderEntitlementLock,
+  synchronizeDeferredBusinessSubscriptionState,
+} from './apply-subscription-state';
 
 const logger = createWorkerLogger('[ingress/stripe/subscription-updated]');
 
@@ -278,7 +282,7 @@ async function projectProviderCurrentSubscription(
     // Absolute status ownership: every provider-current subscription status,
     // including unknown Price and variant-mismatch paths, enters through the
     // one Stripe status applier.
-    const transition = await applyStripeSubscriptionState(
+    const transition = await applyStripeSubscriptionStateUnderEntitlementLock(
       tx,
       {
         mode: 'subscription',
@@ -525,6 +529,14 @@ export async function processSubscriptionUpdated(
     customerId,
     subscriptionId,
   );
+  if (outcome.accountId) {
+    if (outcome.kind === 'updated') {
+      await synchronizeBusinessTierMirror(sql, outcome.accountId);
+    }
+    if (outcome.transition?.accountResolved) {
+      await synchronizeDeferredBusinessSubscriptionState(sql, outcome.accountId);
+    }
+  }
   for (const alert of outcome.alerts) reportOperationalAlert(alert);
   return outcome;
 }

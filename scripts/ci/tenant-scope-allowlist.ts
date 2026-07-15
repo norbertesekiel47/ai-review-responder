@@ -1820,9 +1820,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/accounts/tier-snapshot.ts",
     table: "businesses",
-    sqlSnippet: "UPDATE businesses SET subscription_tier = ${snapshot.tier}, updated_at = NOW() WHERE account_id = ${input.accountId}::uuid AND subscription_tier IS DISTINCT FROM ${snapshot.tier}::text",
+    sqlSnippet: "UPDATE businesses SET subscription_tier = ${account.subscription_tier}, updated_at = NOW() WHERE account_id = ${accountId}::uuid AND subscription_tier IS DISTINCT FROM ${account.subscription_tier}::text",
     category: 'tenant-root-lookup',
-    reason: "The deprecated tier mirror is constrained by the same owner/provider-resolved account id as the locked complete account snapshot.",
+    reason: "The deprecated tier-only mirror is constrained by the same owner/provider-resolved account id and runs after locking every business row for that account.",
   },
   {
     file: "src/lib/approval/http-routes.ts",
@@ -2600,7 +2600,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/jobs/publisher/load-context.ts",
     table: "account_offboardings",
-    sqlSnippet: "SELECT b.id, b.account_id, b.name, b.archived_at, a.subscription_status, a.updated_at AS account_updated_at, a.past_due_at AS account_past_due_at, a.flags AS account_flags, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN account_offboardings ao ON ao.account_id = a.id AND ao.terminal_at IS NULL WHERE b.id = ${businessId} ORDER BY ao.created_at DESC NULLS LAST LIMIT 1",
+    sqlSnippet: "SELECT b.id, b.account_id, b.name, b.archived_at, a.subscription_status, a.subscription_tier, a.updated_at AS account_updated_at, a.past_due_at AS account_past_due_at, a.flags AS account_flags, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN account_offboardings ao ON ao.account_id = a.id AND ao.terminal_at IS NULL WHERE b.id = ${businessId} ORDER BY ao.created_at DESC NULLS LAST LIMIT 1",
     category: 'worker-job-scoped',
     reason: "Publisher worker follows a durable job business id and joins to the active offboarding gate for that business account before publishing.",
   },

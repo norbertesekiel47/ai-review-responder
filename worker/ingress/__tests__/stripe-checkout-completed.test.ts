@@ -13,19 +13,30 @@ import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 // ── Hoisted mocks (shared stripe-webhook harness) ──────────────────
 const {
   mockSql,
+  sqlReturnQueue,
   sqlCalls,
   mockClaimInboundEvent,
   mockConstructEvent,
   mockWriteAccountAuditLog,
   resetStripeWebhookMocks,
   queueCheckoutActivate,
+  mockRetrieveSubscription,
 } = await vi.hoisted(async () => {
   const { createStripeWebhookHarness } = await import('./helpers/stripe-webhook-harness');
-  return createStripeWebhookHarness();
+  return {
+    ...createStripeWebhookHarness(),
+    mockRetrieveSubscription: vi.fn(),
+  };
 });
 
 vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../../src/lib/audit/log', () => ({ writeAccountAuditLog: mockWriteAccountAuditLog }));
+vi.mock('../../../src/lib/payments/stripe-client', () => ({
+  getStripe: () => ({
+    webhooks: { constructEvent: mockConstructEvent },
+    subscriptions: { retrieve: mockRetrieveSubscription },
+  }),
+}));
 vi.mock('../shared', () => ({ claimInboundEvent: mockClaimInboundEvent }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 vi.mock('stripe', () => ({
@@ -49,6 +60,22 @@ afterAll(restoreStripeWebhookEnv);
 
 beforeEach(() => {
   resetStripeWebhookMocks();
+  mockRetrieveSubscription.mockReset();
+  mockRetrieveSubscription.mockResolvedValue({
+    id: TEST_SUBSCRIPTION_ID,
+    customer: TEST_CUSTOMER_ID,
+    status: 'active',
+    trial_end: null,
+    metadata: {},
+    items: {
+      data: [{
+        id: 'si_base',
+        quantity: 1,
+        metadata: {},
+        price: { id: 'price_copilot_list_test', metadata: {}, unit_amount: 2900 },
+      }],
+    },
+  });
 });
 
 describe('checkout.session.completed — account activation (VAL-BILLING-007, VAL-BILLING-008)', () => {
@@ -85,6 +112,8 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.values).toContain(TEST_CUSTOMER_ID);
     expect(updateAcct!.values).toContain(TEST_SUBSCRIPTION_ID);
+    expect(sqlCalls).toHaveLength(18);
+    expect(sqlReturnQueue).toHaveLength(0);
   });
 
   it('VAL-BILLING-008: already active → idempotent no-op (applier: isAllowedTransition returns false)', async () => {
@@ -116,6 +145,8 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
       (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'"),
     );
     expect(updateAcct).toBeUndefined();
+    expect(sqlCalls).toHaveLength(16);
+    expect(sqlReturnQueue).toHaveLength(0);
   });
 
   it('VAL-BILLING-060: uses client_reference_id as account ID', async () => {
@@ -136,6 +167,19 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
     });
 
     queueCheckoutActivate({ accountId: customAccountId });
+    mockRetrieveSubscription.mockResolvedValueOnce({
+      id: 'sub_custom',
+      customer: 'cus_custom',
+      status: 'active',
+      trial_end: null,
+      metadata: {},
+      items: {
+        data: [{
+          id: 'si_base', quantity: 1, metadata: {},
+          price: { id: 'price_copilot_list_test', metadata: {}, unit_amount: 2900 },
+        }],
+      },
+    });
 
     const { status, send } = mkReply();
     await handleStripeWebhook(mkRequest(), { status, send } as any);
@@ -148,5 +192,7 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
     );
     expect(lookupCall).toBeDefined();
     expect(lookupCall!.values).toContain(customAccountId);
+    expect(sqlCalls).toHaveLength(18);
+    expect(sqlReturnQueue).toHaveLength(0);
   });
 });

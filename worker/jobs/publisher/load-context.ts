@@ -18,6 +18,8 @@ export interface PublishResponseContext {
     account_id: string;
     name: string;
     subscription_status: string;
+    /** Early hint only; auto-policy lane re-reads under entitlement lock. */
+    subscription_tier: string;
     account_updated_at: Date;
     account_past_due_at: Date | null;
     account_flags: AccountFlagsInput;
@@ -53,7 +55,9 @@ export async function loadPublishResponseContext(sql: Sql, input: {
   }
 
   const [business] = await sql<PublishResponseContext['business'][]>`
-    SELECT b.id, b.account_id, b.name, b.archived_at, a.subscription_status, a.updated_at AS account_updated_at,
+    SELECT b.id, b.account_id, b.name, b.archived_at,
+           a.subscription_status, a.subscription_tier,
+           a.updated_at AS account_updated_at,
            a.past_due_at AS account_past_due_at, a.flags AS account_flags,
            ao.id AS offboarding_id,
            ao.account_id AS offboarding_account_id,

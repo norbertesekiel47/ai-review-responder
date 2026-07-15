@@ -8,7 +8,10 @@ import {
   type Ws8SubscriptionTier,
 } from '../../../src/lib/accounts/tier-config';
 import { acquireTierBillingActivationLocks } from '../../../src/lib/accounts/billing-locks';
-import { writeResolvedTierSnapshot } from '../../../src/lib/accounts/tier-snapshot';
+import {
+  synchronizeBusinessTierMirror,
+  writeResolvedTierSnapshot,
+} from '../../../src/lib/accounts/tier-snapshot';
 import {
   basePriceInfoForId,
   overagePriceInfoForId,
@@ -25,7 +28,8 @@ import {
   getStripe,
 } from './shared';
 import {
-  applyStripeSubscriptionState,
+  applyStripeSubscriptionStateUnderEntitlementLock,
+  synchronizeDeferredBusinessSubscriptionState,
   type TransitionResult,
 } from './apply-subscription-state';
 
@@ -60,6 +64,8 @@ interface OperationalAlert {
 
 interface CheckoutProjection {
   transition: TransitionResult | null;
+  /** True only when this invocation reached the complete billing-snapshot write. */
+  tierProjected: boolean;
   alerts: OperationalAlert[];
 }
 
@@ -95,6 +101,7 @@ async function projectCheckoutSubscription(
     ) {
       return {
         transition: null,
+        tierProjected: false,
         alerts: [{ accountId, subscriptionId, reason: 'customer_mismatch' }],
       };
     }
@@ -106,6 +113,7 @@ async function projectCheckoutSubscription(
     ) {
       return {
         transition: null,
+        tierProjected: false,
         alerts: [{ accountId, subscriptionId, reason: 'invalid_trial' }],
       };
     }
@@ -128,6 +136,7 @@ async function projectCheckoutSubscription(
     if (!account) {
       return {
         transition: null,
+        tierProjected: false,
         alerts: [{ accountId, subscriptionId, reason: 'account_missing' }],
       };
     }
@@ -138,6 +147,7 @@ async function projectCheckoutSubscription(
     ) {
       return {
         transition: null,
+        tierProjected: false,
         alerts: [
           {
             accountId,
@@ -153,6 +163,7 @@ async function projectCheckoutSubscription(
     ) {
       return {
         transition: null,
+        tierProjected: false,
         alerts: [
           {
             accountId,
@@ -163,7 +174,7 @@ async function projectCheckoutSubscription(
       };
     }
 
-    const transition = await applyStripeSubscriptionState(
+    const transition = await applyStripeSubscriptionStateUnderEntitlementLock(
       tx,
       { mode: 'checkout', accountId },
       subscription,
@@ -178,6 +189,7 @@ async function projectCheckoutSubscription(
     if (!base) {
       return {
         transition,
+        tierProjected: false,
         alerts: [
           {
             accountId,
@@ -197,6 +209,7 @@ async function projectCheckoutSubscription(
     ) {
       return {
         transition,
+        tierProjected: false,
         alerts: [
           {
             accountId,
@@ -214,6 +227,7 @@ async function projectCheckoutSubscription(
     if (overage.kind === 'untrusted') {
       return {
         transition,
+        tierProjected: false,
         alerts: [
           {
             accountId,
@@ -231,6 +245,7 @@ async function projectCheckoutSubscription(
       if (mappedOverage && mappedOverage.tier !== account.subscription_tier) {
         return {
           transition,
+          tierProjected: false,
           alerts: [
             {
               accountId,
@@ -274,7 +289,7 @@ async function projectCheckoutSubscription(
         priceId: base.item.price.id,
       });
     }
-    return { transition, alerts };
+    return { transition, tierProjected: true, alerts };
   });
 }
 
@@ -336,6 +351,12 @@ export async function processCheckoutSessionCompleted(
     extractCustomerId(session.customer),
     subscriptionId,
   );
+  if (projection.tierProjected) {
+    await synchronizeBusinessTierMirror(sql, accountId);
+  }
+  if (projection.transition?.accountResolved) {
+    await synchronizeDeferredBusinessSubscriptionState(sql, accountId);
+  }
   for (const alert of projection.alerts) reportOperationalAlert(alert);
 
   if (projection.transition?.changed && projection.transition.activated) {

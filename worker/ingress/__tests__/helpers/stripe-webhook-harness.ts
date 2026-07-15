@@ -316,44 +316,65 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
     }
   }
 
-  // Queue helper for the checkout paid-activation SQL sequence (after B1.4).
-  // The inline sql.begin block is replaced by the applier (checkout mode).
+  // Queue helper for the checkout paid-activation SQL sequence.
   // NOTE: businesses.stripe_customer_id / stripe_subscription_id are intentionally
   // NOT mirrored by the applier (deprecated columns, VAL-SCHEMA-037; the trial path
   // already never wrote them). The applier writes subscription_status + activated_at.
-  // Sequence inside the tx (sql.begin → callback(mockSql)):
-  //   1. pg_advisory_xact_lock
-  //   2. Applier resolveAccount: SELECT a.id, a.subscription_status, (subq) AS primary_business_id … FOR UPDATE
-  //   3. Applier writeStatusColumns: UPDATE accounts SET subscription_status='active', COALESCE…
-  //   4. Applier writeBusinessesMirror: UPDATE businesses SET subscription_status='active', COALESCE…
-  //   5. writeAccountAuditLog — MOCKED (mockWriteAccountAuditLog), no SQL consumed
-  //   6. enqueueStripeOverageRecompute: INSERT INTO job_outbox …
-  //   7. enqueueLifecycleAnalytics: pending_payment→active is NOT a trial exit → no-op
-  // Post-tx: primaryBusinessId is null (resolveAccount row has no primary_business_id)
-  //   and legacy businessId is null → no backfill resume SQL.
+  // The handler takes entitlement -> billing -> activation, retrieves provider
+  // current state, locks the canonical account, applies status without touching
+  // businesses, writes the billing snapshot, commits, then projects the
+  // deprecated mirror in business -> entitlement order.
   function queueCheckoutActivate(opts: { accountId?: string; status?: string } = {}) {
     const acctId = opts.accountId ?? TEST_ACCOUNT_ID;
     const status = opts.status ?? 'pending_payment';
     // 1. Pre-tx account lookup
     sqlReturnQueue.push([{ id: acctId }]);
-    // Inside sql.begin:
-    // 2. pg_advisory_xact_lock
-    sqlReturnQueue.push([]);
-    // 3. Applier's resolveAccount (checkout mode, FOR UPDATE)
+    // 2-4. entitlement, billing, activation advisory locks
+    sqlReturnQueue.push([], [], []);
+    // 5. Checkout canonical account row (FOR UPDATE)
+    sqlReturnQueue.push([{
+      id: acctId,
+      subscription_tier: 'copilot',
+      price_variant: 'list',
+      base_price_cents: 2900,
+      locations_paid: 0,
+      locations_overage_price_cents: 1500,
+      locations_included: 1,
+      stripe_subscription_id: null,
+      stripe_customer_id: null,
+    }]);
+    // 6. Applier resolveAccount (checkout mode, FOR UPDATE)
     sqlReturnQueue.push([{ id: acctId, subscription_status: status, primary_business_id: null }]);
     if (status !== 'active') {
-      // 4. Applier writeStatusColumns: UPDATE accounts SET subscription_status='active'…
+      // 7. Applier status write. Business mirror is explicitly deferred.
       const updateAcctR: any = []; updateAcctR.count = 1;
       sqlReturnQueue.push(updateAcctR);
-      // 5. Applier writeBusinessesMirror: UPDATE businesses SET subscription_status='active'…
-      const updateBizR: any = []; updateBizR.count = 1;
-      sqlReturnQueue.push(updateBizR);
-      // 6. enqueueStripeOverageRecompute: INSERT INTO job_outbox
+      // 8. enqueueStripeOverageRecompute: INSERT INTO job_outbox
       const outboxR: any = []; outboxR.count = 1;
       sqlReturnQueue.push(outboxR);
-      // 7. enqueueLifecycleAnalytics: pending_payment→active, fromStatus≠trialing → no-op
     }
-    // already-active: isAllowedTransition(active, active) = false → NO_CHANGE, no UPDATEs
+    // Canonical snapshot update (change-only; audit is mocked).
+    sqlReturnQueue.push([{ id: acctId }]);
+    // Post-commit tier projection: business lock, entitlement, canonical tier,
+    // then conditional businesses update.
+    sqlReturnQueue.push(
+      [{ id: 'business-1' }],
+      [],
+      [{ subscription_tier: 'copilot' }],
+      [],
+    );
+    // Independent status/activation projection in the same lock order.
+    sqlReturnQueue.push(
+      [{ id: 'business-1' }],
+      [],
+      [{
+        subscription_status: 'active',
+        subscription_activated_at: new Date('2026-07-15T00:00:00Z'),
+      }],
+      [],
+    );
+    // Ingress wrapper marks the claimed event processed after the handler.
+    sqlReturnQueue.push([]);
   }
 
   return {

@@ -114,6 +114,24 @@ describe('insertAuditLogAutoPolicy', () => {
     expect(values[11]).toBeNull();
   });
 
+  it('persists the dedicated tier-entitlement downgrade action without text', async () => {
+    const harness = createMockSql();
+    harness.sqlReturnQueue.push([{ account_id: 'account-1' }], []);
+
+    await insertAuditLogAutoPolicy(asTx(harness), {
+      responseId: 'response-1',
+      businessId: 'business-1',
+      action: 'auto_policy_revoked_tier_entitlement',
+      responseTextAtApproval: null,
+      metadata: { downgrade_reason: 'autopilot_entitlement_lost' },
+    });
+
+    const values = insertValues(harness);
+    expect(values[6]).toBe('auto_policy_revoked_tier_entitlement');
+    expect(values[8]).toEqual({ downgrade_reason: 'autopilot_entitlement_lost' });
+    expect(values[11]).toBeNull();
+  });
+
   it('rejects an auto_approved_by_policy row without a response snapshot', async () => {
     const harness = createMockSql();
 

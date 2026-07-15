@@ -36,6 +36,20 @@ vi.mock('stripe', () => {
   return {
     default: class FakeStripe {
       webhooks = { constructEvent: mockConstructEvent };
+      subscriptions = {
+        retrieve: vi.fn().mockResolvedValue({
+          id: 'sub_test_1',
+          customer: 'cus_test_1',
+          status: 'active',
+          trial_end: null,
+          items: {
+            data: [{
+              id: 'si_base', quantity: 1, metadata: {},
+              price: { id: 'price_copilot_list_test', metadata: {}, unit_amount: 2900 },
+            }],
+          },
+        }),
+      };
     },
   };
 });
@@ -46,8 +60,10 @@ vi.mock('stripe', () => {
 // (the handler module reads them at import time via a lazy singleton).
 const _origStripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const _origStripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+const _origCopilotListPrice = process.env.STRIPE_PRICE_COPILOT_LIST;
 process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
 process.env.STRIPE_WEBHOOK_SECRET = 'whsec_dummy';
+process.env.STRIPE_PRICE_COPILOT_LIST = 'price_copilot_list_test';
 
 import { handleStripeWebhook } from '../stripe';
 
@@ -56,6 +72,8 @@ afterAll(() => {
   else process.env.STRIPE_SECRET_KEY = _origStripeSecretKey;
   if (_origStripeWebhookSecret === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
   else process.env.STRIPE_WEBHOOK_SECRET = _origStripeWebhookSecret;
+  if (_origCopilotListPrice === undefined) delete process.env.STRIPE_PRICE_COPILOT_LIST;
+  else process.env.STRIPE_PRICE_COPILOT_LIST = _origCopilotListPrice;
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -289,6 +307,20 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
       // 1. Pre-tx account lookup: SELECT id FROM accounts WHERE id = ?
       if (/SELECT\s+id\s+FROM\s+accounts/i.test(text)) {
         return Promise.resolve([{ id: '019dc366-29ce-736d-ae75-d19dc561e58f' }]);
+      }
+      // Provider-current canonical row used before the status applier.
+      if (/FROM\s+accounts/i.test(text) && /price_variant/i.test(text)) {
+        return Promise.resolve([{
+          id: '019dc366-29ce-736d-ae75-d19dc561e58f',
+          subscription_tier: 'copilot',
+          price_variant: 'list',
+          base_price_cents: 2900,
+          locations_paid: 0,
+          locations_overage_price_cents: 1500,
+          locations_included: 1,
+          stripe_subscription_id: null,
+          stripe_customer_id: null,
+        }]);
       }
       // 3. Applier's resolveAccount: SELECT a.id, a.subscription_status, … FROM accounts a …
       //    Matches the broader "SELECT … FROM accounts" that includes 'a.subscription_status'

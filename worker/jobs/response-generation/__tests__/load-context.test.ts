@@ -175,5 +175,21 @@ describe('loadGenerationContext', () => {
     });
 
     expect(out.kind).toBe('ready');
+    if (out.kind === 'ready') {
+      expect(out.ctx.subscriptionTier).toBe('autopilot');
+      expect(out.ctx.businessContext.subscriptionTier).toBe('autopilot');
+    }
+  });
+
+  it('fails closed on a legacy tier instead of casting or mapping it', async () => {
+    sqlReturnQueue.push([makeLoadContextReviewRow()]);
+    sqlReturnQueue.push([makeLoadContextBusinessRow({ subscription_tier: 'premium' })]);
+    sqlReturnQueue.push([]);
+
+    await expect(loadGenerationContext(sqlArg, {
+      reviewId: FIXTURE_REVIEW_ID,
+      businessId: FIXTURE_BUSINESS_ID,
+      version: 1,
+    })).rejects.toThrow('invalid_ws8_subscription_tier:premium');
   });
 });

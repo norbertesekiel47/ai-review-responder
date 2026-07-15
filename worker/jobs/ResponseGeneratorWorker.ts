@@ -118,6 +118,7 @@ export async function handleResponseGeneration(
     loadedReviewContentHash: ctx.loadedReviewContentHash,
     moderation,
     accountId: ctx.accountId,
+    preLlmSubscriptionTier: ctx.subscriptionTier,
     logger,
   });
 

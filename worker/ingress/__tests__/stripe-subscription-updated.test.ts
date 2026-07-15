@@ -28,9 +28,13 @@ vi.mock('../../../src/lib/payments/stripe-client', () => ({
 vi.mock('../../../src/lib/audit/log', () => ({
   writeAccountAuditLog: mockWriteAccountAuditLog,
 }));
-vi.mock('../stripe/apply-subscription-state', () => ({
-  applyStripeSubscriptionState: mockApplyStripeSubscriptionState,
-}));
+vi.mock('../stripe/apply-subscription-state', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../stripe/apply-subscription-state')>();
+  return {
+    ...actual,
+    applyStripeSubscriptionStateUnderEntitlementLock: mockApplyStripeSubscriptionState,
+  };
+});
 vi.mock('@sentry/node', () => ({
   captureMessage: mockCaptureMessage,
   captureException: vi.fn(),
@@ -115,8 +119,30 @@ function queueProjection(options: {
     harness.sqlReturnQueue.push(
       mkTaggedResult(options.snapshotChanged === false ? [] : [{ id: ACCOUNT_ID }]),
     );
-    harness.sqlReturnQueue.push(mkTaggedResult([])); // business mirror
   }
+  // Successful billing projection converges the deprecated tier mirror only
+  // after commit: business -> entitlement -> canonical tier -> update.
+  if (options.includeSnapshot !== false) {
+    harness.sqlReturnQueue.push(
+      mkTaggedResult([{ id: 'business-1' }]),
+      mkTaggedResult([]),
+      mkTaggedResult([{
+        subscription_tier: options.account?.subscription_tier ?? 'copilot',
+      }]),
+      mkTaggedResult([]),
+    );
+  }
+  // Status ownership is independent: every resolved outcome reprojects status
+  // and the activation anchor in the same business -> entitlement order.
+  harness.sqlReturnQueue.push(
+    mkTaggedResult([{ id: 'business-1' }]),
+    mkTaggedResult([]),
+    mkTaggedResult([{
+      subscription_status: options.account?.subscription_status ?? 'active',
+      subscription_activated_at: new Date('2026-07-15T00:00:00Z'),
+    }]),
+    mkTaggedResult([]),
+  );
 }
 
 function snapshotUpdates() {
@@ -128,6 +154,12 @@ function snapshotUpdates() {
 function businessProjectionUpdates() {
   return harness.sqlCalls.filter(
     (call) => /UPDATE\s+businesses/i.test(call.text) && /subscription_tier/i.test(call.text),
+  );
+}
+
+function businessStatusProjectionUpdates() {
+  return harness.sqlCalls.filter(
+    (call) => /UPDATE\s+businesses/i.test(call.text) && /subscription_status/i.test(call.text),
   );
 }
 
@@ -200,7 +232,24 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     ]));
     expect(update.values).not.toContain(2900);
     expect(update.values).not.toContain(1500);
-    expectExactSqlCalls(6);
+    expectExactSqlCalls(13);
+  });
+
+  it('changed-false replay repairs the deferred status and activation mirror', async () => {
+    queueProjection({ snapshotChanged: false });
+
+    const outcome = await processSubscriptionUpdated(subscription());
+
+    expect(outcome).toMatchObject({
+      kind: 'updated',
+      snapshotChanged: false,
+      transition: { accountResolved: true, changed: false },
+    });
+    expect(businessStatusProjectionUpdates()).toHaveLength(1);
+    expect(businessStatusProjectionUpdates()[0]!.text).toMatch(
+      /subscription_activated_at\s*=\s*COALESCE/i,
+    );
+    expectExactSqlCalls(13);
   });
 
   it('same-tier founding subscription preserves the founding stored snapshot', async () => {
@@ -227,7 +276,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     expect(snapshotUpdates()[0]!.values).toEqual(
       expect.arrayContaining(['copilot', 1900, 1500, 1, 0]),
     );
-    expectExactSqlCalls(6);
+    expectExactSqlCalls(13);
   });
 
   it('founding Copilot to Autopilot writes the complete canonical founding snapshot', async () => {
@@ -261,7 +310,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       expect.arrayContaining(['autopilot', 4900, 2000, 1, 3]),
     );
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
-    expectExactSqlCalls(6);
+    expectExactSqlCalls(13);
   });
 
   it('unknown base Price commits status-only and emits a scrubbed post-commit alert', async () => {
@@ -284,6 +333,8 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     });
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
     expect(snapshotUpdates()).toEqual([]);
+    expect(businessProjectionUpdates()).toEqual([]);
+    expect(businessStatusProjectionUpdates()).toHaveLength(1);
     expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
     const sentryPayload = JSON.stringify(mockCaptureMessage.mock.calls[0]);
     expect(sentryPayload).toContain('price_unknown');
@@ -292,7 +343,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     expect(sentryPayload).not.toContain(CUSTOMER_ID);
     expect(consoleSpy.mock.calls.flat().join(' ')).not.toContain('never-log-me');
     consoleSpy.mockRestore();
-    expectExactSqlCalls(4);
+    expectExactSqlCalls(8);
   });
 
   it('mapped Price variant mismatch returns typed status-only outcome and never writes a snapshot', async () => {
@@ -314,6 +365,11 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     });
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
     expect(snapshotUpdates()).toEqual([]);
+    // Variant mismatch preserves the immutable stored variant and performs no
+    // tier-mirror repair even if that deprecated mirror is stale. Status
+    // projection remains independently owned by the status applier.
+    expect(businessProjectionUpdates()).toEqual([]);
+    expect(businessStatusProjectionUpdates()).toHaveLength(1);
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
     expect(mockCaptureMessage).toHaveBeenCalledWith(
       'stripe_subscription_projection_variant_mismatch',
@@ -326,7 +382,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       }),
     );
     consoleSpy.mockRestore();
-    expectExactSqlCalls(4);
+    expectExactSqlCalls(8);
   });
 
   it('reports mismatch only after the status-only transaction has committed', async () => {
@@ -356,7 +412,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
 
     expect(order).toEqual(['status', 'commit', 'alert']);
     consoleSpy.mockRestore();
-    expectExactSqlCalls(4);
+    expectExactSqlCalls(8);
   });
 
   it('trialing account + provider-current active mapped Price enters the single applier then projects billing', async () => {
@@ -379,7 +435,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     );
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
     expect(snapshotUpdates()).toHaveLength(1);
-    expectExactSqlCalls(6);
+    expectExactSqlCalls(13);
   });
 
   it('trialing account + provider-current active unmapped Price applies status but remains status-only', async () => {
@@ -429,6 +485,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     );
     expect(snapshotUpdates()).toEqual([]);
     expect(businessProjectionUpdates()).toEqual([]);
+    expect(businessStatusProjectionUpdates()).toHaveLength(1);
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
     expect(order).toEqual(['status', 'commit', 'alert']);
     const alertPayload = JSON.stringify(mockCaptureMessage.mock.calls[0]);
@@ -437,7 +494,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     expect(alertPayload).not.toContain('access_token');
     expect(alertPayload).not.toContain(CUSTOMER_ID);
     consoleSpy.mockRestore();
-    expectExactSqlCalls(4);
+    expectExactSqlCalls(8);
   });
 
   it.each([
@@ -517,6 +574,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
       expect(snapshotUpdates()).toEqual([]);
       expect(businessProjectionUpdates()).toEqual([]);
+      expect(businessStatusProjectionUpdates()).toHaveLength(1);
       expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
       expect(order).toEqual(['status', 'commit', 'alert']);
       expect(mockCaptureMessage).toHaveBeenCalledWith(
@@ -531,7 +589,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       expect(alertPayload).not.toContain('access_token');
       expect(alertPayload).not.toContain(CUSTOMER_ID);
       consoleSpy.mockRestore();
-      expectExactSqlCalls(4);
+      expectExactSqlCalls(8);
     },
   );
 
@@ -546,7 +604,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     expect(second).toMatchObject({ kind: 'updated', snapshotChanged: false });
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(2);
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
-    expectExactSqlCalls(12);
+    expectExactSqlCalls(26);
   });
 
   it('reversed base-change delivery converges to the retrieved provider-current tier', async () => {
@@ -573,7 +631,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     expect(snapshotUpdates()[0]!.values).toEqual(
       expect.arrayContaining(['autopilot', 6900, 2000, 1, 0]),
     );
-    expectExactSqlCalls(6);
+    expectExactSqlCalls(13);
   });
 
   it('reversed overage delivery converges to provider-current quantity', async () => {
@@ -592,7 +650,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     const update = snapshotUpdates()[0]!;
     expect(update.values).toContain(2);
     expect(update.values).not.toContain(99);
-    expectExactSqlCalls(6);
+    expectExactSqlCalls(13);
   });
 
   it('matching Autopilot full-access state while the gate is closed preserves state and alerts', async () => {
@@ -626,7 +684,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       expect.anything(),
     );
     consoleSpy.mockRestore();
-    expectExactSqlCalls(6);
+    expectExactSqlCalls(13);
   });
 
   it('provider retrieval failure retries before account row lock or any status write', async () => {
@@ -645,6 +703,49 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     expect(snapshotUpdates()).toEqual([]);
     expect(harness.sqlCalls.some((call) => /FOR\s+UPDATE/i.test(call.text))).toBe(false);
     expectExactSqlCalls(3);
+  });
+
+  it('account disappearance before the applier performs no post-commit projection', async () => {
+    harness.sqlReturnQueue.push(
+      mkTaggedResult([{
+        id: ACCOUNT_ID,
+        stripe_subscription_id: SUBSCRIPTION_ID,
+        active_offboarding_subscription_id: null,
+      }]),
+      mkTaggedResult([]),
+      mkTaggedResult([]),
+      mkTaggedResult([]),
+    );
+
+    const outcome = await processSubscriptionUpdated(subscription());
+
+    expect(outcome).toMatchObject({ kind: 'ignored', reason: 'account_disappeared' });
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(businessProjectionUpdates()).toEqual([]);
+    expect(businessStatusProjectionUpdates()).toEqual([]);
+    expectExactSqlCalls(4);
+  });
+
+  it('provider customer mismatch before the applier leaves both mirrors untouched', async () => {
+    harness.sqlReturnQueue.push(
+      mkTaggedResult([{
+        id: ACCOUNT_ID,
+        stripe_subscription_id: SUBSCRIPTION_ID,
+        active_offboarding_subscription_id: null,
+      }]),
+      mkTaggedResult([]),
+      mkTaggedResult([]),
+      mkTaggedResult([account()]),
+    );
+    mockRetrieveSubscription.mockResolvedValueOnce(subscription({ customer: 'cus_other' }));
+
+    const outcome = await processSubscriptionUpdated(subscription());
+
+    expect(outcome).toMatchObject({ kind: 'ignored', reason: 'provider_customer_mismatch' });
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(businessProjectionUpdates()).toEqual([]);
+    expect(businessStatusProjectionUpdates()).toEqual([]);
+    expectExactSqlCalls(4);
   });
 
   it('stale subscription resolves without a row lock and never retrieves Stripe', async () => {
@@ -678,7 +779,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     expect(stalePriority).toBeGreaterThan(offboardingPriority);
     expect(resolutionSql).toMatch(/ORDER BY\s+resolution_priority ASC, id ASC/i);
     expect(resolutionSql).not.toMatch(/FOR\s+UPDATE/i);
-    expectExactSqlCalls(6);
+    expectExactSqlCalls(13);
   });
 
   it('multi-account customer resolution prioritizes an exact active-offboarding subscription before stale fallback', async () => {
@@ -722,6 +823,6 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     expect(entitlementIndex).toBeGreaterThanOrEqual(0);
     expect(billingIndex).toBeGreaterThan(entitlementIndex);
     expect(accountRowIndex).toBeGreaterThan(billingIndex);
-    expectExactSqlCalls(6);
+    expectExactSqlCalls(13);
   });
 });

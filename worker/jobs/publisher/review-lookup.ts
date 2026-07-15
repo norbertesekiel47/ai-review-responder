@@ -1,8 +1,11 @@
 import { v7 as uuidv7 } from 'uuid';
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { getReviewPublisher } from '../../../src/lib/publishing/review-publisher';
-import type { ResolvedPublishTarget } from '../../../src/lib/publishing/review-publisher';
+import type {
+  ResolvedPublishTarget,
+  ResolveTargetResult,
+} from '../../../src/lib/publishing/review-publisher';
 import { markOutboxCompleted } from '../../../src/lib/shared/outbox';
 import { PublisherTransientWithContext } from './publisher-error-handlers';
 import { parkResponseForOwnerReconnect } from './no-connection';
@@ -17,7 +20,7 @@ import type { WorkerLogger } from '../../../src/lib/shared/logger';
  *   - transient       → rethrow with attempt context so BullMQ retries
  * On success returns the ResolvedPublishTarget for the caller to publish.
  */
-export async function resolvePublishTarget(sql: Sql, input: {
+export interface ResolvePublishTargetInput {
   responseId: string;
   businessId: string;
   reviewId: string;
@@ -25,7 +28,30 @@ export async function resolvePublishTarget(sql: Sql, input: {
   outboxId: string;
   outboxAttempt: number | undefined;
   logger: WorkerLogger;
-}): Promise<ResolvedPublishTarget | 'completed'> {
+}
+
+export async function resolvePublishTarget(
+  sql: Sql,
+  input: ResolvePublishTargetInput,
+): Promise<ResolvedPublishTarget | 'completed'> {
+  const resolution = await getReviewPublisher(sql).resolveTarget({
+    responseId: input.responseId,
+    reviewId: input.reviewId,
+    businessId: input.businessId,
+  });
+  return dispositionPublishTargetResolution(sql, input, resolution);
+}
+
+/**
+ * Dispositions an already-resolved neutral result without repeating provider
+ * target resolution. The auto-policy entitlement lane uses this after its
+ * locked probe so every resolver call remains behind the authoritative gate.
+ */
+export async function dispositionPublishTargetResolution(
+  sql: Sql,
+  input: ResolvePublishTargetInput,
+  resolution: ResolveTargetResult,
+): Promise<ResolvedPublishTarget | 'completed'> {
   const {
     responseId,
     businessId,
@@ -35,8 +61,6 @@ export async function resolvePublishTarget(sql: Sql, input: {
     outboxAttempt,
     logger,
   } = input;
-
-  const resolution = await getReviewPublisher(sql).resolveTarget({ responseId, reviewId, businessId });
 
   switch (resolution.kind) {
     case 'no_connection':
@@ -90,70 +114,9 @@ async function openReviewNotFoundException(sql: Sql, input: {
   outboxAttempt: number | undefined;
   logger: WorkerLogger;
 }): Promise<void> {
-  const { responseId, businessId, reviewId, errorMeta, outboxId, outboxAttempt, logger } = input;
+  const { responseId, outboxId, outboxAttempt, logger } = input;
 
-  const openedException = await sql.begin(async (tx) => {
-    const updated = await tx`
-      UPDATE responses
-      SET status = 'failed', updated_at = NOW()
-      WHERE id = ${responseId}
-        AND business_id = ${businessId}
-        AND status IN ('approved', 'edited', 'awaiting_owner_connect')
-      RETURNING 1
-    `;
-
-    if (updated.count === 0) {
-      logger.log(
-        `Response ${responseId} already terminal, skipping zernio_review_id_mismatch exception`,
-      );
-      return false;
-    }
-
-    const [exception] = await tx<{ id: string }[]>`
-      INSERT INTO review_exceptions (
-        id, business_id, review_id, response_id, type, payload
-      ) VALUES (
-        ${uuidv7()},
-        ${businessId},
-        ${reviewId},
-        ${responseId},
-        'zernio_review_id_mismatch',
-        ${tx.json({
-          our_review_id: reviewId,
-          response_id: responseId,
-          error_meta: errorMeta,
-        } as never)}
-      )
-      ON CONFLICT (review_id, type) WHERE status = 'open'
-      DO UPDATE SET payload = review_exceptions.payload
-      RETURNING id
-    `;
-
-    if (!exception) {
-      logger.error(
-        `review_exceptions UPSERT returned no row for response ${responseId} (review-not-found)`,
-      );
-      return false;
-    }
-
-    await tx`
-      INSERT INTO job_outbox (
-        id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
-      ) VALUES (
-        ${uuidv7()},
-        ${QUEUE_NAMES.NOTIFY_ADMIN},
-        'review',
-        ${reviewId},
-        ${tx.json({
-          review_exception_id: exception.id,
-          business_id: businessId,
-        } as never)},
-        0,
-        5
-      )
-    `;
-    return true;
-  });
+  const openedException = await sql.begin((tx) => openReviewNotFoundExceptionInTx(tx, input));
 
   if (openedException) {
     logger.warn(
@@ -161,4 +124,78 @@ async function openReviewNotFoundException(sql: Sql, input: {
     );
   }
   await markOutboxCompleted(sql, outboxId, outboxAttempt);
+}
+
+/** State + durable admin-notify body for an attempt already CAS-claimed. */
+export async function openReviewNotFoundExceptionInTx(
+  tx: TransactionSql,
+  input: {
+    responseId: string;
+    businessId: string;
+    reviewId: string;
+    errorMeta: Record<string, unknown>;
+    logger: WorkerLogger;
+  },
+): Promise<boolean> {
+  const { responseId, businessId, reviewId, errorMeta, logger } = input;
+  const updated = await tx`
+    UPDATE responses
+    SET status = 'failed', updated_at = NOW()
+    WHERE id = ${responseId}
+      AND business_id = ${businessId}
+      AND status IN ('approved', 'edited', 'awaiting_owner_connect')
+    RETURNING 1
+  `;
+
+  if (updated.count === 0) {
+    logger.log(
+      `Response ${responseId} already terminal, skipping zernio_review_id_mismatch exception`,
+    );
+    return false;
+  }
+
+  const [exception] = await tx<{ id: string }[]>`
+    INSERT INTO review_exceptions (
+      id, business_id, review_id, response_id, type, payload
+    ) VALUES (
+      ${uuidv7()},
+      ${businessId},
+      ${reviewId},
+      ${responseId},
+      'zernio_review_id_mismatch',
+      ${tx.json({
+        our_review_id: reviewId,
+        response_id: responseId,
+        error_meta: errorMeta,
+      } as never)}
+    )
+    ON CONFLICT (review_id, type) WHERE status = 'open'
+    DO UPDATE SET payload = review_exceptions.payload
+    RETURNING id
+  `;
+
+  if (!exception) {
+    logger.error(
+      `review_exceptions UPSERT returned no row for response ${responseId} (review-not-found)`,
+    );
+    return false;
+  }
+
+  await tx`
+    INSERT INTO job_outbox (
+      id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
+    ) VALUES (
+      ${uuidv7()},
+      ${QUEUE_NAMES.NOTIFY_ADMIN},
+      'review',
+      ${reviewId},
+      ${tx.json({
+        review_exception_id: exception.id,
+        business_id: businessId,
+      } as never)},
+      0,
+      5
+    )
+  `;
+  return true;
 }

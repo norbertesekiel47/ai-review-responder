@@ -7,7 +7,8 @@
 // below-cap count (which would overshoot the cap).
 //
 // Every tx here mirrors persistResponseAndNotify's PRODUCTION statement order:
-// reviews FOR UPDATE → businesses FOR UPDATE (tx statement #2) → responses
+// reviews FOR UPDATE → businesses FOR UPDATE (tx statement #2) → entitlement
+// advisory lock → responses
 // INSERT (whose business_id FK takes an implicit FOR KEY SHARE on the
 // businesses row) → loadAutoApprovalRuntimeState → approve UPDATE (the full
 // approveAutoPolicyAndSchedule statement, incl. the make_interval named-
@@ -40,6 +41,10 @@ import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
 import { insertAuditLogAutoPolicy } from '@/lib/approval/audit';
 import { AUTO_POST_VETOED_BY_OWNER } from '@/lib/approval/veto';
 import { loadAutoApprovalRuntimeState, type AutoApprovalRuntimeState } from '../auto-approval';
+import {
+  acquireTierAndBillingLocks,
+  acquireTierEntitlementLock,
+} from '@/lib/accounts/billing-locks';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 
@@ -51,6 +56,7 @@ let tenant: TenantSeed | undefined;
 const businessId = randomUUID();
 const reviewAId = randomUUID();
 const reviewBId = randomUUID();
+const reviewCId = randomUUID();
 const policyId = randomUUID();
 
 function sqlA(): postgresType.Sql {
@@ -89,7 +95,7 @@ async function seedReview(db: postgresType.Sql, reviewId: string, label: string)
 
 /**
  * Production statement order for the head of the persist tx (persist.ts):
- * reviews FOR UPDATE first, businesses FOR UPDATE second (BEFORE the responses
+ * reviews FOR UPDATE first, businesses FOR UPDATE second, entitlement third (BEFORE the responses
  * INSERT, so the FK's implicit KEY SHARE is subsumed rather than upgraded),
  * then the INSERT of a pending row exactly as persist.ts writes it
  * (status pending_approval, approval_method NULL).
@@ -100,6 +106,7 @@ async function persistShapedHead(
 ): Promise<string> {
   await tx`SELECT id FROM reviews WHERE id = ${reviewId}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`;
   await tx`SELECT id FROM businesses WHERE id = ${businessId}::uuid FOR UPDATE`;
+  await acquireTierEntitlementLock(tx, accountId());
   const responseId = randomUUID();
   await tx`
     INSERT INTO responses (id, review_id, business_id, response_text, original_draft_text, version, status, approval_method)
@@ -177,11 +184,21 @@ describeWithDb('WS4 daily-cap accounting in loadAutoApprovalRuntimeState against
       accountDisplayName: 'Daily Cap Account',
     });
     await dbA`
+      UPDATE accounts
+      SET subscription_tier = 'autopilot',
+          base_price_cents = 6900,
+          locations_overage_price_cents = 2000,
+          locations_included = 1,
+          locations_paid = 0
+      WHERE id = ${tenant.accountId}::uuid
+    `;
+    await dbA`
       INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status)
       VALUES (${businessId}::uuid, 'Daily Cap Biz', 'Daily Cap Owner', ${tenant.ownerEmail}, ${tenant.accountId}::uuid, 'active')
     `;
     await seedReview(dbA, reviewAId, 'Cap Reviewer A');
     await seedReview(dbA, reviewBId, 'Cap Reviewer B');
+    await seedReview(dbA, reviewCId, 'Entitlement Reviewer C');
     // Account-default policy carrying non-default dial values so the loader's
     // column mapping is exercised against the real schema, not mocks.
     await dbA`
@@ -196,7 +213,7 @@ describeWithDb('WS4 daily-cap accounting in loadAutoApprovalRuntimeState against
     if (tenant) {
       await sqlA()`DELETE FROM responses WHERE business_id = ${businessId}::uuid`;
       await sqlA()`DELETE FROM auto_approval_policies WHERE id = ${policyId}::uuid`;
-      await sqlA()`DELETE FROM reviews WHERE id IN (${reviewAId}::uuid, ${reviewBId}::uuid)`;
+      await sqlA()`DELETE FROM reviews WHERE id IN (${reviewAId}::uuid, ${reviewBId}::uuid, ${reviewCId}::uuid)`;
       await sqlA()`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
       await cleanupTenantAccount(sqlA(), tenant);
     }
@@ -325,5 +342,59 @@ describeWithDb('WS4 daily-cap accounting in loadAutoApprovalRuntimeState against
     // The durable audit row keeps the slot consumed: the count is unchanged.
     const after = await loadRuntimeState(sqlA(), reviewAId);
     expect(after.autoApprovedTodayCount).toBe(2);
+  });
+
+  it('waits on entitlement before the response FK child write, avoiding the WS6 implicit-lock cycle', async () => {
+    const writerHoldsEntitlement = deferred();
+    const releaseWriter = deferred();
+    const writer = sqlB().begin(async (tx) => {
+      await acquireTierAndBillingLocks(tx, accountId());
+      await tx`
+        UPDATE accounts
+        SET subscription_tier = 'copilot',
+            base_price_cents = 2900,
+            locations_overage_price_cents = 1500,
+            locations_included = 1,
+            locations_paid = 0
+        WHERE id = ${accountId()}::uuid
+      `;
+      writerHoldsEntitlement.resolve();
+      await releaseWriter.promise;
+    });
+
+    await writerHoldsEntitlement.promise;
+    let grantReachedChildWrite = false;
+    const grant = sqlA().begin(async (tx) => {
+      const responseId = await persistShapedHead(tx, reviewCId);
+      grantReachedChildWrite = true;
+      const state = await loadAutoApprovalRuntimeState(tx, {
+        reviewId: reviewCId,
+        businessId,
+        accountId: accountId(),
+      });
+      await tx`DELETE FROM responses WHERE id = ${responseId}::uuid`;
+      return state;
+    });
+
+    await sleep(250);
+    // The grant holds review/business but has not executed INSERT responses;
+    // therefore it owns no implicit account FK share while waiting.
+    expect(grantReachedChildWrite).toBe(false);
+    releaseWriter.resolve();
+    await writer;
+    const state = await grant;
+    expect(grantReachedChildWrite).toBe(true);
+    expect(state.subscriptionTier).toBe('copilot');
+
+    // Restore the suite tenant for any following test/retry.
+    await sqlA()`
+      UPDATE accounts
+      SET subscription_tier = 'autopilot',
+          base_price_cents = 6900,
+          locations_overage_price_cents = 2000,
+          locations_included = 1,
+          locations_paid = 0
+      WHERE id = ${accountId()}::uuid
+    `;
   });
 });

@@ -16,6 +16,7 @@ const {
     row: {
       id: ACCOUNT_ID,
       subscription_tier: 'copilot',
+      subscription_status: 'active',
       price_variant: 'list',
       base_price_cents: 2900,
       locations_paid: 0,
@@ -48,8 +49,9 @@ const {
 });
 
 vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
-vi.mock('../apply-subscription-state', () => ({
-  applyStripeSubscriptionState: mockApplyStripeSubscriptionState,
+vi.mock('../apply-subscription-state', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../apply-subscription-state')>()),
+  applyStripeSubscriptionStateUnderEntitlementLock: mockApplyStripeSubscriptionState,
 }));
 vi.mock('../shared', async () => {
   const actual = await vi.importActual<typeof import('../shared')>('../shared');
@@ -128,7 +130,8 @@ function successfulProjectionResults(): Array<unknown | (() => unknown)> {
     [],
     () => [mockAccountState.row],
     [],
-    [],
+    ...tierMirrorSyncResults(),
+    ...statusMirrorSyncResults(),
   ];
 }
 
@@ -146,6 +149,30 @@ function changedProjectionResults(
       return [{ id: ACCOUNT_ID }];
     },
     [],
+    ...tierMirrorSyncResults(),
+    ...statusMirrorSyncResults(),
+  ];
+}
+
+function tierMirrorSyncResults(): Array<unknown | (() => unknown)> {
+  return [
+    [{ id: PRIMARY_BIZ }],
+    [],
+    () => [{
+      subscription_tier: mockAccountState.row.subscription_tier,
+    }],
+    [],
+  ];
+}
+
+function statusMirrorSyncResults(): Array<unknown | (() => unknown)> {
+  return [
+    [{ id: PRIMARY_BIZ }],
+    [],
+    () => [{
+      subscription_status: mockAccountState.row.subscription_status,
+      subscription_activated_at: null,
+    }],
     [],
   ];
 }
@@ -155,7 +182,19 @@ function beforeRowResults(): Array<unknown> {
 }
 
 function throughLockedRowResults(): Array<unknown | (() => unknown)> {
-  return [...beforeRowResults(), () => [mockAccountState.row]];
+  return [
+    ...beforeRowResults(),
+    () => [mockAccountState.row],
+  ];
+}
+
+function statusOnlyProjectionResults(): Array<unknown | (() => unknown)> {
+  return [
+    ...beforeRowResults(),
+    () => [mockAccountState.row],
+    [],
+    ...statusMirrorSyncResults(),
+  ];
 }
 
 function setSqlQueue(...results: Array<unknown | (() => unknown)>): void {
@@ -188,6 +227,7 @@ beforeEach(() => {
   Object.assign(mockAccountState.row, {
     id: ACCOUNT_ID,
     subscription_tier: 'copilot',
+    subscription_status: 'active',
     price_variant: 'list',
     base_price_cents: 2900,
     locations_paid: 0,
@@ -220,7 +260,7 @@ describe('checkout.session.completed — paid activation', () => {
       expect.objectContaining({ id: SUB_ID, status: 'active' }),
     );
     expect(mockRetrieve).toHaveBeenCalledWith(SUB_ID);
-    expect(mockSql).toHaveBeenCalledTimes(7);
+    expect(mockSql).toHaveBeenCalledTimes(14);
   });
 
   it('changed activation resumes backfill, while replay no-op does not', async () => {
@@ -233,6 +273,22 @@ describe('checkout.session.completed — paid activation', () => {
     );
     mockResumePrimaryBusinessBackfill.mockClear();
     await processCheckoutSessionCompleted(trialSession({ amount_total: 7900 }));
+    expect(mockResumePrimaryBusinessBackfill).not.toHaveBeenCalled();
+    expect(mockSql).toHaveBeenCalledTimes(28);
+  });
+
+  it('changed-false replay still repairs the deferred status and activation mirror', async () => {
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce(
+      statusTransition({ fromStatus: 'active', changed: false, activated: false }),
+    );
+
+    await processCheckoutSessionCompleted(trialSession({ amount_total: 7900 }));
+
+    const statusProjection = sqlCalls().filter(
+      (call) => /UPDATE\s+businesses/.test(call.text) && /subscription_status/.test(call.text),
+    );
+    expect(statusProjection).toHaveLength(1);
+    expect(statusProjection[0]!.text).toMatch(/subscription_activated_at\s*=\s*COALESCE/);
     expect(mockResumePrimaryBusinessBackfill).not.toHaveBeenCalled();
     expect(mockSql).toHaveBeenCalledTimes(14);
   });
@@ -269,6 +325,8 @@ describe('checkout.session.completed — WS8 provider-current projection', () =>
       `${ACCOUNT_ID}:tier_entitlement`,
       `${ACCOUNT_ID}:overage_sync`,
       `${ACCOUNT_ID}:activation`,
+      `${ACCOUNT_ID}:tier_entitlement`,
+      `${ACCOUNT_ID}:tier_entitlement`,
     ]);
     const lockedAccount = calls.find(
       (call) => /subscription_tier/.test(call.text) && /FOR\s+UPDATE/.test(call.text),
@@ -284,7 +342,7 @@ describe('checkout.session.completed — WS8 provider-current projection', () =>
     );
     expect(calls.filter((call) => /INSERT\s+INTO\s+account_audit_log/.test(call.text))).toHaveLength(1);
     expect(mockAccountState.row.locations_paid).toBe(3);
-    expect(mockSql).toHaveBeenCalledTimes(8);
+    expect(mockSql).toHaveBeenCalledTimes(15);
   });
 
   it('preserves stored cents/quota when live registry changes and only quantity converges', async () => {
@@ -339,7 +397,7 @@ describe('checkout.session.completed — WS8 provider-current projection', () =>
     expect(snapshotWrite!.values).not.toEqual(expect.arrayContaining([9999, 8888, 7]));
     expect(sqlCalls().filter((call) => /INSERT\s+INTO\s+account_audit_log/.test(call.text))).toHaveLength(1);
     expect(mockAccountState.row.locations_paid).toBe(4);
-    expect(mockSql).toHaveBeenCalledTimes(8);
+    expect(mockSql).toHaveBeenCalledTimes(15);
   });
 
   it('replay repeats the same complete stored snapshot without cumulative math or audit', async () => {
@@ -380,7 +438,7 @@ describe('checkout.session.completed — WS8 provider-current projection', () =>
     expect(snapshotWrites[1]!.values).toEqual(snapshotWrites[0]!.values);
     expect(mockAccountState.row.locations_paid).toBe(2);
     expect(sqlCalls().filter((call) => /INSERT\s+INTO\s+account_audit_log/.test(call.text))).toHaveLength(1);
-    expect(mockSql).toHaveBeenCalledTimes(15);
+    expect(mockSql).toHaveBeenCalledTimes(29);
   });
 
   it('projects late Autopilot completion but alerts when Autopilot is no longer purchasable', async () => {
@@ -435,7 +493,7 @@ describe('checkout.session.completed — WS8 provider-current projection', () =>
       },
     );
     expect(mockAccountState.row.locations_paid).toBe(2);
-    expect(mockSql).toHaveBeenCalledTimes(8);
+    expect(mockSql).toHaveBeenCalledTimes(15);
     expect(mockSqlQueue).toHaveLength(0);
   });
 
@@ -453,6 +511,7 @@ describe('checkout.session.completed — WS8 provider-current projection', () =>
 
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
     expect(sqlCalls().some((call) => /UPDATE\s+accounts/.test(call.text))).toBe(false);
+    expect(sqlCalls().some((call) => /UPDATE\s+businesses/.test(call.text))).toBe(false);
     expect(mockReportCaughtError).toHaveBeenCalledWith(
       'ingress/stripe/checkout-completed',
       expect.any(Error),
@@ -479,6 +538,7 @@ describe('checkout.session.completed — WS8 provider-current projection', () =>
         (call) => /UPDATE\s+accounts/.test(call.text) && /locations_paid/.test(call.text),
       ),
     ).toBe(false);
+    expect(sqlCalls().some((call) => /UPDATE\s+businesses/.test(call.text))).toBe(false);
     expect(mockSql).toHaveBeenCalledTimes(5);
   });
 
@@ -495,6 +555,7 @@ describe('checkout.session.completed — WS8 provider-current projection', () =>
     );
 
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(sqlCalls().some((call) => /UPDATE\s+businesses/.test(call.text))).toBe(false);
     expect(mockReportCaughtError).toHaveBeenCalledWith(
       'ingress/stripe/checkout-completed',
       expect.any(Error),
@@ -513,7 +574,7 @@ describe('checkout.session.completed — WS8 provider-current projection', () =>
       await tx`UPDATE accounts SET subscription_status = 'active' WHERE id = ${ACCOUNT_ID}::uuid`;
       return statusTransition();
     });
-    setSqlQueue(...throughLockedRowResults(), []);
+    setSqlQueue(...statusOnlyProjectionResults());
 
     await processCheckoutSessionCompleted(trialSession({ amount_total: 2900 }));
 
@@ -527,12 +588,22 @@ describe('checkout.session.completed — WS8 provider-current projection', () =>
           /(subscription_tier|price_variant|base_price_cents|locations_overage_price_cents|locations_included|locations_paid)/.test(call.text),
       ),
     ).toBe(false);
+    expect(
+      calls.some(
+        (call) => /UPDATE\s+businesses/.test(call.text) && /subscription_tier/.test(call.text),
+      ),
+    ).toBe(false);
+    expect(
+      calls.some(
+        (call) => /UPDATE\s+businesses/.test(call.text) && /subscription_status/.test(call.text),
+      ),
+    ).toBe(true);
     expect(mockReportCaughtError).toHaveBeenCalledWith(
       'ingress/stripe/checkout-completed',
       expect.any(Error),
       expect.objectContaining({ reason: 'variant_or_tier_mismatch' }),
     );
-    expect(mockSql).toHaveBeenCalledTimes(6);
+    expect(mockSql).toHaveBeenCalledTimes(10);
   });
 
   it('rejects a correct base plus the other tier overage as status-only', async () => {
@@ -559,7 +630,7 @@ describe('checkout.session.completed — WS8 provider-current projection', () =>
         ],
       },
     }));
-    setSqlQueue(...throughLockedRowResults(), []);
+    setSqlQueue(...statusOnlyProjectionResults());
 
     await processCheckoutSessionCompleted(trialSession({ amount_total: 2900 }));
 
@@ -577,7 +648,7 @@ describe('checkout.session.completed — WS8 provider-current projection', () =>
         priceId: 'price_autopilot_overage',
       }),
     );
-    expect(mockSql).toHaveBeenCalledTimes(6);
+    expect(mockSql).toHaveBeenCalledTimes(10);
   });
 
   it('provider retrieval failure consumes only lookup plus three locks and writes nothing', async () => {
@@ -639,6 +710,7 @@ describe('checkout.session.completed — trial start', () => {
     setSqlQueue(...beforeRowResults());
     await processCheckoutSessionCompleted(trialSession());
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(sqlCalls().some((call) => /UPDATE\s+businesses/.test(call.text))).toBe(false);
     expect(mockSql).toHaveBeenCalledTimes(4);
   });
 
@@ -647,6 +719,7 @@ describe('checkout.session.completed — trial start', () => {
     setSqlQueue(...beforeRowResults());
     await processCheckoutSessionCompleted(trialSession());
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(sqlCalls().some((call) => /UPDATE\s+businesses/.test(call.text))).toBe(false);
     expect(mockReportCaughtError).toHaveBeenCalledWith(
       'ingress/stripe/checkout-completed',
       expect.any(Error),

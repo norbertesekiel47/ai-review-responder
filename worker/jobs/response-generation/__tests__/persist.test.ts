@@ -65,6 +65,7 @@ function currentState(overrides = {}) {
     review_content_hash: 'hash-1',
     archived_at: null,
     subscription_status: 'active',
+    subscription_tier: 'autopilot',
     account_past_due_at: null,
     account_flags: {},
     triage_severity: null,
@@ -128,6 +129,7 @@ function queuePersistRows(input: {
     // SELECT id FROM businesses … FOR UPDATE (statement #2 — must precede the
     // responses INSERT, whose business_id FK takes an implicit FOR KEY SHARE)
     txQueue.push([{ id: 'biz-1' }]);
+    txQueue.push([]); // pg_advisory_xact_lock(:tier_entitlement)
   }
   txQueue.push(
     [], // INSERT responses
@@ -173,6 +175,7 @@ function baseInput(overrides: Partial<Parameters<typeof persistResponseAndNotify
     loadedReviewContentHash: 'hash-1',
     moderation: CLEAN_MODERATION,
     accountId: 'acct-1',
+    preLlmSubscriptionTier: 'autopilot' as const,
     logger: { log: () => {}, warn: () => {} },
     ...overrides,
   };
@@ -259,6 +262,7 @@ const manualFallbackCases: Array<[string, ManualFallbackScenario]> = [
     },
   }],
   ['publisher subscription denied', { state: { subscription_status: 'pending_payment' } }],
+  ['Copilot tier', { state: { subscription_tier: 'copilot' } }],
   ['missing active connection', { connection: null }],
   ['archived location', { state: { archived_at: new Date('2026-06-04T00:00:00.000Z') } }],
   ['triage high severity', { state: { triage_severity: 'high', triage_source: 'llm_triage_v1' } }],
@@ -290,7 +294,7 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
 
     expect(responseId).toBe('deterministic-uuid-v7');
     const texts = txTexts();
-    expect(texts[2]).toContain('approval_method');
+    expect(texts[3]).toContain('approval_method');
     expect(texts.some((text) => text.includes('UPDATE responses') && text.includes('approved_text'))).toBe(true);
     expect(txArgs()).toContain('auto_policy');
     expect(txArgs()).toContain('auto_approved_by_policy');
@@ -307,6 +311,45 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
           && (arg as Record<string, unknown>).correlation_id === 'corr-1',
       ),
     ).toBe(true);
+  });
+
+  it('uses the locked post-LLM tier: Autopilot hint changed to Copilot falls back', async () => {
+    const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    queuePersistRows({ state: { subscription_tier: 'copilot' } });
+
+    await persistResponseAndNotify(mockSql, baseInput({
+      preLlmSubscriptionTier: 'autopilot',
+      logger,
+    }));
+
+    assertManualNotificationFallback();
+    expect(logger.log).toHaveBeenCalledWith(
+      'Subscription tier changed during response generation',
+      expect.objectContaining({
+        pre_llm_subscription_tier: 'autopilot',
+        current_subscription_tier: 'copilot',
+      }),
+    );
+  });
+
+  it('uses the locked post-LLM tier: Copilot hint changed to Autopilot may grant', async () => {
+    const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    queuePersistRows({ autoApprove: true });
+
+    await persistResponseAndNotify(mockSql, baseInput({
+      preLlmSubscriptionTier: 'copilot',
+      logger,
+    }));
+
+    expect(txArgs()).toContain('auto_policy');
+    expect(txArgs()).toContain(QUEUE_NAMES.PUBLISH_RESPONSE);
+    expect(logger.log).toHaveBeenCalledWith(
+      'Subscription tier changed during response generation',
+      expect.objectContaining({
+        pre_llm_subscription_tier: 'copilot',
+        current_subscription_tier: 'autopilot',
+      }),
+    );
   });
 
   it('stamps the veto deadline via make_interval and delays the publish to the identical RETURNING\'d instant', async () => {
@@ -616,6 +659,9 @@ describe('persistResponseAndNotify run-spine instrumentation', () => {
       (text) => text.includes('FROM businesses') && text.includes('FOR UPDATE'),
     );
     const insertIndex = texts.findIndex((text) => text.includes('INSERT INTO responses'));
+    const entitlementLockIndex = texts.findIndex(
+      (text) => text.includes('pg_advisory_xact_lock') && text.includes('hashtext'),
+    );
     // First statement of the tx: the responses INSERT's FK takes an implicit
     // FOR KEY SHARE on the reviews tuple, so a later FOR UPDATE would be a
     // deadlock-prone lock upgrade. Statement #2 is the businesses FOR UPDATE
@@ -624,7 +670,8 @@ describe('persistResponseAndNotify run-spine instrumentation', () => {
     // concurrent persist for the same business.
     expect(lockIndex).toBe(0);
     expect(businessLockIndex).toBe(1);
-    expect(insertIndex).toBeGreaterThan(businessLockIndex);
+    expect(entitlementLockIndex).toBe(2);
+    expect(insertIndex).toBeGreaterThan(entitlementLockIndex);
 
     // And the lock precedes the first spine write (cross-mock global order).
     const lockInvocation = mockTx.mock.invocationCallOrder[lockIndex]!;

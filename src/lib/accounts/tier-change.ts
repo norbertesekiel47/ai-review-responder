@@ -13,7 +13,10 @@ import {
 } from './tier-config';
 import { computeOverageQuantity, type BillingSnapshot } from './quota';
 import { acquireTierAndBillingLocks } from './billing-locks';
-import { writeResolvedTierSnapshot } from './tier-snapshot';
+import {
+  synchronizeBusinessTierMirror,
+  writeResolvedTierSnapshot,
+} from './tier-snapshot';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { getStripe } from '@/lib/payments/stripe-client';
 import {
@@ -420,7 +423,7 @@ export async function applyTierChange(
   input: ApplyTierChangeInput,
 ): Promise<TierChangeOutcome> {
   try {
-    return await sql.begin(async (tx) => {
+    const outcome = await sql.begin(async (tx): Promise<TierChangeOutcome> => {
       await acquireTierAndBillingLocks(tx, input.accountId);
 
       const account = await loadLockedAccountState(tx, input.accountId);
@@ -533,6 +536,10 @@ export async function applyTierChange(
 
       return { ok: true, newBilling };
     });
+    if (outcome.ok) {
+      await synchronizeBusinessTierMirror(sql, input.accountId);
+    }
+    return outcome;
   } catch (err) {
     // Purchasability is an authoritative caller-visible rejection, not a
     // provider failure. Let the route map the typed error to a 409.

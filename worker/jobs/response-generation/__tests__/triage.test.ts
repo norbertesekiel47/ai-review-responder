@@ -30,6 +30,7 @@ import type { GenerationContext } from '../load-context';
 function makeCtx(overrides: { starRating?: number; reviewText?: string | null } = {}): GenerationContext {
   return {
     accountId: 'acct-1',
+    subscriptionTier: 'autopilot',
     loadedReviewContentHash: 'hash-1',
     normalizedReview: {
       reviewerName: 'Jane',

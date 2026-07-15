@@ -12,7 +12,7 @@
 // real GBP adapter forces (and validates) its shape. See
 // docs/superpowers/plans/2026-06-26-audit-stage5-review-publisher-seam.md.
 
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import type { ZernioTransientError } from '@/lib/zernio/errors';
 import { ZernioReviewPublisher } from './zernio-review-publisher';
 
@@ -127,4 +127,17 @@ let cached: ReviewPublisher | null = null;
 export function getReviewPublisher(sql: Sql): ReviewPublisher {
   if (cached === null) cached = new ZernioReviewPublisher(sql);
   return cached;
+}
+
+/**
+ * Transaction-bound publisher used by the auto-policy outcome lane. It is
+ * deliberately not cached: retaining a TransactionSql beyond its callback
+ * would let later jobs query through an already-finished transaction. The
+ * adapter locks the active connection row so the locator it resolves cannot be
+ * disconnected or replaced before the same transaction's provider call.
+ */
+export function getTransactionalReviewPublisher(
+  tx: TransactionSql,
+): ReviewPublisher {
+  return new ZernioReviewPublisher(tx, { lockActiveConnection: true });
 }

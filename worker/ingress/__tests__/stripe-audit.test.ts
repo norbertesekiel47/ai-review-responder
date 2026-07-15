@@ -33,6 +33,20 @@ vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 vi.mock('stripe', () => ({
   default: class FakeStripe {
     webhooks = { constructEvent: mockConstructEvent };
+    subscriptions = {
+      retrieve: vi.fn().mockResolvedValue({
+        id: 'sub_test_456',
+        customer: 'cus_test_123',
+        status: 'active',
+        trial_end: null,
+        items: {
+          data: [{
+            id: 'si_base', quantity: 1, metadata: {},
+            price: { id: 'price_copilot_list_test', metadata: {}, unit_amount: 2900 },
+          }],
+        },
+      }),
+    };
   },
 }));
 

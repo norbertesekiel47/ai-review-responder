@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { TransactionSql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import {
   createMockSql,
   mkTaggedResult,
@@ -7,6 +7,7 @@ import {
 } from '../../../../worker/__tests__/helpers/mock-sql';
 import { SubscriptionTier } from '../tier-config';
 import {
+  synchronizeBusinessTierMirror,
   writeResolvedTierSnapshot,
   writeTierSnapshot,
 } from '../tier-snapshot';
@@ -21,10 +22,9 @@ beforeEach(() => {
 });
 
 describe('writeTierSnapshot', () => {
-  it('writes all five Autopilot/founding fields, mirror, and change-only audit', async () => {
+  it('writes all five Autopilot/founding fields and the change-only audit', async () => {
     harness.sqlReturnQueue.push(
       mkTaggedResult([{ id: ACCOUNT_ID }]),
-      mkTaggedResult([{}]),
       mkTaggedResult([{}]),
     );
 
@@ -60,14 +60,13 @@ describe('writeTierSnapshot', () => {
     expect(update.values).toEqual(
       expect.arrayContaining(['autopilot', 4900, 2000, 1, 3, ACCOUNT_ID]),
     );
-    expect(harness.sqlCalls[1]!.text).toMatch(/UPDATE\s+businesses/);
-    expect(harness.sqlCalls[2]!.text).toMatch(/INSERT\s+INTO\s+account_audit_log/);
-    expect(harness.sqlCalls).toHaveLength(3);
+    expect(harness.sqlCalls[1]!.text).toMatch(/INSERT\s+INTO\s+account_audit_log/);
+    expect(harness.sqlCalls).toHaveLength(2);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
   it('replay with an identical snapshot writes no audit', async () => {
-    harness.sqlReturnQueue.push(mkTaggedResult([]), mkTaggedResult([]));
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
     const result = await writeTierSnapshot(tx, {
       accountId: ACCOUNT_ID,
       tier: SubscriptionTier.COPILOT,
@@ -76,7 +75,7 @@ describe('writeTierSnapshot', () => {
       audit: { eventType: 'subscription_updated' },
     });
     expect(result.changed).toBe(false);
-    expect(harness.sqlCalls).toHaveLength(2);
+    expect(harness.sqlCalls).toHaveLength(1);
     expect(harness.sqlCalls.some((call) => /account_audit_log/.test(call.text))).toBe(false);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
@@ -84,7 +83,6 @@ describe('writeTierSnapshot', () => {
   it('writes an existing stored snapshot without consulting live tier pricing', async () => {
     harness.sqlReturnQueue.push(
       mkTaggedResult([{ id: ACCOUNT_ID }]),
-      mkTaggedResult([]),
     );
     const result = await writeResolvedTierSnapshot(tx, {
       accountId: ACCOUNT_ID,
@@ -107,6 +105,29 @@ describe('writeTierSnapshot', () => {
     });
     expect(harness.sqlCalls[0]!.values).toEqual(
       expect.arrayContaining(['copilot', 2345, 1678, 4, 2, ACCOUNT_ID]),
+    );
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+  });
+
+  it('synchronizes the deprecated mirror in business -> entitlement order from canonical account state', async () => {
+    harness.sqlReturnQueue.push(
+      mkTaggedResult([{ id: 'business-1' }, { id: 'business-2' }]),
+      mkTaggedResult([{}]),
+      mkTaggedResult([{ subscription_tier: 'autopilot' }]),
+      mkTaggedResult([{}]),
+    );
+
+    await synchronizeBusinessTierMirror(harness.mockSql as unknown as Sql, ACCOUNT_ID);
+
+    expect(harness.sqlCalls).toHaveLength(4);
+    expect(harness.sqlCalls[0]!.text).toMatch(/FROM\s+businesses/);
+    expect(harness.sqlCalls[0]!.text).toContain('FOR UPDATE');
+    expect(harness.sqlCalls[1]!.values).toEqual([`${ACCOUNT_ID}:tier_entitlement`]);
+    expect(harness.sqlCalls[2]!.text).toMatch(/FROM\s+accounts/);
+    expect(harness.sqlCalls[2]!.text).not.toContain('FOR UPDATE');
+    expect(harness.sqlCalls[3]!.text).toMatch(/UPDATE\s+businesses/);
+    expect(harness.sqlCalls[3]!.values).toEqual(
+      expect.arrayContaining(['autopilot', ACCOUNT_ID]),
     );
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });

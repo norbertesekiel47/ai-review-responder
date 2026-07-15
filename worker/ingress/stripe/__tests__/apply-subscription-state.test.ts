@@ -37,6 +37,7 @@ const {
     const empty: unknown[] & { count: number } = Object.assign([], { count: 0 });
     return Promise.resolve(empty);
   });
+  mockSql.begin = vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(mockSql));
   return {
     mockSql,
     sqlReturnQueue,
@@ -63,7 +64,11 @@ vi.mock('../../../../src/lib/analytics/trial-events', () => ({
 }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 
-import { applyStripeSubscriptionState } from '../apply-subscription-state';
+import {
+  applyStripeSubscriptionState,
+  applyStripeSubscriptionStateUnderEntitlementLock,
+  synchronizeDeferredBusinessSubscriptionState,
+} from '../apply-subscription-state';
 
 const ACCOUNT_ID = '019dc366-29ce-7000-a000-000000000001';
 const PRIMARY_BIZ = '019dc366-29ce-7000-a000-0000000000bb';
@@ -218,6 +223,24 @@ describe('transition: → active (convert)', () => {
     expect(mockEnqueueStripeOverageRecompute).toHaveBeenCalledWith(mockSql, ACCOUNT_ID);
   });
 
+  it('can defer the deprecated business mirror without weakening canonical status ownership', async () => {
+    queueAccountRow('pending_payment');
+
+    const result = await applyStripeSubscriptionStateUnderEntitlementLock(
+      mockSql,
+      checkoutRef,
+      activeSub(),
+    );
+
+    expect(result).toMatchObject({ changed: true, toStatus: 'active' });
+    expect(sqlCalls.filter((call) => /UPDATE\s+accounts/.test(call.text))).toHaveLength(1);
+    expect(sqlCalls.some((call) => /UPDATE\s+businesses/.test(call.text))).toBe(false);
+    expect(sqlCalls).toHaveLength(2);
+    expect(sqlReturnQueue).toHaveLength(0);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueStripeOverageRecompute).toHaveBeenCalledTimes(1);
+  });
+
   it('already active → active is a no-op', async () => {
     queueAccountRow('active');
     const r = await applyStripeSubscriptionState(mockSql, subRef, activeSub());
@@ -359,5 +382,47 @@ describe('ref resolution + missing account', () => {
     sqlReturnQueue.push([]); // account lookup returns nothing
     const r = await applyStripeSubscriptionState(mockSql, subRef, activeSub());
     expect(r).toMatchObject({ changed: false, accountResolved: false });
+  });
+});
+
+describe('deferred business status projection', () => {
+  it('locks business before entitlement and preserves the canonical activation anchor', async () => {
+    const activatedAt = new Date('2026-07-15T00:00:00Z');
+    sqlReturnQueue.push(
+      [{ id: PRIMARY_BIZ }],
+      [],
+      [{ subscription_status: 'trialing', subscription_activated_at: activatedAt }],
+      Object.assign([], { count: 1 }),
+    );
+
+    await synchronizeDeferredBusinessSubscriptionState(mockSql, ACCOUNT_ID);
+
+    expect(sqlCalls).toHaveLength(4);
+    expect(sqlCalls[0]!.text).toMatch(/FROM businesses[\s\S]*FOR UPDATE/);
+    expect(sqlCalls[1]!.text).toContain('pg_advisory_xact_lock');
+    expect(sqlCalls[2]!.text).toMatch(/FROM accounts/);
+    expect(sqlCalls[3]!.text).toMatch(/subscription_activated_at\s*=\s*COALESCE/);
+    expect(sqlCalls[3]!.text).toMatch(/is_primary\s*=\s*TRUE/);
+    expect(sqlCalls[3]!.values).toEqual(
+      expect.arrayContaining(['trialing', activatedAt, ACCOUNT_ID]),
+    );
+    expect(sqlReturnQueue).toHaveLength(0);
+  });
+
+  it('projects past_due to every location without mutating activation time', async () => {
+    sqlReturnQueue.push(
+      [{ id: PRIMARY_BIZ }],
+      [],
+      [{ subscription_status: 'past_due', subscription_activated_at: null }],
+      Object.assign([], { count: 2 }),
+    );
+
+    await synchronizeDeferredBusinessSubscriptionState(mockSql, ACCOUNT_ID);
+
+    expect(sqlCalls).toHaveLength(4);
+    expect(sqlCalls[3]!.text).toMatch(/subscription_status/);
+    expect(sqlCalls[3]!.text).not.toMatch(/subscription_activated_at/);
+    expect(sqlCalls[3]!.text).not.toMatch(/is_primary/);
+    expect(sqlReturnQueue).toHaveLength(0);
   });
 });

@@ -28,6 +28,7 @@ import {
   enqueueTrialCancelled,
 } from '../../../src/lib/analytics/trial-events';
 import { SubscriptionStatus, type SubscriptionStatusValue } from '../../../src/lib/shared/subscription-status';
+import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
 
 // The applier is ALWAYS invoked inside sql.begin() (transactional-outbox
 // invariant), so the transaction handle is a postgres.TransactionSql. This also
@@ -174,6 +175,28 @@ export async function applyStripeSubscriptionState(
   ref: ApplyStripeRef,
   stripeSub: Pick<Stripe.Subscription, 'id' | 'status' | 'trial_end'> & { customer?: unknown },
 ): Promise<TransitionResult> {
+  return applyStripeSubscriptionStateInternal(tx, ref, stripeSub, true);
+}
+
+/**
+ * Status projection for callers that already hold the entitlement advisory
+ * lock. Those callers must project the deprecated business mirror only after
+ * the canonical transaction commits, in business -> entitlement order.
+ */
+export async function applyStripeSubscriptionStateUnderEntitlementLock(
+  tx: TxSql,
+  ref: ApplyStripeRef,
+  stripeSub: Pick<Stripe.Subscription, 'id' | 'status' | 'trial_end'> & { customer?: unknown },
+): Promise<TransitionResult> {
+  return applyStripeSubscriptionStateInternal(tx, ref, stripeSub, false);
+}
+
+async function applyStripeSubscriptionStateInternal(
+  tx: TxSql,
+  ref: ApplyStripeRef,
+  stripeSub: Pick<Stripe.Subscription, 'id' | 'status' | 'trial_end'> & { customer?: unknown },
+  updateBusinessMirror: boolean,
+): Promise<TransitionResult> {
   const account = await resolveAccount(tx, ref);
   if (!account) return NO_CHANGE(null);
 
@@ -191,7 +214,9 @@ export async function applyStripeSubscriptionState(
       : null;
 
   await writeStatusColumns(tx, account.id, target, trialEndIso, stripeCustomerId, stripeSubscriptionId);
-  await writeBusinessesMirror(tx, account.id, target);
+  if (updateBusinessMirror) {
+    await writeBusinessesMirror(tx, account.id, target);
+  }
 
   await writeAccountAuditLog(tx, {
     accountId: account.id,
@@ -216,6 +241,67 @@ export async function applyStripeSubscriptionState(
     activated: target === SubscriptionStatus.TRIALING || target === SubscriptionStatus.ACTIVE,
     primaryBusinessId: account.primary_business_id,
   };
+}
+
+/**
+ * Reprojects canonical account status after an entitlement-locked webhook
+ * transaction commits. Business rows are locked first so this cannot invert
+ * publisher's business -> entitlement edge. Re-reading the account under the
+ * advisory lock makes retries converge to current canonical state.
+ */
+export async function synchronizeDeferredBusinessSubscriptionState(
+  sql: postgres.Sql,
+  accountId: string,
+): Promise<void> {
+  await sql.begin(async (tx) => {
+    await tx`
+      SELECT id
+      FROM businesses
+      WHERE account_id = ${accountId}::uuid
+      ORDER BY id
+      FOR UPDATE
+    `;
+    await acquireTierEntitlementLock(tx, accountId);
+    const [account] = await tx<{
+      subscription_status: string;
+      subscription_activated_at: Date | null;
+    }[]>`
+      SELECT subscription_status, subscription_activated_at
+      FROM accounts
+      WHERE id = ${accountId}::uuid
+    `;
+    if (!account) return;
+
+    switch (account.subscription_status) {
+      case SubscriptionStatus.TRIALING:
+      case SubscriptionStatus.ACTIVE:
+        await tx`
+          UPDATE businesses
+          SET subscription_status = ${account.subscription_status},
+              subscription_activated_at = COALESCE(
+                subscription_activated_at,
+                ${account.subscription_activated_at},
+                NOW()
+              ),
+              updated_at = NOW()
+          WHERE account_id = ${accountId}::uuid
+            AND is_primary = TRUE
+            AND archived_at IS NULL
+        `;
+        return;
+      case SubscriptionStatus.PAST_DUE:
+      case SubscriptionStatus.CANCELLED:
+        await tx`
+          UPDATE businesses
+          SET subscription_status = ${account.subscription_status},
+              updated_at = NOW()
+          WHERE account_id = ${accountId}::uuid
+        `;
+        return;
+      default:
+        return;
+    }
+  });
 }
 
 /**

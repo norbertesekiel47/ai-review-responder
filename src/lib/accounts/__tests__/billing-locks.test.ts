@@ -7,6 +7,7 @@ import {
 } from '../../../../worker/__tests__/helpers/mock-sql';
 import {
   acquireBillingLock,
+  acquireTierEntitlementLock,
   acquireTierAndBillingLocks,
   acquireTierBillingActivationLocks,
 } from '../billing-locks';
@@ -23,6 +24,14 @@ beforeEach(() => {
 });
 
 describe('billing advisory lock graph', () => {
+  it('approval lanes can take entitlement without the billing lock', async () => {
+    harness.sqlReturnQueue.push(mkTaggedResult([{}]));
+    await acquireTierEntitlementLock(tx, ACCOUNT_ID);
+    expect(harness.sqlCalls.map((call) => call.values[0])).toEqual([
+      `${ACCOUNT_ID}:tier_entitlement`,
+    ]);
+  });
+
   it('tier writers acquire entitlement then billing', async () => {
     harness.sqlReturnQueue.push(mkTaggedResult([{}]), mkTaggedResult([{}]));
     await acquireTierAndBillingLocks(tx, ACCOUNT_ID);

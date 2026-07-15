@@ -1,4 +1,4 @@
-import type { TransactionSql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import {
   resolveTierSnapshot,
   type PriceVariant,
@@ -6,6 +6,7 @@ import {
   type Ws8SubscriptionTier,
 } from '@/lib/accounts/tier-config';
 import { writeAccountAuditLog } from '@/lib/audit/log';
+import { acquireTierEntitlementLock } from '@/lib/accounts/billing-locks';
 
 export interface TierSnapshotAuditContext {
   eventType: string;
@@ -36,8 +37,11 @@ export interface WriteTierSnapshotResult {
 }
 
 /**
- * Writes the complete point-in-time billing snapshot and deprecated business
- * mirror. The caller owns account locking, tier purchasability, and quantity
+ * Writes the complete point-in-time billing snapshot. The deprecated business
+ * mirror is synchronized only after this entitlement transaction commits (see
+ * synchronizeBusinessTierMirror), because updating businesses while holding
+ * entitlement deadlocks with publisher's business -> entitlement order.
+ * The caller owns account locking, tier purchasability, and quantity
  * authority; this module owns snapshot completeness and change-only auditing.
  */
 export async function writeTierSnapshot(
@@ -100,13 +104,6 @@ export async function writeResolvedTierSnapshot(
     RETURNING id
   `;
 
-  await tx`
-    UPDATE businesses
-    SET subscription_tier = ${snapshot.tier}, updated_at = NOW()
-    WHERE account_id = ${input.accountId}::uuid
-      AND subscription_tier IS DISTINCT FROM ${snapshot.tier}::text
-  `;
-
   const changed = updated.length > 0;
   if (changed && input.audit) {
     await writeAccountAuditLog(tx, {
@@ -128,4 +125,44 @@ export async function writeResolvedTierSnapshot(
   }
 
   return { changed, snapshot };
+}
+
+/**
+ * Converges only the deprecated businesses tier mirror after the canonical
+ * accounts transaction commits. Locking businesses before entitlement matches
+ * the publisher edge and prevents the former webhook-entitlement -> business
+ * versus publisher-business -> entitlement deadlock. The account is re-read
+ * only after entitlement is acquired, so delayed/replayed syncs project the
+ * latest canonical values rather than a stale caller snapshot.
+ *
+ * Failure is explicit: callers propagate it and their idempotent retry reruns
+ * this projection; the already-committed account snapshot remains canonical.
+ */
+export async function synchronizeBusinessTierMirror(
+  sql: Sql,
+  accountId: string,
+): Promise<void> {
+  await sql.begin(async (tx) => {
+    await tx`
+      SELECT id
+      FROM businesses
+      WHERE account_id = ${accountId}::uuid
+      ORDER BY id
+      FOR UPDATE
+    `;
+    await acquireTierEntitlementLock(tx, accountId);
+    const [account] = await tx<{ subscription_tier: string }[]>`
+      SELECT subscription_tier
+      FROM accounts
+      WHERE id = ${accountId}::uuid
+    `;
+    if (!account) return;
+    await tx`
+      UPDATE businesses
+      SET subscription_tier = ${account.subscription_tier},
+          updated_at = NOW()
+      WHERE account_id = ${accountId}::uuid
+        AND subscription_tier IS DISTINCT FROM ${account.subscription_tier}::text
+    `;
+  });
 }

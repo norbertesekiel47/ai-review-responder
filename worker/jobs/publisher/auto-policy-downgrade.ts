@@ -1,9 +1,10 @@
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { anchorReviewLockOrder } from '../../../src/lib/approval/outcomes';
 import {
   AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH,
   AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
   AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_TIER_ENTITLEMENT,
   insertAuditLogAutoPolicy,
 } from '../../../src/lib/approval/audit';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
@@ -14,7 +15,8 @@ export type AutoPolicyDowngradeReason =
   | 'auto_approval_disabled'
   | 'notice_undelivered'
   | 'judge_disabled'
-  | 'judge_unhealthy';
+  | 'judge_unhealthy'
+  | 'autopilot_entitlement_lost';
 
 // One marker per reason for both writes: the audit action AND the
 // responses.posting_error value (shared owner: src/lib/approval/audit.ts).
@@ -23,11 +25,12 @@ const DOWNGRADE_MARKERS = {
   notice_undelivered: AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED,
   judge_disabled: AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
   judge_unhealthy: AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+  autopilot_entitlement_lost: AUDIT_ACTION_AUTO_POLICY_REVOKED_TIER_ENTITLEMENT,
 } as const satisfies Record<AutoPolicyDowngradeReason, string>;
 
 export type AutoPolicyDowngradeOutcome = 'downgraded' | 'no-op';
 
-export async function downgradeAutoApprovedResponseForManualReview(sql: Sql, input: {
+export interface AutoPolicyDowngradeInput {
   responseId: string;
   businessId: string;
   outboxId: string;
@@ -40,7 +43,24 @@ export async function downgradeAutoApprovedResponseForManualReview(sql: Sql, inp
    */
   reason?: AutoPolicyDowngradeReason;
   logger: { warn(message: string): void };
-}): Promise<AutoPolicyDowngradeOutcome> {
+}
+
+export async function downgradeAutoApprovedResponseForManualReview(
+  sql: Sql,
+  input: AutoPolicyDowngradeInput,
+): Promise<AutoPolicyDowngradeOutcome> {
+  return sql.begin((tx) => downgradeAutoApprovedResponseForManualReviewInTx(tx, input));
+}
+
+/**
+ * Tx-aware body for the publisher entitlement lane. The caller may already
+ * hold the review/business/response anchors; the idempotent re-takes preserve
+ * one canonical downgrade spine and never open a nested transaction.
+ */
+export async function downgradeAutoApprovedResponseForManualReviewInTx(
+  tx: TransactionSql,
+  input: AutoPolicyDowngradeInput,
+): Promise<AutoPolicyDowngradeOutcome> {
   const {
     responseId,
     businessId,
@@ -52,9 +72,11 @@ export async function downgradeAutoApprovedResponseForManualReview(sql: Sql, inp
   } = input;
   const marker = DOWNGRADE_MARKERS[reason];
 
-  return sql.begin(async (tx) => {
-    // Binding review-lane lock order: this anchor is the transaction's FIRST
-    // statement, before the response lock or outbox-attempt claim.
+  {
+    // In the standalone wrapper this anchor is the transaction's first
+    // statement. The entitlement lane already holds the same review, business,
+    // and response anchors; re-taking them is idempotent and keeps one canonical
+    // downgrade spine.
     const reviewId = await anchorReviewLockOrder(tx, responseId, businessId);
     if (!reviewId) {
       await markOutboxCompletedIfOwned(tx, outboxId, outboxAttempt);
@@ -139,10 +161,11 @@ export async function downgradeAutoApprovedResponseForManualReview(sql: Sql, inp
       notice_undelivered: 'no pending-post notice was delivered',
       judge_disabled: 'the Judge safety watchdog is disabled',
       judge_unhealthy: 'the Judge safety watchdog is unhealthy',
+      autopilot_entitlement_lost: 'the account no longer has Autopilot publish entitlement',
     } as const satisfies Record<AutoPolicyDowngradeReason, string>;
     logger.warn(
       `Auto-approved response ${responseId} downgraded to owner review because ${reasonMessages[reason]}`,
     );
     return 'downgraded';
-  });
+  }
 }

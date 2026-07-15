@@ -41,6 +41,18 @@ function queueLocksAndRow(row: Record<string, unknown>): void {
   harness.sqlReturnQueue.push(mkTaggedResult([row]));
 }
 
+function queueBusinessMirrorSync(
+  tier: string,
+  status = 'pending_payment',
+): void {
+  harness.sqlReturnQueue.push(
+    mkTaggedResult([{ id: BUSINESS_ID }]),
+    mkTaggedResult([{}]),
+    mkTaggedResult([{ subscription_tier: tier, subscription_status: status }]),
+    mkTaggedResult([{}]),
+  );
+}
+
 describe('applyTierSnapshot', () => {
   it('writes the complete founding Autopilot pending snapshot with paid=0 in fixed lock order', async () => {
     queueLocksAndRow({
@@ -49,7 +61,7 @@ describe('applyTierSnapshot', () => {
     });
     harness.sqlReturnQueue.push(mkTaggedResult([{ id: ACCOUNT_ID }]));
     harness.sqlReturnQueue.push(mkTaggedResult([{}]));
-    harness.sqlReturnQueue.push(mkTaggedResult([{}]));
+    queueBusinessMirrorSync(SubscriptionTier.AUTOPILOT);
 
     const result = await applyTierSnapshot(mockSql, {
       accountId: ACCOUNT_ID,
@@ -91,8 +103,13 @@ describe('applyTierSnapshot', () => {
         ACCOUNT_ID,
       ]),
     );
+    expect(harness.sqlCalls[6]!.text).toMatch(/FROM\s+businesses/);
+    expect(harness.sqlCalls[6]!.text).toContain('FOR UPDATE');
+    expect(harness.sqlCalls[7]!.values).toEqual([`${ACCOUNT_ID}:tier_entitlement`]);
+    expect(harness.sqlCalls[8]!.text).toMatch(/FROM\s+accounts/);
+    expect(harness.sqlCalls[9]!.text).toMatch(/UPDATE\s+businesses/);
     expect(harness.sqlReturnQueue).toHaveLength(0);
-    expect(harness.sqlCalls).toHaveLength(7);
+    expect(harness.sqlCalls).toHaveLength(10);
   });
 
   it('gate rejection performs no SQL and therefore no partial snapshot write', async () => {

@@ -119,6 +119,18 @@ function queueCommitted(
   harness.sqlReturnQueue.push(mkTaggedResult([]), mkTaggedResult([]), [accountRow], rows);
 }
 
+function queueBusinessMirrorSync(
+  tier: string = 'autopilot',
+  status: string = 'active',
+) {
+  harness.sqlReturnQueue.push(
+    mkTaggedResult([{ id: 'business-1' }]),
+    mkTaggedResult([{}]),
+    mkTaggedResult([{ subscription_tier: tier, subscription_status: status }]),
+    mkTaggedResult([{}]),
+  );
+}
+
 function queueExecution(
   accountRow: Record<string, unknown>,
   activeLocations: number,
@@ -127,10 +139,10 @@ function queueExecution(
   queueApply(accountRow, activeLocations);
   harness.sqlReturnQueue.push(
     mkTaggedResult(options.snapshotChanged === false ? [] : [{ id: ACCOUNT_ID }]),
-    mkTaggedResult([]),
     options.auditExists ? [{ id: 'existing-audit' }] : [],
   );
   if (!options.auditExists) harness.sqlReturnQueue.push(mkTaggedResult([{}]));
+  queueBusinessMirrorSync();
 }
 
 function expectEntitlementThenBillingBeforeReads(expectedCalls: number) {
@@ -297,7 +309,7 @@ describe('applyTierChange', () => {
       }),
       { idempotencyKey: `tier-change:${ACCOUNT_ID}:owner-op:overage-update` },
     );
-    expectEntitlementThenBillingBeforeReads(9);
+    expectEntitlementThenBillingBeforeReads(12);
     expect(harness.sqlCalls[3]!.text).toMatch(/FROM\s+account_audit_log/);
     expect(harness.sqlCalls[4]!.text).toMatch(/FROM\s+businesses/);
     const snapshotWrite = harness.sqlCalls[5]!;
@@ -306,8 +318,12 @@ describe('applyTierChange', () => {
       'autopilot', expectedBaseCents, 2000, 1, 2, ACCOUNT_ID,
     ]));
     expect(snapshotWrite.text).not.toMatch(/SET\s+price_variant/);
-    expect(harness.sqlCalls[7]!.text).toMatch(/FROM\s+account_audit_log/);
-    expect(harness.sqlCalls[8]!.text).toMatch(/INSERT\s+INTO\s+account_audit_log/);
+    expect(harness.sqlCalls[6]!.text).toMatch(/FROM\s+account_audit_log/);
+    expect(harness.sqlCalls[7]!.text).toMatch(/INSERT\s+INTO\s+account_audit_log/);
+    expect(harness.sqlCalls[8]!.text).toMatch(/FROM\s+businesses/);
+    expect(harness.sqlCalls[9]!.values).toEqual([`${ACCOUNT_ID}:tier_entitlement`]);
+    expect(harness.sqlCalls[10]!.text).toMatch(/FROM\s+accounts/);
+    expect(harness.sqlCalls[11]!.text).toMatch(/UPDATE\s+businesses/);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -529,7 +545,7 @@ describe('applyTierChange', () => {
     expect(second.ok).toBe(true);
     expect(mockSubscriptionItemsUpdate.mock.calls[1]![2]).toEqual(firstBaseKey);
     expect(mockSubscriptionItemsCreate.mock.calls[1]![1]).toEqual(firstOverageKey);
-    expectEntitlementThenBillingBeforeReads(9);
+    expectEntitlementThenBillingBeforeReads(12);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -583,8 +599,8 @@ describe('applyTierChange', () => {
         [TIER_CHANGE_SOURCE_METADATA_KEY]: 'copilot',
       },
     });
-    expect(harness.sqlCalls[8]!.text).toMatch(/INSERT\s+INTO\s+account_audit_log/);
-    const auditPayload = harness.sqlCalls[8]!.values.find(
+    expect(harness.sqlCalls[7]!.text).toMatch(/INSERT\s+INTO\s+account_audit_log/);
+    const auditPayload = harness.sqlCalls[7]!.values.find(
       (value) => typeof value === 'object' && value !== null && 'idempotency_key' in value,
     );
     expect(auditPayload).toMatchObject({
@@ -635,7 +651,7 @@ describe('applyTierChange', () => {
     expect(second.ok).toBe(true);
     expect(mockSubscriptionItemsUpdate.mock.calls[2]![2]).toEqual(firstBaseOptions);
     expect(mockSubscriptionItemsUpdate.mock.calls[3]![2]).toEqual(firstOverageOptions);
-    expect(harness.sqlCalls[8]!.text).toMatch(/INSERT\s+INTO\s+account_audit_log/);
+    expect(harness.sqlCalls[7]!.text).toMatch(/INSERT\s+INTO\s+account_audit_log/);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -647,6 +663,7 @@ describe('applyTierChange', () => {
       stripe_subscription_id: null,
       locations_overage_price_cents: 1500,
     }), [committedAudit()]);
+    queueBusinessMirrorSync('autopilot', 'cancelled');
 
     const result = await applyTierChange(sql, {
       accountId: ACCOUNT_ID,
@@ -663,8 +680,10 @@ describe('applyTierChange', () => {
         totalCents: 8900,
       },
     });
-    expectEntitlementThenBillingBeforeReads(4);
-    expect(harness.sqlCalls.some((call) => /FROM\s+businesses/.test(call.text))).toBe(false);
+    expectEntitlementThenBillingBeforeReads(8);
+    expect(harness.sqlCalls.slice(0, 4).some((call) => /FROM\s+businesses/.test(call.text))).toBe(false);
+    expect(harness.sqlCalls[4]!.text).toMatch(/FROM\s+businesses/);
+    expect(harness.sqlCalls[5]!.values).toEqual([`${ACCOUNT_ID}:tier_entitlement`]);
     expect(mockSubscriptionsRetrieve).not.toHaveBeenCalled();
     expect(mockSubscriptionItemsUpdate).not.toHaveBeenCalled();
     expect(mockSubscriptionItemsCreate).not.toHaveBeenCalled();

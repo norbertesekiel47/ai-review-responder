@@ -40,6 +40,20 @@ const mockConstructEvent = vi.fn();
 vi.mock('stripe', () => ({
   default: class MockStripe {
     webhooks = { constructEvent: mockConstructEvent };
+    subscriptions = {
+      retrieve: vi.fn().mockResolvedValue({
+        id: 'sub_1',
+        customer: 'cus_1',
+        status: 'active',
+        trial_end: null,
+        items: {
+          data: [{
+            id: 'si_base', quantity: 1, metadata: {},
+            price: { id: 'price_copilot_list_test', metadata: {}, unit_amount: 2900 },
+          }],
+        },
+      }),
+    };
   },
 }));
 
@@ -107,30 +121,24 @@ function queueHappyPath(
   // Pre-tx account lookup: SELECT id FROM accounts WHERE id = ${refId}::uuid
   sqlReturnQueue.push([{ id: '019dc366-29ce-7000-a000-000000000000' }]);
 
-  // ── After B1.4: paid activation routes through the applier (checkout mode) ──
-  // Inside sql.begin (tx = mockSql):
-  //   1. pg_advisory_xact_lock
-  //   2. Applier resolveAccount: SELECT a.id, a.subscription_status,
-  //      (SELECT b.id …) AS primary_business_id FROM accounts a WHERE a.id=? FOR UPDATE
-  //   3. writeStatusColumns: UPDATE accounts SET subscription_status='active',
-  //      trial_ends_at=NULL, past_due_at=NULL, stripe_customer_id=COALESCE(…),
-  //      stripe_subscription_id=COALESCE(…), subscription_activated_at=COALESCE(…),
-  //      updated_at=NOW() WHERE id=?
-  //   4. writeBusinessesMirror: UPDATE businesses SET subscription_status='active',
-  //      subscription_activated_at=COALESCE(…), updated_at=NOW()
-  //      WHERE account_id=? AND is_primary=TRUE AND archived_at IS NULL
-  //      (no stripe_customer_id / stripe_subscription_id — deprecated, VAL-SCHEMA-037)
-  //   5. writeAccountAuditLog → INSERT INTO account_audit_log (via mockSql — not mocked separately)
-  //   6. enqueueStripeOverageRecompute → INSERT INTO job_outbox (topic='update_stripe_overage_quantity')
-  //   7. enqueueLifecycleAnalytics: pending_payment/past_due → active, fromStatus≠trialing → no-op
-  //
-  // For already-active: isAllowedTransition(active→active)=false → NO_CHANGE,
-  // only resolveAccount SELECT fires (no UPDATEs, no audit, no overage enqueue).
-
-  sqlReturnQueue.push([]); // pg_advisory_xact_lock
+  // Entitlement -> billing -> activation advisory locks.
+  sqlReturnQueue.push([], [], []);
 
   const didActivate = currentStatus !== 'active';
   const primaryBizId = options.primaryBizId ?? null;
+
+  // Provider-current checkout account row.
+  sqlReturnQueue.push([{
+    id: '019dc366-29ce-7000-a000-000000000000',
+    subscription_tier: 'copilot',
+    price_variant: 'list',
+    base_price_cents: 2900,
+    locations_paid: 0,
+    locations_overage_price_cents: 1500,
+    locations_included: 1,
+    stripe_subscription_id: null,
+    stripe_customer_id: null,
+  }]);
 
   // resolveAccount SELECT (always runs — returns id + subscription_status + primary_business_id)
   sqlReturnQueue.push([{
@@ -143,9 +151,6 @@ function queueHappyPath(
     // writeStatusColumns: UPDATE accounts
     const updateAcct: any = []; updateAcct.count = 1;
     sqlReturnQueue.push(updateAcct);
-    // writeBusinessesMirror: UPDATE businesses
-    const updateBiz: any = []; updateBiz.count = options.updateBusinessesCount ?? 1;
-    sqlReturnQueue.push(updateBiz);
     // writeAccountAuditLog: INSERT INTO account_audit_log
     const auditLog: any = []; auditLog.count = 1;
     sqlReturnQueue.push(auditLog);
@@ -153,7 +158,29 @@ function queueHappyPath(
     const overageOutbox: any = []; overageOutbox.count = 1;
     sqlReturnQueue.push(overageOutbox);
   }
-  // already-active: isAllowedTransition(active→active)=false → no UPDATEs, no audit, no overage
+  // Complete billing snapshot is unchanged in this fixture.
+  sqlReturnQueue.push([]);
+  // Post-commit tier-only deprecated mirror projection (business -> entitlement).
+  const updateTierBiz: any = [];
+  updateTierBiz.count = options.updateBusinessesCount ?? 1;
+  sqlReturnQueue.push(
+    [{ id: primaryBizId ?? TEST_BIZ_DEFAULT }],
+    [],
+    [{ subscription_tier: 'copilot' }],
+    updateTierBiz,
+  );
+  // Status/activation projection remains owned by the status applier seam.
+  const updateStatusBiz: any = [];
+  updateStatusBiz.count = options.updateBusinessesCount ?? 1;
+  sqlReturnQueue.push(
+    [{ id: primaryBizId ?? TEST_BIZ_DEFAULT }],
+    [],
+    [{
+      subscription_status: 'active',
+      subscription_activated_at: new Date('2026-07-15T00:00:00Z'),
+    }],
+    updateStatusBiz,
+  );
 }
 
 function getInsertOutboxCall() {
@@ -183,6 +210,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     sqlCalls.length = 0;
     process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
     process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_fake';
+    process.env.STRIPE_PRICE_COPILOT_LIST = 'price_copilot_list_test';
     prevZernioFlag = process.env.ZERNIO_PUBLISHING_ENABLED;
     delete process.env.ZERNIO_PUBLISHING_ENABLED;  // explicit OFF default
     vi.resetModules();
@@ -259,7 +287,9 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     // Lock key is hash-stable per account (after migration 034, lock key
     // uses accountId instead of businessId). The account lookup mock returns
     // id='019dc366-29ce-7000-a000-000000000000' for all happy-path tests.
-    const lockCall = sqlCalls[lockIdx]!;
+    const lockCall = sqlCalls.find(
+      (call) => call.values.includes('019dc366-29ce-7000-a000-000000000000:activation'),
+    )!;
     expect(lockCall.text).toContain('hashtext');
     expect(lockCall.values).toContain('019dc366-29ce-7000-a000-000000000000:activation');
   });

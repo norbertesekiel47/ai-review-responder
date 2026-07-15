@@ -24,7 +24,10 @@ import {
   type Ws8SubscriptionTier,
 } from '@/lib/accounts/tier-config';
 import { acquireTierBillingActivationLocks } from '@/lib/accounts/billing-locks';
-import { writeTierSnapshot } from '@/lib/accounts/tier-snapshot';
+import {
+  synchronizeBusinessTierMirror,
+  writeTierSnapshot,
+} from '@/lib/accounts/tier-snapshot';
 import { assertTierPurchasable } from '@/lib/payments/tier-purchasability';
 import { trialEnabled } from './flags';
 
@@ -51,8 +54,9 @@ export interface ApplyTierSnapshotParams {
  *
  * Existing-account tier writers acquire the account-scoped entitlement,
  * billing, and activation advisory locks in that order before taking the
- * account row lock. The complete snapshot writer also keeps the deprecated
- * `businesses.subscription_tier` mirror synchronized.
+ * account row lock. After the canonical transaction commits, the deprecated
+ * business billing mirror is converged in the publisher-compatible
+ * business -> entitlement lock order.
  *
  * @param sql  Postgres.js client (composition root supplies the singleton —
  *   this module never imports @/lib/db/server).
@@ -65,7 +69,7 @@ export async function applyTierSnapshot(
   // gate before entering a transaction or touching persistent state.
   assertTierPurchasable(tier);
 
-  return sql.begin(async (tx) => {
+  const result = await sql.begin(async (tx) => {
     await acquireTierBillingActivationLocks(tx, accountId, activationLockId);
 
     const [row] = await tx<{
@@ -105,6 +109,10 @@ export async function applyTierSnapshot(
     });
     return { kind: 'ok' as const, accountId, variant: row.price_variant };
   });
+  if (result.kind === 'ok') {
+    await synchronizeBusinessTierMirror(sql, result.accountId);
+  }
+  return result;
 }
 
 // ── resolveCheckoutContext ───────────────────────────────────────────────

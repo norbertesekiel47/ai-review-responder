@@ -4,6 +4,22 @@ export const TIER_ENTITLEMENT_LOCK_SUFFIX = ':tier_entitlement';
 export const OVERAGE_SYNC_LOCK_SUFFIX = ':overage_sync';
 export const ACTIVATION_LOCK_SUFFIX = ':activation';
 
+/**
+ * Serializes Autopilot grant/publish with every existing-account tier writer.
+ * Approval lanes call this only after their review/business[/response] anchors;
+ * billing lanes call it before the billing lock and before the account row.
+ */
+export async function acquireTierEntitlementLock(
+  tx: TransactionSql,
+  accountId: string,
+): Promise<void> {
+  await tx`
+    SELECT pg_advisory_xact_lock(
+      hashtext(${accountId + TIER_ENTITLEMENT_LOCK_SUFFIX})
+    )
+  `;
+}
+
 /** Overage-only writers acquire only the shared billing lock. */
 export async function acquireBillingLock(
   tx: TransactionSql,
@@ -24,11 +40,7 @@ export async function acquireTierAndBillingLocks(
   tx: TransactionSql,
   accountId: string,
 ): Promise<void> {
-  await tx`
-    SELECT pg_advisory_xact_lock(
-      hashtext(${accountId + TIER_ENTITLEMENT_LOCK_SUFFIX})
-    )
-  `;
+  await acquireTierEntitlementLock(tx, accountId);
   await acquireBillingLock(tx, accountId);
 }
 

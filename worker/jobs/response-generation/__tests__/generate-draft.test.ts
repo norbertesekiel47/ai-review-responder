@@ -114,6 +114,7 @@ const MOCK_RESULT: GenerationResult = {
 function ctx(overrides: Partial<BusinessContext> = {}): GenerationContext {
   return {
     accountId: 'acct-1',
+    subscriptionTier: 'autopilot',
     loadedReviewContentHash: 'hash-1',
     normalizedReview: REVIEW,
     businessContext: { ...BIZ_CONTEXT, ...overrides },
