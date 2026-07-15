@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import { resolveTierSnapshot } from '@/lib/accounts/tier-config';
 
 // Migration 077 is a one-time normalization whose first-apply marker is the
 // absence of accounts.price_variant. This suite therefore runs inside one
@@ -487,6 +488,38 @@ describeWithDb(
           locations_paid: 0,
         });
       }
+    });
+
+    it('pins migration 077 direct-SQL constants to the canonical Copilot/list registry snapshot', async () => {
+      const target = legacyFixtures[0]!;
+      const [snapshot] = await sql()<
+        {
+          subscription_tier: string;
+          price_variant: string;
+          base_price_cents: number;
+          locations_overage_price_cents: number;
+          locations_included: number;
+          locations_paid: number;
+        }[]
+      >`
+        SELECT
+          subscription_tier, price_variant, base_price_cents,
+          locations_overage_price_cents, locations_included, locations_paid
+        FROM accounts
+        WHERE id = ${target.accountId}::uuid
+      `;
+      const registry = resolveTierSnapshot('copilot', 'list');
+
+      expect(snapshot).toEqual({
+        subscription_tier: registry.tier,
+        price_variant: registry.variant,
+        base_price_cents: registry.baseCents,
+        locations_overage_price_cents: registry.overageCents,
+        locations_included: registry.included,
+        // Deliberate migration-only exception after the provider preflight:
+        // no live subscription quantity exists to preserve.
+        locations_paid: 0,
+      });
     });
 
     it('normalizes every NULL/invalid business mirror without inferring paid quantity from active locations', async () => {

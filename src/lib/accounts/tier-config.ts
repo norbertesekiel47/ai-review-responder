@@ -4,17 +4,16 @@
 // Every piece of code that references subscription tier values must use
 // these — never bare string literals like 'standard' or 'founding'.
 //
-// IMPORTANT: The tier previously called 'founding' in the legacy codebase
-// is now 'founders' in the multi-location model. The spec tier table uses
-// 'founders'; the billing system uses STRIPE_PRICE_FOUNDING env var but
-// the application-level enum is 'founders'.
-//
 // Validation contract: VAL-BILLING-028, VAL-BILLING-042.
 
 
 // ── Const object (enum-like) ──────────────────────────────────────────────────
 
 export const SubscriptionTier = {
+  COPILOT: 'copilot',
+  AUTOPILOT: 'autopilot',
+  // WS8_TRANSITION_ONLY: retained until Task 9 mechanically contracts every
+  // legacy caller. These values are not mapped to either launch tier.
   BASIC: 'basic',
   STANDARD: 'standard',
   PREMIUM: 'premium',
@@ -23,23 +22,54 @@ export const SubscriptionTier = {
 
 // ── Derived type ─────────────────────────────────────────────────────────────
 
+export type PriceVariant = 'list' | 'founding';
+
+export const PRICE_VARIANTS = ['list', 'founding'] as const satisfies readonly PriceVariant[];
+
+export type Ws8SubscriptionTier =
+  | typeof SubscriptionTier.COPILOT
+  | typeof SubscriptionTier.AUTOPILOT;
+
+/** WS8_TRANSITION_ONLY: legacy caller type; Task 9 replaces it with WS8 tiers. */
 export type SubscriptionTierValue =
-  (typeof SubscriptionTier)[keyof typeof SubscriptionTier];
+  | typeof SubscriptionTier.BASIC
+  | typeof SubscriptionTier.STANDARD
+  | typeof SubscriptionTier.PREMIUM
+  | typeof SubscriptionTier.FOUNDERS;
+
+export type TransitionSubscriptionTierValue =
+  | Ws8SubscriptionTier
+  | SubscriptionTierValue;
 
 // ── Type guard ───────────────────────────────────────────────────────────────
 
 const ALL_TIERS: readonly string[] = Object.values(SubscriptionTier);
 
-/** Returns true when `value` is one of the four canonical subscription tiers. */
-export function isSubscriptionTier(value: string): value is SubscriptionTierValue {
+/** Returns true when `value` is one of the additive transition tier values. */
+export function isSubscriptionTier(
+  value: string,
+): value is TransitionSubscriptionTierValue {
   return ALL_TIERS.includes(value);
+}
+
+export function isPriceVariant(value: string): value is PriceVariant {
+  return PRICE_VARIANTS.includes(value as PriceVariant);
+}
+
+export function isWs8SubscriptionTier(value: string): value is Ws8SubscriptionTier {
+  return value === SubscriptionTier.COPILOT || value === SubscriptionTier.AUTOPILOT;
 }
 
 // ── Tier configuration map ──────────────────────────────────────────────────
 
 export interface TierConfig {
-  /** Monthly base price in cents (e.g. 2900 = $29.00). */
+  /**
+   * WS8_TRANSITION_ONLY scalar used by legacy callers until Task 9. For WS8
+   * tiers it is derived from `baseByVariant.list`, never a second price owner.
+   */
   baseCents: number;
+  /** Immutable list/founding launch amounts. Present only on WS8 tiers. */
+  baseByVariant?: Readonly<Record<PriceVariant, number>>;
   /** Number of locations included in the base price. */
   included: number;
   /** Monthly per-location overage price in cents (0 = no overage allowed). */
@@ -55,7 +85,27 @@ export interface TierConfig {
  *
  * VAL-BILLING-028: all 4 tiers with correct values.
  */
-export const TIER_CONFIG: Record<SubscriptionTierValue, TierConfig> = {
+export const TIER_CONFIG: Record<TransitionSubscriptionTierValue, TierConfig> = {
+  copilot: {
+    baseByVariant: { list: 2900, founding: 1900 },
+    get baseCents() {
+      return this.baseByVariant!.list;
+    },
+    included: 1,
+    overageCents: 1500,
+    multiLocAllowed: true,
+  },
+  autopilot: {
+    baseByVariant: { list: 6900, founding: 4900 },
+    get baseCents() {
+      return this.baseByVariant!.list;
+    },
+    included: 1,
+    overageCents: 2000,
+    multiLocAllowed: true,
+  },
+  // WS8_TRANSITION_ONLY: legacy configuration remains byte-for-byte until the
+  // Task 9 contraction. It does not participate in resolveTierSnapshot.
   basic: {
     baseCents: 2900,
     included: 1,
@@ -82,11 +132,49 @@ export const TIER_CONFIG: Record<SubscriptionTierValue, TierConfig> = {
   },
 };
 
+export interface ResolvedTierSnapshot {
+  tier: Ws8SubscriptionTier;
+  variant: PriceVariant;
+  baseCents: number;
+  overageCents: number;
+  included: number;
+}
+
+/**
+ * Canonical write-time billing resolver. Existing-account reads must continue
+ * to use their stored snapshot instead of calling this function.
+ */
+export function resolveTierSnapshot(
+  tier: Ws8SubscriptionTier,
+  variant: PriceVariant,
+): ResolvedTierSnapshot {
+  if (!isWs8SubscriptionTier(tier)) {
+    throw new Error(`Unknown WS8 subscription tier: ${String(tier)}`);
+  }
+  if (!isPriceVariant(variant)) {
+    throw new Error(`Unknown price variant: ${String(variant)}`);
+  }
+
+  const config = TIER_CONFIG[tier];
+  const baseByVariant = config.baseByVariant;
+  if (!baseByVariant) {
+    throw new Error(`Missing variant pricing for WS8 subscription tier: ${tier}`);
+  }
+
+  return {
+    tier,
+    variant,
+    baseCents: baseByVariant[variant],
+    overageCents: config.overageCents,
+    included: config.included,
+  };
+}
+
 /**
  * Look up tier config by tier name. Throws for unknown tier values
  * (no silent fallback to a default tier — VAL-BILLING-029).
  */
-export function getTierConfig(tier: SubscriptionTierValue): TierConfig {
+export function getTierConfig(tier: TransitionSubscriptionTierValue): TierConfig {
   const config = TIER_CONFIG[tier];
   if (!config) {
     // This should be unreachable given the type, but guard anyway

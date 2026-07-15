@@ -26,6 +26,7 @@ const opt = optionalVar;
 // like the old process.env.X (convention #7). Do NOT use the collapsing `opt` for
 // these — it would change whitespace edge cases.
 const rawOpt = rawOptionalVar;
+const exactOptionalBoolean = z.enum(['true', 'false']).optional();
 
 // Build the Stripe price fields (optional in the root) from the single owner list.
 const stripePriceShape = Object.fromEntries(
@@ -58,6 +59,11 @@ const serverSchema = z.object({
   STRIPE_SECRET_KEY: rawOpt,
   STRIPE_WEBHOOK_SECRET: opt,
   ...stripePriceShape,
+  // WS8 launch config. The deadline parser deliberately handles malformed
+  // input as a fail-closed operational condition; the Autopilot sale flag is
+  // exact and therefore rejects any configured value except true/false.
+  FOUNDING_DEADLINE: rawOpt,
+  AUTOPILOT_PURCHASABLE: exactOptionalBoolean,
   RESEND_API_KEY: rawOpt, // migrated raw read (client.ts Resend(...), contact-notify emailConfigured) — #7
   // Migrated raw read (Stage-3 serpapi-redis batch): serpapi-prefill.ts does
   // `const apiKey = getServerConfig().SERPAPI_API_KEY; if (!apiKey)` on the RAW

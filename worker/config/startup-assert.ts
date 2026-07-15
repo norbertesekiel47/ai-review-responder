@@ -5,7 +5,10 @@
 // heavy top-level side effects of index.ts (Sentry.init, Fastify instance,
 // BullMQ Worker construction which opens Redis connections, etc.).
 
-import { STRIPE_PRICE_ENV_VARS } from '../../src/lib/payments/price-tier-map';
+import {
+  assertStripePriceIdsUnique,
+  STRIPE_PRICE_ENV_VARS,
+} from '../../src/lib/payments/price-tier-map';
 
 const STRIPE_WORKER_REQUIRED_ENV = [
   'STRIPE_SECRET_KEY',
@@ -29,6 +32,7 @@ const CORE_INFRA_REQUIRED_ENV = [
 
 const SERVER_ONLY_FEATURE_OPTIONAL_BOOLEAN_ENV = [
   'ACCOUNT_OFFBOARDING_ENABLED',
+  'AUTOPILOT_PURCHASABLE',
   'AUTO_APPROVAL_ENABLED',
   'AUTO_APPROVAL_PROVIDER_MODERATION_READY',
   'GOVERNOR_ENABLED',
@@ -69,6 +73,7 @@ export function assertStripeWorkerEnv(): void {
   if (missing.length > 0) {
     throw new Error(`[startup] Worker requires ${missing.join(', ')}`);
   }
+  assertStripePriceIdsUnique();
 }
 
 /**

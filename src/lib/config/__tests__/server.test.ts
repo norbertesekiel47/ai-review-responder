@@ -77,7 +77,19 @@ describe('config/server', () => {
     const { getStripeConfig } = await import('../server');
     const cfg = getStripeConfig();
     expect(cfg.STRIPE_SECRET_KEY).toBe('sk_test');
-    expect(cfg.STRIPE_PRICE_BASIC).toBe('price_STRIPE_PRICE_BASIC');
+    expect(cfg.STRIPE_PRICE_COPILOT_LIST).toBe('price_STRIPE_PRICE_COPILOT_LIST');
+  });
+
+  it('accepts only exact configured AUTOPILOT_PURCHASABLE booleans', async () => {
+    Object.assign(process.env, CORE, { AUTOPILOT_PURCHASABLE: 'TRUE' });
+    const { getServerConfig } = await import('../server');
+    expect(() => getServerConfig()).toThrow();
+  });
+
+  it('keeps FOUNDING_DEADLINE raw for the fail-closed strict parser', async () => {
+    Object.assign(process.env, CORE, { FOUNDING_DEADLINE: '2027-01-01T00:00:00Z' });
+    const { getServerConfig } = await import('../server');
+    expect(getServerConfig().FOUNDING_DEADLINE).toBe('2027-01-01T00:00:00Z');
   });
 
   it('getStripeConfig throws when a Stripe secret is missing', async () => {

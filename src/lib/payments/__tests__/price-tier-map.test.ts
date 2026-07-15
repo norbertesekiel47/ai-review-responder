@@ -1,14 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
+  assertStripePriceIdsUnique,
+  basePriceInfoForId,
   basePriceIdForTier,
   basePriceIdSet,
+  overagePriceInfoForId,
   overagePriceIdForTier,
+  priceIdFor,
+  STRIPE_PRICE_ENV_VARS,
   tierForBasePriceId,
   isOveragePriceId,
   overagePriceIdSet,
 } from '../price-tier-map';
 
 const PRICE_KEYS = [
+  ...STRIPE_PRICE_ENV_VARS,
   'STRIPE_PRICE_BASIC',
   'STRIPE_PRICE_FOUNDING',
   'STRIPE_PRICE_STANDARD',
@@ -22,6 +28,7 @@ const original: Record<string, string | undefined> = {};
 
 beforeEach(() => {
   for (const k of PRICE_KEYS) original[k] = process.env[k];
+  for (const k of STRIPE_PRICE_ENV_VARS) delete process.env[k];
   process.env.STRIPE_PRICE_BASIC = 'price_basic';
   process.env.STRIPE_PRICE_FOUNDING = 'price_founders';
   process.env.STRIPE_PRICE_STANDARD = 'price_standard';
@@ -39,6 +46,109 @@ afterEach(() => {
 });
 
 describe('price-tier-map', () => {
+  describe('WS8 variant-aware map', () => {
+    beforeEach(() => {
+      process.env.STRIPE_PRICE_COPILOT_LIST = 'price_copilot_list';
+      process.env.STRIPE_PRICE_COPILOT_FOUNDING = 'price_copilot_founding';
+      process.env.STRIPE_PRICE_AUTOPILOT_LIST = 'price_autopilot_list';
+      process.env.STRIPE_PRICE_AUTOPILOT_FOUNDING = 'price_autopilot_founding';
+      process.env.STRIPE_PRICE_COPILOT_OVERAGE = 'price_copilot_overage';
+      process.env.STRIPE_PRICE_AUTOPILOT_OVERAGE = 'price_autopilot_overage';
+    });
+
+    it('owns exactly the six locked launch variables', () => {
+      expect(STRIPE_PRICE_ENV_VARS).toEqual([
+        'STRIPE_PRICE_COPILOT_LIST',
+        'STRIPE_PRICE_COPILOT_FOUNDING',
+        'STRIPE_PRICE_AUTOPILOT_LIST',
+        'STRIPE_PRICE_AUTOPILOT_FOUNDING',
+        'STRIPE_PRICE_COPILOT_OVERAGE',
+        'STRIPE_PRICE_AUTOPILOT_OVERAGE',
+      ]);
+    });
+
+    it.each([
+      ['copilot', 'list', 'price_copilot_list', 'price_copilot_overage'],
+      ['copilot', 'founding', 'price_copilot_founding', 'price_copilot_overage'],
+      ['autopilot', 'list', 'price_autopilot_list', 'price_autopilot_overage'],
+      ['autopilot', 'founding', 'price_autopilot_founding', 'price_autopilot_overage'],
+    ] as const)(
+      'resolves %s/%s base and variant-required overage',
+      (tier, variant, baseId, overageId) => {
+        expect(priceIdFor(tier, variant, 'base')).toBe(baseId);
+        expect(priceIdFor(tier, variant, 'overage')).toBe(overageId);
+      },
+    );
+
+    it('reverse-resolves all four base Prices and both overage Prices', () => {
+      expect(basePriceInfoForId('price_copilot_list')).toEqual({
+        tier: 'copilot', variant: 'list',
+      });
+      expect(basePriceInfoForId('price_copilot_founding')).toEqual({
+        tier: 'copilot', variant: 'founding',
+      });
+      expect(basePriceInfoForId('price_autopilot_list')).toEqual({
+        tier: 'autopilot', variant: 'list',
+      });
+      expect(basePriceInfoForId('price_autopilot_founding')).toEqual({
+        tier: 'autopilot', variant: 'founding',
+      });
+      expect(overagePriceInfoForId('price_copilot_overage')).toEqual({ tier: 'copilot' });
+      expect(overagePriceInfoForId('price_autopilot_overage')).toEqual({ tier: 'autopilot' });
+    });
+
+    it('fails closed for missing, blank, and unknown IDs', () => {
+      delete process.env.STRIPE_PRICE_COPILOT_LIST;
+      process.env.STRIPE_PRICE_COPILOT_OVERAGE = '   ';
+      expect(priceIdFor('copilot', 'list', 'base')).toBeNull();
+      expect(priceIdFor('copilot', 'founding', 'overage')).toBeNull();
+      expect(basePriceInfoForId('price_unknown')).toBeNull();
+      expect(basePriceInfoForId('')).toBeNull();
+      expect(basePriceInfoForId(undefined)).toBeNull();
+      expect(overagePriceInfoForId(null)).toBeNull();
+    });
+
+    it('rejects unknown tier, variant, and kind without a fallback', () => {
+      expect(() => priceIdFor('standard' as 'copilot', 'list', 'base')).toThrow(
+        /Unknown WS8 subscription tier/,
+      );
+      expect(() => priceIdFor('copilot', 'discount' as 'list', 'base')).toThrow(
+        /Unknown price variant/,
+      );
+      expect(() => priceIdFor('copilot', 'list', 'annual' as 'base')).toThrow(
+        /Unknown Stripe Price kind/,
+      );
+    });
+
+    it('rejects duplicate IDs across base and overage configuration', () => {
+      process.env.STRIPE_PRICE_AUTOPILOT_OVERAGE = 'price_copilot_list';
+      expect(() => assertStripePriceIdsUnique()).toThrow(
+        /STRIPE_PRICE_COPILOT_LIST duplicates STRIPE_PRICE_AUTOPILOT_OVERAGE/,
+      );
+      expect(() => basePriceInfoForId('price_copilot_list')).toThrow(/must be unique/);
+    });
+
+    it('includes every configured WS8 Price in the canonical sets', () => {
+      expect(basePriceIdSet()).toEqual(new Set([
+        'price_copilot_list',
+        'price_copilot_founding',
+        'price_autopilot_list',
+        'price_autopilot_founding',
+        'price_basic',
+        'price_standard',
+        'price_premium',
+        'price_founders',
+      ]));
+      expect(overagePriceIdSet()).toEqual(new Set([
+        'price_copilot_overage',
+        'price_autopilot_overage',
+        'price_standard_overage',
+        'price_premium_overage',
+        'price_founders_overage',
+      ]));
+    });
+  });
+
   describe('basePriceIdForTier', () => {
     it('maps each tier to its base price ID', () => {
       expect(basePriceIdForTier('basic')).toBe('price_basic');

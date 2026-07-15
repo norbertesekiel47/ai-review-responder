@@ -7,15 +7,22 @@ import { describe, it, expect } from 'vitest';
 import {
   SubscriptionTier,
   type SubscriptionTierValue,
+  type TransitionSubscriptionTierValue,
   isSubscriptionTier,
   TIER_CONFIG,
   getTierConfig,
   lookupTierConfig,
+  resolveTierSnapshot,
 } from '../tier-config';
 
 // ── SubscriptionTier const ───────────────────────────────────────────────────
 
 describe('SubscriptionTier', () => {
+  it('contains the two WS8 tiers', () => {
+    expect(SubscriptionTier.COPILOT).toBe('copilot');
+    expect(SubscriptionTier.AUTOPILOT).toBe('autopilot');
+  });
+
   it('contains basic', () => {
     expect(SubscriptionTier.BASIC).toBe('basic');
   });
@@ -33,9 +40,9 @@ describe('SubscriptionTier', () => {
     expect(SubscriptionTier.FOUNDERS).toBe('founders');
   });
 
-  it('has exactly 4 tier values', () => {
+  it('has 2 WS8 tiers plus 4 WS8_TRANSITION_ONLY legacy values', () => {
     const values = Object.values(SubscriptionTier);
-    expect(values).toHaveLength(4);
+    expect(values).toHaveLength(6);
   });
 
   it('all values are strings', () => {
@@ -54,7 +61,9 @@ describe('SubscriptionTier', () => {
 // ── isSubscriptionTier type guard ───────────────────────────────────────────
 
 describe('isSubscriptionTier', () => {
-  it('returns true for all four canonical tiers', () => {
+  it('returns true for WS8 tiers and transition-only legacy tiers', () => {
+    expect(isSubscriptionTier('copilot')).toBe(true);
+    expect(isSubscriptionTier('autopilot')).toBe(true);
     expect(isSubscriptionTier('basic')).toBe(true);
     expect(isSubscriptionTier('standard')).toBe(true);
     expect(isSubscriptionTier('premium')).toBe(true);
@@ -75,7 +84,7 @@ describe('isSubscriptionTier', () => {
   it('narrows the type when true', () => {
     const value: string = 'standard';
     if (isSubscriptionTier(value)) {
-      const _typed: SubscriptionTierValue = value;
+      const _typed: TransitionSubscriptionTierValue = value;
       expect(_typed).toBe('standard');
     }
   });
@@ -84,13 +93,43 @@ describe('isSubscriptionTier', () => {
 // ── Tier config map (VAL-BILLING-028) ───────────────────────────────────────
 
 describe('TIER_CONFIG', () => {
-  it('has entries for all 4 tiers', () => {
+  it('has entries for both WS8 tiers and all transition-only tiers', () => {
     const keys = Object.keys(TIER_CONFIG) as SubscriptionTierValue[];
-    expect(keys).toHaveLength(4);
+    expect(keys).toHaveLength(6);
+    expect(keys).toContain('copilot');
+    expect(keys).toContain('autopilot');
     expect(keys).toContain('basic');
     expect(keys).toContain('standard');
     expect(keys).toContain('premium');
     expect(keys).toContain('founders');
+  });
+
+  it.each([
+    ['copilot', 'list', 2900, 1500, 1],
+    ['copilot', 'founding', 1900, 1500, 1],
+    ['autopilot', 'list', 6900, 2000, 1],
+    ['autopilot', 'founding', 4900, 2000, 1],
+  ] as const)(
+    'resolves %s/%s to the exact complete write snapshot',
+    (tier, variant, baseCents, overageCents, included) => {
+      expect(resolveTierSnapshot(tier, variant)).toEqual({
+        tier,
+        variant,
+        baseCents,
+        overageCents,
+        included,
+      });
+      expect(TIER_CONFIG[tier].multiLocAllowed).toBe(true);
+    },
+  );
+
+  it('has no legacy-tier or unknown fallback in the WS8 resolver', () => {
+    expect(() =>
+      resolveTierSnapshot('standard' as 'copilot', 'list'),
+    ).toThrow(/Unknown WS8 subscription tier/);
+    expect(() =>
+      resolveTierSnapshot('copilot', 'discounted' as 'list'),
+    ).toThrow(/Unknown price variant/);
   });
 
   // ── basic tier ──────────────────────────────────────────────────────────
@@ -186,6 +225,8 @@ describe('TIER_CONFIG', () => {
 
 describe('getTierConfig', () => {
   it('returns config for each valid tier', () => {
+    expect(getTierConfig('copilot')).toBe(TIER_CONFIG.copilot);
+    expect(getTierConfig('autopilot')).toBe(TIER_CONFIG.autopilot);
     expect(getTierConfig('basic')).toBe(TIER_CONFIG.basic);
     expect(getTierConfig('standard')).toBe(TIER_CONFIG.standard);
     expect(getTierConfig('premium')).toBe(TIER_CONFIG.premium);

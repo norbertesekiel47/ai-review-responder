@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
 
 // Hermetic: the worker lane self-loads .env.local in production, but a unit test
 // must not let the developer's real .env.local repopulate vars it deliberately
@@ -42,6 +43,24 @@ describe('config/worker', () => {
     } as NodeJS.ProcessEnv;
     const { getWorkerStripeConfig } = await import('../worker');
     expect(() => getWorkerStripeConfig()).toThrow(/STRIPE_PRICE_/);
+  });
+
+  it('getWorkerStripeConfig narrows all six WS8 Stripe Prices', async () => {
+    process.env = {
+      ...CORE,
+      NODE_ENV: 'test',
+      STRIPE_SECRET_KEY: 'sk',
+      STRIPE_WEBHOOK_SECRET: 'wh',
+    } as NodeJS.ProcessEnv;
+    for (const priceEnv of STRIPE_PRICE_ENV_VARS) {
+      process.env[priceEnv] = `price_${priceEnv}`;
+    }
+    const { getWorkerStripeConfig } = await import('../worker');
+    const config = getWorkerStripeConfig();
+    expect(config.STRIPE_PRICE_COPILOT_LIST).toBe('price_STRIPE_PRICE_COPILOT_LIST');
+    expect(config.STRIPE_PRICE_AUTOPILOT_OVERAGE).toBe(
+      'price_STRIPE_PRICE_AUTOPILOT_OVERAGE',
+    );
   });
 
   it('STRIPE_WEBHOOK_SECRET is exposed RAW via getWorkerConfig (tolerate-absent)', async () => {

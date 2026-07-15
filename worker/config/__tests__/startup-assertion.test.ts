@@ -11,18 +11,13 @@ import {
   assertWorkerStartupEnv,
   warnMissingProductionEnv,
 } from '../startup-assert';
-import { SubscriptionTier, TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import { SubscriptionTier, TIER_CONFIG } from '@/lib/accounts/tier-config';
+import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
 
 const STRIPE_WORKER_REQUIRED = [
   'STRIPE_SECRET_KEY',
   'STRIPE_WEBHOOK_SECRET',
-  'STRIPE_PRICE_BASIC',
-  'STRIPE_PRICE_FOUNDING',
-  'STRIPE_PRICE_STANDARD',
-  'STRIPE_PRICE_PREMIUM',
-  'STRIPE_PRICE_STANDARD_OVERAGE',
-  'STRIPE_PRICE_PREMIUM_OVERAGE',
-  'STRIPE_PRICE_FOUNDERS_OVERAGE',
+  ...STRIPE_PRICE_ENV_VARS,
 ];
 
 const CORE_INFRA_REQUIRED = [
@@ -77,6 +72,7 @@ describe('assertServerOnlyFeatureOptionalBooleansEnv', () => {
   const SNAP: Record<string, string | undefined> = {};
   const KEYS = [
     'ACCOUNT_OFFBOARDING_ENABLED',
+    'AUTOPILOT_PURCHASABLE',
     'AUTO_APPROVAL_ENABLED',
     'AUTO_APPROVAL_PROVIDER_MODERATION_READY',
     'GOVERNOR_ENABLED',
@@ -97,6 +93,7 @@ describe('assertServerOnlyFeatureOptionalBooleansEnv', () => {
 
   it('allows exact true and false strings', () => {
     process.env.ACCOUNT_OFFBOARDING_ENABLED = 'false';
+    process.env.AUTOPILOT_PURCHASABLE = 'true';
     process.env.AUTO_APPROVAL_ENABLED = 'true';
     process.env.AUTO_APPROVAL_PROVIDER_MODERATION_READY = 'false';
     process.env.GOVERNOR_ENABLED = 'true';
@@ -116,6 +113,14 @@ describe('assertServerOnlyFeatureOptionalBooleansEnv', () => {
     process.env.ACCOUNT_OFFBOARDING_ENABLED = '1';
 
     expect(() => assertServerOnlyFeatureOptionalBooleansEnv()).toThrow(/ACCOUNT_OFFBOARDING_ENABLED/);
+  });
+
+  it('rejects loose Autopilot sale flag values', () => {
+    process.env.AUTOPILOT_PURCHASABLE = 'yes';
+
+    expect(() => assertServerOnlyFeatureOptionalBooleansEnv()).toThrow(
+      /AUTOPILOT_PURCHASABLE/,
+    );
   });
 
   it.each(['JUDGE_ENABLED', 'GOVERNOR_ENABLED'] as const)(
@@ -162,14 +167,21 @@ describe('assertStripeWorkerEnv', () => {
   });
 
   it('treats whitespace-only Stripe worker env vars as missing', () => {
-    for (const k of STRIPE_WORKER_REQUIRED) process.env[k] = 'x';
+    for (const k of STRIPE_WORKER_REQUIRED) process.env[k] = `value_${k}`;
     process.env.STRIPE_WEBHOOK_SECRET = '   ';
     expect(() => assertStripeWorkerEnv()).toThrow(/STRIPE_WEBHOOK_SECRET/);
   });
 
   it('passes when all required Stripe worker env vars are set', () => {
-    for (const k of STRIPE_WORKER_REQUIRED) process.env[k] = 'x';
+    for (const k of STRIPE_WORKER_REQUIRED) process.env[k] = `value_${k}`;
     expect(() => assertStripeWorkerEnv()).not.toThrow();
+  });
+
+  it('rejects duplicate Stripe Price IDs at worker startup', () => {
+    for (const k of STRIPE_WORKER_REQUIRED) process.env[k] = `value_${k}`;
+    process.env.STRIPE_PRICE_AUTOPILOT_OVERAGE =
+      process.env.STRIPE_PRICE_COPILOT_LIST;
+    expect(() => assertStripeWorkerEnv()).toThrow(/must be unique/);
   });
 });
 
@@ -349,6 +361,7 @@ describe('assertWorkerStartupEnv', () => {
     'ADMIN_NOTIFICATION_EMAIL',
     'SENTRY_DSN',
     'ACCOUNT_OFFBOARDING_ENABLED',
+    'AUTOPILOT_PURCHASABLE',
     'AUTO_APPROVAL_ENABLED',
     'AUTO_APPROVAL_PROVIDER_MODERATION_READY',
     'GOVERNOR_ENABLED',
@@ -381,7 +394,7 @@ describe('assertWorkerStartupEnv', () => {
   it('passes when production mock mode is off and Stripe + core-infra env vars are present', () => {
     setEnv('NODE_ENV', 'production');
     process.env.MOCK_EXTERNAL_APIS = 'false';
-    for (const k of STRIPE_WORKER_REQUIRED) process.env[k] = 'x';
+    for (const k of STRIPE_WORKER_REQUIRED) process.env[k] = `value_${k}`;
     for (const k of CORE_INFRA_REQUIRED) process.env[k] = 'x';
     process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@repworth.com';
     process.env.SENTRY_DSN = 'https://x@sentry.io/1';
@@ -391,7 +404,7 @@ describe('assertWorkerStartupEnv', () => {
   it('fails fast when a core-infra var is missing in production', () => {
     setEnv('NODE_ENV', 'production');
     process.env.MOCK_EXTERNAL_APIS = 'false';
-    for (const k of STRIPE_WORKER_REQUIRED) process.env[k] = 'x';
+    for (const k of STRIPE_WORKER_REQUIRED) process.env[k] = `value_${k}`;
     for (const k of CORE_INFRA_REQUIRED) process.env[k] = 'x';
     process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@repworth.com';
     delete process.env.DATABASE_POOL_URL;
@@ -626,15 +639,7 @@ describe('assertZernioPublishingEnv', () => {
 
 // ── assertSelfServeSignupEnv ──────────────────────────────────────────────
 
-const SELF_SERVE_PRICE_VARS = [
-  'STRIPE_PRICE_BASIC',
-  'STRIPE_PRICE_FOUNDING',
-  'STRIPE_PRICE_STANDARD',
-  'STRIPE_PRICE_PREMIUM',
-  'STRIPE_PRICE_STANDARD_OVERAGE',
-  'STRIPE_PRICE_PREMIUM_OVERAGE',
-  'STRIPE_PRICE_FOUNDERS_OVERAGE',
-];
+const SELF_SERVE_PRICE_VARS = [...STRIPE_PRICE_ENV_VARS];
 
 describe('assertSelfServeSignupEnv', () => {
   const SNAP: Record<string, string | undefined> = {};
@@ -689,19 +694,18 @@ describe('assertSelfServeSignupEnv', () => {
     }
   });
 
-  it('throws naming only the missing price var when 6 of 7 are set', () => {
+  it('throws naming only the missing price var when 5 of 6 are set', () => {
     process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
     process.env.REDIS_CACHE_URL = 'redis://localhost:6379/0';
     process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
-    process.env.STRIPE_PRICE_BASIC = 'price_basic';
-    process.env.STRIPE_PRICE_FOUNDING = 'price_founding';
-    process.env.STRIPE_PRICE_STANDARD = 'price_standard';
-    process.env.STRIPE_PRICE_PREMIUM = 'price_premium';
-    process.env.STRIPE_PRICE_STANDARD_OVERAGE = 'price_std_overage';
-    process.env.STRIPE_PRICE_PREMIUM_OVERAGE = 'price_prem_overage';
-    // STRIPE_PRICE_FOUNDERS_OVERAGE missing
-    expect(() => assertSelfServeSignupEnv()).toThrow(/STRIPE_PRICE_FOUNDERS_OVERAGE/);
-    expect(() => assertSelfServeSignupEnv()).not.toThrow(/STRIPE_PRICE_BASIC/);
+    process.env.STRIPE_PRICE_COPILOT_LIST = 'price_copilot_list';
+    process.env.STRIPE_PRICE_COPILOT_FOUNDING = 'price_copilot_founding';
+    process.env.STRIPE_PRICE_AUTOPILOT_LIST = 'price_autopilot_list';
+    process.env.STRIPE_PRICE_AUTOPILOT_FOUNDING = 'price_autopilot_founding';
+    process.env.STRIPE_PRICE_COPILOT_OVERAGE = 'price_copilot_overage';
+    // STRIPE_PRICE_AUTOPILOT_OVERAGE missing
+    expect(() => assertSelfServeSignupEnv()).toThrow(/STRIPE_PRICE_AUTOPILOT_OVERAGE/);
+    expect(() => assertSelfServeSignupEnv()).not.toThrow(/STRIPE_PRICE_COPILOT_LIST/);
   });
 
   it('treats whitespace-only price var as missing', () => {
@@ -709,8 +713,8 @@ describe('assertSelfServeSignupEnv', () => {
     process.env.REDIS_CACHE_URL = 'redis://localhost:6379/0';
     process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
     for (const k of SELF_SERVE_PRICE_VARS) process.env[k] = 'price_x';
-    process.env.STRIPE_PRICE_BASIC = '   ';
-    expect(() => assertSelfServeSignupEnv()).toThrow(/STRIPE_PRICE_BASIC/);
+    process.env.STRIPE_PRICE_COPILOT_LIST = '   ';
+    expect(() => assertSelfServeSignupEnv()).toThrow(/STRIPE_PRICE_COPILOT_LIST/);
   });
 
   it('does NOT require STRIPE_PAYMENT_LINK_* vars', () => {
@@ -739,40 +743,27 @@ describe('assertSelfServeSignupEnv', () => {
 // will fail — preventing env contract drift.
 
 describe('Stripe env var contract — drift prevention', () => {
-  it('startup-assert checks a base price var for every tier in TIER_CONFIG', () => {
-    // Every tier in TIER_CONFIG must have a STRIPE_PRICE_<TIER> env var
-    const tiers: SubscriptionTierValue[] = Object.values(SubscriptionTier);
-    const expectedBaseVars = tiers.map(
-      (t) => `STRIPE_PRICE_${t === 'founders' ? 'FOUNDING' : t.toUpperCase()}`
-    );
-
-    // Read the startup-assert source to confirm all base vars are asserted
-    // We just verify the list matches our expected list
-    const startupAssertPriceVars = SELF_SERVE_PRICE_VARS;
-    for (const baseVar of expectedBaseVars) {
-      expect(startupAssertPriceVars).toContain(baseVar);
+  it('startup-assert checks list and founding base Prices for both WS8 tiers', () => {
+    const tiers = [SubscriptionTier.COPILOT, SubscriptionTier.AUTOPILOT] as const;
+    for (const tier of tiers) {
+      expect(SELF_SERVE_PRICE_VARS).toContain(`STRIPE_PRICE_${tier.toUpperCase()}_LIST`);
+      expect(SELF_SERVE_PRICE_VARS).toContain(`STRIPE_PRICE_${tier.toUpperCase()}_FOUNDING`);
     }
   });
 
-  it('startup-assert checks an overage price var for every multi-location tier', () => {
-    // Every tier with multiLocAllowed must have a STRIPE_PRICE_<TIER>_OVERAGE var
-    const multiLocTiers = Object.entries(TIER_CONFIG)
-      .filter(([, config]) => config.multiLocAllowed)
-      .map(([tier]) => tier as SubscriptionTierValue);
-
-    const expectedOverageVars = multiLocTiers.map(
-      (t) => `STRIPE_PRICE_${t === 'founders' ? 'FOUNDERS' : t.toUpperCase()}_OVERAGE`
-    );
-
-    const startupAssertPriceVars = SELF_SERVE_PRICE_VARS;
-    for (const overageVar of expectedOverageVars) {
-      expect(startupAssertPriceVars).toContain(overageVar);
+  it('startup-assert checks one overage Price for each multi-location WS8 tier', () => {
+    for (const tier of [SubscriptionTier.COPILOT, SubscriptionTier.AUTOPILOT] as const) {
+      expect(TIER_CONFIG[tier].multiLocAllowed).toBe(true);
+      expect(SELF_SERVE_PRICE_VARS).toContain(
+        `STRIPE_PRICE_${tier.toUpperCase()}_OVERAGE`,
+      );
     }
   });
 
-  it('startup-assert does NOT check STRIPE_PRICE_BASIC_OVERAGE', () => {
-    // Basic tier has no overage (multiLocAllowed=false)
-    expect(SELF_SERVE_PRICE_VARS).not.toContain('STRIPE_PRICE_BASIC_OVERAGE');
+  it('startup-assert owns exactly six WS8 Price variables', () => {
+    expect(SELF_SERVE_PRICE_VARS).toHaveLength(6);
+    expect(SELF_SERVE_PRICE_VARS).not.toContain('STRIPE_PRICE_BASIC');
+    expect(SELF_SERVE_PRICE_VARS).not.toContain('STRIPE_PRICE_STANDARD');
   });
 
   it('no STRIPE_PAYMENT_LINK references remain in startup-assert', async () => {

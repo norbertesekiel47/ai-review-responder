@@ -1,101 +1,230 @@
-// src/lib/payments/price-tier-map.ts
-//
-// Single owner of the SubscriptionTier <-> Stripe price-ID mapping. Every
-// tier/price lookup (checkout, tier-change, the subscription webhook, the
-// overage worker, the reconciliation poller) sources from here so the mapping
-// has one authoritative representation.
-//
-// Env is read at call time (not memoized at import) so tests can stub
-// process.env per case; presence-validation stays with the worker's boot-time
-// env assertions (worker/config/startup-assert.ts).
-//
-// Validation contract: VAL-BILLING-009, VAL-BILLING-030, VAL-BILLING-032,
-//   VAL-BILLING-055.
+// Single owner of the WS8 Stripe Price-ID mapping. Environment values are read
+// at call time so tests can safely stub them and long-lived processes never
+// retain a partial registry built before configuration is available.
 
-import { type SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import {
+  SubscriptionTier,
+  isPriceVariant,
+  isWs8SubscriptionTier,
+  type PriceVariant,
+  type SubscriptionTierValue,
+  type Ws8SubscriptionTier,
+} from '@/lib/accounts/tier-config';
 
-/**
- * The seven Stripe price env vars this module reads. Single owner of the
- * list — the worker boot assertions and the Next.js instrumentation
- * soft-assert derive from it, so adding a tier means adding it HERE and in
- * the env maps below, nowhere else.
- */
+/** The complete launch Price contract. Keep historical launch IDs resolvable. */
 export const STRIPE_PRICE_ENV_VARS = [
-  'STRIPE_PRICE_BASIC',
-  'STRIPE_PRICE_FOUNDING',
-  'STRIPE_PRICE_STANDARD',
-  'STRIPE_PRICE_PREMIUM',
-  'STRIPE_PRICE_STANDARD_OVERAGE',
-  'STRIPE_PRICE_PREMIUM_OVERAGE',
-  'STRIPE_PRICE_FOUNDERS_OVERAGE',
+  'STRIPE_PRICE_COPILOT_LIST',
+  'STRIPE_PRICE_COPILOT_FOUNDING',
+  'STRIPE_PRICE_AUTOPILOT_LIST',
+  'STRIPE_PRICE_AUTOPILOT_FOUNDING',
+  'STRIPE_PRICE_COPILOT_OVERAGE',
+  'STRIPE_PRICE_AUTOPILOT_OVERAGE',
 ] as const;
 
-function baseEnvMap(): Record<SubscriptionTierValue, string | undefined> {
+export type StripePriceEnvVar = (typeof STRIPE_PRICE_ENV_VARS)[number];
+export type StripePriceKind = 'base' | 'overage';
+
+export interface BasePriceInfo {
+  tier: Ws8SubscriptionTier;
+  variant: PriceVariant;
+}
+
+export interface OveragePriceInfo {
+  tier: Ws8SubscriptionTier;
+}
+
+interface ConfiguredPrice {
+  env: StripePriceEnvVar;
+  id: string | null;
+  kind: StripePriceKind;
+  tier: Ws8SubscriptionTier;
+  variant?: PriceVariant;
+}
+
+function configuredId(env: StripePriceEnvVar): string | null {
+  const value = process.env[env];
+  return value && value.trim().length > 0 ? value : null;
+}
+
+function configuredPrices(): ConfiguredPrice[] {
+  const prices: ConfiguredPrice[] = [
+    {
+      env: 'STRIPE_PRICE_COPILOT_LIST',
+      id: configuredId('STRIPE_PRICE_COPILOT_LIST'),
+      kind: 'base',
+      tier: SubscriptionTier.COPILOT,
+      variant: 'list',
+    },
+    {
+      env: 'STRIPE_PRICE_COPILOT_FOUNDING',
+      id: configuredId('STRIPE_PRICE_COPILOT_FOUNDING'),
+      kind: 'base',
+      tier: SubscriptionTier.COPILOT,
+      variant: 'founding',
+    },
+    {
+      env: 'STRIPE_PRICE_AUTOPILOT_LIST',
+      id: configuredId('STRIPE_PRICE_AUTOPILOT_LIST'),
+      kind: 'base',
+      tier: SubscriptionTier.AUTOPILOT,
+      variant: 'list',
+    },
+    {
+      env: 'STRIPE_PRICE_AUTOPILOT_FOUNDING',
+      id: configuredId('STRIPE_PRICE_AUTOPILOT_FOUNDING'),
+      kind: 'base',
+      tier: SubscriptionTier.AUTOPILOT,
+      variant: 'founding',
+    },
+    {
+      env: 'STRIPE_PRICE_COPILOT_OVERAGE',
+      id: configuredId('STRIPE_PRICE_COPILOT_OVERAGE'),
+      kind: 'overage',
+      tier: SubscriptionTier.COPILOT,
+    },
+    {
+      env: 'STRIPE_PRICE_AUTOPILOT_OVERAGE',
+      id: configuredId('STRIPE_PRICE_AUTOPILOT_OVERAGE'),
+      kind: 'overage',
+      tier: SubscriptionTier.AUTOPILOT,
+    },
+  ];
+  assertUniqueConfiguredPrices(prices);
+  return prices;
+}
+
+function assertUniqueConfiguredPrices(prices: readonly ConfiguredPrice[]): void {
+  const firstEnvById = new Map<string, StripePriceEnvVar>();
+  for (const price of prices) {
+    if (!price.id) continue;
+    const firstEnv = firstEnvById.get(price.id);
+    if (firstEnv) {
+      throw new Error(
+        `[config] Stripe Price IDs must be unique: ${firstEnv} duplicates ${price.env}`,
+      );
+    }
+    firstEnvById.set(price.id, price.env);
+  }
+}
+
+/** Worker hard assertion and Next soft-drift check share this duplicate guard. */
+export function assertStripePriceIdsUnique(): void {
+  configuredPrices();
+}
+
+/**
+ * Variant-aware forward lookup. The variant remains required for overage even
+ * though both account variants intentionally share one overage Price per tier.
+ */
+export function priceIdFor(
+  tier: Ws8SubscriptionTier,
+  variant: PriceVariant,
+  kind: StripePriceKind,
+): string | null {
+  if (!isWs8SubscriptionTier(tier)) {
+    throw new Error(`Unknown WS8 subscription tier: ${String(tier)}`);
+  }
+  if (!isPriceVariant(variant)) {
+    throw new Error(`Unknown price variant: ${String(variant)}`);
+  }
+  if (kind !== 'base' && kind !== 'overage') {
+    throw new Error(`Unknown Stripe Price kind: ${String(kind)}`);
+  }
+  const match = configuredPrices().find(
+    (price) =>
+      price.tier === tier &&
+      price.kind === kind &&
+      (kind === 'overage' || price.variant === variant),
+  );
+  return match?.id ?? null;
+}
+
+export function basePriceInfoForId(
+  priceId: string | null | undefined,
+): BasePriceInfo | null {
+  if (!priceId) return null;
+  const match = configuredPrices().find(
+    (price) => price.kind === 'base' && price.id === priceId,
+  );
+  if (!match?.variant) return null;
+  return { tier: match.tier, variant: match.variant };
+}
+
+export function overagePriceInfoForId(
+  priceId: string | null | undefined,
+): OveragePriceInfo | null {
+  if (!priceId) return null;
+  const match = configuredPrices().find(
+    (price) => price.kind === 'overage' && price.id === priceId,
+  );
+  return match ? { tier: match.tier } : null;
+}
+
+// WS8_TRANSITION_ONLY: legacy maps/APIs keep Tasks 2-8 type-safe while their
+// callers migrate. They preserve legacy identity and never map an old tier to a
+// WS8 tier. Task 9 deletes this entire compatibility section.
+function legacyBaseEnvMap(): Partial<Record<SubscriptionTierValue, string | undefined>> {
   return {
     basic: process.env.STRIPE_PRICE_BASIC,
     standard: process.env.STRIPE_PRICE_STANDARD,
     premium: process.env.STRIPE_PRICE_PREMIUM,
-    // The 'founders' tier uses the STRIPE_PRICE_FOUNDING env var (naming quirk
-    // documented in tier-config.ts).
     founders: process.env.STRIPE_PRICE_FOUNDING,
   };
 }
 
-function overageEnvMap(): Record<SubscriptionTierValue, string | undefined> {
+function legacyOverageEnvMap(): Partial<Record<SubscriptionTierValue, string | undefined>> {
   return {
-    basic: undefined, // basic tier has no overage
+    basic: undefined,
     standard: process.env.STRIPE_PRICE_STANDARD_OVERAGE,
     premium: process.env.STRIPE_PRICE_PREMIUM_OVERAGE,
     founders: process.env.STRIPE_PRICE_FOUNDERS_OVERAGE,
   };
 }
 
-/** tier -> base price ID, or null when the env var is unset/empty. */
+/** @deprecated WS8_TRANSITION_ONLY — use priceIdFor with an account variant. */
 export function basePriceIdForTier(tier: SubscriptionTierValue): string | null {
-  return baseEnvMap()[tier] || null;
+  return legacyBaseEnvMap()[tier] || null;
 }
 
-/** tier -> overage price ID, or null. `basic` is always null. */
+/** @deprecated WS8_TRANSITION_ONLY — use priceIdFor with an account variant. */
 export function overagePriceIdForTier(tier: SubscriptionTierValue): string | null {
-  return overageEnvMap()[tier] || null;
+  return legacyOverageEnvMap()[tier] || null;
 }
 
-/**
- * base price ID -> tier. The reverse map is built ONLY from non-empty IDs, so
- * an empty/undefined price ID can never collide on a shared '' key. Unknown or
- * empty input returns null.
- */
+/** @deprecated WS8_TRANSITION_ONLY — use basePriceInfoForId. */
 export function tierForBasePriceId(
   priceId: string | null | undefined,
 ): SubscriptionTierValue | null {
   if (!priceId) return null;
-  const entries = Object.entries(baseEnvMap()) as [SubscriptionTierValue, string | undefined][];
-  for (const [tier, id] of entries) {
-    if (id && id === priceId) return tier;
-  }
-  return null;
+  const legacy = Object.entries(legacyBaseEnvMap()) as [
+    SubscriptionTierValue,
+    string | undefined,
+  ][];
+  return legacy.find(([, id]) => id && id === priceId)?.[0] ?? null;
 }
 
-/** The set of configured (non-empty) base price IDs. */
+/** Configured base Price IDs, including transition-only legacy IDs. */
 export function basePriceIdSet(): Set<string> {
-  return new Set(
-    Object.values(baseEnvMap()).filter((id): id is string => Boolean(id)),
+  const canonical = configuredPrices()
+    .filter((price) => price.kind === 'base' && price.id)
+    .map((price) => price.id!);
+  const legacy = Object.values(legacyBaseEnvMap()).filter(
+    (id): id is string => Boolean(id),
   );
+  return new Set([...canonical, ...legacy]);
 }
 
-/** The set of configured (non-empty) overage price IDs. */
+/** Configured overage Price IDs, including transition-only legacy IDs. */
 export function overagePriceIdSet(): Set<string> {
-  return new Set(
-    Object.values(overageEnvMap()).filter((id): id is string => Boolean(id)),
+  const canonical = configuredPrices()
+    .filter((price) => price.kind === 'overage' && price.id)
+    .map((price) => price.id!);
+  const legacy = Object.values(legacyOverageEnvMap()).filter(
+    (id): id is string => Boolean(id),
   );
+  return new Set([...canonical, ...legacy]);
 }
 
-/**
- * True when priceId is one of the configured overage price IDs. Builds the set
- * on each call; for bulk membership checks (e.g. scanning many subscription
- * items) call `overagePriceIdSet()` once and reuse the result instead.
- */
 export function isOveragePriceId(priceId: string | null | undefined): boolean {
-  if (!priceId) return false;
-  return overagePriceIdSet().has(priceId);
+  return Boolean(priceId && overagePriceIdSet().has(priceId));
 }

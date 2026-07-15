@@ -9,10 +9,7 @@
 
 import type { Sql } from 'postgres';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
-import {
-  TIER_CONFIG,
-  isSubscriptionTier,
-} from './tier-config';
+import { TIER_CONFIG, isSubscriptionTier } from './tier-config';
 
 // ── computeOverageQuantity ─────────────────────────────────────────────────
 
@@ -83,16 +80,18 @@ export async function currentBillingSnapshot(
     throw new Error(`Unknown subscription tier: ${tier}`);
   }
 
-  const config = TIER_CONFIG[tier];
   const includedLocations = account.locations_included;
   const overagePriceCents = account.locations_overage_price_cents;
   // Base price, included count, and overage price are all read from the stored
-  // account columns (point-in-time, grandfathered per CLAUDE.md #9a). config is
-  // used only for the multiLocAllowed / overageCents shape decisions below.
+  // account columns (point-in-time, grandfathered per CLAUDE.md #9a). No live
+  // tier-registry value may change the shape or amount of this existing account.
   const basePriceCents = account.base_price_cents;
 
-  // Basic tier: no overage at all
-  if (!config.multiLocAllowed || config.overageCents === 0) {
+  // A stored zero/non-positive overage amount means this point-in-time snapshot
+  // has no billable overage. WS8_TRANSITION_ONLY: this also preserves legacy
+  // Basic snapshots without consulting live registry policy; WS8 snapshots are
+  // configured with positive overage cents.
+  if (overagePriceCents <= 0) {
     return {
       basePriceCents,
       includedLocations,
