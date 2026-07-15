@@ -784,9 +784,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/jobs/billing/UpdateStripeOverageWorker.ts",
     table: "accounts",
-    sqlSnippet: "SELECT id, subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id, locations_included, locations_overage_price_cents FROM accounts WHERE id = ${account_id}::uuid",
+    sqlSnippet: "SELECT id, subscription_tier, subscription_status, price_variant, stripe_subscription_id, locations_included, locations_overage_price_cents FROM accounts WHERE id = ${account_id}::uuid FOR UPDATE",
     category: 'background-global-scan',
-    reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
+    reason: "Worker follows a durable job payload account id and reads the account only after the shared billing advisory lock; the scanner cannot establish that job ownership boundary.",
   },
   {
     file: "worker/jobs/notification/context.ts",
@@ -2383,16 +2383,16 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/stripe/subscription-updated.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.locations_paid, a.locations_overage_price_cents, a.stripe_subscription_id, CASE WHEN EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) THEN ${subscriptionId} ELSE NULL END AS active_offboarding_subscription_id FROM accounts a WHERE a.stripe_customer_id = ${customerId} FOR UPDATE",
+    sqlSnippet: "WITH account_candidates AS ( SELECT a.id, a.stripe_subscription_id, NULL::text AS active_offboarding_subscription_id, 0 AS resolution_priority FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.stripe_subscription_id = ${subscriptionId} UNION ALL SELECT a.id, a.stripe_subscription_id, ao.stripe_subscription_id AS active_offboarding_subscription_id, 1 AS resolution_priority FROM accounts a JOIN account_offboardings ao ON ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL WHERE a.stripe_customer_id = ${customerId} UNION ALL SELECT a.id, a.stripe_subscription_id, NULL::text AS active_offboarding_subscription_id, 2 AS resolution_priority FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.stripe_subscription_id IS DISTINCT FROM ${subscriptionId} AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) ) SELECT id, stripe_subscription_id, active_offboarding_subscription_id FROM account_candidates ORDER BY resolution_priority ASC, id ASC LIMIT 1",
     category: 'provider-ingress',
-    reason: "Stripe webhook resolves account and offboarding state from signed provider identifiers before tenant ids are available.",
+    reason: "Stripe webhook resolves account and active-offboarding subscription lineage from signed provider identifiers without a row lock before tenant ids are available.",
   },
   {
     file: "worker/ingress/stripe/subscription-updated.ts",
     table: "account_offboardings",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.locations_paid, a.locations_overage_price_cents, a.stripe_subscription_id, CASE WHEN EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) THEN ${subscriptionId} ELSE NULL END AS active_offboarding_subscription_id FROM accounts a WHERE a.stripe_customer_id = ${customerId} FOR UPDATE",
+    sqlSnippet: "WITH account_candidates AS ( SELECT a.id, a.stripe_subscription_id, NULL::text AS active_offboarding_subscription_id, 0 AS resolution_priority FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.stripe_subscription_id = ${subscriptionId} UNION ALL SELECT a.id, a.stripe_subscription_id, ao.stripe_subscription_id AS active_offboarding_subscription_id, 1 AS resolution_priority FROM accounts a JOIN account_offboardings ao ON ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL WHERE a.stripe_customer_id = ${customerId} UNION ALL SELECT a.id, a.stripe_subscription_id, NULL::text AS active_offboarding_subscription_id, 2 AS resolution_priority FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.stripe_subscription_id IS DISTINCT FROM ${subscriptionId} AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) ) SELECT id, stripe_subscription_id, active_offboarding_subscription_id FROM account_candidates ORDER BY resolution_priority ASC, id ASC LIMIT 1",
     category: 'provider-ingress',
-    reason: "Stripe webhook resolves account and offboarding state from signed provider identifiers before tenant ids are available.",
+    reason: "Stripe webhook resolves account and active-offboarding subscription lineage from signed provider identifiers without a row lock before tenant ids are available.",
   },
   {
     file: "worker/ingress/stripe/apply-subscription-state.ts",

@@ -17,11 +17,13 @@
 // per-outbox scope gives every distinct recompute a fresh key.
 
 import type Stripe from 'stripe';
+import type { Ws8SubscriptionTier } from '../../../src/lib/accounts/tier-config';
 import {
   resolveOverageItem,
   overageItemMutationParams,
   OVERAGE_BILLING_ROLE,
 } from '../../../src/lib/payments/overage-item';
+import { overagePriceInfoForId } from '../../../src/lib/payments/price-tier-map';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 
 export type OverageSyncOutcome =
@@ -32,12 +34,37 @@ export type OverageSyncOutcome =
 export interface OverageSyncInput {
   accountId: string;
   subscriptionId: string;
+  tier: Ws8SubscriptionTier;
   storedOveragePriceCents: number;
-  /** Env price ID for the account's tier — used only when creating a new item. */
+  /** Canonical overage Price ID for the account's stored tier + variant. */
   overagePriceId: string;
   newQuantity: number;
   /** Per-outbox scope embedded in every Stripe idempotency key. */
   operationScope: string;
+}
+
+function replacementPriceForTrustedItem(
+  item: Stripe.SubscriptionItem,
+  input: OverageSyncInput,
+): string | null {
+  const mappedPrice = overagePriceInfoForId(item.price?.id);
+  if (mappedPrice && mappedPrice.tier !== input.tier) {
+    return input.overagePriceId;
+  }
+
+  const providerUnitAmount = item.price?.unit_amount;
+  if (
+    providerUnitAmount !== null
+    && providerUnitAmount !== undefined
+    && providerUnitAmount !== input.storedOveragePriceCents
+  ) {
+    return input.overagePriceId;
+  }
+
+  // Same-tier and historical Prices compatible with the immutable stored
+  // cents remain untouched. Merely rotating operator config must not migrate
+  // an existing account off its stored/grandfathered billing contract.
+  return null;
 }
 
 function idempotencyKey(
@@ -90,13 +117,29 @@ export async function syncStripeOverageItem(
   }
 
   if (resolution.kind === 'trusted') {
-    // VAL-LOC-010: update existing overage item quantity. Quantity-only on the
-    // price (legacy items keep their grandfathered price); the billing_role
-    // stamp migrates legacy items to exact matching on their next recompute.
+    // VAL-LOC-010: preserve a compatible same-tier/historical Price, but repair
+    // a demonstrable cross-tier or stored-cent mismatch. This keeps immutable
+    // grandfathering intact across operator config rotation while still healing
+    // a stale Copilot item on an Autopilot account.
+    const replacementPrice = replacementPriceForTrustedItem(resolution.item, input);
     await stripe.subscriptionItems.update(
       resolution.item.id,
-      overageItemMutationParams(newQuantity),
-      { idempotencyKey: idempotencyKey('update', input, resolution.item.id, newQuantity) },
+      replacementPrice
+        ? {
+            price: replacementPrice,
+            ...overageItemMutationParams(newQuantity),
+          }
+        : overageItemMutationParams(newQuantity),
+      {
+        idempotencyKey: idempotencyKey(
+          'update',
+          input,
+          replacementPrice
+            ? `${resolution.item.id}:${replacementPrice}`
+            : resolution.item.id,
+          newQuantity,
+        ),
+      },
     );
     logger.log(`Updated overage item ${resolution.item.id} to quantity=${newQuantity} for account ${accountId}`);
     return { kind: 'applied', action: 'updated' };

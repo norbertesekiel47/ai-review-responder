@@ -241,6 +241,28 @@ function makeAccountRow(overrides: Partial<AccountRow> = {}): AccountRow {
 // ── Tests ──────────────────────────────────────────────────────────
 
 describe('billing reconciliation helpers', () => {
+  it('derives all invoice math from the stored Copilot snapshot, never the registry', () => {
+    const invoice = expectedInvoiceForAccount({
+      id: 'acct-stored-only',
+      subscription_tier: 'copilot',
+      subscription_status: 'active',
+      stripe_subscription_id: 'sub_123',
+      base_price_cents: 2711, // deliberately differs from canonical 2900
+      locations_included: 2, // deliberately differs from canonical 1
+      locations_overage_price_cents: 1333, // differs from canonical 1500
+      active_location_count: 5,
+      past_due_at: null,
+      flags: {},
+    });
+
+    expect(invoice).toEqual({
+      baseCents: 2711,
+      overageUnits: 3,
+      overageUnitPriceCents: 1333,
+      totalCents: 2711 + 3 * 1333,
+    });
+  });
+
   it('uses stored overage price instead of live tier overage config', () => {
     const invoice = expectedInvoiceForAccount({
       id: 'acct-grandfathered',

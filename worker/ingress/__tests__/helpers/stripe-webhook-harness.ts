@@ -41,6 +41,12 @@ export const TEST_SUBSCRIPTION_ID = 'sub_test_456';
 // Price env vars for reverse-map tests. Module-private — consumed only by the
 // harness helpers below, not by the per-handler test files.
 const PRICE_ENV_VARS = {
+  STRIPE_PRICE_COPILOT_LIST: 'price_copilot_list_test',
+  STRIPE_PRICE_COPILOT_FOUNDING: 'price_copilot_founding_test',
+  STRIPE_PRICE_AUTOPILOT_LIST: 'price_autopilot_list_test',
+  STRIPE_PRICE_AUTOPILOT_FOUNDING: 'price_autopilot_founding_test',
+  STRIPE_PRICE_COPILOT_OVERAGE: 'price_copilot_overage_test',
+  STRIPE_PRICE_AUTOPILOT_OVERAGE: 'price_autopilot_overage_test',
   STRIPE_PRICE_BASIC: 'price_basic_test',
   STRIPE_PRICE_FOUNDING: 'price_founders_test',
   STRIPE_PRICE_STANDARD: 'price_standard_test',

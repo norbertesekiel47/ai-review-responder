@@ -14,6 +14,12 @@ import {
 // ---------------------------------------------------------------------------
 
 const ENV_KEYS = [
+  'STRIPE_PRICE_COPILOT_LIST',
+  'STRIPE_PRICE_COPILOT_FOUNDING',
+  'STRIPE_PRICE_AUTOPILOT_LIST',
+  'STRIPE_PRICE_AUTOPILOT_FOUNDING',
+  'STRIPE_PRICE_COPILOT_OVERAGE',
+  'STRIPE_PRICE_AUTOPILOT_OVERAGE',
   'STRIPE_PRICE_BASIC',
   'STRIPE_PRICE_STANDARD',
   'STRIPE_PRICE_PREMIUM',
@@ -31,8 +37,12 @@ beforeEach(() => {
     delete process.env[key];
   }
   // Default fixtures: one env overage ID and one env base ID.
-  process.env.STRIPE_PRICE_STANDARD_OVERAGE = 'price_env_overage';
-  process.env.STRIPE_PRICE_STANDARD = 'price_base';
+  process.env.STRIPE_PRICE_COPILOT_OVERAGE = 'price_env_overage';
+  process.env.STRIPE_PRICE_COPILOT_LIST = 'price_base';
+  process.env.STRIPE_PRICE_COPILOT_FOUNDING = 'price_base_founding';
+  process.env.STRIPE_PRICE_AUTOPILOT_LIST = 'price_autopilot';
+  process.env.STRIPE_PRICE_AUTOPILOT_FOUNDING = 'price_autopilot_founding';
+  process.env.STRIPE_PRICE_AUTOPILOT_OVERAGE = 'price_autopilot_overage';
 });
 
 afterEach(() => {
@@ -264,15 +274,15 @@ describe('resolveOverageItem — confidence kinds', () => {
 // resolveSubscriptionBilling — base resolution (positive + inferred fallback)
 // ---------------------------------------------------------------------------
 //
-// Env stubs (beforeEach above): STRIPE_PRICE_STANDARD='price_base' maps to the
-// 'standard' tier; STRIPE_PRICE_STANDARD_OVERAGE='price_env_overage'.
+// Env stubs (beforeEach above): Copilot list maps `price_base` and the
+// canonical Copilot overage maps `price_env_overage`.
 
 describe('resolveSubscriptionBilling — base resolution', () => {
   it('resolves the base item POSITIVELY via the price-tier-map when the base price is known', () => {
     const base = makeItem({ id: 'si_base', priceId: 'price_base', unit_amount: 7900 });
     const overage = makeItem({ id: 'si_over', priceId: 'price_env_overage', unit_amount: 2500 });
     const res = resolveSubscriptionBilling([base, overage], OPTS);
-    expect(res.base).toEqual({ item: base, tier: 'standard' });
+    expect(res.base).toEqual({ item: base, tier: 'copilot', variant: 'list' });
     expect(res.overage).toEqual({ kind: 'trusted', item: overage, matchedBy: 'price_id' });
   });
 
@@ -301,7 +311,7 @@ describe('resolveSubscriptionBilling — base resolution', () => {
     const base = makeItem({ id: 'si_base', priceId: 'price_base', unit_amount: 7900 });
     const overage = makeItem({ id: 'si_over', priceId: 'price_env_overage', unit_amount: 2500 });
     const res = resolveSubscriptionBilling([legacyExtra, base, overage], OPTS);
-    expect(res.base).toEqual({ item: base, tier: 'standard' });
+    expect(res.base).toEqual({ item: base, tier: 'copilot', variant: 'list' });
   });
 
   it('returns base:undefined when the only item is the overage item', () => {
@@ -322,7 +332,7 @@ describe('resolveSubscriptionBilling — base resolution', () => {
     const keywordOverage = makeItem({ id: 'si_kw', priceId: 'price_kw', lookup_key: 'extra seat', unit_amount: 9900 });
     const res = resolveSubscriptionBilling([base, keywordOverage], OPTS);
     expect(res.overage).toEqual({ kind: 'untrusted', item: keywordOverage, matchedBy: 'descriptor' });
-    expect(res.base).toEqual({ item: base, tier: 'standard' });
+    expect(res.base).toEqual({ item: base, tier: 'copilot', variant: 'list' });
   });
 });
 

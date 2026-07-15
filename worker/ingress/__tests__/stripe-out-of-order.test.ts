@@ -19,14 +19,26 @@ const {
   mockConstructEvent,
   mockWriteAccountAuditLog,
   resetStripeWebhookMocks,
-  queueSubscriptionUpdated,
 } = await vi.hoisted(async () => {
   const { createStripeWebhookHarness } = await import('./helpers/stripe-webhook-harness');
   return createStripeWebhookHarness();
 });
+const { mockRetrieveSubscription, mockApplyStripeSubscriptionState } = vi.hoisted(() => ({
+  mockRetrieveSubscription: vi.fn(),
+  mockApplyStripeSubscriptionState: vi.fn(),
+}));
 
 vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../../src/lib/audit/log', () => ({ writeAccountAuditLog: mockWriteAccountAuditLog }));
+vi.mock('../../../src/lib/payments/stripe-client', () => ({
+  getStripe: () => ({
+    webhooks: { constructEvent: mockConstructEvent },
+    subscriptions: { retrieve: mockRetrieveSubscription },
+  }),
+}));
+vi.mock('../stripe/apply-subscription-state', () => ({
+  applyStripeSubscriptionState: mockApplyStripeSubscriptionState,
+}));
 vi.mock('../shared', () => ({ claimInboundEvent: mockClaimInboundEvent }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 vi.mock('stripe', () => ({
@@ -49,6 +61,16 @@ afterAll(restoreStripeWebhookEnv);
 
 beforeEach(() => {
   resetStripeWebhookMocks();
+  mockRetrieveSubscription.mockReset();
+  mockApplyStripeSubscriptionState.mockReset();
+  mockApplyStripeSubscriptionState.mockResolvedValue({
+    accountResolved: true,
+    fromStatus: 'active',
+    toStatus: 'active',
+    changed: false,
+    activated: false,
+    primaryBusinessId: null,
+  });
 });
 
 describe('out-of-order delivery — subscription.* before checkout.session.completed (deep-scan §6.2)', () => {
@@ -71,7 +93,7 @@ describe('out-of-order delivery — subscription.* before checkout.session.compl
         object: {
           id: TEST_SUBSCRIPTION_ID,
           customer: TEST_CUSTOMER_ID,
-          items: { data: [{ price: { id: 'price_standard_test' }, quantity: 1 }] },
+          items: { data: [{ price: { id: 'price_copilot_list_test' }, quantity: 1 }] },
         },
       },
     });
@@ -117,8 +139,8 @@ describe('out-of-order delivery — subscription.* before checkout.session.compl
           customer: TEST_CUSTOMER_ID,
           items: {
             data: [
-              { price: { id: 'price_standard_test' }, quantity: 1 },
-              { price: { id: 'price_standard_overage_test' }, quantity: 3 },
+              { price: { id: 'price_copilot_list_test' }, quantity: 1 },
+              { price: { id: 'price_copilot_overage_test' }, quantity: 3 },
             ],
           },
         },
@@ -138,13 +160,52 @@ describe('out-of-order delivery — subscription.* before checkout.session.compl
 
     // ── Delivery 2 (Stripe redelivery): failed row reclaimed, account exists → apply once → 200 ──
     mockClaimInboundEvent.mockResolvedValueOnce('claimed');
-    queueSubscriptionUpdated({ tier: 'standard' });
+    mockRetrieveSubscription.mockResolvedValue({
+      id: TEST_SUBSCRIPTION_ID,
+      customer: TEST_CUSTOMER_ID,
+      status: 'active',
+      trial_end: null,
+      items: {
+        data: [
+          {
+            id: 'si_base', quantity: 1, metadata: {},
+            price: { id: 'price_copilot_list_test', metadata: {}, unit_amount: 2900 },
+          },
+          {
+            id: 'si_overage', quantity: 3, metadata: { billing_role: 'overage' },
+            price: { id: 'price_copilot_overage_test', metadata: {}, unit_amount: 1500 },
+          },
+        ],
+      },
+    });
+    sqlReturnQueue.push([{
+      id: '019dc366-29ce-7000-a000-000000000001',
+      stripe_subscription_id: TEST_SUBSCRIPTION_ID,
+      active_offboarding_subscription_id: null,
+    }]);
+    sqlReturnQueue.push([]); // entitlement lock
+    sqlReturnQueue.push([]); // billing lock
+    sqlReturnQueue.push([{
+      id: '019dc366-29ce-7000-a000-000000000001',
+      subscription_tier: 'copilot',
+      subscription_status: 'active',
+      price_variant: 'list',
+      base_price_cents: 2900,
+      locations_paid: 0,
+      locations_overage_price_cents: 1500,
+      locations_included: 1,
+      stripe_customer_id: TEST_CUSTOMER_ID,
+      stripe_subscription_id: TEST_SUBSCRIPTION_ID,
+      active_offboarding_subscription_id: null,
+    }]);
+    sqlReturnQueue.push([{ id: '019dc366-29ce-7000-a000-000000000001' }]);
+    sqlReturnQueue.push([]); // business mirror
     reply = mkReply();
     await handleStripeWebhook(mkRequest(), reply as any);
     expect(reply.status).toHaveBeenCalledWith(200);
     const applied = findTierApply();
     expect(applied).toHaveLength(1);
-    expect(applied[0]!.values).toContain('standard');
+    expect(applied[0]!.values).toContain('copilot');
     expect(applied[0]!.values).toContain(3);
     expect(findInboundUpdate('processed')).toBeDefined();
 

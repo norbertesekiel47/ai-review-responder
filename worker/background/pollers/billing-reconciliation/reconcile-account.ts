@@ -11,7 +11,7 @@ import Stripe from 'stripe';
 import type postgres from 'postgres';
 import { applyStripeSubscriptionState } from '../../../ingress/stripe/apply-subscription-state';
 import { SubscriptionStatus } from '../../../../src/lib/shared/subscription-status';
-import { isSubscriptionTier, TIER_CONFIG } from '../../../../src/lib/accounts/tier-config';
+import { isSubscriptionTier } from '../../../../src/lib/accounts/tier-config';
 import { resolveSubscriptionBilling } from '../../../../src/lib/payments/overage-item';
 import {
   compareUpcomingInvoice,
@@ -61,7 +61,6 @@ export async function reconcileAccount(
     return { accountsChecked: 0, drifts, errors: 1 };
   }
 
-  const config = TIER_CONFIG[tier];
   const activeLocations = Number(account.active_location_count);
   const expectedAccount: BillingReconciliationAccount = {
     ...account,
@@ -320,25 +319,7 @@ export async function reconcileAccount(
     });
   }
 
-  // Basic tier has no overage concept
-  if (!config.multiLocAllowed || config.overageCents === 0) {
-    if (overageItem && (overageItem.quantity ?? 0) > 0) {
-      // Basic tier should never have overage items with quantity > 0
-      drifts.push({
-        driftType: 'quantity_mismatch',
-        dbExpectedOverage: expectedInvoice.overageUnits,
-        stripeOverageQuantity,
-        activeLocations,
-        locationsIncluded: account.locations_included,
-        tier,
-        isPilot,
-        dbStatus: account.subscription_status,
-        stripeStatus: subscription.status,
-        stripeSubscriptionId: subscription.id,
-        stripeCustomerId,
-      });
-    }
-  } else if (stripeOverageQuantity !== expectedInvoice.overageUnits) {
+  if (stripeOverageQuantity !== expectedInvoice.overageUnits) {
     drifts.push({
       driftType: 'quantity_mismatch',
       dbExpectedOverage: expectedInvoice.overageUnits,

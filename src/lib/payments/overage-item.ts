@@ -31,8 +31,15 @@
 // a single-item subscription never matches by unit-amount alone.
 
 import Stripe from 'stripe';
-import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
-import { basePriceIdSet, overagePriceIdSet, tierForBasePriceId } from './price-tier-map';
+import type {
+  PriceVariant,
+  Ws8SubscriptionTier,
+} from '@/lib/accounts/tier-config';
+import {
+  basePriceIdSet,
+  basePriceInfoForId,
+  overagePriceIdSet,
+} from './price-tier-map';
 
 /** Metadata value this app stamps on every overage item it creates or re-prices. */
 export const OVERAGE_BILLING_ROLE = 'overage';
@@ -143,7 +150,11 @@ export function resolveOverageItem(
  *                                          needs an authoritative tier must refuse it.
  */
 export type BaseItemResolution =
-  | { item: Stripe.SubscriptionItem; tier: SubscriptionTierValue }
+  | {
+      item: Stripe.SubscriptionItem;
+      tier: Ws8SubscriptionTier;
+      variant: PriceVariant;
+    }
   | { item: Stripe.SubscriptionItem; tier: null; inferred: true };
 
 export interface SubscriptionBillingResolution {
@@ -184,9 +195,16 @@ export function resolveSubscriptionBilling(
   // Priority 1 — positive tier resolution via the price-tier-map.
   for (const item of nonOverageItems) {
     const priceId = item.price?.id;
-    const tier = priceId != null ? tierForBasePriceId(priceId) : null;
-    if (tier !== null) {
-      return { base: { item, tier }, overage };
+    const info = basePriceInfoForId(priceId);
+    if (info !== null) {
+      return {
+        base: {
+          item,
+          tier: info.tier,
+          variant: info.variant,
+        },
+        overage,
+      };
     }
   }
 
