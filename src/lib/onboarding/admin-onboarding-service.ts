@@ -9,6 +9,7 @@ import {
   type AdminBusinessTxInput,
   type PlaceIdInput,
 } from './create-business';
+import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 
 /**
  * Parsed Zod payload as the admin route currently feeds in. Aliasing the
@@ -35,6 +36,7 @@ export type AdminOnboardingErrorCode =
   | 'MISSING_APP_URL'
   | 'MALFORMED_APP_URL'
   | 'DISALLOWED_APP_URL_SCHEME'
+  | 'TIER_UNAVAILABLE'
   | 'DUPLICATE_EMAIL'
   | 'CREATE_BUSINESS_FAILED'
   | 'INVITE_FAILED'
@@ -291,6 +293,13 @@ export async function onboardBusinessAsAdmin(
       throw new AdminOnboardingError(
         'DUPLICATE_EMAIL',
         'A user with this email already exists',
+        409,
+      );
+    }
+    if (err instanceof TierNotPurchasableError) {
+      throw new AdminOnboardingError(
+        'TIER_UNAVAILABLE',
+        'Autopilot is not currently available for provisioning',
         409,
       );
     }

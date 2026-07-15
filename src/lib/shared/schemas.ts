@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isPlaceId, parseGoogleMapsUrl } from '@/lib/reviews/url-parser';
+import { SubscriptionTier } from '@/lib/accounts/tier-config';
 
 /**
  * Hidden honeypot field name — single source of truth shared by the lead-intake
@@ -187,7 +188,10 @@ export const OnboardBusinessSchema = z
     highlightFacts: z.string().max(2000).optional(),
     avoidFacts: z.string().max(2000).optional(),
     sampleResponses: z.string().max(5000).optional(),
-    subscriptionTier: z.enum(['founders', 'standard']).default('standard'),
+    subscriptionTier: z.enum([
+      SubscriptionTier.COPILOT,
+      SubscriptionTier.AUTOPILOT,
+    ]),
     website: websiteUrlSchema.optional().nullable(),
   })
   // True XOR — exactly one of googlePlaceId / googleMapsUrl, never both.
@@ -344,11 +348,9 @@ export const VerifyEmailOtpSchema = z.object({
     .regex(/^[A-Za-z0-9]+$/, 'Code must be alphanumeric'),
 });
 
-// Plan selection on /onboarding/pay. Owner picks founders, basic, standard,
-// or premium; the route writes the choice to accounts.subscription_tier and
-// returns the matching Stripe Checkout Session URL.
+// Plan selection on /onboarding/pay requires an explicit launch tier.
 export const SelectPlanSchema = z.object({
-  tier: z.enum(['founders', 'basic', 'standard', 'premium']),
+  tier: z.enum([SubscriptionTier.COPILOT, SubscriptionTier.AUTOPILOT]),
 });
 
 /**

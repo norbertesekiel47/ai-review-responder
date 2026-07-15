@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Sql } from 'postgres';
 import {
   createMockSql,
@@ -11,15 +11,17 @@ import {
   createBusinessTx,
   DuplicateEmailError,
   PLACEHOLDER_BUSINESS_NAME,
+  TierPriceConfigurationError,
   type AdminBusinessTxInput,
   type SelfServeBusinessTxInput,
 } from '../create-business';
+import { resetServerConfigForTests } from '@/lib/config/server';
 
 const adminInput: AdminBusinessTxInput = {
   ownerEmail: 'a@b.com',
   ownerName: 'Jane',
   businessName: 'Acme',
-  subscriptionTier: 'standard',
+  subscriptionTier: 'copilot',
   placeId: { placeIdVerified: true, placeId: 'ChIJtest' },
 };
 
@@ -39,10 +41,44 @@ let mockSql: Sql;
 beforeEach(() => {
   harness = createMockSql();
   mockSql = harness.mockSql as unknown as Sql;
+  vi.useFakeTimers();
+  vi.stubEnv('FOUNDING_DEADLINE', '2027-01-01T00:00:00Z');
+  vi.stubEnv('STRIPE_PRICE_COPILOT_LIST', 'price_copilot_list');
+  vi.stubEnv('STRIPE_PRICE_COPILOT_FOUNDING', 'price_copilot_founding');
+  vi.stubEnv('STRIPE_PRICE_AUTOPILOT_LIST', 'price_autopilot_list');
+  vi.stubEnv('STRIPE_PRICE_AUTOPILOT_FOUNDING', 'price_autopilot_founding');
+  vi.stubEnv('STRIPE_PRICE_COPILOT_OVERAGE', 'price_copilot_overage');
+  vi.stubEnv('STRIPE_PRICE_AUTOPILOT_OVERAGE', 'price_autopilot_overage');
+  vi.setSystemTime(new Date('2027-01-01T00:00:00Z'));
+  resetServerConfigForTests();
   // No more mockBuildPaymentLinkUrl — paymentUrl is always null now
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+  resetServerConfigForTests();
+});
+
 describe('createBusinessTx — admin mode', () => {
+  it('rejects missing base Price before opening a transaction or writing SQL', async () => {
+    vi.stubEnv('STRIPE_PRICE_COPILOT_LIST', '');
+    await expect(
+      createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-1' }),
+    ).rejects.toBeInstanceOf(TierPriceConfigurationError);
+    expect(harness.mockSql.begin).not.toHaveBeenCalled();
+    expect(harness.sqlCalls).toHaveLength(0);
+  });
+
+  it('rejects missing overage Price before opening a transaction or writing SQL', async () => {
+    vi.stubEnv('STRIPE_PRICE_COPILOT_OVERAGE', '');
+    await expect(
+      createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-1' }),
+    ).rejects.toBeInstanceOf(TierPriceConfigurationError);
+    expect(harness.mockSql.begin).not.toHaveBeenCalled();
+    expect(harness.sqlCalls).toHaveLength(0);
+  });
+
   it('writes users.auth_id=NULL and does NOT create outbox entry for placeIdVerified=true', async () => {
     // With placeIdVerified=true, no outbox row is inserted — review ingestion
     // is webhook-driven via Zernio. Only businesses + users + channel_enrollments are written.
@@ -90,6 +126,24 @@ describe('createBusinessTx — admin mode', () => {
 });
 
 describe('createBusinessTx — self_serve mode', () => {
+  it('rejects missing base Price before opening a transaction or writing SQL', async () => {
+    vi.stubEnv('STRIPE_PRICE_COPILOT_LIST', '');
+    await expect(
+      createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' }),
+    ).rejects.toBeInstanceOf(TierPriceConfigurationError);
+    expect(harness.mockSql.begin).not.toHaveBeenCalled();
+    expect(harness.sqlCalls).toHaveLength(0);
+  });
+
+  it('rejects missing overage Price before opening a transaction or writing SQL', async () => {
+    vi.stubEnv('STRIPE_PRICE_COPILOT_OVERAGE', '');
+    await expect(
+      createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' }),
+    ).rejects.toBeInstanceOf(TierPriceConfigurationError);
+    expect(harness.mockSql.begin).not.toHaveBeenCalled();
+    expect(harness.sqlCalls).toHaveLength(0);
+  });
+
   it('writes users.auth_id=authId, placeholder businesses row, and skips outbox insert', async () => {
     await createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
     const calls = harness.mockSql.mock.calls.map((c: any[]) => (c[0] as TemplateStringsArray).join('?'));
@@ -136,11 +190,11 @@ describe('createBusinessTx — self_serve mode', () => {
     expect(outboxCall).toBeUndefined();
   });
 
-  it('hardcodes subscription_tier=standard regardless of caller intent', async () => {
+  it('starts self-serve accounts at the safe Copilot pending snapshot', async () => {
     await createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
     const bizCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
-    expect(bizCall.some((a: unknown) => a === 'standard')).toBe(true);
+    expect(bizCall.some((a: unknown) => a === 'copilot')).toBe(true);
   });
 });
 
@@ -276,53 +330,60 @@ describe('createBusinessTx — result', () => {
 
 // VAL-BILLING-064: createBusinessTx creates accounts row with
 // tier-selected fields (locations_included, locations_overage_price_cents)
-describe('createBusinessTx — tier config fields in accounts row', () => {
-  it('admin mode: sets locations_included=1 and locations_overage_price_cents=2500 for standard tier', async () => {
+describe('createBusinessTx — complete immutable billing snapshot', () => {
+  it('admin Copilot/list writes every snapshot field with no fallback cents', async () => {
     await createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
     const accountsCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
-    // Standard tier: included=1, overageCents=2500
+    const template = (accountsCall[0] as TemplateStringsArray).join('?');
+    expect(template).toContain('price_variant');
+    expect(template).toContain('locations_paid');
+    expect(accountsCall.slice(1)).toContain('list');
+    expect(accountsCall.slice(1)).toContain('copilot');
     expect(accountsCall.some((a: unknown) => a === 1)).toBe(true);
-    expect(accountsCall.some((a: unknown) => a === 2500)).toBe(true);
-    expect(accountsCall.some((a: unknown) => a === 7900)).toBe(true);
-  });
-
-  it('admin mode: sets locations_included=5 and locations_overage_price_cents=2000 for premium tier', async () => {
-    const premiumInput = {
-      ...adminInput,
-      subscriptionTier: 'premium' as 'founders' | 'standard' | 'premium',
-    };
-    await createBusinessTx(mockSql, premiumInput as AdminBusinessTxInput, { mode: 'admin', onboardedBy: 'admin-1' });
-    const accountsCall = harness.mockSql.mock.calls.find((c: any[]) =>
-      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
-    // Premium tier: included=5, overageCents=2000
-    expect(accountsCall.some((a: unknown) => a === 5)).toBe(true);
-    expect(accountsCall.some((a: unknown) => a === 2000)).toBe(true);
-    expect(accountsCall.some((a: unknown) => a === 19900)).toBe(true);
-  });
-
-  it('admin mode: sets locations_included=1 and locations_overage_price_cents=0 for basic tier', async () => {
-    const basicInput: AdminBusinessTxInput = {
-      ...adminInput,
-      subscriptionTier: 'basic' as any,
-    };
-    await createBusinessTx(mockSql, basicInput, { mode: 'admin', onboardedBy: 'admin-1' });
-    const accountsCall = harness.mockSql.mock.calls.find((c: any[]) =>
-      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
-    // Basic tier: included=1, overageCents=0
-    expect(accountsCall.some((a: unknown) => a === 1)).toBe(true);
-    expect(accountsCall.some((a: unknown) => a === 0)).toBe(true);
+    expect(accountsCall.some((a: unknown) => a === 1500)).toBe(true);
     expect(accountsCall.some((a: unknown) => a === 2900)).toBe(true);
+    expect(accountsCall.slice(1)).toContain(0);
   });
 
-  it('self_serve mode: sets locations_included=1 and locations_overage_price_cents=2500 for standard tier', async () => {
+  it('admin Autopilot/founding writes $49 complete snapshot', async () => {
+    vi.setSystemTime(new Date('2026-12-31T23:59:59Z'));
+    vi.stubEnv('AUTOPILOT_PURCHASABLE', 'true');
+    vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
+    resetServerConfigForTests();
+    const autopilotInput: AdminBusinessTxInput = {
+      ...adminInput,
+      subscriptionTier: 'autopilot',
+    };
+    await createBusinessTx(mockSql, autopilotInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const accountsCall = harness.mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
+    expect(accountsCall.slice(1)).toContain('founding');
+    expect(accountsCall.slice(1)).toContain('autopilot');
+    expect(accountsCall.some((a: unknown) => a === 4900)).toBe(true);
+    expect(accountsCall.some((a: unknown) => a === 2000)).toBe(true);
+    expect(accountsCall.some((a: unknown) => a === 1)).toBe(true);
+  });
+
+  it('self-serve exact deadline is list Copilot with paid=0', async () => {
     await createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
     const accountsCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
-    // Self-serve defaults to standard: included=1, overageCents=2500
+    expect(accountsCall.slice(1)).toContain('list');
+    expect(accountsCall.slice(1)).toContain('copilot');
     expect(accountsCall.some((a: unknown) => a === 1)).toBe(true);
-    expect(accountsCall.some((a: unknown) => a === 2500)).toBe(true);
-    expect(accountsCall.some((a: unknown) => a === 7900)).toBe(true);
+    expect(accountsCall.some((a: unknown) => a === 1500)).toBe(true);
+    expect(accountsCall.some((a: unknown) => a === 2900)).toBe(true);
+    expect(accountsCall.slice(1)).toContain(0);
+  });
+
+  it('self-serve one second before deadline is founding Copilot', async () => {
+    vi.setSystemTime(new Date('2026-12-31T23:59:59Z'));
+    await createBusinessTx(mockSql, selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
+    const accountsCall = harness.mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
+    expect(accountsCall.slice(1)).toContain('founding');
+    expect(accountsCall.slice(1)).toContain(1900);
   });
 
   it('accounts INSERT includes locations_included and locations_overage_price_cents columns', async () => {
@@ -333,6 +394,23 @@ describe('createBusinessTx — tier config fields in accounts row', () => {
     expect(template).toContain('locations_included');
     expect(template).toContain('locations_overage_price_cents');
     expect(template).toContain('base_price_cents');
+    expect(template).toContain('price_variant');
+    expect(template).toContain('locations_paid');
+  });
+
+  it('closed Autopilot gate performs zero SQL writes', async () => {
+    vi.stubEnv('AUTOPILOT_PURCHASABLE', 'false');
+    vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
+    resetServerConfigForTests();
+    await expect(
+      createBusinessTx(
+        mockSql,
+        { ...adminInput, subscriptionTier: 'autopilot' },
+        { mode: 'admin', onboardedBy: 'admin-1' },
+      ),
+    ).rejects.toThrow('Autopilot is not currently purchasable');
+    expect(harness.sqlCalls).toHaveLength(0);
+    expect(harness.mockSql.begin).not.toHaveBeenCalled();
   });
 });
 

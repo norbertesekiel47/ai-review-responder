@@ -10,7 +10,7 @@
 //   2. resolveCheckoutContext — the self-serve trial-eligibility policy for
 //      the Checkout Session the route creates immediately after.
 // The route keeps its guard stack (feature flag, CSRF, auth, rate limits,
-// body parse, tierConfig lookup), maps each result to HTTP, and calls
+// body parse, tier validation), maps each result to HTTP, and calls
 // createCheckoutSession itself.
 //
 // Validation contract: VAL-BILLING-065, VAL-SCHEMA-037 (deprecated
@@ -18,21 +18,29 @@
 
 import type { Sql } from 'postgres';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
-import type { TierConfig } from '@/lib/accounts/tier-config';
+import {
+  isPriceVariant,
+  type PriceVariant,
+  type Ws8SubscriptionTier,
+} from '@/lib/accounts/tier-config';
+import { acquireTierBillingActivationLocks } from '@/lib/accounts/billing-locks';
+import { writeTierSnapshot } from '@/lib/accounts/tier-snapshot';
+import { assertTierPurchasable } from '@/lib/payments/tier-purchasability';
 import { trialEnabled } from './flags';
 
 // ── applyTierSnapshot ────────────────────────────────────────────────────
 
 export type TierSnapshotResult =
-  | { kind: 'ok' }
+  | { kind: 'ok'; accountId: string; variant: PriceVariant }
   | { kind: 'not_found' }
-  | { kind: 'wrong_status'; status: string }
-  | { kind: 'race_lost' };
+  | { kind: 'wrong_status'; status: string };
 
 export interface ApplyTierSnapshotParams {
-  businessId: string;
-  tier: string;
-  tierConfig: TierConfig;
+  accountId: string;
+  /** Preserves the caller's established `:activation` lock identity. */
+  activationLockId: string;
+  tier: Ws8SubscriptionTier;
+  actorUserId?: string | null;
 }
 
 /**
@@ -41,37 +49,33 @@ export interface ApplyTierSnapshotParams {
  * that commits a self-serve signup's chosen tier before Stripe Checkout is
  * ever created.
  *
- * Lock-then-read pattern: takes the per-business `:activation` advisory lock
- * FIRST so any in-flight Stripe webhook taking the same key
- * (`worker/ingress/stripe.ts` `processCheckoutSessionCompleted`) commits
- * before this proceeds, THEN re-reads status under a `FOR UPDATE OF a` row
- * lock. `race_lost` is defense-in-depth: the UPDATE is re-guarded by
- * `subscription_status = pending_payment`, so a 0-row match after the
- * pending_payment check passed means the lock didn't actually serialize —
- * treat it as "already active" rather than silently doing nothing. Also
- * writes the deprecated `businesses.subscription_tier` column (VAL-SCHEMA-037
- * backward compat).
+ * Existing-account tier writers acquire the account-scoped entitlement,
+ * billing, and activation advisory locks in that order before taking the
+ * account row lock. The complete snapshot writer also keeps the deprecated
+ * `businesses.subscription_tier` mirror synchronized.
  *
  * @param sql  Postgres.js client (composition root supplies the singleton —
  *   this module never imports @/lib/db/server).
  */
 export async function applyTierSnapshot(
   sql: Sql,
-  { businessId, tier, tierConfig }: ApplyTierSnapshotParams,
+  { accountId, activationLockId, tier, actorUserId }: ApplyTierSnapshotParams,
 ): Promise<TierSnapshotResult> {
-  return sql.begin(async (tx) => {
-    // Lock first, THEN re-read state. Any pending Stripe webhook taking the
-    // same key commits before we proceed.
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${businessId + ':activation'}))`;
+  // This is an authoritative new tier selection. Reject a closed Autopilot
+  // gate before entering a transaction or touching persistent state.
+  assertTierPurchasable(tier);
 
-    // Read subscription_status from accounts (source of truth after migration
-    // 034). Also lock the accounts row FOR UPDATE to prevent concurrent writes.
-    const [row] = await tx<{ subscription_status: string }[]>`
-      SELECT a.subscription_status
+  return sql.begin(async (tx) => {
+    await acquireTierBillingActivationLocks(tx, accountId, activationLockId);
+
+    const [row] = await tx<{
+      subscription_status: string;
+      price_variant: string;
+    }[]>`
+      SELECT a.subscription_status, a.price_variant
       FROM accounts a
-      JOIN businesses b ON b.account_id = a.id
-      WHERE b.id = ${businessId}::uuid
-      FOR UPDATE OF a
+      WHERE a.id = ${accountId}::uuid
+      FOR UPDATE
     `;
     if (!row) {
       // The row vanished between the caller's lookup and now (e.g., cleanup
@@ -84,33 +88,22 @@ export async function applyTierSnapshot(
         status: row.subscription_status,
       };
     }
-
-    // UPDATE accounts (source of truth) and businesses (deprecated column
-    // retained for backward compat per VAL-SCHEMA-037). Verify count > 0
-    // as defense-in-depth.
-    // VAL-BILLING-065: Also snapshot locations_included,
-    // locations_overage_price_cents, base_price_cents from TIER_CONFIG so the
-    // account's billing snapshot is self-consistent from this point forward.
-    const update = await tx`
-      UPDATE accounts
-      SET subscription_tier = ${tier},
-          locations_included = ${tierConfig.included},
-          locations_overage_price_cents = ${tierConfig.overageCents},
-          base_price_cents = ${tierConfig.baseCents},
-          updated_at = NOW()
-      WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid)
-        AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}
-    `;
-    if (update.count === 0) {
-      return { kind: 'race_lost' as const };
+    if (!isPriceVariant(row.price_variant)) {
+      throw new Error(`Account ${accountId} has invalid price_variant`);
     }
-    // Also write to businesses.subscription_tier (deprecated, retained).
-    await tx`
-      UPDATE businesses
-      SET subscription_tier = ${tier}, updated_at = NOW()
-      WHERE id = ${businessId}::uuid
-    `;
-    return { kind: 'ok' as const };
+
+    await writeTierSnapshot(tx, {
+      accountId,
+      tier,
+      variant: row.price_variant,
+      locationsPaid: 0,
+      audit: {
+        eventType: 'tier_selected',
+        actorUserId,
+        payload: { source: 'checkout' },
+      },
+    });
+    return { kind: 'ok' as const, accountId, variant: row.price_variant };
   });
 }
 

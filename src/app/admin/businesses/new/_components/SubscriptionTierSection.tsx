@@ -3,6 +3,7 @@
 import type { FieldErrors, UseFormRegister } from 'react-hook-form';
 import type { FormData } from '../schema';
 import { SectionCard } from './_shared';
+import { SubscriptionTier } from '@/lib/accounts/tier-config';
 
 interface SubscriptionTierSectionProps {
   register: UseFormRegister<FormData>;
@@ -20,15 +21,15 @@ export function SubscriptionTierSection({
           <input
             {...register('subscriptionTier')}
             type="radio"
-            value="founders"
+            value={SubscriptionTier.COPILOT}
             className="mt-0.5"
           />
           <div>
             <span className="block text-sm font-semibold text-gray-900">
-              Founding Member · $99/mo
+              Copilot
             </span>
             <span className="text-xs text-gray-500">
-              Rate locked for life. Limited availability.
+              Drafts every reply; the owner approves every public action.
             </span>
           </div>
         </label>
@@ -37,15 +38,15 @@ export function SubscriptionTierSection({
           <input
             {...register('subscriptionTier')}
             type="radio"
-            value="standard"
+            value={SubscriptionTier.AUTOPILOT}
             className="mt-0.5"
           />
           <div>
             <span className="block text-sm font-semibold text-gray-900">
-              Standard · $149/mo
+              Autopilot
             </span>
             <span className="text-xs text-gray-500">
-              Full feature access at the standard rate.
+              May post eligible replies inside the owner&apos;s safety policy.
             </span>
           </div>
         </label>

@@ -12,12 +12,19 @@ export function autopilotPurchasable(): boolean {
   );
 }
 
+export class TierNotPurchasableError extends Error {
+  constructor() {
+    super('Autopilot is not currently purchasable');
+    this.name = 'TierNotPurchasableError';
+  }
+}
+
 export function assertTierPurchasable(tier: Ws8SubscriptionTier): void {
   if (tier === SubscriptionTier.COPILOT) return;
   if (tier !== SubscriptionTier.AUTOPILOT) {
     throw new Error(`Unknown purchasable subscription tier: ${String(tier)}`);
   }
   if (!autopilotPurchasable()) {
-    throw new Error('Autopilot is not currently purchasable');
+    throw new TierNotPurchasableError();
   }
 }

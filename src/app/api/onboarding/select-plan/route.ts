@@ -8,8 +8,7 @@ import { SelectPlanSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
 import { createCheckoutSession, CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
 import { applyTierSnapshot, resolveCheckoutContext } from '@/lib/payments/plan-activation';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
-import { TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
@@ -19,7 +18,7 @@ const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 /**
  * POST /api/onboarding/select-plan
  *
- * Self-serve owner picks a plan (founders | basic | standard | premium) on /onboarding/pay.
+ * Self-serve owner explicitly picks Copilot or Autopilot on /onboarding/pay.
  * We write the choice to `accounts.subscription_tier` BEFORE creating a
  * Stripe Checkout Session, so by the time `checkout.session.completed` fires
  * the DB tier already matches what they paid for. The Stripe webhook still
@@ -146,8 +145,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // would otherwise hit whichever business their account points at via the
   // primary location. Returning 404 on non-owner sessions keeps this an
   // authorization invariant independent of proxy.
-  const lookup = await sql<{ id: string; owner_email: string }[]>`
-    SELECT b.id, b.owner_email
+  const lookup = await sql<{
+    id: string;
+    account_id: string;
+    owner_email: string;
+  }[]>`
+    SELECT b.id, a.id AS account_id, b.owner_email
     FROM users u
     JOIN accounts a ON a.id = u.account_id
     JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
@@ -161,20 +164,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { status: 404, headers: NO_STORE },
     );
   }
-  const { id: businessId, owner_email: ownerEmail } = lookup[0]!;
+  const {
+    id: businessId,
+    account_id: accountId,
+    owner_email: ownerEmail,
+  } = lookup[0]!;
 
-  // SELECTPLAN-1: tier is validated by SelectPlanSchema, so this lookup always
-  // resolves — the guard makes the invariant explicit (and refuses to snapshot a
-  // wrong price) instead of papering over an impossible state with `?? 1/2500/7900`.
-  const tierConfig = TIER_CONFIG[tier as SubscriptionTierValue];
-  if (!tierConfig) {
-    return NextResponse.json(
-      { error: 'checkout_unavailable', detail: `Unknown tier: ${tier}` },
-      { status: 502, headers: NO_STORE },
-    );
+  let result: Awaited<ReturnType<typeof applyTierSnapshot>>;
+  try {
+    result = await applyTierSnapshot(sql, {
+      accountId,
+      activationLockId: businessId,
+      tier,
+    });
+  } catch (err) {
+    if (err instanceof TierNotPurchasableError) {
+      return NextResponse.json(
+        { error: 'tier_unavailable' },
+        { status: 409, headers: NO_STORE },
+      );
+    }
+    throw err;
   }
-
-  const result = await applyTierSnapshot(sql, { businessId, tier, tierConfig });
 
   if (result.kind === 'not_found') {
     return NextResponse.json(
@@ -188,19 +199,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { status: 409, headers: NO_STORE },
     );
   }
-  if (result.kind === 'race_lost') {
-    // Status flipped under the lock — extremely unlikely (the lock should
-    // serialize against the only other writer, the Stripe webhook) but the
-    // honest response is "you're already active, go to dashboard".
-    console.warn(
-      `[select-plan] UPDATE matched 0 rows for business ${businessId} despite pending_payment check passing — race_lost branch`,
-    );
-    return NextResponse.json(
-      { error: 'subscription_not_pending', subscriptionStatus: SubscriptionStatus.ACTIVE },
-      { status: 409, headers: NO_STORE },
-    );
-  }
-
   // Create a Stripe Checkout Session instead of a Payment Link URL.
   // The session includes the correct base + overage line items.
   let checkoutUrl: string;
@@ -217,11 +215,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const result = await createCheckoutSession(sql, ctx.accountId, tier, ownerEmail, {
-      trial: ctx.trialEligible,
-    });
-    checkoutUrl = result.url;
+    const checkout = await createCheckoutSession(
+      sql,
+      ctx.accountId,
+      tier,
+      result.variant,
+      ownerEmail,
+      { trial: ctx.trialEligible },
+    );
+    checkoutUrl = checkout.url;
   } catch (err) {
+    if (err instanceof TierNotPurchasableError) {
+      return NextResponse.json(
+        { error: 'tier_unavailable' },
+        { status: 409, headers: NO_STORE },
+      );
+    }
     if (err instanceof CheckoutUnavailableError) {
       // Missing price env vars — same posture as the old payment_link_unavailable.
       return NextResponse.json(

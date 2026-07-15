@@ -1,57 +1,323 @@
-import Stripe from 'stripe';
+import type Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
-import { LOG_PREFIX, extractCustomerId, extractSubscriptionId, UUID_RE, resumePrimaryBusinessBackfill, getStripe } from './shared';
-import { applyStripeSubscriptionState, type TransitionResult } from './apply-subscription-state';
+import {
+  SubscriptionTier,
+  isPriceVariant,
+  isWs8SubscriptionTier,
+  type PriceVariant,
+  type Ws8SubscriptionTier,
+} from '../../../src/lib/accounts/tier-config';
+import { acquireTierBillingActivationLocks } from '../../../src/lib/accounts/billing-locks';
+import { writeResolvedTierSnapshot } from '../../../src/lib/accounts/tier-snapshot';
+import {
+  basePriceInfoForId,
+  overagePriceInfoForId,
+} from '../../../src/lib/payments/price-tier-map';
+import { resolveOverageItem } from '../../../src/lib/payments/overage-item';
+import { autopilotPurchasable } from '../../../src/lib/payments/tier-purchasability';
+import { reportCaughtError } from '../../../src/lib/shared/report-caught-error';
+import {
+  LOG_PREFIX,
+  extractCustomerId,
+  extractSubscriptionId,
+  UUID_RE,
+  resumePrimaryBusinessBackfill,
+  getStripe,
+} from './shared';
+import {
+  applyStripeSubscriptionState,
+  type TransitionResult,
+} from './apply-subscription-state';
 
-export async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
-  // The client_reference_id is set by /api/billing/checkout to the account ID.
-  // Legacy Payment Links used the business ID instead. We try the account table
-  // first (new flow), then fall back to the business table (legacy).
+interface CheckoutAccountRow {
+  id: string;
+  subscription_tier: string;
+  price_variant: string;
+  base_price_cents: number;
+  locations_paid: number;
+  locations_overage_price_cents: number;
+  locations_included: number;
+  stripe_subscription_id: string | null;
+  stripe_customer_id: string | null;
+}
+
+interface OperationalAlert {
+  accountId: string;
+  subscriptionId: string;
+  reason:
+    | 'account_missing'
+    | 'customer_mismatch'
+    | 'bound_subscription_mismatch'
+    | 'bound_customer_mismatch'
+    | 'invalid_trial'
+    | 'unmapped_base_price'
+    | 'variant_or_tier_mismatch'
+    | 'untrusted_overage_item'
+    | 'cross_tier_overage_price'
+    | 'autopilot_activated_while_unavailable';
+  priceId?: string;
+}
+
+interface CheckoutProjection {
+  transition: TransitionResult | null;
+  alerts: OperationalAlert[];
+}
+
+function reportOperationalAlert(alert: OperationalAlert): void {
+  reportCaughtError(
+    'ingress/stripe/checkout-completed',
+    new Error(`Checkout projection requires operator attention: ${alert.reason}`),
+    { ...alert },
+  );
+}
+
+/**
+ * Projects provider-current Checkout state under the fixed account lock graph.
+ * Status ownership remains exclusively in applyStripeSubscriptionState; this
+ * handler only applies the complete tier snapshot after Price/variant checks.
+ */
+async function projectCheckoutSubscription(
+  accountId: string,
+  sessionCustomerId: string | null,
+  subscriptionId: string,
+): Promise<CheckoutProjection> {
+  return sql.begin(async (tx) => {
+    await acquireTierBillingActivationLocks(tx, accountId, accountId);
+
+    // This bounded shared-client call happens after advisory serialization but
+    // before the account row lock. A retrieval failure aborts with zero writes.
+    const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
+    const providerCustomerId = extractCustomerId(subscription.customer);
+    if (
+      sessionCustomerId &&
+      providerCustomerId &&
+      sessionCustomerId !== providerCustomerId
+    ) {
+      return {
+        transition: null,
+        alerts: [{ accountId, subscriptionId, reason: 'customer_mismatch' }],
+      };
+    }
+
+    if (
+      subscription.status === 'trialing' &&
+      (typeof subscription.trial_end !== 'number' ||
+        subscription.trial_end <= Math.floor(Date.now() / 1000))
+    ) {
+      return {
+        transition: null,
+        alerts: [{ accountId, subscriptionId, reason: 'invalid_trial' }],
+      };
+    }
+
+    const [account] = await tx<CheckoutAccountRow[]>`
+      SELECT
+        id,
+        subscription_tier,
+        price_variant,
+        base_price_cents,
+        locations_paid,
+        locations_overage_price_cents,
+        locations_included,
+        stripe_subscription_id,
+        stripe_customer_id
+      FROM accounts
+      WHERE id = ${accountId}::uuid
+      FOR UPDATE
+    `;
+    if (!account) {
+      return {
+        transition: null,
+        alerts: [{ accountId, subscriptionId, reason: 'account_missing' }],
+      };
+    }
+
+    if (
+      account.stripe_subscription_id !== null &&
+      account.stripe_subscription_id !== subscription.id
+    ) {
+      return {
+        transition: null,
+        alerts: [
+          {
+            accountId,
+            subscriptionId,
+            reason: 'bound_subscription_mismatch',
+          },
+        ],
+      };
+    }
+    if (
+      account.stripe_customer_id !== null &&
+      account.stripe_customer_id !== providerCustomerId
+    ) {
+      return {
+        transition: null,
+        alerts: [
+          {
+            accountId,
+            subscriptionId,
+            reason: 'bound_customer_mismatch',
+          },
+        ],
+      };
+    }
+
+    const transition = await applyStripeSubscriptionState(
+      tx,
+      { mode: 'checkout', accountId },
+      subscription,
+    );
+
+    const items = subscription.items?.data ?? [];
+    const mappedBaseItems = items.flatMap((item) => {
+      const info = basePriceInfoForId(item.price?.id);
+      return info ? [{ item, info }] : [];
+    });
+    const base = mappedBaseItems.length === 1 ? mappedBaseItems[0] : undefined;
+    if (!base) {
+      return {
+        transition,
+        alerts: [
+          {
+            accountId,
+            subscriptionId,
+            reason: 'unmapped_base_price',
+            priceId: items[0]?.price?.id,
+          },
+        ],
+      };
+    }
+
+    if (
+      !isWs8SubscriptionTier(account.subscription_tier) ||
+      !isPriceVariant(account.price_variant) ||
+      base.info.tier !== account.subscription_tier ||
+      base.info.variant !== account.price_variant
+    ) {
+      return {
+        transition,
+        alerts: [
+          {
+            accountId,
+            subscriptionId,
+            reason: 'variant_or_tier_mismatch',
+            priceId: base.item.price.id,
+          },
+        ],
+      };
+    }
+
+    const overage = resolveOverageItem(items, {
+      storedOveragePriceCents: Number(account.locations_overage_price_cents),
+    });
+    if (overage.kind === 'untrusted') {
+      return {
+        transition,
+        alerts: [
+          {
+            accountId,
+            subscriptionId,
+            reason: 'untrusted_overage_item',
+            priceId: overage.item.price.id,
+          },
+        ],
+      };
+    }
+
+    let locationsPaid = 0;
+    if (overage.kind === 'trusted') {
+      const mappedOverage = overagePriceInfoForId(overage.item.price.id);
+      if (mappedOverage && mappedOverage.tier !== account.subscription_tier) {
+        return {
+          transition,
+          alerts: [
+            {
+              accountId,
+              subscriptionId,
+              reason: 'cross_tier_overage_price',
+              priceId: overage.item.price.id,
+            },
+          ],
+        };
+      }
+      locationsPaid = overage.item.quantity ?? 0;
+    }
+
+    const tier = account.subscription_tier as Ws8SubscriptionTier;
+    const variant = account.price_variant as PriceVariant;
+    await writeResolvedTierSnapshot(tx, {
+      accountId,
+      snapshot: {
+        tier,
+        variant,
+        baseCents: Number(account.base_price_cents),
+        overageCents: Number(account.locations_overage_price_cents),
+        included: Number(account.locations_included),
+      },
+      locationsPaid,
+      audit: {
+        eventType: 'subscription_updated',
+        payload: {
+          source: 'checkout_completed',
+          stripe_subscription_id: subscriptionId,
+        },
+      },
+    });
+
+    const alerts: OperationalAlert[] = [];
+    if (tier === SubscriptionTier.AUTOPILOT && !autopilotPurchasable()) {
+      alerts.push({
+        accountId,
+        subscriptionId,
+        reason: 'autopilot_activated_while_unavailable',
+        priceId: base.item.price.id,
+      });
+    }
+    return { transition, alerts };
+  });
+}
+
+export async function processCheckoutSessionCompleted(
+  session: Stripe.Checkout.Session,
+): Promise<void> {
   const refId = session.client_reference_id ?? session.metadata?.business_id;
   if (!refId) {
     console.warn(`${LOG_PREFIX} checkout.session.completed missing client_reference_id — skipping`);
     return;
   }
-
-  // Validate UUID shape BEFORE the `${refId}::uuid` cast inside the tx.
-  // Same reasoning as the original guard — malformed IDs would crash the
-  // Postgres cast and cause Stripe retries for ~3 days.
   if (!UUID_RE.test(refId)) {
     console.warn(
       `${LOG_PREFIX} checkout.session.completed has malformed ref_id=${JSON.stringify(refId)} — skipping (Stripe will not retry; inbound_events marked processed)`,
     );
     return;
   }
-
-  const customerId = extractCustomerId(session.customer);
-  const subscriptionId = extractSubscriptionId(session.subscription as string | Stripe.Subscription | null);
-
-  // Only activate for subscription-mode sessions with confirmed payment
   if (session.mode !== 'subscription') {
     console.warn(`${LOG_PREFIX} checkout.session.completed mode=${session.mode} (not subscription) — skipping activation`);
     return;
   }
-
-  // A card-up-front trial completes Checkout with payment_status
-  // 'no_payment_required' ($0 charged now). Accept it alongside 'paid' so the
-  // trial-start path below can run; any other payment_status is still a no-op.
-  if (session.payment_status !== 'paid' && session.payment_status !== 'no_payment_required') {
+  if (
+    session.payment_status !== 'paid' &&
+    session.payment_status !== 'no_payment_required'
+  ) {
     console.warn(`${LOG_PREFIX} checkout.session.completed payment_status=${session.payment_status} (not paid/no_payment_required) — skipping activation for ref ${refId}`);
     return;
   }
 
-  // Resolve whether refId is an account_id (new Checkout Session flow)
-  // or a business_id (legacy Payment Link flow).
+  const subscriptionId = extractSubscriptionId(session.subscription);
+  if (!subscriptionId) {
+    console.warn(`${LOG_PREFIX} checkout.session.completed for ref ${refId} has no subscription id — skipping activation`);
+    return;
+  }
+
   let accountId: string | null = null;
   let businessId: string | null = null;
-
   const [accountLookup] = await sql<{ id: string }[]>`
     SELECT id FROM accounts WHERE id = ${refId}::uuid
   `;
   if (accountLookup) {
     accountId = accountLookup.id;
   } else {
-    // Legacy Payment Link flow: refId was a business_id.
     const [bizLookup] = await sql<{ account_id: string }[]>`
       SELECT account_id FROM businesses WHERE id = ${refId}::uuid
     `;
@@ -60,117 +326,21 @@ export async function processCheckoutSessionCompleted(session: Stripe.Checkout.S
       businessId = refId;
     }
   }
-
   if (!accountId) {
     console.warn(`${LOG_PREFIX} checkout.session.completed ref_id=${refId} matches neither account nor business — skipping`);
     return;
   }
 
-  // ── Trial-start path ──────────────────────────────────────────────────────
-  // A card-up-front trial completes Checkout charging $0 NOW (amount_total === 0)
-  // with a status='trialing' subscription. Stripe reports the session's
-  // payment_status as EITHER 'paid' OR 'no_payment_required': with
-  // payment_method_collection:'always' the $0 subscription_create invoice is
-  // auto-finalized 'paid', so we must NOT gate on payment_status — doing so misfiled
-  // every real trial as a paid 'active' account (caught by staging E2E, 2026-06-22).
-  // Gate on the $0 subscription-mode signal, then retrieve the subscription and
-  // project trial-start ONLY if it is genuinely 'trialing' (future trial_end,
-  // matching customer). A $0 non-trial session (e.g. a 100%-off coupon → status
-  // 'active') retrieves, finds status!='trialing', and falls through to the
-  // unchanged inline paid path (plan §4.11). A normal paid session (amount_total>0)
-  // skips the retrieve entirely. Worker-side Stripe call is allowed (inv #1).
-  if (subscriptionId && (session.amount_total === 0 || session.payment_status === 'no_payment_required')) {
-    const trialStarted = await maybeStartTrial(accountId, businessId, customerId, subscriptionId);
-    if (trialStarted) return;
-  }
+  const projection = await projectCheckoutSubscription(
+    accountId,
+    extractCustomerId(session.customer),
+    subscriptionId,
+  );
+  for (const alert of projection.alerts) reportOperationalAlert(alert);
 
-  // Subscription-mode sessions always carry a subscription id; without one we
-  // cannot persist the identifiers every later webhook needs — skip safely.
-  if (!subscriptionId) {
-    console.warn(`${LOG_PREFIX} checkout.session.completed for ref ${refId} has no subscription id — skipping activation`);
-    return;
-  }
-
-  // Single writer for the paid activation (QUALITY-OBS). checkout/by-accountId
-  // mode behind the same ':activation' advisory lock. The applier flips
-  // pending_payment/past_due→active, COALESCE-fills the Stripe ids
-  // (first-writer-wins, invariant #3), clears trial_ends_at/past_due_at, sets
-  // subscription_activated_at, writes the audit row, mirrors the primary business
-  // (NOTE-A), and enqueues the overage recompute — all in one tx.
-  const transition: TransitionResult = await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${accountId! + ':activation'}))`;
-    return applyStripeSubscriptionState(
-      tx,
-      { mode: 'checkout', accountId: accountId! },
-      { id: subscriptionId, status: 'active', trial_end: null, customer: customerId },
+  if (projection.transition?.changed && projection.transition.activated) {
+    await resumePrimaryBusinessBackfill(
+      businessId ?? projection.transition.primaryBusinessId,
     );
-  });
-
-  // Best-effort backfill resume — only after a real activation.
-  if (transition.changed && transition.activated) {
-    await resumePrimaryBusinessBackfill(businessId ?? transition.primaryBusinessId);
   }
-}
-
-/**
- * Trial-start sub-path for checkout.session.completed.
- *
- * Retrieves the Checkout Session's subscription and, when it is a genuine
- * card-up-front trial (status='trialing', future trial_end, customer matches the
- * session), projects trial-start onto the account via the single applier in
- * checkout mode (in a tx, behind the same ':activation' advisory lock as the
- * paid path), then runs best-effort post-commit backfill resume.
- *
- * Returns:
- *   - true  → the retrieved subscription is `trialing` (handled here; the caller
- *             MUST NOT fall through to the inline paid activation, which would
- *             mis-flip a trialing sub to 'active'). This holds even for an
- *             invalid trial (past trial_end / customer mismatch), which is a
- *             logged no-op.
- *   - false → not a trial (e.g. retrieved status 'active'); the caller proceeds
- *             with the unchanged inline paid activation.
- */
-async function maybeStartTrial(
-  accountId: string,
-  knownBusinessId: string | null,
-  customerId: string | null,
-  subscriptionId: string,
-): Promise<boolean> {
-  // Only called for $0 subscription-mode sessions (trial candidates — amount_total
-  // === 0 or payment_status 'no_payment_required'). A retrieve
-  // failure here means we cannot confirm the (probable) trial — throw so the
-  // ingress wrapper replies 500 and Stripe redelivers (idempotent via the
-  // applier's status-guarded write).
-  const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
-
-  if (subscription.status !== 'trialing') {
-    return false; // not a trial → caller proceeds with inline paid activation
-  }
-
-  // From here the subscription IS trialing — never fall through to paid path.
-  const subCustomerId = extractCustomerId(subscription.customer);
-  if (customerId && subCustomerId && subCustomerId !== customerId) {
-    console.warn(`${LOG_PREFIX} checkout.session.completed trialing subscription=${subscriptionId} customer ${subCustomerId} != session customer ${customerId} — skipping`);
-    return true;
-  }
-
-  const trialEnd = subscription.trial_end;
-  if (typeof trialEnd !== 'number' || trialEnd <= Math.floor(Date.now() / 1000)) {
-    console.warn(`${LOG_PREFIX} checkout.session.completed trialing subscription=${subscriptionId} has no future trial_end (${trialEnd}) — skipping`);
-    return true;
-  }
-
-  const transition: TransitionResult = await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${accountId + ':activation'}))`;
-    return applyStripeSubscriptionState(
-      tx,
-      { mode: 'checkout', accountId },
-      subscription,
-    );
-  });
-
-  if (transition.changed && transition.activated) {
-    await resumePrimaryBusinessBackfill(knownBusinessId ?? transition.primaryBusinessId);
-  }
-  return true;
 }

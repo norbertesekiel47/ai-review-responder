@@ -1,45 +1,39 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-
-// ── Hoisted mocks ───────────────────────────────────────────────────
+import { SubscriptionTier } from '@/lib/accounts/tier-config';
 
 const {
   mockCheckRateLimit,
   mockCreateServerClient,
   mockGetUser,
   mockCreateCheckoutSession,
+  mockApplyTierSnapshot,
+  mockResolveCheckoutContext,
   mockSql,
-} = vi.hoisted(() => {
-  const sqlFn: any = vi.fn();
-  sqlFn.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(sqlFn));
+} = vi.hoisted(() => ({
+  mockCheckRateLimit: vi.fn(),
+  mockCreateServerClient: vi.fn(),
+  mockGetUser: vi.fn(),
+  mockCreateCheckoutSession: vi.fn(),
+  mockApplyTierSnapshot: vi.fn(),
+  mockResolveCheckoutContext: vi.fn(),
+  mockSql: vi.fn(),
+}));
+
+vi.mock('@/lib/shared/rate-limit', () => ({ checkRateLimit: mockCheckRateLimit }));
+vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
+vi.mock('@supabase/ssr', () => ({ createServerClient: mockCreateServerClient }));
+vi.mock('@/lib/payments/plan-activation', () => ({
+  applyTierSnapshot: mockApplyTierSnapshot,
+  resolveCheckoutContext: mockResolveCheckoutContext,
+}));
+vi.mock('@/lib/payments/create-checkout-session', () => {
+  class CheckoutUnavailableError extends Error {}
   return {
-    mockCheckRateLimit: vi.fn(),
-    mockCreateServerClient: vi.fn(),
-    mockGetUser: vi.fn(),
-    mockCreateCheckoutSession: vi.fn(),
-    mockSql: sqlFn,
+    CheckoutUnavailableError,
+    createCheckoutSession: mockCreateCheckoutSession,
   };
 });
-
-vi.mock('@/lib/shared/rate-limit', () => ({
-  checkRateLimit: mockCheckRateLimit,
-}));
-
-vi.mock('@/lib/db/server', () => ({
-  sql: mockSql,
-  jsonb: (v: unknown) => v,
-}));
-
-vi.mock('@supabase/ssr', () => ({
-  createServerClient: mockCreateServerClient,
-}));
-
-vi.mock('@/lib/payments/create-checkout-session', () => ({
-  createCheckoutSession: mockCreateCheckoutSession,
-  CheckoutUnavailableError: class CheckoutUnavailableError extends Error {
-    constructor(message: string) { super(message); this.name = 'CheckoutUnavailableError'; }
-  },
-}));
 
 process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
 process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
@@ -47,383 +41,259 @@ process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://project.supabase.co';
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 
 import { POST } from '../select-plan/route';
+import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
+import { CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
+import { resetServerConfigForTests } from '@/lib/config/server';
 
-function mkReq(
-  body: unknown,
-  headers: Record<string, string> = {},
-): NextRequest {
+const ACCOUNT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+const BUSINESS_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff';
+
+function request(body: unknown, origin = 'https://app.example.com'): NextRequest {
+  return new NextRequest('https://app.example.com/api/onboarding/select-plan', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin,
+      host: 'app.example.com',
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+function rawRequest(body: string): NextRequest {
   return new NextRequest('https://app.example.com/api/onboarding/select-plan', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       origin: 'https://app.example.com',
       host: 'app.example.com',
-      ...headers,
     },
-    body: JSON.stringify(body),
+    body,
   });
 }
 
-const validBody = { tier: 'founders' as const };
+function expectPrivateNoStore(response: Response): void {
+  expect(response.headers.get('cache-control')).toBe('no-store, private');
+}
 
 beforeEach(() => {
-  mockCheckRateLimit.mockReset();
+  vi.clearAllMocks();
+  process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+  resetServerConfigForTests();
   mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 9 });
-
-  mockGetUser.mockReset();
-  mockGetUser.mockResolvedValue({
-    data: { user: { id: 'auth-uuid-1' } },
+  mockGetUser.mockResolvedValue({ data: { user: { id: 'auth-uuid-1' } } });
+  mockCreateServerClient.mockReturnValue({ auth: { getUser: mockGetUser } });
+  mockSql.mockResolvedValue([
+    {
+      id: BUSINESS_ID,
+      account_id: ACCOUNT_ID,
+      owner_email: 'owner@example.com',
+    },
+  ]);
+  mockApplyTierSnapshot.mockResolvedValue({
+    kind: 'ok',
+    accountId: ACCOUNT_ID,
+    variant: 'founding',
   });
-
-  mockCreateServerClient.mockReset();
-  mockCreateServerClient.mockImplementation(() => ({
-    auth: { getUser: mockGetUser },
-  }));
-
-  mockSql.mockReset();
-  // The route now runs:
-  //   1. Outside-tx lookup: SELECT b.id, b.owner_email FROM users JOIN businesses ...
-  //   2. Inside-tx lock: pg_advisory_xact_lock(...)
-  //   3. Inside-tx FOR UPDATE: SELECT a.subscription_status FROM accounts a JOIN businesses b ... (source of truth after migration 034)
-  //   4. Inside-tx UPDATE: UPDATE accounts SET subscription_tier = ... — must return { count: > 0 }
-  //   5. Inside-tx UPDATE: UPDATE businesses SET subscription_tier = ... (deprecated column, retained)
-  // Dispatch by template substring so individual tests can override
-  // specific calls via mockResolvedValueOnce without needing to know the
-  // exact ordering.
-  // Postgres.js returns an Array that ALSO has a `count` property — when
-  // you `await` the tagged-template, the resolved VALUE has `.count`.
-  // `Object.assign(Promise.resolve(...), { count })` attaches count to the
-  // promise itself, which doesn't survive `await`. Build the array first,
-  // attach .count, THEN wrap in Promise.resolve.
-  function pgResult(rows: unknown[], count = rows.length): Promise<unknown[]> {
-    const arr = [...rows] as unknown[] & { count?: number };
-    Object.defineProperty(arr, 'count', { value: count, enumerable: false });
-    return Promise.resolve(arr);
-  }
-  mockSql.mockImplementation((tpl: TemplateStringsArray) => {
-    const text = tpl.join('?');
-    if (/SELECT\s+b\.id,\s*b\.owner_email/i.test(text)) {
-      return pgResult([{ id: 'biz-1', owner_email: 'owner@example.com' }]);
-    }
-    if (/SELECT\s+account_id[\s\S]*FROM\s+businesses/i.test(text)) {
-      // Default: self-serve account (onboarded_by null).
-      return pgResult([{ account_id: 'acct-1', onboarded_by: null }]);
-    }
-    if (text.includes('pg_advisory_xact_lock')) {
-      return pgResult([{}]);
-    }
-    if (/SELECT\s+(a\.)?subscription_status[\s\S]*FOR UPDATE/i.test(text)) {
-      return pgResult([{ subscription_status: 'pending_payment' }]);
-    }
-    if (/UPDATE\s+accounts/i.test(text)) {
-      return pgResult([], 1);
-    }
-    if (/UPDATE\s+businesses/i.test(text)) {
-      return pgResult([], 1);
-    }
-    return pgResult([]);
+  mockResolveCheckoutContext.mockResolvedValue({
+    accountId: ACCOUNT_ID,
+    trialEligible: false,
   });
-  mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
-
-  mockCreateCheckoutSession.mockReset();
   mockCreateCheckoutSession.mockResolvedValue({
-    url: 'https://checkout.stripe.com/test/session-1',
+    url: 'https://checkout.stripe.test/session',
     sessionId: 'cs_test_1',
   });
-
-  process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
 });
 
 describe('POST /api/onboarding/select-plan', () => {
-  it('returns 404 when SELF_SERVE_SIGNUP_ENABLED !== "true"', async () => {
+  it('returns a private no-store 404 when self-serve signup is disabled', async () => {
     process.env.SELF_SERVE_SIGNUP_ENABLED = 'false';
-    const res = await POST(mkReq(validBody));
+    resetServerConfigForTests();
+    const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
     expect(res.status).toBe(404);
+    expectPrivateNoStore(res);
     expect(mockCreateServerClient).not.toHaveBeenCalled();
+    expect(mockSql).not.toHaveBeenCalled();
   });
 
-  it('rejects cross-origin POST with 403', async () => {
+  it('returns a private no-store 400 for invalid JSON before auth', async () => {
+    const res = await POST(rawRequest('{'));
+    expect(res.status).toBe(400);
+    expectPrivateNoStore(res);
+    expect(mockCreateServerClient).not.toHaveBeenCalled();
+    expect(mockSql).not.toHaveBeenCalled();
+  });
+
+  it('requires an explicit tier and never creates an implicit Copilot Session', async () => {
+    const res = await POST(request({}));
+    expect(res.status).toBe(400);
+    expect(mockSql).not.toHaveBeenCalled();
+    expect(mockApplyTierSnapshot).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects unknown and legacy tiers before auth or persistence', async () => {
+    for (const tier of ['enterprise', 'standard']) {
+      const res = await POST(request({ tier }));
+      expect(res.status).toBe(400);
+    }
+    expect(mockApplyTierSnapshot).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects cross-origin writes before auth', async () => {
     const res = await POST(
-      mkReq(validBody, { origin: 'https://attacker.example.com' }),
+      request({ tier: SubscriptionTier.COPILOT }, 'https://attacker.example.com'),
     );
     expect(res.status).toBe(403);
     expect(mockGetUser).not.toHaveBeenCalled();
   });
 
-  it('returns 400 on invalid JSON', async () => {
-    const req = new NextRequest(
-      'https://app.example.com/api/onboarding/select-plan',
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          origin: 'https://app.example.com',
-          host: 'app.example.com',
-        },
-        body: 'not-json',
-      },
-    );
-    const res = await POST(req);
-    expect(res.status).toBe(400);
-  });
-
-  it('returns 400 on bad tier', async () => {
-    const res = await POST(mkReq({ tier: 'enterprise' }));
-    expect(res.status).toBe(400);
-  });
-
-  it('accepts tier="premium" and returns the Premium checkout URL', async () => {
-    mockCreateCheckoutSession.mockResolvedValueOnce({
-      url: 'https://checkout.stripe.com/test/premium',
-      sessionId: 'cs_test_premium',
-    });
-    const res = await POST(mkReq({ tier: 'premium' }));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.paymentUrl).toBe('https://checkout.stripe.com/test/premium');
-    expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
-      mockSql,
-      expect.any(String), // accountId
-      'premium',
-      'owner@example.com',
-      { trial: false },
-    );
-  });
-
-  it('accepts tier="basic" and returns the Basic checkout URL', async () => {
-    mockCreateCheckoutSession.mockResolvedValueOnce({
-      url: 'https://checkout.stripe.com/test/basic',
-      sessionId: 'cs_test_basic',
-    });
-
-    const res = await POST(mkReq({ tier: 'basic' }));
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.paymentUrl).toBe('https://checkout.stripe.com/test/basic');
-    expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
-      mockSql,
-      expect.any(String),
-      'basic',
-      'owner@example.com',
-      { trial: false },
-    );
-  });
-
-  it('returns 401 when no Supabase session', async () => {
+  it('returns 401 without an owner session', async () => {
     mockGetUser.mockResolvedValueOnce({ data: { user: null } });
-    const res = await POST(mkReq(validBody));
+    const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
     expect(res.status).toBe(401);
+    expectPrivateNoStore(res);
+    expect(mockApplyTierSnapshot).not.toHaveBeenCalled();
   });
 
-  it('returns 429 on per-auth rate-limit hit', async () => {
+  it('returns 429 on an authenticated-owner rate-limit denial without state changes', async () => {
     mockCheckRateLimit.mockResolvedValueOnce({ allowed: false, remaining: 0 });
-    const res = await POST(mkReq(validBody));
+    const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
     expect(res.status).toBe(429);
+    expectPrivateNoStore(res);
+    expect(mockCheckRateLimit).toHaveBeenCalledTimes(1);
+    expect(mockSql).not.toHaveBeenCalled();
+    expect(mockApplyTierSnapshot).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
 
-  it('returns 503 on Redis-down (strict)', async () => {
+  it('returns 429 on an IP rate-limit denial without state changes', async () => {
+    mockCheckRateLimit
+      .mockResolvedValueOnce({ allowed: true, remaining: 9 })
+      .mockResolvedValueOnce({ allowed: false, remaining: 0 });
+    const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
+    expect(res.status).toBe(429);
+    expectPrivateNoStore(res);
+    expect(mockCheckRateLimit).toHaveBeenCalledTimes(2);
+    expect(mockSql).not.toHaveBeenCalled();
+    expect(mockApplyTierSnapshot).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('strict rate-limit failure creates no state or Session', async () => {
     mockCheckRateLimit.mockRejectedValueOnce(new Error('redis down'));
-    const res = await POST(mkReq(validBody));
+    const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
     expect(res.status).toBe(503);
+    expectPrivateNoStore(res);
+    expect(mockApplyTierSnapshot).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
 
-  it('returns 404 when no business attached to auth user', async () => {
-    // Outside-tx lookup returns empty.
-    mockSql.mockImplementationOnce(() => Promise.resolve([]));
-    const res = await POST(mkReq(validBody));
+  it('owner lookup remains tenant/role scoped', async () => {
+    const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
+    expect(res.status).toBe(200);
+    const text = (mockSql.mock.calls[0]![0] as TemplateStringsArray).join('?');
+    expect(text).toMatch(/u\.auth_id\s*=\s*\?/);
+    expect(text).toMatch(/u\.role\s*=\s*'owner'/);
+    expect(text).toMatch(/a\.id\s+AS\s+account_id/i);
+  });
+
+  it('returns 404 without an attached account and creates no Session', async () => {
+    mockSql.mockResolvedValueOnce([]);
+    const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
     expect(res.status).toBe(404);
-    const body = await res.json();
-    expect(body.error).toBe('account_incomplete');
+    expect(mockApplyTierSnapshot).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
 
-  it('SQL boundary: lookup query filters on u.role = \'owner\' (admins/sales_partners get 404)', async () => {
-    // The B17 #1 fix scopes the lookup to owner role. This test pins that
-    // by asserting the exact filter appears in the issued SQL template —
-    // even when the route returns 200 (the real defense), the SQL shape
-    // is the authorization invariant.
-    const res = await POST(mkReq(validBody));
-    expect(res.status).toBe(200);
-
-    const lookupCall = mockSql.mock.calls.find((c: unknown[]) => {
-      const text = (c[0] as TemplateStringsArray).join('?');
-      return /SELECT\s+b\.id,\s*b\.owner_email/i.test(text);
-    });
-    expect(lookupCall).toBeDefined();
-    const lookupText = (lookupCall![0] as TemplateStringsArray).join('?');
-    expect(lookupText).toMatch(/u\.role\s*=\s*'owner'/);
-  });
-
-  it('non-owner session: lookup returns empty (admin business_id wouldn\'t survive role filter) → 404', async () => {
-    // Simulate an admin session reaching the route directly. The lookup
-    // returns empty because the SQL filter `u.role = 'owner'` excludes
-    // their row.
-    mockSql.mockImplementationOnce(() => Promise.resolve([]));
-    const res = await POST(mkReq(validBody));
-    expect(res.status).toBe(404);
-    const body = await res.json();
-    expect(body.error).toBe('account_incomplete');
-  });
-
-  it('returns 409 when business is not pending_payment', async () => {
-    // Lookup returns a row, then the FOR UPDATE inside tx returns active status.
-    mockSql.mockImplementationOnce(() =>
-      Promise.resolve([{ id: 'biz-1', owner_email: 'owner@example.com' }]),
-    );
-    // Override the in-tx FOR UPDATE to return 'active'.
-    let calledOnce = false;
-    const originalImpl = mockSql.getMockImplementation()!;
-    mockSql.mockImplementation((tpl: TemplateStringsArray) => {
-      const text = tpl.join('?');
-      if (
-        !calledOnce &&
-        /SELECT\s+(a\.)?subscription_status[\s\S]*FOR UPDATE/i.test(text)
-      ) {
-        calledOnce = true;
-        return Promise.resolve([{ subscription_status: 'active' }]);
-      }
-      return originalImpl(tpl);
-    });
-    const res = await POST(mkReq(validBody));
-    expect(res.status).toBe(409);
-    const body = await res.json();
-    expect(body.subscriptionStatus).toBe('active');
-  });
-
-  it('returns 409 race_lost when UPDATE matches 0 rows despite pending_payment check', async () => {
-    // Lookup ok, FOR UPDATE returns pending_payment, but UPDATE accounts count = 0 —
-    // simulates the impossible-but-defended race the new code logs.
-    let calledOnce = false;
-    const originalImpl = mockSql.getMockImplementation()!;
-    mockSql.mockImplementation((tpl: TemplateStringsArray) => {
-      const text = tpl.join('?');
-      if (!calledOnce && /UPDATE\s+accounts/i.test(text)) {
-        calledOnce = true;
-        const arr = [] as unknown[] & { count?: number };
-        Object.defineProperty(arr, 'count', { value: 0, enumerable: false });
-        return Promise.resolve(arr);
-      }
-      return originalImpl(tpl);
-    });
-    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const res = await POST(mkReq(validBody));
-    expect(res.status).toBe(409);
-    const body = await res.json();
-    expect(body.subscriptionStatus).toBe('active');
-    expect(consoleSpy).toHaveBeenCalled();
-    consoleSpy.mockRestore();
-  });
-
-  it('returns 500 checkout_unavailable when price env var missing', async () => {
-    const { CheckoutUnavailableError } = await import('@/lib/payments/create-checkout-session');
-    mockCreateCheckoutSession.mockRejectedValueOnce(
-      new CheckoutUnavailableError('Missing base price ID for tier: founders'),
-    );
-    const res = await POST(mkReq(validBody));
-    // VAL-BILLING-066: Returns 502 with user-facing error for Stripe failures
-    expect(res.status).toBe(502);
-    const body = await res.json();
-    expect(body.error).toBe('checkout_unavailable');
-  });
-
-  it('returns 200 with founders checkout URL on success', async () => {
-    const res = await POST(mkReq({ tier: 'founders' }));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.paymentUrl).toBe('https://checkout.stripe.com/test/session-1');
-    expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
-      mockSql,
-      expect.any(String), // accountId
-      'founders',
-      'owner@example.com',
-      { trial: false },
-    );
-    // UPDATE template fired with 'founders' tier bound
-    const updateCall = mockSql.mock.calls.find((c: unknown[]) =>
-      (c[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),
-    );
-    expect(updateCall).toBeDefined();
-    expect(updateCall!.some((a: unknown) => a === 'founders')).toBe(true);
-
-    const updateAcctCall = mockSql.mock.calls.find((c: unknown[]) =>
-      (c[0] as TemplateStringsArray).join('?').includes('UPDATE accounts'),
-    );
-    expect(updateAcctCall).toBeDefined();
-    const updateAcctText = (updateAcctCall![0] as TemplateStringsArray).join('?');
-    expect(updateAcctText).toContain('base_price_cents');
-    // founders base = 1900 is bound into the UPDATE
-    expect(updateAcctCall!.slice(1)).toContain(1900);
-  });
-
-  it('returns 200 with standard checkout URL on success', async () => {
-    mockCreateCheckoutSession.mockResolvedValueOnce({
-      url: 'https://checkout.stripe.com/test/standard',
-      sessionId: 'cs_test_std',
-    });
-    const res = await POST(mkReq({ tier: 'standard' }));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.paymentUrl).toBe('https://checkout.stripe.com/test/standard');
-    expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
-      mockSql,
-      expect.any(String), // accountId
-      'standard',
-      'owner@example.com',
-      { trial: false },
-    );
-  });
-
-  it('FIX 2: self-serve (onboarded_by null) account + TRIAL_ENABLED → trial:true', async () => {
-    const prev = process.env.TRIAL_ENABLED;
-    process.env.TRIAL_ENABLED = 'true';
-    try {
-      const res = await POST(mkReq({ tier: 'standard' }));
+  for (const tier of [SubscriptionTier.COPILOT, SubscriptionTier.AUTOPILOT] as const) {
+    it(`persists explicit ${tier} before creating its founding Session`, async () => {
+      const res = await POST(request({ tier }));
       expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        paymentUrl: 'https://checkout.stripe.test/session',
+      });
+      expect(mockApplyTierSnapshot).toHaveBeenCalledWith(mockSql, {
+        accountId: ACCOUNT_ID,
+        activationLockId: BUSINESS_ID,
+        tier,
+      });
       expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
         mockSql,
-        expect.any(String),
-        'standard',
-        'owner@example.com',
-        { trial: true },
-      );
-    } finally {
-      if (prev === undefined) delete process.env.TRIAL_ENABLED;
-      else process.env.TRIAL_ENABLED = prev;
-    }
-  });
-
-  it('FIX 2: admin-onboarded (onboarded_by non-null) account → trial:false even with TRIAL_ENABLED', async () => {
-    const prev = process.env.TRIAL_ENABLED;
-    process.env.TRIAL_ENABLED = 'true';
-    // Override the account_id resolution to return an admin-onboarded business.
-    const originalImpl = mockSql.getMockImplementation()!;
-    mockSql.mockImplementation((tpl: TemplateStringsArray, ...rest: unknown[]) => {
-      const text = tpl.join('?');
-      if (/SELECT\s+account_id[\s\S]*FROM\s+businesses/i.test(text)) {
-        const arr = [{ account_id: 'acct-1', onboarded_by: 'admin-user-id-1' }] as unknown[] & { count?: number };
-        Object.defineProperty(arr, 'count', { value: 1, enumerable: false });
-        return Promise.resolve(arr);
-      }
-      return originalImpl(tpl, ...rest);
-    });
-    try {
-      const res = await POST(mkReq({ tier: 'standard' }));
-      expect(res.status).toBe(200);
-      expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
-        mockSql,
-        expect.any(String),
-        'standard',
+        ACCOUNT_ID,
+        tier,
+        'founding',
         'owner@example.com',
         { trial: false },
       );
-    } finally {
-      if (prev === undefined) delete process.env.TRIAL_ENABLED;
-      else process.env.TRIAL_ENABLED = prev;
-    }
+      expect(mockApplyTierSnapshot.mock.invocationCallOrder[0]).toBeLessThan(
+        mockCreateCheckoutSession.mock.invocationCallOrder[0]!,
+      );
+    });
+  }
+
+  it('returns wrong-status conflict without creating a Session', async () => {
+    mockApplyTierSnapshot.mockResolvedValueOnce({
+      kind: 'wrong_status',
+      status: 'active',
+    });
+    const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
+    expect(res.status).toBe(409);
+    expectPrivateNoStore(res);
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
 
-  it('writes Cache-Control: no-store, private on every response', async () => {
-    const res = await POST(mkReq(validBody));
-    expect(res.headers.get('cache-control')).toBe('no-store, private');
+  it('closed Autopilot gate creates no Session', async () => {
+    mockApplyTierSnapshot.mockRejectedValueOnce(new TierNotPurchasableError());
+    const res = await POST(request({ tier: SubscriptionTier.AUTOPILOT }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'tier_unavailable' });
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('passes server-authoritative trial eligibility for the explicit tier', async () => {
+    mockResolveCheckoutContext.mockResolvedValueOnce({
+      accountId: ACCOUNT_ID,
+      trialEligible: true,
+    });
+    const res = await POST(request({ tier: SubscriptionTier.AUTOPILOT }));
+    expect(res.status).toBe(200);
+    expect(mockCreateCheckoutSession.mock.calls[0]![5]).toEqual({ trial: true });
+  });
+
+  it('excludes admin-provisioned accounts from the trial', async () => {
+    mockResolveCheckoutContext.mockResolvedValueOnce({
+      accountId: ACCOUNT_ID,
+      trialEligible: false,
+    });
+    const res = await POST(request({ tier: SubscriptionTier.AUTOPILOT }));
+    expect(res.status).toBe(200);
+    expectPrivateNoStore(res);
+    expect(mockCreateCheckoutSession.mock.calls[0]![5]).toEqual({ trial: false });
+  });
+
+  it('maps missing Price configuration to a private no-store checkout_unavailable response', async () => {
+    mockCreateCheckoutSession.mockRejectedValueOnce(
+      new CheckoutUnavailableError('missing base Price'),
+    );
+    const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
+    expect(res.status).toBe(502);
+    expectPrivateNoStore(res);
+    expect(await res.json()).toEqual({
+      error: 'checkout_unavailable',
+      detail: 'missing base Price',
+    });
+  });
+
+  it('maps provider failures to a private no-store checkout_error response', async () => {
+    mockCreateCheckoutSession.mockRejectedValueOnce(new Error('provider unavailable'));
+    const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
+    expect(res.status).toBe(502);
+    expectPrivateNoStore(res);
+    expect(await res.json()).toEqual({
+      error: 'checkout_error',
+      detail: 'Unable to connect to payment provider. Please try again later.',
+    });
   });
 });

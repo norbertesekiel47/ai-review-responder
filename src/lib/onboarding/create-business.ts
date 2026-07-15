@@ -3,7 +3,17 @@ import type { Sql } from 'postgres';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
-import { TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import {
+  SubscriptionTier,
+  isWs8SubscriptionTier,
+  resolveTierSnapshot,
+  type PriceVariant,
+  type ResolvedTierSnapshot,
+  type Ws8SubscriptionTier,
+} from '@/lib/accounts/tier-config';
+import { isFoundingWindowOpen } from '@/lib/payments/founding-window';
+import { priceIdFor } from '@/lib/payments/price-tier-map';
+import { assertTierPurchasable } from '@/lib/payments/tier-purchasability';
 
 /**
  * Thrown when the businesses+users insert transaction fails on a PG 23505
@@ -16,6 +26,29 @@ export class DuplicateEmailError extends Error {
   constructor() {
     super('users.email unique constraint violation');
     this.name = 'DuplicateEmailError';
+  }
+}
+
+export class TierPriceConfigurationError extends Error {
+  constructor(
+    tier: Ws8SubscriptionTier,
+    variant: PriceVariant,
+    kind: 'base' | 'overage',
+  ) {
+    super(`Missing ${kind} Stripe Price configuration for ${tier}/${variant}`);
+    this.name = 'TierPriceConfigurationError';
+  }
+}
+
+function assertTierPriceConfiguration(
+  tier: Ws8SubscriptionTier,
+  variant: PriceVariant,
+): void {
+  if (!priceIdFor(tier, variant, 'base')) {
+    throw new TierPriceConfigurationError(tier, variant, 'base');
+  }
+  if (!priceIdFor(tier, variant, 'overage')) {
+    throw new TierPriceConfigurationError(tier, variant, 'overage');
   }
 }
 
@@ -63,7 +96,7 @@ export interface AdminBusinessTxInput {
   highlightFacts?: string[];
   avoidFacts?: string[];
   sampleResponses?: string[];
-  subscriptionTier: 'founders' | 'standard';
+  subscriptionTier: Ws8SubscriptionTier;
   website?: string | null;
   placeId: PlaceIdInput;
 }
@@ -147,13 +180,22 @@ export async function createBusinessTx(
 
   const authId = options.mode === 'self_serve' ? options.authId : null;
   const onboardedBy = options.mode === 'admin' ? options.onboardedBy : null;
+  const priceVariant: PriceVariant = isFoundingWindowOpen() ? 'founding' : 'list';
 
-  // Self-serve hardcodes 'standard' tier (admin retains the founding/standard
-  // choice via AdminBusinessTxInput.subscriptionTier).
-  const _subscriptionTier =
+  const subscriptionTier =
     options.mode === 'admin'
       ? (input as AdminBusinessTxInput).subscriptionTier
-      : ('standard' as const);
+      : SubscriptionTier.COPILOT;
+  if (!isWs8SubscriptionTier(subscriptionTier)) {
+    throw new Error(`Unknown WS8 subscription tier: ${String(subscriptionTier)}`);
+  }
+  // Admin provisioning is an authoritative tier choice. Gate it before the
+  // transaction so a closed Autopilot launch performs zero persistence writes.
+  if (options.mode === 'admin') {
+    assertTierPurchasable(subscriptionTier);
+  }
+  const billingSnapshot = resolveTierSnapshot(subscriptionTier, priceVariant);
+  assertTierPriceConfiguration(subscriptionTier, priceVariant);
 
   // Self-serve signups no longer build a Payment Link URL here.
   // The select-plan route (/api/onboarding/select-plan) creates a Checkout
@@ -170,6 +212,8 @@ export async function createBusinessTx(
         userId,
         ownerEmail,
         onboardedBy: onboardedBy!,
+        priceVariant,
+        billingSnapshot,
       });
     } else {
       const selfServeInput = input as SelfServeBusinessTxInput;
@@ -180,6 +224,8 @@ export async function createBusinessTx(
         userId,
         ownerEmail,
         authId: authId!,
+        priceVariant,
+        billingSnapshot,
       });
     }
   } catch (err) {
@@ -201,9 +247,20 @@ async function runAdminTx(
     userId: string;
     ownerEmail: string;
     onboardedBy: string;
+    priceVariant: PriceVariant;
+    billingSnapshot: ResolvedTierSnapshot;
   },
 ): Promise<void> {
-  const { adminInput, accountId, businessId, userId, ownerEmail, onboardedBy } = args;
+  const {
+    adminInput,
+    accountId,
+    businessId,
+    userId,
+    ownerEmail,
+    onboardedBy,
+    priceVariant,
+    billingSnapshot,
+  } = args;
 
   const placeId = adminInput.placeId.placeIdVerified
     ? adminInput.placeId.placeId
@@ -215,23 +272,23 @@ async function runAdminTx(
     // Create accounts row (source of truth for subscription state after
     // migration 034). owner_user_id references the users row we create
     // below — FK is satisfied by the time the transaction commits.
-    // VAL-BILLING-064: Snapshots locations_included and locations_overage_price_cents, base_price_cents
-    // from TIER_CONFIG so the billing snapshot is self-consistent from creation.
-    const tierConfig = TIER_CONFIG[adminInput.subscriptionTier as SubscriptionTierValue];
     await tx`
       INSERT INTO accounts (
         id, owner_user_id, display_name,
-        subscription_tier, subscription_status,
-        locations_included, locations_overage_price_cents, base_price_cents
+        subscription_tier, price_variant, subscription_status,
+        base_price_cents, locations_overage_price_cents,
+        locations_included, locations_paid
       ) VALUES (
         ${accountId}::uuid,
         ${userId}::uuid,
         ${adminInput.businessName},
-        ${adminInput.subscriptionTier},
+        ${billingSnapshot.tier},
+        ${priceVariant},
         ${SubscriptionStatus.PENDING_PAYMENT},
-        ${tierConfig?.included ?? 1},
-        ${tierConfig?.overageCents ?? 2500},
-        ${tierConfig?.baseCents ?? 7900}
+        ${billingSnapshot.baseCents},
+        ${billingSnapshot.overageCents},
+        ${billingSnapshot.included},
+        ${0}
       )
     `;
 
@@ -276,7 +333,7 @@ async function runAdminTx(
         ${adminInput.ownerName},
         ${ownerEmail},
         ${adminInput.ownerPhone ?? null},
-        ${adminInput.subscriptionTier},
+        ${billingSnapshot.tier},
         ${SubscriptionStatus.PENDING_PAYMENT},
         ${adminInput.website ?? null},
         ${onboardedBy}
@@ -340,33 +397,42 @@ async function runSelfServeTx(
     userId: string;
     ownerEmail: string;
     authId: string;
+    priceVariant: PriceVariant;
+    billingSnapshot: ResolvedTierSnapshot;
   },
 ): Promise<void> {
-  const { selfServeInput, accountId, businessId, userId, ownerEmail, authId } = args;
+  const {
+    selfServeInput,
+    accountId,
+    businessId,
+    userId,
+    ownerEmail,
+    authId,
+    priceVariant,
+    billingSnapshot,
+  } = args;
 
   await sql.begin(async (tx) => {
     // Create accounts row (source of truth for subscription state after
     // migration 034). owner_user_id references the users row we create
     // below — FK is satisfied by the time the transaction commits.
-    // VAL-BILLING-064: Snapshots locations_included and locations_overage_price_cents, base_price_cents
-    // from TIER_CONFIG so the billing snapshot is self-consistent from creation.
-    // Self-serve hardcodes 'standard' tier here — select-plan updates it later.
-    const selfServeTier = 'standard' as SubscriptionTierValue;
-    const tierConfig = TIER_CONFIG[selfServeTier];
     await tx`
       INSERT INTO accounts (
         id, owner_user_id, display_name,
-        subscription_tier, subscription_status,
-        locations_included, locations_overage_price_cents, base_price_cents
+        subscription_tier, price_variant, subscription_status,
+        base_price_cents, locations_overage_price_cents,
+        locations_included, locations_paid
       ) VALUES (
         ${accountId}::uuid,
         ${userId}::uuid,
         ${PLACEHOLDER_BUSINESS_NAME},
-        ${selfServeTier},
+        ${billingSnapshot.tier},
+        ${priceVariant},
         ${SubscriptionStatus.PENDING_PAYMENT},
-        ${tierConfig?.included ?? 1},
-        ${tierConfig?.overageCents ?? 2500},
-        ${tierConfig?.baseCents ?? 7900}
+        ${billingSnapshot.baseCents},
+        ${billingSnapshot.overageCents},
+        ${billingSnapshot.included},
+        ${0}
       )
     `;
 
@@ -417,7 +483,7 @@ async function runSelfServeTx(
         ${selfServeInput.ownerName},
         ${ownerEmail},
         ${selfServeInput.ownerPhone ?? null},
-        ${'standard'},
+        ${billingSnapshot.tier},
         ${SubscriptionStatus.PENDING_PAYMENT},
         ${null},
         ${null}

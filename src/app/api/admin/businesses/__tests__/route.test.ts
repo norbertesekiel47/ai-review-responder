@@ -109,6 +109,7 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 
 // Import AFTER mocks + env
 import { POST } from '../route';
+import { resetServerConfigForTests } from '@/lib/config/server';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -121,6 +122,7 @@ function makeBody(overrides?: Record<string, unknown>): Record<string, unknown> 
     ownerName: 'Jane Smith',
     ownerEmail: 'jane@testcafe.com',
     googlePlaceId: VALID_PLACE_ID,
+    subscriptionTier: 'copilot',
     ...overrides,
   };
 }
@@ -159,6 +161,14 @@ describe('POST /api/admin/businesses — channel enrollment insert', () => {
     mockDeleteUser.mockReset();
     mockDeleteUser.mockResolvedValue({ data: null, error: null });
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+    process.env.FOUNDING_DEADLINE = '2027-01-01T00:00:00Z';
+    process.env.STRIPE_PRICE_COPILOT_LIST = 'price_copilot_list';
+    process.env.STRIPE_PRICE_COPILOT_FOUNDING = 'price_copilot_founding';
+    process.env.STRIPE_PRICE_AUTOPILOT_LIST = 'price_autopilot_list';
+    process.env.STRIPE_PRICE_AUTOPILOT_FOUNDING = 'price_autopilot_founding';
+    process.env.STRIPE_PRICE_COPILOT_OVERAGE = 'price_copilot_overage';
+    process.env.STRIPE_PRICE_AUTOPILOT_OVERAGE = 'price_autopilot_overage';
+    resetServerConfigForTests();
   });
 
   it('returns 403 when MFA step-up is not satisfied (AAL2)', async () => {
@@ -221,6 +231,20 @@ describe('POST /api/admin/businesses — channel enrollment insert', () => {
 
     expect(res.status).toBe(400);
     expect(mockTxCalls).toHaveLength(0);
+  });
+
+  it('rejects unavailable Autopilot before any account/business/user write', async () => {
+    process.env.AUTOPILOT_PURCHASABLE = 'false';
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    resetServerConfigForTests();
+
+    const res = await POST(
+      makePostRequest(makeBody({ subscriptionTier: 'autopilot' })),
+    );
+
+    expect(res.status).toBe(409);
+    expect(mockTxCalls).toHaveLength(0);
+    expect(mockInviteUserByEmail).not.toHaveBeenCalled();
   });
 
   it('enrollment insert uses same ownerEmail as business insert', async () => {
