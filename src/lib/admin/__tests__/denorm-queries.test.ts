@@ -267,7 +267,7 @@ describe('Admin denormalized account_id queries', () => {
         created_at: new Date(),
       }]);
       sqlReturnQueue.push([]);
-      sqlReturnQueue.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
+      sqlReturnQueue.push([{ subscription_tier: 'autopilot', subscription_status: 'active', past_due_at: null, flags: {} }]);
 
       const result = await getBusinessDetail(sql, 'loc-1');
       expect(result).not.toBeNull();
@@ -315,7 +315,7 @@ describe('Admin denormalized account_id queries', () => {
       sqlReturnQueue.push([]); // approval audit log
       sqlReturnQueue.push([]); // account audit log
       sqlReturnQueue.push([]); // auto approval policies
-      sqlReturnQueue.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
+      sqlReturnQueue.push([{ subscription_tier: 'autopilot', subscription_status: 'active', past_due_at: null, flags: {} }]);
 
       await getBusinessDetail(sql, 'loc-1');
 
@@ -353,7 +353,7 @@ describe('Admin denormalized account_id queries', () => {
       sqlReturnQueue.push([]);
       sqlReturnQueue.push([]);
       sqlReturnQueue.push([]);
-      sqlReturnQueue.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
+      sqlReturnQueue.push([{ subscription_tier: 'autopilot', subscription_status: 'active', past_due_at: null, flags: {} }]);
 
       await getBusinessDetail(sql, 'loc-1');
 

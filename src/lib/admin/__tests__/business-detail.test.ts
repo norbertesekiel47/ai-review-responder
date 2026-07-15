@@ -172,6 +172,7 @@ const AUTO_APPROVAL_POLICY_ROWS = [
 ];
 
 const AUTO_APPROVAL_ACCOUNT_ROW = {
+  subscription_tier: 'autopilot',
   subscription_status: 'active',
   past_due_at: null,
   flags: {},

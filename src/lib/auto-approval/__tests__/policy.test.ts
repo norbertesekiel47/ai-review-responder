@@ -3,6 +3,10 @@ import type { PolicyRowState } from '../types';
 import { isAutoApprovalThreshold } from '../types';
 import {
   DEFAULT_DAILY_AUTO_POST_CAP,
+  classifyDailyCapExposure,
+  classifyPolicyExposure,
+  classifyThresholdExposure,
+  classifyVetoWindowExposure,
   exposureRank,
   isThresholdExpansion,
   resolveDailyCap,
@@ -46,6 +50,57 @@ describe('auto-approval policy helpers', () => {
     expect(isThresholdExpansion(4, 4)).toBe(false);
     expect(isThresholdExpansion(4, 5)).toBe(false);
     expect(isThresholdExpansion(4, null)).toBe(false);
+  });
+
+  it.each([
+    [null, null, 'no_change'],
+    [null, 5, 'expansion'],
+    [null, 4, 'expansion'],
+    [5, null, 'contraction'],
+    [5, 5, 'no_change'],
+    [5, 4, 'expansion'],
+    [4, null, 'contraction'],
+    [4, 5, 'contraction'],
+    [4, 4, 'no_change'],
+  ] as const)('classifies threshold %s -> %s as %s', (before, after, expected) => {
+    expect(classifyThresholdExposure(before, after)).toBe(expected);
+  });
+
+  it.each([
+    [15, 15, 'no_change'],
+    [15, 30, 'contraction'],
+    [30, 15, 'expansion'],
+    [30, 30, 'no_change'],
+  ] as const)('classifies veto window %s -> %s as %s', (before, after, expected) => {
+    expect(classifyVetoWindowExposure(before, after)).toBe(expected);
+  });
+
+  it.each([
+    [null, null, 'no_change'],
+    [null, 1, 'contraction'],
+    [null, 50, 'contraction'],
+    [1, null, 'expansion'],
+    [50, null, 'expansion'],
+    [5, 5, 'no_change'],
+    [5, 6, 'expansion'],
+    [6, 5, 'contraction'],
+  ] as const)('classifies daily cap %s -> %s as %s', (before, after, expected) => {
+    expect(classifyDailyCapExposure(before, after)).toBe(expected);
+  });
+
+  it('treats any expanding effective dimension as an expansion', () => {
+    expect(classifyPolicyExposure(
+      { threshold: 4, vetoWindowMinutes: 30, dailyAutoPostCap: 2 },
+      { threshold: 5, vetoWindowMinutes: 15, dailyAutoPostCap: 1 },
+    )).toBe('expansion');
+  });
+
+  it('keeps complete disablement available even when deleting the row resets dials', () => {
+    expect(classifyPolicyExposure(
+      { threshold: 4, vetoWindowMinutes: 30, dailyAutoPostCap: 2 },
+      { threshold: null, vetoWindowMinutes: 15, dailyAutoPostCap: null },
+      { completeDisable: true },
+    )).toBe('contraction');
   });
 
   it('checks star ratings against nullable thresholds fail-closed', () => {

@@ -5,6 +5,7 @@ import type { AutoApprovalDiagnostics } from '../types';
 
 const BLOCK_REASON_LABELS: Record<AutoApprovalReadinessBlockReason, string> = {
   auto_approval_disabled: 'Runtime flag off',
+  autopilot_unavailable: 'Autopilot unavailable',
   provider_moderation_disabled: 'Moderation off',
   provider_moderation_not_validated: 'Moderation not validated',
   subscription_not_writable: 'Subscription read-only',

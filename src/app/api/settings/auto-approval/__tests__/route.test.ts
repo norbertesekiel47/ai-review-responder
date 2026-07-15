@@ -188,7 +188,7 @@ describe('/api/settings/auto-approval', () => {
     expect(mockPatchAutoApprovalSettings).not.toHaveBeenCalled();
   });
 
-  it('PATCH rejects active impersonation cookies', async () => {
+  it('PATCH rejects active impersonation cookies even for a contraction', async () => {
     const res = await PATCH(makeRequest('PATCH', { operation: 'set_account_manual' }, {
       cookie: 'rw_impersonation=signed-session',
     }));

@@ -137,6 +137,43 @@ describe('AutoApprovalClient', () => {
     expect(screen.getByText(/Auto-approval is not enabled for this environment/i)).toBeInTheDocument();
   });
 
+  it('renders the server-authoritative Autopilot readiness reason', () => {
+    render(<AutoApprovalClient initialState={{
+      ...baseState,
+      readiness: {
+        ...baseState.readiness,
+        canExpand: false,
+        blockReasons: ['autopilot_unavailable'],
+      },
+    }} />);
+
+    expect(screen.getByText(/Policy expansion requires an available Autopilot plan/i))
+      .toBeInTheDocument();
+    expect(within(screen.getByLabelText('Account default policy'))
+      .getByRole('option', { name: '5★ only' })).toBeDisabled();
+  });
+
+  it('disables only the veto-window expansion when readiness is blocked', () => {
+    render(<AutoApprovalClient initialState={{
+      ...baseState,
+      accountDefault: {
+        ...emptyPolicyState,
+        policyId: 'policy-1',
+        exists: true,
+        vetoWindowMinutes: 30,
+      },
+      readiness: {
+        ...baseState.readiness,
+        canExpand: false,
+        blockReasons: ['autopilot_unavailable'],
+      },
+    }} />);
+
+    const veto = screen.getByLabelText('Account default veto window');
+    expect(within(veto).getByRole('option', { name: '15 minutes' })).toBeDisabled();
+    expect(within(veto).getByRole('option', { name: '30 minutes' })).not.toBeDisabled();
+  });
+
   it('requires confirmation before sending an expansion PATCH', async () => {
     const fetchMock = vi.spyOn(global, 'fetch')
       .mockResolvedValueOnce(jsonResponse({
@@ -258,6 +295,33 @@ describe('AutoApprovalClient', () => {
     expect(patchBody(fetchMock)).toEqual({ operation: 'set_account_veto_window', minutes: 30 });
   });
 
+  it('requires standard confirmation before shortening the veto window', async () => {
+    const state = {
+      ...baseState,
+      accountDefault: {
+        ...emptyPolicyState,
+        policyId: 'policy-1',
+        exists: true,
+        vetoWindowMinutes: 30 as const,
+      },
+    };
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse(state));
+    const user = userEvent.setup();
+    render(<AutoApprovalClient initialState={state} />);
+
+    await user.selectOptions(screen.getByLabelText('Account default veto window'), '15');
+    await screen.findByRole('dialog', { name: 'Confirm auto-approval change' });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Confirm auto-approval' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(patchBody(fetchMock)).toEqual({
+      operation: 'set_account_veto_window',
+      minutes: 15,
+      confirmationLevel: 'standard',
+    });
+  });
+
   it('submits a location dial change directly when the location already has an override row', async () => {
     const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse(baseState));
     const user = userEvent.setup();
@@ -295,6 +359,104 @@ describe('AutoApprovalClient', () => {
       operation: 'set_location_veto_window',
       locationId: LOCATION_ID,
       minutes: 30,
+    });
+  });
+
+  it('rowless location dial widening keeps only the location interstitial and sends no standard confirmation', async () => {
+    const state: AutoApprovalSettingsResponse = {
+      ...baseState,
+      accountDefault: {
+        ...emptyPolicyState,
+        policyId: 'policy-account',
+        exists: true,
+        threshold: 4,
+        vetoWindowMinutes: 30,
+        dailyAutoPostCap: 2,
+        effectiveDailyCap: 2,
+      },
+      locations: [{
+        ...baseState.locations[0]!,
+        effective: {
+          threshold: 4,
+          source: 'account_default',
+          inherited: true,
+          vetoWindowMinutes: 30,
+          dailyAutoPostCap: 2,
+          effectiveDailyCap: 2,
+          suspended: false,
+        },
+      }],
+      readiness: {
+        ...baseState.readiness,
+        canExpand: false,
+        blockReasons: ['autopilot_unavailable'],
+      },
+    };
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse(state));
+    const user = userEvent.setup();
+
+    render(<AutoApprovalClient initialState={state} />);
+
+    const veto = screen.getByLabelText('Veto window for Main Cafe');
+    expect(within(veto).getByRole('option', { name: '15 minutes' })).not.toBeDisabled();
+    await user.selectOptions(veto, '15');
+    await screen.findByRole('dialog', { name: 'Give this location its own settings?' });
+
+    await user.click(screen.getByRole('button', { name: 'Give it its own settings' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(patchBody(fetchMock)).toEqual({
+      operation: 'set_location_veto_window',
+      locationId: LOCATION_ID,
+      minutes: 15,
+    });
+  });
+
+  it('manual-to-manual inherited dial widening still requires expansion confirmation', async () => {
+    const location = overriddenLocation();
+    location.override = {
+      ...location.override,
+      threshold: null,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+      effectiveDailyCap: 2,
+    };
+    location.effective = {
+      threshold: null,
+      source: 'location_override',
+      inherited: false,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+      effectiveDailyCap: 2,
+      suspended: false,
+    };
+    const state: AutoApprovalSettingsResponse = {
+      ...baseState,
+      accountDefault: {
+        ...emptyPolicyState,
+        policyId: 'policy-account',
+        exists: true,
+        vetoWindowMinutes: 15,
+        dailyAutoPostCap: null,
+      },
+      locations: [location],
+    };
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse(state));
+    const user = userEvent.setup();
+
+    render(<AutoApprovalClient initialState={state} />);
+    await user.selectOptions(
+      screen.getByLabelText('Auto-approval policy for Main Cafe'),
+      'inherit',
+    );
+    await screen.findByRole('dialog', { name: 'Confirm auto-approval change' });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Confirm auto-approval' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(patchBody(fetchMock)).toEqual({
+      operation: 'delete_location_override',
+      locationId: LOCATION_ID,
+      confirmationLevel: 'standard',
     });
   });
 
@@ -397,7 +559,7 @@ describe('AutoApprovalClient', () => {
     expect(patchBody(fetchMock, 1)).toEqual({ operation: 'set_account_daily_cap', cap: 1 });
   });
 
-  it('clearing the daily cap submits null and falls back to the default placeholder', async () => {
+  it('clearing the daily cap confirms the expansion, submits null, and restores the default', async () => {
     const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse(baseState));
     const user = userEvent.setup();
 
@@ -412,12 +574,122 @@ describe('AutoApprovalClient', () => {
     await user.clear(input);
     await user.tab();
 
+    await screen.findByRole('dialog', { name: 'Confirm auto-approval change' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Confirm auto-approval' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(patchBody(fetchMock)).toEqual({ operation: 'set_account_daily_cap', cap: null });
+    expect(patchBody(fetchMock)).toEqual({
+      operation: 'set_account_daily_cap',
+      cap: null,
+      confirmationLevel: 'standard',
+    });
     expect(screen.getByLabelText('Account default daily auto-post cap')).toHaveAttribute(
       'placeholder',
       'Default (10)',
     );
+  });
+
+  it.each([
+    ['raising', '6'],
+    ['removing', ''],
+  ])('blocked account cap %s snaps back without confirmation or PATCH', async (_label, next) => {
+    const state: AutoApprovalSettingsResponse = {
+      ...baseState,
+      accountDefault: {
+        ...emptyPolicyState,
+        policyId: 'policy-account',
+        exists: true,
+        threshold: 5,
+        dailyAutoPostCap: 5,
+        effectiveDailyCap: 5,
+      },
+      readiness: {
+        ...baseState.readiness,
+        canExpand: false,
+        blockReasons: ['autopilot_unavailable'],
+      },
+    };
+    const fetchMock = vi.spyOn(global, 'fetch');
+    const user = userEvent.setup();
+    render(<AutoApprovalClient initialState={state} />);
+
+    const input = screen.getByLabelText('Account default daily auto-post cap');
+    await user.clear(input);
+    if (next) await user.type(input, next);
+    await user.tab();
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Account default daily auto-post cap')).toHaveValue(5);
+  });
+
+  it('blocked account cap contraction remains editable', async () => {
+    const state: AutoApprovalSettingsResponse = {
+      ...baseState,
+      accountDefault: {
+        ...emptyPolicyState,
+        policyId: 'policy-account',
+        exists: true,
+        threshold: 5,
+        dailyAutoPostCap: 5,
+        effectiveDailyCap: 5,
+      },
+      readiness: {
+        ...baseState.readiness,
+        canExpand: false,
+        blockReasons: ['autopilot_unavailable'],
+      },
+    };
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse(state));
+    const user = userEvent.setup();
+    render(<AutoApprovalClient initialState={state} />);
+
+    const input = screen.getByLabelText('Account default daily auto-post cap');
+    await user.clear(input);
+    await user.type(input, '4');
+    await user.tab();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(patchBody(fetchMock)).toEqual({ operation: 'set_account_daily_cap', cap: 4 });
+  });
+
+  it('location suspension blocks cap expansion but keeps cap contraction editable', async () => {
+    const location = overriddenLocation();
+    location.override = {
+      ...location.override,
+      dailyAutoPostCap: 5,
+      effectiveDailyCap: 5,
+      suspended: true,
+      suspendedReason: 'governor_negative_feedback',
+    };
+    location.effective = {
+      ...location.effective,
+      dailyAutoPostCap: 5,
+      effectiveDailyCap: 5,
+      suspended: true,
+    };
+    const state = { ...baseState, locations: [location] };
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse(state));
+    const user = userEvent.setup();
+    render(<AutoApprovalClient initialState={state} />);
+
+    const expansion = screen.getByLabelText('Daily auto-post cap for Main Cafe');
+    await user.clear(expansion);
+    await user.type(expansion, '6');
+    await user.tab();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Daily auto-post cap for Main Cafe')).toHaveValue(5);
+
+    const contraction = screen.getByLabelText('Daily auto-post cap for Main Cafe');
+    await user.clear(contraction);
+    await user.type(contraction, '4');
+    await user.tab();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(patchBody(fetchMock)).toEqual({
+      operation: 'set_location_daily_cap',
+      locationId: LOCATION_ID,
+      cap: 4,
+    });
   });
 
   it('location daily cap on an overridden location submits directly with the location op', async () => {

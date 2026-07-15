@@ -5,6 +5,7 @@
 // export/import wiring changed. No edits to computation or mapping logic.
 
 import { computeChurnRiskScore } from '@/lib/shared/churn-score';
+import { SubscriptionTier } from '@/lib/accounts/tier-config';
 import { parseDbArray } from '@/lib/shared/db-array';
 import { isPreviewEnvironment } from '@/lib/config/flags';
 import { channelsTelegramEnabled, channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
@@ -15,6 +16,7 @@ import {
 } from '@/lib/auto-approval/flags';
 import { resolveEffectivePolicy } from '@/lib/auto-approval/policy';
 import { buildAutoApprovalReadiness } from '@/lib/auto-approval/readiness';
+import { autopilotPurchasable } from '@/lib/payments/tier-purchasability';
 import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import type {
   AccountContext,
@@ -179,6 +181,9 @@ function buildAutoApprovalDiagnostics({
   // admin's view-as session (which is always blocked from expanding by the owner route).
   const readiness = buildAutoApprovalReadiness({
     runtimeEnabled,
+    autopilotAvailable:
+      accountRow?.subscription_tier === SubscriptionTier.AUTOPILOT
+      && autopilotPurchasable(),
     providerModerationEnabled: moderationEnabled,
     providerModerationValidated: moderationValidated,
     accountWritable: writable.ok,

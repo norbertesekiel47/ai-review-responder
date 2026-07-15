@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
@@ -8,6 +8,7 @@ import {
 } from '@/lib/shared/__tests__/live-db-tenant';
 import { applyMigration074IfMissing } from '@/lib/shared/__tests__/helpers/apply-migration-074';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import { resetServerConfigForTests } from '@/lib/config/server';
 import { patchAutoApprovalSettings } from '../settings';
 
 // Live-DB suite for the WS4 Task 12 settings writers: migration 074 rebuilt
@@ -48,6 +49,12 @@ const actor = {
 
 describeWithDb('auto-approval settings writers — live upserts against the 074 indexes', { timeout: 30_000 }, () => {
   beforeAll(async () => {
+    vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
+    vi.stubEnv('AUTOPILOT_PURCHASABLE', 'true');
+    vi.stubEnv('OPENAI_MODERATION_ENABLED', 'true');
+    vi.stubEnv('AUTO_APPROVAL_PROVIDER_MODERATION_READY', 'true');
+    vi.stubEnv('VERCEL_TARGET_ENV', 'test');
+    resetServerConfigForTests();
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
     await applyMigration074IfMissing(db);
     await seedTenantAccount(db, {
@@ -56,6 +63,7 @@ describeWithDb('auto-approval settings writers — live upserts against the 074 
       ownerEmail,
       userName: 'WS4 Settings Owner',
       accountDisplayName: 'WS4 Settings Account',
+      subscriptionTier: 'autopilot',
     });
     await db`
       INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status)
@@ -64,12 +72,17 @@ describeWithDb('auto-approval settings writers — live upserts against the 074 
   });
 
   afterAll(async () => {
-    if (!db) return;
-    await sql()`DELETE FROM auto_approval_policies WHERE account_id = ${tenant.accountId}::uuid`;
-    await sql()`DELETE FROM account_audit_log WHERE account_id = ${tenant.accountId}::uuid`;
-    await sql()`DELETE FROM businesses WHERE id = ${tenant.businessId}::uuid`;
-    await cleanupTenantAccount(sql(), tenant);
-    await db.end({ timeout: 5 });
+    try {
+      if (!db) return;
+      await sql()`DELETE FROM auto_approval_policies WHERE account_id = ${tenant.accountId}::uuid`;
+      await sql()`DELETE FROM account_audit_log WHERE account_id = ${tenant.accountId}::uuid`;
+      await sql()`DELETE FROM businesses WHERE id = ${tenant.businessId}::uuid`;
+      await cleanupTenantAccount(sql(), tenant);
+      await db.end({ timeout: 5 });
+    } finally {
+      vi.unstubAllEnvs();
+      resetServerConfigForTests();
+    }
   });
 
   it('account-default upserts insert then conflict-update against the rebuilt index', async () => {
@@ -191,7 +204,11 @@ describeWithDb('auto-approval settings writers — live upserts against the 074 
       SET suspended_at = NULL, suspended_reason = NULL
       WHERE account_id = ${tenant.accountId}::uuid AND location_id IS NULL
     `;
-    const deleted = await patch({ ...actor, operation: 'clear_account_default' });
+    const deleted = await patch({
+      ...actor,
+      operation: 'clear_account_default',
+      confirmationLevel: 'standard',
+    });
     expect(deleted.accountDefault).toMatchObject({ exists: false });
 
     const [count] = await sql()<{ count: number }[]>`
