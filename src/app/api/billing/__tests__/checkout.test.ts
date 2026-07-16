@@ -36,9 +36,10 @@ vi.mock('@/lib/account-offboarding/gate', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/account-offboarding/gate')>()),
   getOffboardingState: mockGetOffboardingState,
 }));
-vi.mock('@/lib/payments/plan-activation', () => ({
-  applyTierSnapshot: mockApplyTierSnapshot,
-}));
+vi.mock('@/lib/payments/plan-activation', () => {
+  class CheckoutAttemptConflictError extends Error {}
+  return { CheckoutAttemptConflictError, applyTierSnapshot: mockApplyTierSnapshot };
+});
 vi.mock('@/lib/payments/create-checkout-session', () => {
   class CheckoutUnavailableError extends Error {}
   return {
@@ -51,6 +52,7 @@ import { POST } from '../checkout/route';
 import { AuthError } from '@/lib/db/auth';
 
 const ACCOUNT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+const ATTEMPT_ID = '11111111-2222-4333-8444-555555555555';
 const OTHER_ACCOUNT_ID = '99999999-8888-7777-6666-555555555555';
 const APP_URL = 'http://localhost:3000';
 
@@ -94,6 +96,7 @@ beforeEach(() => {
     kind: 'ok',
     accountId: ACCOUNT_ID,
     variant: 'founding',
+    attemptId: ATTEMPT_ID,
   });
   mockCreateCheckoutSession.mockResolvedValue({
     url: 'https://checkout.stripe.test/session',
@@ -195,14 +198,18 @@ describe('POST /api/billing/checkout security and orchestration', () => {
       accountId: ACCOUNT_ID,
       activationLockId: ACCOUNT_ID,
       tier: SubscriptionTier.AUTOPILOT,
+      ownerEmail: 'owner@example.com',
+      trial: false,
     });
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
       mockSql,
       ACCOUNT_ID,
       SubscriptionTier.AUTOPILOT,
       'founding',
-      'owner@example.com',
-      { trial: false },
+      {
+        attemptId: ATTEMPT_ID,
+        activationLockId: ACCOUNT_ID,
+      },
     );
     expect(mockApplyTierSnapshot.mock.invocationCallOrder[0]).toBeLessThan(
       mockCreateCheckoutSession.mock.invocationCallOrder[0]!,

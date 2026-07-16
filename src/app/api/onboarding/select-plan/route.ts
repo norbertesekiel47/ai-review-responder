@@ -7,7 +7,11 @@ import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { SelectPlanSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
 import { createCheckoutSession, CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
-import { applyTierSnapshot, resolveCheckoutContext } from '@/lib/payments/plan-activation';
+import {
+  applyTierSnapshot,
+  CheckoutAttemptConflictError,
+  resolveCheckoutContext,
+} from '@/lib/payments/plan-activation';
 import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
@@ -170,17 +174,35 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     owner_email: ownerEmail,
   } = lookup[0]!;
 
+  // Freeze the server-authoritative trial decision together with the other
+  // caller/environment-dependent Stripe create parameters in the attempt.
+  const ctx = await resolveCheckoutContext(sql, businessId);
+  if (!ctx) {
+    return NextResponse.json(
+      { error: 'account_incomplete' },
+      { status: 404, headers: NO_STORE },
+    );
+  }
+
   let result: Awaited<ReturnType<typeof applyTierSnapshot>>;
   try {
     result = await applyTierSnapshot(sql, {
       accountId,
       activationLockId: businessId,
       tier,
+      ownerEmail,
+      trial: ctx.trialEligible,
     });
   } catch (err) {
     if (err instanceof TierNotPurchasableError) {
       return NextResponse.json(
         { error: 'tier_unavailable' },
+        { status: 409, headers: NO_STORE },
+      );
+    }
+    if (err instanceof CheckoutAttemptConflictError) {
+      return NextResponse.json(
+        { error: 'checkout_attempt_conflict' },
         { status: 409, headers: NO_STORE },
       );
     }
@@ -203,25 +225,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // The session includes the correct base + overage line items.
   let checkoutUrl: string;
   try {
-    // Resolve the account_id for this owner, plus trial eligibility (PLAN.md
-    // §0.2): TRIAL_ENABLED on AND a self-serve account (onboarded_by IS
-    // NULL) — an admin/partner-onboarded business must not receive a $0
-    // trial via direct POST. Server-authoritative flag; no NEXT_PUBLIC_*.
-    const ctx = await resolveCheckoutContext(sql, businessId);
-    if (!ctx) {
-      return NextResponse.json(
-        { error: 'account_incomplete' },
-        { status: 404, headers: NO_STORE },
-      );
-    }
-
     const checkout = await createCheckoutSession(
       sql,
       ctx.accountId,
       tier,
       result.variant,
-      ownerEmail,
-      { trial: ctx.trialEligible },
+      {
+        attemptId: result.attemptId,
+        activationLockId: businessId,
+      },
     );
     checkoutUrl = checkout.url;
   } catch (err) {
@@ -236,6 +248,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         { error: 'checkout_unavailable', detail: err.message },
         { status: 502, headers: NO_STORE },
+      );
+    }
+    if (err instanceof CheckoutAttemptConflictError) {
+      return NextResponse.json(
+        { error: 'checkout_attempt_conflict' },
+        { status: 409, headers: NO_STORE },
       );
     }
     reportCaughtError('select-plan', err, { reason: 'checkout_session_creation_failed', businessId });

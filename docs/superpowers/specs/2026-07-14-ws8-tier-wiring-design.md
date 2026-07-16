@@ -257,18 +257,53 @@ snapshots and every still-referenced Price ID.
   quantity into `locations_paid`: paid and trial completion retrieve the provider-
   current subscription, verify its base Price against stored `(tier, variant)`,
   and use the fixed entitlement → billing → activation → account-row order.
-  Subscription status still changes only through `applyStripeSubscriptionState`;
-  a completion mismatch is status-only plus an operational alert.
+  Subscription status still changes only through `applyStripeSubscriptionState`.
+- One account-scoped authoritative pending Checkout lease stores the attempt id,
+  Session id/state, tier, variant, both Price ids, complete cents/quota snapshot,
+  provisional overage quantity, trial days, tax shape, customer email, and
+  success/cancel URLs. The attempt id is the stable Stripe idempotency identity.
+  Exact creating/open retries use this frozen create tuple without consulting
+  live Price/config/email/deployment inputs and reuse the open Session. Reselection must
+  resolve and expire the previous open Session before committing a replacement;
+  a completed previous Session blocks replacement. A failed expiry creates no
+  new attempt or Session, and an expire-versus-complete race is resolved from
+  provider-current state.
+- If provider Session creation succeeds but lease binding or commit fails, the
+  creator resolves ambiguous commit state under the activation locks. A bound
+  lease is returned unchanged; otherwise the unbound Session is expired with a
+  stable idempotency key, or its subscription is canceled if completion won the
+  race, and the attempt retains a remediated identity.
+- Checkout completion retrieves provider-current Session line items and the
+  provider-current subscription under entitlement → billing → activation,
+  compares provider + lease + canonical account while the account is still
+  `pending_payment`. Only provider `active`/`trialing` plus a changed+activated
+  binding transition may reach the complete snapshot writer. A stale/mismatched
+  attempt never changes status, tier, or snapshot; non-entitled/non-binding
+  completion cancels the subscription and remediates the attempt for reselection. Completed attempt and
+  Session identity is retained so successful replay remains a no-op even after
+  legitimate later tier/quantity changes, while replay still retries deprecated
+  tier-mirror convergence. Subscription/invoice events cannot
+  activate an unleased subscription because those paths resolve only the
+  account's already-bound subscription id.
+- The Checkout rule above is deliberately narrower than lifecycle webhook
+  variant mismatch. Initial completion lease/Price mismatch is rejected and
+  remediated before status projection because allowing status would bind a
+  Copilot-priced subscription to an Autopilot snapshot. After authoritative
+  binding, `subscription.updated` variant mismatch follows §6.2: status-only
+  through the single applier, with no tier/snapshot/variant repair.
 - `allow_promotion_codes` is disabled. No other Checkout flow may re-enable it.
 - `assertTierPurchasable` runs at every authoritative new tier selection or
   mutation entry point: onboarding select-plan, dashboard tier change, admin
   provisioning, and direct/stale Checkout creation. Server rejection is
   authoritative; disabled client controls are explanatory only.
-- A Checkout Session created before a gate closes may complete. Runtime tier and
+- A durable Checkout attempt authorized/frozen before a gate closes may recover its creating/open
+  provider Session and complete without re-reading the live gate. Runtime tier and
   safety gates still prevent auto-posting. If an Autopilot subscription activates
   while `autopilotPurchasable()` is false, the webhook emits an ops/Sentry signal
   for a deliberate downgrade/refund decision; it does not mutate the immutable
-  variant or invent session-revocation infrastructure.
+  variant. Gate closure alone does not revoke an already-open authoritative
+  Session; lease expiry is used for owner plan reselection and failed-bind
+  compensation.
 
 ## 4. Purchasability and policy-editing entitlement
 
@@ -461,6 +496,20 @@ Status ownership is absolute: every allowed subscription-status transition goes
 through `worker/ingress/stripe/apply-subscription-state.ts`. This handler never
 raw-writes account subscription status. Trial conversion remains independent of
 whether tier/variant resolution succeeds.
+
+Canonical status paths resolve account identity without a row lock, retrieve
+provider-current subscription state before the account row lock where required,
+then acquire entitlement before the account row. The under-entitlement applier
+is passed that exact locked account id and rechecks provider lineage on its
+locked row; it never follows a changed lineage to another account. Each actual status transition
+atomically enqueues `stripe_subscription_mirror_sync` with its canonical account
+write and follow-up facts. A resolved no-op `subscription.updated` replay also
+enqueues exactly one mirror job to repair a stale deprecated mirror without a
+second status mutation. The mirror worker locks every business for the account
+in `ORDER BY id`, then entitlement, reads canonical account state without an
+account row lock, updates the deprecated status/activation mirror, and completes
+the originating outbox entry in the same transaction. No canonical status path
+updates the businesses status mirror synchronously.
 
 After resolving account ID without a row lock, the webhook acquires entitlement
 then billing advisory locks. Before locking/updating the account row it retrieves

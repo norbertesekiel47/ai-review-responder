@@ -179,15 +179,47 @@ price drift.
    the select-plan route stays the authoritative rejector.
 9. **Checkout**: resolve base+overage Price IDs via `priceIdFor(tier, variant, …)`;
    **disable `allow_promotion_codes`** (coupons would push charge below stored price — verify no
-   other flow depends on them first). **Gate scope is explicit: `assertTierPurchasable` blocks
-   only *new* Checkout Session creation.** An already-open Autopilot Checkout Session may still
-   complete after the gate closes (sessions aren't persisted for revocation) — this is NOT a
-   safety hole, because step-5b runtime enforcement means an Autopilot-tier account still cannot
-   auto-post while `AUTO_APPROVAL_ENABLED` is off. The only residual is billing UX (paid for
-   autonomy during a brief outage). Handle it proportionately: a **webhook-time check** — if an
-   Autopilot subscription activates while `autopilotPurchasable()` is false, flag it for ops
-   (offer downgrade/refund) — NOT session-persistence + expiry infrastructure, which is
-   over-engineering for a rare pre-launch race.
+   other flow depends on them first). **Authorized post-review amendment (2026-07-15): persist one
+   authoritative pending Checkout attempt/Session lease per account.** The lease carries the
+   attempt id, Session id/state, tier, immutable variant, both Price ids, cents, included/paid
+   quotas, provisional overage quantity, trial days, tax shape, customer email, and success/cancel
+   URLs. It is created under entitlement → billing →
+   activation ordering before Stripe creation; the stable attempt id owns provider idempotency.
+   Exact creating/open retries use only that frozen tuple and never re-resolve the live Price map,
+   flags, email, or deployment URL under the same idempotency key. A new selection must provider-resolve and
+   expire the prior open Session before replacing the lease; a completed prior Session blocks a
+   replacement. If Session creation succeeds but lease binding/commit fails, compensate with a
+   stable Session-expiry idempotency key (or cancel the subscription when completion wins that
+   race), retaining a remediated identity. Completion retrieves provider-current Session line
+   items and subscription, validates them against the full lease and canonical pending account,
+   and only then applies status/snapshot. Completion accepts only provider `active`/`trialing`
+   state and requires a changed+activated binding transition; every other state/result is canceled
+   and remediated so the owner may reselect. Stale completions never apply status/tier/snapshot and
+   remediate their provider subscription. A retained completed identity makes replay a no-op and
+   prevents cancellation of the bound subscription after legitimate later tier changes, while
+   replay still converges the deprecated tier mirror after a prior post-commit mirror failure.
+   `assertTierPurchasable` authorizes and freezes only a *new durable Checkout attempt*. Exact
+   `creating` recovery and an already-open Session remain authorized after gate closure and never
+   re-read the live gate under their stable idempotency key, with runtime enforcement
+   preventing auto-posting and the webhook emitting the existing ops downgrade/refund signal.
+   This initial-completion rejection is a narrow security exception to the later lifecycle
+   webhook mismatch rule: a Checkout lease/Price mismatch is rejected and remediated **before**
+   status projection so a Copilot charge cannot activate an Autopilot snapshot. Once a
+   subscription is authoritatively bound, `subscription.updated` variant mismatch still preserves
+   the immutable variant, skips tier/snapshot mutation, and applies legitimate provider status
+   only through the single status applier.
+
+   Canonical Stripe status paths resolve account identity without a row lock, retrieve provider-
+   current state before the account row lock where required, then acquire entitlement before the
+   account row. The under-entitlement applier is anchored to that exact account id and rechecks
+   provider lineage on the locked row; it never re-resolves a different account after taking the
+   lock. Every real status transition atomically writes its audit/follow-up work and a
+   `stripe_subscription_mirror_sync` outbox row. A resolved no-op `subscription.updated` replay
+   also enqueues one mirror job so a prior mirror failure converges without a second status write.
+   The mirror worker locks all account businesses in
+   deterministic id order, then entitlement, reads canonical account state without a row lock,
+   updates the deprecated status/activation mirror, and completes its originating outbox entry in
+   the same transaction. No canonical Stripe status path updates that business mirror synchronously.
 10. **Kill dead basic coupling**: remove `basic_requires_single_location` (`tier-change.ts`) and
     the VAL-LOC-001 "rejects basic" path (`quota.ts`).
 11. **Stripe Price setup matrix** (checked runbook, staging + prod): all six Prices = USD,

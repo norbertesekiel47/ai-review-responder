@@ -209,3 +209,35 @@ re-derives the COMPLETE snapshot via the canonical signup snapshot-writer for (c
 subscription_tier, base_price_cents→2900, locations_overage_price_cents→1500, locations_included→1,
 locations_paid recomputed from active locations — NOT a hand-picked column UPDATE. Completeness is
 by-construction, not enumeration. Added a legacy-Premium (5-loc) normalization test. Returned to user.
+
+## Post-review owner-authorized amendment — 2026-07-15
+
+The owner authorized a narrow reversal of Round 7's rejection of Checkout Session persistence.
+The old decision considered only gate closure on one already-open Autopilot Session. It was unsafe
+under plan reselection: Copilot and Autopilot Sessions could coexist, the older Copilot Session could
+complete after the account snapshot had been overwritten to Autopilot, and the status-only mismatch
+path could activate $69-tier autonomy while Stripe charged the $29 Copilot Price (with a second
+subscription also able to bill).
+
+The amendment adds exactly one account-scoped authoritative pending Checkout attempt/Session lease
+with the full tier/variant/Price/cents/quota snapshot, stable provider idempotency, prior-open expiry
+on reselection, failed-bind compensation, stale-completion remediation, and retained completed
+identity for safe replay. It does not change pricing, founding-for-life, trial, purchasability, or the
+quiesced 077 → strict code → 078 rollout. Initial Checkout lease/Price mismatch is the narrow security
+exception that rejects/remediates before status projection; later `subscription.updated` variant
+mismatch remains status-only through the single applier and never mutates immutable variant or the
+billing snapshot.
+
+The adversarial implementation follow-up tightened that amendment without changing its commercial
+scope. The lease now freezes every Stripe-create input (including Price ids, quantity, trial days,
+tax shape, customer email, and success/cancel URLs); exact creating/open retries never consult live
+configuration under the stable idempotency key. Initial completion accepts only provider
+`active`/`trialing` plus a changed+activated binding transition. Other provider states or a
+non-binding result are canceled/remediated for explicit reselection. A retained completed replay
+continues to skip status/snapshot/cancellation but retries deprecated tier-mirror convergence.
+The final follow-up locates the purchasability decision at new durable-attempt authorization: exact
+`creating` recovery and open-Session reuse remain authorized after gate drift and use only their
+frozen provider parameters. Checkout completion always retrieves provider-current Session state;
+stale/missing event subscription fields are not authoritative, and a provider-current completed
+Session without a subscription identity remains retryable because no safe bind/cancel decision is
+possible. Migration 077's full-lease CHECK rejects NULL explicitly for every required field.

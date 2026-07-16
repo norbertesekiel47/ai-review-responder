@@ -207,13 +207,6 @@ describe('out-of-order delivery — subscription.* before checkout.session.compl
       [{ subscription_tier: 'copilot' }],
       [],
     );
-    // Status/activation mirror remains owned by the status applier seam.
-    sqlReturnQueue.push(
-      [{ id: '019dc366-29ce-7000-a000-0000000000bb' }],
-      [],
-      [{ subscription_status: 'active', subscription_activated_at: null }],
-      [],
-    );
     sqlReturnQueue.push([]); // mark inbound event processed
     reply = mkReply();
     await handleStripeWebhook(mkRequest(), reply as any);

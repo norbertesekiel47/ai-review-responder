@@ -584,4 +584,47 @@ not change), `lab-notes.md` (no new subsystem root-cause gotcha), and
 `.claude/CLAUDE.md` (existing invariants and where-to-read table already own the
 architecture; no invariant changed in Task 11).
 
+### WS8 adversarial launch-safety correction — 2026-07-15
+
+Post-implementation review found three launch blockers in otherwise-green WS8
+coverage: two selectable Checkout Sessions could cross-bind price and
+entitlement; `NULL` daily-cap edits were compared as if NULL meant no limit
+instead of the effective default of 10; and canonical Stripe status writers
+could compose account → business with publisher business → entitlement and tier
+entitlement → account into a three-party deadlock. The owner explicitly
+authorized the narrow Checkout-design amendment; no commercial decision changed.
+
+- **Checkout now has one authoritative attempt lease.** Migration 077 adds the
+  complete attempt/Session/tier/variant/Price/cents/quota/quantity tuple plus
+  frozen trial, tax, email, and return-URL inputs and a unique Session index.
+  Reselection expires the prior open Session; provider-created/unbound Sessions
+  are compensated; completion requires provider-current `active|trialing` and a
+  changed+activated binding transition before status/snapshot. Stale or
+  non-binding completion is canceled/remediated for explicit reselection.
+- **Policy expansion uses effective state.** NULL daily cap means the default
+  cap of 10, so NULL→1 contracts, NULL→10 is unchanged, NULL→50 expands, and
+  finite→NULL remains cap removal/expansion.
+- **Status and mirror projection are split durably.** Status ingress resolves
+  account identity unlocked, provider-reads before DB locks, acquires that exact
+  account's entitlement lock, and rechecks lineage on the locked row. Real
+  transitions and resolved no-op subscription replays enqueue
+  `stripe_subscription_mirror_sync`; the worker uses ordered business →
+  entitlement locking and completes the outbox transactionally. Canonical
+  status transactions never update the business mirror synchronously.
+
+Mutation-sensitive tests cover cross-tier Session completion, frozen-create
+drift, non-entitled/non-binding completion, founder preview/quantity/variant
+guards, effective cap comparisons, status lineage races, mirror enqueue, and
+both deterministic three-party waiter orders. The tenant-scope baseline remains
+391. Integration-owner review, PR/CI, remote Price/env work, migration, deploy,
+and rollout remain deliberately unperformed.
+
+**Doc-change-map applied.** Updated `currents.md`, this history,
+`.claude/reference/migrations-log.md`, `docs/directory.md`, the hardened design,
+WS8 spec/plan/review log, and the cutover runbook. Skipped `env-vars.md` (no new
+operator variable), `review-ingestion.md` (no ReviewSource change),
+`lab-notes.md` (the root causes are recorded in the locked review history), and
+`.claude/CLAUDE.md` (existing billing/outbox/worker-layout invariants already
+cover the new modules).
+
 ---

@@ -12,13 +12,9 @@ import {
   synchronizeBusinessTierMirror,
   writeResolvedTierSnapshot,
 } from '../../../src/lib/accounts/tier-snapshot';
-import {
-  basePriceInfoForId,
-  overagePriceInfoForId,
-} from '../../../src/lib/payments/price-tier-map';
-import { resolveOverageItem } from '../../../src/lib/payments/overage-item';
 import { autopilotPurchasable } from '../../../src/lib/payments/tier-purchasability';
 import { reportCaughtError } from '../../../src/lib/shared/report-caught-error';
+import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import {
   LOG_PREFIX,
   extractCustomerId,
@@ -29,13 +25,13 @@ import {
 } from './shared';
 import {
   applyStripeSubscriptionStateUnderEntitlementLock,
-  synchronizeDeferredBusinessSubscriptionState,
   type TransitionResult,
 } from './apply-subscription-state';
 
 interface CheckoutAccountRow {
   id: string;
   subscription_tier: string;
+  subscription_status: string;
   price_variant: string;
   base_price_cents: number;
   locations_paid: number;
@@ -43,30 +39,65 @@ interface CheckoutAccountRow {
   locations_included: number;
   stripe_subscription_id: string | null;
   stripe_customer_id: string | null;
+  checkout_attempt_id: string | null;
+  checkout_session_id: string | null;
+  checkout_attempt_state: string | null;
+  checkout_attempt_tier: string | null;
+  checkout_attempt_price_variant: string | null;
+  checkout_attempt_base_price_id: string | null;
+  checkout_attempt_overage_price_id: string | null;
+  checkout_attempt_base_price_cents: number | null;
+  checkout_attempt_overage_price_cents: number | null;
+  checkout_attempt_locations_included: number | null;
+  checkout_attempt_locations_paid: number | null;
+  checkout_attempt_overage_quantity: number | null;
 }
+
+type AlertReason =
+  | 'account_missing'
+  | 'customer_mismatch'
+  | 'bound_subscription_mismatch'
+  | 'bound_customer_mismatch'
+  | 'invalid_trial'
+  | 'stale_checkout_attempt'
+  | 'checkout_session_mismatch'
+  | 'checkout_line_items_mismatch'
+  | 'checkout_snapshot_mismatch'
+  | 'checkout_account_status_mismatch'
+  | 'checkout_subscription_not_entitled'
+  | 'checkout_status_binding_failed'
+  | 'autopilot_activated_while_unavailable';
 
 interface OperationalAlert {
   accountId: string;
+  sessionId: string;
   subscriptionId: string;
-  reason:
-    | 'account_missing'
-    | 'customer_mismatch'
-    | 'bound_subscription_mismatch'
-    | 'bound_customer_mismatch'
-    | 'invalid_trial'
-    | 'unmapped_base_price'
-    | 'variant_or_tier_mismatch'
-    | 'untrusted_overage_item'
-    | 'cross_tier_overage_price'
-    | 'autopilot_activated_while_unavailable';
+  reason: AlertReason;
   priceId?: string;
 }
 
 interface CheckoutProjection {
   transition: TransitionResult | null;
-  /** True only when this invocation reached the complete billing-snapshot write. */
-  tierProjected: boolean;
+  /** Completed replay also converges a previously failed deprecated mirror. */
+  mirrorNeedsSync: boolean;
   alerts: OperationalAlert[];
+}
+
+interface PriceLine {
+  quantity?: number | null;
+  price?: { id?: string | null } | null;
+}
+
+class CheckoutRemediationRequiredError extends Error {
+  constructor(
+    readonly accountId: string,
+    readonly sessionId: string,
+    readonly subscription: Stripe.Subscription,
+    readonly reason: AlertReason,
+  ) {
+    super(`Checkout provider remediation required: ${reason}`);
+    this.name = 'CheckoutRemediationRequiredError';
+  }
 }
 
 function reportOperationalAlert(alert: OperationalAlert): void {
@@ -77,220 +108,443 @@ function reportOperationalAlert(alert: OperationalAlert): void {
   );
 }
 
+function lineItemsMatchLease(
+  items: readonly PriceLine[],
+  account: CheckoutAccountRow,
+): boolean {
+  const baseId = account.checkout_attempt_base_price_id;
+  const overageId = account.checkout_attempt_overage_price_id;
+  const overageQuantity = Number(account.checkout_attempt_overage_quantity);
+  if (!baseId || !overageId || !Number.isSafeInteger(overageQuantity)) return false;
+
+  const base = items.filter((item) => item.price?.id === baseId);
+  const overage = items.filter((item) => item.price?.id === overageId);
+  const expectedCount = overageQuantity > 0 ? 2 : 1;
+  return (
+    items.length === expectedCount &&
+    base.length === 1 &&
+    (base[0]!.quantity ?? 0) === 1 &&
+    (overageQuantity === 0
+      ? overage.length === 0
+      : overage.length === 1 &&
+        (overage[0]!.quantity ?? 0) === overageQuantity)
+  );
+}
+
+function attemptSnapshotMatchesAccount(
+  account: CheckoutAccountRow,
+): boolean {
+  return (
+    typeof account.checkout_attempt_tier === 'string' &&
+    typeof account.checkout_attempt_price_variant === 'string' &&
+    isSubscriptionTier(account.checkout_attempt_tier) &&
+    isPriceVariant(account.checkout_attempt_price_variant) &&
+    account.subscription_tier === account.checkout_attempt_tier &&
+    account.price_variant === account.checkout_attempt_price_variant &&
+    Number(account.base_price_cents) ===
+      Number(account.checkout_attempt_base_price_cents) &&
+    Number(account.locations_overage_price_cents) ===
+      Number(account.checkout_attempt_overage_price_cents) &&
+    Number(account.locations_included) ===
+      Number(account.checkout_attempt_locations_included) &&
+    Number(account.locations_paid) === 0
+  );
+}
+
+function completedIdentityMatches(
+  account: CheckoutAccountRow,
+  sessionId: string,
+  subscriptionId: string,
+  providerCustomerId: string | null,
+): boolean {
+  return (
+    account.checkout_attempt_state === 'completed' &&
+    account.checkout_session_id === sessionId &&
+    account.stripe_subscription_id === subscriptionId &&
+    account.stripe_customer_id === providerCustomerId
+  );
+}
+
+async function cancelUnexpectedSubscription(
+  subscription: Stripe.Subscription,
+): Promise<void> {
+  if (
+    subscription.status === 'canceled' ||
+    subscription.status === 'incomplete_expired'
+  ) {
+    return;
+  }
+  await getStripe().subscriptions.cancel(
+    subscription.id,
+    { invoice_now: false, prorate: false },
+    {
+      idempotencyKey: `checkout-attempt-remediate:v1:${subscription.id}`,
+    },
+  );
+}
+
+async function markOpenAttemptRemediated(
+  accountId: string,
+  sessionId: string,
+): Promise<void> {
+  await sql.begin(async (tx) => {
+    await acquireTierBillingActivationLocks(tx, accountId, accountId);
+    await tx`
+      UPDATE accounts
+      SET checkout_attempt_state = 'remediated',
+          checkout_attempt_updated_at = NOW(),
+          updated_at = NOW()
+      WHERE id = ${accountId}::uuid
+        AND checkout_session_id = ${sessionId}
+        AND checkout_attempt_state = 'open'
+    `;
+  });
+}
+
+function mismatch(
+  accountId: string,
+  sessionId: string,
+  subscriptionId: string,
+  reason: AlertReason,
+  priceId?: string,
+): CheckoutProjection {
+  return {
+    transition: null,
+    mirrorNeedsSync: false,
+    alerts: [{ accountId, sessionId, subscriptionId, reason, priceId }],
+  };
+}
+
 /**
  * Projects provider-current Checkout state under the fixed account lock graph.
- * Status ownership remains exclusively in applyStripeSubscriptionState; this
- * handler only applies the complete tier snapshot after Price/variant checks.
+ * The account-owned attempt lease, provider-current Session line items, and
+ * provider-current subscription must all agree before the single status applier
+ * or complete billing-snapshot writer is reached.
  */
 async function projectCheckoutSubscription(
   accountId: string,
-  sessionCustomerId: string | null,
-  subscriptionId: string,
+  eventSessionId: string,
+  eventCustomerId: string | null,
 ): Promise<CheckoutProjection> {
-  return sql.begin(async (tx) => {
+  try {
+    return await sql.begin(async (tx) => {
     await acquireTierBillingActivationLocks(tx, accountId, accountId);
 
-    // This bounded shared-client call happens after advisory serialization but
-    // before the account row lock. A retrieval failure aborts with zero writes.
-    const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
+    // Both bounded provider reads occur while advisory locks are held and
+    // before the account row is locked. Event delivery order is therefore not
+    // trusted as provider-current state.
+    const providerSession = await getStripe().checkout.sessions.retrieve(
+      eventSessionId,
+      { expand: ['line_items'] },
+    );
+    const providerSubscriptionId = extractSubscriptionId(
+      providerSession.subscription,
+    );
+    if (!providerSubscriptionId) {
+      // A completed provider Session can be billable even when the event or
+      // expanded object temporarily omits its subscription identity. Without
+      // that identity we cannot safely bind or cancel, so leave ingress
+      // retryable instead of acknowledging an unknown subscription.
+      throw new Error(
+        `Provider Checkout Session ${eventSessionId} has no subscription identity`,
+      );
+    }
+    const subscription = await getStripe().subscriptions.retrieve(
+      providerSubscriptionId,
+    );
     const providerCustomerId = extractCustomerId(subscription.customer);
-    if (
-      sessionCustomerId &&
-      providerCustomerId &&
-      sessionCustomerId !== providerCustomerId
-    ) {
-      return {
-        transition: null,
-        tierProjected: false,
-        alerts: [{ accountId, subscriptionId, reason: 'customer_mismatch' }],
-      };
-    }
+    const providerSessionCustomerId = extractCustomerId(providerSession.customer);
 
-    if (
-      subscription.status === 'trialing' &&
-      (typeof subscription.trial_end !== 'number' ||
-        subscription.trial_end <= Math.floor(Date.now() / 1000))
-    ) {
-      return {
-        transition: null,
-        tierProjected: false,
-        alerts: [{ accountId, subscriptionId, reason: 'invalid_trial' }],
-      };
-    }
-
-    const [account] = await tx<CheckoutAccountRow[]>`
+    const [observed] = await tx<CheckoutAccountRow[]>`
       SELECT
         id,
         subscription_tier,
+        subscription_status,
         price_variant,
         base_price_cents,
         locations_paid,
         locations_overage_price_cents,
         locations_included,
         stripe_subscription_id,
-        stripe_customer_id
+        stripe_customer_id,
+        checkout_attempt_id,
+        checkout_session_id,
+        checkout_attempt_state,
+        checkout_attempt_tier,
+        checkout_attempt_price_variant,
+        checkout_attempt_base_price_id,
+        checkout_attempt_overage_price_id,
+        checkout_attempt_base_price_cents,
+        checkout_attempt_overage_price_cents,
+        checkout_attempt_locations_included,
+        checkout_attempt_locations_paid,
+        checkout_attempt_overage_quantity
+      FROM accounts
+      WHERE id = ${accountId}::uuid
+    `;
+
+    const providerSessionShapeValid =
+      providerSession.id === eventSessionId &&
+      providerSession.mode === 'subscription' &&
+      providerSession.status === 'complete' &&
+      (providerSession.payment_status === 'paid' ||
+        providerSession.payment_status === 'no_payment_required') &&
+      providerSession.client_reference_id === accountId;
+
+    // A retained completed identity is replay authority. The live account and
+    // subscription may have undergone a legitimate later tier/quantity change,
+    // so replay must not compare them to the original Checkout snapshot or
+    // cancel the still-bound subscription.
+    if (
+      observed &&
+      providerSessionShapeValid &&
+      providerSession.metadata?.checkout_attempt_id ===
+        observed.checkout_attempt_id &&
+      completedIdentityMatches(
+        observed,
+        eventSessionId,
+        subscription.id,
+        providerCustomerId,
+      ) &&
+      providerSessionCustomerId === providerCustomerId
+    ) {
+      return { transition: null, mirrorNeedsSync: true, alerts: [] };
+    }
+
+    let reason: AlertReason | null = null;
+    if (!observed) {
+      reason = 'account_missing';
+    } else if (
+      observed.checkout_session_id !== eventSessionId ||
+      providerSession.metadata?.checkout_attempt_id !== observed.checkout_attempt_id
+    ) {
+      reason = 'stale_checkout_attempt';
+    } else if (
+      !providerSessionShapeValid ||
+      subscription.metadata.checkout_attempt_id !== observed.checkout_attempt_id
+    ) {
+      reason = 'checkout_session_mismatch';
+    } else if (
+      observed.checkout_attempt_state !== 'open'
+    ) {
+      reason = 'stale_checkout_attempt';
+    } else if (
+      observed.subscription_status !== SubscriptionStatus.PENDING_PAYMENT
+    ) {
+      reason = 'checkout_account_status_mismatch';
+    } else if (
+      !providerCustomerId ||
+      providerSessionCustomerId !== providerCustomerId ||
+      (eventCustomerId && eventCustomerId !== providerCustomerId)
+    ) {
+      reason = 'customer_mismatch';
+    } else if (
+      observed.stripe_subscription_id !== null &&
+      observed.stripe_subscription_id !== subscription.id
+    ) {
+      reason = 'bound_subscription_mismatch';
+    } else if (
+      observed.stripe_customer_id !== null &&
+      observed.stripe_customer_id !== providerCustomerId
+    ) {
+      reason = 'bound_customer_mismatch';
+    } else if (
+      subscription.status !== 'active' &&
+      subscription.status !== 'trialing'
+    ) {
+      reason = 'checkout_subscription_not_entitled';
+    } else if (
+      subscription.status === 'trialing' &&
+      (typeof subscription.trial_end !== 'number' ||
+        subscription.trial_end <= Math.floor(Date.now() / 1000))
+    ) {
+      reason = 'invalid_trial';
+    } else if (
+      !lineItemsMatchLease(providerSession.line_items?.data ?? [], observed) ||
+      !lineItemsMatchLease(subscription.items?.data ?? [], observed)
+    ) {
+      reason = 'checkout_line_items_mismatch';
+    } else if (!attemptSnapshotMatchesAccount(observed)) {
+      reason = 'checkout_snapshot_mismatch';
+    }
+
+    if (reason) {
+      if (
+        !observed ||
+        !completedIdentityMatches(
+          observed,
+          eventSessionId,
+          subscription.id,
+          providerCustomerId,
+        )
+      ) {
+        await cancelUnexpectedSubscription(subscription);
+      }
+      // Only the current bad attempt is marked remediated. A stale completion
+      // must never overwrite the newer authoritative lease.
+      if (
+        observed?.checkout_session_id === eventSessionId &&
+        observed.checkout_attempt_state === 'open'
+      ) {
+        await tx`
+          UPDATE accounts
+          SET checkout_attempt_state = 'remediated',
+              checkout_attempt_updated_at = NOW(),
+              updated_at = NOW()
+          WHERE id = ${accountId}::uuid
+            AND checkout_session_id = ${eventSessionId}
+            AND checkout_attempt_state = 'open'
+        `;
+      }
+      return mismatch(
+        accountId,
+        eventSessionId,
+        subscription.id,
+        reason,
+        subscription.items?.data[0]?.price?.id,
+      );
+    }
+
+    if (!observed) {
+      throw new Error('unreachable checkout account state');
+    }
+
+    const [account] = await tx<CheckoutAccountRow[]>`
+      SELECT
+        id,
+        subscription_tier,
+        subscription_status,
+        price_variant,
+        base_price_cents,
+        locations_paid,
+        locations_overage_price_cents,
+        locations_included,
+        stripe_subscription_id,
+        stripe_customer_id,
+        checkout_attempt_id,
+        checkout_session_id,
+        checkout_attempt_state,
+        checkout_attempt_tier,
+        checkout_attempt_price_variant,
+        checkout_attempt_base_price_id,
+        checkout_attempt_overage_price_id,
+        checkout_attempt_base_price_cents,
+        checkout_attempt_overage_price_cents,
+        checkout_attempt_locations_included,
+        checkout_attempt_locations_paid,
+        checkout_attempt_overage_quantity
       FROM accounts
       WHERE id = ${accountId}::uuid
       FOR UPDATE
     `;
-    if (!account) {
-      return {
-        transition: null,
-        tierProjected: false,
-        alerts: [{ accountId, subscriptionId, reason: 'account_missing' }],
-      };
-    }
-
     if (
-      account.stripe_subscription_id !== null &&
-      account.stripe_subscription_id !== subscription.id
+      !account ||
+      account.checkout_attempt_id !== observed.checkout_attempt_id ||
+      account.checkout_session_id !== eventSessionId ||
+      account.checkout_attempt_state !== 'open' ||
+      account.subscription_status !== SubscriptionStatus.PENDING_PAYMENT ||
+      !attemptSnapshotMatchesAccount(account)
     ) {
-      return {
-        transition: null,
-        tierProjected: false,
-        alerts: [
-          {
-            accountId,
-            subscriptionId,
-            reason: 'bound_subscription_mismatch',
-          },
-        ],
-      };
-    }
-    if (
-      account.stripe_customer_id !== null &&
-      account.stripe_customer_id !== providerCustomerId
-    ) {
-      return {
-        transition: null,
-        tierProjected: false,
-        alerts: [
-          {
-            accountId,
-            subscriptionId,
-            reason: 'bound_customer_mismatch',
-          },
-        ],
-      };
+      if (
+        account &&
+        completedIdentityMatches(
+          account,
+          eventSessionId,
+          subscription.id,
+          providerCustomerId,
+        )
+      ) {
+        return { transition: null, mirrorNeedsSync: true, alerts: [] };
+      }
+      // Throwing rolls this transaction back and releases the account row plus
+      // advisory locks. The outer handler performs the bounded provider call
+      // only after those locks are gone.
+      throw new CheckoutRemediationRequiredError(
+        accountId,
+        eventSessionId,
+        subscription,
+        'stale_checkout_attempt',
+      );
     }
 
     const transition = await applyStripeSubscriptionStateUnderEntitlementLock(
       tx,
+      accountId,
       { mode: 'checkout', accountId },
       subscription,
     );
-
-    const items = subscription.items?.data ?? [];
-    const mappedBaseItems = items.flatMap((item) => {
-      const info = basePriceInfoForId(item.price?.id);
-      return info ? [{ item, info }] : [];
-    });
-    const base = mappedBaseItems.length === 1 ? mappedBaseItems[0] : undefined;
-    if (!base) {
-      return {
-        transition,
-        tierProjected: false,
-        alerts: [
-          {
-            accountId,
-            subscriptionId,
-            reason: 'unmapped_base_price',
-            priceId: items[0]?.price?.id,
-          },
-        ],
-      };
+    if (!transition.changed || !transition.activated) {
+      // The applier may already have issued writes inside this transaction.
+      // Roll everything back, then cancel and make the attempt reselectable
+      // only after the account row and advisory locks have been released.
+      throw new CheckoutRemediationRequiredError(
+        accountId,
+        eventSessionId,
+        subscription,
+        'checkout_status_binding_failed',
+      );
     }
-
-    if (
-      !isSubscriptionTier(account.subscription_tier) ||
-      !isPriceVariant(account.price_variant) ||
-      base.info.tier !== account.subscription_tier ||
-      base.info.variant !== account.price_variant
-    ) {
-      return {
-        transition,
-        tierProjected: false,
-        alerts: [
-          {
-            accountId,
-            subscriptionId,
-            reason: 'variant_or_tier_mismatch',
-            priceId: base.item.price.id,
-          },
-        ],
-      };
-    }
-
-    const overage = resolveOverageItem(items, {
-      storedOveragePriceCents: Number(account.locations_overage_price_cents),
-    });
-    if (overage.kind === 'untrusted') {
-      return {
-        transition,
-        tierProjected: false,
-        alerts: [
-          {
-            accountId,
-            subscriptionId,
-            reason: 'untrusted_overage_item',
-            priceId: overage.item.price.id,
-          },
-        ],
-      };
-    }
-
-    let locationsPaid = 0;
-    if (overage.kind === 'trusted') {
-      const mappedOverage = overagePriceInfoForId(overage.item.price.id);
-      if (mappedOverage && mappedOverage.tier !== account.subscription_tier) {
-        return {
-          transition,
-          tierProjected: false,
-          alerts: [
-            {
-              accountId,
-              subscriptionId,
-              reason: 'cross_tier_overage_price',
-              priceId: overage.item.price.id,
-            },
-          ],
-        };
-      }
-      locationsPaid = overage.item.quantity ?? 0;
-    }
-
-    const tier = account.subscription_tier as SubscriptionTierValue;
-    const variant = account.price_variant as PriceVariant;
+    const tier = account.checkout_attempt_tier as SubscriptionTierValue;
+    const variant = account.checkout_attempt_price_variant as PriceVariant;
+    const locationsPaid = Number(account.checkout_attempt_overage_quantity);
     await writeResolvedTierSnapshot(tx, {
       accountId,
       snapshot: {
         tier,
         variant,
-        baseCents: Number(account.base_price_cents),
-        overageCents: Number(account.locations_overage_price_cents),
-        included: Number(account.locations_included),
+        baseCents: Number(account.checkout_attempt_base_price_cents),
+        overageCents: Number(account.checkout_attempt_overage_price_cents),
+        included: Number(account.checkout_attempt_locations_included),
       },
       locationsPaid,
       audit: {
         eventType: 'subscription_updated',
         payload: {
           source: 'checkout_completed',
-          stripe_subscription_id: subscriptionId,
+          checkout_attempt_id: account.checkout_attempt_id,
+          stripe_subscription_id: subscription.id,
         },
       },
     });
+    const completed = await tx<{ id: string }[]>`
+      UPDATE accounts
+      SET checkout_attempt_state = 'completed',
+          checkout_attempt_locations_paid = ${locationsPaid},
+          checkout_attempt_updated_at = NOW(),
+          updated_at = NOW()
+      WHERE id = ${accountId}::uuid
+        AND checkout_attempt_id = ${account.checkout_attempt_id}::uuid
+        AND checkout_session_id = ${eventSessionId}
+        AND checkout_attempt_state = 'open'
+      RETURNING id
+    `;
+    if (completed.length !== 1) {
+      throw new Error('Checkout attempt completion lost its authoritative lease');
+    }
 
     const alerts: OperationalAlert[] = [];
     if (tier === SubscriptionTier.AUTOPILOT && !autopilotPurchasable()) {
       alerts.push({
         accountId,
-        subscriptionId,
+        sessionId: eventSessionId,
+        subscriptionId: subscription.id,
         reason: 'autopilot_activated_while_unavailable',
-        priceId: base.item.price.id,
+        priceId: account.checkout_attempt_base_price_id ?? undefined,
       });
     }
-    return { transition, tierProjected: true, alerts };
-  });
+    return { transition, mirrorNeedsSync: true, alerts };
+    });
+  } catch (error) {
+    if (!(error instanceof CheckoutRemediationRequiredError)) throw error;
+    await cancelUnexpectedSubscription(error.subscription);
+    await markOpenAttemptRemediated(error.accountId, error.sessionId);
+    return mismatch(
+      error.accountId,
+      error.sessionId,
+      error.subscription.id,
+      error.reason,
+    );
+  }
 }
 
 export async function processCheckoutSessionCompleted(
@@ -319,12 +573,6 @@ export async function processCheckoutSessionCompleted(
     return;
   }
 
-  const subscriptionId = extractSubscriptionId(session.subscription);
-  if (!subscriptionId) {
-    console.warn(`${LOG_PREFIX} checkout.session.completed for ref ${refId} has no subscription id — skipping activation`);
-    return;
-  }
-
   let accountId: string | null = null;
   let businessId: string | null = null;
   const [accountLookup] = await sql<{ id: string }[]>`
@@ -348,14 +596,11 @@ export async function processCheckoutSessionCompleted(
 
   const projection = await projectCheckoutSubscription(
     accountId,
+    session.id,
     extractCustomerId(session.customer),
-    subscriptionId,
   );
-  if (projection.tierProjected) {
+  if (projection.mirrorNeedsSync) {
     await synchronizeBusinessTierMirror(sql, accountId);
-  }
-  if (projection.transition?.accountResolved) {
-    await synchronizeDeferredBusinessSubscriptionState(sql, accountId);
   }
   for (const alert of projection.alerts) reportOperationalAlert(alert);
 

@@ -14,7 +14,10 @@ import { sql } from '@/lib/db/server';
 import { SubscriptionTier } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { createCheckoutSession, CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
-import { applyTierSnapshot } from '@/lib/payments/plan-activation';
+import {
+  applyTierSnapshot,
+  CheckoutAttemptConflictError,
+} from '@/lib/payments/plan-activation';
 import { trialEnabled } from '@/lib/payments/flags';
 import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 import { requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
@@ -158,6 +161,8 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
       accountId,
       activationLockId: accountId,
       tier,
+      ownerEmail: account.owner_email,
+      trial: trialEligible,
     });
     if (snapshotResult.kind === 'not_found') {
       return NextResponse.json(
@@ -180,9 +185,9 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
       accountId,
       tier,
       snapshotResult.variant,
-      account.owner_email,
       {
-        trial: trialEligible,
+        attemptId: snapshotResult.attemptId,
+        activationLockId: accountId,
       },
     );
     return NextResponse.json(
@@ -200,6 +205,12 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         { error: 'checkout_unavailable', detail: err.message },
         { status: 502, headers: NO_STORE },
+      );
+    }
+    if (err instanceof CheckoutAttemptConflictError) {
+      return NextResponse.json(
+        { error: 'checkout_attempt_conflict' },
+        { status: 409, headers: NO_STORE },
       );
     }
     reportCaughtError('billing/checkout', err, { reason: 'stripe_error', accountId });

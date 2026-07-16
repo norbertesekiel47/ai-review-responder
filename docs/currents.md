@@ -9,6 +9,31 @@ This file explains what is actually built in the repository today, how it maps t
 
 Last updated: 2026-07-15 (WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
 
+## Quick summary — WS8 launch-safety correction (2026-07-15, execution branch; PR pending)
+
+WS8 now owns exactly one durable Checkout attempt per pending account. The
+attempt freezes the selected tier, immutable variant, Price IDs, cents/quota,
+quantity, trial/tax shape, customer email, and return URLs before Stripe Session
+creation. Same-attempt retries therefore cannot drift under a deploy or flag
+change. Reselecting a plan expires the prior open Session first; stale,
+non-entitled, or non-binding completion cancels/remediates its unexpected
+subscription before any status or billing snapshot can activate. Successful
+completion replay performs no billing mutation but still repairs the deprecated
+tier mirror.
+
+Stripe status projection also has one linearization anchor: resolve the account
+without a row lock, acquire that exact account's entitlement lock, then lock and
+recheck the same account/provider lineage. Canonical status transactions never
+wait on the publisher's business-row anchor. Instead they durably enqueue
+`stripe_subscription_mirror_sync`; its worker uses business rows → entitlement
+ordering and converges the deprecated status/activation mirror. Deterministic
+three-actor tests cover both publisher-first and tier-first wait orders.
+
+The commercial prices, founding contract, and quiesced
+077 → strict code → 078 rollout are unchanged. No PR, remote migration, Stripe
+mutation, env mutation, deployment, or reserved integration-owner action has
+been performed by the executor.
+
 ## Quick summary — WS8 Copilot/Autopilot tier wiring (2026-07-15, execution branch; PR pending)
 
 RepWorth now has one commercial tier model in code: Copilot ($29 list / $19

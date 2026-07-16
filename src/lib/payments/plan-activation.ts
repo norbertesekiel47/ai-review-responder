@@ -17,33 +17,178 @@
 // businesses.subscription_tier column, retained for backward compat).
 
 import type { Sql } from 'postgres';
+import { randomUUID } from 'node:crypto';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   isPriceVariant,
+  resolveTierSnapshot,
   type PriceVariant,
   type SubscriptionTierValue,
 } from '@/lib/accounts/tier-config';
 import { acquireTierBillingActivationLocks } from '@/lib/accounts/billing-locks';
+import { computeOverageQuantity } from '@/lib/accounts/quota';
 import {
   synchronizeBusinessTierMirror,
   writeTierSnapshot,
 } from '@/lib/accounts/tier-snapshot';
 import { assertTierPurchasable } from '@/lib/payments/tier-purchasability';
-import { trialEnabled } from './flags';
+import { priceIdFor } from '@/lib/payments/price-tier-map';
+import { getStripe } from '@/lib/payments/stripe-client';
+import { stripeTaxEnabled, trialEnabled } from './flags';
 
 // ── applyTierSnapshot ────────────────────────────────────────────────────
 
 export type TierSnapshotResult =
-  | { kind: 'ok'; accountId: string; variant: PriceVariant }
+  | {
+      kind: 'ok';
+      accountId: string;
+      variant: PriceVariant;
+      attemptId: string;
+    }
   | { kind: 'not_found' }
   | { kind: 'wrong_status'; status: string };
+
+export class CheckoutAttemptConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CheckoutAttemptConflictError';
+  }
+}
+
+interface SelectionAccountRow {
+  subscription_status: string;
+  price_variant: string;
+  active_locations: number;
+  checkout_attempt_id: string | null;
+  checkout_session_id: string | null;
+  checkout_attempt_state: string | null;
+  checkout_attempt_tier: string | null;
+  checkout_attempt_price_variant: string | null;
+  checkout_attempt_base_price_id: string | null;
+  checkout_attempt_overage_price_id: string | null;
+  checkout_attempt_base_price_cents: number | null;
+  checkout_attempt_overage_price_cents: number | null;
+  checkout_attempt_locations_included: number | null;
+  checkout_attempt_locations_paid: number | null;
+  checkout_attempt_overage_quantity: number | null;
+}
+
+function isSameAttemptSelection(
+  row: SelectionAccountRow,
+  tier: SubscriptionTierValue,
+  variant: PriceVariant,
+): boolean {
+  return (
+    row.checkout_attempt_tier === tier &&
+    row.checkout_attempt_price_variant === variant
+  );
+}
+
+function resolveNewAttemptPricing(
+  tier: SubscriptionTierValue,
+  variant: PriceVariant,
+) {
+  const snapshot = resolveTierSnapshot(tier, variant);
+  const basePriceId = priceIdFor(tier, variant, 'base');
+  const overagePriceId = priceIdFor(tier, variant, 'overage');
+  if (!basePriceId || !overagePriceId) {
+    throw new Error(`Checkout Price configuration missing for ${tier}/${variant}`);
+  }
+  return { snapshot, basePriceId, overagePriceId };
+}
+
+async function resolvePriorOpenSession(
+  sessionId: string,
+  reuseWhenOpen: boolean,
+): Promise<'reuse' | 'replace'> {
+  const stripe = getStripe();
+  const prior = await stripe.checkout.sessions.retrieve(sessionId);
+  if (prior.status === 'complete') {
+    throw new CheckoutAttemptConflictError(
+      'The previous Checkout Session completed and is awaiting projection',
+    );
+  }
+  if (prior.status === 'expired') return 'replace';
+  if (prior.status !== 'open') {
+    throw new CheckoutAttemptConflictError(
+      `The previous Checkout Session is not replaceable (${prior.status ?? 'unknown'})`,
+    );
+  }
+  if (reuseWhenOpen) return 'reuse';
+
+  try {
+    const expired = await stripe.checkout.sessions.expire(
+      sessionId,
+      {},
+      { idempotencyKey: `checkout-attempt-expire:v1:${sessionId}` },
+    );
+    if (expired.status === 'expired') return 'replace';
+  } catch (error) {
+    // Completion can win the provider race after the first retrieve but before
+    // expire. Resolve provider-current state before deciding whether a new
+    // attempt is safe; never create a replacement beside a completed Session.
+    const current = await stripe.checkout.sessions.retrieve(sessionId);
+    if (current.status === 'complete') {
+      throw new CheckoutAttemptConflictError(
+        'The previous Checkout Session completed while replacement was requested',
+      );
+    }
+    if (current.status === 'expired') return 'replace';
+    throw error;
+  }
+
+  const current = await stripe.checkout.sessions.retrieve(sessionId);
+  if (current.status === 'complete') {
+    throw new CheckoutAttemptConflictError(
+      'The previous Checkout Session completed while replacement was requested',
+    );
+  }
+  if (current.status === 'expired') return 'replace';
+  throw new CheckoutAttemptConflictError(
+    `The previous Checkout Session could not be expired (${current.status ?? 'unknown'})`,
+  );
+}
 
 export interface ApplyTierSnapshotParams {
   accountId: string;
   /** Preserves the caller's established `:activation` lock identity. */
   activationLockId: string;
   tier: SubscriptionTierValue;
+  ownerEmail: string;
+  trial: boolean;
   actorUserId?: string | null;
+}
+
+export interface CheckoutCreateShape {
+  customerEmail: string;
+  successUrl: string;
+  cancelUrl: string;
+  trialPeriodDays: 30 | null;
+  taxEnabled: boolean;
+}
+
+/**
+ * Resolves every caller/environment-dependent Stripe Session parameter once,
+ * before the durable attempt is written. Retries always use this stored shape
+ * rather than re-reading flags, email, or deployment URL under the same Stripe
+ * idempotency key.
+ */
+function resolveCheckoutCreateShape(
+  ownerEmail: string,
+  trial: boolean,
+): CheckoutCreateShape {
+  const customerEmail = ownerEmail.trim();
+  if (!customerEmail) {
+    throw new Error('Checkout owner email is required');
+  }
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+  return {
+    customerEmail,
+    successUrl: `${baseUrl}/onboarding/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+    cancelUrl: `${baseUrl}/onboarding/pay?cancelled=true`,
+    trialPeriodDays: trial ? 30 : null,
+    taxEnabled: stripeTaxEnabled(),
+  };
 }
 
 /**
@@ -63,23 +208,41 @@ export interface ApplyTierSnapshotParams {
  */
 export async function applyTierSnapshot(
   sql: Sql,
-  { accountId, activationLockId, tier, actorUserId }: ApplyTierSnapshotParams,
+  {
+    accountId,
+    activationLockId,
+    tier,
+    ownerEmail,
+    trial,
+    actorUserId,
+  }: ApplyTierSnapshotParams,
 ): Promise<TierSnapshotResult> {
-  // This is an authoritative new tier selection. Reject a closed Autopilot
-  // gate before entering a transaction or touching persistent state.
-  assertTierPurchasable(tier);
-
   const result = await sql.begin(async (tx) => {
     await acquireTierBillingActivationLocks(tx, accountId, activationLockId);
 
-    const [row] = await tx<{
-      subscription_status: string;
-      price_variant: string;
-    }[]>`
-      SELECT a.subscription_status, a.price_variant
+    const [row] = await tx<SelectionAccountRow[]>`
+      SELECT
+        a.subscription_status,
+        a.price_variant,
+        COUNT(b.id)::integer AS active_locations,
+        a.checkout_attempt_id,
+        a.checkout_session_id,
+        a.checkout_attempt_state,
+        a.checkout_attempt_tier,
+        a.checkout_attempt_price_variant,
+        a.checkout_attempt_base_price_id,
+        a.checkout_attempt_overage_price_id,
+        a.checkout_attempt_base_price_cents,
+        a.checkout_attempt_overage_price_cents,
+        a.checkout_attempt_locations_included,
+        a.checkout_attempt_locations_paid,
+        a.checkout_attempt_overage_quantity
       FROM accounts a
+      LEFT JOIN businesses b
+        ON b.account_id = a.id
+       AND b.archived_at IS NULL
       WHERE a.id = ${accountId}::uuid
-      FOR UPDATE
+      GROUP BY a.id
     `;
     if (!row) {
       // The row vanished between the caller's lookup and now (e.g., cleanup
@@ -96,10 +259,112 @@ export async function applyTierSnapshot(
       throw new Error(`Account ${accountId} has invalid price_variant`);
     }
 
+    const variant = row.price_variant;
+
+    // An exact retry keeps the durable attempt identity while its provider
+    // Session is still being created. The stable identity recovers a Session
+    // created before a transient bind/commit failure.
+    if (
+      row.checkout_attempt_id &&
+      row.checkout_attempt_state === 'creating' &&
+      isSameAttemptSelection(row, tier, variant)
+    ) {
+      return {
+        kind: 'ok' as const,
+        accountId,
+        variant,
+        attemptId: row.checkout_attempt_id,
+      };
+    }
+
+    if (row.checkout_attempt_state === 'creating') {
+      // A process can disappear after Stripe accepted the stable create key but
+      // before the Session id was bound. A different selection cannot safely
+      // discover and expire that provider object, so it must first recover the
+      // existing attempt instead of creating a potentially double-billing one.
+      throw new CheckoutAttemptConflictError(
+        'The previous Checkout attempt is still being created; retry that selection',
+      );
+    }
+
+    // A replacement may not coexist with an older open provider Session. The
+    // provider status is resolved while all three advisory locks are held and
+    // before the account row is locked. A completed Session is left for its
+    // webhook; creating another subscription would double-bill the owner.
+    let checkoutCreateShape: CheckoutCreateShape | null = null;
+    let newAttemptPricing: ReturnType<typeof resolveNewAttemptPricing> | null =
+      null;
+    if (row.checkout_attempt_state === 'open' && row.checkout_session_id) {
+      const sameSelection = isSameAttemptSelection(row, tier, variant);
+      // Gate closure blocks a new/replacement selection but must not revoke an
+      // already-authoritative exact Session. Check before expiring anything so
+      // an unavailable different-tier request leaves the old lease untouched.
+      if (!sameSelection) {
+        assertTierPurchasable(tier);
+        // Validate/freeze every caller/environment-dependent input before the
+        // old open Session is expired. Exact reuse never reaches this branch.
+        checkoutCreateShape = resolveCheckoutCreateShape(ownerEmail, trial);
+        newAttemptPricing = resolveNewAttemptPricing(tier, variant);
+      }
+      const priorResolution = await resolvePriorOpenSession(
+        row.checkout_session_id,
+        sameSelection,
+      );
+      if (priorResolution === 'reuse') {
+        return {
+          kind: 'ok' as const,
+          accountId,
+          variant,
+          attemptId: row.checkout_attempt_id!,
+        };
+      }
+    } else if (row.checkout_attempt_state === 'open') {
+      throw new CheckoutAttemptConflictError(
+        'The previous Checkout attempt has no provider Session identity',
+      );
+    } else if (row.checkout_attempt_state === 'completed') {
+      throw new CheckoutAttemptConflictError(
+        'The previous Checkout Session completed and is awaiting projection',
+      );
+    }
+
+    // Gate the only remaining paths, all of which persist a new attempt. An
+    // exact provider-open retry returned above without consulting the gate.
+    assertTierPurchasable(tier);
+    checkoutCreateShape ??= resolveCheckoutCreateShape(ownerEmail, trial);
+    newAttemptPricing ??= resolveNewAttemptPricing(tier, variant);
+    const { snapshot, basePriceId, overagePriceId } = newAttemptPricing;
+
+    const [locked] = await tx<{
+      subscription_status: string;
+      price_variant: string;
+    }[]>`
+      SELECT subscription_status, price_variant
+      FROM accounts
+      WHERE id = ${accountId}::uuid
+      FOR UPDATE
+    `;
+    if (!locked) return { kind: 'not_found' as const };
+    if (locked.subscription_status !== SubscriptionStatus.PENDING_PAYMENT) {
+      return {
+        kind: 'wrong_status' as const,
+        status: locked.subscription_status,
+      };
+    }
+    if (locked.price_variant !== variant) {
+      throw new Error(`Account ${accountId} price_variant changed during selection`);
+    }
+
+    const attemptId = randomUUID();
+    const provisionalOverageQuantity = computeOverageQuantity(
+      Number(row.active_locations),
+      snapshot.included,
+    );
+
     await writeTierSnapshot(tx, {
       accountId,
       tier,
-      variant: row.price_variant,
+      variant,
       locationsPaid: 0,
       audit: {
         eventType: 'tier_selected',
@@ -107,7 +372,30 @@ export async function applyTierSnapshot(
         payload: { source: 'checkout' },
       },
     });
-    return { kind: 'ok' as const, accountId, variant: row.price_variant };
+    await tx`
+      UPDATE accounts
+      SET checkout_attempt_id = ${attemptId}::uuid,
+          checkout_session_id = NULL,
+          checkout_attempt_state = 'creating',
+          checkout_attempt_tier = ${tier},
+          checkout_attempt_price_variant = ${variant},
+          checkout_attempt_base_price_id = ${basePriceId},
+          checkout_attempt_overage_price_id = ${overagePriceId},
+          checkout_attempt_base_price_cents = ${snapshot.baseCents},
+          checkout_attempt_overage_price_cents = ${snapshot.overageCents},
+          checkout_attempt_locations_included = ${snapshot.included},
+          checkout_attempt_locations_paid = 0,
+          checkout_attempt_overage_quantity = ${provisionalOverageQuantity},
+          checkout_attempt_trial_period_days = ${checkoutCreateShape.trialPeriodDays},
+          checkout_attempt_tax_enabled = ${checkoutCreateShape.taxEnabled},
+          checkout_attempt_customer_email = ${checkoutCreateShape.customerEmail},
+          checkout_attempt_success_url = ${checkoutCreateShape.successUrl},
+          checkout_attempt_cancel_url = ${checkoutCreateShape.cancelUrl},
+          checkout_attempt_updated_at = NOW(),
+          updated_at = NOW()
+      WHERE id = ${accountId}::uuid
+    `;
+    return { kind: 'ok' as const, accountId, variant, attemptId };
   });
   if (result.kind === 'ok') {
     await synchronizeBusinessTierMirror(sql, result.accountId);

@@ -75,6 +75,7 @@ const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 let dbA: Sql | undefined;
 let dbB: Sql | undefined;
 let dbObserver: Sql | undefined;
+let dbTier: Sql | undefined;
 let tenant: TenantSeed | undefined;
 const businessId = randomUUID();
 const reviewId = randomUUID();
@@ -106,6 +107,11 @@ function observerSql(): Sql {
   return dbObserver;
 }
 
+function tierSql(): Sql {
+  if (!dbTier) throw new Error('publisher concurrency tier DB not initialized');
+  return dbTier;
+}
+
 function accountId(): string {
   if (!tenant) throw new Error('publisher concurrency tenant not initialized');
   return tenant.accountId;
@@ -119,29 +125,6 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForStatusWriterBusinessLock(): Promise<{
-  wait_event_type: string | null;
-  query: string;
-}> {
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    const [activity] = await observerSql()<{
-      wait_event_type: string | null;
-      query: string;
-    }[]>`
-      SELECT wait_event_type, query
-      FROM pg_stat_activity
-      WHERE application_name = 'ws8_status_writer'
-        AND state = 'active'
-      LIMIT 1
-    `;
-    if (activity?.wait_event_type === 'Lock' && /UPDATE\s+businesses/i.test(activity.query)) {
-      return activity;
-    }
-    await sleep(50);
-  }
-  throw new Error('status writer did not block on the businesses mirror update');
 }
 
 async function waitForGrantEntitlementLock(): Promise<{
@@ -165,6 +148,33 @@ async function waitForGrantEntitlementLock(): Promise<{
     await sleep(50);
   }
   throw new Error('grant writer did not block on the tier-entitlement advisory lock');
+}
+
+async function waitForTierEntitlementLock(): Promise<{
+  wait_event_type: string | null;
+  query: string;
+}> {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const [activity] = await observerSql()<{
+      wait_event_type: string | null;
+      query: string;
+    }[]>`
+      SELECT a.wait_event_type, a.query
+      FROM pg_stat_activity a
+      JOIN pg_locks l
+        ON l.pid = a.pid
+       AND l.locktype = 'advisory'
+       AND l.granted = FALSE
+      WHERE a.application_name = 'ws8_tier_writer'
+        AND a.state = 'active'
+        AND a.wait_event_type = 'Lock'
+        AND a.query ~* 'pg_advisory_xact_lock'
+      LIMIT 1
+    `;
+    if (activity) return activity;
+    await sleep(50);
+  }
+  throw new Error('tier writer did not block on the tier-entitlement advisory lock');
 }
 
 async function setTier(db: Sql, tier: 'copilot' | 'autopilot'): Promise<void> {
@@ -312,8 +322,10 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
     dbA = postgres(testDatabaseUrl!, { max: 1, prepare: false });
     dbB = postgres(testDatabaseUrl!, { max: 1, prepare: false });
     dbObserver = postgres(testDatabaseUrl!, { max: 1, prepare: false });
+    dbTier = postgres(testDatabaseUrl!, { max: 1, prepare: false });
     await dbA`SET application_name = 'ws8_grant_writer'`;
     await dbB`SET application_name = 'ws8_status_writer'`;
+    await dbTier`SET application_name = 'ws8_tier_writer'`;
     tenant = await seedTenantAccount(dbA, {
       subscriptionTier: 'autopilot',
       subscriptionStatus: 'active',
@@ -372,6 +384,11 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
     for (const [key, value] of Object.entries(PRICE_ENV)) process.env[key] = value;
     resetServerConfigForTests();
     await setTier(sqlA(), 'autopilot');
+    await sqlA()`
+      DELETE FROM job_outbox
+      WHERE topic = 'stripe_subscription_mirror_sync'
+        AND aggregate_id = ${accountId()}::uuid
+    `;
     mockResolveTarget.mockImplementation(async ({ responseId }: { responseId: string }) => ({
       kind: 'resolved',
       target: {
@@ -405,6 +422,7 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
     if (tenant) await cleanupTenantAccount(dbA, tenant);
     if (dbB) await dbB.end({ timeout: 5 });
     if (dbObserver) await dbObserver.end({ timeout: 5 });
+    if (dbTier) await dbTier.end({ timeout: 5 });
     await dbA.end({ timeout: 5 });
   });
 
@@ -535,65 +553,86 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
     });
     expect(mockResolveTarget).not.toHaveBeenCalled();
     expect(mockPublishReply).not.toHaveBeenCalled();
+    const [mirrorJob] = await observerSql()<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+      FROM job_outbox
+      WHERE topic = 'stripe_subscription_mirror_sync'
+        AND aggregate_id = ${accountId()}::uuid
+    `;
+    expect(mirrorJob?.count).toBe(1);
     await cleanupAttempt(ids.responseId);
+    await observerSql()`DELETE FROM job_outbox WHERE topic = 'stripe_subscription_mirror_sync' AND aggregate_id = ${accountId()}::uuid`;
   });
 
-  it('publisher business lock keeps generic status loss uncommitted until post finishes', async () => {
+  it.each(['publisher-first', 'tier-first'] as const)(
+    'status-first cancellation commits without business wait in the %s three-party interleaving',
+    async (waiterOrder) => {
     const ids = await seedAttempt();
-    const postEntered = deferred();
-    const releasePost = deferred();
-    mockPublishReply.mockImplementationOnce(async () => {
-      postEntered.resolve();
-      await releasePost.promise;
-    });
-
-    const publisher = publishAutoPolicyResponse(sqlA(), publishInput(ids));
-    await postEntered.promise;
-
-    let statusWriterFinished = false;
-    const statusWriter = sqlB().begin((tx) => applyStripeSubscriptionState(
-      tx,
-      { mode: 'checkout', accountId: accountId() },
-      {
-        id: stripeSubscriptionId,
-        customer: stripeCustomerId,
-        status: 'canceled',
-        trial_end: null,
-      },
-    )).then((transition) => {
-      statusWriterFinished = true;
+    const statusApplied = deferred();
+    const releaseStatusCommit = deferred();
+    const statusWriter = sqlB().begin(async (tx) => {
+      const transition = await applyStripeSubscriptionState(
+        tx,
+        { mode: 'checkout', accountId: accountId() },
+        {
+          id: stripeSubscriptionId,
+          customer: stripeCustomerId,
+          status: 'canceled',
+          trial_end: null,
+        },
+      );
+      statusApplied.resolve();
+      await releaseStatusCommit.promise;
       return transition;
     });
+    await statusApplied.promise;
 
-    const blocked = await waitForStatusWriterBusinessLock();
-    expect(blocked.wait_event_type).toBe('Lock');
-    expect(blocked.query).toMatch(/UPDATE\s+businesses/i);
-    expect(statusWriterFinished).toBe(false);
+    let publisherFinished = false;
+    const startPublisher = () => publishAutoPolicyResponse(sqlA(), publishInput(ids)).then(() => {
+      publisherFinished = true;
+    });
+    const startTier = () => applyTierChange(tierSql(), {
+      accountId: accountId(),
+      tier: 'copilot',
+      operationKey: `three-party-${waiterOrder}-${ids.responseId}`,
+    });
 
-    const [uncommittedAccount] = await observerSql()<{
-      subscription_status: string;
-    }[]>`
-      SELECT subscription_status
-      FROM accounts
-      WHERE id = ${accountId()}::uuid
-    `;
-    const [lockedBusiness] = await observerSql()<{
-      subscription_status: string;
-    }[]>`
-      SELECT subscription_status
-      FROM businesses
-      WHERE id = ${businessId}::uuid
-    `;
-    expect(uncommittedAccount?.subscription_status).toBe('active');
-    expect(lockedBusiness?.subscription_status).toBe('active');
+    let publisher: Promise<void>;
+    let tierWriter: ReturnType<typeof applyTierChange>;
+    if (waiterOrder === 'publisher-first') {
+      publisher = startPublisher();
+      const blocked = await waitForGrantEntitlementLock();
+      expect(blocked.wait_event_type).toBe('Lock');
+      expect(publisherFinished).toBe(false);
+      tierWriter = startTier();
+    } else {
+      tierWriter = startTier();
+      const tierBlocked = await waitForTierEntitlementLock();
+      expect(tierBlocked.wait_event_type).toBe('Lock');
+      expect(tierBlocked.query).toMatch(/pg_advisory_xact_lock/i);
+      publisher = startPublisher();
+      const blocked = await waitForGrantEntitlementLock();
+      expect(blocked.wait_event_type).toBe('Lock');
+    }
+    await sleep(150);
+    expect(publisherFinished).toBe(false);
+    expect(mockResolveTarget).not.toHaveBeenCalled();
+    expect(mockPublishReply).not.toHaveBeenCalled();
 
-    releasePost.resolve();
-    await publisher;
-    await expect(statusWriter).resolves.toMatchObject({
+    // The publisher now holds its business anchor while waiting for the status
+    // writer's entitlement lock. Canonical cancellation has no business write,
+    // so releasing its deliberate pause must commit without waiting for either
+    // downstream participant.
+    releaseStatusCommit.resolve();
+    await expect(Promise.race([
+      statusWriter,
+      sleep(2_000).then(() => { throw new Error('canonical cancellation waited on business'); }),
+    ])).resolves.toMatchObject({
       fromStatus: 'active',
       toStatus: 'cancelled',
       changed: true,
     });
+    await Promise.all([publisher, tierWriter]);
 
     const [committedAccount] = await observerSql()<{
       subscription_status: string;
@@ -602,24 +641,34 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
       FROM accounts
       WHERE id = ${accountId()}::uuid
     `;
-    const [committedBusiness] = await observerSql()<{
-      subscription_status: string;
+    const [response] = await observerSql()<{
+      status: string;
+      approval_method: string | null;
+      posting_error: string | null;
     }[]>`
-      SELECT subscription_status
-      FROM businesses
-      WHERE id = ${businessId}::uuid
-    `;
-    const [response] = await observerSql()<{ status: string }[]>`
-      SELECT status
+      SELECT status, approval_method, posting_error
       FROM responses
       WHERE id = ${ids.responseId}::uuid
     `;
     expect(committedAccount?.subscription_status).toBe('cancelled');
-    expect(committedBusiness?.subscription_status).toBe('cancelled');
-    expect(response?.status).toBe('posted');
-    expect(mockPublishReply).toHaveBeenCalledTimes(1);
+    expect(response).toEqual({
+      status: 'pending_approval',
+      approval_method: null,
+      posting_error: 'auto_policy_revoked_tier_entitlement',
+    });
+    expect(mockResolveTarget).not.toHaveBeenCalled();
+    expect(mockPublishReply).not.toHaveBeenCalled();
+    const [mirrorJob] = await observerSql()<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+      FROM job_outbox
+      WHERE topic = 'stripe_subscription_mirror_sync'
+        AND aggregate_id = ${accountId()}::uuid
+    `;
+    expect(mirrorJob?.count).toBe(1);
     await cleanupAttempt(ids.responseId);
-  });
+    await observerSql()`DELETE FROM job_outbox WHERE topic = 'stripe_subscription_mirror_sync' AND aggregate_id = ${accountId()}::uuid`;
+    },
+  );
 
   it('tier/subscription writer first makes publisher wait, then downgrade with zero external calls', async () => {
     const ids = await seedAttempt();

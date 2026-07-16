@@ -9,8 +9,9 @@
 
 import Stripe from 'stripe';
 import type postgres from 'postgres';
-import { applyStripeSubscriptionState } from '../../../ingress/stripe/apply-subscription-state';
+import { applyStripeSubscriptionStateUnderEntitlementLock } from '../../../ingress/stripe/apply-subscription-state';
 import { SubscriptionStatus } from '../../../../src/lib/shared/subscription-status';
+import { acquireTierEntitlementLock } from '../../../../src/lib/accounts/billing-locks';
 import { isSubscriptionTier } from '../../../../src/lib/accounts/tier-config';
 import { resolveSubscriptionBilling } from '../../../../src/lib/payments/overage-item';
 import {
@@ -188,17 +189,19 @@ export async function reconcileAccount(
     // Read-before-tx invariant: all Stripe reads above have resolved before
     // sql.begin() acquires a pool connection. This tx runs only fast DB writes —
     // never across an open Stripe call.
-    const transition = await sql.begin(async (tx) =>
-      applyStripeSubscriptionState(
+    const transition = await sql.begin(async (tx) => {
+      await acquireTierEntitlementLock(tx, account.id);
+      return applyStripeSubscriptionStateUnderEntitlementLock(
         tx,
+        account.id,
         {
           mode: 'subscription',
           stripeCustomerId: extractStripeCustomerId(subscription.customer) ?? account.stripe_customer_id ?? '',
           stripeSubscriptionId: account.stripe_subscription_id!,
         },
         subscription,
-      ),
-    );
+      );
+    });
     if (transition.changed) {
       logger.warn('Corrected stuck trialing row to match Stripe', {
         account_id: account.id,

@@ -26,6 +26,7 @@ import {
 } from '../../../src/lib/payments/overage-item';
 import { autopilotPurchasable } from '../../../src/lib/payments/tier-purchasability';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { enqueueStripeSubscriptionMirrorSync } from '../../../src/lib/shared/job-outbox-helpers';
 import { subscriptionGrantsFullAccess } from '../../../src/lib/shared/subscription-status';
 import {
   LOG_PREFIX,
@@ -35,7 +36,6 @@ import {
 } from './shared';
 import {
   applyStripeSubscriptionStateUnderEntitlementLock,
-  synchronizeDeferredBusinessSubscriptionState,
 } from './apply-subscription-state';
 
 const logger = createWorkerLogger('[ingress/stripe/subscription-updated]');
@@ -510,6 +510,7 @@ async function projectProviderCurrentSubscriptionTx(
   // one Stripe status applier.
   const transition = await applyStripeSubscriptionStateUnderEntitlementLock(
     tx,
+    account.id,
     {
       mode: 'subscription',
       stripeCustomerId: input.customerId,
@@ -517,6 +518,13 @@ async function projectProviderCurrentSubscriptionTx(
     },
     subscription,
   );
+  // A provider-current replay may be a canonical no-op while the deprecated
+  // business status/activation mirror is stale. Changed transitions enqueue
+  // this work inside the applier; enqueue only the resolved no-op case here so
+  // every provider-current projection repairs the mirror exactly once.
+  if (transition.accountResolved && !transition.changed) {
+    await enqueueStripeSubscriptionMirrorSync(tx, account.id);
+  }
   const billing = resolveProjectionBilling({
     account,
     subscription,
@@ -609,9 +617,6 @@ export async function processSubscriptionUpdated(
   if (outcome.accountId) {
     if (outcome.kind === 'updated') {
       await synchronizeBusinessTierMirror(sql, outcome.accountId);
-    }
-    if (outcome.transition?.accountResolved) {
-      await synchronizeDeferredBusinessSubscriptionState(sql, outcome.accountId);
     }
   }
   for (const alert of outcome.alerts) reportOperationalAlert(alert);

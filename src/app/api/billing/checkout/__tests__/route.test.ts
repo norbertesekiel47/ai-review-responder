@@ -51,6 +51,7 @@ import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 import { CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
 
 const ACCOUNT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+const ATTEMPT_ID = '11111111-2222-4333-8444-555555555555';
 const APP_URL = 'http://localhost:3000';
 
 function request(body: Record<string, unknown>): NextRequest {
@@ -86,6 +87,7 @@ beforeEach(() => {
     kind: 'ok',
     accountId: ACCOUNT_ID,
     variant: 'founding',
+    attemptId: ATTEMPT_ID,
   });
   mockCreateCheckoutSession.mockResolvedValue({
     url: 'https://checkout.stripe.test/session',
@@ -131,14 +133,18 @@ describe('POST /api/billing/checkout', () => {
         accountId: ACCOUNT_ID,
         activationLockId: ACCOUNT_ID,
         tier,
+        ownerEmail: 'owner@example.com',
+        trial: false,
       });
       expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
         mockSql,
         ACCOUNT_ID,
         tier,
         'founding',
-        'owner@example.com',
-        { trial: false },
+        {
+          attemptId: ATTEMPT_ID,
+          activationLockId: ACCOUNT_ID,
+        },
       );
       expect(mockApplyTierSnapshot.mock.invocationCallOrder[0]).toBeLessThan(
         mockCreateCheckoutSession.mock.invocationCallOrder[0]!,
@@ -162,13 +168,15 @@ describe('POST /api/billing/checkout', () => {
       request({ accountId: ACCOUNT_ID, tier: SubscriptionTier.COPILOT }),
     );
     expect(res.status).toBe(200);
-    expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+    expect(mockApplyTierSnapshot).toHaveBeenCalledWith(
       mockSql,
-      ACCOUNT_ID,
-      SubscriptionTier.COPILOT,
-      'founding',
-      'owner@example.com',
-      { trial: true },
+      {
+        accountId: ACCOUNT_ID,
+        activationLockId: ACCOUNT_ID,
+        tier: SubscriptionTier.COPILOT,
+        ownerEmail: 'owner@example.com',
+        trial: true,
+      },
     );
   });
 
@@ -179,7 +187,13 @@ describe('POST /api/billing/checkout', () => {
       request({ accountId: ACCOUNT_ID, tier: SubscriptionTier.COPILOT }),
     );
     expect(res.status).toBe(200);
-    expect(mockCreateCheckoutSession.mock.calls[0]![5]).toEqual({ trial: false });
+    expect(mockApplyTierSnapshot.mock.calls[0]![1]).toEqual({
+      accountId: ACCOUNT_ID,
+      activationLockId: ACCOUNT_ID,
+      tier: SubscriptionTier.COPILOT,
+      ownerEmail: 'owner@example.com',
+      trial: false,
+    });
   });
 
   it('rejects an already-entitled account before snapshot or Session creation', async () => {

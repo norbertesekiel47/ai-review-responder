@@ -908,7 +908,17 @@ Revisit triggers:
 - **077** — WS8 Copilot/Autopilot expand + quiesced normalization (spec
   `docs/superpowers/specs/2026-07-14-ws8-tier-wiring-design.md` §7.2). Adds
   `accounts.price_variant TEXT NOT NULL DEFAULT 'list'`, constrained exactly to
-  `list`/`founding`, plus a column-scoped immutable-update trigger. Changes the
+  `list`/`founding`, plus a column-scoped immutable-update trigger. Also adds the
+  account-scoped authoritative pending Checkout lease: attempt UUID, Session id
+  and state, tier, variant, both Price ids, base/overage cents, included/paid
+  quotas, provisional overage quantity, trial-period days, tax-enabled shape,
+  customer email, success/cancel URLs, and update timestamp. These columns freeze
+  every caller/environment-dependent Stripe create parameter so exact retries do
+  not reuse one idempotency key with drifted inputs. The named
+  complete-tuple CHECK permits only `creating`/`open`/`completed`/`remediated`
+  full snapshots (or an all-NULL absent lease), and the partial unique
+  `accounts_checkout_session_id_uniq` index prevents one Stripe Session from
+  being bound to multiple accounts. Changes the
   account launch defaults to Copilot/list (`subscription_tier='copilot'`, base
   `2900`, overage `1500`, one included location) and the deprecated businesses
   tier-mirror default to `copilot`. The first-apply sentinel is whether
@@ -916,7 +926,7 @@ Revisit triggers:
   direct-SQL account UPDATE unconditionally writes the complete canonical
   snapshot (including `locations_paid=0`) to every then-existing account and a
   second UPDATE normalizes every businesses mirror. Reapplication repairs the
-  defaults/CHECK/function/trigger only and never rewrites account or business
+  defaults/CHECK/function/trigger plus Checkout CHECK/index only and never rewrites account or business
   data, so post-cutover founding Autopilot rows survive byte-for-byte. One
   atomic statement; no TypeScript/provider/Redis dependency, outbox row, or
   reconciliation enqueue. Apply only inside the quiesced rollout after the

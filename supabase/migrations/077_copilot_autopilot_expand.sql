@@ -30,7 +30,25 @@ BEGIN
   -- Add nullable first so the complete first-apply snapshot can be written in
   -- one UPDATE. SET NOT NULL follows after that unconditional normalization.
   ALTER TABLE public.accounts
-    ADD COLUMN IF NOT EXISTS price_variant TEXT DEFAULT 'list';
+    ADD COLUMN IF NOT EXISTS price_variant TEXT DEFAULT 'list',
+    ADD COLUMN IF NOT EXISTS checkout_attempt_id UUID,
+    ADD COLUMN IF NOT EXISTS checkout_session_id TEXT,
+    ADD COLUMN IF NOT EXISTS checkout_attempt_state TEXT,
+    ADD COLUMN IF NOT EXISTS checkout_attempt_tier TEXT,
+    ADD COLUMN IF NOT EXISTS checkout_attempt_price_variant TEXT,
+    ADD COLUMN IF NOT EXISTS checkout_attempt_base_price_id TEXT,
+    ADD COLUMN IF NOT EXISTS checkout_attempt_overage_price_id TEXT,
+    ADD COLUMN IF NOT EXISTS checkout_attempt_base_price_cents INTEGER,
+    ADD COLUMN IF NOT EXISTS checkout_attempt_overage_price_cents INTEGER,
+    ADD COLUMN IF NOT EXISTS checkout_attempt_locations_included INTEGER,
+    ADD COLUMN IF NOT EXISTS checkout_attempt_locations_paid INTEGER,
+    ADD COLUMN IF NOT EXISTS checkout_attempt_overage_quantity INTEGER,
+    ADD COLUMN IF NOT EXISTS checkout_attempt_trial_period_days INTEGER,
+    ADD COLUMN IF NOT EXISTS checkout_attempt_tax_enabled BOOLEAN,
+    ADD COLUMN IF NOT EXISTS checkout_attempt_customer_email TEXT,
+    ADD COLUMN IF NOT EXISTS checkout_attempt_success_url TEXT,
+    ADD COLUMN IF NOT EXISTS checkout_attempt_cancel_url TEXT,
+    ADD COLUMN IF NOT EXISTS checkout_attempt_updated_at TIMESTAMPTZ;
 
   IF first_apply THEN
     UPDATE public.accounts
@@ -69,6 +87,83 @@ BEGIN
   ALTER TABLE public.accounts
     ADD CONSTRAINT accounts_price_variant_check
     CHECK (price_variant IN ('list', 'founding'));
+
+  -- One account row owns the authoritative Checkout attempt lease. A
+  -- `creating` lease is durable before the provider side effect and therefore
+  -- gives retries one stable attempt/idempotency identity. An exposed Session
+  -- is always attached to a complete immutable tier/Price/snapshot tuple.
+  ALTER TABLE public.accounts
+    DROP CONSTRAINT IF EXISTS accounts_checkout_attempt_complete_check;
+  ALTER TABLE public.accounts
+    ADD CONSTRAINT accounts_checkout_attempt_complete_check CHECK (
+      (
+        checkout_attempt_state IS NULL
+        AND checkout_attempt_id IS NULL
+        AND checkout_session_id IS NULL
+        AND checkout_attempt_tier IS NULL
+        AND checkout_attempt_price_variant IS NULL
+        AND checkout_attempt_base_price_id IS NULL
+        AND checkout_attempt_overage_price_id IS NULL
+        AND checkout_attempt_base_price_cents IS NULL
+        AND checkout_attempt_overage_price_cents IS NULL
+        AND checkout_attempt_locations_included IS NULL
+        AND checkout_attempt_locations_paid IS NULL
+        AND checkout_attempt_overage_quantity IS NULL
+        AND checkout_attempt_trial_period_days IS NULL
+        AND checkout_attempt_tax_enabled IS NULL
+        AND checkout_attempt_customer_email IS NULL
+        AND checkout_attempt_success_url IS NULL
+        AND checkout_attempt_cancel_url IS NULL
+        AND checkout_attempt_updated_at IS NULL
+      )
+      OR
+      (
+        checkout_attempt_state IS NOT NULL
+        AND checkout_attempt_state IN ('creating', 'open', 'completed', 'remediated')
+        AND checkout_attempt_id IS NOT NULL
+        AND (
+          (checkout_attempt_state = 'creating' AND checkout_session_id IS NULL)
+          OR
+          (checkout_attempt_state <> 'creating' AND checkout_session_id IS NOT NULL)
+        )
+        AND checkout_attempt_tier IS NOT NULL
+        AND checkout_attempt_tier IN ('copilot', 'autopilot')
+        AND checkout_attempt_price_variant IS NOT NULL
+        AND checkout_attempt_price_variant IN ('list', 'founding')
+        AND checkout_attempt_base_price_id IS NOT NULL
+        AND checkout_attempt_overage_price_id IS NOT NULL
+        AND checkout_attempt_base_price_cents IS NOT NULL
+        AND checkout_attempt_base_price_cents > 0
+        AND checkout_attempt_overage_price_cents IS NOT NULL
+        AND checkout_attempt_overage_price_cents > 0
+        AND checkout_attempt_locations_included IS NOT NULL
+        AND checkout_attempt_locations_included > 0
+        AND checkout_attempt_locations_paid IS NOT NULL
+        AND checkout_attempt_locations_paid >= 0
+        AND (
+          checkout_attempt_state = 'completed'
+          OR checkout_attempt_locations_paid = 0
+        )
+        AND checkout_attempt_overage_quantity IS NOT NULL
+        AND checkout_attempt_overage_quantity >= 0
+        AND (
+          checkout_attempt_trial_period_days IS NULL
+          OR checkout_attempt_trial_period_days = 30
+        )
+        AND checkout_attempt_tax_enabled IS NOT NULL
+        AND NULLIF(BTRIM(checkout_attempt_customer_email), '') IS NOT NULL
+        AND NULLIF(BTRIM(checkout_attempt_success_url), '') IS NOT NULL
+        AND NULLIF(BTRIM(checkout_attempt_cancel_url), '') IS NOT NULL
+        AND checkout_attempt_updated_at IS NOT NULL
+      )
+    );
+
+  EXECUTE 'DROP INDEX IF EXISTS public.accounts_checkout_session_id_uniq';
+  EXECUTE $index$
+    CREATE UNIQUE INDEX accounts_checkout_session_id_uniq
+      ON public.accounts (checkout_session_id)
+      WHERE checkout_session_id IS NOT NULL
+  $index$;
 
   -- Dynamic DDL is required because CREATE FUNCTION is not a PL/pgSQL statement
   -- inside this atomic DO block. The function has no object lookups, and its

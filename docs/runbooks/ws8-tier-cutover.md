@@ -253,6 +253,15 @@ FROM businesses
 WHERE subscription_tier IS DISTINCT FROM 'copilot';
 
 SELECT COUNT(*) AS outbox_count_after_077 FROM job_outbox;
+
+SELECT
+  to_regclass('public.accounts_checkout_session_id_uniq') IS NOT NULL
+    AS checkout_session_index_present,
+  EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.accounts'::regclass
+      AND conname = 'accounts_checkout_attempt_complete_check'
+  ) AS checkout_lease_constraint_present;
 ```
 
 The two invalid-row counts must be zero and `outbox_count_after_077` must equal
@@ -260,6 +269,9 @@ the recorded baseline exactly. Also introspect the `accounts.price_variant`
 column, its `list` default, the named value constraint, the immutable-update
 trigger, and the new Copilot defaults. A second application may repair schema
 objects but must not overwrite any post-first-apply founding or Autopilot row.
+Also require both Checkout lease booleans above to be true. The partial unique
+Session index and complete-tuple constraint are launch safety objects: strict
+code must not start if either is absent or widened.
 
 ## 6. Deploy strict code and run controlled smoke
 
@@ -273,7 +285,12 @@ yet.
 Drive each provider-current terminal status through the existing billing
 reconciliation or signed-event replay path. Those paths must write status only
 through `worker/ingress/stripe/apply-subscription-state.ts`; never repair status
-with raw SQL. Then run the non-mutating convergence gate:
+with raw SQL. A real transition must atomically enqueue
+`stripe_subscription_mirror_sync`; a resolved no-op `subscription.updated`
+replay must enqueue one repair job. Verify the worker converges the deprecated
+business status/activation mirror and completes the originating outbox entry.
+Canonical status ingress must not update that business mirror synchronously.
+Then run the non-mutating convergence gate:
 
 ```bash
 pnpm ws8:stripe-preflight --require-status-convergence
@@ -301,6 +318,19 @@ Exercise and record:
 - explicit Copilot list/founding Checkout and card-up-front trial selection;
 - explicit Autopilot list/founding Checkout only during the authorized staging
   gate-open portion;
+- same-tier Checkout retry returns the same provider-open Session;
+- exact creating/open retry remains stable after Price-map, tax-flag, owner-email,
+  or deployment-URL drift because it uses the frozen lease create tuple;
+- Copilot → Autopilot reselection expires the prior open Copilot Session before
+  exposing the replacement, while a prior completed Session blocks reselection;
+- delayed completion of a superseded Session applies no status/tier/snapshot,
+  cancels its unexpected subscription idempotently, and leaves the newer lease
+  unchanged;
+- non-`active`/`trialing` completion and a non-binding status transition cancel
+  and remediate the attempt without status/tier/snapshot mutation, permitting
+  explicit reselection;
+- successful completion replay skips status/snapshot/cancellation, never cancels
+  the bound subscription, and still converges the deprecated tier mirror;
 - tier-change preview/execute with stored founder pricing;
 - overage item create/update/delete and quantity math;
 - provider-current subscription webhook projection and replay;

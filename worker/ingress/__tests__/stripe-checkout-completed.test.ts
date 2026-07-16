@@ -21,11 +21,13 @@ const {
   mockWriteAccountAuditLog,
   resetStripeWebhookMocks,
   queueCheckoutActivate,
+  mockRetrieveSession,
   mockRetrieveSubscription,
 } = await vi.hoisted(async () => {
   const { createStripeWebhookHarness } = await import('./helpers/stripe-webhook-harness');
   return {
     ...createStripeWebhookHarness(),
+    mockRetrieveSession: vi.fn(),
     mockRetrieveSubscription: vi.fn(),
   };
 });
@@ -35,7 +37,11 @@ vi.mock('../../../src/lib/audit/log', () => ({ writeAccountAuditLog: mockWriteAc
 vi.mock('../../../src/lib/payments/stripe-client', () => ({
   getStripe: () => ({
     webhooks: { constructEvent: mockConstructEvent },
-    subscriptions: { retrieve: mockRetrieveSubscription },
+    checkout: { sessions: { retrieve: mockRetrieveSession } },
+    subscriptions: {
+      retrieve: mockRetrieveSubscription,
+      cancel: vi.fn(),
+    },
   }),
 }));
 vi.mock('../shared', () => ({ claimInboundEvent: mockClaimInboundEvent }));
@@ -68,13 +74,31 @@ function isAccountStatusUpdate(
 
 beforeEach(() => {
   resetStripeWebhookMocks();
+  mockRetrieveSession.mockReset();
+  mockRetrieveSession.mockImplementation(async (sessionId: string) => ({
+    id: sessionId,
+    mode: 'subscription',
+    status: 'complete',
+    payment_status: 'paid',
+    client_reference_id: TEST_ACCOUNT_ID,
+    customer: TEST_CUSTOMER_ID,
+    subscription: TEST_SUBSCRIPTION_ID,
+    metadata: {
+      checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
+    },
+    line_items: {
+      data: [{ quantity: 1, price: { id: 'price_copilot_list_test' } }],
+    },
+  }));
   mockRetrieveSubscription.mockReset();
   mockRetrieveSubscription.mockResolvedValue({
     id: TEST_SUBSCRIPTION_ID,
     customer: TEST_CUSTOMER_ID,
     status: 'active',
     trial_end: null,
-    metadata: {},
+    metadata: {
+      checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
+    },
     items: {
       data: [{
         id: 'si_base',
@@ -103,7 +127,7 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
       },
     });
 
-    queueCheckoutActivate();
+    queueCheckoutActivate({ sessionId: 'cs_test' });
 
     const { status, send } = mkReply();
     await handleStripeWebhook(mkRequest(), { status, send } as any);
@@ -120,11 +144,11 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.values).toContain(TEST_CUSTOMER_ID);
     expect(updateAcct!.values).toContain(TEST_SUBSCRIPTION_ID);
-    expect(sqlCalls).toHaveLength(18);
+    expect(sqlCalls).toHaveLength(17);
     expect(sqlReturnQueue).toHaveLength(0);
   });
 
-  it('VAL-BILLING-008: already active → idempotent no-op (applier: isAllowedTransition returns false)', async () => {
+  it('VAL-BILLING-008: completed active replay is an idempotent no-op', async () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_checkout_dup',
       type: 'checkout.session.completed',
@@ -141,7 +165,7 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
     });
 
     // already-active: applier's isAllowedTransition(active→active)=false → no UPDATEs
-    queueCheckoutActivate({ status: 'active' });
+    queueCheckoutActivate({ status: 'active', sessionId: 'cs_test_dup' });
 
     const { status, send } = mkReply();
     await handleStripeWebhook(mkRequest(), { status, send } as any);
@@ -153,7 +177,7 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
       (call) => isAccountStatusUpdate(call, SubscriptionStatus.ACTIVE),
     );
     expect(updateAcct).toBeUndefined();
-    expect(sqlCalls).toHaveLength(16);
+    expect(sqlCalls).toHaveLength(10);
     expect(sqlReturnQueue).toHaveLength(0);
   });
 
@@ -174,13 +198,35 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
       },
     });
 
-    queueCheckoutActivate({ accountId: customAccountId });
+    queueCheckoutActivate({
+      accountId: customAccountId,
+      sessionId: 'cs_test_crid',
+      customerId: 'cus_custom',
+      subscriptionId: 'sub_custom',
+    });
+    mockRetrieveSession.mockResolvedValueOnce({
+      id: 'cs_test_crid',
+      mode: 'subscription',
+      status: 'complete',
+      payment_status: 'paid',
+      client_reference_id: customAccountId,
+      customer: 'cus_custom',
+      subscription: 'sub_custom',
+      metadata: {
+        checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
+      },
+      line_items: {
+        data: [{ quantity: 1, price: { id: 'price_copilot_list_test' } }],
+      },
+    });
     mockRetrieveSubscription.mockResolvedValueOnce({
       id: 'sub_custom',
       customer: 'cus_custom',
       status: 'active',
       trial_end: null,
-      metadata: {},
+      metadata: {
+        checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
+      },
       items: {
         data: [{
           id: 'si_base', quantity: 1, metadata: {},
@@ -200,7 +246,7 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
     );
     expect(lookupCall).toBeDefined();
     expect(lookupCall!.values).toContain(customAccountId);
-    expect(sqlCalls).toHaveLength(18);
+    expect(sqlCalls).toHaveLength(17);
     expect(sqlReturnQueue).toHaveLength(0);
   });
 });

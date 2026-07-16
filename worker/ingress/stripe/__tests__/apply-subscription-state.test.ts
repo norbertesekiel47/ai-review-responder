@@ -23,6 +23,7 @@ const {
   sqlCalls,
   mockWriteAccountAuditLog,
   mockEnqueueStripeOverageRecompute,
+  mockEnqueueStripeSubscriptionMirrorSync,
   mockEnqueueTrialStarted,
   mockEnqueueTrialConverted,
   mockEnqueueTrialPaymentFailed,
@@ -44,6 +45,7 @@ const {
     sqlCalls,
     mockWriteAccountAuditLog: vi.fn().mockResolvedValue(undefined),
     mockEnqueueStripeOverageRecompute: vi.fn().mockResolvedValue(undefined),
+    mockEnqueueStripeSubscriptionMirrorSync: vi.fn().mockResolvedValue('mirror-outbox-id'),
     mockEnqueueTrialStarted: vi.fn().mockResolvedValue(undefined),
     mockEnqueueTrialConverted: vi.fn().mockResolvedValue(undefined),
     mockEnqueueTrialPaymentFailed: vi.fn().mockResolvedValue(undefined),
@@ -55,6 +57,7 @@ vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unkno
 vi.mock('../../../../src/lib/audit/log', () => ({ writeAccountAuditLog: mockWriteAccountAuditLog }));
 vi.mock('../../../../src/lib/shared/job-outbox-helpers', () => ({
   enqueueStripeOverageRecompute: mockEnqueueStripeOverageRecompute,
+  enqueueStripeSubscriptionMirrorSync: mockEnqueueStripeSubscriptionMirrorSync,
 }));
 vi.mock('../../../../src/lib/analytics/trial-events', () => ({
   enqueueTrialStarted: mockEnqueueTrialStarted,
@@ -67,10 +70,10 @@ vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 import {
   applyStripeSubscriptionState,
   applyStripeSubscriptionStateUnderEntitlementLock,
-  synchronizeDeferredBusinessSubscriptionState,
 } from '../apply-subscription-state';
 
 const ACCOUNT_ID = '019dc366-29ce-7000-a000-000000000001';
+const SIBLING_ACCOUNT_ID = '019dc366-29ce-7000-a000-000000000002';
 const PRIMARY_BIZ = '019dc366-29ce-7000-a000-0000000000bb';
 const CUSTOMER_ID = 'cus_test_123';
 const SUB_ID = 'sub_test_456';
@@ -85,7 +88,25 @@ function activeSub(overrides: Record<string, unknown> = {}): any {
 
 // Queue the account-row SELECT (FOR UPDATE) + primary business lookup the applier does.
 function queueAccountRow(currentStatus: string) {
-  sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: currentStatus, primary_business_id: PRIMARY_BIZ }]);
+  sqlReturnQueue.push([{ id: ACCOUNT_ID }]);
+  sqlReturnQueue.push([]);
+  sqlReturnQueue.push([{
+    id: ACCOUNT_ID,
+    subscription_status: currentStatus,
+    primary_business_id: PRIMARY_BIZ,
+    stripe_customer_id: CUSTOMER_ID,
+    stripe_subscription_id: SUB_ID,
+  }]);
+}
+
+function queueLockedAccountRow(currentStatus: string) {
+  sqlReturnQueue.push([{
+    id: ACCOUNT_ID,
+    subscription_status: currentStatus,
+    primary_business_id: PRIMARY_BIZ,
+    stripe_customer_id: CUSTOMER_ID,
+    stripe_subscription_id: SUB_ID,
+  }]);
 }
 
 function findStatusUpdate(table: 'accounts' | 'businesses', status: string) {
@@ -103,6 +124,7 @@ beforeEach(() => {
   sqlCalls.length = 0;
   mockWriteAccountAuditLog.mockClear();
   mockEnqueueStripeOverageRecompute.mockClear();
+  mockEnqueueStripeSubscriptionMirrorSync.mockClear();
   mockEnqueueTrialStarted.mockClear();
   mockEnqueueTrialConverted.mockClear();
   mockEnqueueTrialPaymentFailed.mockClear();
@@ -127,16 +149,7 @@ describe('transition: → trialing', () => {
     expect(updateAcct!.text).toMatch(/trial_ends_at\s*=/i);
     expect(updateAcct!.text).toMatch(/subscription_activated_at\s*=\s*COALESCE/i);
 
-    // businesses mirror writes trialing too
-    const updateBiz = findStatusUpdate('businesses', 'trialing');
-    expect(updateBiz).toBeDefined();
-    // FIX 1: the businesses mirror must ALSO set subscription_activated_at on
-    // trial-start (scoped to the primary, non-archived business) — the onboarding
-    // drip scheduler gates on businesses.subscription_activated_at IS NOT NULL, so
-    // without this trial accounts never receive drips.
-    expect(updateBiz!.text).toMatch(/subscription_activated_at\s*=\s*COALESCE/i);
-    expect(updateBiz!.text).toMatch(/is_primary\s*=\s*TRUE/i);
-    expect(updateBiz!.text).toMatch(/archived_at\s+IS\s+NULL/i);
+    expect(sqlCalls.some((call) => /UPDATE\s+businesses/.test(call.text))).toBe(false);
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
       mockSql,
@@ -148,6 +161,7 @@ describe('transition: → trialing', () => {
     );
     expect(mockEnqueueStripeOverageRecompute).toHaveBeenCalledWith(mockSql, ACCOUNT_ID);
     expect(mockEnqueueTrialStarted).toHaveBeenCalledWith(mockSql, expect.objectContaining({ accountId: ACCOUNT_ID }));
+    expect(mockEnqueueStripeSubscriptionMirrorSync).toHaveBeenCalledWith(mockSql, ACCOUNT_ID);
   });
 
   it('trial-start (checkout mode) persists stripe_customer_id + stripe_subscription_id so later webhooks/portal can resolve the account', async () => {
@@ -202,14 +216,8 @@ describe('transition: → active (convert)', () => {
     );
     expect(mockEnqueueStripeOverageRecompute).toHaveBeenCalledWith(mockSql, ACCOUNT_ID);
 
-    // FIX 1: the businesses mirror on convert→active also COALESCE-anchors
-    // subscription_activated_at (first-writer-wins; trial-start already set it),
-    // scoped to the primary, non-archived business.
-    const updateBiz = findStatusUpdate('businesses', 'active');
-    expect(updateBiz).toBeDefined();
-    expect(updateBiz!.text).toMatch(/subscription_activated_at\s*=\s*COALESCE/i);
-    expect(updateBiz!.text).toMatch(/is_primary\s*=\s*TRUE/i);
-    expect(updateBiz!.text).toMatch(/archived_at\s+IS\s+NULL/i);
+    expect(sqlCalls.some((call) => /UPDATE\s+businesses/.test(call.text))).toBe(false);
+    expect(mockEnqueueStripeSubscriptionMirrorSync).toHaveBeenCalledWith(mockSql, ACCOUNT_ID);
   });
 
   it('pending_payment → active (pay-now, no trial) activates, no trial_converted event', async () => {
@@ -221,10 +229,11 @@ describe('transition: → active (convert)', () => {
   });
 
   it('can defer the deprecated business mirror without weakening canonical status ownership', async () => {
-    queueAccountRow('pending_payment');
+    queueLockedAccountRow('pending_payment');
 
     const result = await applyStripeSubscriptionStateUnderEntitlementLock(
       mockSql,
+      ACCOUNT_ID,
       checkoutRef,
       activeSub(),
     );
@@ -236,6 +245,7 @@ describe('transition: → active (convert)', () => {
     expect(sqlReturnQueue).toHaveLength(0);
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
     expect(mockEnqueueStripeOverageRecompute).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueStripeSubscriptionMirrorSync).toHaveBeenCalledTimes(1);
   });
 
   it('already active → active is a no-op', async () => {
@@ -294,22 +304,11 @@ describe('transition: → past_due', () => {
     expect(r).toMatchObject({ toStatus: 'past_due', changed: true });
   });
 
-  it('FIX 1: past_due businesses mirror does NOT set subscription_activated_at (anchor only on entitled states)', async () => {
+  it('past_due enqueues the deferred mirror without a synchronous business write', async () => {
     queueAccountRow('trialing');
     await applyStripeSubscriptionState(mockSql, subRef, { id: SUB_ID, customer: CUSTOMER_ID, status: 'past_due', trial_end: null });
-    const updateBiz = findStatusUpdate('businesses', 'past_due');
-    expect(updateBiz).toBeDefined();
-    expect(updateBiz!.text).not.toMatch(/subscription_activated_at/i);
-  });
-
-  it('past_due businesses mirror updates ALL businesses — no is_primary clause (NOTE-A asymmetry)', async () => {
-    // trialing/active mirror is PRIMARY-ONLY (is_primary = TRUE); past_due must
-    // propagate to ALL businesses so every location shows the billing problem.
-    queueAccountRow('trialing');
-    await applyStripeSubscriptionState(mockSql, subRef, { id: SUB_ID, customer: CUSTOMER_ID, status: 'past_due', trial_end: null });
-    const updateBiz = findStatusUpdate('businesses', 'past_due');
-    expect(updateBiz).toBeDefined();
-    expect(updateBiz!.text).not.toMatch(/is_primary/i);
+    expect(sqlCalls.some((call) => /UPDATE\s+businesses/.test(call.text))).toBe(false);
+    expect(mockEnqueueStripeSubscriptionMirrorSync).toHaveBeenCalledWith(mockSql, ACCOUNT_ID);
   });
 
   it('cancelled → past_due is a no-op (terminal)', async () => {
@@ -349,14 +348,11 @@ describe('transition: → cancelled', () => {
     expect(r).toMatchObject({ changed: false });
   });
 
-  it('cancelled businesses mirror updates ALL businesses — no is_primary clause (NOTE-A asymmetry)', async () => {
-    // Same asymmetry as past_due: cancellation affects all locations, not just
-    // the primary, so the UPDATE must not include an is_primary filter.
+  it('cancelled enqueues the deferred mirror without a synchronous business write', async () => {
     queueAccountRow('active');
     await applyStripeSubscriptionState(mockSql, subRef, { id: SUB_ID, customer: CUSTOMER_ID, status: 'canceled', trial_end: null });
-    const updateBiz = findStatusUpdate('businesses', 'cancelled');
-    expect(updateBiz).toBeDefined();
-    expect(updateBiz!.text).not.toMatch(/is_primary/i);
+    expect(sqlCalls.some((call) => /UPDATE\s+businesses/.test(call.text))).toBe(false);
+    expect(mockEnqueueStripeSubscriptionMirrorSync).toHaveBeenCalledWith(mockSql, ACCOUNT_ID);
   });
 });
 
@@ -366,46 +362,73 @@ describe('ref resolution + missing account', () => {
     const r = await applyStripeSubscriptionState(mockSql, subRef, activeSub());
     expect(r).toMatchObject({ changed: false, accountResolved: false });
   });
-});
 
-describe('deferred business status projection', () => {
-  it('locks business before entitlement and preserves the canonical activation anchor', async () => {
-    const activatedAt = new Date('2026-07-15T00:00:00Z');
-    sqlReturnQueue.push(
-      [{ id: PRIMARY_BIZ }],
-      [],
-      [{ subscription_status: 'trialing', subscription_activated_at: activatedAt }],
-      Object.assign([], { count: 1 }),
+  it('never follows lineage from locked account A to account B after the unlocked lookup', async () => {
+    const calls: { text: string; values: unknown[] }[] = [];
+    const raceSql: any = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = Array.from(strings).join('?');
+      calls.push({ text, values });
+      if (/FROM accounts\s+WHERE stripe_customer_id/i.test(text)) {
+        // This is what an unsafe post-lock re-resolution would now find.
+        return Promise.resolve([{ id: SIBLING_ACCOUNT_ID }]);
+      }
+      if (/FROM accounts a/i.test(text) && /FOR UPDATE/i.test(text)) {
+        const lockedId = values[0];
+        if (lockedId === ACCOUNT_ID) {
+          // A owned the lineage at the unlocked lookup, but lost it before its
+          // entitlement lock and row lock were acquired.
+          return Promise.resolve([{
+            id: ACCOUNT_ID,
+            subscription_status: 'pending_payment',
+            primary_business_id: PRIMARY_BIZ,
+            stripe_customer_id: 'cus_reassigned',
+            stripe_subscription_id: 'sub_reassigned',
+          }]);
+        }
+        return Promise.resolve([{
+          id: SIBLING_ACCOUNT_ID,
+          subscription_status: 'pending_payment',
+          primary_business_id: null,
+          stripe_customer_id: CUSTOMER_ID,
+          stripe_subscription_id: SUB_ID,
+        }]);
+      }
+      return Promise.resolve([]);
+    });
+
+    const result = await applyStripeSubscriptionStateUnderEntitlementLock(
+      raceSql,
+      ACCOUNT_ID,
+      subRef,
+      activeSub(),
     );
 
-    await synchronizeDeferredBusinessSubscriptionState(mockSql, ACCOUNT_ID);
-
-    expect(sqlCalls).toHaveLength(4);
-    expect(sqlCalls[0]!.text).toMatch(/FROM businesses[\s\S]*FOR UPDATE/);
-    expect(sqlCalls[1]!.text).toContain('pg_advisory_xact_lock');
-    expect(sqlCalls[2]!.text).toMatch(/FROM accounts/);
-    expect(sqlCalls[3]!.text).toMatch(/subscription_activated_at\s*=\s*COALESCE/);
-    expect(sqlCalls[3]!.text).toMatch(/is_primary\s*=\s*TRUE/);
-    expect(sqlCalls[3]!.values).toEqual(
-      expect.arrayContaining(['trialing', activatedAt, ACCOUNT_ID]),
-    );
-    expect(sqlReturnQueue).toHaveLength(0);
+    expect(result).toMatchObject({ accountResolved: false, changed: false });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.text).toMatch(/FROM accounts a[\s\S]*WHERE a\.id = [\s\S]*FOR UPDATE/i);
+    expect(calls[0]!.values).toContain(ACCOUNT_ID);
+    expect(calls[0]!.text).not.toMatch(/WHERE stripe_customer_id/i);
+    expect(calls.some((call) => /UPDATE\s+accounts/i.test(call.text))).toBe(false);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+    expect(mockEnqueueStripeSubscriptionMirrorSync).not.toHaveBeenCalled();
   });
 
-  it('projects past_due to every location without mutating activation time', async () => {
-    sqlReturnQueue.push(
-      [{ id: PRIMARY_BIZ }],
-      [],
-      [{ subscription_status: 'past_due', subscription_activated_at: null }],
-      Object.assign([], { count: 2 }),
+  it('fails closed when a checkout ref does not match the explicitly locked account', async () => {
+    queueLockedAccountRow('pending_payment');
+
+    const result = await applyStripeSubscriptionStateUnderEntitlementLock(
+      mockSql,
+      ACCOUNT_ID,
+      { mode: 'checkout', accountId: SIBLING_ACCOUNT_ID },
+      activeSub(),
     );
 
-    await synchronizeDeferredBusinessSubscriptionState(mockSql, ACCOUNT_ID);
-
-    expect(sqlCalls).toHaveLength(4);
-    expect(sqlCalls[3]!.text).toMatch(/subscription_status/);
-    expect(sqlCalls[3]!.text).not.toMatch(/subscription_activated_at/);
-    expect(sqlCalls[3]!.text).not.toMatch(/is_primary/);
+    expect(result).toMatchObject({ accountResolved: false, changed: false });
+    expect(sqlCalls).toHaveLength(1);
+    expect(sqlCalls[0]!.values).toContain(ACCOUNT_ID);
+    expect(sqlCalls.some((call) => /UPDATE\s+accounts/i.test(call.text))).toBe(false);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+    expect(mockEnqueueStripeSubscriptionMirrorSync).not.toHaveBeenCalled();
     expect(sqlReturnQueue).toHaveLength(0);
   });
 });

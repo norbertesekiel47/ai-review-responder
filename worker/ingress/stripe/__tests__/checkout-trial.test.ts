@@ -1,69 +1,64 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  createMockSql,
+  mkTaggedResult,
+  type MockSqlHarness,
+} from '../../../__tests__/helpers/mock-sql';
 
 const {
-  mockSql,
-  mockSqlQueue,
-  mockAccountState,
   mockApplyStripeSubscriptionState,
+  mockWriteResolvedTierSnapshot,
+  mockSynchronizeBusinessTierMirror,
   mockResumePrimaryBusinessBackfill,
-  mockRetrieve,
+  mockRetrieveSession,
+  mockRetrieveSubscription,
+  mockCancelSubscription,
   mockReportCaughtError,
   mockAutopilotPurchasable,
-} = vi.hoisted(() => {
-  const ACCOUNT_ID = '019dc366-29ce-7000-a000-000000000001';
-  const mockSqlQueue: Array<unknown | (() => unknown)> = [];
-  const mockAccountState = {
-    row: {
-      id: ACCOUNT_ID,
-      subscription_tier: 'copilot',
-      subscription_status: 'active',
-      price_variant: 'list',
-      base_price_cents: 2900,
-      locations_paid: 0,
-      locations_overage_price_cents: 1500,
-      locations_included: 1,
-      stripe_subscription_id: null as string | null,
-      stripe_customer_id: null as string | null,
-    },
-  };
-  const mockSql: any = vi.fn((strings: TemplateStringsArray) => {
-    const text = Array.from(strings).join('?').replace(/\s+/g, ' ').trim();
-    if (mockSqlQueue.length === 0) {
-      throw new Error(`Unexpected SQL after queue drained: ${text}`);
-    }
-    const next = mockSqlQueue.shift();
-    return Promise.resolve(typeof next === 'function' ? next() : next);
-  });
-  mockSql.begin = vi.fn(async (callback: (tx: any) => Promise<any>) => callback(mockSql));
-  mockSql.json = vi.fn((value: unknown) => value);
-  return {
-    mockSql,
-    mockSqlQueue,
-    mockAccountState,
-    mockApplyStripeSubscriptionState: vi.fn(),
-    mockResumePrimaryBusinessBackfill: vi.fn().mockResolvedValue(undefined),
-    mockRetrieve: vi.fn(),
-    mockReportCaughtError: vi.fn(),
-    mockAutopilotPurchasable: vi.fn(),
-  };
-});
+} = vi.hoisted(() => ({
+  mockApplyStripeSubscriptionState: vi.fn(),
+  mockWriteResolvedTierSnapshot: vi.fn(),
+  mockSynchronizeBusinessTierMirror: vi.fn(),
+  mockResumePrimaryBusinessBackfill: vi.fn(),
+  mockRetrieveSession: vi.fn(),
+  mockRetrieveSubscription: vi.fn(),
+  mockCancelSubscription: vi.fn(),
+  mockReportCaughtError: vi.fn(),
+  mockAutopilotPurchasable: vi.fn(),
+}));
 
-vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
+let harness: MockSqlHarness;
+
+vi.mock('../../../../src/lib/db/server', () => ({
+  get sql() {
+    return harness.mockSql;
+  },
+  jsonb: (value: unknown) => value,
+}));
 vi.mock('../apply-subscription-state', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../apply-subscription-state')>()),
-  applyStripeSubscriptionStateUnderEntitlementLock: mockApplyStripeSubscriptionState,
+  applyStripeSubscriptionStateUnderEntitlementLock:
+    mockApplyStripeSubscriptionState,
+}));
+vi.mock('../../../../src/lib/accounts/tier-snapshot', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../src/lib/accounts/tier-snapshot')>()),
+  writeResolvedTierSnapshot: mockWriteResolvedTierSnapshot,
+  synchronizeBusinessTierMirror: mockSynchronizeBusinessTierMirror,
 }));
 vi.mock('../shared', async () => {
   const actual = await vi.importActual<typeof import('../shared')>('../shared');
   return {
     ...actual,
     resumePrimaryBusinessBackfill: mockResumePrimaryBusinessBackfill,
-    getStripe: () => ({ subscriptions: { retrieve: mockRetrieve } }),
+    getStripe: () => ({
+      checkout: { sessions: { retrieve: mockRetrieveSession } },
+      subscriptions: {
+        retrieve: mockRetrieveSubscription,
+        cancel: mockCancelSubscription,
+      },
+    }),
   };
 });
-vi.mock('../../../../src/lib/shared/job-outbox-helpers', () => ({
-  enqueueStripeOverageRecompute: vi.fn().mockResolvedValue(undefined),
-}));
 vi.mock('../../../../src/lib/shared/report-caught-error', () => ({
   reportCaughtError: mockReportCaughtError,
 }));
@@ -71,145 +66,90 @@ vi.mock('../../../../src/lib/payments/tier-purchasability', async (importOrigina
   ...(await importOriginal<typeof import('../../../../src/lib/payments/tier-purchasability')>()),
   autopilotPurchasable: mockAutopilotPurchasable,
 }));
-vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 
 import { processCheckoutSessionCompleted } from '../checkout-completed';
-import { SubscriptionTier, TIER_CONFIG } from '../../../../src/lib/accounts/tier-config';
 
 const ACCOUNT_ID = '019dc366-29ce-7000-a000-000000000001';
 const PRIMARY_BIZ = '019dc366-29ce-7000-a000-0000000000bb';
 const CUSTOMER_ID = 'cus_test_123';
+const ATTEMPT_ID = '019dc366-29ce-7000-a000-0000000000cc';
+const SESSION_ID = 'cs_trial';
 const SUB_ID = 'sub_test_456';
-const SUB_A = 'sub_test_A';
-const SUB_B = 'sub_test_B';
 const FUTURE_TRIAL_END = Math.floor(Date.now() / 1000) + 30 * 86400;
 
-process.env.STRIPE_PRICE_COPILOT_LIST = 'price_copilot_list';
-process.env.STRIPE_PRICE_COPILOT_FOUNDING = 'price_copilot_founding';
-process.env.STRIPE_PRICE_AUTOPILOT_LIST = 'price_autopilot_list';
-process.env.STRIPE_PRICE_AUTOPILOT_FOUNDING = 'price_autopilot_founding';
-process.env.STRIPE_PRICE_COPILOT_OVERAGE = 'price_copilot_overage';
-process.env.STRIPE_PRICE_AUTOPILOT_OVERAGE = 'price_autopilot_overage';
+function account(overrides: Record<string, unknown> = {}) {
+  return {
+    id: ACCOUNT_ID,
+    subscription_tier: 'copilot',
+    subscription_status: 'pending_payment',
+    price_variant: 'list',
+    base_price_cents: 2900,
+    locations_paid: 0,
+    locations_overage_price_cents: 1500,
+    locations_included: 1,
+    stripe_subscription_id: null,
+    stripe_customer_id: null,
+    checkout_attempt_id: ATTEMPT_ID,
+    checkout_session_id: SESSION_ID,
+    checkout_attempt_state: 'open',
+    checkout_attempt_tier: 'copilot',
+    checkout_attempt_price_variant: 'list',
+    checkout_attempt_base_price_id: 'price_copilot_list',
+    checkout_attempt_overage_price_id: 'price_copilot_overage',
+    checkout_attempt_base_price_cents: 2900,
+    checkout_attempt_overage_price_cents: 1500,
+    checkout_attempt_locations_included: 1,
+    checkout_attempt_locations_paid: 0,
+    checkout_attempt_overage_quantity: 0,
+    ...overrides,
+  };
+}
 
-function providerSubscription(overrides: Record<string, unknown> = {}): any {
+function checkoutSession(overrides: Record<string, unknown> = {}) {
+  return {
+    id: SESSION_ID,
+    mode: 'subscription',
+    status: 'complete',
+    payment_status: 'paid',
+    client_reference_id: ACCOUNT_ID,
+    customer: CUSTOMER_ID,
+    subscription: SUB_ID,
+    metadata: { checkout_attempt_id: ATTEMPT_ID },
+    line_items: {
+      data: [{ quantity: 1, price: { id: 'price_copilot_list' } }],
+    },
+    ...overrides,
+  };
+}
+
+function providerSubscription(overrides: Record<string, unknown> = {}) {
   return {
     id: SUB_ID,
     customer: CUSTOMER_ID,
     status: 'active',
     trial_end: null,
+    metadata: { checkout_attempt_id: ATTEMPT_ID },
     items: {
-      data: [{
-        id: 'si_base',
-        quantity: 1,
-        metadata: {},
-        price: { id: 'price_copilot_list', metadata: {} },
-      }],
+      data: [{ quantity: 1, price: { id: 'price_copilot_list' } }],
     },
     ...overrides,
   };
 }
 
-function trialSession(overrides: Record<string, unknown> = {}): any {
+function eventSession(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'cs_trial',
+    id: SESSION_ID,
     mode: 'subscription',
     payment_status: 'paid',
-    amount_total: 0,
     client_reference_id: ACCOUNT_ID,
     customer: CUSTOMER_ID,
     subscription: SUB_ID,
+    metadata: { checkout_attempt_id: ATTEMPT_ID },
     ...overrides,
   };
 }
 
-function successfulProjectionResults(): Array<unknown | (() => unknown)> {
-  return [
-    [{ id: ACCOUNT_ID }],
-    [],
-    [],
-    [],
-    () => [mockAccountState.row],
-    [],
-    ...tierMirrorSyncResults(),
-    ...statusMirrorSyncResults(),
-  ];
-}
-
-function changedProjectionResults(
-  locationsPaid: number,
-): Array<unknown | (() => unknown)> {
-  return [
-    [{ id: ACCOUNT_ID }],
-    [],
-    [],
-    [],
-    () => [mockAccountState.row],
-    () => {
-      mockAccountState.row.locations_paid = locationsPaid;
-      return [{ id: ACCOUNT_ID }];
-    },
-    [],
-    ...tierMirrorSyncResults(),
-    ...statusMirrorSyncResults(),
-  ];
-}
-
-function tierMirrorSyncResults(): Array<unknown | (() => unknown)> {
-  return [
-    [{ id: PRIMARY_BIZ }],
-    [],
-    () => [{
-      subscription_tier: mockAccountState.row.subscription_tier,
-    }],
-    [],
-  ];
-}
-
-function statusMirrorSyncResults(): Array<unknown | (() => unknown)> {
-  return [
-    [{ id: PRIMARY_BIZ }],
-    [],
-    () => [{
-      subscription_status: mockAccountState.row.subscription_status,
-      subscription_activated_at: null,
-    }],
-    [],
-  ];
-}
-
-function beforeRowResults(): Array<unknown> {
-  return [[{ id: ACCOUNT_ID }], [], [], []];
-}
-
-function throughLockedRowResults(): Array<unknown | (() => unknown)> {
-  return [
-    ...beforeRowResults(),
-    () => [mockAccountState.row],
-  ];
-}
-
-function statusOnlyProjectionResults(): Array<unknown | (() => unknown)> {
-  return [
-    ...beforeRowResults(),
-    () => [mockAccountState.row],
-    [],
-    ...statusMirrorSyncResults(),
-  ];
-}
-
-function setSqlQueue(...results: Array<unknown | (() => unknown)>): void {
-  mockSqlQueue.splice(0, mockSqlQueue.length, ...results);
-}
-
-function sqlCalls(): Array<{ text: string; values: unknown[]; order: number }> {
-  return mockSql.mock.calls.map((call: unknown[], index: number) => ({
-    text: Array.from(call[0] as TemplateStringsArray).join('?'),
-    values: call.slice(1),
-    order: mockSql.mock.invocationCallOrder[index]!,
-  }));
-}
-
-function statusTransition(overrides: Record<string, unknown> = {}) {
+function transition(overrides: Record<string, unknown> = {}) {
   return {
     accountResolved: true,
     fromStatus: 'pending_payment',
@@ -221,510 +161,473 @@ function statusTransition(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function queueThroughObserved(observed: ReturnType<typeof account> | null): void {
+  harness.sqlReturnQueue.push(
+    mkTaggedResult([{ id: ACCOUNT_ID }]),
+    mkTaggedResult([{}]),
+    mkTaggedResult([{}]),
+    mkTaggedResult([{}]),
+    mkTaggedResult(observed ? [observed] : []),
+  );
+}
+
+function queueValidProjection(
+  observed = account(),
+  locked = observed,
+): void {
+  queueThroughObserved(observed);
+  harness.sqlReturnQueue.push(
+    mkTaggedResult([locked]),
+    mkTaggedResult([{ id: ACCOUNT_ID }]),
+  );
+}
+
 beforeEach(() => {
-  mockSql.mockClear();
-  mockSql.begin.mockClear();
-  Object.assign(mockAccountState.row, {
-    id: ACCOUNT_ID,
-    subscription_tier: 'copilot',
-    subscription_status: 'active',
-    price_variant: 'list',
-    base_price_cents: 2900,
-    locations_paid: 0,
-    locations_overage_price_cents: 1500,
-    locations_included: 1,
-    stripe_subscription_id: null,
-    stripe_customer_id: null,
-  });
+  harness = createMockSql();
   mockApplyStripeSubscriptionState.mockReset();
-  mockApplyStripeSubscriptionState.mockResolvedValue(statusTransition());
-  mockResumePrimaryBusinessBackfill.mockClear();
-  mockRetrieve.mockReset();
-  mockRetrieve.mockResolvedValue(providerSubscription());
+  mockApplyStripeSubscriptionState.mockResolvedValue(transition());
+  mockWriteResolvedTierSnapshot.mockReset();
+  mockWriteResolvedTierSnapshot.mockResolvedValue({ changed: true });
+  mockSynchronizeBusinessTierMirror.mockReset();
+  mockSynchronizeBusinessTierMirror.mockResolvedValue(undefined);
+  mockResumePrimaryBusinessBackfill.mockReset();
+  mockResumePrimaryBusinessBackfill.mockResolvedValue(undefined);
+  mockRetrieveSession.mockReset();
+  mockRetrieveSession.mockResolvedValue(checkoutSession());
+  mockRetrieveSubscription.mockReset();
+  mockRetrieveSubscription.mockResolvedValue(providerSubscription());
+  mockCancelSubscription.mockReset();
+  mockCancelSubscription.mockResolvedValue({ id: SUB_ID, status: 'canceled' });
   mockReportCaughtError.mockReset();
   mockAutopilotPurchasable.mockReset();
   mockAutopilotPurchasable.mockReturnValue(true);
-  setSqlQueue(...successfulProjectionResults());
 });
 
 afterEach(() => {
-  expect(mockSqlQueue, 'every expected SQL result must be consumed by the branch').toHaveLength(0);
+  expect(
+    harness.sqlReturnQueue,
+    'every queued SQL result must be consumed by the branch under test',
+  ).toHaveLength(0);
 });
 
-describe('checkout.session.completed — paid activation', () => {
-  it('routes paid activation through the single status applier', async () => {
-    await processCheckoutSessionCompleted(trialSession({ amount_total: 7900 }));
+describe('checkout.session.completed authoritative lease projection', () => {
+  it('compares provider Session, subscription, lease, and account before applying status', async () => {
+    queueValidProjection();
+
+    await processCheckoutSessionCompleted(eventSession() as never);
+
+    expect(mockRetrieveSession).toHaveBeenCalledWith(SESSION_ID, {
+      expand: ['line_items'],
+    });
+    expect(mockRetrieveSubscription).toHaveBeenCalledWith(SUB_ID);
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
       expect.anything(),
+      ACCOUNT_ID,
       { mode: 'checkout', accountId: ACCOUNT_ID },
       expect.objectContaining({ id: SUB_ID, status: 'active' }),
     );
-    expect(mockRetrieve).toHaveBeenCalledWith(SUB_ID);
-    expect(mockSql).toHaveBeenCalledTimes(14);
-  });
-
-  it('changed activation resumes backfill, while replay no-op does not', async () => {
-    await processCheckoutSessionCompleted(trialSession({ amount_total: 7900 }));
-    expect(mockResumePrimaryBusinessBackfill).toHaveBeenCalledWith(PRIMARY_BIZ);
-
-    setSqlQueue(...successfulProjectionResults());
-    mockApplyStripeSubscriptionState.mockResolvedValueOnce(
-      statusTransition({ fromStatus: 'active', changed: false, activated: false }),
+    expect(mockWriteResolvedTierSnapshot).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        accountId: ACCOUNT_ID,
+        snapshot: {
+          tier: 'copilot',
+          variant: 'list',
+          baseCents: 2900,
+          overageCents: 1500,
+          included: 1,
+        },
+        locationsPaid: 0,
+      }),
     );
-    mockResumePrimaryBusinessBackfill.mockClear();
-    await processCheckoutSessionCompleted(trialSession({ amount_total: 7900 }));
-    expect(mockResumePrimaryBusinessBackfill).not.toHaveBeenCalled();
-    expect(mockSql).toHaveBeenCalledTimes(28);
-  });
-
-  it('changed-false replay still repairs the deferred status and activation mirror', async () => {
-    mockApplyStripeSubscriptionState.mockResolvedValueOnce(
-      statusTransition({ fromStatus: 'active', changed: false, activated: false }),
-    );
-
-    await processCheckoutSessionCompleted(trialSession({ amount_total: 7900 }));
-
-    const statusProjection = sqlCalls().filter(
-      (call) => /UPDATE\s+businesses/.test(call.text) && /subscription_status/.test(call.text),
-    );
-    expect(statusProjection).toHaveLength(1);
-    expect(statusProjection[0]!.text).toMatch(/subscription_activated_at\s*=\s*COALESCE/);
-    expect(mockResumePrimaryBusinessBackfill).not.toHaveBeenCalled();
-    expect(mockSql).toHaveBeenCalledTimes(14);
-  });
-});
-
-describe('checkout.session.completed — WS8 provider-current projection', () => {
-  it('locks in fixed order before the row and persists trusted quantity', async () => {
-    Object.assign(mockAccountState.row, {
-      stripe_subscription_id: SUB_ID,
-      stripe_customer_id: CUSTOMER_ID,
-    });
-    mockRetrieve.mockResolvedValue(providerSubscription({
-      items: {
-        data: [
-          {
-            id: 'si_base', quantity: 1, metadata: {},
-            price: { id: 'price_copilot_list', metadata: {} },
-          },
-          {
-            id: 'si_overage', quantity: 3,
-            metadata: { billing_role: 'overage' },
-            price: { id: 'price_copilot_overage', metadata: {} },
-          },
-        ],
-      },
-    }));
-    setSqlQueue(...changedProjectionResults(3));
-
-    await processCheckoutSessionCompleted(trialSession({ amount_total: 2900 }));
-
-    const calls = sqlCalls();
-    const lockCalls = calls.filter((call) => /pg_advisory_xact_lock/.test(call.text));
-    expect(lockCalls.map((call) => call.values[0])).toEqual([
+    const calls = harness.sqlCalls;
+    expect(calls.slice(1, 4).map((call) => call.values[0])).toEqual([
       `${ACCOUNT_ID}:tier_entitlement`,
       `${ACCOUNT_ID}:overage_sync`,
       `${ACCOUNT_ID}:activation`,
-      `${ACCOUNT_ID}:tier_entitlement`,
-      `${ACCOUNT_ID}:tier_entitlement`,
     ]);
-    const lockedAccount = calls.find(
-      (call) => /subscription_tier/.test(call.text) && /FOR\s+UPDATE/.test(call.text),
+    expect(calls[5]!.text).toContain('FOR UPDATE');
+    expect(calls[6]!.text).toMatch(/checkout_attempt_state\s*=\s*'completed'/);
+    expect(mockCancelSubscription).not.toHaveBeenCalled();
+    expect(mockSynchronizeBusinessTierMirror).toHaveBeenCalledWith(
+      harness.mockSql,
+      ACCOUNT_ID,
     );
-    expect(lockedAccount).toBeDefined();
-    expect(lockCalls[2]!.order).toBeLessThan(lockedAccount!.order);
-    expect(mockRetrieve.mock.invocationCallOrder[0]).toBeLessThan(lockedAccount!.order);
-    const snapshotWrite = calls.find(
-      (call) => /UPDATE\s+accounts/.test(call.text) && /base_price_cents/.test(call.text),
-    );
-    expect(snapshotWrite!.values).toEqual(
-      expect.arrayContaining(['copilot', 2900, 1500, 1, 3, ACCOUNT_ID]),
-    );
-    expect(calls.filter((call) => /INSERT\s+INTO\s+account_audit_log/.test(call.text))).toHaveLength(1);
-    expect(mockAccountState.row.locations_paid).toBe(3);
-    expect(mockSql).toHaveBeenCalledTimes(15);
+    expect(mockResumePrimaryBusinessBackfill).toHaveBeenCalledWith(PRIMARY_BIZ);
+    expect(calls).toHaveLength(7);
   });
 
-  it('preserves stored cents/quota when live registry changes and only quantity converges', async () => {
-    Object.assign(mockAccountState.row, {
-      base_price_cents: 2900,
-      locations_overage_price_cents: 1500,
-      locations_included: 1,
-      stripe_subscription_id: SUB_ID,
-      stripe_customer_id: CUSTOMER_ID,
+  it('projects a valid future card-up-front trial through the single status applier', async () => {
+    queueValidProjection();
+    mockRetrieveSubscription.mockResolvedValueOnce(
+      providerSubscription({ status: 'trialing', trial_end: FUTURE_TRIAL_END }),
+    );
+
+    await processCheckoutSessionCompleted(
+      eventSession({ payment_status: 'no_payment_required' }) as never,
+    );
+
+    expect(mockApplyStripeSubscriptionState.mock.calls[0]![3]).toMatchObject({
+      status: 'trialing',
+      trial_end: FUTURE_TRIAL_END,
     });
-    const config = TIER_CONFIG[SubscriptionTier.COPILOT];
-    const prices = config.baseByVariant as { list: number; founding: number };
-    const original = {
-      list: prices.list,
-      overageCents: config.overageCents,
-      included: config.included,
-    };
-    prices.list = 9999;
-    config.overageCents = 8888;
-    config.included = 7;
-    mockRetrieve.mockResolvedValue(providerSubscription({
-      items: {
-        data: [
-          {
-            id: 'si_base', quantity: 1, metadata: {},
-            price: { id: 'price_copilot_list', metadata: {} },
-          },
-          {
-            id: 'si_overage', quantity: 4,
-            metadata: { billing_role: 'overage' },
-            price: { id: 'price_copilot_overage', metadata: {} },
-          },
-        ],
-      },
-    }));
-    setSqlQueue(...changedProjectionResults(4));
-
-    try {
-      await processCheckoutSessionCompleted(trialSession({ amount_total: 2900 }));
-    } finally {
-      prices.list = original.list;
-      config.overageCents = original.overageCents;
-      config.included = original.included;
-    }
-
-    const snapshotWrite = sqlCalls().find(
-      (call) => /UPDATE\s+accounts/.test(call.text) && /base_price_cents/.test(call.text),
-    );
-    expect(snapshotWrite!.values).toEqual(
-      expect.arrayContaining(['copilot', 2900, 1500, 1, 4, ACCOUNT_ID]),
-    );
-    expect(snapshotWrite!.values).not.toEqual(expect.arrayContaining([9999, 8888, 7]));
-    expect(sqlCalls().filter((call) => /INSERT\s+INTO\s+account_audit_log/.test(call.text))).toHaveLength(1);
-    expect(mockAccountState.row.locations_paid).toBe(4);
-    expect(mockSql).toHaveBeenCalledTimes(15);
   });
 
-  it('replay repeats the same complete stored snapshot without cumulative math or audit', async () => {
-    Object.assign(mockAccountState.row, {
-      stripe_subscription_id: SUB_ID,
-      stripe_customer_id: CUSTOMER_ID,
-    });
-    const subscription = providerSubscription({
-      items: {
-        data: [
-          {
-            id: 'si_base', quantity: 1, metadata: {},
-            price: { id: 'price_copilot_list', metadata: {} },
-          },
-          {
-            id: 'si_overage', quantity: 2,
-            metadata: { billing_role: 'overage' },
-            price: { id: 'price_copilot_overage', metadata: {} },
-          },
-        ],
-      },
-    });
-    mockRetrieve.mockResolvedValue(subscription);
-    mockApplyStripeSubscriptionState
-      .mockResolvedValueOnce(statusTransition())
-      .mockResolvedValueOnce(
-        statusTransition({ fromStatus: 'active', changed: false, activated: false }),
+  it.each([null, 'sub_stale_event'])(
+    'uses the provider-current subscription when the event carries %s',
+    async (eventSubscription) => {
+      queueValidProjection();
+
+      await processCheckoutSessionCompleted(
+        eventSession({ subscription: eventSubscription }) as never,
       );
-    setSqlQueue(...changedProjectionResults(2), ...successfulProjectionResults());
 
-    await processCheckoutSessionCompleted(trialSession());
-    await processCheckoutSessionCompleted(trialSession());
+      expect(mockRetrieveSubscription).toHaveBeenCalledWith(SUB_ID);
+      expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
+      expect(mockCancelSubscription).not.toHaveBeenCalled();
+      expect(mockWriteResolvedTierSnapshot).toHaveBeenCalledTimes(1);
+    },
+  );
 
-    const snapshotWrites = sqlCalls().filter(
-      (call) => /UPDATE\s+accounts/.test(call.text) && /base_price_cents/.test(call.text),
+  it('retries when the provider-current completed Session has no subscription identity', async () => {
+    harness.sqlReturnQueue.push(
+      mkTaggedResult([{ id: ACCOUNT_ID }]),
+      mkTaggedResult([{}]),
+      mkTaggedResult([{}]),
+      mkTaggedResult([{}]),
     );
-    expect(snapshotWrites).toHaveLength(2);
-    expect(snapshotWrites[1]!.values).toEqual(snapshotWrites[0]!.values);
-    expect(mockAccountState.row.locations_paid).toBe(2);
-    expect(sqlCalls().filter((call) => /INSERT\s+INTO\s+account_audit_log/.test(call.text))).toHaveLength(1);
-    expect(mockSql).toHaveBeenCalledTimes(29);
+    mockRetrieveSession.mockResolvedValueOnce(
+      checkoutSession({ subscription: null }),
+    );
+
+    await expect(
+      processCheckoutSessionCompleted(
+        eventSession({ subscription: null }) as never,
+      ),
+    ).rejects.toThrow('has no subscription identity');
+
+    expect(mockRetrieveSubscription).not.toHaveBeenCalled();
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(mockWriteResolvedTierSnapshot).not.toHaveBeenCalled();
+    expect(mockCancelSubscription).not.toHaveBeenCalled();
+    expect(mockReportCaughtError).not.toHaveBeenCalled();
+    expect(harness.sqlCalls).toHaveLength(4);
   });
 
-  it('projects late Autopilot completion but alerts when Autopilot is no longer purchasable', async () => {
-    Object.assign(mockAccountState.row, {
+  it.each(['active', 'past_due', 'cancelled'])(
+    'never activates a matching open lease when canonical status is %s',
+    async (subscriptionStatus) => {
+      const observed = account({ subscription_status: subscriptionStatus });
+      queueThroughObserved(observed);
+      harness.sqlReturnQueue.push(mkTaggedResult([{}]));
+
+      await processCheckoutSessionCompleted(eventSession() as never);
+
+      expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+      expect(mockWriteResolvedTierSnapshot).not.toHaveBeenCalled();
+      expect(
+        harness.sqlCalls.some((call) =>
+          /checkout_attempt_state\s*=\s*'completed'/.test(call.text),
+        ),
+      ).toBe(false);
+      expect(mockCancelSubscription).toHaveBeenCalledTimes(1);
+      expect(harness.sqlCalls.at(-1)!.text).toMatch(
+        /checkout_attempt_state\s*=\s*'remediated'/,
+      );
+      expect(mockReportCaughtError).toHaveBeenCalledWith(
+        'ingress/stripe/checkout-completed',
+        expect.any(Error),
+        expect.objectContaining({ reason: 'checkout_account_status_mismatch' }),
+      );
+    },
+  );
+
+  it.each(['incomplete', 'past_due', 'paused', 'unpaid'])(
+    'cancels provider status %s before status/snapshot and makes the lease reselectable',
+    async (providerStatus) => {
+      queueThroughObserved(account());
+      harness.sqlReturnQueue.push(mkTaggedResult([{}]));
+      mockRetrieveSubscription.mockResolvedValueOnce(
+        providerSubscription({ status: providerStatus }),
+      );
+
+      await processCheckoutSessionCompleted(eventSession() as never);
+
+      expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+      expect(mockWriteResolvedTierSnapshot).not.toHaveBeenCalled();
+      expect(mockCancelSubscription).toHaveBeenCalledTimes(1);
+      expect(harness.sqlCalls.at(-1)!.text).toMatch(
+        /checkout_attempt_state\s*=\s*'remediated'/,
+      );
+      expect(mockReportCaughtError).toHaveBeenCalledWith(
+        'ingress/stripe/checkout-completed',
+        expect.any(Error),
+        expect.objectContaining({
+          reason: 'checkout_subscription_not_entitled',
+        }),
+      );
+      expect(harness.sqlCalls).toHaveLength(6);
+    },
+  );
+
+  it.each([
+    { changed: false, activated: false },
+    { changed: true, activated: false },
+  ])(
+    'rolls back a non-binding status result $changed/$activated before remediation',
+    async (statusResult) => {
+      queueThroughObserved(account());
+      harness.sqlReturnQueue.push(
+        mkTaggedResult([account()]),
+        mkTaggedResult([{}]),
+        mkTaggedResult([{}]),
+        mkTaggedResult([{}]),
+        mkTaggedResult([{}]),
+      );
+      mockApplyStripeSubscriptionState.mockResolvedValueOnce(
+        transition(statusResult),
+      );
+
+      await processCheckoutSessionCompleted(eventSession() as never);
+
+      expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
+      expect(mockWriteResolvedTierSnapshot).not.toHaveBeenCalled();
+      expect(mockCancelSubscription).toHaveBeenCalledTimes(1);
+      expect(harness.sqlCalls.at(-1)!.text).toMatch(
+        /checkout_attempt_state\s*=\s*'remediated'/,
+      );
+      expect(mockReportCaughtError).toHaveBeenCalledWith(
+        'ingress/stripe/checkout-completed',
+        expect.any(Error),
+        expect.objectContaining({ reason: 'checkout_status_binding_failed' }),
+      );
+      expect(harness.sqlCalls).toHaveLength(10);
+    },
+  );
+
+  it('cancels a stale old Session subscription after a newer plan selection without mutating the newer lease', async () => {
+    queueThroughObserved(
+      account({
+        checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000dd',
+        checkout_session_id: 'cs_new',
+        checkout_attempt_tier: 'autopilot',
+      }),
+    );
+
+    await processCheckoutSessionCompleted(eventSession() as never);
+
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(mockWriteResolvedTierSnapshot).not.toHaveBeenCalled();
+    expect(mockCancelSubscription).toHaveBeenCalledWith(
+      SUB_ID,
+      { invoice_now: false, prorate: false },
+      { idempotencyKey: `checkout-attempt-remediate:v1:${SUB_ID}` },
+    );
+    expect(
+      harness.sqlCalls.some((call) =>
+        /checkout_attempt_state\s*=\s*'remediated'/.test(call.text),
+      ),
+    ).toBe(false);
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'ingress/stripe/checkout-completed',
+      expect.any(Error),
+      expect.objectContaining({ reason: 'stale_checkout_attempt' }),
+    );
+    expect(harness.sqlCalls).toHaveLength(5);
+  });
+
+  it('rejects a line-item mutation before status and remediates only the current bad lease', async () => {
+    queueThroughObserved(account());
+    harness.sqlReturnQueue.push(mkTaggedResult([{}]));
+    mockRetrieveSession.mockResolvedValueOnce(
+      checkoutSession({
+        line_items: {
+          data: [{ quantity: 1, price: { id: 'price_autopilot_list' } }],
+        },
+      }),
+    );
+
+    await processCheckoutSessionCompleted(eventSession() as never);
+
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(mockWriteResolvedTierSnapshot).not.toHaveBeenCalled();
+    expect(mockCancelSubscription).toHaveBeenCalledTimes(1);
+    expect(harness.sqlCalls.at(-1)!.text).toMatch(
+      /checkout_attempt_state\s*=\s*'remediated'/,
+    );
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'ingress/stripe/checkout-completed',
+      expect.any(Error),
+      expect.objectContaining({ reason: 'checkout_line_items_mismatch' }),
+    );
+  });
+
+  it('keeps a completed identity as a no-op after a legitimate later tier and quantity change', async () => {
+    queueThroughObserved(
+      account({
+        subscription_tier: 'autopilot',
+        subscription_status: 'active',
+        base_price_cents: 6900,
+        locations_overage_price_cents: 2000,
+        locations_paid: 4,
+        stripe_subscription_id: SUB_ID,
+        stripe_customer_id: CUSTOMER_ID,
+        checkout_attempt_state: 'completed',
+        checkout_attempt_locations_paid: 0,
+      }),
+    );
+    mockRetrieveSubscription.mockResolvedValueOnce(
+      providerSubscription({
+        items: {
+          data: [
+            { quantity: 1, price: { id: 'price_autopilot_list' } },
+            { quantity: 4, price: { id: 'price_autopilot_overage' } },
+          ],
+        },
+      }),
+    );
+
+    await processCheckoutSessionCompleted(eventSession() as never);
+
+    expect(mockCancelSubscription).not.toHaveBeenCalled();
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(mockWriteResolvedTierSnapshot).not.toHaveBeenCalled();
+    expect(mockSynchronizeBusinessTierMirror).toHaveBeenCalledWith(
+      harness.mockSql,
+      ACCOUNT_ID,
+    );
+    expect(mockReportCaughtError).not.toHaveBeenCalled();
+    expect(harness.sqlCalls).toHaveLength(5);
+  });
+
+  it('remediates a post-lock lost lease only after the row-lock transaction releases', async () => {
+    const rowLockState = { held: false };
+    queueThroughObserved(account());
+    harness.sqlReturnQueue.push(
+      Promise.resolve(
+        mkTaggedResult([
+          account({
+            checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000ee',
+            checkout_session_id: 'cs_new',
+          }),
+        ]),
+      ).then((rows) => {
+        rowLockState.held = true;
+        return rows;
+      }),
+      mkTaggedResult([{}]),
+      mkTaggedResult([{}]),
+      mkTaggedResult([{}]),
+      mkTaggedResult([{}]),
+    );
+    const normalBegin = harness.mockSql.begin.getMockImplementation()!;
+    harness.mockSql.begin.mockImplementation(async (...args: unknown[]) => {
+      try {
+        return await normalBegin(...(args as Parameters<typeof normalBegin>));
+      } finally {
+        rowLockState.held = false;
+      }
+    });
+    mockCancelSubscription.mockImplementationOnce(async () => {
+      expect(rowLockState.held).toBe(false);
+      return { id: SUB_ID, status: 'canceled' };
+    });
+
+    await processCheckoutSessionCompleted(eventSession() as never);
+
+    expect(mockCancelSubscription).toHaveBeenCalledTimes(1);
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(mockWriteResolvedTierSnapshot).not.toHaveBeenCalled();
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'ingress/stripe/checkout-completed',
+      expect.any(Error),
+      expect.objectContaining({ reason: 'stale_checkout_attempt' }),
+    );
+    expect(harness.sqlCalls.at(-1)!.text).toMatch(
+      /checkout_attempt_state\s*=\s*'remediated'/,
+    );
+    expect(harness.sqlCalls).toHaveLength(10);
+  });
+
+  it('requires subscription attempt metadata before status projection', async () => {
+    queueThroughObserved(account());
+    harness.sqlReturnQueue.push(mkTaggedResult([{}]));
+    mockRetrieveSubscription.mockResolvedValueOnce(
+      providerSubscription({ metadata: {} }),
+    );
+
+    await processCheckoutSessionCompleted(eventSession() as never);
+
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(mockCancelSubscription).toHaveBeenCalledTimes(1);
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'ingress/stripe/checkout-completed',
+      expect.any(Error),
+      expect.objectContaining({ reason: 'checkout_session_mismatch' }),
+    );
+  });
+
+  it('provider retrieval failure writes nothing and remains retryable', async () => {
+    harness.sqlReturnQueue.push(
+      mkTaggedResult([{ id: ACCOUNT_ID }]),
+      mkTaggedResult([{}]),
+      mkTaggedResult([{}]),
+      mkTaggedResult([{}]),
+    );
+    mockRetrieveSession.mockRejectedValueOnce(new Error('provider unavailable'));
+
+    await expect(
+      processCheckoutSessionCompleted(eventSession() as never),
+    ).rejects.toThrow('provider unavailable');
+
+    expect(mockRetrieveSubscription).not.toHaveBeenCalled();
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(mockWriteResolvedTierSnapshot).not.toHaveBeenCalled();
+    expect(mockCancelSubscription).not.toHaveBeenCalled();
+    expect(harness.sqlCalls).toHaveLength(4);
+  });
+
+  it('projects late Autopilot completion but emits the locked gate-closed alert', async () => {
+    const autopilot = account({
       subscription_tier: 'autopilot',
-      price_variant: 'list',
       base_price_cents: 6900,
       locations_overage_price_cents: 2000,
-      locations_included: 1,
-      locations_paid: 0,
-      stripe_subscription_id: SUB_ID,
-      stripe_customer_id: CUSTOMER_ID,
+      checkout_attempt_tier: 'autopilot',
+      checkout_attempt_base_price_id: 'price_autopilot_list',
+      checkout_attempt_overage_price_id: 'price_autopilot_overage',
+      checkout_attempt_base_price_cents: 6900,
+      checkout_attempt_overage_price_cents: 2000,
     });
+    queueValidProjection(autopilot);
+    mockRetrieveSession.mockResolvedValueOnce(
+      checkoutSession({
+        line_items: {
+          data: [{ quantity: 1, price: { id: 'price_autopilot_list' } }],
+        },
+      }),
+    );
+    mockRetrieveSubscription.mockResolvedValueOnce(
+      providerSubscription({
+        items: {
+          data: [{ quantity: 1, price: { id: 'price_autopilot_list' } }],
+        },
+      }),
+    );
     mockAutopilotPurchasable.mockReturnValue(false);
-    mockRetrieve.mockResolvedValue(providerSubscription({
-      items: {
-        data: [
-          {
-            id: 'si_base', quantity: 1, metadata: {},
-            price: { id: 'price_autopilot_list', metadata: {} },
-          },
-          {
-            id: 'si_overage', quantity: 2,
-            metadata: { billing_role: 'overage' },
-            price: { id: 'price_autopilot_overage', metadata: {} },
-          },
-        ],
-      },
-    }));
-    setSqlQueue(...changedProjectionResults(2));
 
-    await processCheckoutSessionCompleted(trialSession({ amount_total: 6900 }));
+    await processCheckoutSessionCompleted(eventSession() as never);
 
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
-    const calls = sqlCalls();
-    const snapshotWrite = calls.find(
-      (call) => /UPDATE\s+accounts/.test(call.text) && /base_price_cents/.test(call.text),
-    );
-    expect(snapshotWrite!.values).toEqual(
-      expect.arrayContaining(['autopilot', 6900, 2000, 1, 2, ACCOUNT_ID]),
-    );
-    expect(calls.filter((call) => /INSERT\s+INTO\s+account_audit_log/.test(call.text))).toHaveLength(1);
-    expect(mockReportCaughtError).toHaveBeenCalledTimes(1);
     expect(mockReportCaughtError).toHaveBeenCalledWith(
       'ingress/stripe/checkout-completed',
       expect.any(Error),
       {
         accountId: ACCOUNT_ID,
+        sessionId: SESSION_ID,
         subscriptionId: SUB_ID,
         reason: 'autopilot_activated_while_unavailable',
         priceId: 'price_autopilot_list',
       },
     );
-    expect(mockAccountState.row.locations_paid).toBe(2);
-    expect(mockSql).toHaveBeenCalledTimes(15);
-    expect(mockSqlQueue).toHaveLength(0);
-  });
-
-  it('rejects reverse completion subB when the account is already bound to subA', async () => {
-    Object.assign(mockAccountState.row, {
-      stripe_subscription_id: SUB_A,
-      stripe_customer_id: CUSTOMER_ID,
-    });
-    mockRetrieve.mockResolvedValue(providerSubscription({ id: SUB_B }));
-    setSqlQueue(...throughLockedRowResults());
-
-    await processCheckoutSessionCompleted(
-      trialSession({ subscription: SUB_B }),
-    );
-
-    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
-    expect(sqlCalls().some((call) => /UPDATE\s+accounts/.test(call.text))).toBe(false);
-    expect(sqlCalls().some((call) => /UPDATE\s+businesses/.test(call.text))).toBe(false);
-    expect(mockReportCaughtError).toHaveBeenCalledWith(
-      'ingress/stripe/checkout-completed',
-      expect.any(Error),
-      expect.objectContaining({ reason: 'bound_subscription_mismatch' }),
-    );
-    expect(mockSql).toHaveBeenCalledTimes(5);
-  });
-
-  it('rejects stale subA replay after the account has converged on subB', async () => {
-    Object.assign(mockAccountState.row, {
-      stripe_subscription_id: SUB_B,
-      stripe_customer_id: CUSTOMER_ID,
-    });
-    mockRetrieve.mockResolvedValue(providerSubscription({ id: SUB_A }));
-    setSqlQueue(...throughLockedRowResults());
-
-    await processCheckoutSessionCompleted(
-      trialSession({ subscription: SUB_A }),
-    );
-
-    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
-    expect(
-      sqlCalls().some(
-        (call) => /UPDATE\s+accounts/.test(call.text) && /locations_paid/.test(call.text),
-      ),
-    ).toBe(false);
-    expect(sqlCalls().some((call) => /UPDATE\s+businesses/.test(call.text))).toBe(false);
-    expect(mockSql).toHaveBeenCalledTimes(5);
-  });
-
-  it('rejects provider customer drift against the bound account before mutation', async () => {
-    Object.assign(mockAccountState.row, {
-      stripe_subscription_id: SUB_ID,
-      stripe_customer_id: CUSTOMER_ID,
-    });
-    mockRetrieve.mockResolvedValue(providerSubscription({ customer: 'cus_other' }));
-    setSqlQueue(...throughLockedRowResults());
-
-    await processCheckoutSessionCompleted(
-      trialSession({ customer: 'cus_other' }),
-    );
-
-    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
-    expect(sqlCalls().some((call) => /UPDATE\s+businesses/.test(call.text))).toBe(false);
-    expect(mockReportCaughtError).toHaveBeenCalledWith(
-      'ingress/stripe/checkout-completed',
-      expect.any(Error),
-      expect.objectContaining({ reason: 'bound_customer_mismatch' }),
-    );
-    expect(mockSql).toHaveBeenCalledTimes(5);
-  });
-
-  it('preserves a founding variant mismatch but still applies status for the bound subscription', async () => {
-    Object.assign(mockAccountState.row, {
-      price_variant: 'founding',
-      stripe_subscription_id: SUB_ID,
-      stripe_customer_id: CUSTOMER_ID,
-    });
-    mockApplyStripeSubscriptionState.mockImplementationOnce(async (tx: any) => {
-      await tx`UPDATE accounts SET subscription_status = 'active' WHERE id = ${ACCOUNT_ID}::uuid`;
-      return statusTransition();
-    });
-    setSqlQueue(...statusOnlyProjectionResults());
-
-    await processCheckoutSessionCompleted(trialSession({ amount_total: 2900 }));
-
-    const calls = sqlCalls();
-    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
-    expect(calls.some((call) => /subscription_status/.test(call.text))).toBe(true);
-    expect(
-      calls.some(
-        (call) =>
-          /UPDATE\s+accounts/.test(call.text) &&
-          /(subscription_tier|price_variant|base_price_cents|locations_overage_price_cents|locations_included|locations_paid)/.test(call.text),
-      ),
-    ).toBe(false);
-    expect(
-      calls.some(
-        (call) => /UPDATE\s+businesses/.test(call.text) && /subscription_tier/.test(call.text),
-      ),
-    ).toBe(false);
-    expect(
-      calls.some(
-        (call) => /UPDATE\s+businesses/.test(call.text) && /subscription_status/.test(call.text),
-      ),
-    ).toBe(true);
-    expect(mockReportCaughtError).toHaveBeenCalledWith(
-      'ingress/stripe/checkout-completed',
-      expect.any(Error),
-      expect.objectContaining({ reason: 'variant_or_tier_mismatch' }),
-    );
-    expect(mockSql).toHaveBeenCalledTimes(10);
-  });
-
-  it('rejects a correct base plus the other tier overage as status-only', async () => {
-    Object.assign(mockAccountState.row, {
-      stripe_subscription_id: SUB_ID,
-      stripe_customer_id: CUSTOMER_ID,
-    });
-    mockApplyStripeSubscriptionState.mockImplementationOnce(async (tx: any) => {
-      await tx`UPDATE accounts SET subscription_status = 'active' WHERE id = ${ACCOUNT_ID}::uuid`;
-      return statusTransition();
-    });
-    mockRetrieve.mockResolvedValue(providerSubscription({
-      items: {
-        data: [
-          {
-            id: 'si_base', quantity: 1, metadata: {},
-            price: { id: 'price_copilot_list', metadata: {} },
-          },
-          {
-            id: 'si_wrong_overage', quantity: 2,
-            metadata: { billing_role: 'overage' },
-            price: { id: 'price_autopilot_overage', metadata: {} },
-          },
-        ],
-      },
-    }));
-    setSqlQueue(...statusOnlyProjectionResults());
-
-    await processCheckoutSessionCompleted(trialSession({ amount_total: 2900 }));
-
-    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
-    expect(
-      sqlCalls().some(
-        (call) => /UPDATE\s+accounts/.test(call.text) && /base_price_cents/.test(call.text),
-      ),
-    ).toBe(false);
-    expect(mockReportCaughtError).toHaveBeenCalledWith(
-      'ingress/stripe/checkout-completed',
-      expect.any(Error),
-      expect.objectContaining({
-        reason: 'cross_tier_overage_price',
-        priceId: 'price_autopilot_overage',
-      }),
-    );
-    expect(mockSql).toHaveBeenCalledTimes(10);
-  });
-
-  it('provider retrieval failure consumes only lookup plus three locks and writes nothing', async () => {
-    mockRetrieve.mockRejectedValueOnce(new Error('provider unavailable'));
-    setSqlQueue(...beforeRowResults());
-
-    await expect(
-      processCheckoutSessionCompleted(trialSession({ amount_total: 2900 })),
-    ).rejects.toThrow('provider unavailable');
-
-    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
-    expect(sqlCalls().some((call) => /FOR\s+UPDATE/.test(call.text))).toBe(false);
-    expect(sqlCalls().some((call) => /UPDATE\s+accounts/.test(call.text))).toBe(false);
-    expect(mockSql).toHaveBeenCalledTimes(4);
-  });
-});
-
-describe('checkout.session.completed — trial start', () => {
-  it.each(['paid', 'no_payment_required'] as const)(
-    '%s zero-dollar trial routes provider-current trialing state through the applier',
-    async (paymentStatus) => {
-      mockRetrieve.mockResolvedValue(providerSubscription({
-        status: 'trialing',
-        trial_end: FUTURE_TRIAL_END,
-      }));
-      await processCheckoutSessionCompleted(trialSession({ payment_status: paymentStatus }));
-      expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
-      expect(mockApplyStripeSubscriptionState.mock.calls[0]![1]).toEqual({
-        mode: 'checkout', accountId: ACCOUNT_ID,
-      });
-      expect(mockApplyStripeSubscriptionState.mock.calls[0]![2]).toMatchObject({
-        status: 'trialing', trial_end: FUTURE_TRIAL_END,
-      });
-    },
-  );
-
-  it('normal paid and zero-dollar non-trial both use provider-current active state', async () => {
-    await processCheckoutSessionCompleted(trialSession({ amount_total: 7900 }));
-    expect(mockApplyStripeSubscriptionState.mock.calls[0]![2]).toMatchObject({ status: 'active' });
-
-    setSqlQueue(...successfulProjectionResults());
-    await processCheckoutSessionCompleted(trialSession());
-    expect(mockApplyStripeSubscriptionState.mock.calls[1]![2]).toMatchObject({ status: 'active' });
-  });
-
-  it('future trial activation resumes primary-business backfill', async () => {
-    mockRetrieve.mockResolvedValue(providerSubscription({
-      status: 'trialing', trial_end: FUTURE_TRIAL_END,
-    }));
-    await processCheckoutSessionCompleted(trialSession());
-    expect(mockResumePrimaryBusinessBackfill).toHaveBeenCalledWith(PRIMARY_BIZ);
-  });
-
-  it('past trial end is rejected before the account row or applier', async () => {
-    mockRetrieve.mockResolvedValue(providerSubscription({
-      status: 'trialing',
-      trial_end: Math.floor(Date.now() / 1000) - 86400,
-    }));
-    setSqlQueue(...beforeRowResults());
-    await processCheckoutSessionCompleted(trialSession());
-    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
-    expect(sqlCalls().some((call) => /UPDATE\s+businesses/.test(call.text))).toBe(false);
-    expect(mockSql).toHaveBeenCalledTimes(4);
-  });
-
-  it('session/provider customer mismatch is rejected before the account row', async () => {
-    mockRetrieve.mockResolvedValue(providerSubscription({ customer: 'cus_other' }));
-    setSqlQueue(...beforeRowResults());
-    await processCheckoutSessionCompleted(trialSession());
-    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
-    expect(sqlCalls().some((call) => /UPDATE\s+businesses/.test(call.text))).toBe(false);
-    expect(mockReportCaughtError).toHaveBeenCalledWith(
-      'ingress/stripe/checkout-completed',
-      expect.any(Error),
-      expect.objectContaining({ reason: 'customer_mismatch' }),
-    );
-    expect(mockSql).toHaveBeenCalledTimes(4);
   });
 });

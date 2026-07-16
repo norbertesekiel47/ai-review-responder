@@ -83,6 +83,12 @@ Tasks may be researched in parallel, but implementation commits follow this orde
 - [ ] Normalize every existing `businesses.subscription_tier` mirror to `copilot` only on that same first apply. On reapply, repair idempotent schema/default/trigger objects but never rewrite account/business data.
 - [ ] Do not call TypeScript, Stripe, Redis, or `job_outbox`; assert the migration creates zero outbox rows.
 - [ ] Keep 077 transactional and re-runnable. Use named constraints/functions/triggers and existence checks matching current migration conventions.
+- [ ] Add the account-scoped pending Checkout lease columns in 077: attempt id,
+  Session id/state, tier, immutable variant, both Price ids, full cents/quota
+  snapshot, provisional overage quantity, frozen trial/tax/email/success/cancel
+  create inputs, and update timestamp. Add a complete-
+  tuple CHECK and a partial unique index on non-NULL Session ids. Reapplication
+  repairs both objects without rewriting a post-first-apply lease.
 - [ ] Add the 077 migration-log entry in this commit and advance the documented head/next values to 077/078.
 - [ ] Migration tests start from the local DB at migration 076, seed at least:
   - A legacy Premium account with five included locations and three active locations; after 077 it has included `1`, paid `0`, base `2900`, overage `1500`.
@@ -128,11 +134,35 @@ Tasks may be researched in parallel, but implementation commits follow this orde
 - [ ] Admin provisioning accepts only Copilot/Autopilot and calls `assertTierPurchasable` before account INSERT. A closed Autopilot gate performs no account/business/user writes.
 - [ ] Self-serve account creation may begin at the safe Copilot pending-payment snapshot, but the pay screen must still require an explicit tier choice. Do not use Autopilot as a trial or UI default.
 - [ ] `applyTierSnapshot` locks the account, reads its immutable variant, resolves the complete snapshot, and keeps the deprecated business mirror synchronized. It calls the tier gate before any mutation.
-- [ ] Both Checkout creation entry points require a validated explicit tier in the request, load the stored variant, and call `assertTierPurchasable` immediately before creating a new Session. `/api/billing/checkout` may not infer the provisional stored Copilot tier: it persists the complete selected `(tier, stored variant)` pending snapshot with `locations_paid=0` under entitlement → billing → activation → account-row ordering before Session creation. The select-plan route follows the same rule, so a rejected/absent tier leaves the account unchanged and creates no Session.
+- [ ] Both Checkout creation entry points require a validated explicit tier in the request, load the stored variant, and call `assertTierPurchasable` before persisting/freezing a new durable attempt. Exact recovery of that already-authorized `creating` attempt and reuse of its open Session do not re-read a drifted gate under the stable provider idempotency key. `/api/billing/checkout` may not infer the provisional stored Copilot tier: it persists the complete selected `(tier, stored variant)` pending snapshot with `locations_paid=0` under entitlement → billing → activation → account-row ordering before Session creation. The select-plan route follows the same rule, so a rejected/absent tier leaves the account unchanged and creates no Session.
 - [ ] Checkout line items use the variant-aware base Price and tier overage Price. Set `allow_promotion_codes: false` and retain the existing Stripe tax/trial behavior.
-- [ ] Checkout completion retrieves the provider-current subscription for paid and trial paths, verifies its base Price against the stored `(tier, variant)`, derives a trusted overage quantity, and—under entitlement → billing → activation → account-row order—routes status only through `applyStripeSubscriptionState` and the complete tier/quantity snapshot through the shared writer. A mismatch is status-only plus a scrubbed ops alert; no variant repair.
+- [ ] Persist one authoritative pending Checkout attempt/Session lease under the
+  activation locks. Its stable attempt id owns provider idempotency. Same-selection
+  replay reuses an open Session; reselection expires the prior open Session before
+  replacement; prior complete or failed expiry blocks replacement. Compensate a
+  provider-created but unbound Session with stable expiry/cancellation and retain
+  a remediated identity. Freeze Price ids/cents/quota/quantity plus trial days, tax
+  shape, customer email, and success/cancel URLs; exact creating/open retries never
+  re-resolve live create inputs under the stable idempotency key.
+- [ ] Checkout completion retrieves provider-current Session line items and the
+  provider-current subscription for paid and trial paths, validates both against
+  the full lease and a canonical `pending_payment` account, derives the leased
+  overage quantity, and—under entitlement → billing → activation → account-row
+  order—routes status only through `applyStripeSubscriptionState` and the complete
+  tier/quantity snapshot through the shared writer. Require provider
+  `active`/`trialing` and a changed+activated binding transition before completion.
+  Stale/mismatched/non-binding completion
+  performs no status/tier/snapshot mutation, remediates the unexpected provider
+  subscription, and emits a scrubbed alert. Retain completed identity so replay
+  never cancels the bound subscription after a later tier/quantity change and
+  still converges the deprecated tier mirror.
+- [ ] Treat initial Checkout lease/Price mismatch as the narrow security
+  exception to Task 5 lifecycle mismatch: reject/remediate before status so a
+  Copilot charge cannot bind an Autopilot snapshot. Do not broaden this to later
+  `subscription.updated` variant mismatch, which remains status-only through the
+  single applier.
 - [ ] `TRIAL_ENABLED` adds the existing 30-day card-up-front trial only to the explicitly submitted, currently purchasable tier. No absent-tier fallback, query-string default, or client-side default is allowed.
-- [ ] Tests cover founding/list account INSERTs, exact deadline boundary, pending snapshots with `locations_paid=0`, trusted activation quantity, no partial write on gate rejection, stale/direct Checkout rejection, both tier line-item matrices, promotion-code disablement, trial on each available tier, Autopilot unavailable, and missing tier validation. The positive direct-Autopilot case must prove the complete stored Autopilot snapshot commits before its Autopilot Session is created. Add a deterministic activation-versus-webhook/overage ordering test that fails if `:activation` is acquired before entitlement/billing. Mutation-check removal of the explicit tier field: the direct route test must fail rather than create a Copilot Session.
+- [ ] Tests cover founding/list account INSERTs, exact deadline boundary, pending snapshots with `locations_paid=0`, trusted activation quantity, no partial write on gate rejection, stale/direct Checkout rejection, both tier line-item matrices, promotion-code disablement, trial on each available tier, Autopilot unavailable, and missing tier validation. Add same-open replay, dual-Session reselection, prior-complete, failed-expiry, expire-versus-complete, bind/commit compensation, stale completion remediation, completed replay, reverse subscription/invoice delivery, full lease constraint/index first/second-apply, and canonical-status cases. The positive direct-Autopilot case must prove the complete stored Autopilot snapshot commits before its Autopilot Session is created. Add a deterministic activation-versus-webhook/overage ordering test that fails if `:activation` is acquired before entitlement/billing. Mutation-check removal of the explicit tier field: the direct route test must fail rather than create a Copilot Session.
 - [ ] Any modified tenant query keeps the tenant-scope audit at 391; update exact allowlists in this commit if required.
 - [ ] Run focused onboarding/checkout/plan-activation/admin tests plus lint/typecheck. Commit as `feat(billing): wire variant aware signup and checkout`.
 
@@ -169,6 +199,18 @@ Tasks may be researched in parallel, but implementation commits follow this orde
   - Replaying the event repeats no account snapshot or audit mutation.
 - [ ] On a matching variant and tier change, apply the complete target snapshot from the canonical runtime resolver. On a same-tier replay, preserve stored cents/included values and synchronize only trusted Stripe quantity/status so webhook replay cannot drift grandfathered snapshots.
 - [ ] Every subscription state transition, including mismatch and trial conversion, continues through `applyStripeSubscriptionState`; do not add a second status writer.
+- [ ] Canonical status paths resolve account ID unlocked, retrieve provider-
+  current state before the account row lock where applicable, then acquire
+  entitlement before the account row. Pass that exact account id to the under-
+  entitlement applier and recheck provider lineage on its locked row; never
+  re-resolve a different account after taking the lock. Every actual transition
+  atomically enqueues `stripe_subscription_mirror_sync`; a resolved no-op
+  `subscription.updated` replay enqueues exactly one repair job without a second
+  status mutation. Its worker locks all businesses
+  `ORDER BY id` → entitlement, reads canonical account state without a row lock,
+  updates the deprecated status/activation mirror, and completes the originating
+  outbox in the same transaction. No canonical status path synchronously updates
+  the businesses status mirror.
 - [ ] If a matching Autopilot subscription activates while `autopilotPurchasable()` is false, preserve valid Stripe/status/tier state but emit the specified ops signal. Runtime enforcement in Tasks 6–7 remains the safety boundary.
 - [ ] Update `resolveSubscriptionBilling` and every reverse-map consumer for `{tier, variant}`. Ensure both founding and list base IDs resolve even after the founding deadline closes.
 - [ ] Move the overage worker's account/tier/variant read and active-location count inside the shared advisory lock. Resolve the overage ID through `priceIdFor(tier, variant, 'overage')`; both variants intentionally resolve the same per-tier overage Price.

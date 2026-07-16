@@ -405,10 +405,10 @@ Cross-cutting utilities imported by both Next.js and worker.
 
 | File | What it does |
 |------|--------------|
-| `queue-names.ts` | Canonical queue name constants. Single source of truth for `job_outbox.topic` strings and BullMQ queue names, including WS6 `judge_verdict`, `autonomy_suspended_notice`, and `autonomy_admin_alert`. |
+| `queue-names.ts` | Canonical queue name constants. Single source of truth for `job_outbox.topic` strings and BullMQ queue names, including WS6 autonomy topics and WS8 `stripe_subscription_mirror_sync`. |
 | `queue-health-states.ts` | `QUEUE_HEALTH_JOB_STATES` — the BullMQ job-count states surfaced to the admin panel. Single owner shared by `worker/internal/queue-health.ts` and the admin jobs page (`src/app/admin/jobs`). Same no-side-effect contract as `queue-names.ts` (never imports bullmq/ioredis). |
 | `worker-types.ts` | TypeScript types for every BullMQ job payload (`SyncReviewsPayload`, `GenerateResponsePayload`, etc.); **WS6** owns the suspension-trigger/evidence vocabulary and the three judge/suspension payloads here. |
-| `job-outbox-helpers.ts` | Typed transactional enqueue helpers. **WS6** adds exact-partial-index-deduped helpers for judge verdicts, owner suspension notices, and admin suspension alerts; callers invoke them in the state-change transaction. |
+| `job-outbox-helpers.ts` | Typed transactional enqueue helpers. **WS6** adds exact-partial-index-deduped autonomy helpers; **WS8** adds the deprecated Stripe subscription-mirror repair job, enqueued with canonical status state. |
 | `outbox.ts` | `markOutboxCompleted()`, `markOutboxFailed()`, `extractOutboxHandle()` — called at the end of every job handler. **WS5/WS6:** attempt-aware failure and `markOutboxCompletedIfOwned()` completion CASes return ownership so a stale BullMQ replay cannot write coupled terminal/domain state. |
 | `subscription-guard.ts` | `checkSubscription(business)` — returns the subscription status and whether the worker should proceed. Checks `cancelled` / `past_due` grace window / `pending_payment`. |
 | `past-due-recovery.ts` | **(Wave 2)** Shared past_due deadline calculator. Uses `accounts.past_due_at` + `accounts.flags.past_due_extension`; consumed by UI/write guards and worker subscription guard. |
@@ -607,11 +607,11 @@ LLM cost tracking and enforcement.
 | File | What it does |
 |------|--------------|
 | `price-tier-map.ts` | Single variant-aware owner of the four Copilot/Autopilot base Price IDs and two overage IDs; forward lookup takes `(tier, price_variant, kind)` and reverse base lookup returns `{tier, variant}`. |
-| `create-checkout-session.ts` | Creates card-up-front monthly Stripe Checkout Sessions from an explicit tier and immutable stored variant; promotion codes stay disabled. |
+| `create-checkout-session.ts` | Creates card-up-front monthly Stripe Checkout Sessions from one authoritative account attempt. Retries use its frozen Price/quantity/trial/tax/email/URL tuple under a stable idempotency key; promotion codes stay disabled. |
 | `founding-window.ts` | Strict-UTC, fail-closed `FOUNDING_DEADLINE` eligibility (`now < deadline`). |
 | `tier-purchasability.ts` | Composes the server-only Autopilot sales gate with auto-approval runtime readiness. |
 | `plan-presentation.ts` | Server-produced Copilot/Autopilot availability and founding/list amount view model for pricing, onboarding, and billing UI. |
-| `plan-activation.ts` / `overage-item.ts` | Complete stored billing-snapshot activation and variant-aware overage item resolution. |
+| `plan-activation.ts` / `overage-item.ts` | Complete stored billing-snapshot activation, single pending Checkout lease/reselection, and variant-aware overage item resolution. |
 | `stripe-client.ts` | Shared pinned Stripe client with bounded timeout/retry policy. |
 
 ### `admin/` *(Wave 2 additions)*
@@ -705,7 +705,7 @@ Starts everything:
 
 ### `worker/queues.ts`
 
-Defines all BullMQ `Queue` instances (one per job type), including WS6 judge verdict, autonomy owner-notice, and autonomy admin-alert queues on the shared retry defaults. Exports:
+Defines all BullMQ `Queue` instances (one per job type), including WS6 autonomy queues and the WS8 Stripe subscription-mirror repair queue on the shared retry defaults. Exports:
 
 - `queues` — object keyed by queue name.
 - `topicToQueue` — maps `job_outbox.topic` strings to `Queue` instances (used by `OutboxPoller`).
@@ -746,6 +746,7 @@ Each file exports a single `handle*` function that a BullMQ `Worker` calls per j
 | `AutoPostNoticeWorker.ts` | `auto_post_notice` | Sends the auto-approved post FYI ("your reply was posted") to the owner's channels after an `auto_policy` publish. Reuses the approval worker's eligibility primitive, then hands off to `auto-post-notice/dispatch.ts`. NEVER mutates the already-posted response — a send failure retries on this job alone. |
 | `PendingPostNoticeWorker.ts` | `pending_post_notice` | **(WS4)** Sends the veto-window "your reply will post automatically" notice. Re-checks `AUTO_APPROVAL_ENABLED` at SEND time (spec §2.12; flag off ⇒ complete without sending — the publisher's downgrade backstop owns the record), loads the still-scheduled `auto_policy` response via `pending-post-notice/context.ts` freshness guards, reuses the approval worker's eligibility primitive, then hands off to `pending-post-notice/dispatch.ts`. NEVER mutates the response; the delayed publish outbox row is independent and fires at the deadline regardless. |
 | `AutonomyAdminAlertWorker.ts` | `autonomy_admin_alert` | **(WS6)** Renders an internal account-suspension alert from bounded trigger/evidence facts, sends it to `ADMIN_NOTIFICATION_EMAIL`, then independently attempts Sentry warning telemetry so observability cannot poison a successful email path. |
+| `billing/StripeSubscriptionMirrorSyncWorker.ts` | `stripe_subscription_mirror_sync` | **(WS8)** Converges deprecated business subscription status/activation from canonical account state. Locks business rows in id order, then entitlement, reads the account without a row lock, updates the mirror, and completes the originating outbox entry in one transaction. |
 | `ResponsePublisherWorker.ts` | `publish-response` | POST-only flow. Checks `zernio_connections` for the business. **WS6:** every unposted `auto_policy` response first passes the judge flag/health gate; disabled or unhealthy downgrades to owner review under a durable audit action, while query failures retry. Active Zernio → resolves review ID + posts via `zernio-publisher.ts`, marking `posted`. Connection required but absent → transitions to `awaiting_owner_connect` + enqueues `owner-email` (reconnect_required). Uses `publisher-error-handlers.ts` for error classification. The DELETE+POST edit branch (`runEditPublisherIfApplicable`) is parked on tag `wip/edit-existing-replies-zernio-v1` pending direct GBP API. |
 | `DrainOwnerConnectWorker.ts` | `drain-owner-connect` | Re-enqueues stuck `publish_response` outbox rows when an owner (re)connects Zernio. Inserts fresh outbox entries for all `awaiting_owner_connect` responses, with three layers of idempotency (partial unique index, NOT EXISTS guard, ResponsePublisher early-exit). |
 | `OwnerEmailWorker.ts` | `owner-email` | Discriminated payload router for owner-directed Zernio emails. `reconnect_required` → owner needs to reconnect Zernio so the queued reply can be published. `connection_lost` → Zernio reported GBP connection went offline. Both handlers apply subscription guard + bounce check + claim-before-send deduplication. |
@@ -877,7 +878,7 @@ Each handler is registered as a Fastify route in `worker/index.ts`. They all fol
 | File | Route | What it does |
 |------|-------|--------------|
 | `shared.ts` | *(utility)* | `claimInboundEvent()`, `markInboundEventProcessed()`, `markInboundEventFailed()` — atomically insert/update `inbound_events` rows. Used as the dedup guard in every other ingress handler. |
-| `stripe.ts` | `POST /ingress/stripe` | Verifies Stripe webhook signature. `checkout.session.completed` → transitions `subscription_status` to `active` + enqueues `SyncReviewsPayload`. `customer.subscription.updated` → updates status. |
+| `stripe.ts` | `POST /ingress/stripe` | Verifies Stripe webhook signatures and deduplicates delivery. Checkout completion provider-reads and validates the authoritative attempt before the single status/snapshot projection; subscription/invoice handlers converge provider-current status through the exact entitlement-locked account and durably enqueue deprecated mirror repair. |
 | `resend.ts` | `POST /ingress/resend` | Verifies Svix signature. Maps `email.delivered` / `email.bounced` / `email.complained` events to `notification_deliveries` status updates and `owner_email_bounced` flag; **WS6** classifies `autonomy_suspended_notice` as owner-directed for hard-bounce suppression. |
 | `twilio/twilio-intent.ts` | *(utility)* | `classifyIntent(body)` — shared STOP/START keyword detection used by WhatsApp ingress. |
 | `twilio/twilio-verify.ts` | *(utility)* | Verifies Twilio request signatures (HMAC-SHA1 on URL + params). |

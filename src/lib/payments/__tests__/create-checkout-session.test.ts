@@ -11,26 +11,43 @@ import {
   type SubscriptionTierValue,
 } from '@/lib/accounts/tier-config';
 
-const { createMock, mockAssertTierPurchasable } = vi.hoisted(() => ({
+const {
+  createMock,
+  retrieveSessionMock,
+  expireSessionMock,
+  retrieveSubscriptionMock,
+  cancelSubscriptionMock,
+} = vi.hoisted(() => ({
   createMock: vi.fn(),
-  mockAssertTierPurchasable: vi.fn(),
+  retrieveSessionMock: vi.fn(),
+  expireSessionMock: vi.fn(),
+  retrieveSubscriptionMock: vi.fn(),
+  cancelSubscriptionMock: vi.fn(),
 }));
 
 vi.mock('@/lib/payments/stripe-client', () => ({
-  getStripe: () => ({ checkout: { sessions: { create: createMock } } }),
+  getStripe: () => ({
+    checkout: {
+      sessions: {
+        create: createMock,
+        retrieve: retrieveSessionMock,
+        expire: expireSessionMock,
+      },
+    },
+    subscriptions: {
+      retrieve: retrieveSubscriptionMock,
+      cancel: cancelSubscriptionMock,
+    },
+  }),
 }));
-vi.mock('@/lib/payments/tier-purchasability', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/payments/tier-purchasability')>()),
-  assertTierPurchasable: mockAssertTierPurchasable,
-}));
-
-import {
-  CheckoutUnavailableError,
-  createCheckoutSession,
-} from '../create-checkout-session';
+import { createCheckoutSession } from '../create-checkout-session';
+import { CheckoutAttemptConflictError } from '../plan-activation';
 import { resetServerConfigForTests } from '@/lib/config/server';
 
 const ACCOUNT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+const ATTEMPT_ID = '11111111-2222-4333-8444-555555555555';
+const ACTIVATION_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff';
+const SESSION_ID = 'cs_123';
 const PRICE_ENV = {
   STRIPE_PRICE_COPILOT_LIST: 'price_copilot_list',
   STRIPE_PRICE_COPILOT_FOUNDING: 'price_copilot_founding',
@@ -43,33 +60,126 @@ const PRICE_ENV = {
 let harness: MockSqlHarness;
 let mockSql: Sql;
 
+function session(overrides: Record<string, unknown> = {}) {
+  return {
+    id: SESSION_ID,
+    url: 'https://checkout.stripe.test/session',
+    status: 'open',
+    subscription: null,
+    ...overrides,
+  };
+}
+
+function attemptRow(input: {
+  tier?: SubscriptionTierValue;
+  variant?: PriceVariant;
+  state?: 'creating' | 'open' | 'completed' | 'remediated';
+  sessionId?: string | null;
+  overageQuantity?: number;
+  attemptId?: string;
+  subscriptionStatus?: string;
+  trialPeriodDays?: 30 | null;
+  taxEnabled?: boolean;
+  customerEmail?: string;
+  successUrl?: string;
+  cancelUrl?: string;
+} = {}) {
+  const tier = input.tier ?? SubscriptionTier.COPILOT;
+  const variant = input.variant ?? 'list';
+  const autopilot = tier === SubscriptionTier.AUTOPILOT;
+  return {
+    subscription_status: input.subscriptionStatus ?? 'pending_payment',
+    price_variant: variant,
+    checkout_attempt_id: input.attemptId ?? ATTEMPT_ID,
+    checkout_session_id: input.sessionId ?? null,
+    checkout_attempt_state: input.state ?? 'creating',
+    checkout_attempt_tier: tier,
+    checkout_attempt_price_variant: variant,
+    checkout_attempt_base_price_id: autopilot
+      ? variant === 'founding'
+        ? PRICE_ENV.STRIPE_PRICE_AUTOPILOT_FOUNDING
+        : PRICE_ENV.STRIPE_PRICE_AUTOPILOT_LIST
+      : variant === 'founding'
+        ? PRICE_ENV.STRIPE_PRICE_COPILOT_FOUNDING
+        : PRICE_ENV.STRIPE_PRICE_COPILOT_LIST,
+    checkout_attempt_overage_price_id: autopilot
+      ? PRICE_ENV.STRIPE_PRICE_AUTOPILOT_OVERAGE
+      : PRICE_ENV.STRIPE_PRICE_COPILOT_OVERAGE,
+    checkout_attempt_base_price_cents: autopilot
+      ? variant === 'founding'
+        ? 4900
+        : 6900
+      : variant === 'founding'
+        ? 1900
+        : 2900,
+    checkout_attempt_overage_price_cents: autopilot ? 2000 : 1500,
+    checkout_attempt_locations_included: 1,
+    checkout_attempt_locations_paid: 0,
+    checkout_attempt_overage_quantity: input.overageQuantity ?? 0,
+    checkout_attempt_trial_period_days: input.trialPeriodDays ?? null,
+    checkout_attempt_tax_enabled: input.taxEnabled ?? false,
+    checkout_attempt_customer_email:
+      input.customerEmail ?? 'owner@example.com',
+    checkout_attempt_success_url:
+      input.successUrl ??
+      'https://frozen.example.com/onboarding/payment-success?session_id={CHECKOUT_SESSION_ID}',
+    checkout_attempt_cancel_url:
+      input.cancelUrl ?? 'https://frozen.example.com/onboarding/pay?cancelled=true',
+  };
+}
+
+function options() {
+  return {
+    attemptId: ATTEMPT_ID,
+    activationLockId: ACTIVATION_ID,
+  };
+}
+
+function queueLocksAndAttempt(row: ReturnType<typeof attemptRow>): void {
+  harness.sqlReturnQueue.push(
+    mkTaggedResult([{}]),
+    mkTaggedResult([{}]),
+    mkTaggedResult([{}]),
+    mkTaggedResult([row]),
+  );
+}
+
+function queueCreate(row: ReturnType<typeof attemptRow>): void {
+  queueLocksAndAttempt(row);
+  harness.sqlReturnQueue.push(mkTaggedResult([{ id: ACCOUNT_ID }]));
+}
+
 beforeEach(() => {
   harness = createMockSql();
   mockSql = harness.mockSql as unknown as Sql;
   createMock.mockReset();
-  createMock.mockResolvedValue({
-    url: 'https://checkout.stripe.test/session',
-    id: 'cs_123',
+  createMock.mockResolvedValue(session());
+  retrieveSessionMock.mockReset();
+  retrieveSessionMock.mockResolvedValue(session());
+  expireSessionMock.mockReset();
+  expireSessionMock.mockResolvedValue(session({ status: 'expired', url: null }));
+  retrieveSubscriptionMock.mockReset();
+  retrieveSubscriptionMock.mockResolvedValue({
+    id: 'sub_stale',
+    status: 'active',
   });
-  mockAssertTierPurchasable.mockReset();
+  cancelSubscriptionMock.mockReset();
+  cancelSubscriptionMock.mockResolvedValue({ id: 'sub_stale', status: 'canceled' });
   for (const [key, value] of Object.entries(PRICE_ENV)) vi.stubEnv(key, value);
   vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.example.com');
-  vi.stubEnv('TRIAL_PERIOD_DAYS', '30');
   resetServerConfigForTests();
 });
 
 afterEach(() => {
+  expect(
+    harness.sqlReturnQueue,
+    'every queued SQL result must be consumed by the branch under test',
+  ).toHaveLength(0);
   vi.unstubAllEnvs();
   resetServerConfigForTests();
 });
 
-function queueUsage(activeLocations = 3, included = 1): void {
-  harness.sqlReturnQueue.push(
-    mkTaggedResult([{ count: activeLocations, locations_included: included }]),
-  );
-}
-
-describe('createCheckoutSession price and quantity matrix', () => {
+describe('createCheckoutSession authoritative attempt lease', () => {
   const cases: Array<{
     tier: SubscriptionTierValue;
     variant: PriceVariant;
@@ -103,15 +213,21 @@ describe('createCheckoutSession price and quantity matrix', () => {
   ];
 
   for (const testCase of cases) {
-    it(`${testCase.tier}/${testCase.variant} uses exact base and tier overage Prices`, async () => {
-      queueUsage(3, 1);
+    it(`${testCase.tier}/${testCase.variant} creates from the exact leased Price snapshot`, async () => {
+      queueCreate(
+        attemptRow({
+          tier: testCase.tier,
+          variant: testCase.variant,
+          overageQuantity: 2,
+        }),
+      );
 
       await createCheckoutSession(
         mockSql,
         ACCOUNT_ID,
         testCase.tier,
         testCase.variant,
-        'owner@example.com',
+        options(),
       );
 
       const params = createMock.mock.calls[0]![0];
@@ -120,210 +236,298 @@ describe('createCheckoutSession price and quantity matrix', () => {
         { price: testCase.overage, quantity: 2 },
       ]);
       expect(params.allow_promotion_codes).toBe(false);
-      expect(mockAssertTierPurchasable).toHaveBeenCalledWith(testCase.tier);
-      expect(harness.sqlCalls).toHaveLength(1);
-      expect(harness.sqlReturnQueue).toHaveLength(0);
+      expect(params.metadata).toEqual({ checkout_attempt_id: ATTEMPT_ID });
+      expect(params.subscription_data.metadata).toEqual({
+        checkout_attempt_id: ATTEMPT_ID,
+      });
+      expect(createMock.mock.calls[0]![1]).toEqual({
+        idempotencyKey: `checkout-session-attempt:v1:${ATTEMPT_ID}`,
+      });
+      expect(harness.sqlCalls).toHaveLength(5);
     });
   }
 
-  it('omits a zero-quantity overage item but never stores that provisional quantity', async () => {
-    queueUsage(1, 1);
-    await createCheckoutSession(
+  it('same-selection replay returns the already-open Session without creating another', async () => {
+    queueLocksAndAttempt(
+      attemptRow({ state: 'open', sessionId: SESSION_ID }),
+    );
+
+    const result = await createCheckoutSession(
       mockSql,
       ACCOUNT_ID,
       SubscriptionTier.COPILOT,
       'list',
-      'owner@example.com',
+      options(),
     );
-    expect(createMock.mock.calls[0]![0].line_items).toEqual([
-      { price: PRICE_ENV.STRIPE_PRICE_COPILOT_LIST, quantity: 1 },
-    ]);
-    expect(harness.sqlCalls[0]!.text).toMatch(/SELECT[\s\S]*COUNT\(b\.id\)/);
-    expect(harness.sqlCalls.some((call) => /UPDATE\s+accounts/i.test(call.text))).toBe(false);
-  });
 
-  it('fails before SQL or Stripe when a required Price is missing', async () => {
-    vi.stubEnv('STRIPE_PRICE_AUTOPILOT_FOUNDING', '');
-    await expect(
-      createCheckoutSession(
-        mockSql,
-        ACCOUNT_ID,
-        SubscriptionTier.AUTOPILOT,
-        'founding',
-        'owner@example.com',
-      ),
-    ).rejects.toBeInstanceOf(CheckoutUnavailableError);
-    expect(harness.sqlCalls).toHaveLength(0);
-    expect(createMock).not.toHaveBeenCalled();
-  });
-
-  it('rechecks the Autopilot gate immediately before Stripe creation', async () => {
-    queueUsage(1, 1);
-    mockAssertTierPurchasable.mockImplementationOnce(() => {
-      throw new Error('gate closed');
+    expect(result).toEqual({
+      url: 'https://checkout.stripe.test/session',
+      sessionId: SESSION_ID,
     });
+    expect(retrieveSessionMock).toHaveBeenCalledWith(SESSION_ID, {
+      expand: ['line_items'],
+    });
+    expect(createMock).not.toHaveBeenCalled();
+    expect(harness.sqlCalls).toHaveLength(4);
+  });
+
+  it('rejects a stale attempt before Stripe creation', async () => {
+    queueLocksAndAttempt(attemptRow({ attemptId: '99999999-2222-4333-8444-555555555555' }));
+
     await expect(
       createCheckoutSession(
         mockSql,
         ACCOUNT_ID,
-        SubscriptionTier.AUTOPILOT,
+        SubscriptionTier.COPILOT,
         'list',
-        'owner@example.com',
+        options(),
       ),
-    ).rejects.toThrow('gate closed');
-    expect(harness.sqlCalls).toHaveLength(1);
+    ).rejects.toBeInstanceOf(CheckoutAttemptConflictError);
     expect(createMock).not.toHaveBeenCalled();
+    expect(harness.sqlCalls).toHaveLength(4);
   });
 
-  it('reuses one Stripe idempotency key for an exact logical retry', async () => {
-    queueUsage(3, 1);
-    queueUsage(3, 1);
+  it('does not create a Session if canonical status changed after plan selection', async () => {
+    queueLocksAndAttempt(attemptRow({ subscriptionStatus: 'cancelled' }));
 
-    const first = await createCheckoutSession(
-      mockSql,
-      ACCOUNT_ID,
-      SubscriptionTier.COPILOT,
-      'founding',
-      'owner@example.com',
-      { trial: true },
-    );
-    const replay = await createCheckoutSession(
-      mockSql,
-      ACCOUNT_ID,
-      SubscriptionTier.COPILOT,
-      'founding',
-      'owner@example.com',
-      { trial: true },
-    );
-
-    expect(replay).toEqual(first);
-    expect(createMock).toHaveBeenCalledTimes(2);
-    const firstKey = createMock.mock.calls[0]![1]!.idempotencyKey;
-    const replayKey = createMock.mock.calls[1]![1]!.idempotencyKey;
-    expect(firstKey).toBe(replayKey);
-    expect(firstKey).toMatch(/^checkout-session:v1:[a-f0-9]{64}$/);
-    expect(harness.sqlCalls).toHaveLength(2);
-    expect(harness.sqlReturnQueue).toHaveLength(0);
+    await expect(
+      createCheckoutSession(
+        mockSql,
+        ACCOUNT_ID,
+        SubscriptionTier.COPILOT,
+        'list',
+        options(),
+      ),
+    ).rejects.toBeInstanceOf(CheckoutAttemptConflictError);
+    expect(createMock).not.toHaveBeenCalled();
+    expect(harness.sqlCalls).toHaveLength(4);
   });
 
-  it('changes the idempotency key for tier, variant, trial, or quantity mutations', async () => {
-    for (const [active, included] of [
-      [1, 1],
-      [1, 1],
-      [1, 1],
-      [1, 1],
-      [3, 1],
-    ] as const) {
-      queueUsage(active, included);
-    }
+  it('honors an already-authorized creating attempt after live gate drift', async () => {
+    vi.stubEnv('AUTOPILOT_PURCHASABLE', 'false');
+    queueCreate(attemptRow({ tier: SubscriptionTier.AUTOPILOT }));
 
-    await createCheckoutSession(
-      mockSql,
-      ACCOUNT_ID,
-      SubscriptionTier.COPILOT,
-      'list',
-      'owner@example.com',
-    );
     await createCheckoutSession(
       mockSql,
       ACCOUNT_ID,
       SubscriptionTier.AUTOPILOT,
       'list',
-      'owner@example.com',
-    );
-    await createCheckoutSession(
-      mockSql,
-      ACCOUNT_ID,
-      SubscriptionTier.COPILOT,
-      'founding',
-      'owner@example.com',
-    );
-    await createCheckoutSession(
-      mockSql,
-      ACCOUNT_ID,
-      SubscriptionTier.COPILOT,
-      'list',
-      'owner@example.com',
-      { trial: true },
-    );
-    await createCheckoutSession(
-      mockSql,
-      ACCOUNT_ID,
-      SubscriptionTier.COPILOT,
-      'list',
-      'owner@example.com',
+      options(),
     );
 
-    const keys = createMock.mock.calls.map((call) => call[1]!.idempotencyKey);
-    expect(new Set(keys)).toHaveLength(5);
-    expect(harness.sqlReturnQueue).toHaveLength(0);
+    expect(createMock).toHaveBeenCalledTimes(1);
+    expect(createMock.mock.calls[0]![0].line_items[0]).toEqual({
+      price: PRICE_ENV.STRIPE_PRICE_AUTOPILOT_LIST,
+      quantity: 1,
+    });
+    expect(harness.sqlCalls).toHaveLength(5);
+  });
+
+  it('omits a zero-quantity overage item', async () => {
+    queueCreate(attemptRow({ overageQuantity: 0 }));
+    await createCheckoutSession(
+      mockSql,
+      ACCOUNT_ID,
+      SubscriptionTier.COPILOT,
+      'list',
+      options(),
+    );
+    expect(createMock.mock.calls[0]![0].line_items).toEqual([
+      { price: PRICE_ENV.STRIPE_PRICE_COPILOT_LIST, quantity: 1 },
+    ]);
+  });
+
+  it('uses the frozen attempt Prices when the live Price map drifts', async () => {
+    vi.stubEnv('STRIPE_PRICE_AUTOPILOT_FOUNDING', '');
+    vi.stubEnv('STRIPE_PRICE_AUTOPILOT_OVERAGE', 'price_new_overage');
+    queueCreate(
+      attemptRow({
+        tier: SubscriptionTier.AUTOPILOT,
+        variant: 'founding',
+        overageQuantity: 2,
+      }),
+    );
+
+    await createCheckoutSession(
+      mockSql,
+      ACCOUNT_ID,
+      SubscriptionTier.AUTOPILOT,
+      'founding',
+      options(),
+    );
+
+    expect(createMock.mock.calls[0]![0].line_items).toEqual([
+      { price: 'price_autopilot_founding', quantity: 1 },
+      { price: 'price_autopilot_overage', quantity: 2 },
+    ]);
   });
 });
 
-describe('createCheckoutSession trial and tax handling', () => {
-  for (const tier of [
-    SubscriptionTier.COPILOT,
-    SubscriptionTier.AUTOPILOT,
-  ] as const) {
-    it(`adds the 30-day card-up-front trial to explicitly selected ${tier}`, async () => {
-      queueUsage(1, 1);
-      await createCheckoutSession(
+describe('createCheckoutSession provider compensation', () => {
+  it('expires a created Session with a stable key when lease binding fails', async () => {
+    queueLocksAndAttempt(attemptRow());
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+    queueLocksAndAttempt(attemptRow());
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+
+    await expect(
+      createCheckoutSession(
         mockSql,
         ACCOUNT_ID,
-        tier,
+        SubscriptionTier.COPILOT,
         'list',
-        'owner@example.com',
-        { trial: true },
-      );
-      expect(createMock.mock.calls[0]![0].subscription_data).toEqual({
-        trial_period_days: 30,
-      });
-    });
-  }
+        options(),
+      ),
+    ).rejects.toBeInstanceOf(CheckoutAttemptConflictError);
 
-  it('keeps the locked trial at 30 days even if a stale duration override is present', async () => {
+    expect(expireSessionMock).toHaveBeenCalledWith(
+      SESSION_ID,
+      {},
+      {
+        idempotencyKey: `checkout-attempt-compensate-expire:v1:${SESSION_ID}`,
+      },
+    );
+    const remediation = harness.sqlCalls.at(-1)!;
+    expect(remediation.text).toMatch(/checkout_attempt_state\s*=\s*'remediated'/);
+    expect(remediation.values).toEqual(
+      expect.arrayContaining([SESSION_ID, ACCOUNT_ID, ATTEMPT_ID]),
+    );
+    expect(harness.sqlCalls).toHaveLength(10);
+  });
+
+  it('recovers an acknowledged lease after an ambiguous commit without expiring it', async () => {
+    queueCreate(attemptRow());
+    queueLocksAndAttempt(
+      attemptRow({ state: 'open', sessionId: SESSION_ID }),
+    );
+    const normalBegin = harness.mockSql.begin.getMockImplementation()!;
+    harness.mockSql.begin
+      .mockImplementationOnce(async (callback: unknown) => {
+        await (callback as (tx: unknown) => Promise<unknown>)(harness.mockSql);
+        throw new Error('commit acknowledgement lost');
+      })
+      .mockImplementation(normalBegin);
+
+    const result = await createCheckoutSession(
+      mockSql,
+      ACCOUNT_ID,
+      SubscriptionTier.COPILOT,
+      'list',
+      options(),
+    );
+
+    expect(result.sessionId).toBe(SESSION_ID);
+    expect(expireSessionMock).not.toHaveBeenCalled();
+    expect(cancelSubscriptionMock).not.toHaveBeenCalled();
+    expect(harness.sqlCalls).toHaveLength(9);
+  });
+
+  it('cancels a subscription if completion wins the bind-failure compensation race', async () => {
+    queueLocksAndAttempt(attemptRow());
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+    queueLocksAndAttempt(attemptRow());
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+    retrieveSessionMock.mockResolvedValueOnce(
+      session({ status: 'complete', subscription: 'sub_stale' }),
+    );
+
+    await expect(
+      createCheckoutSession(
+        mockSql,
+        ACCOUNT_ID,
+        SubscriptionTier.COPILOT,
+        'list',
+        options(),
+      ),
+    ).rejects.toBeInstanceOf(CheckoutAttemptConflictError);
+
+    expect(expireSessionMock).not.toHaveBeenCalled();
+    expect(cancelSubscriptionMock).toHaveBeenCalledWith(
+      'sub_stale',
+      { invoice_now: false, prorate: false },
+      {
+        idempotencyKey: 'checkout-attempt-compensate-cancel:v1:sub_stale',
+      },
+    );
+  });
+});
+
+describe('createCheckoutSession trial and tax shape', () => {
+  it('keeps the locked 30-day trial and attempt metadata', async () => {
     vi.stubEnv('TRIAL_PERIOD_DAYS', '14');
-    queueUsage(1, 1);
+    queueCreate(attemptRow({ trialPeriodDays: 30 }));
     await createCheckoutSession(
       mockSql,
       ACCOUNT_ID,
       SubscriptionTier.COPILOT,
       'list',
-      'owner@example.com',
-      { trial: true },
+      options(),
     );
     expect(createMock.mock.calls[0]![0].subscription_data).toEqual({
       trial_period_days: 30,
+      metadata: { checkout_attempt_id: ATTEMPT_ID },
     });
   });
 
-  it('omits trial data when trial is false', async () => {
-    queueUsage(1, 1);
+  it('uses the frozen Stripe Tax shape without enabling promotion codes', async () => {
+    queueCreate(attemptRow({ taxEnabled: true }));
     await createCheckoutSession(
       mockSql,
       ACCOUNT_ID,
       SubscriptionTier.COPILOT,
       'list',
-      'owner@example.com',
-    );
-    expect(createMock.mock.calls[0]![0].subscription_data).toBeUndefined();
-  });
-
-  it('adds configured Stripe Tax fields without enabling promotion codes', async () => {
-    vi.stubEnv('STRIPE_TAX_ENABLED', 'true');
-    resetServerConfigForTests();
-    queueUsage(1, 1);
-    await createCheckoutSession(
-      mockSql,
-      ACCOUNT_ID,
-      SubscriptionTier.COPILOT,
-      'list',
-      'owner@example.com',
+      options(),
     );
     const params = createMock.mock.calls[0]![0];
     expect(params.automatic_tax).toEqual({ enabled: true });
     expect(params.billing_address_collection).toBe('required');
     expect(params.tax_id_collection).toEqual({ enabled: true });
     expect(params.allow_promotion_codes).toBe(false);
+  });
+
+  it('reuses byte-stable stored create parameters across env and email drift', async () => {
+    const frozen = attemptRow({
+      trialPeriodDays: 30,
+      taxEnabled: false,
+      customerEmail: 'frozen-owner@example.com',
+      successUrl:
+        'https://old-deploy.example/onboarding/payment-success?session_id={CHECKOUT_SESSION_ID}',
+      cancelUrl: 'https://old-deploy.example/onboarding/pay?cancelled=true',
+    });
+    queueCreate(frozen);
+    queueCreate(frozen);
+
+    await createCheckoutSession(
+      mockSql,
+      ACCOUNT_ID,
+      SubscriptionTier.COPILOT,
+      'list',
+      options(),
+    );
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://new-deploy.example');
+    vi.stubEnv('STRIPE_TAX_ENABLED', 'true');
+    resetServerConfigForTests();
+    await createCheckoutSession(
+      mockSql,
+      ACCOUNT_ID,
+      SubscriptionTier.COPILOT,
+      'list',
+      options(),
+    );
+
+    const [first, second] = createMock.mock.calls.map(([params]) => params);
+    expect(second).toEqual(first);
+    expect(second).toMatchObject({
+      customer_email: 'frozen-owner@example.com',
+      success_url:
+        'https://old-deploy.example/onboarding/payment-success?session_id={CHECKOUT_SESSION_ID}',
+      cancel_url: 'https://old-deploy.example/onboarding/pay?cancelled=true',
+      subscription_data: {
+        trial_period_days: 30,
+        metadata: { checkout_attempt_id: ATTEMPT_ID },
+      },
+    });
+    expect(second).not.toHaveProperty('automatic_tax');
+    expect(createMock.mock.calls[0]![1]).toEqual(createMock.mock.calls[1]![1]);
   });
 });

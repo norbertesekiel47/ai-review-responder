@@ -7,61 +7,276 @@ import {
 } from '../../../../worker/__tests__/helpers/mock-sql';
 import { SubscriptionTier } from '@/lib/accounts/tier-config';
 
-const { mockTrialEnabled, mockAssertTierPurchasable } = vi.hoisted(() => ({
+const {
+  mockTrialEnabled,
+  mockStripeTaxEnabled,
+  mockAssertTierPurchasable,
+  retrieveSessionMock,
+  expireSessionMock,
+} = vi.hoisted(() => ({
   mockTrialEnabled: vi.fn(),
+  mockStripeTaxEnabled: vi.fn(),
   mockAssertTierPurchasable: vi.fn(),
+  retrieveSessionMock: vi.fn(),
+  expireSessionMock: vi.fn(),
 }));
 
-vi.mock('../flags', () => ({ trialEnabled: mockTrialEnabled }));
+vi.mock('../flags', () => ({
+  trialEnabled: mockTrialEnabled,
+  stripeTaxEnabled: mockStripeTaxEnabled,
+}));
 vi.mock('@/lib/payments/tier-purchasability', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/payments/tier-purchasability')>()),
   assertTierPurchasable: mockAssertTierPurchasable,
 }));
+vi.mock('@/lib/payments/stripe-client', () => ({
+  getStripe: () => ({
+    checkout: {
+      sessions: {
+        retrieve: retrieveSessionMock,
+        expire: expireSessionMock,
+      },
+    },
+  }),
+}));
 
-import { applyTierSnapshot, resolveCheckoutContext } from '../plan-activation';
+import {
+  applyTierSnapshot as applyTierSnapshotImpl,
+  CheckoutAttemptConflictError,
+  resolveCheckoutContext,
+  type ApplyTierSnapshotParams,
+} from '../plan-activation';
 
 const ACCOUNT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const BUSINESS_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff';
+const ATTEMPT_ID = '11111111-2222-4333-8444-555555555555';
+const SESSION_ID = 'cs_prior';
 
 let harness: MockSqlHarness;
 let mockSql: Sql;
+
+function applyTierSnapshot(
+  sql: Sql,
+  params: Omit<ApplyTierSnapshotParams, 'ownerEmail' | 'trial'> &
+    Partial<Pick<ApplyTierSnapshotParams, 'ownerEmail' | 'trial'>>,
+) {
+  return applyTierSnapshotImpl(sql, {
+    ownerEmail: 'owner@example.com',
+    trial: false,
+    ...params,
+  });
+}
+
+function accountRow(overrides: Record<string, unknown> = {}) {
+  return {
+    subscription_status: 'pending_payment',
+    price_variant: 'list',
+    active_locations: 3,
+    checkout_attempt_id: null,
+    checkout_session_id: null,
+    checkout_attempt_state: null,
+    checkout_attempt_tier: null,
+    checkout_attempt_price_variant: null,
+    checkout_attempt_base_price_id: null,
+    checkout_attempt_overage_price_id: null,
+    checkout_attempt_base_price_cents: null,
+    checkout_attempt_overage_price_cents: null,
+    checkout_attempt_locations_included: null,
+    checkout_attempt_locations_paid: null,
+    checkout_attempt_overage_quantity: null,
+    ...overrides,
+  };
+}
+
+function copilotAttempt(overrides: Record<string, unknown> = {}) {
+  return accountRow({
+    checkout_attempt_id: ATTEMPT_ID,
+    checkout_session_id: SESSION_ID,
+    checkout_attempt_state: 'open',
+    checkout_attempt_tier: 'copilot',
+    checkout_attempt_price_variant: 'list',
+    checkout_attempt_base_price_id: 'price_copilot_list',
+    checkout_attempt_overage_price_id: 'price_copilot_overage',
+    checkout_attempt_base_price_cents: 2900,
+    checkout_attempt_overage_price_cents: 1500,
+    checkout_attempt_locations_included: 1,
+    checkout_attempt_locations_paid: 0,
+    checkout_attempt_overage_quantity: 2,
+    ...overrides,
+  });
+}
+
+function queueLocksAndRow(row: Record<string, unknown> | null): void {
+  harness.sqlReturnQueue.push(
+    mkTaggedResult([{}]),
+    mkTaggedResult([{}]),
+    mkTaggedResult([{}]),
+    mkTaggedResult(row ? [row] : []),
+  );
+}
+
+function queueBusinessMirrorSync(tier: string): void {
+  harness.sqlReturnQueue.push(
+    mkTaggedResult([{ id: BUSINESS_ID }]),
+    mkTaggedResult([{}]),
+    mkTaggedResult([{ subscription_tier: tier }]),
+    mkTaggedResult([{}]),
+  );
+}
+
+function queueNewSelection(row = accountRow()): void {
+  queueLocksAndRow(row);
+  harness.sqlReturnQueue.push(
+    mkTaggedResult([
+      {
+        subscription_status: 'pending_payment',
+        price_variant: row.price_variant,
+      },
+    ]),
+    mkTaggedResult([{ id: ACCOUNT_ID }]),
+    mkTaggedResult([{}]),
+    mkTaggedResult([{}]),
+  );
+}
 
 beforeEach(() => {
   harness = createMockSql();
   mockSql = harness.mockSql as unknown as Sql;
   mockTrialEnabled.mockReset();
   mockTrialEnabled.mockReturnValue(false);
+  mockStripeTaxEnabled.mockReset();
+  mockStripeTaxEnabled.mockReturnValue(false);
   mockAssertTierPurchasable.mockReset();
+  retrieveSessionMock.mockReset();
+  retrieveSessionMock.mockResolvedValue({ id: SESSION_ID, status: 'open' });
+  expireSessionMock.mockReset();
+  expireSessionMock.mockResolvedValue({ id: SESSION_ID, status: 'expired' });
+  vi.stubEnv('STRIPE_PRICE_COPILOT_LIST', 'price_copilot_list');
+  vi.stubEnv('STRIPE_PRICE_COPILOT_FOUNDING', 'price_copilot_founding');
+  vi.stubEnv('STRIPE_PRICE_AUTOPILOT_LIST', 'price_autopilot_list');
+  vi.stubEnv('STRIPE_PRICE_AUTOPILOT_FOUNDING', 'price_autopilot_founding');
+  vi.stubEnv('STRIPE_PRICE_COPILOT_OVERAGE', 'price_copilot_overage');
+  vi.stubEnv('STRIPE_PRICE_AUTOPILOT_OVERAGE', 'price_autopilot_overage');
 });
 
-function queueLocksAndRow(row: Record<string, unknown>): void {
-  harness.sqlReturnQueue.push(mkTaggedResult([{}]));
-  harness.sqlReturnQueue.push(mkTaggedResult([{}]));
-  harness.sqlReturnQueue.push(mkTaggedResult([{}]));
-  harness.sqlReturnQueue.push(mkTaggedResult([row]));
-}
-
-function queueBusinessMirrorSync(
-  tier: string,
-  status = 'pending_payment',
-): void {
-  harness.sqlReturnQueue.push(
-    mkTaggedResult([{ id: BUSINESS_ID }]),
-    mkTaggedResult([{}]),
-    mkTaggedResult([{ subscription_tier: tier, subscription_status: status }]),
-    mkTaggedResult([{}]),
-  );
-}
-
-describe('applyTierSnapshot', () => {
-  it('writes the complete founding Autopilot pending snapshot with paid=0 in fixed lock order', async () => {
-    queueLocksAndRow({
-      subscription_status: 'pending_payment',
-      price_variant: 'founding',
-    });
-    harness.sqlReturnQueue.push(mkTaggedResult([{ id: ACCOUNT_ID }]));
-    harness.sqlReturnQueue.push(mkTaggedResult([{}]));
+describe('applyTierSnapshot authoritative Checkout attempt', () => {
+  it('writes the full founding Autopilot lease and pending billing snapshot in fixed lock order', async () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://frozen.example.com');
+    mockStripeTaxEnabled.mockReturnValue(true);
+    queueNewSelection(accountRow({ price_variant: 'founding' }));
     queueBusinessMirrorSync(SubscriptionTier.AUTOPILOT);
+
+    const result = await applyTierSnapshot(mockSql, {
+      accountId: ACCOUNT_ID,
+      activationLockId: BUSINESS_ID,
+      tier: SubscriptionTier.AUTOPILOT,
+      ownerEmail: '  founder@example.com  ',
+      trial: true,
+    });
+
+    expect(result).toMatchObject({
+      kind: 'ok',
+      accountId: ACCOUNT_ID,
+      variant: 'founding',
+      attemptId: expect.any(String),
+    });
+    const calls = harness.sqlCalls;
+    expect(calls.slice(0, 3).map((call) => call.values[0])).toEqual([
+      `${ACCOUNT_ID}:tier_entitlement`,
+      `${ACCOUNT_ID}:overage_sync`,
+      `${BUSINESS_ID}:activation`,
+    ]);
+    expect(calls[4]!.text).toContain('FOR UPDATE');
+    const snapshotWrite = calls[5]!;
+    expect(snapshotWrite.values).toEqual(
+      expect.arrayContaining(['autopilot', 4900, 2000, 1, 0, ACCOUNT_ID]),
+    );
+    const leaseWrite = calls[7]!;
+    expect(leaseWrite.text).toMatch(/checkout_attempt_state\s*=\s*'creating'/);
+    expect(leaseWrite.values).toEqual(
+      expect.arrayContaining([
+        'autopilot',
+        'founding',
+        'price_autopilot_founding',
+        'price_autopilot_overage',
+        4900,
+        2000,
+        1,
+        2,
+        30,
+        true,
+        'founder@example.com',
+        'https://frozen.example.com/onboarding/payment-success?session_id={CHECKOUT_SESSION_ID}',
+        'https://frozen.example.com/onboarding/pay?cancelled=true',
+        ACCOUNT_ID,
+      ]),
+    );
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+    expect(calls).toHaveLength(12);
+  });
+
+  it('reuses the stable identity for the same creating attempt', async () => {
+    vi.stubEnv('STRIPE_PRICE_COPILOT_LIST', '');
+    queueLocksAndRow(
+      copilotAttempt({
+        checkout_session_id: null,
+        checkout_attempt_state: 'creating',
+      }),
+    );
+    queueBusinessMirrorSync(SubscriptionTier.COPILOT);
+
+    const result = await applyTierSnapshot(mockSql, {
+      accountId: ACCOUNT_ID,
+      activationLockId: BUSINESS_ID,
+      tier: SubscriptionTier.COPILOT,
+      ownerEmail: '   ',
+      trial: true,
+    });
+
+    expect(result).toEqual({
+      kind: 'ok',
+      accountId: ACCOUNT_ID,
+      variant: 'list',
+      attemptId: ATTEMPT_ID,
+    });
+    expect(retrieveSessionMock).not.toHaveBeenCalled();
+    expect(harness.sqlCalls).toHaveLength(8);
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+  });
+
+  it('same-selection replay reuses the provider-open Session', async () => {
+    vi.stubEnv('STRIPE_PRICE_COPILOT_LIST', 'price_deploy_drift');
+    queueLocksAndRow(copilotAttempt());
+    queueBusinessMirrorSync(SubscriptionTier.COPILOT);
+
+    const result = await applyTierSnapshot(mockSql, {
+      accountId: ACCOUNT_ID,
+      activationLockId: BUSINESS_ID,
+      tier: SubscriptionTier.COPILOT,
+      ownerEmail: '   ',
+      trial: true,
+    });
+
+    expect(result).toMatchObject({ attemptId: ATTEMPT_ID });
+    expect(retrieveSessionMock).toHaveBeenCalledWith(SESSION_ID);
+    expect(expireSessionMock).not.toHaveBeenCalled();
+    expect(harness.sqlCalls).toHaveLength(8);
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+  });
+
+  it('gate closure still permits exact reuse of an authoritative open Session', async () => {
+    queueLocksAndRow(copilotAttempt({
+      subscription_tier: 'autopilot',
+      checkout_attempt_tier: 'autopilot',
+      checkout_attempt_base_price_id: 'price_autopilot_list',
+      checkout_attempt_overage_price_id: 'price_autopilot_overage',
+      checkout_attempt_base_price_cents: 6900,
+      checkout_attempt_overage_price_cents: 2000,
+    }));
+    queueBusinessMirrorSync(SubscriptionTier.AUTOPILOT);
+    mockAssertTierPurchasable.mockImplementation(() => {
+      throw new Error('gate closed');
+    });
 
     const result = await applyTierSnapshot(mockSql, {
       accountId: ACCOUNT_ID,
@@ -69,50 +284,16 @@ describe('applyTierSnapshot', () => {
       tier: SubscriptionTier.AUTOPILOT,
     });
 
-    expect(result).toEqual({
-      kind: 'ok',
-      accountId: ACCOUNT_ID,
-      variant: 'founding',
-    });
-    expect(mockAssertTierPurchasable).toHaveBeenCalledWith(
-      SubscriptionTier.AUTOPILOT,
-    );
-
-    const lockValues = harness.sqlCalls.slice(0, 3).map((call) => call.values[0]);
-    expect(lockValues).toEqual([
-      `${ACCOUNT_ID}:tier_entitlement`,
-      `${ACCOUNT_ID}:overage_sync`,
-      `${BUSINESS_ID}:activation`,
-    ]);
-    expect(harness.sqlCalls[3]!.text).toContain('FOR UPDATE');
-
-    const accountUpdate = harness.sqlCalls[4]!;
-    expect(accountUpdate.text).toContain('UPDATE accounts');
-    expect(accountUpdate.text).toContain('subscription_tier');
-    expect(accountUpdate.text).toContain('base_price_cents');
-    expect(accountUpdate.text).toContain('locations_overage_price_cents');
-    expect(accountUpdate.text).toContain('locations_included');
-    expect(accountUpdate.text).toContain('locations_paid');
-    expect(accountUpdate.values).toEqual(
-      expect.arrayContaining([
-        SubscriptionTier.AUTOPILOT,
-        4900,
-        2000,
-        1,
-        0,
-        ACCOUNT_ID,
-      ]),
-    );
-    expect(harness.sqlCalls[6]!.text).toMatch(/FROM\s+businesses/);
-    expect(harness.sqlCalls[6]!.text).toContain('FOR UPDATE');
-    expect(harness.sqlCalls[7]!.values).toEqual([`${ACCOUNT_ID}:tier_entitlement`]);
-    expect(harness.sqlCalls[8]!.text).toMatch(/FROM\s+accounts/);
-    expect(harness.sqlCalls[9]!.text).toMatch(/UPDATE\s+businesses/);
+    expect(result).toMatchObject({ kind: 'ok', attemptId: ATTEMPT_ID });
+    expect(retrieveSessionMock).toHaveBeenCalledWith(SESSION_ID);
+    expect(expireSessionMock).not.toHaveBeenCalled();
+    expect(mockAssertTierPurchasable).not.toHaveBeenCalled();
+    expect(harness.sqlCalls).toHaveLength(8);
     expect(harness.sqlReturnQueue).toHaveLength(0);
-    expect(harness.sqlCalls).toHaveLength(10);
   });
 
-  it('gate rejection performs no SQL and therefore no partial snapshot write', async () => {
+  it('gate-closed different-tier selection does not expire the existing open Session', async () => {
+    queueLocksAndRow(copilotAttempt());
     mockAssertTierPurchasable.mockImplementationOnce(() => {
       throw new Error('Autopilot unavailable');
     });
@@ -125,39 +306,162 @@ describe('applyTierSnapshot', () => {
       }),
     ).rejects.toThrow('Autopilot unavailable');
 
-    expect(harness.sqlCalls).toHaveLength(0);
-    expect(harness.mockSql.begin).not.toHaveBeenCalled();
-  });
-
-  it('missing account returns not_found after exactly three locks and one row read', async () => {
-    queueLocksAndRow({});
-    // Replace the queued row with an empty result without draining it early.
-    harness.sqlReturnQueue[3] = mkTaggedResult([]);
-    expect(harness.sqlReturnQueue).toHaveLength(4);
-
-    const result = await applyTierSnapshot(mockSql, {
-      accountId: ACCOUNT_ID,
-      activationLockId: BUSINESS_ID,
-      tier: SubscriptionTier.COPILOT,
-    });
-
-    expect(result).toEqual({ kind: 'not_found' });
+    expect(retrieveSessionMock).not.toHaveBeenCalled();
+    expect(expireSessionMock).not.toHaveBeenCalled();
+    expect(harness.sqlCalls.some((call) => /UPDATE\s+accounts/i.test(call.text))).toBe(
+      false,
+    );
     expect(harness.sqlCalls).toHaveLength(4);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
-  it('wrong status returns without any snapshot or audit write', async () => {
-    queueLocksAndRow({ subscription_status: 'active', price_variant: 'list' });
+  it('expires the previous open Session before persisting a replacement selection', async () => {
+    queueNewSelection(copilotAttempt());
+    queueBusinessMirrorSync(SubscriptionTier.AUTOPILOT);
 
     const result = await applyTierSnapshot(mockSql, {
       accountId: ACCOUNT_ID,
       activationLockId: BUSINESS_ID,
-      tier: SubscriptionTier.COPILOT,
+      tier: SubscriptionTier.AUTOPILOT,
     });
 
-    expect(result).toEqual({ kind: 'wrong_status', status: 'active' });
+    expect(result).toMatchObject({ kind: 'ok', variant: 'list' });
+    expect(result.kind === 'ok' && result.attemptId).not.toBe(ATTEMPT_ID);
+    expect(expireSessionMock).toHaveBeenCalledWith(
+      SESSION_ID,
+      {},
+      { idempotencyKey: `checkout-attempt-expire:v1:${SESSION_ID}` },
+    );
+    expect(harness.sqlCalls).toHaveLength(12);
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+  });
+
+  it('blocks replacement when the prior Session is already complete', async () => {
+    queueLocksAndRow(copilotAttempt());
+    retrieveSessionMock.mockResolvedValueOnce({
+      id: SESSION_ID,
+      status: 'complete',
+    });
+
+    await expect(
+      applyTierSnapshot(mockSql, {
+        accountId: ACCOUNT_ID,
+        activationLockId: BUSINESS_ID,
+        tier: SubscriptionTier.AUTOPILOT,
+      }),
+    ).rejects.toBeInstanceOf(CheckoutAttemptConflictError);
+    expect(expireSessionMock).not.toHaveBeenCalled();
     expect(harness.sqlCalls).toHaveLength(4);
     expect(harness.sqlReturnQueue).toHaveLength(0);
+  });
+
+  it('failed expiry leaves the old lease intact and creates no replacement', async () => {
+    queueLocksAndRow(copilotAttempt());
+    expireSessionMock.mockRejectedValueOnce(new Error('provider expiry failed'));
+    retrieveSessionMock
+      .mockResolvedValueOnce({ id: SESSION_ID, status: 'open' })
+      .mockResolvedValueOnce({ id: SESSION_ID, status: 'open' });
+
+    await expect(
+      applyTierSnapshot(mockSql, {
+        accountId: ACCOUNT_ID,
+        activationLockId: BUSINESS_ID,
+        tier: SubscriptionTier.AUTOPILOT,
+      }),
+    ).rejects.toThrow('provider expiry failed');
+    expect(harness.sqlCalls.some((call) => /UPDATE\s+accounts/i.test(call.text))).toBe(
+      false,
+    );
+    expect(harness.sqlCalls).toHaveLength(4);
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+  });
+
+  it('expire-versus-complete race converges by blocking the replacement', async () => {
+    queueLocksAndRow(copilotAttempt());
+    expireSessionMock.mockRejectedValueOnce(new Error('session no longer open'));
+    retrieveSessionMock
+      .mockResolvedValueOnce({ id: SESSION_ID, status: 'open' })
+      .mockResolvedValueOnce({ id: SESSION_ID, status: 'complete' });
+
+    await expect(
+      applyTierSnapshot(mockSql, {
+        accountId: ACCOUNT_ID,
+        activationLockId: BUSINESS_ID,
+        tier: SubscriptionTier.AUTOPILOT,
+      }),
+    ).rejects.toBeInstanceOf(CheckoutAttemptConflictError);
+    expect(harness.sqlCalls.some((call) => /UPDATE\s+accounts/i.test(call.text))).toBe(
+      false,
+    );
+    expect(harness.sqlCalls).toHaveLength(4);
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+  });
+
+  it('a different selection cannot supersede a provider-ambiguous creating attempt', async () => {
+    queueLocksAndRow(
+      copilotAttempt({
+        checkout_session_id: null,
+        checkout_attempt_state: 'creating',
+      }),
+    );
+
+    await expect(
+      applyTierSnapshot(mockSql, {
+        accountId: ACCOUNT_ID,
+        activationLockId: BUSINESS_ID,
+        tier: SubscriptionTier.AUTOPILOT,
+      }),
+    ).rejects.toBeInstanceOf(CheckoutAttemptConflictError);
+    expect(retrieveSessionMock).not.toHaveBeenCalled();
+    expect(harness.sqlCalls).toHaveLength(4);
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+  });
+
+  it('gate rejection performs no mutation or provider call', async () => {
+    queueLocksAndRow(accountRow());
+    mockAssertTierPurchasable.mockImplementationOnce(() => {
+      throw new Error('Autopilot unavailable');
+    });
+    await expect(
+      applyTierSnapshot(mockSql, {
+        accountId: ACCOUNT_ID,
+        activationLockId: BUSINESS_ID,
+        tier: SubscriptionTier.AUTOPILOT,
+      }),
+    ).rejects.toThrow('Autopilot unavailable');
+    expect(retrieveSessionMock).not.toHaveBeenCalled();
+    expect(expireSessionMock).not.toHaveBeenCalled();
+    expect(harness.sqlCalls.some((call) => /UPDATE\s+accounts/i.test(call.text))).toBe(
+      false,
+    );
+    expect(harness.sqlCalls).toHaveLength(4);
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+  });
+
+  it('missing and non-pending accounts perform no provider or snapshot writes', async () => {
+    queueLocksAndRow(null);
+    expect(
+      await applyTierSnapshot(mockSql, {
+        accountId: ACCOUNT_ID,
+        activationLockId: BUSINESS_ID,
+        tier: SubscriptionTier.COPILOT,
+      }),
+    ).toEqual({ kind: 'not_found' });
+    expect(harness.sqlCalls).toHaveLength(4);
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+
+    harness.resetMockSql();
+    queueLocksAndRow(accountRow({ subscription_status: 'active' }));
+    expect(
+      await applyTierSnapshot(mockSql, {
+        accountId: ACCOUNT_ID,
+        activationLockId: BUSINESS_ID,
+        tier: SubscriptionTier.COPILOT,
+      }),
+    ).toEqual({ kind: 'wrong_status', status: 'active' });
+    expect(harness.sqlCalls).toHaveLength(4);
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+    expect(retrieveSessionMock).not.toHaveBeenCalled();
   });
 });
 

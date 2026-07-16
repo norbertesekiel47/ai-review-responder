@@ -23,10 +23,14 @@ const {
 vi.mock('@/lib/shared/rate-limit', () => ({ checkRateLimit: mockCheckRateLimit }));
 vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
 vi.mock('@supabase/ssr', () => ({ createServerClient: mockCreateServerClient }));
-vi.mock('@/lib/payments/plan-activation', () => ({
-  applyTierSnapshot: mockApplyTierSnapshot,
-  resolveCheckoutContext: mockResolveCheckoutContext,
-}));
+vi.mock('@/lib/payments/plan-activation', () => {
+  class CheckoutAttemptConflictError extends Error {}
+  return {
+    CheckoutAttemptConflictError,
+    applyTierSnapshot: mockApplyTierSnapshot,
+    resolveCheckoutContext: mockResolveCheckoutContext,
+  };
+});
 vi.mock('@/lib/payments/create-checkout-session', () => {
   class CheckoutUnavailableError extends Error {}
   return {
@@ -43,10 +47,12 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 import { POST } from '../select-plan/route';
 import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 import { CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
+import { CheckoutAttemptConflictError } from '@/lib/payments/plan-activation';
 import { resetServerConfigForTests } from '@/lib/config/server';
 
 const ACCOUNT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const BUSINESS_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff';
+const ATTEMPT_ID = '11111111-2222-4333-8444-555555555555';
 
 function request(body: unknown, origin = 'https://app.example.com'): NextRequest {
   return new NextRequest('https://app.example.com/api/onboarding/select-plan', {
@@ -94,6 +100,7 @@ beforeEach(() => {
     kind: 'ok',
     accountId: ACCOUNT_ID,
     variant: 'founding',
+    attemptId: ATTEMPT_ID,
   });
   mockResolveCheckoutContext.mockResolvedValue({
     accountId: ACCOUNT_ID,
@@ -218,14 +225,18 @@ describe('POST /api/onboarding/select-plan', () => {
         accountId: ACCOUNT_ID,
         activationLockId: BUSINESS_ID,
         tier,
+        ownerEmail: 'owner@example.com',
+        trial: false,
       });
       expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
         mockSql,
         ACCOUNT_ID,
         tier,
         'founding',
-        'owner@example.com',
-        { trial: false },
+        {
+          attemptId: ATTEMPT_ID,
+          activationLockId: BUSINESS_ID,
+        },
       );
       expect(mockApplyTierSnapshot.mock.invocationCallOrder[0]).toBeLessThan(
         mockCreateCheckoutSession.mock.invocationCallOrder[0]!,
@@ -252,6 +263,23 @@ describe('POST /api/onboarding/select-plan', () => {
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
 
+  it.each([
+    'prior Session completed',
+    'different attempt still creating',
+    'prior Session expiry failed',
+  ])('maps %s selection conflict to 409 and creates no new Session', async (reason) => {
+    mockApplyTierSnapshot.mockRejectedValueOnce(
+      new CheckoutAttemptConflictError(reason),
+    );
+
+    const res = await POST(request({ tier: SubscriptionTier.AUTOPILOT }));
+
+    expect(res.status).toBe(409);
+    expectPrivateNoStore(res);
+    expect(await res.json()).toEqual({ error: 'checkout_attempt_conflict' });
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
   it('passes server-authoritative trial eligibility for the explicit tier', async () => {
     mockResolveCheckoutContext.mockResolvedValueOnce({
       accountId: ACCOUNT_ID,
@@ -259,7 +287,13 @@ describe('POST /api/onboarding/select-plan', () => {
     });
     const res = await POST(request({ tier: SubscriptionTier.AUTOPILOT }));
     expect(res.status).toBe(200);
-    expect(mockCreateCheckoutSession.mock.calls[0]![5]).toEqual({ trial: true });
+    expect(mockApplyTierSnapshot.mock.calls[0]![1]).toEqual({
+      accountId: ACCOUNT_ID,
+      activationLockId: BUSINESS_ID,
+      tier: SubscriptionTier.AUTOPILOT,
+      ownerEmail: 'owner@example.com',
+      trial: true,
+    });
   });
 
   it('excludes admin-provisioned accounts from the trial', async () => {
@@ -270,7 +304,13 @@ describe('POST /api/onboarding/select-plan', () => {
     const res = await POST(request({ tier: SubscriptionTier.AUTOPILOT }));
     expect(res.status).toBe(200);
     expectPrivateNoStore(res);
-    expect(mockCreateCheckoutSession.mock.calls[0]![5]).toEqual({ trial: false });
+    expect(mockApplyTierSnapshot.mock.calls[0]![1]).toEqual({
+      accountId: ACCOUNT_ID,
+      activationLockId: BUSINESS_ID,
+      tier: SubscriptionTier.AUTOPILOT,
+      ownerEmail: 'owner@example.com',
+      trial: false,
+    });
   });
 
   it('maps missing Price configuration to a private no-store checkout_unavailable response', async () => {

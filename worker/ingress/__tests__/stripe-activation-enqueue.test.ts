@@ -38,23 +38,13 @@ vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown)
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 
 const mockConstructEvent = vi.fn();
+const mockRetrieveSession = vi.fn();
+const mockRetrieveSubscription = vi.fn();
 vi.mock('stripe', () => ({
   default: class MockStripe {
     webhooks = { constructEvent: mockConstructEvent };
-    subscriptions = {
-      retrieve: vi.fn().mockResolvedValue({
-        id: 'sub_1',
-        customer: 'cus_1',
-        status: 'active',
-        trial_end: null,
-        items: {
-          data: [{
-            id: 'si_base', quantity: 1, metadata: {},
-            price: { id: 'price_copilot_list_test', metadata: {}, unit_amount: 2900 },
-          }],
-        },
-      }),
-    };
+    checkout = { sessions: { retrieve: mockRetrieveSession } };
+    subscriptions = { retrieve: mockRetrieveSubscription, cancel: vi.fn() };
   },
 }));
 
@@ -91,18 +81,38 @@ const TEST_BIZ_DEFAULT = '019dc366-29ce-7000-a000-000000000000';
 function setCheckoutSessionCompletedEvent(overrides: {
   businessId?: string;
   eventId?: string;
+  sessionId?: string;
 } = {}) {
+  const accountId = overrides.businessId ?? TEST_BIZ_DEFAULT;
+  const sessionId = overrides.sessionId ?? 'cs_activation';
   mockConstructEvent.mockReturnValueOnce({
     id: overrides.eventId ?? 'evt_test_123',
     type: 'checkout.session.completed',
     data: {
       object: {
-        client_reference_id: overrides.businessId ?? TEST_BIZ_DEFAULT,
+        id: sessionId,
+        client_reference_id: accountId,
         customer: 'cus_1',
         subscription: 'sub_1',
         mode: 'subscription',
         payment_status: 'paid',
       },
+    },
+  });
+  mockRetrieveSession.mockResolvedValueOnce({
+    id: sessionId,
+    mode: 'subscription',
+    status: 'complete',
+    payment_status: 'paid',
+    // The mocked account lookup below resolves every UUID ref to this account.
+    client_reference_id: TEST_BIZ_DEFAULT,
+    customer: 'cus_1',
+    subscription: 'sub_1',
+    metadata: {
+      checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
+    },
+    line_items: {
+      data: [{ quantity: 1, price: { id: 'price_copilot_list_test' } }],
     },
   });
 }
@@ -125,30 +135,45 @@ function queueHappyPath(
   // Entitlement -> billing -> activation advisory locks.
   sqlReturnQueue.push([], [], []);
 
-  const didActivate = currentStatus !== 'active';
+  const didActivate = currentStatus === 'pending_payment';
   const primaryBizId = options.primaryBizId ?? null;
 
-  // Provider-current checkout account row.
-  sqlReturnQueue.push([{
+  const checkoutAccount = {
     id: '019dc366-29ce-7000-a000-000000000000',
     subscription_tier: 'copilot',
+    subscription_status: currentStatus,
     price_variant: 'list',
     base_price_cents: 2900,
     locations_paid: 0,
     locations_overage_price_cents: 1500,
     locations_included: 1,
-    stripe_subscription_id: null,
-    stripe_customer_id: null,
-  }]);
-
-  // resolveAccount SELECT (always runs — returns id + subscription_status + primary_business_id)
-  sqlReturnQueue.push([{
-    id: '019dc366-29ce-7000-a000-000000000000',
-    subscription_status: currentStatus,
-    primary_business_id: primaryBizId,
-  }]);
+    stripe_subscription_id: currentStatus === 'active' ? 'sub_1' : null,
+    stripe_customer_id: currentStatus === 'active' ? 'cus_1' : null,
+    checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
+    checkout_session_id: 'cs_activation',
+    checkout_attempt_state: currentStatus === 'active' ? 'completed' : 'open',
+    checkout_attempt_tier: 'copilot',
+    checkout_attempt_price_variant: 'list',
+    checkout_attempt_base_price_id: 'price_copilot_list_test',
+    checkout_attempt_overage_price_id: 'price_copilot_overage_test',
+    checkout_attempt_base_price_cents: 2900,
+    checkout_attempt_overage_price_cents: 1500,
+    checkout_attempt_locations_included: 1,
+    checkout_attempt_locations_paid: 0,
+    checkout_attempt_overage_quantity: 0,
+  };
+  // Provider-current observed account row.
+  sqlReturnQueue.push([checkoutAccount]);
 
   if (didActivate) {
+    // Canonical account row lock and lease recheck.
+    sqlReturnQueue.push([checkoutAccount]);
+    // Applier resolveAccount.
+    sqlReturnQueue.push([{
+      id: '019dc366-29ce-7000-a000-000000000000',
+      subscription_status: currentStatus,
+      primary_business_id: primaryBizId,
+    }]);
     // writeStatusColumns: UPDATE accounts
     const updateAcct: any = []; updateAcct.count = 1;
     sqlReturnQueue.push(updateAcct);
@@ -158,9 +183,18 @@ function queueHappyPath(
     // enqueueStripeOverageRecompute: INSERT INTO job_outbox (topic='update_stripe_overage_quantity')
     const overageOutbox: any = []; overageOutbox.count = 1;
     sqlReturnQueue.push(overageOutbox);
+    // enqueueStripeSubscriptionMirrorSync: INSERT INTO job_outbox
+    const mirrorOutbox: any = []; mirrorOutbox.count = 1;
+    sqlReturnQueue.push(mirrorOutbox);
+    // Complete billing snapshot is unchanged in this fixture.
+    sqlReturnQueue.push([]);
+    // Retain completed attempt identity.
+    sqlReturnQueue.push([{ id: '019dc366-29ce-7000-a000-000000000000' }]);
+  } else if (currentStatus !== 'active') {
+    // Non-pending canonical account is remediated before status projection.
+    sqlReturnQueue.push([]);
+    return;
   }
-  // Complete billing snapshot is unchanged in this fixture.
-  sqlReturnQueue.push([]);
   // Post-commit tier-only deprecated mirror projection (business -> entitlement).
   const updateTierBiz: any = [];
   updateTierBiz.count = options.updateBusinessesCount ?? 1;
@@ -169,18 +203,6 @@ function queueHappyPath(
     [],
     [{ subscription_tier: 'copilot' }],
     updateTierBiz,
-  );
-  // Status/activation projection remains owned by the status applier seam.
-  const updateStatusBiz: any = [];
-  updateStatusBiz.count = options.updateBusinessesCount ?? 1;
-  sqlReturnQueue.push(
-    [{ id: primaryBizId ?? TEST_BIZ_DEFAULT }],
-    [],
-    [{
-      subscription_status: 'active',
-      subscription_activated_at: new Date('2026-07-15T00:00:00Z'),
-    }],
-    updateStatusBiz,
   );
 }
 
@@ -219,15 +241,42 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
     process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_fake';
     process.env.STRIPE_PRICE_COPILOT_LIST = 'price_copilot_list_test';
+    process.env.STRIPE_PRICE_COPILOT_OVERAGE = 'price_copilot_overage_test';
+    mockRetrieveSubscription.mockResolvedValue({
+      id: 'sub_1',
+      customer: 'cus_1',
+      status: 'active',
+      trial_end: null,
+      metadata: {
+        checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
+      },
+      items: {
+        data: [{
+          id: 'si_base', quantity: 1, metadata: {},
+          price: { id: 'price_copilot_list_test', metadata: {}, unit_amount: 2900 },
+        }],
+      },
+    });
     prevZernioFlag = process.env.ZERNIO_PUBLISHING_ENABLED;
     delete process.env.ZERNIO_PUBLISHING_ENABLED;  // explicit OFF default
     vi.resetModules();
   });
 
   afterEach(() => {
+    expect(
+      sqlReturnQueue,
+      'every queued SQL result must be consumed by the branch under test',
+    ).toHaveLength(0);
     if (prevZernioFlag === undefined) delete process.env.ZERNIO_PUBLISHING_ENABLED;
     else process.env.ZERNIO_PUBLISHING_ENABLED = prevZernioFlag;
   });
+
+  function expectExactSqlCalls(count: number): void {
+    expect(
+      sqlCalls,
+      'the branch must execute its complete expected SQL sequence',
+    ).toHaveLength(count);
+  }
 
   it('pending_payment → active flips status; ZERNIO_PUBLISHING_ENABLED off → NO outbox enqueue', async () => {
     setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
@@ -244,20 +293,27 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     // ZERNIO_PUBLISHING_ENABLED is unset in beforeEach, so the post-activation
     // backfill-resume hook short-circuits BEFORE any SQL fires.
     expect(getInsertOutboxCall()).toBeUndefined();
+    expectExactSqlCalls(19);
   });
 
-  it('past_due → active flips status and does NOT enqueue (recovery, not first sync)', async () => {
+  it('rejects checkout completion after canonical status already became past_due', async () => {
     setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PASTDUE });
     queueHappyPath('past_due');
 
     const { handleStripeWebhook } = await import('../stripe');
     await handleStripeWebhook(makeRequest(), makeReply());
 
-    const updateCall = sqlCalls.find(
+    const statusUpdate = sqlCalls.find(
       (call) => isAccountStatusUpdate(call, SubscriptionStatus.ACTIVE),
     );
-    expect(updateCall).toBeDefined();
+    expect(statusUpdate).toBeUndefined();
+    expect(
+      sqlCalls.some((call) =>
+        /checkout_attempt_state\s*=\s*'remediated'/.test(call.text),
+      ),
+    ).toBe(true);
     expect(getInsertOutboxCall()).toBeUndefined();
+    expectExactSqlCalls(8);
   });
 
   it('active → active is a no-op (status guard) and does NOT enqueue', async () => {
@@ -268,6 +324,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     await handleStripeWebhook(makeRequest(), makeReply());
 
     expect(getInsertOutboxCall()).toBeUndefined();
+    expectExactSqlCalls(11);
   });
 
   it('serialization ordering: advisory lock runs before FOR UPDATE select and before UPDATE accounts', async () => {
@@ -297,6 +354,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     )!;
     expect(lockCall.text).toContain('hashtext');
     expect(lockCall.values).toContain('019dc366-29ce-7000-a000-000000000000:activation');
+    expectExactSqlCalls(19);
   });
 
   it('biz-row-deleted race: still completes the outer flow with no enqueue', async () => {
@@ -316,6 +374,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     // Webhook still acks 200.
     expect(reply.status).toHaveBeenCalledWith(200);
     expect(getInsertOutboxCall()).toBeUndefined();
+    expectExactSqlCalls(4);
   });
 
   // ── Backfill-resume branch (ZERNIO_PUBLISHING_ENABLED=true) ──────────────
@@ -333,6 +392,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     locationId?: string;
     tier?: string;
     activatedAt?: Date;
+    includeOutboxResult?: boolean;
   } = {}) {
     // After B1.4: the primary business ID comes from transition.primaryBusinessId
     // (returned by the applier's resolveAccount). queueHappyPath must be called
@@ -349,8 +409,10 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
       subscription_activated_at: opts.activatedAt ?? new Date('2026-04-15T00:00:00Z'),
     }]);
     // Outbox INSERT — count=1 (a new row was inserted).
-    const insertOutbox: any = []; insertOutbox.count = 1;
-    sqlReturnQueue.push(insertOutbox);
+    if (opts.includeOutboxResult !== false) {
+      const insertOutbox: any = []; insertOutbox.count = 1;
+      sqlReturnQueue.push(insertOutbox);
+    }
   }
 
   it('flag=ON + active connection + no completed run → enqueues zernio_initial_backfill', async () => {
@@ -389,6 +451,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     expect(resumeSelect!.text).toMatch(/a\.subscription_activated_at/);
     expect(resumeSelect!.text).not.toMatch(/b\.subscription_tier/);
     expect(resumeSelect!.text).not.toMatch(/b\.subscription_activated_at/);
+    expectExactSqlCalls(21);
   });
 
   it('flag=ON + predicate miss (no active connection OR completed run exists) → NO outbox INSERT', async () => {
@@ -403,6 +466,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     await handleStripeWebhook(makeRequest(), makeReply());
 
     expect(getBackfillInsertCalls()).toHaveLength(0);
+    expectExactSqlCalls(20);
   });
 
   it('flag=ON + no zernio_backfill_runs row at all (admin connected Zernio pre-checkout) → enqueues backfill', async () => {
@@ -422,13 +486,17 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
 
     const inserts = getBackfillInsertCalls();
     expect(inserts).toHaveLength(1);
+    expectExactSqlCalls(21);
   });
 
   it('rejects an unsupported backfill tier before the child outbox INSERT', async () => {
     process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
     setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
     queueHappyPath('pending_payment', { primaryBizId: TEST_BIZ_PENDING });
-    queueBackfillResumeMatchPath({ tier: 'retired_tier' });
+    queueBackfillResumeMatchPath({
+      tier: 'retired_tier',
+      includeOutboxResult: false,
+    });
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
     const { handleStripeWebhook } = await import('../stripe');
@@ -441,6 +509,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
       expect.stringContaining('invalid_ws8_subscription_tier:retired_tier'),
     );
     expect(sqlReturnQueue).toHaveLength(0);
+    expectExactSqlCalls(20);
   });
 
   it('flag=ON + in-flight outbox row exists → INSERT … SELECT WHERE NOT EXISTS skips (count=0)', async () => {
@@ -472,6 +541,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     expect(insertSql).toBeDefined();
     expect(insertSql!.text).toContain('NOT EXISTS');
     expect(insertSql!.text).toMatch(/status\s+IN/);
+    expectExactSqlCalls(21);
   });
 
   // ── D3: overage outbox enqueue on recovery ────────────────────────────
@@ -490,6 +560,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     expect(insert.values).toContain('pending');   // status — bound by enqueueStripeOverageRecompute
     // The account id resolved by queueHappyPath account lookup
     expect(insert.values).toContain('019dc366-29ce-7000-a000-000000000000'); // aggregate_id
+    expectExactSqlCalls(19);
   });
 
   it('VAL-BILLING-D3d: active → active no-op (updateAcct.count === 0) does NOT insert overage outbox row', async () => {
@@ -500,5 +571,6 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     await handleStripeWebhook(makeRequest(), makeReply());
 
     expect(getOverageOutboxInserts()).toHaveLength(0);
+    expectExactSqlCalls(11);
   });
 });

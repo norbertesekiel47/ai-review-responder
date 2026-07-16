@@ -9,13 +9,21 @@ const {
   mockGetOffboardingState,
   mockApplyTierSnapshot,
   mockStripeCreate,
-} = vi.hoisted(() => ({
-  mockRequireRole: vi.fn(),
-  mockSql: vi.fn(),
-  mockGetOffboardingState: vi.fn(),
-  mockApplyTierSnapshot: vi.fn(),
-  mockStripeCreate: vi.fn(),
-}));
+} = vi.hoisted(() => {
+  const mockSql = vi.fn() as ReturnType<typeof vi.fn> & {
+    begin: ReturnType<typeof vi.fn>;
+  };
+  mockSql.begin = vi.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
+    callback(mockSql),
+  );
+  return {
+    mockRequireRole: vi.fn(),
+    mockSql,
+    mockGetOffboardingState: vi.fn(),
+    mockApplyTierSnapshot: vi.fn(),
+    mockStripeCreate: vi.fn(),
+  };
+});
 
 vi.mock('@/lib/db/auth', () => {
   class AuthError extends Error {
@@ -43,6 +51,7 @@ import { POST } from '../checkout/route';
 import { resetServerConfigForTests } from '@/lib/config/server';
 
 const ACCOUNT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+const ATTEMPT_ID = '11111111-2222-4333-8444-555555555555';
 const APP_URL = 'https://app.example.com';
 const PRICE_ENV = {
   STRIPE_PRICE_COPILOT_LIST: 'price_copilot_list',
@@ -79,9 +88,40 @@ function queueAccountAndUsage(
   included: number,
   onboardedBy: string | null = null,
 ): void {
+  const overageQuantity = Math.max(0, activeLocations - included);
+  const trialEligible =
+    process.env.TRIAL_ENABLED === 'true' &&
+    process.env.SELF_SERVE_SIGNUP_ENABLED === 'true' &&
+    onboardedBy === null;
   mockSql
     .mockResolvedValueOnce([account(onboardedBy)])
-    .mockResolvedValueOnce([{ count: activeLocations, locations_included: included }]);
+    .mockResolvedValueOnce([{}])
+    .mockResolvedValueOnce([{}])
+    .mockResolvedValueOnce([{}])
+    .mockResolvedValueOnce([{
+      subscription_status: 'pending_payment',
+      price_variant: 'list',
+      checkout_attempt_id: ATTEMPT_ID,
+      checkout_session_id: null,
+      checkout_attempt_state: 'creating',
+      checkout_attempt_tier: 'copilot',
+      checkout_attempt_price_variant: 'list',
+      checkout_attempt_base_price_id: PRICE_ENV.STRIPE_PRICE_COPILOT_LIST,
+      checkout_attempt_overage_price_id: PRICE_ENV.STRIPE_PRICE_COPILOT_OVERAGE,
+      checkout_attempt_base_price_cents: 2900,
+      checkout_attempt_overage_price_cents: 1500,
+      checkout_attempt_locations_included: included,
+      checkout_attempt_locations_paid: 0,
+      checkout_attempt_overage_quantity: overageQuantity,
+      checkout_attempt_trial_period_days: trialEligible ? 30 : null,
+      checkout_attempt_tax_enabled: process.env.STRIPE_TAX_ENABLED === 'true',
+      checkout_attempt_customer_email: 'owner@example.com',
+      checkout_attempt_success_url:
+        `${APP_URL}/onboarding/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+      checkout_attempt_cancel_url:
+        `${APP_URL}/onboarding/pay?cancelled=true`,
+    }])
+    .mockResolvedValueOnce([{ id: ACCOUNT_ID }]);
 }
 
 function expectPrivateNoStore(response: Response): void {
@@ -100,10 +140,12 @@ beforeEach(() => {
     kind: 'ok',
     accountId: ACCOUNT_ID,
     variant: 'list',
+    attemptId: ATTEMPT_ID,
   });
   mockStripeCreate.mockResolvedValue({
     id: 'cs_test_123',
     url: 'https://checkout.stripe.test/session',
+    status: 'open',
   });
   vi.stubEnv('NEXT_PUBLIC_APP_URL', APP_URL);
   vi.stubEnv('SELF_SERVE_SIGNUP_ENABLED', 'true');
@@ -130,16 +172,19 @@ describe('POST /api/billing/checkout real Checkout parameters', () => {
     expect(mockStripeCreate).not.toHaveBeenCalled();
   });
 
-  it('maps a missing selected Price to 502 without querying usage or calling Stripe', async () => {
+  it('maps a new-attempt Price configuration failure to 502 without calling Stripe', async () => {
     vi.stubEnv('STRIPE_PRICE_COPILOT_LIST', '');
     mockSql.mockResolvedValueOnce([account()]);
+    mockApplyTierSnapshot.mockRejectedValueOnce(
+      new Error('Checkout Price configuration missing for copilot/list'),
+    );
 
     const response = await POST(
       request({ accountId: ACCOUNT_ID, tier: SubscriptionTier.COPILOT }),
     );
     expect(response.status).toBe(502);
     expectPrivateNoStore(response);
-    expect((await response.json()).error).toBe('checkout_unavailable');
+    expect((await response.json()).error).toBe('stripe_error');
     expect(mockSql).toHaveBeenCalledTimes(1);
     expect(mockApplyTierSnapshot).toHaveBeenCalledTimes(1);
     expect(mockStripeCreate).not.toHaveBeenCalled();
@@ -153,7 +198,7 @@ describe('POST /api/billing/checkout real Checkout parameters', () => {
     );
     expect(response.status).toBe(200);
     expectPrivateNoStore(response);
-    expect(mockSql).toHaveBeenCalledTimes(2);
+    expect(mockSql).toHaveBeenCalledTimes(6);
     expect(mockStripeCreate.mock.calls[0]![0]).toMatchObject({
       line_items: [
         { price: PRICE_ENV.STRIPE_PRICE_COPILOT_LIST, quantity: 1 },
@@ -190,6 +235,7 @@ describe('POST /api/billing/checkout real Checkout parameters', () => {
     expect(response.status).toBe(200);
     expect(mockStripeCreate.mock.calls[0]![0].subscription_data).toEqual({
       trial_period_days: 30,
+      metadata: { checkout_attempt_id: ATTEMPT_ID },
     });
   });
 
@@ -202,7 +248,9 @@ describe('POST /api/billing/checkout real Checkout parameters', () => {
       request({ accountId: ACCOUNT_ID, tier: SubscriptionTier.COPILOT }),
     );
     expect(response.status).toBe(200);
-    expect(mockStripeCreate.mock.calls[0]![0]).not.toHaveProperty('subscription_data');
+    expect(mockStripeCreate.mock.calls[0]![0].subscription_data).toEqual({
+      metadata: { checkout_attempt_id: ATTEMPT_ID },
+    });
   });
 
   it('creates paid Checkout for pending self-serve when self-serve signup is disabled', async () => {
@@ -217,9 +265,11 @@ describe('POST /api/billing/checkout real Checkout parameters', () => {
 
     expect(response.status).toBe(200);
     expectPrivateNoStore(response);
-    expect(mockSql).toHaveBeenCalledTimes(2);
+    expect(mockSql).toHaveBeenCalledTimes(6);
     expect(mockApplyTierSnapshot).toHaveBeenCalledTimes(1);
     expect(mockStripeCreate).toHaveBeenCalledTimes(1);
-    expect(mockStripeCreate.mock.calls[0]![0]).not.toHaveProperty('subscription_data');
+    expect(mockStripeCreate.mock.calls[0]![0].subscription_data).toEqual({
+      metadata: { checkout_attempt_id: ATTEMPT_ID },
+    });
   });
 });

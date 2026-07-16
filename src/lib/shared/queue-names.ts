@@ -27,6 +27,7 @@ export const QUEUE_NAMES = {
   SEND_OWNER_EMAIL: 'send_owner_email',
   ONBOARDING_DEMO_RESPONSE: 'onboarding_demo_response',
   UPDATE_STRIPE_OVERAGE: 'update_stripe_overage_quantity',
+  STRIPE_SUBSCRIPTION_MIRROR_SYNC: 'stripe_subscription_mirror_sync',
   STRIPE_CHECKOUT_RECONCILE: 'stripe_checkout_session_reconcile',
   ACCOUNT_OFFBOARDING_BILLING_SCHEDULE: 'account_offboarding_billing_schedule',
   ACCOUNT_OFFBOARDING_EMAIL: 'account_offboarding_email',

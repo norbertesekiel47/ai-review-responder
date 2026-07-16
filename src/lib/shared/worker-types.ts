@@ -239,6 +239,10 @@ export interface StripeCheckoutReconcilePayload extends BasePayload {
   checkout_session_id: string;
 }
 
+export interface StripeSubscriptionMirrorSyncPayload extends BasePayload {
+  account_id: string;
+}
+
 export interface AccountOffboardingBillingSchedulePayload extends BasePayload {
   account_offboarding_id: string;
   account_id: string;

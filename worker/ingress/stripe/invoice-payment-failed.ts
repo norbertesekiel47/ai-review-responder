@@ -2,9 +2,10 @@ import Stripe from 'stripe';
 import type postgres from 'postgres';
 import { sql } from '../../../src/lib/db/server';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
-import { LOG_PREFIX, extractCustomerId, invoiceSubscriptionId } from './shared';
-import { applyStripeSubscriptionState } from './apply-subscription-state';
+import { LOG_PREFIX, extractCustomerId, invoiceSubscriptionId, getStripe } from './shared';
+import { applyStripeSubscriptionStateUnderEntitlementLock } from './apply-subscription-state';
 import { enqueueTrialPaymentFailed } from '../../../src/lib/analytics/trial-events';
+import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
 
 type TxSql = postgres.TransactionSql;
 
@@ -14,7 +15,7 @@ type TxSql = postgres.TransactionSql;
  * account where trial_converted already fired. If the account converted in the last
  * 3 days (the conversion charge + dunning retries, not a months-later renewal),
  * emit trial_payment_failed so net conversions = trial_converted − trial_payment_failed.
- * Idempotent (keyed by account+subscription); the caller's :status_change advisory
+ * Idempotent (keyed by account+subscription); the tier-entitlement advisory
  * lock serializes the convert vs fail webhooks, so the trial_converted row is visible.
  * Runs in the caller's tx. The only caller passes a guaranteed-non-null subscription
  * id (the handler early-returns when the invoice has none), so this takes `string`.
@@ -58,42 +59,42 @@ export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Prom
   // VAL-BILLING-012: Set accounts.subscription_status = 'past_due'
   // VAL-BILLING-062: Advisory lock prevents duplicate past_due writes under
   // concurrent webhook deliveries for the same customer.
+  // Resolve identity without a row lock. The transaction acquires entitlement
+  // before the applier re-reads and locks the canonical account row.
+  const [accountRef] = await sql<{ id: string }[]>`
+    SELECT id
+    FROM accounts
+    WHERE stripe_customer_id = ${customerId}
+      AND stripe_subscription_id = ${failedSubscriptionId}
+  `;
+  if (!accountRef) {
+    console.warn(`${LOG_PREFIX} invoice.payment_failed no account found for customer=${customerId} subscription=${failedSubscriptionId} — skipping`);
+    return;
+  }
+
+  // Event delivery can be reversed. Retrieve provider-current state before any
+  // DB lock so a late payment_failed cannot regress an already-recovered or
+  // canceled subscription.
+  const subscription = await getStripe().subscriptions.retrieve(failedSubscriptionId);
+
   await sql.begin(async (tx) => {
-    const [acctRow] = await tx<{ id: string; subscription_status: string }[]>`
-      SELECT id, subscription_status
-      FROM accounts
-      WHERE stripe_customer_id = ${customerId}
-        AND stripe_subscription_id = ${failedSubscriptionId}
-      FOR UPDATE
-    `;
-    if (!acctRow) {
-      console.warn(`${LOG_PREFIX} invoice.payment_failed no account found for customer=${customerId} subscription=${failedSubscriptionId} — skipping`);
+    await acquireTierEntitlementLock(tx, accountRef.id);
+    const transition = await applyStripeSubscriptionStateUnderEntitlementLock(
+      tx,
+      accountRef.id,
+      { mode: 'subscription', stripeCustomerId: customerId, stripeSubscriptionId: failedSubscriptionId },
+      subscription,
+    );
+    if (!transition.changed) {
+      console.log(`${LOG_PREFIX} Account ${accountRef.id} already ${transition.toStatus ?? 'missing'} — skipping past_due transition`);
       return;
     }
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${acctRow.id + ':status_change'}))`;
-
-    // Trialing card-fail: route through the applier (subscription mode).
-    if (acctRow.subscription_status === SubscriptionStatus.TRIALING) {
-      await applyStripeSubscriptionState(
-        tx,
-        { mode: 'subscription', stripeCustomerId: customerId, stripeSubscriptionId: failedSubscriptionId },
-        { id: failedSubscriptionId, status: 'past_due', trial_end: null, customer: customerId },
-      );
-      return;
-    }
-
-    if (acctRow.subscription_status === SubscriptionStatus.ACTIVE) {
-      const transition = await applyStripeSubscriptionState(
-        tx,
-        { mode: 'checkout', accountId: acctRow.id },
-        { id: failedSubscriptionId, status: 'past_due', trial_end: null, customer: customerId },
-      );
-      if (transition.changed) {
-        console.log(`${LOG_PREFIX} Account ${acctRow.id} marked past_due (customer=${customerId})`);
-        await recordTrialConversionFailureIfRecent(tx, acctRow.id, failedSubscriptionId);
-      }
-    } else {
-      console.log(`${LOG_PREFIX} Account ${acctRow.id} already ${acctRow.subscription_status} — skipping past_due transition`);
+    console.log(`${LOG_PREFIX} Account ${accountRef.id} projected to ${transition.toStatus} (customer=${customerId})`);
+    if (
+      transition.fromStatus === SubscriptionStatus.ACTIVE
+      && transition.toStatus === SubscriptionStatus.PAST_DUE
+    ) {
+      await recordTrialConversionFailureIfRecent(tx, accountRef.id, failedSubscriptionId);
     }
   });
 }

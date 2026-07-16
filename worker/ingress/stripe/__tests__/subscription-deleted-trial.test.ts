@@ -39,7 +39,7 @@ const {
 vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../../../src/lib/audit/log', () => ({ writeAccountAuditLog: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../apply-subscription-state', () => ({
-  applyStripeSubscriptionState: mockApplyStripeSubscriptionState,
+  applyStripeSubscriptionStateUnderEntitlementLock: mockApplyStripeSubscriptionState,
 }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 
@@ -74,7 +74,8 @@ describe('subscription.deleted — cancel during trial', () => {
     await processSubscriptionDeleted(deletedSub());
 
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
-    const [, ref, sub] = mockApplyStripeSubscriptionState.mock.calls[0]!;
+    const [, lockedAccountId, ref, sub] = mockApplyStripeSubscriptionState.mock.calls[0]!;
+    expect(lockedAccountId).toBe(ACCOUNT_ID);
     expect(ref).toEqual({
       mode: 'subscription',
       stripeCustomerId: CUSTOMER_ID,
@@ -99,6 +100,7 @@ describe('subscription.deleted — cancel during trial', () => {
 
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
       expect.anything(),
+      'acct-1',
       { mode: 'subscription', stripeCustomerId: 'cus_1', stripeSubscriptionId: 'sub_1' },
       expect.objectContaining({ id: 'sub_1', status: 'canceled' }),
     );
@@ -125,8 +127,8 @@ describe('subscription.deleted — cancel during trial', () => {
     // The old `const [acctRow]` took A1 (mismatched) and skipped; the fix resolves A2.
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
     const lockCall = sqlCalls.find((c) => /pg_advisory_xact_lock/.test(c.text));
-    expect(lockCall?.values).toContain(`${A2}:status_change`);
-    expect(lockCall?.values).not.toContain(`${A1}:status_change`);
+    expect(lockCall?.values).toContain(`${A2}:tier_entitlement`);
+    expect(lockCall?.values).not.toContain(`${A1}:tier_entitlement`);
   });
 
   it('multi-account customer: no account on the deleted subscription → skip (no applier call)', async () => {
