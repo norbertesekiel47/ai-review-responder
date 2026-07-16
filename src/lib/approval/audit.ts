@@ -48,13 +48,19 @@ export const AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE =
   'auto_policy_revoked_judge_unavailable';
 export const AUDIT_ACTION_AUTO_POLICY_REVOKED_TIER_ENTITLEMENT =
   'auto_policy_revoked_tier_entitlement';
+// Publish-time recheck of the WS6 governor/judge suspension: a policy
+// suspended between approval and the veto-window deadline downgrades instead
+// of posting (2026-07-16 review finding #3).
+export const AUDIT_ACTION_AUTO_POLICY_REVOKED_POLICY_SUSPENDED =
+  'auto_policy_revoked_policy_suspended';
 
 export type AutoPolicyAuditAction =
   | typeof AUDIT_ACTION_AUTO_APPROVED_BY_POLICY
   | typeof AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH
   | typeof AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED
   | typeof AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE
-  | typeof AUDIT_ACTION_AUTO_POLICY_REVOKED_TIER_ENTITLEMENT;
+  | typeof AUDIT_ACTION_AUTO_POLICY_REVOKED_TIER_ENTITLEMENT
+  | typeof AUDIT_ACTION_AUTO_POLICY_REVOKED_POLICY_SUSPENDED;
 
 export interface AutoPolicyAuditMetadata {
   policy_id?: string | null;

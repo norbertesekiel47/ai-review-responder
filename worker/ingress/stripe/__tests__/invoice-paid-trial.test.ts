@@ -51,9 +51,13 @@ vi.mock('../../../../src/lib/audit/log', () => ({ writeAccountAuditLog: vi.fn().
 vi.mock('../../../../src/lib/shared/job-outbox-helpers', () => ({
   enqueueStripeOverageRecompute: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('../apply-subscription-state', () => ({
-  applyStripeSubscriptionStateUnderEntitlementLock: mockApplyStripeSubscriptionState,
-}));
+vi.mock('../apply-subscription-state', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../apply-subscription-state')>();
+  return {
+    ...actual,
+    applyStripeSubscriptionStateUnderEntitlementLock: mockApplyStripeSubscriptionState,
+  };
+});
 vi.mock('../shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../shared')>();
   return {
@@ -358,5 +362,35 @@ describe('invoice.paid — trial conversion (FIX 4)', () => {
     sqlReturnQueue.push([]);
     await processInvoicePaid({ id: 'in_1', customer: 'cus_shared', lines: { data: [] }, subscription: 'sub_A' } as any);
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+  });
+
+  it('throws for provider redelivery when a paid invoice observes a stale past_due read on a past_due account', async () => {
+    // Regression (2026-07-16 review): a successful payment fires invoice.paid,
+    // but the provider-current subscriptions.retrieve can return a stale
+    // 'past_due' (replica lag). The applier then no-ops and the old code ACKed
+    // silently — recovery was missed unless customer.subscription.updated
+    // arrived. The handler must fail the delivery so Stripe redelivers until
+    // the read converges.
+    sqlReturnQueue.push([{ id: ACCOUNT_ID }]);
+    mockRetrieve.mockResolvedValueOnce({ id: SUB_ID, customer: CUSTOMER_ID, status: 'past_due', trial_end: null });
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'past_due', toStatus: 'past_due',
+      changed: false, activated: false, primaryBusinessId: null,
+    });
+
+    await expect(processInvoicePaid(invoice())).rejects.toThrow(/stale past_due/);
+    expect(mockResumePrimaryBusinessBackfill).not.toHaveBeenCalled();
+  });
+
+  it('still acks silently when the retrieved subscription is not past_due (already recovered)', async () => {
+    sqlReturnQueue.push([{ id: ACCOUNT_ID }]);
+    mockRetrieve.mockResolvedValueOnce({ id: SUB_ID, customer: CUSTOMER_ID, status: 'active', trial_end: null });
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'active', toStatus: 'active',
+      changed: false, activated: false, primaryBusinessId: null,
+    });
+
+    await expect(processInvoicePaid(invoice())).resolves.toBeUndefined();
+    expect(mockResumePrimaryBusinessBackfill).not.toHaveBeenCalled();
   });
 });

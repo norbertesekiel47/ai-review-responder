@@ -4,8 +4,8 @@ import type Stripe from 'stripe';
 import type { TransitionResult } from './apply-subscription-state';
 import { sql } from '../../../src/lib/db/server';
 import {
-  SubscriptionTier,
   isPriceVariant,
+  tierGrantsAutopilot,
   type PriceVariant,
   type ResolvedTierSnapshot,
   type SubscriptionTierValue,
@@ -449,7 +449,7 @@ function unavailableAutopilotAlerts(input: {
   subscription: Stripe.Subscription;
   subscriptionId: string;
 }): SubscriptionUpdateOperationalAlert[] {
-  const unavailable = input.base.tier === SubscriptionTier.AUTOPILOT
+  const unavailable = tierGrantsAutopilot(input.base.tier)
     && subscriptionGrantsFullAccess(input.subscription.status)
     && !autopilotPurchasable();
   if (!unavailable) return [];

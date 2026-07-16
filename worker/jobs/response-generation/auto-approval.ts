@@ -28,7 +28,7 @@ import { TRIAGE_SOURCE, type TriageSeverity } from '../../../src/lib/reviews/tri
 import type postgres from 'postgres';
 import {
   isSubscriptionTier,
-  SubscriptionTier,
+  tierGrantsAutopilot,
   type SubscriptionTierValue,
 } from '../../../src/lib/accounts/tier-config';
 
@@ -338,7 +338,7 @@ export function evaluateAutoApprovalCandidate(input: AutoApprovalCandidateInput)
     when(input.moderation.flagged, 'moderation_flagged'),
     when(input.held, 'moderation_held'),
     when(!publisherSubscription.allowed, 'publisher_subscription_denied'),
-    when(input.subscriptionTier !== SubscriptionTier.AUTOPILOT, 'autopilot_tier_required'),
+    when(!tierGrantsAutopilot(input.subscriptionTier), 'autopilot_tier_required'),
     when(!input.activeLocationNow, 'archived_location'),
     when(!input.activeZernioConnectionNow, 'active_zernio_connection_missing'),
     when(!runtimeEnabled, 'auto_approval_disabled'),

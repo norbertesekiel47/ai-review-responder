@@ -35,25 +35,31 @@ export async function handlePublishResponse(
   const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  const context = await loadPublishResponseContext(sql, {
-    responseId: response_id,
-    businessId,
-    outboxId,
-    outboxAttempt,
-    logger,
-  });
+  // The pre-routing reads are independent (each keyed only by immutable
+  // job.data ids) and run on the pool, so they parallelize safely — the
+  // auto-policy lane re-reads everything FOR UPDATE anyway (2026-07-16 review
+  // finding #10; these are routing hints only).
+  const [context, hasProviderAttempt] = await Promise.all([
+    loadPublishResponseContext(sql, {
+      responseId: response_id,
+      businessId,
+      outboxId,
+      outboxAttempt,
+      logger,
+    }),
+    // A durable provider-attempt marker outranks stale local response state.
+    // In particular, an owner veto may have cleared approval_method after a
+    // 2xx whose verification was ambiguous; the locked auto lane must
+    // reconcile provider truth before ordinary publishable/offboarding gates
+    // can close it.
+    hasAutoPolicyProviderAttemptMarker(sql, {
+      outboxId,
+      outboxAttempt,
+    }),
+  ]);
   if (context === 'terminal') return;
 
   const { response, business } = context;
-
-  // A durable provider-attempt marker outranks stale local response state. In
-  // particular, an owner veto may have cleared approval_method after a 2xx
-  // whose verification was ambiguous; the locked auto lane must reconcile
-  // provider truth before ordinary publishable/offboarding gates can close it.
-  const hasProviderAttempt = await hasAutoPolicyProviderAttemptMarker(sql, {
-    outboxId,
-    outboxAttempt,
-  });
   if (hasProviderAttempt) {
     await publishAutoPolicyResponse(sql, {
       responseId: response_id,

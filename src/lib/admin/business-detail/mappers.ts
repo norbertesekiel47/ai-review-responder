@@ -5,7 +5,7 @@
 // export/import wiring changed. No edits to computation or mapping logic.
 
 import { computeChurnRiskScore } from '@/lib/shared/churn-score';
-import { isSubscriptionTier, SubscriptionTier } from '@/lib/accounts/tier-config';
+import { isSubscriptionTier, tierGrantsAutopilot } from '@/lib/accounts/tier-config';
 import { parseDbArray } from '@/lib/shared/db-array';
 import { isPreviewEnvironment } from '@/lib/config/flags';
 import { channelsTelegramEnabled, channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
@@ -182,7 +182,7 @@ function buildAutoApprovalDiagnostics({
   const readiness = buildAutoApprovalReadiness({
     runtimeEnabled,
     autopilotAvailable:
-      accountRow?.subscription_tier === SubscriptionTier.AUTOPILOT
+      tierGrantsAutopilot(accountRow?.subscription_tier)
       && autopilotPurchasable(),
     providerModerationEnabled: moderationEnabled,
     providerModerationValidated: moderationValidated,

@@ -5,6 +5,10 @@ import postgres, { type Sql } from 'postgres';
 
 import { STRIPE_PRICE_ENV_VARS } from '../src/lib/payments/price-tier-map';
 import { getStripe } from '../src/lib/payments/stripe-client';
+import {
+  ALLOWED_TRANSITION_SOURCES,
+  mapStripeStatus,
+} from '../worker/ingress/stripe/apply-subscription-state';
 import { runDirectCli } from './run-direct-cli';
 
 export const LEGACY_STRIPE_PRICE_ENV_VARS = [
@@ -160,29 +164,20 @@ function lineItemPriceId(price: StripeLineItemProjection['price']): string | nul
   return price?.id ?? null;
 }
 
+// The preflight predicts the status applier, so it must consume the applier's
+// OWN mapping + transition table (2026-07-16 review finding #5 — local copies
+// silently diverged from apply-subscription-state.ts when the applier changed).
 function expectedLocalStatus(providerStatus: string): string | null {
-  switch (providerStatus) {
-    case 'trialing':
-    case 'active':
-      return providerStatus;
-    case 'canceled':
-      return 'cancelled';
-    case 'past_due':
-    case 'unpaid':
-    case 'incomplete':
-    case 'incomplete_expired':
-      return 'past_due';
-    default:
-      return null;
-  }
+  return mapStripeStatus(providerStatus);
 }
 
-const STATUS_APPLIER_SOURCES_BY_TARGET: Readonly<Record<string, ReadonlySet<string>>> = {
-  trialing: new Set(['pending_payment']),
-  active: new Set(['pending_payment', 'trialing', 'past_due']),
-  past_due: new Set(['active', 'trialing']),
-  cancelled: new Set(['pending_payment', 'active', 'trialing', 'past_due']),
-};
+const STATUS_APPLIER_SOURCES_BY_TARGET: Readonly<Record<string, ReadonlySet<string>>> =
+  Object.fromEntries(
+    Object.entries(ALLOWED_TRANSITION_SOURCES).map(([targetStatus, sources]) => [
+      targetStatus,
+      new Set<string>(sources),
+    ]),
+  );
 const RECOGNIZED_LOCAL_STATUSES = new Set([
   'pending_payment',
   'trialing',

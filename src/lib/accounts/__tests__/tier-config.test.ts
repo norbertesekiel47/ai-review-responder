@@ -8,6 +8,7 @@ import {
   lookupTierConfig,
   resolveTierSnapshot,
   TIER_CONFIG,
+  tierGrantsAutopilot,
 } from '../tier-config';
 
 describe('SubscriptionTier', () => {
@@ -74,5 +75,15 @@ describe('TIER_CONFIG', () => {
     expect(() => resolveTierSnapshot('copilot', 'discounted' as 'list')).toThrow(
       /Unknown price variant/,
     );
+  });
+});
+
+describe('tierGrantsAutopilot', () => {
+  it('is the single authoritative autopilot-entitlement predicate', () => {
+    expect(tierGrantsAutopilot(SubscriptionTier.AUTOPILOT)).toBe(true);
+    expect(tierGrantsAutopilot(SubscriptionTier.COPILOT)).toBe(false);
+    expect(tierGrantsAutopilot(null)).toBe(false);
+    expect(tierGrantsAutopilot(undefined)).toBe(false);
+    expect(tierGrantsAutopilot('enterprise')).toBe(false);
   });
 });

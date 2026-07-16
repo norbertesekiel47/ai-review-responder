@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 391;
+export const ALLOWLIST_BASELINE = 392;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -1774,6 +1774,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT id FROM responses WHERE review_id = ${reviewId} AND status = 'posted' AND id != ${responseId} LIMIT 1 FOR UPDATE",
     category: 'worker-job-scoped',
     reason: "Edit publisher path derives sibling response ids from the same business-scoped publish job before superseding posted rows.",
+  },
+  {
+    file: "worker/jobs/publisher/auto-policy-publish.ts",
+    table: "auto_approval_policies",
+    sqlSnippet: "SELECT subscription_status, subscription_tier, past_due_at, flags, EXISTS ( SELECT 1 FROM auto_approval_policies p WHERE p.account_id = ${business.account_id}::uuid AND p.suspended_at IS NOT NULL AND (p.location_id IS NULL OR p.location_id = ${input.businessId}::uuid) ) AS autonomy_suspended FROM accounts WHERE id = ${business.account_id}::uuid",
+    category: 'worker-job-scoped',
+    reason: "Publish-time WS6 suspension recheck rides the entitlement-lane accounts read; the auto_approval_policies EXISTS subquery IS account-scoped (p.account_id = the locked lane's account id param) and location-scoped via the OR override arm — the static analyzer cannot see through the parenthesized OR.",
   },
   {
     file: "worker/jobs/publisher/edit-publish-tx.ts",

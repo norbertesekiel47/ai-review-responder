@@ -103,6 +103,7 @@ interface HarnessState {
   responseStatus: string;
   approvalMethod: string | null;
   approvedText: string | null;
+  suspended: boolean;
   onArm?: () => void;
   onPossible?: () => void;
 }
@@ -121,6 +122,7 @@ function createHarness(overrides: Partial<HarnessState> = {}) {
     responseStatus: 'approved',
     approvalMethod: 'auto_policy',
     approvedText: 'Approved reply',
+    suspended: false,
     ...overrides,
   };
   const calls: string[] = [];
@@ -166,6 +168,7 @@ function createHarness(overrides: Partial<HarnessState> = {}) {
         subscription_tier: state.tier,
         past_due_at: null,
         flags: {},
+        autonomy_suspended: state.suspended,
       }]);
     }
     if (/FROM job_outbox/.test(text) && /FOR UPDATE/.test(text)) {
@@ -733,6 +736,51 @@ describe('auto-policy provider lane', () => {
       'review', 'business', 'response', 'entitlement',
     ]);
     expectFullThreePhaseTrace(harness);
+  });
+});
+
+describe('code-review regression fixes (2026-07-16)', () => {
+  it('reconcile-path auth revocation lands terminally instead of retry-looping', async () => {
+    const harness = createHarness({ markerPhase: 'possible' });
+    mocks.verify409.mockResolvedValue({
+      disposition: 'auth',
+      lookupErr: new ZernioAuthError(401, 'token revoked'),
+    });
+
+    await publishAutoPolicyResponse(harness.sql, input());
+
+    expect(mocks.authTerminal).toHaveBeenCalledTimes(1);
+    expect(mocks.permanentTerminal).not.toHaveBeenCalled();
+    expect(mocks.publishReply).not.toHaveBeenCalled();
+    expect(mocks.markOwned).toHaveBeenCalledTimes(1);
+  });
+
+  it('reconcile-path permanent 4xx lands terminally instead of retry-looping', async () => {
+    const harness = createHarness({ markerPhase: 'possible' });
+    mocks.verify409.mockResolvedValue({
+      disposition: 'permanent',
+      lookupErr: new ZernioPermanentError('verify_bad_request', { status: 400 }),
+    });
+
+    await publishAutoPolicyResponse(harness.sql, input());
+
+    expect(mocks.permanentTerminal).toHaveBeenCalledTimes(1);
+    expect(mocks.authTerminal).not.toHaveBeenCalled();
+    expect(mocks.publishReply).not.toHaveBeenCalled();
+  });
+
+  it('downgrades instead of posting when account autonomy is suspended at publish time', async () => {
+    const harness = createHarness({ suspended: true });
+
+    await publishAutoPolicyResponse(harness.sql, input());
+
+    expect(mocks.downgrade).toHaveBeenCalledTimes(1);
+    expect(mocks.downgrade).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ reason: 'policy_suspended' }),
+    );
+    expect(mocks.publishReply).not.toHaveBeenCalled();
+    expect(mocks.markPosted).not.toHaveBeenCalled();
   });
 });
 

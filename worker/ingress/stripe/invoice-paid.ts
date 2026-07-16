@@ -1,8 +1,9 @@
 import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import { LOG_PREFIX, extractCustomerId, invoiceSubscriptionId, getStripe, resumePrimaryBusinessBackfill } from './shared';
-import { applyStripeSubscriptionStateUnderEntitlementLock } from './apply-subscription-state';
+import { applyStripeSubscriptionStateUnderEntitlementLock, mapStripeStatus } from './apply-subscription-state';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
+import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 
 const STRIPE_STATUS_READ_TIMEOUT_MS = 20_000;
 
@@ -29,7 +30,7 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
   `;
   if (!accountRef) return;
 
-  const transition = await sql.begin(async (tx) => {
+  const { transition, providerStatus } = await sql.begin(async (tx) => {
     await acquireTierEntitlementLock(tx, accountRef.id);
     // The provider observation belongs to the same serialization boundary as
     // the DB write. Reading before entitlement lets an older observation commit
@@ -40,7 +41,7 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
       {},
       { timeout: STRIPE_STATUS_READ_TIMEOUT_MS },
     );
-    return applyStripeSubscriptionStateUnderEntitlementLock(
+    const applied = await applyStripeSubscriptionStateUnderEntitlementLock(
       tx,
       accountRef.id,
       {
@@ -50,7 +51,26 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
       },
       subscription,
     );
+    return { transition: applied, providerStatus: subscription.status };
   });
+
+  if (
+    !transition.changed
+    && transition.fromStatus === SubscriptionStatus.PAST_DUE
+    && mapStripeStatus(providerStatus) === SubscriptionStatus.PAST_DUE
+  ) {
+    // A paid invoice on a past_due account whose provider-current read STILL
+    // says past_due is a stale-read suspect (replica lag / event ordering).
+    // The applier deliberately no-ops on past_due→past_due, and silently
+    // ACKing here loses the recovery unless customer.subscription.updated
+    // arrives (2026-07-16 review finding #2 — the old handler forced a
+    // synthetic recovery on this path). Fail the delivery so Stripe
+    // redelivers until the read converges; redelivery is bounded by Stripe's
+    // webhook retry schedule and the reconcile poller surfaces any residue.
+    throw new Error(
+      `${LOG_PREFIX} invoice.paid observed a stale past_due subscription read for account ${accountRef.id} (subscription=${recoverySubscriptionId}); failing for provider redelivery`,
+    );
+  }
 
   if (!transition.changed || !transition.activated) return;
 

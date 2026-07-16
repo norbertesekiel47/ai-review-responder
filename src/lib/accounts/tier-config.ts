@@ -35,6 +35,19 @@ export function isSubscriptionTier(
   return ALL_TIERS.includes(value);
 }
 
+/**
+ * Single authoritative autopilot-entitlement predicate — the tier analogue of
+ * `subscriptionGrantsFullAccess` for status. Every "does this tier permit
+ * autonomous posting?" decision routes through here (2026-07-16 review
+ * finding #6); never compare tiers to `SubscriptionTier.AUTOPILOT` inline.
+ * Deliberately DISTINCT from `autopilotPurchasable()` (tier-purchasability),
+ * which gates NEW purchases only — an existing subscriber keeps entitlement
+ * during a sales pause.
+ */
+export function tierGrantsAutopilot(tier: string | null | undefined): boolean {
+  return tier === SubscriptionTier.AUTOPILOT;
+}
+
 export function isPriceVariant(value: string): value is PriceVariant {
   return PRICE_VARIANTS.includes(value as PriceVariant);
 }

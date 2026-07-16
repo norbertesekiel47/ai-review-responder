@@ -5,7 +5,7 @@ import {
   isBillingMutationBlocked,
   isOperationalUIBlocked,
 } from '@/lib/account-offboarding/gate';
-import { SubscriptionTier } from '@/lib/accounts/tier-config';
+import { tierGrantsAutopilot } from '@/lib/accounts/tier-config';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { isPreviewEnvironment } from '@/lib/config/flags';
 import { autopilotPurchasable } from '@/lib/payments/tier-purchasability';
@@ -1109,7 +1109,7 @@ async function buildReadiness(
   const accountWritable = Boolean(account && accountSubscriptionWritable(account))
     && !isBillingMutationBlocked(offboardingState);
   const autopilotAvailable = Boolean(
-    account?.subscription_tier === SubscriptionTier.AUTOPILOT
+    tierGrantsAutopilot(account?.subscription_tier)
       && autopilotPurchasable(),
   );
 

@@ -4,6 +4,7 @@ import {
   AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH,
   AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
   AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_POLICY_SUSPENDED,
   AUDIT_ACTION_AUTO_POLICY_REVOKED_TIER_ENTITLEMENT,
   insertAuditLogAutoPolicy,
 } from '../../../src/lib/approval/audit';
@@ -16,7 +17,8 @@ export type AutoPolicyDowngradeReason =
   | 'notice_undelivered'
   | 'judge_disabled'
   | 'judge_unhealthy'
-  | 'autopilot_entitlement_lost';
+  | 'autopilot_entitlement_lost'
+  | 'policy_suspended';
 
 // One marker per reason for both writes: the audit action AND the
 // responses.posting_error value (shared owner: src/lib/approval/audit.ts).
@@ -26,6 +28,7 @@ const DOWNGRADE_MARKERS = {
   judge_disabled: AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
   judge_unhealthy: AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
   autopilot_entitlement_lost: AUDIT_ACTION_AUTO_POLICY_REVOKED_TIER_ENTITLEMENT,
+  policy_suspended: AUDIT_ACTION_AUTO_POLICY_REVOKED_POLICY_SUSPENDED,
 } as const satisfies Record<AutoPolicyDowngradeReason, string>;
 
 export type AutoPolicyDowngradeOutcome = 'downgraded' | 'no-op';
@@ -162,6 +165,7 @@ export async function downgradeAutoApprovedResponseForManualReviewInTx(
       judge_disabled: 'the Judge safety watchdog is disabled',
       judge_unhealthy: 'the Judge safety watchdog is unhealthy',
       autopilot_entitlement_lost: 'the account no longer has Autopilot publish entitlement',
+      policy_suspended: 'account autonomy was suspended before the publish deadline',
     } as const satisfies Record<AutoPolicyDowngradeReason, string>;
     logger.warn(
       `Auto-approved response ${responseId} downgraded to owner review because ${reasonMessages[reason]}`,

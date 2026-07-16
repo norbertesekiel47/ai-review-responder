@@ -1,9 +1,9 @@
 import type Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import {
-  SubscriptionTier,
   isPriceVariant,
   isSubscriptionTier,
+  tierGrantsAutopilot,
   type PriceVariant,
   type SubscriptionTierValue,
 } from '../../../src/lib/accounts/tier-config';
@@ -429,12 +429,10 @@ async function projectCheckoutSubscription(
     } else if (!checkoutCreateShapeMatchesLease(providerSession, observed)) {
       reason = 'checkout_create_shape_mismatch';
     } else if (!trialContractMatchesLease(providerSession, subscription, observed)) {
-      reason = 'invalid_trial';
-    } else if (
-      subscription.status === 'trialing' &&
-      (typeof subscription.trial_end !== 'number' ||
-        subscription.trial_end <= Math.floor(Date.now() / 1000))
-    ) {
+      // trialContractMatchesLease is the single owner of trial validity — for
+      // trialing subscriptions it already asserts trial_end is a safe integer
+      // in the future, so no re-check follows (a duplicate guard here was
+      // provably unreachable; removed in the 2026-07-16 review, finding #9).
       reason = 'invalid_trial';
     } else if (
       !lineItemsMatchLease(providerSession.line_items?.data ?? [], observed) ||
@@ -668,7 +666,7 @@ async function projectCheckoutSubscription(
     }
 
     const alerts: OperationalAlert[] = [];
-    if (tier === SubscriptionTier.AUTOPILOT && !autopilotPurchasable()) {
+    if (tierGrantsAutopilot(tier) && !autopilotPurchasable()) {
       alerts.push({
         accountId,
         sessionId: eventSessionId,

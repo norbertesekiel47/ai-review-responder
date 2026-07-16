@@ -30,7 +30,7 @@ import {
   enqueueTrialPaymentFailed,
   enqueueTrialCancelled,
 } from '../../../src/lib/analytics/trial-events';
-import { SubscriptionStatus, type SubscriptionStatusValue } from '../../../src/lib/shared/subscription-status';
+import { SubscriptionStatus, subscriptionGrantsFullAccess, type SubscriptionStatusValue } from '../../../src/lib/shared/subscription-status';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
 
 // The applier is ALWAYS invoked inside sql.begin() (transactional-outbox
@@ -71,7 +71,7 @@ export interface TransitionResult {
  * represents a billing problem (past_due/unpaid/incomplete*) →past_due. Stripe
  * statuses we don't act on map to null (no-op).
  */
-function mapStripeStatus(stripeStatus: Stripe.Subscription.Status | string): SubscriptionStatusValue | null {
+export function mapStripeStatus(stripeStatus: Stripe.Subscription.Status | string): SubscriptionStatusValue | null {
   switch (stripeStatus) {
     case 'trialing':
       return SubscriptionStatus.TRIALING;
@@ -97,7 +97,7 @@ function mapStripeStatus(stripeStatus: Stripe.Subscription.Status | string): Sub
  * reachable only from the listed sources. `cancelled` itself is terminal and is
  * the (deliberately absent) common source filtered out by the guard below.
  */
-const ALLOWED_TRANSITION_SOURCES: Readonly<
+export const ALLOWED_TRANSITION_SOURCES: Readonly<
   Record<SubscriptionStatusValue, readonly SubscriptionStatusValue[]>
 > = {
   [SubscriptionStatus.TRIALING]: [SubscriptionStatus.PENDING_PAYMENT],
@@ -253,10 +253,6 @@ function stripeTrialEndIso(trialEnd: number | null | undefined): string | null {
   return new Date(trialEnd * 1000).toISOString();
 }
 
-function grantsEntitledAccess(status: SubscriptionStatusValue): boolean {
-  return status === SubscriptionStatus.TRIALING || status === SubscriptionStatus.ACTIVE;
-}
-
 async function persistStatusTransition(
   tx: TxSql,
   input: {
@@ -286,7 +282,7 @@ async function persistStatusTransition(
       toStatus: input.transition.target,
     },
   });
-  if (grantsEntitledAccess(input.transition.target)) {
+  if (subscriptionGrantsFullAccess(input.transition.target)) {
     await enqueueStripeOverageRecompute(tx, input.account.id);
   }
   await enqueueLifecycleAnalytics(
@@ -322,7 +318,7 @@ async function applyStripeSubscriptionStateInternal(
     fromStatus: transition.current,
     toStatus: transition.target,
     changed: true,
-    activated: grantsEntitledAccess(transition.target),
+    activated: subscriptionGrantsFullAccess(transition.target),
     primaryBusinessId: account.primary_business_id,
   };
 }

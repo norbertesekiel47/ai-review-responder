@@ -1,6 +1,6 @@
 import type { Sql, TransactionSql } from 'postgres';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
-import { SubscriptionTier } from '../../../src/lib/accounts/tier-config';
+import { tierGrantsAutopilot } from '../../../src/lib/accounts/tier-config';
 import { autoApprovalRuntimeEnabled } from '../../../src/lib/auto-approval/flags';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { AUDIT_ACTION_AUTO_APPROVED_BY_POLICY } from '../../../src/lib/approval/audit';
@@ -75,20 +75,16 @@ export async function hasAutoPolicyProviderAttemptMarker(
   sql: Sql,
   input: { outboxId: string; outboxAttempt: number | undefined },
 ): Promise<boolean> {
-  const [row] = input.outboxAttempt === undefined
-    ? await sql<{ present: boolean }[]>`
-        SELECT payload ? ${PROVIDER_ATTEMPT_MARKER} AS present
-        FROM job_outbox
-        WHERE id = ${input.outboxId}::uuid
-          AND status = 'dispatched'
-      `
-    : await sql<{ present: boolean }[]>`
-        SELECT payload ? ${PROVIDER_ATTEMPT_MARKER} AS present
-        FROM job_outbox
-        WHERE id = ${input.outboxId}::uuid
-          AND status = 'dispatched'
-          AND attempts = ${input.outboxAttempt}
-      `;
+  // One query for both attempt-bound and unbound callers: a NULL attempt param
+  // disables the predicate. Shared shape across all five outbox-marker queries
+  // (2026-07-16 review finding #8 — per-arm SQL copies could silently drift).
+  const [row] = await sql<{ present: boolean }[]>`
+    SELECT payload ? ${PROVIDER_ATTEMPT_MARKER} AS present
+    FROM job_outbox
+    WHERE id = ${input.outboxId}::uuid
+      AND status = 'dispatched'
+      AND (${input.outboxAttempt ?? null}::int IS NULL OR attempts = ${input.outboxAttempt ?? null})
+  `;
   return row?.present === true;
 }
 
@@ -105,6 +101,8 @@ interface LockedLane {
     subscription_tier: string;
     past_due_at: Date | null;
     flags: AccountFlagsInput | null;
+    /** WS6 governor/judge suspension, re-read under the entitlement lock. */
+    autonomy_suspended: boolean;
   };
   providerAttempt: ProviderAttemptMarker;
 }
@@ -409,8 +407,18 @@ async function lockLane(
   if (!response) return null;
 
   await acquireTierEntitlementLock(tx, business.account_id);
+  // autonomy_suspended rides the same entitlement read (no extra round-trip)
+  // and mirrors resolveEffectivePolicy's rule: the account-default suspension
+  // applies always; a location-override suspension also blocks this location.
   const [entitlement] = await tx<LockedLane['entitlement'][]>`
-    SELECT subscription_status, subscription_tier, past_due_at, flags
+    SELECT subscription_status, subscription_tier, past_due_at, flags,
+           EXISTS (
+             SELECT 1
+             FROM auto_approval_policies p
+             WHERE p.account_id = ${business.account_id}::uuid
+               AND p.suspended_at IS NOT NULL
+               AND (p.location_id IS NULL OR p.location_id = ${input.businessId}::uuid)
+           ) AS autonomy_suspended
     FROM accounts
     WHERE id = ${business.account_id}::uuid
   `;
@@ -431,30 +439,18 @@ async function lockProviderAttemptMarkerRow(
   tx: TransactionSql,
   input: AutoPolicyPublishInput,
 ): Promise<ProviderAttemptMarkerRow | undefined> {
-  const [outbox] = input.outboxAttempt === undefined
-    ? await tx<ProviderAttemptMarkerRow[]>`
-        SELECT
-          payload->${PROVIDER_ATTEMPT_MARKER}->>'phase' AS phase,
-          payload->${PROVIDER_ATTEMPT_MARKER}->'locator'->>'account_id' AS provider_account_id,
-          payload->${PROVIDER_ATTEMPT_MARKER}->'locator'->>'location_id' AS provider_location_id,
-          payload->${PROVIDER_ATTEMPT_MARKER}->'locator'->>'provider_review_id' AS provider_review_id
-        FROM job_outbox
-        WHERE id = ${input.outboxId}::uuid
-          AND status = 'dispatched'
-        FOR UPDATE
-      `
-    : await tx<ProviderAttemptMarkerRow[]>`
-        SELECT
-          payload->${PROVIDER_ATTEMPT_MARKER}->>'phase' AS phase,
-          payload->${PROVIDER_ATTEMPT_MARKER}->'locator'->>'account_id' AS provider_account_id,
-          payload->${PROVIDER_ATTEMPT_MARKER}->'locator'->>'location_id' AS provider_location_id,
-          payload->${PROVIDER_ATTEMPT_MARKER}->'locator'->>'provider_review_id' AS provider_review_id
-        FROM job_outbox
-        WHERE id = ${input.outboxId}::uuid
-          AND status = 'dispatched'
-          AND attempts = ${input.outboxAttempt}
-        FOR UPDATE
-      `;
+  const [outbox] = await tx<ProviderAttemptMarkerRow[]>`
+    SELECT
+      payload->${PROVIDER_ATTEMPT_MARKER}->>'phase' AS phase,
+      payload->${PROVIDER_ATTEMPT_MARKER}->'locator'->>'account_id' AS provider_account_id,
+      payload->${PROVIDER_ATTEMPT_MARKER}->'locator'->>'location_id' AS provider_location_id,
+      payload->${PROVIDER_ATTEMPT_MARKER}->'locator'->>'provider_review_id' AS provider_review_id
+    FROM job_outbox
+    WHERE id = ${input.outboxId}::uuid
+      AND status = 'dispatched'
+      AND (${input.outboxAttempt ?? null}::int IS NULL OR attempts = ${input.outboxAttempt ?? null})
+    FOR UPDATE
+  `;
   return outbox;
 }
 
@@ -519,6 +515,7 @@ const LOCKED_GATE_CHECKS: readonly LockedGateCheck[] = [
   evaluateVetoGate,
   evaluateArchivedGate,
   evaluateEntitlementGate,
+  evaluatePolicySuspensionGate,
   evaluateModerationGate,
 ];
 
@@ -600,9 +597,22 @@ async function evaluateEntitlementGate(
     workerType: 'publisher',
   });
   const hasAutopilot = subscription.allowed
-    && lane.entitlement.subscription_tier === SubscriptionTier.AUTOPILOT;
+    && tierGrantsAutopilot(lane.entitlement.subscription_tier);
   if (hasAutopilot) return 'continue';
   await downgradeForReason(tx, input, 'autopilot_entitlement_lost');
+  return 'completed';
+}
+
+async function evaluatePolicySuspensionGate(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  lane: LockedLane,
+): Promise<GateOutcome> {
+  // WS6 suspension recheck at publish time (2026-07-16 review finding #3): a
+  // governor/judge suspension landing between approval and the veto-window
+  // deadline must downgrade to owner review, not auto-post.
+  if (!lane.entitlement.autonomy_suspended) return 'continue';
+  await downgradeForReason(tx, input, 'policy_suspended');
   return 'completed';
 }
 
@@ -619,7 +629,7 @@ async function evaluateModerationGate(
 async function downgradeForReason(
   tx: TransactionSql,
   input: AutoPolicyPublishInput,
-  reason: 'auto_approval_disabled' | 'notice_undelivered' | 'autopilot_entitlement_lost',
+  reason: 'auto_approval_disabled' | 'notice_undelivered' | 'autopilot_entitlement_lost' | 'policy_suspended',
 ): Promise<void> {
   await downgradeAutoApprovedResponseForManualReviewInTx(tx, { ...input, reason });
 }
@@ -646,20 +656,13 @@ async function armProviderAttempt(
       outbox_attempt: input.outboxAttempt,
     },
   } as never);
-  const armed = input.outboxAttempt === undefined
-    ? await tx`
-        UPDATE job_outbox
-        SET payload = COALESCE(payload, '{}'::jsonb) || ${marker}
-        WHERE id = ${input.outboxId}::uuid
-          AND status = 'dispatched'
-      `
-    : await tx`
-        UPDATE job_outbox
-        SET payload = COALESCE(payload, '{}'::jsonb) || ${marker}
-        WHERE id = ${input.outboxId}::uuid
-          AND status = 'dispatched'
-          AND attempts = ${input.outboxAttempt}
-      `;
+  const armed = await tx`
+    UPDATE job_outbox
+    SET payload = COALESCE(payload, '{}'::jsonb) || ${marker}
+    WHERE id = ${input.outboxId}::uuid
+      AND status = 'dispatched'
+      AND (${input.outboxAttempt ?? null}::int IS NULL OR attempts = ${input.outboxAttempt ?? null})
+  `;
   return armed.count > 0;
 }
 
@@ -680,22 +683,14 @@ async function markProviderAttemptPossible(
       },
     },
   } as never);
-  const marked = input.outboxAttempt === undefined
-    ? await tx`
-        UPDATE job_outbox
-        SET payload = COALESCE(payload, '{}'::jsonb) || ${marker}
-        WHERE id = ${input.outboxId}::uuid
-          AND status = 'dispatched'
-          AND payload->${PROVIDER_ATTEMPT_MARKER}->>'phase' = 'armed'
-      `
-    : await tx`
-        UPDATE job_outbox
-        SET payload = COALESCE(payload, '{}'::jsonb) || ${marker}
-        WHERE id = ${input.outboxId}::uuid
-          AND status = 'dispatched'
-          AND attempts = ${input.outboxAttempt}
-          AND payload->${PROVIDER_ATTEMPT_MARKER}->>'phase' = 'armed'
-      `;
+  const marked = await tx`
+    UPDATE job_outbox
+    SET payload = COALESCE(payload, '{}'::jsonb) || ${marker}
+    WHERE id = ${input.outboxId}::uuid
+      AND status = 'dispatched'
+      AND (${input.outboxAttempt ?? null}::int IS NULL OR attempts = ${input.outboxAttempt ?? null})
+      AND payload->${PROVIDER_ATTEMPT_MARKER}->>'phase' = 'armed'
+  `;
   return marked.count > 0;
 }
 
@@ -711,22 +706,14 @@ async function resetProviderAttemptToArmed(
       reset_reason: 'publish_target_revalidation',
     },
   } as never);
-  const reset = input.outboxAttempt === undefined
-    ? await tx`
-        UPDATE job_outbox
-        SET payload = COALESCE(payload, '{}'::jsonb) || ${marker}
-        WHERE id = ${input.outboxId}::uuid
-          AND status = 'dispatched'
-          AND payload->${PROVIDER_ATTEMPT_MARKER}->>'phase' = 'possible'
-      `
-    : await tx`
-        UPDATE job_outbox
-        SET payload = COALESCE(payload, '{}'::jsonb) || ${marker}
-        WHERE id = ${input.outboxId}::uuid
-          AND status = 'dispatched'
-          AND attempts = ${input.outboxAttempt}
-          AND payload->${PROVIDER_ATTEMPT_MARKER}->>'phase' = 'possible'
-      `;
+  const reset = await tx`
+    UPDATE job_outbox
+    SET payload = COALESCE(payload, '{}'::jsonb) || ${marker}
+    WHERE id = ${input.outboxId}::uuid
+      AND status = 'dispatched'
+      AND (${input.outboxAttempt ?? null}::int IS NULL OR attempts = ${input.outboxAttempt ?? null})
+      AND payload->${PROVIDER_ATTEMPT_MARKER}->>'phase' = 'possible'
+  `;
   return reset.count > 0;
 }
 
@@ -871,7 +858,7 @@ async function reconcilePriorProviderAttempt(
     logger: input.logger,
   });
 
-  if (verified.disposition === 'matches_our_text') {
+  return disposeVerificationOutcome(tx, input, target, verified, async () => {
     await recoverAutoPolicyProviderTruth({
       tx,
       responseId: input.responseId,
@@ -882,33 +869,63 @@ async function reconcilePriorProviderAttempt(
       correlationId: input.correlationId,
       logger: input.logger,
     });
-    return 'posted';
+  });
+}
+
+/**
+ * Single disposition ladder for verify409InTx outcomes, shared by the fresh
+ * 409 path (disposeVerifiedReply) and the prior-attempt reconcile path
+ * (reconcilePriorProviderAttempt). Only the matches_our_text action differs
+ * per caller (markPostedOrThrow vs recoverAutoPolicyProviderTruth); every
+ * failure disposition — including the terminal auth/permanent arms the
+ * reconcile path previously dropped into a retry loop (2026-07-16 review
+ * finding #1) — is handled identically here so the two paths cannot drift.
+ */
+async function disposeVerificationOutcome(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  target: ResolvedPublishTarget,
+  verified: Awaited<ReturnType<typeof verify409InTx>>,
+  onMatch: () => Promise<void>,
+): Promise<'completed' | 'posted'> {
+  switch (verified.disposition) {
+    case 'matches_our_text':
+      await onMatch();
+      return 'posted';
+    case 'mismatch':
+      await supersedeProviderMismatch(tx, input);
+      return 'completed';
+    case 'transient':
+      throw transientFor(input, {
+        kind: 'transient',
+        accountId: target.locator.accountId,
+        locationId: target.locator.locationId,
+        error: verified.lookupErr,
+      });
+    case 'auth':
+      await handlePublisherAuthErrorTerminalInTx(
+        tx,
+        authArgs(input, target, verified.lookupErr),
+      );
+      return 'completed';
+    case 'permanent':
+      await handlePublisherPermanentErrorTerminalInTx(
+        tx,
+        permanentArgs(input, verified.lookupErr),
+      );
+      return 'completed';
+    case 'indeterminate':
+      throw new ZernioReplyVerificationIndeterminateError({
+        response_id: input.responseId,
+        business_id: input.businessId,
+        review_id: input.reviewId,
+        account_id: target.locator.accountId,
+        location_id: target.locator.locationId,
+        zernio_review_id: target.locator.providerReviewId,
+        reason: verified.reason,
+        ...verified.meta,
+      });
   }
-  if (verified.disposition === 'mismatch') {
-    await supersedeProviderMismatch(tx, input);
-    return 'completed';
-  }
-  if (verified.disposition === 'transient') {
-    throw transientFor(input, {
-      kind: 'transient',
-      accountId: target.locator.accountId,
-      locationId: target.locator.locationId,
-      error: verified.lookupErr,
-    });
-  }
-  if (verified.disposition === 'indeterminate') {
-    throw new ZernioReplyVerificationIndeterminateError({
-      response_id: input.responseId,
-      business_id: input.businessId,
-      review_id: input.reviewId,
-      account_id: target.locator.accountId,
-      location_id: target.locator.locationId,
-      zernio_review_id: target.locator.providerReviewId,
-      reason: verified.reason,
-      ...verified.meta,
-    });
-  }
-  throw priorAttemptIndeterminate(input, verified.disposition, target);
 }
 
 async function supersedeProviderMismatch(
@@ -970,50 +987,12 @@ async function disposeVerifiedReply(
     logger: input.logger,
   });
 
-  switch (verified.disposition) {
-    case 'matches_our_text':
-      await markPostedOrThrow(
-        tx,
-        input,
-        `Confirmed provider reply but response ${input.responseId} did not transition`,
-      );
-      return 'posted';
-    case 'mismatch':
-      await supersedeProviderMismatch(tx, input);
-      return 'completed';
-    case 'transient':
-      throw transientFor(input, {
-        kind: 'transient',
-        accountId: target.locator.accountId,
-        locationId: target.locator.locationId,
-        error: verified.lookupErr,
-      });
-    case 'auth':
-    case 'permanent':
-      if (verified.disposition === 'auth') {
-        await handlePublisherAuthErrorTerminalInTx(
-          tx,
-          authArgs(input, target, verified.lookupErr),
-        );
-      } else {
-        await handlePublisherPermanentErrorTerminalInTx(
-          tx,
-          permanentArgs(input, verified.lookupErr),
-        );
-      }
-      return 'completed';
-    case 'indeterminate':
-      throw new ZernioReplyVerificationIndeterminateError({
-        response_id: input.responseId,
-        business_id: input.businessId,
-        review_id: input.reviewId,
-        account_id: target.locator.accountId,
-        location_id: target.locator.locationId,
-        zernio_review_id: target.locator.providerReviewId,
-        reason: verified.reason,
-        ...verified.meta,
-      });
-  }
+  return disposeVerificationOutcome(tx, input, target, verified, () =>
+    markPostedOrThrow(
+      tx,
+      input,
+      `Confirmed provider reply but response ${input.responseId} did not transition`,
+    ));
 }
 
 function transientFor(
