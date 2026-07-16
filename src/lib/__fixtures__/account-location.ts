@@ -6,29 +6,14 @@
 // These are pure data factories — they return plain objects matching the
 // shape of database rows, suitable for mocking `sql` return values.
 
-import { resolveTierSnapshot, type PriceVariant, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
-import { SubscriptionStatus, type SubscriptionStatusValue } from '@/lib/shared/subscription-status';
+import type { AccountRow as RepositoryAccountRow } from '@/lib/accounts/repo';
+import { resolveTierSnapshot, type PriceVariant } from '@/lib/accounts/tier-config';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 // ── Account row factory ────────────────────────────────────────────────────
 
-export interface AccountRow {
-  id: string;
-  owner_user_id: string;
-  display_name: string;
-  subscription_tier: SubscriptionTierValue;
+export interface AccountRow extends RepositoryAccountRow {
   price_variant: PriceVariant;
-  subscription_status: SubscriptionStatusValue;
-  stripe_customer_id: string | null;
-  stripe_subscription_id: string | null;
-  trial_ends_at: Date | null;
-  subscription_activated_at: Date | null;
-  locations_included: number;
-  locations_paid: number;
-  locations_overage_price_cents: number;
-  base_price_cents: number;
-  flags: Record<string, unknown>;
-  created_at: Date;
-  updated_at: Date;
 }
 
 const ACCOUNT_COUNTER = { value: 0 };

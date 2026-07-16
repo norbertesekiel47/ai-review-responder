@@ -8,6 +8,7 @@ import {
   isPriceVariant,
   isSubscriptionTier,
   resolveTierSnapshot,
+  type PriceVariant,
   type ResolvedTierSnapshot,
   type SubscriptionTierValue,
 } from './tier-config';
@@ -168,6 +169,12 @@ type CommittedTierChangeLookup =
   | { kind: 'conflict'; committedTier: SubscriptionTierValue }
   | { kind: 'success'; billing: BillingSnapshot };
 
+type MatchedCommittedIdentity = {
+  kind: 'matched';
+  tier: SubscriptionTierValue;
+  variant: PriceVariant;
+};
+
 function parseAuditInteger(
   value: string | null,
   field: string,
@@ -182,6 +189,77 @@ function parseAuditInteger(
     throw new Error(`Committed tier-change audit has invalid ${field}`);
   }
   return parsed;
+}
+
+function singleCommittedRow(rows: CommittedTierChangeRow[]): CommittedTierChangeRow | null {
+  if (rows.length === 0) return null;
+  if (rows.length > 1) {
+    throw new Error('Committed tier-change operation has duplicate audit rows');
+  }
+  return rows[0]!;
+}
+
+function validateCommittedIdentity(
+  row: CommittedTierChangeRow,
+  input: { targetTier: SubscriptionTierValue; storedPriceVariant: string },
+): MatchedCommittedIdentity | Extract<CommittedTierChangeLookup, { kind: 'conflict' }> {
+  if (!row.new_tier || !isSubscriptionTier(row.new_tier)) {
+    throw new Error('Committed tier-change audit has invalid new_tier');
+  }
+  if (row.new_tier !== input.targetTier) {
+    return { kind: 'conflict', committedTier: row.new_tier };
+  }
+  if (!row.price_variant || !isPriceVariant(row.price_variant)) {
+    throw new Error('Committed tier-change audit has invalid price_variant');
+  }
+  if (row.price_variant !== input.storedPriceVariant) {
+    throw new Error('Committed tier-change audit price_variant does not match account');
+  }
+  return { kind: 'matched', tier: row.new_tier, variant: row.price_variant };
+}
+
+function committedBillingSnapshot(
+  row: CommittedTierChangeRow,
+  identity: MatchedCommittedIdentity,
+): BillingSnapshot {
+  const basePriceCents = parseAuditInteger(
+    row.base_price_cents,
+    'base_price_cents',
+    { positive: true },
+  );
+  const overagePriceCents = parseAuditInteger(
+    row.locations_overage_price_cents,
+    'locations_overage_price_cents',
+    { positive: true },
+  );
+  const includedLocations = parseAuditInteger(
+    row.locations_included,
+    'locations_included',
+    { positive: true },
+  );
+  const overageUnits = parseAuditInteger(
+    row.locations_paid,
+    'locations_paid',
+    { positive: false },
+  );
+  const committedSnapshot = resolveTierSnapshot(identity.tier, identity.variant);
+  const snapshotMatches = basePriceCents === committedSnapshot.baseCents
+    && overagePriceCents === committedSnapshot.overageCents
+    && includedLocations === committedSnapshot.included;
+  if (!snapshotMatches) {
+    throw new Error('Committed tier-change audit billing snapshot is inconsistent');
+  }
+  const totalCents = basePriceCents + overageUnits * overagePriceCents;
+  if (!Number.isSafeInteger(totalCents)) {
+    throw new Error('Committed tier-change audit has invalid total billing cents');
+  }
+  return {
+    basePriceCents,
+    includedLocations,
+    overagePriceCents,
+    overageUnits,
+    totalCents,
+  };
 }
 
 async function loadCommittedTierChange(
@@ -208,69 +286,16 @@ async function loadCommittedTierChange(
     ORDER BY created_at DESC, id DESC
     LIMIT 2
   `;
-  if (rows.length === 0) return { kind: 'none' };
-  if (rows.length > 1) {
-    throw new Error('Committed tier-change operation has duplicate audit rows');
-  }
+  const row = singleCommittedRow(rows);
+  if (!row) return { kind: 'none' };
   if (!isPriceVariant(input.storedPriceVariant)) {
     throw new Error('Committed tier-change account has invalid price_variant');
   }
-
-  const row = rows[0]!;
-  if (!row.new_tier || !isSubscriptionTier(row.new_tier)) {
-    throw new Error('Committed tier-change audit has invalid new_tier');
-  }
-  if (row.new_tier !== input.targetTier) {
-    return { kind: 'conflict', committedTier: row.new_tier };
-  }
-  if (!row.price_variant || !isPriceVariant(row.price_variant)) {
-    throw new Error('Committed tier-change audit has invalid price_variant');
-  }
-  if (row.price_variant !== input.storedPriceVariant) {
-    throw new Error('Committed tier-change audit price_variant does not match account');
-  }
-
-  const basePriceCents = parseAuditInteger(
-    row.base_price_cents,
-    'base_price_cents',
-    { positive: true },
-  );
-  const overagePriceCents = parseAuditInteger(
-    row.locations_overage_price_cents,
-    'locations_overage_price_cents',
-    { positive: true },
-  );
-  const includedLocations = parseAuditInteger(
-    row.locations_included,
-    'locations_included',
-    { positive: true },
-  );
-  const overageUnits = parseAuditInteger(
-    row.locations_paid,
-    'locations_paid',
-    { positive: false },
-  );
-  const committedSnapshot = resolveTierSnapshot(row.new_tier, row.price_variant);
-  if (
-    basePriceCents !== committedSnapshot.baseCents
-    || overagePriceCents !== committedSnapshot.overageCents
-    || includedLocations !== committedSnapshot.included
-  ) {
-    throw new Error('Committed tier-change audit billing snapshot is inconsistent');
-  }
-  const totalCents = basePriceCents + overageUnits * overagePriceCents;
-  if (!Number.isSafeInteger(totalCents)) {
-    throw new Error('Committed tier-change audit has invalid total billing cents');
-  }
+  const identity = validateCommittedIdentity(row, input);
+  if (identity.kind === 'conflict') return identity;
   return {
     kind: 'success',
-    billing: {
-      basePriceCents,
-      includedLocations,
-      overagePriceCents,
-      overageUnits,
-      totalCents,
-    },
+    billing: committedBillingSnapshot(row, identity),
   };
 }
 
@@ -412,6 +437,234 @@ async function ensureTierChangeAudit(
   });
 }
 
+type TierChangeFailure = TierChangeOutcome & { ok: false };
+
+type ExecutableAccount = Omit<LockedAccountState, 'price_variant' | 'stripe_subscription_id'> & {
+  price_variant: PriceVariant;
+  stripe_subscription_id: string;
+};
+
+interface TierChangeProviderPlan {
+  account: ExecutableAccount;
+  targetSnapshot: ResolvedTierSnapshot;
+  newOverageUnits: number;
+  newBilling: BillingSnapshot;
+  baseItemId: string;
+  basePriceId: string;
+  sourceTier: string;
+  overage: OverageMutation;
+}
+
+function tierChangeFailure(
+  code: TierChangeFailureCode,
+  detail: string,
+): TierChangeFailure {
+  return { ok: false, code, detail };
+}
+
+function committedOutcome(committed: CommittedTierChangeLookup): TierChangeOutcome | null {
+  if (committed.kind === 'success') {
+    return { ok: true, newBilling: committed.billing };
+  }
+  if (committed.kind === 'conflict') {
+    return tierChangeFailure(
+      'operation_conflict',
+      `Operation is already committed for tier: ${committed.committedTier}`,
+    );
+  }
+  return null;
+}
+
+function validateExecutableAccount(
+  account: LockedAccountState,
+  accountId: string,
+): { ok: true; account: ExecutableAccount } | { ok: false; outcome: TierChangeFailure } {
+  if (!account.stripe_subscription_id) {
+    return {
+      ok: false,
+      outcome: tierChangeFailure(
+        'no_stripe_subscription',
+        'Account has no active Stripe subscription',
+      ),
+    };
+  }
+  if (!subscriptionGrantsFullAccess(account.subscription_status)) {
+    return {
+      ok: false,
+      outcome: tierChangeFailure(
+        'subscription_inactive',
+        'Account subscription does not permit a tier change',
+      ),
+    };
+  }
+  if (!isPriceVariant(account.price_variant)) {
+    throw new Error(`Invalid stored price variant for account ${accountId}`);
+  }
+  return {
+    ok: true,
+    account: {
+      ...account,
+      price_variant: account.price_variant,
+      stripe_subscription_id: account.stripe_subscription_id,
+    },
+  };
+}
+
+interface ConfiguredTierPrices {
+  basePriceId: string;
+  overagePriceId: string;
+}
+
+function configuredTierPrices(
+  tier: SubscriptionTierValue,
+  variant: PriceVariant,
+): ConfiguredTierPrices | null {
+  const basePriceId = priceIdFor(tier, variant, 'base');
+  const overagePriceId = priceIdFor(tier, variant, 'overage');
+  return basePriceId && overagePriceId ? { basePriceId, overagePriceId } : null;
+}
+
+function resolveProviderBase(input: {
+  account: ExecutableAccount;
+  subscription: Stripe.Subscription;
+  targetTier: SubscriptionTierValue;
+  operationKey: string;
+  basePriceId: string;
+}):
+  | { ok: true; baseItemId: string; sourceTier: string }
+  | { ok: false; outcome: TierChangeFailure } {
+  const baseItem = input.subscription.items.data.find(
+    (item) => basePriceIdSet().has(item.price.id),
+  );
+  if (!baseItem) {
+    return {
+      ok: false,
+      outcome: tierChangeFailure(
+        'base_item_not_found',
+        'Could not identify the base subscription item',
+      ),
+    };
+  }
+  const projectedSameTier = input.account.subscription_tier === input.targetTier;
+  const providerOperationKey = baseItem.metadata?.[TIER_CHANGE_OPERATION_METADATA_KEY];
+  if (projectedSameTier && providerOperationKey !== input.operationKey) {
+    return {
+      ok: false,
+      outcome: tierChangeFailure('same_tier', 'Account is already on this tier'),
+    };
+  }
+  const sourceTier = projectedSameTier
+    ? baseItem.metadata?.[TIER_CHANGE_SOURCE_METADATA_KEY] ?? input.account.subscription_tier
+    : input.account.subscription_tier;
+  return { ok: true, baseItemId: baseItem.id, sourceTier };
+}
+
+async function buildTierChangeProviderPlan(
+  tx: TransactionSql,
+  account: ExecutableAccount,
+  input: ApplyTierChangeInput,
+): Promise<{ ok: true; plan: TierChangeProviderPlan } | { ok: false; outcome: TierChangeFailure }> {
+  const activeLocations = await countActiveLocations(tx, input.accountId);
+  const targetSnapshot = resolveTierSnapshot(input.tier, account.price_variant);
+  const newOverageUnits = computeOverageQuantity(activeLocations, targetSnapshot.included);
+  const newBilling = previewFor(targetSnapshot, activeLocations);
+  const prices = configuredTierPrices(input.tier, account.price_variant);
+  if (!prices) {
+    return {
+      ok: false,
+      outcome: tierChangeFailure(
+        'missing_price_config',
+        `Stripe prices are not fully configured for tier: ${input.tier}`,
+      ),
+    };
+  }
+
+  const subscription = await getStripe().subscriptions.retrieve(account.stripe_subscription_id);
+  const providerBase = resolveProviderBase({
+    account,
+    subscription,
+    targetTier: input.tier,
+    operationKey: input.operationKey,
+    basePriceId: prices.basePriceId,
+  });
+  if (!providerBase.ok) return providerBase;
+  const overage = planOverageMutation({
+    items: subscription.items.data,
+    storedOveragePriceCents: account.locations_overage_price_cents,
+    targetOveragePriceId: prices.overagePriceId,
+    newOverageUnits,
+  });
+  if ('failure' in overage) return { ok: false, outcome: overage.failure };
+
+  return {
+    ok: true,
+    plan: {
+      account,
+      targetSnapshot,
+      newOverageUnits,
+      newBilling,
+      baseItemId: providerBase.baseItemId,
+      basePriceId: prices.basePriceId,
+      sourceTier: providerBase.sourceTier,
+      overage: overage.plan,
+    },
+  };
+}
+
+async function applyTierChangeInTx(
+  tx: TransactionSql,
+  input: ApplyTierChangeInput,
+): Promise<TierChangeOutcome> {
+  await acquireTierAndBillingLocks(tx, input.accountId);
+
+  const account = await loadLockedAccountState(tx, input.accountId);
+  if (!account) {
+    return tierChangeFailure(
+      'no_stripe_subscription',
+      'Account has no active Stripe subscription',
+    );
+  }
+  const committed = await loadCommittedTierChange(tx, {
+    accountId: input.accountId,
+    operationKey: input.operationKey,
+    targetTier: input.tier,
+    storedPriceVariant: account.price_variant,
+  });
+  const replay = committedOutcome(committed);
+  if (replay) return replay;
+
+  assertTierPurchasable(input.tier);
+  const executable = validateExecutableAccount(account, input.accountId);
+  if (!executable.ok) return executable.outcome;
+  const providerPlan = await buildTierChangeProviderPlan(tx, executable.account, input);
+  if (!providerPlan.ok) return providerPlan.outcome;
+  const { plan } = providerPlan;
+
+  await mutateStripe({
+    accountId: input.accountId,
+    operationKey: input.operationKey,
+    subscriptionId: plan.account.stripe_subscription_id,
+    baseItemId: plan.baseItemId,
+    basePriceId: plan.basePriceId,
+    sourceTier: plan.sourceTier,
+    overage: plan.overage,
+  });
+  await writeResolvedTierSnapshot(tx, {
+    accountId: input.accountId,
+    snapshot: plan.targetSnapshot,
+    locationsPaid: plan.newOverageUnits,
+  });
+  await ensureTierChangeAudit(tx, {
+    accountId: input.accountId,
+    actorUserId: plan.account.owner_user_id,
+    operationKey: input.operationKey,
+    oldTier: plan.sourceTier,
+    snapshot: plan.targetSnapshot,
+    locationsPaid: plan.newOverageUnits,
+  });
+  return { ok: true, newBilling: plan.newBilling };
+}
+
 /**
  * Revalidates and executes a tier change from one locked plan. Stripe calls use
  * the shared bounded client and stable per-step keys while both advisory locks
@@ -423,119 +676,7 @@ export async function applyTierChange(
   input: ApplyTierChangeInput,
 ): Promise<TierChangeOutcome> {
   try {
-    const outcome = await sql.begin(async (tx): Promise<TierChangeOutcome> => {
-      await acquireTierAndBillingLocks(tx, input.accountId);
-
-      const account = await loadLockedAccountState(tx, input.accountId);
-      if (!account) {
-        return {
-          ok: false,
-          code: 'no_stripe_subscription',
-          detail: 'Account has no active Stripe subscription',
-        };
-      }
-      const committed = await loadCommittedTierChange(tx, {
-        accountId: input.accountId,
-        operationKey: input.operationKey,
-        targetTier: input.tier,
-        storedPriceVariant: account.price_variant,
-      });
-      if (committed.kind === 'success') {
-        return { ok: true, newBilling: committed.billing };
-      }
-      if (committed.kind === 'conflict') {
-        return {
-          ok: false,
-          code: 'operation_conflict',
-          detail: `Operation is already committed for tier: ${committed.committedTier}`,
-        };
-      }
-
-      assertTierPurchasable(input.tier);
-      if (!account.stripe_subscription_id) {
-        return {
-          ok: false,
-          code: 'no_stripe_subscription',
-          detail: 'Account has no active Stripe subscription',
-        };
-      }
-      if (!subscriptionGrantsFullAccess(account.subscription_status)) {
-        return {
-          ok: false,
-          code: 'subscription_inactive',
-          detail: 'Account subscription does not permit a tier change',
-        };
-      }
-      if (!isPriceVariant(account.price_variant)) {
-        throw new Error(`Invalid stored price variant for account ${input.accountId}`);
-      }
-
-      const activeLocations = await countActiveLocations(tx, input.accountId);
-      const targetSnapshot = resolveTierSnapshot(input.tier, account.price_variant);
-      const newOverageUnits = computeOverageQuantity(activeLocations, targetSnapshot.included);
-      const newBilling = previewFor(targetSnapshot, activeLocations);
-      const basePriceId = priceIdFor(input.tier, account.price_variant, 'base');
-      const overagePriceId = priceIdFor(input.tier, account.price_variant, 'overage');
-      if (!basePriceId || !overagePriceId) {
-        return {
-          ok: false,
-          code: 'missing_price_config',
-          detail: `Stripe prices are not fully configured for tier: ${input.tier}`,
-        };
-      }
-
-      const stripe = getStripe();
-      const subscription = await stripe.subscriptions.retrieve(account.stripe_subscription_id);
-      const baseItem = subscription.items.data.find((item) => basePriceIdSet().has(item.price.id));
-      if (!baseItem) {
-        return {
-          ok: false,
-          code: 'base_item_not_found',
-          detail: 'Could not identify the base subscription item',
-        };
-      }
-      const projectedSameTier = account.subscription_tier === input.tier;
-      const providerOperationKey = baseItem.metadata?.[TIER_CHANGE_OPERATION_METADATA_KEY];
-      if (projectedSameTier && providerOperationKey !== input.operationKey) {
-        return { ok: false, code: 'same_tier', detail: 'Account is already on this tier' };
-      }
-      const sourceTier = projectedSameTier
-        ? baseItem.metadata?.[TIER_CHANGE_SOURCE_METADATA_KEY] ?? account.subscription_tier
-        : account.subscription_tier;
-      const overage = planOverageMutation({
-        items: subscription.items.data,
-        storedOveragePriceCents: account.locations_overage_price_cents,
-        targetOveragePriceId: overagePriceId,
-        newOverageUnits,
-      });
-      if ('failure' in overage) return overage.failure;
-
-      await mutateStripe({
-        accountId: input.accountId,
-        operationKey: input.operationKey,
-        subscriptionId: account.stripe_subscription_id,
-        baseItemId: baseItem.id,
-        basePriceId,
-        sourceTier,
-        overage: overage.plan,
-      });
-
-      await writeResolvedTierSnapshot(tx, {
-        accountId: input.accountId,
-        snapshot: targetSnapshot,
-        locationsPaid: newOverageUnits,
-      });
-      await ensureTierChangeAudit(tx, {
-        accountId: input.accountId,
-        actorUserId: account.owner_user_id,
-        operationKey: input.operationKey,
-        oldTier: sourceTier,
-        snapshot: targetSnapshot,
-        locationsPaid: newOverageUnits,
-      });
-
-      return { ok: true, newBilling };
-    });
+    const outcome = await sql.begin((tx) => applyTierChangeInTx(tx, input));
     if (outcome.ok) {
       await synchronizeBusinessTierMirror(sql, input.accountId);
     }

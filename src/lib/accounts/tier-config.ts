@@ -18,7 +18,7 @@ export const SubscriptionTier = {
 
 export type PriceVariant = 'list' | 'founding';
 
-export const PRICE_VARIANTS = ['list', 'founding'] as const satisfies readonly PriceVariant[];
+const PRICE_VARIANTS = ['list', 'founding'] as const satisfies readonly PriceVariant[];
 
 export type SubscriptionTierValue =
   | typeof SubscriptionTier.COPILOT

@@ -1,5 +1,5 @@
 import type { Job } from 'bullmq';
-import { isSubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import type { Sql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
@@ -397,9 +397,6 @@ export async function handleWeeklySummary(
   const context = await prepareSummaryReport(sql, job, logger);
   if (!context) return;
   const { business, businessId, outboxId, outboxAttempt } = context;
-  if (!isSubscriptionTier(business.subscription_tier)) {
-    throw new Error(`Unsupported subscription tier: ${business.subscription_tier}`);
-  }
   const weekEndDate = weekEndDateFor(week_start_date);
   const stats = await loadWeeklyReviewStats(sql, businessId, week_start_date, weekEndDate);
   const valueInputs = await loadWeeklyValueInputs(sql, businessId, week_start_date, weekEndDate);

@@ -493,6 +493,37 @@ function computeAfterState(
   }
 }
 
+const LOCATION_DIAL_OPERATIONS = new Set<PatchAutoApprovalSettingsInput['operation']>([
+  'set_location_veto_window',
+  'set_location_daily_cap',
+]);
+
+const COMPLETE_DISABLE_OPERATIONS = new Set<PatchAutoApprovalSettingsInput['operation']>([
+  'set_account_manual',
+  'clear_account_default',
+  'set_location_manual',
+  'delete_location_override',
+]);
+
+function createsManualLocationOverride(
+  input: PatchAutoApprovalSettingsInput,
+  before: PolicyMutationBeforeState,
+): boolean {
+  return before.scope === 'location_override'
+    && before.targetRow === null
+    && LOCATION_DIAL_OPERATIONS.has(input.operation);
+}
+
+function transitionsEnabledPolicyToManual(
+  input: PatchAutoApprovalSettingsInput,
+  before: PolicyMutationBeforeState,
+  after: EffectiveAutoApprovalPolicy,
+): boolean {
+  return before.snapshot.effective.threshold !== null
+    && after.threshold === null
+    && COMPLETE_DISABLE_OPERATIONS.has(input.operation);
+}
+
 function isCompleteDisable(
   input: PatchAutoApprovalSettingsInput,
   before: PolicyMutationBeforeState,
@@ -501,37 +532,13 @@ function isCompleteDisable(
   // WS4 §6: a veto/cap PATCH that creates a previously-rowless location
   // override always switches that location to manual approval. That operation
   // is a contraction/non-expansion even when the target dial by itself widens.
-  if (
-    before.scope === 'location_override'
-    && before.targetRow === null
-    && (
-      input.operation === 'set_location_veto_window'
-      || input.operation === 'set_location_daily_cap'
-    )
-  ) {
-    return true;
-  }
+  if (createsManualLocationOverride(input, before)) return true;
 
   // A clear/manual operation is a complete disable only when it actually
   // transitions enabled automation to manual. Manual -> manual delete/clear
   // must still classify inherited dial widening (for example 30 -> 15 or a
   // finite cap -> NULL) as an expansion.
-  if (
-    before.snapshot.effective.threshold === null
-    || after.threshold !== null
-  ) {
-    return false;
-  }
-
-  switch (input.operation) {
-    case 'set_account_manual':
-    case 'clear_account_default':
-    case 'set_location_manual':
-    case 'delete_location_override':
-      return true;
-    default:
-      return false;
-  }
+  return transitionsEnabledPolicyToManual(input, before, after);
 }
 
 // Finding-1 rule (spec §6): a policy mutation never DELETEs a row carrying a

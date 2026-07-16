@@ -47,7 +47,7 @@ export async function resolvePublishTarget(
  * target resolution. The auto-policy entitlement lane uses this after its
  * locked probe so every resolver call remains behind the authoritative gate.
  */
-export async function dispositionPublishTargetResolution(
+async function dispositionPublishTargetResolution(
   sql: Sql,
   input: ResolvePublishTargetInput,
   resolution: ResolveTargetResult,

@@ -5,7 +5,7 @@ import {
   type SubscriptionTierValue,
 } from '@/lib/accounts/tier-config';
 
-export const WS8_PLAN_ORDER = [
+const WS8_PLAN_ORDER = [
   SubscriptionTier.COPILOT,
   SubscriptionTier.AUTOPILOT,
 ] as const satisfies readonly SubscriptionTierValue[];
@@ -27,7 +27,7 @@ export interface PlanPresentationViewModel {
   trialEnabled: boolean;
 }
 
-export function planPricesForVariant(variant: PriceVariant): PlanPricesView {
+function planPricesForVariant(variant: PriceVariant): PlanPricesView {
   return Object.fromEntries(
     WS8_PLAN_ORDER.map((tier) => {
       const snapshot = resolveTierSnapshot(tier, variant);

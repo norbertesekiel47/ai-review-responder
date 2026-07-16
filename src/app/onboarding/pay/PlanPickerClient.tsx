@@ -13,6 +13,52 @@ interface Props extends PlanPresentationViewModel {
   cancelled: boolean;
 }
 
+interface CheckoutErrorBody {
+  error?: string;
+  subscriptionStatus?: string;
+}
+
+type CheckoutFailureAction =
+  | { kind: 'redirect'; href: string }
+  | { kind: 'message'; message: string };
+
+function selectionError(
+  selectedTier: SubscriptionTierValue | null,
+  purchasable: PlanPresentationViewModel['purchasable'],
+): string | null {
+  if (!selectedTier) return 'Choose Copilot or Autopilot before continuing.';
+  if (!purchasable[selectedTier]) {
+    return 'That plan is no longer available. Choose Copilot to continue.';
+  }
+  return null;
+}
+
+function checkoutErrorMessage(error: string | undefined): string {
+  switch (error) {
+    case 'rate_limited':
+      return 'Too many attempts — wait a moment and try again.';
+    case 'tier_not_purchasable':
+      return 'That plan is no longer available. Choose Copilot to continue.';
+    case 'checkout_unavailable':
+    case 'payment_link_unavailable':
+      return 'Checkout unavailable. Please contact support.';
+    default:
+      return 'Something went wrong. Please try again.';
+  }
+}
+
+async function resolveCheckoutFailure(res: Response): Promise<CheckoutFailureAction> {
+  if (res.status === 401) return { kind: 'redirect', href: '/login' };
+  const body = await res.json().catch(() => ({})) as CheckoutErrorBody;
+  if (
+    res.status === 409
+    && body.subscriptionStatus === SubscriptionStatus.ACTIVE
+  ) {
+    return { kind: 'redirect', href: '/dashboard' };
+  }
+  return { kind: 'message', message: checkoutErrorMessage(body.error) };
+}
+
 export function PlanPickerClient({
   cancelled,
   purchasable,
@@ -28,12 +74,9 @@ export function PlanPickerClient({
 
   async function handleSubmit() {
     if (selecting) return;
-    if (!selectedTier) {
-      setError('Choose Copilot or Autopilot before continuing.');
-      return;
-    }
-    if (!purchasable[selectedTier]) {
-      setError('That plan is no longer available. Choose Copilot to continue.');
+    const validationError = selectionError(selectedTier, purchasable);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -46,24 +89,12 @@ export function PlanPickerClient({
         body: JSON.stringify({ tier: selectedTier }),
       });
       if (!res.ok) {
-        if (res.status === 401) {
-          window.location.href = '/login';
+        const action = await resolveCheckoutFailure(res);
+        if (action.kind === 'redirect') {
+          window.location.href = action.href;
           return;
         }
-        const body = await res.json().catch(() => ({}));
-        if (res.status === 409 && body.subscriptionStatus === SubscriptionStatus.ACTIVE) {
-          window.location.href = '/dashboard';
-          return;
-        }
-        setError(
-          body.error === 'rate_limited'
-            ? 'Too many attempts — wait a moment and try again.'
-            : body.error === 'tier_not_purchasable'
-              ? 'That plan is no longer available. Choose Copilot to continue.'
-              : body.error === 'checkout_unavailable' || body.error === 'payment_link_unavailable'
-                ? 'Checkout unavailable. Please contact support.'
-                : 'Something went wrong. Please try again.',
-        );
+        setError(action.message);
         setSelecting(false);
         return;
       }

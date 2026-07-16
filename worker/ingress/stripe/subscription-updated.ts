@@ -1,4 +1,5 @@
 import { captureMessage } from '@sentry/node';
+import type { TransactionSql } from 'postgres';
 import type Stripe from 'stripe';
 import type { TransitionResult } from './apply-subscription-state';
 import { sql } from '../../../src/lib/db/server';
@@ -18,7 +19,11 @@ import {
 import {
   overagePriceInfoForId,
 } from '../../../src/lib/payments/price-tier-map';
-import { resolveSubscriptionBilling } from '../../../src/lib/payments/overage-item';
+import {
+  resolveSubscriptionBilling,
+  type BaseItemResolution,
+  type OverageItemResolution,
+} from '../../../src/lib/payments/overage-item';
 import { autopilotPurchasable } from '../../../src/lib/payments/tier-purchasability';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { subscriptionGrantsFullAccess } from '../../../src/lib/shared/subscription-status';
@@ -63,7 +68,7 @@ export type SubscriptionUpdateAlertReason =
   | 'invalid_overage_quantity'
   | 'autopilot_activated_while_unavailable';
 
-export interface SubscriptionUpdateOperationalAlert {
+interface SubscriptionUpdateOperationalAlert {
   reason: SubscriptionUpdateAlertReason;
   accountId: string;
   subscriptionId: string;
@@ -236,251 +241,323 @@ function storedSnapshot(account: LockedAccountRow): ResolvedTierSnapshot {
   };
 }
 
+type MappedBaseItem = Extract<BaseItemResolution, { tier: SubscriptionTierValue }>;
+
+type ProjectionBillingResult =
+  | { ok: true; base: MappedBaseItem; locationsPaid: number }
+  | { ok: false; outcome: SubscriptionUpdatedOutcome };
+
+type StatusOnlyReason = Extract<
+  SubscriptionUpdatedOutcome,
+  { kind: 'status_only' }
+>['reason'];
+
+function statusOnlyOutcome(input: {
+  account: LockedAccountRow;
+  subscriptionId: string;
+  transition: TransitionResult;
+  reason: StatusOnlyReason;
+  priceId?: string;
+  base?: MappedBaseItem;
+}): SubscriptionUpdatedOutcome {
+  const alert: SubscriptionUpdateOperationalAlert = {
+    reason: input.reason,
+    accountId: input.account.id,
+    subscriptionId: input.subscriptionId,
+    priceId: input.priceId,
+    mappedTier: input.base?.tier,
+    mappedVariant: input.base?.variant,
+    storedVariant: input.account.price_variant,
+  };
+  return {
+    kind: 'status_only',
+    accountId: input.account.id,
+    subscriptionId: input.subscriptionId,
+    reason: input.reason,
+    transition: input.transition,
+    alerts: [alert],
+  };
+}
+
+function validateMappedBase(input: {
+  account: LockedAccountRow;
+  subscriptionId: string;
+  transition: TransitionResult;
+  base: BaseItemResolution | undefined;
+}): { ok: true; base: MappedBaseItem } | { ok: false; outcome: SubscriptionUpdatedOutcome } {
+  if (!input.base || input.base.tier === null) {
+    return {
+      ok: false,
+      outcome: statusOnlyOutcome({
+        account: input.account,
+        subscriptionId: input.subscriptionId,
+        transition: input.transition,
+        reason: 'unmapped_base_price',
+        priceId: input.base?.item.price?.id,
+      }),
+    };
+  }
+  if (!isPriceVariant(input.account.price_variant)) {
+    return {
+      ok: false,
+      outcome: statusOnlyOutcome({
+        ...input,
+        reason: 'invalid_stored_variant',
+        priceId: input.base.item.price.id,
+        base: input.base,
+      }),
+    };
+  }
+  if (input.base.variant === input.account.price_variant) {
+    return { ok: true, base: input.base };
+  }
+  const alert: SubscriptionUpdateOperationalAlert = {
+    reason: 'variant_mismatch',
+    accountId: input.account.id,
+    subscriptionId: input.subscriptionId,
+    priceId: input.base.item.price.id,
+    mappedTier: input.base.tier,
+    mappedVariant: input.base.variant,
+    storedVariant: input.account.price_variant,
+  };
+  return {
+    ok: false,
+    outcome: {
+      kind: 'variant_mismatch',
+      accountId: input.account.id,
+      subscriptionId: input.subscriptionId,
+      priceId: input.base.item.price.id,
+      mappedTier: input.base.tier,
+      mappedVariant: input.base.variant,
+      storedVariant: input.account.price_variant,
+      transition: input.transition,
+      alerts: [alert],
+    },
+  };
+}
+
+function validateOverage(input: {
+  account: LockedAccountRow;
+  subscriptionId: string;
+  transition: TransitionResult;
+  base: MappedBaseItem;
+  overage: OverageItemResolution;
+}): ProjectionBillingResult {
+  const overageError = validateOveragePrice(input);
+  if (overageError) return { ok: false, outcome: overageError };
+  const locationsPaid = providerOverageQuantity(input.overage);
+  if (Number.isSafeInteger(locationsPaid) && locationsPaid >= 0) {
+    return { ok: true, base: input.base, locationsPaid };
+  }
+  return {
+    ok: false,
+    outcome: statusOnlyOutcome({
+      ...input,
+      reason: 'invalid_overage_quantity',
+      priceId: input.overage.kind === 'trusted' ? input.overage.item.price.id : undefined,
+    }),
+  };
+}
+
+function validateOveragePrice(input: {
+  account: LockedAccountRow;
+  subscriptionId: string;
+  transition: TransitionResult;
+  base: MappedBaseItem;
+  overage: OverageItemResolution;
+}): SubscriptionUpdatedOutcome | null {
+  if (input.overage.kind === 'untrusted') {
+    return statusOnlyOutcome({
+      ...input,
+      reason: 'untrusted_overage_item',
+      priceId: input.overage.item.price.id,
+    });
+  }
+  if (input.overage.kind === 'trusted') {
+    const mappedOverage = overagePriceInfoForId(input.overage.item.price.id);
+    if (mappedOverage && mappedOverage.tier !== input.base.tier) {
+      return statusOnlyOutcome({
+        ...input,
+        reason: 'cross_tier_overage_price',
+        priceId: input.overage.item.price.id,
+      });
+    }
+  }
+  return null;
+}
+
+function providerOverageQuantity(overage: OverageItemResolution): number {
+  return overage.kind === 'trusted' ? (overage.item.quantity ?? 0) : 0;
+}
+
+function resolveProjectionBilling(input: {
+  account: LockedAccountRow;
+  subscription: Stripe.Subscription;
+  subscriptionId: string;
+  transition: TransitionResult;
+}): ProjectionBillingResult {
+  const billing = resolveSubscriptionBilling(input.subscription.items?.data ?? [], {
+    storedOveragePriceCents: Number(input.account.locations_overage_price_cents),
+  });
+  const base = validateMappedBase({ ...input, base: billing.base });
+  if (!base.ok) return base;
+  return validateOverage({ ...input, base: base.base, overage: billing.overage });
+}
+
+async function writeProviderSnapshot(
+  tx: TransactionSql,
+  input: {
+    account: LockedAccountRow;
+    base: MappedBaseItem;
+    locationsPaid: number;
+    subscriptionId: string;
+  },
+): Promise<{ changed: boolean }> {
+  if (input.account.subscription_tier === input.base.tier) {
+    return writeResolvedTierSnapshot(tx, {
+      accountId: input.account.id,
+      snapshot: storedSnapshot(input.account),
+      locationsPaid: input.locationsPaid,
+      audit: {
+        eventType: 'subscription_updated',
+        payload: {
+          source: 'provider_current_subscription',
+          stripe_subscription_id: input.subscriptionId,
+        },
+      },
+    });
+  }
+  return writeTierSnapshot(tx, {
+    accountId: input.account.id,
+    tier: input.base.tier,
+    variant: input.account.price_variant as PriceVariant,
+    locationsPaid: input.locationsPaid,
+    audit: {
+      eventType: 'subscription_updated',
+      payload: {
+        source: 'provider_current_subscription',
+        previous_tier: input.account.subscription_tier,
+        stripe_subscription_id: input.subscriptionId,
+      },
+    },
+  });
+}
+
+function unavailableAutopilotAlerts(input: {
+  account: LockedAccountRow;
+  base: MappedBaseItem;
+  subscription: Stripe.Subscription;
+  subscriptionId: string;
+}): SubscriptionUpdateOperationalAlert[] {
+  const unavailable = input.base.tier === SubscriptionTier.AUTOPILOT
+    && subscriptionGrantsFullAccess(input.subscription.status)
+    && !autopilotPurchasable();
+  if (!unavailable) return [];
+  return [{
+    reason: 'autopilot_activated_while_unavailable',
+    accountId: input.account.id,
+    subscriptionId: input.subscriptionId,
+    priceId: input.base.item.price.id,
+    mappedTier: input.base.tier,
+    mappedVariant: input.base.variant,
+    storedVariant: input.account.price_variant,
+  }];
+}
+
+async function projectProviderCurrentSubscriptionTx(
+  tx: TransactionSql,
+  input: {
+    accountId: string;
+    customerId: string;
+    subscriptionId: string;
+  },
+): Promise<SubscriptionUpdatedOutcome> {
+  // Fixed tier/webhook order. No account row is held while either advisory
+  // lock is acquired or while provider-current Stripe state is retrieved.
+  await acquireTierAndBillingLocks(tx, input.accountId);
+  const subscription = await getStripe().subscriptions.retrieve(input.subscriptionId);
+  const providerCustomerId = extractCustomerId(subscription.customer);
+
+  const [account] = await tx<LockedAccountRow[]>`
+    SELECT
+      a.id,
+      a.subscription_tier,
+      a.subscription_status,
+      a.price_variant,
+      a.base_price_cents,
+      a.locations_paid,
+      a.locations_overage_price_cents,
+      a.locations_included,
+      a.stripe_customer_id,
+      a.stripe_subscription_id
+    FROM accounts a
+    WHERE a.id = ${input.accountId}::uuid
+    FOR UPDATE
+  `;
+
+  if (!account) {
+    return ignoredOutcome(input.subscriptionId, 'account_disappeared', input.accountId);
+  }
+  if (providerCustomerId !== input.customerId || account.stripe_customer_id !== input.customerId) {
+    return ignoredOutcome(input.subscriptionId, 'provider_customer_mismatch', account.id);
+  }
+  if (account.stripe_subscription_id !== input.subscriptionId) {
+    return ignoredOutcome(input.subscriptionId, 'stale_subscription', account.id);
+  }
+
+  // Absolute status ownership: every provider-current subscription status,
+  // including unknown Price and variant-mismatch paths, enters through the
+  // one Stripe status applier.
+  const transition = await applyStripeSubscriptionStateUnderEntitlementLock(
+    tx,
+    {
+      mode: 'subscription',
+      stripeCustomerId: input.customerId,
+      stripeSubscriptionId: input.subscriptionId,
+    },
+    subscription,
+  );
+  const billing = resolveProjectionBilling({
+    account,
+    subscription,
+    subscriptionId: input.subscriptionId,
+    transition,
+  });
+  if (!billing.ok) return billing.outcome;
+
+  const snapshotResult = await writeProviderSnapshot(tx, {
+    account,
+    base: billing.base,
+    locationsPaid: billing.locationsPaid,
+    subscriptionId: input.subscriptionId,
+  });
+  return {
+    kind: 'updated',
+    accountId: account.id,
+    subscriptionId: input.subscriptionId,
+    tier: billing.base.tier,
+    variant: billing.base.variant,
+    snapshotChanged: snapshotResult.changed,
+    transition,
+    alerts: unavailableAutopilotAlerts({
+      account,
+      base: billing.base,
+      subscription,
+      subscriptionId: input.subscriptionId,
+    }),
+  };
+}
+
 async function projectProviderCurrentSubscription(
   reference: AccountReference,
   customerId: string,
   subscriptionId: string,
 ): Promise<SubscriptionUpdatedOutcome> {
-  const accountId = reference.id;
-  return sql.begin(async (tx) => {
-    // Fixed tier/webhook order. No account row is held while either advisory
-    // lock is acquired or while provider-current Stripe state is retrieved.
-    await acquireTierAndBillingLocks(tx, accountId);
-    const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
-    const providerCustomerId = extractCustomerId(subscription.customer);
-
-    const [account] = await tx<LockedAccountRow[]>`
-      SELECT
-        a.id,
-        a.subscription_tier,
-        a.subscription_status,
-        a.price_variant,
-        a.base_price_cents,
-        a.locations_paid,
-        a.locations_overage_price_cents,
-        a.locations_included,
-        a.stripe_customer_id,
-        a.stripe_subscription_id
-      FROM accounts a
-      WHERE a.id = ${accountId}::uuid
-      FOR UPDATE
-    `;
-
-    if (!account) {
-      return ignoredOutcome(subscriptionId, 'account_disappeared', accountId);
-    }
-    if (
-      providerCustomerId !== customerId ||
-      account.stripe_customer_id !== customerId
-    ) {
-      return ignoredOutcome(subscriptionId, 'provider_customer_mismatch', account.id);
-    }
-    if (account.stripe_subscription_id !== subscriptionId) {
-      return ignoredOutcome(subscriptionId, 'stale_subscription', account.id);
-    }
-
-    // Absolute status ownership: every provider-current subscription status,
-    // including unknown Price and variant-mismatch paths, enters through the
-    // one Stripe status applier.
-    const transition = await applyStripeSubscriptionStateUnderEntitlementLock(
-      tx,
-      {
-        mode: 'subscription',
-        stripeCustomerId: customerId,
-        stripeSubscriptionId: subscriptionId,
-      },
-      subscription,
-    );
-
-    const billing = resolveSubscriptionBilling(subscription.items?.data ?? [], {
-      storedOveragePriceCents: Number(account.locations_overage_price_cents),
-    });
-    const base = billing.base;
-    if (!base || base.tier === null) {
-      const priceId = base?.item.price?.id;
-      const alert: SubscriptionUpdateOperationalAlert = {
-        reason: 'unmapped_base_price',
-        accountId: account.id,
-        subscriptionId,
-        priceId,
-        storedVariant: account.price_variant,
-      };
-      return {
-        kind: 'status_only',
-        accountId: account.id,
-        subscriptionId,
-        reason: 'unmapped_base_price',
-        transition,
-        alerts: [alert],
-      };
-    }
-
-    if (!isPriceVariant(account.price_variant)) {
-      const alert: SubscriptionUpdateOperationalAlert = {
-        reason: 'invalid_stored_variant',
-        accountId: account.id,
-        subscriptionId,
-        priceId: base.item.price.id,
-        mappedTier: base.tier,
-        mappedVariant: base.variant,
-        storedVariant: account.price_variant,
-      };
-      return {
-        kind: 'status_only',
-        accountId: account.id,
-        subscriptionId,
-        reason: 'invalid_stored_variant',
-        transition,
-        alerts: [alert],
-      };
-    }
-
-    if (base.variant !== account.price_variant) {
-      const alert: SubscriptionUpdateOperationalAlert = {
-        reason: 'variant_mismatch',
-        accountId: account.id,
-        subscriptionId,
-        priceId: base.item.price.id,
-        mappedTier: base.tier,
-        mappedVariant: base.variant,
-        storedVariant: account.price_variant,
-      };
-      return {
-        kind: 'variant_mismatch',
-        accountId: account.id,
-        subscriptionId,
-        priceId: base.item.price.id,
-        mappedTier: base.tier,
-        mappedVariant: base.variant,
-        storedVariant: account.price_variant,
-        transition,
-        alerts: [alert],
-      };
-    }
-
-    const overage = billing.overage;
-    if (overage.kind === 'untrusted') {
-      const alert: SubscriptionUpdateOperationalAlert = {
-        reason: 'untrusted_overage_item',
-        accountId: account.id,
-        subscriptionId,
-        priceId: overage.item.price.id,
-        mappedTier: base.tier,
-        mappedVariant: base.variant,
-        storedVariant: account.price_variant,
-      };
-      return {
-        kind: 'status_only',
-        accountId: account.id,
-        subscriptionId,
-        reason: 'untrusted_overage_item',
-        transition,
-        alerts: [alert],
-      };
-    }
-
-    if (overage.kind === 'trusted') {
-      const mappedOverage = overagePriceInfoForId(overage.item.price.id);
-      if (mappedOverage && mappedOverage.tier !== base.tier) {
-        const alert: SubscriptionUpdateOperationalAlert = {
-          reason: 'cross_tier_overage_price',
-          accountId: account.id,
-          subscriptionId,
-          priceId: overage.item.price.id,
-          mappedTier: base.tier,
-          mappedVariant: base.variant,
-          storedVariant: account.price_variant,
-        };
-        return {
-          kind: 'status_only',
-          accountId: account.id,
-          subscriptionId,
-          reason: 'cross_tier_overage_price',
-          transition,
-          alerts: [alert],
-        };
-      }
-    }
-
-    const locationsPaid = overage.kind === 'trusted'
-      ? (overage.item.quantity ?? 0)
-      : 0;
-    if (!Number.isSafeInteger(locationsPaid) || locationsPaid < 0) {
-      const alert: SubscriptionUpdateOperationalAlert = {
-        reason: 'invalid_overage_quantity',
-        accountId: account.id,
-        subscriptionId,
-        priceId: overage.kind === 'trusted' ? overage.item.price.id : undefined,
-        mappedTier: base.tier,
-        mappedVariant: base.variant,
-        storedVariant: account.price_variant,
-      };
-      return {
-        kind: 'status_only',
-        accountId: account.id,
-        subscriptionId,
-        reason: 'invalid_overage_quantity',
-        transition,
-        alerts: [alert],
-      };
-    }
-
-    const snapshotResult = account.subscription_tier === base.tier
-      ? await writeResolvedTierSnapshot(tx, {
-          accountId: account.id,
-          snapshot: storedSnapshot(account),
-          locationsPaid,
-          audit: {
-            eventType: 'subscription_updated',
-            payload: {
-              source: 'provider_current_subscription',
-              stripe_subscription_id: subscriptionId,
-            },
-          },
-        })
-      : await writeTierSnapshot(tx, {
-          accountId: account.id,
-          tier: base.tier,
-          variant: account.price_variant,
-          locationsPaid,
-          audit: {
-            eventType: 'subscription_updated',
-            payload: {
-              source: 'provider_current_subscription',
-              previous_tier: account.subscription_tier,
-              stripe_subscription_id: subscriptionId,
-            },
-          },
-        });
-
-    const alerts: SubscriptionUpdateOperationalAlert[] = [];
-    if (
-      base.tier === SubscriptionTier.AUTOPILOT &&
-      subscriptionGrantsFullAccess(subscription.status) &&
-      !autopilotPurchasable()
-    ) {
-      alerts.push({
-        reason: 'autopilot_activated_while_unavailable',
-        accountId: account.id,
-        subscriptionId,
-        priceId: base.item.price.id,
-        mappedTier: base.tier,
-        mappedVariant: base.variant,
-        storedVariant: account.price_variant,
-      });
-    }
-
-    return {
-      kind: 'updated',
-      accountId: account.id,
-      subscriptionId,
-      tier: base.tier,
-      variant: base.variant,
-      snapshotChanged: snapshotResult.changed,
-      transition,
-      alerts,
-    };
-  });
+  return sql.begin((tx) => projectProviderCurrentSubscriptionTx(tx, {
+    accountId: reference.id,
+    customerId,
+    subscriptionId,
+  }));
 }
 
 export async function processSubscriptionUpdated(

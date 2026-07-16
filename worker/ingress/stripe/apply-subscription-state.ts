@@ -34,6 +34,10 @@ import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-lo
 // invariant), so the transaction handle is a postgres.TransactionSql. This also
 // matches enqueueStripeOverageRecompute's strict TxClient parameter.
 type TxSql = postgres.TransactionSql;
+type StripeSubscriptionState = Pick<
+  Stripe.Subscription,
+  'id' | 'status' | 'trial_end'
+> & { customer?: unknown };
 
 /**
  * How the applier resolves the target account. Two resolution strategies — the
@@ -173,7 +177,7 @@ const NO_CHANGE = (
 export async function applyStripeSubscriptionState(
   tx: TxSql,
   ref: ApplyStripeRef,
-  stripeSub: Pick<Stripe.Subscription, 'id' | 'status' | 'trial_end'> & { customer?: unknown },
+  stripeSub: StripeSubscriptionState,
 ): Promise<TransitionResult> {
   return applyStripeSubscriptionStateInternal(tx, ref, stripeSub, true);
 }
@@ -186,59 +190,104 @@ export async function applyStripeSubscriptionState(
 export async function applyStripeSubscriptionStateUnderEntitlementLock(
   tx: TxSql,
   ref: ApplyStripeRef,
-  stripeSub: Pick<Stripe.Subscription, 'id' | 'status' | 'trial_end'> & { customer?: unknown },
+  stripeSub: StripeSubscriptionState,
 ): Promise<TransitionResult> {
   return applyStripeSubscriptionStateInternal(tx, ref, stripeSub, false);
+}
+
+interface StatusTransitionPlan {
+  current: string;
+  target: SubscriptionStatusValue;
+}
+
+function resolveStatusTransition(
+  account: ResolvedAccount,
+  stripeStatus: Stripe.Subscription.Status | string,
+): StatusTransitionPlan | null {
+  const target = mapStripeStatus(stripeStatus);
+  if (!target || !isAllowedTransition(account.subscription_status, target)) return null;
+  return { current: account.subscription_status, target };
+}
+
+function stripeTrialEndIso(trialEnd: number | null | undefined): string | null {
+  if (typeof trialEnd !== 'number' || trialEnd <= 0) return null;
+  return new Date(trialEnd * 1000).toISOString();
+}
+
+function grantsEntitledAccess(status: SubscriptionStatusValue): boolean {
+  return status === SubscriptionStatus.TRIALING || status === SubscriptionStatus.ACTIVE;
+}
+
+async function persistStatusTransition(
+  tx: TxSql,
+  input: {
+    account: ResolvedAccount;
+    transition: StatusTransitionPlan;
+    stripeSub: StripeSubscriptionState;
+    ref: ApplyStripeRef;
+    updateBusinessMirror: boolean;
+  },
+): Promise<void> {
+  const stripeSubscriptionId = input.stripeSub.id;
+  const stripeCustomerId = extractStripeCustomerId(input.stripeSub.customer, input.ref);
+  await writeStatusColumns(
+    tx,
+    input.account.id,
+    input.transition.target,
+    stripeTrialEndIso(input.stripeSub.trial_end),
+    stripeCustomerId,
+    stripeSubscriptionId,
+  );
+  if (input.updateBusinessMirror) {
+    await writeBusinessesMirror(tx, input.account.id, input.transition.target);
+  }
+  await writeAccountAuditLog(tx, {
+    accountId: input.account.id,
+    eventType: 'subscription_status_changed',
+    entityType: 'account',
+    entityId: input.account.id,
+    payload: {
+      fromStatus: input.transition.current,
+      toStatus: input.transition.target,
+    },
+  });
+  if (grantsEntitledAccess(input.transition.target)) {
+    await enqueueStripeOverageRecompute(tx, input.account.id);
+  }
+  await enqueueLifecycleAnalytics(
+    tx,
+    input.account.id,
+    input.transition.current,
+    input.transition.target,
+    stripeSubscriptionId,
+  );
 }
 
 async function applyStripeSubscriptionStateInternal(
   tx: TxSql,
   ref: ApplyStripeRef,
-  stripeSub: Pick<Stripe.Subscription, 'id' | 'status' | 'trial_end'> & { customer?: unknown },
+  stripeSub: StripeSubscriptionState,
   updateBusinessMirror: boolean,
 ): Promise<TransitionResult> {
   const account = await resolveAccount(tx, ref);
   if (!account) return NO_CHANGE(null);
 
-  const target = mapStripeStatus(stripeSub.status);
-  if (!target) return NO_CHANGE(account);
-
-  const current = account.subscription_status;
-  if (!isAllowedTransition(current, target)) return NO_CHANGE(account);
-
-  const stripeSubscriptionId = stripeSub.id;
-  const stripeCustomerId = extractStripeCustomerId(stripeSub.customer, ref);
-  const trialEndIso =
-    typeof stripeSub.trial_end === 'number' && stripeSub.trial_end > 0
-      ? new Date(stripeSub.trial_end * 1000).toISOString()
-      : null;
-
-  await writeStatusColumns(tx, account.id, target, trialEndIso, stripeCustomerId, stripeSubscriptionId);
-  if (updateBusinessMirror) {
-    await writeBusinessesMirror(tx, account.id, target);
-  }
-
-  await writeAccountAuditLog(tx, {
-    accountId: account.id,
-    eventType: 'subscription_status_changed',
-    entityType: 'account',
-    entityId: account.id,
-    payload: { fromStatus: current, toStatus: target },
+  const transition = resolveStatusTransition(account, stripeSub.status);
+  if (!transition) return NO_CHANGE(account);
+  await persistStatusTransition(tx, {
+    account,
+    transition,
+    stripeSub,
+    ref,
+    updateBusinessMirror,
   });
-
-  // Overage recompute on entering an entitled (billable) state.
-  if (target === SubscriptionStatus.TRIALING || target === SubscriptionStatus.ACTIVE) {
-    await enqueueStripeOverageRecompute(tx, account.id);
-  }
-
-  await enqueueLifecycleAnalytics(tx, account.id, current, target, stripeSubscriptionId);
 
   return {
     accountResolved: true,
-    fromStatus: current,
-    toStatus: target,
+    fromStatus: transition.current,
+    toStatus: transition.target,
     changed: true,
-    activated: target === SubscriptionStatus.TRIALING || target === SubscriptionStatus.ACTIVE,
+    activated: grantsEntitledAccess(transition.target),
     primaryBusinessId: account.primary_business_id,
   };
 }

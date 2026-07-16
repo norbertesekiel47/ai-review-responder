@@ -1,8 +1,8 @@
 import type { TransactionSql } from 'postgres';
 
-export const TIER_ENTITLEMENT_LOCK_SUFFIX = ':tier_entitlement';
-export const OVERAGE_SYNC_LOCK_SUFFIX = ':overage_sync';
-export const ACTIVATION_LOCK_SUFFIX = ':activation';
+const TIER_ENTITLEMENT_LOCK_SUFFIX = ':tier_entitlement';
+const OVERAGE_SYNC_LOCK_SUFFIX = ':overage_sync';
+const ACTIVATION_LOCK_SUFFIX = ':activation';
 
 /**
  * Serializes Autopilot grant/publish with every existing-account tier writer.

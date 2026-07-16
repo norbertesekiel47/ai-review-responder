@@ -1,12 +1,11 @@
 // Provider-wide WS8 cutover blocker. Dry-run is the default and the only
 // mutation it can perform is explicitly expiring open Checkout Sessions that
 // contain a retained legacy Price.
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import postgres, { type Sql } from 'postgres';
 
 import { STRIPE_PRICE_ENV_VARS } from '../src/lib/payments/price-tier-map';
 import { getStripe } from '../src/lib/payments/stripe-client';
+import { runDirectCli } from './run-direct-cli';
 
 export const LEGACY_STRIPE_PRICE_ENV_VARS = [
   'STRIPE_PRICE_BASIC',
@@ -223,15 +222,87 @@ async function paginate<T>(
   }
 }
 
+interface ReconciliationFindings {
+  blockers: Ws8StripePreflightBlocker[];
+  notices: Ws8StripePreflightNotice[];
+}
+
+function projectionConflictBlocker(
+  subscriptionId: string,
+  customerId: string | null,
+  subscriptionMatches: readonly AccountProjection[],
+  customerMatches: readonly AccountProjection[],
+): Ws8StripePreflightBlocker | null {
+  if (subscriptionMatches.length > 1) {
+    return {
+      kind: 'subscription_projection_conflict',
+      subscriptionId,
+      accountIds: subscriptionMatches.map((account) => account.id).sort(),
+    };
+  }
+  if (customerId && customerMatches.length > 1) {
+    return {
+      kind: 'customer_projection_conflict',
+      subscriptionId,
+      customerId,
+      accountIds: customerMatches.map((account) => account.id).sort(),
+    };
+  }
+  return null;
+}
+
+function missingProjectionBlocker(
+  subscriptionId: string,
+  customerId: string | null,
+  customerMatches: readonly AccountProjection[],
+): Ws8StripePreflightBlocker {
+  const customerAccount = customerMatches.length === 1 ? customerMatches[0] : null;
+  if (customerAccount) {
+    return {
+      kind: 'subscription_id_disagreement',
+      subscriptionId,
+      accountId: customerAccount.id,
+      projectedSubscriptionId: customerAccount.stripe_subscription_id,
+    };
+  }
+  return { kind: 'unprojected_subscription', subscriptionId, customerId };
+}
+
+function customerProjectionBlocker(
+  subscriptionId: string,
+  customerId: string | null,
+  account: AccountProjection,
+): Ws8StripePreflightBlocker | null {
+  if (customerId && account.stripe_customer_id === customerId) return null;
+  return {
+    kind: 'customer_projection_disagreement',
+    subscriptionId,
+    accountId: account.id,
+    providerCustomerId: customerId,
+    projectedCustomerId: account.stripe_customer_id,
+  };
+}
+
+function statusDisagreementNotice(
+  subscription: StripeSubscriptionProjection,
+  account: AccountProjection,
+): Ws8StripePreflightNotice | null {
+  const expectedStatus = expectedLocalStatus(subscription.status);
+  if (expectedStatus && account.subscription_status === expectedStatus) return null;
+  return {
+    kind: 'subscription_status_disagreement',
+    subscriptionId: subscription.id,
+    accountId: account.id,
+    providerStatus: subscription.status,
+    projectedStatus: account.subscription_status,
+    resolution: statusNoticeResolution(subscription.status, account.subscription_status),
+  };
+}
+
 function reconciliationFindings(
   subscription: StripeSubscriptionProjection,
   accounts: readonly AccountProjection[],
-): {
-  blockers: Ws8StripePreflightBlocker[];
-  notices: Ws8StripePreflightNotice[];
-} {
-  const blockers: Ws8StripePreflightBlocker[] = [];
-  const notices: Ws8StripePreflightNotice[] = [];
+): ReconciliationFindings {
   const customerId = providerCustomerId(subscription.customer);
   const subscriptionMatches = accounts.filter(
     (account) => account.stripe_subscription_id === subscription.id,
@@ -239,91 +310,233 @@ function reconciliationFindings(
   const customerMatches = customerId
     ? accounts.filter((account) => account.stripe_customer_id === customerId)
     : [];
-
-  if (subscriptionMatches.length > 1) {
-    blockers.push({
-      kind: 'subscription_projection_conflict',
-      subscriptionId: subscription.id,
-      accountIds: subscriptionMatches.map((account) => account.id).sort(),
-    });
-    return { blockers, notices };
-  }
-  if (customerId && customerMatches.length > 1) {
-    blockers.push({
-      kind: 'customer_projection_conflict',
-      subscriptionId: subscription.id,
-      customerId,
-      accountIds: customerMatches.map((account) => account.id).sort(),
-    });
-    return { blockers, notices };
-  }
+  const conflict = projectionConflictBlocker(
+    subscription.id,
+    customerId,
+    subscriptionMatches,
+    customerMatches,
+  );
+  if (conflict) return { blockers: [conflict], notices: [] };
 
   const account = subscriptionMatches[0];
   if (!account) {
-    if (customerMatches.length === 1) {
-      const customerAccount = customerMatches[0]!;
-      blockers.push({
-        kind: 'subscription_id_disagreement',
-        subscriptionId: subscription.id,
-        accountId: customerAccount.id,
-        projectedSubscriptionId: customerAccount.stripe_subscription_id,
-      });
-    } else {
-      blockers.push({
-        kind: 'unprojected_subscription',
-        subscriptionId: subscription.id,
-        customerId,
-      });
-    }
-    return { blockers, notices };
+    return {
+      blockers: [missingProjectionBlocker(subscription.id, customerId, customerMatches)],
+      notices: [],
+    };
   }
-
-  if (!customerId || account.stripe_customer_id !== customerId) {
-    blockers.push({
-      kind: 'customer_projection_disagreement',
-      subscriptionId: subscription.id,
-      accountId: account.id,
-      providerCustomerId: customerId,
-      projectedCustomerId: account.stripe_customer_id,
-    });
-  }
-  const expectedStatus = expectedLocalStatus(subscription.status);
-  if (!expectedStatus || account.subscription_status !== expectedStatus) {
-    notices.push({
-      kind: 'subscription_status_disagreement',
-      subscriptionId: subscription.id,
-      accountId: account.id,
-      providerStatus: subscription.status,
-      projectedStatus: account.subscription_status,
-      resolution: statusNoticeResolution(subscription.status, account.subscription_status),
-    });
-  }
-  return { blockers, notices };
+  const customerBlocker = customerProjectionBlocker(subscription.id, customerId, account);
+  const statusNotice = statusDisagreementNotice(subscription, account);
+  return {
+    blockers: customerBlocker ? [customerBlocker] : [],
+    notices: statusNotice ? [statusNotice] : [],
+  };
 }
+
+type PreflightBlockerKind = Ws8StripePreflightBlocker['kind'];
+type PreflightBlockerOfKind<Kind extends PreflightBlockerKind> = Extract<
+  Ws8StripePreflightBlocker,
+  { kind: Kind }
+>;
+type BlockerLogFormatters = {
+  [Kind in PreflightBlockerKind]: (blocker: PreflightBlockerOfKind<Kind>) => string;
+};
+
+const BLOCKER_LOG_FORMATTERS = {
+  nonterminal_subscription: (blocker) =>
+    `BLOCK nonterminal_subscription subscription=${blocker.subscriptionId} status=${blocker.status} account=${blocker.accountId ?? 'none'}`,
+  unprojected_subscription: (blocker) =>
+    `BLOCK unprojected_subscription subscription=${blocker.subscriptionId} customer=${blocker.customerId ?? 'none'}`,
+  subscription_projection_conflict: (blocker) =>
+    `BLOCK subscription_projection_conflict subscription=${blocker.subscriptionId} accounts=${blocker.accountIds.join(',')}`,
+  customer_projection_conflict: (blocker) =>
+    `BLOCK customer_projection_conflict subscription=${blocker.subscriptionId} customer=${blocker.customerId} accounts=${blocker.accountIds.join(',')}`,
+  subscription_id_disagreement: (blocker) =>
+    `BLOCK subscription_id_disagreement subscription=${blocker.subscriptionId} account=${blocker.accountId} projected_subscription=${blocker.projectedSubscriptionId ?? 'none'}`,
+  customer_projection_disagreement: (blocker) =>
+    `BLOCK customer_projection_disagreement subscription=${blocker.subscriptionId} account=${blocker.accountId} provider_customer=${blocker.providerCustomerId ?? 'none'} projected_customer=${blocker.projectedCustomerId ?? 'none'}`,
+  database_subscription_missing_from_provider: (blocker) =>
+    `BLOCK database_subscription_missing_from_provider account=${blocker.accountId} projected_subscription=${blocker.projectedSubscriptionId}`,
+  legacy_checkout_session: (blocker) =>
+    `BLOCK legacy_checkout_session session=${blocker.sessionId} prices=${blocker.legacyPriceIds.join(',')}`,
+} satisfies BlockerLogFormatters;
 
 function blockerLogLine(blocker: Ws8StripePreflightBlocker): string {
-  switch (blocker.kind) {
-    case 'nonterminal_subscription':
-      return `BLOCK nonterminal_subscription subscription=${blocker.subscriptionId} status=${blocker.status} account=${blocker.accountId ?? 'none'}`;
-    case 'unprojected_subscription':
-      return `BLOCK unprojected_subscription subscription=${blocker.subscriptionId} customer=${blocker.customerId ?? 'none'}`;
-    case 'subscription_projection_conflict':
-      return `BLOCK subscription_projection_conflict subscription=${blocker.subscriptionId} accounts=${blocker.accountIds.join(',')}`;
-    case 'customer_projection_conflict':
-      return `BLOCK customer_projection_conflict subscription=${blocker.subscriptionId} customer=${blocker.customerId} accounts=${blocker.accountIds.join(',')}`;
-    case 'subscription_id_disagreement':
-      return `BLOCK subscription_id_disagreement subscription=${blocker.subscriptionId} account=${blocker.accountId} projected_subscription=${blocker.projectedSubscriptionId ?? 'none'}`;
-    case 'customer_projection_disagreement':
-      return `BLOCK customer_projection_disagreement subscription=${blocker.subscriptionId} account=${blocker.accountId} provider_customer=${blocker.providerCustomerId ?? 'none'} projected_customer=${blocker.projectedCustomerId ?? 'none'}`;
-    case 'database_subscription_missing_from_provider':
-      return `BLOCK database_subscription_missing_from_provider account=${blocker.accountId} projected_subscription=${blocker.projectedSubscriptionId}`;
-    case 'legacy_checkout_session':
-      return `BLOCK legacy_checkout_session session=${blocker.sessionId} prices=${blocker.legacyPriceIds.join(',')}`;
-  }
+  const formatter = BLOCKER_LOG_FORMATTERS[blocker.kind] as (
+    matchedBlocker: Ws8StripePreflightBlocker
+  ) => string;
+  return formatter(blocker);
 }
+
 
 function noticeLogLine(notice: Ws8StripePreflightNotice): string {
   return `WARN subscription_status_disagreement subscription=${notice.subscriptionId} account=${notice.accountId} provider_status=${notice.providerStatus} projected_status=${notice.projectedStatus} resolution=${notice.resolution}`;
+}
+
+interface SubscriptionScanResult {
+  subscriptions: StripeSubscriptionProjection[];
+  blockers: Ws8StripePreflightBlocker[];
+  notices: Ws8StripePreflightNotice[];
+}
+
+function nonterminalSubscriptionBlocker(
+  subscription: StripeSubscriptionProjection,
+  accounts: readonly AccountProjection[],
+): Ws8StripePreflightBlocker | null {
+  if (TERMINAL_SUBSCRIPTION_STATUSES.has(subscription.status)) return null;
+  const accountId = accounts.find(
+    (account) => account.stripe_subscription_id === subscription.id,
+  )?.id ?? null;
+  return {
+    kind: 'nonterminal_subscription',
+    subscriptionId: subscription.id,
+    status: subscription.status,
+    accountId,
+  };
+}
+
+function missingProviderSubscriptionBlocker(
+  account: AccountProjection,
+  providerSubscriptionIds: ReadonlySet<string>,
+): Ws8StripePreflightBlocker | null {
+  const projectedSubscriptionId = account.stripe_subscription_id;
+  if (!projectedSubscriptionId || providerSubscriptionIds.has(projectedSubscriptionId)) {
+    return null;
+  }
+  return {
+    kind: 'database_subscription_missing_from_provider',
+    accountId: account.id,
+    projectedSubscriptionId,
+  };
+}
+
+async function scanSubscriptions(input: RunPreflightInput): Promise<SubscriptionScanResult> {
+  const subscriptions = await paginate(
+    (startingAfter) => input.stripe.listSubscriptions({
+      status: 'all',
+      limit: PAGE_LIMIT,
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    }),
+    (subscription) => subscription.id,
+  );
+  const blockers: Ws8StripePreflightBlocker[] = [];
+  const notices: Ws8StripePreflightNotice[] = [];
+  for (const subscription of subscriptions) {
+    const reconciliation = reconciliationFindings(subscription, input.accounts);
+    blockers.push(...reconciliation.blockers);
+    notices.push(...reconciliation.notices);
+    const nonterminalBlocker = nonterminalSubscriptionBlocker(subscription, input.accounts);
+    if (nonterminalBlocker) blockers.push(nonterminalBlocker);
+  }
+
+  const providerSubscriptionIds = new Set(subscriptions.map((subscription) => subscription.id));
+  for (const account of input.accounts) {
+    const missingBlocker = missingProviderSubscriptionBlocker(account, providerSubscriptionIds);
+    if (missingBlocker) blockers.push(missingBlocker);
+  }
+  return { subscriptions, blockers, notices };
+}
+
+interface SessionFinding {
+  lineItemsScanned: number;
+  legacySessionExpired: boolean;
+  blocker: Ws8StripePreflightBlocker | null;
+}
+
+function legacyPriceIdsForLineItems(
+  lineItems: readonly StripeLineItemProjection[],
+  legacyPriceIds: ReadonlySet<string>,
+): string[] {
+  return [...new Set(lineItems
+    .map((lineItem) => lineItemPriceId(lineItem.price))
+    .filter((priceId): priceId is string => Boolean(priceId && legacyPriceIds.has(priceId))))]
+    .sort();
+}
+
+async function inspectOpenCheckoutSession(
+  input: RunPreflightInput,
+  session: StripeCheckoutSessionProjection,
+  log: (line: string) => void,
+): Promise<SessionFinding> {
+  const lineItems = await paginate(
+    (startingAfter) => input.stripe.listCheckoutSessionLineItems(session.id, {
+      limit: PAGE_LIMIT,
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    }),
+    (lineItem) => lineItem.id,
+  );
+  const legacyPriceIds = legacyPriceIdsForLineItems(lineItems, input.legacyPriceIds);
+  if (legacyPriceIds.length === 0) {
+    return { lineItemsScanned: lineItems.length, legacySessionExpired: false, blocker: null };
+  }
+  if (input.expireLegacySessions) {
+    await input.stripe.expireCheckoutSession(
+      session.id,
+      `ws8_expire_legacy_session_${session.id}`,
+    );
+    log(`EXPIRED legacy_checkout_session session=${session.id} prices=${legacyPriceIds.join(',')}`);
+    return { lineItemsScanned: lineItems.length, legacySessionExpired: true, blocker: null };
+  }
+  return {
+    lineItemsScanned: lineItems.length,
+    legacySessionExpired: false,
+    blocker: { kind: 'legacy_checkout_session', sessionId: session.id, legacyPriceIds },
+  };
+}
+
+interface CheckoutSessionScanResult {
+  sessions: StripeCheckoutSessionProjection[];
+  blockers: Ws8StripePreflightBlocker[];
+  lineItemsScanned: number;
+  legacySessionsExpired: number;
+}
+
+async function scanOpenCheckoutSessions(
+  input: RunPreflightInput,
+  log: (line: string) => void,
+): Promise<CheckoutSessionScanResult> {
+  const sessions = await paginate(
+    (startingAfter) => input.stripe.listOpenCheckoutSessions({
+      status: 'open',
+      limit: PAGE_LIMIT,
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    }),
+    (session) => session.id,
+  );
+  const blockers: Ws8StripePreflightBlocker[] = [];
+  let lineItemsScanned = 0;
+  let legacySessionsExpired = 0;
+  for (const session of sessions) {
+    const finding = await inspectOpenCheckoutSession(input, session, log);
+    lineItemsScanned += finding.lineItemsScanned;
+    legacySessionsExpired += finding.legacySessionExpired ? 1 : 0;
+    if (finding.blocker) blockers.push(finding.blocker);
+  }
+  return { sessions, blockers, lineItemsScanned, legacySessionsExpired };
+}
+
+function statusConvergenceLogLine(result: Ws8StripePreflightResult): string {
+  const actionableNotices = result.notices.filter(
+    (notice) => notice.resolution !== 'applier_noop_fixed_point',
+  ).length;
+  const fixedPointNotices = result.notices.length - actionableNotices;
+  return result.blockers.length === 0 && actionableNotices === 0
+    ? `WS8_STATUS_CONVERGENCE_PASS blockers=0 actionable_notices=0 fixed_point_notices=${fixedPointNotices}`
+    : `WS8_STATUS_CONVERGENCE_FAIL blockers=${result.blockers.length} actionable_notices=${actionableNotices} fixed_point_notices=${fixedPointNotices}`;
+}
+
+function logPreflightResult(
+  result: Ws8StripePreflightResult,
+  requireStatusConvergence: boolean,
+  log: (line: string) => void,
+): void {
+  log(`SCANNED subscriptions=${result.subscriptionsScanned} open_sessions=${result.openSessionsScanned} line_items=${result.lineItemsScanned} expired_sessions=${result.legacySessionsExpired} status_notices=${result.notices.length}`);
+  result.blockers.forEach((blocker) => { log(blockerLogLine(blocker)); });
+  result.notices.forEach((notice) => { log(noticeLogLine(notice)); });
+  log(result.blockers.length === 0
+    ? 'WS8_PREFLIGHT_PASS blockers=0'
+    : `WS8_PREFLIGHT_FAIL blockers=${result.blockers.length}`);
+  if (requireStatusConvergence) log(statusConvergenceLogLine(result));
 }
 
 /**
@@ -335,109 +548,18 @@ export async function runWs8StripeCutoverPreflight(
   input: RunPreflightInput,
 ): Promise<Ws8StripePreflightResult> {
   const log = input.log ?? (() => undefined);
-  const subscriptions = await paginate(
-    (startingAfter) => input.stripe.listSubscriptions({
-      status: 'all',
-      limit: PAGE_LIMIT,
-      ...(startingAfter ? { starting_after: startingAfter } : {}),
-    }),
-    (subscription) => subscription.id,
-  );
-
-  const blockers: Ws8StripePreflightBlocker[] = [];
-  const notices: Ws8StripePreflightNotice[] = [];
-  for (const subscription of subscriptions) {
-    const reconciliation = reconciliationFindings(subscription, input.accounts);
-    blockers.push(...reconciliation.blockers);
-    notices.push(...reconciliation.notices);
-    if (!TERMINAL_SUBSCRIPTION_STATUSES.has(subscription.status)) {
-      const accountId = input.accounts.find(
-        (account) => account.stripe_subscription_id === subscription.id,
-      )?.id ?? null;
-      blockers.push({
-        kind: 'nonterminal_subscription',
-        subscriptionId: subscription.id,
-        status: subscription.status,
-        accountId,
-      });
-    }
-  }
-  const providerSubscriptionIds = new Set(subscriptions.map((subscription) => subscription.id));
-  for (const account of input.accounts) {
-    if (
-      account.stripe_subscription_id &&
-      !providerSubscriptionIds.has(account.stripe_subscription_id)
-    ) {
-      blockers.push({
-        kind: 'database_subscription_missing_from_provider',
-        accountId: account.id,
-        projectedSubscriptionId: account.stripe_subscription_id,
-      });
-    }
-  }
-
-  const sessions = await paginate(
-    (startingAfter) => input.stripe.listOpenCheckoutSessions({
-      status: 'open',
-      limit: PAGE_LIMIT,
-      ...(startingAfter ? { starting_after: startingAfter } : {}),
-    }),
-    (session) => session.id,
-  );
-
-  let lineItemsScanned = 0;
-  let legacySessionsExpired = 0;
-  for (const session of sessions) {
-    const lineItems = await paginate(
-      (startingAfter) => input.stripe.listCheckoutSessionLineItems(session.id, {
-        limit: PAGE_LIMIT,
-        ...(startingAfter ? { starting_after: startingAfter } : {}),
-      }),
-      (lineItem) => lineItem.id,
-    );
-    lineItemsScanned += lineItems.length;
-    const legacyPriceIds = [...new Set(lineItems
-      .map((lineItem) => lineItemPriceId(lineItem.price))
-      .filter((priceId): priceId is string => Boolean(priceId && input.legacyPriceIds.has(priceId))))]
-      .sort();
-    if (legacyPriceIds.length === 0) continue;
-
-    if (input.expireLegacySessions) {
-      await input.stripe.expireCheckoutSession(
-        session.id,
-        `ws8_expire_legacy_session_${session.id}`,
-      );
-      legacySessionsExpired += 1;
-      log(`EXPIRED legacy_checkout_session session=${session.id} prices=${legacyPriceIds.join(',')}`);
-    } else {
-      blockers.push({ kind: 'legacy_checkout_session', sessionId: session.id, legacyPriceIds });
-    }
-  }
-
-  log(`SCANNED subscriptions=${subscriptions.length} open_sessions=${sessions.length} line_items=${lineItemsScanned} expired_sessions=${legacySessionsExpired} status_notices=${notices.length}`);
-  for (const blocker of blockers) log(blockerLogLine(blocker));
-  for (const notice of notices) log(noticeLogLine(notice));
-  log(blockers.length === 0 ? 'WS8_PREFLIGHT_PASS blockers=0' : `WS8_PREFLIGHT_FAIL blockers=${blockers.length}`);
-  if (input.requireStatusConvergence) {
-    const actionableNotices = notices.filter(
-      (notice) => notice.resolution !== 'applier_noop_fixed_point',
-    ).length;
-    const fixedPointNotices = notices.length - actionableNotices;
-    log(
-      blockers.length === 0 && actionableNotices === 0
-        ? `WS8_STATUS_CONVERGENCE_PASS blockers=0 actionable_notices=0 fixed_point_notices=${fixedPointNotices}`
-        : `WS8_STATUS_CONVERGENCE_FAIL blockers=${blockers.length} actionable_notices=${actionableNotices} fixed_point_notices=${fixedPointNotices}`,
-    );
-  }
-
-  return {
-    blockers,
-    notices,
-    subscriptionsScanned: subscriptions.length,
-    openSessionsScanned: sessions.length,
-    lineItemsScanned,
-    legacySessionsExpired,
+  const subscriptionScan = await scanSubscriptions(input);
+  const sessionScan = await scanOpenCheckoutSessions(input, log);
+  const result: Ws8StripePreflightResult = {
+    blockers: [...subscriptionScan.blockers, ...sessionScan.blockers],
+    notices: subscriptionScan.notices,
+    subscriptionsScanned: subscriptionScan.subscriptions.length,
+    openSessionsScanned: sessionScan.sessions.length,
+    lineItemsScanned: sessionScan.lineItemsScanned,
+    legacySessionsExpired: sessionScan.legacySessionsExpired,
   };
+  logPreflightResult(result, input.requireStatusConvergence === true, log);
+  return result;
 }
 
 interface ConfiguredPriceId<Name extends string> {
@@ -452,16 +574,29 @@ function configuredPriceIds<Name extends string>(
   return names.map((name) => ({ name, value: env[name]?.trim() ?? '' }));
 }
 
-function launchStripePriceEntries(
+function requiredConfiguredPriceIds<Name extends string>(
+  names: readonly Name[],
   env: Readonly<Record<string, string | undefined>>,
-): ConfiguredPriceId<(typeof STRIPE_PRICE_ENV_VARS)[number]>[] {
-  const values = configuredPriceIds(STRIPE_PRICE_ENV_VARS, env);
+  missingConfigurationMessage: string,
+): ConfiguredPriceId<Name>[] {
+  const values = configuredPriceIds(names, env);
   const missing = values.filter(({ value }) => value.length === 0).map(({ name }) => name);
   if (missing.length > 0) {
     throw new Ws8StripePreflightConfigurationError(
-      `Missing WS8 launch Stripe Price configuration: ${missing.join(', ')}`,
+      `${missingConfigurationMessage}: ${missing.join(', ')}`,
     );
   }
+  return values;
+}
+
+function launchStripePriceEntries(
+  env: Readonly<Record<string, string | undefined>>,
+): ConfiguredPriceId<(typeof STRIPE_PRICE_ENV_VARS)[number]>[] {
+  const values = requiredConfiguredPriceIds(
+    STRIPE_PRICE_ENV_VARS,
+    env,
+    'Missing WS8 launch Stripe Price configuration',
+  );
   const firstNameById = new Map<string, (typeof STRIPE_PRICE_ENV_VARS)[number]>();
   for (const { name, value } of values) {
     const firstName = firstNameById.get(value);
@@ -475,6 +610,16 @@ function launchStripePriceEntries(
   return values;
 }
 
+function legacyStripePriceEntries(
+  env: Readonly<Record<string, string | undefined>>,
+): ConfiguredPriceId<(typeof LEGACY_STRIPE_PRICE_ENV_VARS)[number]>[] {
+  return requiredConfiguredPriceIds(
+    LEGACY_STRIPE_PRICE_ENV_VARS,
+    env,
+    'Missing retained legacy Stripe Price configuration',
+  );
+}
+
 export function readWs8LaunchStripePriceIds(
   env: Readonly<Record<string, string | undefined>>,
 ): ReadonlySet<string> {
@@ -484,14 +629,7 @@ export function readWs8LaunchStripePriceIds(
 export function readLegacyStripePriceIds(
   env: Readonly<Record<string, string | undefined>>,
 ): ReadonlySet<string> {
-  const values = configuredPriceIds(LEGACY_STRIPE_PRICE_ENV_VARS, env);
-  const missing = values.filter(({ value }) => value.length === 0).map(({ name }) => name);
-  if (missing.length > 0) {
-    throw new Ws8StripePreflightConfigurationError(
-      `Missing retained legacy Stripe Price configuration: ${missing.join(', ')}`,
-    );
-  }
-  return new Set(values.map(({ value }) => value));
+  return new Set(legacyStripePriceEntries(env).map(({ value }) => value));
 }
 
 export function safeStripeErrorSummary(error: unknown): string {
@@ -560,15 +698,7 @@ export function prepareWs8StripePreflightCli(
     throw new Ws8StripePreflightConfigurationError('DATABASE_POOL_URL is required');
   }
   const launchEntries = launchStripePriceEntries(env);
-  const legacyEntries = configuredPriceIds(LEGACY_STRIPE_PRICE_ENV_VARS, env);
-  const missingLegacy = legacyEntries
-    .filter(({ value }) => value.length === 0)
-    .map(({ name }) => name);
-  if (missingLegacy.length > 0) {
-    throw new Ws8StripePreflightConfigurationError(
-      `Missing retained legacy Stripe Price configuration: ${missingLegacy.join(', ')}`,
-    );
-  }
+  const legacyEntries = legacyStripePriceEntries(env);
   for (const launchEntry of launchEntries) {
     const overlappingLegacy = legacyEntries.find(
       (legacyEntry) => legacyEntry.value === launchEntry.value,
@@ -644,11 +774,11 @@ async function main(args: readonly string[] = process.argv.slice(2)): Promise<nu
   }
 }
 
-if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  main()
-    .then((exitCode) => { process.exitCode = exitCode; })
-    .catch((error) => {
-      console.error(`WS8 Stripe preflight ERROR ${safeWs8StripePreflightErrorSummary(error)}`);
-      process.exitCode = ws8StripePreflightExitCode(null, error);
-    });
-}
+runDirectCli({
+  importMetaUrl: import.meta.url,
+  main,
+  onError: (error) => {
+    console.error(`WS8 Stripe preflight ERROR ${safeWs8StripePreflightErrorSummary(error)}`);
+    return ws8StripePreflightExitCode(null, error);
+  },
+});

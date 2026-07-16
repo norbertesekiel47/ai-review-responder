@@ -20,7 +20,7 @@ export const STRIPE_PRICE_ENV_VARS = [
   'STRIPE_PRICE_AUTOPILOT_OVERAGE',
 ] as const;
 
-export type StripePriceEnvVar = (typeof STRIPE_PRICE_ENV_VARS)[number];
+type StripePriceEnvVar = (typeof STRIPE_PRICE_ENV_VARS)[number];
 export type StripePriceKind = 'base' | 'overage';
 
 export interface BasePriceInfo {

@@ -1,8 +1,5 @@
 // Verifies every immutable launch Price shape against the locked registry.
 // Run manually before first charge and after creating any replacement Price.
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-
 import { getStripe } from '../src/lib/payments/stripe-client';
 import { priceIdFor } from '../src/lib/payments/price-tier-map';
 import {
@@ -10,6 +7,7 @@ import {
   type PriceVariant,
   type SubscriptionTierValue,
 } from '../src/lib/accounts/tier-config';
+import { runDirectCli } from './run-direct-cli';
 
 const TIERS = ['copilot', 'autopilot'] as const satisfies readonly SubscriptionTierValue[];
 const VARIANTS = ['list', 'founding'] as const satisfies readonly PriceVariant[];
@@ -109,11 +107,11 @@ async function main(): Promise<number> {
   return stripePriceParityExitCode(mismatches);
 }
 
-if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  main()
-    .then((exitCode) => { process.exitCode = exitCode; })
-    .catch((error) => {
-      console.error(error);
-      process.exitCode = stripePriceParityExitCode(null, error);
-    });
-}
+runDirectCli({
+  importMetaUrl: import.meta.url,
+  main,
+  onError: (error) => {
+    console.error(error);
+    return stripePriceParityExitCode(null, error);
+  },
+});

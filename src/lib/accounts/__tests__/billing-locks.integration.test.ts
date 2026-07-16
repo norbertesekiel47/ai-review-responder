@@ -84,7 +84,11 @@ describe('WS8 three-actor production lock-order binding', () => {
       'utf8',
     );
 
-    const tierActor = sourceSegment(tierChangeSource, 'export async function applyTierChange');
+    const tierActor = sourceSegment(
+      tierChangeSource,
+      'async function applyTierChangeInTx',
+      'export async function applyTierChange',
+    );
     expectSourceOrder(tierActor, [
       'acquireTierAndBillingLocks(tx, input.accountId)',
       'loadLockedAccountState(tx, input.accountId)',
@@ -92,12 +96,12 @@ describe('WS8 three-actor production lock-order binding', () => {
 
     const webhookProjector = sourceSegment(
       webhookSource,
+      'async function projectProviderCurrentSubscriptionTx',
       'async function projectProviderCurrentSubscription',
-      'export async function processSubscriptionUpdated',
     );
     expectSourceOrder(webhookProjector, [
-      'acquireTierAndBillingLocks(tx, accountId)',
-      'getStripe().subscriptions.retrieve(subscriptionId)',
+      'acquireTierAndBillingLocks(tx, input.accountId)',
+      'getStripe().subscriptions.retrieve(input.subscriptionId)',
       'const [account] = await tx<LockedAccountRow[]>',
     ]);
     const webhookActor = sourceSegment(

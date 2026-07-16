@@ -109,6 +109,13 @@ interface LockedLane {
   providerAttempt: ProviderAttemptMarker;
 }
 
+interface ProviderAttemptMarkerRow {
+  phase: string | null;
+  provider_account_id: string | null;
+  provider_location_id: string | null;
+  provider_review_id: string | null;
+}
+
 type GateOutcome = 'continue' | 'completed';
 type InitialPhaseOutcome = 'completed' | 'posted' | 'armed' | 'prepare';
 type PreparationOutcome =
@@ -119,6 +126,12 @@ type FinalPhaseOutcome =
   | 'completed'
   | 'posted'
   | { kind: 'retry'; error: unknown };
+type FinalResolutionOutcome =
+  | { kind: 'resolved'; resolution: ResolveTargetResult }
+  | { kind: 'outcome'; outcome: FinalPhaseOutcome };
+type ResolvedTargetOutcome =
+  | { kind: 'target'; target: ResolvedPublishTarget }
+  | { kind: 'outcome'; outcome: FinalPhaseOutcome };
 
 /**
  * Auto-policy's provider lane uses a durable three-phase protocol:
@@ -151,12 +164,7 @@ export async function publishAutoPolicyResponse(
       return reconcilePriorProviderAttempt(sql, tx, input, lane);
     }
 
-    if (!isPublishableAutoPolicy(lane.response)) {
-      await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt);
-      return 'completed';
-    }
-
-    const gate = await evaluateLockedGates(tx, input, lane);
+    const gate = await validatePublishableLane(tx, input, lane);
     if (gate !== 'continue') return gate;
 
     if (lane.providerAttempt.phase === 'armed') return 'prepare';
@@ -169,55 +177,9 @@ export async function publishAutoPolicyResponse(
     return;
   }
 
-  const preparation = await sql.begin(async (tx): Promise<PreparationOutcome> => {
-    const lane = await lockLane(tx, input);
-    if (!lane) return { kind: 'completed' };
-    // Another stalled/overlapping invocation may have won armed -> possible.
-    // Only that CAS winner may enter the fresh provider-call phase. An observer
-    // must reconcile the durable locator because the winner may already have
-    // called the provider and rolled its outcome transaction back.
-    if (lane.providerAttempt.phase === 'possible') {
-      return { kind: 'observed_possible' };
-    }
-    if (lane.providerAttempt.phase !== 'armed') return { kind: 'completed' };
-    if (!isPublishableAutoPolicy(lane.response)) {
-      await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt);
-      return { kind: 'completed' };
-    }
-
-    const gate = await evaluateLockedGates(tx, input, lane);
-    if (gate !== 'continue') return { kind: 'completed' };
-
-    const resolution = await getTransactionalReviewPublisher(tx).resolveTarget({
-      responseId: input.responseId,
-      reviewId: input.reviewId,
-      businessId: input.businessId,
-    });
-    if (resolution.kind === 'transient') throw transientFor(input, resolution);
-    if (resolution.kind === 'no_connection') {
-      if (!await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt)) {
-        return { kind: 'completed' };
-      }
-      await parkResponseForOwnerReconnectInTx(tx, {
-        ...input,
-        responseStatus: lane.response.status,
-      });
-      return { kind: 'completed' };
-    }
-    if (resolution.kind === 'review_not_found') {
-      if (!await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt)) {
-        return { kind: 'completed' };
-      }
-      await openReviewNotFoundExceptionInTx(tx, {
-        ...input,
-        errorMeta: resolution.meta,
-      });
-      return { kind: 'completed' };
-    }
-
-    const marked = await markProviderAttemptPossible(tx, input, resolution.target);
-    return { kind: marked ? 'created_possible' : 'completed' };
-  });
+  const preparation = await sql.begin(
+    (tx): Promise<PreparationOutcome> => prepareProviderAttempt(tx, input),
+  );
   if (preparation.kind === 'completed') return;
   if (preparation.kind === 'observed_possible') {
     const reconciled = await sql.begin(async (tx): Promise<'completed' | 'posted'> => {
@@ -229,96 +191,189 @@ export async function publishAutoPolicyResponse(
     return;
   }
 
-  const published = await sql.begin(async (tx): Promise<FinalPhaseOutcome> => {
-    const lane = await lockLane(tx, input);
-    if (!lane || lane.providerAttempt.phase !== 'possible') return 'completed';
-    if (!isPublishableAutoPolicy(lane.response)) {
-      await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt);
-      return 'completed';
-    }
-
-    const gate = await evaluateLockedGates(tx, input, lane);
-    if (gate !== 'continue') return gate;
-
-    // Re-resolve inside the final outcome transaction. Phase two's locator is
-    // only the durable ambiguity anchor; it is never trusted as current after
-    // releasing that transaction's locks. The transactional adapter locks the
-    // active connection row through the provider call and outcome commit.
-    const publisher = getTransactionalReviewPublisher(tx);
-    let resolution: ResolveTargetResult;
-    try {
-      resolution = await publisher.resolveTarget({
-        responseId: input.responseId,
-        reviewId: input.reviewId,
-        businessId: input.businessId,
-      });
-    } catch (error) {
-      // Auth/permanent/unknown resolution failures happen before publishReply.
-      // Persist the safe `armed` state, then rethrow outside this transaction;
-      // throwing here would roll back the reset and create false ambiguity.
-      if (!await resetProviderAttemptToArmed(tx, input)) return 'completed';
-      return { kind: 'retry', error };
-    }
-
-    // Target resolution may include a bounded provider lookup. Recheck the
-    // independently-written offboarding projection immediately afterward so
-    // an offboarding that began during resolution still prevents the call.
-    if (await completeIfPublishingOffboarded(tx, input, lane.business.account_id)) {
-      return 'completed';
-    }
-
-    if (resolution.kind === 'transient') {
-      if (!await resetProviderAttemptToArmed(tx, input)) return 'completed';
-      return { kind: 'retry', error: transientFor(input, resolution) };
-    }
-    if (resolution.kind === 'no_connection') {
-      if (!await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt)) {
-        return 'completed';
-      }
-      await parkResponseForOwnerReconnectInTx(tx, {
-        ...input,
-        responseStatus: lane.response.status,
-      });
-      return 'completed';
-    }
-    if (resolution.kind === 'review_not_found') {
-      if (!await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt)) {
-        return 'completed';
-      }
-      await openReviewNotFoundExceptionInTx(tx, {
-        ...input,
-        errorMeta: resolution.meta,
-      });
-      return 'completed';
-    }
-
-    if (!sameLocator(lane.providerAttempt.locator, resolution.target.locator)) {
-      if (!await resetProviderAttemptToArmed(tx, input)) return 'completed';
-      return {
-        kind: 'retry',
-        error: targetChangedTransient(input, resolution.target),
-      };
-    }
-
-    // Claim the attempt before provider work: auth/permanent, 409, and fresh
-    // post mutations all roll back together if anything later throws. A CAS
-    // loser performs zero provider calls/writes.
-    if (!await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt)) {
-      return 'completed';
-    }
-
-    return publishUnderClaim(
-      sql,
-      tx,
-      input,
-      lane,
-      resolution.target,
-      publisher,
-    );
-  });
+  const published = await sql.begin(
+    (tx): Promise<FinalPhaseOutcome> => publishPossibleProviderAttempt(sql, tx, input),
+  );
 
   if (typeof published === 'object') throw published.error;
   if (published === 'posted') await afterPosted(sql, input);
+}
+
+async function prepareProviderAttempt(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+): Promise<PreparationOutcome> {
+  const lane = await lockLane(tx, input);
+  if (!lane) return { kind: 'completed' };
+  // Another stalled/overlapping invocation may have won armed -> possible.
+  // Only that CAS winner may enter the fresh provider-call phase. An observer
+  // must reconcile the durable locator because the winner may already have
+  // called the provider and rolled its outcome transaction back.
+  if (lane.providerAttempt.phase === 'possible') {
+    return { kind: 'observed_possible' };
+  }
+  if (lane.providerAttempt.phase !== 'armed') return { kind: 'completed' };
+  const gate = await validatePublishableLane(tx, input, lane);
+  if (gate !== 'continue') return { kind: 'completed' };
+  return resolvePreparationTarget(tx, input, lane);
+}
+
+async function resolvePreparationTarget(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  lane: LockedLane,
+): Promise<PreparationOutcome> {
+  const resolution = await getTransactionalReviewPublisher(tx).resolveTarget({
+    responseId: input.responseId,
+    reviewId: input.reviewId,
+    businessId: input.businessId,
+  });
+  if (resolution.kind === 'transient') throw transientFor(input, resolution);
+  if (resolution.kind === 'no_connection') {
+    await completeAndParkForReconnect(tx, input, lane.response.status);
+    return { kind: 'completed' };
+  }
+  if (resolution.kind === 'review_not_found') {
+    await completeAndOpenReviewNotFound(tx, input, resolution.meta);
+    return { kind: 'completed' };
+  }
+  const marked = await markProviderAttemptPossible(tx, input, resolution.target);
+  return { kind: marked ? 'created_possible' : 'completed' };
+}
+
+async function publishPossibleProviderAttempt(
+  sql: Sql,
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+): Promise<FinalPhaseOutcome> {
+  const lane = await lockLane(tx, input);
+  if (!lane || lane.providerAttempt.phase !== 'possible') return 'completed';
+  const gate = await validatePublishableLane(tx, input, lane);
+  if (gate !== 'continue') return gate;
+  return publishLockedPossibleProviderAttempt(sql, tx, input, {
+    ...lane,
+    providerAttempt: lane.providerAttempt,
+  });
+}
+
+async function publishLockedPossibleProviderAttempt(
+  sql: Sql,
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  lane: LockedLane & { providerAttempt: Extract<ProviderAttemptMarker, { phase: 'possible' }> },
+): Promise<FinalPhaseOutcome> {
+  // Re-resolve inside the final outcome transaction. Phase two's locator is
+  // only the durable ambiguity anchor; it is never trusted as current after
+  // releasing that transaction's locks. The transactional adapter locks the
+  // active connection row through the provider call and outcome commit.
+  const publisher = getTransactionalReviewPublisher(tx);
+  const resolved = await resolveFinalTarget(tx, input, publisher);
+  if (resolved.kind === 'outcome') return resolved.outcome;
+
+  // Target resolution may include a bounded provider lookup. Recheck the
+  // independently-written offboarding projection immediately afterward so
+  // an offboarding that began during resolution still prevents the call.
+  if (await completeIfPublishingOffboarded(tx, input, lane.business.account_id)) {
+    return 'completed';
+  }
+
+  const target = await disposeFinalResolution(tx, input, lane, resolved.resolution);
+  if (target.kind === 'outcome') return target.outcome;
+
+  const locatorOutcome = await ensureStableTarget(tx, input, lane, target.target);
+  if (locatorOutcome !== null) return locatorOutcome;
+
+  // Claim the attempt before provider work: auth/permanent, 409, and fresh
+  // post mutations all roll back together if anything later throws. A CAS
+  // loser performs zero provider calls/writes.
+  if (!await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt)) {
+    return 'completed';
+  }
+  return publishUnderClaim(sql, tx, input, lane, target.target, publisher);
+}
+
+async function resolveFinalTarget(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  publisher: ReviewPublisher,
+): Promise<FinalResolutionOutcome> {
+  try {
+    const resolution = await publisher.resolveTarget({
+      responseId: input.responseId,
+      reviewId: input.reviewId,
+      businessId: input.businessId,
+    });
+    return { kind: 'resolved', resolution };
+  } catch (error) {
+    // Auth/permanent/unknown resolution failures happen before publishReply.
+    // Persist the safe `armed` state, then rethrow outside this transaction;
+    // throwing here would roll back the reset and create false ambiguity.
+    if (!await resetProviderAttemptToArmed(tx, input)) {
+      return { kind: 'outcome', outcome: 'completed' };
+    }
+    return { kind: 'outcome', outcome: { kind: 'retry', error } };
+  }
+}
+
+async function disposeFinalResolution(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  lane: LockedLane,
+  resolution: ResolveTargetResult,
+): Promise<ResolvedTargetOutcome> {
+  if (resolution.kind === 'transient') {
+    return {
+      kind: 'outcome',
+      outcome: await retryAfterReset(tx, input, () => transientFor(input, resolution)),
+    };
+  }
+  if (resolution.kind === 'no_connection') {
+    await completeAndParkForReconnect(tx, input, lane.response.status);
+    return { kind: 'outcome', outcome: 'completed' };
+  }
+  if (resolution.kind === 'review_not_found') {
+    await completeAndOpenReviewNotFound(tx, input, resolution.meta);
+    return { kind: 'outcome', outcome: 'completed' };
+  }
+  return { kind: 'target', target: resolution.target };
+}
+
+async function retryAfterReset(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  error: () => unknown,
+): Promise<FinalPhaseOutcome> {
+  return await resetProviderAttemptToArmed(tx, input)
+    ? { kind: 'retry', error: error() }
+    : 'completed';
+}
+
+async function ensureStableTarget(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  lane: LockedLane & { providerAttempt: Extract<ProviderAttemptMarker, { phase: 'possible' }> },
+  target: ResolvedPublishTarget,
+): Promise<FinalPhaseOutcome | null> {
+  if (sameLocator(lane.providerAttempt.locator, target.locator)) return null;
+  return retryAfterReset(tx, input, () => targetChangedTransient(input, target));
+}
+
+async function completeAndParkForReconnect(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  responseStatus: string,
+): Promise<void> {
+  if (!await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt)) return;
+  await parkResponseForOwnerReconnectInTx(tx, { ...input, responseStatus });
+}
+
+async function completeAndOpenReviewNotFound(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  errorMeta: Record<string, unknown>,
+): Promise<void> {
+  if (!await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt)) return;
+  await openReviewNotFoundExceptionInTx(tx, { ...input, errorMeta });
 }
 
 async function lockLane(
@@ -361,14 +416,23 @@ async function lockLane(
   `;
   if (!entitlement) return null;
 
-  type MarkerRow = {
-    phase: string | null;
-    provider_account_id: string | null;
-    provider_location_id: string | null;
-    provider_review_id: string | null;
+  const outbox = await lockProviderAttemptMarkerRow(tx, input);
+  if (!outbox) return null;
+
+  return {
+    business,
+    response,
+    entitlement,
+    providerAttempt: parseProviderAttemptMarker(outbox),
   };
+}
+
+async function lockProviderAttemptMarkerRow(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+): Promise<ProviderAttemptMarkerRow | undefined> {
   const [outbox] = input.outboxAttempt === undefined
-    ? await tx<MarkerRow[]>`
+    ? await tx<ProviderAttemptMarkerRow[]>`
         SELECT
           payload->${PROVIDER_ATTEMPT_MARKER}->>'phase' AS phase,
           payload->${PROVIDER_ATTEMPT_MARKER}->'locator'->>'account_id' AS provider_account_id,
@@ -379,7 +443,7 @@ async function lockLane(
           AND status = 'dispatched'
         FOR UPDATE
       `
-    : await tx<MarkerRow[]>`
+    : await tx<ProviderAttemptMarkerRow[]>`
         SELECT
           payload->${PROVIDER_ATTEMPT_MARKER}->>'phase' AS phase,
           payload->${PROVIDER_ATTEMPT_MARKER}->'locator'->>'account_id' AS provider_account_id,
@@ -391,36 +455,38 @@ async function lockLane(
           AND attempts = ${input.outboxAttempt}
         FOR UPDATE
       `;
-  if (!outbox) return null;
+  return outbox;
+}
 
-  let providerAttempt: ProviderAttemptMarker = { phase: 'none' };
-  if (outbox.phase === 'armed') {
-    providerAttempt = { phase: 'armed' };
-  } else if (outbox.phase === 'possible') {
-    if (
-      !outbox.provider_account_id
-      || !outbox.provider_location_id
-      || !outbox.provider_review_id
-    ) {
-      throw new Error('possible provider-attempt marker is missing its locator');
-    }
-    providerAttempt = {
-      phase: 'possible',
-      locator: {
-        accountId: outbox.provider_account_id,
-        locationId: outbox.provider_location_id,
-        providerReviewId: outbox.provider_review_id,
-      },
-    };
-  } else if (outbox.phase !== null) {
-    throw new Error(`unknown provider-attempt marker phase: ${outbox.phase}`);
+function parseProviderAttemptMarker(
+  row: ProviderAttemptMarkerRow,
+): ProviderAttemptMarker {
+  switch (row.phase) {
+    case null:
+      return { phase: 'none' };
+    case 'armed':
+      return { phase: 'armed' };
+    case 'possible':
+      return { phase: 'possible', locator: possibleMarkerLocator(row) };
+    default:
+      throw new Error(`unknown provider-attempt marker phase: ${row.phase}`);
   }
+}
 
+function possibleMarkerLocator(
+  row: ProviderAttemptMarkerRow,
+): ResolvedPublishTarget['locator'] {
+  if (
+    !row.provider_account_id
+    || !row.provider_location_id
+    || !row.provider_review_id
+  ) {
+    throw new Error('possible provider-attempt marker is missing its locator');
+  }
   return {
-    business,
-    response,
-    entitlement,
-    providerAttempt,
+    accountId: row.provider_account_id,
+    locationId: row.provider_location_id,
+    providerReviewId: row.provider_review_id,
   };
 }
 
@@ -429,62 +495,133 @@ function isPublishableAutoPolicy(response: LockedLane['response']): boolean {
     && response.approval_method === APPROVAL_METHOD.AUTO_POLICY;
 }
 
+async function validatePublishableLane(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  lane: LockedLane,
+): Promise<GateOutcome> {
+  if (isPublishableAutoPolicy(lane.response)) {
+    return evaluateLockedGates(tx, input, lane);
+  }
+  await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt);
+  return 'completed';
+}
+
+type LockedGateCheck = (
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  lane: LockedLane,
+) => Promise<GateOutcome>;
+
+const LOCKED_GATE_CHECKS: readonly LockedGateCheck[] = [
+  evaluateOffboardingGate,
+  evaluateRuntimeGate,
+  evaluateVetoGate,
+  evaluateArchivedGate,
+  evaluateEntitlementGate,
+  evaluateModerationGate,
+];
+
 async function evaluateLockedGates(
   tx: TransactionSql,
   input: AutoPolicyPublishInput,
   lane: LockedLane,
 ): Promise<GateOutcome> {
-  if (await completeIfPublishingOffboarded(tx, input, lane.business.account_id)) {
-    return 'completed';
-  }
+  const gate = await runLockedGateChecks(tx, input, lane);
+  if (gate === 'completed') return gate;
+  const judge = await applyJudgeGateInTx(tx, input);
+  return judge === 'post' ? 'continue' : 'completed';
+}
 
-  if (!autoApprovalRuntimeEnabled()) {
-    await downgradeAutoApprovedResponseForManualReviewInTx(tx, {
-      ...input,
-      reason: 'auto_approval_disabled',
-    });
-    return 'completed';
+async function runLockedGateChecks(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  lane: LockedLane,
+): Promise<GateOutcome> {
+  for (const check of LOCKED_GATE_CHECKS) {
+    const outcome = await check(tx, input, lane);
+    if (outcome === 'completed') return outcome;
   }
+  return 'continue';
+}
 
+async function evaluateOffboardingGate(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  lane: LockedLane,
+): Promise<GateOutcome> {
+  return await completeIfPublishingOffboarded(tx, input, lane.business.account_id)
+    ? 'completed'
+    : 'continue';
+}
+
+async function evaluateRuntimeGate(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  _lane: LockedLane,
+): Promise<GateOutcome> {
+  if (autoApprovalRuntimeEnabled()) return 'continue';
+  await downgradeForReason(tx, input, 'auto_approval_disabled');
+  return 'completed';
+}
+
+async function evaluateVetoGate(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  _lane: LockedLane,
+): Promise<GateOutcome> {
   const veto = await enforceElapsedVetoWindowInTx(tx, input);
   if (veto === 'downgrade') {
-    await downgradeAutoApprovedResponseForManualReviewInTx(tx, {
-      ...input,
-      reason: 'notice_undelivered',
-    });
+    await downgradeForReason(tx, input, 'notice_undelivered');
     return 'completed';
   }
-  if (veto === 'completed') return 'completed';
+  return veto === 'completed' ? 'completed' : 'continue';
+}
 
-  if (lane.business.archived_at !== null) {
-    await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt);
-    return 'completed';
-  }
+async function evaluateArchivedGate(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  lane: LockedLane,
+): Promise<GateOutcome> {
+  if (lane.business.archived_at === null) return 'continue';
+  await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt);
+  return 'completed';
+}
 
+async function evaluateEntitlementGate(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  lane: LockedLane,
+): Promise<GateOutcome> {
   const subscription = checkSubscription({
     status: lane.entitlement.subscription_status,
     pastDueAt: lane.entitlement.past_due_at,
     accountFlags: lane.entitlement.flags ?? {},
     workerType: 'publisher',
   });
-  if (
-    !subscription.allowed
-    || lane.entitlement.subscription_tier !== SubscriptionTier.AUTOPILOT
-  ) {
-    await downgradeAutoApprovedResponseForManualReviewInTx(tx, {
-      ...input,
-      reason: 'autopilot_entitlement_lost',
-    });
-    return 'completed';
-  }
+  const hasAutopilot = subscription.allowed
+    && lane.entitlement.subscription_tier === SubscriptionTier.AUTOPILOT;
+  if (hasAutopilot) return 'continue';
+  await downgradeForReason(tx, input, 'autopilot_entitlement_lost');
+  return 'completed';
+}
 
-  if (await isHeldForModerationReviewInTx(tx, input.responseId)) {
-    await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt);
-    return 'completed';
-  }
+async function evaluateModerationGate(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  _lane: LockedLane,
+): Promise<GateOutcome> {
+  if (!await isHeldForModerationReviewInTx(tx, input.responseId)) return 'continue';
+  await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt);
+  return 'completed';
+}
 
-  const judge = await applyJudgeGateInTx(tx, input);
-  return judge === 'post' ? 'continue' : 'completed';
+async function downgradeForReason(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  reason: 'auto_approval_disabled' | 'notice_undelivered' | 'autopilot_entitlement_lost',
+): Promise<void> {
+  await downgradeAutoApprovedResponseForManualReviewInTx(tx, { ...input, reason });
 }
 
 async function completeIfPublishingOffboarded(
@@ -671,6 +808,19 @@ async function publishUnderClaim(
   // A 2xx can still be ambiguous. Failure rolls back completion/domain state,
   // while the phase-A payload marker remains committed for reconciliation.
   await verifyOwnReplyAttached(sql, { target, approvedText, logger: input.logger });
+  await markPostedOrThrow(
+    tx,
+    input,
+    `Provider accepted reply but response ${input.responseId} did not transition`,
+  );
+  return 'posted';
+}
+
+async function markPostedOrThrow(
+  tx: TransactionSql,
+  input: AutoPolicyPublishInput,
+  transitionError: string,
+): Promise<void> {
   const posted = await markPostedAndMaybeEnqueueAutoPostNotice({
     tx,
     responseId: input.responseId,
@@ -679,10 +829,7 @@ async function publishUnderClaim(
     correlationId: input.correlationId,
     logger: input.logger,
   });
-  if (!posted.transitioned) {
-    throw new Error(`Provider accepted reply but response ${input.responseId} did not transition`);
-  }
-  return 'posted';
+  if (!posted.transitioned) throw new Error(transitionError);
 }
 
 async function reconcilePriorProviderAttempt(
@@ -825,21 +972,11 @@ async function disposeVerifiedReply(
 
   switch (verified.disposition) {
     case 'matches_our_text':
-      {
-        const posted = await markPostedAndMaybeEnqueueAutoPostNotice({
+      await markPostedOrThrow(
         tx,
-        responseId: input.responseId,
-        reviewId: input.reviewId,
-        businessId: input.businessId,
-        correlationId: input.correlationId,
-        logger: input.logger,
-        });
-        if (!posted.transitioned) {
-          throw new Error(
-            `Confirmed provider reply but response ${input.responseId} did not transition`,
-          );
-        }
-      }
+        input,
+        `Confirmed provider reply but response ${input.responseId} did not transition`,
+      );
       return 'posted';
     case 'mismatch':
       await supersedeProviderMismatch(tx, input);

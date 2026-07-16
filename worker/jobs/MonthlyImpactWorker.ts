@@ -1,5 +1,5 @@
 import type { Job } from 'bullmq';
-import { isSubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import type { Sql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../src/lib/db/server';
@@ -272,9 +272,6 @@ export async function handleMonthlyImpact(
   const context = await prepareSummaryReport(sql, job, logger);
   if (!context) return;
   const { business, businessId, outboxId, outboxAttempt } = context;
-  if (!isSubscriptionTier(business.subscription_tier)) {
-    throw new Error(`Unsupported subscription tier: ${business.subscription_tier}`);
-  }
   const summaryRow = await acquireMonthlySummary(sql, {
     businessId,
     monthStartDate: month_start_date,
