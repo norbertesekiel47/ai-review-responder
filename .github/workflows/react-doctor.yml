@@ -13,6 +13,7 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
+  statuses: write
 
 concurrency:
   group: react-doctor-${{ github.event.pull_request.number || github.ref }}
@@ -24,4 +25,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - uses: millionco/react-doctor@4bc8a73d247d9b8378616e738780af3794f0b97f # pinned from main 2026-05-31
+        with:
+          # `scope: changed` diffs against the base branch to report only
+          # PR-introduced issues; a shallow clone can't reach it.
+          fetch-depth: 0
+      - uses: millionco/react-doctor@1a30f2caac12f1678243cb8733dd7bc1b598a9da # pinned from main 2026-07-16
+        with:
+          blocking: error
