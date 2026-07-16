@@ -7,6 +7,7 @@ import {
   parseWs8StripePreflightArgs,
   prepareWs8StripePreflightCli,
   readLegacyStripePriceIds,
+  readReviewedOrphanSubscriptionIds,
   readWs8LaunchStripePriceIds,
   runWs8StripeCutoverPreflight,
   safeStripeErrorSummary,
@@ -320,6 +321,70 @@ describe('runWs8StripeCutoverPreflight', () => {
       subscriptionId: 'sub-1',
       customerId: 'cus-1',
     }]);
+  });
+
+  it('accepts a TERMINAL unprojected subscription that the operator explicitly reviewed', async () => {
+    const log = vi.fn();
+    const stripe = stripeMock({
+      subscriptions: [{ data: [subscription({ status: 'canceled' })], has_more: false }],
+    });
+
+    const result = await runWs8StripeCutoverPreflight({
+      accounts: [],
+      stripe,
+      legacyPriceIds: new Set([LEGACY_PRICE]),
+      reviewedOrphanSubscriptionIds: new Set(['sub-1']),
+      log,
+    });
+
+    expect(result.blockers).toEqual([]);
+    // The acceptance must be loud, never silent.
+    expect(log).toHaveBeenCalledWith(
+      'WARN reviewed_orphan_subscription subscription=sub-1 customer=cus-1 status=canceled',
+    );
+  });
+
+  it('still BLOCKS a reviewed orphan that is NONterminal (review cannot launder a live subscription)', async () => {
+    const stripe = stripeMock({
+      subscriptions: [{ data: [subscription({ status: 'active' })], has_more: false }],
+    });
+
+    const result = await runWs8StripeCutoverPreflight({
+      accounts: [],
+      stripe,
+      legacyPriceIds: new Set([LEGACY_PRICE]),
+      reviewedOrphanSubscriptionIds: new Set(['sub-1']),
+    });
+
+    expect(result.blockers).toEqual([
+      { kind: 'unprojected_subscription', subscriptionId: 'sub-1', customerId: 'cus-1' },
+      { kind: 'nonterminal_subscription', subscriptionId: 'sub-1', status: 'active', accountId: null },
+    ]);
+  });
+
+  it('still blocks an unreviewed terminal orphan (allowlist is exact, not a wildcard)', async () => {
+    const stripe = stripeMock({
+      subscriptions: [{ data: [subscription({ id: 'sub-other', status: 'canceled' })], has_more: false }],
+    });
+
+    const result = await runWs8StripeCutoverPreflight({
+      accounts: [],
+      stripe,
+      legacyPriceIds: new Set([LEGACY_PRICE]),
+      reviewedOrphanSubscriptionIds: new Set(['sub-1']),
+    });
+
+    expect(result.blockers).toEqual([
+      { kind: 'unprojected_subscription', subscriptionId: 'sub-other', customerId: 'cus-1' },
+    ]);
+  });
+
+  it('parses the reviewed-orphan allowlist from env (comma/space separated, empty = none)', () => {
+    expect(readReviewedOrphanSubscriptionIds({})).toEqual(new Set());
+    expect(readReviewedOrphanSubscriptionIds({ WS8_PREFLIGHT_REVIEWED_ORPHAN_SUBS: '' })).toEqual(new Set());
+    expect(
+      readReviewedOrphanSubscriptionIds({ WS8_PREFLIGHT_REVIEWED_ORPHAN_SUBS: 'sub_a, sub_b\nsub_c' }),
+    ).toEqual(new Set(['sub_a', 'sub_b', 'sub_c']));
   });
 
   it('blocks duplicate local subscription projections and proves the branch ran', async () => {

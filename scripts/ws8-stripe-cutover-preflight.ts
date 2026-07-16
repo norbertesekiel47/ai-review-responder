@@ -151,6 +151,13 @@ interface RunPreflightInput {
   legacyPriceIds: ReadonlySet<string>;
   expireLegacySessions?: boolean;
   requireStatusConvergence?: boolean;
+  /**
+   * Subscription IDs an operator has explicitly reviewed and accepted as inert
+   * orphans (see readReviewedOrphanSubscriptionIds). Narrow by construction:
+   * only a TERMINAL unprojected subscription can be accepted, and every
+   * acceptance is logged. Review can never launder a live subscription.
+   */
+  reviewedOrphanSubscriptionIds?: ReadonlySet<string>;
   log?: (line: string) => void;
 }
 
@@ -405,7 +412,30 @@ function missingProviderSubscriptionBlocker(
   };
 }
 
+/**
+ * True only for an `unprojected_subscription` blocker whose subscription is
+ * TERMINAL *and* explicitly named in the operator's reviewed-orphan allowlist.
+ *
+ * A terminal orphan is inert: it can never bill, activate, or project. An
+ * environment whose database has been reset accumulates these permanently —
+ * Stripe has no delete-subscription API — so without an explicit, reviewed
+ * escape the gate is unpassable there by construction. Deliberately narrow:
+ * a nonterminal subscription keeps BOTH its unprojected blocker and its
+ * nonterminal blocker no matter what the operator lists.
+ */
+function acceptsReviewedOrphan(
+  blocker: Ws8StripePreflightBlocker,
+  subscription: StripeSubscriptionProjection,
+  reviewedOrphanSubscriptionIds: ReadonlySet<string>,
+): boolean {
+  return blocker.kind === 'unprojected_subscription'
+    && TERMINAL_SUBSCRIPTION_STATUSES.has(subscription.status)
+    && reviewedOrphanSubscriptionIds.has(subscription.id);
+}
+
 async function scanSubscriptions(input: RunPreflightInput): Promise<SubscriptionScanResult> {
+  const log = input.log ?? (() => undefined);
+  const reviewedOrphanSubscriptionIds = input.reviewedOrphanSubscriptionIds ?? new Set<string>();
   const subscriptions = await paginate(
     (startingAfter) => input.stripe.listSubscriptions({
       status: 'all',
@@ -418,7 +448,17 @@ async function scanSubscriptions(input: RunPreflightInput): Promise<Subscription
   const notices: Ws8StripePreflightNotice[] = [];
   for (const subscription of subscriptions) {
     const reconciliation = reconciliationFindings(subscription, input.accounts);
-    blockers.push(...reconciliation.blockers);
+    for (const blocker of reconciliation.blockers) {
+      if (acceptsReviewedOrphan(blocker, subscription, reviewedOrphanSubscriptionIds)) {
+        log(
+          `WARN reviewed_orphan_subscription subscription=${subscription.id}`
+          + ` customer=${providerCustomerId(subscription.customer) ?? 'none'}`
+          + ` status=${subscription.status}`,
+        );
+        continue;
+      }
+      blockers.push(blocker);
+    }
     notices.push(...reconciliation.notices);
     const nonterminalBlocker = nonterminalSubscriptionBlocker(subscription, input.accounts);
     if (nonterminalBlocker) blockers.push(nonterminalBlocker);
@@ -676,6 +716,20 @@ export function parseWs8StripePreflightArgs(
   throw new Ws8StripePreflightConfigurationError(PREFLIGHT_USAGE);
 }
 
+/**
+ * Operator-reviewed inert orphans, from WS8_PREFLIGHT_REVIEWED_ORPHAN_SUBS
+ * (comma/whitespace separated subscription IDs). Unset/blank = none, so the
+ * gate stays strict by default and every acceptance is an explicit, auditable
+ * act. Only TERMINAL orphans can be accepted (see acceptsReviewedOrphan).
+ */
+export function readReviewedOrphanSubscriptionIds(
+  env: Readonly<Record<string, string | undefined>>,
+): ReadonlySet<string> {
+  const raw = env.WS8_PREFLIGHT_REVIEWED_ORPHAN_SUBS?.trim();
+  if (!raw) return new Set();
+  return new Set(raw.split(/[\s,]+/).filter((id) => id.length > 0));
+}
+
 export function prepareWs8StripePreflightCli(
   env: Readonly<Record<string, string | undefined>>,
   args: readonly string[],
@@ -685,6 +739,7 @@ export function prepareWs8StripePreflightCli(
   legacyPriceIds: ReadonlySet<string>;
   expireLegacySessions: boolean;
   requireStatusConvergence: boolean;
+  reviewedOrphanSubscriptionIds: ReadonlySet<string>;
   mode: Ws8StripePreflightMode;
 } {
   const mode = parseWs8StripePreflightArgs(args);
@@ -710,6 +765,7 @@ export function prepareWs8StripePreflightCli(
     legacyPriceIds: new Set(legacyEntries.map(({ value }) => value)),
     expireLegacySessions: mode === 'expire_legacy_sessions',
     requireStatusConvergence: mode === 'require_status_convergence',
+    reviewedOrphanSubscriptionIds: readReviewedOrphanSubscriptionIds(env),
     mode,
   };
 }
@@ -735,6 +791,7 @@ async function main(args: readonly string[] = process.argv.slice(2)): Promise<nu
     legacyPriceIds,
     expireLegacySessions,
     requireStatusConvergence,
+    reviewedOrphanSubscriptionIds,
     mode,
   } = prepareWs8StripePreflightCli(process.env, args);
   const sql = postgres(databaseUrl, {
@@ -752,6 +809,7 @@ async function main(args: readonly string[] = process.argv.slice(2)): Promise<nu
       legacyPriceIds,
       expireLegacySessions,
       requireStatusConvergence,
+      reviewedOrphanSubscriptionIds,
       log: console.log,
       stripe: {
         listSubscriptions: async (input) => stripe.subscriptions.list(input),
