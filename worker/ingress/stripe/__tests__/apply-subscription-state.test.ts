@@ -88,6 +88,13 @@ function queueAccountRow(currentStatus: string) {
   sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: currentStatus, primary_business_id: PRIMARY_BIZ }]);
 }
 
+function findStatusUpdate(table: 'accounts' | 'businesses', status: string) {
+  const updatePattern = new RegExp(`\\bUPDATE\\s+${table}\\b`);
+  return sqlCalls.find(
+    (call) => updatePattern.test(call.text) && call.values.includes(status),
+  );
+}
+
 const checkoutRef = { mode: 'checkout', accountId: ACCOUNT_ID } as const;
 const subRef = { mode: 'subscription', stripeCustomerId: CUSTOMER_ID, stripeSubscriptionId: SUB_ID } as const;
 
@@ -115,17 +122,13 @@ describe('transition: → trialing', () => {
       primaryBusinessId: PRIMARY_BIZ,
     });
 
-    const updateAcct = sqlCalls.find(
-      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'trialing'"),
-    );
+    const updateAcct = findStatusUpdate('accounts', 'trialing');
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.text).toMatch(/trial_ends_at\s*=/i);
     expect(updateAcct!.text).toMatch(/subscription_activated_at\s*=\s*COALESCE/i);
 
     // businesses mirror writes trialing too
-    const updateBiz = sqlCalls.find(
-      (c) => /\bUPDATE\s+businesses\b/.test(c.text) && c.text.includes("'trialing'"),
-    );
+    const updateBiz = findStatusUpdate('businesses', 'trialing');
     expect(updateBiz).toBeDefined();
     // FIX 1: the businesses mirror must ALSO set subscription_activated_at on
     // trial-start (scoped to the primary, non-archived business) — the onboarding
@@ -156,9 +159,7 @@ describe('transition: → trialing', () => {
     queueAccountRow('pending_payment');
     await applyStripeSubscriptionState(mockSql, checkoutRef, trialingSub());
 
-    const updateAcct = sqlCalls.find(
-      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'trialing'"),
-    );
+    const updateAcct = findStatusUpdate('accounts', 'trialing');
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.text).toMatch(/stripe_customer_id\s*=\s*COALESCE/i);
     expect(updateAcct!.text).toMatch(/stripe_subscription_id\s*=\s*COALESCE/i);
@@ -191,9 +192,7 @@ describe('transition: → active (convert)', () => {
     const r = await applyStripeSubscriptionState(mockSql, subRef, activeSub());
 
     expect(r).toMatchObject({ fromStatus: 'trialing', toStatus: 'active', changed: true, activated: true });
-    const updateAcct = sqlCalls.find(
-      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'"),
-    );
+    const updateAcct = findStatusUpdate('accounts', 'active');
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.text).toMatch(/trial_ends_at\s*=\s*NULL/i);
     expect(updateAcct!.text).toMatch(/subscription_activated_at\s*=\s*COALESCE/i);
@@ -206,9 +205,7 @@ describe('transition: → active (convert)', () => {
     // FIX 1: the businesses mirror on convert→active also COALESCE-anchors
     // subscription_activated_at (first-writer-wins; trial-start already set it),
     // scoped to the primary, non-archived business.
-    const updateBiz = sqlCalls.find(
-      (c) => /\bUPDATE\s+businesses\b/.test(c.text) && c.text.includes("'active'"),
-    );
+    const updateBiz = findStatusUpdate('businesses', 'active');
     expect(updateBiz).toBeDefined();
     expect(updateBiz!.text).toMatch(/subscription_activated_at\s*=\s*COALESCE/i);
     expect(updateBiz!.text).toMatch(/is_primary\s*=\s*TRUE/i);
@@ -258,9 +255,7 @@ describe('transition: → active (convert)', () => {
     // be cleared so the account is no longer in the grace window.
     queueAccountRow('past_due');
     await applyStripeSubscriptionState(mockSql, subRef, activeSub());
-    const updateAcct = sqlCalls.find(
-      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'"),
-    );
+    const updateAcct = findStatusUpdate('accounts', 'active');
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.text).toMatch(/past_due_at\s*=\s*NULL/i);
   });
@@ -270,9 +265,7 @@ describe('transition: → active (convert)', () => {
     // lost the Stripe ids gets them re-anchored on the next transition.
     queueAccountRow('trialing');
     await applyStripeSubscriptionState(mockSql, subRef, activeSub());
-    const updateAcct = sqlCalls.find(
-      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'"),
-    );
+    const updateAcct = findStatusUpdate('accounts', 'active');
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.text).toMatch(/stripe_customer_id\s*=\s*COALESCE/i);
     expect(updateAcct!.text).toMatch(/stripe_subscription_id\s*=\s*COALESCE/i);
@@ -285,9 +278,7 @@ describe('transition: → past_due', () => {
     const r = await applyStripeSubscriptionState(mockSql, subRef, { id: SUB_ID, customer: CUSTOMER_ID, status: 'past_due', trial_end: null });
 
     expect(r).toMatchObject({ fromStatus: 'trialing', toStatus: 'past_due', changed: true });
-    const updateAcct = sqlCalls.find(
-      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'past_due'"),
-    );
+    const updateAcct = findStatusUpdate('accounts', 'past_due');
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.text).toMatch(/past_due_at\s*=\s*NOW\(\)/i);
     expect(updateAcct!.text).toMatch(/trial_ends_at\s*=\s*NULL/i);
@@ -306,9 +297,7 @@ describe('transition: → past_due', () => {
   it('FIX 1: past_due businesses mirror does NOT set subscription_activated_at (anchor only on entitled states)', async () => {
     queueAccountRow('trialing');
     await applyStripeSubscriptionState(mockSql, subRef, { id: SUB_ID, customer: CUSTOMER_ID, status: 'past_due', trial_end: null });
-    const updateBiz = sqlCalls.find(
-      (c) => /\bUPDATE\s+businesses\b/.test(c.text) && c.text.includes("'past_due'"),
-    );
+    const updateBiz = findStatusUpdate('businesses', 'past_due');
     expect(updateBiz).toBeDefined();
     expect(updateBiz!.text).not.toMatch(/subscription_activated_at/i);
   });
@@ -318,9 +307,7 @@ describe('transition: → past_due', () => {
     // propagate to ALL businesses so every location shows the billing problem.
     queueAccountRow('trialing');
     await applyStripeSubscriptionState(mockSql, subRef, { id: SUB_ID, customer: CUSTOMER_ID, status: 'past_due', trial_end: null });
-    const updateBiz = sqlCalls.find(
-      (c) => /\bUPDATE\s+businesses\b/.test(c.text) && c.text.includes("'past_due'"),
-    );
+    const updateBiz = findStatusUpdate('businesses', 'past_due');
     expect(updateBiz).toBeDefined();
     expect(updateBiz!.text).not.toMatch(/is_primary/i);
   });
@@ -338,9 +325,7 @@ describe('transition: → cancelled', () => {
     const r = await applyStripeSubscriptionState(mockSql, subRef, { id: SUB_ID, customer: CUSTOMER_ID, status: 'canceled', trial_end: null });
 
     expect(r).toMatchObject({ fromStatus: 'trialing', toStatus: 'cancelled', changed: true });
-    const updateAcct = sqlCalls.find(
-      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'cancelled'"),
-    );
+    const updateAcct = findStatusUpdate('accounts', 'cancelled');
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.text).toMatch(/cancelled_at\s*=\s*NOW\(\)/i);
     expect(updateAcct!.text).toMatch(/past_due_at\s*=\s*NULL/i);
@@ -369,9 +354,7 @@ describe('transition: → cancelled', () => {
     // the primary, so the UPDATE must not include an is_primary filter.
     queueAccountRow('active');
     await applyStripeSubscriptionState(mockSql, subRef, { id: SUB_ID, customer: CUSTOMER_ID, status: 'canceled', trial_end: null });
-    const updateBiz = sqlCalls.find(
-      (c) => /\bUPDATE\s+businesses\b/.test(c.text) && c.text.includes("'cancelled'"),
-    );
+    const updateBiz = findStatusUpdate('businesses', 'cancelled');
     expect(updateBiz).toBeDefined();
     expect(updateBiz!.text).not.toMatch(/is_primary/i);
   });

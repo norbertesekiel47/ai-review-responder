@@ -389,7 +389,7 @@ async function writeStatusColumns(
       // every later subscription-mode webhook and by the Billing Portal.
       await tx`
         UPDATE accounts
-        SET subscription_status = 'trialing',
+        SET subscription_status = ${SubscriptionStatus.TRIALING},
             trial_ends_at = ${trialEndIso},
             past_due_at = NULL,
             stripe_customer_id = COALESCE(stripe_customer_id, ${stripeCustomerId}),
@@ -402,7 +402,7 @@ async function writeStatusColumns(
     case SubscriptionStatus.ACTIVE:
       await tx`
         UPDATE accounts
-        SET subscription_status = 'active',
+        SET subscription_status = ${SubscriptionStatus.ACTIVE},
             trial_ends_at = NULL,
             past_due_at = NULL,
             stripe_customer_id = COALESCE(stripe_customer_id, ${stripeCustomerId}),
@@ -415,7 +415,7 @@ async function writeStatusColumns(
     case SubscriptionStatus.PAST_DUE:
       await tx`
         UPDATE accounts
-        SET subscription_status = 'past_due',
+        SET subscription_status = ${SubscriptionStatus.PAST_DUE},
             trial_ends_at = NULL,
             past_due_at = NOW(),
             updated_at = NOW()
@@ -425,7 +425,7 @@ async function writeStatusColumns(
     case SubscriptionStatus.CANCELLED:
       await tx`
         UPDATE accounts
-        SET subscription_status = 'cancelled',
+        SET subscription_status = ${SubscriptionStatus.CANCELLED},
             cancelled_at = NOW(),
             trial_ends_at = NULL,
             past_due_at = NULL,
@@ -458,7 +458,7 @@ async function writeBusinessesMirror(
     case SubscriptionStatus.TRIALING:
       await tx`
         UPDATE businesses
-        SET subscription_status = 'trialing',
+        SET subscription_status = ${SubscriptionStatus.TRIALING},
             subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
             updated_at = NOW()
         WHERE account_id = ${accountId}::uuid
@@ -469,7 +469,7 @@ async function writeBusinessesMirror(
     case SubscriptionStatus.ACTIVE:
       await tx`
         UPDATE businesses
-        SET subscription_status = 'active',
+        SET subscription_status = ${SubscriptionStatus.ACTIVE},
             subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
             updated_at = NOW()
         WHERE account_id = ${accountId}::uuid
@@ -478,10 +478,10 @@ async function writeBusinessesMirror(
       `;
       return;
     case SubscriptionStatus.PAST_DUE:
-      await tx`UPDATE businesses SET subscription_status = 'past_due', updated_at = NOW() WHERE account_id = ${accountId}::uuid`;
+      await tx`UPDATE businesses SET subscription_status = ${SubscriptionStatus.PAST_DUE}, updated_at = NOW() WHERE account_id = ${accountId}::uuid`;
       return;
     case SubscriptionStatus.CANCELLED:
-      await tx`UPDATE businesses SET subscription_status = 'cancelled', updated_at = NOW() WHERE account_id = ${accountId}::uuid`;
+      await tx`UPDATE businesses SET subscription_status = ${SubscriptionStatus.CANCELLED}, updated_at = NOW() WHERE account_id = ${accountId}::uuid`;
       return;
     default:
       return;
