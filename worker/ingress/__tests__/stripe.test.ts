@@ -36,12 +36,34 @@ vi.mock('stripe', () => {
   return {
     default: class FakeStripe {
       webhooks = { constructEvent: mockConstructEvent };
+      checkout = {
+        sessions: {
+          retrieve: vi.fn().mockResolvedValue({
+            id: 'cs_test_1',
+            mode: 'subscription',
+            status: 'complete',
+            payment_status: 'paid',
+            client_reference_id: '019dc366-29ce-736d-ae75-d19dc561e58f',
+            customer: 'cus_test_1',
+            subscription: 'sub_test_1',
+            metadata: {
+              checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
+            },
+            line_items: {
+              data: [{ quantity: 1, price: { id: 'price_copilot_list_test' } }],
+            },
+          }),
+        },
+      };
       subscriptions = {
         retrieve: vi.fn().mockResolvedValue({
           id: 'sub_test_1',
           customer: 'cus_test_1',
           status: 'active',
           trial_end: null,
+          metadata: {
+            checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
+          },
           items: {
             data: [{
               id: 'si_base', quantity: 1, metadata: {},
@@ -151,6 +173,7 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
         /UPDATE\s+inbound_events[\s\S]*processed/i.test(t),
       ),
     ).toBe(true);
+    expect(mockSql).toHaveBeenCalledTimes(1);
 
     consoleSpy.mockRestore();
   });
@@ -170,6 +193,7 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
       /UPDATE\s+businesses|DELETE\s+FROM\s+businesses|INSERT\s+INTO\s+businesses/i.test(t),
     );
     expect(businessTouches).toEqual([]);
+    expect(mockSql).toHaveBeenCalledTimes(1);
   });
 
   it('payment_intent.created — same no-op behavior', async () => {
@@ -187,6 +211,7 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
       /UPDATE\s+businesses|DELETE\s+FROM\s+businesses|INSERT\s+INTO\s+businesses/i.test(t),
     );
     expect(businessTouches).toEqual([]);
+    expect(mockSql).toHaveBeenCalledTimes(1);
   });
 
   // B23 — malformed client_reference_id used to trigger the
@@ -243,6 +268,7 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
         /UPDATE\s+inbound_events[\s\S]*processed/i.test(t),
       ),
     ).toBe(true);
+    expect(mockSql).toHaveBeenCalledTimes(1);
 
     consoleSpy.mockRestore();
   });
@@ -272,6 +298,7 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
       /UPDATE\s+(accounts|businesses)|SELECT\s+subscription_status[\s\S]*FROM\s+(accounts|businesses)/i.test(t),
     );
     expect(dataTouches).toEqual([]);
+    expect(mockSql).toHaveBeenCalledTimes(1);
     consoleSpy.mockRestore();
   });
 
@@ -313,6 +340,7 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
         return Promise.resolve([{
           id: '019dc366-29ce-736d-ae75-d19dc561e58f',
           subscription_tier: 'copilot',
+          subscription_status: 'pending_payment',
           price_variant: 'list',
           base_price_cents: 2900,
           locations_paid: 0,
@@ -320,6 +348,18 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
           locations_included: 1,
           stripe_subscription_id: null,
           stripe_customer_id: null,
+          checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
+          checkout_session_id: 'cs_test_1',
+          checkout_attempt_state: 'open',
+          checkout_attempt_tier: 'copilot',
+          checkout_attempt_price_variant: 'list',
+          checkout_attempt_base_price_id: 'price_copilot_list_test',
+          checkout_attempt_overage_price_id: 'price_copilot_overage_test',
+          checkout_attempt_base_price_cents: 2900,
+          checkout_attempt_overage_price_cents: 1500,
+          checkout_attempt_locations_included: 1,
+          checkout_attempt_locations_paid: 0,
+          checkout_attempt_overage_quantity: 0,
         }]);
       }
       // 3. Applier's resolveAccount: SELECT a.id, a.subscription_status, … FROM accounts a …
@@ -329,7 +369,12 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
           id: '019dc366-29ce-736d-ae75-d19dc561e58f',
           subscription_status: 'pending_payment',
           primary_business_id: null,
+          stripe_customer_id: null,
+          stripe_subscription_id: null,
         }]);
+      }
+      if (/checkout_attempt_state\s*=\s*'completed'/i.test(text)) {
+        return Promise.resolve([{ id: '019dc366-29ce-736d-ae75-d19dc561e58f' }]);
       }
       // 4/5. UPDATE accounts or businesses
       if (/UPDATE\s+(accounts|businesses)/i.test(text)) {
@@ -350,6 +395,7 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     // At minimum one UPDATE accounts fired (proves the handler now
     // targets the accounts table as source of truth).
     expect(accountUpdates.length).toBeGreaterThan(0);
+    expect(mockSql).toHaveBeenCalledTimes(17);
   });
 
   it('returns 401 when stripe-signature header is missing', async () => {
@@ -361,6 +407,7 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     await handleStripeWebhook(req, reply);
     expect(status).toHaveBeenCalledWith(401);
     expect(mockConstructEvent).not.toHaveBeenCalled();
+    expect(mockSql).not.toHaveBeenCalled();
   });
 
   it('returns 401 when signature verification throws', async () => {
@@ -370,6 +417,7 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     const { reply, status } = mkReply();
     await handleStripeWebhook(mkRequest('charge.updated'), reply);
     expect(status).toHaveBeenCalledWith(401);
+    expect(mockSql).not.toHaveBeenCalled();
   });
 
   it('returns 200 duplicate when claimInboundEvent returns "duplicate"', async () => {
@@ -400,6 +448,7 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     expect(status).toHaveBeenCalledWith(200);
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ stale: true }));
     expect(mockClaimInboundEvent).not.toHaveBeenCalled();
+    expect(mockSql).not.toHaveBeenCalled();
   });
 
   it('processes a recent event (created = now)', async () => {
@@ -409,6 +458,7 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     await handleStripeWebhook(mkRequest('charge.updated'), reply);
     expect(mockClaimInboundEvent).toHaveBeenCalledTimes(1);
     expect(status).toHaveBeenCalledWith(200);
+    expect(mockSql).toHaveBeenCalledTimes(1);
   });
 
   it('processes a legitimately-retried event within the retry window (~2 days old)', async () => {
@@ -417,5 +467,6 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     const { reply } = mkReply();
     await handleStripeWebhook(mkRequest('charge.updated'), reply);
     expect(mockClaimInboundEvent).toHaveBeenCalledTimes(1);
+    expect(mockSql).toHaveBeenCalledTimes(1);
   });
 });

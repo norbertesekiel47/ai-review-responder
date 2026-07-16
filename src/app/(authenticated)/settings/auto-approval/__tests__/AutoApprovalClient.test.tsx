@@ -511,8 +511,15 @@ describe('AutoApprovalClient', () => {
     await user.type(screen.getByLabelText('Account default daily auto-post cap'), '25');
     await user.tab();
 
+    await screen.findByRole('dialog', { name: 'Confirm auto-approval change' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Confirm auto-approval' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(patchBody(fetchMock)).toEqual({ operation: 'set_account_daily_cap', cap: 25 });
+    expect(patchBody(fetchMock)).toEqual({
+      operation: 'set_account_daily_cap',
+      cap: 25,
+      confirmationLevel: 'standard',
+    });
 
     // Error surfaces (inline banner + live region) …
     expect((await screen.findAllByText('internal error')).length).toBeGreaterThan(0);
@@ -523,7 +530,7 @@ describe('AutoApprovalClient', () => {
     expect(remountedCap).toHaveAttribute('placeholder', 'Default (10)');
   });
 
-  it('daily cap commits on blur with the exact PATCH body', async () => {
+  it('daily cap expansion commits after blur confirmation with the exact PATCH body', async () => {
     const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse({
       ...baseState,
       accountDefault: { ...emptyPolicyState, policyId: 'policy-1', exists: true, dailyAutoPostCap: 25, effectiveDailyCap: 25 },
@@ -535,8 +542,15 @@ describe('AutoApprovalClient', () => {
     await user.type(screen.getByLabelText('Account default daily auto-post cap'), '25');
     await user.tab();
 
+    await screen.findByRole('dialog', { name: 'Confirm auto-approval change' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Confirm auto-approval' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(patchBody(fetchMock)).toEqual({ operation: 'set_account_daily_cap', cap: 25 });
+    expect(patchBody(fetchMock)).toEqual({
+      operation: 'set_account_daily_cap',
+      cap: 25,
+      confirmationLevel: 'standard',
+    });
   });
 
   it('daily cap clamps to 1..50 before submitting', async () => {
@@ -547,8 +561,15 @@ describe('AutoApprovalClient', () => {
     const highInput = screen.getByLabelText('Account default daily auto-post cap');
     await user.type(highInput, '99');
     await user.tab();
+    await screen.findByRole('dialog', { name: 'Confirm auto-approval change' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Confirm auto-approval' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(patchBody(fetchMock, 0)).toEqual({ operation: 'set_account_daily_cap', cap: 50 });
+    expect(patchBody(fetchMock, 0)).toEqual({
+      operation: 'set_account_daily_cap',
+      cap: 50,
+      confirmationLevel: 'standard',
+    });
     first.unmount();
 
     render(<AutoApprovalClient initialState={baseState} />);

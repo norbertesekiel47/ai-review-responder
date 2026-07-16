@@ -195,44 +195,39 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
     sqlReturnQueue.push(updateBizResult);
   }
 
-  // Queue helper: invoice.payment_failed tx flow (active → past_due)
-  // After B1.3: the active→past_due status write is owned by the real applier
-  // (checkout mode), so the SQL sequence is:
-  //   1. Handler's SELECT … FOR UPDATE (resolves acctRow by (stripe_customer_id,
-  //      stripe_subscription_id) — subscription-lineage scope, adversarial review)
-  //   2. pg_advisory_xact_lock (always)
-  //   3. Applier's resolveAccount SELECT (checkout mode, by accountId FOR UPDATE)
-  //   4. Applier's writeStatusColumns: UPDATE accounts SET subscription_status='past_due', past_due_at=NOW()
-  //   5. Applier's writeBusinessesMirror: UPDATE businesses SET subscription_status='past_due'
-  //   6. writeAccountAuditLog — mocked, no SQL consumed
-  //   7. enqueueLifecycleAnalytics — PAST_DUE from ACTIVE emits nothing (guard: fromStatus !== 'trialing')
-  // The handler now REQUIRES the failed invoice's subscription id (scoped SELECT),
-  // so the paired invoice fixture carries subscription: TEST_SUBSCRIPTION_ID and the
-  // seeded account row's stripe_subscription_id matches it (faithful 1:1 state).
-  // recordTrialConversionFailureIfRecent: failedSubscriptionId is now non-null, so for
-  // an active→past_due transition the recent-convert EXISTS query runs — queued as
-  // { ok: false } so no trial_payment_failed is emitted on a normal renewal.
+  // Queue helper: invoice.payment_failed provider-current status projection.
+  // Identity is resolved without a row lock, then entitlement is acquired before
+  // the applier locks the canonical account. The deprecated business status mirror
+  // is no longer written synchronously; a durable mirror-sync outbox row owns it.
   function queueInvoicePaymentFailed(opts: {
     status?: string;
   } = {}) {
     const status = opts.status ?? 'active';
-    // 1. Handler's SELECT … FOR UPDATE (now scoped by customer + subscription)
-    sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: status, stripe_subscription_id: TEST_SUBSCRIPTION_ID }]);
+    // 1. Handler's unlocked lineage lookup.
+    sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID }]);
     // 2. Advisory lock
     sqlReturnQueue.push([]);
+    // 3. Applier's canonical account row lock + lineage recheck.
+    sqlReturnQueue.push([{
+      id: TEST_ACCOUNT_ID,
+      subscription_status: status,
+      primary_business_id: null,
+      stripe_customer_id: TEST_CUSTOMER_ID,
+      stripe_subscription_id: TEST_SUBSCRIPTION_ID,
+    }]);
     if (status === 'active') {
-      // 3. Applier's resolveAccount SELECT (checkout mode)
-      sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: 'active', primary_business_id: null }]);
       // 4. Applier's writeStatusColumns: UPDATE accounts SET subscription_status='past_due'
       const r1: any = []; r1.count = 1;
       sqlReturnQueue.push(r1);
-      // 5. Applier's writeBusinessesMirror: UPDATE businesses
-      const r2: any = []; r2.count = 1;
-      sqlReturnQueue.push(r2);
+      // 5. Durable deprecated-status mirror projection.
+      const mirrorOutbox: any = []; mirrorOutbox.count = 1;
+      sqlReturnQueue.push(mirrorOutbox);
       // 6. recordTrialConversionFailureIfRecent EXISTS query (failedSubscriptionId now
       //    non-null) → no recent trial conversion, so no trial_payment_failed emit.
       sqlReturnQueue.push([{ ok: false }]);
     }
+    // Ingress wrapper marks the claimed event processed.
+    sqlReturnQueue.push([]);
   }
 
   // Queue helper: invoice.paid tx flow (past_due → active)
@@ -245,30 +240,31 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
     status?: string;
   } = {}) {
     const status = opts.status ?? 'past_due';
-    // 1. Handler's SELECT … FOR UPDATE (stripe_customer_id lookup) — also reads
-    //    stripe_subscription_id, which the recovery loop matches against the
-    //    invoice's subscription id (lineage scope) before recovering.
-    sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: status, stripe_subscription_id: TEST_SUBSCRIPTION_ID }]);
+    // 1. Handler's unlocked, customer+subscription lineage lookup.
+    sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: status }]);
     if (status === 'past_due') {
       // 2. pg_advisory_xact_lock result
       sqlReturnQueue.push([]);
-      // 3. Applier's resolveAccount SELECT (checkout mode, by accountId FOR UPDATE)
-      //    Returns id + subscription_status + primary_business_id for the applier.
-      sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: 'past_due', primary_business_id: null }]);
+      // 3. Applier's canonical account row lock + lineage recheck.
+      sqlReturnQueue.push([{
+        id: TEST_ACCOUNT_ID,
+        subscription_status: 'past_due',
+        primary_business_id: null,
+        stripe_customer_id: TEST_CUSTOMER_ID,
+        stripe_subscription_id: TEST_SUBSCRIPTION_ID,
+      }]);
       // 4. Applier's writeStatusColumns: UPDATE accounts SET subscription_status='active' …
       const r1: any = []; r1.count = 1;
       sqlReturnQueue.push(r1);
-      // 5. Applier's writeBusinessesMirror: UPDATE businesses …
-      const r2: any = []; r2.count = 1;
-      sqlReturnQueue.push(r2);
-      // 6. Applier's enqueueStripeOverageRecompute: INSERT INTO job_outbox
+      // 5. Applier's enqueueStripeOverageRecompute: INSERT INTO job_outbox
       const outboxInsert: any = []; outboxInsert.count = 1;
       sqlReturnQueue.push(outboxInsert);
-      // 7. Post-tx: primary business lookup for backfill resume
-      sqlReturnQueue.push([{ id: '019dc366-29ce-7000-a000-000000000099' }]);
-      // 8. maybeEnqueueBackfillResume zernio predicate (no match by default)
-      sqlReturnQueue.push([]);
+      // 6. Durable deprecated-status mirror projection.
+      const mirrorOutbox: any = []; mirrorOutbox.count = 1;
+      sqlReturnQueue.push(mirrorOutbox);
     }
+    // Ingress wrapper marks the claimed event processed.
+    sqlReturnQueue.push([]);
   }
 
   // Queue helper: customer.subscription.deleted tx flow
@@ -286,34 +282,29 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
       stripe_subscription_id: subId,
       active_offboarding_subscription_id: opts.activeOffboardingSubscriptionId ?? null,
     }]);
-    // 2. Advisory lock pg_advisory_xact_lock
-    sqlReturnQueue.push([]);
-    // 3. Applier's resolveAccount SELECT (subscription mode, inside applyStripeSubscriptionState)
-    //    Only queued when the event subscription matches the account's current sub
-    //    (i.e. NOT the stale/mismatch paths that early-return before reaching the applier).
-    //    Stale-sub tests (stripeSubscriptionId !== TEST_SUBSCRIPTION_ID with event sub_old_*)
-    //    call queueSubscriptionDeleted with a different stripeSubscriptionId and the
-    //    event id won't match — those early-return before reaching the advisory lock,
-    //    so nothing past item 1 is consumed. When subId matches the event sub, the applier runs.
-    if (status !== 'cancelled') {
+    // The named stale-subscription fixtures use a noncanonical current id; they
+    // return before taking entitlement. Default TEST_SUBSCRIPTION_ID fixtures
+    // exercise the matching path.
+    if (subId === TEST_SUBSCRIPTION_ID) {
+      // 2. Advisory lock pg_advisory_xact_lock
+      sqlReturnQueue.push([]);
+      // 3. Applier's canonical account row lock + lineage recheck.
       sqlReturnQueue.push([{
         id: TEST_ACCOUNT_ID,
         subscription_status: status,
         primary_business_id: null,
+        stripe_customer_id: TEST_CUSTOMER_ID,
+        stripe_subscription_id: TEST_SUBSCRIPTION_ID,
       }]);
-      const r1: any = []; r1.count = 1;
-      sqlReturnQueue.push(r1); // UPDATE accounts (applier writeStatusColumns)
-      const r2: any = []; r2.count = 1;
-      sqlReturnQueue.push(r2); // UPDATE businesses (applier writeBusinessesMirror)
-    } else {
-      // already-cancelled: applier resolveAccount runs, but isAllowedTransition
-      // returns false (CANCELLED→CANCELLED) so no UPDATEs fire.
-      sqlReturnQueue.push([{
-        id: TEST_ACCOUNT_ID,
-        subscription_status: status,
-        primary_business_id: null,
-      }]);
+      if (status !== 'cancelled') {
+        const r1: any = []; r1.count = 1;
+        sqlReturnQueue.push(r1); // UPDATE accounts (applier writeStatusColumns)
+        const mirrorOutbox: any = []; mirrorOutbox.count = 1;
+        sqlReturnQueue.push(mirrorOutbox); // durable business-status mirror sync
+      }
     }
+    // Ingress wrapper marks the claimed event processed.
+    sqlReturnQueue.push([]);
   }
 
   // Queue helper for the checkout paid-activation SQL sequence.

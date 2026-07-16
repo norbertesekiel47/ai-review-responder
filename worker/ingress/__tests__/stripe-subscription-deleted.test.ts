@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 
 /**
@@ -14,6 +14,7 @@ import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status'
 // ── Hoisted mocks (shared stripe-webhook harness) ──────────────────
 const {
   mockSql,
+  sqlReturnQueue,
   sqlCalls,
   mockClaimInboundEvent,
   mockConstructEvent,
@@ -65,6 +66,10 @@ beforeEach(() => {
   resetStripeWebhookMocks();
 });
 
+afterEach(() => {
+  expect(sqlReturnQueue).toEqual([]);
+});
+
 describe('customer.subscription.deleted — sets account to cancelled', () => {
   it('VAL-BILLING-015: sets cancelled regardless of prior status', async () => {
     mockConstructEvent.mockReturnValue({
@@ -96,6 +101,7 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
         payload: { fromStatus: 'active', toStatus: 'cancelled' },
       }),
     );
+    expect(sqlCalls).toHaveLength(6);
   });
 
   it('cancelled → cancelled is idempotent (no UPDATE fires)', async () => {
@@ -119,6 +125,7 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
     );
     expect(updateAcct).toEqual([]);
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+    expect(sqlCalls).toHaveLength(4);
   });
 
   it('missing customer → warns and skips', async () => {
@@ -136,6 +143,7 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
     expect(status).toHaveBeenCalledWith(200);
     const warnedText = consoleSpy.mock.calls.flat().join(' ');
     expect(warnedText).toMatch(/missing customer/);
+    expect(sqlCalls).toHaveLength(1);
 
     consoleSpy.mockRestore();
   });
@@ -161,6 +169,7 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
 
     expect(lockIdx).toBeGreaterThanOrEqual(0);
     expect(updateIdx).toBeGreaterThan(lockIdx);
+    expect(sqlCalls).toHaveLength(6);
   });
 
   it('ignores stale old-subscription deletes after reactivation/new checkout', async () => {
@@ -187,6 +196,7 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
       sqlCalls.some((call) => isStatusUpdate(call, 'businesses', SubscriptionStatus.CANCELLED)),
     ).toBe(false);
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+    expect(sqlCalls).toHaveLength(2);
   });
 
   it('no-ops active offboarding subscription snapshot deletes when account has a newer subscription', async () => {
@@ -213,5 +223,6 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
       sqlCalls.some((call) => isStatusUpdate(call, 'businesses', SubscriptionStatus.CANCELLED)),
     ).toBe(false);
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+    expect(sqlCalls).toHaveLength(2);
   });
 });

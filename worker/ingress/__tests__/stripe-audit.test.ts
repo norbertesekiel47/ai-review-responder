@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 
 /**
  * subscription_status_changed audit logging (VAL-LOC-029/058): writeAccountAuditLog on
@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 // ── Hoisted mocks (shared stripe-webhook harness) ──────────────────
 const {
   mockSql,
+  sqlReturnQueue,
   sqlCalls,
   mockClaimInboundEvent,
   mockConstructEvent,
@@ -21,9 +22,15 @@ const {
   queueInvoicePaid,
   queueSubscriptionDeleted,
   queueCheckoutActivate,
+  mockRetrieveSession,
+  mockRetrieveSubscription,
 } = await vi.hoisted(async () => {
   const { createStripeWebhookHarness } = await import('./helpers/stripe-webhook-harness');
-  return createStripeWebhookHarness();
+  return {
+    ...createStripeWebhookHarness(),
+    mockRetrieveSession: vi.fn(),
+    mockRetrieveSubscription: vi.fn(),
+  };
 });
 
 vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
@@ -33,20 +40,8 @@ vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 vi.mock('stripe', () => ({
   default: class FakeStripe {
     webhooks = { constructEvent: mockConstructEvent };
-    subscriptions = {
-      retrieve: vi.fn().mockResolvedValue({
-        id: 'sub_test_456',
-        customer: 'cus_test_123',
-        status: 'active',
-        trial_end: null,
-        items: {
-          data: [{
-            id: 'si_base', quantity: 1, metadata: {},
-            price: { id: 'price_copilot_list_test', metadata: {}, unit_amount: 2900 },
-          }],
-        },
-      }),
-    };
+    checkout = { sessions: { retrieve: mockRetrieveSession } };
+    subscriptions = { retrieve: mockRetrieveSubscription };
   },
 }));
 
@@ -65,6 +60,38 @@ afterAll(restoreStripeWebhookEnv);
 
 beforeEach(() => {
   resetStripeWebhookMocks();
+  mockRetrieveSession.mockReset();
+  mockRetrieveSession.mockImplementation(async (sessionId: string) => ({
+    id: sessionId,
+    mode: 'subscription',
+    status: 'complete',
+    payment_status: 'paid',
+    client_reference_id: TEST_ACCOUNT_ID,
+    customer: TEST_CUSTOMER_ID,
+    subscription: TEST_SUBSCRIPTION_ID,
+    metadata: { checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc' },
+    line_items: {
+      data: [{ quantity: 1, price: { id: 'price_copilot_list_test' } }],
+    },
+  }));
+  mockRetrieveSubscription.mockReset();
+  mockRetrieveSubscription.mockResolvedValue({
+    id: TEST_SUBSCRIPTION_ID,
+    customer: TEST_CUSTOMER_ID,
+    status: 'active',
+    trial_end: null,
+    metadata: { checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc' },
+    items: {
+      data: [{
+        id: 'si_base', quantity: 1, metadata: {},
+        price: { id: 'price_copilot_list_test', metadata: {}, unit_amount: 2900 },
+      }],
+    },
+  });
+});
+
+afterEach(() => {
+  expect(sqlReturnQueue).toEqual([]);
 });
 
 describe('subscription_status_changed audit logging', () => {
@@ -86,7 +113,7 @@ describe('subscription_status_changed audit logging', () => {
       },
     });
 
-    queueCheckoutActivate();
+    queueCheckoutActivate({ sessionId: 'cs_audit' });
 
     const { status, send } = mkReply();
     await handleStripeWebhook(mkRequest(), { status, send } as any);
@@ -105,6 +132,9 @@ describe('subscription_status_changed audit logging', () => {
         payload: { fromStatus: 'pending_payment', toStatus: 'active' },
       }),
     );
+    expect(mockRetrieveSession).toHaveBeenCalledTimes(1);
+    expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
+    expect(sqlCalls).toHaveLength(17);
   });
 
   it('VAL-LOC-058: logs subscription_status_changed on cancellation (active → cancelled)', async () => {
@@ -131,6 +161,9 @@ describe('subscription_status_changed audit logging', () => {
         payload: { fromStatus: 'active', toStatus: 'cancelled' },
       }),
     );
+    expect(mockRetrieveSession).not.toHaveBeenCalled();
+    expect(mockRetrieveSubscription).not.toHaveBeenCalled();
+    expect(sqlCalls).toHaveLength(6);
   });
 
   it('logs subscription_status_changed on past_due recovery', async () => {
@@ -157,6 +190,9 @@ describe('subscription_status_changed audit logging', () => {
         payload: { fromStatus: 'past_due', toStatus: 'active' },
       }),
     );
+    expect(mockRetrieveSession).not.toHaveBeenCalled();
+    expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
+    expect(sqlCalls).toHaveLength(7);
   });
 
   it('does not log audit when status unchanged (idempotent no-op)', async () => {
@@ -179,5 +215,8 @@ describe('subscription_status_changed audit logging', () => {
     );
     expect(auditInsert).toBeUndefined();
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+    expect(mockRetrieveSession).not.toHaveBeenCalled();
+    expect(mockRetrieveSubscription).not.toHaveBeenCalled();
+    expect(sqlCalls).toHaveLength(4);
   });
 });
