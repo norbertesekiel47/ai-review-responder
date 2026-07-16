@@ -40,7 +40,10 @@ vi.mock('@/lib/payments/stripe-client', () => ({
     },
   }),
 }));
-import { createCheckoutSession } from '../create-checkout-session';
+import {
+  CheckoutOffboardingBlockedError,
+  createCheckoutSession,
+} from '../create-checkout-session';
 import { CheckoutAttemptConflictError } from '../plan-activation';
 import { resetServerConfigForTests } from '@/lib/config/server';
 
@@ -135,11 +138,14 @@ function options() {
   };
 }
 
-function queueLocksAndAttempt(row: ReturnType<typeof attemptRow>): void {
+function queueLocksAndAttempt(
+  row: ReturnType<typeof attemptRow> & Record<string, unknown>,
+): void {
   harness.sqlReturnQueue.push(
     mkTaggedResult([{}]),
     mkTaggedResult([{}]),
     mkTaggedResult([{}]),
+    mkTaggedResult([{ id: ACCOUNT_ID }]),
     mkTaggedResult([row]),
   );
 }
@@ -147,6 +153,20 @@ function queueLocksAndAttempt(row: ReturnType<typeof attemptRow>): void {
 function queueCreate(row: ReturnType<typeof attemptRow>): void {
   queueLocksAndAttempt(row);
   harness.sqlReturnQueue.push(mkTaggedResult([{ id: ACCOUNT_ID }]));
+}
+
+function queueFailedBindResolution(
+  row: Pick<
+    ReturnType<typeof attemptRow>,
+    'checkout_attempt_id' | 'checkout_session_id' | 'checkout_attempt_state'
+  >,
+): void {
+  harness.sqlReturnQueue.push(
+    mkTaggedResult([{}]),
+    mkTaggedResult([{}]),
+    mkTaggedResult([{}]),
+    mkTaggedResult([row]),
+  );
 }
 
 beforeEach(() => {
@@ -243,7 +263,7 @@ describe('createCheckoutSession authoritative attempt lease', () => {
       expect(createMock.mock.calls[0]![1]).toEqual({
         idempotencyKey: `checkout-session-attempt:v1:${ATTEMPT_ID}`,
       });
-      expect(harness.sqlCalls).toHaveLength(5);
+      expect(harness.sqlCalls).toHaveLength(6);
     });
   }
 
@@ -268,7 +288,7 @@ describe('createCheckoutSession authoritative attempt lease', () => {
       expand: ['line_items'],
     });
     expect(createMock).not.toHaveBeenCalled();
-    expect(harness.sqlCalls).toHaveLength(4);
+    expect(harness.sqlCalls).toHaveLength(5);
   });
 
   it('rejects a stale attempt before Stripe creation', async () => {
@@ -284,7 +304,7 @@ describe('createCheckoutSession authoritative attempt lease', () => {
       ),
     ).rejects.toBeInstanceOf(CheckoutAttemptConflictError);
     expect(createMock).not.toHaveBeenCalled();
-    expect(harness.sqlCalls).toHaveLength(4);
+    expect(harness.sqlCalls).toHaveLength(5);
   });
 
   it('does not create a Session if canonical status changed after plan selection', async () => {
@@ -300,7 +320,38 @@ describe('createCheckoutSession authoritative attempt lease', () => {
       ),
     ).rejects.toBeInstanceOf(CheckoutAttemptConflictError);
     expect(createMock).not.toHaveBeenCalled();
-    expect(harness.sqlCalls).toHaveLength(4);
+    expect(harness.sqlCalls).toHaveLength(5);
+  });
+
+  it('creates no provider Session when offboarding starts after attempt freeze', async () => {
+    queueLocksAndAttempt({
+      ...attemptRow(),
+      offboarding_id: '22222222-3333-4444-8555-666666666666',
+      offboarding_account_id: ACCOUNT_ID,
+      offboarding_mode: 'delete_data',
+      offboarding_status: 'pending',
+      offboarding_failed_step: null,
+      offboarding_access_ends_at: null,
+      offboarding_teardown_started_at: null,
+      offboarding_purge_after: null,
+      offboarding_purge_started_at: null,
+      offboarding_purge_cancelled_at: null,
+    });
+
+    await expect(
+      createCheckoutSession(
+        mockSql,
+        ACCOUNT_ID,
+        SubscriptionTier.COPILOT,
+        'list',
+        options(),
+      ),
+    ).rejects.toBeInstanceOf(CheckoutOffboardingBlockedError);
+
+    expect(createMock).not.toHaveBeenCalled();
+    expect(retrieveSessionMock).not.toHaveBeenCalled();
+    expect(harness.sqlCalls[3]!.text).toContain('FOR UPDATE');
+    expect(harness.sqlCalls).toHaveLength(5);
   });
 
   it('honors an already-authorized creating attempt after live gate drift', async () => {
@@ -320,7 +371,7 @@ describe('createCheckoutSession authoritative attempt lease', () => {
       price: PRICE_ENV.STRIPE_PRICE_AUTOPILOT_LIST,
       quantity: 1,
     });
-    expect(harness.sqlCalls).toHaveLength(5);
+    expect(harness.sqlCalls).toHaveLength(6);
   });
 
   it('omits a zero-quantity overage item', async () => {
@@ -367,7 +418,7 @@ describe('createCheckoutSession provider compensation', () => {
   it('expires a created Session with a stable key when lease binding fails', async () => {
     queueLocksAndAttempt(attemptRow());
     harness.sqlReturnQueue.push(mkTaggedResult([]));
-    queueLocksAndAttempt(attemptRow());
+    queueFailedBindResolution(attemptRow());
     harness.sqlReturnQueue.push(mkTaggedResult([]));
 
     await expect(
@@ -392,12 +443,12 @@ describe('createCheckoutSession provider compensation', () => {
     expect(remediation.values).toEqual(
       expect.arrayContaining([SESSION_ID, ACCOUNT_ID, ATTEMPT_ID]),
     );
-    expect(harness.sqlCalls).toHaveLength(10);
+    expect(harness.sqlCalls).toHaveLength(11);
   });
 
   it('recovers an acknowledged lease after an ambiguous commit without expiring it', async () => {
     queueCreate(attemptRow());
-    queueLocksAndAttempt(
+    queueFailedBindResolution(
       attemptRow({ state: 'open', sessionId: SESSION_ID }),
     );
     const normalBegin = harness.mockSql.begin.getMockImplementation()!;
@@ -419,13 +470,13 @@ describe('createCheckoutSession provider compensation', () => {
     expect(result.sessionId).toBe(SESSION_ID);
     expect(expireSessionMock).not.toHaveBeenCalled();
     expect(cancelSubscriptionMock).not.toHaveBeenCalled();
-    expect(harness.sqlCalls).toHaveLength(9);
+    expect(harness.sqlCalls).toHaveLength(10);
   });
 
   it('cancels a subscription if completion wins the bind-failure compensation race', async () => {
     queueLocksAndAttempt(attemptRow());
     harness.sqlReturnQueue.push(mkTaggedResult([]));
-    queueLocksAndAttempt(attemptRow());
+    queueFailedBindResolution(attemptRow());
     harness.sqlReturnQueue.push(mkTaggedResult([]));
     retrieveSessionMock.mockResolvedValueOnce(
       session({ status: 'complete', subscription: 'sub_stale' }),
@@ -449,6 +500,7 @@ describe('createCheckoutSession provider compensation', () => {
         idempotencyKey: 'checkout-attempt-compensate-cancel:v1:sub_stale',
       },
     );
+    expect(harness.sqlCalls).toHaveLength(11);
   });
 });
 

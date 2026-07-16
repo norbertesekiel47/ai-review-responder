@@ -1,9 +1,10 @@
 import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
-import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { LOG_PREFIX, extractCustomerId, invoiceSubscriptionId, getStripe, resumePrimaryBusinessBackfill } from './shared';
 import { applyStripeSubscriptionStateUnderEntitlementLock } from './apply-subscription-state';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
+
+const STRIPE_STATUS_READ_TIMEOUT_MS = 20_000;
 
 export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
   const customerId = extractCustomerId(invoice.customer);
@@ -20,27 +21,25 @@ export async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void>
 
   // Resolve the lineage without a row lock. Advisory entitlement is acquired in
   // the canonical transaction before the applier re-reads/locks this account.
-  const [accountRef] = await sql<{ id: string; subscription_status: string }[]>`
-    SELECT id, subscription_status
+  const [accountRef] = await sql<{ id: string }[]>`
+    SELECT id
     FROM accounts
     WHERE stripe_customer_id = ${customerId}
       AND stripe_subscription_id = ${recoverySubscriptionId}
   `;
   if (!accountRef) return;
 
-  if (
-    accountRef.subscription_status !== SubscriptionStatus.TRIALING
-    && accountRef.subscription_status !== SubscriptionStatus.PAST_DUE
-  ) {
-    return;
-  }
-  // Provider-current retrieval happens outside all DB locks. This makes both
-  // trial conversion and past-due recovery converge under stale/reversed invoice
-  // delivery rather than synthesizing active from the event type.
-  const subscription = await getStripe().subscriptions.retrieve(recoverySubscriptionId);
-
   const transition = await sql.begin(async (tx) => {
     await acquireTierEntitlementLock(tx, accountRef.id);
+    // The provider observation belongs to the same serialization boundary as
+    // the DB write. Reading before entitlement lets an older observation commit
+    // after a newer status writer. No account/business row is held during this
+    // bounded network call.
+    const subscription = await getStripe().subscriptions.retrieve(
+      recoverySubscriptionId,
+      {},
+      { timeout: STRIPE_STATUS_READ_TIMEOUT_MS },
+    );
     return applyStripeSubscriptionStateUnderEntitlementLock(
       tx,
       accountRef.id,

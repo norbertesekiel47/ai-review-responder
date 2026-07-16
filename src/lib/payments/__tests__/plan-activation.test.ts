@@ -111,8 +111,9 @@ function queueLocksAndRow(row: Record<string, unknown> | null): void {
     mkTaggedResult([{}]),
     mkTaggedResult([{}]),
     mkTaggedResult([{}]),
-    mkTaggedResult(row ? [row] : []),
+    mkTaggedResult(row ? [{ id: ACCOUNT_ID }] : []),
   );
+  if (row) harness.sqlReturnQueue.push(mkTaggedResult([row]));
 }
 
 function queueBusinessMirrorSync(tier: string): void {
@@ -186,12 +187,13 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
       `${ACCOUNT_ID}:overage_sync`,
       `${BUSINESS_ID}:activation`,
     ]);
-    expect(calls[4]!.text).toContain('FOR UPDATE');
-    const snapshotWrite = calls[5]!;
+    expect(calls[3]!.text).toContain('FOR UPDATE');
+    expect(calls[4]!.text).not.toContain('FOR UPDATE');
+    const snapshotWrite = calls[6]!;
     expect(snapshotWrite.values).toEqual(
       expect.arrayContaining(['autopilot', 4900, 2000, 1, 0, ACCOUNT_ID]),
     );
-    const leaseWrite = calls[7]!;
+    const leaseWrite = calls[8]!;
     expect(leaseWrite.text).toMatch(/checkout_attempt_state\s*=\s*'creating'/);
     expect(leaseWrite.values).toEqual(
       expect.arrayContaining([
@@ -212,7 +214,7 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
       ]),
     );
     expect(harness.sqlReturnQueue).toHaveLength(0);
-    expect(calls).toHaveLength(12);
+    expect(calls).toHaveLength(13);
   });
 
   it('reuses the stable identity for the same creating attempt', async () => {
@@ -240,7 +242,7 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
       attemptId: ATTEMPT_ID,
     });
     expect(retrieveSessionMock).not.toHaveBeenCalled();
-    expect(harness.sqlCalls).toHaveLength(8);
+    expect(harness.sqlCalls).toHaveLength(9);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -260,7 +262,7 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
     expect(result).toMatchObject({ attemptId: ATTEMPT_ID });
     expect(retrieveSessionMock).toHaveBeenCalledWith(SESSION_ID);
     expect(expireSessionMock).not.toHaveBeenCalled();
-    expect(harness.sqlCalls).toHaveLength(8);
+    expect(harness.sqlCalls).toHaveLength(9);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -288,7 +290,7 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
     expect(retrieveSessionMock).toHaveBeenCalledWith(SESSION_ID);
     expect(expireSessionMock).not.toHaveBeenCalled();
     expect(mockAssertTierPurchasable).not.toHaveBeenCalled();
-    expect(harness.sqlCalls).toHaveLength(8);
+    expect(harness.sqlCalls).toHaveLength(9);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -311,7 +313,7 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
     expect(harness.sqlCalls.some((call) => /UPDATE\s+accounts/i.test(call.text))).toBe(
       false,
     );
-    expect(harness.sqlCalls).toHaveLength(4);
+    expect(harness.sqlCalls).toHaveLength(5);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -332,7 +334,7 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
       {},
       { idempotencyKey: `checkout-attempt-expire:v1:${SESSION_ID}` },
     );
-    expect(harness.sqlCalls).toHaveLength(12);
+    expect(harness.sqlCalls).toHaveLength(13);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -351,7 +353,7 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
       }),
     ).rejects.toBeInstanceOf(CheckoutAttemptConflictError);
     expect(expireSessionMock).not.toHaveBeenCalled();
-    expect(harness.sqlCalls).toHaveLength(4);
+    expect(harness.sqlCalls).toHaveLength(5);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -372,7 +374,7 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
     expect(harness.sqlCalls.some((call) => /UPDATE\s+accounts/i.test(call.text))).toBe(
       false,
     );
-    expect(harness.sqlCalls).toHaveLength(4);
+    expect(harness.sqlCalls).toHaveLength(5);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -393,7 +395,7 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
     expect(harness.sqlCalls.some((call) => /UPDATE\s+accounts/i.test(call.text))).toBe(
       false,
     );
-    expect(harness.sqlCalls).toHaveLength(4);
+    expect(harness.sqlCalls).toHaveLength(5);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -413,7 +415,7 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
       }),
     ).rejects.toBeInstanceOf(CheckoutAttemptConflictError);
     expect(retrieveSessionMock).not.toHaveBeenCalled();
-    expect(harness.sqlCalls).toHaveLength(4);
+    expect(harness.sqlCalls).toHaveLength(5);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -434,8 +436,38 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
     expect(harness.sqlCalls.some((call) => /UPDATE\s+accounts/i.test(call.text))).toBe(
       false,
     );
-    expect(harness.sqlCalls).toHaveLength(4);
+    expect(harness.sqlCalls).toHaveLength(5);
     expect(harness.sqlReturnQueue).toHaveLength(0);
+  });
+
+  it('blocks a pending account with active delete-data offboarding before provider or snapshot work', async () => {
+    queueLocksAndRow(accountRow({
+      offboarding_id: '22222222-3333-4444-8555-666666666666',
+      offboarding_account_id: ACCOUNT_ID,
+      offboarding_mode: 'delete_data',
+      offboarding_status: 'pending',
+      offboarding_failed_step: null,
+      offboarding_access_ends_at: null,
+      offboarding_teardown_started_at: null,
+      offboarding_purge_after: null,
+      offboarding_purge_started_at: null,
+      offboarding_purge_cancelled_at: null,
+    }));
+
+    await expect(
+      applyTierSnapshot(mockSql, {
+        accountId: ACCOUNT_ID,
+        activationLockId: BUSINESS_ID,
+        tier: SubscriptionTier.COPILOT,
+      }),
+    ).resolves.toEqual({ kind: 'offboarding_blocked' });
+
+    expect(retrieveSessionMock).not.toHaveBeenCalled();
+    expect(expireSessionMock).not.toHaveBeenCalled();
+    expect(
+      harness.sqlCalls.some((call) => /UPDATE\s+accounts/i.test(call.text)),
+    ).toBe(false);
+    expect(harness.sqlCalls).toHaveLength(5);
   });
 
   it('missing and non-pending accounts perform no provider or snapshot writes', async () => {
@@ -459,7 +491,7 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
         tier: SubscriptionTier.COPILOT,
       }),
     ).toEqual({ kind: 'wrong_status', status: 'active' });
-    expect(harness.sqlCalls).toHaveLength(4);
+    expect(harness.sqlCalls).toHaveLength(5);
     expect(harness.sqlReturnQueue).toHaveLength(0);
     expect(retrieveSessionMock).not.toHaveBeenCalled();
   });

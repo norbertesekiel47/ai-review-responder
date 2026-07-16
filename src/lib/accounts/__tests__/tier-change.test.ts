@@ -84,12 +84,23 @@ function subscription(items: unknown[]) {
 }
 
 function queuePreview(accountRow: Record<string, unknown>, activeLocations?: number) {
-  harness.sqlReturnQueue.push(mkTaggedResult([]), mkTaggedResult([]), [accountRow]);
+  harness.sqlReturnQueue.push(
+    mkTaggedResult([]),
+    mkTaggedResult([]),
+    mkTaggedResult([{ id: ACCOUNT_ID }]),
+    [accountRow],
+  );
   if (activeLocations !== undefined) harness.sqlReturnQueue.push([{ count: activeLocations }]);
 }
 
 function queueApply(accountRow: Record<string, unknown>, activeLocations?: number) {
-  harness.sqlReturnQueue.push(mkTaggedResult([]), mkTaggedResult([]), [accountRow], []);
+  harness.sqlReturnQueue.push(
+    mkTaggedResult([]),
+    mkTaggedResult([]),
+    mkTaggedResult([{ id: ACCOUNT_ID }]),
+    [accountRow],
+    [],
+  );
   if (activeLocations !== undefined) harness.sqlReturnQueue.push([{ count: activeLocations }]);
 }
 
@@ -117,7 +128,13 @@ function queueCommitted(
   accountRow: Record<string, unknown>,
   rows: Record<string, string | null>[],
 ) {
-  harness.sqlReturnQueue.push(mkTaggedResult([]), mkTaggedResult([]), [accountRow], rows);
+  harness.sqlReturnQueue.push(
+    mkTaggedResult([]),
+    mkTaggedResult([]),
+    mkTaggedResult([{ id: ACCOUNT_ID }]),
+    [accountRow],
+    rows,
+  );
 }
 
 function queueBusinessMirrorSync(
@@ -147,13 +164,15 @@ function queueExecution(
 }
 
 function expectEntitlementThenBillingBeforeReads(expectedCalls: number) {
-  expect(harness.sqlCalls).toHaveLength(expectedCalls);
+  expect(harness.sqlCalls).toHaveLength(expectedCalls + 1);
   expect(harness.sqlCalls[0]!.text).toContain('pg_advisory_xact_lock');
   expect(harness.sqlCalls[0]!.values).toEqual([`${ACCOUNT_ID}:tier_entitlement`]);
   expect(harness.sqlCalls[1]!.text).toContain('pg_advisory_xact_lock');
   expect(harness.sqlCalls[1]!.values).toEqual([`${ACCOUNT_ID}:overage_sync`]);
   expect(harness.sqlCalls[2]!.text).toMatch(/FROM\s+accounts/);
   expect(harness.sqlCalls[2]!.text).toContain('FOR UPDATE');
+  expect(harness.sqlCalls[3]!.text).toMatch(/FROM\s+accounts/);
+  expect(harness.sqlCalls[3]!.text).not.toContain('FOR UPDATE');
 }
 
 beforeEach(() => {
@@ -204,7 +223,7 @@ describe('validateTierChange', () => {
     });
     expect(mockAssertTierPurchasable).toHaveBeenCalledWith(target);
     expectEntitlementThenBillingBeforeReads(4);
-    expect(harness.sqlCalls[3]!.text).toMatch(/FROM\s+businesses/);
+    expect(harness.sqlCalls[4]!.text).toMatch(/FROM\s+businesses/);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -254,6 +273,30 @@ describe('validateTierChange', () => {
       reason: 'same_tier',
     });
     expectEntitlementThenBillingBeforeReads(3);
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+  });
+
+  it('returns a locked offboarding failure for a preview without reading locations', async () => {
+    queuePreview(account({
+      offboarding_id: '22222222-3333-4444-8555-666666666666',
+      offboarding_account_id: ACCOUNT_ID,
+      offboarding_mode: 'delete_data',
+      offboarding_status: 'pending',
+      offboarding_failed_step: null,
+      offboarding_access_ends_at: null,
+      offboarding_teardown_started_at: null,
+      offboarding_purge_after: null,
+      offboarding_purge_started_at: null,
+      offboarding_purge_cancelled_at: null,
+    }));
+
+    await expect(validateTierChange(sql, ACCOUNT_ID, 'autopilot')).resolves.toEqual({
+      allowed: false,
+      reason: 'account_offboarding_blocked',
+    });
+
+    expectEntitlementThenBillingBeforeReads(3);
+    expect(harness.sqlCalls.some((call) => /FROM\s+businesses/.test(call.text))).toBe(false);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 });
@@ -312,20 +355,20 @@ describe('applyTierChange', () => {
       { idempotencyKey: `tier-change:${ACCOUNT_ID}:owner-op:overage-update` },
     );
     expectEntitlementThenBillingBeforeReads(12);
-    expect(harness.sqlCalls[3]!.text).toMatch(/FROM\s+account_audit_log/);
-    expect(harness.sqlCalls[4]!.text).toMatch(/FROM\s+businesses/);
-    const snapshotWrite = harness.sqlCalls[5]!;
+    expect(harness.sqlCalls[4]!.text).toMatch(/FROM\s+account_audit_log/);
+    expect(harness.sqlCalls[5]!.text).toMatch(/FROM\s+businesses/);
+    const snapshotWrite = harness.sqlCalls[6]!;
     expect(snapshotWrite.text).toMatch(/UPDATE\s+accounts/);
     expect(snapshotWrite.values).toEqual(expect.arrayContaining([
       'autopilot', expectedBaseCents, 2000, 1, 2, ACCOUNT_ID,
     ]));
     expect(snapshotWrite.text).not.toMatch(/SET\s+price_variant/);
-    expect(harness.sqlCalls[6]!.text).toMatch(/FROM\s+account_audit_log/);
-    expect(harness.sqlCalls[7]!.text).toMatch(/INSERT\s+INTO\s+account_audit_log/);
-    expect(harness.sqlCalls[8]!.text).toMatch(/FROM\s+businesses/);
-    expect(harness.sqlCalls[9]!.values).toEqual([`${ACCOUNT_ID}:tier_entitlement`]);
-    expect(harness.sqlCalls[10]!.text).toMatch(/FROM\s+accounts/);
-    expect(harness.sqlCalls[11]!.text).toMatch(/UPDATE\s+businesses/);
+    expect(harness.sqlCalls[7]!.text).toMatch(/FROM\s+account_audit_log/);
+    expect(harness.sqlCalls[8]!.text).toMatch(/INSERT\s+INTO\s+account_audit_log/);
+    expect(harness.sqlCalls[9]!.text).toMatch(/FROM\s+businesses/);
+    expect(harness.sqlCalls[10]!.values).toEqual([`${ACCOUNT_ID}:tier_entitlement`]);
+    expect(harness.sqlCalls[11]!.text).toMatch(/FROM\s+accounts/);
+    expect(harness.sqlCalls[12]!.text).toMatch(/UPDATE\s+businesses/);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -369,7 +412,7 @@ describe('applyTierChange', () => {
       {},
       { idempotencyKey: `tier-change:${ACCOUNT_ID}:downgrade-op:overage-delete` },
     );
-    expect(harness.sqlCalls[5]!.values).toEqual(expect.arrayContaining([
+    expect(harness.sqlCalls[6]!.values).toEqual(expect.arrayContaining([
       'copilot', 1900, 1500, 1, 0, ACCOUNT_ID,
     ]));
     expect(harness.sqlReturnQueue).toHaveLength(0);
@@ -408,7 +451,7 @@ describe('applyTierChange', () => {
       }),
       { idempotencyKey: `tier-change:${ACCOUNT_ID}:list-downgrade:base` },
     );
-    expect(harness.sqlCalls[5]!.values).toEqual(expect.arrayContaining([
+    expect(harness.sqlCalls[6]!.values).toEqual(expect.arrayContaining([
       'copilot', 2900, 1500, 1, 1, ACCOUNT_ID,
     ]));
     expect(harness.sqlReturnQueue).toHaveLength(0);
@@ -446,6 +489,39 @@ describe('applyTierChange', () => {
     expect(result).toMatchObject({ ok: false, code: 'subscription_inactive' });
     expectEntitlementThenBillingBeforeReads(4);
     expect(mockSubscriptionsRetrieve).not.toHaveBeenCalled();
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+  });
+
+  it('returns a locked offboarding failure before any Stripe mutation', async () => {
+    queueApply(account({
+      offboarding_id: '22222222-3333-4444-8555-666666666666',
+      offboarding_account_id: ACCOUNT_ID,
+      offboarding_mode: 'delete_data',
+      offboarding_status: 'pending',
+      offboarding_failed_step: null,
+      offboarding_access_ends_at: null,
+      offboarding_teardown_started_at: null,
+      offboarding_purge_after: null,
+      offboarding_purge_started_at: null,
+      offboarding_purge_cancelled_at: null,
+    }));
+
+    const result = await applyTierChange(sql, {
+      accountId: ACCOUNT_ID,
+      tier: 'autopilot',
+      operationKey: 'offboarding-race',
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'account_offboarding_blocked',
+      detail: 'Account offboarding blocks tier changes',
+    });
+    expectEntitlementThenBillingBeforeReads(4);
+    expect(mockSubscriptionsRetrieve).not.toHaveBeenCalled();
+    expect(mockSubscriptionItemsUpdate).not.toHaveBeenCalled();
+    expect(mockSubscriptionItemsCreate).not.toHaveBeenCalled();
+    expect(mockSubscriptionItemsDel).not.toHaveBeenCalled();
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -491,7 +567,7 @@ describe('applyTierChange', () => {
       }),
       { idempotencyKey: `tier-change:${ACCOUNT_ID}:fresh-plan:overage-create` },
     );
-    expect(harness.sqlCalls[5]!.values).toEqual(expect.arrayContaining([4]));
+    expect(harness.sqlCalls[6]!.values).toEqual(expect.arrayContaining([4]));
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -509,9 +585,9 @@ describe('applyTierChange', () => {
       operationKey: 'closed-gate',
     })).rejects.toBeInstanceOf(TierNotPurchasableError);
 
-    expect(harness.sqlCalls).toHaveLength(8);
-    expect(harness.sqlCalls[4]!.values).toEqual([`${ACCOUNT_ID}:tier_entitlement`]);
-    expect(harness.sqlCalls[5]!.values).toEqual([`${ACCOUNT_ID}:overage_sync`]);
+    expect(harness.sqlCalls).toHaveLength(10);
+    expect(harness.sqlCalls[5]!.values).toEqual([`${ACCOUNT_ID}:tier_entitlement`]);
+    expect(harness.sqlCalls[6]!.values).toEqual([`${ACCOUNT_ID}:overage_sync`]);
     expect(mockSubscriptionsRetrieve).not.toHaveBeenCalled();
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
@@ -528,7 +604,7 @@ describe('applyTierChange', () => {
       operationKey: 'retry-stable',
     });
     expect(first).toMatchObject({ ok: false, code: 'tier_change_failed' });
-    expect(harness.sqlCalls).toHaveLength(5);
+    expect(harness.sqlCalls).toHaveLength(6);
     expect(harness.sqlReturnQueue).toHaveLength(0);
     const firstBaseKey = mockSubscriptionItemsUpdate.mock.calls[0]![2];
     const firstOverageKey = mockSubscriptionItemsCreate.mock.calls[0]![1];
@@ -567,7 +643,7 @@ describe('applyTierChange', () => {
       operationKey: 'projected-recovery',
     });
     expect(first).toMatchObject({ ok: false, code: 'tier_change_failed' });
-    expect(harness.sqlCalls).toHaveLength(5);
+    expect(harness.sqlCalls).toHaveLength(6);
     expect(harness.sqlReturnQueue).toHaveLength(0);
     const firstBaseOptions = mockSubscriptionItemsUpdate.mock.calls[0]![2];
     const firstOverageOptions = mockSubscriptionItemsUpdate.mock.calls[1]![2];
@@ -601,8 +677,8 @@ describe('applyTierChange', () => {
         [TIER_CHANGE_SOURCE_METADATA_KEY]: 'copilot',
       },
     });
-    expect(harness.sqlCalls[7]!.text).toMatch(/INSERT\s+INTO\s+account_audit_log/);
-    const auditPayload = harness.sqlCalls[7]!.values.find(
+    expect(harness.sqlCalls[8]!.text).toMatch(/INSERT\s+INTO\s+account_audit_log/);
+    const auditPayload = harness.sqlCalls[8]!.values.find(
       (value) => typeof value === 'object' && value !== null && 'idempotency_key' in value,
     );
     expect(auditPayload).toMatchObject({
@@ -629,7 +705,7 @@ describe('applyTierChange', () => {
       operationKey: 'db-retry',
     });
     expect(first).toMatchObject({ ok: false, code: 'tier_change_failed' });
-    expect(harness.sqlCalls).toHaveLength(6);
+    expect(harness.sqlCalls).toHaveLength(7);
     expect(harness.sqlReturnQueue).toHaveLength(0);
     const firstBaseOptions = mockSubscriptionItemsUpdate.mock.calls[0]![2];
     const firstOverageOptions = mockSubscriptionItemsUpdate.mock.calls[1]![2];
@@ -653,7 +729,7 @@ describe('applyTierChange', () => {
     expect(second.ok).toBe(true);
     expect(mockSubscriptionItemsUpdate.mock.calls[2]![2]).toEqual(firstBaseOptions);
     expect(mockSubscriptionItemsUpdate.mock.calls[3]![2]).toEqual(firstOverageOptions);
-    expect(harness.sqlCalls[7]!.text).toMatch(/INSERT\s+INTO\s+account_audit_log/);
+    expect(harness.sqlCalls[8]!.text).toMatch(/INSERT\s+INTO\s+account_audit_log/);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -664,7 +740,14 @@ describe('applyTierChange', () => {
       subscription_status: 'cancelled',
       stripe_subscription_id: null,
       locations_overage_price_cents: 1500,
-    }), [committedAudit()]);
+    }), [committedAudit({
+      // Historical operation values deliberately differ from today's
+      // Autopilot/founding registry after a simulated Price rotation.
+      base_price_cents: '4700',
+      locations_overage_price_cents: '1850',
+      locations_included: '2',
+      locations_paid: '3',
+    })]);
     queueBusinessMirrorSync('autopilot', 'cancelled');
 
     const result = await applyTierChange(sql, {
@@ -675,17 +758,17 @@ describe('applyTierChange', () => {
     expect(result).toEqual({
       ok: true,
       newBilling: {
-        basePriceCents: 4900,
-        includedLocations: 1,
-        overagePriceCents: 2000,
-        overageUnits: 2,
-        totalCents: 8900,
+        basePriceCents: 4700,
+        includedLocations: 2,
+        overagePriceCents: 1850,
+        overageUnits: 3,
+        totalCents: 10250,
       },
     });
     expectEntitlementThenBillingBeforeReads(8);
-    expect(harness.sqlCalls.slice(0, 4).some((call) => /FROM\s+businesses/.test(call.text))).toBe(false);
-    expect(harness.sqlCalls[4]!.text).toMatch(/FROM\s+businesses/);
-    expect(harness.sqlCalls[5]!.values).toEqual([`${ACCOUNT_ID}:tier_entitlement`]);
+    expect(harness.sqlCalls.slice(0, 5).some((call) => /FROM\s+businesses/.test(call.text))).toBe(false);
+    expect(harness.sqlCalls[5]!.text).toMatch(/FROM\s+businesses/);
+    expect(harness.sqlCalls[6]!.values).toEqual([`${ACCOUNT_ID}:tier_entitlement`]);
     expect(mockSubscriptionsRetrieve).not.toHaveBeenCalled();
     expect(mockSubscriptionItemsUpdate).not.toHaveBeenCalled();
     expect(mockSubscriptionItemsCreate).not.toHaveBeenCalled();
@@ -749,7 +832,7 @@ describe('applyTierChange', () => {
   it.each([
     committedAudit({ new_tier: 'retired_tier' }),
     committedAudit({ base_price_cents: '49.00' }),
-    committedAudit({ base_price_cents: '2900' }),
+    committedAudit({ locations_included: '0' }),
     committedAudit({ locations_paid: '-1' }),
   ])('fails closed on invalid or inconsistent committed audit fields', async (auditRow) => {
     queueCommitted(account({ price_variant: 'founding' }), [auditRow]);
@@ -790,7 +873,7 @@ describe('applyTierChange', () => {
       ok: true,
       newBilling: { basePriceCents: 6123, overagePriceCents: 2456, totalCents: 11035 },
     });
-    expect(harness.sqlCalls[5]!.values).toEqual(expect.arrayContaining([
+    expect(harness.sqlCalls[6]!.values).toEqual(expect.arrayContaining([
       'autopilot', 6123, 2456, 1, 2, ACCOUNT_ID,
     ]));
     expect(harness.sqlReturnQueue).toHaveLength(0);

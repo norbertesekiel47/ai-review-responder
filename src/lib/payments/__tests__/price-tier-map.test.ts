@@ -3,8 +3,10 @@ import {
   assertStripePriceIdsUnique,
   basePriceIdSet,
   basePriceInfoForId,
+  createPriceTierMap,
   isOveragePriceId,
   overagePriceIdSet,
+  overagePriceIdForStoredCents,
   overagePriceInfoForId,
   priceIdFor,
   STRIPE_PRICE_ENV_VARS,
@@ -58,6 +60,136 @@ describe('price-tier-map', () => {
     expect(basePriceInfoForId('price_autopilot_founding')).toEqual({ tier: 'autopilot', variant: 'founding' });
     expect(overagePriceInfoForId('price_copilot_overage')).toEqual({ tier: 'copilot' });
     expect(overagePriceInfoForId('price_autopilot_overage')).toEqual({ tier: 'autopilot' });
+  });
+
+  it('retains rotated base and overage IDs for reverse lookup without replacing forward IDs', () => {
+    const lookup = createPriceTierMap([
+      {
+        id: 'price_copilot_list_rotated_out',
+        kind: 'base',
+        tier: 'copilot',
+        variant: 'list',
+      },
+      {
+        id: 'price_copilot_overage_rotated_out',
+        kind: 'overage',
+        tier: 'copilot',
+        unitAmountCents: 1250,
+      },
+    ]);
+
+    expect(lookup.basePriceInfoForId('price_copilot_list_rotated_out')).toEqual({
+      tier: 'copilot',
+      variant: 'list',
+    });
+    expect(lookup.overagePriceInfoForId('price_copilot_overage_rotated_out')).toEqual({
+      tier: 'copilot',
+    });
+    expect(lookup.overagePriceIdForStoredCents('copilot', 1250)).toBe(
+      'price_copilot_overage_rotated_out',
+    );
+    expect(lookup.basePriceIdSet()).toContain('price_copilot_list_rotated_out');
+    expect(lookup.overagePriceIdSet()).toContain('price_copilot_overage_rotated_out');
+
+    // Historical IDs exist only for reverse recognition. New writes must keep
+    // using the six live environment IDs.
+    expect(lookup.priceIdFor('copilot', 'list', 'base')).toBe('price_copilot_list');
+    expect(lookup.priceIdFor('copilot', 'list', 'overage')).toBe('price_copilot_overage');
+  });
+
+  it('allows retained history to repeat a current ID only with identical semantics', () => {
+    const lookup = createPriceTierMap([
+      {
+        id: 'price_copilot_list',
+        kind: 'base',
+        tier: 'copilot',
+        variant: 'list',
+      },
+    ]);
+
+    expect(lookup.basePriceInfoForId('price_copilot_list')).toEqual({
+      tier: 'copilot',
+      variant: 'list',
+    });
+  });
+
+  it('fails closed when retained history conflicts with a current Price mapping', () => {
+    const lookup = createPriceTierMap([
+      {
+        id: 'price_copilot_list',
+        kind: 'base',
+        tier: 'autopilot',
+        variant: 'list',
+      },
+    ]);
+
+    expect(() => lookup.basePriceInfoForId('price_copilot_list')).toThrow(
+      /price_copilot_list has conflicting mappings: base:copilot:list and base:autopilot:list/,
+    );
+  });
+
+  it('fails closed when two retained entries conflict with each other', () => {
+    const lookup = createPriceTierMap([
+      {
+        id: 'price_history_conflict',
+        kind: 'base',
+        tier: 'copilot',
+        variant: 'founding',
+      },
+      {
+        id: 'price_history_conflict',
+        kind: 'overage',
+        tier: 'copilot',
+        unitAmountCents: 1500,
+      },
+    ]);
+
+    expect(() => lookup.basePriceIdSet()).toThrow(
+      /price_history_conflict has conflicting mappings: base:copilot:founding and overage:copilot/,
+    );
+  });
+
+  it('resolves current overage cents from the live ID and never falls grandfathered cents forward', () => {
+    expect(overagePriceIdForStoredCents('copilot', 1500)).toBe(
+      'price_copilot_overage',
+    );
+    expect(overagePriceIdForStoredCents('copilot', 1400)).toBeNull();
+  });
+
+  it('rejects conflicting retained unit amounts for one immutable overage Price', () => {
+    const lookup = createPriceTierMap([
+      {
+        id: 'price_old_overage',
+        kind: 'overage',
+        tier: 'copilot',
+        unitAmountCents: 1400,
+      },
+      {
+        id: 'price_old_overage',
+        kind: 'overage',
+        tier: 'copilot',
+        unitAmountCents: 1450,
+      },
+    ]);
+
+    expect(() => lookup.overagePriceIdForStoredCents('copilot', 1400)).toThrow(
+      /price_old_overage has conflicting unit amounts: 1400 and 1450/,
+    );
+  });
+
+  it('fails forward lookup closed when retained history conflicts with a live ID', () => {
+    const lookup = createPriceTierMap([
+      {
+        id: 'price_copilot_list',
+        kind: 'base',
+        tier: 'autopilot',
+        variant: 'founding',
+      },
+    ]);
+
+    expect(() => lookup.priceIdFor('copilot', 'list', 'base')).toThrow(
+      /price_copilot_list has conflicting mappings/,
+    );
   });
 
   it('returns only canonical IDs from the base and overage sets', () => {

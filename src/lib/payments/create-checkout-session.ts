@@ -18,6 +18,12 @@ import type {
 } from '@/lib/accounts/tier-config';
 import { getStripe } from '@/lib/payments/stripe-client';
 import { acquireTierBillingActivationLocks } from '@/lib/accounts/billing-locks';
+import {
+  activeOffboardingStateFromProjection,
+  isCheckoutBlocked,
+  lockAccountBeforeOffboardingProjection,
+  type ActiveOffboardingProjection,
+} from '@/lib/account-offboarding/gate';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import type { CheckoutAttemptLeaseColumns } from './checkout-attempt';
 import { CheckoutAttemptConflictError } from './plan-activation';
@@ -36,10 +42,10 @@ export interface CheckoutSessionOptions {
   activationLockId: string;
 }
 
-interface CheckoutSessionAttemptRow extends CheckoutAttemptLeaseColumns {
+interface CheckoutSessionAttemptRow
+  extends CheckoutAttemptLeaseColumns, ActiveOffboardingProjection {
   subscription_status: string;
   price_variant: string;
-  checkout_attempt_trial_period_days: number | null;
   checkout_attempt_tax_enabled: boolean | null;
   checkout_attempt_customer_email: string | null;
   checkout_attempt_success_url: string | null;
@@ -297,6 +303,13 @@ export class CheckoutUnavailableError extends Error {
   }
 }
 
+export class CheckoutOffboardingBlockedError extends Error {
+  constructor() {
+    super('Checkout is blocked while account offboarding is active');
+    this.name = 'CheckoutOffboardingBlockedError';
+  }
+}
+
 // ── createCheckoutSession ──────────────────────────────────────────────────
 
 /**
@@ -330,32 +343,59 @@ export async function createCheckoutSession(
         options.activationLockId,
       );
 
+      const accountLocked = await lockAccountBeforeOffboardingProjection(
+        tx,
+        accountId,
+      );
+      if (!accountLocked) {
+        throw new CheckoutUnavailableError(`Account not found: ${accountId}`);
+      }
+
       const [attempt] = await tx<CheckoutSessionAttemptRow[]>`
         SELECT
-          subscription_status,
-          price_variant,
-          checkout_attempt_id,
-          checkout_session_id,
-          checkout_attempt_state,
-          checkout_attempt_tier,
-          checkout_attempt_price_variant,
-          checkout_attempt_base_price_id,
-          checkout_attempt_overage_price_id,
-          checkout_attempt_base_price_cents,
-          checkout_attempt_overage_price_cents,
-          checkout_attempt_locations_included,
-          checkout_attempt_locations_paid,
-          checkout_attempt_overage_quantity,
-          checkout_attempt_trial_period_days,
-          checkout_attempt_tax_enabled,
-          checkout_attempt_customer_email,
-          checkout_attempt_success_url,
-          checkout_attempt_cancel_url
-        FROM accounts
-        WHERE id = ${accountId}::uuid
+          a.subscription_status,
+          a.price_variant,
+          a.checkout_attempt_id,
+          a.checkout_session_id,
+          a.checkout_attempt_state,
+          a.checkout_attempt_tier,
+          a.checkout_attempt_price_variant,
+          a.checkout_attempt_base_price_id,
+          a.checkout_attempt_overage_price_id,
+          a.checkout_attempt_base_price_cents,
+          a.checkout_attempt_overage_price_cents,
+          a.checkout_attempt_locations_included,
+          a.checkout_attempt_locations_paid,
+          a.checkout_attempt_overage_quantity,
+          a.checkout_attempt_trial_period_days,
+          a.checkout_attempt_tax_enabled,
+          a.checkout_attempt_customer_email,
+          a.checkout_attempt_success_url,
+          a.checkout_attempt_cancel_url,
+          ao.id AS offboarding_id,
+          ao.account_id AS offboarding_account_id,
+          ao.mode AS offboarding_mode,
+          ao.status AS offboarding_status,
+          ao.failed_step AS offboarding_failed_step,
+          ao.access_ends_at AS offboarding_access_ends_at,
+          ao.teardown_started_at AS offboarding_teardown_started_at,
+          ao.purge_after AS offboarding_purge_after,
+          ao.purge_started_at AS offboarding_purge_started_at,
+          ao.purge_cancelled_at AS offboarding_purge_cancelled_at
+        FROM accounts a
+        LEFT JOIN account_offboardings ao
+          ON ao.account_id = a.id
+          AND ao.account_id = ${accountId}::uuid
+          AND ao.terminal_at IS NULL
+        WHERE a.id = ${accountId}::uuid
+        ORDER BY ao.created_at DESC NULLS LAST
+        LIMIT 1
       `;
       if (!attempt) {
         throw new CheckoutUnavailableError(`Account not found: ${accountId}`);
+      }
+      if (isCheckoutBlocked(activeOffboardingStateFromProjection(attempt))) {
+        throw new CheckoutOffboardingBlockedError();
       }
 
       if (!checkoutAttemptMatchesRequest(attempt, tier, variant, options.attemptId)) {
@@ -390,9 +430,9 @@ export async function createCheckoutSession(
         );
       }
 
-      // The provider call is deliberately before the account row lock. The
-      // advisory locks keep compliant tier/status writers serialized; this final
-      // row lock pins the durable lease before the Session is exposed to the UI.
+      // The account row remains locked from the authoritative attempt and
+      // offboarding projection through lease binding, so offboarding cannot
+      // freeze a null subscription snapshot beside a newly created Session.
       await bindCheckoutSessionLease(
         tx,
         accountId,

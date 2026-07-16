@@ -98,6 +98,11 @@ function queueAccountAndUsage(
     .mockResolvedValueOnce([{}])
     .mockResolvedValueOnce([{}])
     .mockResolvedValueOnce([{}])
+    // createCheckoutSession locks the account in a separate SQL command before
+    // taking the READ COMMITTED offboarding/attempt projection. Keep this row
+    // distinct from the projection so removing or reordering the lock shifts
+    // the strict queue and fails the parameter tests.
+    .mockResolvedValueOnce([{ id: ACCOUNT_ID }])
     .mockResolvedValueOnce([{
       subscription_status: 'pending_payment',
       price_variant: 'list',
@@ -198,7 +203,26 @@ describe('POST /api/billing/checkout real Checkout parameters', () => {
     );
     expect(response.status).toBe(200);
     expectPrivateNoStore(response);
-    expect(mockSql).toHaveBeenCalledTimes(6);
+    expect(mockSql).toHaveBeenCalledTimes(7);
+    const sqlTexts = mockSql.mock.calls.map((call) =>
+      (call[0] as TemplateStringsArray).join('?'),
+    );
+    const accountLockIndex = sqlTexts.findIndex(
+      (text) => text.includes('SELECT id')
+        && text.includes('FROM accounts')
+        && text.includes('FOR UPDATE'),
+    );
+    const attemptProjectionIndex = sqlTexts.findIndex((text) =>
+      text.includes('a.checkout_attempt_id')
+        && text.includes('ao.id AS offboarding_id')
+        && text.includes('LEFT JOIN account_offboardings'),
+    );
+    const leaseBindIndex = sqlTexts.findIndex((text) =>
+      text.includes('SET checkout_session_id'),
+    );
+    expect(accountLockIndex).toBeGreaterThanOrEqual(0);
+    expect(attemptProjectionIndex).toBeGreaterThan(accountLockIndex);
+    expect(leaseBindIndex).toBeGreaterThan(attemptProjectionIndex);
     expect(mockStripeCreate.mock.calls[0]![0]).toMatchObject({
       line_items: [
         { price: PRICE_ENV.STRIPE_PRICE_COPILOT_LIST, quantity: 1 },
@@ -265,7 +289,7 @@ describe('POST /api/billing/checkout real Checkout parameters', () => {
 
     expect(response.status).toBe(200);
     expectPrivateNoStore(response);
-    expect(mockSql).toHaveBeenCalledTimes(6);
+    expect(mockSql).toHaveBeenCalledTimes(7);
     expect(mockApplyTierSnapshot).toHaveBeenCalledTimes(1);
     expect(mockStripeCreate).toHaveBeenCalledTimes(1);
     expect(mockStripeCreate.mock.calls[0]![0].subscription_data).toEqual({

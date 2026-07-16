@@ -11,14 +11,29 @@ import { randomUUID } from 'node:crypto';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import {
   acquireBillingLock,
+  acquireTierEntitlementLock,
   acquireTierAndBillingLocks,
   acquireTierBillingActivationLocks,
 } from '../billing-locks';
+import {
+  cleanupTenantAccount,
+  seedTenantAccount,
+} from '@/lib/shared/__tests__/live-db-tenant';
+import {
+  archiveLocationTransaction,
+  reactivateLocationTransaction,
+} from '@/lib/locations/archive-location-tx';
+import { addLocationTransaction } from '@/lib/locations/add-location-tx';
+import {
+  getOffboardingState,
+  lockAccountBeforeOffboardingProjection,
+} from '@/lib/account-offboarding/gate';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 let dbA: postgresType.Sql | undefined;
 let dbB: postgresType.Sql | undefined;
 let dbC: postgresType.Sql | undefined;
+let dbD: postgresType.Sql | undefined;
 
 function sqlA(): postgresType.Sql {
   if (!dbA) throw new Error('billing-lock integration database A was not initialized');
@@ -33,6 +48,11 @@ function sqlB(): postgresType.Sql {
 function sqlC(): postgresType.Sql {
   if (!dbC) throw new Error('billing-lock integration database C was not initialized');
   return dbC;
+}
+
+function sqlD(): postgresType.Sql {
+  if (!dbD) throw new Error('billing-lock integration database D was not initialized');
+  return dbD;
 }
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -53,6 +73,30 @@ async function assertStillBlocked(promise: Promise<unknown>): Promise<void> {
     sleep(150).then(() => 'blocked'),
   ]);
   expect(outcome).toBe('blocked');
+}
+
+async function waitForLocationBusinessRowLock(): Promise<void> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const [activity] = await sqlD()<{
+      wait_event_type: string | null;
+      query: string;
+    }[]>`
+      SELECT wait_event_type, query
+      FROM pg_stat_activity
+      WHERE application_name = 'ws8_location_lifecycle_writer'
+        AND state = 'active'
+      LIMIT 1
+    `;
+    if (
+      activity?.wait_event_type === 'Lock'
+      && /FROM\s+businesses/i.test(activity.query)
+      && /FOR\s+UPDATE/i.test(activity.query)
+    ) {
+      return;
+    }
+    await sleep(50);
+  }
+  throw new Error('location lifecycle writer did not block on the business row');
 }
 
 function sourceSegment(source: string, startMarker: string, endMarker?: string): string {
@@ -125,13 +169,16 @@ describe('WS8 three-actor production lock-order binding', () => {
 });
 
 describeWithDb('WS8 billing advisory lock graph against live Postgres', { timeout: 15_000 }, () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     dbA = postgres(testDatabaseUrl!, { max: 1, prepare: false });
     dbB = postgres(testDatabaseUrl!, { max: 1, prepare: false });
     dbC = postgres(testDatabaseUrl!, { max: 1, prepare: false });
+    dbD = postgres(testDatabaseUrl!, { max: 1, prepare: false });
+    await dbC`SET application_name = 'ws8_location_lifecycle_writer'`;
   });
 
   afterAll(async () => {
+    await dbD?.end({ timeout: 5 });
     await dbC?.end({ timeout: 5 });
     await dbB?.end({ timeout: 5 });
     await dbA?.end({ timeout: 5 });
@@ -168,6 +215,202 @@ describeWithDb('WS8 billing advisory lock graph against live Postgres', { timeou
     await overageWriter;
     expect(overageAcquired).toBe(true);
   });
+
+  it.each([
+    { mode: 'delete_data' as const, status: 'pending' as const },
+    { mode: 'cancel_only' as const, status: 'scheduled' as const },
+  ])(
+    'takes the offboarding projection from a fresh snapshot after waiting for the account lock ($mode/$status)',
+    async ({ mode, status }) => {
+      const tenant = await seedTenantAccount(sqlA());
+      const offboardingId = randomUUID();
+      const accountLockHeld = deferred();
+      const releaseOffboardingWriter = deferred();
+      let writer: Promise<unknown> | undefined;
+      let reader: Promise<unknown> | undefined;
+      let seenOffboardingId: string | null = null;
+
+      try {
+        writer = sqlA().begin(async (tx) => {
+          await tx`SET LOCAL lock_timeout = '4s'`;
+          await tx`SET LOCAL statement_timeout = '7s'`;
+          await tx`
+            SELECT id
+            FROM accounts
+            WHERE id = ${tenant.accountId}::uuid
+            FOR UPDATE
+          `;
+          accountLockHeld.resolve();
+          await releaseOffboardingWriter.promise;
+          await tx`
+            INSERT INTO account_offboardings (id, account_id, mode, status)
+            VALUES (
+              ${offboardingId}::uuid,
+              ${tenant.accountId}::uuid,
+              ${mode},
+              ${status}
+            )
+          `;
+        });
+        await accountLockHeld.promise;
+
+        reader = sqlB().begin(async (tx) => {
+          await tx`SET LOCAL lock_timeout = '4s'`;
+          await tx`SET LOCAL statement_timeout = '7s'`;
+          const accountExists = await lockAccountBeforeOffboardingProjection(
+            tx,
+            tenant.accountId,
+          );
+          expect(accountExists).toBe(true);
+          const state = await getOffboardingState(tenant.accountId, tx);
+          seenOffboardingId = state?.id ?? null;
+        });
+
+        await assertStillBlocked(reader);
+        releaseOffboardingWriter.resolve();
+        await Promise.all([writer, reader]);
+        expect(seenOffboardingId).toBe(offboardingId);
+      } finally {
+        releaseOffboardingWriter.resolve();
+        await Promise.allSettled([
+          writer ?? Promise.resolve(),
+          reader ?? Promise.resolve(),
+        ]);
+        await sqlA()`
+          DELETE FROM account_offboardings
+          WHERE id = ${offboardingId}::uuid
+        `;
+        await cleanupTenantAccount(sqlA(), tenant);
+      }
+    },
+  );
+
+  it.each(['add', 'reactivate'] as const)(
+    'rejects a production location %s that was already in flight when delete-data offboarding captured its location snapshot',
+    async (operation) => {
+      const tenant = await seedTenantAccount(sqlA());
+      const primaryBusinessId = randomUUID();
+      const archivedBusinessId = randomUUID();
+      const offboardingId = randomUUID();
+      const snapshotCaptured = deferred();
+      const allowOffboardingCommit = deferred();
+      let capturedLocationIds: string[] = [];
+      let writer: Promise<unknown> | undefined;
+      let locationMutation: Promise<unknown> | undefined;
+
+      try {
+        await sqlA()`
+          INSERT INTO businesses (
+            id, account_id, name, owner_name, owner_email,
+            subscription_status, is_primary, archived_at
+          ) VALUES
+            (
+              ${primaryBusinessId}::uuid, ${tenant.accountId}::uuid,
+              'Offboarding Snapshot Primary', 'Snapshot Owner', ${tenant.ownerEmail},
+              'active', TRUE, NULL
+            ),
+            (
+              ${archivedBusinessId}::uuid, ${tenant.accountId}::uuid,
+              'Offboarding Snapshot Archived', 'Snapshot Owner', ${tenant.ownerEmail},
+              'active', FALSE, NOW()
+            )
+        `;
+
+        // Model the authoritative confirm transaction: own account, capture
+        // the teardown location set, then persist active offboarding before
+        // releasing the row. The production expansion must wait and reject.
+        writer = sqlA().begin(async (tx) => {
+          await tx`SET LOCAL lock_timeout = '4s'`;
+          await tx`SET LOCAL statement_timeout = '7s'`;
+          await tx`
+            SELECT id
+            FROM accounts
+            WHERE id = ${tenant.accountId}::uuid
+            FOR UPDATE
+          `;
+          const captured = await tx<{ id: string }[]>`
+            SELECT id
+            FROM businesses
+            WHERE account_id = ${tenant.accountId}::uuid
+              AND archived_at IS NULL
+            ORDER BY id
+          `;
+          capturedLocationIds = captured.map((row) => row.id);
+          snapshotCaptured.resolve();
+          await allowOffboardingCommit.promise;
+          await tx`
+            INSERT INTO account_offboardings (id, account_id, mode, status)
+            VALUES (
+              ${offboardingId}::uuid,
+              ${tenant.accountId}::uuid,
+              'delete_data',
+              'pending'
+            )
+          `;
+        });
+        await snapshotCaptured.promise;
+
+        locationMutation = operation === 'add'
+          ? addLocationTransaction(sqlB(), {
+              accountId: tenant.accountId,
+              displayLabel: 'Must Not Be Added',
+              actorUserId: tenant.userId,
+              ownerName: 'Snapshot Owner',
+              ownerEmail: tenant.ownerEmail,
+              subscriptionTier: 'copilot',
+              subscriptionStatus: 'active',
+              activeLocationsBefore: capturedLocationIds.length,
+              voiceConfig: { tone: 'professional and friendly' },
+            })
+          : reactivateLocationTransaction(sqlB(), {
+              locationId: archivedBusinessId,
+              accountId: tenant.accountId,
+              actorUserId: tenant.userId,
+            });
+
+        await assertStillBlocked(locationMutation);
+        allowOffboardingCommit.resolve();
+        const [writerResult, mutationResult] = await Promise.allSettled([
+          writer,
+          locationMutation,
+        ]);
+        expect(writerResult.status).toBe('fulfilled');
+        expect(mutationResult.status).toBe('rejected');
+        if (mutationResult.status === 'rejected') {
+          expect(mutationResult.reason).toMatchObject({
+            message: 'account_offboarding_blocked',
+          });
+        }
+
+        const activeAfter = await sqlA()<{ id: string }[]>`
+          SELECT id
+          FROM businesses
+          WHERE account_id = ${tenant.accountId}::uuid
+            AND archived_at IS NULL
+          ORDER BY id
+        `;
+        expect(activeAfter.map((row) => row.id)).toEqual(capturedLocationIds);
+        if (operation === 'reactivate') {
+          const [archived] = await sqlA()<{ archived_at: Date | null }[]>`
+            SELECT archived_at
+            FROM businesses
+            WHERE id = ${archivedBusinessId}::uuid
+          `;
+          expect(archived?.archived_at).not.toBeNull();
+        }
+      } finally {
+        allowOffboardingCommit.resolve();
+        await Promise.allSettled([
+          writer ?? Promise.resolve(),
+          locationMutation ?? Promise.resolve(),
+        ]);
+        await sqlA()`DELETE FROM account_offboardings WHERE id = ${offboardingId}::uuid`;
+        await sqlA()`DELETE FROM account_audit_log WHERE account_id = ${tenant.accountId}::uuid`;
+        await sqlA()`DELETE FROM businesses WHERE account_id = ${tenant.accountId}::uuid`;
+        await cleanupTenantAccount(sqlA(), tenant);
+      }
+    },
+  );
 
   it('overage-only first blocks tier/activation at billing without a reverse edge or deadlock', async () => {
     const accountId = randomUUID();
@@ -314,4 +557,132 @@ describeWithDb('WS8 billing advisory lock graph against live Postgres', { timeou
     await tierChange;
     expect(tierReadBoundaryReached).toBe(true);
   });
+
+  it.each(['publisher', 'mirror'] as const)(
+    'keeps the three-actor location/%s/tier graph acyclic under real row and advisory locks',
+    async (businessActorKind) => {
+      const tenant = await seedTenantAccount(sqlA());
+      const primaryBusinessId = randomUUID();
+      const businessId = randomUUID();
+      const reviewId = randomUUID();
+      await sqlA()`
+        INSERT INTO businesses (
+          id, account_id, name, owner_name, owner_email,
+          subscription_status, is_primary
+        ) VALUES
+          (
+            ${primaryBusinessId}::uuid, ${tenant.accountId}::uuid,
+            'Lock Graph Primary', 'Lock Graph Owner', ${tenant.ownerEmail},
+            'active', TRUE
+          ),
+          (
+            ${businessId}::uuid, ${tenant.accountId}::uuid,
+            'Lock Graph Secondary', 'Lock Graph Owner', ${tenant.ownerEmail},
+            'active', FALSE
+          )
+      `;
+      await sqlA()`
+        INSERT INTO reviews (
+          id, business_id, provider, provider_review_id,
+          provider_review_name, provider_location_name, reviewer_name,
+          star_rating, review_text, status
+        ) VALUES (
+          ${reviewId}::uuid, ${businessId}::uuid, 'google', ${`lock-${reviewId}`},
+          ${`google://reviews/lock-${reviewId}`},
+          ${`google://locations/lock-${businessId}`},
+          'Lock Reviewer', 5, 'Lock graph review', 'new'
+        )
+      `;
+
+      const entitlementHeld = deferred();
+      const requestAccountRow = deferred();
+      const businessRowHeld = deferred();
+      const events: string[] = [];
+      let tierWriter: Promise<unknown> | undefined;
+      let businessActor: Promise<unknown> | undefined;
+      let locationActor: Promise<unknown> | undefined;
+
+      try {
+        // Tier/status writers own entitlement before requesting the account.
+        // The split lets the test recreate the original three-party cycle if
+        // the production location helper ever regresses to account->business.
+        tierWriter = sqlA().begin(async (tx) => {
+          await tx`SET LOCAL lock_timeout = '4s'`;
+          await tx`SET LOCAL statement_timeout = '7s'`;
+          await acquireTierEntitlementLock(tx, tenant.accountId);
+          events.push('tier-entitlement-held');
+          entitlementHeld.resolve();
+          await requestAccountRow.promise;
+          await tx`
+            SELECT id FROM accounts
+            WHERE id = ${tenant.accountId}::uuid
+            FOR UPDATE
+          `;
+        }).then(() => { events.push('tier-committed'); });
+        await entitlementHeld.promise;
+
+        // The publisher variant adds its review anchor; both production actors
+        // then own business rows before waiting for entitlement.
+        businessActor = sqlB().begin(async (tx) => {
+          await tx`SET LOCAL lock_timeout = '4s'`;
+          await tx`SET LOCAL statement_timeout = '7s'`;
+          if (businessActorKind === 'publisher') {
+            await tx`
+              SELECT id FROM reviews
+              WHERE id = ${reviewId}::uuid
+              FOR UPDATE
+            `;
+          }
+          await tx`
+            SELECT id FROM businesses
+            WHERE account_id = ${tenant.accountId}::uuid
+            ORDER BY id
+            FOR UPDATE
+          `;
+          businessRowHeld.resolve();
+          await acquireTierEntitlementLock(tx, tenant.accountId);
+          events.push(`${businessActorKind}-entitlement`);
+        }).then(() => { events.push(`${businessActorKind}-committed`); });
+        await businessRowHeld.promise;
+        await assertStillBlocked(businessActor);
+
+        // Invoke the production location helper. Fixed code blocks on the
+        // business row before owning the account row. The historical
+        // account->business mutation instead owns account here, so asking the
+        // tier writer for account completes the exact deadlock cycle:
+        // tier entitlement -> account -> business -> entitlement.
+        locationActor = archiveLocationTransaction(sqlC(), {
+          locationId: businessId,
+          accountId: tenant.accountId,
+          actorUserId: tenant.userId,
+        }).then(() => { events.push('location-committed'); });
+        await waitForLocationBusinessRowLock();
+
+        requestAccountRow.resolve();
+        await Promise.all([tierWriter, businessActor, locationActor]);
+
+        expect(events[0]).toBe('tier-entitlement-held');
+        const tierCommitted = events.indexOf('tier-committed');
+        const businessEntitlement = events.indexOf(`${businessActorKind}-entitlement`);
+        const businessCommitted = events.indexOf(`${businessActorKind}-committed`);
+        const locationCommitted = events.indexOf('location-committed');
+        expect(tierCommitted).toBeGreaterThan(0);
+        expect(businessEntitlement).toBeGreaterThan(0);
+        expect(businessCommitted).toBeGreaterThan(tierCommitted);
+        expect(businessCommitted).toBeGreaterThan(businessEntitlement);
+        expect(locationCommitted).toBeGreaterThan(businessCommitted);
+      } finally {
+        requestAccountRow.resolve();
+        await Promise.allSettled([
+          tierWriter ?? Promise.resolve(),
+          businessActor ?? Promise.resolve(),
+          locationActor ?? Promise.resolve(),
+        ]);
+        await sqlA()`DELETE FROM reviews WHERE id = ${reviewId}::uuid`;
+        await sqlA()`DELETE FROM account_audit_log WHERE account_id = ${tenant.accountId}::uuid`;
+        await sqlA()`DELETE FROM businesses WHERE id IN (${businessId}::uuid, ${primaryBusinessId}::uuid)`;
+        await cleanupTenantAccount(sqlA(), tenant);
+      }
+    },
+  );
 });

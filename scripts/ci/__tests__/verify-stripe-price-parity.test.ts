@@ -66,6 +66,49 @@ describe('verifyConfiguredStripePrices', () => {
     expect(retrieve).toHaveBeenCalledTimes(6);
   });
 
+  it('verifies retained overage Prices remain active at their recorded grandfathered cents', async () => {
+    const retrieve = vi.fn<RetrieveStripePrice>(async (priceId) => validPrice({
+      active: priceId !== 'price_old_overage_inactive',
+      unit_amount: priceId === 'price_old_overage_wrong_cents'
+        ? 1499
+        : priceId.startsWith('price_old_')
+          ? 1400
+          : expectedAmounts[priceId] ?? null,
+    }));
+
+    const mismatches = await verifyConfiguredStripePrices(retrieve, true, [
+      {
+        id: 'price_old_overage_wrong_cents',
+        kind: 'overage',
+        tier: 'copilot',
+        unitAmountCents: 1400,
+      },
+      {
+        id: 'price_old_overage_inactive',
+        kind: 'overage',
+        tier: 'copilot',
+        unitAmountCents: 1400,
+      },
+    ]);
+
+    expect(mismatches).toEqual([
+      {
+        label: 'copilot retained overage price_old_overage_wrong_cents',
+        field: 'unit_amount',
+        expected: 1400,
+        actual: 1499,
+      },
+      {
+        label: 'copilot retained overage price_old_overage_inactive',
+        field: 'active',
+        expected: true,
+        actual: false,
+      },
+    ]);
+    expect(retrieve).toHaveBeenCalledWith('price_old_overage_wrong_cents');
+    expect(retrieve).toHaveBeenCalledWith('price_old_overage_inactive');
+  });
+
   it('fails an inactive Price even when its amount, currency, interval, and tax behavior match', async () => {
     const retrieve = vi.fn<RetrieveStripePrice>(async (priceId) =>
       validPrice({

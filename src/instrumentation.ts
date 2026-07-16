@@ -29,7 +29,7 @@ function reportStripePriceDuplicateDrift(): void {
     assertStripePriceIdsUnique();
   } catch {
     const message =
-      '[instrumentation] Stripe Price env vars contain duplicate IDs; billing lookups will fail closed until configuration is repaired.';
+      '[instrumentation] Stripe Price mappings conflict; billing lookups will fail closed until live env and retained-history configuration are repaired.';
     console.error(message);
     Sentry.captureMessage(message, 'error');
   }

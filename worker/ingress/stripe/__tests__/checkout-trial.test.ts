@@ -75,7 +75,8 @@ const CUSTOMER_ID = 'cus_test_123';
 const ATTEMPT_ID = '019dc366-29ce-7000-a000-0000000000cc';
 const SESSION_ID = 'cs_trial';
 const SUB_ID = 'sub_test_456';
-const FUTURE_TRIAL_END = Math.floor(Date.now() / 1000) + 30 * 86400;
+const TRIAL_START = Math.floor(Date.now() / 1000);
+const FUTURE_TRIAL_END = TRIAL_START + 30 * 86400;
 
 function account(overrides: Record<string, unknown> = {}) {
   return {
@@ -101,7 +102,29 @@ function account(overrides: Record<string, unknown> = {}) {
     checkout_attempt_locations_included: 1,
     checkout_attempt_locations_paid: 0,
     checkout_attempt_overage_quantity: 0,
+    checkout_attempt_trial_period_days: null,
+    checkout_attempt_tax_enabled: false,
+    checkout_attempt_customer_email: 'owner@example.com',
+    checkout_attempt_success_url:
+      'https://app.example.com/onboarding/payment-success?session_id={CHECKOUT_SESSION_ID}',
+    checkout_attempt_cancel_url:
+      'https://app.example.com/onboarding/pay?cancelled=true',
     ...overrides,
+  };
+}
+
+function activeDeleteDataOffboarding() {
+  return {
+    offboarding_id: '019dc366-29ce-7000-a000-0000000000dd',
+    offboarding_account_id: ACCOUNT_ID,
+    offboarding_mode: 'delete_data',
+    offboarding_status: 'pending',
+    offboarding_failed_step: null,
+    offboarding_access_ends_at: null,
+    offboarding_teardown_started_at: null,
+    offboarding_purge_after: null,
+    offboarding_purge_started_at: null,
+    offboarding_purge_cancelled_at: null,
   };
 }
 
@@ -115,6 +138,14 @@ function checkoutSession(overrides: Record<string, unknown> = {}) {
     customer: CUSTOMER_ID,
     subscription: SUB_ID,
     metadata: { checkout_attempt_id: ATTEMPT_ID },
+    allow_promotion_codes: false,
+    automatic_tax: { enabled: false },
+    billing_address_collection: null,
+    tax_id_collection: { enabled: false },
+    customer_email: 'owner@example.com',
+    success_url:
+      'https://app.example.com/onboarding/payment-success?session_id={CHECKOUT_SESSION_ID}',
+    cancel_url: 'https://app.example.com/onboarding/pay?cancelled=true',
     line_items: {
       data: [{ quantity: 1, price: { id: 'price_copilot_list' } }],
     },
@@ -127,6 +158,7 @@ function providerSubscription(overrides: Record<string, unknown> = {}) {
     id: SUB_ID,
     customer: CUSTOMER_ID,
     status: 'active',
+    trial_start: null,
     trial_end: null,
     metadata: { checkout_attempt_id: ATTEMPT_ID },
     items: {
@@ -177,6 +209,7 @@ function queueValidProjection(
 ): void {
   queueThroughObserved(observed);
   harness.sqlReturnQueue.push(
+    mkTaggedResult([{ id: ACCOUNT_ID }]),
     mkTaggedResult([locked]),
     mkTaggedResult([{ id: ACCOUNT_ID }]),
   );
@@ -246,21 +279,39 @@ describe('checkout.session.completed authoritative lease projection', () => {
       `${ACCOUNT_ID}:overage_sync`,
       `${ACCOUNT_ID}:activation`,
     ]);
+    for (const frozenField of [
+      'checkout_attempt_tax_enabled',
+      'checkout_attempt_customer_email',
+      'checkout_attempt_success_url',
+      'checkout_attempt_cancel_url',
+    ]) {
+      expect(calls[4]!.text).toContain(frozenField);
+      expect(calls[6]!.text).toContain(frozenField);
+    }
     expect(calls[5]!.text).toContain('FOR UPDATE');
-    expect(calls[6]!.text).toMatch(/checkout_attempt_state\s*=\s*'completed'/);
+    expect(calls[6]!.text).not.toContain('FOR UPDATE');
+    expect(calls[7]!.text).toMatch(/checkout_attempt_state\s*=\s*'completed'/);
     expect(mockCancelSubscription).not.toHaveBeenCalled();
     expect(mockSynchronizeBusinessTierMirror).toHaveBeenCalledWith(
       harness.mockSql,
       ACCOUNT_ID,
     );
     expect(mockResumePrimaryBusinessBackfill).toHaveBeenCalledWith(PRIMARY_BIZ);
-    expect(calls).toHaveLength(7);
+    expect(calls).toHaveLength(8);
   });
 
   it('projects a valid future card-up-front trial through the single status applier', async () => {
-    queueValidProjection();
+    const trialAccount = account({ checkout_attempt_trial_period_days: 30 });
+    queueValidProjection(trialAccount);
+    mockRetrieveSession.mockResolvedValueOnce(
+      checkoutSession({ payment_status: 'no_payment_required' }),
+    );
     mockRetrieveSubscription.mockResolvedValueOnce(
-      providerSubscription({ status: 'trialing', trial_end: FUTURE_TRIAL_END }),
+      providerSubscription({
+        status: 'trialing',
+        trial_start: TRIAL_START,
+        trial_end: FUTURE_TRIAL_END,
+      }),
     );
 
     await processCheckoutSessionCompleted(
@@ -271,6 +322,214 @@ describe('checkout.session.completed authoritative lease projection', () => {
       status: 'trialing',
       trial_end: FUTURE_TRIAL_END,
     });
+  });
+
+  it('projects when the provider-current Stripe Tax shape matches the frozen lease', async () => {
+    const taxAccount = account({ checkout_attempt_tax_enabled: true });
+    queueValidProjection(taxAccount);
+    mockRetrieveSession.mockResolvedValueOnce(
+      checkoutSession({
+        automatic_tax: { enabled: true },
+        billing_address_collection: 'required',
+        tax_id_collection: { enabled: true },
+      }),
+    );
+
+    await processCheckoutSessionCompleted(eventSession() as never);
+
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
+    expect(mockWriteResolvedTierSnapshot).toHaveBeenCalledTimes(1);
+    expect(mockCancelSubscription).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: 'explicit disabled values',
+      provider: checkoutSession({
+        allow_promotion_codes: false,
+        billing_address_collection: null,
+        tax_id_collection: { enabled: false },
+      }),
+    },
+    {
+      label: 'provider default serialization',
+      provider: checkoutSession({
+        allow_promotion_codes: null,
+        billing_address_collection: 'auto',
+        tax_id_collection: null,
+      }),
+    },
+  ])('accepts tax-disabled $label', async ({ provider }) => {
+    queueValidProjection(account());
+    mockRetrieveSession.mockResolvedValueOnce(provider);
+
+    await processCheckoutSessionCompleted(eventSession() as never);
+
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
+    expect(mockWriteResolvedTierSnapshot).toHaveBeenCalledTimes(1);
+    expect(mockCancelSubscription).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      field: 'tax shape',
+      lease: account({ checkout_attempt_tax_enabled: true }),
+      provider: checkoutSession(),
+    },
+    {
+      field: 'customer email',
+      lease: account(),
+      provider: checkoutSession({ customer_email: 'other-owner@example.com' }),
+    },
+    {
+      field: 'success URL',
+      lease: account(),
+      provider: checkoutSession({ success_url: 'https://attacker.example/success' }),
+    },
+    {
+      field: 'cancel URL',
+      lease: account(),
+      provider: checkoutSession({ cancel_url: 'https://attacker.example/cancel' }),
+    },
+    {
+      field: 'promotion-code policy',
+      lease: account(),
+      provider: checkoutSession({ allow_promotion_codes: true }),
+    },
+    {
+      field: 'tax billing-address collection',
+      lease: account({ checkout_attempt_tax_enabled: true }),
+      provider: checkoutSession({
+        automatic_tax: { enabled: true },
+        billing_address_collection: 'auto',
+        tax_id_collection: { enabled: true },
+      }),
+    },
+    {
+      field: 'tax-ID collection',
+      lease: account({ checkout_attempt_tax_enabled: true }),
+      provider: checkoutSession({
+        automatic_tax: { enabled: true },
+        billing_address_collection: 'required',
+        tax_id_collection: { enabled: false },
+      }),
+    },
+    {
+      field: 'automatic-tax liability',
+      lease: account({ checkout_attempt_tax_enabled: true }),
+      provider: checkoutSession({
+        automatic_tax: {
+          enabled: true,
+          liability: { type: 'account', account: 'acct_connected' },
+        },
+        billing_address_collection: 'required',
+        tax_id_collection: { enabled: true },
+      }),
+    },
+    {
+      field: 'required tax-ID policy',
+      lease: account({ checkout_attempt_tax_enabled: true }),
+      provider: checkoutSession({
+        automatic_tax: { enabled: true },
+        billing_address_collection: 'required',
+        tax_id_collection: { enabled: true, required: 'if_supported' },
+      }),
+    },
+  ])(
+    'cancels before status or snapshot when provider-current $field differs from the frozen lease',
+    async ({ lease, provider }) => {
+      queueThroughObserved(lease);
+      harness.sqlReturnQueue.push(mkTaggedResult([{}]));
+      mockRetrieveSession.mockResolvedValueOnce(provider);
+
+      await processCheckoutSessionCompleted(eventSession() as never);
+
+      expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+      expect(mockWriteResolvedTierSnapshot).not.toHaveBeenCalled();
+      expect(mockCancelSubscription).toHaveBeenCalledTimes(1);
+      expect(mockReportCaughtError).toHaveBeenCalledWith(
+        'ingress/stripe/checkout-completed',
+        expect.any(Error),
+        expect.objectContaining({ reason: 'checkout_create_shape_mismatch' }),
+      );
+      expect(harness.sqlCalls.at(-1)!.text).toMatch(
+        /checkout_attempt_state\s*=\s*'remediated'/,
+      );
+      expect(harness.sqlCalls).toHaveLength(6);
+    },
+  );
+
+  it('cancels an active subscription that violates a frozen 30-day trial lease', async () => {
+    const trialAccount = account({ checkout_attempt_trial_period_days: 30 });
+    queueThroughObserved(trialAccount);
+    harness.sqlReturnQueue.push(mkTaggedResult([{}]));
+
+    await processCheckoutSessionCompleted(eventSession() as never);
+
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(mockWriteResolvedTierSnapshot).not.toHaveBeenCalled();
+    expect(mockCancelSubscription).toHaveBeenCalledTimes(1);
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'ingress/stripe/checkout-completed',
+      expect.any(Error),
+      expect.objectContaining({ reason: 'invalid_trial' }),
+    );
+  });
+
+  it('cancels an unexpected provider trial for a no-trial lease', async () => {
+    queueThroughObserved(account());
+    harness.sqlReturnQueue.push(mkTaggedResult([{}]));
+    mockRetrieveSession.mockResolvedValueOnce(
+      checkoutSession({ payment_status: 'no_payment_required' }),
+    );
+    mockRetrieveSubscription.mockResolvedValueOnce(
+      providerSubscription({
+        status: 'trialing',
+        trial_start: TRIAL_START,
+        trial_end: FUTURE_TRIAL_END,
+      }),
+    );
+
+    await processCheckoutSessionCompleted(
+      eventSession({ payment_status: 'no_payment_required' }) as never,
+    );
+
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(mockWriteResolvedTierSnapshot).not.toHaveBeenCalled();
+    expect(mockCancelSubscription).toHaveBeenCalledTimes(1);
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'ingress/stripe/checkout-completed',
+      expect.any(Error),
+      expect.objectContaining({ reason: 'invalid_trial' }),
+    );
+  });
+
+  it('cancels a trial whose provider interval is not the frozen 30 days', async () => {
+    const trialAccount = account({ checkout_attempt_trial_period_days: 30 });
+    queueThroughObserved(trialAccount);
+    harness.sqlReturnQueue.push(mkTaggedResult([{}]));
+    mockRetrieveSession.mockResolvedValueOnce(
+      checkoutSession({ payment_status: 'no_payment_required' }),
+    );
+    mockRetrieveSubscription.mockResolvedValueOnce(
+      providerSubscription({
+        status: 'trialing',
+        trial_start: TRIAL_START,
+        trial_end: TRIAL_START + 29 * 86400,
+      }),
+    );
+
+    await processCheckoutSessionCompleted(
+      eventSession({ payment_status: 'no_payment_required' }) as never,
+    );
+
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(mockCancelSubscription).toHaveBeenCalledTimes(1);
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'ingress/stripe/checkout-completed',
+      expect.any(Error),
+      expect.objectContaining({ reason: 'invalid_trial' }),
+    );
   });
 
   it.each([null, 'sub_stale_event'])(
@@ -378,6 +637,7 @@ describe('checkout.session.completed authoritative lease projection', () => {
     async (statusResult) => {
       queueThroughObserved(account());
       harness.sqlReturnQueue.push(
+        mkTaggedResult([{ id: ACCOUNT_ID }]),
         mkTaggedResult([account()]),
         mkTaggedResult([{}]),
         mkTaggedResult([{}]),
@@ -401,7 +661,7 @@ describe('checkout.session.completed authoritative lease projection', () => {
         expect.any(Error),
         expect.objectContaining({ reason: 'checkout_status_binding_failed' }),
       );
-      expect(harness.sqlCalls).toHaveLength(10);
+      expect(harness.sqlCalls).toHaveLength(11);
     },
   );
 
@@ -505,16 +765,17 @@ describe('checkout.session.completed authoritative lease projection', () => {
     queueThroughObserved(account());
     harness.sqlReturnQueue.push(
       Promise.resolve(
-        mkTaggedResult([
-          account({
-            checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000ee',
-            checkout_session_id: 'cs_new',
-          }),
-        ]),
+        mkTaggedResult([{ id: ACCOUNT_ID }]),
       ).then((rows) => {
         rowLockState.held = true;
         return rows;
       }),
+      mkTaggedResult([
+        account({
+          checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000ee',
+          checkout_session_id: 'cs_new',
+        }),
+      ]),
       mkTaggedResult([{}]),
       mkTaggedResult([{}]),
       mkTaggedResult([{}]),
@@ -546,7 +807,98 @@ describe('checkout.session.completed authoritative lease projection', () => {
     expect(harness.sqlCalls.at(-1)!.text).toMatch(
       /checkout_attempt_state\s*=\s*'remediated'/,
     );
-    expect(harness.sqlCalls).toHaveLength(10);
+    expect(harness.sqlCalls).toHaveLength(11);
+  });
+
+  it('rechecks the complete frozen create shape after acquiring the account row lock', async () => {
+    queueThroughObserved(account());
+    harness.sqlReturnQueue.push(
+      mkTaggedResult([{ id: ACCOUNT_ID }]),
+      mkTaggedResult([
+        account({ checkout_attempt_customer_email: 'changed@example.com' }),
+      ]),
+      mkTaggedResult([{}]),
+      mkTaggedResult([{}]),
+      mkTaggedResult([{}]),
+      mkTaggedResult([{}]),
+    );
+
+    await processCheckoutSessionCompleted(eventSession() as never);
+
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(mockWriteResolvedTierSnapshot).not.toHaveBeenCalled();
+    expect(mockCancelSubscription).toHaveBeenCalledTimes(1);
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'ingress/stripe/checkout-completed',
+      expect.any(Error),
+      expect.objectContaining({ reason: 'checkout_create_shape_mismatch' }),
+    );
+    expect(harness.sqlCalls.at(-1)!.text).toMatch(
+      /checkout_attempt_state\s*=\s*'remediated'/,
+    );
+    expect(harness.sqlCalls).toHaveLength(11);
+  });
+
+  it('cancels and remediates when delete-data offboarding wins the account lock', async () => {
+    queueThroughObserved(account());
+    harness.sqlReturnQueue.push(
+      mkTaggedResult([{ id: ACCOUNT_ID }]),
+      mkTaggedResult([account(activeDeleteDataOffboarding())]),
+      mkTaggedResult([{}]),
+      mkTaggedResult([{}]),
+      mkTaggedResult([{}]),
+      mkTaggedResult([{}]),
+    );
+
+    await processCheckoutSessionCompleted(eventSession() as never);
+
+    expect(mockCancelSubscription).toHaveBeenCalledWith(
+      SUB_ID,
+      { invoice_now: false, prorate: false },
+      { idempotencyKey: `checkout-attempt-remediate:v1:${SUB_ID}` },
+    );
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(mockWriteResolvedTierSnapshot).not.toHaveBeenCalled();
+    expect(harness.sqlCalls.at(-1)!.text).toMatch(
+      /checkout_attempt_state\s*=\s*'remediated'/,
+    );
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'ingress/stripe/checkout-completed',
+      expect.any(Error),
+      expect.objectContaining({ reason: 'checkout_blocked_by_offboarding' }),
+    );
+    expect(harness.sqlCalls).toHaveLength(11);
+  });
+
+  it('retrieves and cancels a completed subscription after its account was purged', async () => {
+    harness.sqlReturnQueue.push(
+      mkTaggedResult([]),
+      mkTaggedResult([]),
+      mkTaggedResult([{}]),
+      mkTaggedResult([{}]),
+      mkTaggedResult([{}]),
+      mkTaggedResult([]),
+    );
+
+    await processCheckoutSessionCompleted(eventSession() as never);
+
+    expect(mockRetrieveSession).toHaveBeenCalledWith(SESSION_ID, {
+      expand: ['line_items'],
+    });
+    expect(mockRetrieveSubscription).toHaveBeenCalledWith(SUB_ID);
+    expect(mockCancelSubscription).toHaveBeenCalledWith(
+      SUB_ID,
+      { invoice_now: false, prorate: false },
+      { idempotencyKey: `checkout-attempt-remediate:v1:${SUB_ID}` },
+    );
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(mockWriteResolvedTierSnapshot).not.toHaveBeenCalled();
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'ingress/stripe/checkout-completed',
+      expect.any(Error),
+      expect.objectContaining({ reason: 'account_missing' }),
+    );
+    expect(harness.sqlCalls).toHaveLength(6);
   });
 
   it('requires subscription attempt metadata before status projection', async () => {
@@ -628,6 +980,50 @@ describe('checkout.session.completed authoritative lease projection', () => {
         reason: 'autopilot_activated_while_unavailable',
         priceId: 'price_autopilot_list',
       },
+    );
+  });
+
+  it('emits the gate-closed Autopilot alert before a retryable mirror failure', async () => {
+    const autopilot = account({
+      subscription_tier: 'autopilot',
+      base_price_cents: 6900,
+      locations_overage_price_cents: 2000,
+      checkout_attempt_tier: 'autopilot',
+      checkout_attempt_base_price_id: 'price_autopilot_list',
+      checkout_attempt_overage_price_id: 'price_autopilot_overage',
+      checkout_attempt_base_price_cents: 6900,
+      checkout_attempt_overage_price_cents: 2000,
+    });
+    queueValidProjection(autopilot);
+    mockRetrieveSession.mockResolvedValueOnce(
+      checkoutSession({
+        line_items: {
+          data: [{ quantity: 1, price: { id: 'price_autopilot_list' } }],
+        },
+      }),
+    );
+    mockRetrieveSubscription.mockResolvedValueOnce(
+      providerSubscription({
+        items: {
+          data: [{ quantity: 1, price: { id: 'price_autopilot_list' } }],
+        },
+      }),
+    );
+    mockAutopilotPurchasable.mockReturnValue(false);
+    mockSynchronizeBusinessTierMirror.mockRejectedValueOnce(
+      new Error('deprecated mirror unavailable'),
+    );
+
+    await expect(
+      processCheckoutSessionCompleted(eventSession() as never),
+    ).rejects.toThrow('deprecated mirror unavailable');
+
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'ingress/stripe/checkout-completed',
+      expect.any(Error),
+      expect.objectContaining({
+        reason: 'autopilot_activated_while_unavailable',
+      }),
     );
   });
 });

@@ -186,20 +186,25 @@ export async function reconcileAccount(
   const dbTrialing = account.subscription_status === SubscriptionStatus.TRIALING;
   const stripeTrialing = subscription.status === 'trialing';
   if (dbTrialing && !stripeTrialing && account.stripe_subscription_id) {
-    // Read-before-tx invariant: all Stripe reads above have resolved before
-    // sql.begin() acquires a pool connection. This tx runs only fast DB writes —
-    // never across an open Stripe call.
     const transition = await sql.begin(async (tx) => {
       await acquireTierEntitlementLock(tx, account.id);
+      // Drift detection may use the earlier read, but corrective authority must
+      // use a fresh provider observation inside the entitlement boundary. The
+      // bounded read occurs before the applier takes the account row lock.
+      const currentSubscription = await stripe.subscriptions.retrieve(
+        account.stripe_subscription_id!,
+        {},
+        { timeout: STRIPE_READ_TIMEOUT_MS },
+      );
       return applyStripeSubscriptionStateUnderEntitlementLock(
         tx,
         account.id,
         {
           mode: 'subscription',
-          stripeCustomerId: extractStripeCustomerId(subscription.customer) ?? account.stripe_customer_id ?? '',
+          stripeCustomerId: extractStripeCustomerId(currentSubscription.customer) ?? account.stripe_customer_id ?? '',
           stripeSubscriptionId: account.stripe_subscription_id!,
         },
-        subscription,
+        currentSubscription,
       );
     });
     if (transition.changed) {

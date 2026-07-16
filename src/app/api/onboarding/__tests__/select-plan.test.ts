@@ -33,7 +33,9 @@ vi.mock('@/lib/payments/plan-activation', () => {
 });
 vi.mock('@/lib/payments/create-checkout-session', () => {
   class CheckoutUnavailableError extends Error {}
+  class CheckoutOffboardingBlockedError extends Error {}
   return {
+    CheckoutOffboardingBlockedError,
     CheckoutUnavailableError,
     createCheckoutSession: mockCreateCheckoutSession,
   };
@@ -47,6 +49,7 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 import { POST } from '../select-plan/route';
 import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 import { CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
+import { CheckoutOffboardingBlockedError } from '@/lib/payments/create-checkout-session';
 import { CheckoutAttemptConflictError } from '@/lib/payments/plan-activation';
 import { resetServerConfigForTests } from '@/lib/config/server';
 
@@ -255,6 +258,17 @@ describe('POST /api/onboarding/select-plan', () => {
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
 
+  it('returns an offboarding conflict without creating a Session', async () => {
+    mockApplyTierSnapshot.mockResolvedValueOnce({ kind: 'offboarding_blocked' });
+
+    const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
+
+    expect(res.status).toBe(403);
+    expectPrivateNoStore(res);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
   it('closed Autopilot gate creates no Session', async () => {
     mockApplyTierSnapshot.mockRejectedValueOnce(new TierNotPurchasableError());
     const res = await POST(request({ tier: SubscriptionTier.AUTOPILOT }));
@@ -324,6 +338,18 @@ describe('POST /api/onboarding/select-plan', () => {
       error: 'checkout_unavailable',
       detail: 'missing base Price',
     });
+  });
+
+  it('maps offboarding that starts after freeze to a private blocked response', async () => {
+    mockCreateCheckoutSession.mockRejectedValueOnce(
+      new CheckoutOffboardingBlockedError(),
+    );
+
+    const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
+
+    expect(res.status).toBe(403);
+    expectPrivateNoStore(res);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
   });
 
   it('maps provider failures to a private no-store checkout_error response', async () => {

@@ -13,7 +13,11 @@ import { getOffboardingState, isCheckoutBlocked } from '@/lib/account-offboardin
 import { sql } from '@/lib/db/server';
 import { SubscriptionTier } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
-import { createCheckoutSession, CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
+import {
+  CheckoutOffboardingBlockedError,
+  CheckoutUnavailableError,
+  createCheckoutSession,
+} from '@/lib/payments/create-checkout-session';
 import {
   applyTierSnapshot,
   CheckoutAttemptConflictError,
@@ -179,6 +183,12 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
         { status: 409, headers: NO_STORE },
       );
     }
+    if (snapshotResult.kind === 'offboarding_blocked') {
+      return NextResponse.json(
+        { error: 'account_offboarding_blocked' },
+        { status: 403, headers: NO_STORE },
+      );
+    }
 
     const result = await createCheckoutSession(
       sql,
@@ -205,6 +215,12 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         { error: 'checkout_unavailable', detail: err.message },
         { status: 502, headers: NO_STORE },
+      );
+    }
+    if (err instanceof CheckoutOffboardingBlockedError) {
+      return NextResponse.json(
+        { error: 'account_offboarding_blocked' },
+        { status: 403, headers: NO_STORE },
       );
     }
     if (err instanceof CheckoutAttemptConflictError) {

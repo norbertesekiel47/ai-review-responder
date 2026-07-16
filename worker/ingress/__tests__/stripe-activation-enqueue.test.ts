@@ -40,11 +40,12 @@ vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 const mockConstructEvent = vi.fn();
 const mockRetrieveSession = vi.fn();
 const mockRetrieveSubscription = vi.fn();
+const mockCancelSubscription = vi.fn();
 vi.mock('stripe', () => ({
   default: class MockStripe {
     webhooks = { constructEvent: mockConstructEvent };
     checkout = { sessions: { retrieve: mockRetrieveSession } };
-    subscriptions = { retrieve: mockRetrieveSubscription, cancel: vi.fn() };
+    subscriptions = { retrieve: mockRetrieveSubscription, cancel: mockCancelSubscription };
   },
 }));
 
@@ -77,6 +78,9 @@ const TEST_BIZ_ACTIVE_DUP = '019dc366-29ce-7000-a000-000000000003';
 const TEST_BIZ_CONCURRENT = '019dc366-29ce-7000-a000-000000000004';
 const TEST_BIZ_DELETED = '019dc366-29ce-7000-a000-000000000005';
 const TEST_BIZ_DEFAULT = '019dc366-29ce-7000-a000-000000000000';
+const TEST_CHECKOUT_EMAIL = 'owner@example.com';
+const TEST_CHECKOUT_SUCCESS_URL = 'https://repworth.example/onboarding?checkout=success';
+const TEST_CHECKOUT_CANCEL_URL = 'https://repworth.example/onboarding?checkout=cancelled';
 
 function setCheckoutSessionCompletedEvent(overrides: {
   businessId?: string;
@@ -104,6 +108,13 @@ function setCheckoutSessionCompletedEvent(overrides: {
     mode: 'subscription',
     status: 'complete',
     payment_status: 'paid',
+    allow_promotion_codes: false,
+    automatic_tax: { enabled: false, liability: null },
+    billing_address_collection: null,
+    tax_id_collection: { enabled: false, required: 'never' },
+    customer_email: TEST_CHECKOUT_EMAIL,
+    success_url: TEST_CHECKOUT_SUCCESS_URL,
+    cancel_url: TEST_CHECKOUT_CANCEL_URL,
     // The mocked account lookup below resolves every UUID ref to this account.
     client_reference_id: TEST_BIZ_DEFAULT,
     customer: 'cus_1',
@@ -161,12 +172,19 @@ function queueHappyPath(
     checkout_attempt_locations_included: 1,
     checkout_attempt_locations_paid: 0,
     checkout_attempt_overage_quantity: 0,
+    checkout_attempt_trial_period_days: null,
+    checkout_attempt_tax_enabled: false,
+    checkout_attempt_customer_email: TEST_CHECKOUT_EMAIL,
+    checkout_attempt_success_url: TEST_CHECKOUT_SUCCESS_URL,
+    checkout_attempt_cancel_url: TEST_CHECKOUT_CANCEL_URL,
   };
   // Provider-current observed account row.
   sqlReturnQueue.push([checkoutAccount]);
 
   if (didActivate) {
-    // Canonical account row lock and lease recheck.
+    // Pin account before taking a fresh offboarding snapshot.
+    sqlReturnQueue.push([{ id: TEST_BIZ_DEFAULT }]);
+    // Canonical lease + active-offboarding projection.
     sqlReturnQueue.push([checkoutAccount]);
     // Applier resolveAccount.
     sqlReturnQueue.push([{
@@ -246,6 +264,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
       id: 'sub_1',
       customer: 'cus_1',
       status: 'active',
+      trial_start: null,
       trial_end: null,
       metadata: {
         checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
@@ -293,7 +312,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     // ZERNIO_PUBLISHING_ENABLED is unset in beforeEach, so the post-activation
     // backfill-resume hook short-circuits BEFORE any SQL fires.
     expect(getInsertOutboxCall()).toBeUndefined();
-    expectExactSqlCalls(19);
+    expectExactSqlCalls(20);
   });
 
   it('rejects checkout completion after canonical status already became past_due', async () => {
@@ -354,7 +373,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     )!;
     expect(lockCall.text).toContain('hashtext');
     expect(lockCall.values).toContain('019dc366-29ce-7000-a000-000000000000:activation');
-    expectExactSqlCalls(19);
+    expectExactSqlCalls(20);
   });
 
   it('biz-row-deleted race: still completes the outer flow with no enqueue', async () => {
@@ -362,9 +381,15 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     // Inbound INSERT → count=1
     const insertInbound: any = []; insertInbound.count = 1;
     sqlReturnQueue.push(insertInbound);
-    // Account lookup returns no row (new flow)
+    // Account lookup returns no row.
     sqlReturnQueue.push([]);
-    // Business lookup also returns no row (legacy fallback)
+    // Business lookup also returns no row (legacy fallback).
+    sqlReturnQueue.push([]);
+    // Entitlement -> billing -> activation locks, then provider-current
+    // observed-account lookup. The missing account is remediated by cancelling
+    // the provider subscription rather than silently orphaning it.
+    sqlReturnQueue.push([], [], [], []);
+    // Ingress wrapper marks the claimed event processed.
     sqlReturnQueue.push([]);
 
     const { handleStripeWebhook } = await import('../stripe');
@@ -373,8 +398,13 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
 
     // Webhook still acks 200.
     expect(reply.status).toHaveBeenCalledWith(200);
+    expect(mockCancelSubscription).toHaveBeenCalledWith(
+      'sub_1',
+      { invoice_now: false, prorate: false },
+      { idempotencyKey: 'checkout-attempt-remediate:v1:sub_1' },
+    );
     expect(getInsertOutboxCall()).toBeUndefined();
-    expectExactSqlCalls(4);
+    expectExactSqlCalls(8);
   });
 
   // ── Backfill-resume branch (ZERNIO_PUBLISHING_ENABLED=true) ──────────────
@@ -451,7 +481,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     expect(resumeSelect!.text).toMatch(/a\.subscription_activated_at/);
     expect(resumeSelect!.text).not.toMatch(/b\.subscription_tier/);
     expect(resumeSelect!.text).not.toMatch(/b\.subscription_activated_at/);
-    expectExactSqlCalls(21);
+    expectExactSqlCalls(22);
   });
 
   it('flag=ON + predicate miss (no active connection OR completed run exists) → NO outbox INSERT', async () => {
@@ -466,7 +496,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     await handleStripeWebhook(makeRequest(), makeReply());
 
     expect(getBackfillInsertCalls()).toHaveLength(0);
-    expectExactSqlCalls(20);
+    expectExactSqlCalls(21);
   });
 
   it('flag=ON + no zernio_backfill_runs row at all (admin connected Zernio pre-checkout) → enqueues backfill', async () => {
@@ -486,7 +516,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
 
     const inserts = getBackfillInsertCalls();
     expect(inserts).toHaveLength(1);
-    expectExactSqlCalls(21);
+    expectExactSqlCalls(22);
   });
 
   it('rejects an unsupported backfill tier before the child outbox INSERT', async () => {
@@ -509,7 +539,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
       expect.stringContaining('invalid_ws8_subscription_tier:retired_tier'),
     );
     expect(sqlReturnQueue).toHaveLength(0);
-    expectExactSqlCalls(20);
+    expectExactSqlCalls(21);
   });
 
   it('flag=ON + in-flight outbox row exists → INSERT … SELECT WHERE NOT EXISTS skips (count=0)', async () => {
@@ -541,7 +571,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     expect(insertSql).toBeDefined();
     expect(insertSql!.text).toContain('NOT EXISTS');
     expect(insertSql!.text).toMatch(/status\s+IN/);
-    expectExactSqlCalls(21);
+    expectExactSqlCalls(22);
   });
 
   // ── D3: overage outbox enqueue on recovery ────────────────────────────
@@ -560,7 +590,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     expect(insert.values).toContain('pending');   // status — bound by enqueueStripeOverageRecompute
     // The account id resolved by queueHappyPath account lookup
     expect(insert.values).toContain('019dc366-29ce-7000-a000-000000000000'); // aggregate_id
-    expectExactSqlCalls(19);
+    expectExactSqlCalls(20);
   });
 
   it('VAL-BILLING-D3d: active → active no-op (updateAcct.count === 0) does NOT insert overage outbox row', async () => {

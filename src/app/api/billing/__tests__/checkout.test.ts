@@ -42,7 +42,9 @@ vi.mock('@/lib/payments/plan-activation', () => {
 });
 vi.mock('@/lib/payments/create-checkout-session', () => {
   class CheckoutUnavailableError extends Error {}
+  class CheckoutOffboardingBlockedError extends Error {}
   return {
+    CheckoutOffboardingBlockedError,
     CheckoutUnavailableError,
     createCheckoutSession: mockCreateCheckoutSession,
   };

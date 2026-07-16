@@ -5,6 +5,12 @@ import type Stripe from 'stripe';
 import type { Sql, TransactionSql } from 'postgres';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import {
+  activeOffboardingStateFromProjection,
+  isBillingMutationBlocked,
+  lockAccountBeforeOffboardingProjection,
+  type ActiveOffboardingProjection,
+} from '@/lib/account-offboarding/gate';
+import {
   isPriceVariant,
   isSubscriptionTier,
   resolveTierSnapshot,
@@ -29,11 +35,15 @@ import { resolveOverageItem, overageItemMutationParams } from '@/lib/payments/ov
 
 export interface TierChangeValidation {
   allowed: boolean;
-  reason?: 'unknown_tier' | 'same_tier' | 'subscription_inactive';
+  reason?:
+    | 'unknown_tier'
+    | 'same_tier'
+    | 'subscription_inactive'
+    | 'account_offboarding_blocked';
   newBillingPreview?: BillingSnapshot;
 }
 
-interface LockedAccountState {
+interface LockedAccountState extends ActiveOffboardingProjection {
   owner_user_id: string | null;
   price_variant: string;
   stripe_subscription_id: string | null;
@@ -46,17 +56,37 @@ async function loadLockedAccountState(
   tx: TransactionSql,
   accountId: string,
 ): Promise<LockedAccountState | undefined> {
+  const accountLocked = await lockAccountBeforeOffboardingProjection(tx, accountId);
+  if (!accountLocked) return undefined;
+
   const [account] = await tx<LockedAccountState[]>`
     SELECT
-      owner_user_id,
-      price_variant,
-      stripe_subscription_id,
-      subscription_status,
-      subscription_tier,
-      locations_overage_price_cents
-    FROM accounts
-    WHERE id = ${accountId}::uuid
-    FOR UPDATE
+      a.owner_user_id,
+      a.price_variant,
+      a.stripe_subscription_id,
+      a.subscription_status,
+      a.subscription_tier,
+      a.locations_overage_price_cents,
+      ao.id AS offboarding_id,
+      ao.account_id AS offboarding_account_id,
+      ao.mode AS offboarding_mode,
+      ao.status AS offboarding_status,
+      ao.failed_step AS offboarding_failed_step,
+      ao.access_ends_at AS offboarding_access_ends_at,
+      ao.teardown_started_at AS offboarding_teardown_started_at,
+      ao.purge_after AS offboarding_purge_after,
+      ao.purge_started_at AS offboarding_purge_started_at,
+      ao.purge_cancelled_at AS offboarding_purge_cancelled_at
+    FROM accounts a
+    LEFT JOIN LATERAL (
+      SELECT active.*
+      FROM account_offboardings active
+      WHERE active.account_id = a.id
+        AND active.terminal_at IS NULL
+      ORDER BY active.created_at DESC
+      LIMIT 1
+    ) ao ON TRUE
+    WHERE a.id = ${accountId}::uuid
   `;
   return account;
 }
@@ -110,6 +140,9 @@ export async function validateTierChange(
     if (!account || !subscriptionGrantsFullAccess(account.subscription_status)) {
       return { allowed: false, reason: 'subscription_inactive' };
     }
+    if (isBillingMutationBlocked(activeOffboardingStateFromProjection(account))) {
+      return { allowed: false, reason: 'account_offboarding_blocked' };
+    }
     if (account.subscription_tier === newTier) {
       return { allowed: false, reason: 'same_tier' };
     }
@@ -127,6 +160,7 @@ export async function validateTierChange(
 
 export type TierChangeFailureCode =
   | 'no_stripe_subscription'
+  | 'account_offboarding_blocked'
   | 'subscription_inactive'
   | 'same_tier'
   | 'operation_conflict'
@@ -220,7 +254,6 @@ function validateCommittedIdentity(
 
 function committedBillingSnapshot(
   row: CommittedTierChangeRow,
-  identity: MatchedCommittedIdentity,
 ): BillingSnapshot {
   const basePriceCents = parseAuditInteger(
     row.base_price_cents,
@@ -242,13 +275,10 @@ function committedBillingSnapshot(
     'locations_paid',
     { positive: false },
   );
-  const committedSnapshot = resolveTierSnapshot(identity.tier, identity.variant);
-  const snapshotMatches = basePriceCents === committedSnapshot.baseCents
-    && overagePriceCents === committedSnapshot.overageCents
-    && includedLocations === committedSnapshot.included;
-  if (!snapshotMatches) {
-    throw new Error('Committed tier-change audit billing snapshot is inconsistent');
-  }
+  // The committed audit is the immutable operation result. Re-validating its
+  // cents against today's registry would make a successful historical retry
+  // fail after a legitimate Price rotation. Identity is validated separately;
+  // this parser enforces structural/integer integrity only.
   const totalCents = basePriceCents + overageUnits * overagePriceCents;
   if (!Number.isSafeInteger(totalCents)) {
     throw new Error('Committed tier-change audit has invalid total billing cents');
@@ -295,7 +325,7 @@ async function loadCommittedTierChange(
   if (identity.kind === 'conflict') return identity;
   return {
     kind: 'success',
-    billing: committedBillingSnapshot(row, identity),
+    billing: committedBillingSnapshot(row),
   };
 }
 
@@ -632,6 +662,13 @@ async function applyTierChangeInTx(
   });
   const replay = committedOutcome(committed);
   if (replay) return replay;
+
+  if (isBillingMutationBlocked(activeOffboardingStateFromProjection(account))) {
+    return tierChangeFailure(
+      'account_offboarding_blocked',
+      'Account offboarding blocks tier changes',
+    );
+  }
 
   assertTierPurchasable(input.tier);
   const executable = validateExecutableAccount(account, input.accountId);

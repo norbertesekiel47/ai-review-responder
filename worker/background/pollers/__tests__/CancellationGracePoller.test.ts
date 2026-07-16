@@ -38,6 +38,11 @@ async function runOneCycle(): Promise<void> {
   stopCancellationGracePoller();
 }
 
+function queueLifecycleAndBusinessLocks(): void {
+  sqlReturnQueue.push([]); // account-scoped location lifecycle advisory lock
+  sqlReturnQueue.push([]); // deterministic active business-row FOR UPDATE lock
+}
+
 // ── Tests ──────────────────────────────────────────────────────────
 
 describe('CancellationGracePoller', () => {
@@ -64,6 +69,7 @@ describe('CancellationGracePoller', () => {
       { account_id: 'acct-1', cancelled_count: 2 },
     ]);
 
+    queueLifecycleAndBusinessLocks();
     // Inside tx: UPDATE businesses RETURNING archived locations
     sqlReturnQueue.push([
       { id: 'loc-1', display_label: 'Downtown', name: 'Downtown Cafe' },
@@ -120,6 +126,7 @@ describe('CancellationGracePoller', () => {
       { account_id: 'acct-expired', cancelled_count: 3 },
     ]);
 
+    queueLifecycleAndBusinessLocks();
     // Inside tx: UPDATE businesses RETURNING archived locations
     sqlReturnQueue.push([
       { id: 'loc-a', display_label: 'A', name: 'Location A' },
@@ -147,6 +154,7 @@ describe('CancellationGracePoller', () => {
       { account_id: 'acct-returning', cancelled_count: 2 },
     ]);
 
+    queueLifecycleAndBusinessLocks();
     sqlReturnQueue.push([
       { id: 'loc-returned-1', display_label: 'Returned A', name: 'Location A' },
       { id: 'loc-returned-2', display_label: 'Returned B', name: 'Location B' },
@@ -176,6 +184,7 @@ describe('CancellationGracePoller', () => {
 
     // Simulates an offboarding row being created after discovery: the guarded
     // UPDATE should return no locations, so no audit rows are written.
+    queueLifecycleAndBusinessLocks();
     sqlReturnQueue.push([]);
 
     await runOneCycle();

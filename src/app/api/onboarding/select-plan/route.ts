@@ -6,7 +6,11 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { SelectPlanSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
-import { createCheckoutSession, CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
+import {
+  CheckoutOffboardingBlockedError,
+  CheckoutUnavailableError,
+  createCheckoutSession,
+} from '@/lib/payments/create-checkout-session';
 import {
   applyTierSnapshot,
   CheckoutAttemptConflictError,
@@ -250,6 +254,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { status: 404, headers: NO_STORE },
     );
   }
+  if (result.kind === 'offboarding_blocked') {
+    return NextResponse.json(
+      { error: 'account_offboarding_blocked' },
+      { status: 403, headers: NO_STORE },
+    );
+  }
   if (result.kind === 'wrong_status') {
     return NextResponse.json(
       { error: 'subscription_not_pending', subscriptionStatus: result.status },
@@ -283,6 +293,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         { error: 'checkout_unavailable', detail: err.message },
         { status: 502, headers: NO_STORE },
+      );
+    }
+    if (err instanceof CheckoutOffboardingBlockedError) {
+      return NextResponse.json(
+        { error: 'account_offboarding_blocked' },
+        { status: 403, headers: NO_STORE },
       );
     }
     if (err instanceof CheckoutAttemptConflictError) {

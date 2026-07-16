@@ -137,6 +137,8 @@ export async function readLocationActionRequest<TSchema extends z.ZodTypeAny>(
  * matching on error prose is how dialects and dead branches creep in.
  */
 export const LOCATION_DENIAL_STATUS: Record<string, number> = {
+  account_not_found: 404,
+  account_offboarding_blocked: 403,
   location_not_found: 404,
   location_not_owned: 403,
   location_already_archived: 409,

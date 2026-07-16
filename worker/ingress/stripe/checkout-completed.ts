@@ -9,6 +9,12 @@ import {
 } from '../../../src/lib/accounts/tier-config';
 import { acquireTierBillingActivationLocks } from '../../../src/lib/accounts/billing-locks';
 import {
+  activeOffboardingStateFromProjection,
+  isCheckoutBlocked,
+  lockAccountBeforeOffboardingProjection,
+  type ActiveOffboardingProjection,
+} from '../../../src/lib/account-offboarding/gate';
+import {
   synchronizeBusinessTierMirror,
   writeResolvedTierSnapshot,
 } from '../../../src/lib/accounts/tier-snapshot';
@@ -29,7 +35,8 @@ import {
   type TransitionResult,
 } from './apply-subscription-state';
 
-interface CheckoutAccountRow extends CheckoutAttemptLeaseColumns {
+interface CheckoutAccountRow
+  extends CheckoutAttemptLeaseColumns, ActiveOffboardingProjection {
   id: string;
   subscription_tier: string;
   subscription_status: string;
@@ -40,6 +47,10 @@ interface CheckoutAccountRow extends CheckoutAttemptLeaseColumns {
   locations_included: number;
   stripe_subscription_id: string | null;
   stripe_customer_id: string | null;
+  checkout_attempt_tax_enabled: boolean | null;
+  checkout_attempt_customer_email: string | null;
+  checkout_attempt_success_url: string | null;
+  checkout_attempt_cancel_url: string | null;
 }
 
 type AlertReason =
@@ -51,10 +62,12 @@ type AlertReason =
   | 'stale_checkout_attempt'
   | 'checkout_session_mismatch'
   | 'checkout_line_items_mismatch'
+  | 'checkout_create_shape_mismatch'
   | 'checkout_snapshot_mismatch'
   | 'checkout_account_status_mismatch'
   | 'checkout_subscription_not_entitled'
   | 'checkout_status_binding_failed'
+  | 'checkout_blocked_by_offboarding'
   | 'autopilot_activated_while_unavailable';
 
 interface OperationalAlert {
@@ -75,6 +88,72 @@ interface CheckoutProjection {
 interface PriceLine {
   quantity?: number | null;
   price?: { id?: string | null } | null;
+}
+
+const TRIAL_PERIOD_DAYS = 30;
+const SECONDS_PER_DAY = 86_400;
+
+function trialContractMatchesLease(
+  providerSession: Stripe.Checkout.Session,
+  subscription: Stripe.Subscription,
+  account: CheckoutAccountRow,
+): boolean {
+  const leasedDays = account.checkout_attempt_trial_period_days;
+  if (leasedDays === null) {
+    return (
+      subscription.status === 'active' &&
+      providerSession.payment_status === 'paid' &&
+      subscription.trial_start === null &&
+      subscription.trial_end === null
+    );
+  }
+  if (Number(leasedDays) !== TRIAL_PERIOD_DAYS) return false;
+
+  const trialStart = subscription.trial_start;
+  const trialEnd = subscription.trial_end;
+  return (
+    subscription.status === 'trialing' &&
+    providerSession.payment_status === 'no_payment_required' &&
+    typeof trialStart === 'number' &&
+    Number.isSafeInteger(trialStart) &&
+    typeof trialEnd === 'number' &&
+    Number.isSafeInteger(trialEnd) &&
+    trialEnd > Math.floor(Date.now() / 1000) &&
+    trialEnd - trialStart === TRIAL_PERIOD_DAYS * SECONDS_PER_DAY
+  );
+}
+
+function checkoutCreateShapeMatchesLease(
+  providerSession: Stripe.Checkout.Session,
+  account: CheckoutAccountRow,
+): boolean {
+  const taxEnabled = account.checkout_attempt_tax_enabled;
+  const customerEmail = account.checkout_attempt_customer_email;
+  const successUrl = account.checkout_attempt_success_url;
+  const cancelUrl = account.checkout_attempt_cancel_url;
+  if (
+    typeof taxEnabled !== 'boolean' ||
+    !customerEmail ||
+    !successUrl ||
+    !cancelUrl
+  ) {
+    return false;
+  }
+
+  return (
+    providerSession.allow_promotion_codes !== true &&
+    providerSession.automatic_tax?.enabled === taxEnabled &&
+    (providerSession.automatic_tax?.liability ?? null) === null &&
+    (taxEnabled
+      ? providerSession.billing_address_collection === 'required'
+      : providerSession.billing_address_collection === null
+        || providerSession.billing_address_collection === 'auto') &&
+    (providerSession.tax_id_collection?.enabled ?? false) === taxEnabled &&
+    (providerSession.tax_id_collection?.required ?? 'never') === 'never' &&
+    providerSession.customer_email === customerEmail &&
+    providerSession.success_url === successUrl &&
+    providerSession.cancel_url === cancelUrl
+  );
 }
 
 class CheckoutRemediationRequiredError extends Error {
@@ -267,7 +346,12 @@ async function projectCheckoutSubscription(
         checkout_attempt_overage_price_cents,
         checkout_attempt_locations_included,
         checkout_attempt_locations_paid,
-        checkout_attempt_overage_quantity
+        checkout_attempt_overage_quantity,
+        checkout_attempt_trial_period_days,
+        checkout_attempt_tax_enabled,
+        checkout_attempt_customer_email,
+        checkout_attempt_success_url,
+        checkout_attempt_cancel_url
       FROM accounts
       WHERE id = ${accountId}::uuid
     `;
@@ -342,6 +426,10 @@ async function projectCheckoutSubscription(
       subscription.status !== 'trialing'
     ) {
       reason = 'checkout_subscription_not_entitled';
+    } else if (!checkoutCreateShapeMatchesLease(providerSession, observed)) {
+      reason = 'checkout_create_shape_mismatch';
+    } else if (!trialContractMatchesLease(providerSession, subscription, observed)) {
+      reason = 'invalid_trial';
     } else if (
       subscription.status === 'trialing' &&
       (typeof subscription.trial_end !== 'number' ||
@@ -398,33 +486,66 @@ async function projectCheckoutSubscription(
       throw new Error('unreachable checkout account state');
     }
 
+    const accountLocked = await lockAccountBeforeOffboardingProjection(
+      tx,
+      accountId,
+    );
+    if (!accountLocked) {
+      throw new CheckoutRemediationRequiredError(
+        accountId,
+        eventSessionId,
+        subscription,
+        'account_missing',
+      );
+    }
+
     const [account] = await tx<CheckoutAccountRow[]>`
       SELECT
-        id,
-        subscription_tier,
-        subscription_status,
-        price_variant,
-        base_price_cents,
-        locations_paid,
-        locations_overage_price_cents,
-        locations_included,
-        stripe_subscription_id,
-        stripe_customer_id,
-        checkout_attempt_id,
-        checkout_session_id,
-        checkout_attempt_state,
-        checkout_attempt_tier,
-        checkout_attempt_price_variant,
-        checkout_attempt_base_price_id,
-        checkout_attempt_overage_price_id,
-        checkout_attempt_base_price_cents,
-        checkout_attempt_overage_price_cents,
-        checkout_attempt_locations_included,
-        checkout_attempt_locations_paid,
-        checkout_attempt_overage_quantity
-      FROM accounts
-      WHERE id = ${accountId}::uuid
-      FOR UPDATE
+        a.id,
+        a.subscription_tier,
+        a.subscription_status,
+        a.price_variant,
+        a.base_price_cents,
+        a.locations_paid,
+        a.locations_overage_price_cents,
+        a.locations_included,
+        a.stripe_subscription_id,
+        a.stripe_customer_id,
+        a.checkout_attempt_id,
+        a.checkout_session_id,
+        a.checkout_attempt_state,
+        a.checkout_attempt_tier,
+        a.checkout_attempt_price_variant,
+        a.checkout_attempt_base_price_id,
+        a.checkout_attempt_overage_price_id,
+        a.checkout_attempt_base_price_cents,
+        a.checkout_attempt_overage_price_cents,
+        a.checkout_attempt_locations_included,
+        a.checkout_attempt_locations_paid,
+        a.checkout_attempt_overage_quantity,
+        a.checkout_attempt_trial_period_days,
+        a.checkout_attempt_tax_enabled,
+        a.checkout_attempt_customer_email,
+        a.checkout_attempt_success_url,
+        a.checkout_attempt_cancel_url,
+        ao.id AS offboarding_id,
+        ao.account_id AS offboarding_account_id,
+        ao.mode AS offboarding_mode,
+        ao.status AS offboarding_status,
+        ao.failed_step AS offboarding_failed_step,
+        ao.access_ends_at AS offboarding_access_ends_at,
+        ao.teardown_started_at AS offboarding_teardown_started_at,
+        ao.purge_after AS offboarding_purge_after,
+        ao.purge_started_at AS offboarding_purge_started_at,
+        ao.purge_cancelled_at AS offboarding_purge_cancelled_at
+      FROM accounts a
+      LEFT JOIN account_offboardings ao
+        ON ao.account_id = a.id
+        AND ao.account_id = ${accountId}::uuid
+        AND ao.terminal_at IS NULL
+      WHERE a.id = ${accountId}::uuid
+      ORDER BY ao.created_at DESC NULLS LAST
+      LIMIT 1
     `;
     if (
       !account ||
@@ -453,6 +574,41 @@ async function projectCheckoutSubscription(
         eventSessionId,
         subscription,
         'stale_checkout_attempt',
+      );
+    }
+    if (!checkoutCreateShapeMatchesLease(providerSession, account)) {
+      throw new CheckoutRemediationRequiredError(
+        accountId,
+        eventSessionId,
+        subscription,
+        'checkout_create_shape_mismatch',
+      );
+    }
+    if (!trialContractMatchesLease(providerSession, subscription, account)) {
+      throw new CheckoutRemediationRequiredError(
+        accountId,
+        eventSessionId,
+        subscription,
+        'invalid_trial',
+      );
+    }
+    if (
+      !lineItemsMatchLease(providerSession.line_items?.data ?? [], account) ||
+      !lineItemsMatchLease(subscription.items?.data ?? [], account)
+    ) {
+      throw new CheckoutRemediationRequiredError(
+        accountId,
+        eventSessionId,
+        subscription,
+        'checkout_line_items_mismatch',
+      );
+    }
+    if (isCheckoutBlocked(activeOffboardingStateFromProjection(account))) {
+      throw new CheckoutRemediationRequiredError(
+        accountId,
+        eventSessionId,
+        subscription,
+        'checkout_blocked_by_offboarding',
       );
     }
 
@@ -579,8 +735,14 @@ export async function processCheckoutSessionCompleted(
     }
   }
   if (!accountId) {
-    console.warn(`${LOG_PREFIX} checkout.session.completed ref_id=${refId} matches neither account nor business — skipping`);
-    return;
+    // A delete-data purge can win after the owner completed the hosted Session
+    // but before this webhook is projected. The signed event plus provider-
+    // current Session/subscription identity is still enough to stop future
+    // billing; silently acknowledging here would orphan the subscription.
+    console.warn(
+      `${LOG_PREFIX} checkout.session.completed ref_id=${refId} matches neither account nor business — retrieving provider state for remediation`,
+    );
+    accountId = refId;
   }
 
   const projection = await projectCheckoutSubscription(
@@ -588,10 +750,13 @@ export async function processCheckoutSessionCompleted(
     session.id,
     extractCustomerId(session.customer),
   );
+  // Report launch-gate downgrade/refund signals before the deprecated mirror.
+  // Mirror failure is retryable, but completed replay intentionally does not
+  // reconstruct the original alert; emitting first prevents permanent loss.
+  for (const alert of projection.alerts) reportOperationalAlert(alert);
   if (projection.mirrorNeedsSync) {
     await synchronizeBusinessTierMirror(sql, accountId);
   }
-  for (const alert of projection.alerts) reportOperationalAlert(alert);
 
   if (projection.transition?.changed && projection.transition.activated) {
     await resumePrimaryBusinessBackfill(

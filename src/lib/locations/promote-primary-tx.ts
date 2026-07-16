@@ -37,6 +37,7 @@
 
 import type { Sql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
+import { acquireLocationLifecycleLock } from '@/lib/accounts/billing-locks';
 
 // ── Input / Output types ───────────────────────────────────────────────────
 
@@ -84,27 +85,35 @@ export async function promotePrimaryTransaction(
   let oldPrimaryId: string | null = null;
 
   await sql.begin(async (tx) => {
-    await tx`
-      SELECT id
-      FROM accounts
-      WHERE id = ${accountId}::uuid
-      FOR UPDATE
-    `;
+    await acquireLocationLifecycleLock(tx, accountId);
 
-    const [lockedTarget] = await tx<{ id: string; is_primary: boolean }[]>`
+    // Lock every row this promotion may update in deterministic id order
+    // before touching the account row. The lifecycle mutex serializes other
+    // location operations; the ordered row set composes safely with
+    // publisher/mirror business -> entitlement locks.
+    const lockedLocations = await tx<{ id: string; is_primary: boolean }[]>`
       SELECT id, is_primary
       FROM businesses
-      WHERE id = ${newPrimaryId}::uuid
-        AND account_id = ${accountId}::uuid
+      WHERE account_id = ${accountId}::uuid
         AND archived_at IS NULL
+        AND (id = ${newPrimaryId}::uuid OR is_primary = TRUE)
+      ORDER BY id
       FOR UPDATE
     `;
+    const lockedTarget = lockedLocations.find((row) => row.id === newPrimaryId);
     if (!lockedTarget) {
       throw new Error('location_not_found');
     }
     if (lockedTarget.is_primary) {
       throw new Error('already_primary');
     }
+
+    await tx`
+      SELECT id
+      FROM accounts
+      WHERE id = ${accountId}::uuid
+      FOR UPDATE
+    `;
 
     // 1. Demote the current primary
     const [demoted] = await tx<{ id: string }[]>`

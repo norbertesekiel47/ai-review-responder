@@ -43,6 +43,13 @@ vi.mock('stripe', () => {
             mode: 'subscription',
             status: 'complete',
             payment_status: 'paid',
+            allow_promotion_codes: false,
+            automatic_tax: { enabled: false, liability: null },
+            billing_address_collection: null,
+            tax_id_collection: { enabled: false, required: 'never' },
+            customer_email: 'owner@example.com',
+            success_url: 'https://repworth.example/onboarding?checkout=success',
+            cancel_url: 'https://repworth.example/onboarding?checkout=cancelled',
             client_reference_id: '019dc366-29ce-736d-ae75-d19dc561e58f',
             customer: 'cus_test_1',
             subscription: 'sub_test_1',
@@ -60,6 +67,7 @@ vi.mock('stripe', () => {
           id: 'sub_test_1',
           customer: 'cus_test_1',
           status: 'active',
+          trial_start: null,
           trial_end: null,
           metadata: {
             checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
@@ -71,6 +79,7 @@ vi.mock('stripe', () => {
             }],
           },
         }),
+        cancel: vi.fn(),
       };
     },
   };
@@ -360,6 +369,11 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
           checkout_attempt_locations_included: 1,
           checkout_attempt_locations_paid: 0,
           checkout_attempt_overage_quantity: 0,
+          checkout_attempt_trial_period_days: null,
+          checkout_attempt_tax_enabled: false,
+          checkout_attempt_customer_email: 'owner@example.com',
+          checkout_attempt_success_url: 'https://repworth.example/onboarding?checkout=success',
+          checkout_attempt_cancel_url: 'https://repworth.example/onboarding?checkout=cancelled',
         }]);
       }
       // 3. Applier's resolveAccount: SELECT a.id, a.subscription_status, … FROM accounts a …
@@ -395,7 +409,7 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     // At minimum one UPDATE accounts fired (proves the handler now
     // targets the accounts table as source of truth).
     expect(accountUpdates.length).toBeGreaterThan(0);
-    expect(mockSql).toHaveBeenCalledTimes(17);
+    expect(mockSql).toHaveBeenCalledTimes(18);
   });
 
   it('returns 401 when stripe-signature header is missing', async () => {

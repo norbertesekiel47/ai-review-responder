@@ -40,7 +40,9 @@ vi.mock('@/lib/payments/plan-activation', async (importOriginal) => ({
 }));
 vi.mock('@/lib/payments/create-checkout-session', () => {
   class CheckoutUnavailableError extends Error {}
+  class CheckoutOffboardingBlockedError extends Error {}
   return {
+    CheckoutOffboardingBlockedError,
     CheckoutUnavailableError,
     createCheckoutSession: mockCreateCheckoutSession,
   };
@@ -48,7 +50,10 @@ vi.mock('@/lib/payments/create-checkout-session', () => {
 
 import { POST } from '../route';
 import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
-import { CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
+import {
+  CheckoutOffboardingBlockedError,
+  CheckoutUnavailableError,
+} from '@/lib/payments/create-checkout-session';
 
 const ACCOUNT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const ATTEMPT_ID = '11111111-2222-4333-8444-555555555555';
@@ -241,6 +246,20 @@ describe('POST /api/billing/checkout', () => {
       error: 'checkout_unavailable',
       detail: 'missing selected Price',
     });
+  });
+
+  it('maps offboarding that starts after freeze to a private blocked response', async () => {
+    mockCreateCheckoutSession.mockRejectedValueOnce(
+      new CheckoutOffboardingBlockedError(),
+    );
+
+    const res = await POST(
+      request({ accountId: ACCOUNT_ID, tier: SubscriptionTier.COPILOT }),
+    );
+
+    expect(res.status).toBe(403);
+    expect(res.headers.get('cache-control')).toBe('no-store, private');
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
   });
 
   it('maps provider errors to a private no-store 502 response', async () => {

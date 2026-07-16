@@ -103,6 +103,23 @@ function mockAccountRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function mockOffboardingRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'offboarding-1',
+    account_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    mode: 'delete_data',
+    status: 'pending',
+    failed_step: null,
+    terminal_at: null,
+    access_ends_at: null,
+    teardown_started_at: null,
+    purge_after: null,
+    purge_started_at: null,
+    purge_cancelled_at: null,
+    ...overrides,
+  };
+}
+
 // handleUpdateStripeOverage is born-injected (sql is a leading parameter), so
 // no @/lib/db/server module mocking is needed — the fragment-aware
 // createMockSql harness (shared with other worker suites) stands in for
@@ -110,13 +127,18 @@ function mockAccountRow(overrides: Record<string, unknown> = {}) {
 //
 // For any given control-flow path the handler issues its Postgres queries in
 // a FIXED order inside sql.begin: billing advisory lock, account row FOR UPDATE,
-// then — only for a valid entitled account — the live businesses COUNT(*).
+// active offboarding read, then — only for a valid entitled account — the live
+// businesses COUNT(*).
 let harness: MockSqlHarness;
 let mockSql: Sql;
 
-function queueAccountRow(overrides: Record<string, unknown> = {}) {
+function queueAccountRow(
+  overrides: Record<string, unknown> = {},
+  offboardingRow: Record<string, unknown> | null = null,
+) {
   harness.sqlReturnQueue.push(mkTaggedResult([])); // billing advisory lock
   harness.sqlReturnQueue.push(mkTaggedResult([mockAccountRow(overrides)]));
+  harness.sqlReturnQueue.push(mkTaggedResult(offboardingRow ? [offboardingRow] : []));
 }
 
 function queueNoAccount() {
@@ -178,7 +200,7 @@ describe('UpdateStripeOverageWorker', () => {
     );
     expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
-    expect(harness.sqlCalls).toHaveLength(3);
+    expect(harness.sqlCalls).toHaveLength(4);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -207,7 +229,7 @@ describe('UpdateStripeOverageWorker', () => {
         idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage:2:outbox:outbox-1:corr:corr-1',
       }),
     );
-    expect(harness.sqlCalls).toHaveLength(3);
+    expect(harness.sqlCalls).toHaveLength(4);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -236,7 +258,7 @@ describe('UpdateStripeOverageWorker', () => {
     expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
     expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
-    expect(harness.sqlCalls).toHaveLength(3);
+    expect(harness.sqlCalls).toHaveLength(4);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -269,6 +291,62 @@ describe('UpdateStripeOverageWorker', () => {
     expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
     expect(mockStripeSubscriptionItemsDel).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
+  });
+
+  it('updates an existing grandfathered overage item without falling forward to the live Price', async () => {
+    queueAccountRow({ locations_overage_price_cents: 1400 });
+    queueOverageTx(3);
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_copilot' }, quantity: 1 },
+          {
+            id: 'si_grandfathered_overage',
+            metadata: { billing_role: 'overage' },
+            price: { id: 'price_old_copilot_overage', unit_amount: 1400 },
+            quantity: 1,
+          },
+        ],
+      },
+    });
+
+    await handleUpdateStripeOverage(mockSql, mockJob());
+
+    expect(mockStripeSubscriptionItemsUpdate).toHaveBeenCalledWith(
+      'si_grandfathered_overage',
+      expect.objectContaining({ quantity: 2 }),
+      expect.anything(),
+    );
+    expect(mockStripeSubscriptionItemsUpdate.mock.calls[0]![1]).not.toHaveProperty('price');
+    expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
+  });
+
+  it('fails closed instead of recreating a grandfathered item at the live higher Price', async () => {
+    queueAccountRow({ locations_overage_price_cents: 1400 });
+    queueOverageTx(3);
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_copilot' }, quantity: 1 },
+        ],
+      },
+    });
+
+    await expect(handleUpdateStripeOverage(mockSql, mockJob())).rejects.toThrow(
+      'Missing retained overage Price for copilot at 1400 cents',
+    );
+
+    expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionItemsDel).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      mockSql,
+      'outbox-1',
+      'Missing retained overage Price for copilot at 1400 cents',
+      1,
+    );
   });
 
   // VAL-LOC-012: Deletes overage item when locations fit in included quota
@@ -376,7 +454,7 @@ describe('UpdateStripeOverageWorker', () => {
       expect(mockStripeSubscriptionItemsUpdate.mock.calls[0]?.[1]).not.toHaveProperty('price');
       expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
       expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
-      expect(harness.sqlCalls).toHaveLength(3);
+      expect(harness.sqlCalls).toHaveLength(4);
       expect(harness.sqlReturnQueue).toHaveLength(0);
     },
   );
@@ -415,7 +493,7 @@ describe('UpdateStripeOverageWorker', () => {
     expect(mockStripeSubscriptionItemsUpdate.mock.calls[0]?.[1]).not.toHaveProperty('price');
     expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
-    expect(harness.sqlCalls).toHaveLength(3);
+    expect(harness.sqlCalls).toHaveLength(4);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -453,7 +531,7 @@ describe('UpdateStripeOverageWorker', () => {
           'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_incompatible:price_copilot_overage:2:outbox:outbox-1:corr:corr-1',
       },
     );
-    expect(harness.sqlCalls).toHaveLength(3);
+    expect(harness.sqlCalls).toHaveLength(4);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -513,7 +591,7 @@ describe('UpdateStripeOverageWorker', () => {
     );
     expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
-    expect(harness.sqlCalls).toHaveLength(6);
+    expect(harness.sqlCalls).toHaveLength(8);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -533,6 +611,184 @@ describe('UpdateStripeOverageWorker', () => {
 
     expect(mockStripeSubscriptionsRetrieve).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
+  });
+
+  it.each([
+    ['delete_data', 'pending'],
+    ['cancel_only', 'tearing_down'],
+  ] as const)(
+    'blocks a delayed overage job when %s/%s offboarding is active at execution time',
+    async (mode, status) => {
+      // The outbox job may have been dispatched before offboarding began. The
+      // worker must load current offboarding state under the billing lock rather
+      // than trusting enqueue-time state.
+      queueAccountRow({}, mockOffboardingRow({ mode, status }));
+
+      await handleUpdateStripeOverage(mockSql, mockJob());
+
+      expect(mockStripeSubscriptionsRetrieve).not.toHaveBeenCalled();
+      expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
+      expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
+      expect(mockStripeSubscriptionItemsDel).not.toHaveBeenCalled();
+      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
+      expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+      expect(harness.sqlReturnQueue).toHaveLength(0);
+    },
+  );
+
+  it('completes a delayed job without expanding overage during scheduled cancellation', async () => {
+    queueAccountRow(
+      {},
+      mockOffboardingRow({ mode: 'cancel_only', status: 'scheduled' }),
+    );
+    queueOverageTx(3); // target quantity 2, provider-current quantity 1
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_copilot' }, quantity: 1 },
+          {
+            id: 'si_overage',
+            price: { id: 'price_copilot_overage', unit_amount: 1500 },
+            quantity: 1,
+          },
+        ],
+      },
+    });
+
+    await handleUpdateStripeOverage(mockSql, mockJob());
+
+    expect(mockStripeSubscriptionsRetrieve).toHaveBeenCalledWith('sub_test');
+    expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionItemsDel).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+  });
+
+  it('refuses to create a missing overage item during scheduled cancellation', async () => {
+    queueAccountRow(
+      {},
+      mockOffboardingRow({ mode: 'cancel_only', status: 'scheduled' }),
+    );
+    queueOverageTx(3); // target quantity 2, but no provider item exists
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_copilot' }, quantity: 1 },
+        ],
+      },
+    });
+
+    await handleUpdateStripeOverage(mockSql, mockJob());
+
+    expect(mockStripeSubscriptionsRetrieve).toHaveBeenCalledWith('sub_test');
+    expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionItemsDel).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+  });
+
+  it('allows deleting an existing overage item during scheduled cancellation', async () => {
+    queueAccountRow(
+      { locations_included: 2 },
+      mockOffboardingRow({ mode: 'cancel_only', status: 'scheduled' }),
+    );
+    queueOverageTx(2); // target quantity 0 is a contraction
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_copilot' }, quantity: 1 },
+          {
+            id: 'si_overage',
+            price: { id: 'price_copilot_overage', unit_amount: 1500 },
+            quantity: 2,
+          },
+        ],
+      },
+    });
+
+    await handleUpdateStripeOverage(mockSql, mockJob());
+
+    expect(mockStripeSubscriptionItemsDel).toHaveBeenCalledWith(
+      'si_overage',
+      {},
+      {
+        idempotencyKey:
+          'stripe-overage-delete:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage:0:outbox:outbox-1:corr:corr-1',
+      },
+    );
+    expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+  });
+
+  it('allows a safe quantity contraction after cancel-only billing failure', async () => {
+    queueAccountRow(
+      {},
+      mockOffboardingRow({
+        mode: 'cancel_only',
+        status: 'failed',
+        failed_step: 'billing',
+      }),
+    );
+    queueOverageTx(2); // target quantity 1, provider-current quantity 3
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_copilot' }, quantity: 1 },
+          {
+            id: 'si_overage',
+            price: { id: 'price_copilot_overage', unit_amount: 1500 },
+            quantity: 3,
+          },
+        ],
+      },
+    });
+
+    await handleUpdateStripeOverage(mockSql, mockJob());
+
+    expect(mockStripeSubscriptionItemsUpdate).toHaveBeenCalledWith(
+      'si_overage',
+      expect.objectContaining({ quantity: 1 }),
+      expect.anything(),
+    );
+    expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionItemsDel).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
+  });
+
+  it('blocks a Price replacement even when quantity would contract during scheduled cancellation', async () => {
+    queueAccountRow(
+      {},
+      mockOffboardingRow({ mode: 'cancel_only', status: 'scheduled' }),
+    );
+    queueOverageTx(2); // target quantity 1, provider-current quantity 3
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_copilot' }, quantity: 1 },
+          {
+            id: 'si_wrong_price',
+            metadata: { billing_role: 'overage' },
+            price: { id: 'price_wrong_amount', unit_amount: 1400 },
+            quantity: 3,
+          },
+        ],
+      },
+    });
+
+    await handleUpdateStripeOverage(mockSql, mockJob());
+
+    expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionItemsDel).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
   it('fails closed for an unsupported tier instead of silently skipping overage', async () => {
@@ -630,7 +886,7 @@ describe('UpdateStripeOverageWorker', () => {
       },
     );
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 1);
-    expect(harness.sqlCalls).toHaveLength(6);
+    expect(harness.sqlCalls).toHaveLength(8);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -690,10 +946,14 @@ describe('UpdateStripeOverageWorker', () => {
     const accountIndex = harness.sqlCalls.findIndex((call) =>
       /FROM\s+accounts/i.test(call.text),
     );
+    const offboardingIndex = harness.sqlCalls.findIndex((call) =>
+      /FROM\s+account_offboardings/i.test(call.text),
+    );
     expect(lockIndex).toBeGreaterThanOrEqual(0);
     expect(accountIndex).toBeGreaterThan(lockIndex);
+    expect(offboardingIndex).toBeGreaterThan(accountIndex);
     expect(harness.sqlCalls[accountIndex]!.text).toMatch(/\bFOR\s+UPDATE\b/i);
-    expect(harness.sqlCalls).toHaveLength(3);
+    expect(harness.sqlCalls).toHaveLength(4);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 

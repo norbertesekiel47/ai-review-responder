@@ -132,8 +132,12 @@ describe('invoice.paid — active recovery from past_due', () => {
       (call) => isAccountStatusUpdate(call, SubscriptionStatus.ACTIVE),
     );
     expect(updateAcct).toEqual([]);
-    expect(mockRetrieveSubscription).not.toHaveBeenCalled();
-    expect(sqlCalls).toHaveLength(2);
+    expect(mockRetrieveSubscription).toHaveBeenCalledWith(
+      TEST_SUBSCRIPTION_ID,
+      {},
+      { timeout: 20_000 },
+    );
+    expect(sqlCalls).toHaveLength(4);
   });
 
   it('VAL-BILLING-D3a: past_due → active recovery inserts one update_stripe_overage_quantity outbox row', async () => {
@@ -183,8 +187,12 @@ describe('invoice.paid — active recovery from past_due', () => {
       (c) => c.text.includes('INSERT INTO job_outbox') && c.values.includes('update_stripe_overage_quantity'),
     );
     expect(overageInserts).toHaveLength(0);
-    expect(mockRetrieveSubscription).not.toHaveBeenCalled();
-    expect(sqlCalls).toHaveLength(2);
+    expect(mockRetrieveSubscription).toHaveBeenCalledWith(
+      TEST_SUBSCRIPTION_ID,
+      {},
+      { timeout: 20_000 },
+    );
+    expect(sqlCalls).toHaveLength(4);
   });
 
   it('missing customer → warns and skips', async () => {
@@ -216,6 +224,20 @@ describe('invoice.paid — active recovery from past_due', () => {
     });
 
     queueInvoicePaid({ status: 'past_due' });
+
+    mockRetrieveSubscription.mockImplementation(async () => {
+      const templates = sqlCalls.map((call) => call.text);
+      expect(templates.some((text) => text.includes('pg_advisory_xact_lock'))).toBe(true);
+      expect(templates.some((text) => text.includes('FROM accounts') && text.includes('FOR UPDATE'))).toBe(false);
+      return {
+        id: TEST_SUBSCRIPTION_ID,
+        customer: TEST_CUSTOMER_ID,
+        status: 'active',
+        trial_end: null,
+        metadata: {},
+        items: { data: [] },
+      };
+    });
 
     const { status, send } = mkReply();
     await handleStripeWebhook(mkRequest(), { status, send } as any);

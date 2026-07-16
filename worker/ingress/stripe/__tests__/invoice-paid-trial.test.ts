@@ -4,14 +4,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * invoice.paid — TRIAL conversion (second convert path; PLAN.md §4.12 / FIX 4).
  *
  * invoice.paid is a SECOND, redundant convert path independent of
- * customer.subscription.updated. When the loaded account is `trialing`, the
- * handler retrieves the subscription (pinned getStripe()) and routes through the
- * SINGLE applier (subscription mode). The applier converts trialing→active ONLY
- * when the retrieved Stripe status is `active`, so:
+ * customer.subscription.updated. For every lineage-attributable invoice, the
+ * handler acquires the entitlement lock, performs a bounded provider-current
+ * subscription read, and routes through the SINGLE applier (subscription mode).
+ * The applier converts trialing→active ONLY when the retrieved Stripe status is
+ * `active`, so:
  *   - a real trial-end invoice (sub now active) → converts.
  *   - the $0 trial-START invoice (sub still trialing) → safe no-op.
- * The extra retrieve is gated to trialing accounts only; the past_due→active
- * recovery path is unchanged and does NOT retrieve.
+ * There is deliberately no pre-lock local-status shortcut: that observation can
+ * be stale while another status writer owns the entitlement lock. The applier's
+ * locked row read owns the final transition/no-op decision.
  */
 
 const {
@@ -67,9 +69,18 @@ import { processInvoicePaid } from '../invoice-paid';
 const ACCOUNT_ID = '019dc366-29ce-7000-a000-000000000001';
 const CUSTOMER_ID = 'cus_test_123';
 const SUB_ID = 'sub_test_456';
+const STATUS_READ_REQUEST_OPTIONS = { timeout: 20_000 };
 
 function invoice(): any {
   return { id: 'in_test', customer: CUSTOMER_ID, subscription: SUB_ID };
+}
+
+function expectBoundedSubscriptionRetrieve(subscriptionId = SUB_ID): void {
+  expect(mockRetrieve).toHaveBeenCalledWith(
+    subscriptionId,
+    {},
+    STATUS_READ_REQUEST_OPTIONS,
+  );
 }
 
 beforeEach(() => {
@@ -88,13 +99,14 @@ beforeEach(() => {
 
 describe('invoice.paid — trial conversion (FIX 4)', () => {
   it('trialing account whose Stripe sub is now active → converts via applier (subscription mode)', async () => {
-    // accounts SELECT FOR UPDATE returns a trialing account whose current sub matches the invoice.
+    // The unlocked lineage lookup returns the matching account id. The applier
+    // owns the later locked account/status read.
     sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'trialing', stripe_subscription_id: SUB_ID }]);
     mockRetrieve.mockResolvedValue({ id: SUB_ID, customer: CUSTOMER_ID, status: 'active', trial_end: null });
 
     await processInvoicePaid(invoice());
 
-    expect(mockRetrieve).toHaveBeenCalledWith(SUB_ID);
+    expectBoundedSubscriptionRetrieve();
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
     const [, lockedAccountId, ref, sub] = mockApplyStripeSubscriptionState.mock.calls[0]!;
     expect(lockedAccountId).toBe(ACCOUNT_ID);
@@ -120,7 +132,7 @@ describe('invoice.paid — trial conversion (FIX 4)', () => {
 
     // The applier is called (the conversion decision lives there) but it does
     // NOT convert — Stripe status is still trialing.
-    expect(mockRetrieve).toHaveBeenCalledWith(SUB_ID);
+    expectBoundedSubscriptionRetrieve();
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
     const [, , , sub] = mockApplyStripeSubscriptionState.mock.calls[0]!;
     expect(sub).toMatchObject({ status: 'trialing' });
@@ -140,7 +152,7 @@ describe('invoice.paid — trial conversion (FIX 4)', () => {
 
     await processInvoicePaid(invoice());
 
-    expect(mockRetrieve).toHaveBeenCalledWith(SUB_ID);
+    expectBoundedSubscriptionRetrieve();
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
       expect.anything(),
       ACCOUNT_ID,
@@ -194,7 +206,7 @@ describe('invoice.paid — trial conversion (FIX 4)', () => {
 
     await processInvoicePaid(invoice());
 
-    expect(mockRetrieve).toHaveBeenCalledWith(SUB_ID);
+    expectBoundedSubscriptionRetrieve();
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
       expect.anything(),
       ACCOUNT_ID,
@@ -280,13 +292,23 @@ describe('invoice.paid — trial conversion (FIX 4)', () => {
     expect(sqlReturnQueue).toHaveLength(0);
   });
 
-  it('active account → no-op, NO Stripe retrieve', async () => {
+  it('active account still converges through the bounded provider-current applier and no-ops', async () => {
     sqlReturnQueue.push([{ id: ACCOUNT_ID, subscription_status: 'active' }]);
+    mockApplyStripeSubscriptionState.mockResolvedValueOnce({
+      accountResolved: true, fromStatus: 'active', toStatus: 'active',
+      changed: false, activated: false, primaryBusinessId: null,
+    });
 
     await processInvoicePaid(invoice());
 
-    expect(mockRetrieve).not.toHaveBeenCalled();
-    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expectBoundedSubscriptionRetrieve();
+    expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
+      expect.anything(),
+      ACCOUNT_ID,
+      { mode: 'subscription', stripeCustomerId: CUSTOMER_ID, stripeSubscriptionId: SUB_ID },
+      expect.objectContaining({ status: 'active' }),
+    );
+    expect(mockResumePrimaryBusinessBackfill).not.toHaveBeenCalled();
   });
 
   it('does NOT recover a sibling past_due account whose subscription differs from the invoice', async () => {

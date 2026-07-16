@@ -26,12 +26,17 @@ import {
   isSubscriptionTier,
 } from '../../../src/lib/accounts/tier-config';
 import { acquireBillingLock } from '../../../src/lib/accounts/billing-locks';
-import { priceIdFor } from '../../../src/lib/payments/price-tier-map';
+import { overagePriceIdForStoredCents } from '../../../src/lib/payments/price-tier-map';
 import { computeOverageQuantity } from '../../../src/lib/accounts/quota';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { subscriptionGrantsFullAccess } from '../../../src/lib/shared/subscription-status';
 import { classifyStripeOverageError } from './stripe-overage-error';
 import { isTransientPostgresError } from '../../../src/lib/db/transient-error';
+import {
+  getOffboardingState,
+  isBillingManagementBlocked,
+  isBillingMutationBlocked,
+} from '../../../src/lib/account-offboarding/gate';
 import { syncStripeOverageItem, type OverageSyncOutcome } from './overage-sync';
 
 export interface UpdateStripeOveragePayload {
@@ -88,6 +93,18 @@ export async function handleUpdateStripeOverage(
         FOR UPDATE
       `;
       if (!account) return { kind: 'account_missing' };
+
+      // Read current offboarding state only after the canonical billing-lock →
+      // account-row lock order. Delayed/dispatched outbox jobs must observe an
+      // offboarding flow that started after enqueue. Full-block states permit
+      // no provider mutation, so complete this stale recompute as a no-op.
+      const offboardingState = await getOffboardingState(account_id, tx);
+      if (isBillingManagementBlocked(offboardingState)) {
+        return {
+          kind: 'skip',
+          detail: 'is in a full-block offboarding state',
+        };
+      }
       if (!account.stripe_subscription_id) {
         return { kind: 'skip', detail: 'no Stripe subscription' };
       }
@@ -110,19 +127,10 @@ export async function handleUpdateStripeOverage(
           detail: `Unknown price variant: ${account.price_variant}`,
         };
       }
-      const overagePriceId = priceIdFor(
+      const overagePriceId = overagePriceIdForStoredCents(
         account.subscription_tier,
-        account.price_variant,
-        'overage',
+        account.locations_overage_price_cents,
       );
-      if (!overagePriceId) {
-        return {
-          kind: 'invalid',
-          detail:
-            `Missing overage price ID for tier/variant: ` +
-            `${account.subscription_tier}/${account.price_variant}`,
-        };
-      }
 
       const [lockedCountRow] = await tx<{ count: number }[]>`
         SELECT COUNT(*) AS count
@@ -143,6 +151,9 @@ export async function handleUpdateStripeOverage(
           storedOveragePriceCents: account.locations_overage_price_cents,
           overagePriceId,
           newQuantity,
+          mutationPolicy: isBillingMutationBlocked(offboardingState)
+            ? 'contractions_only'
+            : 'allow_all',
           operationScope,
         },
         logger,
@@ -218,6 +229,10 @@ export async function handleUpdateStripeOverage(
     );
     await markOutboxFailed(sql, outboxId, outcome.detail, outboxAttempt);
     return;
+  }
+
+  if (outcome.kind === 'policy_blocked') {
+    logger.log(`${outcome.detail} (account ${account_id}) — completing stale recompute`);
   }
 
   // Outside the Stripe try/catch on purpose: a transient Postgres blip here

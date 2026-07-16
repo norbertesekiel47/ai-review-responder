@@ -41,7 +41,7 @@ vi.mock('stripe', () => ({
   default: class FakeStripe {
     webhooks = { constructEvent: mockConstructEvent };
     checkout = { sessions: { retrieve: mockRetrieveSession } };
-    subscriptions = { retrieve: mockRetrieveSubscription };
+    subscriptions = { retrieve: mockRetrieveSubscription, cancel: vi.fn() };
   },
 }));
 
@@ -66,6 +66,13 @@ beforeEach(() => {
     mode: 'subscription',
     status: 'complete',
     payment_status: 'paid',
+    allow_promotion_codes: false,
+    automatic_tax: { enabled: false, liability: null },
+    billing_address_collection: null,
+    tax_id_collection: { enabled: false, required: 'never' },
+    customer_email: 'owner@example.com',
+    success_url: 'https://repworth.example/onboarding?checkout=success',
+    cancel_url: 'https://repworth.example/onboarding?checkout=cancelled',
     client_reference_id: TEST_ACCOUNT_ID,
     customer: TEST_CUSTOMER_ID,
     subscription: TEST_SUBSCRIPTION_ID,
@@ -79,6 +86,7 @@ beforeEach(() => {
     id: TEST_SUBSCRIPTION_ID,
     customer: TEST_CUSTOMER_ID,
     status: 'active',
+    trial_start: null,
     trial_end: null,
     metadata: { checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc' },
     items: {
@@ -134,7 +142,7 @@ describe('subscription_status_changed audit logging', () => {
     );
     expect(mockRetrieveSession).toHaveBeenCalledTimes(1);
     expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
-    expect(sqlCalls).toHaveLength(17);
+    expect(sqlCalls).toHaveLength(18);
   });
 
   it('VAL-LOC-058: logs subscription_status_changed on cancellation (active → cancelled)', async () => {

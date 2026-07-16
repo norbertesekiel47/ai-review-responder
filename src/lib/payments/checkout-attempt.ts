@@ -12,4 +12,5 @@ export interface CheckoutAttemptLeaseColumns {
   checkout_attempt_locations_included: number | null;
   checkout_attempt_locations_paid: number | null;
   checkout_attempt_overage_quantity: number | null;
+  checkout_attempt_trial_period_days: number | null;
 }

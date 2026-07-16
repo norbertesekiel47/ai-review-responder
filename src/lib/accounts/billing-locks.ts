@@ -3,6 +3,7 @@ import type { TransactionSql } from 'postgres';
 const TIER_ENTITLEMENT_LOCK_SUFFIX = ':tier_entitlement';
 const OVERAGE_SYNC_LOCK_SUFFIX = ':overage_sync';
 const ACTIVATION_LOCK_SUFFIX = ':activation';
+const LOCATION_LIFECYCLE_LOCK_SUFFIX = ':location_lifecycle';
 
 /**
  * Serializes Autopilot grant/publish with every existing-account tier writer.
@@ -28,6 +29,26 @@ export async function acquireBillingLock(
   await tx`
     SELECT pg_advisory_xact_lock(
       hashtext(${accountId + OVERAGE_SYNC_LOCK_SUFFIX})
+    )
+  `;
+}
+
+/**
+ * Serializes same-account location add/archive/reactivate/promote operations.
+ *
+ * Location writers take this lock before any business-row lock. They lock the
+ * affected business rows in deterministic id order before taking an account
+ * row lock, when one is still required. Keeping the lifecycle mutex separate
+ * from tier entitlement prevents the global account -> business -> entitlement
+ * -> account deadlock while preserving same-account location invariants.
+ */
+export async function acquireLocationLifecycleLock(
+  tx: TransactionSql,
+  accountId: string,
+): Promise<void> {
+  await tx`
+    SELECT pg_advisory_xact_lock(
+      hashtext(${accountId + LOCATION_LIFECYCLE_LOCK_SUFFIX})
     )
   `;
 }

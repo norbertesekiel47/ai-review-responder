@@ -18,6 +18,12 @@ import { v7 as uuidv7 } from 'uuid';
 import { rethrowAsDuplicateLocation } from './duplicate-location';
 import { enqueueValidatePlaceId, enqueueStripeOverageRecompute } from '@/lib/shared/job-outbox-helpers';
 import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import { acquireLocationLifecycleLock } from '@/lib/accounts/billing-locks';
+import {
+  getOffboardingState,
+  isBillingMutationBlocked,
+  lockAccountBeforeOffboardingProjection,
+} from '@/lib/account-offboarding/gate';
 
 // ── Input / Output types ───────────────────────────────────────────────────
 
@@ -186,6 +192,22 @@ export async function addLocationTransaction(
   // error so the route returns 409 instead of a generic 500.
   try {
     await sql.begin(async (tx) => {
+      await acquireLocationLifecycleLock(tx, accountId);
+
+      // Expansion authority is decided inside the write transaction. The
+      // account lock composes with offboarding confirmation; the lifecycle
+      // projection must be a later READ COMMITTED command so a waiter sees the
+      // offboarding row inserted by the transaction that released the lock.
+      const accountLocked = await lockAccountBeforeOffboardingProjection(
+        tx,
+        accountId,
+      );
+      if (!accountLocked) throw new Error('account_not_found');
+      const offboardingState = await getOffboardingState(accountId, tx);
+      if (isBillingMutationBlocked(offboardingState)) {
+        throw new Error('account_offboarding_blocked');
+      }
+
       // 2a. Insert businesses row
       // VAL-LOC-008: is_primary = FALSE (this is NOT the first location)
       // VAL-LOC-036: display_label set from user input

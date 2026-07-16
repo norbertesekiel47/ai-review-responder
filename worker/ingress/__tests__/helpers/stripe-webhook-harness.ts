@@ -38,6 +38,9 @@ import {
 export const TEST_ACCOUNT_ID = '019dc366-29ce-7000-a000-000000000001';
 export const TEST_CUSTOMER_ID = 'cus_test_123';
 export const TEST_SUBSCRIPTION_ID = 'sub_test_456';
+export const TEST_CHECKOUT_EMAIL = 'owner@example.com';
+export const TEST_CHECKOUT_SUCCESS_URL = 'https://repworth.example/onboarding?checkout=success';
+export const TEST_CHECKOUT_CANCEL_URL = 'https://repworth.example/onboarding?checkout=cancelled';
 
 // Price env vars for reverse-map tests. Module-private — consumed only by the
 // harness helpers below, not by the per-handler test files.
@@ -241,18 +244,19 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
   } = {}) {
     const status = opts.status ?? 'past_due';
     // 1. Handler's unlocked, customer+subscription lineage lookup.
-    sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: status }]);
+    sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID }]);
+    // 2. pg_advisory_xact_lock result. Provider state is fetched after this
+    // queue item and before the applier's canonical row lock below.
+    sqlReturnQueue.push([]);
+    // 3. Applier's canonical account row lock + lineage recheck.
+    sqlReturnQueue.push([{
+      id: TEST_ACCOUNT_ID,
+      subscription_status: status,
+      primary_business_id: null,
+      stripe_customer_id: TEST_CUSTOMER_ID,
+      stripe_subscription_id: TEST_SUBSCRIPTION_ID,
+    }]);
     if (status === 'past_due') {
-      // 2. pg_advisory_xact_lock result
-      sqlReturnQueue.push([]);
-      // 3. Applier's canonical account row lock + lineage recheck.
-      sqlReturnQueue.push([{
-        id: TEST_ACCOUNT_ID,
-        subscription_status: 'past_due',
-        primary_business_id: null,
-        stripe_customer_id: TEST_CUSTOMER_ID,
-        stripe_subscription_id: TEST_SUBSCRIPTION_ID,
-      }]);
       // 4. Applier's writeStatusColumns: UPDATE accounts SET subscription_status='active' …
       const r1: any = []; r1.count = 1;
       sqlReturnQueue.push(r1);
@@ -355,26 +359,34 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
       checkout_attempt_locations_included: 1,
       checkout_attempt_locations_paid: 0,
       checkout_attempt_overage_quantity: 0,
+      checkout_attempt_trial_period_days: null,
+      checkout_attempt_tax_enabled: false,
+      checkout_attempt_customer_email: TEST_CHECKOUT_EMAIL,
+      checkout_attempt_success_url: TEST_CHECKOUT_SUCCESS_URL,
+      checkout_attempt_cancel_url: TEST_CHECKOUT_CANCEL_URL,
     };
     // 5. Provider-current observed account row.
     sqlReturnQueue.push([checkoutAccount]);
     if (status !== 'active') {
-      // 6. Canonical account row lock and lease recheck.
+      // 6. Pin the account row before taking a fresh READ COMMITTED snapshot
+      //    of its active offboarding lifecycle.
+      sqlReturnQueue.push([{ id: acctId }]);
+      // 7. Canonical lease + active-offboarding projection after the row lock.
       sqlReturnQueue.push([checkoutAccount]);
-      // 7. Applier resolveAccount (checkout mode, FOR UPDATE)
+      // 8. Applier resolveAccount (checkout mode, FOR UPDATE)
       sqlReturnQueue.push([{ id: acctId, subscription_status: status, primary_business_id: null }]);
-      // 8. Applier status write. Business mirror is explicitly deferred.
+      // 9. Applier status write. Business mirror is explicitly deferred.
       const updateAcctR: any = []; updateAcctR.count = 1;
       sqlReturnQueue.push(updateAcctR);
-      // 9. enqueueStripeOverageRecompute: INSERT INTO job_outbox
+      // 10. enqueueStripeOverageRecompute: INSERT INTO job_outbox
       const outboxR: any = []; outboxR.count = 1;
       sqlReturnQueue.push(outboxR);
-      // 10. enqueueStripeSubscriptionMirrorSync: INSERT INTO job_outbox
+      // 11. enqueueStripeSubscriptionMirrorSync: INSERT INTO job_outbox
       const mirrorOutboxR: any = []; mirrorOutboxR.count = 1;
       sqlReturnQueue.push(mirrorOutboxR);
-      // 11. Canonical snapshot update (change-only; audit is mocked).
+      // 12. Canonical snapshot update (change-only; audit is mocked).
       sqlReturnQueue.push([{ id: acctId }]);
-      // 12. Retain completed attempt identity.
+      // 13. Retain completed attempt identity.
       sqlReturnQueue.push([{ id: acctId }]);
     }
     // Post-commit tier projection: business lock, entitlement, canonical tier,

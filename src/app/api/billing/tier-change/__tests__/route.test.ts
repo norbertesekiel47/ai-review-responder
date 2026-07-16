@@ -170,6 +170,23 @@ describe('POST /api/billing/tier-change', () => {
     },
   );
 
+  it('maps a locked preview offboarding race to 403', async () => {
+    mockValidateTierChange.mockResolvedValueOnce({
+      allowed: false,
+      reason: 'account_offboarding_blocked',
+    });
+
+    const response = await POST(request({
+      accountId: ACCOUNT_ID,
+      newTier: 'autopilot',
+      preview: true,
+    }));
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(mockApplyTierChange).not.toHaveBeenCalled();
+  });
+
   it('returns the founder-aware server preview without execution', async () => {
     const response = await POST(request({
       accountId: ACCOUNT_ID,
@@ -272,6 +289,7 @@ describe('POST /api/billing/tier-change', () => {
 
   it.each([
     ['no_stripe_subscription', 400],
+    ['account_offboarding_blocked', 403],
     ['subscription_inactive', 409],
     ['same_tier', 409],
     ['operation_conflict', 409],

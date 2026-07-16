@@ -8,6 +8,7 @@ import { enqueueTrialPaymentFailed } from '../../../src/lib/analytics/trial-even
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
 
 type TxSql = postgres.TransactionSql;
+const STRIPE_STATUS_READ_TIMEOUT_MS = 20_000;
 
 /**
  * Conversion-analytics accuracy: Stripe flips a trial trialing→active BEFORE the
@@ -72,13 +73,16 @@ export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Prom
     return;
   }
 
-  // Event delivery can be reversed. Retrieve provider-current state before any
-  // DB lock so a late payment_failed cannot regress an already-recovered or
-  // canceled subscription.
-  const subscription = await getStripe().subscriptions.retrieve(failedSubscriptionId);
-
   await sql.begin(async (tx) => {
     await acquireTierEntitlementLock(tx, accountRef.id);
+    // Serialize the provider observation, not only the later DB write. This is
+    // deliberately before the account row lock, so a bounded Stripe read never
+    // creates an account -> entitlement edge.
+    const subscription = await getStripe().subscriptions.retrieve(
+      failedSubscriptionId,
+      {},
+      { timeout: STRIPE_STATUS_READ_TIMEOUT_MS },
+    );
     const transition = await applyStripeSubscriptionStateUnderEntitlementLock(
       tx,
       accountRef.id,

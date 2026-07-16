@@ -69,13 +69,67 @@ function mkInput(overrides: Partial<AddLocationTxInput> = {}): AddLocationTxInpu
 
 beforeEach(() => {
   mockSql.mockReset();
-  mockSql.mockResolvedValue([]);
+  mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
+    const template = strings.join('?');
+    if (
+      template.includes('SELECT id')
+      && template.includes('FROM accounts')
+      && template.includes('FOR UPDATE')
+    ) {
+      return [{ id: ACCOUNT_ID }];
+    }
+    return [];
+  });
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
 });
 
 // ── addLocationTransaction ──────────────────────────────────────────────────
 
 describe('addLocationTransaction', () => {
+  it('fails closed inside the transaction when offboarding blocks expansion', async () => {
+    mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
+      const template = strings.join('?');
+      if (template.includes('FROM accounts') && template.includes('FOR UPDATE')) {
+        return [{ id: ACCOUNT_ID }];
+      }
+      if (template.includes('FROM account_offboardings')) {
+        return [{
+          id: 'offboarding-1',
+          account_id: ACCOUNT_ID,
+          mode: 'delete_data',
+          status: 'pending',
+          failed_step: null,
+          terminal_at: null,
+          access_ends_at: null,
+          teardown_started_at: null,
+          purge_after: null,
+          purge_started_at: null,
+          purge_cancelled_at: null,
+        }];
+      }
+      return [];
+    });
+
+    await expect(addLocationTransaction(sql, mkInput({
+      voiceConfig: { tone: 'professional' },
+    }))).rejects.toThrow('account_offboarding_blocked');
+
+    const calls: string[] = mockSql.mock.calls.map(
+      (call: unknown[]) => (call[0] as TemplateStringsArray).join('?'),
+    );
+    const lifecycleLock = calls.findIndex((text: string) => text.includes('pg_advisory_xact_lock'));
+    const accountLock = calls.findIndex(
+      (text: string) => text.includes('FROM accounts') && text.includes('FOR UPDATE'),
+    );
+    const offboardingRead = calls.findIndex(
+      (text: string) => text.includes('FROM account_offboardings'),
+    );
+    expect(lifecycleLock).toBeGreaterThanOrEqual(0);
+    expect(accountLock).toBeGreaterThan(lifecycleLock);
+    expect(offboardingRead).toBeGreaterThan(accountLock);
+    expect(calls.some((text: string) => text.includes('INSERT INTO businesses'))).toBe(false);
+  });
+
   // VAL-LOC-007: Atomic tx — all three INSERTs in sql.begin()
   it('executes businesses + audit_log + outbox INSERTs inside a transaction', async () => {
     // Step 1: Primary voice config lookup

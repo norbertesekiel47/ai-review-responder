@@ -4,6 +4,26 @@ import type { ActiveOffboardingState } from './types';
 
 type SqlExecutor = postgres.Sql | postgres.TransactionSql;
 
+/**
+ * Pins the account row before an offboarding-aware billing mutation reads the
+ * active lifecycle row. The lifecycle read must be a *later SQL command* under
+ * READ COMMITTED: a combined `SELECT ... FOR UPDATE` + join takes its statement
+ * snapshot before waiting, so it can miss an offboarding row inserted by the
+ * transaction that released the account lock.
+ */
+export async function lockAccountBeforeOffboardingProjection(
+  tx: postgres.TransactionSql,
+  accountId: string,
+): Promise<boolean> {
+  const rows = await tx<{ id: string }[]>`
+    SELECT id
+    FROM accounts
+    WHERE id = ${accountId}::uuid
+    FOR UPDATE
+  `;
+  return rows.length === 1;
+}
+
 export const OFFBOARDING_INTENTS = [
   'processing',
   'notification',

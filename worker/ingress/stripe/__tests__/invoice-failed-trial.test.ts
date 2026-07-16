@@ -6,8 +6,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * trialing → past_due: routed through the single applier (subscription mode),
  * which sets past_due + emits trial_payment_failed.
  *
- * active → past_due (QUALITY-OBS/B1.3): also routed through the applier
- * (checkout/by-accountId mode). The applier owns the status write + audit row.
+ * active → past_due (QUALITY-OBS/B1.3): also routed through the applier in
+ * subscription mode. The applier owns the status write + audit row.
  * The handler retains the recent-convert net-logic (trial_payment_failed emit)
  * AFTER the applier, guarded on transition.changed — the applier never emits
  * trial_payment_failed when fromStatus=active (only fires when fromStatus=trialing).
@@ -65,6 +65,7 @@ import { processInvoicePaymentFailed } from '../invoice-payment-failed';
 const ACCOUNT_ID = '019dc366-29ce-7000-a000-000000000001';
 const CUSTOMER_ID = 'cus_test_123';
 const SUB_ID = 'sub_test_456';
+const STATUS_READ_REQUEST_OPTIONS = { timeout: 20_000 };
 
 function failedInvoice(): any {
   return { id: 'in_test', customer: CUSTOMER_ID, subscription: SUB_ID };
@@ -219,7 +220,11 @@ describe('invoice.payment_failed — trial card fail', () => {
 
     await processInvoicePaymentFailed(failedInvoice());
 
-    expect(mockRetrieve).toHaveBeenCalledWith(SUB_ID);
+    expect(mockRetrieve).toHaveBeenCalledWith(
+      SUB_ID,
+      {},
+      STATUS_READ_REQUEST_OPTIONS,
+    );
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
       expect.anything(),
       ACCOUNT_ID,

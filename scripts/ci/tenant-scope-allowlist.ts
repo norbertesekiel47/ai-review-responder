@@ -250,10 +250,10 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   },
   {
     file: "src/lib/accounts/tier-change.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT owner_user_id, price_variant, stripe_subscription_id, subscription_status, subscription_tier, locations_overage_price_cents FROM accounts WHERE id = ${accountId}::uuid FOR UPDATE",
+    table: "account_offboardings",
+    sqlSnippet: "SELECT a.owner_user_id, a.price_variant, a.stripe_subscription_id, a.subscription_status, a.subscription_tier, a.locations_overage_price_cents, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM accounts a LEFT JOIN LATERAL ( SELECT active.* FROM account_offboardings active WHERE active.account_id = a.id AND active.terminal_at IS NULL ORDER BY active.created_at DESC LIMIT 1 ) ao ON TRUE WHERE a.id = ${accountId}::uuid",
     category: 'tenant-root-lookup',
-    reason: "Authenticated flow holds the fixed entitlement/billing locks and uses the owner-resolved account id as the tenant-root lookup key before this row lock.",
+    reason: "The tier-change transaction first locks the owner-resolved account id, then projects only that account's latest active offboarding row through a correlated lateral join; the scanner intentionally strips the correlated subquery predicate.",
   },
   {
     file: "src/app/api/dashboard/past-replies/draft-status/route.ts",
@@ -1729,7 +1729,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/stripe/invoice-paid.ts",
     table: "accounts",
-    sqlSnippet: "SELECT id, subscription_status FROM accounts WHERE stripe_customer_id = ${customerId} AND stripe_subscription_id = ${recoverySubscriptionId}",
+    sqlSnippet: "SELECT id FROM accounts WHERE stripe_customer_id = ${customerId} AND stripe_subscription_id = ${recoverySubscriptionId}",
     category: 'provider-ingress',
     reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available.",
   },
@@ -2341,21 +2341,21 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/pollers/CancellationGracePoller.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id AS account_id, COUNT(b.id) AS cancelled_count FROM accounts a JOIN businesses b ON b.account_id = a.id WHERE a.subscription_status = 'cancelled' AND a.cancelled_at IS NOT NULL AND a.cancelled_at < NOW() - INTERVAL '30 days' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id ) GROUP BY a.id",
+    sqlSnippet: "SELECT a.id AS account_id, COUNT(b.id) AS cancelled_count FROM accounts a JOIN businesses b ON b.account_id = a.id WHERE a.subscription_status = ${SubscriptionStatus.CANCELLED} AND a.cancelled_at IS NOT NULL AND a.cancelled_at < NOW() - INTERVAL '30 days' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id ) GROUP BY a.id",
     category: 'background-global-scan',
     reason: "Background scheduler scans cancelled accounts globally, excluding accounts with active offboarding receipts before archiving expired locations.",
   },
   {
     file: "worker/background/pollers/CancellationGracePoller.ts",
     table: "businesses",
-    sqlSnippet: "SELECT a.id AS account_id, COUNT(b.id) AS cancelled_count FROM accounts a JOIN businesses b ON b.account_id = a.id WHERE a.subscription_status = 'cancelled' AND a.cancelled_at IS NOT NULL AND a.cancelled_at < NOW() - INTERVAL '30 days' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id ) GROUP BY a.id",
+    sqlSnippet: "SELECT a.id AS account_id, COUNT(b.id) AS cancelled_count FROM accounts a JOIN businesses b ON b.account_id = a.id WHERE a.subscription_status = ${SubscriptionStatus.CANCELLED} AND a.cancelled_at IS NOT NULL AND a.cancelled_at < NOW() - INTERVAL '30 days' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id ) GROUP BY a.id",
     category: 'background-global-scan',
     reason: "Background scheduler scans cancelled accounts globally, excluding accounts with active offboarding receipts before archiving expired locations.",
   },
   {
     file: "worker/background/pollers/CancellationGracePoller.ts",
     table: "account_offboardings",
-    sqlSnippet: "SELECT a.id AS account_id, COUNT(b.id) AS cancelled_count FROM accounts a JOIN businesses b ON b.account_id = a.id WHERE a.subscription_status = 'cancelled' AND a.cancelled_at IS NOT NULL AND a.cancelled_at < NOW() - INTERVAL '30 days' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id ) GROUP BY a.id",
+    sqlSnippet: "SELECT a.id AS account_id, COUNT(b.id) AS cancelled_count FROM accounts a JOIN businesses b ON b.account_id = a.id WHERE a.subscription_status = ${SubscriptionStatus.CANCELLED} AND a.cancelled_at IS NOT NULL AND a.cancelled_at < NOW() - INTERVAL '30 days' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id ) GROUP BY a.id",
     category: 'background-global-scan',
     reason: "Background scheduler scans cancelled accounts globally, excluding accounts with active offboarding receipts before archiving expired locations.",
   },

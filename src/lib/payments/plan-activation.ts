@@ -28,6 +28,12 @@ import {
 import { acquireTierBillingActivationLocks } from '@/lib/accounts/billing-locks';
 import { computeOverageQuantity } from '@/lib/accounts/quota';
 import {
+  activeOffboardingStateFromProjection,
+  isCheckoutBlocked,
+  lockAccountBeforeOffboardingProjection,
+  type ActiveOffboardingProjection,
+} from '@/lib/account-offboarding/gate';
+import {
   synchronizeBusinessTierMirror,
   writeTierSnapshot,
 } from '@/lib/accounts/tier-snapshot';
@@ -47,6 +53,7 @@ export type TierSnapshotResult =
       attemptId: string;
     }
   | { kind: 'not_found' }
+  | { kind: 'offboarding_blocked' }
   | { kind: 'wrong_status'; status: string };
 
 export class CheckoutAttemptConflictError extends Error {
@@ -56,7 +63,8 @@ export class CheckoutAttemptConflictError extends Error {
   }
 }
 
-interface SelectionAccountRow extends CheckoutAttemptLeaseColumns {
+interface SelectionAccountRow
+  extends CheckoutAttemptLeaseColumns, ActiveOffboardingProjection {
   subscription_status: string;
   price_variant: string;
   active_locations: number;
@@ -294,6 +302,15 @@ export async function applyTierSnapshot(
   const result = await sql.begin(async (tx) => {
     await acquireTierBillingActivationLocks(tx, accountId, activationLockId);
 
+    // This must be its own SQL command. If an offboarding confirmer currently
+    // owns the row, the later projection receives a fresh READ COMMITTED
+    // snapshot after that confirmer inserts its active lifecycle row.
+    const accountLocked = await lockAccountBeforeOffboardingProjection(
+      tx,
+      accountId,
+    );
+    if (!accountLocked) return { kind: 'not_found' as const };
+
     const [row] = await tx<SelectionAccountRow[]>`
       SELECT
         a.subscription_status,
@@ -310,18 +327,39 @@ export async function applyTierSnapshot(
         a.checkout_attempt_overage_price_cents,
         a.checkout_attempt_locations_included,
         a.checkout_attempt_locations_paid,
-        a.checkout_attempt_overage_quantity
+        a.checkout_attempt_overage_quantity,
+        a.checkout_attempt_trial_period_days,
+        ao.id AS offboarding_id,
+        ao.account_id AS offboarding_account_id,
+        ao.mode AS offboarding_mode,
+        ao.status AS offboarding_status,
+        ao.failed_step AS offboarding_failed_step,
+        ao.access_ends_at AS offboarding_access_ends_at,
+        ao.teardown_started_at AS offboarding_teardown_started_at,
+        ao.purge_after AS offboarding_purge_after,
+        ao.purge_started_at AS offboarding_purge_started_at,
+        ao.purge_cancelled_at AS offboarding_purge_cancelled_at
       FROM accounts a
       LEFT JOIN businesses b
         ON b.account_id = a.id
-       AND b.archived_at IS NULL
+        AND b.account_id = ${accountId}::uuid
+        AND b.archived_at IS NULL
+      LEFT JOIN account_offboardings ao
+        ON ao.account_id = a.id
+        AND ao.account_id = ${accountId}::uuid
+        AND ao.terminal_at IS NULL
       WHERE a.id = ${accountId}::uuid
-      GROUP BY a.id
+      GROUP BY a.id, ao.id
+      ORDER BY ao.created_at DESC NULLS LAST
+      LIMIT 1
     `;
     if (!row) {
       // The row vanished between the caller's lookup and now (e.g., cleanup
       // poller deleted it). Surface as account_incomplete.
       return { kind: 'not_found' as const };
+    }
+    if (isCheckoutBlocked(activeOffboardingStateFromProjection(row))) {
+      return { kind: 'offboarding_blocked' as const };
     }
     if (row.subscription_status !== SubscriptionStatus.PENDING_PAYMENT) {
       return {
@@ -336,9 +374,9 @@ export async function applyTierSnapshot(
     const variant = row.price_variant;
 
     // A replacement may not coexist with an older open provider Session. The
-    // provider status is resolved while all three advisory locks are held and
-    // before the account row is locked. A completed Session is left for its
-    // webhook; creating another subscription would double-bill the owner.
+    // provider status is resolved while all three advisory locks and the
+    // account row lock are held. A completed Session is left for its webhook;
+    // creating another subscription would double-bill the owner.
     const preparation = await prepareCheckoutAttempt(row, {
       accountId,
       tier,

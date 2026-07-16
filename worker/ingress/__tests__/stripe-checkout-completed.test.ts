@@ -57,6 +57,9 @@ import {
   mkRequest,
   mkReply,
   TEST_ACCOUNT_ID,
+  TEST_CHECKOUT_CANCEL_URL,
+  TEST_CHECKOUT_EMAIL,
+  TEST_CHECKOUT_SUCCESS_URL,
   TEST_CUSTOMER_ID,
   TEST_SUBSCRIPTION_ID,
 } from './helpers/stripe-webhook-harness';
@@ -80,6 +83,13 @@ beforeEach(() => {
     mode: 'subscription',
     status: 'complete',
     payment_status: 'paid',
+    allow_promotion_codes: false,
+    automatic_tax: { enabled: false, liability: null },
+    billing_address_collection: null,
+    tax_id_collection: { enabled: false, required: 'never' },
+    customer_email: TEST_CHECKOUT_EMAIL,
+    success_url: TEST_CHECKOUT_SUCCESS_URL,
+    cancel_url: TEST_CHECKOUT_CANCEL_URL,
     client_reference_id: TEST_ACCOUNT_ID,
     customer: TEST_CUSTOMER_ID,
     subscription: TEST_SUBSCRIPTION_ID,
@@ -95,6 +105,7 @@ beforeEach(() => {
     id: TEST_SUBSCRIPTION_ID,
     customer: TEST_CUSTOMER_ID,
     status: 'active',
+    trial_start: null,
     trial_end: null,
     metadata: {
       checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
@@ -144,7 +155,7 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.values).toContain(TEST_CUSTOMER_ID);
     expect(updateAcct!.values).toContain(TEST_SUBSCRIPTION_ID);
-    expect(sqlCalls).toHaveLength(17);
+    expect(sqlCalls).toHaveLength(18);
     expect(sqlReturnQueue).toHaveLength(0);
   });
 
@@ -209,6 +220,13 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
       mode: 'subscription',
       status: 'complete',
       payment_status: 'paid',
+      allow_promotion_codes: false,
+      automatic_tax: { enabled: false, liability: null },
+      billing_address_collection: null,
+      tax_id_collection: { enabled: false, required: 'never' },
+      customer_email: TEST_CHECKOUT_EMAIL,
+      success_url: TEST_CHECKOUT_SUCCESS_URL,
+      cancel_url: TEST_CHECKOUT_CANCEL_URL,
       client_reference_id: customAccountId,
       customer: 'cus_custom',
       subscription: 'sub_custom',
@@ -223,6 +241,7 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
       id: 'sub_custom',
       customer: 'cus_custom',
       status: 'active',
+      trial_start: null,
       trial_end: null,
       metadata: {
         checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
@@ -246,7 +265,7 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
     );
     expect(lookupCall).toBeDefined();
     expect(lookupCall!.values).toContain(customAccountId);
-    expect(sqlCalls).toHaveLength(17);
+    expect(sqlCalls).toHaveLength(18);
     expect(sqlReturnQueue).toHaveLength(0);
   });
 });

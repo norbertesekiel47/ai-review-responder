@@ -150,8 +150,21 @@ describe('VAL-CROSS-001: Signup-to-multi-location end-to-end', () => {
       sample_responses: [],
     }]);
     // Mock sql.begin transaction
+    const locationTxSql: string[] = [];
     (mockSql.begin as ReturnType<typeof vi.fn>) = vi.fn().mockImplementation(async (cb: Function) => {
-      const mockTx = vi.fn().mockResolvedValue(undefined);
+      const mockTx = vi.fn().mockImplementation(async (strings: TemplateStringsArray) => {
+        const text = strings.join('?');
+        locationTxSql.push(text);
+        if (
+          text.includes('SELECT id')
+          && text.includes('FROM accounts')
+          && text.includes('FOR UPDATE')
+        ) {
+          return [{ id: activeAccount.id }];
+        }
+        if (text.includes('FROM account_offboardings')) return [];
+        return undefined;
+      });
       // Identity .json stub: injected tx.json(...) now fires on this mock tx.
       Object.assign(mockTx, { json: (v: unknown) => v });
       await cb(mockTx);
@@ -172,6 +185,22 @@ describe('VAL-CROSS-001: Signup-to-multi-location end-to-end', () => {
 
     expect(addResult.businessId).toBeTruthy();
     expect(addResult.displayLabel).toBe('Westside Bakery');
+    const lifecycleLockIndex = locationTxSql.findIndex((text) =>
+      text.includes('pg_advisory_xact_lock'),
+    );
+    const accountLockIndex = locationTxSql.findIndex(
+      (text) => text.includes('FROM accounts') && text.includes('FOR UPDATE'),
+    );
+    const offboardingReadIndex = locationTxSql.findIndex((text) =>
+      text.includes('FROM account_offboardings'),
+    );
+    const businessInsertIndex = locationTxSql.findIndex((text) =>
+      text.includes('INSERT INTO businesses'),
+    );
+    expect(lifecycleLockIndex).toBeGreaterThanOrEqual(0);
+    expect(accountLockIndex).toBeGreaterThan(lifecycleLockIndex);
+    expect(offboardingReadIndex).toBeGreaterThan(accountLockIndex);
+    expect(businessInsertIndex).toBeGreaterThan(offboardingReadIndex);
 
     // Step 6: Verify overage billing snapshot
     mockSql.mockResolvedValueOnce([{
@@ -666,8 +695,23 @@ Uptown Diner,ChIJ003,casual`;
 
     // Mock add-location transaction for each row
     mockSql.mockResolvedValue([{ tone: 'professional', products_services: null, staff_names: [], highlight_facts: [], avoid_facts: [], sample_responses: [] }]);
+    const csvLocationTxSql: string[][] = [];
     (mockSql.begin as ReturnType<typeof vi.fn>) = vi.fn().mockImplementation(async (cb: Function) => {
-      const mockTx = vi.fn().mockResolvedValue(undefined);
+      const calls: string[] = [];
+      csvLocationTxSql.push(calls);
+      const mockTx = vi.fn().mockImplementation(async (strings: TemplateStringsArray) => {
+        const text = strings.join('?');
+        calls.push(text);
+        if (
+          text.includes('SELECT id')
+          && text.includes('FROM accounts')
+          && text.includes('FOR UPDATE')
+        ) {
+          return [{ id: account.id }];
+        }
+        if (text.includes('FROM account_offboardings')) return [];
+        return undefined;
+      });
       // Identity .json stub: injected tx.json(...) now fires on this mock tx.
       Object.assign(mockTx, { json: (v: unknown) => v });
       await cb(mockTx);
@@ -682,6 +726,25 @@ Uptown Diner,ChIJ003,casual`;
 
       // All 3 rows should succeed
       expect(results.every(r => 'businessId' in r)).toBe(true);
+    }
+    expect(csvLocationTxSql).toHaveLength(3);
+    for (const calls of csvLocationTxSql) {
+      const lifecycleLockIndex = calls.findIndex((text) =>
+        text.includes('pg_advisory_xact_lock'),
+      );
+      const accountLockIndex = calls.findIndex(
+        (text) => text.includes('FROM accounts') && text.includes('FOR UPDATE'),
+      );
+      const offboardingReadIndex = calls.findIndex((text) =>
+        text.includes('FROM account_offboardings'),
+      );
+      const businessInsertIndex = calls.findIndex((text) =>
+        text.includes('INSERT INTO businesses'),
+      );
+      expect(lifecycleLockIndex).toBeGreaterThanOrEqual(0);
+      expect(accountLockIndex).toBeGreaterThan(lifecycleLockIndex);
+      expect(offboardingReadIndex).toBeGreaterThan(accountLockIndex);
+      expect(businessInsertIndex).toBeGreaterThan(offboardingReadIndex);
     }
 
     // Step 4: Verify billing snapshot after 3 locations added

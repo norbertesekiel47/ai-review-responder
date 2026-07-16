@@ -1,7 +1,11 @@
-// Verifies every immutable launch Price shape against the locked registry.
+// Verifies every live and retained billable Price shape against the locked registry.
 // Run manually before first charge and after creating any replacement Price.
 import { getStripe } from '../src/lib/payments/stripe-client';
-import { priceIdFor } from '../src/lib/payments/price-tier-map';
+import {
+  priceIdFor,
+  retainedOverageStripePrices,
+  type RetainedOverageStripePrice,
+} from '../src/lib/payments/price-tier-map';
 import {
   resolveTierSnapshot,
   type PriceVariant,
@@ -50,10 +54,11 @@ async function checkPrice(
     .map(({ field, expected, actual }) => ({ label, field, expected, actual }));
 }
 
-/** Verify the exact four base and two overage Prices configured for WS8. */
+/** Verify the four live base, two live overage, and all retained overage Prices. */
 export async function verifyConfiguredStripePrices(
   retrievePrice: RetrieveStripePrice,
   taxRequired: boolean,
+  retainedOverages: readonly RetainedOverageStripePrice[] = retainedOverageStripePrices(),
 ): Promise<StripePriceParityMismatch[]> {
   const mismatches: StripePriceParityMismatch[] = [];
   for (const tier of TIERS) {
@@ -67,6 +72,15 @@ export async function verifyConfiguredStripePrices(
     const overageId = priceIdFor(tier, 'list', 'overage');
     if (!overageId) mismatches.push({ label: `${tier} overage`, field: 'env', expected: 'price id', actual: 'unset' });
     else mismatches.push(...await checkPrice(retrievePrice, taxRequired, `${tier} overage`, overageId, snapshot.overageCents));
+  }
+  for (const retained of retainedOverages) {
+    mismatches.push(...await checkPrice(
+      retrievePrice,
+      taxRequired,
+      `${retained.tier} retained overage ${retained.id}`,
+      retained.id,
+      retained.unitAmountCents,
+    ));
   }
   return mismatches;
 }
@@ -102,7 +116,10 @@ async function main(): Promise<number> {
     for (const item of mismatches) console.error(`  ${item.label}: ${item.field} expected=${item.expected} actual=${item.actual}`);
   }
   if (mismatches.length === 0) {
-    console.log(`Stripe price parity OK for ${TIERS.length} tiers and ${VARIANTS.length} variants.`);
+    console.log(
+      `Stripe price parity OK for ${TIERS.length} tiers, ${VARIANTS.length} variants, `
+      + `and ${retainedOverageStripePrices().length} retained overage Prices.`,
+    );
   }
   return stripePriceParityExitCode(mismatches);
 }

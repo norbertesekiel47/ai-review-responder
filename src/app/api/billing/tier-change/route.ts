@@ -48,6 +48,7 @@ function normalizeIdempotencyKey(
 
 const FAILURE_STATUS: Record<TierChangeFailureCode, number> = {
   no_stripe_subscription: 400,
+  account_offboarding_blocked: 403,
   subscription_inactive: 409,
   same_tier: 409,
   operation_conflict: 409,
@@ -121,9 +122,10 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
       throw err;
     }
     if (!validation.allowed) {
+      const status = validation.reason === 'account_offboarding_blocked' ? 403 : 409;
       return NextResponse.json(
         { error: validation.reason ?? 'tier_change_not_allowed' },
-        { status: 409, headers: NO_STORE_HEADERS },
+        { status, headers: NO_STORE_HEADERS },
       );
     }
     return NextResponse.json(

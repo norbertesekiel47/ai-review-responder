@@ -241,14 +241,29 @@ never re-derives historical charges from the live registry (invariant #9a).
 
 **Price-change procedure** (new customers pay new prices; existing customers keep theirs — grandfathered):
 
-1. Create a **new** Stripe Price (Prices are immutable — you never edit `unit_amount`) with the new amount (+ `tax_behavior='exclusive'` if Tax is on).
-2. Point the appropriate launch `STRIPE_PRICE_*` env var to the new ID in the
-   target environment. Keep every still-referenced old ID retained in reverse
-   lookup; never rotate all environments as one unverified action.
-3. Update `TIER_CONFIG` cents to match the new Price.
-4. Run `pnpm verify:stripe-prices` against staging, then production — all six
-   configured Price shapes must pass.
-5. Existing customers are unaffected (grandfathered via the stored `accounts` snapshot); only new signups + tier-changers get the new price. Repricing *existing* customers is a separate cohort migration + ARL §17602(g) fee-change notice (out of scope).
+1. Create a **new** Stripe Price (Prices are immutable — you never edit
+   `unit_amount`) with the new amount (+ `tax_behavior='exclusive'` if Tax is
+   on). Leave every outgoing overage Price active.
+2. Prepare one release that adds the outgoing Price ID to the typed
+   `RETAINED_STRIPE_PRICE_HISTORY` registry in
+   `src/lib/payments/price-tier-map.ts` (including base/overage kind, tier, and
+   base variant; overage entries also record immutable `unitAmountCents`) and
+   updates `TIER_CONFIG` to the new cents. Do not serve billing traffic from a
+   mixed old-code/new-env or new-code/old-env state.
+3. Quiesce Checkout, tier changes, and overage workers for the target
+   environment. Drain in-flight billing mutations before changing code or env.
+4. While quiesced, point the appropriate `STRIPE_PRICE_*` env var to the new ID
+   and deploy the prepared release. Wait for old instances to drain completely.
+   Never rotate all environments as one unverified action.
+5. Still quiesced, run `pnpm verify:stripe-prices`. It verifies all six live
+   Prices plus every retained overage Price (active, exact recorded cents, USD,
+   monthly interval, and Tax shape). Any mismatch is a hard no-resume blocker.
+6. Resume billing only after parity passes; repeat staging first, then
+   production.
+7. Existing customers are unaffected (grandfathered via the stored `accounts`
+   snapshot); only new signups + tier-changers get the new price. Repricing
+   *existing* customers is a separate cohort migration + ARL §17602(g)
+   fee-change notice (out of scope).
 
 **Stripe model:** one subscription per account, two subscription
 items — base price (qty 1) + overage price (qty = active locations

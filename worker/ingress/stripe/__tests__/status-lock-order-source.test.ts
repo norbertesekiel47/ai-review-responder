@@ -61,11 +61,37 @@ describe('Stripe status-writer lock-order tripwire', () => {
   it.each([
     'worker/ingress/stripe/invoice-payment-failed.ts',
     'worker/ingress/stripe/invoice-paid.ts',
-  ])('%s retrieves provider-current subscription before opening the write transaction', (path) => {
+  ])('%s acquires entitlement before its bounded provider-current retrieval', (path) => {
     const text = source(path);
-    const retrieve = text.indexOf('.subscriptions.retrieve(');
-    const transaction = text.indexOf('await sql.begin(', retrieve);
-    expect(retrieve).toBeGreaterThan(-1);
-    expect(transaction).toBeGreaterThan(retrieve);
+    const transaction = text.indexOf('await sql.begin(');
+    const entitlement = text.indexOf('await acquireTierEntitlementLock(', transaction);
+    const retrieve = text.indexOf('.subscriptions.retrieve(', entitlement);
+    const apply = text.indexOf('applyStripeSubscriptionStateUnderEntitlementLock(', retrieve);
+    expect(transaction).toBeGreaterThan(-1);
+    expect(entitlement).toBeGreaterThan(transaction);
+    expect(retrieve).toBeGreaterThan(entitlement);
+    expect(apply).toBeGreaterThan(retrieve);
+    expect(text.slice(retrieve, apply)).toContain('timeout: STRIPE_STATUS_READ_TIMEOUT_MS');
+  });
+
+  it('invoice.paid has no pre-lock status early return', () => {
+    const text = source('worker/ingress/stripe/invoice-paid.ts');
+    const transaction = text.indexOf('await sql.begin(');
+    const prefix = text.slice(0, transaction);
+    expect(prefix).not.toContain('subscription_status');
+    expect(prefix).not.toContain('SubscriptionStatus.');
+  });
+
+  it('corrective reconciliation re-retrieves under entitlement before applying status', () => {
+    const text = source('worker/background/pollers/billing-reconciliation/reconcile-account.ts');
+    const correction = text.indexOf('if (dbTrialing && !stripeTrialing');
+    const entitlement = text.indexOf('await acquireTierEntitlementLock(', correction);
+    const retrieve = text.indexOf('stripe.subscriptions.retrieve(', entitlement);
+    const apply = text.indexOf('applyStripeSubscriptionStateUnderEntitlementLock(', retrieve);
+    expect(correction).toBeGreaterThan(-1);
+    expect(entitlement).toBeGreaterThan(correction);
+    expect(retrieve).toBeGreaterThan(entitlement);
+    expect(apply).toBeGreaterThan(retrieve);
+    expect(text.slice(retrieve, apply)).toContain('timeout: STRIPE_READ_TIMEOUT_MS');
   });
 });
