@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 
 /**
  * customer.subscription.deleted handler (worker/ingress/stripe/subscription-deleted.ts):
@@ -47,6 +48,19 @@ import { handleStripeWebhook } from '../stripe';
 const restoreStripeWebhookEnv = installStripeWebhookEnv();
 afterAll(restoreStripeWebhookEnv);
 
+function isStatusUpdate(
+  call: (typeof sqlCalls)[number],
+  table: 'accounts' | 'businesses',
+  status: string,
+): boolean {
+  const updatesTable = table === 'accounts'
+    ? /\bUPDATE\s+accounts\b/.test(call.text)
+    : /\bUPDATE\s+businesses\b/.test(call.text);
+  return updatesTable
+    && !call.text.includes('inbound_events')
+    && call.values.includes(status);
+}
+
 beforeEach(() => {
   resetStripeWebhookMocks();
 });
@@ -67,7 +81,7 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
     expect(status).toHaveBeenCalledWith(200);
 
     const updateAcct = sqlCalls.find(
-      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'cancelled'"),
+      (call) => isStatusUpdate(call, 'accounts', SubscriptionStatus.CANCELLED),
     );
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.text).toMatch(/cancelled_at\s*=\s*NOW\(\)/i);
@@ -101,7 +115,7 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
     // so no UPDATE fires. Idempotency is now enforced by the applier's
     // transition table, not by the old inline if-guard.
     const updateAcct = sqlCalls.filter(
-      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'cancelled'") && !c.text.includes('inbound_events'),
+      (call) => isStatusUpdate(call, 'accounts', SubscriptionStatus.CANCELLED),
     );
     expect(updateAcct).toEqual([]);
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
@@ -167,10 +181,10 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
 
     expect(status).toHaveBeenCalledWith(200);
     expect(
-      sqlCalls.some((c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'cancelled'")),
+      sqlCalls.some((call) => isStatusUpdate(call, 'accounts', SubscriptionStatus.CANCELLED)),
     ).toBe(false);
     expect(
-      sqlCalls.some((c) => /\bUPDATE\s+businesses\b/.test(c.text) && c.text.includes("'cancelled'")),
+      sqlCalls.some((call) => isStatusUpdate(call, 'businesses', SubscriptionStatus.CANCELLED)),
     ).toBe(false);
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });
@@ -193,10 +207,10 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
 
     expect(status).toHaveBeenCalledWith(200);
     expect(
-      sqlCalls.some((c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'cancelled'")),
+      sqlCalls.some((call) => isStatusUpdate(call, 'accounts', SubscriptionStatus.CANCELLED)),
     ).toBe(false);
     expect(
-      sqlCalls.some((c) => /\bUPDATE\s+businesses\b/.test(c.text) && c.text.includes("'cancelled'")),
+      sqlCalls.some((call) => isStatusUpdate(call, 'businesses', SubscriptionStatus.CANCELLED)),
     ).toBe(false);
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });

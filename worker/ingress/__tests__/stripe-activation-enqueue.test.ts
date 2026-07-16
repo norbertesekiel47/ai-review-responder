@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 
 /**
  * Stripe webhook — checkout.session.completed status-flip + backfill-resume.
@@ -200,6 +201,13 @@ function getOverageOutboxInserts() {
   );
 }
 
+function isAccountStatusUpdate(
+  call: (typeof sqlCalls)[number],
+  status: string,
+): boolean {
+  return /\bUPDATE\s+accounts\b/.test(call.text) && call.values.includes(status);
+}
+
 // ─────────────────────────────────────────────────────────────────────
 describe('Stripe webhook — status flip + post-activation backfill resume', () => {
   let prevZernioFlag: string | undefined;
@@ -230,7 +238,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
 
     // Status flip happened — check for accounts UPDATE (source of truth)
     const updateCall = sqlCalls.find(
-      (c) => c.text.includes('UPDATE') && c.text.includes('accounts') && c.text.includes("'active'"),
+      (call) => isAccountStatusUpdate(call, SubscriptionStatus.ACTIVE),
     );
     expect(updateCall).toBeDefined();
     // ZERNIO_PUBLISHING_ENABLED is unset in beforeEach, so the post-activation
@@ -246,7 +254,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     await handleStripeWebhook(makeRequest(), makeReply());
 
     const updateCall = sqlCalls.find(
-      (c) => c.text.includes('UPDATE') && c.text.includes('accounts') && c.text.includes("'active'"),
+      (call) => isAccountStatusUpdate(call, SubscriptionStatus.ACTIVE),
     );
     expect(updateCall).toBeDefined();
     expect(getInsertOutboxCall()).toBeUndefined();
@@ -274,10 +282,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
       (c) => c.text.includes('FOR UPDATE') && c.text.includes('subscription_status'),
     );
     const updateAcctIdx = sqlCalls.findIndex(
-      (c) =>
-        c.text.includes('UPDATE') &&
-        c.text.includes('accounts') &&
-        c.text.includes("'active'"),
+      (call) => isAccountStatusUpdate(call, SubscriptionStatus.ACTIVE),
     );
 
     expect(lockIdx).toBeGreaterThanOrEqual(0);

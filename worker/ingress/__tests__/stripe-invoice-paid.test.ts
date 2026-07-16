@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 
 /**
  * invoice.paid handler (worker/ingress/stripe/invoice-paid.ts):
@@ -47,6 +48,15 @@ import { handleStripeWebhook } from '../stripe';
 const restoreStripeWebhookEnv = installStripeWebhookEnv();
 afterAll(restoreStripeWebhookEnv);
 
+function isAccountStatusUpdate(
+  call: (typeof sqlCalls)[number],
+  status: string,
+): boolean {
+  return /\bUPDATE\s+accounts\b/.test(call.text)
+    && !call.text.includes('inbound_events')
+    && call.values.includes(status);
+}
+
 beforeEach(() => {
   resetStripeWebhookMocks();
 });
@@ -67,7 +77,7 @@ describe('invoice.paid — active recovery from past_due', () => {
     expect(status).toHaveBeenCalledWith(200);
 
     const updateAcct = sqlCalls.find(
-      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'"),
+      (call) => isAccountStatusUpdate(call, SubscriptionStatus.ACTIVE),
     );
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.text).toMatch(/past_due_at\s*=\s*NULL/i);
@@ -98,7 +108,7 @@ describe('invoice.paid — active recovery from past_due', () => {
     expect(status).toHaveBeenCalledWith(200);
     // No accounts UPDATE should fire since status is already active
     const updateAcct = sqlCalls.filter(
-      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'") && !c.text.includes('inbound_events'),
+      (call) => isAccountStatusUpdate(call, SubscriptionStatus.ACTIVE),
     );
     expect(updateAcct).toEqual([]);
   });

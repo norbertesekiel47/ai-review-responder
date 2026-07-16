@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 
 /**
  * checkout.session.completed handler (worker/ingress/stripe/checkout-completed.ts):
@@ -58,6 +59,13 @@ import { handleStripeWebhook } from '../stripe';
 const restoreStripeWebhookEnv = installStripeWebhookEnv();
 afterAll(restoreStripeWebhookEnv);
 
+function isAccountStatusUpdate(
+  call: (typeof sqlCalls)[number],
+  status: string,
+): boolean {
+  return /\bUPDATE\s+accounts\b/.test(call.text) && call.values.includes(status);
+}
+
 beforeEach(() => {
   resetStripeWebhookMocks();
   mockRetrieveSubscription.mockReset();
@@ -107,7 +115,7 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
     // (VAL-SCHEMA-037); the applier does NOT write them. The accounts row gets them
     // via the applier's COALESCE write (first-writer-wins, invariant #3).
     const updateAcct = sqlCalls.find(
-      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'"),
+      (call) => isAccountStatusUpdate(call, SubscriptionStatus.ACTIVE),
     );
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.values).toContain(TEST_CUSTOMER_ID);
@@ -142,7 +150,7 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
 
     // No UPDATE accounts for 'active' (idempotent no-op)
     const updateAcct = sqlCalls.find(
-      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'"),
+      (call) => isAccountStatusUpdate(call, SubscriptionStatus.ACTIVE),
     );
     expect(updateAcct).toBeUndefined();
     expect(sqlCalls).toHaveLength(16);
