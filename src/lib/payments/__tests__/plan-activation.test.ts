@@ -133,6 +133,7 @@ describe('applyTierSnapshot', () => {
     queueLocksAndRow({});
     // Replace the queued row with an empty result without draining it early.
     harness.sqlReturnQueue[3] = mkTaggedResult([]);
+    expect(harness.sqlReturnQueue).toHaveLength(4);
 
     const result = await applyTierSnapshot(mockSql, {
       accountId: ACCOUNT_ID,
