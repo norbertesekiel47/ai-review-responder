@@ -78,8 +78,12 @@ describe('auto-approval policy helpers', () => {
   it.each([
     [null, null, 'no_change'],
     [null, 1, 'contraction'],
-    [null, 50, 'contraction'],
+    [null, 9, 'contraction'],
+    [null, 10, 'no_change'],
+    [null, 11, 'expansion'],
+    [null, 50, 'expansion'],
     [1, null, 'expansion'],
+    [10, null, 'expansion'],
     [50, null, 'expansion'],
     [5, 5, 'no_change'],
     [5, 6, 'expansion'],
@@ -92,6 +96,13 @@ describe('auto-approval policy helpers', () => {
     expect(classifyPolicyExposure(
       { threshold: 4, vetoWindowMinutes: 30, dailyAutoPostCap: 2 },
       { threshold: 5, vetoWindowMinutes: 15, dailyAutoPostCap: 1 },
+    )).toBe('expansion');
+  });
+
+  it('lets a NULL-to-50 cap expansion win over simultaneous contractions', () => {
+    expect(classifyPolicyExposure(
+      { threshold: 4, vetoWindowMinutes: 15, dailyAutoPostCap: null },
+      { threshold: 5, vetoWindowMinutes: 30, dailyAutoPostCap: 50 },
     )).toBe('expansion');
   });
 

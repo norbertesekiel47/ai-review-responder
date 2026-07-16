@@ -63,12 +63,18 @@ export function classifyDailyCapExposure(
   after: PolicyExposure['dailyAutoPostCap'],
 ): PolicyExposureClassification {
   if (before === after) return 'no_change';
-  // NULL means the uncapped-by-owner platform default. Removing a finite cap
-  // is therefore always an expansion; adding one is always a contraction,
-  // regardless of the platform default's current numeric value.
+  // Removing an owner cap is always an expansion, even when the finite value
+  // happened to equal or exceed today's platform default. This is the locked
+  // cap-removal rule: NULL restores platform ownership of the limit.
   if (after === null) return 'expansion';
-  if (before === null) return 'contraction';
-  return after > before ? 'expansion' : 'contraction';
+
+  // For NULL -> finite, compare against the cap that NULL actually enforces.
+  // Otherwise a change from the default 10 to 50 would bypass the expansion
+  // gate even though it increases autonomous volume fivefold.
+  const effectiveBefore = before ?? DEFAULT_DAILY_AUTO_POST_CAP;
+  if (after > effectiveBefore) return 'expansion';
+  if (after < effectiveBefore) return 'contraction';
+  return 'no_change';
 }
 
 /**

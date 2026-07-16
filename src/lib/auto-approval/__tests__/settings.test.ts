@@ -706,11 +706,29 @@ describe('auto-approval settings service', () => {
       blocked: true,
     },
     {
-      name: 'finite cap addition',
+      name: 'cap below the effective platform default',
       policy: { vetoWindowMinutes: 30 as const, dailyAutoPostCap: null },
-      request: { operation: 'set_account_daily_cap' as const, cap: 50 },
+      request: { operation: 'set_account_daily_cap' as const, cap: 1 },
       classification: 'contraction',
       blocked: false,
+    },
+    {
+      name: 'cap equal to the effective platform default',
+      policy: { vetoWindowMinutes: 30 as const, dailyAutoPostCap: null },
+      request: { operation: 'set_account_daily_cap' as const, cap: 10 },
+      classification: 'no_change',
+      blocked: false,
+    },
+    {
+      name: 'cap above the effective platform default',
+      policy: { vetoWindowMinutes: 30 as const, dailyAutoPostCap: null },
+      request: {
+        operation: 'set_account_daily_cap' as const,
+        cap: 50,
+        confirmationLevel: 'standard' as const,
+      },
+      classification: 'expansion',
+      blocked: true,
     },
   ])('classifies and gates $name for Copilot', async ({ policy, request, classification, blocked }) => {
     dbState.subscriptionTier = SubscriptionTier.COPILOT;
@@ -740,6 +758,120 @@ describe('auto-approval settings service', () => {
         payload: expect.objectContaining({ exposureClassification: classification }),
       }),
     );
+  });
+
+  it('allows a confirmed NULL-to-50 cap expansion for ready Autopilot and projects it to inheriting locations', async () => {
+    dbState.accountDefault = {
+      id: 'policy-default',
+      threshold: 5,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: null,
+    };
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    const result = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_daily_cap',
+      cap: 50,
+      confirmationLevel: 'standard',
+    });
+
+    expect(result.accountDefault).toMatchObject({
+      dailyAutoPostCap: 50,
+      effectiveDailyCap: 50,
+    });
+    expect(result.locations).toHaveLength(2);
+    for (const location of result.locations) {
+      expect(location.effective).toMatchObject({
+        inherited: true,
+        dailyAutoPostCap: 50,
+        effectiveDailyCap: 50,
+      });
+    }
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          beforeEffectiveDailyAutoPostCap: null,
+          beforeEffectiveDailyCap: 10,
+          afterEffectiveDailyAutoPostCap: 50,
+          afterEffectiveDailyCap: 50,
+          exposureClassification: 'expansion',
+          expansion: true,
+        }),
+      }),
+    );
+  });
+
+  it('blocks NULL-to-50 but allows NULL-to-1 when the Autopilot sale gate is closed', async () => {
+    dbState.accountDefault = { id: 'policy-default', threshold: 5, dailyAutoPostCap: null };
+    process.env.AUTOPILOT_PURCHASABLE = 'false';
+    resetServerConfigForTests();
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    await expect(patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_daily_cap',
+      cap: 50,
+      confirmationLevel: 'standard',
+    })).rejects.toMatchObject({ blockReasons: ['autopilot_unavailable'] });
+
+    const contracted = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_daily_cap',
+      cap: 1,
+    });
+    expect(contracted.accountDefault).toMatchObject({
+      dailyAutoPostCap: 1,
+      effectiveDailyCap: 1,
+    });
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          exposureClassification: 'contraction',
+          expansion: false,
+        }),
+      }),
+    );
+  });
+
+  it('blocks NULL-to-50 but allows NULL-to-1 while the policy is suspended', async () => {
+    dbState.accountDefault = {
+      id: 'policy-default',
+      threshold: 5,
+      dailyAutoPostCap: null,
+      suspendedAt: new Date('2026-07-08T00:00:00.000Z'),
+      suspendedReason: 'governor_negative_feedback',
+    };
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    await expect(patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_daily_cap',
+      cap: 50,
+      confirmationLevel: 'standard',
+    })).rejects.toMatchObject({ blockReasons: ['policy_suspended'] });
+
+    const contracted = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_daily_cap',
+      cap: 1,
+    });
+    expect(contracted.accountDefault.dailyAutoPostCap).toBe(1);
+    expect(contracted.readiness.blockReasons).toEqual(['policy_suspended']);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
   });
 
   it('keeps an impersonated contraction blocked before opening a transaction', async () => {
@@ -1162,7 +1294,12 @@ describe('auto-approval settings service', () => {
 
     await patchAutoApprovalSettings(mockSql, { ...base, operation: 'set_account_manual' });
     await patchAutoApprovalSettings(mockSql, { ...base, operation: 'set_account_veto_window', minutes: 30 });
-    await patchAutoApprovalSettings(mockSql, { ...base, operation: 'set_account_daily_cap', cap: 25 });
+    await patchAutoApprovalSettings(mockSql, {
+      ...base,
+      operation: 'set_account_daily_cap',
+      cap: 25,
+      confirmationLevel: 'standard',
+    });
     await patchAutoApprovalSettings(mockSql, { ...base, operation: 'set_location_manual', locationId: LOCATION_1 });
     await patchAutoApprovalSettings(mockSql, { ...base, operation: 'set_location_veto_window', locationId: LOCATION_1, minutes: 30 });
     await patchAutoApprovalSettings(mockSql, { ...base, operation: 'set_location_daily_cap', locationId: LOCATION_1, cap: 25 });
