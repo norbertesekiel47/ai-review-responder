@@ -922,6 +922,8 @@ Revisit triggers:
   reconciliation enqueue. Apply only inside the quiesced rollout after the
   provider-wide Stripe subscription + open-Checkout preflight reaches zero
   blockers; apply staging first, then production, both projects in lockstep.
+  Exact operator sequence and rollback boundary:
+  `docs/runbooks/ws8-tier-cutover.md`.
 
 - **078** — WS8 Copilot/Autopilot strict tier contract (spec
   `docs/superpowers/specs/2026-07-14-ws8-tier-wiring-design.md` §7.4). Runs
@@ -938,6 +940,8 @@ Revisit triggers:
   lockstep. Verified by NULL/every-legacy blocker cases, catalog/behavior checks,
   stale-definition repair, and repeated application against the local `test_ws4`
   database only; no staging or production migration was run during WS8 execution.
+  Exact operator sequence and post-contract recovery boundary:
+  `docs/runbooks/ws8-tier-cutover.md`.
 
 ## Key Tables Reference
 

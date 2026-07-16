@@ -506,3 +506,82 @@ Lockfile-only transitive bumps within existing ranges (no `package.json` change)
 **Doc-change-map applied:** the exit-audit doc (`docs/audits/2026-07-06-modularity-aplus-exit-audit.md`, written separately); this entry; `currents.md` (the "two deliberate residuals" passage rewritten to CLOSED + grade bump); `.claude/CLAUDE.md` (**new invariant #15** — DB-injection convention as permanent law + the LLM-seam tech-stack update); `docs/directory.md` (LLM-seam tenants refreshed + the `scripts/ci/` audit scripts + the DB-injection note). **Skipped (no trigger):** `env-vars.md`, `migrations-log.md`, `review-ingestion.md` (no env/flag, no migration, no ingestion-path change — structural refactor only).
 
 ---
+
+## Workstream 8 — Copilot/Autopilot tier wiring (2026-07-14 → 2026-07-15, execution branch; PR pending)
+
+**Status:** Implementation Tasks 1–11 complete on the WS8 execution branch;
+branch-final mechanical verification (Task 12), the reserved integration-owner
+four-review pass, PR, CI observation, and every staging/production operator
+action remain pending. No remote database, Stripe Price, environment variable,
+deployment, or webhook configuration was changed during implementation.
+
+**Commercial/data model.** The four old subscription tiers were deleted from
+runtime types, schemas, fixtures, admin provisioning, billing, and feature
+entitlements. The only plans are monthly Copilot ($29 list / $19 founding, $15
+per extra location) and Autopilot ($69 / $49, $20 extra), with exactly one
+included location. `accounts.price_variant` is immutable `list|founding`; all
+creation/Checkout/tier-change/activation/webhook/reconciliation paths carry it,
+and every billing write persists the full tier/cents/quota snapshot. Billing
+reads remain stored-snapshot authoritative. Trial Checkout remains Stripe-native,
+card-up-front, 30 days, explicitly selected, and promotion codes are disabled.
+
+**Runtime authority.** Autopilot purchasing composes the operator gate with
+auto-approval runtime readiness. Grant-time code rejects Copilot `auto_policy`;
+publisher code rechecks immediately before posting and downgrades queued rows on
+entitlement/runtime loss. Trust-dial threshold/veto/cap changes are classified
+from effective before/after state: expansions require Autopilot readiness,
+contractions and disablement remain available during suspension or gate loss.
+All entitlement checks use `subscriptionGrantsFullAccess`, preserving trialing.
+
+**Billing/Stripe safety.** The six-Price map owns four base IDs (list/founding
+per tier) and two tier overage IDs with reverse `{tier,variant}` lookup. Tier,
+webhook, activation, and overage writers use the fixed advisory-lock graph,
+stable Stripe idempotency, provider-current subscription reads, and one status
+applier. Webhook variant mismatch preserves the immutable variant and stored
+snapshot while surfacing an operational alert; status remains owned by
+`worker/ingress/stripe/apply-subscription-state.ts`. Explicit tests cover founder
+preview, proration/quantity math, replay, mid-cycle loss, both lock acquisition
+orders, and non-vacuous mock-SQL queues.
+
+**Schema/rollout.** Migration 077 is direct SQL: first apply detects the absent
+marker column, expands defaults/immutability, then unconditionally normalizes
+pre-existing quiesced rows to the complete Copilot/list launch snapshot; second
+apply repairs objects without rewriting post-cutover data. Migration 078 runs
+only after strict code and smoke, aborts NULL-safely on either invalid mirror,
+and installs re-runnable strict two-tier CHECK/NOT NULL contracts. The sole
+operator order is documented in
+[`ws8-tier-cutover.md`](runbooks/ws8-tier-cutover.md): create six immutable
+Prices and retain seven old IDs → quiesce all writers/Stripe ingress → all-six
+parity + provider-wide subscription/Session blocker zero → 077 → strict code →
+controlled smoke → 078 → resume, staging before production.
+
+**New/central files.** `src/lib/accounts/{tier-config,tier-snapshot}.ts`,
+`src/lib/payments/{price-tier-map,founding-window,tier-purchasability,plan-presentation}.ts`,
+`src/lib/accounts/tier-change.ts`, `worker/ingress/stripe/`,
+`worker/jobs/publisher/`, `src/lib/auto-approval/settings.ts`,
+`supabase/migrations/077_copilot_autopilot_expand.sql`,
+`supabase/migrations/078_copilot_autopilot_contract.sql`,
+`scripts/verify-stripe-price-parity.ts`, and
+`scripts/ws8-stripe-cutover-preflight.ts`. Public pricing, onboarding plan
+selection, and authenticated billing now consume server-produced two-tier view
+models with no annual selector or default plan.
+
+**Operator inputs still required.** Create six environment-specific immutable
+Stripe Prices; supply positive `DAILY_COST_LIMIT_CENTS_COPILOT` and
+`DAILY_COST_LIMIT_CENTS_AUTOPILOT`; configure the six IDs plus exact
+`FOUNDING_DEADLINE=2027-01-01T00:00:00Z`; retain seven old IDs through rollback;
+perform the quiesced staging/production sequence. `AUTOPILOT_PURCHASABLE=true`
+has separate authorization: WS4/074 live, WS6/076 live, WS7 eval green,
+documented cadence limits, and intentional `AUTO_APPROVAL_ENABLED=true`.
+
+**Doc-change-map applied (Task 11).** Updated this history and the top
+`currents.md` state summary; replaced old tier/Payment Link material in
+`.claude/reference/env-vars.md`, refreshed the flat inventory in
+`docs/eservices-variables.md`, cross-linked 077/078 in
+`.claude/reference/migrations-log.md`, updated `docs/directory.md`, and added the
+cutover runbook. Skipped `review-ingestion.md` (ReviewSource/ingest contract did
+not change), `lab-notes.md` (no new subsystem root-cause gotcha), and
+`.claude/CLAUDE.md` (existing invariants and where-to-read table already own the
+architecture; no invariant changed in Task 11).
+
+---

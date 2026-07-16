@@ -1,7 +1,5 @@
 // Verifies every immutable launch Price shape against the locked registry.
 // Run manually before first charge and after creating any replacement Price.
-import { config as dotenvConfig } from 'dotenv';
-import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -27,7 +25,7 @@ interface StripePriceShape {
   active: boolean;
   unit_amount: number | null;
   currency: string;
-  recurring: { interval: string } | null;
+  recurring: { interval: string; interval_count: number } | null;
   tax_behavior: string | null;
 }
 
@@ -46,6 +44,7 @@ async function checkPrice(
     { field: 'unit_amount', expected: expectedCents, actual: price.unit_amount, required: true },
     { field: 'currency', expected: 'usd', actual: price.currency, required: true },
     { field: 'recurring.interval', expected: 'month', actual: price.recurring?.interval, required: true },
+    { field: 'recurring.interval_count', expected: 1, actual: price.recurring?.interval_count, required: true },
     { field: 'tax_behavior', expected: 'exclusive', actual: price.tax_behavior, required: taxRequired },
   ] as const;
   return checks
@@ -74,10 +73,28 @@ export async function verifyConfiguredStripePrices(
   return mismatches;
 }
 
-async function main(): Promise<void> {
-  if (existsSync('.env.local')) dotenvConfig({ path: '.env.local' });
-  else dotenvConfig();
-  const taxRequired = process.env.STRIPE_TAX_ENABLED === 'true';
+export function parseStripeTaxEnabled(value: string | undefined): boolean {
+  if (value === undefined || value === '' || value === 'false') return false;
+  if (value === 'true') return true;
+  throw new Error('STRIPE_TAX_ENABLED must be exactly true or false when set');
+}
+
+export function prepareStripePriceParityCli(
+  env: Readonly<Record<string, string | undefined>>,
+): { taxRequired: boolean } {
+  return { taxRequired: parseStripeTaxEnabled(env.STRIPE_TAX_ENABLED) };
+}
+
+export function stripePriceParityExitCode(
+  mismatches: readonly StripePriceParityMismatch[] | null,
+  error: unknown = null,
+): 0 | 1 {
+  if (error !== null || mismatches === null) return 1;
+  return mismatches.length === 0 ? 0 : 1;
+}
+
+async function main(): Promise<number> {
+  const { taxRequired } = prepareStripePriceParityCli(process.env);
   const mismatches = await verifyConfiguredStripePrices(
     async (priceId) => getStripe().prices.retrieve(priceId),
     taxRequired,
@@ -85,11 +102,18 @@ async function main(): Promise<void> {
   if (mismatches.length > 0) {
     console.error('Stripe price parity FAILED:');
     for (const item of mismatches) console.error(`  ${item.label}: ${item.field} expected=${item.expected} actual=${item.actual}`);
-    process.exit(1);
   }
-  console.log(`Stripe price parity OK for ${TIERS.length} tiers and ${VARIANTS.length} variants.`);
+  if (mismatches.length === 0) {
+    console.log(`Stripe price parity OK for ${TIERS.length} tiers and ${VARIANTS.length} variants.`);
+  }
+  return stripePriceParityExitCode(mismatches);
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  main().catch((error) => { console.error(error); process.exit(1); });
+  main()
+    .then((exitCode) => { process.exitCode = exitCode; })
+    .catch((error) => {
+      console.error(error);
+      process.exitCode = stripePriceParityExitCode(null, error);
+    });
 }
