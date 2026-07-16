@@ -15,6 +15,7 @@ import {
 import { autopilotPurchasable } from '../../../src/lib/payments/tier-purchasability';
 import { reportCaughtError } from '../../../src/lib/shared/report-caught-error';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
+import type { CheckoutAttemptLeaseColumns } from '../../../src/lib/payments/checkout-attempt';
 import {
   LOG_PREFIX,
   extractCustomerId,
@@ -28,7 +29,7 @@ import {
   type TransitionResult,
 } from './apply-subscription-state';
 
-interface CheckoutAccountRow {
+interface CheckoutAccountRow extends CheckoutAttemptLeaseColumns {
   id: string;
   subscription_tier: string;
   subscription_status: string;
@@ -39,18 +40,6 @@ interface CheckoutAccountRow {
   locations_included: number;
   stripe_subscription_id: string | null;
   stripe_customer_id: string | null;
-  checkout_attempt_id: string | null;
-  checkout_session_id: string | null;
-  checkout_attempt_state: string | null;
-  checkout_attempt_tier: string | null;
-  checkout_attempt_price_variant: string | null;
-  checkout_attempt_base_price_id: string | null;
-  checkout_attempt_overage_price_id: string | null;
-  checkout_attempt_base_price_cents: number | null;
-  checkout_attempt_overage_price_cents: number | null;
-  checkout_attempt_locations_included: number | null;
-  checkout_attempt_locations_paid: number | null;
-  checkout_attempt_overage_quantity: number | null;
 }
 
 type AlertReason =

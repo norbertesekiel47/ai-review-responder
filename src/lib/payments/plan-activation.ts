@@ -34,6 +34,7 @@ import {
 import { assertTierPurchasable } from '@/lib/payments/tier-purchasability';
 import { priceIdFor } from '@/lib/payments/price-tier-map';
 import { getStripe } from '@/lib/payments/stripe-client';
+import type { CheckoutAttemptLeaseColumns } from './checkout-attempt';
 import { stripeTaxEnabled, trialEnabled } from './flags';
 
 // ── applyTierSnapshot ────────────────────────────────────────────────────
@@ -55,22 +56,10 @@ export class CheckoutAttemptConflictError extends Error {
   }
 }
 
-interface SelectionAccountRow {
+interface SelectionAccountRow extends CheckoutAttemptLeaseColumns {
   subscription_status: string;
   price_variant: string;
   active_locations: number;
-  checkout_attempt_id: string | null;
-  checkout_session_id: string | null;
-  checkout_attempt_state: string | null;
-  checkout_attempt_tier: string | null;
-  checkout_attempt_price_variant: string | null;
-  checkout_attempt_base_price_id: string | null;
-  checkout_attempt_overage_price_id: string | null;
-  checkout_attempt_base_price_cents: number | null;
-  checkout_attempt_overage_price_cents: number | null;
-  checkout_attempt_locations_included: number | null;
-  checkout_attempt_locations_paid: number | null;
-  checkout_attempt_overage_quantity: number | null;
 }
 
 function isSameAttemptSelection(
@@ -159,7 +148,7 @@ export interface ApplyTierSnapshotParams {
   actorUserId?: string | null;
 }
 
-export interface CheckoutCreateShape {
+interface CheckoutCreateShape {
   customerEmail: string;
   successUrl: string;
   cancelUrl: string;
@@ -188,6 +177,91 @@ function resolveCheckoutCreateShape(
     cancelUrl: `${baseUrl}/onboarding/pay?cancelled=true`,
     trialPeriodDays: trial ? 30 : null,
     taxEnabled: stripeTaxEnabled(),
+  };
+}
+
+type AttemptPreparation =
+  | { kind: 'reuse'; result: Extract<TierSnapshotResult, { kind: 'ok' }> }
+  | {
+      kind: 'create';
+      checkoutCreateShape: CheckoutCreateShape;
+      newAttemptPricing: ReturnType<typeof resolveNewAttemptPricing>;
+    };
+
+async function prepareCheckoutAttempt(
+  row: SelectionAccountRow,
+  input: {
+    accountId: string;
+    tier: SubscriptionTierValue;
+    variant: PriceVariant;
+    ownerEmail: string;
+    trial: boolean;
+  },
+): Promise<AttemptPreparation> {
+  if (
+    row.checkout_attempt_id &&
+    row.checkout_attempt_state === 'creating' &&
+    isSameAttemptSelection(row, input.tier, input.variant)
+  ) {
+    return {
+      kind: 'reuse',
+      result: {
+        kind: 'ok',
+        accountId: input.accountId,
+        variant: input.variant,
+        attemptId: row.checkout_attempt_id,
+      },
+    };
+  }
+
+  if (row.checkout_attempt_state === 'creating') {
+    throw new CheckoutAttemptConflictError(
+      'The previous Checkout attempt is still being created; retry that selection',
+    );
+  }
+
+  let checkoutCreateShape: CheckoutCreateShape | null = null;
+  let newAttemptPricing: ReturnType<typeof resolveNewAttemptPricing> | null = null;
+  if (row.checkout_attempt_state === 'open' && row.checkout_session_id) {
+    const sameSelection = isSameAttemptSelection(row, input.tier, input.variant);
+    if (!sameSelection) {
+      assertTierPurchasable(input.tier);
+      checkoutCreateShape = resolveCheckoutCreateShape(input.ownerEmail, input.trial);
+      newAttemptPricing = resolveNewAttemptPricing(input.tier, input.variant);
+    }
+    const priorResolution = await resolvePriorOpenSession(
+      row.checkout_session_id,
+      sameSelection,
+    );
+    if (priorResolution === 'reuse') {
+      return {
+        kind: 'reuse',
+        result: {
+          kind: 'ok',
+          accountId: input.accountId,
+          variant: input.variant,
+          attemptId: row.checkout_attempt_id!,
+        },
+      };
+    }
+  } else if (row.checkout_attempt_state === 'open') {
+    throw new CheckoutAttemptConflictError(
+      'The previous Checkout attempt has no provider Session identity',
+    );
+  } else if (row.checkout_attempt_state === 'completed') {
+    throw new CheckoutAttemptConflictError(
+      'The previous Checkout Session completed and is awaiting projection',
+    );
+  }
+
+  assertTierPurchasable(input.tier);
+  return {
+    kind: 'create',
+    checkoutCreateShape:
+      checkoutCreateShape ??
+      resolveCheckoutCreateShape(input.ownerEmail, input.trial),
+    newAttemptPricing:
+      newAttemptPricing ?? resolveNewAttemptPricing(input.tier, input.variant),
   };
 }
 
@@ -261,78 +335,19 @@ export async function applyTierSnapshot(
 
     const variant = row.price_variant;
 
-    // An exact retry keeps the durable attempt identity while its provider
-    // Session is still being created. The stable identity recovers a Session
-    // created before a transient bind/commit failure.
-    if (
-      row.checkout_attempt_id &&
-      row.checkout_attempt_state === 'creating' &&
-      isSameAttemptSelection(row, tier, variant)
-    ) {
-      return {
-        kind: 'ok' as const,
-        accountId,
-        variant,
-        attemptId: row.checkout_attempt_id,
-      };
-    }
-
-    if (row.checkout_attempt_state === 'creating') {
-      // A process can disappear after Stripe accepted the stable create key but
-      // before the Session id was bound. A different selection cannot safely
-      // discover and expire that provider object, so it must first recover the
-      // existing attempt instead of creating a potentially double-billing one.
-      throw new CheckoutAttemptConflictError(
-        'The previous Checkout attempt is still being created; retry that selection',
-      );
-    }
-
     // A replacement may not coexist with an older open provider Session. The
     // provider status is resolved while all three advisory locks are held and
     // before the account row is locked. A completed Session is left for its
     // webhook; creating another subscription would double-bill the owner.
-    let checkoutCreateShape: CheckoutCreateShape | null = null;
-    let newAttemptPricing: ReturnType<typeof resolveNewAttemptPricing> | null =
-      null;
-    if (row.checkout_attempt_state === 'open' && row.checkout_session_id) {
-      const sameSelection = isSameAttemptSelection(row, tier, variant);
-      // Gate closure blocks a new/replacement selection but must not revoke an
-      // already-authoritative exact Session. Check before expiring anything so
-      // an unavailable different-tier request leaves the old lease untouched.
-      if (!sameSelection) {
-        assertTierPurchasable(tier);
-        // Validate/freeze every caller/environment-dependent input before the
-        // old open Session is expired. Exact reuse never reaches this branch.
-        checkoutCreateShape = resolveCheckoutCreateShape(ownerEmail, trial);
-        newAttemptPricing = resolveNewAttemptPricing(tier, variant);
-      }
-      const priorResolution = await resolvePriorOpenSession(
-        row.checkout_session_id,
-        sameSelection,
-      );
-      if (priorResolution === 'reuse') {
-        return {
-          kind: 'ok' as const,
-          accountId,
-          variant,
-          attemptId: row.checkout_attempt_id!,
-        };
-      }
-    } else if (row.checkout_attempt_state === 'open') {
-      throw new CheckoutAttemptConflictError(
-        'The previous Checkout attempt has no provider Session identity',
-      );
-    } else if (row.checkout_attempt_state === 'completed') {
-      throw new CheckoutAttemptConflictError(
-        'The previous Checkout Session completed and is awaiting projection',
-      );
-    }
-
-    // Gate the only remaining paths, all of which persist a new attempt. An
-    // exact provider-open retry returned above without consulting the gate.
-    assertTierPurchasable(tier);
-    checkoutCreateShape ??= resolveCheckoutCreateShape(ownerEmail, trial);
-    newAttemptPricing ??= resolveNewAttemptPricing(tier, variant);
+    const preparation = await prepareCheckoutAttempt(row, {
+      accountId,
+      tier,
+      variant,
+      ownerEmail,
+      trial,
+    });
+    if (preparation.kind === 'reuse') return preparation.result;
+    const { checkoutCreateShape, newAttemptPricing } = preparation;
     const { snapshot, basePriceId, overagePriceId } = newAttemptPricing;
 
     const [locked] = await tx<{

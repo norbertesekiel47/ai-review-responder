@@ -14,10 +14,136 @@ import {
 } from '@/lib/payments/plan-activation';
 import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
+
+type SelectPlanRequestGate =
+  | { kind: 'ok'; tier: SubscriptionTierValue; userId: string }
+  | { kind: 'response'; response: NextResponse };
+
+async function validateSelectPlanRequest(
+  req: NextRequest,
+): Promise<SelectPlanRequestGate> {
+  if (!selfServeSignupEnabled()) {
+    return {
+      kind: 'response',
+      response: NextResponse.json(
+        { error: 'not_found' },
+        { status: 404, headers: NO_STORE },
+      ),
+    };
+  }
+
+  try {
+    assertSameOrigin(req);
+  } catch (err) {
+    if (!(err instanceof SameOriginError)) throw err;
+    return {
+      kind: 'response',
+      response: NextResponse.json(
+        { error: 'forbidden' },
+        { status: 403, headers: NO_STORE },
+      ),
+    };
+  }
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return {
+      kind: 'response',
+      response: NextResponse.json(
+        { error: 'invalid_json' },
+        { status: 400, headers: NO_STORE },
+      ),
+    };
+  }
+  const parsed = SelectPlanSchema.safeParse(body);
+  if (!parsed.success) {
+    return {
+      kind: 'response',
+      response: NextResponse.json(
+        { error: 'invalid_body', issues: parsed.error.issues },
+        { status: 400, headers: NO_STORE },
+      ),
+    };
+  }
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll();
+        },
+        setAll() {
+          // Read-only.
+        },
+      },
+    },
+  );
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return {
+      kind: 'response',
+      response: NextResponse.json(
+        { error: 'unauthorized' },
+        { status: 401, headers: NO_STORE },
+      ),
+    };
+  }
+
+  try {
+    const authRl = await checkRateLimit(
+      `select-plan:auth:${user.id}`,
+      10,
+      600,
+      { strict: true },
+    );
+    if (!authRl.allowed) {
+      return {
+        kind: 'response',
+        response: NextResponse.json(
+          { error: 'rate_limited' },
+          { status: 429, headers: NO_STORE },
+        ),
+      };
+    }
+    const ipRl = await checkRateLimit(
+      getIpKey(req, 'select-plan'),
+      30,
+      600,
+      { strict: true },
+    );
+    if (!ipRl.allowed) {
+      return {
+        kind: 'response',
+        response: NextResponse.json(
+          { error: 'rate_limited' },
+          { status: 429, headers: NO_STORE },
+        ),
+      };
+    }
+  } catch (err) {
+    reportCaughtError('select-plan', err, { reason: 'rate_limit_strict_failure' });
+    return {
+      kind: 'response',
+      response: NextResponse.json(
+        { error: 'rate_limit_unavailable' },
+        { status: 503, headers: NO_STORE },
+      ),
+    };
+  }
+
+  return { kind: 'ok', tier: parsed.data.tier, userId: user.id };
+}
 
 /**
  * POST /api/onboarding/select-plan
@@ -45,100 +171,9 @@ const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
  * limits are generous enough that two impatient retries don't trip them.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  if (!selfServeSignupEnabled()) {
-    return NextResponse.json(
-      { error: 'not_found' },
-      { status: 404, headers: NO_STORE },
-    );
-  }
-
-  try {
-    assertSameOrigin(req);
-  } catch (err) {
-    if (err instanceof SameOriginError) {
-      return NextResponse.json(
-        { error: 'forbidden' },
-        { status: 403, headers: NO_STORE },
-      );
-    }
-    throw err;
-  }
-
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json(
-      { error: 'invalid_json' },
-      { status: 400, headers: NO_STORE },
-    );
-  }
-  const parsed = SelectPlanSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'invalid_body', issues: parsed.error.issues },
-      { status: 400, headers: NO_STORE },
-    );
-  }
-  const { tier } = parsed.data;
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return req.cookies.getAll();
-        },
-        setAll() {
-          // Read-only.
-        },
-      },
-    },
-  );
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json(
-      { error: 'unauthorized' },
-      { status: 401, headers: NO_STORE },
-    );
-  }
-
-  try {
-    const authRl = await checkRateLimit(
-      `select-plan:auth:${user.id}`,
-      10,
-      600,
-      { strict: true },
-    );
-    if (!authRl.allowed) {
-      return NextResponse.json(
-        { error: 'rate_limited' },
-        { status: 429, headers: NO_STORE },
-      );
-    }
-    const ipRl = await checkRateLimit(
-      getIpKey(req, 'select-plan'),
-      30,
-      600,
-      { strict: true },
-    );
-    if (!ipRl.allowed) {
-      return NextResponse.json(
-        { error: 'rate_limited' },
-        { status: 429, headers: NO_STORE },
-      );
-    }
-  } catch (err) {
-    reportCaughtError('select-plan', err, { reason: 'rate_limit_strict_failure' });
-    return NextResponse.json(
-      { error: 'rate_limit_unavailable' },
-      { status: 503, headers: NO_STORE },
-    );
-  }
+  const requestGate = await validateSelectPlanRequest(req);
+  if (requestGate.kind === 'response') return requestGate.response;
+  const { tier, userId } = requestGate;
 
   // We need the business_id before applyTierSnapshot can take the per-business
   // activation lock, but we don't know it yet — this single round to find it
@@ -158,7 +193,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     FROM users u
     JOIN accounts a ON a.id = u.account_id
     JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
-    WHERE u.auth_id = ${user.id}
+    WHERE u.auth_id = ${userId}
       AND u.role = 'owner'
     LIMIT 1
   `;

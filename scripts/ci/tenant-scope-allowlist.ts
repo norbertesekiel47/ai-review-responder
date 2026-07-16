@@ -1204,14 +1204,14 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/onboarding/select-plan/route.ts",
     table: "accounts",
-    sqlSnippet: "SELECT b.id, a.id AS account_id, b.owner_email FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
+    sqlSnippet: "SELECT b.id, a.id AS account_id, b.owner_email FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${userId} AND u.role = 'owner' LIMIT 1",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
   {
     file: "src/app/api/onboarding/select-plan/route.ts",
     table: "businesses",
-    sqlSnippet: "SELECT b.id, a.id AS account_id, b.owner_email FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
+    sqlSnippet: "SELECT b.id, a.id AS account_id, b.owner_email FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${userId} AND u.role = 'owner' LIMIT 1",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },

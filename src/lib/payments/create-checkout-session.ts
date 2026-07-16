@@ -10,7 +10,7 @@
 // Validation contract: VAL-BILLING-001 through VAL-BILLING-006,
 //   VAL-BILLING-030 through VAL-BILLING-032.
 
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import type Stripe from 'stripe';
 import type {
   PriceVariant,
@@ -19,6 +19,7 @@ import type {
 import { getStripe } from '@/lib/payments/stripe-client';
 import { acquireTierBillingActivationLocks } from '@/lib/accounts/billing-locks';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import type { CheckoutAttemptLeaseColumns } from './checkout-attempt';
 import { CheckoutAttemptConflictError } from './plan-activation';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -35,6 +36,16 @@ export interface CheckoutSessionOptions {
   activationLockId: string;
 }
 
+interface CheckoutSessionAttemptRow extends CheckoutAttemptLeaseColumns {
+  subscription_status: string;
+  price_variant: string;
+  checkout_attempt_trial_period_days: number | null;
+  checkout_attempt_tax_enabled: boolean | null;
+  checkout_attempt_customer_email: string | null;
+  checkout_attempt_success_url: string | null;
+  checkout_attempt_cancel_url: string | null;
+}
+
 function checkoutSessionIdempotencyKey(attemptId: string): string {
   return `checkout-session-attempt:v1:${attemptId}`;
 }
@@ -44,6 +55,127 @@ function checkoutSubscriptionId(
 ): string | null {
   if (typeof value === 'string') return value;
   return value?.id ?? null;
+}
+
+function checkoutAttemptMatchesRequest(
+  attempt: CheckoutSessionAttemptRow,
+  tier: SubscriptionTierValue,
+  variant: PriceVariant,
+  attemptId: string,
+): boolean {
+  return (
+    attempt.subscription_status === SubscriptionStatus.PENDING_PAYMENT &&
+    attempt.checkout_attempt_id === attemptId &&
+    attempt.checkout_attempt_tier === tier &&
+    attempt.checkout_attempt_price_variant === variant &&
+    attempt.price_variant === variant &&
+    Boolean(attempt.checkout_attempt_base_price_id?.trim()) &&
+    Boolean(attempt.checkout_attempt_overage_price_id?.trim()) &&
+    Number(attempt.checkout_attempt_base_price_cents) > 0 &&
+    Number(attempt.checkout_attempt_overage_price_cents) > 0 &&
+    Number(attempt.checkout_attempt_locations_included) > 0 &&
+    Number(attempt.checkout_attempt_locations_paid) === 0 &&
+    Number.isSafeInteger(Number(attempt.checkout_attempt_overage_quantity)) &&
+    Number(attempt.checkout_attempt_overage_quantity) >= 0 &&
+    (attempt.checkout_attempt_trial_period_days === null ||
+      Number(attempt.checkout_attempt_trial_period_days) === 30) &&
+    typeof attempt.checkout_attempt_tax_enabled === 'boolean' &&
+    Boolean(attempt.checkout_attempt_customer_email?.trim()) &&
+    Boolean(attempt.checkout_attempt_success_url?.trim()) &&
+    Boolean(attempt.checkout_attempt_cancel_url?.trim())
+  );
+}
+
+async function reuseOpenCheckoutSession(
+  attempt: CheckoutSessionAttemptRow,
+): Promise<CheckoutSessionResult | null> {
+  if (attempt.checkout_attempt_state !== 'open' || !attempt.checkout_session_id) {
+    return null;
+  }
+  const existing = await getStripe().checkout.sessions.retrieve(
+    attempt.checkout_session_id,
+    { expand: ['line_items'] },
+  );
+  if (existing.status === 'complete') {
+    throw new CheckoutAttemptConflictError(
+      'Checkout completed and is awaiting projection',
+    );
+  }
+  if (existing.status !== 'open' || !existing.url) {
+    throw new CheckoutAttemptConflictError(
+      'Checkout attempt is no longer open; select the plan again',
+    );
+  }
+  return { url: existing.url, sessionId: existing.id };
+}
+
+function buildCheckoutSessionParams(
+  attempt: CheckoutSessionAttemptRow,
+  accountId: string,
+  attemptId: string,
+): Stripe.Checkout.SessionCreateParams {
+  const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
+    { price: attempt.checkout_attempt_base_price_id!, quantity: 1 },
+  ];
+  const overageQuantity = Number(attempt.checkout_attempt_overage_quantity);
+  if (overageQuantity > 0) {
+    lineItems.push({
+      price: attempt.checkout_attempt_overage_price_id!,
+      quantity: overageQuantity,
+    });
+  }
+
+  const taxParams = attempt.checkout_attempt_tax_enabled
+    ? {
+        automatic_tax: { enabled: true as const },
+        billing_address_collection: 'required' as const,
+        tax_id_collection: { enabled: true as const },
+      }
+    : {};
+  const subscriptionData =
+    attempt.checkout_attempt_trial_period_days === null
+      ? { metadata: { checkout_attempt_id: attemptId } }
+      : {
+          trial_period_days: attempt.checkout_attempt_trial_period_days,
+          metadata: { checkout_attempt_id: attemptId },
+        };
+  return {
+    mode: 'subscription',
+    line_items: lineItems,
+    client_reference_id: accountId,
+    customer_email: attempt.checkout_attempt_customer_email!,
+    success_url: attempt.checkout_attempt_success_url!,
+    cancel_url: attempt.checkout_attempt_cancel_url!,
+    allow_promotion_codes: false,
+    metadata: { checkout_attempt_id: attemptId },
+    subscription_data: subscriptionData,
+    ...taxParams,
+  };
+}
+
+async function bindCheckoutSessionLease(
+  tx: TransactionSql,
+  accountId: string,
+  attemptId: string,
+  sessionId: string,
+): Promise<void> {
+  const updated = await tx<{ id: string }[]>`
+    UPDATE accounts
+    SET checkout_session_id = ${sessionId},
+        checkout_attempt_state = 'open',
+        checkout_attempt_updated_at = NOW(),
+        updated_at = NOW()
+    WHERE id = ${accountId}::uuid
+      AND checkout_attempt_id = ${attemptId}::uuid
+      AND checkout_attempt_state = 'creating'
+      AND checkout_session_id IS NULL
+    RETURNING id
+  `;
+  if (updated.length !== 1) {
+    throw new CheckoutAttemptConflictError(
+      'Checkout attempt changed before its Session could be leased',
+    );
+  }
 }
 
 async function remediateUnboundProviderSession(sessionId: string): Promise<void> {
@@ -198,27 +330,7 @@ export async function createCheckoutSession(
         options.activationLockId,
       );
 
-      const [attempt] = await tx<{
-        subscription_status: string;
-        price_variant: string;
-        checkout_attempt_id: string | null;
-        checkout_session_id: string | null;
-        checkout_attempt_state: string | null;
-        checkout_attempt_tier: string | null;
-        checkout_attempt_price_variant: string | null;
-        checkout_attempt_base_price_id: string | null;
-        checkout_attempt_overage_price_id: string | null;
-        checkout_attempt_base_price_cents: number | null;
-        checkout_attempt_overage_price_cents: number | null;
-        checkout_attempt_locations_included: number | null;
-        checkout_attempt_locations_paid: number | null;
-        checkout_attempt_overage_quantity: number | null;
-        checkout_attempt_trial_period_days: number | null;
-        checkout_attempt_tax_enabled: boolean | null;
-        checkout_attempt_customer_email: string | null;
-        checkout_attempt_success_url: string | null;
-        checkout_attempt_cancel_url: string | null;
-      }[]>`
+      const [attempt] = await tx<CheckoutSessionAttemptRow[]>`
         SELECT
           subscription_status,
           price_variant,
@@ -246,97 +358,28 @@ export async function createCheckoutSession(
         throw new CheckoutUnavailableError(`Account not found: ${accountId}`);
       }
 
-      const attemptMatches =
-        attempt.subscription_status === SubscriptionStatus.PENDING_PAYMENT &&
-        attempt.checkout_attempt_id === options.attemptId &&
-        attempt.checkout_attempt_tier === tier &&
-        attempt.checkout_attempt_price_variant === variant &&
-        attempt.price_variant === variant &&
-        Boolean(attempt.checkout_attempt_base_price_id?.trim()) &&
-        Boolean(attempt.checkout_attempt_overage_price_id?.trim()) &&
-        Number(attempt.checkout_attempt_base_price_cents) > 0 &&
-        Number(attempt.checkout_attempt_overage_price_cents) > 0 &&
-        Number(attempt.checkout_attempt_locations_included) > 0 &&
-        Number(attempt.checkout_attempt_locations_paid) === 0 &&
-        Number.isSafeInteger(
-          Number(attempt.checkout_attempt_overage_quantity),
-        ) &&
-        Number(attempt.checkout_attempt_overage_quantity) >= 0 &&
-        (attempt.checkout_attempt_trial_period_days === null ||
-          Number(attempt.checkout_attempt_trial_period_days) === 30) &&
-        typeof attempt.checkout_attempt_tax_enabled === 'boolean' &&
-        Boolean(attempt.checkout_attempt_customer_email?.trim()) &&
-        Boolean(attempt.checkout_attempt_success_url?.trim()) &&
-        Boolean(attempt.checkout_attempt_cancel_url?.trim());
-      if (!attemptMatches) {
+      if (!checkoutAttemptMatchesRequest(attempt, tier, variant, options.attemptId)) {
         throw new CheckoutAttemptConflictError(
           'Checkout attempt was superseded by a newer plan selection',
         );
       }
 
-      if (attempt.checkout_attempt_state === 'open' && attempt.checkout_session_id) {
-        const existing = await getStripe().checkout.sessions.retrieve(
-          attempt.checkout_session_id,
-          { expand: ['line_items'] },
-        );
-        if (existing.status === 'complete') {
-          throw new CheckoutAttemptConflictError(
-            'Checkout completed and is awaiting projection',
-          );
-        }
-        if (existing.status !== 'open' || !existing.url) {
-          throw new CheckoutAttemptConflictError(
-            'Checkout attempt is no longer open; select the plan again',
-          );
-        }
-        return { url: existing.url, sessionId: existing.id };
-      }
+      const reusableSession = await reuseOpenCheckoutSession(attempt);
+      if (reusableSession) return reusableSession;
       if (attempt.checkout_attempt_state !== 'creating') {
         throw new CheckoutAttemptConflictError(
           `Checkout attempt is not creatable (${attempt.checkout_attempt_state ?? 'missing'})`,
         );
       }
 
-      const lineItems: Array<{ price: string; quantity: number }> = [
-        { price: attempt.checkout_attempt_base_price_id!, quantity: 1 },
-      ];
-      const overageQuantity = Number(attempt.checkout_attempt_overage_quantity);
-      if (overageQuantity > 0) {
-        lineItems.push({
-          price: attempt.checkout_attempt_overage_price_id!,
-          quantity: overageQuantity,
-        });
-      }
-
       // The durable `creating` attempt was authorized at selection/freeze time
       // and may already own a provider Session under this idempotency key.
       // Retrying it must not consult a now-drifted live purchasability gate.
-      const taxParams = attempt.checkout_attempt_tax_enabled
-        ? {
-            automatic_tax: { enabled: true as const },
-            billing_address_collection: 'required' as const,
-            tax_id_collection: { enabled: true as const },
-          }
-        : {};
-      const subscriptionData =
-        attempt.checkout_attempt_trial_period_days === null
-          ? { metadata: { checkout_attempt_id: options.attemptId } }
-          : {
-              trial_period_days: attempt.checkout_attempt_trial_period_days,
-              metadata: { checkout_attempt_id: options.attemptId },
-            };
-      const sessionParams = {
-        mode: 'subscription',
-        line_items: lineItems,
-        client_reference_id: accountId,
-        customer_email: attempt.checkout_attempt_customer_email!,
-        success_url: attempt.checkout_attempt_success_url!,
-        cancel_url: attempt.checkout_attempt_cancel_url!,
-        allow_promotion_codes: false,
-        metadata: { checkout_attempt_id: options.attemptId },
-        subscription_data: subscriptionData,
-        ...taxParams,
-      } as const;
+      const sessionParams = buildCheckoutSessionParams(
+        attempt,
+        accountId,
+        options.attemptId,
+      );
       const session = await getStripe().checkout.sessions.create(sessionParams, {
         idempotencyKey: checkoutSessionIdempotencyKey(options.attemptId),
       });
@@ -350,23 +393,12 @@ export async function createCheckoutSession(
       // The provider call is deliberately before the account row lock. The
       // advisory locks keep compliant tier/status writers serialized; this final
       // row lock pins the durable lease before the Session is exposed to the UI.
-      const updated = await tx<{ id: string }[]>`
-        UPDATE accounts
-        SET checkout_session_id = ${session.id},
-            checkout_attempt_state = 'open',
-            checkout_attempt_updated_at = NOW(),
-            updated_at = NOW()
-        WHERE id = ${accountId}::uuid
-          AND checkout_attempt_id = ${options.attemptId}::uuid
-          AND checkout_attempt_state = 'creating'
-          AND checkout_session_id IS NULL
-        RETURNING id
-      `;
-      if (updated.length !== 1) {
-        throw new CheckoutAttemptConflictError(
-          'Checkout attempt changed before its Session could be leased',
-        );
-      }
+      await bindCheckoutSessionLease(
+        tx,
+        accountId,
+        options.attemptId,
+        session.id,
+      );
       return { url: session.url, sessionId: session.id };
     });
   } catch (error) {
