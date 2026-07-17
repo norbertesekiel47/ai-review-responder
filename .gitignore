@@ -132,3 +132,7 @@ tests/llm-eval/reports/
 
 # impeccable design-hook local output (re-materialized by the hook)
 .impeccable/
+
+# /feature workflow enforcement artifacts (intake.json + deps-justification.md ARE committed)
+.feature/logs/
+.feature/gate-status.json
