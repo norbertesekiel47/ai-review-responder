@@ -129,6 +129,40 @@ TRUNCATE TABLE account_audit_log, account_offboarding_tokens, account_offboardin
 | Owner decisions 1–4 recorded | Phase 3 verify-prices, Phase 4 preflight (expect 0 blockers, NO allowlist), Phase 5 077 (owner pastes via SQL editor) |
 | | Then merge #469 → prod phase 6 smoke (blocked on Stripe `charges_enabled`) → 078 → resume |
 
+## Phase 1 COMPLETE + early gate results (2026-07-17T01:49–01:53Z)
+
+Owner placed the live `STRIPE_SECRET_KEY` on both platforms (Railway UI lesson: variable edits sit as **staged
+changes** until "Deploy" is clicked — the first attempt silently didn't exist until applied). Verified presence +
+`sk_live_` prefix by fresh read. `WORKER_INTERNAL_SECRET` rotated by owner (fresh 64-char value). Agent copied
+`DATABASE_POOL_URL`, `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` from Vercel production to the Railway
+prod worker (values never displayed; all needed at merge-time regardless — the §4 script's import graph loads the
+Supabase client, so the worker env must carry them).
+
+**Six live Prices created 2026-07-17T01:49:07Z** via `scripts/ws8-create-launch-prices.ts` under
+`railway run --environment production` injection (script refuses non-live keys; idempotent by
+product-name + amount + interval matching; every Price verified by fresh retrieve):
+
+| Env var | Live Price ID | Amount |
+|---|---|---|
+| STRIPE_PRICE_COPILOT_LIST | price_1Tu0tlIhPBLaM6xAh1ncYUyD | 2900 |
+| STRIPE_PRICE_COPILOT_FOUNDING | price_1Tu0tlIhPBLaM6xAqs62deIQ | 1900 |
+| STRIPE_PRICE_AUTOPILOT_LIST | price_1Tu0tmIhPBLaM6xAstHkMhBE | 6900 |
+| STRIPE_PRICE_AUTOPILOT_FOUNDING | price_1Tu0tmIhPBLaM6xAWQWKfjLu | 4900 |
+| STRIPE_PRICE_COPILOT_OVERAGE | price_1Tu0tmIhPBLaM6xAUH8w841l | 1500 |
+| STRIPE_PRICE_AUTOPILOT_OVERAGE | price_1Tu0tnIhPBLaM6xAhDUqdd3r | 2000 |
+
+All `livemode=true`, USD, monthly, active. The 6 vars set + verified (fresh read/pull) on Railway prod worker AND
+Vercel production.
+
+**§3 parity (informal early run):** `Stripe price parity OK for 2 tiers, 2 variants, and 0 retained overage
+Prices.` — 2026-07-17T01:50:18Z.
+**§4 preflight dry-run (informal early run, NO allowlist):**
+`SCANNED subscriptions=0 open_sessions=0 line_items=0 expired_sessions=0 status_notices=0` →
+**`WS8_PREFLIGHT_PASS blockers=0`** — 2026-07-17T01:52:57Z. The handoff's "prod should need NO allowlist"
+expectation HOLDS.
+
+Both §3/§4 will be re-run formally after §2 quiescence; these early results de-risk the sequence.
+
 **Resume checklist for the next session, in order:**
 1. Owner: Railway prod worker → set `STRIPE_SECRET_KEY` (live) + `DATABASE_POOL_URL`; Vercel production → set
    `STRIPE_SECRET_KEY`. Rotate `WORKER_INTERNAL_SECRET` while there.
