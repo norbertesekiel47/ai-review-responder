@@ -24,7 +24,7 @@ function getIntervalMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 }
 
-// Seven independent batched-DELETE arms + count/saturation reporting; the
+// Eight independent batched-DELETE arms + count/saturation reporting; the
 // length is the retention vocabulary, one block per table. Pre-existing size —
 // the perf pass only added the failed-outbox arm to the first block.
 // fallow-ignore-next-line complexity
@@ -201,6 +201,30 @@ async function runArchival(logger: WorkerLogger): Promise<void> {
       SELECT COUNT(*)::text AS count FROM deleted
     `;
 
+    // 8. agent_runs (migration 071 spine) older than 180 days. Terminal-only by
+    // construction — the agent_runs_terminal_consistency CHECK makes
+    // status='running' ⟺ ended_at IS NULL, and `ended_at < …` never matches
+    // NULL, so running runs are never deleted; agent_run_steps prune via
+    // ON DELETE CASCADE (no separate steps arm). Order: arm 7 (outcomes) runs
+    // before arm 8 (runs) to avoid wasted SET NULL churn — efficiency only,
+    // both arms filter by their own age.
+    //
+    // FOR UPDATE SKIP LOCKED: same concurrent-cycle count-accuracy rationale as
+    // notification_deliveries above.
+    const [agentRunsResult] = await sql<{ count: string }[]>`
+      WITH candidates AS (
+        SELECT id FROM agent_runs
+        WHERE ended_at < NOW() - make_interval(days => ${AGENT_SPINE_RETENTION_DAYS})
+        LIMIT 5000
+        FOR UPDATE SKIP LOCKED
+      ),
+      deleted AS (
+        DELETE FROM agent_runs WHERE id IN (SELECT id FROM candidates)
+        RETURNING id
+      )
+      SELECT COUNT(*)::text AS count FROM deleted
+    `;
+
     const outboxCount = parseInt(outboxResult?.count ?? '0', 10);
     const eventsCount = parseInt(eventsResult?.count ?? '0', 10);
     const demosCount = parseInt(demosResult?.count ?? '0', 10);
@@ -208,6 +232,7 @@ async function runArchival(logger: WorkerLogger): Promise<void> {
     const notificationsCount = parseInt(notificationsResult?.count ?? '0', 10);
     const analyticsCount = parseInt(analyticsResult?.count ?? '0', 10);
     const agentOutcomesCount = parseInt(agentOutcomesResult?.count ?? '0', 10);
+    const agentRunsCount = parseInt(agentRunsResult?.count ?? '0', 10);
 
     const totalArchived =
       outboxCount +
@@ -216,7 +241,8 @@ async function runArchival(logger: WorkerLogger): Promise<void> {
       costsCount +
       notificationsCount +
       analyticsCount +
-      agentOutcomesCount;
+      agentOutcomesCount +
+      agentRunsCount;
 
     if (totalArchived > 0) {
       logger.log('Archived', {
@@ -227,6 +253,7 @@ async function runArchival(logger: WorkerLogger): Promise<void> {
         notifications: notificationsCount,
         analytics_events: analyticsCount,
         agent_outcomes: agentOutcomesCount,
+        agent_runs: agentRunsCount,
       });
 
       const BATCH_LIMIT = 5000;
@@ -238,6 +265,7 @@ async function runArchival(logger: WorkerLogger): Promise<void> {
       if (notificationsCount >= BATCH_LIMIT) saturated.push('notifications');
       if (analyticsCount >= BATCH_LIMIT) saturated.push('analytics_events');
       if (agentOutcomesCount >= BATCH_LIMIT) saturated.push('agent_outcomes');
+      if (agentRunsCount >= BATCH_LIMIT) saturated.push('agent_runs');
 
       if (saturated.length > 0) {
         // The sanitizer drops array values, so join the target names into a string.

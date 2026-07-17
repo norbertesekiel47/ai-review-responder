@@ -39,6 +39,7 @@ function queueArchivalResults(counts: {
   notifications: number;
   analytics?: number;
   agentOutcomes?: number;
+  agentRuns?: number;
 }): void {
   sqlReturnQueue.length = 0;
   sqlReturnQueue.push([{ count: String(counts.outbox) }]);
@@ -48,6 +49,7 @@ function queueArchivalResults(counts: {
   sqlReturnQueue.push([{ count: String(counts.notifications) }]);
   sqlReturnQueue.push([{ count: String(counts.analytics ?? 0) }]);
   sqlReturnQueue.push([{ count: String(counts.agentOutcomes ?? 0) }]);
+  sqlReturnQueue.push([{ count: String(counts.agentRuns ?? 0) }]);
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
@@ -69,16 +71,16 @@ describe('ArchivalPoller', () => {
     warnSpy.mockRestore();
   });
 
-  it('issues 7 SQL queries in order (outbox, events, demos, api_costs, notifications, analytics_events, agent_outcomes)', async () => {
+  it('issues 8 SQL queries in order (outbox, events, demos, api_costs, notifications, analytics_events, agent_outcomes, agent_runs)', async () => {
     queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
 
     await runOneCycle();
 
-    expect(mockSql).toHaveBeenCalledTimes(7);
+    expect(mockSql).toHaveBeenCalledTimes(8);
   });
 
-  it('logs all 7 target counts when any archival happened', async () => {
-    queueArchivalResults({ outbox: 10, events: 20, demos: 5, costs: 100, notifications: 50, analytics: 7, agentOutcomes: 3 });
+  it('logs all 8 target counts when any archival happened', async () => {
+    queueArchivalResults({ outbox: 10, events: 20, demos: 5, costs: 100, notifications: 50, analytics: 7, agentOutcomes: 3, agentRuns: 9 });
 
     await runOneCycle();
 
@@ -94,6 +96,7 @@ describe('ArchivalPoller', () => {
     expect(msg).toContain('"notifications":50');
     expect(msg).toContain('"analytics_events":7');
     expect(msg).toContain('"agent_outcomes":3');
+    expect(msg).toContain('"agent_runs":9');
   });
 
   it('logs "Nothing to archive" when all 6 targets return 0', async () => {
@@ -183,6 +186,46 @@ describe('ArchivalPoller', () => {
     expect(warnSpy).toHaveBeenCalled();
     const warnMsg = warnSpy.mock.calls[0]?.[0] as string;
     expect(warnMsg).toContain('agent_outcomes');
+  });
+
+  it('agent_runs query enforces the 180-day spine retention window and prunes steps via cascade (query shape assertion)', async () => {
+    queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
+
+    await runOneCycle();
+
+    // The 8th sql() call (index 7) is the agent_runs spine-retention block.
+    const agentRunsCall = mockSql.mock.calls[7];
+    expect(agentRunsCall).toBeDefined();
+    const templateStrings = agentRunsCall![0] as TemplateStringsArray;
+    const fullSql = templateStrings.join(' ');
+    expect(fullSql).toContain('agent_runs');
+    expect(fullSql).toContain('ended_at < NOW() - make_interval(days =>');
+    expect(fullSql).toContain('LIMIT 5000');
+    expect(fullSql).toContain('FOR UPDATE SKIP LOCKED');
+    // Steps prune via ON DELETE CASCADE — the poller must NOT delete them directly.
+    expect(fullSql).not.toContain('DELETE FROM agent_run_steps');
+  });
+
+  it('logs the agent_runs count in the Archived log', async () => {
+    queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0, agentRuns: 42 });
+
+    await runOneCycle();
+
+    const archivedLog = logSpy.mock.calls.find((call: unknown[]) =>
+      typeof call[0] === 'string' && (call[0] as string).includes('"message":"Archived"'),
+    );
+    expect(archivedLog).toBeDefined();
+    expect(archivedLog![0] as string).toContain('"agent_runs":42');
+  });
+
+  it('includes agent_runs in the saturation warning when it hits the limit', async () => {
+    queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0, agentRuns: 5000 });
+
+    await runOneCycle();
+
+    expect(warnSpy).toHaveBeenCalled();
+    const warnMsg = warnSpy.mock.calls[0]?.[0] as string;
+    expect(warnMsg).toContain('agent_runs');
   });
 
   it('does not warn when all counts are below 5000', async () => {

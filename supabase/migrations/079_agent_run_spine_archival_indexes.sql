@@ -16,5 +16,6 @@
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_agent_outcomes_archival
   ON agent_outcomes (occurred_at);
 
--- Task 2 adds the agent_runs retention index here (same 180-day window,
--- worker/background/pollers/ArchivalPoller.ts arm 8).
+-- partial index; the archival predicate `ended_at < NOW()-make_interval(...)` implies `ended_at IS NOT NULL`, so the partial index serves it (same pattern as 065's idx_jo_recovery).
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_agent_runs_archival
+  ON agent_runs (ended_at) WHERE ended_at IS NOT NULL;
