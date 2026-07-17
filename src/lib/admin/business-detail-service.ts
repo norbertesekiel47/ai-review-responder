@@ -30,6 +30,7 @@ export async function getBusinessDetail(
   const {
     businessRows,
     reviewRows,
+    reviewsTotal,
     rankingSnapshots,
     zernioConnectionRows,
     awaitingOwnerConnectRows,
@@ -57,6 +58,7 @@ export async function getBusinessDetail(
   return mapBusinessDetailResponse({
     business,
     reviewRows,
+    reviewsTotal,
     rankingSnapshots,
     zernioConnectionRows,
     awaitingOwnerConnectRows,

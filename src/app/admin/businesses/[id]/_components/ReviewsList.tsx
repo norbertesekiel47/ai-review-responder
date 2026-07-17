@@ -33,13 +33,19 @@ function ResponseBadge({ status }: { status: string | null }) {
 
 interface ReviewsListProps {
   reviews: ReviewRow[];
+  totalCount: number;
 }
 
-export function ReviewsList({ reviews }: ReviewsListProps) {
+export function ReviewsList({ reviews, totalCount }: ReviewsListProps) {
   return (
     <section className="mt-8">
       <h2 className="text-lg font-semibold text-gray-800">
-        Reviews ({reviews.length})
+        Reviews ({totalCount})
+        {totalCount > reviews.length ? (
+          <span className="ml-2 text-sm font-normal text-gray-400">
+            showing latest {reviews.length}
+          </span>
+        ) : null}
       </h2>
       {reviews.length === 0 ? (
         <p className="mt-2 text-sm text-gray-400">No reviews found.</p>

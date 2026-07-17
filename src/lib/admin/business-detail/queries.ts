@@ -82,6 +82,8 @@ export interface AutoApprovalAccountRow {
 export interface BusinessDetailBatch1 {
   businessRows: BusinessRow[];
   reviewRows: ReviewRow[];
+  /** True total, independent of the LIMIT on reviewRows. */
+  reviewsTotal: number;
   rankingSnapshots: RankingSnapshotRow[];
   zernioConnectionRows: ZernioConnectionRow[];
   awaitingOwnerConnectRows: AwaitingOwnerConnectRow[];
@@ -95,6 +97,7 @@ export async function fetchBusinessDetailBatch1(
   const [
     businessRows,
     reviewRows,
+    reviewCountRows,
     rankingSnapshots,
     zernioConnectionRows,
     awaitingOwnerConnectRows,
@@ -129,6 +132,11 @@ export async function fetchBusinessDetailBatch1(
       WHERE r.business_id = ${businessId}
       ORDER BY r.detected_at DESC
       LIMIT 100
+    `,
+    sql<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+      FROM reviews
+      WHERE business_id = ${businessId}
     `,
     sql<RankingSnapshotRow[]>`
       SELECT keyword, rank_position, snapshot_date::text, source
@@ -180,6 +188,7 @@ export async function fetchBusinessDetailBatch1(
   return {
     businessRows,
     reviewRows,
+    reviewsTotal: reviewCountRows[0]?.count ?? 0,
     rankingSnapshots,
     zernioConnectionRows,
     awaitingOwnerConnectRows,
