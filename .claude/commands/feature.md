@@ -83,7 +83,12 @@ State the classification in one line before proceeding.
 
 ## 1. GRILL — in this session (intent + domain language)
 
-Invoke the `grill-with-docs` skill (mattpocock): a grilling session that
+Invoke the `grill-with-docs` skill (mattpocock). If it is not
+model-invocable in this session (its frontmatter sets
+`disable-model-invocation`), read its SKILL.md from
+~/.claude/skills/grill-with-docs/ directly and follow its process
+verbatim — the flag only hides it from auto-loading, it doesn't
+forbid following it. Either way: a grilling session that
 interviews me relentlessly until every branch of the decision tree is
 resolved — edge cases, failure modes, what we're explicitly NOT building —
 while building the domain model inline: it challenges terms against
