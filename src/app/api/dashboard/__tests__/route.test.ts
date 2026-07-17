@@ -56,11 +56,20 @@ vi.mock('@/lib/db/server', () => ({
 // tests (try/catch around the .get call).
 
 const { mockRedisGet } = vi.hoisted(() => ({
-  mockRedisGet: vi.fn<() => Promise<string | null>>(async () => null),
+  mockRedisGet: vi.fn<(key?: string) => Promise<string | null>>(async () => null),
 }));
 
+// getActiveDashboardData now also does a read-through cache GET/SET on its own
+// `dashboard:location:…` key (ticket #478). That key is distinct from the
+// pending marker in production; here the mock is key-aware so the dashboard
+// cache is always a clean miss (null) — the pending-marker tests keep driving
+// `mockRedisGet` — and SET is a no-op.
 vi.mock('@/lib/db/redis-cache', () => ({
-  getCacheRedis: () => ({ get: mockRedisGet }),
+  getCacheRedis: () => ({
+    get: (key: string) =>
+      key.startsWith('dashboard:') ? Promise.resolve(null) : mockRedisGet(key),
+    set: async () => 'OK',
+  }),
 }));
 
 // ── No more payment-link mock (checkout session replaces it) ───────

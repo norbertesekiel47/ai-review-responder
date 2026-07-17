@@ -46,6 +46,7 @@
     "src/lib/dashboard/__tests__/**",
     "src/lib/db/redis-cache.ts",
     "src/lib/db/__tests__/**",
+    "src/app/api/dashboard/__tests__/route.test.ts",
     ".feature/**",
     "docs/superpowers/**",
     "docs/reviews/**"
