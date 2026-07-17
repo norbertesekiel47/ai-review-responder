@@ -1,0 +1,56 @@
+{
+  "ticket": "#482 (wayfinder map #472)",
+  "classification": "normal",
+  "surface": "mixed",
+  "db_touching": false,
+  "goal": "Time-bound the admin overview's Response Rate and Avg Time metrics to a trailing 30-day window via a FILTER on the responses join, keeping the churn sort + LIMIT/OFFSET pagination in app code and Pending/Reconnect/Last-Activity all-time; relabel the two windowed columns in the admin UI.",
+  "non_goals": [
+    "Do NOT push the churn sort or LIMIT/OFFSET into SQL — the churn formula stays a single-owner JS pure function in src/lib/shared/churn-score.ts (no SQL re-implementation).",
+    "Do NOT change src/lib/admin/margin-service.ts — dropped from #482: switching to api_costs_daily_rollups is a no-op at its trailing-30d window (rollups hold only >90d data) and its app-side sort is fine below ~1k accounts (target is 250). Finding recorded on the ticket/map.",
+    "Do NOT read or touch api_costs_daily_rollups.",
+    "Do NOT change Pending count, Reconnect count, or Last Activity semantics (they stay all-time / current-state).",
+    "Do NOT change the churn score computation or the business sort order."
+  ],
+  "user_visible_behavior": [
+    "Admin overview 'Response Rate' column now reflects only responses created in the trailing 30 days, and is relabeled 'Response Rate (30d)'.",
+    "Admin overview 'Avg Time' column now reflects only responses created in the trailing 30 days, and is relabeled 'Avg Time (30d)'.",
+    "Pending, Reconnect, Last Activity, Health badge, and the row sort order are unchanged."
+  ],
+  "invariants": [
+    "Business sort order stays: churnScore.score DESC, pendingApprovalCount DESC, name ASC, id ASC — none of which are the windowed columns, so windowing must not change ordering.",
+    "overview-service stays born-injected: sql is a parameter; the module never imports @/lib/db/server (db-imports-audit baseline unchanged).",
+    "Route handler stays a thin orchestrator (invariant #12); no business logic added there.",
+    "Cross-account admin queries stay allowlisted-as-needed in the tenant-scope audit; introduce no new per-tenant scoping and no new flagged pattern.",
+    "No new NEXT_PUBLIC_* var; no string-literal subscription/status/tier values (import enums).",
+    "The 30-day window has ONE owner (a named server constant); the SQL window, the DTO windowDays field, and the UI label all derive from it — no duplicated magic 30."
+  ],
+  "edge_cases": [
+    "Business whose only responses are older than 30d: windowed total=0 -> responseRate=0 (existing total>0 guard); avg time null -> '—'. Pending/Last-Activity still correct from all-time rows.",
+    "Business with old still-pending items: Pending count must still include them (all-time status filter, not time-bound).",
+    "Dormant business with last activity >30d ago: Last Activity must still show the true (old) timestamp — it is the churn signal.",
+    "Business with responses in-window but none approved-in-window: avg time null -> '—'; responseRate computed from windowed total/completed."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/admin/overview-service.ts metricsRows CTE already uses CURRENT_DATE-based windows (created_at >= CURRENT_DATE - 7 / - 30 / - 35) and COUNT(...) FILTER (WHERE ...) — mirror that exact idiom.",
+    "src/lib/admin/cost-report-service.ts returns the window (CostData.days) in its DTO so callers can label it — mirror with OverviewData.responseMetricsWindowDays.",
+    "src/lib/shared/churn-score.ts is the single owner of the churn formula — consume it, never duplicate it."
+  ],
+  "allowed_edit_surface": [
+    "src/lib/admin/overview-service.ts",
+    "src/lib/admin/__tests__/overview-service.test.ts",
+    "src/app/admin/overview/page.tsx",
+    "scripts/ci/tenant-scope-allowlist.ts"
+  ],
+  "tests_to_add": [
+    "Windowed Response Rate: responses older than 30d are excluded from total/completed (rate reflects only in-window rows).",
+    "Windowed Avg Time: approvals older than 30d excluded; null -> '—' path preserved.",
+    "Pending and Reconnect counts remain all-time (an old pending item still counts).",
+    "Last Activity remains all-time (a >30d-old activity is still returned).",
+    "Sort order is unchanged by windowing (windowed columns are not sort keys).",
+    "OverviewData.responseMetricsWindowDays is surfaced and equals the server window constant."
+  ],
+  "verification_commands": [
+    "pnpm ci:tenant-scope"
+  ],
+  "open_questions": []
+}
