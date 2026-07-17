@@ -1,0 +1,61 @@
+{
+  "classification": "normal",
+  "surface": "backend",
+  "db_touching": false,
+  "ticket": "#478 (wayfinder map #472) — remaining scope after #487",
+  "goal": "Add a 45s fail-open Upstash read cache, keyed per-tenant + window, to the KPI summaries (src/lib/kpi/service.ts) and the per-location dashboard payload (getActiveDashboardData in src/lib/dashboard/service.ts), mirroring the aggregate-dashboard 45s cache shipped in #487.",
+  "non_goals": [
+    "Refactoring the per-location fan-out into set-based SQL (#476, the blocking edge) — out of scope here; #487 already cached the composed aggregate result.",
+    "Write-path cache invalidation on approve/post — LOCKED: pure TTL (matches #487).",
+    "Single-flight / dogpile lock — LOCKED: no lock; bounded by capacity target #474 (peak ~10 concurrent renders, single replica).",
+    "Modifying the shipped #487 aggregate cache beyond optionally sharing a read-through helper (leave its partialFailures write-guard intact).",
+    "Dropping force-dynamic or adding route-level caching (map: 'not yet specified').",
+    "Caching any other surface (admin/margin, past-replies, etc.).",
+    "Changing any SQL query text (so tenant-scope audit allowlist is untouched)."
+  ],
+  "user_visible_behavior": [
+    "Repeated dashboard + KPI loads for the same tenant+window within 45s are served from Upstash: lower DB load (read load becomes proportional to tenants, not page views) and faster response.",
+    "Served data can be up to 45s stale — pending-approval count, recent-reviews feed, response-rate, and the Zernio connect banner (LOCKED: freeze-with-payload).",
+    "No change on a cold cache, and no change when Upstash is unreachable (fail-open to a fresh DB compute)."
+  ],
+  "invariants": [
+    "Tenant isolation: every cache key is namespaced by the tenant id (businessId for location scope, accountId for account scope) plus window (plus the reputation-metrics flag for the per-location payload). No two distinct tenants/scopes/windows can ever collide on a key.",
+    "Fail-open: a Redis read OR write failure degrades to (or serves) a fresh DB result — never surfaces an error to the caller. Exact try/catch + console.error shape from aggregate-service.ts.",
+    "Cache-miss parity: a cached payload is byte-identical (after JSON round-trip) to a freshly computed one for the same key — no Date/shape drift between the two paths.",
+    "getActiveDashboardData's BusinessNotFoundError propagates and is NEVER cached.",
+    "No SQL query text changes — the tenant-scope audit and RLS audit remain green with no allowlist edits."
+  ],
+  "edge_cases": [
+    "Upstash GET throws → compute fresh, swallow+log.",
+    "Upstash SET throws → return the fresh result, swallow+log.",
+    "Empty/zeroed KPI result → cacheable (no partial-failure concept in KPI/per-location, unlike aggregate).",
+    "getActiveDashboardData throws (business row vanished) → propagates, not cached.",
+    "Distinct windows (7d/30d/90d/12w) and reputation-on vs reputation-off must key separately.",
+    "JSON round-trip fidelity: any Date-typed DTO field must serialize+parse to the same value the fresh path returns (verify DTOs are JSON-safe; test a representative payload).",
+    "Connect-banner staleness up to TTL accepted (LOCKED decision)."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/dashboard/aggregate-service.ts :: getAggregateDashboardData cache block (#487) — key format `dashboard:aggregate:${accountId}:${window}`, getCacheRedis().get → JSON.parse; compute; getCacheRedis().set(key, JSON.stringify(data), 'EX', 45); console.error on both failures.",
+    "src/lib/db/redis-cache.ts :: getCacheRedis() — the cache (not queue) Redis client.",
+    "AGGREGATE_CACHE_TTL_SECONDS = 45 constant + aggregateCacheKey() helper naming."
+  ],
+  "allowed_edit_surface": [
+    "src/lib/kpi/service.ts",
+    "src/lib/kpi/__tests__/**",
+    "src/lib/dashboard/service.ts",
+    "src/lib/dashboard/__tests__/**",
+    "src/lib/db/redis-cache.ts",
+    "src/lib/db/__tests__/**",
+    ".feature/**",
+    "docs/superpowers/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "KPI location+account: cache HIT returns cached summary without issuing SQL; cache MISS computes then writes; Upstash GET failure → falls through to SQL (fail-open); Upstash SET failure → returns fresh; keys distinct per (scope, window).",
+    "Per-location dashboard: same HIT/MISS/fail-open-read/fail-open-write set for getActiveDashboardData; key varies by window AND includeReputationMetrics; BusinessNotFoundError not cached; JSON round-trip fidelity of a representative payload (cached === fresh).",
+    "Tenant-isolation: two different businessIds (and two accountIds) never share a cache key.",
+    "If a shared read-through helper is extracted into redis-cache.ts: unit tests for read-through hit/miss and fail-open in both directions."
+  ],
+  "verification_commands": [],
+  "open_questions": []
+}
