@@ -5,7 +5,7 @@ import { createGuardedPoll } from '../guarded-poll';
 
 const LOG_PREFIX = '[ArchivalPoller]';
 const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours
-// Hard per-cycle deadline (#414). 30min is far above a real cycle (6 batched
+// Hard per-cycle deadline (#414). 30min is far above a real cycle (8 batched
 // DELETEs, LIMIT 5000 each → minutes) and well under the 24h interval, so a
 // cycle hung on a stale connection frees the single-flight flag before the next
 // tick instead of pinning it forever and silently disabling archival.

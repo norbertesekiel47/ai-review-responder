@@ -126,7 +126,7 @@ describe('ArchivalPoller', () => {
     expect(msg).toContain('"agent_runs":9');
   });
 
-  it('logs "Nothing to archive" when all 6 targets return 0', async () => {
+  it('logs "Nothing to archive" when all 8 targets return 0', async () => {
     queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
 
     await runOneCycle();
