@@ -91,12 +91,19 @@ not a correctness one; arm 7 before arm 8 is efficiency-only, see the orphan-gua
   ON agent_runs (ended_at) WHERE ended_at IS NOT NULL` (partial — the query predicate implies
   `ended_at IS NOT NULL`).
 - `tenant-scope-allowlist.ts`: byte-exact entry for the arm-8 DELETE.
-- Tests: arm 8 deletes terminal rows with `ended_at` > 180d and **never** running rows
-  (`ended_at IS NULL`); summary + saturation include `agent_runs`; **CASCADE guard** — after
-  arm 8 prunes a terminal run, its `agent_run_steps` rows are gone (protects the "no steps arm
-  needed" decision, which rests solely on `ON DELETE CASCADE`).
+- Tests (`ArchivalPoller.test.ts`, query-shape): arm 8 deletes terminal rows with `ended_at` >
+  180d and **never** running rows (`ended_at IS NULL`); the arm targets `agent_runs` with **no
+  separate `agent_run_steps` DELETE** (locks the "steps prune via cascade" decision at the
+  poller level); summary + saturation include `agent_runs`. (The real `ON DELETE CASCADE`
+  behavior is verified by the Task 3 integration test — the mock harness can't exercise it.)
 
-### Task 3 — consumer-window regression guard + migrations-log — blocked by Tasks 1 & 2
+### Task 3 — regression guard + migration integration test + migrations-log — blocked by Tasks 1 & 2
+- **Migration integration test** `src/lib/shared/__tests__/migration-079-agent-run-spine-archival.integration.test.ts`
+  (follows the `migration-076`/`migration-078` precedent; skips without `TEST_DATABASE_POOL_URL`):
+  assert both new indexes exist with correct definitions (`idx_agent_runs_archival` partial
+  `WHERE ended_at IS NOT NULL`; `idx_agent_outcomes_archival` on `occurred_at`) **and** that the
+  `agent_run_steps → agent_runs` FK is `ON DELETE CASCADE` (the real cascade guard for the "no
+  steps arm" decision).
 - Test (`ArchivalPoller.test.ts` invariants block): import `AGENT_SPINE_RETENTION_DAYS`,
   `DASHBOARD_WINDOWS` + `dashboardWindowParams`, and `GOVERNOR_WINDOW_DAYS`; derive the max
   dashboard window as `Math.max(...DASHBOARD_WINDOWS.map(w => dashboardWindowParams(w).windowDays))`
