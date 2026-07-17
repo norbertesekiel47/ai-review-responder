@@ -124,10 +124,16 @@ async function captureIngestFailedHookCrash(
   state: { outboxId?: string; outboxAttempt?: number },
   handlerErr: unknown,
 ): Promise<void> {
-  console.error('[ingestZernioReviewWorker.on(failed)] handler crashed:', handlerErr);
-  Sentry.captureException(handlerErr, {
-    tags: { worker: 'ingest_zernio_review', kind: 'on_failed_handler_crash' },
-  });
+  // This IS the last-resort catch — nothing in here may throw. (Hardened vs
+  // the publisher template, which leaves the Sentry call unguarded.)
+  try {
+    console.error('[ingestZernioReviewWorker.on(failed)] handler crashed:', handlerErr);
+    Sentry.captureException(handlerErr, {
+      tags: { worker: 'ingest_zernio_review', kind: 'on_failed_handler_crash' },
+    });
+  } catch {
+    // Swallow: even a Sentry/logging failure must not re-throw here.
+  }
   if (!state.outboxId) return;
   const reason = handlerErr instanceof Error ? handlerErr.message : String(handlerErr);
   await markOutboxFailed(sql, state.outboxId, `on_failed_crash: ${reason}`, state.outboxAttempt).catch((markErr) => {
@@ -258,7 +264,7 @@ git commit -m "fix(db): bound supabase admin/storage client fetch at 10s (P2)"
 
 **Owner decision (spec §P3):** ALL THREE transient classes re-throw from the guardrail lane — `TransientLLMError`, `ConcurrencyLimitExceededError`, AND `CostInfraUnavailableError`. This deliberately overrides the previous anti-respend carve-out; the accepted trade-off is documented in the spec. Cost-cap errors keep their existing alert+terminal handling; violation-persists and generic errors stay terminal `guardrail_failed`.
 
-Retry behavior note (for the code comment): on retry the primary generation hits the idempotent cache (the polluted first draft — the cache overwrite only happens after a successful regen), so the retry re-runs only the regen call. Each attempt burns one regen-budget slot; bounded by BullMQ's 3 attempts.
+Retry behavior note (for the code comment): on retry the primary generation hits the idempotent cache (the polluted first draft — the cache overwrite only happens after a successful regen), so the retry re-runs only the regen call. Each attempt burns one regen-budget slot; bounded by the `generate_response` queue's BullMQ attempts budget. **Do not hardcode the attempts number** in comments or the CLAUDE.md gotcha — a parallel workstream is changing it (3 → 5 for LLM-bound queues); phrase it as "the queue's attempts budget" (see the deviations log).
 
 - [ ] **Step 1: Read the existing test harness**
 
@@ -313,7 +319,8 @@ In `applyAvoidFactsGuardrail` (`generate-draft.ts`, catch at ~`:248-258`), repla
     // handler re-throws them for BullMQ retry — an OpenAI 503 here must not
     // silently drop a draft the owner paid for. On retry the primary call hits
     // the idempotent cache (polluted first draft), so only the regen re-runs;
-    // each attempt burns one regen-budget slot, bounded by BullMQ's 3 attempts.
+    // each attempt burns one regen-budget slot, bounded by the queue's BullMQ
+    // attempts budget.
     // (Owner decision 2026-07-16: includes CostInfraUnavailableError, replacing
     // the earlier anti-respend carve-out — see the prod-hardening-guards spec.)
     if (
@@ -362,7 +369,7 @@ Also update the block comment above this try (~`:149-154`, "Guardrail errors …
 In `.claude/CLAUDE.md`, find the parenthetical `(Edge case: a `CostInfraUnavailableError` raised during the avoid-facts guardrail RETRY stays terminal as `guardrail_failed` by design — anti-respend.)` and replace it with:
 
 ```
-(The avoid-facts guardrail RETRY re-throws all three transient classes — `TransientLLMError`, `ConcurrencyLimitExceededError`, `CostInfraUnavailableError` — for BullMQ retry; on retry the primary hits the idempotent cache so only the regen re-runs. Owner-accepted trade-off 2026-07-16: a Redis outage during the guardrail can re-spend, bounded by the 3-attempt budget.)
+(The avoid-facts guardrail RETRY re-throws all three transient classes — `TransientLLMError`, `ConcurrencyLimitExceededError`, `CostInfraUnavailableError` — for BullMQ retry; on retry the primary hits the idempotent cache so only the regen re-runs. Owner-accepted trade-off 2026-07-16: a Redis outage during the guardrail can re-spend, bounded by the queue's BullMQ attempts budget.)
 ```
 
 - [ ] **Step 7: Run tests to verify they pass**
