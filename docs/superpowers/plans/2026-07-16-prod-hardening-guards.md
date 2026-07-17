@@ -62,6 +62,22 @@ describe('last-resort crash guard', () => {
 
 Adjust the `ZernioIngestReviewNotFoundError` constructor args to match its actual signature in `ZernioReviewIngestWorker.ts` (read it first); the existing tests in this file construct it already — copy their call shape.
 
+**R2 — also add** (the coupled-tx behaviors):
+
+```ts
+  it('leaves the outbox row untouched when a coupled handler tx crashes (watchdog recovers atomically)', async () => {
+    // handleUnparseableLocation runs inside sql.begin; make the tx reject.
+    mockSqlBegin.mockRejectedValueOnce(new Error('deadlock'));
+    await expect(
+      handleIngestFailed(mockSql, makeJob(), new ZernioIngestUnparseableLocationError(/* copy existing call shape */)),
+    ).resolves.toBeUndefined();
+    expect(vi.mocked(Sentry.captureException)).toHaveBeenCalled();
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled(); // no split of the coupled tx
+  });
+```
+
+Adapt the `sql.begin` mock to the file's existing `sql` mock shape (if the mock has no `begin`, extend it: `mockSql.begin = mockSqlBegin` where the happy-path implementation invokes the callback with the same mock executor). Update pre-existing tests only as far as the tx-wrapping requires (assertions on the same INSERT/markOutboxFailed statements now go through the tx executor).
+
 - [ ] **Step 2: Run tests to verify the new ones fail**
 
 Run: `pnpm vitest run worker/jobs/zernio/__tests__/ingest-failed-hook.test.ts`
@@ -69,7 +85,15 @@ Expected: the two new tests FAIL (the first with an unhandled rejection / reject
 
 - [ ] **Step 3: Implement the wrap**
 
-In `worker/jobs/zernio/ingest-failed-hook.ts`, rename the current body of `handleIngestFailed` to a private `dispatchIngestExhaustion` and add the guard (mirrors `failed-hook.ts:168-198`):
+In `worker/jobs/zernio/ingest-failed-hook.ts`, rename the current body of `handleIngestFailed` to a private `dispatchIngestExhaustion` and add the guard (mirrors `failed-hook.ts:168-198`).
+
+**R2 (adversarial review): the three per-error handlers do multiple sequential writes** (exception INSERT → optional `notify_admin` outbox INSERT → `markOutboxFailed`) with no transaction. The crash guard must not terminally fail the source row when a coupled sequence dies halfway (that would cut off watchdog recovery and permanently lose the admin notification). Therefore, in the same change:
+
+1. Wrap EACH handler's writes in `sql.begin(async (tx) => { … })`, using `tx` for every statement including its `markOutboxFailed` — terminal bookkeeping becomes atomic (invariant #2). Move `handlePaginationCapExhausted`'s Sentry `captureMessage` AFTER its tx commits (observability must not sit inside the tx).
+2. Add `coupledTerminalTxStarted: boolean` to the guard's state (publisher's `PublisherFailedHookState` pattern): set `true` immediately before invoking a handler that runs a coupled tx, back to `false` after it returns. `captureIngestFailedHookCrash` skips its best-effort `markOutboxFailed` when the flag is `true` — a rolled-back tx leaves the row `dispatched` so the OutboxPoller watchdog recovers it atomically later.
+3. The generic else-branch (bare single-statement `markOutboxFailed`) needs no tx and no flag.
+
+Guard skeleton (handler bodies keep their existing statements, just moved inside `sql.begin` with `tx`):
 
 ```ts
 export async function handleIngestFailed(
@@ -81,7 +105,9 @@ export async function handleIngestFailed(
   // throw here becomes an unhandled rejection — which the crash-net treats
   // as fatal for non-transient-DB errors. One review's failure bookkeeping
   // must never take down all queues. Mirrors handlePublisherFailed.
-  const state: { outboxId?: string; outboxAttempt?: number } = {};
+  const state: { outboxId?: string; outboxAttempt?: number; coupledTerminalTxStarted: boolean } = {
+    coupledTerminalTxStarted: false,
+  };
   try {
     if (!job) return;
     if (job.attemptsMade < (job.opts.attempts ?? 5)) return; // not yet exhausted
@@ -89,7 +115,7 @@ export async function handleIngestFailed(
     const handle = extractOutboxHandle(job.data, job.id!);
     state.outboxId = handle.outboxId;
     state.outboxAttempt = handle.attempt;
-    await dispatchIngestExhaustion(sql, job, err, state.outboxId, state.outboxAttempt);
+    await dispatchIngestExhaustion(sql, job, err, state);
   } catch (handlerErr) {
     await captureIngestFailedHookCrash(sql, state, handlerErr);
   }
@@ -99,25 +125,32 @@ async function dispatchIngestExhaustion(
   sql: Sql,
   job: Job<IngestZernioReviewPayload>,
   err: unknown,
-  outboxId: string,
-  outboxAttempt: number | undefined,
+  state: IngestFailedHookState,
 ): Promise<void> {
   if (err instanceof ZernioIngestReviewNotFoundError) {
-    await handleReviewNotFound(sql, err, outboxId, outboxAttempt);
+    state.coupledTerminalTxStarted = true;
+    await handleReviewNotFound(sql, err, state.outboxId!, state.outboxAttempt);
+    state.coupledTerminalTxStarted = false;
     return;
   }
   if (err instanceof ZernioIngestPaginationCapExhaustedError) {
-    await handlePaginationCapExhausted(sql, err, outboxId, outboxAttempt);
+    state.coupledTerminalTxStarted = true;
+    await handlePaginationCapExhausted(sql, err, state.outboxId!, state.outboxAttempt);
+    state.coupledTerminalTxStarted = false;
     return;
   }
   if (err instanceof ZernioIngestUnparseableLocationError) {
-    await handleUnparseableLocation(sql, err, outboxId, outboxAttempt);
+    state.coupledTerminalTxStarted = true;
+    await handleUnparseableLocation(sql, err, state.outboxId!, state.outboxAttempt);
+    state.coupledTerminalTxStarted = false;
     return;
   }
-  // Anything else: bare markOutboxFailed (existing behavior).
+  // Anything else: bare single-statement markOutboxFailed (existing behavior;
+  // no coupled tx, so the crash guard MAY best-effort-fail it).
   const reason = err instanceof Error ? err.message : String(err);
-  await markOutboxFailed(sql, outboxId, reason, outboxAttempt);
+  await markOutboxFailed(sql, state.outboxId!, reason, state.outboxAttempt);
 }
+// (Declare `interface IngestFailedHookState { outboxId?: string; outboxAttempt?: number; coupledTerminalTxStarted: boolean }`.)
 
 async function captureIngestFailedHookCrash(
   sql: Sql,
@@ -134,7 +167,9 @@ async function captureIngestFailedHookCrash(
   } catch {
     // Swallow: even a Sentry/logging failure must not re-throw here.
   }
-  if (!state.outboxId) return;
+  // Never split a coupled terminal tx after rollback: the row is still
+  // `dispatched`, so the watchdog must recover the whole sequence atomically.
+  if (!state.outboxId || state.coupledTerminalTxStarted) return;
   const reason = handlerErr instanceof Error ? handlerErr.message : String(handlerErr);
   await markOutboxFailed(sql, state.outboxId, `on_failed_crash: ${reason}`, state.outboxAttempt).catch((markErr) => {
     console.error('[ingestZernioReviewWorker.on(failed)] best-effort markOutboxFailed failed:', markErr);
@@ -199,6 +234,24 @@ describe('boundedSupabaseFetch', () => {
     vi.unstubAllGlobals();
   });
 });
+```
+
+**R2 — also add** the caller-signal composition test (the AbortSignal.any contract must be exercised, not just the timeout-only path):
+
+```ts
+  it('a caller-provided signal still aborts the request (composed, not replaced)', async () => {
+    const inner = vi.fn((_u: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_res, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+      }));
+    vi.stubGlobal('fetch', inner);
+    const controller = new AbortController();
+    const pending = boundedSupabaseFetch('https://example.test/auth/v1/admin', { signal: controller.signal });
+    controller.abort(new Error('caller aborted'));
+    await expect(pending).rejects.toThrow('caller aborted');
+    expect((inner.mock.calls[0][1] as RequestInit).signal).toBeInstanceOf(AbortSignal);
+    vi.unstubAllGlobals();
+  });
 ```
 
 Note: `AbortSignal.timeout` uses real timers in some Node versions even under fake timers; if the second test is flaky, replace it with a real-timer variant using a small injected timeout — but first try as written. The `postgres` mock prevents the module-scope Postgres.js client from needing `DATABASE_POOL_URL`; if the module still requires `SUPABASE_URL`/`SUPABASE_SERVICE_KEY` at import, set them via `vi.stubEnv` before the import (use a dynamic `await import` inside the test file after stubbing).
@@ -278,7 +331,7 @@ Add a describe block. The shape below is canonical — adapt fixture/mock names 
 describe('guardrail regen transient errors', () => {
   it.each([
     ['TransientLLMError', () => new TransientLLMError('openai 503')],
-    ['CostInfraUnavailableError', () => new CostInfraUnavailableError('upstash down')],
+    ['CostInfraUnavailableError', () => new CostInfraUnavailableError('reserveCost')], // R2: ctor takes a CostInfraTouchpoint literal, not a message
     ['ConcurrencyLimitExceededError', () => new ConcurrencyLimitExceededError('slots full')],
   ])('re-throws %s from the regen call so BullMQ retries', async (_name, make) => {
     // First generateResponse call: violating draft. Second (regen): transient throw.
@@ -430,7 +483,25 @@ describe('attachEmitterErrorLogger', () => {
     attachEmitterErrorLogger(emitter, 'probe_redis');
     expect(() => emitter.emit('error', new Error('boom'))).not.toThrow();
   });
+
+  it('throttles Sentry captures per source (R2: no alert storm on reconnect loops)', () => {
+    vi.useFakeTimers();
+    const emitter = new EventEmitter();
+    attachEmitterErrorLogger(emitter, 'queue:unique_throttle_test');
+    emitter.emit('error', new Error('blip 1'));
+    emitter.emit('error', new Error('blip 2'));
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(61_000);
+    emitter.emit('error', new Error('blip 3'));
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
 });
+```
+
+(Use a unique `source` per throttle test — the module-level throttle map persists across tests in the same file.)
+
+```ts
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -457,16 +528,28 @@ interface ErrorEmitting {
   on(event: 'error', listener: (err: Error) => void): unknown;
 }
 
+// R2: ioredis reconnect loops emit one error per failed attempt, across ~46
+// emitters — an unthrottled Sentry capture per event is a self-inflicted
+// alert storm during any Redis outage. Structured log every event (cheap,
+// local); Sentry-capture at most once per source per window.
+const SENTRY_CAPTURE_WINDOW_MS = 60_000;
+const lastCaptureBySource = new Map<string, number>();
+
 export function attachEmitterErrorLogger(emitter: ErrorEmitting, source: string): void {
   emitter.on('error', (err: Error) => {
     // An error listener must never throw — that WOULD be an uncaughtException.
     try {
       logger.warn(`${source} emitted error: ${err.message}`);
-      Sentry.captureMessage('worker_emitter_error', {
-        level: 'warning',
-        tags: { subsystem: 'worker_emitter', source },
-        extra: { message: err.message, stack: err.stack },
-      });
+      const now = Date.now();
+      const last = lastCaptureBySource.get(source) ?? 0;
+      if (now - last >= SENTRY_CAPTURE_WINDOW_MS) {
+        lastCaptureBySource.set(source, now);
+        Sentry.captureMessage('worker_emitter_error', {
+          level: 'warning',
+          tags: { subsystem: 'worker_emitter', source },
+          extra: { message: err.message, stack: err.stack },
+        });
+      }
     } catch {
       // Swallow: last-resort sink.
     }
@@ -557,6 +640,26 @@ describe('buildFastifyOptions', () => {
 
   it('keeps info logging outside production', () => {
     expect(buildFastifyOptions('development').logger).toEqual({ level: 'info' });
+  });
+
+  // R2: options-only assertions can pass while the wiring is dead. Prove the
+  // options take effect on a real (non-listening) instance via initialConfig
+  // and an injected oversized body.
+  it('applies to a real Fastify instance (initialConfig) and rejects oversized bodies with 413', async () => {
+    const app = Fastify(buildFastifyOptions('production'));
+    expect(app.initialConfig.requestTimeout).toBe(30_000);
+    expect(app.initialConfig.keepAliveTimeout).toBe(60_000);
+    expect(app.initialConfig.connectionTimeout).toBe(10_000);
+    expect(app.initialConfig.bodyLimit).toBe(5 * 1024 * 1024);
+    app.post('/echo', async () => 'ok');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/echo',
+      headers: { 'content-type': 'application/json' },
+      payload: `{"pad":"${'x'.repeat(5 * 1024 * 1024)}"}`,
+    });
+    expect(res.statusCode).toBe(413);
+    await app.close();
   });
 });
 ```
@@ -654,7 +757,7 @@ describe('checkFailedInboundEvents', () => {
 
 Adapt `queueSqlResult`/`mockSqlClient`/`cfg` to the file's actual helper names. Also extend the existing `runHealthChecks` test to expect the new check's result included (the harness queues one result per check in order — add one more queued result).
 
-For the `generate_response` coverage: the mock returns whatever rows are queued regardless of the SQL text, so ALSO add an SQL-text assertion if the harness captures query fragments (check how existing tests assert topic filtering; if they don't, the row-driven test above is the file's established level of rigor — match it).
+For the `generate_response` coverage: **R2 — the SQL-text assertion is MANDATORY**, not optional. Row-queued mocks return whatever is queued regardless of the SQL, so a row-only test passes even if the production topic filter is never widened. If the harness doesn't already capture query text, extend the `sql` mock to record the template strings/parameters and assert the failed-outbox query includes `GENERATE_RESPONSE` (and that `checkFailedInboundEvents`'s query filters `status = 'failed'` on `inbound_events` grouped by source + event type). Adjust test fixtures for the (source, event_type) grouping.
 
 - [ ] **Step 2: Run tests to verify the new ones fail**
 
@@ -685,22 +788,30 @@ In `checks.ts`:
 // doesn't hide another. Uses the partial index idx_ie_status
 // (WHERE status != 'processed').
 export async function checkFailedInboundEvents(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding[]> {
-  const rows = await sql<{ source: string; count: number }[]>`
-    SELECT source, COUNT(*)::int AS count
+  // R2: grouped by (source, event_type) — the event type is what identifies
+  // WHICH provider operation is failing (e.g. stripe/invoice.paid vs
+  // stripe/checkout.session.completed); source alone hides that.
+  const rows = await sql<{ source: string; event_type: string; count: number }[]>`
+    SELECT source, event_type, COUNT(*)::int AS count
     FROM inbound_events
     WHERE status = 'failed'
       AND received_at > NOW() - make_interval(secs => ${cfg.failedWindowS})
-    GROUP BY source
+    GROUP BY source, event_type
   `;
   return rows
     .filter((r) => r.count > cfg.failedThreshold)
     .map((r) => ({
-      key: `inbound_events_failed:${r.source}`,
+      key: `inbound_events_failed:${r.source}:${r.event_type}`,
       level: 'error' as const,
-      title: `${r.count} inbound ${r.source} event(s) failed processing in the last ${cfg.failedWindowS}s`,
-      detail: { source: r.source, count: r.count, window_s: cfg.failedWindowS },
+      title: `${r.count} inbound ${r.source} ${r.event_type} event(s) failed processing in the last ${cfg.failedWindowS}s`,
+      detail: { source: r.source, event_type: r.event_type, count: r.count, window_s: cfg.failedWindowS },
     }));
 }
+```
+
+(Adapt the column name if the schema calls it something other than `event_type` — check `supabase/migrations/001_initial_schema.sql`'s `inbound_events` definition first.)
+
+```ts
 ```
 
 3. Add `checkFailedInboundEvents(sql, cfg)` to the `Promise.all` in `runHealthChecks`.
@@ -727,7 +838,22 @@ git commit -m "fix(worker): alert on terminal generate_response and failed inbou
 - Modify: `src/lib/dashboard/service.ts:67-81` (the 13-query `Promise.all`) and the destructure consumers
 - Test: Create `src/lib/dashboard/__tests__/service.degradation.test.ts`
 
-**Scope note:** only the 13-query batch in `getActiveDashboardData` changes. `getAggregateDashboardData` calls `getActiveDashboardData` per location, so it inherits the degradation; its own top-level queries and `fetchReputationRows` stay as-is (route catch remains the backstop). Owner decision: ONLY the business lookup stays fatal (`BusinessNotFoundError` semantics preserved); the other 12 degrade.
+**Scope note (revised R2 to match the spec, which requires BOTH paths):**
+
+1. `getActiveDashboardData`: the business lookup stays fatal; the other 12 queries degrade per-widget.
+2. **R2 — fail-fast shape:** do NOT put the fatal business lookup inside `allSettled` (its rejection would wait for all 12 auxiliaries — up to `statement_timeout` 30s). Start the business query and the `allSettled` of the 12 auxiliaries concurrently, then await the business query FIRST (rejects fast; the `allSettled` promise already has handlers attached and never rejects, so no unhandled rejection), then await the settled auxiliaries:
+
+```ts
+  const businessPromise = /* the existing business query */;
+  const settledPromise = Promise.allSettled([ /* the other 12 queries, unchanged */ ]);
+  const businessRows = await businessPromise;      // fatal — fail fast
+  const [totalReviewSettled, /* …11 more… */] = await settledPromise;
+```
+
+3. **R2 — `getAggregateDashboardData` (src/lib/dashboard/aggregate-service.ts) degrades its OWN queries too** (the plan previously left them fatal; the spec says both paths): the locations-list query stays fatal (an aggregate over unknown locations is meaningless — the analog of the business lookup); its per-location fan-out and account-total queries degrade with the same `widgetOrFallback` helper (export it from service.ts or a small shared module — do not duplicate it), each degraded slice reported via `reportCaughtError`. A failed per-location slice must not drop the whole location silently: degrade that location's widgets and report.
+4. **R2 — `readPendingMarker` (service.ts ~:448-460)** already swallows Redis failures to `null` with a console-level log only; route its catch through `reportCaughtError` (same `{ widget: 'pendingMarker', degraded: true }` context) so this pre-existing degradation stops being silent. Its `widgetOrFallback(pendingSettled, null, …)` wrapper stays — harmless belt-and-braces.
+
+Owner decision preserved: only the business lookup (and the aggregate locations list) stays fatal; everything else degrades, never silently.
 
 - [ ] **Step 1: Read the existing service test harness**
 
@@ -805,8 +931,9 @@ function requireFulfilled<T>(result: PromiseSettledResult<T>): T {
 3. Change `await Promise.all([...])` to `await Promise.allSettled([...])` (the 13 queries themselves are untouched) and rework the destructure:
 
 ```ts
+  // R2: business query awaited separately (fail-fast) — see scope note. The
+  // destructure below covers only the 12 auxiliary queries.
   const [
-    businessSettled,
     totalReviewSettled,
     totalRespondedSettled,
     velocitySettled,
@@ -819,9 +946,8 @@ function requireFulfilled<T>(result: PromiseSettledResult<T>): T {
     unresolvedIncidentSettled,
     ratingBreakdownSettled,
     pendingSettled,
-  ] = await Promise.allSettled([ /* …the existing 13 queries, unchanged… */ ]);
+  ] = await settledPromise;
 
-  const businessRows = requireFulfilled(businessSettled);
   const totalReviewRows = widgetOrFallback(totalReviewSettled, [], 'totalReviewRows', businessId);
   const totalRespondedRows = widgetOrFallback(totalRespondedSettled, [], 'totalRespondedRows', businessId);
   const velocityRows = widgetOrFallback(velocitySettled, [], 'velocityRows', businessId);
