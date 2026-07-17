@@ -203,7 +203,34 @@ export function jsonb<T>(value: T): ReturnType<typeof sql.json> {
 // Supabase server client — auth admin, storage, server-side reads
 // Uses the service-role key. NEVER import in browser/client components.
 // ---------------------------------------------------------------------------
+
+/**
+ * Every auth.admin.* / storage.* call is otherwise UNBOUNDED — supabase-js
+ * exposes no per-call timeout, and a hung call from a worker job holds its
+ * BullMQ slot forever (BullMQ auto-renews the lock). 10s matches the
+ * CleanupAbandonedSignupsPoller's existing Promise.race bound. A caller-
+ * provided signal still wins (composed via AbortSignal.any) so streaming/
+ * cancellable calls keep their own semantics.
+ */
+export const SUPABASE_FETCH_TIMEOUT_MS = 10_000;
+
+// `timeoutMs` is injectable only so tests can exercise the timeout path with
+// real timers (AbortSignal.timeout ignores vitest's fake timers); production
+// callers never pass it.
+export function boundedSupabaseFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  timeoutMs: number = SUPABASE_FETCH_TIMEOUT_MS,
+): Promise<Response> {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const signal = init?.signal
+    ? AbortSignal.any([init.signal, timeoutSignal])
+    : timeoutSignal;
+  return fetch(input, { ...init, signal });
+}
+
 export const supabaseServer = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!,
+  { global: { fetch: boundedSupabaseFetch } },
 );
